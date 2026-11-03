@@ -28,6 +28,7 @@ import type { AddedCharacter3D, BodyPlaneChange, CharacterClearanceResult3D, Cha
 import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShape } from './oneway3d';
 import { createStepUp } from './step-up3d';
+import { estimateStaticBodyBytes3D } from './memory3d';
 import { groundContacts3D, type InternalEdgeWorld } from './internal-edges3d';
 import { offWallSweep, settleDrop, skinLift, sweepFrom, type SettleWorld } from './settle3d';
 import { moversNear, restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
@@ -103,6 +104,7 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   /** Let a character (absent id: the first) pass every one-way collider for the next `steps` steps (at most `MAX_DROP_THROUGH_STEPS`). */
   dropThrough(steps: number, characterId?: string): void;
   diagnostics(): Rapier3DDiagnostics;
+  staticBodyBytes(shape: ColliderShape3D): number;
 }
 
 export type Physics3DInitResult =
@@ -1015,7 +1017,7 @@ function sphereHit(world: RAPIER.World, infoByHandle: Map<number, Collider3DInfo
   return entityId === undefined ? null : { entityId, distance: hit.time_of_impact };
 }
 
-function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: Map<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): RapierPhysicsPort3D {
+function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: Map<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): Omit<RapierPhysicsPort3D, 'staticBodyBytes'> {
   /** The world (`restartWorld` replaces it). */
   let world = initialWorld;
   /**
@@ -1711,7 +1713,9 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     // One pipeline update so the first sweep and any ray see every collider (no dynamic bodies: nothing moves).
     world.step();
     // The adapter keeps the config without its statics: the specs it keeps are its own (arrays the world holds dropped).
-    return { ok: true, port: createAdapter(world, primary, further, { ...config, statics: [] }, staticSpecs, bodies, infoByHandle, bits, collidersOf) };
+    const adapter = createAdapter(world, primary, further, { ...config, statics: [] }, staticSpecs, bodies, infoByHandle, bits, collidersOf);
+    // What a static body costs the heap is a property of the engine, not of this world.
+    return { ok: true, port: Object.assign(adapter, { staticBodyBytes: estimateStaticBodyBytes3D }) };
   } catch (error) {
     world?.free();
     return { ok: false, error: { code: 'physics_init_failed', reason: 'wasm_unavailable', message: `Rapier 3D world construction failed: ${error instanceof Error ? error.message : String(error)}` } };

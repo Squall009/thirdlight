@@ -148,3 +148,45 @@ export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimit
   for (const m of meshes) bytes += m.vertices.byteLength + m.indices.byteLength;
   return { boxes, fullBoxes: d.collision.fullBoxes, heightfield, meshes, bytes };
 }
+
+/** A part of a chunk's static body, in the shape physics ports take (metres; the body sits at the chunk's corner). */
+export interface CollisionBodyPart {
+  readonly shape:
+    | { readonly type: 'box'; readonly hx: number; readonly hy: number; readonly hz: number }
+    | { readonly type: 'heightfield'; readonly cellsX: number; readonly cellsZ: number; readonly cellX: number; readonly cellZ: number; readonly heights: Float32Array }
+    | { readonly type: 'mesh'; readonly vertices: Float32Array; readonly indices: Uint32Array; readonly oriented: true };
+  readonly position: { readonly x: number; readonly y: number; readonly z: number };
+  readonly rotation: { readonly x: number; readonly y: number; readonly z: number; readonly w: number };
+}
+
+const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
+/** A quarter turn about +y: (x, z) → (z, −x). */
+const QUARTER_Y = Object.freeze({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
+
+/**
+ * A chunk's collision geometry as the parts of one static compound body
+ * (the editor's page and the runtime build the same body from it).
+ *
+ * Physics ports split a heightfield cell from (+x, min z) to (min x, +z)
+ * (Rapier's own order), the voxel ground from (min x, min z) to (+x, +z):
+ * the field is handed over turned a quarter about +y, which maps one
+ * diagonal onto the other, with its heights turned to match. The ground
+ * meshes are wound counter-clockwise from outside and nothing stands behind
+ * them (`oriented`), so edges between their triangles never catch.
+ */
+export function collisionBodyParts(geo: CollisionGeometry): CollisionBodyPart[] {
+  const parts: CollisionBodyPart[] = [];
+  const h = geo.heightfield;
+  if (h !== null) {
+    // The part's own x runs along the chunk's −z (from the field's +z end), its own z along the chunk's +x.
+    const ownX = h.cellsZ;
+    const ownZ = h.cellsX;
+    const heights = new Float32Array((ownX + 1) * (ownZ + 1));
+    for (let u = 0; u <= ownX; u++) for (let v = 0; v <= ownZ; v++) heights[u * (ownZ + 1) + v] = h.heights[v * (h.cellsZ + 1) + (h.cellsZ - u)]!;
+    parts.push({ shape: { type: 'heightfield', cellsX: ownX, cellsZ: ownZ, cellX: VOXEL_SIZE_M, cellZ: VOXEL_SIZE_M, heights }, position: { x: h.x, y: 0, z: h.z + h.cellsZ * VOXEL_SIZE_M }, rotation: QUARTER_Y });
+  }
+  const b = geo.boxes;
+  for (let i = 0; i < b.length; i += 6) parts.push({ shape: { type: 'box', hx: b[i + 3]!, hy: b[i + 4]!, hz: b[i + 5]! }, position: { x: b[i]!, y: b[i + 1]!, z: b[i + 2]! }, rotation: IDENTITY });
+  for (const m of geo.meshes) parts.push({ shape: { type: 'mesh', vertices: m.vertices, indices: m.indices, oriented: true }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY });
+  return parts;
+}

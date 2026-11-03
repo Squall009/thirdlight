@@ -1,8 +1,170 @@
-# Script API types (from `InputBindingConflict`)
+# Script API types (from `EntityWriteResult`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-entity-write-result"></a>
+## `EntityWriteResult`
+
+```ts
+/** What `set` answers: queued (`ok`), or refused with the field and why. */
+export interface EntityWriteResult {
+  readonly ok: boolean;
+  /** The refused field (`light.type`), or the component ('' when queued). */
+  readonly field: string;
+  /** Why it was refused ('' when queued). */
+  readonly code: EntityWriteCode | '';
+  readonly message: string;
+}
+```
+
+<a id="script-type-ui-event-kind"></a>
+## `UiEventKind`
+
+```ts
+/** What a UI event is. */
+export type UiEventKind = 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload' | 'load' | 'unload' | 'hold';
+```
+
+<a id="script-type-declared-property"></a>
+## `DeclaredProperty`
+
+```ts
+export interface DeclaredProperty {
+  key: string;
+  label: string;
+  type: PropertyType;
+  default: PropertyValue;
+  min?: number;
+  max?: number;
+  step?: number;
+  maxLength?: number;
+  values?: string[];
+  bounds?: PropertyBounds;
+  /**
+   * Who may see and set the property. `public` (the default; the
+   * canonical form omits it) is shown in the Inspector of every object
+   * carrying the behavior and overridable per object; `private` is neither
+   * shown nor overridable — the script always reads `default`.
+   */
+  visibility?: PropertyVisibility;
+  /** The Inspector section the property is listed in (1–64 characters). */
+  group?: string;
+  /** A heading shown above the property in the Inspector (1–64 characters). */
+  header?: string;
+  /** The hover help of the property's field (1–256 characters). */
+  tooltip?: string;
+}
+```
+
+<a id="script-type-debug-command-arg"></a>
+## `DebugCommandArg`
+
+```ts
+export type DebugCommandArg = number | string | boolean;
+```
+
+<a id="script-type-save-storage-code"></a>
+## `SaveStorageCode`
+
+```ts
+export type SaveStorageCode = (typeof SAVE_STORAGE_CODES)[number];
+```
+
+<a id="script-type-project-save-file"></a>
+## `ProjectSaveFile`
+
+```ts
+/** A stored save document (the whole body of a slot; also what `tl_play_start` accepts as `save`). */
+export interface ProjectSaveFile {
+  readonly format: 'thirdlight.save';
+  readonly formatVersion?: number;
+  /** The project document's schema version. */
+  readonly version: number;
+  readonly playSeconds?: number;
+  /** The project's own document. */
+  readonly doc: unknown;
+  /** Engine state the schema opts into. */
+  readonly sections?: Readonly<Partial<Record<SaveSection, unknown>>>;
+  /** Format version 2: where the play stands (absent when the game that saved it does not keep it). */
+  readonly world?: WorldSave;
+}
+```
+
+<a id="script-type-dialogue-input-kind"></a>
+## `DialogueInputKind`
+
+```ts
+export type DialogueInputKind = 'advance' | 'choose' | 'skip' | 'auto' | 'backlog';
+```
+
+<a id="script-type-physics-vec3"></a>
+## `PhysicsVec3`
+
+```ts
+/** A 3D vector (m). */
+export interface PhysicsVec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+```
+
+<a id="script-type-plane-lock"></a>
+## `PlaneLock`
+
+```ts
+/** A plane: its normal's world axis and where it lies along that axis (m). */
+export interface PlaneLock {
+  axis: PlaneAxis;
+  origin: number;
+}
+```
+
+<a id="script-type-gamepad-family"></a>
+## `GamepadFamily`
+
+```ts
+/** The gamepad families glyphs distinguish (from the pad's id; `generic` when unknown). */
+export type GamepadFamily = 'xbox' | 'playstation' | 'switch' | 'generic';
+```
+
+<a id="script-type-input-binding-status"></a>
+## `InputBindingStatus`
+
+```ts
+/** One binding of an action as scripts see it (its position in `bindings` is the index rebinding addresses). */
+export interface InputBindingStatus extends InputGlyph {
+  readonly device: InputBindingDevice;
+  /** The binding kind (key, gamepadButton, keys1d, pointerButton, …). */
+  readonly kind: string;
+  /** Hold instead of tap: seconds the binding must be held. */
+  readonly hold?: number;
+}
+```
+
+<a id="script-type-input-glyph-part"></a>
+## `InputGlyphPart`
+
+```ts
+/** One part of a composite binding's glyph. */
+export interface InputGlyphPart {
+  readonly part: InputBindingPart;
+  readonly label: string;
+  readonly icon: string;
+  /** The project's own image (a texture asset id), when it overrides the icon. */
+  readonly image?: string;
+}
+```
+
+<a id="script-type-input-binding-part"></a>
+## `InputBindingPart`
+
+```ts
+/** A composite binding's part (two keys/buttons: negative, positive; four keys: up, down, left, right). */
+export type InputBindingPart = 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right';
+```
 
 <a id="script-type-input-binding-conflict"></a>
 ## `InputBindingConflict`
@@ -92,6 +254,81 @@ export interface BlockEdge {
   variant?: number;
   /** Open (a door): it lets passage through and has no collider. Absent: closed; stored only when true. */
   open?: boolean;
+}
+```
+
+<a id="script-type-voxel-value"></a>
+## `VoxelValue`
+
+```ts
+/** A voxel as scripts read and write it. */
+export interface VoxelValue {
+  /** Material id (0: air). */
+  readonly material: number;
+  /** Role (0: air): what the voxel is to meshing and collision (ground, wall, beam, …). */
+  readonly role: number;
+  /** Fill level, 0 (empty) to 15 (full). */
+  readonly shape: number;
+  /** Wetness, 0 (dry) to 7. */
+  readonly wetness: number;
+}
+```
+
+<a id="script-type-voxel-region"></a>
+## `VoxelRegion`
+
+```ts
+/**
+ * Where a read or change applies, in world metres: the cell holding a
+ * point, every cell a box touches, or every cell whose centre lies within a
+ * ball.
+ */
+export type VoxelRegion =
+  | { readonly at: readonly [number, number, number] }
+  | { readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] }
+  | { readonly center: readonly [number, number, number]; readonly radius: number };
+```
+
+<a id="script-type-voxel-write"></a>
+## `VoxelWrite`
+
+```ts
+/** The voxel `set` writes: shape absent is full, wetness absent is dry. */
+export interface VoxelWrite {
+  readonly material: number;
+  readonly role: number;
+  readonly shape?: number;
+  readonly wetness?: number;
+}
+```
+
+<a id="script-type-voxel-edit-result"></a>
+## `VoxelEditResult`
+
+```ts
+/** A change's answer: its id (named again by its entry in `changes`) and the cells it changed (0: it changed nothing). */
+export type VoxelEditResult = { readonly ok: true; readonly edit: number; readonly cells: number } | { readonly ok: false; readonly reason: VoxelRefusal; readonly message: string };
+```
+
+<a id="script-type-voxel-paint"></a>
+## `VoxelPaint`
+
+```ts
+/** What `paint` changes: material and wetness only (shader data; meshes and colliders stand). */
+export interface VoxelPaint {
+  readonly material?: number;
+  readonly wetness?: number;
+}
+```
+
+<a id="script-type-voxel-box"></a>
+## `VoxelBox`
+
+```ts
+/** A box in world metres. */
+export interface VoxelBox {
+  readonly min: readonly [number, number, number];
+  readonly max: readonly [number, number, number];
 }
 ```
 
@@ -218,6 +455,14 @@ export type DebugCommandArgType = 'number' | 'string' | 'boolean';
 ```ts
 /** A metadata value: bool, number (int/float) or string. */
 export type CellMetaValue = boolean | number | string;
+```
+
+<a id="script-type-voxel-refusal"></a>
+## `VoxelRefusal`
+
+```ts
+/** Why a change was not made (nothing was written). */
+export type VoxelRefusal = 'no_world' | 'not_resident' | 'invalid';
 ```
 
 <a id="script-type-script-write-code"></a>

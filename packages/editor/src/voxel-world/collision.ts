@@ -20,11 +20,9 @@
  * way of moving one) or a swept sphere (`castSphere`).
  */
 import { createPhysicsPort3D, estimateStaticBodyBytes3D, MAX_MESH_TRIANGLES_3D, MAX_MESH_VERTICES_3D, physicsMemoryBytes3D, type ColliderShape3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { chunkOrigin, collisionGeometry, CollisionRing, collisionRingBounds, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, SampleRing, VOXEL_SIZE_M, type CellGrid, type ChunkGrid, type CollisionHeightfield, type CollisionRingFeed, type CollisionSource, type FloatingOrigin } from '@thirdlight/voxel';
+import { chunkOrigin, collisionBodyParts, collisionGeometry, CollisionRing, collisionRingBounds, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, SampleRing, VOXEL_SIZE_M, type CellGrid, type ChunkGrid, type CollisionRingFeed, type CollisionSource, type FloatingOrigin } from '@thirdlight/voxel';
 
 const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
-/** A quarter turn about +y: (x, z) → (z, −x). */
-const QUARTER_Y = Object.freeze({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
 /** The physics step rate a drop is simulated at. */
 const STEP_HZ = 60;
 /** Gravity along y, m/s². */
@@ -43,25 +41,6 @@ interface ChunkBody {
   readonly bytes: number;
   readonly geometryBytes: number;
   readonly heightfield: boolean;
-}
-
-/**
- * The ground's heightfield as a port part. The port splits a heightfield
- * cell from (+x, min z) to (min x, +z), the voxel ground from (min x, min z)
- * to (+x, +z): the field is handed over turned a quarter about +y, which
- * maps one diagonal onto the other, with its heights turned to match.
- */
-function heightfieldPart(h: CollisionHeightfield): ColliderPart3D {
-  // The part's own x runs along the chunk's −z (from the field's +z end), its own z along the chunk's +x.
-  const ownX = h.cellsZ;
-  const ownZ = h.cellsX;
-  const heights = new Float32Array((ownX + 1) * (ownZ + 1));
-  for (let u = 0; u <= ownX; u++) for (let v = 0; v <= ownZ; v++) heights[u * (ownZ + 1) + v] = h.heights[v * (h.cellsZ + 1) + (h.cellsZ - u)]!;
-  return {
-    shape: { type: 'heightfield', cellsX: ownX, cellsZ: ownZ, cellX: VOXEL_SIZE_M, cellZ: VOXEL_SIZE_M, heights },
-    position: { x: h.x, y: 0, z: h.z + h.cellsZ * VOXEL_SIZE_M },
-    rotation: QUARTER_Y,
-  };
 }
 
 /** Where a dropped capsule came to rest. */
@@ -133,12 +112,8 @@ export class VoxelCollision {
     if (d === null) return 0;
     const t0 = performance.now();
     const geo = collisionGeometry(d, { maxVertices: MAX_MESH_VERTICES_3D, maxTriangles: MAX_MESH_TRIANGLES_3D }, this.heightfields);
-    const parts: ColliderPart3D[] = [];
-    if (geo.heightfield !== null) parts.push(heightfieldPart(geo.heightfield));
-    const b = geo.boxes;
-    for (let i = 0; i < b.length; i += 6) parts.push({ shape: { type: 'box', hx: b[i + 3]!, hy: b[i + 4]!, hz: b[i + 5]! }, position: { x: b[i]!, y: b[i + 1]!, z: b[i + 2]! }, rotation: IDENTITY });
-    // The ground surface is wound counter-clockwise from outside: one-sided, so edges between its triangles never catch.
-    for (const m of geo.meshes) parts.push({ shape: { type: 'mesh', vertices: m.vertices as unknown as number[], indices: m.indices as unknown as number[], oriented: true }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY });
+    // The port's mesh takes the typed arrays as they are (its shape lists are read element by element).
+    const parts = collisionBodyParts(geo) as unknown as ColliderPart3D[];
     if (parts.length === 0) return 0;
     const cell: Vec3 = [chunkOrigin(this.grid, cx), chunkOrigin(this.grid, cy), chunkOrigin(this.grid, cz)];
     const shape: ColliderShape3D = { type: 'compound', parts };

@@ -28,6 +28,7 @@ import type { ScriptAudioControl } from './script-audio';
 import { modeControlOf, type blockControls } from './script-controls';
 import type { RuntimeViews } from './views';
 import type { UiState } from './ui';
+import type { RuntimeVoxels } from './voxel-worlds';
 import { uiControlOf } from './ui-control';
 import type {
   BehaviorLifecycle,
@@ -82,6 +83,7 @@ export interface ScriptContextParts {
   stepIndex(): number;
   /** The active camera's yaw for the character's move input (null: a game without physics has none). */
   readonly cameraYaw: (() => number | undefined) | null;
+  readonly voxels: RuntimeVoxels;
 }
 
 /**
@@ -178,6 +180,8 @@ function contextFields(p: ScriptContextParts, phase: SimulationPhase, modes: Beh
   fields['scatter'] = { value: p.grid.scatter.api, enumerable: true };
   fields['splines'] = { value: p.grid.splines.api, enumerable: true };
   fields['surface'] = { value: p.grid.surface.api, enumerable: true };
+  // The scenes' voxel worlds.
+  fields['voxels'] = { value: p.voxels.api, enumerable: true };
   // Graph-material parameters per object.
   fields['materials'] = { value: p.materials.api, enumerable: true };
   // Generic component access (the behavior host names the writing script) and the shell's scene list.

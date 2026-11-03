@@ -32,11 +32,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (ModelLodSettings to TerrainSplinesLayer)](types-m-t.md) | 101 sections |
 | [Types (TerrainStamp to WindOctave)](types-t-w.md) | 49 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
-| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
-| [Script API types (from `BehaviorMessages`)](script-types-behavior-messages.md) | 21 sections |
-| [Script API types (from `BehaviorMaterials`)](script-types-behavior-materials.md) | 47 sections |
-| [Script API types (from `InputGlyph`)](script-types-input-glyph.md) | 76 sections |
-| [Script API types (from `InputBindingConflict`)](script-types-input-binding-conflict.md) | 22 sections |
+| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 20 sections |
+| [Script API types (from `BehaviorSignals`)](script-types-behavior-signals.md) | 22 sections |
+| [Script API types (from `BehaviorSockets`)](script-types-behavior-sockets.md) | 44 sections |
+| [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 70 sections |
+| [Script API types (from `EntityWriteResult`)](script-types-entity-write-result.md) | 42 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |

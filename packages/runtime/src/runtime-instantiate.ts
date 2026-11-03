@@ -32,7 +32,7 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings, startMode } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics3d, voxels, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings, startMode } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
@@ -347,6 +347,7 @@ export function instantiateRuntime(
     timing: engineTimingSteps(hz),
     actions,
     ...(physics3d !== undefined ? { physics3d } : {}),
+    ...(voxels !== undefined ? { voxels } : {}),
     settings: resolvedSettings,
     controllerEntityIds,
     order,

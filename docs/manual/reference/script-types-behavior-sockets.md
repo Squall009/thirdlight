@@ -1,8 +1,52 @@
-# Script API types (from `BehaviorMaterials`)
+# Script API types (from `BehaviorSockets`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-sockets"></a>
+## `BehaviorSockets`
+
+```ts
+/**
+ * `ctx.sockets` — objects riding on named nodes (bones or any
+ * node) of other objects' models. The simulation places an attached object
+ * at the end of every step, after the animators, so it follows the target's
+ * animation in Play, the worker and the export alike.
+ */
+export interface BehaviorSockets {
+  /**
+   * Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body.
+   * @graphNode Attach to socket
+   * @graphLabel entityId object
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  attach(entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean;
+  /**
+   * Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached.
+   * @graphNode Detach from socket
+   * @graphLabel entityId object
+   * @graphDefault keepWorld true
+   */
+  detach(entityId: string, keepWorld?: boolean): boolean;
+  /**
+   * The socket an object rides on (the target object and the node's name), or null.
+   * @graphPure
+   * @graphNode Socket of
+   * @graphLabel entityId object
+   */
+  attachedTo(entityId: string): { readonly target: string; readonly nodeName: string } | null;
+  /**
+   * A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.
+   * @graphPure
+   * @graphNode Node pose
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  nodePose(targetId: string, node: string): { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
+}
+```
 
 <a id="script-type-behavior-materials"></a>
 ## `BehaviorMaterials`
@@ -1282,73 +1326,4 @@ export interface SceneActivateOptions {
   blend?: number;
   easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
 }
-```
-
-<a id="script-type-behavior-pointer"></a>
-## `BehaviorPointer`
-
-```ts
-/** The pointer as a script reads it (`ctx.input.pointer()`). */
-export interface BehaviorPointer {
-  /** 0 (left) – 1 (right) of the view; the centre while the cursor is locked. */
-  readonly x: number;
-  /** 0 (top) – 1 (bottom) of the view. */
-  readonly y: number;
-  /** Movement since the last step as fractions of the view's width / height (y down). */
-  readonly dx: number;
-  readonly dy: number;
-  /** Wheel notches since the last step (positive towards the user). */
-  readonly wheel: number;
-  /** Over the game view. */
-  readonly over: boolean;
-  /** It came over the view / left it this step. */
-  readonly entered: boolean;
-  readonly left: boolean;
-  /** The cursor is locked (hidden, held in the view). */
-  readonly locked: boolean;
-  /**
-   * Over a UI element that takes the pointer (a project UI
-   * button, input or modal backdrop, the engine pause panel) — a click there
-   * went to the UI, so a game ignores world clicks while it is true.
-   */
-  readonly overUi: boolean;
-}
-```
-
-<a id="script-type-input-device-status"></a>
-## `InputDeviceStatus`
-
-```ts
-/** The device the player used last (a key, the mouse, or a gamepad button or stick). */
-export interface InputDeviceStatus {
-  readonly kind: InputDeviceKind;
-  /** The gamepad's id as the browser reports it (clipped to 64 characters); absent for the keyboard and mouse. */
-  readonly id?: string;
-  /** The gamepad family (absent for the keyboard and mouse). */
-  readonly family?: GamepadFamily;
-}
-```
-
-<a id="script-type-input-action-status"></a>
-## `InputActionStatus`
-
-```ts
-/** One project action with the player's current bindings. */
-export interface InputActionStatus {
-  readonly name: string;
-  readonly type: 'button' | 'axis1d' | 'axis2d';
-  /** gameplay, ui or one of the project's own input maps. */
-  readonly map: string;
-  readonly bindings: readonly InputBindingStatus[];
-  /** The player changed this action's bindings (they differ from the project's). */
-  readonly changed?: boolean;
-}
-```
-
-<a id="script-type-input-device-kind"></a>
-## `InputDeviceKind`
-
-```ts
-/** The device the player used last: keyboard and mouse are one device. */
-export type InputDeviceKind = 'keyboardMouse' | 'gamepad';
 ```

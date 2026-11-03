@@ -102,6 +102,11 @@ export interface BehaviorContext {
   /** The ground at a point from whichever block layer or terrain is there — height, normal, slope, material layer weights (footsteps, effects, placing things). */
   readonly surface?: BehaviorSurface;
   /**
+   * The voxel worlds of the loaded scenes — read a voxel at a world position (null where the world is not loaded), set, dig and paint
+   * regions (read at once; meshes and colliders follow in one swap), wait for a region to load, and the changes swapped in.
+   */
+  readonly voxels?: BehaviorVoxels;
+  /**
    * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
    * @graphNode Spawn prefab
    * @graphLabel prefabId prefab
@@ -1064,27 +1069,5 @@ export interface BehaviorRandom extends BehaviorRandomStream {
    * @graphLabel name stream
    */
   stream(name: string): BehaviorRandomStream;
-}
-```
-
-<a id="script-type-behavior-signals"></a>
-## `BehaviorSignals`
-
-```ts
-/** `ctx.signals`. */
-export interface BehaviorSignals {
-  /**
-   * Send a named signal; switches, doors and scripts see it in the next step.
-   * @graphNode Emit signal
-   * @graphLabel name signal
-   */
-  emit(name: string): void;
-  /**
-   * Emitted in the previous step (by a switch, a trigger or a script).
-   * @graphPure
-   * @graphNode Signal received
-   * @graphLabel name signal
-   */
-  on(name: string): boolean;
 }
 ```

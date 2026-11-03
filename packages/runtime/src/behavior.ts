@@ -32,6 +32,7 @@ import type { BehaviorGrid } from './grid';
 import type { BehaviorScatter } from './scatter-copies';
 import type { BehaviorSplines } from './splines';
 import type { BehaviorSurface } from './surface';
+import type { BehaviorVoxels } from './voxel-api';
 import type { BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
 import type { BehaviorSaves } from './project-saves';
@@ -247,6 +248,11 @@ export interface BehaviorContext {
   readonly splines?: BehaviorSplines;
   /** The ground at a point from whichever block layer or terrain is there — height, normal, slope, material layer weights (footsteps, effects, placing things). */
   readonly surface?: BehaviorSurface;
+  /**
+   * The voxel worlds of the loaded scenes — read a voxel at a world position (null where the world is not loaded), set, dig and paint
+   * regions (read at once; meshes and colliders follow in one swap), wait for a region to load, and the changes swapped in.
+   */
+  readonly voxels?: BehaviorVoxels;
   /**
    * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
    * @graphNode Spawn prefab
@@ -1039,11 +1045,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.sockets !== undefined) fields['sockets'] = { value: src.sockets, enumerable: true };
         // Debug commands (the handler, when given, runs once per call of this step).
         if (src.debug !== undefined) fields['debug'] = { value: debugOf(src.debug), enumerable: true };
-        // The block layers.
-        if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
-        if (src.scatter !== undefined) fields['scatter'] = { value: src.scatter, enumerable: true };
-        if (src.splines !== undefined) fields['splines'] = { value: src.splines, enumerable: true };
-        if (src.surface !== undefined) fields['surface'] = { value: src.surface, enumerable: true };
+        // The block layers, their scatter copies, splines and ground, and the voxel worlds.
+        for (const k of ['grid', 'scatter', 'splines', 'surface', 'voxels'] as const) if (src[k] !== undefined) fields[k] = { value: src[k], enumerable: true };
         // Graph-material parameters per object.
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Project saves.

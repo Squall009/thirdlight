@@ -1,8 +1,77 @@
-# Script API types (from `InputGlyph`)
+# Script API types (from `BehaviorPointer`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-pointer"></a>
+## `BehaviorPointer`
+
+```ts
+/** The pointer as a script reads it (`ctx.input.pointer()`). */
+export interface BehaviorPointer {
+  /** 0 (left) – 1 (right) of the view; the centre while the cursor is locked. */
+  readonly x: number;
+  /** 0 (top) – 1 (bottom) of the view. */
+  readonly y: number;
+  /** Movement since the last step as fractions of the view's width / height (y down). */
+  readonly dx: number;
+  readonly dy: number;
+  /** Wheel notches since the last step (positive towards the user). */
+  readonly wheel: number;
+  /** Over the game view. */
+  readonly over: boolean;
+  /** It came over the view / left it this step. */
+  readonly entered: boolean;
+  readonly left: boolean;
+  /** The cursor is locked (hidden, held in the view). */
+  readonly locked: boolean;
+  /**
+   * Over a UI element that takes the pointer (a project UI
+   * button, input or modal backdrop, the engine pause panel) — a click there
+   * went to the UI, so a game ignores world clicks while it is true.
+   */
+  readonly overUi: boolean;
+}
+```
+
+<a id="script-type-input-device-status"></a>
+## `InputDeviceStatus`
+
+```ts
+/** The device the player used last (a key, the mouse, or a gamepad button or stick). */
+export interface InputDeviceStatus {
+  readonly kind: InputDeviceKind;
+  /** The gamepad's id as the browser reports it (clipped to 64 characters); absent for the keyboard and mouse. */
+  readonly id?: string;
+  /** The gamepad family (absent for the keyboard and mouse). */
+  readonly family?: GamepadFamily;
+}
+```
+
+<a id="script-type-input-action-status"></a>
+## `InputActionStatus`
+
+```ts
+/** One project action with the player's current bindings. */
+export interface InputActionStatus {
+  readonly name: string;
+  readonly type: 'button' | 'axis1d' | 'axis2d';
+  /** gameplay, ui or one of the project's own input maps. */
+  readonly map: string;
+  readonly bindings: readonly InputBindingStatus[];
+  /** The player changed this action's bindings (they differ from the project's). */
+  readonly changed?: boolean;
+}
+```
+
+<a id="script-type-input-device-kind"></a>
+## `InputDeviceKind`
+
+```ts
+/** The device the player used last: keyboard and mouse are one device. */
+export type InputDeviceKind = 'keyboardMouse' | 'gamepad';
+```
 
 <a id="script-type-input-glyph"></a>
 ## `InputGlyph`
@@ -680,6 +749,67 @@ export interface SurfaceInfo {
 }
 ```
 
+<a id="script-type-behavior-voxel-world"></a>
+## `BehaviorVoxelWorld`
+
+```ts
+/** One voxel world of the loaded scenes. */
+export interface BehaviorVoxelWorld {
+  /** The world's name (its `voxelWorld` component's `world`). */
+  readonly name: string;
+  /**
+   * The voxel at a world position, or null where the world is not loaded there (never air for that).
+   * @graphPure
+   * @graphNode Voxel at
+   */
+  get(x: number, y: number, z: number): VoxelValue | null;
+  /** Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap). */
+  set(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult;
+  /** Empty every cell of a region to air. */
+  dig(region: VoxelRegion): VoxelEditResult;
+  /** Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes). */
+  paint(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult;
+  /**
+   * Whether every cell of a region is loaded (reads give values, changes are accepted).
+   * @graphPure
+   */
+  isResident(region: VoxelRegion): boolean;
+  /**
+   * Waits for every cell of a region to be loaded: returns the wait's id, answered in `ctx.voxels.waits`
+   * at a later step's start (resident, or not when the world unloaded first).
+   */
+  whenResident(region: VoxelRegion): number;
+}
+```
+
+<a id="script-type-voxel-change"></a>
+## `VoxelChange`
+
+```ts
+/** A change whose meshes, colliders and shader data were swapped in. */
+export interface VoxelChange {
+  readonly world: string;
+  /** The id the change's call answered with. */
+  readonly edit: number;
+  /** The world's pieces whose derived data the swap replaced (each one's box). */
+  readonly chunks: readonly VoxelBox[];
+  /** Only material or wetness changed: the shader data was replaced, meshes and colliders stand. */
+  readonly shaderOnly: boolean;
+}
+```
+
+<a id="script-type-voxel-wait-answer"></a>
+## `VoxelWaitAnswer`
+
+```ts
+/** A `whenResident` wait's answer. */
+export interface VoxelWaitAnswer {
+  readonly wait: number;
+  /** True: the region is loaded; false: its world unloaded first (or the region was not one). */
+  readonly resident: boolean;
+}
+```
+
 <a id="script-type-control-move-intent"></a>
 ## `ControlMoveIntent`
 
@@ -1277,166 +1407,4 @@ export interface WindChange {
   /** A texture asset id: the gust pattern (its red channel). */
   noise?: string;
 }
-```
-
-<a id="script-type-entity-write-result"></a>
-## `EntityWriteResult`
-
-```ts
-/** What `set` answers: queued (`ok`), or refused with the field and why. */
-export interface EntityWriteResult {
-  readonly ok: boolean;
-  /** The refused field (`light.type`), or the component ('' when queued). */
-  readonly field: string;
-  /** Why it was refused ('' when queued). */
-  readonly code: EntityWriteCode | '';
-  readonly message: string;
-}
-```
-
-<a id="script-type-ui-event-kind"></a>
-## `UiEventKind`
-
-```ts
-/** What a UI event is. */
-export type UiEventKind = 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload' | 'load' | 'unload' | 'hold';
-```
-
-<a id="script-type-declared-property"></a>
-## `DeclaredProperty`
-
-```ts
-export interface DeclaredProperty {
-  key: string;
-  label: string;
-  type: PropertyType;
-  default: PropertyValue;
-  min?: number;
-  max?: number;
-  step?: number;
-  maxLength?: number;
-  values?: string[];
-  bounds?: PropertyBounds;
-  /**
-   * Who may see and set the property. `public` (the default; the
-   * canonical form omits it) is shown in the Inspector of every object
-   * carrying the behavior and overridable per object; `private` is neither
-   * shown nor overridable — the script always reads `default`.
-   */
-  visibility?: PropertyVisibility;
-  /** The Inspector section the property is listed in (1–64 characters). */
-  group?: string;
-  /** A heading shown above the property in the Inspector (1–64 characters). */
-  header?: string;
-  /** The hover help of the property's field (1–256 characters). */
-  tooltip?: string;
-}
-```
-
-<a id="script-type-debug-command-arg"></a>
-## `DebugCommandArg`
-
-```ts
-export type DebugCommandArg = number | string | boolean;
-```
-
-<a id="script-type-save-storage-code"></a>
-## `SaveStorageCode`
-
-```ts
-export type SaveStorageCode = (typeof SAVE_STORAGE_CODES)[number];
-```
-
-<a id="script-type-project-save-file"></a>
-## `ProjectSaveFile`
-
-```ts
-/** A stored save document (the whole body of a slot; also what `tl_play_start` accepts as `save`). */
-export interface ProjectSaveFile {
-  readonly format: 'thirdlight.save';
-  readonly formatVersion?: number;
-  /** The project document's schema version. */
-  readonly version: number;
-  readonly playSeconds?: number;
-  /** The project's own document. */
-  readonly doc: unknown;
-  /** Engine state the schema opts into. */
-  readonly sections?: Readonly<Partial<Record<SaveSection, unknown>>>;
-  /** Format version 2: where the play stands (absent when the game that saved it does not keep it). */
-  readonly world?: WorldSave;
-}
-```
-
-<a id="script-type-dialogue-input-kind"></a>
-## `DialogueInputKind`
-
-```ts
-export type DialogueInputKind = 'advance' | 'choose' | 'skip' | 'auto' | 'backlog';
-```
-
-<a id="script-type-physics-vec3"></a>
-## `PhysicsVec3`
-
-```ts
-/** A 3D vector (m). */
-export interface PhysicsVec3 {
-  x: number;
-  y: number;
-  z: number;
-}
-```
-
-<a id="script-type-plane-lock"></a>
-## `PlaneLock`
-
-```ts
-/** A plane: its normal's world axis and where it lies along that axis (m). */
-export interface PlaneLock {
-  axis: PlaneAxis;
-  origin: number;
-}
-```
-
-<a id="script-type-gamepad-family"></a>
-## `GamepadFamily`
-
-```ts
-/** The gamepad families glyphs distinguish (from the pad's id; `generic` when unknown). */
-export type GamepadFamily = 'xbox' | 'playstation' | 'switch' | 'generic';
-```
-
-<a id="script-type-input-binding-status"></a>
-## `InputBindingStatus`
-
-```ts
-/** One binding of an action as scripts see it (its position in `bindings` is the index rebinding addresses). */
-export interface InputBindingStatus extends InputGlyph {
-  readonly device: InputBindingDevice;
-  /** The binding kind (key, gamepadButton, keys1d, pointerButton, …). */
-  readonly kind: string;
-  /** Hold instead of tap: seconds the binding must be held. */
-  readonly hold?: number;
-}
-```
-
-<a id="script-type-input-glyph-part"></a>
-## `InputGlyphPart`
-
-```ts
-/** One part of a composite binding's glyph. */
-export interface InputGlyphPart {
-  readonly part: InputBindingPart;
-  readonly label: string;
-  readonly icon: string;
-  /** The project's own image (a texture asset id), when it overrides the icon. */
-  readonly image?: string;
-}
-```
-
-<a id="script-type-input-binding-part"></a>
-## `InputBindingPart`
-
-```ts
-/** A composite binding's part (two keys/buttons: negative, positive; four keys: up, down, left, right). */
-export type InputBindingPart = 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right';
 ```

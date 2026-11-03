@@ -22,6 +22,8 @@ export interface InstantiateConfig {
   actions?: ActionSource;
   /** An already-initialized physics port. Required by port-requiring sets. */
   physics?: PhysicsPort3D;
+  /** How the scenes' voxel worlds are opened (their chunk sources and workers). Absent: voxel worlds stream nothing and read null. */
+  voxels?: import('./voxel-world-host').VoxelWorldPorts;
   /** Gameplay settings input, resolved + deep-frozen at instantiate. Default: registry defaults. */
   settings?: unknown;
   /** Monotonic seconds. Default `performance.now() / 1000`. */
@@ -328,6 +330,8 @@ export interface StepContext {
   readonly splines?: import('./splines').BehaviorSplines;
   /** The ground of block layers and terrains (`ctx.surface`). */
   readonly surface?: import('./surface').BehaviorSurface;
+  /** The voxel worlds of the loaded scenes (`ctx.voxels`). */
+  readonly voxels?: import('./voxel-api').BehaviorVoxels;
   /** Graph-material parameters per object (`ctx.materials`). */
   readonly materials?: import('./material-params').BehaviorMaterials;
   /** Project saves (`ctx.saves`). */

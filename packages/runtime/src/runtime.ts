@@ -18,6 +18,8 @@
  *   guard, transform-ownership validation, the settle pre-roll, per-step
  *   action sampling and fail-stop with no rollback.
  */
+import { RuntimeVoxels } from './voxel-worlds';
+import type { VoxelWorldPorts } from './voxel-world-host';
 import { RuntimeGrid, isOneWayGridCollider, worldStreamSources, type GridCutawayState, type GridRenderChange } from './grid';
 import type { TerrainSimData } from './scatter-copies';
 import { fail } from './runtime-config';
@@ -161,6 +163,8 @@ export interface RuntimeArgs {
   actions: ActionSource;
   /** The physics port (absent: a game without physics). */
   physics3d?: PhysicsPort3D;
+  /** How the scenes' voxel worlds are opened (absent: they stream nothing). */
+  voxels?: VoxelWorldPorts;
   settings: GameplaySettings;
   /** The player controllers' objects, in snapshot order. */
   controllerEntityIds: readonly string[];
@@ -416,7 +420,17 @@ export class RuntimeInstance implements Runtime {
       intentAxes: () => rt.phases.intents.axes,
       sceneOf: (id) => rt.scenes.sceneOf(id),
       sceneSetChanged: () => rt.scenes.changed(),
-    }, args.prefabs);
+    }, args.prefabs, new RuntimeVoxels(args.voxels ?? null, args.physics3d, {
+      // Worlds stream around where the camera looks (its target, else itself), else around their objects.
+      camera: () => {
+        const v = this.views.main.hasView() ? this.views.main.view() : null;
+        if (v === null || v.live === null) return null;
+        return (v.target !== undefined ? this.sim.curr.get(v.target)?.position : undefined) ?? v.position;
+      },
+      positionOf: (id) => this.sim.curr.get(id)?.position,
+      characters: () => this.controllers.ids,
+      warn: (message) => this.faults.log('thirdlight.runtime:voxels', 'warn', message),
+    }));
     // The start scenes' block layers; their chunks collide.
     this.grid = new RuntimeGrid(
       args.blockTypes,
@@ -432,6 +446,8 @@ export class RuntimeInstance implements Runtime {
     );
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
+    // The start scenes' voxel worlds.
+    this.entities.voxels.add(args.initialEntities);
     // The start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materialIds = args.materialIds !== undefined ? new Set(args.materialIds) : null;
@@ -599,6 +615,7 @@ export class RuntimeInstance implements Runtime {
       behaviorGroupOf: this.entities.behaviorGroupOf,
       stepIndex: () => this.sim.stepIndex,
       cameraYaw: this.sim.physics3d !== undefined ? () => this.chars.cameraYaw3D() : null,
+      voxels: this.entities.voxels,
     });
   }
 
@@ -1196,6 +1213,7 @@ export class RuntimeInstance implements Runtime {
       }
     }
     this.sim.entries = [];
+    this.entities.voxels.dispose();
     if (this.sim.physics3d) {
       try {
         this.sim.physics3d.dispose();
@@ -1227,6 +1245,7 @@ export class RuntimeInstance implements Runtime {
     if (!this.entities.syncLiveBlocks()) return false;
     this.modes.beginStep(this.sim.stepIndex + 1);
     this.grid.beginStep(this.sim.stepIndex + 1);
+    this.entities.voxels.beginStep();
     this.chars.suspendBodies();
     this.materials.beginStep(this.sim.stepIndex + 1);
     // Nothing in a plain step reads actions, but the input source is sampled all the same: what the host
@@ -1365,6 +1384,7 @@ export class RuntimeInstance implements Runtime {
     this.modes.beginStep(ordinal);
     this.scenes.beginStep();
     this.grid.beginStep(ordinal);
+    this.entities.voxels.beginStep();
     // Bodies outside the rings' collision stand still this step.
     this.chars.suspendBodies();
     this.materials.beginStep(ordinal);
@@ -1587,6 +1607,7 @@ export class RuntimeInstance implements Runtime {
     // The live blocks start over as fresh objects at the next boundary.
     this.entities.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.entities.spawned.has(id))));
     this.grid.flushCollision(this.sim.physics3d);
+    this.entities.voxels.reset();
     this.materials.reset();
     // No conversation, no save document and no play time yet, as at the first start.
     this.dialogue.resetRun();

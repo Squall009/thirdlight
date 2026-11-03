@@ -32,6 +32,7 @@ import { SpawnScenes } from './spawn-scenes';
 import { deepFreeze } from './snapshot';
 import type { BehaviorSpawnControl, SimEntityData, SimulationPhaseModule } from './types';
 import type { RuntimeViews } from './views';
+import type { RuntimeVoxels } from './voxel-worlds';
 
 /** The parts an object reaches, and the scene set's two answers about spawned copies. */
 export interface EntityHost {
@@ -93,6 +94,8 @@ export class RuntimeEntities {
     private readonly faults: RuntimeFaults,
     private readonly host: EntityHost,
     prefabs: readonly PrefabDefinition[],
+    /** The scenes' voxel worlds: an object with a `voxelWorld` brings its world or leaves it. */
+    readonly voxels: RuntimeVoxels,
   ) {
     this.prefabs = new Map(prefabs.map((d) => [d.prefabId, d]));
     this.spawnRequests = new SpawnRequests({
@@ -159,6 +162,7 @@ export class RuntimeEntities {
     host.views.add(frozen);
     // Their models and authored sockets (resolved at the end of the step).
     host.sockets.add(frozen);
+    this.voxels.add(frozen);
     // Children of a switched-off object arrive switched off.
     host.entityAccess.added();
   }
@@ -257,6 +261,7 @@ export class RuntimeEntities {
     }
     // Unloaded block layers take their chunk colliders and their live blocks' objects along.
     const gridColliders = host.grid.removeLayers(ids);
+    this.voxels.remove(ids);
     this.removeSpawnedIds(new Set(host.grid.takeGoneLive().filter((id) => this.spawned.has(id))));
     if (gridColliders.length > 0 && typeof sim.physics3d?.removeStaticColliders === 'function') {
       try {

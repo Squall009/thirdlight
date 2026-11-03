@@ -862,6 +862,14 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The ground at a point from whichever block layer or terrain is there — height, normal, slope, material layer weights (footsteps, effects, placing things)."
     },
     {
+      "name": "voxels",
+      "kind": "property",
+      "detail": "BehaviorVoxels | undefined",
+      "type": "BehaviorVoxels",
+      "optional": true,
+      "doc": "The voxel worlds of the loaded scenes — read a voxel at a world position (null where the world is not loaded), set, dig and paint regions (read at once; meshes and colliders follow in one swap), wait for a region to load, and the changes sw"
+    },
+    {
       "name": "spawn",
       "kind": "method",
       "detail": "(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[] | undefined; scale?: number | readonly number[] | undefined; properties?: Readonly<Record<string, unknown>> | undefined; }): string | null",
@@ -3158,6 +3166,115 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Device pixels per CSS px."
     }
   ],
+  "BehaviorVoxelWorld": [
+    {
+      "name": "name",
+      "kind": "property",
+      "detail": "string",
+      "doc": "The world's name (its `voxelWorld` component's `world`)."
+    },
+    {
+      "name": "get",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): VoxelValue | null",
+      "returns": "VoxelValue",
+      "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that)."
+    },
+    {
+      "name": "set",
+      "kind": "method",
+      "detail": "(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult",
+      "doc": "Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap)."
+    },
+    {
+      "name": "dig",
+      "kind": "method",
+      "detail": "(region: VoxelRegion): VoxelEditResult",
+      "doc": "Empty every cell of a region to air."
+    },
+    {
+      "name": "paint",
+      "kind": "method",
+      "detail": "(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult",
+      "doc": "Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes)."
+    },
+    {
+      "name": "isResident",
+      "kind": "method",
+      "detail": "(region: VoxelRegion): boolean",
+      "doc": "Whether every cell of a region is loaded (reads give values, changes are accepted)."
+    },
+    {
+      "name": "whenResident",
+      "kind": "method",
+      "detail": "(region: VoxelRegion): number",
+      "doc": "Waits for every cell of a region to be loaded: returns the wait's id, answered in `ctx.voxels.waits` at a later step's start (resident, or not when the world unloaded first)."
+    }
+  ],
+  "BehaviorVoxels": [
+    {
+      "name": "worlds",
+      "kind": "method",
+      "detail": "(): readonly string[]",
+      "doc": "The loaded worlds' names, in load order."
+    },
+    {
+      "name": "world",
+      "kind": "method",
+      "detail": "(name: string): BehaviorVoxelWorld | null",
+      "returns": "BehaviorVoxelWorld",
+      "doc": "A loaded world by name (null: no loaded scene names it)."
+    },
+    {
+      "name": "changes",
+      "kind": "property",
+      "detail": "readonly VoxelChange[]",
+      "doc": "The changes swapped in since the previous step, every world's, in swap order."
+    },
+    {
+      "name": "waits",
+      "kind": "property",
+      "detail": "readonly VoxelWaitAnswer[]",
+      "doc": "The `whenResident` waits answered at this step's start."
+    },
+    {
+      "name": "get",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): VoxelValue | null",
+      "returns": "VoxelValue",
+      "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that)."
+    },
+    {
+      "name": "set",
+      "kind": "method",
+      "detail": "(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult",
+      "doc": "Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap)."
+    },
+    {
+      "name": "dig",
+      "kind": "method",
+      "detail": "(region: VoxelRegion): VoxelEditResult",
+      "doc": "Empty every cell of a region to air."
+    },
+    {
+      "name": "paint",
+      "kind": "method",
+      "detail": "(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult",
+      "doc": "Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes)."
+    },
+    {
+      "name": "isResident",
+      "kind": "method",
+      "detail": "(region: VoxelRegion): boolean",
+      "doc": "Whether every cell of a region is loaded (reads give values, changes are accepted)."
+    },
+    {
+      "name": "whenResident",
+      "kind": "method",
+      "detail": "(region: VoxelRegion): number",
+      "doc": "Waits for every cell of a region to be loaded: returns the wait's id, answered in `ctx.voxels.waits` at a later step's start (resident, or not when the world unloaded first)."
+    }
+  ],
   "BehaviorWorldView": [
     {
       "name": "transform",
@@ -4747,6 +4864,32 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "y",
       "kind": "property",
       "detail": "number"
+    }
+  ],
+  "VoxelValue": [
+    {
+      "name": "material",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Material id (0: air)."
+    },
+    {
+      "name": "role",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Role (0: air): what the voxel is to meshing and collision (ground, wall, beam, …)."
+    },
+    {
+      "name": "shape",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Fill level, 0 (empty) to 15 (full)."
+    },
+    {
+      "name": "wetness",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Wetness, 0 (dry) to 7."
     }
   ]
 };

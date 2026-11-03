@@ -1,8 +1,30 @@
-# Script API types (from `BehaviorMessages`)
+# Script API types (from `BehaviorSignals`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-signals"></a>
+## `BehaviorSignals`
+
+```ts
+/** `ctx.signals`. */
+export interface BehaviorSignals {
+  /**
+   * Send a named signal; switches, doors and scripts see it in the next step.
+   * @graphNode Emit signal
+   * @graphLabel name signal
+   */
+  emit(name: string): void;
+  /**
+   * Emitted in the previous step (by a switch, a trigger or a script).
+   * @graphPure
+   * @graphNode Signal received
+   * @graphLabel name signal
+   */
+  on(name: string): boolean;
+}
+```
 
 <a id="script-type-behavior-messages"></a>
 ## `BehaviorMessages`
@@ -869,6 +891,26 @@ export interface BehaviorSurface {
 }
 ```
 
+<a id="script-type-behavior-voxels"></a>
+## `BehaviorVoxels`
+
+```ts
+/**
+ * The voxel worlds of the loaded scenes (`ctx.voxels`). Its own reads and
+ * changes act on the first world loaded; `world(name)` reaches the others.
+ */
+export interface BehaviorVoxels extends Omit<BehaviorVoxelWorld, 'name'> {
+  /** The loaded worlds' names, in load order. */
+  worlds(): readonly string[];
+  /** A loaded world by name (null: no loaded scene names it). */
+  world(name: string): BehaviorVoxelWorld | null;
+  /** The changes swapped in since the previous step, every world's, in swap order. */
+  readonly changes: readonly VoxelChange[];
+  /** The `whenResident` waits answered at this step's start. */
+  readonly waits: readonly VoxelWaitAnswer[];
+}
+```
+
 <a id="script-type-behavior-intent"></a>
 ## `BehaviorIntent`
 
@@ -999,49 +1041,5 @@ export interface BehaviorCamera {
    * @graphDefault y 0.5
    */
   screenToRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] };
-}
-```
-
-<a id="script-type-behavior-sockets"></a>
-## `BehaviorSockets`
-
-```ts
-/**
- * `ctx.sockets` — objects riding on named nodes (bones or any
- * node) of other objects' models. The simulation places an attached object
- * at the end of every step, after the animators, so it follows the target's
- * animation in Play, the worker and the export alike.
- */
-export interface BehaviorSockets {
-  /**
-   * Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body.
-   * @graphNode Attach to socket
-   * @graphLabel entityId object
-   * @graphLabel targetId target
-   * @graphLabel node node
-   */
-  attach(entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean;
-  /**
-   * Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached.
-   * @graphNode Detach from socket
-   * @graphLabel entityId object
-   * @graphDefault keepWorld true
-   */
-  detach(entityId: string, keepWorld?: boolean): boolean;
-  /**
-   * The socket an object rides on (the target object and the node's name), or null.
-   * @graphPure
-   * @graphNode Socket of
-   * @graphLabel entityId object
-   */
-  attachedTo(entityId: string): { readonly target: string; readonly nodeName: string } | null;
-  /**
-   * A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.
-   * @graphPure
-   * @graphNode Node pose
-   * @graphLabel targetId target
-   * @graphLabel node node
-   */
-  nodePose(targetId: string, node: string): { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
 }
 ```

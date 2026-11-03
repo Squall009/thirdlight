@@ -445,6 +445,13 @@ export interface PhysicsPort3D {
   /** A loaded / unloaded scene's static colliders (at a step boundary). */
   addStaticColliders?(specs: readonly StaticColliderSpec3D[]): void;
   removeStaticColliders?(entityIds: readonly string[]): void;
+  /**
+   * What one static body of this shape costs the physics engine's memory
+   * (bytes, estimated): systems that free bodies to stay within a memory
+   * budget count each body by it (absent: only the geometry handed over is
+   * counted).
+   */
+  staticBodyBytes?(shape: ColliderShape3D): number;
   /** The nearest collider hit by a ray (the characters excluded; only those the filter lets through). */
   raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
   /** How far a sphere moves from `origin` along `direction` before it meets a collider (the characters excluded; what it starts in does not stop it). */

@@ -12,6 +12,7 @@ import type { PhysicsPort3D } from './ports';
 import { isSimulationRegistry } from './registry';
 import { SAVE_KEY_RE, SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveValueText } from './save-sections';
 import type { SimulationRegistry } from './types';
+import type { VoxelWorldPorts } from './voxel-world-host';
 import { isPlainObject } from '@thirdlight/shared';
 
 const MIN_FIXED_STEP_HZ = 1;
@@ -39,6 +40,7 @@ export function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: R
     'modules',
     'actions',
     'physics',
+    'voxels',
     'settings',
     'clock',
     'driver',
@@ -104,6 +106,13 @@ export function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: R
       };
     }
     physics3d = config.physics;
+  }
+  let voxels: VoxelWorldPorts | undefined;
+  if (config.voxels !== undefined) {
+    if (!isPlainObject(config.voxels) || typeof config.voxels['open'] !== 'function') {
+      return { error: fail('config_invalid', 'config field "voxels" must be voxel world ports ({ open(world) })', { reason: 'shape', path: '/voxels' }) };
+    }
+    voxels = config.voxels as unknown as VoxelWorldPorts;
   }
   let clock: () => number;
   let clockLabel: 'performance' | 'injected';
@@ -187,6 +196,7 @@ export function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: R
       modules,
       actions,
       ...(physics3d !== undefined ? { physics3d } : {}),
+      ...(voxels !== undefined ? { voxels } : {}),
       settings: config.settings,
       clock,
       clockLabel,
@@ -207,6 +217,8 @@ export interface ParsedConfig {
   actions: ActionSource;
   /** The physics port (`config.physics`; absent: a game without physics). */
   physics3d?: PhysicsPort3D;
+  /** The voxel worlds' ports (`config.voxels`). */
+  voxels?: VoxelWorldPorts;
   settings: unknown;
   clock: () => number;
   clockLabel: 'performance' | 'injected';
