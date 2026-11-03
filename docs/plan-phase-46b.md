@@ -110,7 +110,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.6a | done (this commit; fast gate green after a rerun): nodes derive through the chunk derive (`mip-derive.ts`, level recorded, derived v7); downsample keeps fill = solid share, roles by priority. L1/L2 hard cases closed, max error 0.50 / 1.11 m (≤ the level cell), features ≥ the cell kept; triangles slice 1.05 M → 262 k → 66 k, town 1.62 M → 431 k → 82 k; derive µs a node ≈ a chunk's. |
 | 46b.6b | done (this commit; fast gate green): `stream-mips.ts`: nodes L1/L2 downsampled (`mip` jobs) and derived (`level`) in workers from resident chunks, lane `mip` last, `bytes.mips` in the budget, dig re-derives its 2 ancestors only. Slice ring (Node): 330 L1 + 13 L2 nodes, 6.4 MB (level 0 25.4 MB); µs a node p50 downsample 2,600, derive 1,600. |
 | 46b.7a | done (this commit; fast gate green): `lod-seams.ts`, `run.mjs seams`: 28 two-level patches (11 hard cases, hilly, caves, town; L0\|L1, L1\|L2), 2.8 M rays. Pick (owner to confirm): coarser side's transition strip + flaps where shapes differ: 0 cracks except a caves saddle (380 of 0.62 M rays, none 50,600), +42–45 tris and ~50–70 µs a fine face, L0 untouched. |
-| 46b.7b | not started |
+| 46b.7b | done (5a1b790d, 1b8220cf; fast gates green): `lod-seam.ts` (strip, moved boundary copies, flaps; pieces in finer steps), `stream-seams.ts` (`LevelSelection`, `seam` jobs, held in the node's or edit's swap, a level change one `seams` event). 28 patches: 0 crack rays but the cave saddle 358 (pick 380; D462); +23–55 tris a fine face (caves 76 / 139); worker µs a face p50 62. |
 | 46b.8a | not started |
 | 46b.8b | not started |
 | 46b.9 | not started |
@@ -645,6 +645,73 @@ failed once only on `stream.test.ts` (D454, watch: `staleRefused` 0) and `bake-l
 (not touched); `mesh-cases.test.ts` 44.8 s in the gate (all 23 tests); `voxel-world.e2e.ts` 55.6 s (not touched; 48.9 s
 at 46b.6b, the host's load).
 
+### 46b.7b the seam built
+
+**Builder** (`packages/voxel/src/lod-seam.ts`, `buildFaceSeam`, pure, runs in a worker): one coarse node face's seam
+from the node's derived surfaces, its 8 same-level neighbours beside the face (their triangles close the node's own
+open edges at its rim) and the finer surfaces against the face and beside it (16 nodes, or the level-0 chunks'
+sections within a cell of the plane), all read only in a window of the face ± `SEAM_RIM_CELLS` (4 finer cells).
+- Boundary rows: only triangles with two vertices within half of their own cell of the plane are read (an edge's
+  reverse lies in such a triangle too), vertices welded by exact position (sections and crease copies). 46b.7a's
+  bench built the directed-edge set of every triangle of both sides; here a vertex costs one coordinate read unless
+  it is near the plane.
+- Strip: every coarse boundary vertex moves to the nearer **end** of its nearest finer boundary edge (an exact finer
+  vertex: points inside an edge, rounded to whole steps, left slivers on the boundary line where the bench's rays
+  aim); the coarse triangles touching a moved vertex (the node's and its neighbours') are drawn again by the seam with
+  it moved, the originals stay; the fill between the moved coarse edge and the finer boundary walked back from P to
+  Q is fanned from P; flaps one coarse cell deep under coarse edges whose ends land on different chains or the wrong
+  way round and under finer edges no strip reached (only those on this face).
+- Output: pieces, one per finer node against the face, positions in the finer level's steps from that node's corner
+  less `SEAM_PIECE_PAD_CELLS` (8) on every axis (a full face's 64 finer cells and its rim do not fit u16 steps),
+  three vertices a triangle; `seamBytes`. Level-0 meshes, the coarse node's mesh and every collider are untouched.
+
+**Streamer** (`packages/voxel/src/stream-seams.ts`, `StreamMips.seams`): `LevelSelection` { drawn(level, nx, ny, nz) }
+and `faceLevels` (the level drawn across each face: L − 1, L, L + 1 or −1) are the interface 46b.8a drives
+(`seams.setSelection`); until then `ringSelection` over static rings: a node of level L ≥ 1 splits while its box
+distance is under `radii[L − 1]` (`DEFAULT_LEVEL0_DRAW_RADIUS` = 128 cells, then each kept level's ring). A drawn node
+whose face has level L − 1 across it wants a seam there; it is built (job kind `seam`) once the node and the four
+finer inputs against the face have results.
+- A mip node's new result is held (`holdNode`) until the seams reading it (as node, neighbour or finer side) are
+  rebuilt from it; the node's `node` event and their `seams` event go out in one task. An edit's section group
+  (`SectionDerives.maybeSwap`) asks `holdChunks` once all its sections are held: it swaps only when the seams reading
+  its chunks are rebuilt from the held results, their `seams` event just before the `swap`; a group that changes
+  meanwhile cancels and asks again. A selection change (`selectionChanged`, also on a focus move) builds every face it
+  adds and drops every face it removes in one `seams` event, the old ones drawn until then. Inputs changing outside
+  those (chunks and nodes streaming in) rebuild the faces reading them as their jobs come back.
+- Seam bytes are part of `bytes.mips`. Jobs: lane `edit` for an edit's hold, else `mip`.
+
+Patches (46b.7a's 28, every ray; Node 22, i5-12600H, scratch bundle `~/.cache/thirdlight-phase46/work/46b.7b/final/`,
+16:37, uptime 11 d 0.2 h, load 4.3 → 3.9; crack rays none → 46b.7a pick (transition+flaps) → this seam; added
+triangles pick → seam, a fine face; µs a fine face is the bench's timing of the whole builder, rows included):
+
+| Patches | Crack rays | Added tris a fine face | µs a fine face |
+|---|---|---|---|
+| 11 hard cases L0\|L1 | 3,778 → 0 → 0 | 35–50 → 41–55 | 262–535 (cold first 1,776) |
+| 11 hard cases L1\|L2 | 7,851 → 0 → 0 | 36–46 → 38–53 | 326–613 |
+| hilly L0\|L1 / L1\|L2 | 1,346 / 1,509 → 0 / 0 → 0 / 0 | 29 / 25 → 26 / 23 | 271 / 250 |
+| caves L0\|L1 | 50,600 → 380 → **358** (the saddle, D462) | 52 → 76 | 784 |
+| caves L1\|L2 | 11,791 → 0 → 0 | 99 → 139 | 1,088 |
+| town L0\|L1 / L1\|L2 | 772 / 1,621 → 0 / 0 → 0 / 0 | 69 / 57 → 42 / 46 | 511 / 349 |
+
+Rounds (caves): the strip bridging the unmoved coarse boundary to the finer one (the coarse mesh never redrawn) let
+912 / 6 rays through at L0\|L1 / L1\|L2 (the bench's own unmoved variant 1,465 / 637), drawing both sides of folded
+strip triangles changed nothing, a wider rim (16 cells) nothing; moved copies of the node's own triangles only 973 /
+389 (a neighbour's triangle at the rim kept the unmoved vertex: a gap); with the neighbours' copies 358 / 0. The
+voxel-sample strip for the saddle was not tried (D462, M, for 46b.11).
+
+Tests: `derived.test.ts` (+1, 11 s alone): cliff, cave, wall-1, overhang at L0\|L1 and cliff, cave, hole-1 at L1\|L2
+(every fourth ray): no ray through either level alone, every patch leaks without a seam, the pick and the package's
+seam let none through. `stream.test.ts` (+1, 16 s alone, real workers, region files): hilly world, level 1 to 160
+cells, selection level 0 within 48 cells: 32 faces wanted, each built and equal to `buildFaceSeam` over fresh derives
+of the oracle (triangle sets, the inputs the streamer has); bytes in `bytes.mips`; level 0 out to 80 cells: exactly
+one `seams` event, built = the faces it adds, removed ⊇ those it drops, nothing else rebuilt; a dig two cells from a
+face on the level-0 side: a `seams` event naming the face just before the edit's `swap`, equal to a fresh build of the
+dug world. Measured there: 53 triangles a face (coarse face), 70 KB for 32 faces, worker µs a face p50 62 / p95 2,171.
+Fast gates: gate-fast-20261103-155051 (uptime 10 d 23.4 h, load 7.9) vitest and lint green (see-through D311/D435
+timing, passed alone), e2e red only on D417 (`start.e2e.ts` stop), GREEN on the rerun (gate-rerun-20261103-160553,
+perf at the cap in limits); gate-fast-20261103-162326 (uptime 10 d 24.0 h, load 5.6): GREEN, 13 min, 5.0 GB peak.
+`voxel-world.e2e.ts` 50.5 s and 56.6 s (not touched; its pages now build seams after the mips; 55.6 s at 46b.7a).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -797,6 +864,33 @@ at 46b.6b, the host's load).
   rather than from the two meshes. 46b.7b builds the measured strip and records whether the saddle shows; the
   sample-built strip is its fallback.
 
+
+- 2026-11-03 (46b.7b, default chosen, owner to confirm): **the seam redraws the coarse boundary moved, over the
+  original.** The measured pick moves the coarse node's boundary vertices onto the finer boundary. Moving them in the
+  node's own buffer would make every node's mesh depend on its neighbours' levels. Hiding the originals per face
+  would need per-face index ranges in the derived layout. So the seam carries copies of the coarse triangles at the
+  face, moved, and the originals stay drawn: a band up to a coarse cell wide drawn twice, nearly coplanar. Bridging
+  from the unmoved boundary instead let 2.4× the rays through in the caves. 46b.8b/46b.11b look at the band (shading
+  is the coarse node's on both).
+- 2026-11-03 (46b.7b, default chosen, owner to confirm): **a moved coarse vertex goes to the nearer end of its
+  finer edge**, not the nearest point on it, so every seam vertex is exactly a vertex of one of the two meshes.
+  Coarse vertices move up to half a finer edge further than the bench's.
+- 2026-11-03 (46b.7b, default chosen, owner to confirm): **a seam is in pieces, one per finer node**, positions in the
+  finer level's steps from that node's corner less 8 cells. A whole face plus its rim does not fit u16 steps at the
+  finer level, and the finer level's steps keep the boundary vertices bit for bit.
+- 2026-11-03 (46b.7b, default chosen, owner to confirm): **a seam reads its node's neighbours beside the face and the
+  finer nodes beside it too** (in a 4-cell rim). Without them the node's rim edges were joined as if on the face,
+  and two nodes' strips projected a shared vertex onto different finer boundaries. A neighbour the streamer has no
+  result for (past the loaded height) is left out.
+- 2026-11-03 (46b.7b, default chosen, owner to confirm): **until 46b.8a, static rings choose the drawn levels**:
+  level 0 within 128 cells (`DEFAULT_LEVEL0_DRAW_RADIUS`), then each kept level to its ring; the interface 46b.8a
+  drives is `LevelSelection` + `faceLevels` via `seams.setSelection`. Seams are built in the slice page, Play and
+  the Scene view from now on; nothing draws them before 46b.8b.
+- 2026-11-03 (46b.7b): **atomic where something is replaced, not while streaming in.** A node's new result, an
+  edit's group and a selection change each go in with their seams. A seam whose inputs arrive while streaming in is
+  built as its job comes back (there is no old seam to keep).
+- 2026-11-03 (46b.7b): **the cave saddle stays open** (D462, 358 rays at one place, 0.06 %); the voxel-sample strip
+  was not tried in this item.
 
 ## 9. Open questions for the owner
 
