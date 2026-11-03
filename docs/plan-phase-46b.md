@@ -98,6 +98,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.11b | **Acceptance:** triangles before/after (slice, town), mesher µs/section p50/p95 in the browser, flight with level changes (pops, frames), GPU ms, memory, both renderers at the cap; pictures of every hard case and seam looked at; report `~/.cache/thirdlight-phase46/acceptance/46b`. | staging, `run.mjs slice` phases | all of §3, before → after | numbers + causes recorded, pictures looked at |
 | 46b.12 | **Docs:** spec §3.7 (terrain rule set, mesher, seams, levels, the derived version step with its owner note), requirements traceability R107–R109, manual `features/voxel-worlds.md` (rings), reference regenerated. | check-docs, `tools/manual-links.test.mjs` | — | pages match the built code |
 | 46b.13 | **Close (lead):** full gate once (detached), independent review, fixes, acceptance by eye on staging, STATUS row; then 46c starts with its owner hard stops. | full gate | gate time and peak; voxel e2e time vs 46.5 s | review in the decision log; owner look pending |
+| 46b.13a | **Full gate's vitest failure (fix item):** the levels test's jitter check counted 4 flips (D469); fix the product or write why the test was wrong; watch rows for the run's timeouts; finish the full gate with its rerun (e2e, both renderers). | `stream.test.ts` (the file alone, 3 runs); the full gate's rerun | flips, gate time and peak | D469 closed; watch rows |
 
 ## 6. Progress
 
@@ -122,7 +123,8 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.11c | done (a8b890e1; fast gate green after a D417 rerun): an edit's shown nodes (drawn or read by a drawn seam) and their seams go in with its level-0 swap, in one task; its mip jobs in the edit lane. Staging, 144 L1 blasts, both renderers: 0 split (was 107); local 1–4 m 1–4 frames, 8 m 2–5 (was 3–9); cause of > 1: the downsample → derive → seam chain. D467 fixed. |
 | 46b.11b | done (this commit; fast gate green): staging, both renderers at the cap. Triangles slice 0.90 M naive / 1.17 M 46a → 0.31 M, town 2.87 / 1.96 → 0.77 M; flight p95 16.7–16.8 ms, 0 missed, 114–119 level changes, pops only at the horizon; mesher µs/section p50 100–300 (town/features over budget); WebGPU +1.1–1.5 ms GPU with L1 nodes (D468); L0 blasts unchanged. |
 | 46b.12 | done (this commit; docs only, no gate): spec §3.7 one terrain/levels/seams/LOD-selection subsection as built, derived v3 → v9 history with its owner notes in one place (no stored format changed), §3.8 row 8 → 9, §4 rows; requirements trace R107–R109 (holds/misses, hard cases, D462/D463); manual "Distance levels". No API change: reference not regenerated. |
-| 46b.13 | not started |
+| 46b.13 | full gate at ae036083 + its rerun at f4c9b7c3: GREEN, 36 min (vitest step 8 min, RED on D469; rerun 28 min: vitest 4 files, e2e both renderers 392 passed, 1 failed once and passed alone, D472 watch), peak 8.0 GB (previous green full gate 29 min). `voxel-world.e2e.ts` 65.4 s in the run. Review, fixes, acceptance by eye, STATUS row: not started |
+| 46b.13a | done (df593467; full gate's rerun green): the jitter check counted a stand-in leaving for its level-2 parent, arriving from the jitter's loads, as a flip (D469, test wrong, product as specified, no product change since 46b.8a); 4 stand-ins left, 0 flips in 3 of 3 runs of the file. Watch D470, D471, D472; sightings D418, D454. H1 not the cause (no edits in the test) |
 
 ## 7. Results
 
