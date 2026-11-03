@@ -115,6 +115,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.13 | done a2eb64a1: manual `features/voxel-worlds.md` (cells, `voxelWorld`, streaming + budget, Scene view, editVoxels/undoVoxels, not built yet; export line to be confirmed after 46a.11), `guides/voxel-scripts.md` (`ctx.voxels`, examples type-checked), migration note; spec pool default built. Links test + check-docs green. |
 | 46a.14 | full gate at df73f8f4 (gate-full-20261103-073335, both renderers): RED, 35 min (29 before), 8.0 GB peak; 1 real failure (D451), 3 watch (D452–D454), D435 again. Review, fixes, staging look not started. |
 | 46a.14a | done fcf462b3: D451 (playtest.e2e:238 preview_timeout) — the editor took a stopped page's late `tl.stopped` as the next play's stop; ends Play only for the play the session holds. Also at the base (1 of 21 runs); at df73f8f4 3 of 10 alone. Fixed: 16 of 16. Watch D452–D454, D435 seen. Fast gate green 12 min, 4.3 GB; playtest.e2e 37.1 s. |
+| 46a.14b | done 2ef4004f, 60823fb6, 2ad42d91, 5df73f42, da879130, d59581d0: review M2/M3 fixed (D455, D456), M1 recorded with A/B causes (D457 dig during the cold fill, D458 camera-relative per draw), L1–L6 fixed or recorded (D459 for 47c). Fast gate green 13 min, 4.8 GB; voxel-world.e2e 47.9 s (load 2.8). |
 
 ## 7. Results
 
@@ -764,6 +765,34 @@ Fast gate (gate-fast-20261103-083838, playtest + voxel-world e2e): GREEN, 12 min
 `voxel-world.e2e.ts` 42.5 s over its 7 tests (both renderers' variants, unchanged by this item); village perf at the
 cap 0 missed on both renderers (main thread 5.93 / 3.99 ms against 9.02 / 7.84).
 
+**46a.14b** (review fixes; finding by finding in the decision log "46a review"). **M2/D455** (2ef4004f):
+`presentVoxelWorlds` wraps each connection with the batcher it made; `world-host.test.ts` + 1 test (real runtime,
+streamer, Node workers, region files, Rapier): the first open is held, the scene reloads, the second world draws, then
+the first connection arrives: before the fix the page got `closed` (test failed), now no `closed` until the live world's
+dispose and a dig's swap still reaches the page. **M3/D456** (2ef4004f): `wholeFileByteSource.heldBytes`, counted by
+`RegionChunkSource.memoryBytes` (the streamer's `tables` part); the shipped-world test checks a held file counts table +
+file bytes exactly (1,352 → 2,184 B on the test file; failed before). **L5** (2ef4004f): `chunk-batch.test.ts`. **L1**
+(60823fb6): `bundle-scan.test.ts` builds `js/voxel-worker.js` (fzstd linked, passes) and checks the same graph under the
+page and sim worker entries (refused). **L4** (2ad42d91 boundary: the exporter's `export-content-reader.ts` may enter the
+export graphs; 5df73f42). **L2** (d59581d0): Play e2e reads `…/voxels/far` 200 and `…/voxels/slice` 404 under the
+play's locator. **L3** (da879130), **L6** (d59581d0 comment; D454 note).
+**M1 A/B.** (a) Play edit → screen (D457): Node world host (real workers, region files, 20 ms added a read), dig right
+after its ground's body came, one round of 3 digs each, 09:04–09:05, load 0.9–1.1, uptime 10 d 16.6 h: edit → change
+73 / 25 / 47 ms with 46a.11b's held-section wait, 81 / 27 / 41 ms without; 50 / 16 / 13 ms 4 s later on a quiet ring.
+Cause: the dig lands while the cold fill's derive jobs hold the workers, not the wait; the e2e digs right after the
+fill since 46a.7c. This gate's Play e2e: edit → screen 31.0 ms (worker, swap 16.9 ms) / 32.5 ms (single, 21.5 ms).
+(b) Town render() CPU (D458): staging town, blast phase's 10 s orbit, WebGPU, 1280×720 at the 60 Hz cap, a temporary
+page switch (not kept), rounds on / off / on 09:06–09:08, load 1.9–4.3, uptime 10 d 16.7 h: p50 5.0 / 4.0 / 5.4 ms, p95
+8.5 / 4.8 / 8.2 ms. Cause: the per-draw 64-bit camera-relative model-view. Both left for the performance phase (no
+cheap clean fix: (a) needs edit jobs to pass streaming jobs, (b) a per-world or per-view origin instead of a matrix a
+draw). Reports `~/.cache/thirdlight-phase46/work/46a.14b/` (scratch).
+Fast gate (gate-fast-20261103-090922, voxel-world + play-export e2e): first start RED in build (`makePlayRoutes` +3
+lines over its size entry; the publish call now spreads the built core, 849 → 847), then GREEN, 13 min, 4.8 GB peak,
+36 e2e passed, village perf at the cap 0 missed on both renderers (main thread 6.96 / 5.29 ms against 9.02 / 7.84);
+vitest `asset-files.test.ts` failed once and passed alone (D460 watch). `voxel-world.e2e.ts` 42.5 → 47.9 s (9.9 + 6.0 +
+5.9 + 5.9 + 5.5 + 8.0 + 6.7 s; +1 fetch pair in Play, otherwise unchanged; load 2.8 at the start, uptime 10 d 16.7 h);
+`play-export.e2e.ts` 5.7 s.
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -1008,3 +1037,38 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   the Inspector and MCP sending it, belongs with 47c's MCP voxel tools; not built in 46a.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
+- 2026-11-03 (46a review, independent, read-only, aeb8114a..df73f8f4; fixes 46a.14b): **0 H, 3 M, 6 L.** No
+  correctness defect in the core paths it traced (base written only by `land`/`swapIn`, edits/restores/paints to the
+  overlay, merged swap groups report each change once, no double subtraction in the collision ring, fresh join buffers
+  transferred, shipped reads return copies, digests checked again on export copy, the camera-relative hook on the
+  three checklist, spec diff "as built" only, `voxelWorlds` add-only on manifest v5). Rules check ok apart from the
+  findings: one mutation path, export without backend/MCP, real-boundary tests, no file/unit over the size rules,
+  e2e growth 22.5 → 39.6 s explained, no per-project caps, engine/game separation, three 0.187.0 assessed only.
+  Findings and what 46a.14b did:
+  - **M1** perf misses without D-rows → **recorded**: D457 (Play edit → screen 30–52 ms; A/B: not the held-section
+    wait — the dig lands while the cold fill's derive jobs hold the workers, 25–81 ms vs 13–50 ms on a quiet ring;
+    the e2e digs right after the fill since 46a.7c) and D458 (town render() CPU +15 %; A/B: the per-draw 64-bit
+    camera-relative model-view, 5.0–5.4 ms on vs 4.0 off). Both left for the performance phase (no cheap clean fix).
+  - **M2** a stale Play world connection closed the newer world's draws → **fixed** D455 (2ef4004f): each wrapped
+    connection closes only the batcher it made; test of out-of-order opens over a reload (failed before).
+  - **M3** shipped region files held whole outside the budget → **fixed** D456 (2ef4004f): a byte source reports its
+    held bytes, counted with the open tables in the stream budget (default chosen, owner to confirm: counted, not
+    dropped and re-read); test.
+  - **L1** fzstd admitted for every export script → **fixed** (60823fb6, own boundary commit): only in the voxel
+    worker's graph; bundle-scan test.
+  - **L2** Play serves any project world and reads live files → route **fixed** (d59581d0, default chosen, owner to
+    confirm): the locator serves only the worlds the play's scenes name (e2e: 200 / 404). Mixed revisions mid-play
+    **recorded** as D459 for 47c (pin to the start revision or forward `voxelsChanged`), not built.
+  - **L3** history ids → **fixed** (da879130): comment reworded; bench CLIs default to
+    `~/.cache/thirdlight-voxel-bench/<bench>` (stream-page reads the stream bench's world there; pass `--world` for
+    an older one).
+  - **L4** small copies → **fixed** (2ad42d91 boundary, 5df73f42): `wallClock` once in `@thirdlight/shared` (owned in
+    check-redefinitions); one `exportContentReader(base)` for the page and the simulation worker (the worker's
+    reader gains the relative-path rule).
+  - **L5** a removed draw left its mesh part → **fixed** (2ef4004f): set to 0 for a resident chunk; test.
+  - **L6** → the export e2e is marked as the file's last test (d59581d0); the 16³/8³ sections test keeps its 30 s
+    timeout (honest work, no cause found), noted under D454.
+  Owner's eyes (from the review, unchanged): the acceptance pictures (`~/.cache/thirdlight-phase46/acceptance/46a/`,
+  incl. an unexplained dark streak in both terrain-blast pictures); never seen: the character in Play/export, 8 km
+  motion jitter, WebGL 2 export, single-thread export, Scene view on WebGL 2, high tier, a real network, the prop
+  light channel in a browser. Decisions pending: D447, D446, D443, the create-world command (47c), the 35 defaults.
