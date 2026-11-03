@@ -106,7 +106,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.7b | done 41f8fb70 (+ 0d309961, 4cfafdf1): world runs with the sim (worker, or page), Play reads the locator's range route, derive workers started in the sim worker; one transferred batch a streamer task drawn by `VoxelWorldDraws`; bodies wait for voxel collision. Edit → screen 16–17 ms (1 / 2 frames) worker / single. voxel-world.e2e 17.7 → 36.4 s. D444 opened, D445 fixed. |
 | 46a.7c | done 73ea05cf: voxel surface and pieces placed with a 64-bit camera-relative model-view per draw (no re-base needed): 8 km vertex error 1.3 µm vs 0.56 mm; Play e2e plays the world 8 km out on both renderers. Dig on a debug command, not a 5 s wait: voxel-world.e2e 36.4 → 24.5 s. D444 fixed, D446 opened (other objects far out). |
 | 46a.8 | done eb0dc688: `ctx.voxels.setSavedFields`, `save()` (save file v2, answered later as bytes + base64 text), `restore(bytes\|text, 'save'\|'base')` into the overlay, never the base (unloaded chunks' entries land with them), mismatches reported. Save of 10 / 100 1 m digs: 1.8 / 17.7 KB. Play e2e saves, restarts, restores (both renderers). voxel-world.e2e 24.5 → 26.6 s. D447 opened. |
-| 46a.9 | not started |
+| 46a.9 | done b6dcb2c6: `PropLightChannel` per resident chunk, built on load; a step's prop changes rebuild only chunks left/entered; budget part; shapes from colliders else model bounds; `ctx.voxels.coverageAt`. Move 1.8–2.0 ms p50; slice ring 0/4.5/13.5 MB at 0/100/1,600 lit props. D448 opened. Fast gate green (rerun); voxel-world.e2e 26.6 → 32.0 s, no e2e change, load 6–9. |
 | 46a.10 | not started |
 | 46a.11 | not started |
 | 46a.12 | not started |
@@ -527,6 +527,51 @@ renderers; vitest `stream.test.ts` 'times out a slow job …' (worker pool, unto
 (load ~4.8). `voxel-world.e2e.ts` 24.5 → 26.6 s (7.6 + 4.4 + 4.9 + 5.0 + 4.7 s; the Play tests 3.8 + 3.5 → 5.0 + 4.7
 s; load 3.8 at the start, uptime 10 d 11.3 h).
 
+**46a.9** (b6dcb2c6). **Prop lighting channel in the host.** `@thirdlight/voxel` `prop-channel.ts` (`PropLightChannel`,
+`PROP_COVERAGE_PART`): per resident chunk the 45.6 `propCoverageChunk` bytes of the props over it (null: none), built on
+the chunk's `loaded`, dropped on `unloaded` (a refresh in place keeps it); `apply` places, moves and removes props
+together and rebuilds each chunk any of them left or entered once, the chunk's props in first-placed order (so a
+rebuild equals a fresh build); each build is the chunk's `propCoverage` budget part (32 KB a covered 32³ chunk, 0
+uncovered). `prop-coverage.ts` gains `lightCoverageAt` (one cell of `lightCoverage`) and exports `propBounds`; the
+streamer's `derivedOf(…, drawn)` gives a section's committed result while a rebuild is pending. Runtime:
+`prop-light-shape.ts` (`propLightShape`): the object's collider as the physics port resolves it (world scale, full
+rotation; boxes, spheres, capsules, cylinders exact, hulls and meshes as the box around their points in their own
+frame, compounds and `_COL` parts per part), else the model's recorded bounds as a turned box (a piece without a
+collider: nothing, its file's bounds would stamp the kit), wrapped as a `PropShape` whose inside test does the turn, so
+the 45.6 voxelizer is unchanged. `RuntimeVoxels` keeps the objects whose model has `affectsLighting`, compares each
+one's world transform at every step's start and stamps the changed ones into every loaded world in one `apply`
+(`VoxelWorldHost.stampProps`); a lit prop with neither shape is warned once. `ctx.voxels.coverageAt(x, y, z)` (world
+and top level, graph node "Light coverage at"): 0 … 1, the section's drawn construction coverage joined with the
+channel, null off the ring or before the section's first result. Nothing renders from it (46e). Play runs the same
+host in the simulation (46a.7b), so the channel is built there too; not checked in a browser run (nothing reads it yet).
+Tests: `derived.test.ts` (pure channel, 32 resident chunks: a crate placed before its chunks load builds nothing, then
+on load; a 20 m move rebuilds exactly the 4 chunks left + 2 entered; moved out of the ring only the left ones;
+overlap and removal; every resident chunk equal to `propCoverageChunk` of the list after each change and its budget
+part its byte length; refresh keeps, unload drops, reload rebuilds); `world-host.test.ts` (real runtime, region files,
+Node workers, real Rapier): a turned box-collider rock, a tree by its model bounds (scale 1.5) and an unmarked pebble;
+every cell of their chunks read through `coverageAt` by the script equals the drawn construction joined with a fresh
+`propCoverageChunk` of independently written shapes (yaw + scale form); the rock moved 20 m by its script rebuilds
+exactly the chunks it left and entered; the save after the move equals the one before, the overlay bytes and every
+region file's checksum are unchanged; the focus 100 m away unloads the props' chunks and back rebuilds them, equal again.
+Removing the left chunks from a move's rebuild fails both tests (checked once by hand). Numbers (Node, i5-12600H,
+04:18, load 4.4–5.5, uptime 10 d 11.9 h; scratch `~/.cache/thirdlight-phase46/work/46a.9/ring.ts`):
+
+| What | Number |
+|---|---|
+| one move of a 3 m canopy (1–4 chunks rebuilt), in-test | p50 1.8–2.0 ms, p95 2.0–2.5 ms |
+| one place, 100 / 400 / 1,600 lit props over the slice ring (6,776 chunks, half 3 m canopies, half 2.6 × 1.8 × 1.4 m rocks) | p50 1.7 / 1.8 / 3.2 ms, p95 3.6 / 4.1 / 11.5 ms |
+| the same props arriving in one step (one build a chunk) | 95 / 401 / 1,540 ms |
+| channel bytes in the slice ring, 0 / 100 / 400 / 1,600 lit props | 0 / 4.5 / 10.6 / 13.5 MB (0 / 143 / 338 / 432 covered chunks, 32 KB each) + ~0.6 MB of chunk entries |
+
+The cost is the 45.6 voxelizer itself (64 inside tests a cell, ~0.7–1 ms a 3 m canopy) times every prop over each
+touched chunk; a whole scene of lit props placed in one step into a loaded ring stalls that step (D448, for the
+performance phase / 46e). The channel bytes are dense (32 KB a covered chunk); the sparse form the light coverage
+uses (45.6: 0.5–4.3 KB a chunk) would cut them when 46e reads it. Fast gate (gate-fast-20261103-042136): RED in vitest on the catalogue test's `ctx.voxels` stand-in lacking
+`coverageAt` (as D445), fixed; rerun (gate-rerun-20261103-043109) GREEN, 4 min, 3.9 GB peak (first run 5.1 GB), village
+perf at the cap 0 missed on both renderers. `voxel-world.e2e.ts` 26.6 → 32.0 s (8.0 + 5.4 + 6.8 + 5.7 + 6.1 s) with no
+e2e change, load 6–9 during the run (8.8 at its start), uptime 10 d 12.1 h: host load, not this item (nothing in the
+e2e path changed but a per-step transform check that finds no lit props).
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -721,5 +766,20 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   is always on).
 - 2026-11-03 (46a.8, default chosen, owner to confirm): **the saved fields are per run**: `setSavedFields` lasts
   until the next restart (the component's `savedFields` again), like the overlay itself.
+- 2026-11-03 (46a.9, default chosen, owner to confirm): **a lit prop's light shape is its collider, else its model's
+  recorded bounds** (the phase-42 distance-field bricks are not at runtime: no brick data reaches the snapshot, so
+  they would mean a new asset path; the plan's eventual source stays them). Primitives are exact; hulls, meshes and
+  `_COL` parts stand as the box around their points in their own frame (over-covers a turned or concave hull a
+  little); a model piece without a collider stamps nothing (its file's bounds would stamp the whole kit). Full
+  rotation and non-uniform scale are taken in the shape's own inside test, so `propCoverageChunk` and `PropShape`
+  stay as 45.6 built them.
+- 2026-11-03 (46a.9, default chosen, owner to confirm): **moves are found by comparing each lit prop's world
+  transform at every step's start** (no transform-change feed exists; a few hundred props cost a compose each a
+  step), and **a step's changes are applied together** (each touched chunk rebuilt once). A whole chunk is rebuilt
+  from all its props, not patched: 1 − (1 − a)(1 − b) rounded per byte cannot be undone exactly, and a rebuild equals a
+  fresh build by construction. Every lit prop stamps every loaded world (each world's cell 0 is the world origin).
+- 2026-11-03 (46a.9, default chosen, owner to confirm): **`ctx.voxels.coverageAt` reads the drawn derive result**
+  (the committed one, also while an edit's rebuild is pending), so it agrees with what is drawn and collided; it is
+  0 … 1 (bytes / 255), null off the ring or before the section's first result.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
