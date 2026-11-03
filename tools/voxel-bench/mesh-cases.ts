@@ -15,16 +15,21 @@
  * The world's floor (its base, under every case) is in no measuring box.
  *
  * A candidate mesher is a function of the store and a chunk; the reference
- * is the derive's ground surface. Goldens bound later meshers per case.
+ * is the naive surface nets the derive used before the terrain mesher (kept
+ * in the bench, mesher-candidates.ts). Goldens bound later meshers per case.
  */
-import { deriveFromStore, PLACEHOLDER_RULES, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, chunkGrid, type PaletteStore, type SurfaceBuffer } from '@thirdlight/voxel';
+import { deriveFromStore, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, chunkGrid, type PaletteStore, type SurfaceBuffer } from '@thirdlight/voxel';
 import { caseIndexAt, FEATURE_BASE, FEATURE_PAD, FEATURE_TOP, FEATURE_WIDTH, featureCases, type FeatureCase, type FeatureProbe, type Sdf } from './features';
+import { chunkMesherOf, mesherCandidate } from './mesher-candidates';
 
 /** A chunk's ground surface from the store (positions chunk-local, as the derive writes them). */
 export type ChunkMesher = (store: PaletteStore, cx: number, cy: number, cz: number) => SurfaceBuffer;
 
-/** The reference: the derive's naive surface nets. */
-export const referenceMesher: ChunkMesher = (store, cx, cy, cz) => deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES).ground;
+/** The reference ("before"): naive surface nets, the derive's ground until the terrain mesher. */
+export const referenceMesher: ChunkMesher = chunkMesherOf(mesherCandidate('reference'));
+
+/** The derive's ground surface: the terrain mesher under the terrain rules. */
+export const terrainMesher: ChunkMesher = (store, cx, cy, cz) => deriveFromStore(store, cx, cy, cz, TERRAIN_RULES).ground;
 
 /** A welded mesh in world cells. */
 export interface WorldMesh {

@@ -44,6 +44,10 @@ import {
   OCCUPANCY,
   PIECE_FAMILY,
   PLACEHOLDER_RULES,
+  RULE_CONFORMANCE_EXTRA_PAD,
+  TERRAIN_MESHER_REACH,
+  terrainSurface,
+  WORLD_RULES,
   POSITION_STEPS_PER_CELL,
   registeredAssemblyRules,
   ruleRadiusMismatches,
@@ -549,9 +553,11 @@ describe('the terrain rule set', () => {
     for (let y = G; y < 18; y++) expect(name(featureAt(spike + 32, y, 32)), `spike y ${y}`).toBe('spike');
   });
 
-  it('changes no derived output: consumers read the class, not the feature', () => {
-    // Nothing reads the features yet: every chunk derives to the placeholder rules' bytes but for the rules it names.
-    const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 } });
+  it('changes no derived output but the ground surface: consumers read the class, the mesher the creases', () => {
+    // Every output but the ground derives to the placeholder rules' bytes; the ground differs only where the rules
+    // set a crease (the placeholder rules set none, so the mesher places those cubes as plain nets).
+    const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 }, ground: { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) } });
+    let differ = 0;
     // The surface chunks of every case (each pad's near half on z, where every case crosses).
     for (let cx = 0; cx < (FEATURE_PAD * featureCases().length) / E; cx++) for (const [cy, cz] of [[0, 0], [1, 0]] as const) {
       const a = deriveFromStore(features(), cx, cy, cz, TERRAIN_RULES);
@@ -559,7 +565,9 @@ describe('the terrain rule set', () => {
       const b = deriveFromStore(features(), cx, cy, cz, PLACEHOLDER_RULES);
       expect(encodeDerived(strip(a)), `chunk ${cx},${cy},${cz}`).toEqual(encodeDerived(strip(b)));
       expect(a.counts).toEqual(b.counts);
+      if (triangleList(a.ground).join() !== triangleList(b.ground).join()) differ++;
     }
+    expect(differ).toBeGreaterThan(0);
     const s = createWorldStore(grid);
     randomTerrainWorld(s, 5, 24);
     randomAssemblyWorld(s, 6, 24);
@@ -569,10 +577,50 @@ describe('the terrain rule set', () => {
   }, 30_000);
 });
 
+describe('the terrain mesher\'s reach', () => {
+  // The mesher reads voxels TERRAIN_MESHER_REACH cells above and below the chunk (the column-lattice window) and
+  // classes one cell round it; the job's pad (the rules' radius + the consumers' reach) must cover that, and the
+  // invalidation reach is the same pad. Meshing with the job's pad and with 3 cells more must give the same bytes.
+  it('is within the job\'s pad: the ground with the job\'s apron equals the ground with a wider one', () => {
+    expect(TERRAIN_MESHER_REACH).toBeLessThanOrEqual(jobRadius(WORLD_RULES));
+    const g16 = chunkGrid(16);
+    let compared = 0;
+    for (const [g, seeds] of [[g16, [1, 2, 3]], [grid, [4]]] as const) {
+      const pad = jobRadius(WORLD_RULES);
+      const wide = pad + RULE_CONFORMANCE_EXTRA_PAD;
+      const narrowN = createNeighbourhood(g.edge, pad);
+      const wideN = createNeighbourhood(g.edge, wide);
+      const narrowOut = new Uint8Array(narrowN.values.length);
+      const wideOut = new Uint8Array(wideN.values.length);
+      const dense = createDenseChunk(g);
+      for (const seed of seeds) {
+        const s = createWorldStore(g);
+        randomTerrainWorld(s, seed, 24);
+        const lo = g.edge === 16 ? -2 : -1;
+        for (let cx = lo; cx <= 0; cx++) for (let cy = lo; cy <= 0; cy++) for (let cz = lo; cz <= 0; cz++) {
+          const has = s.exportChunk(cx, cy, cz, dense);
+          fillNeighbourhood(narrowN, g, has ? dense : null, buildApron(s, cx, cy, cz, pad));
+          fillNeighbourhood(wideN, g, has ? dense : null, buildApron(s, cx, cy, cz, wide));
+          WORLD_RULES.resolve(narrowN, pad - 1, pad + g.edge + 1, narrowOut);
+          WORLD_RULES.resolve(wideN, wide - 1, wide + g.edge + 1, wideOut);
+          const a = terrainSurface(narrowN, narrowOut);
+          const b = terrainSurface(wideN, wideOut);
+          expect(Buffer.from(a.vertices).equals(Buffer.from(b.vertices)) && Buffer.from(a.indices.buffer).equals(Buffer.from(b.indices.buffer)), `edge ${g.edge} seed ${seed} chunk ${cx},${cy},${cz}`).toBe(true);
+          compared += a.indices.length / 3;
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(5000);
+    // A pad short of the reach is refused rather than read past.
+    const short = createNeighbourhood(16, TERRAIN_MESHER_REACH - 1);
+    expect(() => terrainSurface(short, new Uint8Array(short.values.length))).toThrow(/reads 3 cells past/);
+  }, 60_000);
+});
+
 describe('dependency radius and invalidation', () => {
   /** Derived bytes of every chunk in a window. */
   function deriveWindow(s: PaletteStore, win: Array<[number, number, number]>): Map<string, Uint8Array> {
-    return new Map(win.map(([x, y, z]) => [`${x},${y},${z}`, encodeDerived(deriveFromStore(s, x, y, z, PLACEHOLDER_RULES))]));
+    return new Map(win.map(([x, y, z]) => [`${x},${y},${z}`, encodeDerived(deriveFromStore(s, x, y, z, TERRAIN_RULES))]));
   }
 
   function windowOf(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): Array<[number, number, number]> {
@@ -589,7 +637,7 @@ describe('dependency radius and invalidation', () => {
     for (const key of deps) {
       if (!cache.has(key)) continue;
       const [x, y, z] = key.split(',').map(Number) as [number, number, number];
-      const now = encodeDerived(deriveFromStore(s, x, y, z, PLACEHOLDER_RULES));
+      const now = encodeDerived(deriveFromStore(s, x, y, z, TERRAIN_RULES));
       if (crc32(now) !== crc32(cache.get(key)!)) changed.add(key);
       cache.set(key, now);
     }
@@ -685,7 +733,7 @@ describe('dependency radius and invalidation', () => {
 function joinedFromStore(store: PaletteStore, cx: number, cy: number, cz: number, edge: number): JoinedChunk {
   const n = E / edge;
   const ids = Array.from({ length: n * n * n }, (_, i) => i);
-  const results = deriveSectionsWithApron(grid, PLACEHOLDER_RULES, buildApron(store, cx, cy, cz, R), (out) => store.exportChunk(cx, cy, cz, out), edge, ids);
+  const results = deriveSectionsWithApron(grid, TERRAIN_RULES, buildApron(store, cx, cy, cz, R), (out) => store.exportChunk(cx, cy, cz, out), edge, ids);
   return joinSections(E, edge, results.map((r) => r.assembly));
 }
 
@@ -737,7 +785,7 @@ function expectNoCracks(edges: Map<string, number>, faces: readonly number[]): {
 
 describe('meshes', () => {
   it('ground surfaces of neighbouring chunks meet without cracks or doubled triangles', () => {
-    const { edges, tris, surface } = groundEdges((s, cx, cy, cz) => deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES).ground);
+    const { edges, tris, surface } = groundEdges((s, cx, cy, cz) => deriveFromStore(s, cx, cy, cz, TERRAIN_RULES).ground);
     expect(surface).toBeGreaterThanOrEqual(4);
     expect(tris).toBeGreaterThan(1000);
     const { inner, seam } = expectNoCracks(edges, [0]);
@@ -745,7 +793,7 @@ describe('meshes', () => {
     expect(seam).toBeGreaterThan(50);
   });
 
-  it('joins a chunk\'s 16³ and 8³ sections into the whole-chunk derive\'s triangles, instances and shader grid; joined chunks meet without cracks', () => {
+  it('joins a chunk\'s 16³ and 8³ sections (terrain rules and mesher) into the whole-chunk derive\'s triangles, instances and shader grid; joined chunks meet without cracks', () => {
     const hilly = createWorldStore(grid);
     loadArea(hillyWorld({ footprint: 96 }).grids[0]!, hilly, -48, -48, 48, 48);
     const town = createWorldStore(grid);
@@ -756,12 +804,14 @@ describe('meshes', () => {
       ['hilly', hilly, -1, 0, -2, 1, -1, 0],
       ['town', town, 0, 3, -1, 1, 0, 3],
       ['scene', scene, -1, 0, -1, 0, -1, 0],
+      // The cliff and both terrace cases: crease (dual-contouring) vertices on section and chunk faces.
+      ['features', featuresStore(), 6, 9, 0, 1, 0, 1],
     ];
     for (const edge of [16, 8]) {
       const seen = { chunks: 0, ground: 0, base: 0, instances: 0, grids: 0, extraVertices: 0, vertices: 0 };
       for (const [name, store, x0, x1, y0, y1, z0, z1] of cases) {
         for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) for (let cz = z0; cz <= z1; cz++) {
-          const whole = deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES);
+          const whole = deriveFromStore(store, cx, cy, cz, TERRAIN_RULES);
           const joined = joinedFromStore(store, cx, cy, cz, edge);
           const at = `${name} ${edge}³ chunk (${cx}, ${cy}, ${cz})`;
           expect(joined.ground.indices.length, at).toBe(whole.ground.indices.length);

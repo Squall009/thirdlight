@@ -58,7 +58,7 @@ import {
   FloatingOrigin,
   jobRadius,
   MATERIAL_BITS,
-  PLACEHOLDER_RULES,
+  WORLD_RULES,
   SampleRing,
   DEFAULT_SECTION_EDGE,
   SECTION_EDGES,
@@ -179,11 +179,11 @@ async function main(): Promise<void> {
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: voxelStandInLook, blendMetres: blendM, shading });
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, sectionEdge });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
-  const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
+  const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') === 'sloped' ? 'sloped' : params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
   const collision = ring?.collision ?? null;
   origin.onRebase(() => meshes.rebase());
 

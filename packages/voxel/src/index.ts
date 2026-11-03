@@ -251,8 +251,9 @@ export {
   type AssemblyRulesRef,
   type Neighbourhood,
 } from './assembly';
-export { assemblyRules, registerAssemblyRules, registeredAssemblyRules } from './rule-registry';
+export { assemblyRules, registerAssemblyRules, registeredAssemblyRules, WORLD_RULES } from './rule-registry';
 export { TERRAIN_FEATURE, TERRAIN_FEATURE_SHIFT, TERRAIN_RULES, TERRAIN_RULES_RADIUS, TERRAIN_THRESHOLDS, terrainFeatureOf, withTerrainFeatures } from './terrain-rules';
+export { LATTICE_WINDOW, TERRAIN_MESHER_REACH, terrainSurface } from './terrain-mesher';
 export {
   cellBit,
   COLLISION_STEPS_PER_CELL,
@@ -274,12 +275,12 @@ export {
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
 export { encodeShader, SHADER_BORDER_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
-export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource } from './derived-collision';
+export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
 export { groundHeightfield, GROUND_HEIGHTFIELD_TOLERANCE_M, type GroundHeightfield, type HeightfieldRefusal } from './ground-heightfield';
 export { ChunkTreeFlags, downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';

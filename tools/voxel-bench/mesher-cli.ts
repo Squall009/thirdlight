@@ -25,7 +25,6 @@ import {
   evaluateAssembly,
   groundHeightfield,
   jobRadius,
-  PLACEHOLDER_RULES,
   POSITION_STEPS_PER_CELL,
   SURFACE_VERTEX_BYTES,
   TERRAIN_RULES,
@@ -81,7 +80,7 @@ interface WorldReport {
   window: string;
   chunks: number;
   sections: number;
-  /** The derive's own ground and base triangles (placeholder rules), where measured. */
+  /** The derive's own ground (the terrain mesher) and base triangles (terrain rules), where measured. */
   derive?: { ground: number; base: number };
   /** Evaluation alone, µs a section with ground surface p50 / p95. */
   evaluateUs: { p50: number; p95: number };
@@ -155,7 +154,7 @@ function measureWorld(name: string, window: string, store: PaletteStore, x0: num
   for (const id of ids) {
     const [cx, cy, cz] = id.split(',').map(Number) as [number, number, number];
     if (withDerive) {
-      const d = deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES);
+      const d = deriveFromStore(store, cx, cy, cz, TERRAIN_RULES);
       derive.ground += d.ground.indices.length / 3;
       derive.base += d.base.indices.length / 3;
     }

@@ -20,7 +20,7 @@
  * way of moving one) or a swept sphere (`castSphere`).
  */
 import { createPhysicsPort3D, estimateStaticBodyBytes3D, MAX_MESH_TRIANGLES_3D, MAX_MESH_VERTICES_3D, physicsMemoryBytes3D, type ColliderShape3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { chunkOrigin, collisionBodyParts, collisionGeometry, CollisionRing, collisionRingBounds, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, SampleRing, VOXEL_SIZE_M, type CellGrid, type ChunkGrid, type CollisionRingFeed, type CollisionSource, type FloatingOrigin } from '@thirdlight/voxel';
+import { chunkOrigin, collisionBodyParts, collisionGeometry, CollisionRing, collisionRingBounds, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, SampleRing, VOXEL_SIZE_M, type CellGrid, type ChunkGrid, type CollisionRingFeed, type CollisionSource, type FloatingOrigin, type HeightfieldUse } from '@thirdlight/voxel';
 
 const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 /** The physics step rate a drop is simulated at. */
@@ -71,15 +71,16 @@ export class VoxelCollision {
     private readonly port: RapierPhysicsPort3D,
     private readonly grid: CellGrid,
     private readonly origin: FloatingOrigin,
-    private readonly heightfields: boolean,
+    private readonly heightfields: HeightfieldUse,
   ) {}
 
   /**
    * A physics world with no character of its own (probes add theirs), a
-   * body a chunk of `grid`. `heightfields: false` keeps all ground as
-   * meshes (to compare the two).
+   * body a chunk of `grid`. `heightfields` says which ground collides as a
+   * heightfield (collisionGeometry); `false` keeps all ground as meshes (to
+   * compare the two).
    */
-  static async create(grid: CellGrid, origin: FloatingOrigin, heightfields = true): Promise<VoxelCollision> {
+  static async create(grid: CellGrid, origin: FloatingOrigin, heightfields: HeightfieldUse = true): Promise<VoxelCollision> {
     const r = await createPhysicsPort3D({
       character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } },
       noCharacter: true,
@@ -246,7 +247,7 @@ export class PageCollisionRing {
   }
 
   /** A physics world of chunk bodies (`heightfields`: see {@link VoxelCollision.create}) re-placed on every re-base of `origin`. */
-  static async create(grid: ChunkGrid, origin: FloatingOrigin, feed: CollisionRingFeed, heightfields: boolean, ringed: boolean): Promise<PageCollisionRing> {
+  static async create(grid: ChunkGrid, origin: FloatingOrigin, feed: CollisionRingFeed, heightfields: HeightfieldUse, ringed: boolean): Promise<PageCollisionRing> {
     const collision = await VoxelCollision.create(grid, origin, heightfields);
     origin.onRebase(() => collision.rebase());
     return new PageCollisionRing(grid, collision, feed, ringed);

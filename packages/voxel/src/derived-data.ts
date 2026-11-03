@@ -1,5 +1,5 @@
 /**
- * Derived data of one chunk (format v3 DRAFT): everything rebuilt from the
+ * Derived data of one chunk (format v4 DRAFT): everything rebuilt from the
  * authoritative voxels for meshing, culling, physics, navigation and
  * lighting. Never committed, never saved: always rebuilt, in workers, from
  * a chunk and its apron.
@@ -29,8 +29,9 @@
  * - **navigation**: a blocking bit per cell and the standable cells
  *   (cell index, clearance in cells, and whether the clearance continues
  *   into the chunk above);
- * - **meshes** (derived-mesh.ts): the ground surface, the base surface and
- *   the detail-instance list;
+ * - **meshes** (derived-mesh.ts layouts): the ground surface (the terrain
+ *   mesher, terrain-mesher.ts), the base surface and the detail-instance
+ *   list;
  * - **shader data** (derived-shader.ts): the material and wetness of the
  *   chunk's cells and a border around them, for the surface shader.
  *
@@ -45,12 +46,17 @@
  */
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { BRICK_EDGE } from './brick-layout';
-import { baseSurface, detailInstances, groundSurface, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { baseSurface, detailInstances, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
+import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
 
-/** Version of the derived-data layout. */
-export const DERIVED_FORMAT_VERSION = 3;
+/**
+ * Version of the derived-data layout and meaning. 4: the ground surface is
+ * the terrain mesher's (vertices on the column lattice and at creases, not
+ * at the mean of their crossings); the layout is v3's.
+ */
+export const DERIVED_FORMAT_VERSION = 4;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -451,7 +457,7 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     if (times !== undefined) times.evaluateUs += (t1 - t0) * 1000;
     return uniform;
   }
-  const ground = groundSurface(n, classes);
+  const ground = terrainSurface(n, classes);
   const base = baseSurface(n, classes);
   const instances = detailInstances(n, classes);
   const t2 = performance.now();

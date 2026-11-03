@@ -35,7 +35,7 @@ import {
   LIGHT_COVERAGE,
   PIECE_FAMILY,
   PIECE_SECTION,
-  PLACEHOLDER_RULES,
+  WORLD_RULES,
   resolvedClassAt,
   RUN_X,
   RUN_Z,
@@ -62,8 +62,8 @@ const SECTION_IDS = Array.from({ length: (32 / SECTION) ** 3 }, (_, i) => i);
 
 /** A chunk's collision as the streamer hands it over: its 16³ sections derived and joined. */
 function joinedChunk(s: PaletteStore, cx: number, cy: number, cz: number): CollisionSource {
-  const apron = buildApron(s, cx, cy, cz, jobRadius(PLACEHOLDER_RULES));
-  const sections = deriveSectionsWithApron(grid, PLACEHOLDER_RULES, apron, (out) => s.exportChunk(cx, cy, cz, out), SECTION, SECTION_IDS).map((r) => r.assembly);
+  const apron = buildApron(s, cx, cy, cz, jobRadius(WORLD_RULES));
+  const sections = deriveSectionsWithApron(grid, WORLD_RULES, apron, (out) => s.exportChunk(cx, cy, cz, out), SECTION, SECTION_IDS).map((r) => r.assembly);
   return joinSections(grid.edge, SECTION, sections);
 }
 const C = VOXEL_ROLE;
@@ -76,7 +76,7 @@ function scene(): PaletteStore {
 }
 
 function outputsAt(s: PaletteStore, x: number, y: number, z: number): ReturnType<typeof cellOutputs> {
-  const d = deriveFromStore(s, x >> 5, y >> 5, z >> 5, PLACEHOLDER_RULES);
+  const d = deriveFromStore(s, x >> 5, y >> 5, z >> 5, WORLD_RULES);
   return cellOutputs(d, x & 31, y & 31, z & 31);
 }
 
@@ -91,10 +91,10 @@ function growBanister(s: PaletteStore): void {
 describe('per-cell outputs of one assembly evaluation', () => {
   it('give a wall, a beam, a rail and a post different render, collision, nav and light results, and follow the neighbours', () => {
     const s = scene();
-    expect(resolvedClassAt(s, PLACEHOLDER_RULES, -4, 4, 0)).toBe(ASSEMBLY_CLASS.wall);
-    expect(resolvedClassAt(s, PLACEHOLDER_RULES, -4, 5, -1)).toBe(ASSEMBLY_CLASS.beam | RUN_X);
-    expect(resolvedClassAt(s, PLACEHOLDER_RULES, -3, 2, 7)).toBe(ASSEMBLY_CLASS.rail | RUN_X);
-    expect(resolvedClassAt(s, PLACEHOLDER_RULES, -4, 1, 7)).toBe(ASSEMBLY_CLASS.rail | RUN_X | RUN_Z);
+    expect(resolvedClassAt(s, WORLD_RULES, -4, 4, 0)).toBe(ASSEMBLY_CLASS.wall);
+    expect(resolvedClassAt(s, WORLD_RULES, -4, 5, -1)).toBe(ASSEMBLY_CLASS.beam | RUN_X);
+    expect(resolvedClassAt(s, WORLD_RULES, -3, 2, 7)).toBe(ASSEMBLY_CLASS.rail | RUN_X);
+    expect(resolvedClassAt(s, WORLD_RULES, -4, 1, 7)).toBe(ASSEMBLY_CLASS.rail | RUN_X | RUN_Z);
 
     const wall = outputsAt(s, -4, 5, 0);
     expect(wall).toMatchObject({ renderSolid: true, piece: null, collision: 'full', navBlocks: true, light: 255 });
@@ -118,7 +118,7 @@ describe('per-cell outputs of one assembly evaluation', () => {
     expect(outputsAt(s, -3, 3, 7).standable).toBe(false);
 
     growBanister(s);
-    expect(resolvedClassAt(s, PLACEHOLDER_RULES, -3, 2, 7)).toBe(ASSEMBLY_CLASS.wall);
+    expect(resolvedClassAt(s, WORLD_RULES, -3, 2, 7)).toBe(ASSEMBLY_CLASS.wall);
     expect(outputsAt(s, -3, 2, 7)).toMatchObject({ renderSolid: true, piece: null, collision: 'full', light: 255 });
     // No longer replaced by a piece: the run's front and back faces are base surface again.
     expect(outputsAt(s, -3, 2, 7).baseFaces).toBe(2);
@@ -127,7 +127,7 @@ describe('per-cell outputs of one assembly evaluation', () => {
 
   it('cut the ground surface into meshes within a port\'s limits without losing a triangle', () => {
     const s = scene();
-    const d = deriveFromStore(s, -1, -1, -1, PLACEHOLDER_RULES);
+    const d = deriveFromStore(s, -1, -1, -1, WORLD_RULES);
     const whole = collisionGeometry(d);
     expect(whole.meshes).toHaveLength(1);
     const tris = whole.meshes[0]!.indices.length / 3;
@@ -230,11 +230,13 @@ describe('ground as a heightfield', () => {
     // triangles stay a mesh.
     for (const inset of [0, 0.3]) {
       const src: CollisionSource = { edge: 32, collision: NO_BOXES, ground: latticeSurface(32, bumps, inset) };
-      const geo = collisionGeometry(src);
+      // Sloped ground collides as a heightfield only when asked; by default it stays a mesh.
+      expect(collisionGeometry(src).heightfield).toBeNull();
+      const geo = collisionGeometry(src, {}, 'sloped');
       expect(geo.heightfield).toMatchObject(inset === 0 ? { x: 0, z: 0, cellsX: 32, cellsZ: 32 } : { x: 0.5, z: 0, cellsX: 31, cellsZ: 32 });
       expect(geo.meshes.reduce((n, m) => n + m.indices.length / 3, 0)).toBe(inset === 0 ? 0 : 64);
       const origin = (): FloatingOrigin => new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } });
-      const field = await VoxelCollision.create(grid, origin());
+      const field = await VoxelCollision.create(grid, origin(), 'sloped');
       const mesh = await VoxelCollision.create(grid, origin(), false);
       for (const p of [field, mesh]) p.set(1, 0, 0, 0, src);
       expect(field.stats()).toMatchObject({ bodies: 1, heightfields: 1 });
@@ -287,7 +289,7 @@ describe('ground as a heightfield', () => {
       if (geo.heightfield === null) continue;
       fields.push([cx, cy, cz]);
       // Joined sections' ground is the whole-chunk derive's: the same heightfield.
-      const whole = groundHeightfield(deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES).ground, 32);
+      const whole = groundHeightfield(deriveFromStore(s, cx, cy, cz, WORLD_RULES).ground, 32);
       expect(typeof whole === 'string' ? whole : Array.from(whole.heights)).toEqual(Array.from(geo.heightfield.heights));
     }
     expect(field.stats()['heightfields']).toBe(fields.length);

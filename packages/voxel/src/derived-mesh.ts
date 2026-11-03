@@ -1,10 +1,11 @@
 /**
- * Mesh output buffers of a derived chunk (formats, DRAFT) and their
- * reference producers: a naive surface-nets pass for projected ground, cube
- * faces for modular bodies, and a detail-instance list for the features
- * the assembly evaluation resolved (beams, rails, posts). The producers are
- * there to fill and measure the formats; the real mesher and case pass
- * replace them, writing the same layouts.
+ * Mesh output buffers of a derived chunk (formats, DRAFT) and the
+ * producers of the built parts: cube faces for modular bodies and a
+ * detail-instance list for the features the assembly evaluation resolved
+ * (beams, rails, posts). The ground surface is the terrain mesher's
+ * (terrain-mesher.ts), in the same surface layout. The built producers are
+ * there to fill and measure the formats; the case pass replaces them,
+ * writing the same layouts.
  *
  * **Surface buffer** (one per surface kind): interleaved vertices whose
  * attributes are WebGPU/WebGL 2 vertex formats, then indices.
@@ -131,111 +132,8 @@ class SurfaceBuilder {
 }
 
 /** Snorm8 of a unit-vector component. */
-function snorm8(v: number): number {
+export function snorm8(v: number): number {
   return Math.max(-127, Math.min(127, Math.round(v * 127)));
-}
-
-/** Corner offsets of a dual cube (x, y, z each 0 or 1), bit 0 = x, bit 1 = y, bit 2 = z. */
-const CORNERS: Array<[number, number, number]> = [];
-for (let c = 0; c < 8; c++) CORNERS.push([c & 1, (c >> 1) & 1, (c >> 2) & 1]);
-/** The 12 edges of a cube as corner pairs. */
-const EDGES: Array<[number, number]> = [];
-for (let a = 0; a < 8; a++) for (const bit of [1, 2, 4]) if ((a & bit) === 0) EDGES.push([a, a | bit]);
-
-/**
- * The projected surface (naive surface nets over ground density at cell
- * centres, iso {@link SURFACE_ISO}): one vertex per dual cube the surface
- * crosses, at the mean of its edge crossings; one quad per sign-changing
- * sample edge whose lower sample lies in the chunk. Needs classes and
- * shapes one cell around the chunk.
- */
-export function groundSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBuffer {
-  const e = n.edge;
-  const p = n.pad;
-  const s = n.side;
-  const b = new SurfaceBuilder();
-  // Densities of the samples at local −1 … E, indexed (x·m + z)·m + y with m = E + 2 and local l at l + 1.
-  const m = e + 2;
-  const dens = new Uint8Array(m * m * m);
-  let inside = 0;
-  for (let x = 0; x < m; x++) for (let z = 0; z < m; z++) {
-    const src = ((x - 1 + p) * s + (z - 1 + p)) * s + (p - 1);
-    const dst = (x * m + z) * m;
-    for (let y = 0; y < m; y++) {
-      const i = src + y;
-      const d = (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground ? n.shapes[i]! : 0;
-      dens[dst + y] = d;
-      if (d >= SURFACE_ISO) inside++;
-    }
-  }
-  // All outside or all inside: no sample edge changes sign.
-  if (inside === 0 || inside === dens.length) return b.build();
-  const di = (x: number, y: number, z: number): number => ((x + 1) * m + (z + 1)) * m + (y + 1);
-  const dual = new Int32Array((e + 1) ** 3).fill(-1);
-  const corner = new Float64Array(8);
-  const vertexOf = (x: number, y: number, z: number): number => {
-    const k = ((x + 1) * (e + 1) + (z + 1)) * (e + 1) + (y + 1);
-    if (dual[k]! >= 0) return dual[k]!;
-    for (let c = 0; c < 8; c++) {
-      const [ox, oy, oz] = CORNERS[c]!;
-      corner[c] = dens[di(x + ox, y + oy, z + oz)]!;
-    }
-    let fx = 0;
-    let fy = 0;
-    let fz = 0;
-    let crossings = 0;
-    for (const [a, c] of EDGES) {
-      const da = corner[a]!;
-      const dc = corner[c]!;
-      if (da >= SURFACE_ISO === dc >= SURFACE_ISO) continue;
-      const t = (SURFACE_ISO - 0.5 - da) / (dc - da);
-      const [ax, ay, az] = CORNERS[a]!;
-      const [cx, cy, cz] = CORNERS[c]!;
-      fx += ax + (cx - ax) * t;
-      fy += ay + (cy - ay) * t;
-      fz += az + (cz - az) * t;
-      crossings++;
-    }
-    fx /= crossings;
-    fy /= crossings;
-    fz /= crossings;
-    // Density rises into the ground, so the outward normal is minus its gradient.
-    let gx = 0;
-    let gy = 0;
-    let gz = 0;
-    for (let c = 0; c < 8; c++) {
-      const [ox, oy, oz] = CORNERS[c]!;
-      gx += (ox === 1 ? 1 : -1) * corner[c]!;
-      gy += (oy === 1 ? 1 : -1) * corner[c]!;
-      gz += (oz === 1 ? 1 : -1) * corner[c]!;
-    }
-    const len = Math.hypot(gx, gy, gz) || 1;
-    const steps = POSITION_STEPS_PER_CELL;
-    const q = (cell: number, f: number): number => (cell + 1) * steps + steps / 2 + Math.round(f * steps);
-    const v = b.vertex(q(x, fx), q(y, fy), q(z, fz), snorm8(-gx / len), snorm8(-gy / len), snorm8(-gz / len));
-    dual[k] = v;
-    return v;
-  };
-  const quad = (a: number, c: number, d: number, f: number, flip: boolean): void => {
-    if (flip) b.tris.push(a, f, d, a, d, c);
-    else b.tris.push(a, c, d, a, d, f);
-  };
-  const SX = m * m;
-  const SZ = m;
-  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
-    const col = di(x, 0, z);
-    for (let y = 0; y < e; y++) {
-      const i = col + y;
-      const inside = dens[i]! >= SURFACE_ISO;
-      // Edge along +x: the quad joins the dual cubes at (x, y−1…y, z−1…z), ordered round +x (y, then z).
-      if (inside !== dens[i + SX]! >= SURFACE_ISO) quad(vertexOf(x, y - 1, z - 1), vertexOf(x, y, z - 1), vertexOf(x, y, z), vertexOf(x, y - 1, z), !inside);
-      // Along +y: round +y is z, then x.
-      if (inside !== dens[i + 1]! >= SURFACE_ISO) quad(vertexOf(x - 1, y, z - 1), vertexOf(x - 1, y, z), vertexOf(x, y, z), vertexOf(x, y, z - 1), !inside);
-      // Along +z: round +z is x, then y.
-      if (inside !== dens[i + SZ]! >= SURFACE_ISO) quad(vertexOf(x - 1, y - 1, z), vertexOf(x, y - 1, z), vertexOf(x, y, z), vertexOf(x - 1, y, z), !inside);
-    }
-  }
-  return b.build();
 }
 
 /** Whether a resolved cell hides a modular body's face (another body, or ground at least half full). */

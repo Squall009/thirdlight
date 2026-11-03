@@ -980,7 +980,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v3 — never committed, never saved (`assembly.ts`, `derived-data.ts`, `derived-mesh.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v4 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1017,7 +1017,7 @@ hash results; they are never stored.
 | rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
 | liquid | no | none (49) | no / no | 0 |
 
-**Outputs per chunk.** A result records `v` (derived format version 3), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 4), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1062,11 +1062,23 @@ chunk):
   covers the surface (any later mesh level of detail).
 - Indices are u16 below 65,536 vertices, otherwise u32.
 - Triangles are counter-clockwise seen from outside.
-- **No cracks between chunks.** A boundary vertex is a function of its 8 samples, quantised as integer steps in world
-  cells, so both chunks compute the same bits. A sample edge belongs to the chunk of its lower sample, so no
-  triangle is drawn twice.
-- The producers are references only: naive surface nets for the ground, and one quad per exposed face for the base.
-  46b (the terrain mesher) and 46c (kits and cases) replace them, writing the same layout or bumping the version.
+- **No cracks between chunks.** A boundary vertex is a function of samples within the job's pad, quantised as
+  integer steps in world cells, so both chunks (and both sections) compute the same bits. A sample edge belongs to
+  the chunk of its lower sample, so no triangle is drawn twice.
+- **Ground: the terrain mesher (v4, `terrain-mesher.ts`).** Surface nets over the terrain cells' density, one vertex
+  a dual cube, placed by the terrain rules' features: a cube touching a cliff or terrace-lip cell takes the
+  dual-contouring point of its edge crossings (QEF, pulled 0.05 toward their mean, inside the cube); a cube whose
+  four sample columns are each a height function over `LATTICE_WINDOW` (2) cells either side takes the column
+  lattice point (the cube's centre x/z, a cell corner, at the columns' mean fill height), shared by every cube of
+  that column stack, so the quads between them collapse; any other cube the mean of its crossings. Non-lattice
+  vertices stay one step inside their cube and off its centre line, so only lattice vertices are ever shared and
+  a chunk's joined sections are its whole derive, triangle for triangle. **Reach:** the mesher reads voxels
+  `TERRAIN_MESHER_REACH` (3) cells above and below the chunk and classes one cell round it, within the job's pad
+  (R + 1 = 3), so invalidation is unchanged; a narrower pad is refused, and a test meshes random terrain with the
+  job's pad and 3 cells more and gets the same bytes. With rules that set no features (placeholder), creases are
+  placed as plain nets. The naive surface nets of v3 live on in the bench as the goldens' "before".
+- The base surface is a reference producer (one quad per exposed face); 46c (kits and cases) replaces it, writing
+  the same layout or bumping the version.
 
 **Detail instance (8 bytes):**
 - u8 x, y, z: the cell inside the chunk;
@@ -1175,7 +1187,14 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 3 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 4 | refused | rebuilt, never upgraded |
+
+**Derived data 3 → 4 (46b.3b, owner note: default chosen, owner to confirm).** The layout is unchanged (12-byte
+vertices, u16/u32 indices); the meaning of the ground's vertex positions changed (the terrain mesher's placement,
+§3.7, instead of the mean of the crossings), so the version steps and a v3 result is never taken for a v4 one.
+Derived data is never stored, so there is nothing to upgrade: everything is derived again. The streamed worlds
+(slice page, Play, the Scene view) derive with `WORLD_RULES` = the terrain rules (`terrain` v1, R 2). No stored
+format changed.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules

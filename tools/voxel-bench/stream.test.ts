@@ -31,7 +31,7 @@ import {
   exportOrAir,
   FloatingOrigin,
   jobRadius,
-  PLACEHOLDER_RULES,
+  WORLD_RULES,
   PLANE_BIT,
   RegionChunkSource,
   RESIDENT_CHUNK_OVERHEAD_BYTES,
@@ -363,13 +363,13 @@ describe('streamer (workers, region files on disk)', () => {
   it('derives with assembly rules in real workers, equal to the in-thread derive; an edit at a chunk corner rebuilds what depends on it', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     disks.push(disk);
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000, sectionEdge: 32 });
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, deriveMsPerUpdate: 10_000, sectionEdge: 32 });
     const truth = copyOracle();
     const expectAssemblyEqual = (): number => {
       let n = 0;
       for (const d of s.derivedChunks()) {
         if (d.result.assembly === null) continue;
-        const want = encodeDerived(deriveFromStore(truth, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+        const want = encodeDerived(deriveFromStore(truth, d.cx, d.cy, d.cz, WORLD_RULES));
         if (Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want)) !== 0) throw new Error(`derived (${d.cx}, ${d.cy}, ${d.cz}) differs from the in-thread derive`);
         n++;
       }
@@ -415,7 +415,7 @@ describe('streamer (workers, region files on disk)', () => {
     for (const edge of [16, 8] as const) {
       const disk = new DiskRegions(join(dir, 'world'));
       disks.push(disk);
-      const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, sectionEdge: edge });
+      const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: edge });
       const sections = s.sections;
       expect(sections.edge).toBe(edge);
       const truth = copyOracle();
@@ -435,7 +435,7 @@ describe('streamer (workers, region files on disk)', () => {
       // A chunk's joined draw equals the whole 32³ chunk derived in this thread from the oracle: triangles, instances, shader grid.
       const joinedLikeWhole = (store: PaletteStore, cx: number, cy: number, cz: number): void => {
         const joined = s.joinedChunk(cx, cy, cz);
-        const whole = deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES);
+        const whole = deriveFromStore(store, cx, cy, cz, WORLD_RULES);
         const at = `${edge}³ chunk (${cx}, ${cy}, ${cz})`;
         if (joined === null) {
           // Nothing derived with rules (air with air around): the whole chunk draws nothing either.
@@ -454,7 +454,7 @@ describe('streamer (workers, region files on disk)', () => {
         let n = 0;
         for (const d of s.derivedChunks()) {
           if (d.result.assembly === null || Math.abs(d.cx * edge) > 64 || Math.abs(d.cz * edge) > 64 || Math.abs(d.cy * edge - 40) > 64) continue;
-          const want = encodeDerived(deriveSectionFromStore(store, sections, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+          const want = encodeDerived(deriveSectionFromStore(store, sections, d.cx, d.cy, d.cz, WORLD_RULES));
           if (Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want)) !== 0) throw new Error(`section ${edge}³ (${d.cx}, ${d.cy}, ${d.cz}) differs from the in-thread derive`);
           n++;
         }
@@ -540,7 +540,7 @@ describe('streamer (workers, region files on disk)', () => {
     const disk = new DiskRegions(join(dir, 'world'));
     disks.push(disk);
     // The engine default: 16-cell sections with assembly rules.
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES });
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES });
     const sections = s.sections;
     expect(sections.edge).toBe(DEFAULT_SECTION_EDGE);
     const truth = copyOracle();
@@ -567,7 +567,7 @@ describe('streamer (workers, region files on disk)', () => {
       let n = 0;
       for (const d of s.derivedChunks()) {
         if (d.result.assembly === null || Math.abs(d.cx * 16) > 64 || Math.abs(d.cz * 16) > 64 || Math.abs(d.cy * 16 - y0) > 64) continue;
-        const want = encodeDerived(deriveSectionFromStore(store, sections, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+        const want = encodeDerived(deriveSectionFromStore(store, sections, d.cx, d.cy, d.cz, WORLD_RULES));
         if (Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want)) !== 0) throw new Error(`section (${d.cx}, ${d.cy}, ${d.cz}) differs from a fresh derive`);
         n++;
       }
@@ -726,7 +726,7 @@ describe('streamer (workers, region files on disk)', () => {
               },
       });
     const source = reader();
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source, pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000, sectionEdge: 32 });
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source, pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, deriveMsPerUpdate: 10_000, sectionEdge: 32 });
     s.setFocus(0, 40, 0);
     await s.settle();
     // A stale reader (tables opened before the write) of every stored chunk of the files the edit rewrites.
@@ -761,7 +761,7 @@ describe('streamer (workers, region files on disk)', () => {
     let n = 0;
     for (const d of s.derivedChunks()) {
       if (d.result.assembly === null) continue;
-      const want = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      const want = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, WORLD_RULES));
       expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want))).toBe(0);
       n++;
     }
@@ -778,12 +778,12 @@ describe('streamer (workers, region files on disk)', () => {
     const box = editBounds(grid, one);
     s.refresh(out2.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })), box);
     await s.settle();
-    const want = dependentChunks(grid, box, jobRadius(PLACEHOLDER_RULES)).map((c) => `${c.cx},${c.cy},${c.cz}`);
+    const want = dependentChunks(grid, box, jobRadius(WORLD_RULES)).map((c) => `${c.cx},${c.cy},${c.cz}`);
     expect(want).toHaveLength(4);
     expect([...rebuilt].sort()).toEqual(want.sort());
     for (const d of s.derivedChunks()) {
       if (d.result.assembly === null) continue;
-      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, WORLD_RULES));
       expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
     }
 
@@ -816,7 +816,7 @@ describe('streamer (workers, region files on disk)', () => {
     expect([...shaderOnly].sort()).toEqual(wetChunks.map((c) => `${c.cx},${c.cy},${c.cz}`).sort());
     for (const d of s.derivedChunks()) {
       if (d.result.assembly === null) continue;
-      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, WORLD_RULES));
       expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
     }
     expect(s.derivedOf(-1, 1, -1)?.assembly?.shader.palette).toContain(41 | (5 << 12));
@@ -841,7 +841,7 @@ describe('streamer (workers, region files on disk)', () => {
     expect([...shaderOnly].sort()).toEqual(dependentChunks(grid, editBounds(grid, paint), SHADER_BORDER_CELLS).map((c) => `${c.cx},${c.cy},${c.cz}`).sort());
     for (const d of s.derivedChunks()) {
       if (d.result.assembly === null) continue;
-      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, WORLD_RULES));
       expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
     }
     // The neighbour across both faces holds the painted cell in its border (grid cell 32 + 1 on x and z).
@@ -892,7 +892,7 @@ describe('streamer (workers, region files on disk)', () => {
   it('keeps chunk bodies in the collision ring of a moving focus (real workers, real Rapier): an edit swaps them with the draws, they count in the budget and leave with evicted chunks', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     disks.push(disk);
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES });
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES });
     const physics = await VoxelCollision.create(grid, new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } }));
     // 24 m around, 16 m up and down, 8 m kept: half the stream ring's radius.
     const ring = new CollisionRing({ grid, bodies: physics, feed: s, bounds: collisionRingBounds({ radius: 48, height: 32 }, 16) });

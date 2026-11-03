@@ -8,9 +8,9 @@
  * corner), so the golden harness, the heightfield check and the byte counts
  * apply to all of them unchanged.
  *
- * - `reference`: the derive's naive surface nets (vertex at the mean of the
- *   dual cube's edge crossings), written over the same density field as the
- *   others; tested equal to the derive's ground triangle for triangle.
+ * - `reference`: the naive surface nets the derive used before the terrain
+ *   mesher (vertex at the mean of the dual cube's edge crossings), written
+ *   over the same density field as the others: the "before" of the goldens.
  * - `lattice`: surface nets whose dual cubes over a height function put
  *   their vertex on the column lattice (the cube's centre x/z, a cell
  *   corner) at the height the four sample columns' fill gives; stacked
@@ -21,6 +21,9 @@
  *   terrain rules call a cliff or a terrace lip; elsewhere the reference.
  * - `lattice+dc`: the rules' creases first (dual contouring), then the
  *   column lattice, then the reference.
+ * - `terrain`: the package's terrain mesher (terrain-mesher.ts), the pick
+ *   built: `lattice+dc` with its other vertices kept inside their cubes and
+ *   off the lattice.
  * - `mc`: marching cubes over the same samples, one vertex a sign-changing
  *   sample edge, with a case table built from the cube's faces (each face's
  *   ambiguous diagonal resolved as separate inside corners, a face's own
@@ -39,7 +42,10 @@ import {
   evaluateAssembly,
   fillNeighbourhood,
   jobRadius,
+  LATTICE_WINDOW,
+  snorm8,
   TERRAIN_RULES,
+  terrainSurface,
   type PaletteStore,
   POSITION_STEPS_PER_CELL,
   SURFACE_ISO,
@@ -59,8 +65,6 @@ export interface MesherCandidate {
 }
 
 const STEPS = POSITION_STEPS_PER_CELL;
-/** Cells above and below a dual cube's two sample layers that a column-lattice height reads. */
-export const LATTICE_WINDOW = 2;
 /** Weight pulling a dual-contouring vertex toward its crossings' mean (keeps the QEF solvable along a crease). */
 const QEF_PULL = 0.05;
 
@@ -86,9 +90,9 @@ class Surface {
     this.pos[o] = qx;
     this.pos[o + 1] = qy;
     this.pos[o + 2] = qz;
-    this.nrm[o] = snorm(nx / len);
-    this.nrm[o + 1] = snorm(ny / len);
-    this.nrm[o + 2] = snorm(nz / len);
+    this.nrm[o] = snorm8(nx / len);
+    this.nrm[o + 1] = snorm8(ny / len);
+    this.nrm[o + 2] = snorm8(nz / len);
     return this.count++;
   }
 
@@ -131,10 +135,6 @@ class Surface {
     const indices = this.count < 65536 ? Uint16Array.from(t) : Uint32Array.from(t);
     return { vertexCount: this.count, vertices, indices };
   }
-}
-
-function snorm(v: number): number {
-  return Math.max(-127, Math.min(127, Math.round(v * 127)));
 }
 
 /** Corner offsets of a cube (bit 0 x, bit 1 y, bit 2 z) and its 12 edges as corner pairs. */
@@ -545,6 +545,8 @@ export const MESHER_CANDIDATES: readonly MesherCandidate[] = [
   { name: 'dc', mesh: (n, c) => nets(n, c, placeSharpOrMean, false) },
   { name: 'lattice+dc', mesh: (n, c) => nets(n, c, placeSharpLatticeMean, true) },
   { name: 'mc', mesh: (n) => marchingCubes(n) },
+  // The package's terrain mesher (the pick, built): lattice+dc, its placements kept inside their cubes.
+  { name: 'terrain', mesh: (n, c) => terrainSurface(n, c) },
 ];
 
 const grid = chunkGrid(32);

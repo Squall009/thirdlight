@@ -65,7 +65,7 @@ import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, PLACEHOLDER_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, WORLD_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -122,7 +122,7 @@ const sectionName = (c: Cell): string => c.map((v) => Math.floor(v / section)).j
 
 /** The sections a command can change results in: within the rules' radius + reach of the cells it can change. */
 function dependents(command: unknown): string[] {
-  return dependentChunks(sectionGrid(section), editBounds(grid, canonicalEditCommand(command)), jobRadius(PLACEHOLDER_RULES))
+  return dependentChunks(sectionGrid(section), editBounds(grid, canonicalEditCommand(command)), jobRadius(WORLD_RULES))
     .map((c) => `${c.cx},${c.cy},${c.cz}`)
     .sort();
 }

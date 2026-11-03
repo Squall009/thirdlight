@@ -24,7 +24,7 @@ import {
 } from '@thirdlight/runtime';
 import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
 import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
-import { chunkDrawBatchTransfer, chunkGrid, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, PLACEHOLDER_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
+import { chunkDrawBatchTransfer, chunkGrid, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
@@ -317,7 +317,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(new Set(named).size).toBe(named.length);
     const c = (v: number): number => Math.floor(v / VOXEL_SIZE_M);
     const box = { minX: c(cx - 2), minY: c(surfaceM - 3), minZ: c(cz - 2), maxX: c(cx + 2), maxY: c(surfaceM + 1), maxZ: c(cz + 2) };
-    const reach = new Set(dependentChunks(grid, box, jobRadius(PLACEHOLDER_RULES)).map((k) => `${k.cx},${k.cy},${k.cz}`));
+    const reach = new Set(dependentChunks(grid, box, jobRadius(WORLD_RULES)).map((k) => `${k.cx},${k.cy},${k.cz}`));
     for (const n of named) expect(reach.has(n)).toBe(true);
     expect(named).toContain(`${Math.floor(c(cx) / 32)},${Math.floor(c(surfaceM - 1) / 32)},${Math.floor(c(cz) / 32)}`);
     for (const b of change.chunks) expect(b.max[0] - b.min[0]).toBe(m);
@@ -814,7 +814,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     const rebuilt = (): { cx: number; cy: number; cz: number }[] => {
       const s = streamer!;
       const up = grid.shift - s.sections.shift;
-      return dependentChunks(s.sections, box, jobRadius(PLACEHOLDER_RULES)).filter((d) => s.isResident(d.cx >> up, d.cy >> up, d.cz >> up));
+      return dependentChunks(s.sections, box, jobRadius(WORLD_RULES)).filter((d) => s.isResident(d.cx >> up, d.cy >> up, d.cz >> up));
     };
     // The dig goes in the first step that finds the pit resident: its neighbours are still loading, so some of the
     // sections it rebuilds cannot derive yet.

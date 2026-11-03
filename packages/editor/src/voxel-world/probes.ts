@@ -18,7 +18,7 @@ import {
   encodeDerived,
   jobRadius,
   localOf,
-  PLACEHOLDER_RULES,
+  WORLD_RULES,
   resolvedClassAt,
   RUN_X,
   RUN_Z,
@@ -70,10 +70,10 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
     const store = streamer.overlay;
     const [cx, cy, cz] = [Math.floor(sx / per), Math.floor(sy / per), Math.floor(sz / per)];
     if (store.chunkForm(cx, cy, cz) === 'absent') {
-      const apron = buildApron(store, cx, cy, cz, jobRadius(PLACEHOLDER_RULES));
+      const apron = buildApron(store, cx, cy, cz, jobRadius(WORLD_RULES));
       if (apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) return 0;
     }
-    return crc32(encodeDerived(deriveSectionFromStore(store, sections, sx, sy, sz, PLACEHOLDER_RULES)));
+    return crc32(encodeDerived(deriveSectionFromStore(store, sections, sx, sy, sz, WORLD_RULES)));
   }
 
   /** The derived sections within `r` sections of (cx, cy, cz) (section coordinates): their hashes by "x,y,z" (null: not derived). */
@@ -107,7 +107,7 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
       const d = streamer.derivedOf(chunkOf(sections, x), chunkOf(sections, y), chunkOf(sections, z))?.assembly ?? null;
       return {
         voxel: { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness },
-        resolved: className(resolvedClassAt(streamer.overlay, PLACEHOLDER_RULES, x, y, z)),
+        resolved: className(resolvedClassAt(streamer.overlay, WORLD_RULES, x, y, z)),
         outputs: d === null ? null : cellOutputs(d, localOf(sections, x), localOf(sections, y), localOf(sections, z)),
       };
     },

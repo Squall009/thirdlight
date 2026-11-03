@@ -1,0 +1,419 @@
+/**
+ * The terrain mesher: the ground surface of a derive job, surface nets over
+ * the terrain-role cells' density whose vertex placement follows the
+ * terrain rule set's features.
+ *
+ * One vertex a dual cube the surface crosses, one quad a sign-changing
+ * sample edge whose lower sample lies in the chunk (the derive's ground
+ * layout, derived-mesh.ts). Where a vertex goes, in this order:
+ * - **crease** (a cube touching a cell the rules call a cliff or a terrace
+ *   lip): dual contouring, the point nearest the tangent planes of the
+ *   cube's edge crossings (normals from the cube's own trilinear field, so
+ *   a one-cell pit or wall beside the crease does not bend them), pulled a
+ *   little toward their mean so a crease along one axis stays solvable,
+ *   kept inside the cube;
+ * - **column lattice** (the cube's four sample columns are each a height
+ *   function over a window of {@link LATTICE_WINDOW} cells either side of
+ *   the cube: full at its bottom, empty at its top, never filling again
+ *   going up): the cube's centre x/z, a cell corner, at the four columns'
+ *   mean fill height. That height does not depend on where the window
+ *   starts, so every cube of one column stack gives the same vertex: they
+ *   share it and the quads between them collapse. Ordinary ground is then
+ *   one vertex a column on the cell-corner lattice, which a heightfield
+ *   collider and a coarser lattice level can take as it is;
+ * - otherwise the mean of the cube's edge crossings (plain surface nets).
+ *
+ * **Crack-free.** A vertex is a function of samples within the job's pad,
+ * quantised to whole position steps, so every chunk and section that meets
+ * it computes the same bits; each sample edge belongs to one chunk. Only
+ * column-lattice vertices are shared between cubes. Every other vertex is
+ * kept strictly inside its own cube and off the cube's centre line, so it
+ * never lands on another cube's vertex: a vertex's normal is then the one
+ * its own placement gives whichever cubes a section happens to reference,
+ * and a chunk's joined sections are its whole derive triangle for triangle.
+ *
+ * **Reach.** The lattice test reads values and shapes up to
+ * {@link TERRAIN_MESHER_REACH} cells above and below the chunk, one cell
+ * across; the creases read resolved classes of the cube's cells (one cell
+ * round the chunk, the consumers' reach). A job's pad must cover it.
+ */
+import type { Neighbourhood } from './assembly';
+import { POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
+import { DENSITY_FULL, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
+import { TERRAIN_FEATURE, terrainFeatureOf } from './terrain-rules';
+
+/** Cells above and below a dual cube's two sample layers that its column-lattice height reads. */
+export const LATTICE_WINDOW = 2;
+
+/** Cells past the chunk (above and below) the mesher reads voxels of: the lattice window past the cube's samples. */
+export const TERRAIN_MESHER_REACH = LATTICE_WINDOW + 1;
+
+/** Weight pulling a crease vertex toward its crossings' mean (keeps the QEF solvable along a straight crease). */
+const QEF_PULL = 0.05;
+
+const STEPS = POSITION_STEPS_PER_CELL;
+const HALF = STEPS / 2;
+const R = TERRAIN_MESHER_REACH;
+const W = LATTICE_WINDOW;
+
+/** Per class byte: 1 when the cell is a crease the mesher places sharp (cliff, terrace lip). */
+const SHARP = new Uint8Array(256);
+for (let b = 0; b < 256; b++) {
+  const f = terrainFeatureOf(b);
+  if (f === TERRAIN_FEATURE.cliff || f === TERRAIN_FEATURE.terraceLip) SHARP[b] = 1;
+}
+
+/** Cube corners (bit 0 x, bit 1 y, bit 2 z) and the 12 edges as corner pairs, flat. */
+const EDGE_A = new Uint8Array(12);
+const EDGE_C = new Uint8Array(12);
+{
+  let k = 0;
+  for (let a = 0; a < 8; a++) for (const bit of [1, 2, 4]) if ((a & bit) === 0) {
+    EDGE_A[k] = a;
+    EDGE_C[k++] = a | bit;
+  }
+}
+
+/** Per-thread working arrays, grown to the largest job seen. */
+let field = new Uint8Array(0);
+let prefixSum = new Int32Array(0);
+let prefixRise = new Uint16Array(0);
+/** Per column: the call whose prefix sums it holds (they are built only for columns a lattice test reads). */
+let prefixStamp = new Uint32Array(0);
+let call = 0;
+let dual = new Int32Array(0);
+let pos = new Int32Array(3 * 1024);
+let nrm = new Int8Array(3 * 1024);
+let tris = new Uint32Array(3 * 2048);
+let vertexCount = 0;
+let triLen = 0;
+const lattice = new Map<number, number>();
+const corner = new Float64Array(8);
+const place = new Float64Array(6);
+
+function addVertex(qx: number, qy: number, qz: number, nx: number, ny: number, nz: number): number {
+  if (3 * vertexCount + 3 > pos.length) {
+    const p = new Int32Array(pos.length * 2);
+    p.set(pos);
+    pos = p;
+    const q = new Int8Array(nrm.length * 2);
+    q.set(nrm);
+    nrm = q;
+  }
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  const o = 3 * vertexCount;
+  pos[o] = qx;
+  pos[o + 1] = qy;
+  pos[o + 2] = qz;
+  nrm[o] = snorm8(nx / len);
+  nrm[o + 1] = snorm8(ny / len);
+  nrm[o + 2] = snorm8(nz / len);
+  return vertexCount++;
+}
+
+function addTri(a: number, b: number, c: number): void {
+  if (triLen + 3 > tris.length) {
+    const t = new Uint32Array(tris.length * 2);
+    t.set(tris);
+    tris = t;
+  }
+  tris[triLen++] = a;
+  tris[triLen++] = b;
+  tris[triLen++] = c;
+}
+
+/** A quad a → c → d → f; vertices shared by collapsed lattice cubes leave one triangle or nothing (zero area). */
+function addQuad(a: number, c: number, d: number, f: number): void {
+  if (a !== c && c !== d && d !== f && f !== a) {
+    if (a === d || c === f) return;
+    addTri(a, c, d);
+    addTri(a, d, f);
+    return;
+  }
+  // Two neighbours equal: the other three corners (when distinct) are the triangle left.
+  const q0 = a, q1 = c, q2 = d, q3 = f;
+  const keep: number[] = [];
+  if (q0 !== q3) keep.push(q0);
+  if (q1 !== q0) keep.push(q1);
+  if (q2 !== q1) keep.push(q2);
+  if (q3 !== q2) keep.push(q3);
+  if (keep.length === 3) addTri(keep[0]!, keep[1]!, keep[2]!);
+}
+
+function buildSurface(): SurfaceBuffer {
+  const vertices = new Uint8Array(vertexCount * SURFACE_VERTEX_BYTES);
+  const d = new DataView(vertices.buffer);
+  for (let v = 0; v < vertexCount; v++) {
+    const at = v * SURFACE_VERTEX_BYTES;
+    d.setUint16(at, pos[3 * v]!, true);
+    d.setUint16(at + 2, pos[3 * v + 1]!, true);
+    d.setUint16(at + 4, pos[3 * v + 2]!, true);
+    d.setInt8(at + 8, nrm[3 * v]!);
+    d.setInt8(at + 9, nrm[3 * v + 1]!);
+    d.setInt8(at + 10, nrm[3 * v + 2]!);
+  }
+  const t = tris.subarray(0, triLen);
+  const indices = vertexCount < 65536 ? new Uint16Array(t) : new Uint32Array(t);
+  return { vertexCount, vertices, indices };
+}
+
+/**
+ * Quantised position along one axis of a vertex at `f` (0 … 1 across the
+ * cube) from the cube's first sample at local cell `cell`, kept one step
+ * inside the cube.
+ */
+function inside(cell: number, f: number): number {
+  return (cell + 1) * STEPS + HALF + Math.max(1, Math.min(STEPS - 1, Math.round(f * STEPS)));
+}
+
+/**
+ * The ground surface of a job's chunk (or section) from its neighbourhood
+ * (pad at least {@link TERRAIN_MESHER_REACH}) and resolved classes; with
+ * rules that set no terrain features, the creases are placed as plain nets.
+ */
+export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBuffer {
+  const e = n.edge;
+  const p = n.pad;
+  const s = n.side;
+  if (p < R) throw new RangeError(`terrain mesher: pad ${p}, it reads ${R} cells past the chunk`);
+  vertexCount = 0;
+  triLen = 0;
+  // The field: columns x, z in −1 … e, cells y in −R … e + R − 1; index ((x + 1) · m + z + 1) · ny + y + R.
+  const m = e + 2;
+  const ny = e + 2 * R;
+  const FSX = m * ny;
+  const FSZ = ny;
+  const cells = m * m * ny;
+  if (field.length < cells) {
+    field = new Uint8Array(cells);
+    prefixSum = new Int32Array(m * m * (ny + 1));
+    prefixRise = new Uint16Array(m * m * (ny + 1));
+    prefixStamp = new Uint32Array(m * m);
+    call = 0;
+  }
+  call++;
+  const F = field;
+  // Read as int32: values past 2^31 would be heap numbers in the loop; the role bits are the same either way.
+  const vals = new Int32Array(n.values.buffer, n.values.byteOffset, n.values.length);
+  const shapes = n.shapes;
+  let inside0 = 0;
+  for (let cx = 0; cx < m; cx++) for (let cz = 0; cz < m; cz++) {
+    const src = ((cx - 1 + p) * s + (cz - 1 + p)) * s + (p - R);
+    const dst = (cx * m + cz) * ny;
+    for (let k = 0; k < ny; k++) {
+      const d = ((vals[src + k]! >> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.terrain ? shapes[src + k]! : 0;
+      F[dst + k] = d;
+      if (d >= SURFACE_ISO && k >= R - 1 && k <= R + e) inside0++;
+    }
+  }
+  // All outside or all inside over the samples −1 … e: no sample edge changes sign.
+  if (inside0 === 0 || inside0 === m * m * m) return buildSurface();
+  // Per column, built when a lattice test first reads it: prefix sums of the fill and of the places it rises going
+  // up, so every window's test on that column is O(1).
+  const PS = prefixSum;
+  const PR = prefixRise;
+  const stamp = prefixStamp;
+  const now = call;
+  const prefixes = (col: number): void => {
+    stamp[col] = now;
+    const f0 = col * ny;
+    const p0 = col * (ny + 1);
+    PS[p0] = 0;
+    PR[p0] = 0;
+    let sum = 0;
+    let rises = 0;
+    let prev = 256;
+    for (let k = 0; k < ny; k++) {
+      const v = F[f0 + k]!;
+      sum += v;
+      if (v > prev) rises++;
+      prev = v;
+      PS[p0 + k + 1] = sum;
+      PR[p0 + k + 1] = rises;
+    }
+  };
+  const d1 = e + 1;
+  if (dual.length < d1 * d1 * d1) dual = new Int32Array(d1 * d1 * d1);
+  dual.fill(-1, 0, d1 * d1 * d1);
+  lattice.clear();
+  const ps = p;
+  const cls = classes;
+  const fi = (x: number, y: number, z: number): number => ((x + 1) * m + (z + 1)) * ny + (y + R);
+
+  /** Column-lattice placement into `place`, or false. */
+  const placeLattice = (x: number, y: number, z: number): boolean => {
+    // Window cells y − W … y + W + 1 of each sample column: field index ka … kb.
+    const ka = y - W + R;
+    const kb = ka + 2 * W + 1;
+    let total = 0;
+    let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+    for (let c = 0; c < 4; c++) {
+      const col = (x + 1 + (c & 1)) * m + (z + 1 + (c >> 1));
+      const f0 = col * ny;
+      if (F[f0 + ka]! !== DENSITY_FULL || F[f0 + kb]! !== 0) return false;
+      if (stamp[col] !== now) prefixes(col);
+      const p0 = col * (ny + 1);
+      // A rise between cells ka … kb (at k when F[k] > F[k − 1], k in ka + 1 … kb).
+      if (PR[p0 + kb + 1]! !== PR[p0 + ka + 1]!) return false;
+      const sum = PS[p0 + kb + 1]! - PS[p0 + ka]!;
+      if (c === 0) s0 = sum;
+      else if (c === 1) s1 = sum;
+      else if (c === 2) s2 = sum;
+      else s3 = sum;
+      total += sum;
+    }
+    // Height in local cells: (y − W) + total / (4 · full); kept within [y, y + 2] (the cube's samples ± half a cell).
+    const rel = total - 4 * DENSITY_FULL * W;
+    if (rel < 0 || rel > 2 * 4 * DENSITY_FULL) return false;
+    place[0] = (x + 2) * STEPS;
+    place[1] = (y - W + 1) * STEPS + Math.round((total * STEPS) / (4 * DENSITY_FULL));
+    place[2] = (z + 2) * STEPS;
+    place[3] = -(s1 + s3 - s0 - s2) / (2 * DENSITY_FULL);
+    place[4] = 1;
+    place[5] = -(s2 + s3 - s0 - s1) / (2 * DENSITY_FULL);
+    return true;
+  };
+
+  /** The cube's corners into `corner` and its gradient normal (outward: density rises into the ground) into place[3…5]. */
+  const cubeCorners = (i: number): void => {
+    let gx = 0, gy = 0, gz = 0;
+    for (let c = 0; c < 8; c++) {
+      const v = F[i + (c & 1) * FSX + ((c >> 1) & 1) + ((c >> 2) & 1) * FSZ]!;
+      corner[c] = v;
+      gx += c & 1 ? v : -v;
+      gy += (c >> 1) & 1 ? v : -v;
+      gz += (c >> 2) & 1 ? v : -v;
+    }
+    place[3] = -gx;
+    place[4] = -gy;
+    place[5] = -gz;
+  };
+
+  /** Mean of the edge crossings, cube-relative, into place[0…2]. */
+  const placeMean = (): void => {
+    let fx = 0, fy = 0, fz = 0, k = 0;
+    for (let ed = 0; ed < 12; ed++) {
+      const a = EDGE_A[ed]!;
+      const c = EDGE_C[ed]!;
+      const da = corner[a]!;
+      const dc = corner[c]!;
+      if (da >= SURFACE_ISO === dc >= SURFACE_ISO) continue;
+      const t = (SURFACE_ISO - 0.5 - da) / (dc - da);
+      const bit = a ^ c;
+      fx += bit === 1 ? t : a & 1;
+      fy += bit === 2 ? t : (a >> 1) & 1;
+      fz += bit === 4 ? t : (a >> 2) & 1;
+      k++;
+    }
+    place[0] = fx / k;
+    place[1] = fy / k;
+    place[2] = fz / k;
+  };
+
+  /** Dual-contouring placement, cube-relative, into place[0…2] (corners read). */
+  const placeQef = (): void => {
+    let a00 = 0, a01 = 0, a02 = 0, a11 = 0, a12 = 0, a22 = 0, b0 = 0, b1 = 0, b2 = 0;
+    let mx = 0, my = 0, mz = 0, k = 0;
+    const c0 = corner[0]!, c1 = corner[1]!, c2 = corner[2]!, c3 = corner[3]!, c4 = corner[4]!, c5 = corner[5]!, c6 = corner[6]!, c7 = corner[7]!;
+    for (let ed = 0; ed < 12; ed++) {
+      const a = EDGE_A[ed]!;
+      const c = EDGE_C[ed]!;
+      const da = corner[a]!;
+      const dc = corner[c]!;
+      if (da >= SURFACE_ISO === dc >= SURFACE_ISO) continue;
+      const t = (SURFACE_ISO - 0.5 - da) / (dc - da);
+      const bit = a ^ c;
+      const px = bit === 1 ? t : a & 1;
+      const py = bit === 2 ? t : (a >> 1) & 1;
+      const pz = bit === 4 ? t : (a >> 2) & 1;
+      let nx = (1 - py) * (1 - pz) * (c1 - c0) + py * (1 - pz) * (c3 - c2) + (1 - py) * pz * (c5 - c4) + py * pz * (c7 - c6);
+      let nyv = (1 - px) * (1 - pz) * (c2 - c0) + px * (1 - pz) * (c3 - c1) + (1 - px) * pz * (c6 - c4) + px * pz * (c7 - c5);
+      let nz = (1 - px) * (1 - py) * (c4 - c0) + px * (1 - py) * (c5 - c1) + (1 - px) * py * (c6 - c2) + px * py * (c7 - c3);
+      mx += px;
+      my += py;
+      mz += pz;
+      k++;
+      const len = Math.sqrt(nx * nx + nyv * nyv + nz * nz);
+      if (len === 0) continue;
+      nx /= len;
+      nyv /= len;
+      nz /= len;
+      const dot = nx * px + nyv * py + nz * pz;
+      a00 += nx * nx; a01 += nx * nyv; a02 += nx * nz; a11 += nyv * nyv; a12 += nyv * nz; a22 += nz * nz;
+      b0 += nx * dot; b1 += nyv * dot; b2 += nz * dot;
+    }
+    mx /= k;
+    my /= k;
+    mz /= k;
+    // (A + λI) p = b + λ m by Cramer's rule (positive definite with λ > 0).
+    a00 += QEF_PULL; a11 += QEF_PULL; a22 += QEF_PULL;
+    b0 += QEF_PULL * mx; b1 += QEF_PULL * my; b2 += QEF_PULL * mz;
+    const det = a00 * (a11 * a22 - a12 * a12) - a01 * (a01 * a22 - a12 * a02) + a02 * (a01 * a12 - a11 * a02);
+    place[0] = (b0 * (a11 * a22 - a12 * a12) - a01 * (b1 * a22 - a12 * b2) + a02 * (b1 * a12 - a11 * b2)) / det;
+    place[1] = (a00 * (b1 * a22 - a12 * b2) - b0 * (a01 * a22 - a12 * a02) + a02 * (a01 * b2 - b1 * a02)) / det;
+    place[2] = (a00 * (a11 * b2 - b1 * a12) - a01 * (a01 * b2 - b1 * a02) + b0 * (a01 * a12 - a11 * a02)) / det;
+  };
+
+  /** Whether any of the cube's eight cells is a crease (cube corners are cells −1 … e: resolved). */
+  const sharp = (x: number, y: number, z: number): boolean => {
+    const j = ((x + ps) * s + (z + ps)) * s + (y + ps);
+    return (SHARP[cls[j]!]! | SHARP[cls[j + 1]!]! | SHARP[cls[j + s]!]! | SHARP[cls[j + s + 1]!]! | SHARP[cls[j + s * s]!]! | SHARP[cls[j + s * s + 1]!]! | SHARP[cls[j + s * s + s]!]! | SHARP[cls[j + s * s + s + 1]!]!) === 1;
+  };
+
+  const vertexOf = (x: number, y: number, z: number): number => {
+    const key = ((x + 1) * d1 + (z + 1)) * d1 + (y + 1);
+    const had = dual[key]!;
+    if (had >= 0) return had;
+    let v: number;
+    const crease = sharp(x, y, z);
+    if (!crease && placeLattice(x, y, z)) {
+      // Cubes of one stack at one height share the vertex (the column's normal is the same for each of them).
+      const lk = ((x + 1) * d1 + (z + 1)) * 0x20000 + place[1]!;
+      const shared = lattice.get(lk);
+      if (shared === undefined) {
+        v = addVertex(place[0]!, place[1]!, place[2]!, place[3]!, place[4]!, place[5]!);
+        lattice.set(lk, v);
+      } else {
+        v = shared;
+      }
+    } else {
+      cubeCorners(fi(x, y, z));
+      if (crease) placeQef();
+      else placeMean();
+      const qx0 = inside(x, place[0]!);
+      const qz = inside(z, place[2]!);
+      // Off the cube's centre line, where only a column-lattice vertex may sit.
+      const qx = qx0 === (x + 2) * STEPS && qz === (z + 2) * STEPS ? qx0 + 1 : qx0;
+      v = addVertex(qx, inside(y, place[1]!), qz, place[3]!, place[4]!, place[5]!);
+    }
+    dual[key] = v;
+    return v;
+  };
+
+  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
+    const col = fi(x, 0, z);
+    for (let y = 0; y < e; y++) {
+      const i = col + y;
+      const isIn = F[i]! >= SURFACE_ISO;
+      // Along +x: the quad joins the dual cubes at (x, y−1…y, z−1…z), ordered round +x (y, then z).
+      if (isIn !== F[i + FSX]! >= SURFACE_ISO) {
+        const a = vertexOf(x, y - 1, z - 1), c = vertexOf(x, y, z - 1), d = vertexOf(x, y, z), f = vertexOf(x, y - 1, z);
+        if (isIn) addQuad(a, c, d, f);
+        else addQuad(a, f, d, c);
+      }
+      // Along +y: round +y is z, then x.
+      if (isIn !== F[i + 1]! >= SURFACE_ISO) {
+        const a = vertexOf(x - 1, y, z - 1), c = vertexOf(x - 1, y, z), d = vertexOf(x, y, z), f = vertexOf(x, y, z - 1);
+        if (isIn) addQuad(a, c, d, f);
+        else addQuad(a, f, d, c);
+      }
+      // Along +z: round +z is x, then y.
+      if (isIn !== F[i + FSZ]! >= SURFACE_ISO) {
+        const a = vertexOf(x - 1, y - 1, z), c = vertexOf(x, y - 1, z), d = vertexOf(x, y, z), f = vertexOf(x - 1, y, z);
+        if (isIn) addQuad(a, c, d, f);
+        else addQuad(a, f, d, c);
+      }
+    }
+  }
+  return buildSurface();
+}

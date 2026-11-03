@@ -15,7 +15,7 @@
 import { VOXEL_SIZE_M } from './coords';
 import { COLLISION_STEPS_PER_CELL, type CollisionOut } from './derived-data';
 import { POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
-import { groundHeightfield } from './ground-heightfield';
+import { groundHeightfield, type GroundHeightfield } from './ground-heightfield';
 
 export interface CollisionMesh {
   /** x, y, z per vertex, metres from the chunk's corner. */
@@ -119,11 +119,27 @@ function groundMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits, only?: Ui
 }
 
 /**
- * A chunk's collision geometry (boxes, the ground's heightfield where it is
- * one, and ground meshes), in metres from its corner. `heightfields: false`
- * keeps all of the ground as meshes.
+ * Which ground collides as a heightfield: none (`false`), level ground only
+ * (`true`) or sloped ground too (`'sloped'`). Level is the default because
+ * a sphere cast against a sloped Rapier heightfield can land later than
+ * against the same ground as a mesh; sloped ground stays a mesh until that
+ * is checked on the terrain mesher's ground.
  */
-export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimits = {}, heightfields = true): CollisionGeometry {
+export type HeightfieldUse = boolean | 'sloped';
+
+/** Whether every node of a heightfield has one height. */
+function level(hf: GroundHeightfield): boolean {
+  const h = hf.heights;
+  for (let k = 1; k < h.length; k++) if (h[k] !== h[0]) return false;
+  return true;
+}
+
+/**
+ * A chunk's collision geometry (boxes, the ground's heightfield where it is
+ * one and `heightfields` takes it, and ground meshes), in metres from its
+ * corner.
+ */
+export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimits = {}, heightfields: HeightfieldUse = true): CollisionGeometry {
   const src = d.collision.boxes;
   const boxes = new Float32Array(src.length);
   const toM = VOXEL_SIZE_M / COLLISION_STEPS_PER_CELL;
@@ -136,10 +152,10 @@ export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimit
     }
   }
   // Only a chunk of ground alone: a box (a wall, a beam) on it keeps the whole chunk a mesh.
-  const hf = heightfields && boxes.length === 0 ? groundHeightfield(d.ground, d.edge) : null;
+  const hf = heightfields !== false && boxes.length === 0 ? groundHeightfield(d.ground, d.edge) : null;
   let heightfield: CollisionHeightfield | null = null;
   let meshes: CollisionMesh[];
-  if (hf === null || typeof hf === 'string') meshes = groundMeshes(d.ground, limits);
+  if (hf === null || typeof hf === 'string' || (heightfields !== 'sloped' && !level(hf))) meshes = groundMeshes(d.ground, limits);
   else {
     heightfield = { x: hf.x0 * VOXEL_SIZE_M, z: hf.z0 * VOXEL_SIZE_M, cellsX: hf.cellsX, cellsZ: hf.cellsZ, heights: hf.heights };
     meshes = groundMeshes(d.ground, limits, hf.rest);
