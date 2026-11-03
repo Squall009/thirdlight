@@ -98,6 +98,8 @@ export interface SectionHost {
   readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
+  /** Whether a chunk that is not resident is on its way (being read or decoded, or inside the load ring and not held back by the budget). */
+  coming(cx: number, cy: number, cz: number): boolean;
   /** Lane and distance² for a chunk's work outside an edit. */
   lane(cx: number, cy: number, cz: number): JobLane;
   distance2(cx: number, cy: number, cz: number): number;
@@ -177,6 +179,13 @@ export class SectionDerives {
   private readonly chunkGroups = new Map<number, EditGroup>();
   /** Sections waiting for their chunk's neighbours, by chunk key: a neighbour's landing wants them again. */
   private readonly blocked = new Map<number, Set<Section>>();
+  /**
+   * Blocked sections kept in their edit group because the neighbours they
+   * wait for are coming: the edit swaps (and is reported) only once they
+   * derive, so its whole change lands in one swap. One whose neighbours
+   * stop coming leaves its group at the next request.
+   */
+  private readonly heldBlocked = new Set<Section>();
   /** Open groups by every id they answer to (a merged group keeps the ids of those merged into it). */
   private readonly groups = new Map<number, EditGroup>();
   private stampSeq = 0;
@@ -311,6 +320,7 @@ export class SectionDerives {
         s.job = 0;
       }
       if (s.group !== null) touched.add(s.group);
+      this.heldBlocked.delete(s);
       this.leave(s, false);
       this.wanted.delete(s);
       this.bySection.delete(s.key);
@@ -561,6 +571,7 @@ export class SectionDerives {
    * landing wants it again.
    */
   request(msPerUpdate: number, editsOnly = false): void {
+    this.releaseBlocked();
     if (this.wanted.size === 0) return;
     const byChunk = new Map<number, Section[]>();
     const edits: number[] = [];
@@ -595,15 +606,41 @@ export class SectionDerives {
     }
   }
 
+  /** Lets go of held blocked sections whose group closed, whose chunk left, or whose neighbours stopped coming (the group may swap without them). */
+  private releaseBlocked(): void {
+    for (const s of this.heldBlocked) {
+      if (this.wanted.has(s)) continue;
+      const g = s.group;
+      if (g !== null && g.open && this.bySection.get(s.key) === s && this.neighboursComing(s.cx, s.cy, s.cz)) continue;
+      this.heldBlocked.delete(s);
+      this.leave(s);
+    }
+  }
+
+  /** Whether every neighbour of a chunk that is not resident is on its way (so a section blocked on them will derive). */
+  private neighboursComing(cx: number, cy: number, cz: number): boolean {
+    const g = this.host.grid;
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) {
+      if (!chunkInWorld(g, cx + dx, cy + dy, cz + dz)) continue;
+      if (!this.host.isResident(cx + dx, cy + dy, cz + dz) && !this.host.coming(cx + dx, cy + dy, cz + dz)) return false;
+    }
+    return true;
+  }
+
   /** Sends one chunk's sections (all shader-only, or all full) in up to `split` jobs; returns the jobs sent. */
   private send(list: Section[], shaderOnly: boolean, split: number): number {
     const host = this.host;
     const { cx, cy, cz } = list[0]!;
+    for (const s of list) this.heldBlocked.delete(s);
     if (!shaderOnly && !this.canDerive(cx, cy, cz)) {
       let waiting = this.blocked.get(list[0]!.chunk);
       if (waiting === undefined) this.blocked.set(list[0]!.chunk, (waiting = new Set()));
+      // An edit's section waits in its group for neighbours on their way (the edit lands whole, in one swap);
+      // otherwise the group swaps without it and it derives as streaming once its neighbours are known.
+      const keep = list.some((s) => s.group !== null && s.group.open) && this.neighboursComing(cx, cy, cz);
       for (const s of list) {
-        this.leave(s);
+        if (keep && s.group !== null && s.group.open) this.heldBlocked.add(s);
+        else this.leave(s);
         waiting.add(s);
       }
       return 0;

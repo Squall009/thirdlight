@@ -100,6 +100,10 @@ interface Harness {
   closed: string[];
   /** Worlds whose pools were closed (their workers ended). */
   poolsClosed: string[];
+  /** Every change the script's steps were given, in order, with the ground under (0.25, 0.25) as that step saw it. */
+  changeLog: { change: BehaviorVoxels['changes'][number]; probe: unknown }[];
+  /** Read in the step that is given each change (its answer goes in the log). */
+  probe?: () => unknown;
   /** Places an owned object (world metres) at the script's next transform phase. */
   move(entityId: string, position: readonly [number, number, number]): void;
 }
@@ -144,10 +148,17 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
     },
   };
   let job: ((v: BehaviorVoxels) => boolean) | null = null;
+  let lastChanges: BehaviorVoxels['changes'] | null = null;
+  const changeLog: Harness['changeLog'] = [];
   const moves = new Map<string, readonly [number, number, number]>();
   const spec = createBehaviorModuleSpec({
     declaration: DECL,
     artifact: artifact('digger', (ctx) => {
+      // Every step's changes, whether or not a test job is waiting in that step (a script hook runs once a phase).
+      if (ctx.voxels.changes !== lastChanges) {
+        lastChanges = ctx.voxels.changes;
+        for (const c of lastChanges) changeLog.push({ change: c, probe: h.probe?.() });
+      }
       if (job?.(ctx.voxels) === true) job = null;
     }),
   });
@@ -223,7 +234,8 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
     return out!.r;
   };
   const inStep = <R>(fn: (v: BehaviorVoxels) => R): Promise<R> => stepUntil(fn, 'the script step');
-  return { rt, port, inStep, stepUntil, until, opened, closed, poolsClosed, move: (id, p) => void moves.set(id, p) };
+  const h: Harness = { rt, port, inStep, stepUntil, until, opened, closed, poolsClosed, changeLog, move: (id, p) => void moves.set(id, p) };
+  return h;
 }
 
 /** The first collider hit straight down from high above (x, z metres): its height and body id. */
@@ -746,6 +758,49 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(h.rt.dispose().ok).toBe(true);
   }, 180_000);
 
+  it('reports a dig made in the step its region turned resident exactly once, in the step after its whole rebuild swapped (the sections that waited for neighbours too)', async () => {
+    let streamer: VoxelStreamer | null = null;
+    const h = await harness((p) => p, (_w, s) => void (streamer = s));
+    const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
+    const pit = { center: [0.25, surfaceM - 1, 0.25] as [number, number, number], radius: 2 };
+    // The sections within the rules' reach of the pit whose chunks are resident (they are rebuilt by the dig).
+    const c = Math.floor(0.25 / VOXEL_SIZE_M);
+    const r = Math.ceil(2 / VOXEL_SIZE_M) + 1;
+    const box = { minX: c - r, minY: groundY - 1 - r, minZ: c - r, maxX: c + r, maxY: groundY - 1 + r, maxZ: c + r };
+    const rebuilt = (): { cx: number; cy: number; cz: number }[] => {
+      const s = streamer!;
+      const up = grid.shift - s.sections.shift;
+      return dependentChunks(s.sections, box, jobRadius(PLACEHOLDER_RULES)).filter((d) => s.isResident(d.cx >> up, d.cy >> up, d.cz >> up));
+    };
+    // The dig goes in the first step that finds the pit resident: its neighbours are still loading, so some of the
+    // sections it rebuilds cannot derive yet.
+    const dug = await h.stepUntil((v) => (v.isResident(pit) ? { r: v.dig(pit), at: v.get(...pit.center), sections: rebuilt() } : undefined), 'the pit to load');
+    expect(dug.r.ok).toBe(true);
+    expect(dug.at?.material).toBe(0);
+    if (!dug.r.ok) return;
+    const edit = dug.r.edit;
+    // The step given the change counts those sections still waiting for their new result.
+    h.probe = () => dug.sections.filter((d) => streamer!.derivedOf(d.cx, d.cy, d.cz) === null).length;
+    const mine = (): typeof h.changeLog => h.changeLog.filter((e) => e.change.edit === edit);
+    await h.until(() => mine().length > 0, 'the dig to be reported');
+    // Two more seconds of steps: the change is never reported again.
+    const t0 = performance.now();
+    await h.until(() => performance.now() - t0 > 2000, 'two seconds of steps');
+    expect(mine().length).toBe(1);
+    const [seen] = mine();
+    expect(dug.sections.length).toBeGreaterThan(0);
+    expect(seen!.change.chunks.length).toBeGreaterThan(0);
+    expect(seen!.probe).toBe(0);
+    h.probe = undefined;
+    // At the ring's edge, where neighbours never come, a dig still swaps (without the sections that cannot derive).
+    const edge = { center: [30.5, surfaceM - 1, 0.25] as [number, number, number], radius: 1 };
+    expect(await h.inStep((v) => v.isResident(edge) && !v.isResident({ at: [32.5, surfaceM - 1, 0.25] }))).toBe(true);
+    const far = await h.inStep((v) => v.dig(edge));
+    expect(far.ok).toBe(true);
+    if (far.ok) await h.until(() => h.changeLog.some((e) => e.change.edit === far.edit), 'the dig at the ring edge to be reported', 10_000);
+    expect(h.rt.dispose().ok).toBe(true);
+  }, 120_000);
+
   it('opens a world as an export ships it: its region files as content files read whole once and checked, the same voxels as the files, a dig read at once and swapped; a changed file is damaged, never air', async () => {
     // The export's layout: each listed region file at content/sha256/<digest>, and the catalog's row naming them.
     const worldDir = join(dir, 'world');
@@ -790,15 +845,12 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     // A file is read whole once, however many chunks of it are read.
     expect(reads.size).toBeGreaterThan(0);
     for (const [path, n] of reads) expect(n, path).toBe(1);
-    // Dug once the ground under it is derived (its body in), as the first test digs: an edit whose sections cannot
-    // derive yet swaps empty inside the edit call, and that change is never reported.
-    await h.until(() => groundBelow(h.port, 0.25, 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus');
     const dug = await h.inStep((v) => ({ r: v.dig(pit), at: v.get(...pit.center) }));
     expect(dug.r.ok).toBe(true);
     expect(dug.at?.material).toBe(0);
     if (dug.r.ok) {
       const edit = dug.r.edit;
-      await h.stepUntil((v) => v.changes.find((c) => c.edit === edit), 'the dig to swap');
+      await h.until(() => h.changeLog.some((e) => e.change.edit === edit), 'the dig to swap');
     }
     expect(h.rt.dispose().ok).toBe(true);
 

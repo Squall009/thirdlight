@@ -64,7 +64,7 @@ import type { CellBox } from './stroke';
 import type { DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, StoredChunk } from './stream-job';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
-import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type StreamRing } from './stream-ring';
+import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
@@ -323,6 +323,11 @@ export class VoxelStreamer {
               counters: this.counters,
               rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs, joinUs: this.joinUs },
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
+              coming: (cx, cy, cz) => {
+                const c = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
+                if (c !== undefined) return c.phase === 'reading' || c.phase === 'decoding';
+                return inLoadRing(this.grid, this.ring, this.focus, cx, cy, cz) && chunkDistance2(this.grid, this.focus, cx, cy, cz) < this.horizon;
+              },
               lane: (cx, cy, cz) => (inNearRing(this.grid, this.ring, this.focus, cx, cz) ? 'near' : 'far'),
               distance2: (cx, cy, cz) => chunkDistance2(this.grid, this.focus, cx, cy, cz),
               setPart: (cx, cy, cz, part, bytes) => this.setPart(cx, cy, cz, part, bytes),
