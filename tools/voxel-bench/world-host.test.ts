@@ -791,7 +791,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(reads.size).toBeGreaterThan(0);
     for (const [path, n] of reads) expect(n, path).toBe(1);
     // Dug once the ground under it is derived (its body in), as the first test digs: an edit whose sections cannot
-    // derive yet swaps empty inside the edit call, and that change is never reported (D450).
+    // derive yet swaps empty inside the edit call, and that change is never reported.
     await h.until(() => groundBelow(h.port, 0.25, 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus');
     const dug = await h.inStep((v) => ({ r: v.dig(pit), at: v.get(...pit.center) }));
     expect(dug.r.ok).toBe(true);
