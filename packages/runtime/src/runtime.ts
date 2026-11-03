@@ -362,6 +362,7 @@ export class RuntimeInstance implements Runtime {
       queryTags: args.queryTags,
       requestRestart: () => void (rt.run.restartDue = true),
       yawSource: () => rt.cameraYawSource,
+      get voxels() { return rt.entities.voxels; },
     }, { controllerEntityIds: args.controllerEntityIds, initialEntities: args.initialEntities, ...(args.modelColliders !== undefined ? { modelColliders: args.modelColliders } : {}) });
     this.controllers = this.chars.controllers;
     this.phases = new RuntimePhases(this.sim, {

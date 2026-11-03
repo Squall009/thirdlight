@@ -141,6 +141,13 @@ const BUNDLES = [
     entry: 'packages/editor/src/voxel-world/voxel-worker.ts',
     out: 'dist/editor/voxel-worker.js',
   },
+  // Play's voxel worker (a world's chunks decoded and derived), started by
+  // the simulation worker (or the page in single-thread mode) next to its script.
+  {
+    name: 'voxel-worker (preview)',
+    entry: 'packages/editor/src/voxel-world/voxel-worker.ts',
+    out: 'dist/preview/voxel-worker.js',
+  },
   {
     name: 'mesh-worker (preview)',
     entry: 'packages/editor/src/workers/mesh-worker.ts',

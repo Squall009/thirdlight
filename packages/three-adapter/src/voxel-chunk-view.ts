@@ -31,6 +31,7 @@ import {
   chunkKey,
   chunkOrigin,
   INSTANCE_BYTES,
+  MESH_PART,
   PIECE_FAMILY,
   POSITION_STEPS_PER_CELL,
   SampleRing,
@@ -112,6 +113,9 @@ function geometryBytes(geo: THREE.BufferGeometry): number {
   for (const a of Object.values(geo.attributes)) n += (a as THREE.BufferAttribute).array.byteLength;
   return n;
 }
+
+/** What a chunk's draw is made of: its joined sections' surfaces, pieces and shader grid (a join, or a batch's copy of one). */
+export type VoxelChunkDraw = Pick<JoinedDraw, 'ground' | 'base' | 'instances' | 'solid'>;
 
 interface ChunkDraw {
   readonly group: THREE.Group;
@@ -200,7 +204,7 @@ export class VoxelChunkView {
    * {@link cells} when the draw has no solid entry. Returns the bytes the
    * chunk holds (meshes and grid).
    */
-  set(cx: number, cy: number, cz: number, d: JoinedDraw | null): number {
+  set(cx: number, cy: number, cz: number, d: VoxelChunkDraw | null): number {
     this.remove(cx, cy, cz);
     if (d === null) return 0;
     const key = chunkKey(this.grid, cx, cy, cz);
@@ -269,7 +273,7 @@ export class VoxelChunkView {
     this.uploadMs.add(performance.now() - t0);
   }
 
-  private addPieces(group: THREE.Group, d: JoinedDraw): number {
+  private addPieces(group: THREE.Group, d: VoxelChunkDraw): number {
     const list = d.instances;
     if (list.count === 0) return 0;
     const byFamily = new Map<number, number[]>();
@@ -373,7 +377,7 @@ export function feedVoxelChunkView(view: VoxelChunkView, feed: VoxelChunkFeed, o
     const d = feed.joinedChunk(e.cx, e.cy, e.cz, undefined, view.cells);
     const shaderOnly = e.shaderOnly && d !== null && view.has(e.cx, e.cy, e.cz);
     const bytes = shaderOnly ? view.setShader(e.cx, e.cy, e.cz, d.solid) : view.set(e.cx, e.cy, e.cz, d);
-    feed.setPart(e.cx, e.cy, e.cz, 'mesh', bytes);
+    feed.setPart(e.cx, e.cy, e.cz, MESH_PART, bytes);
     onReplaced?.({ cx: e.cx, cy: e.cy, cz: e.cz, shaderOnly, ms: performance.now() - t0, joined: d });
   });
 }

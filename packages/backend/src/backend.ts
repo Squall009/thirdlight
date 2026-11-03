@@ -345,9 +345,8 @@ export function createBackend(
     recheckQueued.add(projectId);
     void assetFiles.check(projectId).finally(() => recheckQueued.delete(projectId));
   };
-  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile: (projectId, file) => service.openBlobFile(projectId, file), onFileChanged });
-
   const voxels = makeVoxelRoutes({ worlds: voxelWorlds, requireAuth, sendJson, sendError, recordProblem, onApplied: (projectId, change) => channel.sendVoxelsChanged(projectId, change) });
+  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile: (projectId, file) => service.openBlobFile(projectId, file), onFileChanged, voxels: voxels.reads });
   const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), voxelCommand: voxels.command, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
   const library = makeLibraryRoutes({ service, requireAuth });
   const project = makeProjectRoutes({ config, service, sessions, problems: problemLog, checks, packs, requireAuth, authorized: auth.authorized, engine: async () => ({ ...engineInfo(), manual: await manualSummary(manual) }) });

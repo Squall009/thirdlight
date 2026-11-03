@@ -143,6 +143,7 @@ export { loadTerrainField, terrainTileOf } from './terrain-tiles';
 export { createScenePreloader, pageScenePreparation, SCENES_READ_AHEAD, SCENE_PREPARE_WAIT_MS, type ScenePreloader, type ScenePreparation, type ScenePreparingAdapter, type ScenePreloadHooks } from './scene-preload';
 // The simulation worker (runs the deterministic simulation off the page) and its page-side mirror.
 export { runSimWorker, type SimWorkerDeps } from './sim-worker';
+export { presentVoxelWorlds, type VoxelPresentation } from './voxel-play';
 export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions, type SimPipelineStats } from './sim-remote';
 export { createLocalSimAccess, type RelayPage, type SimAccess, type SimRay } from './sim-access';
 export { browserWorkerAvailable, createBrowserSimWorker, loadPhysics3D, workerGlobalEndpoint } from './sim-browser';

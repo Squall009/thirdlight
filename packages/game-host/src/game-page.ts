@@ -36,6 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
+import { VoxelWorldDraws, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
   modesForRuntime,
@@ -58,6 +59,7 @@ import {
   type UiTheme,
   type PhysicsInitConfig3D,
   type FramePacingStats,
+  type VoxelWorldPorts,
   frameRateCapFromUrl,
   frameTargetMs,
 } from '@thirdlight/runtime';
@@ -76,6 +78,7 @@ import {
   createGameHost,
   type AudioReport,
   createLocalSimAccess,
+  presentVoxelWorlds,
   createScenePreloader,
   createVerifiedAssetReader,
   linkBehaviorModules,
@@ -105,6 +108,7 @@ import {
   type RuntimeContent,
   type ShellConfigLike,
   type SimAccess,
+  type SimWorkerHandle,
   type StartTimings,
   type VerifiedAssetReader,
 } from './index';
@@ -247,6 +251,13 @@ export interface GamePageOptions {
   readonly onProblem?: (code: string, message: string) => void;
   /** The page's start timings. */
   readonly timings?: StartTimings;
+  /**
+   * The play's voxel worlds: `root`, the absolute URL the simulation
+   * worker's entry opens them under (its `voxelPorts`); `ports`, how the
+   * page's own simulation opens them (single-thread mode). Absent: voxel
+   * worlds stream nothing.
+   */
+  readonly voxels?: { readonly root: string; ports(): VoxelWorldPorts };
 }
 
 export interface GamePageHandle {
@@ -576,6 +587,84 @@ function runtimeSnapshotOf(authored: RuntimeSnapshot, content: RuntimeContent<Ga
  * mount or (with `waitForModels`) model prepare throws a `GamePageError`
  * (or the underlying error) after releasing everything it attached.
  */
+type BrowserInput = ReturnType<typeof attachBrowserInput>;
+const NO_EDGES = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+
+/**
+ * The input exercise's input: its frames replace the physical input step by
+ * step, its UI edges and clicks are applied at the next host frames (the
+ * menu channel is read every frame); everything else is the browser's.
+ */
+function relayedInput(relay: RelayActionSource, browserInput: BrowserInput, r: { readonly clicks: string[]; readonly edges: RelayUiEdgeName[]; readonly host: { current: GameHost | null }; readonly access: { current: SimAccess | null }; configured(c: InputConfigLike): void }): GameHostConfig['input'] {
+  return {
+    sample: (stepIndex: number) => relay.sample(stepIndex),
+    sampleMenu: () => {
+      for (const key of r.clicks.splice(0)) r.host.current?.clickUi?.(key);
+      // A frame of a paused game takes one step's place in a running exercise (its menu can be driven and resumed).
+      if (r.access.current?.inputTestActive === true && r.host.current?.playState?.() === 'paused') r.access.current.relayIdle();
+      return browserInput.sampleMenu();
+    },
+    markConfirmConsumed: () => browserInput.markConfirmConsumed(),
+    dispose: () => browserInput.dispose(),
+    sampleUi: () => {
+      const physical = browserInput.sampleUi();
+      const edge = r.edges.shift();
+      return edge === undefined ? physical : { ...NO_EDGES, [edge]: true };
+    },
+    captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
+    capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
+    configure: (c: InputConfigLike) => {
+      r.configured(c);
+      browserInput.configure(c);
+    },
+    setUiHitTest: (hit: ((x: number, y: number) => boolean) | null) => browserInput.setUiHitTest(hit),
+    setActiveMaps: (maps: readonly string[] | null) => browserInput.setActiveMaps(maps),
+    applyCursor: (mode: 'free' | 'locked') => browserInput.applyCursor(mode),
+    cursorState: () => browserInput.cursorState(),
+    captureInput: (c: Parameters<BrowserInput['captureInput']>[0], cb: Parameters<BrowserInput['captureInput']>[1]) => browserInput.captureInput(c, cb),
+    activeDevice: () => browserInput.activeDevice(),
+    activeDeviceInfo: () => browserInput.activeDeviceInfo(),
+    setFrameInput: (f: Parameters<BrowserInput['setFrameInput']>[0]) => browserInput.setFrameInput(f),
+  };
+}
+
+/** The test hook on a game page with voxel worlds: what is drawn and each edit's way to the screen. */
+const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
+
+/**
+ * A page's voxel worlds: their draws (fed by the simulation's batches) and
+ * the two ways the batches come: from the simulation worker's messages, or
+ * straight from the page's own simulation.
+ */
+function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null) {
+  let report: (world: string, bytes: number[]) => void = () => undefined;
+  const draws = new VoxelWorldDraws({
+    scene: () => adapter()?.threeScene?.() ?? null,
+    // The grids upload through the renderer once it can draw.
+    renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
+    report: (world, bytes) => report(world, bytes),
+  });
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits] };
+  return {
+    draws,
+    /** The worker's batches go to the draws; the drawn bytes go back to it. */
+    worker(h: SimWorkerHandle | null): SimWorkerHandle | null {
+      if (h === null) return null;
+      report = (world, bytes) => h.post({ t: 'voxels.drawn', world, bytes });
+      return {
+        ...h,
+        listen: (onMessage) => h.listen((m) => (typeof m === 'object' && m !== null && (m as { t?: unknown }).t === 'voxels' ? draws.receive((m as { batch: Parameters<VoxelWorldDraws['receive']>[0] }).batch) : onMessage(m))),
+      };
+    },
+    /** The page's own simulation opens its worlds through these ports. */
+    single(): VoxelWorldPorts {
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b));
+      report = (world, bytes) => p.drawn(world, bytes);
+      return p.ports;
+    },
+  };
+}
+
 export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle> {
   const { content, timings } = o;
   const manifest = content.manifest;
@@ -673,8 +762,11 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     let threadMode = threading.mode;
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
+    // The voxel worlds run with the simulation; the page draws the chunks each swap sends.
+    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current) : null;
+    if (voxels !== null) releases.push(() => voxels.draws.dispose());
     if (threadMode === 'worker') {
-      const worker = createBrowserSimWorker(o.workerUrl);
+      const worker = voxels === null ? createBrowserSimWorker(o.workerUrl) : voxels.worker(createBrowserSimWorker(o.workerUrl));
       if (worker === null) {
         threadMode = 'single';
         threadReason = 'the browser refused to start the worker: single thread';
@@ -695,6 +787,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
@@ -785,40 +878,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     const relayClicks: string[] = [];
     const hostRef: { current: GameHost | null } = { current: null };
     const accessRef: { current: SimAccess | null } = { current: null };
-    const NO_EDGES = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
-    const input: GameHostConfig['input'] =
-      relay === null
-        ? browserInput
-        : {
-            sample: (stepIndex: number) => relay.sample(stepIndex),
-            sampleMenu: () => {
-              for (const key of relayClicks.splice(0)) hostRef.current?.clickUi?.(key);
-              // A frame of a paused game takes one step's place in a running exercise (its menu can be driven and resumed).
-              if (accessRef.current?.inputTestActive === true && hostRef.current?.playState?.() === 'paused') accessRef.current.relayIdle();
-              return browserInput.sampleMenu();
-            },
-            markConfirmConsumed: () => browserInput.markConfirmConsumed(),
-            dispose: () => browserInput.dispose(),
-            sampleUi: () => {
-              const physical = browserInput.sampleUi();
-              const edge = relayEdges.shift();
-              return edge === undefined ? physical : { ...NO_EDGES, [edge]: true };
-            },
-            captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
-            capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
-            configure: (c: InputConfigLike) => {
-              inputConfigNow = c;
-              browserInput.configure(c);
-            },
-            setUiHitTest: (hit: ((x: number, y: number) => boolean) | null) => browserInput.setUiHitTest(hit),
-            setActiveMaps: (maps: readonly string[] | null) => browserInput.setActiveMaps(maps),
-            applyCursor: (mode: 'free' | 'locked') => browserInput.applyCursor(mode),
-            cursorState: () => browserInput.cursorState(),
-            captureInput: (c: Parameters<typeof browserInput.captureInput>[0], cb: Parameters<typeof browserInput.captureInput>[1]) => browserInput.captureInput(c, cb),
-            activeDevice: () => browserInput.activeDevice(),
-            activeDeviceInfo: () => browserInput.activeDeviceInfo(),
-            setFrameInput: (f: Parameters<typeof browserInput.setFrameInput>[0]) => browserInput.setFrameInput(f),
-          };
+    const input: GameHostConfig['input'] = relay === null ? browserInput : relayedInput(relay, browserInput, { clicks: relayClicks, edges: relayEdges, host: hostRef, access: accessRef, configured: (c) => (inputConfigNow = c) });
     // The project's sound voice count (absent: 8).
     // Each audio file is read by its load type when something needs it (see audio-loading.ts).
     const audioFiles = pageAudio({ catalog: content.catalog, bytes: (assetId, version) => assetReader.bytes(assetId, version), ...(o.assetUrl !== undefined ? { assetUrl: o.assetUrl } : {}) });
@@ -850,7 +910,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       modules: moduleIds,
       moduleSpecs: o.moduleSpecs,
       ...(physics !== undefined ? { physics } : {}),
-      ...(remote !== null ? { runtimeFactory: remote.runtimeFactory } : {}),
+      ...(remote !== null ? { runtimeFactory: remote.runtimeFactory } : voxels !== null ? { voxels: voxels.single() } : {}),
       adapter: (runtime) => {
         const a = createSceneAdapter(o.canvas, {
           runtime,

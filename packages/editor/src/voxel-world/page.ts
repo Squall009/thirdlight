@@ -85,13 +85,14 @@ import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
 import { PendingEdits, type SwapSeen } from './pending-edits';
 import { EDIT_VISIBLE_TIMEOUT_MS, localEditHooks } from './local-edits';
+import { defaultVoxelWorkers, rangeByteSource, rangeReadStats } from './range-reads';
 
 const params = new URLSearchParams(location.search);
 const projectId = params.get('project') ?? '';
 const worldName = params.get('world') ?? 'slice';
 const at = (params.get('at') ?? '0,64,0').split(',').map(Number) as [number, number, number];
 const rebaseM = Number(params.get('rebase') ?? DEFAULT_REBASE_DISTANCE_M);
-const workers = Number(params.get('workers') ?? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 2)));
+const workers = Number(params.get('workers') ?? defaultVoxelWorkers());
 /** Metres two neighbouring cells' materials blend over. */
 const blendM = Number(params.get('blend') ?? VOXEL_SIZE_M / 2);
 const shading = params.get('shading') === 'flat' ? 'flat' : 'blend';
@@ -135,28 +136,11 @@ interface VoxelInfo {
   error?: { message: string };
 }
 
-const rangeMs = new SampleRing();
-let rangeRequests = 0;
-let rangeBytes = 0;
+const range = rangeReadStats();
 
 function byteSource(name: string): RegionByteSource | null {
   if (!files.has(name)) return null;
-  const url = `${api}/voxels/${encodeURIComponent(worldName)}/regions/${encodeURIComponent(name)}`;
-  return {
-    read: async (offset, length) => {
-      const t0 = performance.now();
-      const r = await fetch(url, { headers: { ...headers, range: `bytes=${offset}-${offset + length - 1}` } });
-      // Past the end of the file: fewer bytes (none), as a byte source may answer.
-      if (r.status === 416) return new Uint8Array(0);
-      if (r.status !== 206 && r.status !== 200) throw new Error(`${name}: HTTP ${r.status}`);
-      const all = new Uint8Array(await r.arrayBuffer());
-      const b = r.status === 200 ? all.subarray(offset, offset + length) : all;
-      rangeRequests++;
-      rangeBytes += b.length;
-      rangeMs.add(performance.now() - t0);
-      return b;
-    },
-  };
+  return rangeByteSource(`${api}/voxels/${encodeURIComponent(worldName)}/regions/${encodeURIComponent(name)}`, headers, range);
 }
 
 /** What an edit cost, from the command sent to its meshes swapped and drawn. */
@@ -574,7 +558,7 @@ async function main(): Promise<void> {
         swaps: meshes.meshBuilds,
         section: sectionEdge,
         editSwaps: streamer.counters.swaps,
-        range: { requests: rangeRequests, bytes: rangeBytes, p50: q(rangeMs, 0.5), p95: q(rangeMs, 0.95) },
+        range: { requests: range.requests, bytes: range.bytes, p50: q(range.ms, 0.5), p95: q(range.ms, 0.95) },
         counters: m.counters,
         frames,
         missed,

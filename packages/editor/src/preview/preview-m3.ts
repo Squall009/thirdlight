@@ -41,6 +41,7 @@ import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifes
 import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
+import { playVoxelPorts } from './voxel-ports';
 import { answerScreenshotWhenDrawn, answerScreenshotWithOverlay } from './screenshot-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
@@ -60,6 +61,9 @@ const PREVIEW_SIM_WORKER_FILE = 'sim-worker.js';
 
 /** The block mesh worker's script, next to the simulation worker's (built from `../workers/mesh-worker.ts`). */
 const PREVIEW_MESH_WORKER_FILE = 'mesh-worker.js';
+
+/** The voxel worker's script (decoding and deriving a world's chunks), next to the simulation worker's (built from `../voxel-world/voxel-worker.ts`). */
+const PREVIEW_VOXEL_WORKER_FILE = 'voxel-worker.js';
 
 /**
  * The physics backend's script on the preview origin (built from
@@ -236,6 +240,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     onProgress,
     ...(cfg.onProblem !== undefined ? { onProblem: cfg.onProblem } : {}),
     ...(timings !== undefined ? { timings } : {}),
+    // The project's voxel worlds, read by range under this play's locator (the worker opens them there, or this page).
+    voxels: ((root: string) => ({ root, ports: () => playVoxelPorts(root, new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_VOXEL_WORKER_FILE}`, location.href).href) }))(new URL(`${cfg.contentRoot}voxels/`, location.href).href),
   });
   if (handle.access === null) {
     handle.dispose();

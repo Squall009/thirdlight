@@ -36,6 +36,7 @@ import { LIFECYCLE_RESTART_DEPRECATED } from './scene-control';
 import type { LiveTagIndex } from './scene-set';
 import type { BehaviorLifecycle, ModuleResetContext } from './types';
 import type { RuntimeViews } from './views';
+import type { RuntimeVoxels } from './voxel-worlds';
 
 /** The parts the physics bridge reaches (read when used: some are made after it). */
 export interface CharacterHost {
@@ -52,6 +53,8 @@ export interface CharacterHost {
   requestRestart(): void;
   /** Where the active camera's yaw comes from, if not the camera brain (null: the brain's view). */
   yawSource(): (() => number | undefined) | null;
+  /** The scenes' voxel worlds (their collision streams like the terrains'). */
+  readonly voxels: Pick<RuntimeVoxels, 'loadedAt' | 'active'>;
 }
 
 export class RuntimeCharacters {
@@ -85,7 +88,8 @@ export class RuntimeCharacters {
     const sim_ = sim;
     // A terrain tile in its ring collides once its data has arrived.
     const tileReady = (entityId: string, key: string): boolean => host.grid.terrain.tileReady(entityId, key);
-    this.suspension = new BodySuspension((x, z) => host.grid.stream.loadedAt(x, z, tileReady), () => host.grid.stream.active);
+    // Voxel worlds' collision streams too: a body waits over a column whose chunk bodies are not in yet.
+    this.suspension = new BodySuspension((x, z) => host.grid.stream.loadedAt(x, z, tileReady) && host.voxels.loadedAt(x, z), () => host.grid.stream.active || host.voxels.active);
     this.colliders = new ColliderSystem({
       get physics3d() {
         return sim_.physics3d;

@@ -3,8 +3,9 @@
  *
  * The preview origin's play page loads three prebuilt scripts from the
  * preview directory: the game bundle (`preview-m3.js`, served as `game.js`),
- * the simulation worker (`sim-worker.js`) and the 3D physics backend
- * (`physics-3d.js`, loaded by a 3D project next to the worker's script).
+ * the simulation worker (`sim-worker.js`), the 3D physics backend
+ * (`physics-3d.js`, loaded by a 3D project next to the worker's script) and
+ * the voxel worker (`voxel-worker.js`, started next to it for a voxel world).
  * Before, the bundle was served under each Play's own locator (a new URL per
  * Play: the browser downloaded and compiled 8.8 MB again every time) and the
  * worker scripts without cache headers.
@@ -36,6 +37,7 @@ const FILES: readonly { readonly name: string; readonly file: string; readonly r
   { name: 'sim-worker.js', file: 'sim-worker.js', required: false },
   { name: 'mesh-worker.js', file: 'mesh-worker.js', required: false },
   { name: 'physics-3d.js', file: 'physics-3d.js', required: false },
+  { name: 'voxel-worker.js', file: 'voxel-worker.js', required: false },
 ];
 
 export interface PlayBuildFile {

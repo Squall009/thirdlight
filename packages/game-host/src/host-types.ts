@@ -302,6 +302,8 @@ export interface GameHostConfig {
   /** The injected physics port (physics-rapier in the preview; a fake in
    * tests). Absent: a game without physics. */
   readonly physics?: PhysicsPort3D;
+  /** How the scenes' voxel worlds are opened when the simulation runs in this page (absent: they stream nothing). */
+  readonly voxels?: import('@thirdlight/runtime').VoxelWorldPorts;
   /** The project's compiled behaviors (see `linkBehaviorModules`), run with the scene. */
   readonly behaviorModules?: readonly SimulationModuleSpec[];
   /**

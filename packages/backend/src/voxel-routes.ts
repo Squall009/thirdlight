@@ -10,6 +10,10 @@
  * client that wants a table and its chunks from one version of a file can
  * have that. One `bytes=` range per request (what the chunk source sends);
  * anything else gets the whole file, as RFC 9110 lets a server do.
+ *
+ * Play reads the same worlds on the preview origin under its play's
+ * locator (`reads`, see preview-routes.ts): the locator is the permission
+ * there, as for the play's other files, and no token reaches that origin.
  */
 import { closeSync, createReadStream, fstatSync, openSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -54,25 +58,15 @@ function originOf(v: unknown): VoxelsChangedPayload['origin'] {
 export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
   const { worlds, requireAuth, sendJson, sendError, recordProblem, onApplied } = ctx;
 
-  /** GET …/voxels/:world — the manifest and the region files with their tags. */
-  const info = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string): Promise<void> => {
-    const auth = requireAuth(req, projectId, false);
-    if (auth !== null) {
-      sendError(res, auth);
-      return;
-    }
+  /** The manifest and the region files with their tags (the caller checked who may read them). */
+  const sendInfo = async (res: ServerResponse, projectId: string, world: string): Promise<void> => {
     const r = await worlds.info(projectId, world);
     if (!r.ok) sendJson(res, statusFor(r.error.cls), r);
     else sendJson(res, 200, r);
   };
 
-  /** GET …/voxels/:world/regions/:file — a region file, whole or one byte range. */
-  const region = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void> => {
-    const auth = requireAuth(req, projectId, false);
-    if (auth !== null) {
-      sendError(res, auth);
-      return;
-    }
+  /** A region file, whole or one byte range (the caller checked who may read it). */
+  const sendRegion = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void> => {
     const r = await worlds.regionFile(projectId, world, file);
     if (!r.ok) {
       sendJson(res, statusFor(r.error.cls), r);
@@ -111,6 +105,20 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     createReadStream('', { fd, start, end, autoClose: true }).pipe(res);
   };
 
+  /** GET …/voxels/:world — the manifest and the region files with their tags. */
+  const info = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string): Promise<void> => {
+    const auth = requireAuth(req, projectId, false);
+    if (auth !== null) sendError(res, auth);
+    else await sendInfo(res, projectId, world);
+  };
+
+  /** GET …/voxels/:world/regions/:file — a region file, whole or one byte range. */
+  const region = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void> => {
+    const auth = requireAuth(req, projectId, false);
+    if (auth !== null) sendError(res, auth);
+    else await sendRegion(req, res, projectId, world, file);
+  };
+
   /** A voxel world command from the command route (envelope already parsed as strict JSON). */
   const command = async (res: ServerResponse, projectId: string, envelope: Record<string, unknown>): Promise<void> => {
     const r = await worlds.command(projectId, envelope);
@@ -123,5 +131,5 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     sendJson(res, statusFor(r.error.cls), r);
   };
 
-  return { info, region, command };
+  return { info, region, command, reads: { info: sendInfo, region: sendRegion } };
 }

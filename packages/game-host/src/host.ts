@@ -58,7 +58,7 @@ import {
   type ModeView,
 } from '@thirdlight/runtime';
 import type { ScenePreloader } from './scene-preload';
-import type { RuntimeDiagnostics } from '@thirdlight/runtime';
+import type { RuntimeDiagnostics, VoxelWorldPorts } from '@thirdlight/runtime';
 import { createHostAssets, type HostAssets } from './host-assets';
 import { createHostAudio, type HostAudio, type HostAudioConfig } from './host-audio';
 import type { MenuSample } from '@thirdlight/input';
@@ -282,6 +282,8 @@ export interface GameRuntimeArgs {
   readonly startMode?: string;
   /** The stored project settings document. */
   readonly projectSettings?: Readonly<Record<string, unknown>>;
+  /** How the scenes' voxel worlds are opened (absent: they stream nothing). */
+  readonly voxels?: VoxelWorldPorts;
 }
 
 /** Compose and start the game's runtime (see `GameRuntimeArgs`). */
@@ -328,6 +330,7 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     ...(args.variables !== undefined ? { variables: args.variables } : {}),
     ...(args.startMode !== undefined ? { startMode: args.startMode } : {}),
     ...(args.projectSettings !== undefined ? { projectSettings: args.projectSettings } : {}),
+    ...(args.voxels !== undefined ? { voxels: args.voxels } : {}),
   });
   if (res.ok === false) {
     return { ok: false, error: toControlError(res.error) };
@@ -977,7 +980,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.moduleSpecs !== undefined ? { moduleSpecs: config.moduleSpecs } : {}),
         actions: config.input,
         onFrame: hostFrame,
-        ...(config.variables !== undefined ? { variables: config.variables } : {}),
+        ...(config.variables !== undefined ? { variables: config.variables } : {}), ...(config.voxels !== undefined ? { voxels: config.voxels } : {}),
         ...(saveSchema !== undefined ? { projectSettings: readProjectSettings(saveSchema, config.saveStorage, saveNamespace) } : {}),
         ...(config.start?.mode !== undefined ? { startMode: config.start.mode } : {}),
       });

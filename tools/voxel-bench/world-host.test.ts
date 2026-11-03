@@ -20,8 +20,10 @@ import {
   type BehaviorVoxels,
   type Runtime,
   type VoxelWorldConnection,
+  type VoxelWorldPorts,
 } from '@thirdlight/runtime';
-import { chunkGrid, createWorldStore, dependentChunks, jobRadius, PLACEHOLDER_RULES, VOXEL_SIZE_M, WorkerPool, type PaletteStore, type VoxelRecord } from '@thirdlight/voxel';
+import { presentVoxelWorlds } from '@thirdlight/game-host';
+import { chunkDrawBatchTransfer, chunkGrid, createWorldStore, dependentChunks, jobRadius, PLACEHOLDER_RULES, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type VoxelRecord } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
@@ -89,7 +91,8 @@ interface Harness {
   poolsClosed: string[];
 }
 
-async function harness(): Promise<Harness> {
+/** `wrap`: the ports the runtime gets, made from the test's (the game host's presentation, say). */
+async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) => p, onStream?: (world: string, s: VoxelStreamer) => void): Promise<Harness> {
   const r = await createPhysicsPort3D({
     character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } },
     noCharacter: true,
@@ -114,7 +117,7 @@ async function harness(): Promise<Harness> {
         poolsClosed.push(world);
         close();
       };
-      return { grid, source: disk.source(grid, 'stacked', 512), pool, close: () => void closed.push(world) };
+      return { grid, source: disk.source(grid, 'stacked', 512), pool, close: () => void closed.push(world), present: (stream) => onStream?.(world, stream) };
     },
   };
   let job: ((v: BehaviorVoxels) => boolean) | null = null;
@@ -146,7 +149,7 @@ async function harness(): Promise<Harness> {
     ],
   };
   const now = { t: 0 };
-  const res = instantiateRuntime({ snapshot, registry, modules: [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: ports });
+  const res = instantiateRuntime({ snapshot, registry, modules: [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: wrap(ports) });
   if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
   const rt = res.runtime;
   expect(rt.start().ok).toBe(true);
@@ -325,5 +328,88 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(h.rt.dispose().ok).toBe(true);
     expect(h.closed).toEqual(['b', 'a']);
     expect(h.poolsClosed).toEqual(['b', 'a']);
+  }, 120_000);
+
+  it("sends the world's draws to the page as one batch a streamer task: a swap's chunks in one message, equal to fresh joins, handed over without detaching the streamer's buffers", async () => {
+    const batches: ChunkDrawBatch[] = [];
+    let stream: VoxelStreamer | null = null;
+    // As a worker posts them: each batch structured-cloned with its buffers transferred.
+    let presentation: ReturnType<typeof presentVoxelWorlds> | null = null;
+    const h = await harness(
+      (ports) => (presentation = presentVoxelWorlds(ports, (b) => batches.push(structuredClone(b, { transfer: chunkDrawBatchTransfer(b) })))).ports,
+      (_w, s) => (stream = s),
+    );
+    const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
+    const pit = { center: [0.25, surfaceM - 1, 0.25] as [number, number, number], radius: 2 };
+    await h.stepUntil((v) => (v.isResident(pit) ? true : undefined), 'the pit region to load');
+    await h.until(() => groundBelow(h.port, 0.25, 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus');
+    // Until the ring is filled: no batch for 40 steps.
+    let quiet = 0;
+    let seenBatches = -1;
+    await h.until(() => {
+      quiet = batches.length === seenBatches ? quiet + 1 : 0;
+      seenBatches = batches.length;
+      return quiet >= 40;
+    }, 'the ring to fill');
+    const s = stream! as VoxelStreamer;
+    // What the page holds after applying every batch in order.
+    const drawn = new Map<string, ChunkDrawWire>();
+    const apply = (b: ChunkDrawBatch): void => {
+      expect(b.world).toBe('a');
+      for (const c of b.chunks) {
+        const k = `${c.cx},${c.cy},${c.cz}`;
+        if (c.kind === 'remove') drawn.delete(k);
+        else if (c.kind === 'draw') drawn.set(k, c);
+        else drawn.set(k, { ...drawn.get(k)!, solid: c.solid!, ...(c.cells !== undefined ? { cells: c.cells } : {}) });
+      }
+    };
+    const side = shaderGridSide(grid.edge);
+    const cells = new Uint16Array(side ** 3);
+    const sameAsFresh = (): number => {
+      let n = 0;
+      for (const [k, c] of drawn) {
+        const [cx, cy, cz] = k.split(',').map(Number) as [number, number, number];
+        if (!s.isResident(cx, cy, cz)) continue;
+        const d = s.joinedChunk(cx, cy, cz, undefined, cells)!;
+        expect(d, k).not.toBeNull();
+        for (const part of ['ground', 'base'] as const) {
+          expect(Buffer.from(c[part]!.vertices).equals(Buffer.from(d[part].vertices)), `${k} ${part}`).toBe(true);
+          expect([...c[part]!.indices], `${k} ${part}`).toEqual([...d[part].indices]);
+        }
+        expect(Buffer.from(c.instances!.data).equals(Buffer.from(d.instances.data)), k).toBe(true);
+        expect(c.solid, k).toBe(d.solid);
+        if (d.solid < 0) expect(Buffer.from(c.cells!.buffer).equals(Buffer.from(cells.buffer)), k).toBe(true);
+        n++;
+      }
+      return n;
+    };
+    for (const b of batches.splice(0)) apply(b);
+    expect(sameAsFresh()).toBeGreaterThan(10);
+
+    // A dig: its swap's chunks arrive in one batch with the swap, and the page's chunks equal fresh joins again.
+    const dug = await h.inStep((v) => v.dig(pit));
+    expect(dug.ok).toBe(true);
+    if (!dug.ok) return;
+    const id = dug.edit;
+    await h.stepUntil((v) => v.changes.find((x) => x.edit === id), 'the dig to swap');
+    const withSwap = batches.filter((b) => b.swaps.length > 0);
+    expect(withSwap).toHaveLength(1);
+    const swapBatch = withSwap[0]!;
+    expect(swapBatch.swaps).toHaveLength(1);
+    const swapped = new Set(swapBatch.chunks.filter((c) => c.kind === 'draw').map((c) => `${c.cx},${c.cy},${c.cz}`));
+    expect(swapped.size).toBe(swapBatch.swaps[0]!.chunks);
+    expect(swapBatch.swaps[0]!.sections).toBeGreaterThan(1);
+    for (const b of batches.splice(0)) apply(b);
+    expect(sameAsFresh()).toBeGreaterThan(10);
+
+    // The page's GPU bytes of a drawn chunk count as its mesh part of the world's budget.
+    const [k0] = [...drawn.keys()].filter((k) => s.isResident(...(k.split(',').map(Number) as [number, number, number])));
+    const total0 = s.metrics().bytes.total;
+    presentation!.drawn('a', [...k0!.split(',').map(Number), 100_000]);
+    // Nothing reported bytes for it before (no page here), so the total grows by exactly these.
+    expect(s.metrics().bytes.total - total0).toBe(100_000);
+    expect(h.rt.dispose().ok).toBe(true);
+    // The world closed: the page is told to let go of its draws.
+    expect(batches.at(-1)).toMatchObject({ world: 'a', closed: true, chunks: [] });
   }, 120_000);
 });

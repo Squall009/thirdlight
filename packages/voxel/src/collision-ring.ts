@@ -174,6 +174,27 @@ export class CollisionRing {
     return false;
   }
 
+  /**
+   * Whether a chunk column's collision is in place for something standing
+   * in it: the column lies within the add bounds of a focus, and each of its
+   * chunks within those bounds is in the ring and `ready` (its derive
+   * arrived, so its body is the chunk's ground and not a placeholder for
+   * results still on their way). False for a column no focus reaches.
+   */
+  columnSettled(cx: number, cz: number, ready: (cx: number, cy: number, cz: number) => boolean): boolean {
+    const b = this.bounds;
+    const e = this.grid.edge;
+    let any = false;
+    for (const f of this.foci) {
+      for (let cy = Math.floor((f.y - b.height) / e); cy <= Math.floor((f.y + b.height) / e); cy++) {
+        if (!chunkInWorld(this.grid, cx, cy, cz) || !this.within(cx, cy, cz, b.radius, b.height)) continue;
+        if (!this.members.has(chunkKey(this.grid, cx, cy, cz)) || !ready(cx, cy, cz)) return false;
+        any = true;
+      }
+    }
+    return any;
+  }
+
   /** Whether the chunk belongs in the ring: within the add bounds, or a member within the keep bounds. */
   wants(cx: number, cy: number, cz: number): boolean {
     const b = this.bounds;

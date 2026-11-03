@@ -90,6 +90,8 @@ export interface SimInitMessage {
   readonly startMode?: string;
   /** The stored project settings document. */
   readonly projectSettings?: Readonly<Record<string, unknown>>;
+  /** Where the play's voxel worlds are read from (the worker entry's voxel ports open them there); absent: they stream nothing. */
+  readonly voxels?: { readonly root: string };
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */
@@ -156,6 +158,8 @@ export type MainToWorker =
   /** A page frame in which the game is paused while an exercise runs. */
   | { readonly t: 'relay.idle' }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
+  /** The page's GPU bytes of a voxel world's drawn chunks (`[cx, cy, cz, bytes]` repeated), for the world's budget. */
+  | { readonly t: 'voxels.drawn'; readonly world: string; readonly bytes: readonly number[] }
   | { readonly t: 'dispose' };
 
 /** The loaded scenes as the page mirrors them (entities only for a batch the page does not have yet). */
@@ -280,4 +284,6 @@ export type WorkerToMain =
   | { readonly t: 'query.result'; readonly id: number; readonly result: unknown }
   | { readonly t: 'cmd.error'; readonly op: string; readonly error: { code: string; message: string } }
   | { readonly t: 'log'; readonly level: 'info' | 'warn' | 'error'; readonly message: string }
+  /** A voxel world's chunk draws of one streamer task (its buffers transferred): the page replaces them at once. */
+  | { readonly t: 'voxels'; readonly batch: import('@thirdlight/voxel').ChunkDrawBatch }
   | { readonly t: 'disposed' };

@@ -141,6 +141,17 @@ export class RuntimeVoxels {
     }
   }
 
+  /** Whether any world is loaded (bodies then wait for its collision: body-suspension.ts). */
+  get active(): boolean {
+    return this.worlds.size > 0;
+  }
+
+  /** Whether every loaded world's collision under a point (world metres) is in place. */
+  loadedAt(x: number, z: number): boolean {
+    for (const held of this.worlds.values()) if (!held.host.collisionReadyAt(x, z)) return false;
+    return true;
+  }
+
   /** A new run: every world's changes are dropped. */
   reset(): void {
     for (const held of this.worlds.values()) held.host.reset();

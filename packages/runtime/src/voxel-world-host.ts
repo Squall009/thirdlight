@@ -21,6 +21,7 @@ import type { ResolvedVoxelWorld } from '@thirdlight/project-model';
 import {
   canonicalEditCommand,
   chunkInWorld,
+  chunkKey,
   collisionBodyParts,
   collisionGeometry,
   CollisionRing,
@@ -59,6 +60,12 @@ export interface VoxelWorldConnection {
   readonly budgetBytes?: number;
   /** Lets go of what the source holds (open files, connections); called once when the world unloads. */
   close?(): void;
+  /**
+   * The world's streamer once it is made (before it streams anything), for
+   * what draws the world: it listens to the streamer's events and joins the
+   * chunks it announces. `sectionEdge`: the world's derive section edge.
+   */
+  present?(stream: VoxelStreamer, sectionEdge: number): void;
 }
 
 /** How the runtime reaches a project's voxel worlds (absent: a game's voxel worlds stream nothing and read null). */
@@ -157,6 +164,10 @@ export class VoxelWorldHost {
   private shaderOnlyChunks = new Map<string, boolean>();
   /** The change whose commands are being applied (a group may swap before its edit call returns). */
   private applying: PendingChange | null = null;
+  /** Resident chunks whose derive results arrived (their bodies are their ground, not a placeholder). */
+  private readonly derived = new Set<number>();
+  /** The world is being opened (bodies wait for it; a world that cannot open holds nothing up). */
+  private opening = false;
   readonly api: BehaviorVoxelWorld;
 
   constructor(
@@ -178,9 +189,11 @@ export class VoxelWorldHost {
       whenResident: (region: VoxelRegion) => this.whenResident(region),
     });
     if (ports === null) return;
+    this.opening = true;
     ports.open(this.name).then(
       (conn) => this.connect(conn),
       (e: unknown) => {
+        this.opening = false;
         if (!this.disposed) events.warn(`voxel world "${this.name}" could not be opened: ${e instanceof Error ? e.message : String(e)}`);
       },
     );
@@ -219,12 +232,16 @@ export class VoxelWorldHost {
       this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: streamer, bounds: collisionRingBounds({ radius, height }) });
     }
     streamer.on((e) => this.onStream(e));
+    conn.present?.(streamer, s.sectionEdge);
   }
 
   private onStream(e: StreamEvent): void {
     if (this.disposed) return;
-    if (e.type === 'unloaded') this.ring?.unloaded(e.cx, e.cy, e.cz);
-    else if (e.type === 'chunk') {
+    if (e.type === 'unloaded') {
+      this.derived.delete(chunkKey(this.conn!.grid, e.cx, e.cy, e.cz));
+      this.ring?.unloaded(e.cx, e.cy, e.cz);
+    } else if (e.type === 'chunk') {
+      this.derived.add(chunkKey(this.conn!.grid, e.cx, e.cy, e.cz));
       // The body follows the chunk's new join in this task, so it swaps with the draw and the shader data.
       if (!e.shaderOnly) this.ring?.changed(e.cx, e.cy, e.cz);
       const id = `${e.cx},${e.cy},${e.cz}`;
@@ -282,6 +299,22 @@ export class VoxelWorldHost {
     }
   }
 
+  /**
+   * Whether the world's collision under a point (world metres) is in place:
+   * the world is open and every chunk of the column within the collision
+   * ring has its body from its derived ground. Without a physics port
+   * nothing collides here, so nothing waits for it.
+   */
+  collisionReadyAt(x: number, z: number): boolean {
+    if (this.disposed) return true;
+    if (this.streamer === null) return !this.opening || this.physics === undefined;
+    const ring = this.ring;
+    if (ring === null) return true;
+    const grid = this.conn!.grid;
+    const sh = grid.shift;
+    return ring.columnSettled(Math.floor(x / VOXEL_SIZE_M) >> sh, Math.floor(z / VOXEL_SIZE_M) >> sh, (cx, cy, cz) => this.derived.has(chunkKey(grid, cx, cy, cz)));
+  }
+
   /** A new run: the game's changes are dropped (the world reads as its files again, rebuilt in one swap). */
   reset(): void {
     this.streamer?.clearOverlay();
@@ -299,6 +332,7 @@ export class VoxelWorldHost {
     this.pending.clear();
     this.streamer = null;
     this.ring = null;
+    this.derived.clear();
   }
 
   /** What the host holds (diagnostics). */

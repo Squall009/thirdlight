@@ -18,7 +18,8 @@
  * between frames, in order, and apply at the next step boundary — the same
  * boundary they reach in single-thread mode.
  */
-import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort3D, type Runtime, type SimulationModuleSpec } from '@thirdlight/runtime';
+import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort3D, type Runtime, type SimulationModuleSpec, type VoxelWorldPorts } from '@thirdlight/runtime';
+import { chunkDrawBatchTransfer } from '@thirdlight/voxel';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -28,6 +29,7 @@ import { FrameEncoder } from './sim-state';
 import { PHYSICS_MEMORY_CAP_BYTES, type MainToWorker, type SimCommand, type SimEndpoint, type SimInitMessage, type SimQuery, type WorkerToMain } from './sim-protocol';
 import { stepDigest } from './step-digest';
 import { TickInputSource } from './tick-input';
+import { presentVoxelWorlds, type VoxelPresentation } from './voxel-play';
 
 /** The longest a tick may be slowed by a debugging delay. */
 const MAX_TICK_DELAY_MS = 1000;
@@ -58,6 +60,8 @@ export interface SimWorkerDeps {
     createPhysicsPort3D(config: never): Promise<{ ok: true; port: unknown } | { ok: false; error: { code: string; message?: string } }>;
     physicsMemoryBytes3D?(): number | null;
   }>;
+  /** How the play's voxel worlds are opened from the root the page names (absent: they stream nothing). */
+  voxelPorts?(root: string): VoxelWorldPorts;
 }
 
 /** Run the simulation worker on this endpoint (call once, at the worker's start). */
@@ -81,6 +85,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let digests: string[] = [];
   let debugWatcher: ((stepIndex: number) => boolean) | null = null;
   let phase: 'idle' | 'starting' | 'ready' | 'disposed' = 'idle';
+  /** The voxel worlds' draws on their way to the page. */
+  let voxels: VoxelPresentation | null = null;
   const waiting: MainToWorker[] = [];
 
   const installWatcher = (): void => {
@@ -178,6 +184,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       // A relayed pointer is hit-tested against the page's UI targets; UI edges and clicks go to the page.
       relay.setUiHit((x, y) => hitUiTargets(uiTargets, x, y)?.key ?? null);
       relay.setEffectSink((effect) => post({ t: 'relay.effect', effect }));
+      // Each swap's chunk draws go to the page in one message, their buffers handed over.
+      if (m.voxels !== undefined && deps.voxelPorts !== undefined) voxels = presentVoxelWorlds(deps.voxelPorts(m.voxels.root), (batch) => post({ t: 'voxels', batch }, chunkDrawBatchTransfer(batch)));
       const composed = composeGameRuntime({
         snapshot: m.snapshot,
         settings: m.settings,
@@ -190,6 +198,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         ...(m.variables !== undefined ? { variables: m.variables } : {}),
         ...(m.startMode !== undefined ? { startMode: m.startMode } : {}),
         ...(m.projectSettings !== undefined ? { projectSettings: m.projectSettings } : {}),
+        ...(voxels !== null ? { voxels: voxels.ports } : {}),
       });
       if (!composed.ok) {
         port?.dispose?.();
@@ -383,6 +392,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         return;
       case 'query':
         post({ t: 'query.result', id: m.id, result: query(m.query) });
+        return;
+      case 'voxels.drawn':
+        voxels?.drawn(m.world, m.bytes);
         return;
       case 'dispose':
         dispose();

@@ -28,6 +28,14 @@
  * wetness paint of the wall (across a chunk face) change the picture with
  * no mesh rebuilt and no chunk derived again but for its shader data.
  *
+ * Play streams the same world with the simulation: a project with a
+ * `voxelWorld` object, a player character standing on the world's ground
+ * and a script that digs a pit under it once the ground is resident. The
+ * pixels change where the pit opens, the character falls into it, on both
+ * renderers, with the simulation in its worker (WebGPU) and in the page
+ * (WebGL 2, `?threads=off`); each edit's way from the script to the screen
+ * is read from the play page's hook.
+ *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
  * corner, locally (a game's runtime edit) and as a command, swaps every
@@ -35,12 +43,14 @@
  * frame shows part of it), and reads see the dug cells in the same task as
  * the edit.
  */
+import { createHash, randomBytes } from 'node:crypto';
 import { cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { decodePng, changedPixels } from './png';
 import { expect, test, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { consoleErrors } from './console-errors';
+import { editorUrlFor, expectRendererBackend } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, PLACEHOLDER_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
@@ -344,6 +354,113 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const again = await shot(page);
     // The same picture as before the reload, from the region files (the view and the world are the same).
     expect(changedPixels(shown, again)).toBeLessThan(200);
+    expect(errors).toEqual([]);
+  });
+}
+
+// ---- Play: the world runs with the simulation ----------------------------------------------------------------
+
+async function playCmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-play' }, args });
+  expect(res['ok'], JSON.stringify(res)).toBe(true);
+  return res;
+}
+async function projectApi(path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> {
+  const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify(body) });
+  return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+}
+async function publishScript(behaviorId: string, source: string, entityId: string): Promise<void> {
+  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
+  const stageId = String((await projectApi('content/stages')).json.stageId);
+  const put = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/stages/${stageId}/bytes`, { method: 'PUT', headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes });
+  expect(put.status).toBe(200);
+  const declaration = { properties: [] };
+  await playCmd('publishBehavior', { behaviorId, displayName: behaviorId, mode: 'declaration-create', declaration });
+  await playCmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
+  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+  const published = await projectApi('content/behaviors/source', { stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}` });
+  expect(published.status, JSON.stringify(published.json)).toBe(200);
+  await playCmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
+}
+
+/** Steps the script waits once the pit's ground is resident before it digs (5 s at 120 Hz: time for the "before" picture). */
+const DIG_DELAY_STEPS = 600;
+/** Where the character stands (metres): the slice's flat pad, beside the wall scene. */
+let standAt: [number, number, number] | null = null;
+
+/** The play project: the slice world as a `voxelWorld`, a camera looking at the pad, a character on it, the digging script. */
+async function playProject(): Promise<[number, number, number]> {
+  if (standAt !== null) return standAt;
+  const [ox, oy, oz] = scene;
+  const at: [number, number, number] = [(ox + 9.5) / 2, oy / 2, (oz + 10.5) / 2];
+  const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'slice' } } }))['createdId']);
+  const pitch = (35 * Math.PI) / 180;
+  await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: { position: [at[0], at[1] + 5, at[2] + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
+  const player = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [at[0], at[1] + 1.5, at[2]] } }))['createdId']);
+  await playCmd('setComponent', { entityId: player, component: 'controller', value: {} });
+  const pit = `{ center: [${at[0]}, ${at[1] - 0.25}, ${at[2]}], radius: 1.75 }`;
+  await publishScript('digger', [
+    'export default {',
+    '  prepare() { return {}; },',
+    '  instantiate() { return { wait: -1, at: -1, dug: false }; },',
+    '  step(state: any, ctx: any) {',
+    "    if (ctx.phase !== 'intent') return;",
+    '    const v = ctx.voxels;',
+    `    const pit = ${pit};`,
+    '    if (state.wait < 0) state.wait = v.whenResident(pit);',
+    "    for (const w of v.waits) if (w.wait === state.wait && w.resident && state.at < 0) { state.at = ctx.stepIndex; ctx.game.add('resident', 1); }",
+    "    for (const c of v.changes) ctx.game.add('changes', 1);",
+    `    if (!state.dug && state.at >= 0 && ctx.stepIndex >= state.at + ${DIG_DELAY_STEPS}) { const r = v.dig(pit); state.dug = true; ctx.game.add(r.ok ? 'dug' : 'refused', 1); }`,
+    '  },',
+    '  dispose() {},',
+    '};',
+    '',
+  ].join('\n'), world);
+  return (standAt = at);
+}
+
+interface PlayObservation { state?: string; stepIndex?: number; counters?: Record<string, number>; player?: { x: number; y: number; z: number } }
+interface VoxelPlayHook { stats(): { worlds: Record<string, { chunks: number; triangles: number }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }> }
+
+for (const renderer of ['webgpu', 'webgl2'] as const) {
+  // WebGPU plays with the simulation in its worker, WebGL 2 in the page: both ways the world reaches the draws.
+  const threads = renderer === 'webgpu' ? 'worker' : 'single';
+  test(`Play: the world streams with the simulation (${threads}), a script digs a pit, the pixels change and the character falls in (${renderer})`, async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const at = await playProject();
+    const errors = consoleErrors(page);
+    const url = editorUrlFor(be.editorUrl, renderer);
+    await page.goto(threads === 'single' ? url.replace('#', '&threads=off#') : url);
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+    const frame = page.frameLocator('iframe.tl-app__preview-frame');
+    const canvas = frame.locator('canvas').first();
+    await expectRendererBackend(canvas, renderer);
+    const observe = async (): Promise<PlayObservation> => (await projectApi(`play/${psid}/observe`)).json as PlayObservation;
+    const drawn = (): Promise<ReturnType<VoxelPlayHook['stats']>> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats());
+    await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
+    // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
+    await expect.poll(async () => (await drawn()).worlds['slice']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
+    // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
+    await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
+    const standing = (await observe()).player!;
+    expect((await observe()).counters?.['dug'] ?? 0, 'the picture before the dig is taken in time').toBe(0);
+    const before = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('before.png') }));
+    await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
+    await expect.poll(async () => (await observe()).counters?.['changes'] ?? 0, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+    // The character falls into the pit (its collider went with the swap that drew the hole).
+    await expect.poll(async () => standing.y - ((await observe()).player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);
+    const after = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('after.png') }));
+    expect(changedPixels(before, after)).toBeGreaterThan(500);
+    const edits = await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.edits());
+    expect(edits.length).toBeGreaterThanOrEqual(1);
+    const pipeline = ((await projectApi(`play/${psid}/diagnostics`)).json as { diagnostics?: { simulation?: { pipeline?: { workerRoundTripMs: { avg: number; max: number } } | null } } }).diagnostics?.simulation?.pipeline ?? null;
+    console.log(`[voxel-play] ${renderer} ${threads}: edit→screen ${JSON.stringify(edits)}; sim round trip ${JSON.stringify(pipeline?.workerRoundTripMs ?? null)}; drawn ${JSON.stringify(await drawn())}`);
+    expect((await observe()).state).toBe('running');
     expect(errors).toEqual([]);
   });
 }

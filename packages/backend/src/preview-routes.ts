@@ -29,10 +29,22 @@ export interface PreviewRoutesContext {
   readonly openFile: (projectId: string, file: PlayFileArtifact['file']) => OpenBlobResult;
   /** A served file no longer had its digest: the project's files are checked again (a changed file is imported again). */
   readonly onFileChanged: (projectId: string) => void;
+  /** A project's voxel worlds as read files (voxel-routes.ts `reads`): served under a play's locator. */
+  readonly voxels?: {
+    info(res: ServerResponse, projectId: string, world: string): Promise<void>;
+    region(req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void>;
+  };
 }
 
+/**
+ * A play's voxel world routes on the preview origin: `/play-content/<contentId>/voxels/<world>` (the
+ * manifest and file list) and `…/voxels/<world>/regions/<file>` (read by range). Play's simulation streams
+ * the project's worlds from there as the backend has them now.
+ */
+const PLAY_VOXELS_RE = /^\/play-content\/([^/]+)\/voxels\/([^/]+)(?:\/regions\/([^/]+))?$/;
+
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
-  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile, onFileChanged } = ctx;
+  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile, onFileChanged, voxels } = ctx;
 
   /** The page's stable roots (the project's cache root, the play build). */
   const rootsOf = (set: PlayContentSet): { cacheRoot: string; buildRoot: string | null } => ({
@@ -181,6 +193,36 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   /** Does this play ship a KTX2/Basis texture (the transcoder then needs 'unsafe-eval')? */
   const needsBasis = (set: PlayContentSet): boolean => set.needsBasis || decodersNeeded([...set.artifacts.values()].filter((a) => !isFileArtifact(a)) as { bytes: Uint8Array; contentType: string }[]).includes('basis');
 
+  const servePlayVoxels = (req: IncomingMessage, res: ServerResponse, m: RegExpExecArray): void => {
+    const contentId = m[1]!;
+    const set = isContentId(contentId) ? playContent.get(contentId) : undefined;
+    if (set === undefined) {
+      locatorError(res, sessionError('play_locator_invalid', 'not_found', 'unknown or unpaired play-content locator'), 404);
+      return;
+    }
+    const verdict = locatorStatus(set);
+    if (verdict !== null) {
+      locatorError(res, verdict.error, verdict.status);
+      return;
+    }
+    let world: string;
+    let file: string | undefined;
+    try {
+      world = decodeURIComponent(m[2]!);
+      file = m[3] !== undefined ? decodeURIComponent(m[3]) : undefined;
+    } catch {
+      locatorError(res, sessionError('path_rejected', 'validation', 'the voxel world path is not valid'), 400);
+      return;
+    }
+    locatorBaseHeaders(res);
+    const sent = file === undefined ? voxels!.info(res, set.projectId, world) : voxels!.region(req, res, set.projectId, world, file);
+    sent.catch((e: unknown) => {
+      logStartup(`play voxels: ${e instanceof Error ? e.message : String(e)}`);
+      if (!res.headersSent) sendJson(res, 500, { ok: false, error: sessionError('invalid_request', 'internal', 'internal error') });
+      else res.destroy();
+    });
+  };
+
   const dispatchPreview = (req: IncomingMessage, res: ServerResponse): void => {
     const url = req.url ?? '';
     const qIdx = url.indexOf('?');
@@ -230,6 +272,12 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
           return;
         }
         sendImmutable(req, res, file, IMMUTABLE_MAX_AGE);
+        return;
+      }
+      // A play's voxel worlds, read under its locator (the locator is the permission).
+      const voxelPath = voxels !== undefined ? PLAY_VOXELS_RE.exec(p) : null;
+      if (voxelPath !== null) {
+        servePlayVoxels(req, res, voxelPath);
         return;
       }
       // The locator paths (artifact root + shell).
