@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@thirdlight/project-model": "0.1.0",
-    "@thirdlight/shared": "0.1.0"
+    "@thirdlight/shared": "0.1.0",
+    "@thirdlight/voxel": "0.1.0"
   },
   "scripts": {
     "test": "vitest run"

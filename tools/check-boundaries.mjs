@@ -149,7 +149,11 @@ export const NODE_SIDE_ALLOWED = {
     // injected by the backend — workspace holds only their types.
     typesOnly: { 'asset-pipeline': true, 'behavior-build': true },
   },
-  runtime: { packages: ['project-model'], external: [], node: [] },
+  // + voxel — a scene's voxel world streams with the simulation: the runtime
+  // hosts the streamer, its overlay and the collision ring and answers
+  // `ctx.voxels` from them; voxel is pure (no three.js, no Node built-ins)
+  // and imports only the leaf, so no cycle and exports stay backend-free.
+  runtime: { packages: ['project-model', 'voxel'], external: [], node: [] },
   // The visual-effect evaluator (CPU reference semantics of the
   // `effect` graph kind). Runtime-safe and pure like the runtime: the kind
   // data and graph helpers of project-model only; no three.js, no Node
