@@ -82,7 +82,8 @@ export const SHAPE_FULL = 2 ** SHAPE_BITS - 1;
 /** The largest wetness. */
 export const WETNESS_MAX = 2 ** WETNESS_BITS - 1;
 
-const ROLE_MASK = 2 ** ROLE_BITS - 1;
+/** Mask of the role field once shifted down by {@link ROLE_SHIFT}. */
+export const ROLE_MASK = 2 ** ROLE_BITS - 1;
 const SHAPE_MASK = 2 ** SHAPE_BITS - 1;
 const WETNESS_MASK = 2 ** WETNESS_BITS - 1;
 

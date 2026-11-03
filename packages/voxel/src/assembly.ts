@@ -258,37 +258,13 @@ export const PLACEHOLDER_RULES: AssemblyRuleSet = Object.freeze({
 
 /** Per role: 1 when the placeholder rules read beams and rails from it. */
 const BUILT_ROLE = roleTable([VOXEL_ROLE.wall, VOXEL_ROLE.floor, VOXEL_ROLE.foundation, VOXEL_ROLE.stair, VOXEL_ROLE.pillar]);
-/** Per role: 1 when the placeholder rules treat the cell as open. */
-const OPEN_ROLE = roleTable([VOXEL_ROLE.air, VOXEL_ROLE.liquid, VOXEL_ROLE.opening]);
+/** Per role: 1 when the assembly rules treat the cell as open (air, liquid, an opening): nothing stands on it or against it. */
+export const OPEN_ROLE = roleTable([VOXEL_ROLE.air, VOXEL_ROLE.liquid, VOXEL_ROLE.opening]);
 
 function roleTable(roles: readonly number[]): Uint8Array {
   const t = new Uint8Array(16);
   for (const r of roles) t[r] = 1;
   return t;
-}
-
-/** The rule sets a worker knows, by id. */
-const RULE_SETS = new Map<string, AssemblyRuleSet>([[PLACEHOLDER_RULES.id, PLACEHOLDER_RULES]]);
-
-/** Registers a rule set (a later catalogue, or a test's); an id may hold one version at a time. */
-export function registerAssemblyRules(rules: AssemblyRuleSet): void {
-  if (!Number.isInteger(rules.version) || rules.version < 1) throw new RangeError(`rule set ${rules.id}: version ${rules.version}`);
-  if (!Number.isInteger(rules.radius) || rules.radius < 0) throw new RangeError(`rule set ${rules.id}: radius ${rules.radius}`);
-  RULE_SETS.set(rules.id, rules);
-}
-
-/** The rule set a reference names, or a refusal when the id is unknown or its version or radius differ. */
-export function assemblyRules(ref: { readonly id: string; readonly version: number; readonly radius?: number }): AssemblyRuleSet {
-  const rules = RULE_SETS.get(ref.id);
-  if (rules === undefined) throw new RangeError(`unknown assembly rule set ${ref.id}`);
-  if (rules.version !== ref.version) throw new RangeError(`assembly rule set ${ref.id} is version ${rules.version}, not ${ref.version}`);
-  if (ref.radius !== undefined && ref.radius !== rules.radius) throw new RangeError(`assembly rule set ${ref.id} has radius ${rules.radius}, not ${ref.radius}`);
-  return rules;
-}
-
-/** Every rule set a worker knows (the placeholder set and each one registered): what the radius conformance check runs over. */
-export function registeredAssemblyRules(): AssemblyRuleSet[] {
-  return [...RULE_SETS.values()];
 }
 
 /** A rule set's reference (what a derived result records). */

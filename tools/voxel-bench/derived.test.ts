@@ -59,6 +59,9 @@ import {
   shaderEntryAt,
   SHADER_BORDER_CELLS,
   SURFACE_VERTEX_BYTES,
+  TERRAIN_FEATURE,
+  TERRAIN_RULES,
+  terrainFeatureOf,
   VOXEL_ROLE,
   valueRole,
   type AssemblyRuleSet,
@@ -76,11 +79,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32 } from '@thirdlight/shared';
 import { listRegionFiles, RegionWorld } from '@thirdlight/workspace';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { loadArea, zstdDecompress } from './regions';
 import { instanceList, triangleList } from './mesh-compare';
 import { houseVoxel, townWorld, type House } from './town';
-import { flatGround, placeWallBeamBanister, putVoxel, randomAssemblyWorld } from './scenes';
+import { FEATURE_GROUND, FEATURE_PAD, featureCases, featuresStore } from './features';
+import { flatGround, placeWallBeamBanister, putVoxel, randomAssemblyWorld, randomTerrainWorld } from './scenes';
 import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
 
@@ -112,6 +116,19 @@ function classAt(store: PaletteStore, x: number, y: number, z: number): number {
   const out = new Uint8Array(n.values.length);
   evaluateAssembly(n, PLACEHOLDER_RULES, out);
   return out[((local(x) + R) * n.side + (local(z) + R)) * n.side + (local(y) + R)]!;
+}
+
+/** The resolved class bytes of one chunk of a store under a rule set, by local cell (the evaluation a derive runs). */
+function classesOfChunk(store: PaletteStore, rules: AssemblyRuleSet, cx: number, cy: number, cz: number): (lx: number, ly: number, lz: number) => number {
+  const g = store.grid;
+  const pad = jobRadius(rules);
+  const n = createNeighbourhood(g.edge, pad);
+  const dense = createDenseChunk(g);
+  const has = store.exportChunk(cx, cy, cz, dense);
+  fillNeighbourhood(n, g, has ? dense : null, buildApron(store, cx, cy, cz, pad));
+  const out = new Uint8Array(n.values.length);
+  evaluateAssembly(n, rules, out);
+  return (lx, ly, lz) => out[((lx + pad) * n.side + (lz + pad)) * n.side + (ly + pad)]!;
 }
 
 /** What each consumer says about one cell. */
@@ -354,17 +371,53 @@ describe('the radius conformance check every rule set must pass', () => {
   const cube: Array<{ cx: number; cy: number; cz: number }> = [];
   for (let cx = -2; cx <= 1; cx++) for (let cy = -2; cy <= 1; cy++) for (let cz = -2; cz <= 1; cz++) cube.push({ cx, cy, cz });
 
-  // Each registered rule set (46b's catalogue too, once registered) resolves every cell the consumers read the same
-  // with the job's apron (radius + reach) as with 3 cells more, on random worlds at both chunk edges.
+  // Each registered rule set (the terrain rules and any catalogue registered later) resolves every cell the consumers
+  // read the same with the job's apron (radius + reach) as with 3 cells more, on random worlds at both chunk edges:
+  // the assembly arrangements and random terrain (cliffs, risers, slopes with partial fills, ledges, one-cell walls and spikes, caves).
   it.each(registeredAssemblyRules().map((r) => [r.id, r] as const))('%s reads no further than its declared radius', (_id, rules) => {
     for (const [g, seeds] of [[g16, [1, 2, 3]], [grid, [4]]] as const) {
       for (const seed of seeds) {
-        const s = createWorldStore(g);
-        randomAssemblyWorld(s, seed, 24);
-        const chunks = g.edge === 16 ? cube : [-1, 0].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0].map((cz) => ({ cx, cy, cz }))));
-        expect(ruleRadiusMismatches(s, rules, chunks), `edge ${g.edge}, seed ${seed}`).toEqual([]);
+        for (const [kind, world] of [['assembly', randomAssemblyWorld], ['terrain', randomTerrainWorld]] as const) {
+          const s = createWorldStore(g);
+          world(s, seed, 24);
+          const chunks = g.edge === 16 ? cube : [-1, 0].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0].map((cz) => ({ cx, cy, cz }))));
+          expect(ruleRadiusMismatches(s, rules, chunks), `${kind} world, edge ${g.edge}, seed ${seed}`).toEqual([]);
+        }
       }
     }
+  });
+
+  it('meets every ground feature in the random terrain it is checked on', () => {
+    // The conformance check above only proves the rules it reaches: every feature class must occur in its worlds.
+    const seen = new Map<number, number>();
+    for (const seed of [1, 2, 3]) {
+      const s = createWorldStore(g16);
+      randomTerrainWorld(s, seed, 24);
+      for (const c of cube) {
+        const at = classesOfChunk(s, TERRAIN_RULES, c.cx, c.cy, c.cz);
+        for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (let y = 0; y < 16; y++) {
+          const f = terrainFeatureOf(at(x, y, z));
+          seen.set(f, (seen.get(f) ?? 0) + 1);
+        }
+      }
+    }
+    for (const [name, f] of Object.entries(TERRAIN_FEATURE)) expect(seen.get(f) ?? 0, name).toBeGreaterThan(0);
+    // A cell's feature does not depend on how the world is cut: 16³ and 32³ evaluations agree everywhere.
+    const s16 = createWorldStore(g16);
+    const s32 = createWorldStore(grid);
+    randomTerrainWorld(s16, 1, 24);
+    randomTerrainWorld(s32, 1, 24);
+    const at32 = new Map<string, (lx: number, ly: number, lz: number) => number>();
+    for (const cx of [-1, 0]) for (const cy of [-1, 0]) for (const cz of [-1, 0]) at32.set(`${cx},${cy},${cz}`, classesOfChunk(s32, TERRAIN_RULES, cx, cy, cz));
+    let differ = 0;
+    for (const c of cube) {
+      const at16 = classesOfChunk(s16, TERRAIN_RULES, c.cx, c.cy, c.cz);
+      for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (let y = 0; y < 16; y++) {
+        const [wx, wy, wz] = [c.cx * 16 + x, c.cy * 16 + y, c.cz * 16 + z];
+        if (at16(x, y, z) !== at32.get(`${wx >> 5},${wy >> 5},${wz >> 5}`)!(wx & 31, wy & 31, wz & 31)) differ++;
+      }
+    }
+    expect(differ).toBe(0);
   });
 
   it('catches a rule set that reads past the radius it declares', () => {
@@ -388,6 +441,132 @@ describe('the radius conformance check every rule set must pass', () => {
     // The same rule declared honestly passes.
     expect(ruleRadiusMismatches(s, { ...short, radius: 2 }, cube)).toEqual([]);
   });
+});
+
+describe('the terrain rule set', () => {
+  let built: PaletteStore | null = null;
+  // The hard-case row (5 s to build) only when these tests run, not when the file is collected.
+  beforeAll(() => {
+    built = featuresStore();
+  }, 60_000);
+  const features = (): PaletteStore => built!;
+  const cases = new Map(featureCases().map((c) => [c.name, c.x0]));
+  const chunks = new Map<string, (lx: number, ly: number, lz: number) => number>();
+  /** The ground feature of a world cell of the hard-case row (each chunk evaluated once). */
+  const featureAt = (x: number, y: number, z: number): number => {
+    const key = `${chunkOf(x)},${chunkOf(y)},${chunkOf(z)}`;
+    let at = chunks.get(key);
+    if (at === undefined) {
+      at = classesOfChunk(features(), TERRAIN_RULES, chunkOf(x), chunkOf(y), chunkOf(z));
+      chunks.set(key, at);
+    }
+    return terrainFeatureOf(at(local(x), local(y), local(z)));
+  };
+  const F = TERRAIN_FEATURE;
+  const name = (f: number): string => Object.entries(F).find(([, v]) => v === f)?.[0] ?? String(f);
+  /** Every exposed ground cell's feature in the columns x0 + [u0, u1) × [w0, w1) that `keep` accepts, by name. */
+  function featuresIn(caseName: string, u0: number, u1: number, w0: number, w1: number, keep: (u: number, w: number) => boolean = () => true): Map<string, number> {
+    const x0 = cases.get(caseName)!;
+    const out = new Map<string, number>();
+    for (let u = u0; u < u1; u++) for (let w = w0; w < w1; w++) {
+      if (!keep(u, w)) continue;
+      for (let y = 0; y < 60; y++) {
+        const f = featureAt(x0 + u, y, w);
+        if (f !== F.none) out.set(name(f), (out.get(name(f)) ?? 0) + 1);
+      }
+    }
+    return out;
+  }
+  const only = (m: Map<string, number>, feature: string): void => {
+    expect([...m.keys()], JSON.stringify([...m])).toEqual([feature]);
+    expect(m.get(feature)).toBeGreaterThan(20);
+  };
+  const G = Math.floor(FEATURE_GROUND);
+
+  it('is registered, one evaluation of the construction rules and the terrain rules, within the placeholder radius', () => {
+    expect(registeredAssemblyRules()).toContain(TERRAIN_RULES);
+    expect(TERRAIN_RULES.radius).toBe(PLACEHOLDER_RULES.radius);
+    expect(jobRadius(TERRAIN_RULES)).toBe(R);
+  });
+
+  it('reads gentle slopes as gentle', () => {
+    only(featuresIn('slope-1:20', 8, 56, 8, 56), 'gentle');
+    only(featuresIn('slope-1:5', 8, 56, 8, 56), 'gentle');
+    // The flat ground between the bumps and around the walls too.
+    only(featuresIn('wall-1', 8, 24, 8, 56), 'gentle');
+  });
+
+  it('reads the 1:1 bank as steep', () => {
+    // Columns whose centre is 3.5 cells or more inside the bank's foot and top along its slope.
+    const c = Math.SQRT1_2;
+    only(featuresIn('bank-1:1', 8, 56, 8, 56, (u, w) => (u + 0.5) * c + (w + 0.5) * c >= 33.5 && (u + 0.5) * c + (w + 0.5) * c <= 42.5), 'steep');
+  });
+
+  it("reads the cliff's face and its top edge as cliff", () => {
+    const x0 = cases.get('cliff-20m')!;
+    for (let z = 8; z < 56; z++) {
+      for (let y = G + 3; y < G + 37; y++) expect(name(featureAt(x0 + 28, y, z)), `face y ${y} z ${z}`).toBe('cliff');
+      expect(name(featureAt(x0 + 28, G + 39, z)), `top edge z ${z}`).toBe('cliff');
+      // The ground at its foot and on top is flat ground, not the cliff.
+      expect(name(featureAt(x0 + 27, G - 1, z))).toBe('gentle');
+      expect(name(featureAt(x0 + 32, G + 39, z))).toBe('gentle');
+    }
+  });
+
+  it('reads the top edges of one- and two-cell risers as terrace lips, and only those', () => {
+    for (const [caseName, every, rise, risers] of [['terraces-1', 6, 1, 8], ['terraces-2', 8, 2, 6]] as const) {
+      const x0 = cases.get(caseName)!;
+      for (let k = 0; k < risers; k++) {
+        for (let z = 8; z < 56; z++) {
+          expect(name(featureAt(x0 + 8 + every * k, G + rise * (k + 1) - 1, z)), `${caseName} riser ${k} z ${z}`).toBe('terraceLip');
+          // The middle of the tread behind it is flat ground.
+          expect(name(featureAt(x0 + 8 + every * k + every / 2, G + rise * (k + 1) - 1, z)), `${caseName} tread ${k} z ${z}`).toBe('gentle');
+        }
+      }
+      expect(featuresIn(caseName, 4, 8 + every * risers - 1, 8, 56).get('terraceLip'), caseName).toBe(risers * 48);
+    }
+  });
+
+  it('reads the ledge front and the cave mouth as overhang, the ceilings under cover as cave roof', () => {
+    const ledge = cases.get('overhang')!;
+    const cave = cases.get('cave')!;
+    for (let z = 8; z < 56; z++) {
+      // The ledge's underside (y = G + 11) within reach of its front at x0 + 22 is an overhang; further in, nothing
+      // within reach tells it from a ceiling.
+      for (const u of [22, 23]) expect(name(featureAt(ledge + u, G + 11, z)), `ledge ${u} z ${z}`).toBe('overhang');
+      for (let u = 25; u < 32; u++) expect(name(featureAt(ledge + u, G + 11, z)), `ledge ${u} z ${z}`).toBe('caveRoof');
+    }
+    for (let z = 30; z < 35; z++) {
+      for (let u = 16; u < 40; u++) expect(name(featureAt(cave + u, G + 8, z)), `cave ceiling ${u} z ${z}`).toBe('caveRoof');
+      expect(name(featureAt(cave + 12, G + 8, z)), `cave mouth z ${z}`).toBe('overhang');
+    }
+  });
+
+  it('reads the one-cell wall as thin and the one-cell column as spike', () => {
+    const wall = cases.get('wall-1')!;
+    for (let z = 16; z < 48; z++) for (let y = G; y < 15; y++) expect(name(featureAt(wall + 32, y, z)), `wall y ${y} z ${z}`).toBe('thin');
+    const spike = cases.get('spike-1')!;
+    for (let y = G; y < 18; y++) expect(name(featureAt(spike + 32, y, 32)), `spike y ${y}`).toBe('spike');
+  });
+
+  it('changes no derived output: consumers read the class, not the feature', () => {
+    // Nothing reads the features yet: every chunk derives to the placeholder rules' bytes but for the rules it names.
+    const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 } });
+    // The surface chunks of every case (each pad's near half on z, where every case crosses).
+    for (let cx = 0; cx < (FEATURE_PAD * featureCases().length) / E; cx++) for (const [cy, cz] of [[0, 0], [1, 0]] as const) {
+      const a = deriveFromStore(features(), cx, cy, cz, TERRAIN_RULES);
+      expect(a.rules).toEqual({ id: 'terrain', version: 1, radius: 2 });
+      const b = deriveFromStore(features(), cx, cy, cz, PLACEHOLDER_RULES);
+      expect(encodeDerived(strip(a)), `chunk ${cx},${cy},${cz}`).toEqual(encodeDerived(strip(b)));
+      expect(a.counts).toEqual(b.counts);
+    }
+    const s = createWorldStore(grid);
+    randomTerrainWorld(s, 5, 24);
+    randomAssemblyWorld(s, 6, 24);
+    for (const cx of [-1, 0]) for (const cy of [-1, 0]) for (const cz of [-1, 0]) {
+      expect(encodeDerived(strip(deriveFromStore(s, cx, cy, cz, TERRAIN_RULES)))).toEqual(encodeDerived(strip(deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES))));
+    }
+  }, 30_000);
 });
 
 describe('dependency radius and invalidation', () => {

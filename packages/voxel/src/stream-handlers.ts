@@ -10,7 +10,8 @@
  * decoder in Node), keeping this module free of codecs and Node built-ins.
  */
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
-import { assemblyRules, jobRadius } from './assembly';
+import { jobRadius } from './assembly';
+import { assemblyRules } from './rule-registry';
 import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type SectionResult } from './derive-assembly';
 import { derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';

@@ -102,7 +102,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | Item | Status |
 |---|---|
 | 46b.1 | done (this commit; fast gate green): `features` world (14 cases, analytic solids, 83 probes), harness `mesh-cases.ts`, goldens, `slice-world --kind features`. Reference: all closed, every probe kept; max error 4.4–5.0 cm on slopes, 12–23 cm at creases; mean 1.7–4.3 cm; 5.4–12.3 k triangles a case. Broken meshes fail. Voxel e2e 47.9 → 43.8 s (untouched). |
-| 46b.2 | not started |
+| 46b.2 | done (this commit; fast gate green): `terrain-rules.ts`, rule set `terrain` v1 (placeholder rules + 8 ground features, R 2, apron unchanged), registered; conformance on random assembly + terrain worlds at 16/32; every hard case classified as named; derived bytes unchanged. Evaluation a 16³ ground section p50 92–116 µs vs placeholder 38–45 (Node). |
 | 46b.3a | not started |
 | 46b.3b | not started |
 | 46b.4 | not started |
@@ -165,6 +165,38 @@ patch (only the probe). `mesh-cases.test.ts` 14 s alone (world 5 s), 5.2 s in th
 (gate-fast-20261103-093837, uptime 10 d 17 h, load 2.3–2.8): GREEN, 11 min, 5.9 GB peak; `voxel-world.e2e.ts` 43.8 s
 (not touched; 47.9 s at the 46b start); D418 (watch) timed out once more and passed alone.
 
+### 46b.2 terrain rule set
+
+`packages/voxel/src/terrain-rules.ts`: `withTerrainFeatures(construction, id, version)` composes a construction rule
+set with the ground features into one `AssemblyRuleSet` (radius the larger: 2, so the job apron stays 3);
+`TERRAIN_RULES` = placeholder v2 + features, id `terrain` v1. The registry moved to `rule-registry.ts` and lists both
+built-in sets (the package is side-effect free, so a set cannot register itself on import). A solid (non-open role,
+fill ≥ the surface threshold) ground cell with an exposed face gets a feature in the high nibble of its class byte
+(ground carries no run bits; every consumer masks the class, so derived bytes are unchanged: tested on every surface
+chunk of the hard cases and a random world). Order: spike (open both sides along ≥ 2 axes) → thin (one axis) → open
+below: overhang if within 2 cells the mass ends with 3 open cells above the end, else cave roof → open above and on a
+side: cliff if the drop (column fill over the 5 cells level with the cell) exceeds 2.5 cells, terrace lip if it is
+0.5–2.5 with flat ground (< 0.5 rise) behind and in front → else the rise per cell (column fill, across the cell when
+a side is open, else the flatter side): ≥ 2 cliff, ≥ 0.5 steep, else gentle. Thresholds `TERRAIN_THRESHOLDS`.
+
+Tests (`derived.test.ts`): conformance (`ruleRadiusMismatches`) for every registered set on random assembly and new
+random terrain worlds (`randomTerrainWorld`: block heights, tilts, partial fills, ledges, one-cell walls/spikes,
+caves, walls, pools) at 16 and 32; every feature occurs in those worlds; 16³ and 32³ evaluations agree cell for cell;
+the hard cases: slopes 1:20, 1:5 and flat ground gentle; the 1:1 bank's middle steep; cliff face and top edge cliff
+(foot and top ground gentle); every terrace lip (1- and 2-cell risers) and nothing else on the terraces; ledge front
+and cave mouth overhang, cave ceiling cave roof; the one-cell wall thin, the spike spike.
+
+Cost, evaluation µs a 16³ section (Node 22, i5-12600H, `deriveSectionsWithApron` evaluate time, 3 rounds, last kept,
+192 × 192-cell windows; 2026-11-03, uptime 10 d 17 h, load 2.8–4.9), placeholder → terrain, p50 / p95, sections with
+ground surface: features 44/47 → 104/114, plain 43/46 → 93/118, hilly 38/41 → 92/109, caves 40/43 → 116/152, town
+45/51 → 103/124; all sections p50 52–109 (most skip: no solid ground or one value). The first version cost +90–120 µs:
+the fill pass and a per-cell exposure scan; exposure now comes from per-column solid bit masks (exposed = solid and
+not all six neighbour bits) and only exposed cells are classified. The rest is the fill pass over the 22³
+neighbourhood (~25 µs). Scratch script, not committed (`~/.cache/thirdlight-phase46/work/46b.2/measure.ts`).
+Fast gate (gate-fast-20261103-101542, uptime 10 d 17 h, load 4.8–6.4): vitest and lint green, e2e red only on D417
+(`start.e2e.ts` stop exited 1), passed on the rerun (gate-rerun-20261103-102738, GREEN, perf at the cap in limits);
+`voxel-world.e2e.ts` 48.1 s (not touched; 43.8 s at 46b.1, the host's load).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -205,6 +237,18 @@ patch (only the probe). `mesh-cases.test.ts` 14 s alone (world 5 s), 5.2 s in th
 - 2026-11-03 (plan, default chosen, owner to confirm): **the reference surface nets leave the package** for the bench
   (`tools/voxel-bench`), kept as the "before" in the goldens; if the derived layout or meaning changes, derived data
   takes an add-only version step with an owner note in the spec (derived data is never stored: nothing to migrate).
+
+- 2026-11-03 (46b.2, default chosen, owner to confirm): **ground features are local (radius 2)**: inside a ledge wider
+  than the radius its underside reads as a cave roof and only the 2 cells behind its front as overhang; a cave mouth's
+  roof is an overhang. Telling a wide ledge from a cave needs a reach of the cave's half width (6+ cells here), which
+  would quadruple the job's neighbourhood; the mesher treats both as downward faces, so the radius stays 2.
+- 2026-11-03 (46b.2, default chosen, owner to confirm): **feature thresholds** steep from 1:2 rise, cliff from 2:1,
+  terrace risers 0.5–2.5 cells with treads flatter than 1:2 on both sides (a drop deeper than 2.5 cells is a cliff's
+  top edge); terraces are read along the x and z axes only (a diagonal terrace reads as steep steps). Only solid
+  exposed ground cells carry a feature; partly filled cells above them are `none` (the mesher reads the solid
+  cells of a dual cell's corners).
+- 2026-11-03 (46b.2): **the slice and Play keep the placeholder rules until 46b.3b** switches them to `terrain`
+  (nothing reads the features before the mesher; switching now would add ~50–70 µs a ground section for nothing).
 
 ## 9. Open questions for the owner
 

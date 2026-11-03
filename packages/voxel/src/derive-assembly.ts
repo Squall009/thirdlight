@@ -5,7 +5,8 @@
  * fallback without workers) share this, so both give the same bytes.
  */
 import { buildApron, type Apron } from './apron';
-import { assemblyRules, createNeighbourhood, fillNeighbourhood, jobRadius, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { createNeighbourhood, fillNeighbourhood, jobRadius, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { assemblyRules } from './rule-registry';
 import { crc32 } from '@thirdlight/shared';
 import { cellInWorld, SECTION_EDGES, type CellGrid, type ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';

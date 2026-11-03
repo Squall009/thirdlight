@@ -237,7 +237,6 @@ export { worldStreamer, worldStreamRing, type WorldRingMetres } from './world-st
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
 export {
   ASSEMBLY_CLASS,
-  assemblyRules,
   CLASS_MASK,
   CONSUMER_REACH,
   createNeighbourhood,
@@ -245,8 +244,6 @@ export {
   fillNeighbourhood,
   jobRadius,
   PLACEHOLDER_RULES,
-  registerAssemblyRules,
-  registeredAssemblyRules,
   rulesRef,
   RUN_X,
   RUN_Z,
@@ -254,6 +251,8 @@ export {
   type AssemblyRulesRef,
   type Neighbourhood,
 } from './assembly';
+export { assemblyRules, registerAssemblyRules, registeredAssemblyRules } from './rule-registry';
+export { TERRAIN_FEATURE, TERRAIN_FEATURE_SHIFT, TERRAIN_RULES, TERRAIN_RULES_RADIUS, TERRAIN_THRESHOLDS, terrainFeatureOf, withTerrainFeatures } from './terrain-rules';
 export {
   cellBit,
   COLLISION_STEPS_PER_CELL,

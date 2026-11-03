@@ -73,3 +73,51 @@ export function randomAssemblyWorld(s: PaletteStore, seed: number, half: number)
     putVoxel(s, int(-half, half - 1), int(-4, 10), int(-half, half - 1), air ? 0 : MAT.stone, air ? C.air : C.wall);
   }
 }
+
+/**
+ * Random terrain in the cube [−half, half)³ for checking the terrain rules:
+ * ground on 4 × 4-cell blocks of random heights (cliffs, terrace risers and
+ * flat treads between them), each block tilted at a random gentle to steep
+ * slope with its top cells partly filled, then ledges, one-cell walls and
+ * spikes of ground, caves dug into it, and walls and pools on it, so every
+ * ground feature meets every other across chunk faces. Same seed, same cells.
+ */
+export function randomTerrainWorld(s: PaletteStore, seed: number, half: number): void {
+  const rnd = mulberry32(seed);
+  const int = (lo: number, hi: number): number => lo + Math.floor(rnd() * (hi - lo + 1));
+  const inside = (x: number, y: number, z: number): boolean => x >= -half && x < half && y >= -half && y < half && z >= -half && z < half;
+  const blocks = Math.ceil((2 * half) / 4);
+  const heights: number[] = [];
+  const tilts: Array<[number, number]> = [];
+  for (let k = 0; k < blocks * blocks; k++) {
+    heights.push(int(-6, 6));
+    const steep = rnd() < 0.3;
+    tilts.push([(rnd() - 0.5) * (steep ? 2.4 : 0.4), (rnd() - 0.5) * (steep ? 2.4 : 0.4)]);
+  }
+  for (let x = -half; x < half; x++) for (let z = -half; z < half; z++) {
+    const b = Math.floor((x + half) / 4) * blocks + Math.floor((z + half) / 4);
+    const [tx, tz] = tilts[b]!;
+    const h = heights[b]! + tx * (((x + half) % 4) - 1.5) + tz * (((z + half) % 4) - 1.5);
+    for (let y = -half; y < Math.min(half, Math.ceil(h)); y++) {
+      const f = Math.min(1, h - y);
+      putVoxel(s, x, y, z, MAT.grass, C.terrain, Math.max(1, Math.round(f * SHAPE_FULL)));
+    }
+  }
+  const box = (x0: number, y0: number, z0: number, sx: number, sy: number, sz: number, m: number, c: number): void => {
+    for (let x = x0; x < x0 + sx; x++) for (let z = z0; z < z0 + sz; z++) for (let y = y0; y < y0 + sy; y++) if (inside(x, y, z)) putVoxel(s, x, y, z, m, c);
+  };
+  const kinds = [
+    () => box(int(-half, half), int(0, 10), int(-half, half), int(3, 12), int(1, 4), int(3, 12), MAT.soil, C.terrain),
+    () => box(int(-half, half), int(-4, 4), int(-half, half), 1, int(3, 10), int(2, 12), MAT.rock, C.terrain),
+    () => box(int(-half, half), int(-4, 4), int(-half, half), int(2, 12), int(3, 10), 1, MAT.rock, C.terrain),
+    () => box(int(-half, half), int(-4, 6), int(-half, half), 1, int(2, 8), 1, MAT.rock, C.terrain),
+    () => box(int(-half, half), int(-10, -2), int(-half, half), int(3, 10), int(2, 5), int(3, 10), 0, C.air),
+    () => box(int(-half, half), int(-2, 6), int(-half, half), int(1, 8), int(2, 6), 1, MAT.stone, C.wall),
+    () => box(int(-half, half), int(-3, 2), int(-half, half), int(2, 6), 1, int(2, 6), MAT.water, C.liquid),
+  ];
+  for (let k = 0; k < 2 * half; k++) kinds[int(0, kinds.length - 1)]!();
+  for (let k = 0; k < 10 * half; k++) {
+    const air = rnd() < 0.5;
+    putVoxel(s, int(-half, half - 1), int(-8, 8), int(-half, half - 1), air ? 0 : MAT.soil, air ? C.air : C.terrain, air ? 0 : int(1, SHAPE_FULL));
+  }
+}
