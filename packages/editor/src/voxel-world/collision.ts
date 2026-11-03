@@ -4,8 +4,8 @@
  * body, built from its derive sections joined (chunk-join.ts) in the same
  * task as its draw, holding its collision boxes (full-cell merges, and the
  * partial shapes of beams, rails and posts the assembly resolved) and its
- * projected ground surface: a heightfield where the chunk is ground alone
- * and a height function (derived-collision.ts), else triangle meshes. A
+ * projected ground surface: heightfield patches wherever it is a height
+ * function (derived-collision.ts), triangle meshes for the rest. A
  * chunk's body is replaced whenever one of its sections is derived again
  * (an edit within the rules' reach, a neighbour landing) and removed when
  * it unloads, so physics always agrees with what the assembly evaluation
@@ -40,7 +40,8 @@ interface ChunkBody {
   /** What it costs: the geometry kept here (for re-bases) and the physics engine's heap for it (estimated). */
   readonly bytes: number;
   readonly geometryBytes: number;
-  readonly heightfield: boolean;
+  /** Heightfield patches among its parts (ground that is a height function). */
+  readonly patches: number;
 }
 
 /** Where a dropped capsule came to rest. */
@@ -118,7 +119,7 @@ export class VoxelCollision {
     if (parts.length === 0) return 0;
     const cell: Vec3 = [chunkOrigin(this.grid, cx), chunkOrigin(this.grid, cy), chunkOrigin(this.grid, cz)];
     const shape: ColliderShape3D = { type: 'compound', parts };
-    const body: ChunkBody = { id: `voxel:${cx},${cy},${cz}`, cell, parts, bytes: geo.bytes + estimateStaticBodyBytes3D(shape), geometryBytes: geo.bytes, heightfield: geo.heightfield !== null };
+    const body: ChunkBody = { id: `voxel:${cx},${cy},${cz}`, cell, parts, bytes: geo.bytes + estimateStaticBodyBytes3D(shape), geometryBytes: geo.bytes, patches: geo.heightfields.length };
     this.port.addStaticColliders([{ entityId: body.id, shape, position: this.position(cell), rotation: IDENTITY }]);
     this.bodies.set(key, body);
     this.bytes += body.bytes;
@@ -204,15 +205,18 @@ export class VoxelCollision {
     const q = (r: SampleRing, p: number): number => Number(r.quantile(p).toFixed(3));
     const diag = this.port.diagnostics();
     let heightfields = 0;
+    let patches = 0;
     let heightfieldBytes = 0;
     for (const b of this.bodies.values()) {
-      if (!b.heightfield) continue;
+      if (b.patches === 0) continue;
       heightfields++;
+      patches += b.patches;
       heightfieldBytes += b.bytes;
     }
     return {
       bodies: this.bodies.size,
       heightfields,
+      patches,
       heightfieldBytes,
       colliders: diag.worldColliderCount,
       bytes: this.bytes,

@@ -2,11 +2,10 @@
  * A derived chunk's collision as plain geometry in metres from the chunk's
  * corner, for a physics engine: the boxes (full-cell merges and the partial
  * shapes of beams, rails and posts) as centre + half extents, and the
- * projected ground surface as triangle meshes — or, when the chunk has no
- * boxes and its ground is a height function, as a heightfield
- * (ground-heightfield.ts) plus the few triangles at the chunk's faces it
- * does not cover. A heightfield costs a physics engine a height a lattice
- * node where a mesh costs vertices, indices and a tree over its triangles.
+ * projected ground surface as heightfield patches wherever it is a height
+ * function (ground-heightfield.ts) and triangle meshes for the rest. A
+ * heightfield costs a physics engine a height a lattice node where a mesh
+ * costs vertices, indices and a tree over its triangles.
  *
  * A physics port may bound one mesh's size (vertices, triangles); the
  * ground is then cut into several meshes of whole triangles, each with only
@@ -15,7 +14,7 @@
 import { VOXEL_SIZE_M } from './coords';
 import { COLLISION_STEPS_PER_CELL, type CollisionOut } from './derived-data';
 import { POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
-import { groundHeightfield, type GroundHeightfield } from './ground-heightfield';
+import { groundHeightfieldPatches } from './ground-heightfield';
 
 export interface CollisionMesh {
   /** x, y, z per vertex, metres from the chunk's corner. */
@@ -43,9 +42,9 @@ export interface CollisionGeometry {
   readonly boxes: Float32Array;
   /** How many leading boxes are full-cell merges (the rest are partial shapes). */
   readonly fullBoxes: number;
-  /** The ground where it is a heightfield (null: all of it is in {@link meshes}). */
-  readonly heightfield: CollisionHeightfield | null;
-  /** The ground's triangles the heightfield does not stand for (all of them without one). */
+  /** The ground where it is a heightfield, in patches (none: all of it is in {@link meshes}). */
+  readonly heightfields: readonly CollisionHeightfield[];
+  /** The ground's triangles no heightfield stands for (all of them without one). */
   readonly meshes: readonly CollisionMesh[];
   /** Bytes of the arrays above (what a physics engine is handed). */
   readonly bytes: number;
@@ -119,25 +118,17 @@ function groundMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits, only?: Ui
 }
 
 /**
- * Which ground collides as a heightfield: none (`false`), level ground only
- * (`true`) or sloped ground too (`'sloped'`). Level is the default because
- * a sphere cast against a sloped Rapier heightfield can land later than
- * against the same ground as a mesh; sloped ground stays a mesh until that
- * is checked on the terrain mesher's ground.
+ * Which ground collides as a heightfield: wherever it is one (`true`), level
+ * patches only (`'level'`, to compare) or none (`false`: all ground as
+ * meshes). Sloped heightfields are swept a cell at a time by the physics
+ * port (physics-rapier sweep3d.ts), so they land where the mesh does.
  */
-export type HeightfieldUse = boolean | 'sloped';
-
-/** Whether every node of a heightfield has one height. */
-function level(hf: GroundHeightfield): boolean {
-  const h = hf.heights;
-  for (let k = 1; k < h.length; k++) if (h[k] !== h[0]) return false;
-  return true;
-}
+export type HeightfieldUse = boolean | 'level';
 
 /**
- * A chunk's collision geometry (boxes, the ground's heightfield where it is
- * one and `heightfields` takes it, and ground meshes), in metres from its
- * corner.
+ * A chunk's collision geometry (boxes, the ground's heightfield patches
+ * where `heightfields` takes them, and ground meshes for the rest), in
+ * metres from its corner.
  */
 export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimits = {}, heightfields: HeightfieldUse = true): CollisionGeometry {
   const src = d.collision.boxes;
@@ -151,18 +142,13 @@ export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimit
       boxes[b * 6 + 3 + a] = (hi - lo) / 2;
     }
   }
-  // Only a chunk of ground alone: a box (a wall, a beam) on it keeps the whole chunk a mesh.
-  const hf = heightfields !== false && boxes.length === 0 ? groundHeightfield(d.ground, d.edge) : null;
-  let heightfield: CollisionHeightfield | null = null;
-  let meshes: CollisionMesh[];
-  if (hf === null || typeof hf === 'string' || (heightfields !== 'sloped' && !level(hf))) meshes = groundMeshes(d.ground, limits);
-  else {
-    heightfield = { x: hf.x0 * VOXEL_SIZE_M, z: hf.z0 * VOXEL_SIZE_M, cellsX: hf.cellsX, cellsZ: hf.cellsZ, heights: hf.heights };
-    meshes = groundMeshes(d.ground, limits, hf.rest);
-  }
-  let bytes = boxes.byteLength + (heightfield?.heights.byteLength ?? 0);
+  const found = heightfields === false ? null : groundHeightfieldPatches(d.ground, d.edge, { levelOnly: heightfields === 'level' });
+  const fields: CollisionHeightfield[] = (found?.patches ?? []).map((p) => ({ x: p.x0 * VOXEL_SIZE_M, z: p.z0 * VOXEL_SIZE_M, cellsX: p.cellsX, cellsZ: p.cellsZ, heights: p.heights }));
+  const meshes = groundMeshes(d.ground, limits, fields.length === 0 ? undefined : found!.rest);
+  let bytes = boxes.byteLength;
+  for (const f of fields) bytes += f.heights.byteLength;
   for (const m of meshes) bytes += m.vertices.byteLength + m.indices.byteLength;
-  return { boxes, fullBoxes: d.collision.fullBoxes, heightfield, meshes, bytes };
+  return { boxes, fullBoxes: d.collision.fullBoxes, heightfields: fields, meshes, bytes };
 }
 
 /** A part of a chunk's static body, in the shape physics ports take (metres; the body sits at the chunk's corner). */
@@ -192,8 +178,7 @@ const QUARTER_Y = Object.freeze({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }
  */
 export function collisionBodyParts(geo: CollisionGeometry): CollisionBodyPart[] {
   const parts: CollisionBodyPart[] = [];
-  const h = geo.heightfield;
-  if (h !== null) {
+  for (const h of geo.heightfields) {
     // The part's own x runs along the chunk's −z (from the field's +z end), its own z along the chunk's +x.
     const ownX = h.cellsZ;
     const ownZ = h.cellsX;

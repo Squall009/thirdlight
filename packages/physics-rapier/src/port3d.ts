@@ -31,6 +31,7 @@ import { createStepUp } from './step-up3d';
 import { estimateStaticBodyBytes3D } from './memory3d';
 import { groundContacts3D, type InternalEdgeWorld } from './internal-edges3d';
 import { offWallSweep, settleDrop, skinLift, sweepFrom, type SettleWorld } from './settle3d';
+import { castBall } from './sweep3d';
 import { moversNear, restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from './constants';
 
@@ -1011,10 +1012,11 @@ function sphereHit(world: RAPIER.World, infoByHandle: Map<number, Collider3DInfo
   const len = Math.hypot(direction.x, direction.y, direction.z);
   if (!(len > 0) || !finite(maxDistance) || maxDistance <= 0 || !finite(radius) || radius <= 0 || !isVec3(origin)) return null;
   const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
-  const hit = world.castShape({ x: origin.x, y: origin.y, z: origin.z }, IDENTITY_Q, u, new RAPIER.Ball(Math.min(radius, 500)), 0, Math.min(maxDistance, 10000), false, undefined, groups, exclude, undefined, predicate);
+  // Heightfields are met a cell at a time (sweep3d.ts: Rapier's heightfield cast lands late across several cells).
+  const hit = castBall(world, { x: origin.x, y: origin.y, z: origin.z }, u, Math.min(radius, 500), Math.min(maxDistance, 10000), groups, exclude, predicate);
   if (hit === null) return null;
   const entityId = infoByHandle.get(hit.collider.handle)?.entityId;
-  return entityId === undefined ? null : { entityId, distance: hit.time_of_impact };
+  return entityId === undefined ? null : { entityId, distance: hit.distance };
 }
 
 function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: Map<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): Omit<RapierPhysicsPort3D, 'staticBodyBytes'> {

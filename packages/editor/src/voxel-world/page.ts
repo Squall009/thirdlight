@@ -22,7 +22,8 @@
  * (the engine's default, 48 m around and 24 m up and down, collision-ring.ts)
  * also becomes one static body in the engine's physics backend
  * (`?collision=0` leaves physics out; `?heightfields=0` keeps all ground as
- * meshes; `?collisionRing=0` gives every resident chunk a body, to compare),
+ * meshes, `?heightfields=level` only level ground as heightfields;
+ * `?collisionRing=0` gives every resident chunk a body, to compare),
  * replaced when one of its sections is derived again; the hook drops
  * capsules and sweeps spheres against it and reports, per cell, what every
  * consumer of the derived data received.
@@ -189,7 +190,7 @@ async function main(): Promise<void> {
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
-  const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') === 'sloped' ? 'sloped' : params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
+  const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') === 'level' ? 'level' : params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
   const collision = ring?.collision ?? null;
   origin.onRebase(() => meshes.rebase());
 
