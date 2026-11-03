@@ -224,7 +224,7 @@ export {
 export { serveJobs, type JobEndpoint, type JobHandler, type JobHandlers, type JobResult } from './job-worker';
 export { deriveNow, streamJobHandlers, type StreamHandlerOptions } from './stream-handlers';
 export { JobQueue } from './job-queue';
-export { eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
+export { defaultVoxelWorkers, eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { DEFAULT_STREAM_READS, FocusMotion, readOrder, STREAM_PREFETCH_SECONDS, type WantedChunk } from './stream-reads';
 export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
@@ -286,3 +286,4 @@ export { ChunkTreeFlags, downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipS
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';
 export { PROP_COVERAGE_PART, PropLightChannel, type PropChannelHost } from './prop-channel';
 export { VoxelOverlay } from './voxel-overlay';
+export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';

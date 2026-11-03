@@ -90,8 +90,12 @@ export interface SimInitMessage {
   readonly startMode?: string;
   /** The stored project settings document. */
   readonly projectSettings?: Readonly<Record<string, unknown>>;
-  /** Where the play's voxel worlds are read from (the worker entry's voxel ports open them there); absent: they stream nothing. */
-  readonly voxels?: { readonly root: string };
+  /**
+   * Where the play's voxel worlds are read from (the worker entry's voxel
+   * ports open them there) and, in an export, the worlds its build ships;
+   * absent: they stream nothing.
+   */
+  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[] };
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */

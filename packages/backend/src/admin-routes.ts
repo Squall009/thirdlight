@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
-import { EXPORT_BOOTSTRAP, EXPORT_ENGINE_DIR, exportProject, type ClosureTextureSlots, type ExportFs } from '@thirdlight/exporter';
+import { EXPORT_BOOTSTRAP, EXPORT_ENGINE_DIR, exportProject, type ClosureTextureSlots, type ExportFs, type ExportVoxelWorlds } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules, type TemplateSource } from './templates';
 import { loadPackDir, type PackInstaller } from './packs';
 import { engineIdentity } from './engine';
@@ -35,13 +35,15 @@ export interface AdminRoutesContext {
   readonly resolveExternal: ReturnType<typeof createExternalEdits>['resolve'];
   /** A project was released, taken over or unregistered: what this process holds open of it must be read again on next use. */
   readonly onProjectClosed?: (projectId: string) => void;
+  /** The project's voxel worlds (an export ships the ones its scenes name). */
+  readonly voxelWorlds?: ExportVoxelWorlds;
 }
 
 /** A game folder's entries before a project was made in it ('absent': there was no folder; 'unknown': it could not be read). */
 type FolderBefore = ReadonlySet<string> | 'absent' | 'unknown';
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
-  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs, resolveExternal, onProjectClosed } = ctx;
+  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs, resolveExternal, onProjectClosed, voxelWorlds } = ctx;
 
   /**
    * A project just made from a template gets the template's packs, then its
@@ -398,6 +400,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       ...(textureSlots !== undefined ? { textureSlots } : {}),
       // Block-layer cells ship as gzip-compressed chunk data.
       gzip: nodeGzip,
+      ...(voxelWorlds !== undefined ? { voxelWorlds } : {}),
       threePackageJson: join(engineRoot, 'node_modules/three/package.json'),
       typescriptPackageJson: join(engineRoot, 'node_modules/typescript/package.json'),
       lockfile: join(engineRoot, 'package-lock.json'),

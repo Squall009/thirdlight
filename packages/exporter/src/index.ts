@@ -40,6 +40,7 @@ export { MODEL_BRICKS_IMPORTER, ensureModelBricks, modelBricksBlob, modelBricksK
 export { shippedMaterialsOfCapture } from './closure-materials';
 export { closureDecalPages, decalPageInput, decalPageReportOf, DECAL_PAGE_ID_PREFIX, type AssetRecordLike, type ClosureDecalPageArray, type ClosureDecalPageArrays, type ClosureDecalPages } from './closure-decal-pages';
 export { type GzipPort } from './block-chunk-data';
+export { referencedVoxelWorlds, type ExportVoxelFile, type ExportVoxelWorldAnswer, type ExportVoxelWorlds } from './closure-voxel-worlds';
 // A build read whole from its catalog (a tool or a test reads what the closure wrote; a game page reads it lazily, game-host).
 export { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';
 export { checkBundleGraphM3 } from './graph';

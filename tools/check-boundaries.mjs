@@ -514,6 +514,14 @@ const BUNDLE_ENTRY_EDGES = {
     node: [],
     computedDynamicImport: 'locator',
   },
+  // The voxel worker entry (`js/voxel-worker.js` of an export whose scenes
+  // name a voxel world): the voxel streaming core's job handlers, and fzstd
+  // (the pinned decoder of the region files' zstd chunk frames).
+  'packages/exporter/src/export-voxel-worker.ts': {
+    packages: ['voxel'],
+    external: ['fzstd'],
+    node: [],
+  },
   // The block mesh worker entries (`js/mesh-worker.js` of an export with
   // block layers; `dist/editor/mesh-worker.js` and `dist/preview/mesh-worker.js`):
   // three-adapter's `./block-mesh-worker` subpath only (no three.js).

@@ -80,8 +80,8 @@ export const PINS = {
   'typescript-eslint': '8.71.0',
   'eslint-plugin-react-hooks': '7.1.1',
   // The voxel chunk codec's zstd frames in the browser (no native zstd there):
-  // a pure-JS decoder, in the editor bundle (the voxel world page's workers)
-  // and measured by tools/voxel-bench.
+  // a pure-JS decoder, in the editor bundle (the voxel workers), in an
+  // export's js/voxel-worker.js, and measured by tools/voxel-bench.
   fzstd: '0.1.1',
 };
 
@@ -120,7 +120,7 @@ const PIN_CONSUMERS = {
   eslint: 'workspace lint (root dev; never in a bundle)',
   'typescript-eslint': 'workspace lint (root dev; never in a bundle)',
   'eslint-plugin-react-hooks': 'workspace lint (root dev; never in a bundle)',
-  fzstd: 'tools/voxel-bench (root dev) and editor: the voxel world page\'s workers decode zstd chunk frames (editor bundle only; not in the play or export bundles yet)',
+  fzstd: 'tools/voxel-bench (root dev), editor (the voxel world page\'s, Play\'s and the Scene view\'s voxel workers) and the export\'s js/voxel-worker.js: decode the region files\' zstd chunk frames',
   '@dimforge/rapier3d-compat':
     'physics-rapier — the exact 0.20.0 pin (decisions 0005, 0007); only in the separate physics-3d.js bundle a game with physics loads',
 };

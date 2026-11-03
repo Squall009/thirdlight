@@ -9,6 +9,7 @@ import type { WorkspaceService } from '@thirdlight/workspace';
 import type { ClosureTextureSlots } from './closure-texture-slots';
 import type { ContentClosureCompilerPort } from './content-closure';
 import type { GzipPort } from './block-chunk-data';
+import type { ExportVoxelWorlds } from './closure-voxel-worlds';
 
 /**
  * The injected IO facade (export.md dependency-injection style — the
@@ -80,6 +81,8 @@ export interface ExportContext {
   textureSlots?: ClosureTextureSlots;
   /** The backend's gzip: block-layer cells ship as gzip-compressed chunk data (absent: uncompressed). */
   gzip?: GzipPort;
+  /** The project's voxel worlds as the backend holds them (absent: a project whose scenes name a world cannot be exported). */
+  voxelWorlds?: ExportVoxelWorlds;
   /**
    * The injectable wall clock (milliseconds since the epoch) used
    * for the manifest `capturedAt` and `meta.json.exportedAt`. Defaults to

@@ -24,7 +24,7 @@
 import { deepFreeze, sha256Hex } from '@thirdlight/shared';
 import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import { dialogueForRuntime, instancePaintBlobs, vertexPaintBlobs, type DialogueDocument, type DialogueSettings, type DialogueSpeaker, type InstancePaint, type VertexPaintComponent } from '@thirdlight/project-model';
-import type { GameMode } from '@thirdlight/project-model';
+import type { GameMode, ShippedVoxelWorld } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureLayerFurnishing, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
@@ -289,6 +289,8 @@ export interface ContentClosureM3Input {
   textureSlots?: ClosureTextureSlots;
   /** The scenes the start loads when they are not only `startScenes` (a Play started in another scene). */
   drawnScenes?: readonly string[];
+  /** The voxel worlds an export ships (listed in the catalog; their files are the export's to copy). Play reads its worlds from the backend. */
+  voxelWorlds?: readonly ShippedVoxelWorld[];
 }
 
 export interface ContentClosureM3 {
@@ -947,18 +949,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
   const bricks = await shipModelBricks({ service, projectId, uses: staticModelUses(input.scenes, prefabDefs, archStyles), assets, view: view.assets, shippedKey, streamed: mipPartsOf, checks, modelBytes, locate, readWhole: (f) => readWhole(service, projectId, f) });
   // Built arrays shipped beside the project's assets (slot arrays, decal pages).
   const builtRows = [...(slotArrays?.rows ?? []), ...(decalPages?.rows ?? [])];
-  // The decoders the shipped assets need, from what their records say (the bytes are not read here):
-  // a model's import recipe names the glTF extensions it uses (the view's recipe is only its profile and version).
-  const decoders = new Set<'draco' | 'basis'>();
-  for (const a of view.assets) {
-    if (a.kind === 'model') {
-      const used = recordsById.get(a.assetId)?.versions?.find((v) => v.version === a.version)?.importRecipe?.extensions;
-      if (Array.isArray(used) && used.includes('KHR_draco_mesh_compression')) decoders.add('draco');
-      if (Array.isArray(used) && used.includes('KHR_texture_basisu')) decoders.add('basis');
-    } else if (a.kind === 'texture' && recordsById.get(a.assetId)?.versions?.find((v) => v.version === a.version)?.metrics?.format === 'ktx2') decoders.add('basis');
-  }
-  // An assembled array is a KTX2.
-  if (builtRows.length > 0) decoders.add('basis');
+  const decoders = decodersOfRecords(view.assets, recordsById, builtRows.length > 0);
 
   stage('assets');
   if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -1109,7 +1100,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
 
   // The catalog of the same capture made from the same files, scripts and modules is made once: re-stamped here.
   const memo = derived ?? remember;
-  const catalogKey = [locate ? 'located' : 'read', shippedKey.join(' '), JSON.stringify(behaviorInputs), JSON.stringify(libraryRows), moduleIds.join(' '), rigs !== undefined ? 'rigs' : '', modelColliders !== undefined ? JSON.stringify(modelColliders) : ''].join('\n');
+  const catalogKey = [locate ? 'located' : 'read', shippedKey.join(' '), JSON.stringify(behaviorInputs), JSON.stringify(libraryRows), moduleIds.join(' '), rigs !== undefined ? 'rigs' : '', modelColliders !== undefined ? JSON.stringify(modelColliders) : '', JSON.stringify(input.voxelWorlds ?? [])].join('\n');
   let captured: { manifest: RuntimeContentManifestV5; bytes: Uint8Array; buildId: string; files: readonly CatalogFile[] };
   if (memo?.catalog !== undefined && memo.catalog.key === catalogKey) {
     captured = { ...restampManifestV5(memo.catalog.manifest, input.capturedAt, hash), files: memo.catalog.files };
@@ -1226,6 +1217,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries(), ...blockData.filter((a) => !buffers.has(a.digest)).map((a) => [a.digest, a.bytes.length] as const), ...brickBuffers].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
       start: input.startScenes ?? [],
       dependencies: sharedDependencies,
+      ...(input.voxelWorlds !== undefined && input.voxelWorlds.length > 0 ? { voxelWorlds: input.voxelWorlds } : {}),
       media,
       moduleIds,
       enginePins: M3_ENGINE_PINS,
@@ -1278,6 +1270,30 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       declaredPaths,
     },
   };
+}
+
+/**
+ * The decoders the shipped assets need, from what their records say (the
+ * bytes are not read here): a model's import recipe names the glTF
+ * extensions it uses (the view's recipe is only its profile and version);
+ * an assembled texture array (`arrays`) is a KTX2.
+ */
+function decodersOfRecords(
+  assets: readonly { assetId: string; kind: string; version: number }[],
+  records: ReadonlyMap<string, { versions?: { version: number; metrics?: { format?: unknown }; importRecipe?: { extensions?: unknown } }[] }>,
+  arrays: boolean,
+): Set<'draco' | 'basis'> {
+  const decoders = new Set<'draco' | 'basis'>();
+  for (const a of assets) {
+    const record = records.get(a.assetId)?.versions?.find((v) => v.version === a.version);
+    if (a.kind === 'model') {
+      const used = record?.importRecipe?.extensions;
+      if (Array.isArray(used) && used.includes('KHR_draco_mesh_compression')) decoders.add('draco');
+      if (Array.isArray(used) && used.includes('KHR_texture_basisu')) decoders.add('basis');
+    } else if (a.kind === 'texture' && record?.metrics?.format === 'ktx2') decoders.add('basis');
+  }
+  if (arrays) decoders.add('basis');
+  return decoders;
 }
 
 /**

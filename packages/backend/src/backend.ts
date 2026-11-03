@@ -334,7 +334,7 @@ export function createBackend(
   const { behaviorSourceRoute } = makeBehaviorSourceRoutes({ service, sessions, behaviorCompiler, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, notifyMutationApplied });
   // A project's voxel worlds: region files served by range, edited by the voxel world commands; read again once their project is released or unregistered.
   const voxelWorlds = new VoxelWorlds({ projectDir: (projectId) => service.projectDir(projectId) });
-  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs, resolveExternal: external.resolve, onProjectClosed: (projectId) => voxelWorlds.close(projectId) });
+  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs, resolveExternal: external.resolve, onProjectClosed: (projectId) => voxelWorlds.close(projectId), voxelWorlds: { files: (projectId, world) => voxelWorlds.shippedFiles(projectId, world) } });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 

@@ -7,7 +7,7 @@
  * real physics backend (Rapier through physics-rapier's port) holding the
  * collision ring's bodies.
  */
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPhysicsPort3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
 import {
@@ -22,12 +22,14 @@ import {
   type VoxelWorldConnection,
   type VoxelWorldPorts,
 } from '@thirdlight/runtime';
-import { presentVoxelWorlds } from '@thirdlight/game-host';
-import { crc32 } from '@thirdlight/shared';
-import { chunkDrawBatchTransfer, chunkGrid, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, PLACEHOLDER_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
+import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
+import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
+import { chunkDrawBatchTransfer, chunkGrid, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, PLACEHOLDER_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
+
+type SceneCatalogIoLike = ShippedVoxelPortsOptions['io'];
 
 const grid = chunkGrid(32);
 /** A 128 m hilly square centred on the origin (four region columns meet at 0, 0). */
@@ -743,4 +745,84 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(await h.inStep((v) => v.coverageAt(...rockAt(20.1)))).toBe(1);
     expect(h.rt.dispose().ok).toBe(true);
   }, 180_000);
+
+  it('opens a world as an export ships it: its region files as content files read whole once and checked, the same voxels as the files, a dig read at once and swapped; a changed file is damaged, never air', async () => {
+    // The export's layout: each listed region file at content/sha256/<digest>, and the catalog's row naming them.
+    const worldDir = join(dir, 'world');
+    const shipDir = mkdtempSync(join(dir, 'shipped-'));
+    mkdirSync(join(shipDir, 'content', 'sha256'), { recursive: true });
+    const files = readdirSync(worldDir).filter((n) => n.endsWith('.vxr')).sort().map((name) => {
+      const bytes = readFileSync(join(worldDir, name));
+      const digest = sha256Hex(bytes);
+      writeFileSync(join(shipDir, 'content', 'sha256', digest), bytes);
+      return { name, digest, byteLength: bytes.length };
+    });
+    expect(files.length).toBeGreaterThan(1);
+    const row: ShippedVoxelWorld = { world: 'a', worldId: bytesToHex(TEST_WORLD_ID), edge: 32, layout: 'stacked', footprint: 512, revision: 0, files };
+    expect(shippedVoxelWorldsProblem([row])).toBeNull();
+    const reads = new Map<string, number>();
+    const io = (root: string): SceneCatalogIoLike => ({
+      read: async (path) => {
+        reads.set(path, (reads.get(path) ?? 0) + 1);
+        const b = readFileSync(join(root, path));
+        return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+      },
+      sha256Hex: async (b) => sha256Hex(b),
+    });
+    const ports = shippedVoxelPorts({ worlds: [row], io: io(shipDir), workerUrl: 'unused', createWorker: () => nodePoolWorker(workerFile), workers: 2 });
+    const h = await harness(() => ports);
+    const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
+    const pit = { center: [0.25, surfaceM - 1, 0.25] as [number, number, number], radius: 2 };
+    // Every cell of a 16 m × 16 m × 8 m block round the focus reads as the files hold it.
+    const block = { min: [-8, (groundY - 8) * VOXEL_SIZE_M, -8] as const, max: [8, (groundY + 8) * VOXEL_SIZE_M, 8] as const };
+    await h.stepUntil((v) => (v.isResident(pit) && v.isResident(block) ? true : undefined), 'the block round the focus to load');
+    const v0: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+    const mismatches = await h.inStep((v) => {
+      let bad = 0;
+      for (let x = -16; x < 16; x++) for (let z = -16; z < 16; z++) for (let y = groundY - 8; y < groundY + 8; y++) {
+        const got = v.get((x + 0.5) * VOXEL_SIZE_M, (y + 0.5) * VOXEL_SIZE_M, (z + 0.5) * VOXEL_SIZE_M);
+        const want = oracle.voxelAt(x, y, z, v0);
+        if (got === null || got.material !== want.material || got.role !== want.role || got.shape !== want.shape) bad++;
+      }
+      return bad;
+    });
+    expect(mismatches).toBe(0);
+    // A file is read whole once, however many chunks of it are read.
+    expect(reads.size).toBeGreaterThan(0);
+    for (const [path, n] of reads) expect(n, path).toBe(1);
+    // Dug once the ground under it is derived (its body in), as the first test digs: an edit whose sections cannot
+    // derive yet swaps empty inside the edit call, and that change is never reported (D450).
+    await h.until(() => groundBelow(h.port, 0.25, 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus');
+    const dug = await h.inStep((v) => ({ r: v.dig(pit), at: v.get(...pit.center) }));
+    expect(dug.r.ok).toBe(true);
+    expect(dug.at?.material).toBe(0);
+    if (dug.r.ok) {
+      const edit = dug.r.edit;
+      await h.stepUntil((v) => v.changes.find((c) => c.edit === edit), 'the dig to swap');
+    }
+    expect(h.rt.dispose().ok).toBe(true);
+
+    // One file's bytes changed (same length): its chunks are damaged, the others read; nothing reads as air in its place.
+    const bad = files.find((f) => f.byteLength > 4096)!;
+    const broken = Buffer.from(readFileSync(join(shipDir, 'content', 'sha256', bad.digest)));
+    broken[broken.length - 1] = broken[broken.length - 1]! ^ 0xff;
+    writeFileSync(join(shipDir, 'content', 'sha256', bad.digest), broken);
+    const resolve = bufferResolverOf(files, io(shipDir));
+    const source = shippedChunkSource(row, async (f) => new Uint8Array(await resolve(f.digest)));
+    const disk = new DiskRegions(worldDir);
+    disks.push(disk);
+    const plain = disk.source(grid, 'stacked', 512);
+    const at = parseRegionFileName('stacked', bad.name)!;
+    const side = 512 / 32;
+    // Every chunk of the region, and the same chunks of a good region.
+    const chunks = Array.from({ length: side ** 3 }, (_, i) => ({ cx: at.rx * side + (i % side), cy: at.ry * side + (Math.floor(i / side) % side), cz: at.rz * side + Math.floor(i / side ** 2) }));
+    const [shipped, onDisk] = [await source.read(chunks), await plain.read(chunks)];
+    expect(onDisk.some((r) => r.kind !== 'air' && r.kind !== 'damaged')).toBe(true);
+    for (const r of shipped) expect(r.kind).toBe('damaged');
+    const good = files.find((f) => f !== bad)!;
+    const g = parseRegionFileName('stacked', good.name)!;
+    const other = chunks.map((c) => ({ cx: c.cx + (g.rx - at.rx) * side, cy: c.cy + (g.ry - at.ry) * side, cz: c.cz + (g.rz - at.rz) * side }));
+    expect((await source.read(other)).map((r) => r.kind)).toEqual((await plain.read(other)).map((r) => r.kind));
+    rmSync(shipDir, { recursive: true, force: true });
+  }, 120_000);
 });

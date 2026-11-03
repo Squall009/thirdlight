@@ -37,6 +37,7 @@ import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focu
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { VoxelWorldDraws, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import type { ShippedVoxelWorld } from './voxel-shipped';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
   modesForRuntime,
@@ -254,10 +255,11 @@ export interface GamePageOptions {
   /**
    * The play's voxel worlds: `root`, the absolute URL the simulation
    * worker's entry opens them under (its `voxelPorts`); `ports`, how the
-   * page's own simulation opens them (single-thread mode). Absent: voxel
-   * worlds stream nothing.
+   * page's own simulation opens them (single-thread mode); `worlds`, an
+   * export's shipped worlds, handed to the worker's entry with the root.
+   * Absent: voxel worlds stream nothing.
    */
-  readonly voxels?: { readonly root: string; ports(): VoxelWorldPorts };
+  readonly voxels?: { readonly root: string; readonly worlds?: readonly ShippedVoxelWorld[]; ports(): VoxelWorldPorts };
 }
 
 export interface GamePageHandle {
@@ -787,7 +789,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}) } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),

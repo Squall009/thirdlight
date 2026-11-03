@@ -12,11 +12,8 @@
  * missed, files restored) is read again whole (`readAgain`).
  */
 import { hexToBytes } from '@thirdlight/shared';
-import { chunkGrid, eventTargetWorker, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type VoxelStreamer } from '@thirdlight/voxel';
-import { defaultVoxelWorkers, rangeByteSource, type RangeReadStats } from './range-reads';
-
-/** Region files a world's source keeps open at once. */
-const OPEN_REGION_FILES = 64;
+import { chunkGrid, defaultVoxelWorkers, eventTargetWorker, OPEN_REGION_FILES, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type VoxelStreamer } from '@thirdlight/voxel';
+import { rangeByteSource, type RangeReadStats } from './range-reads';
 
 export interface VoxelWorldManifest {
   readonly revision: number;

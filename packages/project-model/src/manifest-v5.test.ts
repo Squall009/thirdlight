@@ -65,7 +65,9 @@ describe('manifest-v5: every optional block', () => {
   const v4Input = { ...v2Input(), ...everyOptionalKey(), behaviors: [BEHAVIOR] };
 
   it('the manifest keeps the start and the catalog, and every block reads back as the v4 capture of the same project has it', () => {
-    const v5 = capture(v5Of(v4Input));
+    // A shipped voxel world (an export's; v4 builds had none).
+    const world = { world: 'hills', worldId: 'ab'.repeat(16), edge: 32 as const, layout: 'column' as const, footprint: 512 as const, revision: 3, files: [{ name: 'r.0.0.vxr', digest: 'c'.repeat(64), byteLength: 900 }, { name: 'r.-1.0.vxr', digest: 'd'.repeat(64), byteLength: 800 }] };
+    const v5 = capture(v5Of(v4Input, { voxelWorlds: [world] }));
     expect(Object.keys(v5.manifest)).toEqual([...MANIFEST_KEYS_V5]);
     expect(v5.manifest['start']).toEqual(['scene-a']);
     expect(validateManifestV5(JSON.parse(new TextDecoder().decode(v5.bytes))).ok).toBe(true);
@@ -82,6 +84,8 @@ describe('manifest-v5: every optional block', () => {
     const same = [...MANIFEST_KEYS_V2, 'materials', 'materialFunctions', 'uiDocuments', 'dialogue', 'buffers'].filter((k) => !['manifestVersion', 'capturedAt', 'buildId', 'contentFiles'].includes(k));
     for (const k of same) expect(b[k], k).toEqual(a[k]);
     expect(b['start']).toEqual(a['start']);
+    // The world reads back with its files in name order.
+    expect(b['voxelWorlds']).toEqual([{ ...world, files: [world.files[1], world.files[0]] }]);
     // What the simulation reads of each asset, and the names scripts load by.
     expect(b['facts']).toEqual([{ assetId: 'asset-1', kind: 'model' }]);
     expect((b['sceneDependencies'] as Record<string, { assetId: string }[]>)['scene-a']!.map((e) => e.assetId)).toEqual(['asset-1']);

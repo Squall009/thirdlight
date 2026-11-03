@@ -38,8 +38,3 @@ export function rangeByteSource(url: string, headers: Readonly<Record<string, st
     },
   };
 }
-
-/** Derive workers a world uses by default: leave two cores to the page and the simulation, at most four. */
-export function defaultVoxelWorkers(): number {
-  return Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 2));
-}

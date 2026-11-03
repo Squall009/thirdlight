@@ -42,6 +42,12 @@
  * voxel save: the pit is back (pixels, and the character falls in again),
  * the wetness is not (not a saved field by default).
  *
+ * The same project exported (the debug console on) and served statically
+ * with the backend stopped: the world's region files ship whole as content
+ * files and stream from there, in the simulation's worker, with the voxel
+ * workers it starts; the world draws, the character stands on it, and a
+ * dig typed into the debug console opens the pit (pixels) and drops it in.
+ *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
  * corner, locally (a game's runtime edit) and as a command, swaps every
@@ -54,9 +60,9 @@ import { cpSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { decodePng, changedPixels } from './png';
 import { expect, test, type Page } from './pw';
-import { startBackend, type E2EBackend } from './backend';
+import { exportedContent, serveDir, startBackend, type E2EBackend } from './backend';
 import { consoleErrors } from './console-errors';
-import { editorUrlFor, expectRendererBackend } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, PLACEHOLDER_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
@@ -601,4 +607,82 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   const without = await orbit();
   console.log(`[voxel-scene-view] render() CPU ms p50 p95 (orbit, 30 frames): with the world ${withWorld}, without ${without}; drawn ${JSON.stringify(drawn.worlds)}`);
   expect(errors).toEqual([]);
+});
+
+// ---- The export plays the world with no backend ------------------------------------------------------------------
+
+test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it, stands the character on it, and a console dig opens the pit', async ({ page }) => {
+  test.setTimeout(180_000);
+  const at = await playProject();
+  // The debug console takes the dig (the test's way to drive the script, as Play's debug command).
+  await playCmd('setSettings', { settings: { debug_console: 1 } });
+  const exported = await be.admin(`projects/${be.projectId}/export`);
+  expect(exported.status, JSON.stringify(exported.json)).toBe(200);
+  const out = join(be.exportRoot, String(exported.json.outputDir));
+  // The catalog lists the world and its region files, each shipped whole at its content path.
+  const shipped = (exportedContent(out) as unknown as { voxelWorlds?: Array<{ world: string; files: Array<{ name: string; digest: string; byteLength: number }> }> }).voxelWorlds ?? [];
+  expect(shipped.map((w) => w.world)).toEqual(['far']);
+  const regionPaths = new Set(shipped[0]!.files.map((f) => `content/sha256/${f.digest}`));
+  const regionBytes = shipped[0]!.files.reduce((n, f) => n + f.byteLength, 0);
+  // The far world is the slice's 128 m square (256 cells of 0.5 m).
+  const km2 = (256 * 0.5 / 1000) ** 2;
+  console.log(`[voxel-export] far: ${shipped[0]!.files.length} region files, ${regionBytes} bytes = ${(regionBytes / km2 / 1e6).toFixed(2)} MB a km² (world ${km2} km²); voxel worker ${String((exported.json.files as Record<string, number>)['js/voxel-worker.js'])} bytes`);
+  await page.goto('about:blank');
+  await be.halt();
+  const site = await serveDir(out);
+  const game = await page.context().newPage();
+  await game.setViewportSize({ width: 1280, height: 720 });
+  const errors: string[] = [];
+  game.on('pageerror', (e) => errors.push(e.message));
+  game.on('console', (m) => void (m.type() === 'error' && errors.push(m.text())));
+  // Every request stays inside the export's folder; the region files are read once each (whole).
+  const requests: string[] = [];
+  page.context().on('request', (r) => requests.push(r.url()));
+  try {
+    const t0 = Date.now();
+    await game.goto(`${site.url}${exportQueryFor('webgpu')}`);
+    const canvas = game.locator('canvas#game');
+    await expectRendererBackend(canvas, 'webgpu');
+    type Obs = { state?: string; counters?: Record<string, number>; player?: { x: number; y: number; z: number } } | null;
+    const observe = (): Promise<Obs> => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Promise<Obs>;
+    const drawn = (): Promise<number> => game.evaluate(() => (window as unknown as { __tlVoxelPlay?: { stats(): { worlds: Record<string, { chunks: number }> } } }).__tlVoxelPlay?.stats().worlds['far']?.chunks ?? 0);
+    await expect.poll(async () => (await observe())?.counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident in the export' }).toBe(1);
+    const residentMs = Date.now() - t0;
+    // The cold fill: until the drawn chunks stop growing for a second.
+    let chunks = 0;
+    let grewAt = Date.now();
+    await expect.poll(async () => {
+      const n = await drawn();
+      if (n !== chunks) [chunks, grewAt] = [n, Date.now()];
+      return chunks > 20 && Date.now() - grewAt > 1000;
+    }, { timeout: 60_000, intervals: [100], message: 'the world is drawn round the camera' }).toBe(true);
+    const fillMs = grewAt - t0;
+    await expect.poll(async () => { const y = (await observe())?.player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
+    const threading = await game.evaluate(() => (window as unknown as { __thirdlightThreading?: { mode: string } }).__thirdlightThreading?.mode ?? null);
+    console.log(`[voxel-export] cold fill (page load → drawn chunks steady): ${fillMs} ms, ${chunks} chunks; pit resident at ${residentMs} ms; simulation ${String(threading)}`);
+    const standing = (await observe())!.player!;
+    const before = decodePng(await canvas.screenshot({ path: test.info().outputPath('export-before.png') }));
+    await canvas.click();
+    await game.keyboard.press('Backquote');
+    await game.getByLabel('debug console command').fill('dig');
+    await game.getByLabel('debug console command').press('Enter');
+    await expect(game.locator('.tl-console')).toContainText(/ran dig/);
+    await game.keyboard.press('Backquote');
+    await expect.poll(async () => (await observe())?.counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
+    expect((await observe())?.counters?.['refused'] ?? 0).toBe(0);
+    await expect.poll(async () => standing.y - ((await observe())?.player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);
+    const after = decodePng(await canvas.screenshot({ path: test.info().outputPath('export-after.png') }));
+    expect(changedPixels(before, after)).toBeGreaterThan(500);
+    const outside = requests.filter((u) => !u.startsWith(site.url) && !u.startsWith('about:') && !u.startsWith('data:') && !u.startsWith('blob:'));
+    expect(outside).toEqual([]);
+    const regionReads = requests.filter((u) => regionPaths.has(u.slice(site.url.length)));
+    console.log(`[voxel-export] requests ${requests.length}, region file reads ${regionReads.length} of ${regionPaths.size} files`);
+    expect(regionReads.length).toBeGreaterThan(0);
+    expect(new Set(regionReads).size).toBe(regionReads.length);
+    expect((await observe())?.state).toBe('running');
+    expect(errors).toEqual([]);
+  } finally {
+    await game.close();
+    await site.close();
+  }
 });

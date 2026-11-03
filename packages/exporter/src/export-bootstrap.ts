@@ -25,7 +25,7 @@
  * Browser-only: DOM + WebGL/WebGPU.
  */
 import { sha256HexAsync } from '@thirdlight/shared';
-import { openRuntimeContent, type HostDomNode } from '@thirdlight/game-host';
+import { openRuntimeContent, shippedVoxelPorts, type HostDomNode } from '@thirdlight/game-host';
 import { startGamePage, type GamePageManifest } from '@thirdlight/game-host/game-page';
 import { SCRIPT_ERROR_PROBLEM, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';
 // The simulation module specs this manifest names (generated per export; nothing else is linked).
@@ -37,6 +37,8 @@ const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
 const EXPORT_MESH_WORKER_PATH = './js/mesh-worker.js';
 /** The physics backend (`js/physics-3d.js`, only in the export of a game that needs physics). */
 const EXPORT_PHYSICS_3D_PATH = './js/physics-3d.js';
+/** The voxel worlds' workers (`js/voxel-worker.js`, only in an export whose scenes name a voxel world). */
+const EXPORT_VOXEL_WORKER_PATH = './js/voxel-worker.js';
 /** Three's Draco and Basis decoders next to index.html (shipped when a file needs them). */
 const EXPORT_DECODER_BASE = './decoders/';
 
@@ -78,6 +80,9 @@ async function main(): Promise<void> {
     const sceneBytes = new Uint8Array(await readArtifact('scene.json'));
     if ((await sha256HexAsync(sceneBytes)) !== manifest.sceneDigest) throw new Error('the scene document digest does not match manifest.sceneDigest');
     const scene = JSON.parse(new TextDecoder().decode(sceneBytes)) as unknown;
+    // The voxel worlds the build ships: their region files are content files read whole (no backend, no ranges).
+    const voxelWorlds = (manifest as unknown as { voxelWorlds?: Parameters<typeof shippedVoxelPorts>[0]['worlds'] }).voxelWorlds ?? [];
+    const voxelWorkerUrl = new URL(EXPORT_VOXEL_WORKER_PATH, document.baseURI).href;
     const snapshot = { snapshotId: manifest.snapshotId, projectId: manifest.projectId, revision: manifest.revision, scene, ...(manifest.tags !== undefined ? { tags: manifest.tags } : {}) } as unknown as RuntimeSnapshot;
     const game = await startGamePage({
       content,
@@ -91,6 +96,8 @@ async function main(): Promise<void> {
       // Generated architecture's chunks kept in the player's browser: a second visit draws without generating.
       keepGeneratedArchitecture: true,
       physics3dUrl: new URL(EXPORT_PHYSICS_3D_PATH, location.href).href,
+      // The simulation worker reads the worlds' files under the page's folder; the page's own simulation through this page's reader.
+      ...(voxelWorlds.length > 0 ? { voxels: { root: new URL('./', document.baseURI).href, worlds: voxelWorlds, ports: () => shippedVoxelPorts({ worlds: voxelWorlds, io, workerUrl: voxelWorkerUrl }) } } : {}),
       decoderBase: EXPORT_DECODER_BASE,
       moduleSpecs: moduleSpecs as readonly SimulationModuleSpec[],
       canvas,

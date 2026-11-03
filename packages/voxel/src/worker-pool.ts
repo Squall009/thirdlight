@@ -53,6 +53,12 @@ export function eventTargetWorker(w: {
  */
 export const STREAM_POOL_SETTINGS = Object.freeze({ timeoutMs: 5000, maxQueued: 256 });
 
+/** Derive workers a world uses by default: leave two cores to the page and the simulation, at most four. */
+export function defaultVoxelWorkers(): number {
+  const cores = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency;
+  return Math.max(1, Math.min(4, (cores || 4) - 2));
+}
+
 export interface WorkerPoolOptions {
   /** Workers (at least 1). */
   readonly size: number;

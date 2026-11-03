@@ -19,7 +19,7 @@
  * boundary they reach in single-thread mode.
  */
 import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort3D, type Runtime, type SimulationModuleSpec, type VoxelWorldPorts } from '@thirdlight/runtime';
-import { chunkDrawBatchTransfer } from '@thirdlight/voxel';
+import { chunkDrawBatchTransfer, type ShippedVoxelWorld } from '@thirdlight/voxel';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -60,8 +60,8 @@ export interface SimWorkerDeps {
     createPhysicsPort3D(config: never): Promise<{ ok: true; port: unknown } | { ok: false; error: { code: string; message?: string } }>;
     physicsMemoryBytes3D?(): number | null;
   }>;
-  /** How the play's voxel worlds are opened from the root the page names (absent: they stream nothing). */
-  voxelPorts?(root: string): VoxelWorldPorts;
+  /** How the play's voxel worlds are opened from the root the page names, with the worlds an export ships (absent: they stream nothing). */
+  voxelPorts?(root: string, worlds: readonly ShippedVoxelWorld[]): VoxelWorldPorts;
 }
 
 /** Run the simulation worker on this endpoint (call once, at the worker's start). */
@@ -185,7 +185,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       relay.setUiHit((x, y) => hitUiTargets(uiTargets, x, y)?.key ?? null);
       relay.setEffectSink((effect) => post({ t: 'relay.effect', effect }));
       // Each swap's chunk draws go to the page in one message, their buffers handed over.
-      if (m.voxels !== undefined && deps.voxelPorts !== undefined) voxels = presentVoxelWorlds(deps.voxelPorts(m.voxels.root), (batch) => post({ t: 'voxels', batch }, chunkDrawBatchTransfer(batch)));
+      if (m.voxels !== undefined && deps.voxelPorts !== undefined) voxels = presentVoxelWorlds(deps.voxelPorts(m.voxels.root, m.voxels.worlds ?? []), (batch) => post({ t: 'voxels', batch }, chunkDrawBatchTransfer(batch)));
       const composed = composeGameRuntime({
         snapshot: m.snapshot,
         settings: m.settings,

@@ -55,6 +55,7 @@ import { openStaging, resolveExportTarget, type ExportStaging } from './export-i
 import type { ExportContext } from './export-types';
 import { clip, type ExportError, type ExportResult } from './errors';
 import { checkBundleGraphM3 } from './graph';
+import { referencedVoxelWorlds, shipVoxelWorlds, type ShippedVoxelFileCopy } from './closure-voxel-worlds';
 
 const M3_SCHEMA_VERSION = 2;
 const BUNDLE_NAME = 'js/main.js';
@@ -64,6 +65,8 @@ const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
 const MESH_WORKER_BUNDLE_NAME = 'js/mesh-worker.js';
 /** The physics backend (rapier3d), emitted only for a game that needs physics. */
 const PHYSICS_BUNDLE_NAME = 'js/physics-3d.js';
+/** The voxel worlds' workers (decoding and deriving chunks), shipped with a game whose scenes name a voxel world. */
+const VOXEL_WORKER_BUNDLE_NAME = 'js/voxel-worker.js';
 const SCENE_NAME = 'scene.json';
 const MANIFEST_NAME = 'manifest.json';
 const META_NAME = 'meta.json';
@@ -198,6 +201,11 @@ export async function exportProjectM3(
   const now = ctx.now ?? (() => Date.now());
   const capturedAt = utcSeconds(now());
 
+  // ---- the voxel worlds the scenes name (their region files ship whole) ------
+
+  const voxels = await shipVoxelWorlds(ctx.voxelWorlds, ctx.projectId, referencedVoxelWorlds([captured.scene, ...(captured.scenes ?? [])]));
+  if (!voxels.ok) return fail('export_scene_invalid', 'validation', voxels.message, { reason: 'voxel_world' });
+
   // ---- the shared closure (manifest + declared artifact bytes) --------------
 
   const closureResult = await buildContentClosureM3({
@@ -216,6 +224,7 @@ export async function exportProjectM3(
     ...(ctx.gzip !== undefined ? { gzip: ctx.gzip } : {}),
     // Per-layer texture slots ship as arrays assembled now: the game runs without the backend.
     ...(ctx.textureSlots !== undefined ? { textureSlots: ctx.textureSlots } : {}),
+    ...(voxels.worlds.length > 0 ? { voxelWorlds: voxels.worlds } : {}),
   });
   if (!closureResult.ok) {
     const e = closureResult.error;
@@ -257,6 +266,7 @@ export async function exportProjectM3(
     { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
     ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh, terrain and architecture worker' }] : []),
     ...(withPhysics ? [{ name: PHYSICS_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: 'physics', wasm: true as const }] : []),
+    ...(voxels.worlds.length > 0 ? [{ name: VOXEL_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-voxel-worker.ts'), what: 'voxel worker' }] : []),
   ];
   const scripts: ExportScript[] = [{ name: BUNDLE_NAME, entry: m3BootstrapEntry, what: 'M3 export', moduleIds: closure.moduleIds, built }];
   for (const s of planned) {
@@ -317,7 +327,8 @@ export async function exportProjectM3(
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
   const declaredManifestPaths = new Set<string>([...closure.assetFiles, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferFiles, ...closure.bufferArtifacts, ...closure.streamedTextures.flatMap((t) => t.parts), ...closure.contentFileArtifacts].map((a) => a.path));
-  if (declaredManifestPaths.size !== closure.declaredPaths.length) {
+  // A region file is never also another artifact (it would be written twice with two meanings).
+  if (declaredManifestPaths.size !== closure.declaredPaths.length || voxels.files.some((f) => declaredManifestPaths.has(f.path))) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
 
@@ -408,6 +419,7 @@ export async function exportProjectM3(
       parsedManifest,
       captured,
       now,
+      voxelFiles: voxels.files,
     });
     if (!written.ok) {
       staging.abort();
@@ -460,6 +472,8 @@ async function writeOutput(
     parsedManifest: RuntimeContentManifestV5;
     captured: { scene: unknown; revision: number };
     now: () => number;
+    /** The voxel worlds' region files, copied whole from where the backend has them. */
+    voxelFiles: readonly ShippedVoxelFileCopy[];
   },
 ): Promise<ExportResult | { ok: true; outputDigest: string }> {
   const entries: { path: string; digest: string; byteLength: number }[] = [];
@@ -556,6 +570,18 @@ async function writeOutput(
     }
     decoders.add('basis');
     assetBytes += total;
+  }
+
+  // The voxel worlds' region files, one at a time, each the bytes the build listed (a world edited meanwhile fails the export).
+  for (const f of parts.voxelFiles) {
+    let bytes: Uint8Array;
+    try {
+      bytes = ctx.fs.read(f.source);
+    } catch (e) {
+      return copyFailure(f.path, e instanceof Error ? e.message : String(e));
+    }
+    if (bytes.length !== f.byteLength || digestBytes(bytes) !== f.digest) return copyFailure(f.path, `a voxel world's region file is not the one the build listed (${bytes.length} bytes, ${f.byteLength} listed)`);
+    put(f.path, bytes, f.digest);
   }
 
   // three's Draco/Basis decoders ship only when a shipped file needs them.

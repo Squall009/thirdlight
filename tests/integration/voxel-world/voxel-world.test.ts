@@ -13,15 +13,17 @@
  * patched and refused through setComponent and kept across a restart, and
  * MCP's tl_command sending the same voxel ops as the editor page (the same
  * answer, the same files) while the project's editor learns of every change
- * over its WebSocket feed.
+ * over its WebSocket feed, and an export shipping the worlds its scenes name
+ * (each listed region file whole, by digest) or refusing a damaged one.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
  * compared with the same commands applied to a copy in this process.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
 import type { Backend } from '@thirdlight/backend/services';
 import {
@@ -38,9 +40,12 @@ import {
   RegionChunkSource,
   sameDenseChunk,
   type ChunkCoord,
+  shippedChunkSource,
   type RegionChunkRead,
   type PaletteStore,
+  type ShippedVoxelWorld,
 } from '@thirdlight/voxel';
+import { readRuntimeContentSync } from '@thirdlight/project-model';
 import { importRead, writeVoxelWorld } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -59,6 +64,7 @@ const WORLD = 'w';
 const FEED_WORLD = 'feed';
 const grid = chunkGrid(32);
 const WORLD_ID = '00112233445566778899aabbccddeeff';
+const REPO = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 
 let root = '';
 let dataRoot = '';
@@ -80,7 +86,8 @@ function sceneStore(): PaletteStore {
 }
 
 async function start(): Promise<void> {
-  const tb = await createTestBackend({ dataRoot, authoringOrigin: ORIGIN, previewOrigin: 'http://127.0.0.1:8502', authoringOrigins: [ORIGIN], tokens: [{ token: TOKEN, scope: `authoring:${PROJECT}` }, { token: ADMIN, scope: 'admin' }] });
+  // Exports of the project bundle the engine of this repository (its frozen copy, `npm run build`).
+  const tb = await createTestBackend({ dataRoot, exportRoot: join(root, 'exports'), engineRoot: REPO, authoringOrigin: ORIGIN, previewOrigin: 'http://127.0.0.1:8502', authoringOrigins: [ORIGIN], tokens: [{ token: TOKEN, scope: `authoring:${PROJECT}` }, { token: ADMIN, scope: 'admin' }] });
   backend = tb.backend;
   // The data root outlives a backend here (the restart reads it again): close only the server.
   close = () => tb.backend.close();
@@ -89,6 +96,7 @@ async function start(): Promise<void> {
 beforeAll(async () => {
   root = mkdtempSync(join(testTempBase(), 'tl-voxel-world-'));
   dataRoot = join(root, 'data');
+  mkdirSync(join(root, 'exports'));
   await start();
   expect(backend._test.service.createProject(PROJECT, 'Voxel world').ok).toBe(true);
   const dir = backend._test.service.projectDir(PROJECT)!;
@@ -487,4 +495,69 @@ describe('voxel world routes', () => {
       ws.close();
     }
   });
+
+  it("an export ships the worlds its scenes name: each listed region file whole as a content file, listed in the catalog with its digest, the voxel worker beside the game's scripts; a world with a damaged region refuses the export", async () => {
+    const query = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
+    const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject', {}))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
+    const exportNow = async (): Promise<{ status: number; json: Record<string, unknown> }> => {
+      const r = await fetch(`${base()}/api/v1/admin/projects/${PROJECT}/export`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' });
+      return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+    };
+    const made = await send('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Feed world', components: { voxelWorld: { world: FEED_WORLD } } });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    // The scene's other world object names the world a test above left with a listed region gone: no export ships holes.
+    const refused = await exportNow();
+    expect(refused.status, JSON.stringify(refused.json)).toBe(400);
+    expect(refused.json['error']).toMatchObject({ code: 'export_scene_invalid', reason: 'voxel_world' });
+    expect(String((refused.json['error'] as { message: string }).message)).toMatch(new RegExp(`voxel world ${WORLD}: .*region_damaged`));
+    const listed = (await query('queryEntities', { limit: 16_384 })) as { entities: Array<{ id: string; components: Record<string, unknown> }> };
+    for (const e of listed.entities) if ((e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD) expect((await send('deleteEntity', { entityId: e.id })).status).toBe(200);
+
+    const ok = await exportNow();
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    const out = join(root, 'exports', String(ok.json['outputDir']));
+    const files = Object.keys(ok.json['files'] as Record<string, number>);
+    for (const f of ['js/main.js', 'js/sim-worker.js', 'js/voxel-worker.js']) expect(files).toContain(f);
+    // The catalog lists the world as the backend holds it: the manifest's fields, and every listed file with its digest.
+    const content = readRuntimeContentSync(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')), (path) => {
+      try {
+        return new Uint8Array(readFileSync(join(out, path)));
+      } catch {
+        return null;
+      }
+    }) as unknown as { voxelWorlds?: ShippedVoxelWorld[] };
+    const worldDir = join(backend._test.service.projectDir(PROJECT)!, 'voxels', FEED_WORLD);
+    const manifest = JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { worldId: string; regions: string[]; revision: number };
+    expect(content.voxelWorlds?.length).toBe(1);
+    const shipped = content.voxelWorlds![0]!;
+    expect({ ...shipped, files: undefined }).toEqual({ world: FEED_WORLD, worldId: manifest.worldId, edge: 32, layout: 'stacked', footprint: 512, revision: manifest.revision, files: undefined });
+    expect(shipped.files.map((f) => f.name)).toEqual(manifest.regions);
+    let regionBytes = 0;
+    for (const f of shipped.files) {
+      const source = readFileSync(join(worldDir, 'grid-0', f.name));
+      expect(f.digest).toBe(createHash('sha256').update(source).digest('hex'));
+      expect(f.byteLength).toBe(source.length);
+      // Whole, byte for byte, at its content path (listed in the export's files).
+      expect(readFileSync(join(out, 'content', 'sha256', f.digest)).equals(source)).toBe(true);
+      expect(files).toContain(`content/sha256/${f.digest}`);
+      regionBytes += f.byteLength;
+    }
+    // The voxel worker is the engine's code alone: no backend, no origins, no tokens, no Node module.
+    const worker = readFileSync(join(out, 'js', 'voxel-worker.js'), 'utf8');
+    for (const needle of [ORIGIN, 'http://127.0.0.1:8502', TOKEN, ADMIN, '/api/v1/', '/mcp', 'WebSocket']) expect(worker.includes(needle), needle).toBe(false);
+    expect(worker.match(/["'`]node:/g) ?? []).toEqual([]);
+    // Read back from the export as the game reads it (whole files, checked by digest): the same chunks as the backend's range route.
+    const source = shippedChunkSource(shipped, async (f) => {
+      const b = new Uint8Array(readFileSync(join(out, 'content', 'sha256', f.digest)));
+      if (createHash('sha256').update(b).digest('hex') !== f.digest) throw new Error('digest');
+      return b;
+    });
+    const chunks: ChunkCoord[] = [];
+    for (let cx = -2; cx < 2; cx++) for (let cy = -2; cy < 2; cy++) for (let cz = -2; cz < 2; cz++) chunks.push({ cx, cy, cz });
+    const [fromExport, fromRoute] = [await source.read(chunks), await readRaw(chunks, FEED_WORLD)];
+    expect(fromExport.filter((r) => r.kind === 'stored').length).toBeGreaterThan(0);
+    expect(fromExport.map((r) => (r.kind === 'stored' ? `${r.kind}:${createHash('sha256').update(r.bytes).digest('hex')}` : r.kind))).toEqual(fromRoute.map((r) => (r.kind === 'stored' ? `${r.kind}:${createHash('sha256').update(r.bytes).digest('hex')}` : r.kind)));
+    const total = readdirSync(join(out, 'js')).reduce((n, f) => n + statSync(join(out, 'js', f)).size, 0);
+    console.log(`[voxel export] ${shipped.files.length} region files, ${regionBytes} bytes; js/ ${total} bytes (voxel worker ${worker.length})`);
+  }, 120_000);
 });

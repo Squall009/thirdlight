@@ -191,6 +191,11 @@ export interface VoxelWorldError {
 /** A world's manifest and its listed region files with their tags (null: listed, but missing or unreadable). */
 export type VoxelWorldInfo = { ok: true; world: string; manifest: VoxelWorldManifest; files: Array<{ name: string; etag: string | null }> } | { ok: false; error: VoxelWorldError };
 
+/** A world's files as an export ships them (`VoxelWorlds.shippedFiles`). */
+export type ShippedWorldFiles =
+  | { ok: true; world: { world: string; worldId: string; edge: ChunkEdge; layout: RegionLayout; footprint: RegionFootprint; revision: number }; files: Array<{ name: string; path: string; digest: string; byteLength: number }> }
+  | { ok: false; code: string; message: string };
+
 export type RegionFileAnswer = { ok: true; path: string; etag: string } | { ok: false; error: VoxelWorldError };
 
 /** What an applied voxel command answers. */
@@ -435,6 +440,31 @@ export class VoxelWorlds {
       const f = w.world.files.get(file);
       if (f === undefined || f.hash === null) return refuse('region_not_found', 'not_found', `voxel world ${name} has no region ${file}`);
       return { ok: true, path: join(w.world.dir, file), etag: f.hash };
+    });
+  }
+
+  /**
+   * What an export ships of a world: its manifest fields and every listed
+   * region file with its path, length and hash, read in one queued step (no
+   * command half applied). A listed file that is missing or damaged refuses
+   * it: an export never ships a world with holes.
+   */
+  async shippedFiles(projectId: string, name: string): Promise<ShippedWorldFiles> {
+    const w = await this.load(projectId, name);
+    if ('ok' in w) return { ok: false, code: w.error.code, message: w.error.message };
+    return this.queued(w, async (): Promise<ShippedWorldFiles> => {
+      const fresh = await this.refresh(w);
+      if (!Array.isArray(fresh)) return { ok: false, code: fresh.error.code, message: fresh.error.message };
+      const m = w.manifest;
+      const files: Array<{ name: string; path: string; digest: string; byteLength: number }> = [];
+      for (const file of w.world.listedRegions()) {
+        const broken = w.world.damagedRegions.get(file);
+        const f = w.world.files.get(file);
+        if (broken !== undefined || f === undefined || f.hash === null) return { ok: false, code: 'region_damaged', message: `voxel world ${name} lists region ${file}, which cannot be read${broken !== undefined ? `: ${broken}` : ''}` };
+        const path = join(w.world.dir, file);
+        files.push({ name: file, path, digest: f.hash, byteLength: statSync(path).size });
+      }
+      return { ok: true, world: { world: name, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, revision: m.revision }, files };
     });
   }
 

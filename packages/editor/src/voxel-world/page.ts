@@ -53,6 +53,7 @@ import {
   chunkKey,
   type CellBox,
   createWorldStore,
+  defaultVoxelWorkers,
   DEFAULT_REBASE_DISTANCE_M,
   FloatingOrigin,
   jobRadius,
@@ -78,7 +79,7 @@ import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
 import { PendingEdits, type SwapSeen } from './pending-edits';
 import { EDIT_VISIBLE_TIMEOUT_MS, localEditHooks } from './local-edits';
-import { defaultVoxelWorkers, rangeReadStats } from './range-reads';
+import { rangeReadStats } from './range-reads';
 import { RangeWorld } from './range-world';
 
 const params = new URLSearchParams(location.search);

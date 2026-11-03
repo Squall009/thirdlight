@@ -72,6 +72,7 @@ import { isAddress, loadableRowsProblem, type LoadableRow } from './loadable';
 import { isAssetLabel } from './content-assets';
 import type { GameplaySettings } from './types-v2';
 import { isDigest } from './content-helpers';
+import { canonicalShippedVoxelWorld, shippedVoxelWorldsProblem, type ShippedVoxelWorld } from '@thirdlight/voxel';
 
 export const RUNTIME_CONTENT_MANIFEST_VERSION_5 = 5 as const;
 
@@ -174,6 +175,8 @@ export const CATALOG_BLOCK_KEYS = [
   'loadable',
   'facts',
   'dependencies',
+  // The voxel worlds an export ships (each world's region files as content files); Play reads its worlds from the backend.
+  'voxelWorlds',
 ] as const;
 export type CatalogBlockKey = (typeof CATALOG_BLOCK_KEYS)[number];
 
@@ -249,6 +252,8 @@ export type CaptureManifestV5Input = Omit<CaptureManifestV2Input, 'assets' | 'sc
   dependencies?: readonly string[];
   /** What scripts may load by address or label (only what the build holds). */
   loadable?: readonly LoadableRow[];
+  /** The voxel worlds the build ships with their region files (an export; absent: none, as in Play). */
+  voxelWorlds?: readonly ShippedVoxelWorld[];
   /** SHA-256 (lowercase hex) of the files' bytes (default: project-model's portable one). */
   sha256?: (bytes: Uint8Array) => string;
 };
@@ -380,6 +385,7 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
   if (facts.length > 0) blocks.facts = facts;
   const shared = entriesOf(input.dependencies ?? []);
   if (shared.length > 0) blocks.dependencies = shared;
+  if (input.voxelWorlds !== undefined && input.voxelWorlds.length > 0) blocks.voxelWorlds = [...input.voxelWorlds].sort((a, b) => (a.world < b.world ? -1 : a.world > b.world ? 1 : 0)).map(canonicalShippedVoxelWorld);
   const fileRows: CatalogBlockRow[] = [];
   for (const key of CATALOG_BLOCK_KEYS) {
     const value = blocks[key];
@@ -586,7 +592,7 @@ export function catalogRootProblem(doc: unknown): string | null {
 }
 
 /** The blocks that are lists (their parts concatenate). */
-const LIST_BLOCKS: ReadonlySet<string> = new Set(['architectureStyles', 'tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies']);
+const LIST_BLOCKS: ReadonlySet<string> = new Set(['architectureStyles', 'tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies', 'voxelWorlds']);
 
 /** Why a list of catalog entries is not one (null: it is): shape, ascending ids. */
 export function catalogEntriesProblem(v: unknown): string | null {
@@ -630,6 +636,8 @@ export function catalogBlockProblem(key: CatalogBlockKey, value: unknown, contex
       return null;
     case 'dependencies':
       return catalogEntriesProblem(value);
+    case 'voxelWorlds':
+      return shippedVoxelWorldsProblem(value);
     default: {
       const e = manifestBlocksProblem({ [key]: value });
       return e === null ? null : `${key}: ${e.message}`;

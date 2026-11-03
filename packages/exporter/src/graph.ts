@@ -8,7 +8,8 @@
  * `project-model` (with the pure `voxel` formats it names), `input`,
  * `physics-rapier`, `shared` — plus `three`, the pinned
  * `@dimforge/rapier3d-compat` (the backend's `js/physics-3d.js` of a game
- * with physics), and the per-snapshot
+ * with physics), the pinned `fzstd` (`js/voxel-worker.js` of a game with
+ * voxel worlds), and the per-snapshot
  * virtual module the export build generates in memory
  * (`thirdlight:export-modules`). A
  * module package outside that set is allowed only when the manifest names
@@ -48,6 +49,8 @@ function toRepoRel(p: string): string {
 function allowed(p: string, packages: readonly string[]): boolean {
   if (packages.some((name) => p.includes(`packages/${name}/src/`))) return true;
   if (p.includes('node_modules/three/')) return true;
+  // The pinned zstd decoder of voxel region files' chunk frames (only the voxel worker links it).
+  if (p.includes('node_modules/fzstd/')) return true;
   // The approved physics pin (decision 0007): the compat build and its inlined WASM module.
   return p.includes('node_modules/@dimforge/rapier3d-compat/');
 }
