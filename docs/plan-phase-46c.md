@@ -121,7 +121,8 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.15 | **Presentation (lead):** acceptance shots of every §7a case, both renderers; README in `~/.cache/thirdlight-phase46/acceptance/46c`; review page acc46c with both drafts and exactly what the owner must approve. **Then STOP.** | staging | — | owner has the page |
 | 46c.16 | *After approval:* specs frozen as v1 (owner note), kit pipeline final, changes the owner asked for. | vitest, fast gate | — | v1 in the docs |
 | 46c.17 | *After approval:* authoring package: spec sheets, Blender templates per role (UV guides, scale/pivot, high/low naming), manual guide "make a kit and a material set"; an art-factory request doc for the Texture Designer graphs (made there, not here). | check-docs | — | package complete |
-| 46c.18 | *Close (lead):* full gate once (detached), independent review, fixes, STATUS row; then 46d. | full gate | gate time and peak; voxel e2e time | review in the decision log |
+| 46c.14b | *Close before the stop (lead):* full gate once (detached), independent review, High/Medium fixes (fast gates), acceptance shots → acc46c. | full gate | gate time and peak; voxel e2e time | review in the decision log |
+| 46c.18 | *After approval (lead):* rows closed, STATUS; then 46d on the owner's word. | — | — | — |
 
 ## 7. Progress
 
@@ -144,7 +145,8 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.15 | not started (owner hard stop: the run stops here) |
 | 46c.16 | not started (waits for owner approval) |
 | 46c.17 | not started (waits for owner approval) |
-| 46c.18 | not started |
+| 46c.14b | not started |
+| 46c.18 | not started (after approval) |
 
 ## 8. Results
 
@@ -182,9 +184,17 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-03 (plan, default chosen, owner to confirm): **trim layout draft numbers** from §1d: authored 1024 px/m,
   tier caps 256/512/1024, strips 0.125/0.25/0.5 m, a cap region, U from world distance along the run; trim is a kit's
   option, the alternative (own bakes + material arrays) is described beside it.
-- 2026-11-03 (plan, default chosen, owner to confirm): **presentation before the full gate**: 46c.15 presents with
-  fast gates green; the one full gate and the independent review run at the close (46c.18), after the approved
-  changes, so the gate is not run twice.
+- 2026-11-03 (lead, replaces the planner's order): **full gate before the presentation.** The owner's run ends at the
+  hard stop, so 46c's one full gate, the independent review (`~/.cache/thirdlight-phase46/review-46c.md`), the High and
+  Medium fixes and the acceptance shots all run before 46c.15 presents; 46c.16–46c.17 after the approval are verified
+  by fast gates (no second full gate), and 46c.18 then only closes the rows.
+- 2026-11-03 (lead, default chosen, owner to confirm): **kits are project content items** (add-only, canonicalized
+  field by field), reusable by every world of the project; **the material → kit binding in 46c is a test binding
+  inside the kit file** (the material ids it applies to), with no world or schema field; 46d's material model owns the
+  real binding (§1c: a material names its kit) and replaces it.
+- 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
+  (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
+  repo's authoring package (46c.17).
 
 ## 10. Open questions for the owner
 
