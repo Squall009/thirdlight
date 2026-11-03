@@ -20,6 +20,12 @@
  * chunk's integer cell (per object), so a floating-origin shift never moves
  * a texture.
  *
+ * Coarser levels of the chunk tree draw through the same program: a node's
+ * grid holds its own (coarser) cells, so each object passes its cell size
+ * and the grid is read in its cells, while the blend distance and the
+ * pattern scale stay in metres: a blend is equally wide, and a pattern the
+ * same size, at every level.
+ *
  * The grids live in one GPU-only 3D texture (two bytes a cell, `rg8unorm`:
  * the entry's low byte, then its high byte), a chunk a `side`³ region. A
  * region is uploaded on its own (`queue.writeTexture` on WebGPU,
@@ -72,8 +78,10 @@ export interface VoxelSurfaceLayout {
 export interface VoxelSurfaceObject {
   /** The grid's region origin in the texture (texels: x, y, z) and the chunk's one solid entry (w; −1: read the grid). */
   readonly slot: THREE.Vector4;
-  /** The chunk corner's cell, each axis modulo {@link PHASE_CELLS}: where its textures start. */
+  /** The chunk corner's cell (level-0 cells), each axis modulo {@link PHASE_CELLS}: where its textures start. */
   readonly phase: THREE.Vector3;
+  /** Metres a cell of the object's grid (its level's cells; the layout's for level 0). */
+  cellMetres: number;
 }
 
 /** Cells after which every pattern repeats a whole number of times (the per-object texture phase is taken modulo it). */
@@ -310,8 +318,8 @@ export interface VoxelSurface {
   readonly grids: VoxelShaderGrids;
   /** Metres the blend runs over (a uniform: changing it needs no new program). */
   setBlendMetres(m: number): void;
-  /** The values an object passes (made once per surface object; `slot.w` −1 until it is given a grid or an entry). */
-  objectValues(): VoxelSurfaceObject;
+  /** The values an object passes (made once per surface object; `slot.w` −1 until it is given a grid or an entry), its grid's cells `cellMetres` (default the layout's). */
+  objectValues(cellMetres?: number): VoxelSurfaceObject;
   dispose(): void;
 }
 
@@ -332,8 +340,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   const material = cameraRelative(new THREE.MeshStandardNodeMaterial());
   material.metalness = 0;
   material.name = 'voxel surface';
-  const cellsOfBlend = (m: number): number => Math.max(1e-3, Math.min(1, m / layout.cellMetres));
-  const blendCells = uniform(cellsOfBlend(opts.blendMetres));
+  const blendM = uniform(Math.max(0, opts.blendMetres));
   const gridNode = texelTexture3D(grids.texture);
   grids.onTexture = (tex) => {
     (gridNode as unknown as { value: THREE.Texture }).value = tex;
@@ -344,6 +351,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   slotU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.slot ?? (slotU.value as THREE.Vector4).set(0, 0, 0, -1));
   const phaseU = uniform(new THREE.Vector3());
   phaseU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.phase ?? (phaseU.value as THREE.Vector3).set(0, 0, 0));
+  const cellU = uniform(layout.cellMetres);
+  cellU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.cellMetres ?? layout.cellMetres);
   const matMask = 2 ** layout.materialBits;
   const decode = (entry: N): { mat: N; wet: N } => ({ mat: mod(entry, matMask), wet: floor(entry.div(matMask)) });
   const look = (m: N): N => tableNode.load(ivec2(int(mod(m, TABLE_WIDTH)), int(floor(m.div(TABLE_WIDTH)))));
@@ -354,11 +363,13 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   } else {
     const shade = Fn(() => {
       const n = normalLocal.normalize();
-      // Cells from the chunk's corner, a quarter cell into the surface, kept on the grid (border included).
+      // Cells of the object's grid from its corner, a quarter cell into the surface, kept on the grid (border included).
       const edge = layout.side - 2 * layout.border;
-      const q = clamp(positionLocal.div(layout.cellMetres).sub(n.mul(0.25)), -0.5, edge + 0.5);
+      const q = clamp(positionLocal.div(cellU).sub(n.mul(0.25)), -0.5, edge + 0.5);
       const t = q.sub(0.5);
       const c0 = floor(t);
+      // The blend's metres in this grid's cells (at most one cell): the same width at every level.
+      const blendCells = clamp(blendM.div(cellU), 1e-3, 1);
       const w1 = clamp(t.sub(c0).sub(0.5).div(blendCells).add(0.5), 0, 1);
       const w0 = vec3(1).sub(w1);
       const g0 = ivec3(c0).add(layout.border);
@@ -410,7 +421,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const mB = select(solid, se.mat, max(m2, 0));
       const share = select(solid, float(0), v2.div(max(v1.add(v2), 1e-6)));
       const wetness = select(solid, se.wet, wetSum.div(max(total, 1e-6))).div(layout.wetnessMax);
-      // Triplanar projection in world cells (the object's phase plus the local cell), the axes weighted by the normal.
+      // Triplanar projection in world level-0 cells (the object's phase plus the local position), the axes weighted by the normal.
       const p = phaseU.add(positionLocal.div(layout.cellMetres)).div(patternM / layout.cellMetres);
       const bw = abs(n).pow(vec3(4));
       const bn = bw.div(bw.x.add(bw.y).add(bw.z));
@@ -440,9 +451,9 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     material,
     grids,
     setBlendMetres(m) {
-      blendCells.value = cellsOfBlend(m);
+      blendM.value = Math.max(0, m);
     },
-    objectValues: () => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3() }),
+    objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), cellMetres }),
     dispose() {
       grids.dispose();
       table.dispose();

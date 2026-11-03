@@ -7,14 +7,21 @@
  * builds no mesh; a floating-origin re-base moves every chunk to its new
  * 32-bit position; a chunk 8 km out, its origin never moved (Play), draws
  * with a model-view made in 64 bits, its vertices as exact as near the
- * origin, the surface and the pieces alike; the feed replaces a swap's chunks in the task that
- * announces them and counts their bytes against the stream budget.
+ * origin, the surface and the pieces alike; a batch from the draw batcher replaces a swap's chunks in the task
+ * that announces them and counts their bytes against the stream budget. With mip levels: a node of level L is one
+ * object at its corner with its derive scaled to the level's cells and its grid read in them; a seam is one
+ * object at its coarse node's corner shaded from whichever draw that node has; a change of the levels drawn (the
+ * streamer's `seams` and `levels` events of one task) is applied as one batch, the old level drawn until then;
+ * a node's new result replaces its draw, and level-0 events for chunks not drawn at level 0 draw nothing.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   buildApron,
+  ChunkDrawBatcher,
   chunkGrid,
+  deriveMipNode,
+  MipTree,
   createWorldStore,
   deriveFromStore,
   deriveSectionsWithApron,
@@ -30,12 +37,15 @@ import {
   VOXEL_ROLE,
   VOXEL_SIZE_M,
   WETNESS_MAX,
+  type ChunkDrawBatch,
+  type DerivedData,
+  type FaceSeam,
   type JoinedDraw,
   type PaletteStore,
   type StreamEvent,
 } from '@thirdlight/voxel';
 
-import { feedVoxelChunkView, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry } from './voxel-chunk-view';
+import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry } from './voxel-chunk-view';
 import { cameraRelativeModelView } from './camera-relative';
 import { observerOf, wgslOf, wgslRenderer } from './test-wgsl';
 import { createVoxelSurface, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelSurfaceObject } from './voxel-surface';
@@ -211,6 +221,7 @@ describe('the voxel chunk view', () => {
     const listeners: Array<(e: StreamEvent) => void> = [];
     const parts = new Map<string, number>();
     const feed = {
+      grid,
       on: (l: (e: StreamEvent) => void) => void listeners.push(l),
       joinedChunk: (cx: number, cy: number, cz: number, _times: unknown, cells: Uint16Array) => joined(s, cx, cy, cz, cells),
       setPart: (cx: number, cy: number, cz: number, part: string, bytes: number) => {
@@ -218,22 +229,146 @@ describe('the voxel chunk view', () => {
         return true;
       },
     };
-    const replaced: string[] = [];
-    feedVoxelChunkView(view, feed, (x) => replaced.push(`${x.cx},${x.cy},${x.cz}${x.shaderOnly ? ':shader' : ''}`));
+    const batches: ChunkDrawBatch[] = [];
+    let flush: () => void = () => {};
+    const batcher = new ChunkDrawBatcher('w', feed, SECTION, (b) => {
+      batches.push(b);
+      batcher.drawn(applyChunkDrawBatch(view, b).chunkBytes);
+    }, { schedule: (f) => (flush = f), inPlace: true });
     const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
     const corner = [[-1, 0, -1], [-1, 0, 0], [0, 0, -1], [0, 0, 0]] as const;
     for (const [cx, cy, cz] of corner) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false });
-    // Drawn before the swap event would follow: nothing waits for a later frame.
+    // One batch at the end of the task: nothing is drawn before it, everything with it.
+    expect(view.count).toBe(0);
+    flush();
+    expect(batches).toHaveLength(1);
     expect(view.count).toBe(4);
-    expect(replaced).toEqual(corner.map((c) => c.join(',')));
     for (const [cx, cy, cz] of corner) expect(parts.get(`${cx},${cy},${cz}:mesh`)).toBeGreaterThan(0);
     const builds = view.meshBuilds;
     emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: true });
+    flush();
     expect(view.meshBuilds).toBe(builds);
-    expect(replaced.at(-1)).toBe('0,0,0:shader');
+    expect(batches.at(-1)!.chunks.map((c) => c.kind)).toEqual(['shader']);
     emit({ type: 'unloaded', cx: 0, cy: 0, cz: 0 } as StreamEvent);
+    flush();
     expect(view.has(0, 0, 0)).toBe(false);
     expect(view.count).toBe(3);
+  });
+
+  it('draws mip nodes at their level and seams at their coarse node; a level change, its seams and a node\'s new result each go in as one batch', () => {
+    const s = world();
+    const { view, r } = setup();
+    const tree = new MipTree(s);
+    const node: DerivedData = deriveMipNode(tree, { level: 1, nx: -1, ny: -1, nz: -1 }, PLACEHOLDER_RULES);
+    expect(node.level).toBe(1);
+    expect(node.ground.indices.length).toBeGreaterThan(0);
+    // A seam on the node's +x face: a piece in level-0 steps from a corner 8 cells below the finer node there.
+    const fineCorner: [number, number, number] = [0 * 32 - 8, -1 * 32 - 8, -1 * 32 - 8];
+    const seam: FaceSeam = { level: 1, nx: -1, ny: -1, nz: -1, face: 1, pieces: [{ origin: fineCorner, ground: node.ground, base: node.base }], counts: {} as FaceSeam['counts'] };
+    // The level choice as the streamer keeps it: what is drawn now, changed whole in a swap.
+    let drawn = new Set(['0,0,-1,-1', '0,0,0,-1', '0,0,-1,0', '0,0,0,0']);
+    let result: DerivedData | null = node;
+    const listeners: Array<(e: StreamEvent) => void> = [];
+    const feed = {
+      grid,
+      mips: {
+        lod: { drawn: { drawn: (l: number, x: number, y: number, z: number) => drawn.has(`${l},${x},${y},${z}`) } },
+        derivedOf: (l: number, x: number, y: number, z: number) => (l === 1 && x === -1 && y === -1 && z === -1 ? result : null),
+        seams: { seamOf: (l: number, x: number, y: number, z: number, f: number) => (l === 1 && x === -1 && y === -1 && z === -1 && f === 1 ? seam : null) },
+      },
+      on: (l: (e: StreamEvent) => void) => void listeners.push(l),
+      joinedChunk: (cx: number, cy: number, cz: number, _t: unknown, cells: Uint16Array) => joined(s, cx, cy, cz, cells),
+      setPart: () => true,
+    };
+    let flush: () => void = () => {};
+    const batches: ChunkDrawBatch[] = [];
+    new ChunkDrawBatcher('w', feed, SECTION, (b) => {
+      batches.push(b);
+      applyChunkDrawBatch(view, b);
+    }, { schedule: (f) => (flush = f) });
+    const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
+    const children = [[-2, -2, -2], [-1, -2, -2], [-2, -1, -2], [-1, -1, -2], [-2, -2, -1], [-1, -2, -1], [-2, -1, -1], [-1, -1, -1]] as const;
+    // Chunks under the node stream in while level 0 is drawn elsewhere: not drawn (not chosen at level 0).
+    for (const [cx, cy, cz] of children) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false });
+    flush();
+    expect(view.count).toBe(0);
+    // Level 0 across the node's +x face is drawn by a swap: those chunks join then.
+    emit({ type: 'levels', reason: 'swap', added: [...drawn].map((k) => k.split(',').map(Number)).map(([level, nx, ny, nz]) => ({ level: level!, nx: nx!, ny: ny!, nz: nz! })), removed: [] });
+    flush();
+    const level0 = view.count;
+    expect(level0).toBeGreaterThanOrEqual(2);
+    expect(view.levelCounts()).toEqual([level0]);
+
+    // The swap to level 1 over (-1, -1, -1) with its seam: one task, one batch; until it is applied the old level is drawn.
+    drawn = new Set([...drawn, '1,-1,-1,-1']);
+    const before = batches.length;
+    const uploads = r.uploads.length;
+    emit({ type: 'seams', built: [{ level: 1, nx: -1, ny: -1, nz: -1, face: 1 }], removed: [] });
+    emit({ type: 'levels', reason: 'swap', added: [{ level: 1, nx: -1, ny: -1, nz: -1 }], removed: [] });
+    expect(view.levelCounts()).toEqual([level0]);
+    flush();
+    expect(batches.length).toBe(before + 1);
+    expect(batches.at(-1)!.chunks.map((c) => [c.level ?? 0, c.kind])).toEqual([[1, 'draw']]);
+    expect(batches.at(-1)!.seams!.map((w) => w.kind)).toEqual(['draw']);
+    expect(view.levelCounts()).toEqual([level0, 1]);
+    expect(view.seamCount).toBe(1);
+    // Copied for the hop (the streamer keeps the node's result for its seams).
+    expect(batches.at(-1)!.chunks[0]!.ground!.vertices).not.toBe(node.ground.vertices);
+
+    const g = view.root.children.find((c) => c.name === 'voxel-node 1:-1,-1,-1')!;
+    // At the node's corner: 64 level-0 cells a side.
+    expect(g.position.toArray()).toEqual([-64 * VOXEL_SIZE_M, -64 * VOXEL_SIZE_M, -64 * VOXEL_SIZE_M]);
+    const mesh = surfaceOf(g);
+    // Positions in the level's cells (1 m): the node's derive scaled, and its grid read in 1 m cells.
+    expect(triangles(mesh.geometry)).toEqual(triangles(voxelSurfaceGeometry([node.ground, node.base], 1)));
+    const values = mesh.userData[VOXEL_SURFACE_KEY] as VoxelSurfaceObject;
+    expect(values.cellMetres).toBe(1);
+    if (shaderSolidEntry(node.shader) < 0) {
+      expect(r.uploads.length).toBe(uploads + 1);
+      const want = shaderGridEntries(node.shader, new Uint16Array(34 ** 3));
+      expect(r.uploads.at(-1)!.entries.every((e, i) => e === want[i])).toBe(true);
+    }
+    // The seam: at the coarse node's corner, its piece moved there from its own origin (level-0 steps), and shaded
+    // from the node's grid.
+    const seamMesh = view.root.children.find((c) => c.name.startsWith('voxel-seam '))! as THREE.Mesh;
+    expect(seamMesh.position.toArray()).toEqual(g.position.toArray());
+    const shift = fineCorner.map((c) => (c + 64) * VOXEL_SIZE_M);
+    const want = voxelSurfaceGeometry([node.ground, node.base], VOXEL_SIZE_M)!;
+    const wp = want.getAttribute('position');
+    const sp = seamMesh.geometry.getAttribute('position');
+    expect(sp.count).toBe(wp.count);
+    // voxelSurfaceGeometry counts from one cell below the corner; a seam piece from its origin.
+    for (let i = 0; i < sp.count; i += 11) for (let a = 0; a < 3; a++) expect(sp.getComponent(i, a)).toBeCloseTo(wp.getComponent(i, a) + VOXEL_SIZE_M + shift[a]!, 5);
+    expect(seamMesh.userData[VOXEL_SURFACE_KEY]).toBe(values);
+    expect(view.seamTriangles).toBe(seamMesh.geometry.index!.count / 3);
+
+    // The node's new result (an edit in its ring): its draw is replaced; the seam reads the new draw's grid.
+    const tris = view.triangles;
+    emit({ type: 'node', level: 1, nx: -1, ny: -1, nz: -1, removed: false });
+    flush();
+    const again = surfaceOf(view.root.children.find((c) => c.name === 'voxel-node 1:-1,-1,-1')!);
+    expect(again).not.toBe(mesh);
+    expect(seamMesh.userData[VOXEL_SURFACE_KEY]).toBe(again.userData[VOXEL_SURFACE_KEY]);
+    expect(view.triangles).toBe(tris);
+
+    // Back to level 0: the node and its seam leave in the swap's batch, the level-0 chunks under it come.
+    drawn = new Set([...drawn].filter((k) => k !== '1,-1,-1,-1').concat(children.map((c) => `0,${c.join(',')}`)));
+    emit({ type: 'seams', built: [], removed: [{ level: 1, nx: -1, ny: -1, nz: -1, face: 1 }] });
+    emit({ type: 'levels', reason: 'swap', added: children.map(([nx, ny, nz]) => ({ level: 0, nx, ny, nz })), removed: [{ level: 1, nx: -1, ny: -1, nz: -1 }] });
+    expect(view.levelCounts()[1]).toBe(1);
+    flush();
+    expect(view.levelCounts()[1]).toBe(0);
+    expect(view.seamCount).toBe(0);
+    expect(view.seamTriangles).toBe(0);
+    expect(view.levelCounts()[0]).toBeGreaterThan(level0);
+    // A node that loses its result leaves (nothing drawn for it).
+    result = null;
+    emit({ type: 'node', level: 1, nx: -1, ny: -1, nz: -1, removed: true });
+    flush();
+    expect(view.levelCounts()[1]).toBe(0);
+    view.dispose();
+    expect(view.count).toBe(0);
+    expect(view.regions).toBe(0);
   });
   it('draws a chunk 8 km out (origin never moved) with a model-view made in 64 bits: vertices as exact as near the origin', () => {
     const s = world();

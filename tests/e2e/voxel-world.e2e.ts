@@ -370,6 +370,44 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const again = await shot(page);
     // The same picture as before the reload, from the region files (the view and the world are the same).
     expect(changedPixels(shown, again)).toBeLessThan(200);
+
+    // Detail levels in this small world: level 0 within 4 m, level 1 within 24 m, level 2 past it (the change is
+    // one swap). Every level is drawn, with seams between them, and a grazing view across the level boundaries
+    // shows ground everywhere below the horizon: no background through a crack.
+    await hook(page, 'setLevels', [4, 24]);
+    const yaw = -0.75;
+    await hook(page, 'look', ox, oy + 3, oz + 2, yaw, 0.18, 30);
+    await hook(page, 'settle');
+    const lv = await hook<{ levels: number[]; seams: number; seamTriangles: number }>(page, 'state');
+    expect(lv.levels[0], 'level 0 drawn').toBeGreaterThan(0);
+    expect(lv.levels[1], 'level 1 drawn').toBeGreaterThan(0);
+    expect(lv.seams).toBeGreaterThan(0);
+    expect(lv.seamTriangles).toBeGreaterThan(0);
+    const grazing = await shot(page);
+    let sky = 0;
+    // Below the horizon everywhere across the picture (it sits at 0.55–0.57 of the height at the left edge).
+    for (let y = Math.floor(grazing.height * 0.62); y < grazing.height; y++) for (let x = 0; x < grazing.width; x++) {
+      const [r, g, b] = grazing.pixel(x, y);
+      if (Math.abs(r - 0x9f) <= 8 && Math.abs(g - 0xc4) <= 8 && Math.abs(b - 0xe8) <= 8) sky++;
+    }
+    expect(sky, 'background pixels below the horizon').toBe(0);
+    // A runtime dig in the level-1 ring (on the line from the target to the camera, in view) shows: the node over
+    // it is derived again and its draw replaced, still at level 1.
+    let pit: Cell | null = null;
+    for (let t = 8; t < 50 && pit === null; t++) {
+      const x = Math.round(ox + (Math.sin(yaw) * t) / 0.5);
+      const z = Math.round(oz + 2 + (Math.cos(yaw) * t) / 0.5);
+      const top = await hook<number | null>(page, 'surfaceAt', x, z, oy + 40, oy - 40);
+      if (top !== null && (await hook<number | null>(page, 'levelAt', x, top - 1, z)) === 1 && (await hook<number | null>(page, 'levelAt', x + 12, top - 1, z + 12)) === 1) pit = [x, top - 1, z];
+    }
+    expect(pit, 'a ground cell drawn at level 1').not.toBeNull();
+    // In the grazing view: between the camera and the target (the focus stays at the target).
+    const levelBefore = await shot(page);
+    expect((await hook<Blast>(page, 'blast', pit, 2.5, 'local')).ok).toBe(true);
+    await hook(page, 'settle');
+    expect(await hook<number | null>(page, 'levelAt', ...pit!)).toBe(1);
+    expect(changedPixels(levelBefore, await shot(page)), 'a dig at level 1').toBeGreaterThan(300);
+    await hook(page, 'reread');
     expect(errors).toEqual([]);
   });
 }

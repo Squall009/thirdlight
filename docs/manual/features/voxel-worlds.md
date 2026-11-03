@@ -180,10 +180,11 @@ names is missing or has a missing or damaged region file.
 
 These come later; worlds made now keep working when they arrive:
 
-- **Distance levels.** The ground is meshed by the terrain mesher
-  (ordinary ground on a regular grid, sharp cliff edges and terrace lips);
-  coarser levels in the distance come later. Built cells are still drawn
-  as plain block faces.
+- **Distance levels, finished.** The world is drawn in coarser voxels with
+  distance (the **Detail levels** above), joined without cracks, but a
+  thin surface layer (a grass top over earth) can show stripes of the
+  material under it in the coarser levels, and the far field past the load
+  ring is not drawn. Built cells are still drawn as plain block faces.
 - **Kits and cases**: which kit piece a wall, floor, roof, stair or opening
   cell becomes, and a trim layout for detail pieces.
 - **Materials**: material records, texture arrays and wetness beyond

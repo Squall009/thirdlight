@@ -15,16 +15,24 @@
  * (no palette packed only to be expanded again), on its own when only the
  * shader data changed, so such an edit rebuilds no mesh.
  *
- * Chunks are placed relative to the floating origin from their integer
- * cell; after a re-base every chunk is placed again. Objects keep their
+ * Coarser levels of the chunk tree draw the same way: a mip node is one
+ * object (its derive, in its level's cells, scaled to metres here) with its
+ * own grid of its own cells, and each seam between two levels is one more
+ * object, shaded from the coarse node's grid (the seam lies at that node's
+ * face). Level 0 is always storage chunks; a node of level L covers 2^L
+ * chunks a side.
+ *
+ * Objects are placed relative to the floating origin from their integer
+ * cell; after a re-base every object is placed again. Objects keep their
  * matrices until placed (no per-frame matrix work for a still world). The
  * surface and the pieces draw with a camera-relative model-view made in 64
  * bits (camera-relative.ts), so a view whose origin is never moved (a game
  * view kilometres out) draws as exactly as one kept near its origin.
  *
- * A swap's chunks are replaced in the task that announces them (the
- * streamer emits every `chunk` event of a swap in one task, just before the
- * swap), so all of them change between the same two frames.
+ * A swap's draws are replaced in the task that announces them (a batch,
+ * {@link applyChunkDrawBatch}: everything one streamer task changed, a
+ * change of the levels drawn with its seams included), so all of them
+ * change between the same two frames.
  *
  * Colours and patterns are stand-ins picked by material id: materials,
  * kits and detail art come later.
@@ -35,18 +43,18 @@ import {
   chunkKey,
   chunkOrigin,
   INSTANCE_BYTES,
-  MESH_PART,
+  mipCellMetres,
   PIECE_FAMILY,
   POSITION_STEPS_PER_CELL,
   SampleRing,
   SURFACE_VERTEX_BYTES,
   VOXEL_SIZE_M,
+  type ChunkDrawBatch,
   type ChunkGrid,
   type FloatingOrigin,
   type JoinedDraw,
-  type StreamEvent,
+  type SeamPieceWire,
   type SurfaceBuffer,
-  type JoinTimes,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
@@ -67,34 +75,46 @@ const PIECE_SIZE: Record<number, readonly [number, number, number]> = {
 };
 const PIECE_COLOUR: Record<number, number> = { [PIECE_FAMILY.beam]: 0x6b4423, [PIECE_FAMILY.rail]: 0x8a5a2b, [PIECE_FAMILY.post]: 0x7a4e25 };
 
+/** A surface buffer to place: metres a position step, and the metres added to every position. */
+interface PlacedSurface {
+  readonly buf: SurfaceBuffer;
+  readonly stepMetres: number;
+  readonly offset: readonly [number, number, number];
+}
+
 /**
  * Surface buffers as one float geometry (null when they hold no triangle):
  * the buffers' vertices one after another, indices offset to match.
+ * `cellMetres`: the buffers' cells (a coarser level's for a mip node);
+ * positions count from one cell below the object's corner.
  */
-export function voxelSurfaceGeometry(bufs: readonly SurfaceBuffer[]): THREE.BufferGeometry | null {
+export function voxelSurfaceGeometry(bufs: readonly SurfaceBuffer[], cellMetres = VOXEL_SIZE_M): THREE.BufferGeometry | null {
+  const offset: [number, number, number] = [-cellMetres, -cellMetres, -cellMetres];
+  return placedGeometry(bufs.map((buf) => ({ buf, stepMetres: cellMetres / POSITION_STEPS_PER_CELL, offset })));
+}
+
+function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry | null {
   let n = 0;
   let indexCount = 0;
-  for (const b of bufs) {
-    if (b.indices.length === 0) continue;
-    n += b.vertexCount;
-    indexCount += b.indices.length;
+  for (const { buf } of parts) {
+    if (buf.indices.length === 0) continue;
+    n += buf.vertexCount;
+    indexCount += buf.indices.length;
   }
   if (n === 0 || indexCount === 0) return null;
   const pos = new Float32Array(n * 3);
   const nor = new Float32Array(n * 3);
   const index = n < 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
-  const toM = VOXEL_SIZE_M / POSITION_STEPS_PER_CELL;
   let v0 = 0;
   let i0 = 0;
-  for (const b of bufs) {
+  for (const { buf: b, stepMetres, offset } of parts) {
     if (b.indices.length === 0) continue;
     const view = new DataView(b.vertices.buffer, b.vertices.byteOffset, b.vertices.byteLength);
     for (let i = 0; i < b.vertexCount; i++) {
       const o = i * SURFACE_VERTEX_BYTES;
       const at = (v0 + i) * 3;
-      // Positions count from one cell below the chunk's corner.
       for (let a = 0; a < 3; a++) {
-        pos[at + a] = view.getUint16(o + a * 2, true) * toM - VOXEL_SIZE_M;
+        pos[at + a] = view.getUint16(o + a * 2, true) * stepMetres + offset[a]!;
         nor[at + a] = Math.max(-1, view.getInt8(o + 8 + a) / 127);
       }
     }
@@ -119,18 +139,40 @@ function geometryBytes(geo: THREE.BufferGeometry): number {
   return n;
 }
 
-/** What a chunk's draw is made of: its joined sections' surfaces, pieces and shader grid (a join, or a batch's copy of one). */
+/** What a chunk's (or node's) draw is made of: its joined sections' surfaces, pieces and shader grid (a join, or a batch's copy of one). */
 export type VoxelChunkDraw = Pick<JoinedDraw, 'ground' | 'base' | 'instances' | 'solid'>;
+
+/** A seam piece: positions in the finer level's steps from its origin (finer-level cells). */
+export type VoxelSeamPiece = SeamPieceWire;
 
 interface ChunkDraw {
   readonly group: THREE.Group;
+  /** The object's corner, level-0 cells. */
   readonly cell: readonly [number, number, number];
+  readonly level: number;
   bytes: number;
-  /** What the chunk's surface passes the shader. */
+  /** What the object's surface passes the shader. */
   readonly surface: VoxelSurfaceObject;
-  /** The chunk's grid region (null: none, its one solid entry is passed instead). */
+  /** The object's grid region (null: none, its one solid entry is passed instead). */
   region: THREE.Vector3 | null;
 }
+
+interface SeamDraw {
+  readonly mesh: THREE.Mesh;
+  /** The coarse node's corner, level-0 cells. */
+  readonly cell: readonly [number, number, number];
+  readonly level: number;
+  /** The coarse node and the face. */
+  readonly node: readonly [number, number, number, number];
+  readonly triangles: number;
+  readonly bytes: number;
+}
+
+/** A seam's key: the coarse node and its face. */
+const seamId = (level: number, nx: number, ny: number, nz: number, face: number): string => `${level},${nx},${ny},${nz},${face}`;
+
+/** Shader values for a seam whose coarse node is not drawn (it left first; its seam goes with the next batch): one entry, all air. */
+const NO_SURFACE: VoxelSurfaceObject = { slot: new THREE.Vector4(0, 0, 0, 0), phase: new THREE.Vector3(), cellMetres: VOXEL_SIZE_M };
 
 export interface VoxelChunkViewOptions {
   /** The storage chunks' grid (32³). */
@@ -141,28 +183,32 @@ export interface VoxelChunkViewOptions {
   readonly renderer: VoxelGridRenderer;
 }
 
-/** Every drawn chunk of a voxel world, in one scene group. */
+/** Every drawn chunk, mip node and seam of a voxel world, in one scene group. */
 export class VoxelChunkView {
   readonly root = new THREE.Group();
-  /** The surfaces raycasts hit (picking a cell to edit). */
+  /** The surfaces raycasts hit (picking a cell to edit): level-0 chunks only, the cells an edit names. */
   readonly pickable: THREE.Object3D[] = [];
   /** A join writes a chunk's shader grid entries here; the upload reads them. */
   readonly cells: Uint16Array;
-  private readonly chunks = new Map<number, ChunkDraw>();
+  /** Drawn objects by level, by key within the level. */
+  private readonly levels: Array<Map<number, ChunkDraw>> = [];
+  private readonly seams = new Map<string, SeamDraw>();
   private readonly pieceMaterials = new Map<number, MeshLambertNodeMaterial>();
   private readonly pieceBoxes = new Map<number, THREE.BoxGeometry>();
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly at = new THREE.Vector3();
-  private readonly one = new THREE.Vector3(1, 1, 1);
+  private readonly scale = new THREE.Vector3();
   private readonly grid: ChunkGrid;
   private readonly origin: FloatingOrigin;
   private readonly shading: VoxelSurface;
   private readonly renderer: VoxelGridRenderer;
+  /** Triangles drawn (seams included), and of them the seams'. */
   triangles = 0;
+  seamTriangles = 0;
   instances = 0;
-  /** Chunks whose meshes were built, and shader grids uploaded or set (one solid entry). */
+  /** Objects whose meshes were built (chunks and nodes), and shader grids uploaded or set (one solid entry). */
   meshBuilds = 0;
   shaderSets = 0;
   /** ms to upload one grid. */
@@ -176,81 +222,106 @@ export class VoxelChunkView {
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
   }
 
-  /** Chunks drawing with a grid region. */
+  /** Objects drawing with a grid region. */
   get regions(): number {
     return this.shading.grids.count;
   }
 
-  /** Chunks drawn. */
+  /** Chunks and nodes drawn (every level). */
   get count(): number {
-    return this.chunks.size;
+    let n = 0;
+    for (const m of this.levels) n += m?.size ?? 0;
+    return n;
   }
 
-  /** Whether a chunk is drawn. */
-  has(cx: number, cy: number, cz: number): boolean {
-    return this.chunks.has(chunkKey(this.grid, cx, cy, cz));
+  /** Objects drawn per level (index: the level). */
+  levelCounts(): number[] {
+    return Array.from({ length: this.levels.length }, (_, l) => this.levels[l]?.size ?? 0);
   }
 
-  private place(m: ChunkDraw): void {
+  /** Seams drawn. */
+  get seamCount(): number {
+    return this.seams.size;
+  }
+
+  /** Whether a chunk (or a node of `level`) is drawn. */
+  has(cx: number, cy: number, cz: number, level = 0): boolean {
+    return this.levels[level]?.has(chunkKey(this.grid, cx, cy, cz)) ?? false;
+  }
+
+  private at0(level: number, nx: number, ny: number, nz: number): [number, number, number] {
+    const s = 2 ** level;
+    return [chunkOrigin(this.grid, nx) * s, chunkOrigin(this.grid, ny) * s, chunkOrigin(this.grid, nz) * s];
+  }
+
+  private place(o3: THREE.Object3D, cell: readonly number[]): void {
     const o = this.origin.origin;
-    m.group.position.set((m.cell[0] - o.x) * VOXEL_SIZE_M, (m.cell[1] - o.y) * VOXEL_SIZE_M, (m.cell[2] - o.z) * VOXEL_SIZE_M);
-    // Still chunks keep their matrices (no per-frame matrix work): made here, when set and after a re-base.
-    m.group.updateMatrix();
+    o3.position.set((cell[0]! - o.x) * VOXEL_SIZE_M, (cell[1]! - o.y) * VOXEL_SIZE_M, (cell[2]! - o.z) * VOXEL_SIZE_M);
+    // Still objects keep their matrices (no per-frame matrix work): made here, when set and after a re-base.
+    o3.updateMatrix();
   }
 
-  /** After a floating-origin re-base: every chunk's 32-bit position again, from its integer cell. */
+  /** After a floating-origin re-base: every object's 32-bit position again, from its integer cell. */
   rebase(): void {
-    for (const m of this.chunks.values()) this.place(m);
+    for (const m of this.levels) if (m !== undefined) for (const d of m.values()) this.place(d.group, d.cell);
+    for (const s of this.seams.values()) this.place(s.mesh, s.cell);
   }
 
   /**
-   * Replaces a chunk's draw with its joined sections' (null: nothing to
-   * draw, the chunk is removed); the shader grid's entries are read from
-   * {@link cells} when the draw has no solid entry. Returns the bytes the
-   * chunk holds (meshes and grid).
+   * Replaces a chunk's draw (or, with `level` ≥ 1, a mip node's) with its
+   * joined sections' (null: nothing to draw, it is removed); the shader
+   * grid's entries are read from {@link cells} when the draw has no solid
+   * entry. Returns the bytes it holds (meshes and grid).
    */
-  set(cx: number, cy: number, cz: number, d: VoxelChunkDraw | null): number {
-    this.remove(cx, cy, cz);
+  set(cx: number, cy: number, cz: number, d: VoxelChunkDraw | null, level = 0): number {
+    this.remove(cx, cy, cz, level);
     if (d === null) return 0;
     const key = chunkKey(this.grid, cx, cy, cz);
     this.meshBuilds++;
     const group = new THREE.Group();
-    group.name = `voxel-chunk ${cx},${cy},${cz}`;
+    group.name = level === 0 ? `voxel-chunk ${cx},${cy},${cz}` : `voxel-node ${level}:${cx},${cy},${cz}`;
     group.matrixAutoUpdate = false;
     let bytes = 0;
-    const surface = this.shading.objectValues();
-    const cell: [number, number, number] = [chunkOrigin(this.grid, cx), chunkOrigin(this.grid, cy), chunkOrigin(this.grid, cz)];
+    const cellM = mipCellMetres(level);
+    const surface = this.shading.objectValues(cellM);
+    const cell = this.at0(level, cx, cy, cz);
     const wrap = (v: number): number => v - Math.floor(v / PHASE_CELLS) * PHASE_CELLS;
     surface.phase.set(wrap(cell[0]), wrap(cell[1]), wrap(cell[2]));
-    const geo = voxelSurfaceGeometry([d.ground, d.base]);
+    const geo = voxelSurfaceGeometry([d.ground, d.base], cellM);
     if (geo !== null) {
       const mesh = new THREE.Mesh(geo, this.shading.material);
       mesh.matrixAutoUpdate = false;
       mesh.userData['voxelChunk'] = key;
+      mesh.userData['voxelLevel'] = level;
       mesh.userData[VOXEL_SURFACE_KEY] = surface;
       group.add(mesh);
-      this.pickable.push(mesh);
+      if (level === 0) this.pickable.push(mesh);
       bytes += geometryBytes(geo);
       this.triangles += (geo.index?.count ?? 0) / 3;
     }
-    bytes += this.addPieces(group, d);
+    bytes += this.addPieces(group, d, cellM);
     if (group.children.length === 0) return 0;
-    const m: ChunkDraw = { group, cell, bytes, surface, region: null };
-    this.place(m);
+    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null };
+    this.place(group, cell);
     this.root.add(group);
-    this.chunks.set(key, m);
+    let map = this.levels[level];
+    if (map === undefined) {
+      for (let l = this.levels.length; l <= level; l++) this.levels[l] = new Map();
+      map = this.levels[level]!;
+    }
+    map.set(key, m);
     this.applyShader(m, d.solid);
     return m.bytes;
   }
 
   /**
-   * Gives a drawn chunk's surface its new shader data (a material or
-   * wetness change): its grid region uploaded again from {@link cells}, or
-   * its one solid entry passed; no mesh is touched. Returns the chunk's
-   * bytes now (0: not drawn).
+   * Gives a drawn chunk's (or node's) surface its new shader data (a
+   * material or wetness change): its grid region uploaded again from
+   * {@link cells}, or its one solid entry passed; no mesh is touched.
+   * Returns its bytes now (0: not drawn).
    */
-  setShader(cx: number, cy: number, cz: number, solid: number): number {
-    const m = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
+  setShader(cx: number, cy: number, cz: number, solid: number, level = 0): number {
+    const m = this.levels[level]?.get(chunkKey(this.grid, cx, cy, cz));
     if (m === undefined) return 0;
     this.applyShader(m, solid);
     return m.bytes;
@@ -278,7 +349,7 @@ export class VoxelChunkView {
     this.uploadMs.add(performance.now() - t0);
   }
 
-  private addPieces(group: THREE.Group, d: VoxelChunkDraw): number {
+  private addPieces(group: THREE.Group, d: VoxelChunkDraw, cellM: number): number {
     const list = d.instances;
     if (list.count === 0) return 0;
     const byFamily = new Map<number, number[]>();
@@ -289,6 +360,9 @@ export class VoxelChunkView {
       if (l === undefined) byFamily.set(family, (l = []));
       l.push(o);
     }
+    // A coarser level's pieces stand in at its cell's size (its stand-in boxes scaled with the cell).
+    const k = cellM / VOXEL_SIZE_M;
+    this.scale.set(k, k, k);
     let bytes = 0;
     for (const [family, offsets] of byFamily) {
       const size = PIECE_SIZE[family];
@@ -302,8 +376,8 @@ export class VoxelChunkView {
       offsets.forEach((o, i) => {
         // Quarter turns about +y turn the piece's run (its x) to the cell's run axis.
         this.quat.setFromAxisAngle(this.up, ((list.data[o + 3]! & 3) * Math.PI) / 2);
-        this.at.set((list.data[o]! + 0.5) * VOXEL_SIZE_M, (list.data[o + 1]! + 0.5) * VOXEL_SIZE_M, (list.data[o + 2]! + 0.5) * VOXEL_SIZE_M);
-        mesh.setMatrixAt(i, this.matrix.compose(this.at, this.quat, this.one));
+        this.at.set((list.data[o]! + 0.5) * cellM, (list.data[o + 1]! + 0.5) * cellM, (list.data[o + 2]! + 0.5) * cellM);
+        mesh.setMatrixAt(i, this.matrix.compose(this.at, this.quat, this.scale));
       });
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
@@ -314,15 +388,18 @@ export class VoxelChunkView {
     return bytes;
   }
 
-  /** Stops drawing a chunk (unloaded, or nothing left to draw). */
-  remove(cx: number, cy: number, cz: number): void {
-    this.removeKey(chunkKey(this.grid, cx, cy, cz));
+  /** Stops drawing a chunk (unloaded, or nothing left to draw), or a node of `level`. */
+  remove(cx: number, cy: number, cz: number, level = 0): void {
+    const map = this.levels[level];
+    if (map === undefined) return;
+    const key = chunkKey(this.grid, cx, cy, cz);
+    const m = map.get(key);
+    if (m === undefined) return;
+    map.delete(key);
+    this.removeDraw(m);
   }
 
-  private removeKey(key: number): void {
-    const m = this.chunks.get(key);
-    if (m === undefined) return;
-    this.chunks.delete(key);
+  private removeDraw(m: ChunkDraw): void {
     this.root.remove(m.group);
     if (m.region !== null) this.shading.grids.release(m.region);
     for (const child of m.group.children) {
@@ -338,51 +415,100 @@ export class VoxelChunkView {
     }
   }
 
-  /** Removes every chunk; the piece boxes and materials are disposed (the surface is its owner's). */
+  /**
+   * Replaces the seam on face `face` of the coarse node (level ≥ 1, node
+   * nx, ny, nz) with `pieces` (none: removed). The seam is shaded from that
+   * node's grid, whichever draw the node has at the time. Returns its bytes.
+   */
+  setSeam(level: number, nx: number, ny: number, nz: number, face: number, pieces: readonly VoxelSeamPiece[] | null): number {
+    this.removeSeam(level, nx, ny, nz, face);
+    if (pieces === null || pieces.length === 0 || level < 1) return 0;
+    const cell = this.at0(level, nx, ny, nz);
+    const fineM = mipCellMetres(level - 1);
+    const step = fineM / POSITION_STEPS_PER_CELL;
+    // Placed at the coarse node's corner (its grid's frame): each piece's origin moved into it.
+    const parts = pieces.flatMap((p) => {
+      const offset: [number, number, number] = [0, 1, 2].map((a) => p.origin[a]! * fineM - cell[a]! * VOXEL_SIZE_M) as [number, number, number];
+      return [{ buf: p.ground, stepMetres: step, offset }, { buf: p.base, stepMetres: step, offset }];
+    });
+    const geo = placedGeometry(parts);
+    if (geo === null) return 0;
+    const mesh = new THREE.Mesh(geo, this.shading.material);
+    mesh.name = `voxel-seam ${seamId(level, nx, ny, nz, face)}`;
+    mesh.matrixAutoUpdate = false;
+    const key = chunkKey(this.grid, nx, ny, nz);
+    const map = (): Map<number, ChunkDraw> | undefined => this.levels[level];
+    // The node's draw is replaced on its own (a new result, a shader change): the seam reads whichever is drawn.
+    Object.defineProperty(mesh.userData, VOXEL_SURFACE_KEY, { get: () => map()?.get(key)?.surface ?? NO_SURFACE, enumerable: false });
+    this.place(mesh, cell);
+    this.root.add(mesh);
+    const triangles = (geo.index?.count ?? 0) / 3;
+    const bytes = geometryBytes(geo);
+    this.seams.set(seamId(level, nx, ny, nz, face), { mesh, cell, level, node: [nx, ny, nz, face], triangles, bytes });
+    this.triangles += triangles;
+    this.seamTriangles += triangles;
+    return bytes;
+  }
+
+  removeSeam(level: number, nx: number, ny: number, nz: number, face: number): void {
+    const id = seamId(level, nx, ny, nz, face);
+    const s = this.seams.get(id);
+    if (s === undefined) return;
+    this.seams.delete(id);
+    this.root.remove(s.mesh);
+    s.mesh.geometry.dispose();
+    this.triangles -= s.triangles;
+    this.seamTriangles -= s.triangles;
+  }
+
+  /** Removes every chunk, node and seam; the piece boxes and materials are disposed (the surface is its owner's). */
   dispose(): void {
-    for (const key of [...this.chunks.keys()]) this.removeKey(key);
+    for (const m of this.levels) {
+      if (m === undefined) continue;
+      for (const d of m.values()) this.removeDraw(d);
+      m.clear();
+    }
+    for (const s of [...this.seams.values()]) this.removeSeam(s.level, ...s.node);
     for (const b of this.pieceBoxes.values()) b.dispose();
     for (const mt of this.pieceMaterials.values()) mt.dispose();
   }
 }
 
-/** What the chunk view needs of a voxel streamer (its events, the joins, and the budget's parts). */
-export interface VoxelChunkFeed {
-  on(listener: (e: StreamEvent) => void): void;
-  /** The chunk's sections joined, the shader grid's entries written into `cells` (the streamer's `joinedChunk` given cells). */
-  joinedChunk(cx: number, cy: number, cz: number, times: JoinTimes | undefined, cells: Uint16Array): JoinedDraw | null;
-  setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean;
-}
-
-/** A chunk the view replaced: its coordinates, whether only its shader data changed, and the main-thread ms it took (join included). */
-export interface VoxelChunkReplaced {
-  readonly cx: number;
-  readonly cy: number;
-  readonly cz: number;
-  readonly shaderOnly: boolean;
-  readonly ms: number;
-  /** The chunk's joined sections the draw was made from (null: nothing derived), for what else is built per chunk with it (its collision). */
-  readonly joined: JoinedDraw | null;
+/** What applying a batch replaced: per level-0 chunk, its bytes now (`[cx, cy, cz, bytes]` repeated), and the entries applied. */
+export interface VoxelBatchApplied {
+  /** Level-0 chunks' GPU bytes, for the stream budget's mesh parts. */
+  readonly chunkBytes: number[];
+  /** Chunk and node entries applied (shader-only and removals included), and seams. */
+  readonly replaced: number;
+  readonly seams: number;
 }
 
 /**
- * Draws a streamer's world through a chunk view: each `chunk` event joins
- * the chunk's sections and replaces its draw (its grid alone when only
- * shader data changed), an unloaded chunk is removed, and the chunk's
- * draw bytes are counted as its `mesh` part of the stream budget.
+ * Applies one batch of a world's draws to its view, all in this task: the
+ * chunks' and nodes' draws, shader data and removals, then the seams. A
+ * change of the levels drawn arrives whole in one batch, so the old level
+ * stays drawn until the frame after the new one is complete.
  */
-export function feedVoxelChunkView(view: VoxelChunkView, feed: VoxelChunkFeed, onReplaced?: (r: VoxelChunkReplaced) => void): void {
-  feed.on((e) => {
-    if (e.type === 'unloaded') {
-      view.remove(e.cx, e.cy, e.cz);
-      return;
+export function applyChunkDrawBatch(view: VoxelChunkView, b: ChunkDrawBatch): VoxelBatchApplied {
+  const chunkBytes: number[] = [];
+  let replaced = 0;
+  for (const c of b.chunks) {
+    const level = c.level ?? 0;
+    replaced++;
+    if (c.kind === 'remove') {
+      view.remove(c.cx, c.cy, c.cz, level);
+      continue;
     }
-    if (e.type !== 'chunk') return;
-    const t0 = performance.now();
-    const d = feed.joinedChunk(e.cx, e.cy, e.cz, undefined, view.cells);
-    const shaderOnly = e.shaderOnly && d !== null && view.has(e.cx, e.cy, e.cz);
-    const bytes = shaderOnly ? view.setShader(e.cx, e.cy, e.cz, d.solid) : view.set(e.cx, e.cy, e.cz, d);
-    feed.setPart(e.cx, e.cy, e.cz, MESH_PART, bytes);
-    onReplaced?.({ cx: e.cx, cy: e.cy, cz: e.cz, shaderOnly, ms: performance.now() - t0, joined: d });
-  });
+    if (c.cells !== undefined) view.cells.set(c.cells);
+    const solid = c.solid ?? 0;
+    const n = c.kind === 'shader' ? view.setShader(c.cx, c.cy, c.cz, solid, level) : view.set(c.cx, c.cy, c.cz, { ground: c.ground!, base: c.base!, instances: c.instances!, solid }, level);
+    if (level === 0) chunkBytes.push(c.cx, c.cy, c.cz, n);
+  }
+  let seams = 0;
+  for (const s of b.seams ?? []) {
+    seams++;
+    if (s.kind === 'remove') view.removeSeam(s.level, s.nx, s.ny, s.nz, s.face);
+    else view.setSeam(s.level, s.nx, s.ny, s.nz, s.face, s.pieces ?? null);
+  }
+  return { chunkBytes, replaced, seams };
 }

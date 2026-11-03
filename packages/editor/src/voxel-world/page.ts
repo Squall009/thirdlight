@@ -48,7 +48,9 @@
 import * as THREE from 'three';
 import {
   canonicalEditCommand,
+  ChunkDrawBatcher,
   chunkGrid,
+  DEFAULT_LEVEL_RINGS,
   editBounds,
   chunkKey,
   type CellBox,
@@ -73,7 +75,7 @@ import {
   VoxelStreamer,
   WETNESS_MAX,
 } from '@thirdlight/voxel';
-import { createGpuTiming, createRenderer, createVoxelSurface, feedVoxelChunkView, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { pageToken } from '../config';
 import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
@@ -95,6 +97,9 @@ const gpuTime = params.get('gpuTime') === '1';
 const grid = chunkGrid(32);
 const sectionParam = Number(params.get('section') ?? DEFAULT_SECTION_EDGE) as SectionEdge;
 const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionParam : DEFAULT_SECTION_EDGE;
+/** `?levels=a,b`: level 0 drawn within a metres, level 1 within b (default the engine's rings). */
+const levelsParam = params.get('levels');
+const levelRings = (metres: readonly number[]): { radii: number[]; hysteresis: number } => ({ radii: metres.map((m) => Math.round(m / VOXEL_SIZE_M)), hysteresis: DEFAULT_LEVEL_RINGS.hysteresis });
 /** A brush dab's half size in cells (a 1 m sphere). */
 const BRUSH_CELLS = 2;
 /** A frame that missed a 60 Hz display's next refresh: half a refresh longer than one. */
@@ -179,7 +184,7 @@ async function main(): Promise<void> {
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: voxelStandInLook, blendMetres: blendM, shading });
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
@@ -201,19 +206,28 @@ async function main(): Promise<void> {
   const chunkSetAt = new Map<number, { frame: number; swap: number }>();
   const swaps: SwapSeen[] = [];
 
-  // A swap's chunks are joined and their draws and bodies replaced, from the one join, in the task announcing them.
-  feedVoxelChunkView(meshes, streamer, (r) => {
-    const key = chunkKey(grid, r.cx, r.cy, r.cz);
-    const at = { frame: frames, swap: streamer.counters.swaps };
-    buildMs += r.ms;
-    chunkSetAt.set(key, at);
-    // Only shader data changed: the body stands as it is.
-    if (r.shaderOnly) return;
-    meshMs.add(r.ms);
-    if (ring === null) return;
+  // A swap's chunks are joined and their bodies replaced, from the one join, in the task announcing them; the
+  // draws (the levels drawn, their nodes and seams too) go in as one batch at the end of that task, as Play's do.
+  const batcher = new ChunkDrawBatcher(worldName, streamer, sectionEdge, (b) => {
     const t0 = performance.now();
-    if (ring.ring.changed(r.cx, r.cy, r.cz, r.joined)) bodySetAt.set(key, at);
-    buildMs += performance.now() - t0;
+    const done = applyChunkDrawBatch(meshes, b);
+    const ms = performance.now() - t0 + b.joinMs;
+    buildMs += ms;
+    const drawnChunks = done.chunkBytes.length / 4;
+    if (drawnChunks > 0) meshMs.add(ms / drawnChunks);
+    batcher.drawn(done.chunkBytes);
+  }, {
+    inPlace: true,
+    onJoined: (cx, cy, cz, joined, shaderOnly, drawn) => {
+      const key = chunkKey(grid, cx, cy, cz);
+      const at = { frame: frames, swap: streamer.counters.swaps };
+      if (drawn) chunkSetAt.set(key, at);
+      // Only shader data changed: the body stands as it is.
+      if (shaderOnly || ring === null) return;
+      const t0 = performance.now();
+      if (ring.ring.changed(cx, cy, cz, joined)) bodySetAt.set(key, at);
+      buildMs += performance.now() - t0;
+    },
   });
 
   streamer.on((e) => {
@@ -234,7 +248,7 @@ async function main(): Promise<void> {
       ring?.ring.unloaded(e.cx, e.cy, e.cz);
       return;
     }
-    // Draws and bodies follow the chunk view's `chunk` events (above); level nodes, their seams and the levels chosen are not drawn here yet.
+    // Draws and bodies follow the batcher (above): chunks, level nodes, their seams and the levels chosen.
     if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'node' || e.type === 'seams' || e.type === 'levels') return;
     if (e.type === 'shader') {
       // Only the shader data changed (material or wetness): bodies stand as they are; the view uploads the chunk's grid.
@@ -428,7 +442,7 @@ async function main(): Promise<void> {
     frames++;
     if (frames % 15 === 0) {
       const m = streamer.metrics();
-      hud.textContent = `${backendName} · ${worldName} r${world.revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${notice === '' ? '' : `${notice}\n`}${m.resident} chunks (${meshes.count} drawn), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
+      hud.textContent = `${backendName} · ${worldName} r${world.revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${notice === '' ? '' : `${notice}\n`}${m.resident} chunks (${meshes.levelCounts().join(' / ')} drawn by level, ${meshes.seamCount} seams), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
     }
     requestAnimationFrame(frame);
   }
@@ -457,6 +471,19 @@ async function main(): Promise<void> {
       const intervals = recording;
       recording = null;
       return { intervals, renderMs: { p50: q(renderMs, 0.5), p95: q(renderMs, 0.95) } };
+    },
+    /** Where levels 0 and 1 are drawn (metres; empty: the engine's rings): the change is one swap, waited for. */
+    async setLevels(metres: readonly number[]): Promise<void> {
+      streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
+      await streamer.settle();
+    },
+    /** The level drawn where a cell lies (null: none drawn there, or no levels). */
+    levelAt(x: number, y: number, z: number): number | null {
+      const mips = streamer.mips;
+      if (mips === null) return null;
+      const c = [x, y, z].map((v) => Math.floor(v / grid.edge));
+      for (let l = 0; l <= mips.maxLevel; l++) if (mips.lod.drawn.drawn(l, c[0]! >> l, c[1]! >> l, c[2]! >> l)) return l;
+      return null;
     },
     /** Metres two neighbouring cells' materials blend over (no new program). */
     setBlend(m: number): void {
@@ -501,6 +528,10 @@ async function main(): Promise<void> {
         resident: m.resident,
         stored: m.residentStored,
         drawn: meshes.count,
+        levels: meshes.levelCounts(),
+        seams: meshes.seamCount,
+        seamTriangles: meshes.seamTriangles,
+        lod: mips === null ? null : { ...mips.lod.counters, radii: mips.lod.levelRings.radii, swapMs: { p50: q(mips.lod.swapMs, 0.5), p95: q(mips.lod.swapMs, 0.95), n: mips.lod.swapMs.count } },
         triangles: meshes.triangles,
         pieces: meshes.instances,
         streamBytes: m.bytes,

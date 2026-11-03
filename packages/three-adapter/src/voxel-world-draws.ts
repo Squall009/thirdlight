@@ -13,6 +13,10 @@
  * a 32-bit re-base of the views alone could not give, since the GPU would
  * still subtract the camera's large position from theirs.
  *
+ * With mip levels a batch also carries the coarser levels' node draws and
+ * the seams between levels; a change of the levels drawn arrives whole in
+ * one batch, so the old level is drawn until the new one is complete.
+ *
  * Every drawn chunk's GPU bytes go back to the simulation (`report`), where
  * they count as the chunk's mesh part of the world's stream budget.
  *
@@ -24,7 +28,7 @@
 import * as THREE from 'three';
 import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
-import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
 /** One edit's way to the screen, as this page saw it (ms). */
@@ -56,6 +60,18 @@ export interface VoxelWorldDrawsOptions {
   applied?(): void;
 }
 
+/** One world as drawn: objects (chunks and nodes of every level), per level, seams, triangles (seams included). */
+export interface VoxelWorldDrawStats {
+  readonly chunks: number;
+  readonly levels: readonly number[];
+  readonly seams: number;
+  readonly triangles: number;
+  readonly seamTriangles: number;
+  readonly instances: number;
+  readonly meshBuilds: number;
+  readonly shaderSets: number;
+}
+
 interface WorldDraw {
   readonly view: VoxelChunkView;
   readonly surface: VoxelSurface;
@@ -77,7 +93,7 @@ export class VoxelWorldDraws {
   private disposed = false;
   readonly edits: VoxelEditToScreen[] = [];
   batches = 0;
-  /** Batches applied and chunk draws replaced (shader-only included). */
+  /** Batches applied and level-0 chunk draws replaced (shader-only included). */
   applied = 0;
   replaced = 0;
 
@@ -146,20 +162,10 @@ export class VoxelWorldDraws {
     if (scene === null || renderer === null) return false;
     const t0 = performance.now();
     const { view } = this.world(b.world, b.edge, scene, renderer);
-    const bytes: number[] = [];
-    for (const c of b.chunks) {
-      if (c.kind === 'remove') {
-        view.remove(c.cx, c.cy, c.cz);
-        continue;
-      }
-      if (c.cells !== undefined) view.cells.set(c.cells);
-      const solid = c.solid ?? 0;
-      const n = c.kind === 'shader' ? view.setShader(c.cx, c.cy, c.cz, solid) : view.set(c.cx, c.cy, c.cz, { ground: c.ground!, base: c.base!, instances: c.instances!, solid });
-      bytes.push(c.cx, c.cy, c.cz, n);
-      this.replaced++;
-    }
+    const done = applyChunkDrawBatch(view, b);
+    this.replaced += done.chunkBytes.length / 4;
     this.applied++;
-    if (bytes.length > 0) this.opts.report(b.world, bytes);
+    if (done.chunkBytes.length > 0) this.opts.report(b.world, done.chunkBytes);
     this.opts.applied?.();
     const applyMs = performance.now() - t0;
     const hopMs = receivedAt - b.sentAt;
@@ -170,9 +176,9 @@ export class VoxelWorldDraws {
   }
 
   /** What is drawn (diagnostics and tests). */
-  stats(): { worlds: Record<string, { chunks: number; triangles: number; instances: number; meshBuilds: number; shaderSets: number }>; batches: number; applied: number; replaced: number; waiting: number } {
-    const worlds: Record<string, { chunks: number; triangles: number; instances: number; meshBuilds: number; shaderSets: number }> = {};
-    for (const [name, { view }] of this.worlds) worlds[name] = { chunks: view.count, triangles: view.triangles, instances: view.instances, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets };
+  stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
+    const worlds: Record<string, VoxelWorldDrawStats> = {};
+    for (const [name, { view }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 
