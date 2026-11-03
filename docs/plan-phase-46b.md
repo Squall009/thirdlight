@@ -90,6 +90,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.7b | **The picked seam built** in the mesher and the join; a node's seam re-derives when its neighbour's level changes (part of that swap). | `derived.test.ts` + `stream.test.ts` | seam µs, triangles | crack-free across L0/L1/L2 in Node |
 | 46b.8a | **LOD rings and selection (pure + streamer):** level per node by box distance from the foci with hysteresis; L0 always covers the collision ring; a level change swaps atomically (old level drawn until every new node and seam is ready); optional ring distances on the `voxelWorld` component (schema add-only, canonicalized field by field). | project-model vitest (fields survive); `stream.test.ts` (moving focus: no node missing or doubled at any task boundary) | level-change swaps a flight, ms | selection stable under jitter |
 | 46b.8b | **Chunk view and hosts:** `voxel-chunk-view.ts` draws node meshes per level (one draw a node), the shader reads each level's grid with the blend distance in metres; slice page, Play and the Scene view share it. | e2e `voxel-world.e2e.ts` (one test extended: levels drawn, a grazing view across a level boundary shows no background pixels via `png.ts`, an edit in the L1 ring shows) | render() CPU, draws, GPU ms | rings drawn on both renderers |
+| 46b.8c | **The material look identical at every level (D464, fix item):** a coarse level shows the material level 0 shows at the same place, not what lies under a thin surface layer. | `level-materials.test.ts` (hilly + features: the shader's pick at L1/L2 vs L0 at the same columns) | mismatch share before → after, downsample µs | D464 closed; stripes gone on staging, both renderers |
 | 46b.9 | **Detail pieces high → low → none (hooks, placeholders):** per level piece lists — L0 high stand-ins, L1 low stand-ins, L2+ none, the cell then meshed from its mip shape so the silhouette stays. | `derived.test.ts` (pieces per level, base under a removed piece present) | pieces drawn per ring | hooks ready for 46c's kits |
 | 46b.10 | **Collision on the new mesh:** column-lattice ground becomes heightfields (spanning a chunk or patches); D443 re-checked (sphere sweeps on sloped heightfields vs trimesh) before sloped heightfields ship; collision only at L0. | `collision.test.ts` (real Rapier: drops, rays, sweeps on hard cases within 1 cm) | heightfield share slice/hilly/town vs 0/0/24 %, Rapier heap | share up, D443 closed or recorded |
 | 46b.11a | **Blast and remesh check:** blasts 1/2/4/8 m on terrain, cliff, cave and town with the new mesher and mips (ancestors re-derived in the same swap or the next). | `run.mjs slice --phase blast` (staging) | frames edit → shown, main ms, worker ms | numbers vs §3, causes of misses |
@@ -113,6 +114,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.7b | done (5a1b790d, 1b8220cf; fast gates green): `lod-seam.ts` (strip, moved boundary copies, flaps; pieces in finer steps), `stream-seams.ts` (`LevelSelection`, `seam` jobs, held in the node's or edit's swap, a level change one `seams` event). 28 patches: 0 crack rays but the cave saddle 358 (pick 380; D462); +23–55 tris a fine face (caves 76 / 139); worker µs a face p50 62. |
 | 46b.8a | done (this commit; fast gate green): `lod-select.ts` (choice by box distance, 8 m hysteresis, ready-only, stand-ins, 2 : 1), `stream-lod.ts` (a swap = `seams` + `levels` in one task), `voxelWorld.levels`. Default ring: L2 never complete, L1 stands in at the edge. 160 m flight: 23–28 level changes, swap p50 0.5 / p95 4.5–10 ms; 0 doubled, 0 unbalanced. |
 | 46b.8b | done (71afe7cb; fast gate green): the batcher sends only what the level choice draws (chunks, nodes, seams; a level swap one batch), the view draws a node per level and seams from its node's grid, blend in metres; page, Play, Scene view. Slice / town render CPU 1.4–1.5 / 3.0–3.2 ms, 0.31 / 0.80 M tris drawn. D464 (grass stripes), D465 (roofless houses at L1). |
+| 46b.8c | done (89598c15; fast gate green): mip material = the material of the cells nearest the surface (derived v8), the shader reads 0.125 m deep at every level. Columns showing another material than L0: hills L1 / L2 20.8 / 71.0 % → 0 / 0.005 %, hard cases 74.1 / 85.0 % → 0.007 / 0.09 %. Downsample µs a node +20–30 % (Node). Stripes gone on staging, both renderers. D464 fixed. |
 | 46b.9 | not started |
 | 46b.10 | not started |
 | 46b.11a | not started |
@@ -842,6 +844,61 @@ in limits. `voxel-world.e2e.ts` 56.7 s (sum of its tests; 62 s at 46b.8a). The e
 9.3 s at 46b.8a, at a lower load now). Play draws levels [189, 10, 0] with 16 seams, the Scene view [185, 12, 0] with
 18 seams (their e2e logs).
 
+### 46b.8c the material look at every level (D464)
+
+**Cause** (measured, `level-materials.ts`: the ground of a window derived at levels 0–2, a vertical ray down each
+level-0 column, the material picked as the surface shader picks it). Two causes, both needed for the stripes:
+- The downsample took the material dominant among the 8 cells. The slice's ground has grass in the partly filled top
+  cell and one full cell under it. Where a parent cell holds that full grass cell over soil (4 : 4) the tie went to
+  the lower id, soil.
+- The shader read a quarter of the object's cell deep: 0.125 m at level 0, but 0.25 / 0.5 m at levels 1 / 2. So
+  wherever the surface crossed a parent cell's top by less than a quarter cell, it read the parent below.
+Together these make a band along every 1 m (L1) or 2 m (L2) contour.
+
+**Fix.** The downsample now takes the material the surface shows (`voxel-mips.ts`). Its 8 cells are ranked by how
+near the surface they lie:
+1. partly filled, or beside an open cell;
+2. beside a partly filled cell (the full cell under a thin top);
+3. beside the node's side, whose neighbour is not read;
+4. buried.
+It takes the material of the most cells in the best rank, then of the larger summed fill, then the lower id. The
+neighbours are read from the 8 children, across octants. A parent of one material skips the ranking. The shader reads
+`SHADER_READ_DEPTH_CELLS` (a quarter of a level-0 cell, 0.125 m) deep at every level: `@thirdlight/voxel` owns it,
+and the surface layout passes it in. Derived 7 → 8 (spec §7 step, owner note).
+
+Columns showing another material than level 0 (blend 0.25 m; hills: a 128 m square of the slice's generator at
+(−128, 0) m; features: all 14 cases, 8 cells in from the sides):
+
+| | hills L1 | hills L2 | hard cases L1 | hard cases L2 |
+|---|---|---|---|---|
+| before (dominant, quarter cell) | 20.8 % | 71.0 % | 74.1 % | 85.0 % |
+| shader depth in metres only | 8.4 % | 54.8 % | 3.5 % | 19.9 % |
+| downsample only (quarter cell) | 0 | 2.0 % | 0.7 % | 2.3 % |
+| both (this item) | 0 | 0.005 % (3 of 57,600) | 0.007 % (3 of 42,240) | 0.09 % (37) |
+
+Nearly every mismatch was grass → soil. The few left are where the two levels' surfaces lie a cell apart (creases;
+3 columns read air). The test runs on a 64 m square of hills and the first 8 hard cases (slopes to arch; all 14 took 28 s), bound 0.5 %,
+~30 s. It fails with the old downsample (L1 6.2 % hills, 3.5 % hard cases, at the new depth).
+
+**Cost:** downsample of a hilly level-1 node (Node, vitest, 32 nodes): p50 5.5 → 6.6–7.2 ms, p95 6.4 → 9.5–10.7 ms.
+Mesh goldens, seams and stream tests are unchanged. The material does not feed the mesh.
+
+**Looked at** (staging, both renderers alike; shots `~/.cache/thirdlight-phase46/work/46b.8c/shots/after/`, against
+46b.8b's `shots/b`, `shots/c`):
+- Slice overview from high: all grass, no contour stripes. The level-0 square no longer reads as a lighter square in
+  the level-1 ring.
+- Slice overview and grazing: grass at every level.
+- A hill at level 0, at level 1 (`setLevels([4, 200])`) and across the L0|L1 boundary: grass everywhere, with no line
+  at the boundary. At level 2 (`[4, 8]`) grass too.
+- Once, on WebGPU with level 1 to 200 m, two sky gaps showed on the far ridge 150–200 m out. That is the load box's
+  edge (D463), not material. WebGL 2 at the same view showed none.
+The WebGPU oblique GPU-time rise (46b.8b) does not come out of this work and stays with 46b.11b.
+Fast gate (gate-fast-20261103-190947, uptime 11 d 2.9 h, load 3.9–6.2): GREEN, 12 min, 4.9 GB peak, perf at the cap
+in limits. The first run (185331, the test on all 14 cases, 63 s in vitest) was green after a rerun:
+`mesh-cases.test.ts` "is the derive's ground under the terrain rules" timed out at 5 s under that load and passed
+alone, so the test was cut to 8 cases. `voxel-world.e2e.ts` 63.8 s (56.7 s at 46b.8b, not touched: host load); its
+extended test 9.5 / 9.8 s.
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -1056,6 +1113,16 @@ in limits. `voxel-world.e2e.ts` 56.7 s (sum of its tests; 62 s at 46b.8a). The e
 - 2026-11-03 (46b.8b): **level-1 and level-2 pieces stand in at their cell's size** (the stand-in boxes scaled by
   2^L) until 46b.9 decides pieces per level.
 
+- 2026-11-03 (46b.8c, default chosen, owner to confirm): **a mip cell wears the material its surface shows** (derived 8),
+  not the dominant one. The cells are ranked by how near the surface they lie. Neighbours outside the node are not
+  read, which keeps the job's inputs as they are (8 children, no neighbour nodes). A cell against the node's side is
+  ranked "unknown", below the known surface ranks. This was picked by measurement over two alternatives:
+  - each column's topmost solid cell: not generic for overhangs, cave roofs or walls;
+  - the shader depth in metres alone: hills L2 still 55 %.
+- 2026-11-03 (46b.8c): **the shader reads a fixed depth into the surface, in metres** (0.125 m, a quarter of a
+  level-0 cell). With the downsample fixed, a quarter of the coarse cell still showed 2 % soil at L2. A face on a cell
+  boundary still reads the solid cell at L2 (1/16 of its cell in).
+
 ## 9. Open questions for the owner
 
 - Ring distances (64/128/192 m) and whether 46b should also reach past the load ring or leave that to 46d's far field.
@@ -1064,4 +1131,4 @@ in limits. `voxel-world.e2e.ts` 56.7 s (sum of its tests; 62 s at 46b.8a). The e
 - Deferring the displacement prototype to 46d (with the material model) instead of a 46b experiment.
 - Seams by the coarser side's transition strip (46b.7a) instead of the finer side's stitch, and the residual hole at a cave saddle the levels connect differently.
 - Level 2 not drawn in the default 192 m load ring (46b.8a: level 1 stands in at the edge) — grow the ring, or leave level 2 to 46d's far field.
-- The coarse levels' look (46b.8b): earth stripes on grass hills (D464) and roofless houses at level 1 (D465): change the downsample, or draw built cells at level 0 further.
+- The coarse levels' look (46b.8b): roofless houses at level 1 (D465): change the downsample, or draw built cells at level 0 further. The earth stripes (D464) are fixed by the surface's material (46b.8c, derived 8).
