@@ -54,7 +54,7 @@ import { assertRelativeClosure, scanAssetContainer, scanWasmContainer, textPatte
 import { openStaging, resolveExportTarget, type ExportStaging } from './export-io';
 import type { ExportContext } from './export-types';
 import { clip, type ExportError, type ExportResult } from './errors';
-import { checkBundleGraphM3 } from './graph';
+import { checkBundleGraphM3, VOXEL_WORKER_ENTRY_FILE } from './graph';
 import { referencedVoxelWorlds, shipVoxelWorlds, type ShippedVoxelFileCopy } from './closure-voxel-worlds';
 
 const M3_SCHEMA_VERSION = 2;
@@ -266,7 +266,7 @@ export async function exportProjectM3(
     { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
     ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh, terrain and architecture worker' }] : []),
     ...(withPhysics ? [{ name: PHYSICS_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: 'physics', wasm: true as const }] : []),
-    ...(voxels.worlds.length > 0 ? [{ name: VOXEL_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-voxel-worker.ts'), what: 'voxel worker' }] : []),
+    ...(voxels.worlds.length > 0 ? [{ name: VOXEL_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, VOXEL_WORKER_ENTRY_FILE), what: 'voxel worker' }] : []),
   ];
   const scripts: ExportScript[] = [{ name: BUNDLE_NAME, entry: m3BootstrapEntry, what: 'M3 export', moduleIds: closure.moduleIds, built }];
   for (const s of planned) {

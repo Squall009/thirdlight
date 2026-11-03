@@ -48,6 +48,7 @@ import { renderSettingsOf } from '@thirdlight/project-model';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap.ts');
 const WORKER = join(REPO_ROOT, 'packages/exporter', 'src', 'export-sim-worker.ts');
+const VOXEL_WORKER = join(REPO_ROOT, 'packages/exporter', 'src', 'export-voxel-worker.ts');
 /** The other scripts an export may ship, by their path in the export. */
 const SHIPPED = [
   { name: 'js/mesh-worker.js', entry: join(REPO_ROOT, 'packages/exporter', 'src', 'export-mesh-worker.ts'), wasm: false },
@@ -314,6 +315,20 @@ describe('M3 export bundle re-measurement + production parity', () => {
     // What each bundle links: its source map names every module with code in the output.
     return [page, worker].map((b) => ({ inputs: Object.keys(b.metafile.inputs), sources: (JSON.parse(new TextDecoder().decode(b.map)) as { sources: string[] }).sources }));
   }
+
+  it('admits the zstd decoder in the voxel worker bundle only', async () => {
+    const voxel = await buildSimWorkerBundle(VOXEL_WORKER, []);
+    if (!voxel.ok) throw new Error('voxel worker bundle build failed');
+    const inputs = Object.keys(voxel.metafile.inputs);
+    expect(inputs.some((p) => p.includes('node_modules/fzstd/'))).toBe(true);
+    expect(checkBundleGraphM3(voxel.metafile, VOXEL_WORKER, []).ok).toBe(true);
+    // The same graph under any other entry links a module it may not.
+    for (const entry of [WORKER, BOOTSTRAP]) {
+      const r = checkBundleGraphM3(voxel.metafile, entry, []);
+      expect(r.ok).toBe(false);
+      expect(r.forbidden.some((p) => p.includes('node_modules/fzstd/'))).toBe(true);
+    }
+  });
 
   it('the page bundle is the same bytes for a project with more assets (its code does not grow with the project)', async () => {
     const small = await closureOf('demo-0006-size', true);
