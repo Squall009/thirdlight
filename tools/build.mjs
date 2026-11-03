@@ -141,6 +141,12 @@ const BUNDLES = [
     entry: 'packages/editor/src/voxel-world/voxel-worker.ts',
     out: 'dist/editor/voxel-worker.js',
   },
+  // The Scene view's voxel worlds streamed off the editor page's thread (it starts the voxel workers above).
+  {
+    name: 'voxel-view-worker',
+    entry: 'packages/editor/src/voxel-world/scene-voxels-worker.ts',
+    out: 'dist/editor/voxel-view-worker.js',
+  },
   // Play's voxel worker (a world's chunks decoded and derived), started by
   // the simulation worker (or the page in single-thread mode) next to its script.
   {

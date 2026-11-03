@@ -38,22 +38,18 @@ import {
   collisionGeometry,
   CollisionRing,
   collisionRingBounds,
-  createWorldStore,
-  DEFAULT_STREAM_RING,
   EditCommandError,
   EditRefused,
-  jobRadius,
   lightCoverageAt,
   MATERIAL_AIR,
-  PLACEHOLDER_RULES,
   planeMask,
   PropLightChannel,
   readSave,
   SaveFileError,
   VOXEL_PLANES,
   VOXEL_SIZE_M,
-  VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
+  worldStreamer,
   writeSave,
   type ChunkGrid,
   type ChunkSource,
@@ -270,21 +266,10 @@ export class VoxelWorldHost {
     }
     this.conn = conn;
     const s = this.settings;
+    const streamer = worldStreamer(conn, s);
     const cells = (m: number): number => m / VOXEL_SIZE_M;
-    const r = s.ring;
-    const loadRadius = cells(r.loadRadius);
-    const ring = { loadRadius, unloadRadius: cells(r.unloadRadius), loadHeight: cells(r.loadHeight), unloadHeight: cells(r.unloadHeight), nearRadius: Math.min(loadRadius, DEFAULT_STREAM_RING.nearRadius) };
-    const streamer = new VoxelStreamer({
-      store: createWorldStore(conn.grid),
-      source: conn.source,
-      pool: conn.pool,
-      ring,
-      budgetBytes: conn.budgetBytes ?? VOXEL_STREAM_BUDGET_BYTES.low,
-      dependencyRadius: jobRadius(PLACEHOLDER_RULES),
-      derive: true,
-      rules: PLACEHOLDER_RULES,
-      sectionEdge: s.sectionEdge,
-    });
+    const ring = streamer.ring;
+    const loadRadius = ring.loadRadius;
     this.streamer = streamer;
     const port = this.physics;
     if (port !== undefined && typeof port.addStaticColliders === 'function' && typeof port.removeStaticColliders === 'function') {

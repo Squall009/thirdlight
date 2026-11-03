@@ -22,6 +22,13 @@
  */
 import type { OcclusionDiagnostics, SceneAdapter } from '@thirdlight/three-adapter';
 
+/** What the kept set is made of: made again when one of them changes. */
+interface KeptFrom {
+  readonly selected: string | null;
+  readonly projected: unknown;
+  readonly edited: ReadonlySet<string> | null;
+}
+
 /** What the View menu sets. */
 export interface OcclusionViewState {
   /** Culling on, as Play culls (false: the view draws everything in view). */
@@ -39,6 +46,7 @@ type Path = 'off' | 'hiz';
 export class SceneViewOcclusion {
   private state: OcclusionViewState = OCCLUSION_VIEW_DEFAULT;
   private keptKey = '';
+  private keptFrom: (KeptFrom & { readonly ids: ReadonlySet<string> }) | null = null;
   private mark = '';
 
   constructor(
@@ -66,8 +74,22 @@ export class SceneViewOcclusion {
     sw.showPyramid(this.state.culling && this.state.pyramid ? 0 : null);
   }
 
-  /** Never cull these objects (the selection's subtree, an edit mode's objects). */
-  keep(ids: ReadonlySet<string>): void {
+  /**
+   * Never cull the selection's subtree (`subtree`) and the objects an edit
+   * mode edits; the set is made again only when the selection, the
+   * projection or the edited objects changed.
+   */
+  keepWorkedOn(from: KeptFrom, subtree: (id: string) => readonly string[]): void {
+    const k = this.keptFrom;
+    if (k !== null && k.selected === from.selected && k.projected === from.projected && k.edited === from.edited) return this.keep(k.ids);
+    const ids = new Set<string>(from.selected !== null ? subtree(from.selected) : []);
+    for (const id of from.edited ?? []) ids.add(id);
+    this.keptFrom = { ...from, ids };
+    this.keep(ids);
+  }
+
+  /** Never cull these objects. */
+  private keep(ids: ReadonlySet<string>): void {
     const key = [...ids].sort().join('\u0000');
     if (key === this.keptKey) return;
     const sw = this.adapter().occlusion?.();

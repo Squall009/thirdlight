@@ -175,6 +175,9 @@ function newChunk(cx: number, cy: number, cz: number, key: number, d2: number, t
 
 /** Window in which a chunk loaded again after being unloaded counts as churn. */
 const CHURN_WINDOW_MS = 10_000;
+/** The longest `settle` waits between updates for a read or a job to end before it updates anyway. */
+const SETTLE_POLL_MS = 4;
+
 /** Fraction of the budget eviction brings the total down to, and below which loading resumes past the eviction horizon. */
 const EVICT_TO = 0.95;
 const RESUME_BELOW = 0.85;
@@ -539,13 +542,23 @@ export class VoxelStreamer {
     this.planMs.add(performance.now() - t0);
   }
 
-  /** Resolves once nothing is being read, decoded or derived and nothing more can be requested. */
+  /**
+   * Resolves once nothing is being read, decoded or derived and nothing
+   * more can be requested. A read or a job wakes the next update when it
+   * ends; work no one answers (air derived around air within an update's
+   * derive time, sections waiting for it) goes on after
+   * {@link SETTLE_POLL_MS} at the latest, so a world of air settles too.
+   */
   async settle(maxUpdates = 100_000): Promise<void> {
     for (let i = 0; i < maxUpdates; i++) {
       this.update();
       if (this.idle()) return;
       await new Promise<void>((resolve) => {
-        this.wake = resolve;
+        const poll = setTimeout(() => this.poke(), SETTLE_POLL_MS);
+        this.wake = () => {
+          clearTimeout(poll);
+          resolve();
+        };
       });
     }
     throw new Error('streamer did not settle');

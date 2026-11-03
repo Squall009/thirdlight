@@ -46,7 +46,6 @@
  * timestamps where the device has them.
  */
 import * as THREE from 'three';
-import { hexToBytes } from '@thirdlight/shared';
 import {
   canonicalEditCommand,
   chunkGrid,
@@ -55,12 +54,10 @@ import {
   type CellBox,
   createWorldStore,
   DEFAULT_REBASE_DISTANCE_M,
-  eventTargetWorker,
   FloatingOrigin,
   jobRadius,
   MATERIAL_BITS,
   PLACEHOLDER_RULES,
-  RegionChunkSource,
   SampleRing,
   DEFAULT_SECTION_EDGE,
   SECTION_EDGES,
@@ -68,16 +65,12 @@ import {
   type SwapReport,
   SHADER_BORDER_CELLS,
   shaderGridSide,
-  STREAM_POOL_SETTINGS,
   voxel,
   VOXEL_ROLE,
   VOXEL_SIZE_M,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
   WETNESS_MAX,
-  WORLD_GRID_ID,
-  WorkerPool,
-  type RegionByteSource,
 } from '@thirdlight/voxel';
 import { createGpuTiming, createRenderer, createVoxelSurface, feedVoxelChunkView, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { pageToken } from '../config';
@@ -85,7 +78,8 @@ import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
 import { PendingEdits, type SwapSeen } from './pending-edits';
 import { EDIT_VISIBLE_TIMEOUT_MS, localEditHooks } from './local-edits';
-import { defaultVoxelWorkers, rangeByteSource, rangeReadStats } from './range-reads';
+import { defaultVoxelWorkers, rangeReadStats } from './range-reads';
+import { RangeWorld } from './range-world';
 
 const params = new URLSearchParams(location.search);
 const projectId = params.get('project') ?? '';
@@ -126,22 +120,7 @@ if (!/^[A-Za-z0-9_-]{1,64}$/.test(projectId)) fail('?project= names the project'
 const headers = { authorization: `Bearer ${token}` };
 const api = `/api/v1/projects/${encodeURIComponent(projectId)}`;
 
-/** The region files the world lists, by name, and their current tags (null: listed but unreadable, so its chunks are damaged; a file not listed holds only air). */
-const files = new Map<string, string | null>();
-
-interface VoxelInfo {
-  ok: boolean;
-  manifest: { revision: number; worldId: string; edge: number; layout: 'stacked' | 'column'; footprint: 512 | 1024 };
-  files: Array<{ name: string; etag: string | null }>;
-  error?: { message: string };
-}
-
 const range = rangeReadStats();
-
-function byteSource(name: string): RegionByteSource | null {
-  if (!files.has(name)) return null;
-  return rangeByteSource(`${api}/voxels/${encodeURIComponent(worldName)}/regions/${encodeURIComponent(name)}`, headers, range);
-}
 
 /** What an edit cost, from the command sent to its meshes swapped and drawn. */
 export interface EditTiming {
@@ -171,11 +150,9 @@ export interface EditTiming {
 
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
 async function main(): Promise<void> {
-  const infoRes = await fetch(`${api}/voxels/${encodeURIComponent(worldName)}`, { headers });
-  const info = (await infoRes.json()) as VoxelInfo;
-  if (!info.ok) fail(`voxel world ${worldName}: ${info.error?.message ?? infoRes.status}`);
-  for (const f of info.files) files.set(f.name, f.etag);
-  let revision = info.manifest.revision;
+  const world = await RangeWorld.open({ url: `${api}/voxels/${encodeURIComponent(worldName)}`, headers, workerUrl: './voxel-worker.js', workers, stats: range }).catch((e: unknown) => fail(`voxel world ${worldName}: ${e instanceof Error ? e.message : String(e)}`));
+  /** The region files the world lists, by name, and their current tags. */
+  const files = world.files;
   /** A line for the status: the last refusal, or that the world was read again. */
   let notice = '';
 
@@ -201,10 +178,7 @@ async function main(): Promise<void> {
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: voxelStandInLook, blendMetres: blendM, shading });
-  const pool = new WorkerPool({ size: workers, create: () => eventTargetWorker(new Worker('./voxel-worker.js', { type: 'module' })), ...STREAM_POOL_SETTINGS });
-  const worldId = hexToBytes(info.manifest.worldId);
-  const source = new RegionChunkSource({ worldId, gridId: WORLD_GRID_ID, grid, layout: info.manifest.layout, footprint: info.manifest.footprint, open: byteSource, maxOpen: 64 });
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, sectionEdge });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, sectionEdge });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
@@ -368,19 +342,13 @@ async function main(): Promise<void> {
       return { ok: false, code, answerMs };
     }
     notice = '';
-    revision = body.revision;
-    for (const f of body.files) {
-      if (f.etag === null) files.delete(f.name);
-      else files.set(f.name, f.etag);
-    }
-    const chunks = body.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz }));
     // The group swaps once every changed chunk has landed again and every section within reach is derived again;
     // a chunk whose new content never lands (a failed read) must not hold the edit forever.
-    const group = streamer.refresh(chunks, body.box, body.parts);
+    const group = world.applyChange(streamer, body);
     const seen = await pending.wait(group, EDIT_VISIBLE_TIMEOUT_MS);
     if (seen === null) return { ok: false, code: 'not_visible', answerMs };
     const timing = await shown(t0, startFrame, seen);
-    Object.assign(timing, { revision: body.revision, cells: body.cells, chunks: chunks.length, answerMs, server: body.ms, rederived: [...log].sort() });
+    Object.assign(timing, { revision: body.revision, cells: body.cells, chunks: body.chunks.length, answerMs, server: body.ms, rederived: [...log].sort() });
     lastEdits.push(timing);
     return timing;
   }
@@ -396,28 +364,10 @@ async function main(): Promise<void> {
     return { ok: true, swappedMs, collidersMs: swappedMs, visibleMs, frames: seen.frame - startFrame + 1, swap: seen.report, buildMs: seen.buildMs };
   }
 
-  /**
-   * Reads the world's manifest and every resident chunk again, after the
-   * backend reported that its files changed on disk: the chunks keep their
-   * old content until the new lands, then everything is derived again. A
-   * different world in the folder (another world id) needs a fresh page.
-   */
+  /** The world's files changed on disk behind this page: everything resident is read again from them. */
   async function readWorldAgain(): Promise<void> {
-    const res = await fetch(`${api}/voxels/${encodeURIComponent(worldName)}`, { headers });
-    const now = (await res.json()) as VoxelInfo;
-    if (!now.ok) {
-      notice = `world changed on disk and could not be read again: ${now.error?.message ?? res.status}`;
-      return;
-    }
-    if (now.manifest.worldId !== info.manifest.worldId || now.manifest.edge !== info.manifest.edge || now.manifest.layout !== info.manifest.layout || now.manifest.footprint !== info.manifest.footprint) {
-      notice = 'another world is in this folder now: reload the page';
-      return;
-    }
-    files.clear();
-    for (const f of now.files) files.set(f.name, f.etag);
-    revision = now.manifest.revision;
-    streamer.refresh([...resident.values()]);
-    notice = `world changed on disk: read again at r${revision}; send the edit again`;
+    const why = await world.readAgain(streamer, resident.values());
+    notice = why === null ? `world changed on disk: read again at r${world.revision}; send the edit again` : `world changed on disk: ${why}; reload the page`;
   }
 
   /** Any stroke command (a game's runtime set/dig, a fill, a brush), sent as it is. */
@@ -477,13 +427,13 @@ async function main(): Promise<void> {
     frames++;
     if (frames % 15 === 0) {
       const m = streamer.metrics();
-      hud.textContent = `${backendName} · ${worldName} r${revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${notice === '' ? '' : `${notice}\n`}${m.resident} chunks (${meshes.count} drawn), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
+      hud.textContent = `${backendName} · ${worldName} r${world.revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${notice === '' ? '' : `${notice}\n`}${m.resident} chunks (${meshes.count} drawn), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
     }
     requestAnimationFrame(frame);
   }
 
   placeCamera();
-  hud.textContent = `${backendName} · ${worldName} r${revision} · streaming…`;
+  hud.textContent = `${backendName} · ${worldName} r${world.revision} · streaming…`;
   const t0 = performance.now();
   await streamer.settle();
   const coldMs = performance.now() - t0;
@@ -543,7 +493,7 @@ async function main(): Promise<void> {
       const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? NaN;
       return {
         backend: backendName,
-        revision,
+        revision: world.revision,
         resident: m.resident,
         stored: m.residentStored,
         drawn: meshes.count,

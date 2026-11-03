@@ -45,6 +45,7 @@ import {
   VOXEL_ROLE,
   VoxelStreamer,
   WorkerPool,
+  worldStreamer,
   type ChunkCoord,
   type JobOutcome,
   type LoadOutput,
@@ -394,6 +395,21 @@ describe('streamer (workers, region files on disk)', () => {
     const after = new Map([...s.derivedChunks()].map((d) => [chunkKey(grid, d.cx, d.cy, d.cz), d.result.hash]));
     expect(after.get(chunkKey(grid, 2, 1, 2))).toBe(before.get(chunkKey(grid, 2, 1, 2)));
   });
+
+  it('settles a ring of air with the default derive time an update: work no worker answers goes on without a wake', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    // A world's streamer as the editor and the runtime build it (the default ring in metres, 16³ sections, 2 ms of
+    // derives an update), focused far from every region file: thousands of air chunks, each derived around air on
+    // this thread (no job sent), more than one update's derive time takes.
+    const s = worldStreamer({ grid, source: disk.source(grid, 'stacked', 512), pool: pool(2) }, { ring: { loadRadius: 192, unloadRadius: 224, loadHeight: 96, unloadHeight: 128 }, sectionEdge: 16 });
+    s.setFocus(4096, 40, 0);
+    await s.settle();
+    const m = s.metrics();
+    expect(m.resident).toBeGreaterThan(4000);
+    expect(m.residentStored).toBe(0);
+    expect(m.reading + m.decoding + m.deriving).toBe(0);
+  }, 30_000);
 
   it('derives 16³ and 8³ sections in real workers equal to the in-thread section derive; a blast re-derives only the sections within R and swaps them in one go', async () => {
     for (const edge of [16, 8] as const) {

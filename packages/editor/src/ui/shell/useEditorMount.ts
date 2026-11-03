@@ -110,6 +110,7 @@ export function useEditorMount(deps: EditorMountDeps): void {
       },
       onRelayRequest: (req) => forwardRelayRef.current(req),
       onLightingBakeRequest: (relayId, sceneId) => deps.lightingBakeRef.current(relayId, sceneId),
+      onVoxelsChanged: (change) => viewportRef.current?.voxelsChanged(change),
     });
     clientRef.current = client;
     setSessionClient(client);
@@ -210,7 +211,13 @@ export function useEditorMount(deps: EditorMountDeps): void {
         showFailures();
       },
       onDoublePick: (entityId) => void enterEditModeRef.current(entityId, undefined, true),
-    }, { assets: sceneAssets, snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
+    }, {
+      assets: sceneAssets,
+      snapping: () => snappingRef.current && !shiftRef.current,
+      renderer: initialRenderer,
+      // The project's voxel worlds, read by range from the backend with the editor's token (in the view's worker).
+      voxels: { url: (world) => `${config.authoringOrigin}/api/v1/projects/${encodeURIComponent(config.projectId)}/voxels/${encodeURIComponent(world)}`, headers: { authorization: `Bearer ${config.authoringToken}` } },
+    });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
     viewport.setHidden(workspaceRef.current.view === 'game');

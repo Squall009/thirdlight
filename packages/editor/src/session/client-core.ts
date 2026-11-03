@@ -33,7 +33,7 @@ import { Catalog } from './catalog';
 import { planAssetQuery } from './asset-browser';
 import { type Transform } from './gesture';
 import { type CompileDiagnosticView } from './behavior-publication';
-import { fromWireChange } from '@thirdlight/protocol';
+import { fromWireChange, type VoxelsChangedPayload } from '@thirdlight/protocol';
 import type { BehaviorRecord, DialogueDocument, EntityV3, PrefabDefinition, TrustEntry } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
 import { SessionProjectState, type BlockLayerView } from './project-state';
@@ -125,6 +125,8 @@ export interface ClientCallbacks {
   onRelayRequest?: (request: Record<string, unknown>) => void;
   /** The backend asks for "Bake lighting" of a scene (an agent's tl_bake_lighting); the editor answers with `lighting.bake.ack`. */
   onLightingBakeRequest?: (relayId: string, sceneId: string) => void;
+  /** A voxel world edit or undo was applied (by any client): the views drawing the world read its chunks again. */
+  onVoxelsChanged?: (change: VoxelsChangedPayload) => void;
 }
 
 /** A session-scoped `sessionId` (`sess-` + 32 hex), client-generated. */
@@ -650,6 +652,9 @@ export class SessionClientCore extends SessionProjectState {
         break;
       case 'lighting.bake.request':
         this.cb.onLightingBakeRequest?.(String(m.relayId ?? ''), String(m.sceneId ?? ''));
+        break;
+      case 'voxelsChanged':
+        this.cb.onVoxelsChanged?.(m as unknown as VoxelsChangedPayload);
         break;
       case 'problems.added': {
         const p = m.problem as ProblemView | undefined;

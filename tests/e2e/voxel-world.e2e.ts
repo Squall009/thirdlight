@@ -50,7 +50,7 @@
  * the edit.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync } from 'node:fs';
+import { cpSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { decodePng, changedPixels } from './png';
 import { expect, test, type Page } from './pw';
@@ -521,3 +521,84 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+// ---- The editor's Scene view draws the world ----------------------------------------------------------------
+
+/**
+ * The Scene view's picture once it is still (no frame asked for, none drawn while it was taken), saved under `name`.
+ * What streams in on its own is waited for by the caller first.
+ */
+async function sceneViewStill(page: Page, name: string): Promise<ReturnType<typeof decodePng>> {
+  const view = page.locator('canvas.tl-viewport');
+  const quiet = async (): Promise<string | null> => ((await view.getAttribute('data-frame-wanted')) === '0' ? await view.getAttribute('data-frames') : null);
+  let png: Buffer | null = null;
+  await expect.poll(async () => {
+    const before = await quiet();
+    if (before === null) return false;
+    const shot = await view.screenshot();
+    if ((await quiet()) !== before) return false;
+    png = shot;
+    return true;
+  }, { timeout: 30_000, intervals: [50] }).toBe(true);
+  writeFileSync(test.info().outputPath(`${name}.png`), png!);
+  return decodePng(png!);
+}
+
+interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
+
+test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit sent through the command route shows without a reload", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const errors = consoleErrors(page);
+  const [ox, oy, oz] = scene;
+  // The object stands at the scene's centre (metres: cells × 0.5); the world's cell 0 is the world origin.
+  const id = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Slice world', transform: { position: [ox / 2, oy / 2, oz / 2] } }))['createdId']);
+  await page.goto(editorUrlFor(be.editorUrl, 'webgpu'));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const view = page.locator('canvas.tl-viewport');
+  const voxels = async (): Promise<SceneViewVoxels | null> => JSON.parse((await view.getAttribute('data-voxels')) ?? 'null') as SceneViewVoxels | null;
+  // Orbit the object (F): the world will stream round that point.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
+  await page.keyboard.press('f');
+  const bare = await sceneViewStill(page, 'scene-view-bare');
+
+  // The object names the world: it streams in and draws, with no reload.
+  await page.evaluate(() => ((window as unknown as { __notReloaded: boolean }).__notReloaded = true));
+  await playCmd('setComponent', { entityId: id, component: 'voxelWorld', value: { world: 'slice' } });
+  await expect.poll(async () => { const v = await voxels(); return v?.states['slice']?.settled === true && (v.worlds['slice']?.chunks ?? 0) > 20; }, { timeout: 60_000, message: 'the world is streamed and drawn in the Scene view' }).toBe(true);
+  const world = await sceneViewStill(page, 'scene-view-world');
+  expect(changedPixels(bare, world)).toBeGreaterThan(20_000);
+  const drawn = (await voxels())!;
+  expect(drawn.problems).toEqual({});
+
+  // A 3 m pit dug through the command route (as MCP sends it): the view reads the changed chunks again and shows it.
+  const before = drawn.states['slice']!.revision;
+  const dig = await be.command({ op: 'editVoxels', projectId: be.projectId, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-scene-view' }, args: { world: 'slice', command: { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [6, 6, 6], points: [ox, oy, oz], mode: 'dig', smooth: false } } });
+  expect(dig['ok'], JSON.stringify(dig)).toBe(true);
+  expect(Number(dig['revision'])).toBe(before + 1);
+  await expect.poll(async () => { const v = await voxels(); return v?.states['slice']?.revision === before + 1 && v.states['slice']!.settled && v.replaced > drawn.replaced; }, { timeout: 30_000, message: 'the edit is read again and drawn' }).toBe(true);
+  const dug = await sceneViewStill(page, 'scene-view-dug');
+  expect(changedPixels(world, dug)).toBeGreaterThan(500);
+  expect(await page.evaluate(() => (window as unknown as { __notReloaded?: boolean }).__notReloaded)).toBe(true);
+
+  // The renderer's CPU ms a frame while the view orbits (60 frames), with the world and, once its object goes, without.
+  const orbit = async (): Promise<string | null> => {
+    const box = (await view.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.15);
+    await page.mouse.down();
+    for (let i = 1; i <= 61; i++) {
+      await page.mouse.move(box.x + box.width * 0.2 + i * 4, box.y + box.height * 0.15);
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(ok)));
+    }
+    await page.mouse.up();
+    return view.getAttribute('data-render-ms');
+  };
+  const withWorld = await orbit();
+  // The object goes: so does the world's draw (and the project is as the other tests left it; Play's world, 8 km out
+  // and all air round this view, may still stream).
+  await playCmd('deleteEntity', { entityId: id });
+  await expect.poll(async () => { const v = await voxels(); return v === null || (v.worlds['slice'] === undefined && v.states['slice'] === undefined); }, { timeout: 10_000 }).toBe(true);
+  const without = await orbit();
+  console.log(`[voxel-scene-view] render() CPU ms p50 p95 (orbit, 30 frames): with the world ${withWorld}, without ${without}; drawn ${JSON.stringify(drawn.worlds)}`);
+  expect(errors).toEqual([]);
+});

@@ -93,6 +93,8 @@ import { ViewMarks } from './view-marks';
 import { ViewGround } from './view-ground';
 import { SelectionOutline } from './selection-outline';
 import { SceneViewLighting } from './lighting-view';
+import { SceneVoxels, type SceneVoxelsSource } from './scene-voxels';
+import type { VoxelsChangedPayload } from '@thirdlight/protocol';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -154,8 +156,6 @@ export class Viewport {
   private readonly seeThrough = new SeeThroughPreview();
   /** Occlusion culling in this view: the View menu's switches, and what is never culled. */
   private readonly occlusion = new SceneViewOcclusion(() => this.adapter, () => this.root, occlusionFromUrl(pageSearch()));
-  /** What occlusion culling leaves alone: the selection's subtree and the edited objects (made again when one changes). */
-  private occlusionKept: { selected: string | null; projected: readonly ProjectedEntity[]; edited: ReadonlySet<string> | null; ids: ReadonlySet<string> } | null = null;
   private readonly entityOverlays: EntityOverlays;
   private selectedId: string | null = null;
   /** An edit mode's isolation: what is drawn and what can be hit while a mode is open. */
@@ -211,8 +211,11 @@ export class Viewport {
   private readonly cameras: CameraOverlay;
   private readonly copies: CopySelection;
   private readonly pointer: ViewPointer;
+  /** The voxel worlds the open scenes' `voxelWorld` objects name, streamed around where the view looks. */
+  private readonly voxels: SceneVoxels;
 
-  constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { assets: SceneViewAssets; snapping?: () => boolean; renderer?: { preference: RendererPreference; source: RendererPreferenceSource } }) {
+  /** `voxels`: where the project's voxel worlds are read (none: they are not drawn). */
+  constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { assets: SceneViewAssets; snapping?: () => boolean; renderer?: { preference: RendererPreference; source: RendererPreferenceSource }; voxels?: SceneVoxelsSource }) {
     this.root = canvas;
     this.cb = cb;
     this.assets = options.assets;
@@ -224,6 +227,7 @@ export class Viewport {
       instanceChunkSize: () => this.instanceChunk,
     });
     this.source.setCamera(this.camera);
+    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null });
     this.look = new ViewportLook({ adapter: () => this.adapter, source: this.source, projected: () => this.projected, requestRender: () => this.requestRender() });
     this.overlay.name = 'scene-view-overlays';
     // The view's own drawing (grid, gizmo, outlines, handles, brush cursors) is never an occludee.
@@ -480,17 +484,6 @@ export class Viewport {
   /** The View menu's occlusion switches (culling on or off here, the culled boxes, the depth pyramid). */
   setOcclusionView(state: OcclusionViewState): void {
     if (this.occlusion.set(state)) this.requestRender();
-  }
-
-  /** The selection's subtree and the edited objects: never culled. */
-  private keptFromOcclusion(): ReadonlySet<string> {
-    const edited = this.isolation.ids;
-    const k = this.occlusionKept;
-    if (k !== null && k.selected === this.selectedId && k.projected === this.projected && k.edited === edited) return k.ids;
-    const ids = new Set<string>(this.selectedId !== null ? this.queries.subtreeIds(this.selectedId) : []);
-    for (const id of edited ?? []) ids.add(id);
-    this.occlusionKept = { selected: this.selectedId, projected: this.projected, edited, ids };
-    return ids;
   }
 
   /** A loaded instance buffer (the copies' transforms), if here. */
@@ -756,8 +749,11 @@ export class Viewport {
     const animated = this.assets.materialLibrary.animated();
     const terrain = adapter.terrainDiagnostics?.() ?? null;
     this.marks.viewProjection(root, this.camera);
-    this.occlusion.keep(this.keptFromOcclusion());
+    this.occlusion.keepWorkedOn({ selected: this.selectedId, projected: this.projected, edited: this.isolation.ids }, (id) => this.queries.subtreeIds(id));
+    this.voxels.focus(this.orbit.target);
+    const r0 = performance.now();
     const drawn = adapter.renderFrame();
+    this.marks.renderTime(root, performance.now() - r0);
     // The renderer starting or a precompile running skips the frame: ask again until one is drawn.
     if (!drawn.ok || adapter.frameSkipped?.() === true) {
       if (drawn.ok || drawn.error.code === 'render_context_lost') this.requestRender();
@@ -780,6 +776,7 @@ export class Viewport {
       if (d !== undefined) root.setAttribute('data-isolated-draws', `${d.hidden} ${d.swept}`);
     }
     this.marks.counts(root, adapter);
+    this.voxels.stamp(root);
     this.marks.failures(adapter, this.cb.onModelFailures);
     // The live light settles over frames (a lamp switched, a bake's light restored): drawn again until it has.
     if (playing || animated || this.occlusion.animating || this.sceneLighting.animating || adapter.lightSettling?.() === true) this.requestRender();
@@ -827,6 +824,8 @@ export class Viewport {
     this.seeThrough.apply(this.adapter, this.selectedId, this.projected, true);
     this.look.adapterReplaced();
     this.blocks.adapterReplaced();
+    this.voxels.adapterReplaced();
+    this.voxels.sync(this.projected);
     this.resize();
     this.cb.onRendererChange?.(this.rendererInfoNow);
   }
@@ -884,6 +883,7 @@ export class Viewport {
       }
     }
     this.source.sync(entities, full ? null : changed);
+    this.voxels.sync(entities);
     if (structural) this.isolation.follow();
     // Automatic lighting follows whether the scene has a light.
     this.look.applyLightingMode();
@@ -1074,6 +1074,12 @@ export class Viewport {
     this.gizmo.dispose();
     this.orbit.dispose();
     this.sceneLighting.dispose();
+    this.voxels.dispose();
     this.adapter.dispose();
+  }
+
+  /** A voxel world edit or undo applied by any client (the editor feed): the world's changed chunks are read again. */
+  voxelsChanged(c: VoxelsChangedPayload): void {
+    this.voxels.changed(c);
   }
 }

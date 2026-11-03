@@ -49,12 +49,18 @@ describe('the Scene view occlusion switches', () => {
   it('sends what is kept when it changes, and again after the adapter was made again', () => {
     const { calls, adapter } = fakeAdapter();
     const view = new SceneViewOcclusion(() => adapter, () => ({ setAttribute() {} }) as unknown as HTMLElement, null);
-    view.keep(new Set(['a', 'b']));
-    view.keep(new Set(['b', 'a']));
+    const subtree = (id: string): string[] => (id === 'a' ? ['a', 'b'] : [id]);
+    const projected = [{}];
+    view.keepWorkedOn({ selected: 'a', projected, edited: null }, subtree);
+    view.keepWorkedOn({ selected: 'a', projected, edited: null }, subtree);
+    // A new projection with the same subtree: made again, the same set, nothing sent.
+    view.keepWorkedOn({ selected: 'a', projected: [{}], edited: null }, (id) => subtree(id).reverse());
     expect(calls.splice(0)).toEqual(['keep a,b']);
     view.apply();
     calls.splice(0);
-    view.keep(new Set(['b', 'a']));
-    expect(calls).toEqual(['keep b,a']);
+    view.keepWorkedOn({ selected: 'a', projected, edited: null }, subtree);
+    expect(calls.splice(0)).toEqual(['keep a,b']);
+    view.keepWorkedOn({ selected: 'a', projected, edited: new Set(['c']) }, subtree);
+    expect(calls).toEqual(['keep a,b,c']);
   });
 });

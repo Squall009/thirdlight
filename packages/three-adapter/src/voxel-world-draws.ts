@@ -51,6 +51,8 @@ export interface VoxelWorldDrawsOptions {
   renderer(): VoxelGridRenderer | null;
   /** Drawn chunks' GPU bytes for the simulation: `[cx, cy, cz, bytes]` repeated. */
   report(world: string, bytes: number[]): void;
+  /** A batch was applied (a view drawing on demand draws a frame). */
+  applied?(): void;
 }
 
 interface WorldDraw {
@@ -137,6 +139,7 @@ export class VoxelWorldDraws {
   private apply(b: ChunkDrawBatch, receivedAt: number): boolean {
     if (b.closed === true) {
       this.close(b.world);
+      this.opts.applied?.();
       return true;
     }
     const scene = this.opts.scene();
@@ -158,6 +161,7 @@ export class VoxelWorldDraws {
     }
     this.applied++;
     if (bytes.length > 0) this.opts.report(b.world, bytes);
+    this.opts.applied?.();
     const applyMs = performance.now() - t0;
     const hopMs = receivedAt - b.sentAt;
     for (const s of b.swaps) {

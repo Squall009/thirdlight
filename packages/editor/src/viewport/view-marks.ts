@@ -7,7 +7,11 @@
  * Browser-only (DOM attributes).
  */
 import { rendererMemory, type SceneAdapter } from '@thirdlight/three-adapter';
+import { SampleRing } from '@thirdlight/voxel';
 import * as THREE from 'three';
+
+/** Frames a render-time window holds. */
+const RENDER_WINDOW = 30;
 
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 
@@ -22,6 +26,8 @@ export class ViewMarks {
   private viewProjMark = '';
   private readonly viewProj = new THREE.Matrix4();
   private wantedMark: boolean | null = null;
+  /** The renderer's CPU ms of the frames drawn in the current window. */
+  private readonly renderMs = new SampleRing();
 
   /** The view's pose and lens (a test frames a game camera the same way). */
   pose(root: HTMLElement, c: THREE.PerspectiveCamera): void {
@@ -45,6 +51,14 @@ export class ViewMarks {
     if (on === this.wantedMark) return;
     this.wantedMark = on;
     root.setAttribute('data-frame-wanted', on ? '1' : '0');
+  }
+
+  /** The CPU ms a frame's render call took (`data-render-ms`: p50 and p95 of each 30 frames drawn, then a new window). */
+  renderTime(root: HTMLElement, ms: number): void {
+    this.renderMs.add(ms);
+    if (this.renderMs.count < RENDER_WINDOW) return;
+    root.setAttribute('data-render-ms', `${this.renderMs.quantile(0.5).toFixed(2)} ${this.renderMs.quantile(0.95).toFixed(2)}`);
+    this.renderMs.clear();
   }
 
   /** A frame was drawn. */
