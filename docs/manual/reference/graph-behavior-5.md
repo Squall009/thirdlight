@@ -1054,7 +1054,10 @@ Fields:
 - Worlds (`api.voxels.worlds`): The loaded worlds' names, in load order.
 - Voxels changes (`api.voxels.changes`): The changes swapped in since the previous step, every world's, in swap order.
 - Voxels waits (`api.voxels.waits`): The `whenResident` waits answered at this step's start.
+- Voxels saves (`api.voxels.saves`): The saves (`save()`) answered at this step's start.
+- Voxels mismatches (`api.voxels.mismatches`): The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there.
 - Voxel at (`api.voxels.get`): The voxel at a world position, or null where the world is not loaded there (never air for that).
+- Save voxel changes (`api.voxels.save`): Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
 
 <a id="node-behavior--api-voxels-worlds"></a>
 ### Worlds (`api.voxels.worlds`)
@@ -1088,6 +1091,24 @@ Outputs:
 
 - `value` (list)
 
+<a id="node-behavior--api-voxels-saves"></a>
+### Voxels saves (`api.voxels.saves`)
+
+The saves (`save()`) answered at this step's start.
+
+Outputs:
+
+- `value` (list)
+
+<a id="node-behavior--api-voxels-mismatches"></a>
+### Voxels mismatches (`api.voxels.mismatches`)
+
+The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there.
+
+Outputs:
+
+- `value` (list)
+
 <a id="node-behavior--api-voxels-get"></a>
 ### Voxel at (`api.voxels.get`)
 
@@ -1114,6 +1135,20 @@ Fields:
 | `x` | x | number | `0` | -1000000000 – 1000000000 |
 | `y` | y | number | `0` | -1000000000 – 1000000000 |
 | `z` | z | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-voxels-save"></a>
+### Save voxel changes (`api.voxels.save`)
+
+Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (number)
 
 <a id="graph-behavior--camera"></a>
 ## Camera
@@ -1565,53 +1600,4 @@ Fields:
 | `param` | parameter | string | `""` | ≤ 256 chars |
 | `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
 | `value` | value | string | `""` | ≤ 256 chars |
-| `materialId` | material | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-materials-get"></a>
-### Material parameter (`api.materials.get`)
-
-A parameter's value on an object now: what a script set, else the object's authored override, else the material's default (null: no such parameter, or a data parameter). An empty entity means this object.
-
-Inputs:
-
-- `entityId` "entity" (string)
-- `param` "parameter" (string)
-- `materialId` "material" (string)
-
-Outputs:
-
-- `value` (number): type from field `value_type`
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | entity | string | `""` | ≤ 256 chars |
-| `param` | parameter | string | `""` | ≤ 256 chars |
-| `materialId` | material | string | `""` | ≤ 256 chars |
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
-
-<a id="node-behavior--api-materials-reset"></a>
-### Reset material parameter (`api.materials.reset`)
-
-Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "entity" (string)
-- `param` "parameter" (string)
-- `materialId` "material" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | entity | string | `""` | ≤ 256 chars |
-| `param` | parameter | string | `""` | ≤ 256 chars |
 | `materialId` | material | string | `""` | ≤ 256 chars |

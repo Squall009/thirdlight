@@ -326,8 +326,15 @@ wetness into the world. At runtime the base is never written:
   base's arrays copied, the overridden cells written) and aprons read overlay-then-base. Overrides outlive their
   chunk's unload (an edited chunk is not dirty and unloads like any other), count in the stream budget (`bytes.overlay`,
   never evicted), and `VoxelStreamer.saveChunks(saved)` writes the entries above, reading the base of a chunk that
-  left from the world's files again; `clearOverlay` drops them (quit). Tested in real workers on region files
-  (`stream.test.ts`). Not built yet: an overlay kept in shared memory for workers.
+  left from the world's files again; `clearOverlay` drops them (quit). A game's save is restored into the overlay
+  too (`VoxelStreamer.restoreSave`, plan 46a.8): the overlay is cleared, a loaded chunk's entry is laid over it at
+  once (only the player's cells become overrides), any other waits (counted in the overlay's bytes, and written
+  again as it was by a save made meanwhile) and lands with its chunk before the chunk is resident; a base mismatch
+  is decided by the game's choice (`save` / `base`) and reported. The base store is never written, so a later
+  save's base hashes are of the shipped chunks. Scripts reach it as `ctx.voxels.setSavedFields`, `save()` (save
+  file v2 bytes, uncompressed, answered at a later step) and `restore(bytes, onMismatch)`. Tested in real workers
+  on region files (`stream.test.ts`, `world-host.test.ts`). Not built yet: an overlay kept in shared memory for
+  workers.
 
 ### 2.4 Climate field (owner 2026-11-02; specified, not built)
 

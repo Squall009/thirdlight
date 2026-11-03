@@ -35,7 +35,12 @@
  * ground is resident. The pixels change where the pit opens, the character
  * falls into it, on both renderers, with the simulation in its worker
  * (WebGPU) and in the page (WebGL 2, `?threads=off`); each edit's way from
- * the script to the screen is read from the play page's hook.
+ * the script to the screen is read from the play page's hook. The script
+ * then wets the ground beside the pit and saves the world (`ctx.voxels.save`,
+ * its text kept in the game's own save slot); the game restarts (the world
+ * reads its files again, the pit gone) and the script restores the slot's
+ * voxel save: the pit is back (pixels, and the character falls in again),
+ * the wetness is not (not a saved field by default).
  *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
@@ -394,7 +399,8 @@ let standAt: [number, number, number] | null = null;
 
 /**
  * The play project: the slice world 8 km out as a `voxelWorld`, a camera looking at the pad, a character on it, and
- * a script that digs once the test asks (a debug command) after the pit's ground is resident.
+ * a script that digs once the test asks (a debug command) after the pit's ground is resident; on further commands it
+ * wets the ground beside the pit, saves the world into the game's save slot 1, and restores it from there.
  */
 async function playProject(): Promise<[number, number, number]> {
   if (standAt !== null) return standAt;
@@ -405,7 +411,10 @@ async function playProject(): Promise<[number, number, number]> {
   await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: { position: [at[0], at[1] + 5, at[2] + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
   const player = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [at[0], at[1] + 1.5, at[2]] } }))['createdId']);
   await playCmd('setComponent', { entityId: player, component: 'controller', value: {} });
+  // One save slot for the game's own save document (the voxel save rides in it as text).
+  await playCmd('setSaveSchema', { schema: { version: 1, slots: 1, legacyWorld: false } });
   const pit = `{ center: [${at[0]}, ${at[1] - 0.25}, ${at[2]}], radius: 1.75 }`;
+  const wetAt = `[${at[0] - 2.75}, ${at[1] - 0.25}, ${at[2]}]`;
   await publishScript('digger', [
     'export default {',
     '  prepare() { return {}; },',
@@ -418,6 +427,18 @@ async function playProject(): Promise<[number, number, number]> {
     "    for (const w of v.waits) if (w.wait === state.wait && w.resident && state.at < 0) { state.at = ctx.stepIndex; ctx.game.add('resident', 1); }",
     "    for (const c of v.changes) ctx.game.add('changes', 1);",
     "    for (const _ of ctx.debug.command('dig')) if (!state.dug) { const r = v.dig(pit); state.dug = r.ok; ctx.game.add(r.ok ? 'dug' : 'refused', 1); }",
+    `    const wetAt = ${wetAt};`,
+    "    for (const _ of ctx.debug.command('wet')) { const r = v.paint({ center: wetAt, radius: 1.5 }, { wetness: 7 }); ctx.game.add(r.ok ? 'wet' : 'refused', 1); ctx.game.add('wetness', v.get(...wetAt)?.wetness ?? -1); }",
+    "    for (const _ of ctx.debug.command('save')) state.save = v.save();",
+    "    for (const a of v.saves) if (a.save === state.save) ctx.game.add(a.ok && ctx.saves.write({ voxels: a.text }) && ctx.saves.save(1) ? 'saving' : 'saveFailed', 1);",
+    "    for (const _ of ctx.debug.command('restore')) ctx.game.add(ctx.saves.load(1) ? 'loading' : 'loadFailed', 1);",
+    "    for (const r of ctx.saves.results()) if (r.op === 'save') ctx.game.add(r.ok ? 'saved' : 'saveFailed', 1); else if (r.op === 'load' && r.ok) {",
+    "      const doc = ctx.saves.read();",
+    "      const r2 = v.restore(doc.voxels, 'save');",
+    "      ctx.game.add(r2.ok ? 'restored' : 'restoreRefused', 1);",
+    "      if (v.get(...pit.center)?.material === 0) ctx.game.add('holeKept', 1);",
+    "      if (v.get(...wetAt)?.wetness === 0) ctx.game.add('dry', 1);",
+    '    }',
     '  },',
     '  dispose() {},',
     '};',
@@ -432,7 +453,7 @@ interface VoxelPlayHook { stats(): { worlds: Record<string, { chunks: number; tr
 for (const renderer of ['webgpu', 'webgl2'] as const) {
   // WebGPU plays with the simulation in its worker, WebGL 2 in the page: both ways the world reaches the draws.
   const threads = renderer === 'webgpu' ? 'worker' : 'single';
-  test(`Play: a world 8 km out streams with the simulation (${threads}), a script digs a pit, the pixels change and the character falls in (${renderer})`, async ({ page }) => {
+  test(`Play: a world 8 km out streams with the simulation (${threads}), a script digs a pit, the pixels change and the character falls in; a voxel save in the game's slot brings the pit back after a restart, not the wetness (${renderer})`, async ({ page }) => {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 1280, height: 720 });
     const at = await playProject();
@@ -468,6 +489,34 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(edits.length).toBeGreaterThanOrEqual(1);
     const pipeline = ((await projectApi(`play/${psid}/diagnostics`)).json as { diagnostics?: { simulation?: { pipeline?: { workerRoundTripMs: { avg: number; max: number } } | null } } }).diagnostics?.simulation?.pipeline ?? null;
     console.log(`[voxel-play] ${renderer} ${threads}: edit→screen ${JSON.stringify(edits)}; sim round trip ${JSON.stringify(pipeline?.workerRoundTripMs ?? null)}; drawn ${JSON.stringify(await drawn())}`);
+
+    // Wet the ground beside the pit, save the world into the game's slot, restart, restore: the pit is back, dry.
+    const control = async (body: Record<string, unknown>): Promise<void> => {
+      const r = await projectApi(`play/${psid}/control`, body);
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+    };
+    const counter = async (name: string): Promise<number> => (await observe()).counters?.[name] ?? 0;
+    await control({ command: 'debugCommand', name: 'wet' });
+    await expect.poll(() => counter('wet'), { timeout: 10_000 }).toBe(1);
+    expect(await counter('wetness')).toBe(7);
+    await control({ command: 'debugCommand', name: 'save' });
+    await expect.poll(() => counter('saved'), { timeout: 20_000, message: 'the voxel save is in the slot' }).toBe(1);
+    expect(await counter('saveFailed')).toBe(0);
+    await control({ command: 'replay' });
+    // The new run: the world reads its files again (the pit filled), and the character stands on the pad again.
+    await expect.poll(() => counter('resident'), { timeout: 30_000, message: 'the new run sees the pit resident' }).toBe(1);
+    expect(await counter('dug')).toBe(0);
+    await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad again' }).toBe(true);
+    const again = (await observe()).player!;
+    const restarted = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('restarted.png') }));
+    expect(changedPixels(after, restarted)).toBeGreaterThan(500);
+    await control({ command: 'debugCommand', name: 'restore' });
+    await expect.poll(() => counter('restored'), { timeout: 20_000, message: 'the voxel save is restored' }).toBe(1);
+    expect(await counter('holeKept')).toBe(1);
+    expect(await counter('dry')).toBe(1);
+    await expect.poll(async () => again.y - ((await observe()).player?.y ?? again.y), { timeout: 10_000, message: 'the character falls into the restored pit' }).toBeGreaterThan(1);
+    const restored = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('restored.png') }));
+    expect(changedPixels(restarted, restored)).toBeGreaterThan(500);
     expect((await observe()).state).toBe('running');
     expect(errors).toEqual([]);
   });

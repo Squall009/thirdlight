@@ -13,6 +13,15 @@
  * the edited cells read their new values at once, in the same step, and
  * their meshes, colliders and shader data change together in one swap a
  * few frames later, reported in `changes` at the next step.
+ *
+ * Saves are the game's own bytes: `save()` makes a voxel save of the
+ * game's changes (only the fields the game marks saved, each changed chunk
+ * against the world's files it was made on), answered in `saves` at a later
+ * step; the game keeps the bytes in its own save (as text in a save
+ * document) and gives them back to `restore`, which puts them in place of
+ * the running game's changes. Where the world's files changed since (a
+ * re-exported world), the game says what wins; each such chunk is reported
+ * in `mismatches`.
  */
 import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type VoxelRecord } from '@thirdlight/voxel';
 
@@ -52,11 +61,31 @@ export type VoxelRegion =
   | { readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] }
   | { readonly center: readonly [number, number, number]; readonly radius: number };
 
+/** A field of a voxel (what a save keeps of a change is chosen by field). */
+export type VoxelField = 'material' | 'role' | 'shape' | 'wetness';
+
+/**
+ * What wins where a save was made on other world files than the running
+ * game's (a re-exported world changed the chunk): the player's changed
+ * cells over the new files (`save`), or the new files alone (`base`).
+ */
+export type VoxelMismatchChoice = 'save' | 'base';
+
 /** Why a change was not made (nothing was written). */
 export type VoxelRefusal = 'no_world' | 'not_resident' | 'invalid';
 
+/** A change or restore not made, and why. */
+export interface VoxelRefused {
+  readonly ok: false;
+  readonly reason: VoxelRefusal;
+  readonly message: string;
+}
+
 /** A change's answer: its id (named again by its entry in `changes`) and the cells it changed (0: it changed nothing). */
-export type VoxelEditResult = { readonly ok: true; readonly edit: number; readonly cells: number } | { readonly ok: false; readonly reason: VoxelRefusal; readonly message: string };
+export type VoxelEditResult = { readonly ok: true; readonly edit: number; readonly cells: number } | VoxelRefused;
+
+/** A restore's answer: its id (named again in `changes` once the loaded pieces it changed are swapped in) and the save's changed pieces. */
+export type VoxelRestoreResult = { readonly ok: true; readonly edit: number; readonly chunks: number } | VoxelRefused;
 
 /** A box in world metres. */
 export interface VoxelBox {
@@ -111,6 +140,24 @@ export interface BehaviorVoxelWorld {
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   whenResident(region: VoxelRegion): number;
+  /**
+   * Which fields of the game's changes a save keeps (the world's `savedFields` until set; each run starts
+   * with them again). False when the list names something else.
+   * @graphNode skip a field list is a list of names, which a graph input cannot take yet
+   */
+  setSavedFields(fields: readonly VoxelField[]): boolean;
+  /**
+   * Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves`
+   * at a later step with the save's bytes (and the same as text for a save document).
+   * @graphNode Save voxel changes
+   */
+  save(): number;
+  /**
+   * Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once,
+   * the rest as they load. `onMismatch`: what wins where the world's files changed since the save.
+   * @graphNode skip a save is bytes, which a graph input cannot take
+   */
+  restore(save: Uint8Array | string, onMismatch: VoxelMismatchChoice): VoxelRestoreResult;
 }
 
 /**
@@ -129,6 +176,33 @@ export interface BehaviorVoxels extends Omit<BehaviorVoxelWorld, 'name'> {
   readonly changes: readonly VoxelChange[];
   /** The `whenResident` waits answered at this step's start. */
   readonly waits: readonly VoxelWaitAnswer[];
+  /** The saves (`save()`) answered at this step's start. */
+  readonly saves: readonly VoxelSaveAnswer[];
+  /** The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there. */
+  readonly mismatches: readonly VoxelMismatch[];
+}
+
+/** A `save()` answered. */
+export interface VoxelSaveAnswer {
+  readonly save: number;
+  readonly world: string;
+  readonly ok: boolean;
+  /** The save (null when it failed): give it back to `restore`. */
+  readonly bytes: Uint8Array | null;
+  /** The same bytes as base64 text, for a save document (which holds JSON only); `restore` takes it too. */
+  readonly text: string | null;
+  /** The changed pieces of the world it holds. */
+  readonly chunks: number;
+  /** Why it failed. */
+  readonly message?: string;
+}
+
+/** A restored piece of the world whose files changed since its save. */
+export interface VoxelMismatch {
+  readonly world: string;
+  readonly chunk: VoxelBox;
+  /** True: the player's cells were kept over the new files (`save`); false: the new files stand (`base`). */
+  readonly kept: boolean;
 }
 
 /** A `whenResident` wait's answer. */

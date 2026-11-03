@@ -10,7 +10,7 @@
  */
 import { resolveVoxelWorld, type EntityV3, type VoxelWorldComponent } from '@thirdlight/project-model';
 import type { PhysicsPort3D } from './ports';
-import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelEditResult, VoxelWaitAnswer } from './voxel-api';
+import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRefused, VoxelRestoreResult, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
 
 /** What the worlds read of the running game each step (world metres). */
@@ -30,7 +30,7 @@ interface HeldWorld {
   readonly objects: string[];
 }
 
-const NO_WORLD: VoxelEditResult = Object.freeze({ ok: false, reason: 'no_world', message: 'no loaded scene has a voxel world' });
+const NO_WORLD: VoxelRefused = Object.freeze({ ok: false, reason: 'no_world', message: 'no loaded scene has a voxel world' });
 
 export class RuntimeVoxels {
   /** Worlds by name, in load order. */
@@ -41,8 +41,13 @@ export class RuntimeVoxels {
   private stepChanges: readonly VoxelChange[] = Object.freeze([]);
   private answers: VoxelWaitAnswer[] = [];
   private stepAnswers: readonly VoxelWaitAnswer[] = Object.freeze([]);
+  private saved: VoxelSaveAnswer[] = [];
+  private stepSaved: readonly VoxelSaveAnswer[] = Object.freeze([]);
+  private mismatched: VoxelMismatch[] = [];
+  private stepMismatched: readonly VoxelMismatch[] = Object.freeze([]);
   private editSeq = 0;
   private waitSeq = 0;
+  private saveSeq = 0;
   readonly api: BehaviorVoxels;
 
   constructor(
@@ -61,6 +66,12 @@ export class RuntimeVoxels {
       get waits() {
         return voxels.stepAnswers;
       },
+      get saves() {
+        return voxels.stepSaved;
+      },
+      get mismatches() {
+        return voxels.stepMismatched;
+      },
       get: (x: number, y: number, z: number) => first()?.get(x, y, z) ?? null,
       set: (...a: Parameters<BehaviorVoxelWorld['set']>) => first()?.set(...a) ?? NO_WORLD,
       dig: (...a: Parameters<BehaviorVoxelWorld['dig']>) => first()?.dig(...a) ?? NO_WORLD,
@@ -73,6 +84,15 @@ export class RuntimeVoxels {
         this.answers.push(Object.freeze({ wait: id, resident: false }));
         return id;
       },
+      setSavedFields: (...a: Parameters<BehaviorVoxelWorld['setSavedFields']>) => first()?.setSavedFields(...a) ?? false,
+      save: () => {
+        const w = first();
+        if (w !== null) return w.save();
+        const id = ++this.saveSeq;
+        this.saved.push(Object.freeze({ save: id, world: '', ok: false, bytes: null, text: null, chunks: 0, message: NO_WORLD.message }));
+        return id;
+      },
+      restore: (...a: Parameters<BehaviorVoxelWorld['restore']>): VoxelRestoreResult => first()?.restore(...a) ?? NO_WORLD,
     });
   }
 
@@ -92,6 +112,9 @@ export class RuntimeVoxels {
         changed: (ch) => this.pending.push(ch),
         answered: (wait, resident) => this.answers.push(Object.freeze({ wait, resident })),
         nextWait: () => ++this.waitSeq,
+        saved: (a) => this.saved.push(a),
+        nextSave: () => ++this.saveSeq,
+        mismatch: (m) => this.mismatched.push(m),
         warn: (m) => this.view.warn(m),
       }, () => ++this.editSeq);
       this.worlds.set(c.world, { host, objects: [e.id] });
@@ -110,6 +133,7 @@ export class RuntimeVoxels {
       held.host.dispose();
       this.worlds.delete(name);
       this.pending = this.pending.filter((c) => c.world !== name);
+      this.mismatched = this.mismatched.filter((m) => m.world !== name);
     }
   }
 
@@ -124,6 +148,10 @@ export class RuntimeVoxels {
     this.pending = [];
     this.stepAnswers = Object.freeze(this.answers);
     this.answers = [];
+    this.stepSaved = Object.freeze(this.saved);
+    this.saved = [];
+    this.stepMismatched = Object.freeze(this.mismatched);
+    this.mismatched = [];
   }
 
   private streamAll(): void {
@@ -157,6 +185,10 @@ export class RuntimeVoxels {
     for (const held of this.worlds.values()) held.host.reset();
     this.pending = [];
     this.stepChanges = Object.freeze([]);
+    this.saved = [];
+    this.stepSaved = Object.freeze([]);
+    this.mismatched = [];
+    this.stepMismatched = Object.freeze([]);
   }
 
   /** What the loaded worlds hold (diagnostics). */

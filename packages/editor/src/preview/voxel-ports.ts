@@ -35,9 +35,10 @@ export function playVoxelPorts(root: string, workerUrl: string): VoxelWorldPorts
       const files = new Set((info.files ?? []).map((f) => f.name));
       const grid = chunkGrid(m.edge as ChunkEdge);
       // A file the world does not list holds only air.
-      const source = new RegionChunkSource({ worldId: hexToBytes(m.worldId), gridId: WORLD_GRID_ID, grid, layout: m.layout, footprint: m.footprint, open: (name) => (files.has(name) ? rangeByteSource(`${base}/regions/${encodeURIComponent(name)}`, {}) : null), maxOpen: OPEN_REGION_FILES });
+      const worldId = hexToBytes(m.worldId);
+      const source = new RegionChunkSource({ worldId, gridId: WORLD_GRID_ID, grid, layout: m.layout, footprint: m.footprint, open: (name) => (files.has(name) ? rangeByteSource(`${base}/regions/${encodeURIComponent(name)}`, {}) : null), maxOpen: OPEN_REGION_FILES });
       const pool = new WorkerPool({ size: defaultVoxelWorkers(), create: () => eventTargetWorker(new Worker(workerUrl, { type: 'module', name: `thirdlight-voxels ${world}` })), ...STREAM_POOL_SETTINGS });
-      return { grid, source, pool };
+      return { grid, worldId, source, pool };
     },
   };
 }

@@ -15,8 +15,14 @@
  * together: in the task that brings them, each storage chunk's body is
  * replaced from its new join (the `chunk` event), then the `swap` closes
  * the group and the change is reported at the next step.
+ *
+ * Saves: `save()` writes the overlay's changes as a voxel save file (the
+ * fields the game marks saved, a base hash per chunk) once the bases of
+ * chunks that left are read again, answered at a later step; `restore()`
+ * replaces the overlay with a save's entries (never the base store), laid
+ * over loaded chunks at once and over the others as they load.
  */
-import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model';
+import { COLLIDER_3D_LIMITS, decodeBase64, encodeBase64 } from '@thirdlight/project-model';
 import type { ResolvedVoxelWorld } from '@thirdlight/project-model';
 import {
   canonicalEditCommand,
@@ -33,9 +39,14 @@ import {
   jobRadius,
   MATERIAL_AIR,
   PLACEHOLDER_RULES,
+  planeMask,
+  readSave,
+  SaveFileError,
+  VOXEL_PLANES,
   VOXEL_SIZE_M,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
+  writeSave,
   type ChunkGrid,
   type ChunkSource,
   type CollisionBodies,
@@ -43,16 +54,40 @@ import {
   type Focus,
   type StreamEvent,
   type VoxelEditCommand,
+  type VoxelPlane,
   type VoxelRecord,
   type WorkerPool,
 } from '@thirdlight/voxel';
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
-import { regionCellList, regionCells, validPaint, writeRecord, type BehaviorVoxelWorld, type RegionCells, type VoxelBox, type VoxelChange, type VoxelEditResult, type VoxelPaint, type VoxelRegion, type VoxelValue, type VoxelWrite } from './voxel-api';
+import {
+  regionCellList,
+  regionCells,
+  validPaint,
+  writeRecord,
+  type BehaviorVoxelWorld,
+  type RegionCells,
+  type VoxelBox,
+  type VoxelChange,
+  type VoxelEditResult,
+  type VoxelField,
+  type VoxelMismatch,
+  type VoxelMismatchChoice,
+  type VoxelPaint,
+  type VoxelRefusal,
+  type VoxelRefused,
+  type VoxelRegion,
+  type VoxelRestoreResult,
+  type VoxelSaveAnswer,
+  type VoxelValue,
+  type VoxelWrite,
+} from './voxel-api';
 
 /** A world's chunk source and the workers its jobs run on, as the host (Play, an export, a test) provides them. */
 export interface VoxelWorldConnection {
   /** The grid the world's files hold (its storage chunks). */
   readonly grid: ChunkGrid;
+  /** The world's id (its manifest's): a save belongs to this world and no other. */
+  readonly worldId: Uint8Array;
   readonly source: ChunkSource;
   /** The world's own pool: closed with the world. */
   readonly pool: WorkerPool;
@@ -145,6 +180,12 @@ export interface VoxelHostEvents {
   answered(wait: number, resident: boolean): void;
   /** A new wait's id. */
   nextWait(): number;
+  /** A `save()` answered (to `ctx.voxels.saves` at the next step's start). */
+  saved(a: VoxelSaveAnswer): void;
+  /** A new save's id. */
+  nextSave(): number;
+  /** A restored chunk made on other world files than now (to `ctx.voxels.mismatches` at the next step). */
+  mismatch(m: VoxelMismatch): void;
   /** Why a world could not load or a step's work failed. */
   warn(message: string): void;
 }
@@ -168,6 +209,10 @@ export class VoxelWorldHost {
   private readonly derived = new Set<number>();
   /** The world is being opened (bodies wait for it; a world that cannot open holds nothing up). */
   private opening = false;
+  /** The fields a save keeps (a plane mask): the world's setting until the game sets them, again each run. */
+  private savedFields: number;
+  /** Bumped by each new run: a save answered after it belongs to the run before and is dropped. */
+  private run = 0;
   readonly api: BehaviorVoxelWorld;
 
   constructor(
@@ -179,6 +224,7 @@ export class VoxelWorldHost {
   ) {
     this.name = settings.world;
     this.settings = settings;
+    this.savedFields = settings.savedFields;
     this.api = Object.freeze({
       name: this.name,
       get: (x: number, y: number, z: number) => this.get(x, y, z),
@@ -187,6 +233,9 @@ export class VoxelWorldHost {
       paint: (region: VoxelRegion, paint: VoxelPaint) => this.paint(region, paint),
       isResident: (region: VoxelRegion) => this.isResident(region),
       whenResident: (region: VoxelRegion) => this.whenResident(region),
+      setSavedFields: (fields: readonly VoxelField[]) => this.setSavedFields(fields),
+      save: () => this.save(),
+      restore: (save: Uint8Array | string, onMismatch: VoxelMismatchChoice) => this.restore(save, onMismatch),
     });
     if (ports === null) return;
     this.opening = true;
@@ -246,6 +295,8 @@ export class VoxelWorldHost {
       if (!e.shaderOnly) this.ring?.changed(e.cx, e.cy, e.cz);
       const id = `${e.cx},${e.cy},${e.cz}`;
       this.shaderOnlyChunks.set(id, (this.shaderOnlyChunks.get(id) ?? true) && e.shaderOnly);
+    } else if (e.type === 'mismatch') {
+      this.events.mismatch(Object.freeze({ world: this.name, chunk: this.chunkBox(e.cx, e.cy, e.cz), kept: e.applied }));
     } else if (e.type === 'swap') {
       const only = this.shaderOnlyChunks;
       this.shaderOnlyChunks = new Map();
@@ -319,6 +370,8 @@ export class VoxelWorldHost {
   reset(): void {
     this.streamer?.clearOverlay();
     this.pending.clear();
+    this.savedFields = this.settings.savedFields;
+    this.run++;
   }
 
   /** The scene that named the world unloaded: bodies out of physics, workers stopped, waits answered false. */
@@ -386,8 +439,74 @@ export class VoxelWorldHost {
     return id;
   }
 
-  private refuse(reason: 'no_world' | 'not_resident' | 'invalid', message: string): VoxelEditResult {
+  private refuse(reason: VoxelRefusal, message: string): VoxelRefused {
     return Object.freeze({ ok: false, reason, message });
+  }
+
+  private setSavedFields(fields: readonly VoxelField[]): boolean {
+    if (!Array.isArray(fields) || !fields.every((f) => (VOXEL_PLANES as readonly unknown[]).includes(f))) return false;
+    this.savedFields = planeMask(fields as readonly VoxelPlane[]);
+    return true;
+  }
+
+  private save(): number {
+    const id = this.events.nextSave();
+    const s = this.streamer;
+    const conn = this.conn;
+    const run = this.run;
+    const answer = (a: Omit<VoxelSaveAnswer, 'save' | 'world'>): void => {
+      if (run === this.run && !this.disposed) this.events.saved(Object.freeze({ save: id, world: this.name, ...a }));
+    };
+    const failed = (message: string): void => answer({ ok: false, bytes: null, text: null, chunks: 0, message });
+    if (s === null || conn === null) {
+      // Answered at a later step like every save, so a game handles one way.
+      queueMicrotask(() => failed(`voxel world "${this.name}" is not loaded yet`));
+      return id;
+    }
+    s.saveChunks(this.savedFields).then(
+      (chunks) => {
+        const bytes = writeSave({ worldId: conn.worldId, grid: conn.grid, chunks }, 'none', (b) => b);
+        answer({ ok: true, bytes, text: encodeBase64(bytes), chunks: chunks.length });
+      },
+      (e: unknown) => failed(e instanceof Error ? e.message : String(e)),
+    );
+    return id;
+  }
+
+  /**
+   * One change, like an edit: its group holds every loaded chunk the
+   * game's changes left or the save's entries reach, swapped together.
+   */
+  private restore(save: Uint8Array | string, onMismatch: VoxelMismatchChoice): VoxelRestoreResult {
+    const s = this.streamer;
+    if (s === null) return this.refuse('not_resident', `voxel world "${this.name}" is not loaded yet (whenResident tells when it is)`);
+    if (onMismatch !== 'save' && onMismatch !== 'base') return this.refuse('invalid', "onMismatch is 'save' (the player's cells over the new files) or 'base' (the new files)");
+    const bytes = typeof save === 'string' ? decodeBase64(save) : save instanceof Uint8Array ? save : null;
+    if (bytes === null) return this.refuse('invalid', 'a save is the bytes save() answered, or their text');
+    let chunks;
+    try {
+      chunks = readSave(bytes, s.grid, this.conn!.worldId, () => {
+        throw new SaveFileError('a compressed voxel save is not read by the game runtime (saves it makes are not compressed)');
+      }).chunks;
+    } catch (e) {
+      if (e instanceof SaveFileError) return this.refuse('invalid', e.message);
+      throw e;
+    }
+    const edit = this.nextEdit();
+    const change: PendingChange = { edit, groups: new Set(), swapped: new Set(), chunks: new Map(), shaderOnly: false };
+    this.applying = change;
+    let group = 0;
+    try {
+      group = s.restoreSave(chunks, onMismatch);
+    } finally {
+      this.applying = null;
+    }
+    if (group !== 0 && !change.swapped.has(group)) {
+      change.groups.add(group);
+      this.pending.set(group, change);
+    }
+    if (change.groups.size === 0 && change.swapped.size > 0) this.report(change);
+    return Object.freeze({ ok: true, edit, chunks: chunks.length });
   }
 
   /** Applies commands as one change (one id, one report once all their groups swapped). */

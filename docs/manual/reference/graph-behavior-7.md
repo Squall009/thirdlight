@@ -1,8 +1,86 @@
-# Graph: Visual script (part 7, from Environment)
+# Graph: Visual script (part 7, from Timeline time (`api.timeline.time`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-timeline-time"></a>
+### Timeline time (`api.timeline.time`)
+
+A play's time in seconds (counted in fixed steps).
+
+Inputs:
+
+- `handle` (number)
+
+Outputs:
+
+- `value` (number)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-timeline-is-playing"></a>
+### Timeline playing (`api.timeline.isPlaying`)
+
+Whether any play of this timeline is running.
+
+Inputs:
+
+- `timelineId` "timeline" (string)
+
+Outputs:
+
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `timelineId` | timeline | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-timeline-ended"></a>
+### Timeline ended (`api.timeline.ended`)
+
+True in the step after a play ended (finished, skipped or stopped).
+
+Inputs:
+
+- `handle` (number)
+
+Outputs:
+
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-timeline-marker"></a>
+### Timeline marker (`api.timeline.marker`)
+
+True in the step after a marker with this name was reached (of the play `handle`, or of any play when 0).
+
+Inputs:
+
+- `name` (string)
+- `handle` (number)
+
+Outputs:
+
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `name` | name | string | `""` | ≤ 256 chars |
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
 
 <a id="graph-behavior--environment"></a>
 ## Environment

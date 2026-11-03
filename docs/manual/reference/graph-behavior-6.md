@@ -1,8 +1,57 @@
-# Graph: Visual script (part 6, from Write material data (`api.materials.setData`))
+# Graph: Visual script (part 6, from Material parameter (`api.materials.get`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-materials-get"></a>
+### Material parameter (`api.materials.get`)
+
+A parameter's value on an object now: what a script set, else the object's authored override, else the material's default (null: no such parameter, or a data parameter). An empty entity means this object.
+
+Inputs:
+
+- `entityId` "entity" (string)
+- `param` "parameter" (string)
+- `materialId` "material" (string)
+
+Outputs:
+
+- `value` (number): type from field `value_type`
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+| `param` | parameter | string | `""` | ≤ 256 chars |
+| `materialId` | material | string | `""` | ≤ 256 chars |
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
+
+<a id="node-behavior--api-materials-reset"></a>
+### Reset material parameter (`api.materials.reset`)
+
+Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "entity" (string)
+- `param` "parameter" (string)
+- `materialId` "material" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+| `param` | parameter | string | `""` | ≤ 256 chars |
+| `materialId` | material | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-materials-set-data"></a>
 ### Write material data (`api.materials.setData`)
@@ -1573,82 +1622,4 @@ Fields:
 
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-timeline-time"></a>
-### Timeline time (`api.timeline.time`)
-
-A play's time in seconds (counted in fixed steps).
-
-Inputs:
-
-- `handle` (number)
-
-Outputs:
-
-- `value` (number)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-timeline-is-playing"></a>
-### Timeline playing (`api.timeline.isPlaying`)
-
-Whether any play of this timeline is running.
-
-Inputs:
-
-- `timelineId` "timeline" (string)
-
-Outputs:
-
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `timelineId` | timeline | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-timeline-ended"></a>
-### Timeline ended (`api.timeline.ended`)
-
-True in the step after a play ended (finished, skipped or stopped).
-
-Inputs:
-
-- `handle` (number)
-
-Outputs:
-
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-timeline-marker"></a>
-### Timeline marker (`api.timeline.marker`)
-
-True in the step after a marker with this name was reached (of the play `handle`, or of any play when 0).
-
-Inputs:
-
-- `name` (string)
-- `handle` (number)
-
-Outputs:
-
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `name` | name | string | `""` | ≤ 256 chars |
 | `handle` | handle | number | `0` | -1000000000 – 1000000000 |

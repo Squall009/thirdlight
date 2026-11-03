@@ -1,8 +1,9 @@
 /**
  * What the streamer needs to lay its runtime overlay over the base store
  * outside a plain read: a chunk's merged content as a job payload, a worker
- * edit's whole chunks turned back into overrides, and a chunk's base read
- * from the world's files again when a save needs it after the chunk left.
+ * edit's whole chunks turned back into overrides, a chunk's base read from
+ * the world's files again when a save needs it after the chunk left, and a
+ * restored save's entries waiting for their chunks.
  */
 import { exportOrAir } from './cell-delta';
 import type { ChunkPayload } from './chunk-wire';
@@ -10,8 +11,10 @@ import { chunkKey, type ChunkCoord } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import type { DirtyTracker } from './dirty-tracker';
 import { createWorldStore, type PaletteStore } from './palette-store';
+import type { VoxelStoreCandidate } from './store';
 import { readValue, type VoxelRecord } from './record';
 import type { ChunkSource } from './region-source';
+import { applySaveChunk, baseChunkHash, sameHash, savePayloadOf, type MismatchChoice, type SaveChunk } from './save-file';
 import type { LoadInput, LoadOutput } from './stream-job';
 import type { VoxelOverlay } from './voxel-overlay';
 import type { WorkerPool } from './worker-pool';
@@ -94,4 +97,66 @@ export async function readBaseChunks(list: readonly ChunkCoord[], into: PaletteS
       into.adoptPayload(c.cx, c.cy, c.cz, o.output.payload);
     }),
   );
+}
+
+/** A save entry's per-entry bookkeeping beside its payload (the entry object, key and hash). */
+const PENDING_ENTRY_OVERHEAD_BYTES = 96;
+
+/**
+ * A restored save's entries for chunks that are not loaded, by chunk key,
+ * and the game's choice for a base mismatch. Their bytes count in the
+ * overlay's part of the budget: they are the game's changes too.
+ */
+export class PendingRestore {
+  private readonly waiting = new Map<number, { readonly entry: SaveChunk; readonly bytes: number }>();
+  private choice: MismatchChoice = 'save';
+  bytes = 0;
+
+  /** A new restore: the game's choice for every mismatch of it. */
+  start(onMismatch: MismatchChoice): void {
+    this.clear();
+    this.choice = onMismatch;
+  }
+
+  put(key: number, entry: SaveChunk): void {
+    this.take(key);
+    const bytes = savePayloadOf(entry.content).length + PENDING_ENTRY_OVERHEAD_BYTES;
+    this.waiting.set(key, { entry, bytes });
+    this.bytes += bytes;
+  }
+
+  /** The entry waiting for a chunk, taken out (undefined: none). */
+  take(key: number): SaveChunk | undefined {
+    const w = this.waiting.get(key);
+    if (w === undefined) return undefined;
+    this.waiting.delete(key);
+    this.bytes -= w.bytes;
+    return w.entry;
+  }
+
+  /** The entries still waiting, as they were restored. */
+  entries(): SaveChunk[] {
+    return [...this.waiting.values()].map((w) => w.entry);
+  }
+
+  clear(): void {
+    this.waiting.clear();
+    this.bytes = 0;
+  }
+
+  /**
+   * Lays an entry over its chunk's base (in `base`) into the overlay: on a
+   * matching base, or a mismatch the game keeps, the player's cells are
+   * written, so every other cell reads the base (on the base it was made
+   * against that is the saved chunk whole); on a mismatch where the game
+   * takes the base, nothing.
+   */
+  apply(base: PaletteStore, overlay: VoxelStoreCandidate, e: SaveChunk): { mismatch: boolean; applied: boolean; baseNow: Uint8Array } {
+    const baseNow = baseChunkHash(base.grid, base.encodeChunk(e.cx, e.cy, e.cz));
+    const mismatch = !sameHash(baseNow, e.base);
+    const applied = !mismatch || this.choice === 'save';
+    // Only the player's cells go in: the overlay holds what differs from the base, nothing else.
+    if (applied) applySaveChunk(overlay, e, false);
+    return { mismatch, applied, baseNow };
+  }
 }

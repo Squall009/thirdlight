@@ -1031,38 +1031,93 @@ describe('streamer (workers, region files on disk)', () => {
     expect(s.isResident(1, 0, 1)).toBe(false);
   });
 
-  it('applies save entries as chunks load, and reports a base mismatch when asked', async () => {
-    const s = streamer(pool(1));
+  it('restores a save into the overlay, never the base: loaded chunks at once, the rest as they land; saves again equal; a changed base is the game\'s choice', async () => {
     let cy = -4;
     while (oracle.chunkForm(0, cy, 0) !== 'stored') cy++;
     const c = { cx: 0, cy, cz: 0 };
     const base = oracle.encodeChunk(c.cx, c.cy, c.cz);
     const now = createDenseChunk(grid);
     exportOrAir(oracle, c.cx, c.cy, c.cz, now);
+    const v = { material: 0, role: 0, shape: 0, wetness: 0 };
+    // Twelve cells of the chunk dug and one set: the player's cells.
+    for (let i = 0; i < 12; i++) {
+      const at = 2000 + i * 7;
+      now.material[at] = 0;
+      now.role[at] = 0;
+      now.shape[at] = 0;
+      now.wetness[at] = 0;
+    }
     now.material[100] = 77;
     now.role[100] = 5;
     now.shape[100] = 15;
+    now.wetness[100] = 0;
     const entry = saveChunkOf(grid, 0, c.cx, c.cy, c.cz, base, now)!;
-    s.setSave([entry]);
-    s.setFocus(0, 40, 0);
-    await s.settle();
-    const got = createDenseChunk(grid);
-    s.store.exportChunk(c.cx, c.cy, c.cz, got);
-    expect(sameDenseChunk(got, now)).toBe(true);
-    // A save made against another base: reported, the shipped chunk kept.
-    const s2 = streamer(pool(1));
-    const mismatched = { ...entry, base: new Uint8Array(16).fill(9) };
-    const seen: StreamEvent[] = [];
-    s2.on((e) => seen.push(e));
-    s2.setSave([mismatched], 'report');
-    s2.setFocus(0, 40, 0);
-    await s2.settle();
-    expect(seen.some((e) => e.type === 'mismatch' && e.cx === 0 && e.cy === cy && e.cz === 0 && !e.applied)).toBe(true);
-    s2.store.exportChunk(c.cx, c.cy, c.cz, got);
-    const shipped = createDenseChunk(grid);
-    oracle.exportChunk(c.cx, c.cy, c.cz, shipped);
-    expect(sameDenseChunk(got, shipped)).toBe(true);
-  });
+    expect(entry).not.toBeNull();
+    // The truth: the oracle with the entry laid over it.
+    const truth = pickStore(grid);
+    for (const key of oracle.chunkKeys()) {
+      const k = chunkOfKey(grid, key);
+      const b = oracle.encodeChunk(k.cx, k.cy, k.cz);
+      if (b !== null) truth.decodeChunk(k.cx, k.cy, k.cz, b);
+    }
+    applySaveChunk(truth, entry, true);
+    const cell100 = { x: (c.cx << 5) | (100 >>> 10), y: (c.cy << 5) | (100 & 31), z: (c.cz << 5) | ((100 >>> 5) & 31) };
+
+    // Restored before the chunk loads: it waits (in the budget, and in a save made now), then lands in the overlay.
+    const a = streamer(pool(2), { derive: true });
+    a.restoreSave([entry], 'save');
+    expect(a.metrics().bytes.overlay).toBeGreaterThan(0);
+    expect(await a.saveChunks()).toEqual([entry]);
+    a.setFocus(0, 40, 0);
+    await a.settle();
+    expect(a.voxelAt(cell100.x, cell100.y, cell100.z, v)).toMatchObject({ material: 77, role: 5 });
+    expect(expectStoreEqual(a, a.store, oracle)).toBeGreaterThan(0);
+    expectChunksEqual(a, truth);
+    expectDerivedEqual(a, truth);
+    const content = entry.content;
+    const playerCells = content.kind === 'delta' ? content.delta.count : content.mask.reduce((n, byte) => n + [...byte.toString(2)].filter((d) => d === '1').length, 0);
+    expect(playerCells).toBeGreaterThan(1);
+    // Only the player's cells are overrides.
+    expect(a.overlay.changedCells).toBe(playerCells);
+    expect(await a.saveChunks()).toEqual([entry]);
+
+    // Restored after: read at once, rebuilt in one group, the base untouched; the game's own edits before it are gone.
+    const b = streamer(pool(2), { derive: true });
+    b.setFocus(0, 40, 0);
+    await b.settle();
+    const edited = b.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [cell100.x + 1, cell100.y, cell100.z + 1], voxel: { material: 9, role: 1, shape: 15, wetness: 0 } }));
+    expect(edited.cells).toBe(1);
+    await b.settle();
+    const swaps: SwapReport[] = [];
+    b.on((e) => {
+      if (e.type === 'swap') swaps.push(e.report);
+    });
+    const group = b.restoreSave([entry], 'save');
+    expect(group).toBeGreaterThan(0);
+    expect(b.voxelAt(cell100.x, cell100.y, cell100.z, v)).toMatchObject({ material: 77, role: 5 });
+    await b.settle();
+    expect(swaps.some((r) => r.groups.includes(group))).toBe(true);
+    expect(expectStoreEqual(b, b.store, oracle)).toBeGreaterThan(0);
+    expectChunksEqual(b, truth);
+    expectDerivedEqual(b, truth);
+    expect(await b.saveChunks()).toEqual([entry]);
+
+    // Made against other files: the game chooses; either way the chunk is reported.
+    const other = { ...entry, base: new Uint8Array(16).fill(9) };
+    for (const choice of ['base', 'save'] as const) {
+      const m = streamer(pool(1));
+      const seen: StreamEvent[] = [];
+      m.on((e) => seen.push(e));
+      m.restoreSave([other], choice);
+      m.setFocus(0, 40, 0);
+      await m.settle();
+      expect(seen.filter((e) => e.type === 'mismatch')).toEqual([{ type: 'mismatch', cx: 0, cy, cz: 0, applied: choice === 'save' }]);
+      expect(expectStoreEqual(m, m.store, oracle)).toBeGreaterThan(0);
+      expectChunksEqual(m, choice === 'save' ? truth : oracle);
+      // A kept entry saves again against the files it now lies on.
+      expect(await m.saveChunks()).toEqual(choice === 'save' ? [entry] : []);
+    }
+  }, 60_000);
 
   it('builds the worker module for browsers with no Node built-ins, passing the export scan', async () => {
     const out = join(dir, 'browser-worker.mjs');

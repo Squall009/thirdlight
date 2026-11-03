@@ -23,9 +23,9 @@ import {
   type VoxelWorldPorts,
 } from '@thirdlight/runtime';
 import { presentVoxelWorlds } from '@thirdlight/game-host';
-import { chunkDrawBatchTransfer, chunkGrid, createWorldStore, dependentChunks, jobRadius, PLACEHOLDER_RULES, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type VoxelRecord } from '@thirdlight/voxel';
+import { chunkDrawBatchTransfer, chunkGrid, createWorldStore, dependentChunks, jobRadius, PLACEHOLDER_RULES, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type VoxelRecord } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
+import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
 
 const grid = chunkGrid(32);
@@ -117,7 +117,7 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
         poolsClosed.push(world);
         close();
       };
-      return { grid, source: disk.source(grid, 'stacked', 512), pool, close: () => void closed.push(world), present: (stream) => onStream?.(world, stream) };
+      return { grid, worldId: TEST_WORLD_ID, source: disk.source(grid, 'stacked', 512), pool, close: () => void closed.push(world), present: (stream) => onStream?.(world, stream) };
     },
   };
   let job: ((v: BehaviorVoxels) => boolean) | null = null;
@@ -412,4 +412,130 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     // The world closed: the page is told to let go of its draws.
     expect(batches.at(-1)).toMatchObject({ world: 'a', closed: true, chunks: [] });
   }, 120_000);
+
+  it("saves the game's changes as the game's own bytes (saved fields only) and restores them into a new run's overlay, before and after their chunks load; a changed base is the game's choice", async () => {
+    const h = await harness();
+    const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
+    const pitAt: [number, number, number] = [0.25, surfaceM - 1, 0.25];
+    const pit = { center: pitAt, radius: 2 };
+    const rimAt: [number, number, number] = [4.25, surfaceM - 1.25, 0.25];
+    await h.stepUntil((v) => (v.isResident(pit) ? true : undefined), 'the pit region to load');
+    await h.until(() => groundBelow(h.port, 0.25, 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus');
+    const before = groundBelow(h.port, 0.25, 0.25)!;
+    const shipped = await h.inStep((v) => ({ pit: v.get(...pitAt), rim: v.get(...rimAt) }));
+    expect(shipped.pit?.material).not.toBe(0);
+    expect(shipped.rim?.material).not.toBe(0);
+    expect(shipped.rim?.wetness).toBe(0);
+
+    // A dig and rain: the save keeps the hole, not the wetness (the world's default fields).
+    const edits = await h.inStep((v) => [v.dig(pit), v.paint({ center: [4.25, surfaceM - 1, 0.25], radius: 1 }, { wetness: 6 })]);
+    expect(edits.every((e) => e.ok)).toBe(true);
+    const ids = edits.map((e) => (e.ok ? e.edit : 0));
+    await h.stepUntil((v) => (ids.every((id) => v.changes.some((c) => c.edit === id)) ? true : undefined), 'both edits to swap');
+    expect((await h.inStep((v) => v.get(...rimAt)))?.wetness).toBe(6);
+    const save = async (): Promise<{ save: number; ok: boolean; bytes: Uint8Array | null; text: string | null; chunks: number; message?: string }> => {
+      let id = 0;
+      return h.stepUntil((v) => {
+        if (id === 0) id = v.save();
+        return v.saves.find((s) => s.save === id);
+      }, 'the save to be answered');
+    };
+    const saved = await save();
+    expect(saved).toMatchObject({ ok: true });
+    expect(saved.chunks).toBeGreaterThan(0);
+    const bytes = saved.bytes!;
+    expect(Buffer.from(saved.text!, 'base64').equals(Buffer.from(bytes))).toBe(true);
+    const file = readSave(bytes, grid, TEST_WORLD_ID, () => {
+      throw new Error('not compressed');
+    });
+    expect(file.chunks).toHaveLength(saved.chunks);
+    // Every field saved: the rain is kept too (more entries or more bytes).
+    expect(await h.inStep((v) => v.setSavedFields(['material', 'role', 'shape', 'wetness']))).toBe(true);
+    expect(await h.inStep((v) => v.setSavedFields(['colour' as never]))).toBe(false);
+    const wet = await save();
+    expect(wet.ok).toBe(true);
+    expect(wet.bytes!.length).toBeGreaterThan(bytes.length);
+
+    // A new run: the game's changes go and the world's saved fields come back; the restore is read at once and
+    // swapped as one change; the hole is back and the rain is not.
+    expect(h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
+    await h.stepUntil((v) => (v.get(...pitAt)?.material === shipped.pit?.material ? true : undefined), 'the new run to read the files again');
+    await h.until(() => Math.abs(groundBelow(h.port, 0.25, 0.25)!.y - before.y) < 1e-3, 'the body back on the shipped ground');
+    const restored = await h.inStep((v) => ({ r: v.restore(saved.text!, 'save'), pit: v.get(...pitAt), rim: v.get(...rimAt) }));
+    expect(restored.r).toMatchObject({ ok: true, chunks: saved.chunks });
+    expect(restored.pit?.material).toBe(0);
+    expect(restored.rim).toEqual(shipped.rim);
+    if (!restored.r.ok) return;
+    const restoreEdit = restored.r.edit;
+    await h.stepUntil((v) => v.changes.find((c) => c.edit === restoreEdit), 'the restore to swap');
+    expect(groundBelow(h.port, 0.25, 0.25)!.y).toBeLessThan(before.y - 2.5);
+    // Saved again with the world's fields: the same bytes.
+    expect(Buffer.from((await save()).bytes!).equals(Buffer.from(bytes))).toBe(true);
+
+    // Another save's world, a broken save and a bad choice are refused, and change nothing.
+    const otherWorld = writeSave({ ...file, worldId: new Uint8Array(16).fill(3) }, 'none', (b) => b);
+    const refused = await h.inStep((v) => [v.restore(otherWorld, 'save'), v.restore(bytes.slice(0, 50), 'save'), v.restore('not base64!', 'save'), v.restore(bytes, 'maybe' as never)]);
+    expect(refused.map((r) => (r.ok ? 'ok' : r.reason))).toEqual(['invalid', 'invalid', 'invalid', 'invalid']);
+    expect((await h.inStep((v) => v.get(...pitAt)))?.material).toBe(0);
+
+    // A world whose chunks are not loaded yet (a scene loaded later, the same files): restored as they land.
+    expect(h.rt.requestScene!('load', 'scene-b').ok).toBe(true);
+    for (const q of h.rt.takeSceneRequests!()) h.rt.provideScene!(q.sceneId, { ok: true, entities: [{ id: 'world-b', components: { transform: { position: [0, surfaceM, 0], ...T }, voxelWorld: worldComponent('b') } }] as never });
+    const early = await h.stepUntil((v) => {
+      const b = v.world('b');
+      if (b === null) return undefined;
+      const r = b.restore(bytes, 'save');
+      return r.ok ? { r, resident: b.isResident(pit), pit: b.get(...pitAt) } : undefined;
+    }, 'world b to open');
+    expect(early.resident).toBe(false);
+    expect(early.pit).toBeNull();
+    await h.stepUntil((v) => (v.world('b')!.isResident(pit) ? true : undefined), 'world b to load the pit');
+    const landed = await h.inStep((v) => ({ pit: v.world('b')!.get(...pitAt), rim: v.world('b')!.get(...rimAt) }));
+    expect(landed.pit?.material).toBe(0);
+    expect(landed.rim).toEqual(shipped.rim);
+
+    // Made on other files (each entry's base hash changed, as a re-exported world would): the game's choice wins and
+    // each chunk is reported.
+    const moved = writeSave({ ...file, chunks: file.chunks.map((c) => ({ ...c, base: new Uint8Array(16).fill(7) })) }, 'none', (b) => b);
+    for (const choice of ['base', 'save'] as const) {
+      // Reported at the next step (one step only), so one script asks and watches.
+      let r: ReturnType<BehaviorVoxels['restore']> | null = null;
+      const reported = await h.stepUntil((v) => {
+        if (r === null) {
+          r = v.restore(moved, choice);
+          return undefined;
+        }
+        return v.mismatches.length > 0 ? v.mismatches : undefined;
+      }, 'the mismatches');
+      expect(r!.ok).toBe(true);
+      expect(reported.length).toBe(file.chunks.length);
+      expect(reported.every((m) => m.world === 'a' && m.kept === (choice === 'save'))).toBe(true);
+      expect((await h.inStep((v) => v.get(...pitAt)))?.material).toBe(choice === 'save' ? 0 : shipped.pit?.material);
+    }
+
+    // Save sizes: 10 and 100 digs of a 1 m ball at the ground, each at its own spot of the loaded square (the world's default fields).
+    expect(h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
+    await h.stepUntil((v) => (v.get(...pitAt)?.material === shipped.pit?.material ? true : undefined), 'the next run');
+    const sizes: string[] = [];
+    let n = 0;
+    for (const target of [10, 100]) {
+      while (n < target) {
+        const k = n++;
+        // A 10 x 10 grid of spots 4.8 m apart, the first ten digs one row of it.
+        const x = (k % 10) * 4.8 - 21.35;
+        const z = Math.floor(k / 10) * 4.8 - 21.35;
+        const ok = await h.inStep((v) => {
+          let y = surfaceM + 12;
+          while (y > surfaceM - 20 && (v.get(x, y, z)?.material ?? 1) === 0) y -= VOXEL_SIZE_M;
+          return v.dig({ center: [x, y, z], radius: 1 }).ok;
+        });
+        expect(ok).toBe(true);
+      }
+      const s = await save();
+      expect(s.ok).toBe(true);
+      sizes.push(`${target} digs: ${s.bytes!.length} B in ${s.chunks} chunks (${s.text!.length} chars as text)`);
+    }
+    console.log(`save sizes: ${sizes.join('; ')}`);
+    expect(h.rt.dispose().ok).toBe(true);
+  }, 180_000);
 });

@@ -1,8 +1,57 @@
-# Script API types (from `WindChange`)
+# Script API types (from `BehaviorModeEvent`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-mode-event"></a>
+## `BehaviorModeEvent`
+
+```ts
+/** One enter or exit of a game mode switch (`ctx.modes.events()`). */
+export interface BehaviorModeEvent {
+  /** enter (the mode became current) or exit (it ended). */
+  readonly kind: 'enter' | 'exit';
+  /** The mode entered or left. */
+  readonly mode: string;
+  /** The mode on the other side of the switch ('' at a run start). */
+  readonly other: string;
+}
+```
+
+<a id="script-type-behavior-timeline-event"></a>
+## `BehaviorTimelineEvent`
+
+```ts
+/** One timeline event (seen in the step after it happened). */
+export interface BehaviorTimelineEvent {
+  /** started, ended or marker (a marker of the timeline was reached). */
+  readonly kind: 'started' | 'ended' | 'marker';
+  readonly handle: number;
+  /** The timeline's id. */
+  readonly timeline: string;
+  /** marker: its name ('' otherwise). */
+  readonly name: string;
+  /** ended: finished, skipped or stopped ('' otherwise). */
+  readonly reason: '' | 'finished' | 'skipped' | 'stopped';
+  readonly stepIndex: number;
+}
+```
+
+<a id="script-type-environment-change-options"></a>
+## `EnvironmentChangeOptions`
+
+```ts
+/** How a change to an environment preset happens (`ctx.environment.set`). */
+export interface EnvironmentChangeOptions {
+  /** Seconds the blend takes (0–600; 0 or absent: at once). */
+  blend?: number;
+  /** How the blend progresses. */
+  easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+  /** Per-field changes over the preset: { sky?, fog?, post?, lights?, lightmap? }, each merged over the preset's (a light list adds entries). */
+  override?: { readonly [part: string]: unknown };
+}
+```
 
 <a id="script-type-wind-change"></a>
 ## `WindChange`
@@ -332,7 +381,7 @@ export interface VoxelWrite {
 
 ```ts
 /** A change's answer: its id (named again by its entry in `changes`) and the cells it changed (0: it changed nothing). */
-export type VoxelEditResult = { readonly ok: true; readonly edit: number; readonly cells: number } | { readonly ok: false; readonly reason: VoxelRefusal; readonly message: string };
+export type VoxelEditResult = { readonly ok: true; readonly edit: number; readonly cells: number } | VoxelRefused;
 ```
 
 <a id="script-type-voxel-paint"></a>
@@ -344,6 +393,34 @@ export interface VoxelPaint {
   readonly material?: number;
   readonly wetness?: number;
 }
+```
+
+<a id="script-type-voxel-field"></a>
+## `VoxelField`
+
+```ts
+/** A field of a voxel (what a save keeps of a change is chosen by field). */
+export type VoxelField = 'material' | 'role' | 'shape' | 'wetness';
+```
+
+<a id="script-type-voxel-mismatch-choice"></a>
+## `VoxelMismatchChoice`
+
+```ts
+/**
+ * What wins where a save was made on other world files than the running
+ * game's (a re-exported world changed the chunk): the player's changed
+ * cells over the new files (`save`), or the new files alone (`base`).
+ */
+export type VoxelMismatchChoice = 'save' | 'base';
+```
+
+<a id="script-type-voxel-restore-result"></a>
+## `VoxelRestoreResult`
+
+```ts
+/** A restore's answer: its id (named again in `changes` once the loaded pieces it changed are swapped in) and the save's changed pieces. */
+export type VoxelRestoreResult = { readonly ok: true; readonly edit: number; readonly chunks: number } | VoxelRefused;
 ```
 
 <a id="script-type-voxel-box"></a>
@@ -482,12 +559,16 @@ export type DebugCommandArgType = 'number' | 'string' | 'boolean';
 export type CellMetaValue = boolean | number | string;
 ```
 
-<a id="script-type-voxel-refusal"></a>
-## `VoxelRefusal`
+<a id="script-type-voxel-refused"></a>
+## `VoxelRefused`
 
 ```ts
-/** Why a change was not made (nothing was written). */
-export type VoxelRefusal = 'no_world' | 'not_resident' | 'invalid';
+/** A change or restore not made, and why. */
+export interface VoxelRefused {
+  readonly ok: false;
+  readonly reason: VoxelRefusal;
+  readonly message: string;
+}
 ```
 
 <a id="script-type-script-write-code"></a>
@@ -531,4 +612,12 @@ export interface SavedCharacter {
 ```ts
 /** The world axes a plane's normal may lie along (Y is "up", so a plane through it would be a floor). */
 export const PLANE_AXES: readonly ["x", "z"];
+```
+
+<a id="script-type-voxel-refusal"></a>
+## `VoxelRefusal`
+
+```ts
+/** Why a change was not made (nothing was written). */
+export type VoxelRefusal = 'no_world' | 'not_resident' | 'invalid';
 ```

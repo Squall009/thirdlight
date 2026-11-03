@@ -288,7 +288,7 @@ export { FOLIAGE_BEND_DEFAULTS, FOLIAGE_BEND_LIMITS } from '@thirdlight/project-
 export { FOLIAGE_NEAR_METRES, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, scatterCellOfBlob, storedScatterRules, type ScatterCell, type ScatterRule } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainLayerData, type TerrainSimTile, type TerrainTileData } from './terrain-collision';
 export { RuntimeSurface, type BehaviorSurface, type SurfaceInfo } from './surface';
-export type { BehaviorVoxels, BehaviorVoxelWorld, VoxelBox, VoxelChange, VoxelEditResult, VoxelPaint, VoxelRefusal, VoxelRegion, VoxelValue, VoxelWaitAnswer, VoxelWrite } from './voxel-api';
+export type { BehaviorVoxels, BehaviorVoxelWorld, VoxelBox, VoxelChange, VoxelEditResult, VoxelField, VoxelMismatch, VoxelMismatchChoice, VoxelPaint, VoxelRefusal, VoxelRefused, VoxelRegion, VoxelRestoreResult, VoxelSaveAnswer, VoxelValue, VoxelWaitAnswer, VoxelWrite } from './voxel-api';
 export { VoxelWorldHost, type VoxelFoci, type VoxelHostEvents, type VoxelWorldConnection, type VoxelWorldPorts } from './voxel-world-host';
 export { RuntimeVoxels, type VoxelWorldsView } from './voxel-worlds';
 export { RuntimeArchitecture, type ArchitectureCollisionDiagnostics, type ArchitectureLayerRooms } from './architecture';

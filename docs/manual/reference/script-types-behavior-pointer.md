@@ -789,6 +789,24 @@ export interface BehaviorVoxelWorld {
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   whenResident(region: VoxelRegion): number;
+  /**
+   * Which fields of the game's changes a save keeps (the world's `savedFields` until set; each run starts
+   * with them again). False when the list names something else.
+   * @graphNode skip a field list is a list of names, which a graph input cannot take yet
+   */
+  setSavedFields(fields: readonly VoxelField[]): boolean;
+  /**
+   * Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves`
+   * at a later step with the save's bytes (and the same as text for a save document).
+   * @graphNode Save voxel changes
+   */
+  save(): number;
+  /**
+   * Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once,
+   * the rest as they load. `onMismatch`: what wins where the world's files changed since the save.
+   * @graphNode skip a save is bytes, which a graph input cannot take
+   */
+  restore(save: Uint8Array | string, onMismatch: VoxelMismatchChoice): VoxelRestoreResult;
 }
 ```
 
@@ -817,6 +835,39 @@ export interface VoxelWaitAnswer {
   readonly wait: number;
   /** True: the region is loaded; false: its world unloaded first (or the region was not one). */
   readonly resident: boolean;
+}
+```
+
+<a id="script-type-voxel-save-answer"></a>
+## `VoxelSaveAnswer`
+
+```ts
+/** A `save()` answered. */
+export interface VoxelSaveAnswer {
+  readonly save: number;
+  readonly world: string;
+  readonly ok: boolean;
+  /** The save (null when it failed): give it back to `restore`. */
+  readonly bytes: Uint8Array | null;
+  /** The same bytes as base64 text, for a save document (which holds JSON only); `restore` takes it too. */
+  readonly text: string | null;
+  /** The changed pieces of the world it holds. */
+  readonly chunks: number;
+  /** Why it failed. */
+  readonly message?: string;
+}
+```
+
+<a id="script-type-voxel-mismatch"></a>
+## `VoxelMismatch`
+
+```ts
+/** A restored piece of the world whose files changed since its save. */
+export interface VoxelMismatch {
+  readonly world: string;
+  readonly chunk: VoxelBox;
+  /** True: the player's cells were kept over the new files (`save`); false: the new files stand (`base`). */
+  readonly kept: boolean;
 }
 ```
 
@@ -1342,54 +1393,5 @@ export interface BehaviorModeTransition {
   fade?: string;
   /** Seconds the fade document stays (0.05–10; default 0.5). */
   fadeTime?: number;
-}
-```
-
-<a id="script-type-behavior-mode-event"></a>
-## `BehaviorModeEvent`
-
-```ts
-/** One enter or exit of a game mode switch (`ctx.modes.events()`). */
-export interface BehaviorModeEvent {
-  /** enter (the mode became current) or exit (it ended). */
-  readonly kind: 'enter' | 'exit';
-  /** The mode entered or left. */
-  readonly mode: string;
-  /** The mode on the other side of the switch ('' at a run start). */
-  readonly other: string;
-}
-```
-
-<a id="script-type-behavior-timeline-event"></a>
-## `BehaviorTimelineEvent`
-
-```ts
-/** One timeline event (seen in the step after it happened). */
-export interface BehaviorTimelineEvent {
-  /** started, ended or marker (a marker of the timeline was reached). */
-  readonly kind: 'started' | 'ended' | 'marker';
-  readonly handle: number;
-  /** The timeline's id. */
-  readonly timeline: string;
-  /** marker: its name ('' otherwise). */
-  readonly name: string;
-  /** ended: finished, skipped or stopped ('' otherwise). */
-  readonly reason: '' | 'finished' | 'skipped' | 'stopped';
-  readonly stepIndex: number;
-}
-```
-
-<a id="script-type-environment-change-options"></a>
-## `EnvironmentChangeOptions`
-
-```ts
-/** How a change to an environment preset happens (`ctx.environment.set`). */
-export interface EnvironmentChangeOptions {
-  /** Seconds the blend takes (0–600; 0 or absent: at once). */
-  blend?: number;
-  /** How the blend progresses. */
-  easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
-  /** Per-field changes over the preset: { sky?, fog?, post?, lights?, lightmap? }, each merged over the preset's (a light list adds entries). */
-  override?: { readonly [part: string]: unknown };
 }
 ```

@@ -30,6 +30,7 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
         const conn = await ports.open(world);
         return {
           grid: conn.grid,
+          worldId: conn.worldId,
           source: conn.source,
           pool: conn.pool,
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),

@@ -190,7 +190,10 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       worlds: rec('voxels.worlds', () => ['slice']),
       changes: [],
       waits: [],
+      saves: [],
+      mismatches: [],
       get: rec('voxels.get', { material: 1, role: 0, shape: 15, wetness: 0 }),
+      save: rec('voxels.save', 1),
     },
     scatter: {
       near: rec('scatter.near', () => [{ address: 'ground#scatter:trees:1,2', source: 'ground', rule: 'trees', cell: [1, 2], position: [1, 0, 2], rotation: [0, 0, 0, 1], scale: 1, hidden: false }]),
@@ -543,7 +546,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'voxels.dig',
       'voxels.isResident',
       'voxels.paint',
+      // A save is bytes and a field list a list of names: not graph inputs.
+      'voxels.restore',
       'voxels.set',
+      'voxels.setSavedFields',
       'voxels.whenResident',
       'voxels.world',
     ]);

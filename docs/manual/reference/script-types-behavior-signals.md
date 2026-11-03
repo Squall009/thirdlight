@@ -911,6 +911,10 @@ export interface BehaviorVoxels extends Omit<BehaviorVoxelWorld, 'name'> {
   readonly changes: readonly VoxelChange[];
   /** The `whenResident` waits answered at this step's start. */
   readonly waits: readonly VoxelWaitAnswer[];
+  /** The saves (`save()`) answered at this step's start. */
+  readonly saves: readonly VoxelSaveAnswer[];
+  /** The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there. */
+  readonly mismatches: readonly VoxelMismatch[];
 }
 ```
 

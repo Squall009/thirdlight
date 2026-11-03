@@ -15,7 +15,7 @@
  *   whole columns, nearest that lead point first (stream-reads.ts); stored
  *   ones wait for room in the pool (back-pressure) before they are decoded;
  *   absent and uniform chunks land at once, stored ones go to a worker
- *   (`load`, or `apply-save` when the save holds the chunk);
+ *   (`load`);
  * - with derive on, a chunk whose neighbours within R are all known gets a
  *   `derive` job (the placeholder for meshing and its kin) with its apron.
  *
@@ -40,6 +40,10 @@
  * never evicted; a save keeps the fields the game marks saved
  * ({@link VoxelStreamer.saveChunks}). An edited chunk is therefore never
  * dirty (nothing of it is to be written back) and unloads like any other.
+ * A restored save goes into the overlay too ({@link VoxelStreamer.restoreSave}):
+ * its entries for chunks not loaded wait and land in the overlay with their
+ * chunk, so the base always stays what the files hold and a later save's
+ * base hashes are of the shipped chunks.
  */
 import { checkRadius } from './apron';
 import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
@@ -54,15 +58,15 @@ import type { VoxelEditCommand } from './edit-command';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import type { RegionChunkRead } from './region-file';
 import type { ChunkSource } from './region-source';
-import { savePayloadOf, type MismatchChoice, type SaveChunk } from './save-file';
+import type { MismatchChoice, SaveChunk } from './save-file';
 import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
-import type { ApplySaveInput, ApplySaveOutput, DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, SaveContentWire, StoredChunk } from './stream-job';
+import type { DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, StoredChunk } from './stream-job';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
 import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
-import { OverlayMerge, readBaseChunks } from './stream-overlay';
+import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
 
@@ -256,8 +260,8 @@ export class VoxelStreamer {
   private readonly opts: VoxelStreamerOptions;
   private readonly chunks = new Map<number, Chunk>();
   private readonly unloadedAt = new Map<number, number>();
-  private readonly saves = new Map<number, SaveChunk>();
-  private onMismatch: MismatchChoice | 'report' = 'save';
+  /** A restored save's entries for chunks not loaded yet: each lands in the overlay with its chunk. */
+  private readonly restoring = new PendingRestore();
   private readonly listeners: Array<(e: StreamEvent) => void> = [];
   private focus: Focus = { x: 0, y: 0, z: 0 };
   /** Motion, lead point and held reads (stream-reads.ts). */
@@ -352,21 +356,42 @@ export class VoxelStreamer {
   }
 
   /**
-   * The save whose entries replace their chunks as they load (the game's
-   * save; entries can be updated with {@link putSaveEntry} as it saves).
-   * `onMismatch` is what to do when an entry's base hash differs from the
-   * shipped chunk's: keep the save, take the base, or apply nothing and
-   * report (a `mismatch` event; the game decides and edits).
+   * Restores a game's save in place of every runtime edit: the overlay is
+   * cleared and each entry of this grid goes into it, never into the base
+   * store. A resident chunk's entry is laid over it now (reads see it at
+   * once; what it changes is rebuilt in the returned group, as for
+   * {@link clearOverlay}); any other waits and lands with its chunk, before
+   * the chunk counts as resident. `onMismatch` is the game's choice when an
+   * entry's base hash differs from the shipped chunk's: the player's cells
+   * on the new base (`save`), or the new base alone (`base`, the entry
+   * dropped); either way a `mismatch` event reports the chunk.
    */
-  setSave(entries: Iterable<SaveChunk>, onMismatch: MismatchChoice | 'report' = 'save'): void {
-    this.saves.clear();
-    for (const e of entries) this.putSaveEntry(e);
-    this.onMismatch = onMismatch;
+  restoreSave(entries: Iterable<SaveChunk>, onMismatch: MismatchChoice): number {
+    const group = this.clearOverlay(false);
+    this.restoring.start(onMismatch);
+    for (const e of entries) {
+      if (e.grid !== this.gridId) continue;
+      if (this.isResident(e.cx, e.cy, e.cz)) this.restoreInto(e, group);
+      else this.restoring.put(chunkKey(this.grid, e.cx, e.cy, e.cz), e);
+    }
+    this.bytesOverlay = this.overlay.memoryBytes() + this.restoring.bytes;
+    this.settleRebuild(group);
+    return group;
   }
 
-  putSaveEntry(e: SaveChunk): void {
-    if (e.grid !== this.gridId) return;
-    this.saves.set(chunkKey(this.grid, e.cx, e.cy, e.cz), e);
+  /**
+   * Lays a save entry over its chunk's base in the overlay and returns the
+   * base's hash; `group`: rebuild what it changed there (0: the chunk is
+   * landing, so everything around it is derived anyway).
+   */
+  private restoreInto(e: SaveChunk, group: number): Uint8Array {
+    const out = this.restoring.apply(this.store, this.overlay, e);
+    if (out.mismatch) {
+      this.counters.mismatches++;
+      this.emit({ type: 'mismatch', cx: e.cx, cy: e.cy, cz: e.cz, applied: out.applied });
+    }
+    if (group !== 0) this.rebuildOverrides(e, group);
+    return out.baseNow;
   }
 
   /** Moves the focus (cells; fractions allowed). Planning happens in the next {@link update}. */
@@ -658,33 +683,31 @@ export class VoxelStreamer {
     list.forEach((c, i) => {
       if (this.chunks.get(c.key) !== c || c.phase !== 'reading') return;
       const r = reads[i]!;
-      const save = this.saves.get(c.key);
       if (r.kind === 'damaged') {
         c.phase = 'damaged';
         this.counters.damaged++;
         this.emit({ type: 'damaged', cx: c.cx, cy: c.cy, cz: c.cz, reason: r.reason });
         return;
       }
-      if (save === undefined && r.kind !== 'stored') {
+      if (r.kind !== 'stored') {
         this.land(c, r.kind === 'air' ? { form: 'air' } : { form: 'uniform', value: r.value }, null);
         return;
       }
-      const stored: StoredChunk | null = r.kind === 'air' ? null : r.kind === 'uniform' ? { uniform: r.value } : { stored: r.bytes.slice(), raw: r.raw };
-      if (save === undefined && (this.plan.held.length > 0 || this.opts.pool.room() === 0)) {
-        this.plan.held.push({ c, stored: stored! });
+      const stored: StoredChunk = { stored: r.bytes.slice(), raw: r.raw };
+      if (this.plan.held.length > 0 || this.opts.pool.room() === 0) {
+        this.plan.held.push({ c, stored });
         return;
       }
-      this.decode(c, stored, save);
+      this.decode(c, stored);
     });
   }
 
-  /** Sends a read chunk to a worker: a load, or the save's entry applied over it. */
-  private decode(c: Chunk, stored: StoredChunk | null, save = this.saves.get(c.key)): void {
+  /** Sends a read stored chunk to a worker to decode. */
+  private decode(c: Chunk, stored: StoredChunk): void {
     const job = this.tracker.beginJob(jobRef(this, c));
     c.phase = 'decoding';
     c.job = job.id;
-    if (save !== undefined) this.submitApplySave(c, job.id, stored, save);
-    else this.submitLoad(c, job.id, stored!);
+    this.submitLoad(c, job.id, stored);
   }
 
   private submitLoad(c: Chunk, id: number, stored: StoredChunk): void {
@@ -697,24 +720,6 @@ export class VoxelStreamer {
       }
       this.onLoaded(c, id, o, (out) => ({ payload: out.payload, hash: out.hash }));
     });
-  }
-
-  private submitApplySave(c: Chunk, id: number, base: StoredChunk | null, save: SaveChunk): void {
-    const s = save.content;
-    const content: SaveContentWire = { kind: s.kind, payload: savePayloadOf(s) };
-    const input: ApplySaveInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, base, expect: save.base.slice(), content, onMismatch: this.onMismatch };
-    const transfer: ArrayBuffer[] = [input.expect.buffer as ArrayBuffer];
-    if (base !== null && 'stored' in base) transfer.push(base.stored.buffer as ArrayBuffer);
-    transfer.push(content.payload.buffer as ArrayBuffer);
-    void this.opts.pool.submit<ApplySaveOutput>({ id, kind: 'apply-save', lane: this.laneOf(c), distance: c.d2, input, transfer }).then((o) =>
-      this.onLoaded(c, id, o, (out) => {
-        if (out.mismatch) {
-          this.counters.mismatches++;
-          this.emit({ type: 'mismatch', cx: c.cx, cy: c.cy, cz: c.cz, applied: out.applied });
-        }
-        return { payload: out.payload, hash: out.baseNow };
-      }),
-    );
   }
 
   private onLoaded<O>(c: Chunk, id: number, o: JobOutcome<O>, take: (out: O) => { payload: ChunkPayload; hash: Uint8Array | null }): void {
@@ -754,6 +759,12 @@ export class VoxelStreamer {
     const t0 = performance.now();
     this.store.adoptPayload(c.cx, c.cy, c.cz, payload);
     this.adoptMs.add(performance.now() - t0);
+    // A restored save's entry is in the overlay before anything reads the chunk.
+    const restored = this.restoring.take(c.key);
+    if (restored !== undefined) {
+      hash = this.restoreInto(restored, 0);
+      this.bytesOverlay = this.overlay.memoryBytes() + this.restoring.bytes;
+    }
     c.phase = 'resident';
     c.job = 0;
     c.hash = hash;
@@ -968,40 +979,47 @@ export class VoxelStreamer {
    * Drops every runtime edit (the game quit, or loads another save) and
    * rebuilds what they changed around the resident chunks in one group,
    * which it returns (0: nothing to rebuild, or the streamer derives
-   * nothing). Reads see the base at once.
+   * nothing). Reads see the base at once. `settle` false leaves the group
+   * open for more (a restore's entries).
    */
-  clearOverlay(): number {
-    const d = this.derives;
-    const group = d?.newGroup() ?? 0;
+  clearOverlay(settle = true): number {
+    const group = this.derives?.newGroup() ?? 0;
+    for (const c of this.overlay.changedChunks()) if (this.isResident(c.cx, c.cy, c.cz)) this.rebuildOverrides(c, group);
+    this.overlay.clear();
+    this.restoring.clear();
+    this.bytesOverlay = 0;
+    if (settle) this.settleRebuild(group);
+    return group;
+  }
+
+  /** Invalidates a resident chunk's jobs and rebuilds, in `group`, the sections around the cells it overrides (bounded by them, as for an edit). */
+  private rebuildOverrides(c: ChunkCoord, group: number): void {
+    const o = this.overlay.chunkOverrides(c.cx, c.cy, c.cz);
+    if (o === null) return;
+    this.tracker.invalidated(jobRef(this, c));
     const g = this.grid;
     const s = g.shift;
-    for (const c of this.overlay.changedChunks()) {
-      if (!this.isResident(c.cx, c.cy, c.cz)) continue;
-      this.tracker.invalidated(jobRef(this, c));
-      // What is rebuilt is bounded by the cells that change back, as for an edit.
-      const o = this.overlay.chunkOverrides(c.cx, c.cy, c.cz)!;
-      const box = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
-      for (let k = 0; k < o.count; k++) {
-        const i = o.cells[k]!;
-        const x = (c.cx << s) | (i >>> (s << 1));
-        const y = (c.cy << s) | (i & g.mask);
-        const z = (c.cz << s) | ((i >>> s) & g.mask);
-        box.minX = Math.min(box.minX, x);
-        box.minY = Math.min(box.minY, y);
-        box.minZ = Math.min(box.minZ, z);
-        box.maxX = Math.max(box.maxX, x);
-        box.maxY = Math.max(box.maxY, y);
-        box.maxZ = Math.max(box.maxZ, z);
-      }
-      d?.invalidate(box, 'edit', ALL_DERIVED_PARTS, group);
+    const box = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
+    for (let k = 0; k < o.count; k++) {
+      const i = o.cells[k]!;
+      const x = (c.cx << s) | (i >>> (s << 1));
+      const y = (c.cy << s) | (i & g.mask);
+      const z = (c.cz << s) | ((i >>> s) & g.mask);
+      box.minX = Math.min(box.minX, x);
+      box.minY = Math.min(box.minY, y);
+      box.minZ = Math.min(box.minZ, z);
+      box.maxX = Math.max(box.maxX, x);
+      box.maxY = Math.max(box.maxY, y);
+      box.maxZ = Math.max(box.maxZ, z);
     }
-    this.overlay.clear();
-    this.bytesOverlay = 0;
-    if (d !== null) {
-      d.request(this.opts.deriveMsPerUpdate ?? 2, true);
-      d.settleGroup(group);
-    }
-    return group;
+    this.derives?.invalidate(box, 'edit', ALL_DERIVED_PARTS, group);
+  }
+
+  private settleRebuild(group: number): void {
+    const d = this.derives;
+    if (d === null) return;
+    d.request(this.opts.deriveMsPerUpdate ?? 2, true);
+    d.settleGroup(group);
   }
 
   /**
@@ -1012,7 +1030,9 @@ export class VoxelStreamer {
    * no entry. Chunks unloaded since they were edited are read from the
    * source again for their base; the entries are then taken in one task, so
    * no edit lands half in a save. Refused (rejects) when such a base cannot
-   * be read.
+   * be read. A restored save's entries whose chunks have not loaded since
+   * are kept as they were restored (their base hash is the one they were
+   * made against).
    */
   async saveChunks(saved: number = DEFAULT_SAVED_FIELDS): Promise<SaveChunk[]> {
     const bases = createWorldStore(this.grid, 'save-base');
@@ -1030,6 +1050,7 @@ export class VoxelStreamer {
       const e = this.overlay.saveChunk(this.gridId, c.cx, c.cy, c.cz, this.isResident(c.cx, c.cy, c.cz) ? this.store : bases, saved, scratch);
       if (e !== null) out.push(e);
     }
+    out.push(...this.restoring.entries());
     return out;
   }
 }

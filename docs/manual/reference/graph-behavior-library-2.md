@@ -227,7 +227,10 @@ The Shared script function node catalogue: port types, then each category's node
 - [Worlds](graph-behavior-5.md#node-behavior--api-voxels-worlds) (`api.voxels.worlds`, as in `behavior`): The loaded worlds' names, in load order.
 - [Voxels changes](graph-behavior-5.md#node-behavior--api-voxels-changes) (`api.voxels.changes`, as in `behavior`): The changes swapped in since the previous step, every world's, in swap order.
 - [Voxels waits](graph-behavior-5.md#node-behavior--api-voxels-waits) (`api.voxels.waits`, as in `behavior`): The `whenResident` waits answered at this step's start.
+- [Voxels saves](graph-behavior-5.md#node-behavior--api-voxels-saves) (`api.voxels.saves`, as in `behavior`): The saves (`save()`) answered at this step's start.
+- [Voxels mismatches](graph-behavior-5.md#node-behavior--api-voxels-mismatches) (`api.voxels.mismatches`, as in `behavior`): The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there.
 - [Voxel at](graph-behavior-5.md#node-behavior--api-voxels-get) (`api.voxels.get`, as in `behavior`): The voxel at a world position, or null where the world is not loaded there (never air for that).
+- [Save voxel changes](graph-behavior-5.md#node-behavior--api-voxels-save) (`api.voxels.save`, as in `behavior`): Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
 
 <a id="graph-behavior-library--camera"></a>
 ## Camera

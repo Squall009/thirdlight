@@ -3209,6 +3209,24 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(region: VoxelRegion): number",
       "doc": "Waits for every cell of a region to be loaded: returns the wait's id, answered in `ctx.voxels.waits` at a later step's start (resident, or not when the world unloaded first)."
+    },
+    {
+      "name": "setSavedFields",
+      "kind": "method",
+      "detail": "(fields: readonly VoxelField[]): boolean",
+      "doc": "Which fields of the game's changes a save keeps (the world's `savedFields` until set; each run starts with them again). False when the list names something else."
+    },
+    {
+      "name": "save",
+      "kind": "method",
+      "detail": "(): number",
+      "doc": "Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document)."
+    },
+    {
+      "name": "restore",
+      "kind": "method",
+      "detail": "(save: string | Uint8Array<ArrayBufferLike>, onMismatch: VoxelMismatchChoice): VoxelRestoreResult",
+      "doc": "Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once, the rest as they load. `onMismatch`: what wins where the world's files changed since the save."
     }
   ],
   "BehaviorVoxels": [
@@ -3236,6 +3254,18 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "readonly VoxelWaitAnswer[]",
       "doc": "The `whenResident` waits answered at this step's start."
+    },
+    {
+      "name": "saves",
+      "kind": "property",
+      "detail": "readonly VoxelSaveAnswer[]",
+      "doc": "The saves (`save()`) answered at this step's start."
+    },
+    {
+      "name": "mismatches",
+      "kind": "property",
+      "detail": "readonly VoxelMismatch[]",
+      "doc": "The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there."
     },
     {
       "name": "get",
@@ -3273,6 +3303,24 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(region: VoxelRegion): number",
       "doc": "Waits for every cell of a region to be loaded: returns the wait's id, answered in `ctx.voxels.waits` at a later step's start (resident, or not when the world unloaded first)."
+    },
+    {
+      "name": "setSavedFields",
+      "kind": "method",
+      "detail": "(fields: readonly VoxelField[]): boolean",
+      "doc": "Which fields of the game's changes a save keeps (the world's `savedFields` until set; each run starts with them again). False when the list names something else."
+    },
+    {
+      "name": "save",
+      "kind": "method",
+      "detail": "(): number",
+      "doc": "Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document)."
+    },
+    {
+      "name": "restore",
+      "kind": "method",
+      "detail": "(save: string | Uint8Array<ArrayBufferLike>, onMismatch: VoxelMismatchChoice): VoxelRestoreResult",
+      "doc": "Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once, the rest as they load. `onMismatch`: what wins where the world's files changed since the save."
     }
   ],
   "BehaviorWorldView": [
