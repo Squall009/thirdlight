@@ -1,0 +1,194 @@
+# Phase 46c — Kits and cases
+
+Status: **46c: planned (draft, starts after 46b closes)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
+main frozen at d4053cab). Planned from `docs/plan-phase-45.md` §4 (46c) as revised by §7a (the kit and surface
+session, which takes precedence) and the owner decisions of 2026-11-02 (§7: the ten stored roles, beams, banisters
+and soffits inferred; R112: no trim sheet for terrain or construction voxels), with §1 (roles, kits per material
+type, rule matching, fallbacks, kit check and test scene, foundation skirts, the role spec), §1d (layout and tiling)
+and §5b (placeholder kit art), against format spec v1 (APPROVED, `docs/architecture/voxel-format-spec.md`) and the
+46a/46b as-built. The baseline below is re-read from 46b's close (46b.13) at the start; where it differs, it wins.
+
+## 1. Scope
+
+**The case pass and the kits that fill it.** Stored voxels carry only material, role, shape and wetness (spec §2.2);
+everything architectural beyond the role is read from the arrangement (§7a, O20 settled). 46c builds:
+- **The case pass:** per detail-bearing cell, a neighbourhood case (roles and fill classes within two cells, the
+  reach the Enshrouded reference describes, §7a research), folded over yaw turns and mirrors, matched by rules with
+  priorities and wildcards to a canonical case, with a **mandatory fallback** per role; one `AssemblyRuleSet` (the
+  shared evaluation, R75) composed with 46b's terrain rules, radius declared and passing `ruleRadiusMismatches`.
+- **Merge-compatible sections (R86 → §7a):** runs built from body, junction, corner and termination sections, never
+  hand-made run lengths; beams, banisters, soffits, ceiling mouldings and running boards **inferred** from the
+  arrangement (the 45.7b wall → beam → banister proof is the seed). Whether runs draw as instanced sections or a
+  merged cache is measured, not an artist obligation.
+- **Base surfaces resolved first (R75, R77):** per case the voxel base surface is kept, suppressed or reshaped;
+  collision, navigation and light occupancy follow the resolved case (an open rail is not a wall).
+- **Authored high and low pieces, then voxel fallback (R90):** 46b.9's per-level hooks (L0 high, L1 low, L2+ none,
+  the cell meshed from its mip shape) filled by kit pieces.
+- **Kit data:** a kit belongs to a material *type* (§1); pieces per case and level, join profiles, variants, and
+  default break/sound/physics data as **opaque game data** (no engine behaviour); add-only, versioned, unknown
+  version refused. A default fallback kit (engine-owned, procedural) so any world draws without a game kit.
+- **Kit check** in Problems and a **generated kit test scene** (every canonical case laid out, labelled).
+- **The two owner hard-stop drafts:** role spec v1 (`docs/architecture/voxel-role-spec.md`) and the trim layout spec
+  for **detail pieces only** (`docs/architecture/voxel-trim-layout.md`, R112), prototyped on two placeholder kits
+  (log, stone) and presented. Trim sheets are optional per kit (§7a); base construction and terrain never use trim.
+- **The §7a "what to prove" list** on staging, both renderers, measured.
+
+**Not in 46c:** the material model, texture arrays and slot residency, wall/floor/ceiling tileable surfaces, kit
+instancing with GPU culling, HLOD and the far field (46d: 46c draws pieces with stand-in materials and a labelled
+debug UV texture); surface subdivision/displacement (46d prototype, §7a); lighting, connectivity culling and the walk
+graph (46e; 46c only keeps the light/nav inputs agreeing with the case); structure objects, rotated grids, standard
+openings with door/window props placed into them (47a: 46c resolves an opening's frame case only); brushes, role
+painting, pillar/terrace options and stamps (47b); 2 × 2 variation sections (optional research, §7a); material-driven
+dressing (deferred, §7a). **Kit Designer** is an art-factory proposal (§7a) and is never built from this repo; the
+engine owns the contract, catalogue and validation it would consume. Game repos and art-factory are not edited. The
+existing block kits, connect rules and trim sheets (`project-model` `kits.ts`, `block-connect.ts`, `kit-checks.ts`,
+`trim-sheet.ts`) stay untouched (48 retires them); ideas may be read, code is imported or moved to
+`@thirdlight/shared` in its own commit, never copied.
+
+## 2. OWNER HARD STOP
+
+Two specs are owner hard stops (§1, owner 2026-10-28; R112 narrowed the second on 2026-11-02):
+1. **Role spec v1**: per stored role (air, terrain, liquid, wall, floor, roof, foundation, stair, pillar, opening)
+   the complete canonical case list (rotations and mirrors folded), each with a diagram, required / optional /
+   fallback, and the neighbour roles that change the choice; the inferred features (beam, banister, soffit,
+   moulding, running board, foundation skirt) as cases, not roles.
+2. **Trim layout spec, detail pieces only**: texel density, field, strips, caps, optional per kit, and the
+   alternative (a piece's own sculpt bakes plus the material arrays, §7a).
+
+Both are **drafted, prototyped on the two placeholder kits (log, stone) and presented on review page acc46c** with
+exactly what the owner must approve (46c.15). **The run STOPS there.** Until the owner approves each one, nothing
+builds on it as final: not the kit pipeline as final, not the authoring package (spec sheets, Blender templates, the
+manual's kit guide), not an art-factory request for graphs or templates. The drafts carry `DRAFT — not v1` in their
+title. After approval: 46c.16–46c.18 (§6). Work that does not depend on the specs may continue meanwhile.
+
+## 3. three.js check
+
+(Filled at the 46c start: `npm view three`; three 0.187.0 at the 46b start, 2026-11-03. A newer release is assessed
+against `docs/three-upgrade-checklist.md` and recorded here; never updated, owner-only.)
+
+## 4. Baseline (re-read at 46b.13; the numbers 46c reports against)
+
+| What | Number | Source |
+|---|---|---|
+| Rule evaluation µs a 16³ section p50 (Node) | placeholder 38–45; terrain rules 92–116 | 46b.2 |
+| Evaluate + mesh µs a 16³ section p50 | slice 217, town 207, caves 307 | 46b.3b |
+| Town triangles (32³, terrain rules) | 1.62 M (base 0.30 M after merges) | 46b.5 |
+| render() CPU slice / town; triangles drawn | 1.4–1.5 / 3.0–3.2 ms; 0.31 / 0.80 M | 46b.8b |
+| Detail pieces | placeholder families beam/rail/post, stand-in boxes grouped by family; per level per 46b.9 | 46b.8b, 46b.9 |
+| Instance format | 8 B: cell, turn + flags (`replacesBase`), piece = family << 2 \| section, u16 reserved 0 | spec §3.7 |
+| Job apron | R + 1 = 3 (terrain rules R 2) | spec §3.7 |
+| `tests/e2e/voxel-world.e2e.ts` | 47.9 s at 46b start (re-read at 46b.13) | brief |
+| Open D-rows touching 46c | D465 (roofless houses at L1: thin shells and pieces per level) | 46b.8b |
+
+## 5. Where things live
+
+- `@thirdlight/voxel`: `assembly.ts` (`AssemblyRuleSet`, class byte bits 0–5, `PLACEHOLDER_RULES` v2 R 2),
+  `terrain-rules.ts` (`withTerrainFeatures` composes construction + ground features into one set),
+  `rule-registry.ts` (`WORLD_RULES`, `registerAssemblyRules`), `rule-conformance.ts`, `derived-mesh.ts`
+  (`detailInstances`, `PIECE_FAMILY`, `PIECE_SECTION`, `INSTANCE_FLAG`), `base-surface.ts` ("46c replaces the
+  producer"), `derive-assembly.ts`, `derived-collision.ts`, `mip-derive.ts`; new: `kit-cases.ts` (catalogue,
+  extraction, matcher), `kit-format.ts` (kit data), `kit-rules.ts` (the registered set), `kit-check.ts`.
+- three-adapter `voxel-chunk-view.ts` (`addPieces`: stand-in boxes by family, scaled by level).
+- Seeds to read, not copy: `project-model` `block-connect.ts` (end/straight/corner/t/cross, base/cap from
+  neighbours), `kit-checks.ts` (piece origin, cell sizing, LOD naming, check rows ok/warn/err/info), docs
+  `manual/guides/trim-sheet-spec.md` (today's layout and checklist); 45.7b probes (`probes.ts`: `cellAt`,
+  `cellOutputs`, `staleAgainstFresh`).
+
+## 6. Items
+
+Order inside an item per AGENTS.md: schema/commands → runtime/adapter → editor → tests → docs. One agent an item,
+~1–2 h, fast gate green. Browser checks extend `tests/e2e/voxel-world.e2e.ts` only (no new e2e file); everything
+else is vitest at real boundaries (real derive, real workers, region files on disk, real Rapier, real GLB bytes).
+Perf: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` recorded. Every placeholder piece is a
+game-ready asset: triangles per level, texture sizes and file size reported (owner's standing rule).
+
+| Item | Builds | Tested at | Measures | Done when / closes |
+|---|---|---|---|---|
+| 46c.1 | **Kit data format (schema):** `kit-format.ts`: kit {id, version, materialType, pieces[case][section] {high, low, variants with weights}, join profiles (section end outlines in 1/16 cell), opaque `gameData` per kit and per case (JSON, passed through), optional trim layout ref}; canonical form field by field, add-only, `kitFormat` 1, unknown refused; a world's material id → kit binding (test binding until 46d's material model owns it). | vitest (round trip, unknown fields dropped by the canonicalizer are tested present, unknown version refused) | bytes a kit | format and binding in the spec draft |
+| 46c.2 | **Case catalogue + extraction + matcher (pure):** `kit-cases.ts`: a detail-bearing cell's case key from roles and fill classes (open / built / ground / same-material) within reach 2, folded over 4 yaw turns and the vertical mirror (no vertical flip); rules {pattern with wildcards and role sets, priority, case id}, first match by priority, a fallback per role mandatory (catalogue refused without it); the draft catalogue per role. | vitest: every key maps to exactly one case; fold invariance under turns/mirrors; priorities and wildcards on hand cases; no cell unmatched on random worlds | keys seen, µs a 16³ section | catalogue complete for its roles |
+| 46c.3 | **The registered rule set:** `kit-rules.ts` composes the case pass with the terrain rules into one `AssemblyRuleSet` (`kits` v1, radius the larger, apron stays 3 if R ≤ 2); case ids live only in the job (a u16 a cell beside the class byte); `WORLD_RULES` switches with a derived version step and owner note. | `derived.test.ts`: conformance on random assembly + terrain worlds at 16/32 and at chunk/section edges; joined sections = whole chunk | eval µs a section vs §4 | conformance passes, budget met or the miss's cause recorded |
+| 46c.4 | **Merge-compatible run sections:** runs of beams, banisters, soffits, mouldings, running boards (and foundation skirts where a foundation meets terrain) with body / junction / corner / termination sections, read across chunk faces within the reach; the 45.7b neighbours (wall ↔ beam ↔ banister) as the seed cases. | `derived.test.ts`: section per cell on hand runs incl. across chunk faces; adding/removing a neighbour changes only cells within R | sections a run, µs | 45.7b proof passes with the new sections |
+| 46c.5 | **Base and consumers from the case:** per case keep / suppress / reshape the base surface; collision, nav and light from the case's declared coarse shape (box, slab, bar, none), never from piece meshes (R77). | `collision.test.ts` (real Rapier: ball through a banister's gaps, capsule on a beam), nav/light outputs per case | bytes, boxes a chunk | an open rail is open for every consumer |
+| 46c.6 | **Instances carry kit pieces; high/low filled:** instance u16 piece = kit-local piece index, reserved u16 = variant (hash of the world cell, stable under unrelated edits) — still 8 B, derived version step with owner note; 46b.9 hooks get the kit's high at L0, low at L1, none from L2; D465 rechecked with low pieces. | `derived.test.ts` (variant stable after dig/rebuild elsewhere; per-level lists); `stream.test.ts` (real workers) | instances a chunk per level | hooks filled; D465 closed or re-recorded |
+| 46c.7 | **Pieces drawn (adapter + hosts):** GLB pieces through the content closure (no URL), one instanced draw per (kit piece, level) a chunk, section ends meeting by join profile; stand-in material + labelled debug UV texture; page, Play, Scene view. Default fallback kit (procedural, engine-owned) covers every case. | e2e `voxel-world.e2e.ts` (one test extended: kit pieces drawn, a banister → wall edit swaps pieces, `png.ts` reads); export served statically, backend stopped | render() CPU, draws, instances | both renderers draw kits |
+| 46c.8 | **Kit check + kit test scene:** `kit-check.ts` rows (ok/warn/err/info): every required case present, fallback present, high/low pairs, pivots and cell sizes, join profiles matching at section ends, triangle and texture budgets reported, trim conformance only for kits that opt in; backend Problems; a command writes the generated test scene (every case in a labelled grid) into a staging world. | vitest (bad kits fail each row), e2e (Problems shows a broken kit; test scene opens) | check ms a kit | check green on both placeholder kits |
+| 46c.9 | **Two placeholder kits (log, stone):** produced through the Blender pipeline on this host (`/usr/local/bin/blender`, the blender-pipeline skill; the lead confirms at the item) else procedural meshes from a script in `tools/voxel-bench`; engine-owned test data, high + low per case, debug UVs, small GLBs with their generating script. | kit check green; GLB bytes read by the real loader | tris per piece per level, texture sizes, file sizes | both kits drawn in the test scene |
+| 46c.10 | **Prototype scene on staging (§7a list):** wall, beam and banister as neighbours are added/removed; openings and corners; material changes (no remesh, spec §2.2 feeds); chunk and section boundaries; a long uninterrupted surface (repetition); local dig/rebuild (variant stability); high/low in motion across the L0/L1 ring; both renderers. Rotated grids recorded as 47a's. | staging, `run.mjs slice` scene, pictures looked at | — | each item observed or "unverified" with why |
+| 46c.11 | **Measurement:** pieces and instances drawn per ring, case pass µs a section p50/p95 (Node + browser), blast → shown with kits, GPU ms at the cap, memory; vs §4. | `run.mjs` phases on staging | all of the above | numbers + causes recorded |
+| 46c.12 | **Role spec v1 DRAFT** (`docs/architecture/voxel-role-spec.md`): per role the canonical cases (required / optional / fallback, neighbour roles that change it), ASCII or SVG diagrams from the catalogue; a vitest checks the doc lists exactly the catalogue's case ids. | vitest + check-docs | — | draft complete for every role |
+| 46c.13 | **Trim layout DRAFT, detail pieces only** (`docs/architecture/voxel-trim-layout.md`): texel density (authored 1024 px/m, tiers cap at 256/512/1024), field, strips (0.125/0.25/0.5 m), caps, no unique regions, U from world distance along the run; optional per kit; the alternative (own sculpt bakes + material arrays, §7a); the log and stone kits as examples. | check-docs; the debug texture in the test scene | — | draft complete |
+| 46c.14 | **Docs:** spec §3.7 (case pass, kit rule set, instance meaning, derived version steps with owner notes), requirements traceability (R73–R77, R86, R87, R90, R112), manual `features/voxel-worlds.md` (kits, kit check), reference regenerated. | check-docs, `tools/manual-links.test.mjs` | — | pages match the built code |
+| 46c.15 | **Presentation (lead):** acceptance shots of every §7a case, both renderers; README in `~/.cache/thirdlight-phase46/acceptance/46c`; review page acc46c with both drafts and exactly what the owner must approve. **Then STOP.** | staging | — | owner has the page |
+| 46c.16 | *After approval:* specs frozen as v1 (owner note), kit pipeline final, changes the owner asked for. | vitest, fast gate | — | v1 in the docs |
+| 46c.17 | *After approval:* authoring package: spec sheets, Blender templates per role (UV guides, scale/pivot, high/low naming), manual guide "make a kit and a material set"; an art-factory request doc for the Texture Designer graphs (made there, not here). | check-docs | — | package complete |
+| 46c.18 | *Close (lead):* full gate once (detached), independent review, fixes, STATUS row; then 46d. | full gate | gate time and peak; voxel e2e time | review in the decision log |
+
+## 7. Progress
+
+| Item | Status |
+|---|---|
+| 46c.1 | not started |
+| 46c.2 | not started |
+| 46c.3 | not started |
+| 46c.4 | not started |
+| 46c.5 | not started |
+| 46c.6 | not started |
+| 46c.7 | not started |
+| 46c.8 | not started |
+| 46c.9 | not started |
+| 46c.10 | not started |
+| 46c.11 | not started |
+| 46c.12 | not started |
+| 46c.13 | not started |
+| 46c.14 | not started |
+| 46c.15 | not started (owner hard stop: the run stops here) |
+| 46c.16 | not started (waits for owner approval) |
+| 46c.17 | not started (waits for owner approval) |
+| 46c.18 | not started |
+
+## 8. Results
+
+(Filled per item: numbers, rounds, uptime, report paths.)
+
+## 9. Decision log
+
+- 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
+  Enshrouded reference describes (§7a, podcast 3:01–3:04); composed with the terrain rules the radius stays 2, so the
+  job apron (3) and invalidation are unchanged. A case that needs more is measured first and grows the apron only
+  with an owner note.
+- 2026-11-03 (plan, default chosen, owner to confirm): **cases fold over the four yaw turns and the vertical mirror,
+  never a vertical flip** (gravity distinguishes a soffit from a running board); an instance's turn bits carry the
+  fold, a mirror bit takes one of the rotation byte's free flag bits.
+- 2026-11-03 (plan, default chosen, owner to confirm): **case ids live only in the job**, like classes; instances
+  keep 8 B: the piece u16 becomes a kit-local piece index and the reserved u16 the variant. Derived data is never
+  stored, so this is a derived version step with an owner note, not a format change.
+- 2026-11-03 (plan, default chosen, owner to confirm): **variants by a hash of the world cell** (and the case),
+  never of load order or neighbours outside the case, so a dig/rebuild elsewhere never reshuffles a surviving piece.
+- 2026-11-03 (plan, default chosen, owner to confirm): **collision, nav and light come from the case's declared
+  coarse shape** (box, slab, bar, none in 1/16 cell), never from a piece mesh (R77): a kit cannot change gameplay
+  shapes by its art, and every kit of a material type collides the same.
+- 2026-11-03 (plan, default chosen, owner to confirm): **the material → kit binding is a test binding in 46c**
+  (a table on the world), because the material model that owns it is 46d's; 46d moves it without changing kits.
+- 2026-11-03 (plan, default chosen, owner to confirm): **opaque game data** (break, sound, physics defaults per kit
+  and per case, a material may override in 46d) is carried and readable by scripts, never interpreted by the engine.
+- 2026-11-03 (plan, default chosen, owner to confirm): **a default fallback kit** (procedural boxes and slabs from
+  the case shapes) ships in the engine, so a world with no game kit, or a kit missing an optional case, still draws.
+- 2026-11-03 (plan, default chosen, owner to confirm): **pieces drawn one instanced draw per (kit piece, level) a
+  chunk** in 46c; merged caches, GPU culling and cross-chunk instancing are 46d's measurement.
+- 2026-11-03 (plan, default chosen, owner to confirm): **placeholder kit art**: Blender is on this host, so the log
+  and stone kits go through the Blender pipeline headless (§5b); if it fails at the item, a procedural script makes
+  them. Their small GLBs and the generating script are committed as engine-owned test data; triangles, LOD pairs,
+  texture sizes and file sizes are reported with them.
+- 2026-11-03 (plan, default chosen, owner to confirm): **trim layout draft numbers** from §1d: authored 1024 px/m,
+  tier caps 256/512/1024, strips 0.125/0.25/0.5 m, a cap region, U from world distance along the run; trim is a kit's
+  option, the alternative (own bakes + material arrays) is described beside it.
+- 2026-11-03 (plan, default chosen, owner to confirm): **presentation before the full gate**: 46c.15 presents with
+  fast gates green; the one full gate and the independent review run at the close (46c.18), after the approved
+  changes, so the gate is not run twice.
+
+## 10. Open questions for the owner
+
+- Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
+- Whether the case reach of 2 cells is enough for soffits and mouldings under deep eaves, or the apron may grow.
+- Where kits live: project content items (schema, add-only) or files beside the world; and the binding's move to 46d.
+- Who makes the Texture Designer graphs and Kit Designer after approval: art-factory's own sessions from a request doc.
