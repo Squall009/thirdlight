@@ -115,6 +115,14 @@ export interface BehaviorVoxelWorld {
    */
   get(x: number, y: number, z: number): VoxelValue | null;
   /**
+   * How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined
+   * with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the
+   * world is not loaded there, or the cell's piece is not built yet.
+   * @graphPure
+   * @graphNode Light coverage at
+   */
+  coverageAt(x: number, y: number, z: number): number | null;
+  /**
    * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap).
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */

@@ -193,6 +193,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       saves: [],
       mismatches: [],
       get: rec('voxels.get', { material: 1, role: 0, shape: 15, wetness: 0 }),
+      coverageAt: rec('voxels.coverageAt', 0.5),
       save: rec('voxels.save', 1),
     },
     scatter: {

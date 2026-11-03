@@ -19,6 +19,8 @@
  *   action sampling and fail-stop with no rollback.
  */
 import { RuntimeVoxels } from './voxel-worlds';
+import { propLightShape } from './prop-light-shape';
+import { worldTransformOf } from './world-transform';
 import type { VoxelWorldPorts } from './voxel-world-host';
 import { RuntimeGrid, isOneWayGridCollider, worldStreamSources, type GridCutawayState, type GridRenderChange } from './grid';
 import type { TerrainSimData } from './scatter-copies';
@@ -430,6 +432,8 @@ export class RuntimeInstance implements Runtime {
       },
       positionOf: (id) => this.sim.curr.get(id)?.position,
       characters: () => this.controllers.ids,
+      worldTransform: (id) => worldTransformOf(id, this.sim.curr, (x) => this.sim.parentOf(x)),
+      propShape: (id, components, world) => propLightShape(id, components, world, this.chars.colliders.ctx, args.modelBounds)?.shape ?? null,
       warn: (message) => this.faults.log('thirdlight.runtime:voxels', 'warn', message),
     }));
     // The start scenes' block layers; their chunks collide.

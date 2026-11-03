@@ -406,9 +406,13 @@ export class VoxelStreamer {
     return this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.phase === 'resident';
   }
 
-  /** A derive section's current result, in section coordinates (null: none yet, or a rebuild pending). */
-  derivedOf(sx: number, sy: number, sz: number): DeriveOutput | null {
-    return this.derives?.derivedOf(sx, sy, sz) ?? null;
+  /**
+   * A derive section's current result, in section coordinates (null: none
+   * yet, or a rebuild pending); `drawn`: the newest committed result, the
+   * one drawn and collided, even while a rebuild is pending.
+   */
+  derivedOf(sx: number, sy: number, sz: number, drawn = false): DeriveOutput | null {
+    return this.derives?.derivedOf(sx, sy, sz, drawn) ?? null;
   }
 
   /**

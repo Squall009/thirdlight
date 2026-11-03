@@ -35,8 +35,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 20 sections |
 | [Script API types (from `BehaviorSignals`)](script-types-behavior-signals.md) | 22 sections |
 | [Script API types (from `BehaviorSockets`)](script-types-behavior-sockets.md) | 44 sections |
-| [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 68 sections |
-| [Script API types (from `BehaviorModeEvent`)](script-types-behavior-mode-event.md) | 50 sections |
+| [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 67 sections |
+| [Script API types (from `BehaviorModeTransition`)](script-types-behavior-mode-transition.md) | 51 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
@@ -46,8 +46,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Visual script (part 3, from Character state (`api.physics.characterState`))](graph-behavior-3.md) | Tags, World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health |
 | [Graph: Visual script (part 4, from Health events (`api.health.events`))](graph-behavior-4.md) | Patrol, Hitbox, Collectible, Character, Look, Audio, Effects, Decals, Save, Grid |
 | [Graph: Visual script (part 5, from World to cell (`api.grid.worldToCell`))](graph-behavior-5.md) | Scatter, Splines, Surface, Voxels, Camera, Sockets, Materials |
-| [Graph: Visual script (part 6, from Material parameter (`api.materials.get`))](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Lighting, Dialogue, Modes, Lifecycle, Timeline |
-| [Graph: Visual script (part 7, from Timeline time (`api.timeline.time`))](graph-behavior-7.md) | Environment, Entity, Shell |
+| [Graph: Visual script (part 6, from Set material parameter (`api.materials.set`))](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Lighting, Dialogue, Modes, Lifecycle, Timeline |
+| [Graph: Visual script (part 7, from Skip timeline (`api.timeline.skip`))](graph-behavior-7.md) | Environment, Entity, Shell |
 | [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 32 sections |
 | [Graph: Script function (part 2, from Input)](graph-behavior-function-2.md) | 23 sections |
 | [Graph: Script function (part 3, from Materials)](graph-behavior-function-3.md) | 14 sections |

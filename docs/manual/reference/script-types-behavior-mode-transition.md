@@ -1,8 +1,25 @@
-# Script API types (from `BehaviorModeEvent`)
+# Script API types (from `BehaviorModeTransition`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-mode-transition"></a>
+## `BehaviorModeTransition`
+
+```ts
+/** How a switch looks (absent fields: the target mode's own transition, then the camera's blend). */
+export interface BehaviorModeTransition {
+  /** The camera blend into the mode's camera: cut, linear or eased. */
+  blend?: 'cut' | 'linear' | 'eased';
+  /** Seconds of the camera blend (0–30). */
+  blendTime?: number;
+  /** A UI document shown from the switch for `fadeTime` seconds (its show/hide tweens make the fade). */
+  fade?: string;
+  /** Seconds the fade document stays (0.05–10; default 0.5). */
+  fadeTime?: number;
+}
+```
 
 <a id="script-type-behavior-mode-event"></a>
 ## `BehaviorModeEvent`

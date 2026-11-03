@@ -7,11 +7,18 @@
  * the object that brought it. The world's focus is where the active camera
  * looks (its target, else the camera), else the object's own position;
  * bodies are kept around the focus and every character.
+ *
+ * Props whose model is marked `affectsLighting` are stamped into every
+ * loaded world's lighting occupancy: their shape (collider, else model
+ * bounds) where they are, again whenever their world transform changes
+ * between steps, and out again when they leave.
  */
 import { resolveVoxelWorld, type EntityV3, type VoxelWorldComponent } from '@thirdlight/project-model';
+import type { PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
 import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRefused, VoxelRestoreResult, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
+import type { WorldTransform } from './world-transform';
 
 /** What the worlds read of the running game each step (world metres). */
 export interface VoxelWorldsView {
@@ -21,7 +28,19 @@ export interface VoxelWorldsView {
   positionOf(entityId: string): readonly number[] | undefined;
   /** The characters' objects (the player controllers). */
   characters(): readonly string[];
+  /** An object's world transform this step (undefined: not loaded). */
+  worldTransform(entityId: string): WorldTransform | undefined;
+  /** An object's lighting shape where it is (null: it has neither a collider nor recorded model bounds). */
+  propShape(entityId: string, components: Readonly<Record<string, unknown>>, world: WorldTransform): PropShape | null;
   warn(message: string): void;
+}
+
+/** A prop marked `affectsLighting`: its components, and the world transform its stamp was made at. */
+interface LitProp {
+  readonly components: Readonly<Record<string, unknown>>;
+  /** Position, rotation and scale as stamped (null: not yet). */
+  pose: number[] | null;
+  shape: PropShape | null;
 }
 
 interface HeldWorld {
@@ -45,6 +64,8 @@ export class RuntimeVoxels {
   private stepSaved: readonly VoxelSaveAnswer[] = Object.freeze([]);
   private mismatched: VoxelMismatch[] = [];
   private stepMismatched: readonly VoxelMismatch[] = Object.freeze([]);
+  /** Props marked `affectsLighting`, by object, in arrival order. */
+  private readonly props = new Map<string, LitProp>();
   private editSeq = 0;
   private waitSeq = 0;
   private saveSeq = 0;
@@ -73,6 +94,7 @@ export class RuntimeVoxels {
         return voxels.stepMismatched;
       },
       get: (x: number, y: number, z: number) => first()?.get(x, y, z) ?? null,
+      coverageAt: (x: number, y: number, z: number) => first()?.coverageAt(x, y, z) ?? null,
       set: (...a: Parameters<BehaviorVoxelWorld['set']>) => first()?.set(...a) ?? NO_WORLD,
       dig: (...a: Parameters<BehaviorVoxelWorld['dig']>) => first()?.dig(...a) ?? NO_WORLD,
       paint: (...a: Parameters<BehaviorVoxelWorld['paint']>) => first()?.paint(...a) ?? NO_WORLD,
@@ -99,6 +121,8 @@ export class RuntimeVoxels {
   /** Objects arrived (a scene loaded): those with a `voxelWorld` bring their world, or join it. */
   add(entities: readonly EntityV3[]): void {
     for (const e of entities) {
+      const model = (e.components as { model?: { affectsLighting?: boolean } }).model;
+      if (model?.affectsLighting === true && !this.props.has(e.id)) this.props.set(e.id, { components: e.components as unknown as Readonly<Record<string, unknown>>, pose: null, shape: null });
       const c = (e.components as { voxelWorld?: VoxelWorldComponent }).voxelWorld;
       if (c === undefined || this.worldOf.has(e.id)) continue;
       this.worldOf.set(e.id, c.world);
@@ -118,11 +142,15 @@ export class RuntimeVoxels {
         warn: (m) => this.view.warn(m),
       }, () => ++this.editSeq);
       this.worlds.set(c.world, { host, objects: [e.id] });
+      host.stampProps([...this.props].filter(([, p]) => p.shape !== null).map(([id, p]) => [id, p.shape] as const));
     }
   }
 
   /** Objects left (a scene unloaded): a world no object names any more is disposed. */
   remove(ids: ReadonlySet<string>): void {
+    const gone: (readonly [string, null])[] = [];
+    for (const id of ids) if (this.props.delete(id)) gone.push([id, null]);
+    for (const held of this.worlds.values()) held.host.stampProps(gone);
     for (const id of ids) {
       const name = this.worldOf.get(id);
       if (name === undefined) continue;
@@ -162,11 +190,34 @@ export class RuntimeVoxels {
       const p = v.positionOf(id);
       if (p !== undefined) characters.push([p[0]!, p[1]!, p[2]!]);
     }
+    this.stampProps();
     const camera = v.camera();
     for (const held of this.worlds.values()) {
       const at = camera ?? v.positionOf(held.objects[0]!) ?? [0, 0, 0];
       held.host.step({ stream: [at[0]!, at[1]!, at[2]!], collide: characters });
     }
+  }
+
+  /**
+   * Each lit prop whose world transform changed since its stamp (or that
+   * has none yet) is stamped again into every world, all of a step's
+   * together: the chunks they left and entered are rebuilt there once.
+   */
+  private stampProps(): void {
+    if (this.props.size === 0) return;
+    const changes: (readonly [string, PropShape | null])[] = [];
+    for (const [id, p] of this.props) {
+      const w = this.view.worldTransform(id);
+      if (w === undefined) continue;
+      const pose = [...w.position, ...w.rotation, ...w.scale];
+      if (p.pose !== null && pose.every((n, i) => n === p.pose![i])) continue;
+      const first = p.pose === null;
+      p.pose = pose;
+      p.shape = this.view.propShape(id, p.components, w);
+      if (p.shape === null && first) this.view.warn(`"${id}" affects lighting but has neither a collider nor recorded model bounds; it blocks no light`);
+      changes.push([id, p.shape]);
+    }
+    for (const held of this.worlds.values()) held.host.stampProps(changes);
   }
 
   /** Whether any world is loaded (bodies then wait for its collision: body-suspension.ts). */

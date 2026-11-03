@@ -16,6 +16,12 @@
  * replaced from its new join (the `chunk` event), then the `swap` closes
  * the group and the change is reported at the next step.
  *
+ * Lighting occupancy: the props marked `affectsLighting` are stamped into
+ * a channel a resident chunk (`PropLightChannel`), built when the chunk
+ * loads and rebuilt where a prop is placed, moves or goes, counted in the
+ * stream budget and never saved; `coverageAt` reads it joined with the
+ * construction's own coverage from the drawn derive results.
+ *
  * Saves: `save()` writes the overlay's changes as a voxel save file (the
  * fields the game marks saved, a base hash per chunk) once the bases of
  * chunks that left are read again, answered at a later step; `restore()`
@@ -37,9 +43,11 @@ import {
   EditCommandError,
   EditRefused,
   jobRadius,
+  lightCoverageAt,
   MATERIAL_AIR,
   PLACEHOLDER_RULES,
   planeMask,
+  PropLightChannel,
   readSave,
   SaveFileError,
   VOXEL_PLANES,
@@ -52,6 +60,7 @@ import {
   type CollisionBodies,
   type CollisionSource,
   type Focus,
+  type PropShape,
   type StreamEvent,
   type VoxelEditCommand,
   type VoxelPlane,
@@ -197,6 +206,10 @@ export class VoxelWorldHost {
   private streamer: VoxelStreamer | null = null;
   private ring: CollisionRing | null = null;
   private bodies: PortBodies | null = null;
+  /** The props' lighting occupancy over the resident chunks (null until the world is open). */
+  private channel: PropLightChannel | null = null;
+  /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
+  private readonly props = new Map<string, PropShape>();
   private disposed = false;
   private readonly waits: { readonly cells: RegionCells; readonly id: number }[] = [];
   /** Changes by their edit groups, until their swaps. */
@@ -228,6 +241,7 @@ export class VoxelWorldHost {
     this.api = Object.freeze({
       name: this.name,
       get: (x: number, y: number, z: number) => this.get(x, y, z),
+      coverageAt: (x: number, y: number, z: number) => this.coverageAt(x, y, z),
       set: (region: VoxelRegion, voxel: VoxelWrite) => this.set(region, voxel),
       dig: (region: VoxelRegion) => this.dig(region),
       paint: (region: VoxelRegion, paint: VoxelPaint) => this.paint(region, paint),
@@ -280,13 +294,18 @@ export class VoxelWorldHost {
       this.bodies = new PortBodies(port, conn.grid, `voxel:${this.name}:`);
       this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: streamer, bounds: collisionRingBounds({ radius, height }) });
     }
+    const channel = new PropLightChannel(streamer, VOXEL_SIZE_M);
+    channel.apply(this.props);
+    this.channel = channel;
     streamer.on((e) => this.onStream(e));
     conn.present?.(streamer, s.sectionEdge);
   }
 
   private onStream(e: StreamEvent): void {
     if (this.disposed) return;
-    if (e.type === 'unloaded') {
+    if (e.type === 'loaded') this.channel?.loaded(e.cx, e.cy, e.cz);
+    else if (e.type === 'unloaded') {
+      this.channel?.unloaded(e.cx, e.cy, e.cz);
       this.derived.delete(chunkKey(this.conn!.grid, e.cx, e.cy, e.cz));
       this.ring?.unloaded(e.cx, e.cy, e.cz);
     } else if (e.type === 'chunk') {
@@ -385,13 +404,33 @@ export class VoxelWorldHost {
     this.pending.clear();
     this.streamer = null;
     this.ring = null;
+    this.channel = null;
     this.derived.clear();
   }
 
+  /**
+   * Props marked `affectsLighting` placed or moved (their shapes where they
+   * now are) or gone (null), together: each chunk any of them left or
+   * entered is rebuilt once.
+   */
+  stampProps(changes: readonly (readonly [string, PropShape | null])[]): void {
+    if (this.disposed || changes.length === 0) return;
+    for (const [id, shape] of changes) {
+      if (shape !== null) this.props.set(id, shape);
+      else this.props.delete(id);
+    }
+    this.channel?.apply(changes);
+  }
+
+  /** The world's prop lighting channel (null until the world is open): what the light tracer reads, with `coverageAt`. */
+  get lightChannel(): PropLightChannel | null {
+    return this.channel;
+  }
+
   /** What the host holds (diagnostics). */
-  stats(): { world: string; open: boolean; resident: number; bytes: number; overlayBytes: number; bodies: number } {
+  stats(): { world: string; open: boolean; resident: number; bytes: number; overlayBytes: number; bodies: number; propChannelBytes: number } {
     const m = this.streamer?.metrics();
-    return { world: this.name, open: this.streamer !== null, resident: m?.resident ?? 0, bytes: m?.bytes.total ?? 0, overlayBytes: m?.bytes.overlay ?? 0, bodies: this.bodies?.count ?? 0 };
+    return { world: this.name, open: this.streamer !== null, resident: m?.resident ?? 0, bytes: m?.bytes.total ?? 0, overlayBytes: m?.bytes.overlay ?? 0, bodies: this.bodies?.count ?? 0, propChannelBytes: this.channel?.stats().bytes ?? 0 };
   }
 
   /** The streamer (null until the world is open): what the presentation joins draws from. */
@@ -413,6 +452,31 @@ export class VoxelWorldHost {
     if (!s.isResident(cx >> sh, cy >> sh, cz >> sh)) return null;
     const v = s.voxelAt(cx, cy, cz, this.cell);
     return Object.freeze({ material: v.material, role: v.role, shape: v.shape, wetness: v.wetness });
+  }
+
+  /**
+   * How much light a cell blocks, 0 … 1: the construction's coverage from
+   * the section's drawn derive result joined with the props' channel
+   * (1 − (1 − a)(1 − b)). Null where the chunk is not resident or its
+   * section has no result yet.
+   */
+  private coverageAt(x: number, y: number, z: number): number | null {
+    const s = this.streamer;
+    if (s === null || this.channel === null || ![x, y, z].every(Number.isFinite)) return null;
+    const cx = Math.floor(x / VOXEL_SIZE_M);
+    const cy = Math.floor(y / VOXEL_SIZE_M);
+    const cz = Math.floor(z / VOXEL_SIZE_M);
+    const sh = s.grid.shift;
+    if (!s.isResident(cx >> sh, cy >> sh, cz >> sh)) return null;
+    const sec = s.sections;
+    const d = s.derivedOf(cx >> sec.shift, cy >> sec.shift, cz >> sec.shift, true);
+    if (d === null) return null;
+    const prop = this.channel.at(cx, cy, cz);
+    const light = d.assembly?.light;
+    const m = sec.mask;
+    // A result without an assembly is air all around: only the props block light there.
+    const v = light === undefined ? prop : lightCoverageAt(light, ((((cx & m) << sec.shift) | (cz & m)) << sec.shift) | (cy & m), prop);
+    return v / 255;
   }
 
   private resident(r: RegionCells): boolean {

@@ -764,6 +764,14 @@ export interface BehaviorVoxelWorld {
    */
   get(x: number, y: number, z: number): VoxelValue | null;
   /**
+   * How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined
+   * with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the
+   * world is not loaded there, or the cell's piece is not built yet.
+   * @graphPure
+   * @graphNode Light coverage at
+   */
+  coverageAt(x: number, y: number, z: number): number | null;
+  /**
    * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap).
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
@@ -1376,22 +1384,5 @@ export interface BehaviorDialogueHistoryEntry {
   readonly text: string;
   /** A line, or the option the player picked. */
   readonly choice: boolean;
-}
-```
-
-<a id="script-type-behavior-mode-transition"></a>
-## `BehaviorModeTransition`
-
-```ts
-/** How a switch looks (absent fields: the target mode's own transition, then the camera's blend). */
-export interface BehaviorModeTransition {
-  /** The camera blend into the mode's camera: cut, linear or eased. */
-  blend?: 'cut' | 'linear' | 'eased';
-  /** Seconds of the camera blend (0–30). */
-  blendTime?: number;
-  /** A UI document shown from the switch for `fadeTime` seconds (its show/hide tweens make the fade). */
-  fade?: string;
-  /** Seconds the fade document stays (0.05–10; default 0.5). */
-  fadeTime?: number;
 }
 ```

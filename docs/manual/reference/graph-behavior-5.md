@@ -1057,6 +1057,7 @@ Fields:
 - Voxels saves (`api.voxels.saves`): The saves (`save()`) answered at this step's start.
 - Voxels mismatches (`api.voxels.mismatches`): The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there.
 - Voxel at (`api.voxels.get`): The voxel at a world position, or null where the world is not loaded there (never air for that).
+- Light coverage at (`api.voxels.coverageAt`): How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded there, or the cell's piece is not built yet.
 - Save voxel changes (`api.voxels.save`): Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
 
 <a id="node-behavior--api-voxels-worlds"></a>
@@ -1126,6 +1127,30 @@ Outputs:
 - `role` (number)
 - `shape` (number)
 - `wetness` (number)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-voxels-coverage-at"></a>
+### Light coverage at (`api.voxels.coverageAt`)
+
+How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded there, or the cell's piece is not built yet.
+
+Inputs:
+
+- `x` (number)
+- `y` (number)
+- `z` (number)
+
+Outputs:
+
+- `value` (number)
 - `found` (boolean)
 
 Fields:
@@ -1573,31 +1598,3 @@ Fields:
 - Reset material parameter (`api.materials.reset`): Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
 - Write material data (`api.materials.setData`): Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
 - Material data cell (`api.materials.getData`): One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.
-
-<a id="node-behavior--api-materials-set"></a>
-### Set material parameter (`api.materials.set`)
-
-Set a parameter on one object: a number (float), 2–4 numbers (vec2–4), "#rrggbb" (colour) or a texture asset id of the game ("" for none). Other objects wearing the material keep their values. False when refused. An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "entity" (string)
-- `param` "parameter" (string)
-- `value` (number): type from field `value_type`
-- `materialId` "material" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | entity | string | `""` | ≤ 256 chars |
-| `param` | parameter | string | `""` | ≤ 256 chars |
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
-| `value` | value | string | `""` | ≤ 256 chars |
-| `materialId` | material | string | `""` | ≤ 256 chars |

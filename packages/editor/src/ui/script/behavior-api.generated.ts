@@ -3181,6 +3181,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that)."
     },
     {
+      "name": "coverageAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): number | null",
+      "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
+    },
+    {
       "name": "set",
       "kind": "method",
       "detail": "(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult",
@@ -3273,6 +3279,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "(x: number, y: number, z: number): VoxelValue | null",
       "returns": "VoxelValue",
       "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that)."
+    },
+    {
+      "name": "coverageAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): number | null",
+      "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
     },
     {
       "name": "set",

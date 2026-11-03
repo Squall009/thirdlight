@@ -35,6 +35,7 @@ import {
   jobRadius,
   LIGHT_COVERAGE,
   lightCoverage,
+  lightCoverageAt,
   mipChildren,
   mipNodeKey,
   mipNodeOf,
@@ -47,6 +48,9 @@ import {
   registeredAssemblyRules,
   ruleRadiusMismatches,
   propCoverageChunk,
+  PROP_COVERAGE_PART,
+  PropLightChannel,
+  type PropShape,
   RUN_X,
   RUN_Z,
   sameDenseChunk,
@@ -791,6 +795,73 @@ describe('prop lighting-occupancy channel', () => {
     const props = new Uint8Array(grid.cellsPerChunk);
     props[li(1, 2, 7)] = 128;
     expect(lightCoverage(grid, d.light, props)[li(1, 2, 7)]).toBe(combineCoverage(LIGHT_COVERAGE.rail, 128));
+    for (let i = 0; i < props.length; i += 97) expect(lightCoverageAt(d.light, i, props[i]!)).toBe(lightCoverage(grid, d.light, props)[i]);
+    expect(lightCoverageAt(d.light, li(1, 2, 7), 128)).toBe(combineCoverage(LIGHT_COVERAGE.rail, 128));
+  });
+
+  it('keeps a channel per resident chunk: a move rebuilds only the chunks the prop left and entered, equal to a fresh build, counted as a budget part', () => {
+    const parts = new Map<string, number>();
+    const built: string[] = [];
+    const channel = new PropLightChannel({ grid, setPart: (cx, cy, cz, part, bytes) => (expect(part).toBe(PROP_COVERAGE_PART), parts.set(`${cx},${cy},${cz}`, bytes), true) }, 0.5);
+    channel.onBuild = (cx, cy, cz) => built.push(`${cx},${cy},${cz}`);
+    const sphere = (r: number, at: readonly [number, number, number]): PropShape => ({ inside: (x, y, z) => x * x + y * y + z * z <= r * r, min: [-r, -r, -r], max: [r, r, r], position: at, yaw: [1, 0], scale: 1 });
+    const crate = (at: readonly [number, number, number]): PropShape => ({ inside: (x, y, z) => Math.abs(x) <= 1.3 && Math.abs(y) <= 0.9 && Math.abs(z) <= 0.7, min: [-1.3, -0.9, -0.7], max: [1.3, 0.9, 0.7], position: at, yaw: [Math.cos(0.52), Math.sin(0.52)], scale: 1 });
+    // Resident: chunks −2 … 1 on x and z, −1 … 0 on y (16 m chunks).
+    const resident: [number, number, number][] = [];
+    for (let cx = -2; cx <= 1; cx++) for (let cy = -1; cy <= 0; cy++) for (let cz = -2; cz <= 1; cz++) resident.push([cx, cy, cz]);
+    const shapes = new Map<string, PropShape>();
+    const fresh = (): void => {
+      for (const [cx, cy, cz] of resident) {
+        const want = propCoverageChunk(grid, cx, cy, cz, [...shapes.values()], 0.5);
+        expect(channel.chunk(cx, cy, cz)).toEqual(want);
+        expect(parts.get(`${cx},${cy},${cz}`)).toBe(want?.byteLength ?? 0);
+      }
+    };
+    const place = (id: string, s: PropShape): string[] => {
+      built.length = 0;
+      shapes.set(id, s);
+      channel.place(id, s);
+      return [...built].sort();
+    };
+    // A crate straddling four chunk columns at the origin, placed before anything loads: nothing to build yet.
+    expect(place('crate', crate([0.1, 1.3, -0.2]))).toEqual([]);
+    for (const [cx, cy, cz] of resident) channel.loaded(cx, cy, cz);
+    expect(built.length).toBe(resident.length);
+    fresh();
+    expect(place('tree', sphere(3, [8.3, 1.1, 8.2]))).toEqual(['0,-1,0', '0,0,0']);
+    fresh();
+    // The crate moves 20 m along x: rebuilt are the four chunks it left (x −1 and 0) and the two it entered (x 1), no others.
+    expect(place('crate', crate([20.1, 1.3, -0.2]))).toEqual(['-1,0,-1', '-1,0,0', '0,0,-1', '0,0,0', '1,0,-1', '1,0,0']);
+    fresh();
+    // Out of the resident chunks: those it left are rebuilt; the rest wait for their loads.
+    expect(place('crate', crate([40.1, 1.3, -0.2]))).toEqual(['1,0,-1', '1,0,0']);
+    fresh();
+    // Overlapping props combine; removing one rebuilds its chunks without it.
+    expect(place('tree2', sphere(3, [9.1, 1.6, 8.0]))).toEqual(['0,-1,0', '0,0,0']);
+    fresh();
+    built.length = 0;
+    channel.remove('tree2');
+    shapes.delete('tree2');
+    expect([...built].sort()).toEqual(['0,-1,0', '0,0,0']);
+    fresh();
+    // A refreshed chunk keeps its channel; an unloaded one loses it and gets it back on its next load.
+    built.length = 0;
+    channel.loaded(0, 0, 0);
+    expect(built).toEqual([]);
+    channel.unloaded(0, 0, 0);
+    expect(channel.chunk(0, 0, 0)).toBeUndefined();
+    expect(channel.at(16, 2, 16)).toBe(0);
+    channel.loaded(0, 0, 0);
+    fresh();
+    expect(channel.at(16, 2, 16)).toBeGreaterThan(0);
+    expect(channel.at(16, 2, 16)).toBe(channel.chunk(0, 0, 0)![(((16 << 5) | 16) << 5) | 2]);
+
+    // Costs: a 3 m canopy moved 0.25 m at a time across chunk faces (its chunks rebuilt each move), and the bytes.
+    for (let i = 0; i < 200; i++) channel.place('tree', sphere(3, [8.3 + 0.25 * (i % 40), 1.1, 8.2 + 0.25 * (i % 40)]));
+    const us = channel.changeUs;
+    const st = channel.stats();
+    console.log(`prop move (3 m sphere, 1–4 chunks rebuilt): p50 ${us.quantile(0.5).toFixed(0)} µs, p95 ${us.quantile(0.95).toFixed(0)} µs; channel: ${st.chunks} chunks, ${st.covered} covered, ${st.bytes} B`);
+    expect(st.bytes).toBe(st.covered * grid.cellsPerChunk);
   });
 });
 

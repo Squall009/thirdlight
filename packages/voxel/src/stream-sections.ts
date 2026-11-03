@@ -202,11 +202,11 @@ export class SectionDerives {
     return this.jobs.size;
   }
 
-  /** A section's current result (null: none yet, or a rebuild pending). */
-  derivedOf(sx: number, sy: number, sz: number): DeriveOutput | null {
+  /** A section's current result (null: none yet, or a rebuild pending); `drawn`: its newest committed result even while a rebuild is pending. */
+  derivedOf(sx: number, sy: number, sz: number, drawn = false): DeriveOutput | null {
     if (!chunkInWorld(this.sections, sx, sy, sz)) return null;
     const s = this.bySection.get(chunkKey(this.sections, sx, sy, sz));
-    return s === undefined || s.derive !== 'no' ? null : s.derived;
+    return s === undefined || (s.derive !== 'no' && !drawn) ? null : s.derived;
   }
 
   *derived(): IterableIterator<{ cx: number; cy: number; cz: number; result: DeriveOutput }> {

@@ -12,7 +12,7 @@
  * 1 − (1 − a)(1 − b), and the light tracer reads the construction's
  * coverage (derived-data.ts) combined the same way with this channel.
  */
-import type { ChunkGrid } from './coords';
+import type { CellGrid, ChunkGrid } from './coords';
 import { cellBit, type LightOut } from './derived-data';
 
 /** Sample points per axis per host cell. */
@@ -39,7 +39,7 @@ export interface PropShape {
 }
 
 /** A prop's host-grid bounds in metres (its local box turned and scaled). */
-function propBounds(p: PropShape): { min: number[]; max: number[] } {
+export function propBounds(p: PropShape): { min: number[]; max: number[] } {
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
   const [c, s] = p.yaw;
@@ -97,7 +97,7 @@ export function propCoverageChunk(grid: ChunkGrid, cx: number, cy: number, cz: n
  * The light tracer's coverage of a chunk: the construction's (a derived
  * chunk's light output) combined with the prop channel, one byte a cell.
  */
-export function lightCoverage(grid: ChunkGrid, light: LightOut, props: Uint8Array | null): Uint8Array {
+export function lightCoverage(grid: CellGrid, light: LightOut, props: Uint8Array | null): Uint8Array {
   const out = new Uint8Array(grid.cellsPerChunk);
   if (light.uniform >= 0) out.fill(light.uniform);
   else {
@@ -106,4 +106,31 @@ export function lightCoverage(grid: ChunkGrid, light: LightOut, props: Uint8Arra
   }
   if (props !== null) for (let i = 0; i < out.length; i++) if (props[i] !== 0) out[i] = combineCoverage(out[i]!, props[i]!);
   return out;
+}
+
+/**
+ * One cell of {@link lightCoverage}: the construction's coverage at a local
+ * index of the grid `light` was derived on, combined with a prop byte.
+ */
+export function lightCoverageAt(light: LightOut, index: number, prop: number): number {
+  let own = 0;
+  if (light.uniform >= 0) own = light.uniform;
+  else if (cellBit(light.full, index)) own = 255;
+  else {
+    // Partly covering cells are listed in cell order.
+    const cells = light.partialCells;
+    let lo = 0;
+    let hi = cells.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const c = cells[mid]!;
+      if (c === index) {
+        own = light.partialCover[mid]!;
+        break;
+      }
+      if (c < index) lo = mid + 1;
+      else hi = mid - 1;
+    }
+  }
+  return prop === 0 ? own : combineCoverage(own, prop);
 }

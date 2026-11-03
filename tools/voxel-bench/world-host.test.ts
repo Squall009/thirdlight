@@ -7,7 +7,7 @@
  * real physics backend (Rapier through physics-rapier's port) holding the
  * collision ring's bodies.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPhysicsPort3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
 import {
@@ -23,7 +23,8 @@ import {
   type VoxelWorldPorts,
 } from '@thirdlight/runtime';
 import { presentVoxelWorlds } from '@thirdlight/game-host';
-import { chunkDrawBatchTransfer, chunkGrid, createWorldStore, dependentChunks, jobRadius, PLACEHOLDER_RULES, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type VoxelRecord } from '@thirdlight/voxel';
+import { crc32 } from '@thirdlight/shared';
+import { chunkDrawBatchTransfer, chunkGrid, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, PLACEHOLDER_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
@@ -60,13 +61,21 @@ afterAll(async () => {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-function artifact(behaviorId: string, step: (ctx: { voxels: BehaviorVoxels }) => void): BehaviorArtifact {
+/** What a test script sees: its phase, `ctx.voxels`, and `emit` for the transforms it owns. */
+interface ScriptCtx {
+  readonly phase: string;
+  readonly entityId: string;
+  readonly voxels: BehaviorVoxels;
+  emit(intent: { kind: 'transform'; entityId: string; position: { x: number; y: number; z: number } }): void;
+}
+
+function artifact(behaviorId: string, step: (ctx: ScriptCtx) => void, ownedTransforms: readonly string[] = []): BehaviorArtifact {
   return {
     behaviorId,
     sourceDigest: 'a'.repeat(64),
     manifestDigest: 'b'.repeat(64),
     outputDigest: 'c'.repeat(64),
-    ownedTransforms: [],
+    ownedTransforms: [...ownedTransforms],
     requiredModules: [],
     enginePins: [],
     namespace: { default: { instantiate: () => ({}), step: (_s: unknown, ctx: never) => step(ctx), dispose: () => {} } },
@@ -89,10 +98,22 @@ interface Harness {
   closed: string[];
   /** Worlds whose pools were closed (their workers ended). */
   poolsClosed: string[];
+  /** Places an owned object (world metres) at the script's next transform phase. */
+  move(entityId: string, position: readonly [number, number, number]): void;
+}
+
+/** A test's own scene objects and world settings (beside world a's object and the script's). */
+interface SceneOptions {
+  /** World a's `voxelWorld` component (default {@link worldComponent}). */
+  readonly world?: unknown;
+  readonly entities?: readonly unknown[];
+  /** Objects a mover script rides on, to move them (`Harness.move`). */
+  readonly movers?: readonly string[];
+  readonly modelBounds?: Readonly<Record<string, { min: readonly number[]; max: readonly number[] }>>;
 }
 
 /** `wrap`: the ports the runtime gets, made from the test's (the game host's presentation, say). */
-async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) => p, onStream?: (world: string, s: VoxelStreamer) => void): Promise<Harness> {
+async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) => p, onStream?: (world: string, s: VoxelStreamer) => void, scene: SceneOptions = {}): Promise<Harness> {
   const r = await createPhysicsPort3D({
     character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } },
     noCharacter: true,
@@ -121,14 +142,31 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
     },
   };
   let job: ((v: BehaviorVoxels) => boolean) | null = null;
+  const moves = new Map<string, readonly [number, number, number]>();
   const spec = createBehaviorModuleSpec({
     declaration: DECL,
     artifact: artifact('digger', (ctx) => {
       if (job?.(ctx.voxels) === true) job = null;
     }),
   });
+  // Each object the test moves carries a mover, which places its own object.
+  const mover = createBehaviorModuleSpec({
+    declaration: DECL,
+    artifact: artifact(
+      'mover',
+      (ctx) => {
+        const to = moves.get(ctx.entityId);
+        if (ctx.phase !== 'transform' || to === undefined) return;
+        ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: to[0], y: to[1], z: to[2] } });
+        moves.delete(ctx.entityId);
+      },
+      ['@self'],
+    ),
+  });
   const registry = createSimulationRegistry();
   registerSimulationModule(registry, spec.id, spec);
+  registerSimulationModule(registry, mover.id, mover);
+  const movable = (id: string, components: Record<string, unknown>): Record<string, unknown> => (scene.movers?.includes(id) === true ? { ...components, behavior: { behaviorId: 'mover', values: {} } } : components);
   const focusM = [0, (groundY + 1) * VOXEL_SIZE_M, 0];
   const snapshot = {
     snapshotId: 'voxels-0001@r1',
@@ -139,17 +177,22 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
       sceneId: 'scene-main',
       revision: 1,
       entities: [
-        { id: 'world-a', components: { transform: { position: focusM, ...T }, voxelWorld: worldComponent('a') } },
+        { id: 'world-a', components: movable('world-a', { transform: { position: focusM, ...T }, voxelWorld: scene.world ?? worldComponent('a') }) },
         { id: 'digger', components: { transform: { position: [0, 0, 0], ...T }, behavior: { behaviorId: 'digger', values: {} } } },
+        ...(scene.entities ?? []).map((e) => {
+          const o = e as { id: string; components: Record<string, unknown> };
+          return { ...o, components: movable(o.id, o.components) };
+        }),
       ],
     },
+    ...(scene.modelBounds !== undefined ? { modelBounds: scene.modelBounds } : {}),
     scenes: [
-      { sceneId: 'scene-main', start: true, entityIds: ['world-a', 'digger'] },
+      { sceneId: 'scene-main', start: true, entityIds: ['world-a', 'digger', ...(scene.entities ?? []).map((e) => (e as { id: string }).id)] },
       { sceneId: 'scene-b', start: false },
     ],
   };
   const now = { t: 0 };
-  const res = instantiateRuntime({ snapshot, registry, modules: [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: wrap(ports) });
+  const res = instantiateRuntime({ snapshot, registry, modules: scene.movers !== undefined ? [spec.id, mover.id] : [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: wrap(ports) });
   if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
   const rt = res.runtime;
   expect(rt.start().ok).toBe(true);
@@ -178,7 +221,7 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
     return out!.r;
   };
   const inStep = <R>(fn: (v: BehaviorVoxels) => R): Promise<R> => stepUntil(fn, 'the script step');
-  return { rt, port, inStep, stepUntil, until, opened, closed, poolsClosed };
+  return { rt, port, inStep, stepUntil, until, opened, closed, poolsClosed, move: (id, p) => void moves.set(id, p) };
 }
 
 /** The first collider hit straight down from high above (x, z metres): its height and body id. */
@@ -536,6 +579,168 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
       sizes.push(`${target} digs: ${s.bytes!.length} B in ${s.chunks} chunks (${s.text!.length} chars as text)`);
     }
     console.log(`save sizes: ${sizes.join('; ')}`);
+    expect(h.rt.dispose().ok).toBe(true);
+  }, 180_000);
+
+  it('stamps props marked affectsLighting into the lighting occupancy: built as chunks load, rebuilt only where a prop left and entered, equal to a fresh build, never saved, back after an unload', async () => {
+    const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
+    const yaw = 0.52;
+    const rockAt = (x: number): [number, number, number] => [x, surfaceM + 1.3, -0.2];
+    const treeAt: [number, number, number] = [8.13, surfaceM - 0.4, -5.07];
+    // The script's oracle: the same props in the voxelizer's own form (a yaw and a uniform scale).
+    const rock = (at: readonly [number, number, number]): PropShape => ({ inside: (x, y, z) => Math.abs(x) <= 1.3 && Math.abs(y) <= 0.9 && Math.abs(z) <= 0.7, min: [-1.3, -0.9, -0.7], max: [1.3, 0.9, 0.7], position: at, yaw: [Math.cos(yaw), Math.sin(yaw)], scale: 1 });
+    const tree: PropShape = { inside: (x, y, z) => Math.abs(x) <= 1 && y >= 0 && y <= 4 && Math.abs(z) <= 1, min: [-1, 0, -1], max: [1, 4, 1], position: treeAt, yaw: [1, 0], scale: 1.5 };
+    const model = (assetId: string, lit: boolean): unknown => ({ asset: { assetId }, ...(lit ? { affectsLighting: true } : {}) });
+    const entities = [
+      // A crate-sized rock with a box collider, turned about +y: its collider is its light shape.
+      { id: 'rock', components: { transform: { position: rockAt(0.1), rotation: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)], scale: [1, 1, 1] }, model: model('model-rock', true), collider: { shape: { type: 'box', hx: 1.3, hy: 0.9, hz: 0.7 } } } },
+      // A tree without a collider: its model's recorded bounds, scaled with the object.
+      { id: 'tree', components: { transform: { position: treeAt, rotation: [0, 0, 0, 1], scale: [1.5, 1.5, 1.5] }, model: model('model-tree', true) } },
+      // Not marked: blocks no light.
+      { id: 'pebble', components: { transform: { position: [-6.2, surfaceM + 1.5, 4.1], ...T }, model: model('model-rock', false), collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } } },
+    ];
+    let stream: VoxelStreamer | null = null;
+    const builds: { key: string; bytes: number }[] = [];
+    const h = await harness(
+      (p) => p,
+      (_w, s) => {
+        stream = s;
+        // Every channel build lands as the chunk's budget part.
+        const set = s.setPart.bind(s);
+        s.setPart = (cx, cy, cz, part, bytes) => {
+          if (part === PROP_COVERAGE_PART) builds.push({ key: `${cx},${cy},${cz}`, bytes });
+          return set(cx, cy, cz, part, bytes);
+        };
+      },
+      { world: { world: 'a', ring: { loadRadius: 48, unloadRadius: 56, loadHeight: 32, unloadHeight: 40 }, collision: { radius: 16, height: 16 } }, entities, movers: ['rock', 'world-a'], modelBounds: { 'model-tree': { min: [-1, 0, -1], max: [1, 4, 1] } } },
+    );
+    const s = (): VoxelStreamer => stream!;
+    const sh = grid.shift;
+    const chunksOf = (p: PropShape): string[] => {
+      const b = propBounds(p);
+      const c = (m: number): number => Math.floor(m / VOXEL_SIZE_M) >> sh;
+      const out: string[] = [];
+      for (let cx = c(b.min[0]!); cx <= c(b.max[0]!); cx++) for (let cy = c(b.min[1]!); cy <= c(b.max[1]!); cy++) for (let cz = c(b.min[2]!); cz <= c(b.max[2]!); cz++) out.push(`${cx},${cy},${cz}`);
+      return out;
+    };
+    /** Every derive section of the chunks has a result. */
+    const derived = (chunks: readonly string[]): boolean => {
+      const sec = s().sections;
+      const per = grid.edge / sec.edge;
+      return chunks.every((id) => {
+        const [cx, cy, cz] = id.split(',').map(Number) as [number, number, number];
+        for (let i = 0; i < per ** 3; i++) if (s().derivedOf(cx * per + (i % per), cy * per + (Math.floor(i / per) % per), cz * per + Math.floor(i / per / per), true) === null) return false;
+        return true;
+      });
+    };
+    /** Nothing read, decoded or derived for 30 steps, and the chunks derived. */
+    const settle = async (what: string, chunks: readonly string[]): Promise<void> => {
+      let quiet = 0;
+      await h.until(() => {
+        const m = s().metrics();
+        quiet = m.reading + m.decoding + m.deriving === 0 ? quiet + 1 : 0;
+        return quiet >= 30 && derived(chunks);
+      }, what, 60_000);
+    };
+    /** Every cell of the chunks: `coverageAt` (read by the script) = the drawn construction joined with a fresh build of the props. */
+    const sameAsFresh = async (props: readonly PropShape[], chunks: readonly string[]): Promise<number> => {
+      const sec = s().sections;
+      const r = await h.inStep((v) => {
+        let covered = 0;
+        const bad: string[] = [];
+        for (const id of chunks) {
+          const [cx, cy, cz] = id.split(',').map(Number) as [number, number, number];
+          if (!s().isResident(cx, cy, cz)) {
+            bad.push(`${id} not resident`);
+            continue;
+          }
+          const want = propCoverageChunk(grid, cx, cy, cz, props, VOXEL_SIZE_M);
+          for (let x = 0; x < grid.edge; x++) for (let z = 0; z < grid.edge; z++) for (let y = 0; y < grid.edge; y++) {
+            const gx = (cx << sh) + x;
+            const gy = (cy << sh) + y;
+            const gz = (cz << sh) + z;
+            const d = s().derivedOf(gx >> sec.shift, gy >> sec.shift, gz >> sec.shift, true);
+            const got = v.coverageAt((gx + 0.5) * VOXEL_SIZE_M, (gy + 0.5) * VOXEL_SIZE_M, (gz + 0.5) * VOXEL_SIZE_M);
+            if (d === null) {
+              if (bad.length < 5) bad.push(`${gx},${gy},${gz} has no derive`);
+              continue;
+            }
+            const p = want === null ? 0 : want[(((x << sh) | z) << sh) | y]!;
+            if (p > 0) covered++;
+            const m = sec.mask;
+            const light = d.assembly?.light;
+            const e = light === undefined ? p : lightCoverageAt(light, ((((gx & m) << sec.shift) | (gz & m)) << sec.shift) | (gy & m), p);
+            if (got !== e / 255 && bad.length < 5) bad.push(`${gx},${gy},${gz}: ${got} vs ${e / 255}`);
+          }
+        }
+        return { covered, bad };
+      });
+      expect(r.bad).toEqual([]);
+      return r.covered;
+    };
+    /** Each of the world's files and its checksum. */
+    const files = (): string[] => {
+      const out: string[] = [];
+      for (const f of readdirSync(join(dir, 'world'), { recursive: true, withFileTypes: true })) if (f.isFile()) out.push(`${join(f.parentPath, f.name)} ${crc32(readFileSync(join(f.parentPath, f.name)))}`);
+      return out.sort();
+    };
+    const filesBefore = files();
+
+    const area = { min: [-12, surfaceM - 6, -12] as [number, number, number], max: [12, surfaceM + 8, 12] as [number, number, number] };
+    const rockChunks = chunksOf(rock(rockAt(0.1)));
+    const treeChunks = chunksOf(tree);
+    const moved = chunksOf(rock(rockAt(20.1)));
+    const all = [...new Set([...rockChunks, ...treeChunks, ...chunksOf(rock([-6.2, surfaceM + 1.5, 4.1]))])];
+    const watched = [...new Set([...all, ...moved])];
+    await h.stepUntil((v) => (v.isResident(area) ? true : undefined), 'the props to load');
+    await settle('the ring to settle', watched);
+    expect(rockChunks.length).toBe(4);
+    expect(await sameAsFresh([rock(rockAt(0.1)), tree], all)).toBeGreaterThan(100);
+    const at = await h.inStep((v) => ({ rock: v.coverageAt(...rockAt(0.1)), pebble: v.coverageAt(-6.2, surfaceM + 1.5, 4.1), far: v.coverageAt(5000, surfaceM, 5000) }));
+    expect(at).toEqual({ rock: 1, pebble: 0, far: null });
+    // Counted in the budget: a covered chunk's 32³ bytes, an uncovered one nothing.
+    const last = new Map(builds.map((b) => [b.key, b.bytes]));
+    for (const k of rockChunks) expect(last.get(k)).toBe(grid.cellsPerChunk);
+    expect([...last.values()].filter((b) => b > 0).length).toBeGreaterThanOrEqual(rockChunks.length);
+
+    // The game's changes and their save, before the rock moves.
+    const dig = await h.inStep((v) => v.dig({ center: [-8, surfaceM - 1, 6], radius: 1.5 }));
+    expect(dig.ok).toBe(true);
+    const saveNow = async (): Promise<Uint8Array> => {
+      let id = 0;
+      const a = await h.stepUntil((v) => {
+        if (id === 0) id = v.save();
+        return v.saves.find((x) => x.save === id);
+      }, 'a save');
+      expect(a.ok).toBe(true);
+      return a.bytes!;
+    };
+    const saved = await saveNow();
+    await settle('the dig to settle', watched);
+    const overlay = s().metrics().bytes.overlay;
+
+    // The rock moves 20 m along x: rebuilt are exactly the four chunks it left and the two it entered.
+    builds.length = 0;
+    h.move('rock', rockAt(20.1));
+    await h.stepUntil((v) => (v.coverageAt(...rockAt(20.1)) === 1 ? true : undefined), 'the rock to be stamped where it went');
+    expect(builds.map((b) => b.key).sort()).toEqual([...new Set([...rockChunks, ...moved])].sort());
+    expect(await sameAsFresh([rock(rockAt(20.1)), tree], [...new Set([...all, ...moved])])).toBeGreaterThan(100);
+    expect(await h.inStep((v) => v.coverageAt(...rockAt(0.1)))).toBeLessThan(1);
+    // Never saved, never in the voxels or the files: the save, the overlay and the world's files are as they were.
+    expect(await saveNow()).toEqual(saved);
+    expect(s().metrics().bytes.overlay).toBe(overlay);
+    expect(files()).toEqual(filesBefore);
+
+    // The world's focus goes 100 m away (the props' chunks unload) and comes back: the channel is built again as they load.
+    h.move('world-a', [100, surfaceM, 0]);
+    await h.stepUntil((v) => (v.coverageAt(...rockAt(20.1)) === null && v.coverageAt(...treeAt) === null ? true : undefined), 'the props to unload');
+    builds.length = 0;
+    h.move('world-a', [0, surfaceM, 0]);
+    await h.stepUntil((v) => (v.isResident(area) && v.isResident({ at: rockAt(20.1) }) ? true : undefined), 'the props to load again');
+    await settle('the ring to settle again', watched);
+    for (const k of [...moved, ...treeChunks]) expect(builds.some((b) => b.key === k)).toBe(true);
+    expect(await sameAsFresh([rock(rockAt(20.1)), tree], [...new Set([...all, ...moved])])).toBeGreaterThan(100);
+    expect(await h.inStep((v) => v.coverageAt(...rockAt(20.1)))).toBe(1);
     expect(h.rt.dispose().ok).toBe(true);
   }, 180_000);
 });
