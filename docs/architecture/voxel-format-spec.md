@@ -186,7 +186,6 @@ lighting chosen performance first (46e).
 **Open, and not part of v1 yet:**
 - dependencies across grids (M7): the job contract's keys, aprons and invalidation are per grid (§3.6 open contract
   gap, with the planned design, before 47a);
-- Rapier memory in the budget (D434): later work (voxel commands on MCP, D433, are built: 46a.1, no format change);
 - shoreline cells that are both ground and water (O15): the first candidate for the reserved bits;
 - a sparse GPU form of the shader data (§3.7: 3–6× smaller than the dense grids, one more read per corner),
   measured but not built.
@@ -916,7 +915,12 @@ inside), in x, z, y order.
   - the runtime overlay's arrays (§2.3; counted, never evicted);
   - 96 B of bookkeeping per resident chunk, air included;
   - every derived part registered per chunk;
-  - the open region tables.
+  - the open region tables;
+  - each chunk body's physics cost (its `collision` part: the physics heap's estimate for its shape plus the
+    geometry kept for re-bases, D434).
+- **The collision ring** (`DEFAULT_COLLISION_RING`, `collision-ring.ts`): resident chunks have physics bodies only
+  while their box is within 96 cells horizontally and 48 vertically of a focus (48 m / 24 m), kept to 16 cells (8 m)
+  past that; the stream ring around it is only drawn. Not a format.
 - **Over budget:** clean chunks are evicted farthest first (ties: least recently wanted) down to 95 % of the
   budget. Loading stops short of the nearest evicted distance until the total is below 85 %.
 - **Main thread:** apron building is capped at 2 ms an update.

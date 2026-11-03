@@ -100,7 +100,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.5a | done 23e5e1ee: `joinSections` (chunk-join.ts) joins a chunk's 16³ results into one ground + base surface, instances and a 34³ grid equal to the whole-chunk derive; swaps name their chunks, `chunk` events, `joinedChunk` on demand. Join p50/p95 slice 285/587 µs, town 312/686 µs (grid ~90 %). Fast gate green 12 min; voxel-world.e2e 26.7 → 19.8 s (load 9 → 2). |
 | 46a.5b | done e317f7b0 (+ 9d22034d boundary, 87c50d84): adapter `VoxelChunkView`, one draw a chunk from joined sections, grid entries straight to upload; page uses it. render() CPU 16³ slice 1.4–1.6 / town 4.0 ms (was 4.2 / 13.8; same-hour 32³ 1.6 / 3.9–4.0): D440 draw half fixed. Town 8 m blast main ~180–220 ms (bodies a section, 46a.6a). D441 fixed, D442 open. voxel-world.e2e 19.8 → 21.3 s. |
 | 46a.6a | done 325206fc, 70176c6b: one Rapier body a 32³ chunk from its joined 16³ sections, built from the draw's join in the same task and frame; ground alone, facing up, within 5 mm of a lattice heightfield → heightfield. Share slice/hilly 0 %, town 24 %; 4.3 vs 37.5 KB a body. Town 8 m blast main 50–104 ms (was 180–220). D440 fixed, D443 opened. voxel-world.e2e 21.3 → 19.0 s. |
-| 46a.6b | not started |
+| 46a.6b | done df6e67b0: `CollisionRing` (voxel): bodies only within 48/24 m of the foci (box distance, 8 m hysteresis, in nearest first in 4 ms, out farthest first), each the chunk's `collision` part at Rapier's heap estimate. Heap cold / after 4 flights: slice 14 / 19.4 MB (was 131 / 172; 53–58 bodies of 493), town 6–7 / 14.6 MB (was 174). D434 fixed. voxel-world.e2e 19.0 → 17.3 s. |
 | 46a.7a | not started |
 | 46a.7b | not started |
 | 46a.8 | not started |
@@ -328,6 +328,52 @@ and 00:17, load 3–5, uptime 10 d 7.6 h; report `~/.cache/thirdlight-phase46/wo
   peak, village perf at the cap 0 missed on both renderers. `voxel-world.e2e.ts` 21.3 → 19.1 / 19.0 s (8.6 + 4.9 +
   5.5 s; load 4.5 at the start, uptime 10 d 7.8 h).
 
+**46a.6b** (df6e67b0). `collision-ring.ts` (`CollisionRing`, pure): a resident chunk gets a body while its box is
+nearer than the collision radius (horizontal) and height (vertical) to a focus, and keeps it until past those plus
+`COLLISION_RING_HYSTERESIS_CELLS` (16, 8 m) for every focus. Inside the ring the body follows the draw (`changed`
+from the `chunk` event, same task, so an edit's swap stays atomic for bodies); `update()` removes leavers farthest
+first, then adds resident entrants nearest first within `COLLISION_ADD_MS_PER_UPDATE` (4 ms, at least one body a
+call); `unloaded` drops the body with the chunk. Each body is the chunk's `collision` part (`COLLISION_PART`): the
+geometry the page keeps for re-bases plus `estimateStaticBodyBytes3D` (physics-rapier `memory3d.ts`: 0.9 KB a body,
+0.7 KB a primitive, mesh 1.3 KB + 140 B a triangle, heightfield 1 KB + 5 B a node, hull 0.75 KB + 230 B a point).
+The page keeps the ring around its target (`PageCollisionRing`; `?collisionRing=0` gives every resident chunk a body).
+Tests: `memory3d.test.ts` (estimate within 0.8–1.25× of the real heap's growth over 8 MB batches of meshes,
+heightfields, box compounds and hulls; six remove/re-add rounds grow it at most once); `collision.test.ts` (in-memory
+hilly strip, real Rapier: every body within the keep bounds, every chunk within the add bounds with geometry has one,
+parts = ring = port bytes, removals farthest first, ±4 m across a chunk edge adds and removes nothing, three 416 m
+round trips: ≤ 33 bodies at once (23 first), 896 adds, heap after trip 3 within 2 pages of trip 1; a capsule lands
+by the focus and falls 100 m behind it); `stream.test.ts` (real workers, region files, real Rapier: a focus moving
+64 m, all bodies off takes exactly their bytes off the budget, a dig's ring chunks replaced in its swap's task,
+evictions at a quarter and below the ring's own bytes take bodies with their chunks, budget held). That last test
+found the streamer announces `unloaded` before it forgets the chunk, so clearing the part there subtracted it twice
+(after evictions the bodies' 7.3 MB exceeded the whole derived total of 2.9 MB); the ring now leaves an unloaded chunk's parts to the streamer.
+Flight (`run.mjs slice --phase fly`, staging, headless Chrome, Iris Xe, 1280×720 at the 60 Hz cap, 4 workers; slice at
+0,103,−32, town at 256,0,256; 2026-11-03 00:54–01:10, load 4.5–11 from other users, uptime 10 d 8.5 h; reports
+`~/.cache/thirdlight-phase46/work/46a.6b/fly{,2}/`, scratch):
+
+| Run | Bodies cold → after | Counted (MB) | Rapier heap cold → after each trip (MB) | Add ms p50 / p95 | Remove ms p50 / p95 | Ring update ms p50 / p95 | Frames missed |
+|---|---|---|---|---|---|---|---|
+| 45.9 slice, a body a section | 448 | 16.6 (geometry) | 126 → 172 | 2.2 / 4.0 | 0.2 / 0.9 | – | 0 |
+| slice WebGPU / WebGL 2, ring | 53 → 58 | 15.2 → 17.4 | 14.6 → 19.9 / 14.6 → 20.0 | 2.9 / 4.8, 2.2 / 4.6 | 0.1 / 0.2 | 3.8 / 6.1, 2.7 / 5.7 | 0 / 0 |
+| slice WebGPU, ring, 4 trips | 53 → 58 | 15.2 → 17.4 | 14.1 → 18.9, 19.3, 19.4, 19.4 | 3.0 / 4.5 | 0.1 / 0.2 | 3.7 / 5.7 | 1 (33 ms) |
+| slice WebGPU, every chunk (same hour) | 493 → 517 | 157 → 174 | 131 → 152 | 2.3 / 4.1 | 0.1 / 0.3 | – | 2 |
+| town WebGPU / WebGL 2, ring (46a.6a: 950 bodies, 174 MB) | 77 → 87 | 7.0 → 7.7 | 6.4 → 15.0 / 7.1 → 14.7 | 1.2 / 4.1, 1.2 / 3.9 | 0.9 / 1.4, 0.8 / 1.3 | 4.0 / 7.8, 3.5 / 8.2 | 0 / 0 |
+| town WebGPU, ring, 4 trips | 73 → 87 | 6.4 → 7.7 | 5.8 → 14.6, 14.6, 14.6, 14.6 | 1.2 / 3.8 | 0.8 / 1.3 | 3.6 / 7.3 | 2 (33 ms) |
+
+- **D434 fixed:** bodies are bounded by the ring (53–87 instead of 448–950), counted in the budget at their heap
+  cost, and the heap stops growing after the first trip (slice 19.4 MB after trips 3 and 4, town 14.6 MB after each).
+  The estimate agrees with the heap: slice cold 13.4 MB estimated above the 1.2 MB of an empty world, 12.8 MB measured.
+  Stream total with bodies: slice 127 MB, town 235 MB of 256 MiB; every chunk with a body counted fills the slice's
+  budget to 265 MB (eviction would start).
+- **Not counted:** the heap's high-water above the live bodies (slice ~5 MB, town ~8 MB: freed bodies' room kept
+  for the next ones and the larger arena), bounded by the ring, not by the budget.
+- Ring update p95 5.7–8.2 ms is one body over the 4 ms slice (one is always added); the town's box compounds
+  (8,504 colliders in 87 bodies) cost 0.8–0.9 ms a removal. Missed frames: 0 on single trips; 1–2 frames of 33 ms in
+  the 4-trip runs (load 9–11).
+- Fast gate (gate-fast-20261103-011044): GREEN, 11 min, 5.3 GB peak, village perf at the cap 0 missed on both
+  renderers. `voxel-world.e2e.ts` 19.0 → 17.3 s (8.0 + 4.5 + 4.8 s; load 6.7 at the start, uptime 10 d 8.7 h; no e2e
+  change: the scene's blasts and drops lie inside the ring around the camera's target).
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -442,5 +488,19 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   (`collisionGeometry`, `groundHeightfield`, `joinCollision`) is pure and in `@thirdlight/voxel`; what is left is
   ~60 lines of port glue (compound parts, the field's quarter turn, add/remove/re-base). 46a.7b moves that glue next
   to the simulation's physics for Play, where bodies are built from the sim's own join (the page only draws).
+- 2026-11-03 (46a.6b, default chosen, owner to confirm): **the collision ring is measured to the chunk's box**
+  (strictly nearer than the radius: everything that close is solid, whatever the chunk edge), keeps bodies 8 m past
+  the bounds (`COLLISION_RING_HYSTERESIS_CELLS`), adds entrants nearest first within 4 ms an update with at least one
+  body a call (`COLLISION_ADD_MS_PER_UPDATE`), and removes leavers at once, farthest first (memory first; a removal
+  is 0.1–0.9 ms). Foci are a list: the page passes its camera target; 46a.7a's host passes the world's focus and its
+  characters.
+- 2026-11-03 (46a.6b, default chosen, owner to confirm): **a body's budget part is an estimate of Rapier's heap for
+  its shape** (`estimateStaticBodyBytes3D`, owned by physics-rapier, held to 0.8–1.25× of the real heap by a test) plus
+  the geometry kept on the JS side. `physicsMemoryBytes3D` deltas are not used per body: the heap grows in 64 KiB
+  pages, never shrinks and reuses freed bodies' bytes, so a delta is 0 for most adds and a page for some. The heap's
+  high-water above the live bodies (5–8 MB here) is not in the budget; the ring bounds it.
+- 2026-11-03 (46a.6b): the streamer emits `unloaded` while the chunk is still listed, so a consumer that clears its
+  part there subtracts it a second time; consumers leave an unloaded chunk's parts to the streamer (the ring does;
+  the chunk view never cleared its `mesh` part). 46a.7b moves `PageCollisionRing`'s glue next to the sim's physics.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
