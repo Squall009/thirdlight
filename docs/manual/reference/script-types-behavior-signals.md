@@ -902,7 +902,10 @@ export interface BehaviorSurface {
 export interface BehaviorVoxels extends Omit<BehaviorVoxelWorld, 'name'> {
   /** The loaded worlds' names, in load order. */
   worlds(): readonly string[];
-  /** A loaded world by name (null: no loaded scene names it). */
+  /**
+   * A loaded world by name (null: no loaded scene names it).
+   * @graphNode skip a world handle; the voxel nodes act on the first world loaded
+   */
   world(name: string): BehaviorVoxelWorld | null;
   /** The changes swapped in since the previous step, every world's, in swap order. */
   readonly changes: readonly VoxelChange[];

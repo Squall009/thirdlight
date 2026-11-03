@@ -221,6 +221,14 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Surface at](graph-behavior-5.md#node-behavior--api-surface-at) (`api.surface.at`, as in `behavior`): The ground at or below a world position (a point inside blocks gives their top), or null where no block layer or loaded terrain tile has ground (a hole, off the level).
 - [Top surface](graph-behavior-5.md#node-behavior--api-surface-top) (`api.surface.top`, as in `behavior`): The highest ground at world x, z, or null where there is none.
 
+<a id="graph-behavior-function--voxels"></a>
+## Voxels
+
+- [Worlds](graph-behavior-5.md#node-behavior--api-voxels-worlds) (`api.voxels.worlds`, as in `behavior`): The loaded worlds' names, in load order.
+- [Voxels changes](graph-behavior-5.md#node-behavior--api-voxels-changes) (`api.voxels.changes`, as in `behavior`): The changes swapped in since the previous step, every world's, in swap order.
+- [Voxels waits](graph-behavior-5.md#node-behavior--api-voxels-waits) (`api.voxels.waits`, as in `behavior`): The `whenResident` waits answered at this step's start.
+- [Voxel at](graph-behavior-5.md#node-behavior--api-voxels-get) (`api.voxels.get`, as in `behavior`): The voxel at a world position, or null where the world is not loaded there (never air for that).
+
 <a id="graph-behavior-function--camera"></a>
 ## Camera
 
@@ -245,12 +253,3 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Detach from socket](graph-behavior-5.md#node-behavior--api-sockets-detach) (`api.sockets.detach`, as in `behavior`): Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached. An empty entity means this object.
 - [Socket of](graph-behavior-5.md#node-behavior--api-sockets-attached-to) (`api.sockets.attachedTo`, as in `behavior`): The socket an object rides on (the target object and the node's name), or null. An empty entity means this object.
 - [Node pose](graph-behavior-5.md#node-behavior--api-sockets-node-pose) (`api.sockets.nodePose`, as in `behavior`): A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.
-
-<a id="graph-behavior-function--materials"></a>
-## Materials
-
-- [Set material parameter](graph-behavior-5.md#node-behavior--api-materials-set) (`api.materials.set`, as in `behavior`): Set a parameter on one object: a number (float), 2–4 numbers (vec2–4), "#rrggbb" (colour) or a texture asset id of the game ("" for none). Other objects wearing the material keep their values. False when refused. An empty entity means this object.
-- [Material parameter](graph-behavior-5.md#node-behavior--api-materials-get) (`api.materials.get`, as in `behavior`): A parameter's value on an object now: what a script set, else the object's authored override, else the material's default (null: no such parameter, or a data parameter). An empty entity means this object.
-- [Reset material parameter](graph-behavior-5.md#node-behavior--api-materials-reset) (`api.materials.reset`, as in `behavior`): Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
-- [Write material data](graph-behavior-5.md#node-behavior--api-materials-set-data) (`api.materials.setData`, as in `behavior`): Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
-- [Material data cell](graph-behavior-6.md#node-behavior--api-materials-get-data) (`api.materials.getData`, as in `behavior`): One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.

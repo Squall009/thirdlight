@@ -35,8 +35,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 20 sections |
 | [Script API types (from `BehaviorSignals`)](script-types-behavior-signals.md) | 22 sections |
 | [Script API types (from `BehaviorSockets`)](script-types-behavior-sockets.md) | 44 sections |
-| [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 70 sections |
-| [Script API types (from `EntityWriteResult`)](script-types-entity-write-result.md) | 42 sections |
+| [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 69 sections |
+| [Script API types (from `WindChange`)](script-types-wind-change.md) | 43 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
@@ -45,15 +45,15 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics |
 | [Graph: Visual script (part 3, from Character state (`api.physics.characterState`))](graph-behavior-3.md) | Tags, World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health |
 | [Graph: Visual script (part 4, from Health events (`api.health.events`))](graph-behavior-4.md) | Patrol, Hitbox, Collectible, Character, Look, Audio, Effects, Decals, Save, Grid |
-| [Graph: Visual script (part 5, from World to cell (`api.grid.worldToCell`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials |
-| [Graph: Visual script (part 6, from Material data cell (`api.materials.getData`))](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Lighting, Dialogue, Modes, Lifecycle, Timeline |
+| [Graph: Visual script (part 5, from World to cell (`api.grid.worldToCell`))](graph-behavior-5.md) | Scatter, Splines, Surface, Voxels, Camera, Sockets, Materials |
+| [Graph: Visual script (part 6, from Write material data (`api.materials.setData`))](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Lighting, Dialogue, Modes, Lifecycle, Timeline |
 | [Graph: Visual script (part 7, from Environment)](graph-behavior-7.md) | Environment, Entity, Shell |
 | [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 32 sections |
 | [Graph: Script function (part 2, from Input)](graph-behavior-function-2.md) | 23 sections |
-| [Graph: Script function (part 3, from Saves)](graph-behavior-function-3.md) | 13 sections |
+| [Graph: Script function (part 3, from Materials)](graph-behavior-function-3.md) | 14 sections |
 | [Graph: Shared script function (part 1, from Shared script function)](graph-behavior-library-1.md) | 21 sections |
 | [Graph: Shared script function (part 2, from Input)](graph-behavior-library-2.md) | 23 sections |
-| [Graph: Shared script function (part 3, from Saves)](graph-behavior-library-3.md) | 13 sections |
+| [Graph: Shared script function (part 3, from Materials)](graph-behavior-library-3.md) | 14 sections |
 | [Graph: Material graph](graph-material.md) | Material graph, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions, Output |
 | [Graph: Material function](graph-material-function.md) | Material function, Interface, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions |
 | [Graph: Particle system](graph-effect.md) | Particle system, Contexts, Spawn, Position, Initialize, Forces, Collision, Over life, Kill, Output, Values, Maths |

@@ -1,8 +1,33 @@
-# Script API types (from `EntityWriteResult`)
+# Script API types (from `WindChange`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-wind-change"></a>
+## `WindChange`
+
+```ts
+/** A change of the global wind (`ctx.environment.setWind`): any of the wind's fields. */
+export interface WindChange {
+  /** Horizontal direction [x, z], each -1–1, not both 0. */
+  direction?: readonly [number, number];
+  /** Base strength (0–10; 0: still air). */
+  strength?: number;
+  /** Extra strength at the gust pattern's peaks (0–10). */
+  gust?: number;
+  /** Gusts per second (0–10): the pattern's speed when `speed` is not given. */
+  gustFrequency?: number;
+  /** Small-scale variation (0–1). */
+  turbulence?: number;
+  /** Metres per second the gust pattern travels (0–100). */
+  speed?: number;
+  /** Metres the gust pattern spans (0.5–10000). */
+  scale?: number;
+  /** A texture asset id: the gust pattern (its red channel). */
+  noise?: string;
+}
+```
 
 <a id="script-type-entity-write-result"></a>
 ## `EntityWriteResult`

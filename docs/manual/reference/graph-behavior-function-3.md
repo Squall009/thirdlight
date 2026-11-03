@@ -1,8 +1,17 @@
-# Graph: Script function (part 3, from Saves)
+# Graph: Script function (part 3, from Materials)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-function--materials"></a>
+## Materials
+
+- [Set material parameter](graph-behavior-5.md#node-behavior--api-materials-set) (`api.materials.set`, as in `behavior`): Set a parameter on one object: a number (float), 2–4 numbers (vec2–4), "#rrggbb" (colour) or a texture asset id of the game ("" for none). Other objects wearing the material keep their values. False when refused. An empty entity means this object.
+- [Material parameter](graph-behavior-5.md#node-behavior--api-materials-get) (`api.materials.get`, as in `behavior`): A parameter's value on an object now: what a script set, else the object's authored override, else the material's default (null: no such parameter, or a data parameter). An empty entity means this object.
+- [Reset material parameter](graph-behavior-5.md#node-behavior--api-materials-reset) (`api.materials.reset`, as in `behavior`): Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
+- [Write material data](graph-behavior-6.md#node-behavior--api-materials-set-data) (`api.materials.setData`, as in `behavior`): Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
+- [Material data cell](graph-behavior-6.md#node-behavior--api-materials-get-data) (`api.materials.getData`, as in `behavior`): One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.
 
 <a id="graph-behavior-function--saves"></a>
 ## Saves

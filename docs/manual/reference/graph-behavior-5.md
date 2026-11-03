@@ -1048,6 +1048,73 @@ Fields:
 | `x` | x | number | `0` | -1000000000 – 1000000000 |
 | `z` | z | number | `0` | -1000000000 – 1000000000 |
 
+<a id="graph-behavior--voxels"></a>
+## Voxels
+
+- Worlds (`api.voxels.worlds`): The loaded worlds' names, in load order.
+- Voxels changes (`api.voxels.changes`): The changes swapped in since the previous step, every world's, in swap order.
+- Voxels waits (`api.voxels.waits`): The `whenResident` waits answered at this step's start.
+- Voxel at (`api.voxels.get`): The voxel at a world position, or null where the world is not loaded there (never air for that).
+
+<a id="node-behavior--api-voxels-worlds"></a>
+### Worlds (`api.voxels.worlds`)
+
+The loaded worlds' names, in load order.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (list)
+
+<a id="node-behavior--api-voxels-changes"></a>
+### Voxels changes (`api.voxels.changes`)
+
+The changes swapped in since the previous step, every world's, in swap order.
+
+Outputs:
+
+- `value` (list)
+
+<a id="node-behavior--api-voxels-waits"></a>
+### Voxels waits (`api.voxels.waits`)
+
+The `whenResident` waits answered at this step's start.
+
+Outputs:
+
+- `value` (list)
+
+<a id="node-behavior--api-voxels-get"></a>
+### Voxel at (`api.voxels.get`)
+
+The voxel at a world position, or null where the world is not loaded there (never air for that).
+
+Inputs:
+
+- `x` (number)
+- `y` (number)
+- `z` (number)
+
+Outputs:
+
+- `material` (number)
+- `role` (number)
+- `shape` (number)
+- `wetness` (number)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+
 <a id="graph-behavior--camera"></a>
 ## Camera
 
@@ -1547,38 +1614,4 @@ Fields:
 |---|---|---|---|---|
 | `entityId` | entity | string | `""` | ≤ 256 chars |
 | `param` | parameter | string | `""` | ≤ 256 chars |
-| `materialId` | material | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-materials-set-data"></a>
-### Write material data (`api.materials.setData`)
-
-Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "entity" (string)
-- `param` "parameter" (string)
-- `x` (number)
-- `y` (number)
-- `w` (number)
-- `h` (number)
-- `bytes` (list)
-- `materialId` "material" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | entity | string | `""` | ≤ 256 chars |
-| `param` | parameter | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `w` | w | number | `1` | -1000000000 – 1000000000 |
-| `h` | h | number | `1` | -1000000000 – 1000000000 |
 | `materialId` | material | string | `""` | ≤ 256 chars |

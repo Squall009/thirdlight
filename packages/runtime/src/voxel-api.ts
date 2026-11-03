@@ -85,20 +85,30 @@ export interface BehaviorVoxelWorld {
    * @graphNode Voxel at
    */
   get(x: number, y: number, z: number): VoxelValue | null;
-  /** Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap). */
+  /**
+   * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap).
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
+   */
   set(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult;
-  /** Empty every cell of a region to air. */
+  /**
+   * Empty every cell of a region to air.
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
+   */
   dig(region: VoxelRegion): VoxelEditResult;
-  /** Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes). */
+  /**
+   * Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes).
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
+   */
   paint(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult;
   /**
    * Whether every cell of a region is loaded (reads give values, changes are accepted).
-   * @graphPure
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   isResident(region: VoxelRegion): boolean;
   /**
    * Waits for every cell of a region to be loaded: returns the wait's id, answered in `ctx.voxels.waits`
    * at a later step's start (resident, or not when the world unloaded first).
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   whenResident(region: VoxelRegion): number;
 }
@@ -110,7 +120,10 @@ export interface BehaviorVoxelWorld {
 export interface BehaviorVoxels extends Omit<BehaviorVoxelWorld, 'name'> {
   /** The loaded worlds' names, in load order. */
   worlds(): readonly string[];
-  /** A loaded world by name (null: no loaded scene names it). */
+  /**
+   * A loaded world by name (null: no loaded scene names it).
+   * @graphNode skip a world handle; the voxel nodes act on the first world loaded
+   */
   world(name: string): BehaviorVoxelWorld | null;
   /** The changes swapped in since the previous step, every world's, in swap order. */
   readonly changes: readonly VoxelChange[];

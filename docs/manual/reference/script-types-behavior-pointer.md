@@ -763,20 +763,30 @@ export interface BehaviorVoxelWorld {
    * @graphNode Voxel at
    */
   get(x: number, y: number, z: number): VoxelValue | null;
-  /** Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap). */
+  /**
+   * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap).
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
+   */
   set(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult;
-  /** Empty every cell of a region to air. */
+  /**
+   * Empty every cell of a region to air.
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
+   */
   dig(region: VoxelRegion): VoxelEditResult;
-  /** Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes). */
+  /**
+   * Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes).
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
+   */
   paint(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult;
   /**
    * Whether every cell of a region is loaded (reads give values, changes are accepted).
-   * @graphPure
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   isResident(region: VoxelRegion): boolean;
   /**
    * Waits for every cell of a region to be loaded: returns the wait's id, answered in `ctx.voxels.waits`
    * at a later step's start (resident, or not when the world unloaded first).
+   * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   whenResident(region: VoxelRegion): number;
 }
@@ -1381,30 +1391,5 @@ export interface EnvironmentChangeOptions {
   easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
   /** Per-field changes over the preset: { sky?, fog?, post?, lights?, lightmap? }, each merged over the preset's (a light list adds entries). */
   override?: { readonly [part: string]: unknown };
-}
-```
-
-<a id="script-type-wind-change"></a>
-## `WindChange`
-
-```ts
-/** A change of the global wind (`ctx.environment.setWind`): any of the wind's fields. */
-export interface WindChange {
-  /** Horizontal direction [x, z], each -1–1, not both 0. */
-  direction?: readonly [number, number];
-  /** Base strength (0–10; 0: still air). */
-  strength?: number;
-  /** Extra strength at the gust pattern's peaks (0–10). */
-  gust?: number;
-  /** Gusts per second (0–10): the pattern's speed when `speed` is not given. */
-  gustFrequency?: number;
-  /** Small-scale variation (0–1). */
-  turbulence?: number;
-  /** Metres per second the gust pattern travels (0–100). */
-  speed?: number;
-  /** Metres the gust pattern spans (0.5–10000). */
-  scale?: number;
-  /** A texture asset id: the gust pattern (its red channel). */
-  noise?: string;
 }
 ```

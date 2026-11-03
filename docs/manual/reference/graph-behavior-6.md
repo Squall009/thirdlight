@@ -1,8 +1,42 @@
-# Graph: Visual script (part 6, from Material data cell (`api.materials.getData`))
+# Graph: Visual script (part 6, from Write material data (`api.materials.setData`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-materials-set-data"></a>
+### Write material data (`api.materials.setData`)
+
+Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "entity" (string)
+- `param` "parameter" (string)
+- `x` (number)
+- `y` (number)
+- `w` (number)
+- `h` (number)
+- `bytes` (list)
+- `materialId` "material" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+| `param` | parameter | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `w` | w | number | `1` | -1000000000 – 1000000000 |
+| `h` | h | number | `1` | -1000000000 – 1000000000 |
+| `materialId` | material | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-materials-get-data"></a>
 ### Material data cell (`api.materials.getData`)
