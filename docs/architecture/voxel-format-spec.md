@@ -1258,11 +1258,12 @@ the load ring to stand in where level-2 nodes are not complete, 46b.8a).
 - Staleness: a level-0 change marks every ancestor stale (`MipStaleSet`, rebuilt lowest first once the children are
   settled) and moves the derive stamp of the nodes within R of the change at each level (the box scaled by 2^L): a
   dig inside a node re-derives its ancestors only. A chunk leaving drops its ancestors' results at once.
-- Edits swap whole: every node an edit (or a refresh, or a restored or cleared overlay) makes stale joins the edit's
-  level-0 group (a node meeting another open group merges them). Its jobs go in the `edit` lane (a node shown on
-  screen ahead of the edit's level-0 rebuilds). The new results of the nodes shown (drawn, or read by a drawn seam)
-  are held, the old ones drawn, until every shown node has its new one; they and the seams reading them or the
-  edit's chunks go in with the level-0 swap, in its task (`SwapReport.nodes`). Nodes not shown go in as they land.
+- Edits swap whole: every node an edit (or a refresh, or a restored or cleared overlay) makes stale that is shown
+  (drawn, or read by a drawn seam) joins the edit's level-0 group (a shown node meeting another open group merges
+  them). Every stale node's jobs go in the `edit` lane (a shown one ahead of the edit's level-0 rebuilds). The new
+  results of the shown nodes are held, the old ones drawn, until every one has its new result; they and the seams
+  reading them or the edit's chunks go in with the level-0 swap, in its task (`SwapReport.nodes`). Nodes not shown
+  join no group and go in as they land, so edits meeting only under nodes nobody draws swap on their own.
 - Measured (Node, slice ring, default rings, 4 workers): 330 level-1 and 13 level-2 nodes derived, 6.4 MB of mips
   (1.6 MB cells) against 25.4 MB for level 0; worker µs a node p50/p95 downsample 2,600/7,100, derive 1,600/9,700.
 - Measured (Node, hard cases): levels 1 and 2 are closed, and every surface lies within the level's cell of the

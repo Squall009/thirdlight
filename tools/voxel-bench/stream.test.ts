@@ -1561,7 +1561,92 @@ describe('streamer (workers, region files on disk)', () => {
     }
     for (const sm of c.seams) expect(sm.task).toBe(c.swaps[0]!.task);
     sameAsFresh(rc.nodes.map(([l, x, y, z]) => key(l, x, y, z)));
+
     console.log('edit swaps', JSON.stringify(measured));
+  }, 180_000);
+
+  it('never holds an edit for another that meets it only under a node nobody draws: two digs in the level-0 ring swap apart, also while one is dug every update', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    let minCy = Infinity;
+    let maxCy = -Infinity;
+    for (const k of oracle.chunkKeys()) {
+      const c = chunkOfKey(grid, k);
+      minCy = Math.min(minCy, c.cy);
+      maxCy = Math.max(maxCy, c.cy);
+    }
+    const midY = ((minCy + maxCy + 1) * 32) / 2;
+    const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
+    const ring: StreamRing = { loadRadius: 256, unloadRadius: 288, loadHeight: half, unloadHeight: half + 32, nearRadius: 96 };
+    const p = pool(4);
+    const lanes: Array<{ kind: string; lane: string; level: number }> = [];
+    const submit = p.submit.bind(p);
+    p.submit = ((job: Parameters<WorkerPool['submit']>[0]) => {
+      if (job.kind === 'derive') lanes.push({ kind: job.kind, lane: job.lane, level: (job.input as { level?: number }).level ?? 0 });
+      return submit(job);
+    }) as WorkerPool['submit'];
+    // Level 0 within 112 cells: the level-1 nodes x, z in -1…0 are split and so are all their neighbours, so no seam reads them.
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: p, ring, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, deriveMsPerUpdate: 10_000, mips: [{ level: 1, radius: 160 }], levels: { radii: [112], hysteresis: 0 } });
+    const mips = s.mips!;
+    const swaps: SwapReport[] = [];
+    s.on((e) => {
+      if (e.type === 'swap') swaps.push(e.report);
+    });
+    const truth = copyOracle();
+    const v = voxel();
+    const surface = (x: number, z: number): number => {
+      for (let y = 300; y > -300; y--) if (truth.voxelAt(x, y, z, v).material !== 0 && v.role !== VOXEL_ROLE.liquid) return y;
+      throw new Error(`no ground at ${x}, ${z}`);
+    };
+    const dig = (x: number, y: number, z: number, size: number): number => {
+      const cmd = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [size, size, size], points: [x, y, z], mode: 'dig', smooth: false });
+      const group = s.edit(cmd).group;
+      applyEdit({ store: () => truth }, cmd);
+      return group;
+    };
+    const fresh = (nx: number, ny: number, nz: number): void => {
+      const want = deriveMipNode(new MipTree(truth), { level: 1, nx, ny, nz }, WORLD_RULES);
+      const got = mips.derivedOf(1, nx, ny, nz);
+      if (got === null) expect(want.ground.vertexCount + want.base.vertexCount + want.instances.count).toBe(0);
+      else expect(Buffer.compare(Buffer.from(encodeDerived(got)), Buffer.from(encodeDerived(want)))).toBe(0);
+    };
+    s.setFocus(0, midY, 0);
+    await s.settle();
+
+    // Two digs 44 cells apart under the level-1 node (-1, ny, -1), which is split: each swaps alone, naming no node.
+    const ya = surface(-50, -14);
+    const yb = surface(-14, -50);
+    expect(ya >> 6).toBe(yb >> 6);
+    const ny = ya >> 6;
+    expect(mips.lod.drawn.drawn(1, -1, ny, -1)).toBe(false);
+    swaps.length = 0;
+    lanes.length = 0;
+    const ga = dig(-50, ya, -14, 3);
+    const gb = dig(-14, yb, -50, 3);
+    await s.settle();
+    expect(swaps.map((r) => [...r.groups])).toEqual([[ga], [gb]]);
+    for (const r of swaps) expect(r.nodes.length).toBe(0);
+    // The node is derived again all the same, in the edit lane, equal to a fresh derive of the dug world.
+    expect(lanes.some((l) => l.level === 1 && l.lane === 'edit')).toBe(true);
+    expect(lanes.filter((l) => l.level === 1).every((l) => l.lane === 'edit')).toBe(true);
+    fresh(-1, ny, -1);
+
+    // One dig while the other spot is dug again every update (a held tool): the first swaps while the second goes on.
+    swaps.length = 0;
+    const first = dig(-50, ya - 3, -14, 2);
+    let updates = 0;
+    const swapped = (): boolean => swaps.some((r) => r.groups.includes(first));
+    expect(swapped()).toBe(false);
+    do {
+      // A new spot every update, so every dig changes cells (a dig of air rebuilds nothing).
+      dig(-20 + (updates % 13), yb - 3 - Math.floor(updates / 169), -56 + (Math.floor(updates / 13) % 13), 2);
+      s.update();
+      await sleep(2);
+    } while (++updates < 300 && !swapped());
+    expect(swapped()).toBe(true);
+    await s.settle();
+    fresh(-1, ny, -1);
+    console.log('apart', JSON.stringify({ heldToolUpdates: updates }));
   }, 180_000);
 
   it('chooses the levels drawn round a moving focus in real workers: every chunk drawn once across the levels at every task boundary, neighbours a level apart, a level change one swap with its seams, stable under jitter', async () => {

@@ -29,14 +29,16 @@
  * - **Order.** Mip jobs go in the `mip` lane, after every level-0 job (an
  *   edit's rebuilds, then near and far work), nearest first; an edit's own
  *   go in the `edit` lane, the drawn nodes' ahead of its level-0 rebuilds.
- * - **Edits swap whole.** Every node an edit makes stale joins the edit's
- *   group (the level-0 group's id; a node meeting another open group merges
- *   the two). The new results of the shown ones (drawn, or read by a seam
- *   drawn) are held, and the old ones drawn, until every shown node of the
- *   group has its new result and the seams reading them or the edit's
- *   chunks are rebuilt from them; then they go in with the level-0 group's
- *   swap, in its task (named in its report). Nodes not shown go in alone as
- *   they land: nothing draws them.
+ * - **Edits swap whole.** Every node an edit makes stale that is shown
+ *   (drawn, or read by a seam drawn) joins the edit's group (the level-0
+ *   group's id; a shown node meeting another open group merges the two).
+ *   Their new results are held, and the old ones drawn, until every shown
+ *   node of the group has its new result and the seams reading them or the
+ *   edit's chunks are rebuilt from them; then they go in with the level-0
+ *   group's swap, in its task (named in its report). Nodes not shown join
+ *   no group: they go in alone as they land (nothing draws them), so edits
+ *   that meet only under coarse nodes nobody draws never hold each other's
+ *   swap; their jobs still go in the edit lane.
  * - **Memory.** Node cells, derived results and bookkeeping are one part of
  *   the stream budget; a node whose chunks unload loses its result and,
  *   once none is left, its cells.
@@ -115,6 +117,8 @@ interface Node extends MipNode {
   group: MipGroup | null;
   /** A new result waiting for its edit group's swap (undefined: none; null: nothing to draw). */
   groupHeld: DerivedData | null | undefined;
+  /** An edit changed it while nothing showed it: its jobs go in the edit lane, but it swaps alone (it holds no one's swap). */
+  edited: boolean;
   bytes: number;
 }
 
@@ -319,7 +323,9 @@ export class StreamMips {
         n.fresh = false;
         this.release(n);
         this.wantDerive(n);
-        if (group !== undefined) this.join(n, group);
+        if (group === undefined) continue;
+        if (this.shown(n)) this.join(n, group);
+        else n.edited = true;
       }
     }
   }
@@ -586,7 +592,8 @@ export class StreamMips {
     for (let l = m.level; l <= this.maxLevel; l++) {
       const s = l - m.level;
       const n = this.levels[l]!.get(chunkKey(this.host.grid, m.nx >> s, m.ny >> s, m.nz >> s));
-      if (n?.group != null && n.group.open) return true;
+      if (n === undefined) continue;
+      if (n.edited || (n.group !== null && n.group.open)) return true;
     }
     return false;
   }
@@ -806,6 +813,7 @@ export class StreamMips {
   private commit(n: Node, d: DerivedData | null, alone = true): void {
     n.derived = d;
     n.fresh = true;
+    n.edited = false;
     this.unfresh.delete(n);
     this.counters.derives++;
     this.recount(n);
@@ -828,6 +836,7 @@ export class StreamMips {
   /** A node is no longer derivable here (incomplete, or past its ring): its result goes, and it is derived again when it can be. */
   private dropDerived(n: Node): void {
     this.leaveGroup(n);
+    n.edited = false;
     if (n.deriveJob !== 0) this.cancel(n, 'derive');
     this.release(n);
     const had = n.derived !== null;
@@ -849,7 +858,7 @@ export class StreamMips {
   }
 
   private add(m: MipNode, key: number): Node {
-    const n: Node = { level: m.level, nx: m.nx, ny: m.ny, nz: m.nz, key, built: 0, cellJob: 0, cellStamp: ++this.stampSeq, deriveJob: 0, deriveStamp: ++this.stampSeq, fresh: false, derived: null, held: null, group: null, groupHeld: undefined, bytes: 0 };
+    const n: Node = { level: m.level, nx: m.nx, ny: m.ny, nz: m.nz, key, built: 0, cellJob: 0, cellStamp: ++this.stampSeq, deriveJob: 0, deriveStamp: ++this.stampSeq, fresh: false, derived: null, held: null, group: null, groupHeld: undefined, edited: false, bytes: 0 };
     this.levels[m.level]!.set(key, n);
     this.seams.nodeChanged(m.level, m.nx, m.ny, m.nz);
     return n;
