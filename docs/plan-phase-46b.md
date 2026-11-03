@@ -1,6 +1,6 @@
 # Phase 46b — Terrain mesher and dynamic LOD
 
-Status: **46b: planned (draft, starts after 46a closes)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
+Status: **46b: in progress (started 2026-11-03, after 46a closed)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
 main frozen at d4053cab). Planned from `docs/plan-phase-45.md` §4 (46b), the owner decisions of 2026-11-02 (§7:
 R107–R109), §7a (surface subdivision separate from voxel shape LOD), the §6 results 45.6, 45.10a–c and the 46a
 as-built (`docs/plan-phase-46a.md`), against format spec v1 (APPROVED, `docs/architecture/voxel-format-spec.md`).
@@ -35,8 +35,8 @@ add-only version step with an owner note if its layout or meaning changes (spec 
 
 ## 2. three.js check
 
-To be checked at 46b start (three 0.187.0 was newest on 2026-11-02; `npm view three`, assess against
-`docs/three-upgrade-checklist.md` if newer; never update, owner-only).
+Checked 2026-11-03 at the 46b start: three 0.187.0 (released 2026-10-30) is still the newest on npm. No newer
+release, so nothing to assess against `docs/three-upgrade-checklist.md`; no update (owner-only).
 
 ## 3. Baseline (the numbers 46b reports against)
 

@@ -1,6 +1,6 @@
 # Phase 46a — Voxel core runtime
 
-Status: **46a: in progress (started 2026-11-02)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
+Status: **46a: done 2026-11-03 (owner look pending)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
 aeb8114a; main frozen at d4053cab). Planned from `docs/plan-phase-45.md` §4 (46a), §5c, §6 results and the owner
 decisions of 2026-11-02, against format spec v1 (APPROVED, `docs/architecture/voxel-format-spec.md`).
 
@@ -113,7 +113,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.11b | done b09ea245, 5764c93d, e0686593: D450 fixed (edit sections waiting for neighbours on their way stay in the swap group; reported once after the whole swap; test fails before). D442 fixed (`look` moved the focus a frame late; first blast now its 8 chunks, was 486–520). undoVoxels refusal, export as built, ctx.voxels doc. Fast gate green 12 min; voxel-world.e2e 47.7 → 46.5 s. |
 | 46a.12 | done: acceptance on staging + gate e2e, both renderers at the cap. Orbit/flight p95 16.7–16.8, 0 missed; blasts local 1–4 m 1 frame, 8 m 2–3 (town 8 m main 31–58 ms, was 200–220); heap 126→172 → 14.5→20 MB; +40 ms 0 holes; render town 4.0 → 4.6–4.7 ms (miss, not isolated); Play edit → screen 30–52 ms (was 16–17). Pictures + README in acceptance/46a. |
 | 46a.13 | done a2eb64a1: manual `features/voxel-worlds.md` (cells, `voxelWorld`, streaming + budget, Scene view, editVoxels/undoVoxels, not built yet; export line to be confirmed after 46a.11), `guides/voxel-scripts.md` (`ctx.voxels`, examples type-checked), migration note; spec pool default built. Links test + check-docs green. |
-| 46a.14 | full gate at df73f8f4 (gate-full-20261103-073335, both renderers): RED, 35 min (29 before), 8.0 GB peak; 1 real failure (D451), 3 watch (D452–D454), D435 again. Review, fixes, staging look not started. |
+| 46a.14 | done: full gate at df73f8f4 RED, 35 min (29), 8.0 GB peak → D451 fixed (46a.14a), watch D452–D454; review 0H 3M 6L all fixed or recorded (46a.14b); fast gates green; acceptance 22 shots both renderers, review page acc46a. Owner look pending. |
 | 46a.14a | done fcf462b3: D451 (playtest.e2e:238 preview_timeout) — the editor took a stopped page's late `tl.stopped` as the next play's stop; ends Play only for the play the session holds. Also at the base (1 of 21 runs); at df73f8f4 3 of 10 alone. Fixed: 16 of 16. Watch D452–D454, D435 seen. Fast gate green 12 min, 4.3 GB; playtest.e2e 37.1 s. |
 | 46a.14b | done 2ef4004f, 60823fb6, 2ad42d91, 5df73f42, da879130, d59581d0: review M2/M3 fixed (D455, D456), M1 recorded with A/B causes (D457 dig during the cold fill, D458 camera-relative per draw), L1–L6 fixed or recorded (D459 for 47c). Fast gate green 13 min, 4.8 GB; voxel-world.e2e 47.9 s (load 2.8). |
 
