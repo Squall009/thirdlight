@@ -108,7 +108,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.8 | done eb0dc688: `ctx.voxels.setSavedFields`, `save()` (save file v2, answered later as bytes + base64 text), `restore(bytes\|text, 'save'\|'base')` into the overlay, never the base (unloaded chunks' entries land with them), mismatches reported. Save of 10 / 100 1 m digs: 1.8 / 17.7 KB. Play e2e saves, restarts, restores (both renderers). voxel-world.e2e 24.5 → 26.6 s. D447 opened. |
 | 46a.9 | done b6dcb2c6: `PropLightChannel` per resident chunk, built on load; a step's prop changes rebuild only chunks left/entered; budget part; shapes from colliders else model bounds; `ctx.voxels.coverageAt`. Move 1.8–2.0 ms p50; slice ring 0/4.5/13.5 MB at 0/100/1,600 lit props. D448 opened. Fast gate green (rerun); voxel-world.e2e 26.6 → 32.0 s, no e2e change, load 6–9. |
 | 46a.10 | done f4f530a4 (+ f305e979 boundary): Scene view streams a `voxelWorld` world round its orbit target in a worker (Play's batches, `VoxelWorldDraws`), reads `voxelsChanged`; command-route dig shown without reload (e2e, pictures looked at). render() CPU 2.1–2.9 / 0.5–0.6 ms p50 with / without (225 chunks). D449 fixed, D437 open. voxel-world.e2e 32.0 → 38.6 s. |
-| 46a.11 | not started |
+| 46a.11 | done cd20d996: scenes' worlds ship their listed region files whole (`content/sha256/<digest>`, catalog block `voxelWorlds`, digest-checked, read once a file), `js/voxel-worker.js`; scan green. E2E, backend stopped: world draws, console dig opens the pit. 84.6 KB for 0.016 km² (5.2 MB/km²), cold fill 2.2–2.7 s. voxel-world.e2e 38.6 → 47.7 s. D450 opened. |
 | 46a.12 | not started |
 | 46a.13 | done a2eb64a1: manual `features/voxel-worlds.md` (cells, `voxelWorld`, streaming + budget, Scene view, editVoxels/undoVoxels, not built yet; export line to be confirmed after 46a.11), `guides/voxel-scripts.md` (`ctx.voxels`, examples type-checked), migration note; spec pool default built. Links test + check-docs green. |
 | 46a.14 | not started |
@@ -614,6 +614,58 @@ load 7–8). `voxel-world.e2e.ts` 32.0 → 38.6 s (9.1 + 5.0 + 5.7 + 5.4 + 5.5 +
 new test 7.9 s; load 6.7–8.6, uptime 10 d 13.1 h); `rendering.e2e.ts` 133.8 s. D437 left open (SkyProbe's ambient and
 hemisphere checks are unrelated to the voxel draws; not cheap to fold in here).
 
+**46a.11** (cd20d996). **Export of voxel worlds.** Every world a scene's `voxelWorld` names ships its listed region files
+whole as content files (`content/sha256/<digest>`): the backend's `VoxelWorlds.shippedFiles` gives the world's manifest
+fields and each listed file's path, length and hash in one queued step (a missing or damaged listed file refuses it);
+the exporter (`closure-voxel-worlds.ts`) lists the world in a new catalog block `voxelWorlds` (`ShippedVoxelWorld`,
+`@thirdlight/voxel` `shipped-world.ts`: world, worldId, edge, layout, footprint, revision, files {name, digest,
+byteLength}; validated by `shippedVoxelWorldsProblem`) and copies each file one at a time, checked against the listed
+digest (a world edited during the export fails it). An export whose scenes name a world it cannot ship is refused
+(`export_scene_invalid`, reason `voxel_world`). The game: `game-host` `shippedVoxelPorts` opens a world from the block,
+its chunk source (`shippedChunkSource`) reading each region file whole through the content reader the first time its
+region is opened (`bufferResolver`: length + SHA-256 against the row), every range then served from those bytes
+(`wholeFileByteSource`, a copy a read: the streamer transfers chunk bytes to workers, and a view would detach the whole
+file; the test caught it), a region the world does not list air, a file that fails its digest damaged. The simulation
+worker opens the worlds (`js/sim-worker.js`: `voxelPorts(root, worlds)`, the page handing over the export's folder and
+the block with the init message) and starts the world's workers, `js/voxel-worker.js` (new export script, classic
+worker: the streaming job handlers + fzstd; fzstd allowed in the export graph for it); in single-thread mode the page
+opens them through its own reader. `defaultVoxelWorkers` and `OPEN_REGION_FILES` moved into `@thirdlight/voxel` (one
+definition; the editor imports them).
+Tests: `tests/integration/voxel-world/voxel-world.test.ts` (real backend, admin export route, real esbuild bundles):
+a scene naming a world with a listed region gone refuses the export; with that object removed the export ships the
+other world: the catalog row equals the world's `world.json` (id, revision, regions), every file's digest and length
+are the source file's and its bytes are at its content path, `js/voxel-worker.js` holds no origin, token, `/api/v1/`,
+`/mcp`, `WebSocket` or `node:` specifier, and chunks read back from the export through `shippedChunkSource` equal the
+backend's range route (kinds and stored bytes). `tools/voxel-bench/world-host.test.ts` (real runtime, Node workers, real
+Rapier): a world opened through `shippedVoxelPorts` from content files reads every cell of a 16 × 16 × 8 m block as the
+files hold it, reads each file once, digs once the ground's body is in (air at once, swapped); a file with one byte
+changed reports every chunk of its region damaged while another region reads as on disk. Found on the way (D450, open):
+a dig made right after its region turned resident, while some of its sections cannot derive yet, swaps its group empty
+inside the edit call and is never reported in `ctx.voxels.changes` (30 s of steps); not this item's code (46a.7a's
+host), left for the lead. `manifest-v5.test.ts`: the block round-trips, files in name
+order. E2E (`voxel-world.e2e.ts` + 1 test, WebGPU): the Play project (the slice world 8 km out, the character, the
+digger script) with `debug_console` on, exported, the backend stopped, served statically: the pit is resident, the
+world draws round the camera (219 chunks), the character stands on the pad, `dig` typed into the debug console opens
+the pit (pixels changed > 500) and the character falls in; every request stays in the export's folder, each region file
+read once (8 of 8). Pictures looked at: before (ground, wall, beam, banister rail and posts) and after (the pit). WebGL 2
+and the single-thread export not run in a browser (unverified).
+Numbers (e2e run 05:50, headless Chrome on the Iris Xe, 1280×720, not at a 60 Hz cap; load ~5, uptime 10 d 13.4 h):
+
+| What | Number |
+|---|---|
+| region files of the e2e world (the slice, 128 × 128 m, 0.0164 km², 8 files) | 84,553 B = 5.2 MB a km² (the spec's measured 430–580 MB per 10 × 10 km: 4.3–5.8) |
+| integration world (flat ground of 48 × 48 m + the scene, 8 files) | 2,622 B |
+| `js/voxel-worker.js` | 88,082 B (streaming handlers + fzstd) |
+| cold fill in the export (page load → drawn chunks steady) | 2.2 s ad hoc / 2.7 s in the gate, 219 chunks; pit resident at 0.9–1.0 s; simulation in its worker |
+
+Fast gate (gate-fast-20261103-055421): RED in vitest on the new world-host test (the dig of D450, see above; passed
+alone, failed after any other test of the file: warm, the dig came before the ring could derive), fixed by digging once
+the ground's body is in; then RED in build on an audit id in a test comment, fixed; gate-fast-20261103-061659 GREEN,
+12 min, 6.0 GB peak, village perf at the cap 0 missed on both renderers (main thread 7.1 / 4.78 ms against 9.02 / 7.84);
+vitest `scan-bounded-log.test.ts` failed once and passed alone (D418 watch). `voxel-world.e2e.ts` 38.6 → 47.7 s (9.8 +
+5.5 + 6.3 + 6.3 + 5.2 + 8.1 + 6.5 s; the existing six 38.6 → 41.2 s with no change to them, the export test 6.5 s; load
+3.9–6.3, uptime 10 d 14.0 h); `play-export.e2e.ts` green in the smoke set.
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -833,5 +885,18 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
 - 2026-11-03 (46a.10): the slice page keeps its own main-thread streamer and per-section measuring hooks; it shares the
   world opening (`RangeWorld`) and the change handling with Play and the editor, not the draw path (its chunk view is
   fed in-thread, `feedVoxelChunkView`), since its hooks read the streamer synchronously.
+- 2026-11-03 (46a.11, default chosen, owner to confirm): **an export lists its voxel worlds in a new catalog block
+  `voxelWorlds`** (add-only on manifest v5; no voxel format change, the region files ship as they are) and ships every
+  listed region file of every world a scene names, whole (decided in the plan), copied after the build lists it and
+  checked against its digest. An export never ships a world with holes: a named world that is missing, has a listed
+  file gone or damaged, or a backend that gives no worlds refuses the export (`export_scene_invalid`, `voxel_world`).
+- 2026-11-03 (46a.11, default chosen, owner to confirm): **a shipped region file is read whole the first time its
+  region is opened and kept while its table is open** (`OPEN_REGION_FILES`, 64, least recently used dropped): one request
+  a file, no ranges. Those bytes are not yet counted in the world's stream budget (up to 64 × 0.2–0.4 MB at the measured
+  sizes); for 46a.12 / the performance phase to weigh against the ring's own reads.
+- 2026-11-03 (46a.11): the export's voxel workers are classic workers (the export's scripts are IIFE bundles) started
+  by the simulation worker, which reads the region files under the export's folder itself (the page hands it the
+  folder and the catalog block); the page reads them only in single-thread mode. A read of a shipped file returns a copy
+  of its range, never a view: the streamer transfers chunk bytes to its workers.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
