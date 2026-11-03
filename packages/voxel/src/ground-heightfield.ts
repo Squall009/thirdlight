@@ -11,6 +11,8 @@
  * few centimetres of it on slopes. It is used only when it is within a
  * tolerance of the surface everywhere over it:
  *
+ * - no triangle faces down (the underside of an overhang or a ledge, or the
+ *   bottom of the world's ground);
  * - every lattice node it covers lies under exactly one height of the
  *   surface: none means the ground leaves the chunk through its top or
  *   bottom there, two (more than the tolerance apart) an overhang or a
@@ -57,7 +59,7 @@ export interface GroundHeightfield {
 }
 
 /** Why a ground surface is not a heightfield (for measurements). */
-export type HeightfieldRefusal = 'empty' | 'uncovered' | 'layers' | 'deviation';
+export type HeightfieldRefusal = 'empty' | 'facing' | 'uncovered' | 'layers' | 'deviation';
 
 /** Twice a triangle's signed area seen from above (x, z), counter-clockwise from +y positive. */
 function upArea(ax: number, az: number, bx: number, bz: number, cx: number, cz: number): number {
@@ -93,8 +95,11 @@ export function groundHeightfield(buf: SurfaceBuffer, edge: number, toleranceM =
     const a = idx[t * 3]!;
     const b = idx[t * 3 + 1]!;
     const c = idx[t * 3 + 2]!;
+    const area = upArea(px[a]!, pz[a]!, px[b]!, pz[b]!, px[c]!, pz[c]!);
+    // Facing down: the underside of ground (an overhang, a ledge, the bottom of the world's ground), never a heightfield's top.
+    if (area < 0) return 'facing';
     // On edge seen from above (a step's riser): no height of its own; its corners and edges are checked below.
-    if (upArea(px[a]!, pz[a]!, px[b]!, pz[b]!, px[c]!, pz[c]!) === 0) continue;
+    if (area === 0) continue;
     const x0 = Math.max(0, Math.ceil(Math.min(px[a]!, px[b]!, px[c]!)));
     const x1 = Math.min(edge, Math.floor(Math.max(px[a]!, px[b]!, px[c]!)));
     const z0 = Math.max(0, Math.ceil(Math.min(pz[a]!, pz[b]!, pz[c]!)));

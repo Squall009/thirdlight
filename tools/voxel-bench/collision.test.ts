@@ -9,7 +9,7 @@
  * posts, and into a hole dug after the bodies were built. Ground that is
  * a height function collides as a heightfield: drops and sweeps on it land
  * where they land on the same ground as a mesh, and ground with an
- * overhang, a second layer or a box stays a mesh.
+ * overhang or underside, ground leaving the chunk, or a box stays a mesh.
  */
 import {
   ASSEMBLY_CLASS,
@@ -43,7 +43,7 @@ import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision'
 import { loadArea } from './regions';
 import { flatGround, placeWallBeamBanister, putVoxel } from './scenes';
 import { MAT } from './world-kit';
-import { hillyWorld } from './worlds';
+import { townWorld } from './town';
 
 const grid = chunkGrid(32);
 /** The streamer's derive sections (the engine's default edge). */
@@ -248,15 +248,15 @@ describe('ground as a heightfield', () => {
     }
   });
 
-  it('on hilly ground, chunks of ground alone collide as heightfields where they are within the tolerance, and land drops and sweeps as the meshes do', async () => {
+  it('in the town, chunks of ground alone collide as heightfields and land drops and sweeps as the meshes do, houses and all', async () => {
     const s = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 512 }).grids[0]!, s, -96, -96, 96, 96);
+    loadArea(townWorld({ footprint: 512 }).grids[0]!, s, 0, 0, 224, 224);
     const chunks: Array<[number, number, number]> = [];
     const c = { cx: 0, cy: 0, cz: 0 };
     const seen = new Set<string>();
     for (const key of s.chunkKeys()) {
       chunkOfKey(grid, key, c);
-      if (c.cx < -2 || c.cx > 1 || c.cz < -2 || c.cz > 1) continue;
+      if (c.cx < 1 || c.cx > 5 || c.cz < 1 || c.cz > 5) continue;
       for (let cy = c.cy - 1; cy <= c.cy + 1; cy++) {
         const id = `${c.cx},${cy},${c.cz}`;
         if (seen.has(id)) continue;
@@ -270,7 +270,7 @@ describe('ground as a heightfield', () => {
     const fields: Array<[number, number, number]> = [];
     for (const [cx, cy, cz] of chunks) {
       const d = joinedChunk(s, cx, cy, cz);
-      const key = ((cx + 8) * 64 + cy + 8) * 64 + cz + 8;
+      const key = (cx * 64 + cy + 8) * 64 + cz;
       field.set(key, cx, cy, cz, d);
       mesh.set(key, cx, cy, cz, d);
       const geo = collisionGeometry(d);
@@ -281,7 +281,7 @@ describe('ground as a heightfield', () => {
       expect(typeof whole === 'string' ? whole : Array.from(whole.heights)).toEqual(Array.from(geo.heightfield.heights));
     }
     expect(field.stats()['heightfields']).toBe(fields.length);
-    expect(fields.length).toBeGreaterThanOrEqual(2);
+    expect(fields.length).toBeGreaterThanOrEqual(5);
     expect(field.stats()['bytes'] as number).toBeLessThan(mesh.stats()['bytes'] as number);
     let worst = 0;
     let drops = 0;
@@ -308,13 +308,13 @@ describe('ground as a heightfield', () => {
     expect(worst).toBeLessThan(0.01);
   }, 60_000);
 
-  it('keeps an overhang, a second layer and a chunk with boxes as meshes', () => {
+  it('keeps an overhang, ground leaving the chunk and a chunk with boxes as meshes', () => {
     const s = createWorldStore(grid);
     flatGround(s, -40, 104, -40, 72, 40, 4);
     // A ledge of ground over air in chunk (0, 0, 0): its underside faces down over the ground below.
     for (let x = 8; x < 20; x++) for (let z = 8; z < 20; z++) for (let y = 10; y < 13; y++) putVoxel(s, x, y, z, MAT.soil, C.terrain);
     const ledge = joinedChunk(s, 0, 0, 0);
-    expect(groundHeightfield(ledge.ground, 32)).toBe('layers');
+    expect(groundHeightfield(ledge.ground, 32)).toBe('facing');
     expect(collisionGeometry(ledge).heightfield).toBeNull();
     // The flat chunk beside it is one.
     const flat = collisionGeometry(joinedChunk(s, 1, 0, 0));
