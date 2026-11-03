@@ -227,7 +227,14 @@ export function usePlaySession(
     });
     // Load progress keeps the backend's present timeout from firing while the preview still moves.
     bridge.on('tl.load.progress', progress);
-    bridge.on('tl.stopped', () => {
+    bridge.on('tl.stopped', (m) => {
+      // Only the play still running ends here. When the backend stops a play and starts the next at once (a play-test's
+      // runs), the session already holds the next play while this page has not re-rendered, and the stopped page's
+      // report reaches this bridge (or the next one's, through the reused frame) late: it must not end the next play
+      // before its page loads.
+      const stopped = (m as { playSessionId?: unknown }).playSessionId;
+      const active = clientRef.current?.getActivePlay()?.playSessionId ?? null;
+      if (stopped !== playInfo.playSessionId || (active !== null && active !== stopped)) return;
       setPlaying(false);
       setPlayInfo(null);
     });
