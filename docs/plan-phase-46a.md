@@ -81,6 +81,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.6b | **Collision ring and physics budget (D434):** bodies only within a collision radius of the world's foci (default 48 m horizontal / 24 m vertical, hysteresis, farthest-first removal), physics bytes counted as a part in the one stream budget (`physicsMemoryBytes3D` deltas, a per-body estimate where absent). | `collision.test.ts` + `stream.test.ts` (ring add/remove with a moving focus, budget eviction) | Rapier heap cold / after 160 m flight vs 126 / 172 MB; bodies; add/remove p50/p95 during the flight (churn) | physics inside the budget, heap growth bounded over the flight: D434 fixed (else numbers + cause) |
 | 46a.7a | **World host + `ctx.voxels` in the runtime** (boundary commit first: runtime → voxel). Host per `voxelWorld` component (scene load/unload), focus from the component's entity or the camera; `ctx.voxels.get` (`voxelAt` through the overlay; non-resident = `null`, never air), `set`, `dig`, `paint` (material/wetness: shader data only) as stroke commands, `isResident`/`whenResident`, change events after the swap; **guaranteed update path:** an edit in a step is read at once, its mesh, collider and shader data change in one swap. Pool and chunk source injected (ports). | vitest with the real streamer, Node workers (`stream-worker-node.ts`), region files on disk and the real Rapier port: script dig → reads air in the same step, collider gone after the swap, event once | step ms of a 4 m dig; edit → swap ms | API documented in the typings; reference regenerated (`node tools/gen-reference.mjs`) |
 | 46a.7b | **Play wiring (game-host):** the world lives with the simulation (worker or single); derive workers started from the sim worker; Play's chunk source = the range route with 46a.4's reads; each swap's per-chunk buffers + grids posted to the page in one transferred message and drawn by the 46a.5b view; colliders in the sim's physics. | e2e `voxel-world.e2e.ts`: Play a test project with a `voxelWorld`, a script digs, pixels change (png.ts), a character falls into the pit, both renderers | edit → visible frames in Play (sim → page hop), sim step ms | Play streams, draws and collides; frames recorded |
+| 46a.7c | **Play far out + e2e trim (D444):** Play's voxel draws precise kilometres from the origin (the floating origin's rule for the game view, decided in the item); the Play e2e digs on a readiness signal instead of a fixed 5 s wait. | `voxel-chunk-view.test.ts` (8 km chunk: vertex error, programs); e2e `voxel-world.e2e.ts` Play at 8 km, both renderers | vertex error at 8 km; voxel-world.e2e time vs 36.4 s | D444 closed or what is left recorded |
 | 46a.8 | **Saves and the saved-fields mask:** `ctx.voxels.setSavedFields`, `save()` (save file v2 of the overlay) and `restore(bytes, onMismatch)`; the game stores the bytes in its own save (how `ctx.saves` holds binary is checked here; if it cannot, a D-row). | vitest round trip through the host; e2e: Play, dig + wet, save, restart, restore → hole kept, wetness gone | save bytes for 10 / 100 digs | game-owned save round trip on both renderers |
 | 46a.9 | **Occupancy (prop lighting) channel in the host:** for props with `affectsLighting`, a `PropShape` from the prop's collider or oriented bounds; per-chunk channel (`propCoverageChunk`) rebuilt on chunk load and prop place/move, joined by `lightCoverage`, counted in the budget, never saved; read via `ctx.voxels.coverageAt` (consumers are 46e). Not rebuilt: what 45.6 built. | vitest: moving a prop rebuilds only the chunks it left and entered; equal to a fresh build; nothing in saves or files | rebuild µs a prop move; channel bytes in the slice ring | channel live in Play |
 | 46a.10 | **Editor:** the Scene view draws the world of a `voxelWorld` component through the 46a.5b view (streamed around the editor camera, no collision) and refreshes on `voxelsChanged`; the slice page uses the shared host pieces. D437 if it fits (ambient/hemisphere changes seen by `SkyProbe`). | e2e `voxel-world.e2e.ts`: an edit through the command route shows in the Scene view without reload | Scene view render CPU with the world vs without | world visible and refreshing in the editor; D437 fixed or left open |
@@ -103,6 +104,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.6b | done df6e67b0: `CollisionRing` (voxel): bodies only within 48/24 m of the foci (box distance, 8 m hysteresis, in nearest first in 4 ms, out farthest first), each the chunk's `collision` part at Rapier's heap estimate. Heap cold / after 4 flights: slice 14 / 19.4 MB (was 131 / 172; 53–58 bodies of 493), town 6–7 / 14.6 MB (was 174). D434 fixed. voxel-world.e2e 19.0 → 17.3 s. |
 | 46a.7a | done 327a806b (+ d6744249 boundary, 6dccf2b9): `RuntimeVoxels` + `VoxelWorldHost` a `voxelWorld`, ports injected; `ctx.voxels` get (null off-ring), set/dig/paint read at once, body/mesh/shader in one swap, `changes`, `whenResident` → `waits`. Node 4 m dig: step 3.5–6.1 ms (first 17–19), edit → change 8–16 ms. Fast gate green; voxel-world.e2e 17.3 → 17.7 s. |
 | 46a.7b | done 41f8fb70 (+ 0d309961, 4cfafdf1): world runs with the sim (worker, or page), Play reads the locator's range route, derive workers started in the sim worker; one transferred batch a streamer task drawn by `VoxelWorldDraws`; bodies wait for voxel collision. Edit → screen 16–17 ms (1 / 2 frames) worker / single. voxel-world.e2e 17.7 → 36.4 s. D444 opened, D445 fixed. |
+| 46a.7c | done 73ea05cf: voxel surface and pieces placed with a 64-bit camera-relative model-view per draw (no re-base needed): 8 km vertex error 1.3 µm vs 0.56 mm; Play e2e plays the world 8 km out on both renderers. Dig on a debug command, not a 5 s wait: voxel-world.e2e 36.4 → 24.5 s. D444 fixed, D446 opened (other objects far out). |
 | 46a.8 | not started |
 | 46a.9 | not started |
 | 46a.10 | not started |
@@ -458,6 +460,33 @@ renderers. `voxel-world.e2e.ts` 17.7 → 36.4 s (9.2 + 5.2 + 6.1 + 8.1 + 7.8 s; 
 tests add 15.9 s, about 5 s each of it the script's wait before the dig (time for the "before" picture), which a later
 item extending these tests can shorten.
 
+**46a.7c** (73ea05cf). **Far worlds in Play (D444).** three's node materials make the view-space position on the GPU
+from the camera's view matrix and the object's world matrix, each rounded to 32 bits first (`mediumpModelViewMatrix`),
+so a voxel view re-based alone would gain nothing: its chunks' world matrices are made in 64 bits in JavaScript already,
+and the camera's large position is still subtracted in 32 bits. The voxel surface and piece materials now take a
+model-view made per draw in 64 bits (`three-adapter/camera-relative.ts`: `camera.matrixWorldInverse ×
+object.matrixWorld` in an object-update uniform, given through the material's context the way three's own
+`highPrecision` does it, so three's observer refreshes those draws every frame), the camera being the origin of every
+draw: nothing is re-based as it travels, and Play's views keep their origin at 0. First built by replacing
+`setupPositionView`: the plain Lambert piece material then has no node property, three's observer never refreshed its
+draws, and after a page reload the slice page's rail and posts kept the first frame's matrix and vanished (the gate's
+reload picture check caught it, 1,021 pixels on both renderers); the context form refreshes them, and the vitest now
+checks it. Test (`voxel-chunk-view.test.ts`): a chunk 512 chunks (8,192 m) out with the camera beside it: both
+programs read the 64-bit matrix (no `cameraViewMatrix × model` in the vertex stage), every 7th surface vertex lands
+within 1.3 µm of its exact 64-bit camera-space position, against 0.56 mm for the default GPU product (removing the
+call from the surface fails the test). E2E: Play now plays the slice world written 8 km out on x and z
+(`writeSliceWorld(…, shiftChunks)`), on both renderers: draws (194 chunks), the character waits, stands and falls
+into the pit in world-coordinate physics (Rapier f32 at 8 km held it), pixels change; pictures looked at (WebGPU
+before, WebGL 2 after: ground, wall, banister, the pit). Jitter with a moving camera not looked at on screen
+(unverified; the camera is fixed). Left for other objects far out: D446.
+**E2E trim.** The script digs on a debug command the test sends after its "before" picture (`play/<id>/control`
+`debugCommand dig`), the ground resident (`whenResident` answered) and the character standing, instead of 600 steps
+(5 s) after residency. Fast gate (gate-fast-20261103-025959): RED on the piece refresh above; after the fix
+(gate-fast-20261103-031529) GREEN, 11 min, 4.3 GB peak, village perf at the cap 0 missed on both renderers.
+`voxel-world.e2e.ts` 36.4 → 24.5 s (7.9 + 4.4 + 4.9 + 3.8 + 3.5 s; the Play tests 8.1 + 7.8 → 3.8 + 3.5 s; load 5.0 at
+the end, uptime 10 d 11.0 h): the whole of 46a.7b's dig wait won back; the rest of the growth since 46a.7a's 17.7 s is
+the two Play tests' own streaming and checks.
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -624,5 +653,18 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   the host's derived set) clear no budget part (46a.6b's note).
 - 2026-11-03 (46a.7b): Play draws voxel chunks in the scene's world coordinates (no floating origin in the game view;
   D444); the plan's "floating origin re-bases draws" holds for the slice page and the editor, not Play yet.
+- 2026-11-03 (46a.7c, default chosen, owner to confirm): **far out, Play's voxel draws are placed relative to the
+  camera in 64 bits per draw** (a per-material model-view, three's own high-precision path), not by a 1 km re-base of
+  the game view: three's node materials subtract the camera's position on the GPU in 32 bits, so only a whole-view
+  re-base (camera and every object) would help, and the game view's systems keep their own world matrices
+  (`scene.matrixWorldAutoUpdate` is off; render graph nodes, batches, static merge, instancing, terrain) and world-space
+  uniforms (fog, probes, terrain and decal projections, wind, cover), each of which would have to take the origin. The
+  camera-relative matrix is stronger than a re-base (the origin is the camera at every frame, nothing to move) and
+  costs one 4×4 product a draw for the voxel draws only. Everything else in a far game view keeps three's default
+  (D446); physics stays in world coordinates (plan); `FloatingOrigin` stays the slice page's and the physics side's tool.
+- 2026-11-03 (46a.7c): the Play e2e's dig is a script debug command the test sends once its "before" picture is taken
+  (the game's own way for tools to drive a play), so the test waits on the world's residency and the character's
+  landing, not a fixed time; the world it plays is the slice world written 8 km out (the near world is the slice
+  page's, in the other tests).
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
