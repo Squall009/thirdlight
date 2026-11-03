@@ -1431,6 +1431,138 @@ describe('streamer (workers, region files on disk)', () => {
     console.log('seams', JSON.stringify(measured));
   }, 180_000);
 
+  it('swaps the drawn nodes an edit changes with its chunks, in one task: a blast across level-1 node faces, a dig across an L0|L1 face, two edits meeting merge; edit-lane mip jobs', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    let minCy = Infinity;
+    let maxCy = -Infinity;
+    for (const key of oracle.chunkKeys()) {
+      const c = chunkOfKey(grid, key);
+      minCy = Math.min(minCy, c.cy);
+      maxCy = Math.max(maxCy, c.cy);
+    }
+    const midY = ((minCy + maxCy + 1) * 32) / 2;
+    const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
+    const ring: StreamRing = { loadRadius: 256, unloadRadius: 288, loadHeight: half, unloadHeight: half + 32, nearRadius: 96 };
+    const p = pool(4);
+    // Every job's lane, as the pool is handed it.
+    const lanes: Array<{ kind: string; lane: string; level?: number }> = [];
+    const submit = p.submit.bind(p);
+    p.submit = ((job: Parameters<WorkerPool['submit']>[0]) => {
+      lanes.push({ kind: job.kind, lane: job.lane, ...(job.kind === 'derive' ? { level: (job.input as { level?: number }).level ?? 0 } : {}) });
+      return submit(job);
+    }) as WorkerPool['submit'];
+    // Level 0 within 48 cells (the 2 × 2 level-1 nodes round the focus split), level 1 past it.
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: p, ring, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, deriveMsPerUpdate: 10_000, mips: [{ level: 1, radius: 160 }], levels: { radii: [48], hysteresis: 0 } });
+    const mips = s.mips!;
+    const lod = mips.lod;
+    // Events with the task they came in (a batch is one task: what one task brings is drawn between the same two frames).
+    let task = 0;
+    let open = false;
+    const log: Array<{ task: number; e: StreamEvent; drawn?: boolean }> = [];
+    s.on((e) => {
+      if (!open) {
+        open = true;
+        task++;
+        queueMicrotask(() => (open = false));
+      }
+      log.push({ task, e, ...(e.type === 'node' ? { drawn: lod.drawn.drawn(e.level, e.nx, e.ny, e.nz) } : {}) });
+    });
+    const truth = copyOracle();
+    const v = voxel();
+    const surface = (x: number, z: number): number => {
+      for (let y = 300; y > -300; y--) if (truth.voxelAt(x, y, z, v).material !== 0 && v.role !== VOXEL_ROLE.liquid) return y;
+      throw new Error(`no ground at ${x}, ${z}`);
+    };
+    const key = (l: number, x: number, y: number, z: number): string => `${l}:${x},${y},${z}`;
+    const sameAsFresh = (keys: Iterable<string>): void => {
+      const tree = new MipTree(truth);
+      for (const k of keys) {
+        const [l, rest] = k.split(':');
+        const [nx, ny, nz] = rest!.split(',').map(Number) as [number, number, number];
+        const want = deriveMipNode(tree, { level: Number(l), nx, ny, nz }, WORLD_RULES);
+        const got = mips.derivedOf(Number(l), nx, ny, nz);
+        if (got === null) expect(want.ground.vertexCount + want.base.vertexCount + want.instances.count).toBe(0);
+        else if (Buffer.compare(Buffer.from(encodeDerived(got)), Buffer.from(encodeDerived(want))) !== 0) throw new Error(`node ${k} differs from a fresh derive`);
+      }
+    };
+    /** Digs, settles, and returns what the edit brought: its swaps, the drawn nodes' events and the tasks they came in. */
+    const blast = async (cells: ReadonlyArray<readonly [number, number, number]>, size: number) => {
+      log.length = 0;
+      lanes.length = 0;
+      const groups: number[] = [];
+      for (const at of cells) {
+        const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [size, size, size], points: [...at], mode: 'dig', smooth: false });
+        groups.push(s.edit(dig).group);
+        applyEdit({ store: () => truth }, dig);
+      }
+      await s.settle();
+      const swaps = log.filter((l) => l.e.type === 'swap');
+      const drawnNodes = log.filter((l) => l.e.type === 'node' && l.drawn === true);
+      return { groups, swaps, drawnNodes, seams: log.filter((l) => l.e.type === 'seams') };
+    };
+
+    s.setFocus(0, midY, 0);
+    await s.settle();
+
+    // A blast in the level-1 ring where four level-1 nodes meet (x = 128 and z = 0 are node faces), 64–128 cells out.
+    const y1 = surface(128, 0);
+    expect(levelNodeDistance(grid, [{ x: 0, y: midY, z: 0 }], { level: 1, nx: 1, ny: y1 >> 6, nz: 0 })).toBeGreaterThan(48);
+    const a = await blast([[128, y1, 0]], 6);
+    expect(a.swaps.length).toBe(1);
+    const report = (a.swaps[0]!.e as { report: SwapReport }).report;
+    const nodes = new Set(report.nodes.map(([l, x, y, z]) => key(l, x, y, z)));
+    // Every node across the faces it reached is drawn at level 1 and went in with the swap; no drawn node and no seam
+    // changed in a task of its own.
+    for (const [nx, nz] of [[1, -1], [1, 0], [2, -1], [2, 0]] as const) expect(nodes.has(key(1, nx, y1 >> 6, nz))).toBe(true);
+    const nodeKey = (e: StreamEvent): string => (e.type === 'node' ? key(e.level, e.nx, e.ny, e.nz) : '');
+    for (const n of a.drawnNodes) {
+      expect(nodes.has(nodeKey(n.e))).toBe(true);
+      expect(n.task).toBe(a.swaps[0]!.task);
+    }
+    for (const sm of a.seams) expect(sm.task).toBe(a.swaps[0]!.task);
+    expect(report.chunks.length).toBeGreaterThan(0);
+    sameAsFresh(nodes);
+    // The edit's mip jobs (cells and level-1 derives) went in the edit lane.
+    const mipJobs = lanes.filter((l) => l.kind === 'mip' || (l.kind === 'derive' && (l.level ?? 0) > 0));
+    expect(mipJobs.length).toBeGreaterThanOrEqual(2 * nodes.size);
+    expect(mipJobs.every((l) => l.lane === 'edit')).toBe(true);
+    const measured = { l1Nodes: nodes.size, sections: report.sections, swapMs: report.ms };
+
+    // A dig across the face between level 0 (chunk x 1, cells 32–63) and the level-1 node x 1 (cells 64–127): its
+    // chunks, the node and the seam on that face go in one swap, in one task.
+    const y2 = surface(64, 20);
+    const b = await blast([[64, y2, 20]], 3);
+    expect(b.swaps.length).toBe(1);
+    const rb = (b.swaps[0]!.e as { report: SwapReport }).report;
+    expect(rb.chunks.some(([cx, , cz]) => cx === 1 && cz === 0)).toBe(true);
+    expect(rb.nodes.some(([l, x, , z]) => l === 1 && x === 1 && z === 0)).toBe(true);
+    expect(lod.drawn.drawn(0, 1, y2 >> 5, 0)).toBe(true);
+    for (const n of b.drawnNodes) {
+      expect(new Set(rb.nodes.map(([l, x, y, z]) => key(l, x, y, z))).has(nodeKey(n.e))).toBe(true);
+      expect(n.task).toBe(b.swaps[0]!.task);
+    }
+    expect(b.seams.length).toBeGreaterThan(0);
+    for (const sm of b.seams) expect(sm.task).toBe(b.swaps[0]!.task);
+    expect((b.seams.at(-1)!.e as SeamEvent).built.some((k) => k.level === 1 && k.nx === 1 && k.nz === 0 && k.face === 0)).toBe(true);
+    sameAsFresh(rb.nodes.map(([l, x, y, z]) => key(l, x, y, z)));
+
+    // Two blasts in one task whose nodes meet: one swap naming both edits, the nodes in it.
+    const y3 = surface(140, 10);
+    const c = await blast([[128, y1 - 2, 4], [140, y3, 10]], 4);
+    expect(c.swaps.length).toBe(1);
+    const rc = (c.swaps[0]!.e as { report: SwapReport }).report;
+    expect([...rc.groups].sort()).toEqual([...c.groups].sort());
+    const nodesC = new Set(rc.nodes.map(([l, x, y, z]) => key(l, x, y, z)));
+    for (const n of c.drawnNodes) {
+      expect(nodesC.has(nodeKey(n.e))).toBe(true);
+      expect(n.task).toBe(c.swaps[0]!.task);
+    }
+    for (const sm of c.seams) expect(sm.task).toBe(c.swaps[0]!.task);
+    sameAsFresh(rc.nodes.map(([l, x, y, z]) => key(l, x, y, z)));
+    console.log('edit swaps', JSON.stringify(measured));
+  }, 180_000);
+
   it('chooses the levels drawn round a moving focus in real workers: every chunk drawn once across the levels at every task boundary, neighbours a level apart, a level change one swap with its seams, stable under jitter', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     disks.push(disk);

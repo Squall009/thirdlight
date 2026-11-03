@@ -94,6 +94,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.9 | **Detail pieces high → low → none (hooks, placeholders):** per level piece lists — L0 high stand-ins, L1 low stand-ins, L2+ none, the cell then meshed from its mip shape so the silhouette stays. | `derived.test.ts` (pieces per level, base under a removed piece present) | pieces drawn per ring | hooks ready for 46c's kits |
 | 46b.10 | **Collision on the new mesh:** column-lattice ground becomes heightfields (spanning a chunk or patches); D443 re-checked (sphere sweeps on sloped heightfields vs trimesh) before sloped heightfields ship; collision only at L0. | `collision.test.ts` (real Rapier: drops, rays, sweeps on hard cases within 1 cm) | heightfield share slice/hilly/town vs 0/0/24 %, Rapier heap | share up, D443 closed or recorded |
 | 46b.11a | **Blast and remesh check:** blasts 1/2/4/8 m on terrain, cliff, cave and town with the new mesher and mips (ancestors re-derived in the same swap or the next). | `run.mjs slice --phase blast` (staging) | frames edit → shown, main ms, worker ms | numbers vs §3, causes of misses |
+| 46b.11c | **An L1 edit swaps whole (D467, fix item):** the mip nodes and seams one edit stales go in together with its level-0 swap, the old ones drawn until all are ready; the edit's mip jobs in the edit lane. | `stream.test.ts` (real workers: a blast across L1 node faces one swap, an L0\|L1 dig one swap, two edits meeting merge, edit-lane jobs) | frames edit → shown at L1, split swaps (staging, both renderers) | D467 closed; 0 split swaps |
 | 46b.11b | **Acceptance:** triangles before/after (slice, town), mesher µs/section p50/p95 in the browser, flight with level changes (pops, frames), GPU ms, memory, both renderers at the cap; pictures of every hard case and seam looked at; report `~/.cache/thirdlight-phase46/acceptance/46b`. | staging, `run.mjs slice` phases | all of §3, before → after | numbers + causes recorded, pictures looked at |
 | 46b.12 | **Docs:** spec §3.7 (terrain rule set, mesher, seams, levels, the derived version step with its owner note), requirements traceability R107–R109, manual `features/voxel-worlds.md` (rings), reference regenerated. | check-docs, `tools/manual-links.test.mjs` | — | pages match the built code |
 | 46b.13 | **Close (lead):** full gate once (detached), independent review, fixes, acceptance by eye on staging, STATUS row; then 46c starts with its owner hard stops. | full gate | gate time and peak; voxel e2e time vs 46.5 s | review in the decision log; owner look pending |
@@ -1113,6 +1114,55 @@ as in 45.10c).
 Fast gate (gate-fast-20261103-212314, uptime 11 d 4.9 h): GREEN, 12 min, 4.3 GB peak, perf at the cap in limits.
 `voxel-world.e2e.ts` 56.6 s (sum of its tests; 57.5 s at 46b.10). The hook only adds fields to `blast`.
 
+### 46b.11c an edit in the level-1 ring swaps whole (D467)
+
+**Groups** (`stream-mips.ts`): every node an edit (a refresh, a restored or cleared overlay) makes stale joins the
+edit's level-0 group by its id (`changed(chunks, box, group)`); a node meeting another open group merges the two (the
+level-0 groups' merge semantics kept). A node's new result is held (`groupHeld`) when it is **shown**: drawn, or read
+by a drawn seam (a split node's result is read by its drawn neighbours' seams: holding only drawn nodes let those
+seams change a task early in the first test run). When the level-0 group is ready it asks `holdEdit(ids, chunks,
+surfaces)` (`SectionHost.seamHold`) instead of the seams alone; that hold is done once every level-0 group of the mip
+group has asked and no shown member is still on its way (a job out, cells stale, or derivable once neighbours on
+their way are rebuilt; a member that cannot derive now is not waited for), with the seams reading the held nodes or the
+chunks rebuilt from both (`StreamSeams.holdEdit`, one override for nodes and chunks). The swap then commits sections,
+chunk events, the nodes' `node` events, one `seams` event and the `swap` (its report gains `nodes`) in one task.
+Nodes not shown go in alone as they land (level 2 by default, and level 1 in the level-0 ring). Lanes: a group's mip
+jobs (cells, derives, and cells of nodes under one) go in `edit`; shown nodes' at distance −1, ahead of the edit's
+level-0 rebuilds (distance 0, not drawn where nodes are); the cells job goes out in the edit's own task
+(`advanceEdits`), the derive in the cells reply's.
+
+Tests (`stream.test.ts`, +1, real workers, region files, 3.7 s alone): the hilly world, level 0 within 48 cells, level 1
+to 160: a 6-cell blast where four level-1 nodes meet, 64–128 cells out: one `swap`, its `nodes` naming the four (and
+the shown neighbours), every drawn node's `node` event and every `seams` event in the swap's task, the nodes equal to
+a fresh derive of the dug world, every mip job of the edit in the `edit` lane; a dig across the face between level-0
+chunk x 1 and level-1 node x 1: one swap naming the chunk and the node, the face's seam in its task; two blasts in one
+task whose nodes meet: one swap naming both groups. With nodes never held the test fails (no node in the report).
+
+Staging (dist of this item, headless Chrome on the Iris Xe, 1280 × 720, DPR 1, the 60 Hz cap, both renderers, 16³
+sections, default rings; `run.mjs slice --phase blast --ring 1 --repeats 2 --seconds 10` for terrain, `--spots
+features`, `--spots town`; one round, 21:54–21:57, uptime 11 d 5.5 h, load 1.4–2.7; reports
+`~/.cache/thirdlight-phase46/work/46b.11c/r1/`, `summary.md`), 144 blasts at L1, all shown:
+
+| World, spot (L1) | local 1–4 m / 8 m, frames | command 1–4 / 8 m | swap ms | main ms | 46b.11a (local; command) |
+|---|---|---|---|---|---|
+| terrain middle / corner | 1–2 / 3; 2–3 / 3 | 3–4 / 4–5; 4–5 / 5–6 | 13–54 | 2–23 | 3–5 / 4–5; 4–6 / 5–8 |
+| cliff | 2 / 3 | 3–4 / 4–5 | 22–46 | 7–15 | 3–4 / 4–5; 4–5 / 6 |
+| cave | 1–2 / 2–3 | 3 / 4 | 11–38 | 3–14 | 3 / 3; 3–4 / 4–5 |
+| town middle / corner | 2 / 4; 3–4 / 4–5 | 4 / 6; 5–6 / 5–6 | 24–71 | 2–23 | 4–7 / 5–9; 5–9 / 9–11 |
+
+- **Split swaps: 0 of 144** (46b.11a: terrain 46 of 48, town 48 of 48, cliff/cave 13 of 48): every node and seam draw
+  an edit replaced came in one batch, in the frame of the level-0 swap. The cave's first measured blast kept its
+  first-use main 108–122 ms (as at 46b.11a).
+- **R107 at L1: within a frame (1) only for 1–4 m local blasts on the terrain middle and the cave.** Why not 1
+  elsewhere: the swap waits for three worker jobs one after another (the node's downsample ~3 ms, its derive 3–7 ms,
+  then its seams, up to 12 ms summed in the town), each a worker round trip and a main-thread reply turn, while the
+  edit's level-0 sections (4–49 ms of worker time, not drawn there) share the 4 workers; swap 11–71 ms. Main time is
+  not the limit (2–23 ms). Commands add the backend's 2 frames, as at L0.
+- Frame by frame (every frame's canvas copied after it was drawn, the town middle 8 m, both renderers;
+  `~/.cache/thirdlight-phase46/acceptance/46b/blasts/l1-town-8m-frames-46b11c-{webgl2,webgpu}/`, looked at): the 14
+  frames change once, from the whole house and ground to the cut house and the crater with all 8 nodes and 8 seams;
+  no frame with the house cut and the ground not dug, no gap seen.
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -1359,6 +1409,15 @@ Fast gate (gate-fast-20261103-212314, uptime 11 d 4.9 h): GREEN, 12 min, 4.3 GB 
   heightfields a cell at a time, exact, at 3–4× a mesh sweep's cost (86 vs 21 µs p50 a slanted sweep in the slice);
   the trade is the slice ring's physics heap 16.4 → 2.4 MiB. Rapier 0.21.0 is on npm (checked 2026-11-03); whether it
   fixes the cast is untested; an update is the owner's decision (pinned dependency), and would let `sweep3d.ts` go.
+
+- 2026-11-03 (46b.11c, default chosen, owner to confirm): **an edit waits only for the coarse nodes on screen.** Its
+  level-0 swap waits for the nodes it changed that are drawn or read by a drawn seam; the rest (level 2 by default,
+  level 1 inside the level-0 ring) go in alone as they land, since nothing draws them. Waiting for every ancestor
+  would put the level-2 chain (cells after level 1's, then the derive) into every level-0 blast's swap.
+- 2026-11-03 (46b.11c): **an edit's mip jobs in the edit lane, the shown nodes' first.** Shown nodes' jobs go ahead of
+  the edit's level-0 rebuilds, which are not drawn where the nodes are; elsewhere (level-0 ring) the ancestors follow
+  them. Limits, recorded: a node that becomes shown after its group's seams were built goes in alone later; two edits
+  whose level-0 groups do not merge but whose nodes meet swap in one task (two `swap` events, one batch).
 
 ## 9. Open questions for the owner
 

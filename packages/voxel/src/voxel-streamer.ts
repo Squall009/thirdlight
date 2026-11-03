@@ -370,7 +370,7 @@ export class VoxelStreamer {
                 }
               },
               poke: () => this.poke(),
-              seamHold: (chunks, surfaces, ready) => this.mips?.seams.holdChunks(chunks, surfaces, ready) ?? null,
+              seamHold: (groups, chunks, surfaces, ready) => this.mips?.holdEdit(groups, chunks, surfaces, ready) ?? null,
             },
             opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
             opts.editDeriveMsPerUpdate ?? 8,
@@ -883,9 +883,11 @@ export class VoxelStreamer {
     const group = d.newGroup();
     if (changed.length > 0) {
       d.invalidate(box, 'edit', parts, group);
-      this.mips?.changed(changed, box);
+      this.mips?.changed(changed, box, group);
     }
     d.request(this.opts.deriveMsPerUpdate ?? 2, true);
+    // The drawn nodes the edit changed swap with it: their rebuilds go out now, in the edit lane.
+    this.mips?.advanceEdits();
     d.settleGroup(group);
     return group;
   }
@@ -1059,8 +1061,9 @@ export class VoxelStreamer {
     const given = c.refreshBox;
     c.refreshBox = null;
     const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
+    // The nodes join the refresh's group before its sections can swap.
+    this.mips?.changed([c], box, this.derives?.refreshGroup(c.cx, c.cy, c.cz) ?? undefined);
     this.derives?.contentLanded(c.cx, c.cy, c.cz, box, parts);
-    this.mips?.changed([c], box);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
@@ -1102,13 +1105,14 @@ export class VoxelStreamer {
       box.maxZ = Math.max(box.maxZ, z);
     }
     this.derives?.invalidate(box, 'edit', ALL_DERIVED_PARTS, group);
-    this.mips?.changed([c], box);
+    this.mips?.changed([c], box, group);
   }
 
   private settleRebuild(group: number): void {
     const d = this.derives;
     if (d === null) return;
     d.request(this.opts.deriveMsPerUpdate ?? 2, true);
+    this.mips?.advanceEdits();
     d.settleGroup(group);
   }
 

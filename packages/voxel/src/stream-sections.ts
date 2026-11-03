@@ -24,9 +24,10 @@
  *   group. An edit that meets a group still open (a second blast before
  *   the first is shown) merges into it: no frame shows half an edit. The
  *   voxels themselves change at once: reads see an edit as soon as it is
- *   applied. The seams between levels that read the group's chunks are
- *   rebuilt from its held results before it swaps, and go in with it
- *   (stream-seams.ts).
+ *   applied. The coarser levels' drawn nodes an edit changes swap with it
+ *   too (stream-mips.ts), and the seams between levels that read the
+ *   group's chunks or those nodes are rebuilt from the held results before
+ *   it swaps, and go in with it (stream-seams.ts).
  */
 import { apronBytes, apronTransfer, buildApron, dependentChunks, type Apron } from './apron';
 import { rulesRef, type AssemblyRuleSet } from './assembly';
@@ -42,7 +43,7 @@ import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
 import type { DeriveInput, DeriveOutput, JobLane } from './stream-job';
 import type { SeamSurface } from './lod-seam';
-import type { SeamHold } from './stream-seams';
+import type { EditHold } from './stream-seams';
 import type { SampleRing, WorkerPool } from './worker-pool';
 import { crc32 } from '@thirdlight/shared';
 
@@ -63,6 +64,8 @@ export interface SwapReport {
   readonly deriveUs: readonly number[];
   /** ms from the edit (or the refresh) to the swap. */
   readonly ms: number;
+  /** The coarser levels' nodes (level, nx, ny, nz) whose new results went in with the swap (drawn nodes the edit changed). */
+  readonly nodes: ReadonlyArray<readonly [number, number, number, number]>;
   /** The storage chunks whose draws the swap replaces (their `chunk` events came just before it), in key order. */
   readonly chunks: ReadonlyArray<readonly [number, number, number]>;
 }
@@ -111,11 +114,12 @@ export interface SectionHost {
   emit(e: SectionEvent): void;
   poke(): void;
   /**
-   * The seams reading a group's chunks, rebuilt from `surfaces` (the
-   * group's results as they will be drawn) before it swaps; `ready` when
-   * they are. Null: no seam reads them.
+   * What a group (its ids) waits for besides its sections: the drawn mip
+   * nodes its edits changed, and the seams reading them or its chunks,
+   * rebuilt from `surfaces` (the group's results as they will be drawn);
+   * `ready` when they are. Null: nothing to wait for.
    */
-  seamHold?(chunks: ReadonlyArray<readonly [number, number, number]>, surfaces: (cx: number, cy: number, cz: number, axis: number, plane: number) => SeamSurface[] | undefined, ready: () => void): SeamHold | null;
+  seamHold?(groups: readonly number[], chunks: ReadonlyArray<readonly [number, number, number]>, surfaces: (cx: number, cy: number, cz: number, axis: number, plane: number) => SeamSurface[] | undefined, ready: () => void): EditHold | null;
 }
 
 interface Section {
@@ -155,8 +159,8 @@ interface EditGroup {
   workerUs: number;
   workerUsMax: number;
   mainMs: number;
-  /** The seams reading the group's chunks: being rebuilt from its held results, or none needed ('none'); null: not asked yet. */
-  seams: SeamHold | 'none' | null;
+  /** The drawn nodes and seams swapping with the group: being rebuilt, or none needed ('none'); null: not asked yet. */
+  seams: EditHold | 'none' | null;
 }
 
 const EMPTY_OUTPUT: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
@@ -404,6 +408,12 @@ export class SectionDerives {
     this.chunkGroups.set(ck, g);
   }
 
+  /** The open group a refresh of this chunk swaps in (null: none waits on it). */
+  refreshGroup(cx: number, cy: number, cz: number): number | null {
+    const g = this.chunkGroups.get(chunkKey(this.host.grid, cx, cy, cz));
+    return g !== undefined && g.open ? g.ids[0]! : null;
+  }
+
   /** A refreshed chunk's new content landed: everything within reach of `box` is derived again in the group waiting on it. */
   contentLanded(cx: number, cy: number, cz: number, box: CellBox, parts: number): void {
     const ck = chunkKey(this.host.grid, cx, cy, cz);
@@ -523,7 +533,7 @@ export class SectionDerives {
     const members = [...g.members].sort((a, b) => a.key - b.key);
     if (g.seams === null) {
       const chunks = [...new Map(members.map((m) => [m.chunk, [m.cx, m.cy, m.cz] as const])).values()];
-      g.seams = this.host.seamHold?.(chunks, (cx, cy, cz, axis, plane) => this.seamSurfaces(cx, cy, cz, axis, plane, true), () => this.maybeSwap(g)) ?? 'none';
+      g.seams = this.host.seamHold?.(g.ids.slice(), chunks, (cx, cy, cz, axis, plane) => this.seamSurfaces(cx, cy, cz, axis, plane, true), () => this.maybeSwap(g)) ?? 'none';
     }
     if (g.seams !== 'none' && !g.seams.done) return;
     g.open = false;
@@ -545,8 +555,9 @@ export class SectionDerives {
     const chunks = [...new Map(members.map((m) => [m.chunk, [m.cx, m.cy, m.cz] as const])).entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
     this.flushChunks();
     if (g.seams !== 'none') g.seams.commit();
+    const nodes = g.seams === 'none' ? [] : g.seams.nodes.slice();
     this.host.counters.swaps++;
-    this.host.emit({ type: 'swap', report: { groups: g.ids.slice(), sections: members.length, jobs: g.jobs, workerUs: { sum: Math.round(g.workerUs), max: Math.round(g.workerUsMax) }, mainMs: Number(g.mainMs.toFixed(3)), meshUs, deriveUs, ms: Number((performance.now() - g.startedAt).toFixed(2)), chunks } });
+    this.host.emit({ type: 'swap', report: { groups: g.ids.slice(), sections: members.length, jobs: g.jobs, workerUs: { sum: Math.round(g.workerUs), max: Math.round(g.workerUsMax) }, mainMs: Number(g.mainMs.toFixed(3)), meshUs, deriveUs, ms: Number((performance.now() - g.startedAt).toFixed(2)), chunks, nodes } });
   }
 
   /** A section's new result: held for its group, or in at once. */

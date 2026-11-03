@@ -24,7 +24,8 @@
  * in one task, so the new nodes, the old ones' removal and their seams
  * leave in one batch and the page swaps them between the same two frames:
  * the old level is drawn until the new one is complete. A node's new result
- * and the seams rebuilt from it come in one task too.
+ * and the seams rebuilt from it come in one task too, and the nodes an edit
+ * changes on screen come in its swap's task, with its chunks.
  */
 import { wallClock } from '@thirdlight/shared';
 import { chunkKey, type ChunkGrid } from './coords';

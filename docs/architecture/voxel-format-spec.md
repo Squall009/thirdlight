@@ -1258,6 +1258,11 @@ the load ring to stand in where level-2 nodes are not complete, 46b.8a).
 - Staleness: a level-0 change marks every ancestor stale (`MipStaleSet`, rebuilt lowest first once the children are
   settled) and moves the derive stamp of the nodes within R of the change at each level (the box scaled by 2^L): a
   dig inside a node re-derives its ancestors only. A chunk leaving drops its ancestors' results at once.
+- Edits swap whole: every node an edit (or a refresh, or a restored or cleared overlay) makes stale joins the edit's
+  level-0 group (a node meeting another open group merges them). Its jobs go in the `edit` lane (a node shown on
+  screen ahead of the edit's level-0 rebuilds). The new results of the nodes shown (drawn, or read by a drawn seam)
+  are held, the old ones drawn, until every shown node has its new one; they and the seams reading them or the
+  edit's chunks go in with the level-0 swap, in its task (`SwapReport.nodes`). Nodes not shown go in as they land.
 - Measured (Node, slice ring, default rings, 4 workers): 330 level-1 and 13 level-2 nodes derived, 6.4 MB of mips
   (1.6 MB cells) against 25.4 MB for level 0; worker µs a node p50/p95 downsample 2,600/7,100, derive 1,600/9,700.
 - Measured (Node, hard cases): levels 1 and 2 are closed, and every surface lies within the level's cell of the
@@ -1283,7 +1288,8 @@ transition strip with flaps.
   u16 steps); `seamBytes`. Seams count in `bytes.mips`.
 - **When rebuilt (atomic where something is replaced):** a mip node's new result is held until the seams reading it
   are rebuilt from it (its `node` event and their `seams` event in one task); an edit's section group swaps only once
-  the seams reading its chunks are rebuilt from its held results (their `seams` event just before the `swap`); a
+  the seams reading its chunks or its shown nodes are rebuilt from their held results (the nodes' `node` events and
+  the `seams` event just before the `swap`); a
   level change builds every face it adds before it goes in (below). Seams whose inputs arrive while streaming in are
   built as their jobs come back (there is no old seam to keep).
 - Measured (28 two-level patches: 11 hard cases, hilly, caves, town, at L0|L1 and L1|L2; 2.8 M rays): crack rays
@@ -1554,7 +1560,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R104 | — | — | later: 46e (O19) |
 | R105 | §3.7 collision | 45.6 | partly: Rapier churn in 46a |
 | R106 | — | — | later: 48a |
-| R107 | §3.6 sections, atomic swap; §3.7 seams (an edit's swap waits for its seams) | 45.10c, 46a.12, 46b.7b; `stream.test.ts`, `voxel-world.e2e.ts`, plan **45.10c** (blast benchmark) | partly: local 1–4 m blasts the next frame, 8 m 2–3 frames (46a.12); the mesher misses its 0.1–0.2 ms budget (207–307 µs a 16³ section with the rules); coarse levels show an edit after its ancestors re-derive; 46b.11a re-measures (requirements §5) |
+| R107 | §3.6 sections, atomic swap; §3.7 seams (an edit's swap waits for its seams) | 45.10c, 46a.12, 46b.7b; `stream.test.ts`, `voxel-world.e2e.ts`, plan **45.10c** (blast benchmark) | partly: local 1–4 m blasts the next frame, 8 m 2–3 frames (46a.12); the mesher misses its 0.1–0.2 ms budget (207–307 µs a 16³ section with the rules); an edit in the level-1 ring swaps whole with its drawn nodes, 1–4 frames locally (1–4 m), 2–5 at 8 m (46b.11c) (requirements §5) |
 | R108 | §3.7 terrain rule set, terrain mesher | 46b.1–46b.5, 46b.10; `mesh-cases.test.ts` (the `features` hard-case world, goldens), `derived.test.ts` (conformance), `collision.test.ts` | served: rules with radius 2 and conformance, the hard cases closed with every probe kept; D463 (tall far terrain) open |
 | R109 | §3.7 terrain, levels, seams and LOD selection | 46b.6a–46b.9; `mesh-cases.test.ts`, `derived.test.ts`, `stream.test.ts`, `lod-select.test.ts`, `level-materials.test.ts`, `voxel-chunk-view.test.ts`, `voxel-world.e2e.ts` | served with limits: rings, seams, one blend, pieces high → low → none; D462 (a cave saddle) and D463 (level 2 not drawn, tall far terrain) open |
 | R110 | — | — | later: 46e |

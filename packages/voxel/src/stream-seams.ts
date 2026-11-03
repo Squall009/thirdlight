@@ -16,8 +16,9 @@
  * - **Swaps.** A seam is part of the swap of what changed its inputs, and
  *   the old one stays until then: a mip node's new result is held until the
  *   seams reading it are rebuilt from it ({@link StreamSeams.holdNode}), an
- *   edit's section group swaps only once the seams reading its chunks are
- *   rebuilt from its held results ({@link StreamSeams.holdChunks}), and a
+ *   edit swaps its chunks and the drawn nodes it changed only once the seams
+ *   reading any of them are rebuilt from their held results
+ *   ({@link StreamSeams.holdEdit}), and a
  *   change of the selection builds every seam it adds and drops every seam
  *   it removes in one `seams` event ({@link StreamSeams.selectionChanged}).
  *   Inputs that change outside those (a chunk or a node landing while
@@ -110,12 +111,31 @@ export interface SeamHold {
   cancel(): void;
 }
 
-/** Inputs replaced while a hold is built: a node's new result, or chunks' held section surfaces. */
-interface Override {
+/** A node's result going in with a hold (level ≥ 1). */
+export interface HeldNode {
   readonly level: number;
-  readonly node?: { readonly nx: number; readonly ny: number; readonly nz: number; readonly result: DerivedData | null };
+  readonly nx: number;
+  readonly ny: number;
+  readonly nz: number;
+  readonly result: DerivedData | null;
+}
+
+/**
+ * What an edit's level-0 group waits for before it swaps: the drawn mip
+ * nodes the edit changed and the seams reading them or its chunks. `nodes`
+ * names the nodes (level, nx, ny, nz) its `commit` put in, in that swap.
+ */
+export interface EditHold extends SeamHold {
+  readonly nodes: ReadonlyArray<readonly [number, number, number, number]>;
+}
+
+/** Inputs replaced while a hold is built: nodes' new results (by node key), and chunks' held section surfaces. */
+interface Override {
+  readonly nodes?: ReadonlyMap<string, DerivedData | null>;
   readonly chunks?: (cx: number, cy: number, cz: number, axis: number, plane: number) => SeamSurface[] | undefined;
 }
+
+const nodeKeyOf = (level: number, nx: number, ny: number, nz: number): string => `${level}:${nx},${ny},${nz}`;
 
 interface Entry {
   readonly id: string;
@@ -203,6 +223,11 @@ export class StreamSeams {
     for (const e of this.readers(0, cx, cy, cz)) this.dirty.add(e.id);
   }
 
+  /** Whether a kept seam reads node (level ≥ 1) (as its node, a neighbour beside its face, or its finer side). */
+  reads(level: number, nx: number, ny: number, nz: number): boolean {
+    return this.readers(level, nx, ny, nz).length > 0;
+  }
+
   /** Whether seam work can go on now (for the streamer's idle check). */
   pending(): boolean {
     if (this.jobs.size > 0 || this.stale) return true;
@@ -222,14 +247,20 @@ export class StreamSeams {
   holdNode(level: number, nx: number, ny: number, nz: number, result: DerivedData | null, ready: () => void): SeamHold | null {
     // A node's first result may add faces (a pending change of the selection adds its own in one swap).
     if (this.stale && !this.batch) this.refresh(false);
-    return this.hold(this.readers(level, nx, ny, nz), { level, node: { nx, ny, nz, result } }, 'mip', ready);
+    return this.hold(this.readers(level, nx, ny, nz), { nodes: new Map([[nodeKeyOf(level, nx, ny, nz), result]]) }, 'mip', ready);
   }
 
-  /** An edit group's chunks are to swap: the seams reading them are rebuilt from `surfaces` (their held results) first; null when none does. */
-  holdChunks(chunks: ReadonlyArray<readonly [number, number, number]>, surfaces: Override['chunks'], ready: () => void): SeamHold | null {
+  /**
+   * An edit's chunks and nodes are to swap together: the seams reading any
+   * of them are rebuilt from `surfaces` (the chunks' held results) and the
+   * nodes' new results first, in the edit lane; null when none does.
+   */
+  holdEdit(nodes: readonly HeldNode[], chunks: ReadonlyArray<readonly [number, number, number]>, surfaces: Override['chunks'], ready: () => void): SeamHold | null {
     const faces = new Map<string, Entry>();
     for (const [cx, cy, cz] of chunks) for (const e of this.readers(0, cx, cy, cz)) faces.set(e.id, e);
-    return this.hold([...faces.values()], { level: 0, chunks: surfaces }, 'edit', ready);
+    for (const n of nodes) for (const e of this.readers(n.level, n.nx, n.ny, n.nz)) faces.set(e.id, e);
+    const results = new Map(nodes.map((n) => [nodeKeyOf(n.level, n.nx, n.ny, n.nz), n.result]));
+    return this.hold([...faces.values()], { nodes: results, chunks: surfaces }, 'edit', ready);
   }
 
   /** Works out the wanted faces when stale, and sends rebuilds of dirty faces, as far as the pool has room. */
@@ -294,7 +325,7 @@ export class StreamSeams {
     const swapped = this.swapped;
     this.swapped = null;
     for (const e of removed) e.leaving = true;
-    const hold = this.hold(added, { level: -1 }, 'mip', () => {
+    const hold = this.hold(added, {}, 'mip', () => {
       hold?.commit();
       swapped?.();
     }, removed);
@@ -473,8 +504,8 @@ export class StreamSeams {
     const axis = face >> 1;
     const inPlane = [0, 1, 2].filter((a) => a !== axis);
     const nodeOf = (l: number, x: number, y: number, z: number): DerivedData | null | undefined => {
-      const o = ov?.node;
-      if (o !== undefined && ov!.level === l && o.nx === x && o.ny === y && o.nz === z) return o.result;
+      const k = ov?.nodes === undefined || ov.nodes.size === 0 ? undefined : nodeKeyOf(l, x, y, z);
+      if (k !== undefined && ov!.nodes!.has(k)) return ov!.nodes!.get(k)!;
       return host.nodeResult(l, x, y, z);
     };
     const surface = (x: number, y: number, z: number, d: DerivedData | null): SeamSurface => ({ x0: x * E, y0: y * E, z0: z * E, ground: d?.ground ?? EMPTY_SURFACE, base: d?.base ?? EMPTY_SURFACE });
