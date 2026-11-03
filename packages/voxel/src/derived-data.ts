@@ -30,8 +30,8 @@
  *   (cell index, clearance in cells, and whether the clearance continues
  *   into the chunk above);
  * - **meshes** (derived-mesh.ts layouts): the ground surface (the terrain
- *   mesher, terrain-mesher.ts), the base surface and the detail-instance
- *   list;
+ *   mesher, terrain-mesher.ts), the base surface (base-surface.ts) and the
+ *   detail-instance list;
  * - **shader data** (derived-shader.ts): the material and wetness of the
  *   chunk's cells and a border around them, for the surface shader.
  *
@@ -46,7 +46,8 @@
  */
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { BRICK_EDGE } from './brick-layout';
-import { baseSurface, detailInstances, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { baseSurface } from './base-surface';
+import { detailInstances, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
@@ -59,7 +60,8 @@ import { utf8Encode } from '@thirdlight/shared';
  * vertices are split into copies carrying their quads' face normals (one
  * position may now appear in several vertices); the layout is v3's. 6: a
  * straight step's crease vertex sits on the column lattice at a column's top
- * (its true edge), not at the dual-contouring point; the layout is v3's.
+ * (its true edge), not at the dual-contouring point, and the base
+ * surface's coplanar faces are merged inside a section; the layout is v3's.
  */
 export const DERIVED_FORMAT_VERSION = 6;
 

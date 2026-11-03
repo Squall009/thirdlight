@@ -14,8 +14,11 @@
  *   cell steps, so a position stays bit for bit what a whole-chunk derive
  *   gives) and their indices offset. Vertices on a face between two
  *   sections are not welded: each section emits its own copy at the same
- *   position with the same normal, so the triangles equal the whole-chunk
- *   derive's and only the vertex count is a little higher.
+ *   position with the same normal, so the ground's triangles equal the
+ *   whole-chunk derive's and only the vertex count is a little higher. The
+ *   base merges faces inside each section only (base-surface.ts): its
+ *   triangles differ from a whole-chunk derive's, covering the same faces
+ *   with no T-junction.
  * - **Instances.** Concatenated, cells moved to the chunk.
  * - **Collision boxes.** Concatenated, moved to the chunk, every section's
  *   full-cell merges before the partial shapes. Boxes are not merged across

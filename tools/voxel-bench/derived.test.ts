@@ -84,6 +84,7 @@ import { join } from 'node:path';
 import { crc32 } from '@thirdlight/shared';
 import { listRegionFiles, RegionWorld } from '@thirdlight/workspace';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { coverage, exposedFaces, naiveOpenSegments, openSegments, tJunctions, weldBase } from './base-cases';
 import { loadArea, zstdDecompress } from './regions';
 import { instanceList, triangleList } from './mesh-compare';
 import { houseVoxel, townWorld, type House } from './town';
@@ -793,7 +794,7 @@ describe('meshes', () => {
     expect(seam).toBeGreaterThan(50);
   });
 
-  it('joins a chunk\'s 16³ and 8³ sections (terrain rules and mesher) into the whole-chunk derive\'s triangles, instances and shader grid; joined chunks meet without cracks', () => {
+  it('joins a chunk\'s 16³ and 8³ sections (terrain rules and mesher) into the whole-chunk derive\'s ground triangles, instances and shader grid, and its base faces (merged per section: same faces, no T-junction); joined chunks meet without cracks', () => {
     const hilly = createWorldStore(grid);
     loadArea(hillyWorld({ footprint: 96 }).grids[0]!, hilly, -48, -48, 48, 48);
     const town = createWorldStore(grid);
@@ -808,16 +809,24 @@ describe('meshes', () => {
       ['features', featuresStore(), 6, 9, 0, 1, 0, 1],
     ];
     for (const edge of [16, 8]) {
-      const seen = { chunks: 0, ground: 0, base: 0, instances: 0, grids: 0, extraVertices: 0, vertices: 0 };
+      const seen = { chunks: 0, ground: 0, base: 0, instances: 0, grids: 0, extraVertices: 0, vertices: 0, baseTriangles: 0, baseFaces: 0 };
       for (const [name, store, x0, x1, y0, y1, z0, z1] of cases) {
         for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) for (let cz = z0; cz <= z1; cz++) {
           const whole = deriveFromStore(store, cx, cy, cz, TERRAIN_RULES);
           const joined = joinedFromStore(store, cx, cy, cz, edge);
           const at = `${name} ${edge}³ chunk (${cx}, ${cy}, ${cz})`;
           expect(joined.ground.indices.length, at).toBe(whole.ground.indices.length);
-          expect(joined.base.indices.length, at).toBe(whole.base.indices.length);
           expect(triangleList(joined.ground), at).toEqual(triangleList(whole.ground));
-          expect(triangleList(joined.base), at).toEqual(triangleList(whole.base));
+          // Base faces merge inside a section only, so the triangles differ; both cover every exposed face once.
+          const faces = exposedFaces(store, cx, cy, cz);
+          for (const [kind, base] of [['joined', joined.base], ['whole', whole.base]] as const) {
+            const mesh = weldBase([{ buf: base, cx, cy, cz }]);
+            expect(coverage(mesh, faces), `${at} ${kind}`).toEqual({ uncovered: 0, doubled: 0, area: faces.length, faces: faces.length });
+            expect(tJunctions(mesh), `${at} ${kind}`).toBe(0);
+            expect(openSegments(mesh), `${at} ${kind}`).toEqual(naiveOpenSegments(faces));
+          }
+          seen.baseTriangles += joined.base.indices.length / 3;
+          seen.baseFaces += faces.length;
           expect(joined.instances.count, at).toBe(whole.instances.count);
           expect(instanceList(joined.instances), at).toEqual(instanceList(whole.instances));
           expect(Buffer.from(encodeShader(joined.shader)).equals(Buffer.from(encodeShader(whole.shader))), `${at} shader grid`).toBe(true);
@@ -826,8 +835,8 @@ describe('meshes', () => {
           if (whole.base.indices.length > 0) seen.base++;
           if (whole.instances.count > 0) seen.instances++;
           if (whole.shader.width > 0) seen.grids++;
-          seen.vertices += whole.ground.vertexCount + whole.base.vertexCount;
-          seen.extraVertices += joined.ground.vertexCount + joined.base.vertexCount - whole.ground.vertexCount - whole.base.vertexCount;
+          seen.vertices += whole.ground.vertexCount;
+          seen.extraVertices += joined.ground.vertexCount - whole.ground.vertexCount;
         }
       }
       expect(seen.ground).toBeGreaterThan(6);
@@ -837,6 +846,8 @@ describe('meshes', () => {
       // Unwelded vertices on the faces between sections: more vertices, never fewer, and a minority.
       expect(seen.extraVertices).toBeGreaterThan(0);
       expect(seen.extraVertices).toBeLessThan(seen.vertices);
+      // Merged base faces: fewer triangles than the naive two a face, even with merges stopping at section faces.
+      expect(seen.baseTriangles).toBeLessThan(seen.baseFaces);
       // The crack-free seam check on joined chunks: every edge inside the window, across section and chunk faces, has two triangles.
       const { edges, tris, surface } = groundEdges((s, cx, cy, cz) => joinedFromStore(s, cx, cy, cz, edge).ground);
       expect(surface).toBeGreaterThanOrEqual(4);

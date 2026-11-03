@@ -54,25 +54,40 @@ function sortedIndex(list: Uint16Array, v: number): number {
   return -1;
 }
 
-/** Base quads whose cell is (lx, ly, lz): a quad's four corners, less half a cell along its normal. */
+/**
+ * Faces of cell (lx, ly, lz) the base surface draws: per face direction, a
+ * base triangle facing that way, in the face's plane, covering a point
+ * inside the face (triangles may span many merged faces).
+ */
 function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): number {
   const b = d.base;
   if (b.vertexCount === 0) return 0;
   const stride = SURFACE_VERTEX_BYTES;
   const view = new DataView(b.vertices.buffer, b.vertices.byteOffset, b.vertices.byteLength);
   const steps = POSITION_STEPS_PER_CELL;
-  let n = 0;
-  for (let q = 0; q + 3 < b.vertexCount; q += 4) {
-    const c = [0, 0, 0];
-    for (let k = 0; k < 4; k++) for (let a = 0; a < 3; a++) c[a]! += view.getUint16((q + k) * stride + a * 2, true);
-    const at: number[] = [];
-    for (let a = 0; a < 3; a++) {
-      const normal = view.getInt8(q * stride + 8 + a);
-      // Positions count from one cell below the chunk's corner.
-      at.push(Math.floor(c[a]! / 4 / steps - 1 - Math.sign(normal) * 0.5));
-    }
-    if (at[0] === lx && at[1] === ly && at[2] === lz) n++;
+  // Positions count from one cell below the chunk's corner.
+  const at = (v: number, a: number): number => view.getUint16(v * stride + 2 * a, true) / steps - 1;
+  const cell = [lx, ly, lz];
+  let found = 0;
+  for (let t = 0; t < b.indices.length; t += 3) {
+    const i0 = b.indices[t]!, i1 = b.indices[t + 1]!, i2 = b.indices[t + 2]!;
+    let axis = 0;
+    while (axis < 3 && view.getInt8(i0 * stride + 8 + axis) === 0) axis++;
+    if (axis === 3) continue;
+    const sign = view.getInt8(i0 * stride + 8 + axis) > 0 ? 1 : 0;
+    const bit = 1 << (2 * axis + sign);
+    if ((found & bit) !== 0 || at(i0, axis) !== cell[axis]! + sign) continue;
+    const u = (axis + 1) % 3;
+    const w = (axis + 2) % 3;
+    // A point inside the face, off every line through two lattice points of the chunk.
+    const pu = cell[u]! + 0.3183;
+    const pw = cell[w]! + 0.5772;
+    const side = (p: number, q: number): number => (at(q, u) - at(p, u)) * (pw - at(p, w)) - (at(q, w) - at(p, w)) * (pu - at(p, u));
+    const s1 = side(i0, i1), s2 = side(i1, i2), s3 = side(i2, i0);
+    if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) found |= bit;
   }
+  let n = 0;
+  for (let f = found; f !== 0; f &= f - 1) n++;
   return n;
 }
 

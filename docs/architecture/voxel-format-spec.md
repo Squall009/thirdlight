@@ -881,8 +881,9 @@ same call (an edit lane budget of 8 ms main thread, `editDeriveMsPerUpdate`), no
 in one task (a swap, or one job's answer while streaming) gets one `chunk` event (`shaderOnly` when only shader data
 changed) just before the `swap`. `joinedChunk(cx, cy, cz)` then joins the sections' newest results on the drawing
 thread: one ground and one base surface (section buffers concatenated, positions moved to the chunk's corner by whole
-cell steps, indices offset; vertices on faces between sections not welded, so the triangles equal a whole-chunk
-derive's with 1–6 % more vertices), one instance list, and one shader grid of side 34 whose bytes equal the
+cell steps, indices offset; vertices on faces between sections not welded, so the ground's triangles equal a
+whole-chunk derive's with 1–6 % more vertices; the base merges faces inside each section only, so its triangles
+differ from a whole-chunk derive's while covering the same faces once each with no T-junction, v6), one instance list, and one shader grid of side 34 whose bytes equal the
 whole-chunk derive's (`encodeShader`). Nothing is kept: the join is rebuilt from the section results when asked.
 Measured (Node, 16³, plan-46a 46a.5a): 0.28–0.31 ms p50 / 0.59–0.69 ms p95 a drawn chunk, nine tenths of it the grid.
 
@@ -1094,8 +1095,15 @@ chunk):
   and chunk gets the same copies; copies with equal snorm8 normals are one vertex). One position can therefore
   appear in several vertices; consumers that weld (collision: Rapier merges duplicate vertices) are unaffected.
   Gentle and steep ground never split.
-- The base surface is a reference producer (one quad per exposed face); 46c (kits and cases) replaces it, writing
-  the same layout or bumping the version.
+- **Base surface (v6, `base-surface.ts`).** The exposed faces of wall-class cells, coplanar faces of one direction
+  merged inside the job's section into rectangles (greedy, row by row a layer), whatever their materials (vertices
+  carry none). No T-junctions: a rectangle's edge also takes every lattice point where another rectangle of the
+  section has a corner, and on the section's faces every lattice point (the neighbour merges on its own); merges
+  never cross a section face. The ground and detail pieces share no edge with the base, so they set no vertex on
+  it. A rectangle fans from a corner whose two edges have no extra point, else from its centre. Joined sections
+  and a whole-chunk derive then cover the same faces once each, crack-free, in different triangles (tested on
+  the town and a closed shell). 46c (kits and cases) replaces the producer, writing the same layout or bumping
+  the version.
 
 **Detail instance (8 bytes):**
 - u8 x, y, z: the cell inside the chunk;
@@ -1221,7 +1229,9 @@ regenerated.
 **Derived data 5 → 6 (46b.5, owner note: default chosen, owner to confirm).** The layout is unchanged; the meaning of
 the ground's crease vertices changed: a straight step's edge (a terrace lip, a cliff's top, a step's foot) is
 placed on the column lattice at the column's top, where the QEF of the interpolated density put it up to a third of
-a cell low and in front of the face (D461). Nothing is stored, nothing to upgrade, no world regenerated.
+a cell low and in front of the face (D461); and the base surface's coplanar faces are merged inside a section (a
+triangle may span many faces; a whole-chunk derive and its joined sections cover the same faces in different
+triangles). Nothing is stored, nothing to upgrade, no world regenerated.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules

@@ -4,13 +4,16 @@
  * recorded goldens, and meshes broken on purpose (a hole torn, vertices
  * moved, a feature removed, a hole covered) fail them.
  */
-import { chunkGrid, CREASE_SPLIT_DEG, createWorldStore, deriveFromStore, groundHeightfield, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, type SurfaceBuffer } from '@thirdlight/voxel';
+import { chunkGrid, CREASE_SPLIT_DEG, createWorldStore, deriveFromStore, groundHeightfield, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, VOXEL_ROLE, type SurfaceBuffer } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
+import { chunkBase, coverage, exposedFaces, naiveOpenSegments, openSegments, tJunctions, unmatchedEdges, weldBase, type BaseMesh } from './base-cases';
 import { FEATURE_GROUND, featureCases, featuresStore } from './features';
 import { REFERENCE_GOLDENS, TERRAIN_NORMAL_GOLDENS } from './mesh-goldens';
 import { creaseAngles, goldenFailures, meshFeatures, measureCases, measureNormals, referenceMesher, terrainMesher, type CaseResult, type NormalResult, type WorldMesh } from './mesh-cases';
 import { chunkMesherOf, MESHER_CANDIDATES, mesherCandidate } from './mesher-candidates';
 import { loadArea } from './regions';
+import { townWorld } from './town';
+import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
 
 const G = FEATURE_GROUND;
@@ -302,5 +305,70 @@ describe('the terrain mesher\'s normals', () => {
     expect(offRim.length).toBeGreaterThan(2000);
     expect(offRim.filter((a) => a > 0)).toEqual([]);
     expect(at('bumps').splitVertices).toBeGreaterThan(0);
+  });
+});
+
+describe('the base surface (built cells: coplanar faces merged)', () => {
+  /** Chunks (x0…x1, y0…y1, z0…z1) of a store meshed (whole chunks or joined sections) and welded, with the faces they expose. */
+  const meshBase = (s: ReturnType<typeof createWorldStore>, r: readonly number[], sectionEdge: number): { mesh: BaseMesh; faces: Array<[number, number, number, number]> } => {
+    const parts = [];
+    const faces: Array<[number, number, number, number]> = [];
+    for (let cx = r[0]!; cx <= r[1]!; cx++) for (let cy = r[2]!; cy <= r[3]!; cy++) for (let cz = r[4]!; cz <= r[5]!; cz++) {
+      parts.push({ buf: chunkBase(s, cx, cy, cz, sectionEdge), cx, cy, cz });
+      faces.push(...exposedFaces(s, cx, cy, cz));
+    }
+    return { mesh: weldBase(parts), faces };
+  };
+
+  it('keeps a closed body closed: a two-cell-thick shell with a window, across chunk and section faces, every edge two triangles wound opposite ways, no T-junction', () => {
+    const s = createWorldStore(chunkGrid(32));
+    const wall = { material: MAT.stone, role: VOXEL_ROLE.wall, shape: 15, wetness: 0 };
+    const inside = (x: number, y: number, z: number, a: readonly number[], b: readonly number[]): boolean => x >= a[0]! && x < b[0]! && y >= a[1]! && y < b[1]! && z >= a[2]! && z < b[2]!;
+    // Floating in air (no ground under it), from y 26 to 40 over the chunk face at 32, x over the section face at 16.
+    for (let x = 10; x < 24; x++) for (let y = 26; y < 40; y++) for (let z = 12; z < 24; z++) {
+      if (inside(x, y, z, [12, 28, 14], [22, 38, 22])) continue;
+      if (inside(x, y, z, [16, 31, 12], [18, 33, 14])) continue;
+      s.setVoxel(x, y, z, wall);
+    }
+    for (const edge of [32, 16, 8]) {
+      const { mesh, faces } = meshBase(s, [0, 0, 0, 1, 0, 0], edge);
+      expect(faces.length).toBeGreaterThan(1500);
+      expect(unmatchedEdges(mesh), `${edge}³`).toBe(0);
+      expect(tJunctions(mesh), `${edge}³`).toBe(0);
+      expect(coverage(mesh, faces), `${edge}³`).toEqual({ uncovered: 0, doubled: 0, area: faces.length, faces: faces.length });
+      // Two triangles a face before; merges stop at section faces, so smaller sections merge less.
+      expect(mesh.triangles.length / 3, `${edge}³`).toBeLessThan(edge === 8 ? faces.length : faces.length / 2);
+    }
+  });
+
+  it('meshes the town\'s houses (walls with windows and doors, floors, stairs, roofs, beams, banisters) to the same faces with fewer triangles: no T-junction, the same open edges, cell for cell', () => {
+    const s = createWorldStore(chunkGrid(32));
+    loadArea(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 128, 128);
+    const { mesh, faces } = meshBase(s, [0, 3, -1, 1, 0, 3], 16);
+    expect(faces.length).toBeGreaterThan(20000);
+    expect(tJunctions(mesh)).toBe(0);
+    expect(coverage(mesh, faces)).toEqual({ uncovered: 0, doubled: 0, area: faces.length, faces: faces.length });
+    expect(openSegments(mesh)).toEqual(naiveOpenSegments(faces));
+    // Two triangles a face before; at least a third fewer now, merges stopping at every section face.
+    expect(mesh.triangles.length / 3).toBeLessThan((2 * faces.length * 2) / 3);
+  });
+
+  it('fails a merge that leaves T-junctions or a gap', () => {
+    const s = createWorldStore(chunkGrid(32));
+    loadArea(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 64, 64);
+    const { mesh, faces } = meshBase(s, [0, 1, 0, 0, 0, 1], 16);
+    // A neighbour's long edge over the vertices of the triangles beside it: drop a vertex shared along a straight edge.
+    const P = mesh.positions;
+    const T = [...mesh.triangles];
+    const t0 = T.findIndex((_, i) => i % 3 === 0 && mesh.dirs[i / 3] === 1);
+    const torn: BaseMesh = { positions: P, triangles: T.filter((_, i) => Math.floor(i / 3) !== t0 / 3), dirs: mesh.dirs.filter((_, i) => i !== t0 / 3) };
+    expect(coverage(torn, faces).uncovered).toBeGreaterThan(0);
+    expect(openSegments(torn)).not.toEqual(naiveOpenSegments(faces));
+    // Two unit faces in a row drawn as one quad whose long edge passes a neighbour's vertex.
+    const quad: BaseMesh = { positions: [0, 0, 0, 2, 0, 0, 2, 0, 1, 0, 0, 1, 1, 0, 2, 0, 0, 2].map((v) => v * POSITION_STEPS_PER_CELL), triangles: [0, 3, 2, 0, 2, 1, 3, 5, 4, 3, 4, 2], dirs: [3, 3, 3, 3] };
+    expect(tJunctions(quad)).toBe(0);
+    // The far side split at (1, 0, 1), a point inside the near quad's edge (0, 0, 1)–(2, 0, 1).
+    const tj: BaseMesh = { positions: [...quad.positions, POSITION_STEPS_PER_CELL, 0, POSITION_STEPS_PER_CELL], triangles: [0, 3, 2, 0, 2, 1, 3, 5, 4, 3, 4, 6, 6, 4, 2], dirs: [3, 3, 3, 3, 3] };
+    expect(tJunctions(tj)).toBeGreaterThan(0);
   });
 });

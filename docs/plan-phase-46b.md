@@ -106,7 +106,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.3a | done (this commit; fast gate green): `mesher-candidates.ts` (reference, lattice, dc, lattice+dc, mc), `run.mjs mesher`. Pick (owner to confirm): column-lattice nets + DC at the rules' creases. Slice/hilly triangles −11 %, heightfield chunks 0 → 32/33 %, slope mean error 2.7 → 0.4 cm, one golden miss (bump rim +2.8 cm); µs/section +30 (caves/vertical over budget). |
 | 46b.3b | done (abcb8b7d; fast gate green): `terrain-mesher.ts` derives the ground (lattice+dc, reach 3 cells), derived v4, worlds on `WORLD_RULES` (terrain v1). Eval + mesh µs/16³ section p50 slice 256 → 217, town 227 → 207, caves 332 → 307 (mesh alone ~110; caves ~190); slice triangles −11 %; heightfield-eligible chunks slice 0 → 32 % (collision takes level ones only). |
 | 46b.4 | done (this commit; fast gate green): lattice normals from 4 × 4 columns (slope max error 1:20 5.4 → 1.4°, 1:5 5.7 → 1.6°), crease vertices split with face normals (cliff top 64°, terrace lips 40/59°, ledge 57°, wall foot 64°; no split on slopes or bank), derived v5. Vertices slice +0.07 %, town +1 %, caves +26 %; µs a 16³ section p50 +26–35 (caves +100). |
-| 46b.5 | not started |
+| 46b.5 | done (05145625 + this commit; fast gates green): base faces merged per section, no T-junction (derived v6): town (terrain rules, 32³) 2.72 → 1.62 M triangles (base 1.41 → 0.30 M), base bytes a chunk 16.4 → 2.5 KB, drawn 2.96 → 1.96 M; derive µs equal. D461 fixed: lips on the true edge, terraces-1 max 12.2 → 2.5 cm, normal p95 73 → 4.5°. |
 | 46b.6a | not started |
 | 46b.6b | not started |
 | 46b.7a | not started |
@@ -403,6 +403,58 @@ Fast gate (gate-fast-20261103-121415, uptime 10 d 19.8–20.0 h, load 5.6 at the
 4.9 GB peak; vitest red only on D418 (`scan-bounded-log.test.ts`, 5 s timeout, passed alone in the gate's rerun);
 `voxel-world.e2e.ts` 53.1 s (not touched; 44.3 s at 46b.3b, the host's load).
 
+### 46b.5 base surface merges and the terrace lip (D461)
+
+**D461 (05145625).** A crease cube (touching a cliff or terrace-lip cell) whose four sample columns are a straight
+step (two columns a side; each a height function over the lattice window, or wholly full or empty there) now puts
+its vertex on the column lattice at the higher column top between its two sample centres: the step's edge, or its
+foot. The 4-bit fill is a height, so the step's face stands on the cell boundary; the QEF of the interpolated
+density had put the lip (8.04, 8.96) for the true (8, 9.3), the foot (7.64, 8.36) for (8, 8.3). Two tops only and a
+half-open span keep it from ever landing on a plain lattice vertex or another cube's (a first version allowing
+three tops made 4 degenerate triangles on the bank; one column against three put a bump's rim 25 cm off).
+Hard cases (cm, before → after): terraces-1 max 12.2 → 2.5, mean 3.1 → 1.3; terraces-2 mean 3.3 → 2.5; cliff mean
+1.3 → 1.2; arch max 17.6 → 14.2; cave max 17.6 → 19.1 (within its 23.3 golden: a mouth rim vertex); others equal.
+Normals (°, max or p95): terraces-1 p95 73.1 → 4.5, terraces-2 max 73 → 45, cliff max 74 → 45, overhang max 73 →
+68, cave max 76.8 → 75.9; goldens tightened to these, none widened. New test: every terrace lip and the cliff top
+within the fill rounding (1/30 cell) of the true edge. The 2-cell terraces' foot is not a crease cube (the lip cell
+is two cells up) and keeps the nets' mean (0.4 cell in front); not chased. `groundHeightfield` now reads a triangle
+whose footprint is at most 4 steps × a cell as a riser (it may lean a step back: off-lattice vertices are kept a
+step off the lattice lines), not an underside; the collision test's block now refuses as `layers` at its corner (its
+foot on the node) and a corner-free variant as `uncovered` (both asserted). Town heightfield-eligible chunks 198 →
+211 of 605. Mesher µs a 16³ section p50 (Node, `run.mjs mesher`, 13:17, uptime 10 d 20.8 h, load 4.3–5.4): slice
+245, hilly 274, caves 413, town 279 (46b.4: 252 / 263 / 399 / 258 at load 4.6–5.2): unchanged within the host's
+noise; no cheap win taken.
+
+**Base surface** (`packages/voxel/src/base-surface.ts`, replacing derived-mesh's quad a face): exposed faces of
+wall-class cells merged per direction and layer into rectangles (greedy), across materials (vertices carry none).
+T-junctions: each rectangle's edge takes every lattice point where another rectangle of the section has a corner,
+and every lattice point on the section's faces; the ground and pieces share no edges with the base (separate,
+overlapping meshes), so they set none. Fan from a corner whose two edges carry no extra point, else from the
+centre. **Join invariant (chosen):** a whole-chunk derive and its joined 16³/8³ sections no longer give the same
+triangles; both must cover every exposed face exactly once (a sample point a face, irrational offsets, and equal
+area), have no vertex inside another triangle's edge, and have the naive quads' boundary cell for cell
+(`tools/voxel-bench/base-cases.ts`). Tests: `derived.test.ts` join (hilly, town, scene, features at 16³ and 8³);
+`mesh-cases.test.ts` a closed two-cell shell with a window floating across chunk and section faces (every edge
+two triangles, opposite windings, at 32/16/8), the town's houses (windows, doors, stairs, roofs, banisters: 20 k+
+faces), and the checks failing a torn face and a T-junction (also checked once by hand: without the inserted
+points the join test reports 315 T-junctions). `derived-cell.ts` counts a cell's base faces by coverage.
+
+Numbers (Node 22, i5-12600H, 13:13–13:17, uptime 10 d 20.8 h, load 4.3–5.7; before = 05145625 by `git stash`):
+town (`run.mjs derive --worlds town`, placeholder rules, 32³) 3.12 → 1.91 M triangles, base vertices 3.08 → 0.42 M,
+base bytes a chunk 16.4 → 2.5 KB, vertex bytes a drawn chunk 46.7 → 14.9 KB, mesh µs a chunk mean 631 → 630; town
+with the terrain rules (`run.mjs mesher`) ground 1.32 M + base 1.41 → 0.30 M = 1.62 M (2.87 M baseline); a 96 m town
+window as the streamer derives it (16³ sections, scratch `sect.ts`, two interleaved A/B rounds) base 207,660 →
+63,416 triangles, 6.1 → 1.3 MB, whole section derive µs p50 553–555 → 493–552 (equal). Staging (dist of this
+change vs 05145625, town at the page's scene, WebGPU and WebGL 2, 1280 × 720): drawn 2,962,446 → 1,964,346
+triangles, stream MB 233 → 138; the wide view, a house's walls with windows and its stepped roof and the inside
+looked at before and after: the same pictures (two thin dark lines on the inner roof are in both). Shots
+`~/.cache/thirdlight-phase46/work/46b.5/shots/{before,after}/`.
+Gates: D461 (gate-fast-20261103-124148 RED on the collision test's refusal reason, fixed as above;
+gate-fast-20261103-125439 GREEN, 14 min, 4.5 GB, uptime 10 d 20.5 h, load 4–8); base (gate-fast-20261103-131801,
+load 3–7: vitest and lint green, e2e red only on D320 (watch, `rendering.e2e.ts` dynamic resolution "back up to 1"),
+passed on the rerun; perf at the cap green, gate-rerun-20261103-133417). `voxel-world.e2e.ts` 49.5 s and 48.1 s (not
+touched; 53.1 s at 46b.4 under load 15–17).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -496,6 +548,15 @@ Fast gate (gate-fast-20261103-121415, uptime 10 d 19.8–20.0 h, load 5.6 at the
   left 1:20 at 1.9°, so the tent stays.
 - 2026-11-03 (46b.4): **a low-sun look is still owed**: the slice page's sun is fixed at ~60°, where the 1:20 banding
   was invisible before and after; 46b.11b looks under a low sun (a page parameter or the Scene view's light).
+
+- 2026-11-03 (46b.5, default chosen, owner to confirm): **merged base faces stop at section faces, and the join
+  invariant is coverage, not bytes**: merging across sections would make a section's mesh depend on its
+  neighbours' (more derive reach, more re-derives an edit); instead each section merges alone and puts every
+  lattice point on its faces, so joined sections and a whole-chunk derive cover the same faces once each, crack-
+  free, in different triangles. Inside a section T-junctions are avoided by inserting the other rectangles'
+  corners rather than stopping merges there (same crack-freedom, fewer triangles). Derived v6.
+- 2026-11-03 (46b.5): **a straight step's crease vertex goes on the column lattice** (D461); corners of steps
+  (three tops) and rounded rims keep the QEF.
 
 ## 9. Open questions for the owner
 
