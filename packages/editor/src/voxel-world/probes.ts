@@ -96,6 +96,11 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
   }
 
   return {
+    /** Starts the body add/remove timings afresh (a measured run's own churn, without the cold fill's). */
+    clearCollisionTimes(): void {
+      physics().addMs.clear();
+      physics().removeMs.clear();
+    },
     /** What a cell is: its stored voxel, the class the assembly resolves for it, and what every consumer received (null: chunk not derived). */
     cellAt(x: number, y: number, z: number): Record<string, unknown> {
       streamer.voxelAt(x, y, z, v);

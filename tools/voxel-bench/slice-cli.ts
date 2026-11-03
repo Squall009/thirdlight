@@ -46,6 +46,8 @@
  *   --at X,Y,Z          the scene's origin cell (the slice-world tool prints it)
  *   --phase measure|reload   --seconds S (frames, default 30)   --renderers webgpu,webgl2
  *   --viewport WxH      (default 1280x720)   --out DIR (default ~/.cache/thirdlight-phase45/acceptance/45.7a)
+ *   --page-extra STR    page parameters added to every page (e.g. `&collisionRing=0`: a body every resident chunk)
+ *   --trips N           the fly phase's flights out and back (default 1)
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
@@ -73,6 +75,10 @@ const SECTIONS = arg('sections', '32,16,8').split(',').map(Number);
 const SPOTS = arg('spots', 'terrain') as 'terrain' | 'town';
 const REPEATS = Number(arg('repeats', '2'));
 const RADII_M = [1, 2, 4, 8];
+/** Page parameters added to every page this run opens (e.g. `&collisionRing=0`). */
+const PAGE_EXTRA = arg('page-extra', '');
+/** Times the fly phase travels out and back. */
+const TRIPS = Number(arg('trips', '1'));
 
 type Cell = [number, number, number];
 interface Hook {
@@ -108,7 +114,7 @@ async function openPage(renderer: 'webgpu' | 'webgl2', extra = ''): Promise<{ pa
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`console: ${m.text()}`.slice(0, 300));
   });
-  await page.goto(`${ORIGIN}/voxel-world.html?project=${PROJECT}&world=${WORLD}&at=${AT.join(',')}&renderer=${renderer}${extra}`);
+  await page.goto(`${ORIGIN}/voxel-world.html?project=${PROJECT}&world=${WORLD}&at=${AT.join(',')}&renderer=${renderer}${extra}${PAGE_EXTRA}`);
   await page.waitForFunction(() => {
     const h = (window as unknown as { __tlVoxelWorld?: Hook }).__tlVoxelWorld;
     return h !== undefined && (h.ready === true || h.failed !== undefined);
@@ -250,28 +256,37 @@ async function assembly(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, u
   }
 }
 
-/** Frames at the cap while the focus travels 160 m along x and back (12 m/s), and the chunk-body churn of it. */
+/**
+ * Frames at the cap while the focus travels 160 m along x and back (12 m/s), `--trips` times, and the chunk-body
+ * churn of it: the physics heap and bodies after the cold fill and after each trip, the body add/remove ms of the
+ * flights alone (frames are recorded over the first trip).
+ */
 async function fly(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, unknown>> {
   const { page, errors, close } = await openPage(renderer);
   try {
     await lookAtScene(page);
     const before = await hook<{ collision: { adds: number; removes: number } }>(page, 'state');
+    await hook(page, 'clearCollisionTimes');
     await page.evaluate(() => {
       const w = window as unknown as { __tlVoxelWorld: { frames: (s: number, y: number) => Promise<unknown> }; __fly?: Promise<unknown> };
       w.__fly = w.__tlVoxelWorld.frames(27, 0);
     });
-    const t0 = Date.now();
-    const total = 320 / 12;
-    for (;;) {
-      const t = (Date.now() - t0) / 1000;
-      if (t > total) break;
-      const along = t < total / 2 ? t * 12 : 320 - t * 12;
-      await hook(page, 'look', AT[0] + along * 2, AT[1] + 3, AT[2] + 2, -0.75, 0.42, 16);
-      await new Promise((ok) => setTimeout(ok, 50));
+    const trips: unknown[] = [];
+    for (let trip = 0; trip < TRIPS; trip++) {
+      const t0 = Date.now();
+      const total = 320 / 12;
+      for (;;) {
+        const t = (Date.now() - t0) / 1000;
+        if (t > total) break;
+        const along = t < total / 2 ? t * 12 : 320 - t * 12;
+        await hook(page, 'look', AT[0] + along * 2, AT[1] + 3, AT[2] + 2, -0.75, 0.42, 16);
+        await new Promise((ok) => setTimeout(ok, 50));
+      }
+      trips.push((await hook<{ collision: unknown }>(page, 'state')).collision);
     }
     const fr = (await page.evaluate(() => (window as unknown as { __fly: Promise<unknown> }).__fly)) as { intervals: number[]; renderMs: { p50: number; p95: number } };
     const state = await hook<{ collision: { adds: number; removes: number } }>(page, 'state');
-    return { renderer, frames: summary(fr), collisionBefore: before.collision, collision: state.collision, state, errors };
+    return { renderer, frames: summary(fr), collisionBefore: before.collision, collision: state.collision, trips, state, errors };
   } finally {
     await close();
   }

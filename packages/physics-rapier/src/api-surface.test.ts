@@ -1,7 +1,7 @@
 /**
- * The package's public surface: exactly the port factory, its memory probe,
- * the shape validator, the shape limits and the approved pin (a second
- * backend or engine never comes back unnoticed).
+ * The package's public surface: exactly the port factory, its memory probe
+ * and per-body estimate, the shape validator, the shape limits and the
+ * approved pin (a second backend or engine never comes back unnoticed).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -16,6 +16,7 @@ describe('public exports', () => {
       'PHYSICS_3D_IMPLEMENTATION',
       'RAPIER_PIN',
       'createPhysicsPort3D',
+      'estimateStaticBodyBytes3D',
       'physicsMemoryBytes3D',
       'validateColliderShape3D',
     ]);

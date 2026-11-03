@@ -15,6 +15,8 @@ import {
   chunkGrid,
   chunkKey,
   chunkOfKey,
+  CollisionRing,
+  collisionRingBounds,
   createDenseChunk,
   createWorldStore,
   DEFAULT_SECTION_EDGE,
@@ -27,6 +29,7 @@ import {
   encodeDerived,
   encodeShader,
   exportOrAir,
+  FloatingOrigin,
   jobRadius,
   PLACEHOLDER_RULES,
   PLANE_BIT,
@@ -55,6 +58,7 @@ import {
 } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { scanExportFiles } from '../../packages/exporter/src/scan';
+import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
 import { RegionWorld } from '@thirdlight/workspace';
 import { instanceList, triangleList } from './mesh-compare';
 import { pickStore } from './regions';
@@ -868,6 +872,123 @@ describe('streamer (workers, region files on disk)', () => {
     // The dab's cell lies in the fill and was filled over: every changed cell is one override.
     expect(s.overlay.changedCells).toBe(retry.cells);
   });
+
+  it('keeps chunk bodies in the collision ring of a moving focus (real workers, real Rapier): an edit swaps them with the draws, they count in the budget and leave with evicted chunks', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES });
+    const physics = await VoxelCollision.create(grid, new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } }));
+    // 24 m around, 16 m up and down, 8 m kept: half the stream ring's radius.
+    const ring = new CollisionRing({ grid, bodies: physics, feed: s, bounds: collisionRingBounds({ radius: 48, height: 32 }, 16) });
+    /** Chunks whose body was replaced in the task of their `chunk` event, since the last swap. */
+    let replaced: string[] = [];
+    const swaps: Array<{ chunks: string[]; replaced: string[] }> = [];
+    s.on((e) => {
+      if (e.type === 'chunk' && !e.shaderOnly) {
+        if (ring.changed(e.cx, e.cy, e.cz)) replaced.push(`${e.cx},${e.cy},${e.cz}`);
+      } else if (e.type === 'unloaded') ring.unloaded(e.cx, e.cy, e.cz);
+      else if (e.type === 'swap') {
+        swaps.push({ chunks: e.report.chunks.map((c) => c.join(',')), replaced });
+        replaced = [];
+      }
+    });
+    const ground = (x: number, z: number): number => {
+      const v = voxel();
+      for (let y = 300; y > -160; y--) if (oracle.voxelAt(x, y, z, v).material !== 0) return y + 1;
+      throw new Error(`no ground at ${x}, ${z}`);
+    };
+    const E = grid.edge;
+    const gap = (p: number, lo: number): number => (p < lo ? lo - p : p > lo + E ? p - lo - E : 0);
+    let focus = { x: 0, y: 0, z: 0 };
+    const within = (cx: number, cy: number, cz: number, r: number, h: number): boolean => Math.hypot(gap(focus.x, cx * E), gap(focus.z, cz * E)) < r && gap(focus.y, cy * E) < h;
+    const go = async (x: number, z: number): Promise<void> => {
+      focus = { x, y: ground(x, z) + 4, z };
+      s.setFocus(focus.x, focus.y, focus.z);
+      ring.setFoci([focus]);
+      await s.settle();
+      while (ring.update().waiting > 0);
+    };
+    /** Bodies only within the keep bounds and only on resident chunks; every resident chunk within the add bounds with something to collide has one. */
+    const check = (): number => {
+      let n = 0;
+      for (let cx = Math.floor((focus.x - 64) / E); cx <= Math.floor((focus.x + 64) / E); cx++) for (let cz = Math.floor((focus.z - 64) / E); cz <= Math.floor((focus.z + 64) / E); cz++) for (let cy = Math.floor((focus.y - 48) / E); cy <= Math.floor((focus.y + 48) / E); cy++) {
+        const at = `(${cx}, ${cy}, ${cz}) from ${focus.x}, ${focus.z}`;
+        if (ring.has(cx, cy, cz)) {
+          expect(within(cx, cy, cz, 64, 48), at).toBe(true);
+          expect(s.isResident(cx, cy, cz), at).toBe(true);
+          n++;
+        }
+        if (!within(cx, cy, cz, 48, 32) || !s.isResident(cx, cy, cz)) continue;
+        const j = s.joinedChunk(cx, cy, cz);
+        expect(ring.has(cx, cy, cz), at).toBe(j !== null && (j.ground.indices.length > 0 || j.collision.boxes.length > 0));
+      }
+      expect(n).toBe(ring.count);
+      expect(physics.count).toBe(ring.count);
+      expect(physics.bytes).toBe(ring.bytes);
+      // Counted once: an unloaded chunk's part goes with it, not a second time with its body.
+      expect(s.metrics().bytes.derived).toBeGreaterThanOrEqual(ring.bytes);
+      return n;
+    };
+
+    await go(0, 0);
+    const first = check();
+    expect(first).toBeGreaterThan(8);
+    // The bodies are a part of the budget: every one removed (no focus) takes exactly its bytes off the total.
+    const withBodies = s.metrics().bytes;
+    const bodyBytes = ring.bytes;
+    ring.setFoci([]);
+    expect(ring.update().removed).toBe(first);
+    expect(withBodies.derived - s.metrics().bytes.derived).toBe(bodyBytes);
+    expect(withBodies.total - s.metrics().bytes.total).toBe(bodyBytes);
+    ring.setFoci([focus]);
+    while (ring.update().waiting > 0);
+    expect(check()).toBe(first);
+    expect(s.metrics().bytes.derived).toBe(withBodies.derived);
+
+    // A flight of 64 m along x, 8 m a step: bodies follow the focus as chunks stream in and out.
+    const adds0 = ring.adds;
+    for (let x = 16; x <= 128; x += 16) {
+      await go(x, 0);
+      check();
+    }
+    expect(ring.adds - adds0).toBeGreaterThan(first / 2);
+    expect(ring.removes).toBeGreaterThan(first);
+
+    // A dig at the focus: the chunks of its swap inside the ring had their bodies replaced in the swap's own task.
+    swaps.length = 0;
+    const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [6, 6, 6], points: [128, ground(128, 0) - 1, 0], mode: 'dig', smooth: false });
+    s.edit(dig);
+    await s.settle();
+    expect(swaps).toHaveLength(1);
+    const inRing = swaps[0]!.chunks.filter((k) => {
+      const [cx, cy, cz] = k.split(',').map(Number) as [number, number, number];
+      return ring.has(cx, cy, cz);
+    });
+    expect(inRing.length).toBeGreaterThan(0);
+    expect(swaps[0]!.replaced.filter((k) => inRing.includes(k)).sort()).toEqual(inRing.sort());
+    check();
+
+    // Over budget: the farthest chunks go first, far beyond the ring; the bodies' chunks near the focus stay, and a
+    // body never outlives its chunk.
+    const full = s.metrics().bytes.total;
+    s.budgetBytes = Math.floor(full / 4);
+    s.update();
+    await s.settle();
+    while (ring.update().waiting > 0);
+    const m = s.metrics();
+    expect(m.counters.evictions).toBeGreaterThan(0);
+    expect(m.bytes.total).toBeLessThanOrEqual(s.budgetBytes);
+    expect(check()).toBeGreaterThan(0);
+    // Tighter still, below what the ring's own chunks cost: their bodies leave with them, farthest first.
+    const before = ring.count;
+    s.budgetBytes = Math.floor(ring.bytes / 2);
+    s.update();
+    await s.settle();
+    while (ring.update().waiting > 0);
+    expect(ring.count).toBeLessThan(before);
+    expect(s.metrics().bytes.total).toBeLessThanOrEqual(s.budgetBytes);
+    check();
+  }, 60_000);
 
   it('evicts the farthest clean chunks to stay in budget, never a dirty one before it is saved, and never the overlay', async () => {
     const s = streamer(pool(2));

@@ -19,8 +19,8 @@
  * therefore a capsule character falling under gravity (the runtime's own
  * way of moving one) or a swept sphere (`castSphere`).
  */
-import { createPhysicsPort3D, MAX_MESH_TRIANGLES_3D, MAX_MESH_VERTICES_3D, physicsMemoryBytes3D, type ColliderShape3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { chunkOrigin, collisionGeometry, SampleRing, VOXEL_SIZE_M, type CellGrid, type CollisionHeightfield, type CollisionSource, type FloatingOrigin } from '@thirdlight/voxel';
+import { createPhysicsPort3D, estimateStaticBodyBytes3D, MAX_MESH_TRIANGLES_3D, MAX_MESH_VERTICES_3D, physicsMemoryBytes3D, type ColliderShape3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { chunkOrigin, collisionGeometry, CollisionRing, collisionRingBounds, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, SampleRing, VOXEL_SIZE_M, type CellGrid, type ChunkGrid, type CollisionHeightfield, type CollisionRingFeed, type CollisionSource, type FloatingOrigin } from '@thirdlight/voxel';
 
 const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 /** A quarter turn about +y: (x, z) → (z, −x). */
@@ -39,7 +39,9 @@ interface ChunkBody {
   readonly id: string;
   readonly cell: Vec3;
   readonly parts: ColliderPart3D[];
+  /** What it costs: the geometry kept here (for re-bases) and the physics engine's heap for it (estimated). */
   readonly bytes: number;
+  readonly geometryBytes: number;
   readonly heightfield: boolean;
 }
 
@@ -81,6 +83,9 @@ export class VoxelCollision {
   adds = 0;
   removes = 0;
   bytes = 0;
+  geometryBytes = 0;
+  /** The physics engine's heap when this world was made (null: not seen). */
+  readonly wasmAtCreate = physicsMemoryBytes3D();
   private probeCount = 0;
 
   private constructor(
@@ -118,7 +123,10 @@ export class VoxelCollision {
 
   /**
    * Replaces a chunk's body with the collision of its joined sections (null:
-   * nothing derived, no body); returns the bytes handed to physics.
+   * nothing derived, no body); returns what the body costs (0: no body):
+   * the geometry kept for re-bases plus the physics heap it takes
+   * (`estimateStaticBodyBytes3D`; the heap itself is one module-wide
+   * number that never shrinks, so it cannot be split per body).
    */
   set(key: number, cx: number, cy: number, cz: number, d: CollisionSource | null): number {
     this.remove(key);
@@ -133,10 +141,12 @@ export class VoxelCollision {
     for (const m of geo.meshes) parts.push({ shape: { type: 'mesh', vertices: m.vertices as unknown as number[], indices: m.indices as unknown as number[], oriented: true }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY });
     if (parts.length === 0) return 0;
     const cell: Vec3 = [chunkOrigin(this.grid, cx), chunkOrigin(this.grid, cy), chunkOrigin(this.grid, cz)];
-    const body: ChunkBody = { id: `voxel:${cx},${cy},${cz}`, cell, parts, bytes: geo.bytes, heightfield: geo.heightfield !== null };
-    this.port.addStaticColliders([{ entityId: body.id, shape: { type: 'compound', parts }, position: this.position(cell), rotation: IDENTITY }]);
+    const shape: ColliderShape3D = { type: 'compound', parts };
+    const body: ChunkBody = { id: `voxel:${cx},${cy},${cz}`, cell, parts, bytes: geo.bytes + estimateStaticBodyBytes3D(shape), geometryBytes: geo.bytes, heightfield: geo.heightfield !== null };
+    this.port.addStaticColliders([{ entityId: body.id, shape, position: this.position(cell), rotation: IDENTITY }]);
     this.bodies.set(key, body);
     this.bytes += body.bytes;
+    this.geometryBytes += body.geometryBytes;
     this.adds++;
     this.addMs.add(performance.now() - t0);
     return body.bytes;
@@ -149,6 +159,7 @@ export class VoxelCollision {
     this.port.removeStaticColliders([body.id]);
     this.bodies.delete(key);
     this.bytes -= body.bytes;
+    this.geometryBytes -= body.geometryBytes;
     this.removes++;
     this.removeMs.add(performance.now() - t0);
   }
@@ -229,11 +240,60 @@ export class VoxelCollision {
       heightfieldBytes,
       colliders: diag.worldColliderCount,
       bytes: this.bytes,
+      geometryBytes: this.geometryBytes,
       wasmBytes: physicsMemoryBytes3D(),
+      wasmAtCreate: this.wasmAtCreate,
       adds: this.adds,
       removes: this.removes,
       addMs: { p50: q(this.addMs, 0.5), p95: q(this.addMs, 0.95), max: q(this.addMs, 1), n: this.addMs.count },
       removeMs: { p50: q(this.removeMs, 0.5), p95: q(this.removeMs, 0.95), max: q(this.removeMs, 1), n: this.removeMs.count },
     };
+  }
+}
+
+/**
+ * The page's bodies and their collision ring: the engine's default bounds
+ * around the camera's target (`ringed` false gives every resident chunk a
+ * body, to compare), updated once a frame, and
+ * what it did for the hook's state. Inside the ring a chunk's body is
+ * replaced from its draw's join in the task that replaces the draw
+ * (`ring.changed`); outside it has none.
+ */
+export class PageCollisionRing {
+  readonly ring: CollisionRing;
+  private readonly ms = new SampleRing();
+  private waiting = 0;
+
+  private constructor(grid: ChunkGrid, readonly collision: VoxelCollision, feed: CollisionRingFeed, ringed: boolean) {
+    // Unringed: the stream ring's unload bounds widened by the lead point's reach (the near radius), which hold every resident chunk.
+    const all = { radius: DEFAULT_STREAM_RING.unloadRadius + DEFAULT_STREAM_RING.nearRadius, height: DEFAULT_STREAM_RING.unloadHeight };
+    this.ring = new CollisionRing({ grid, bodies: collision, feed, bounds: collisionRingBounds(ringed ? DEFAULT_COLLISION_RING : all) });
+  }
+
+  /** A physics world of chunk bodies (`heightfields`: see {@link VoxelCollision.create}) re-placed on every re-base of `origin`. */
+  static async create(grid: ChunkGrid, origin: FloatingOrigin, feed: CollisionRingFeed, heightfields: boolean, ringed: boolean): Promise<PageCollisionRing> {
+    const collision = await VoxelCollision.create(grid, origin, heightfields);
+    origin.onRebase(() => collision.rebase());
+    return new PageCollisionRing(grid, collision, feed, ringed);
+  }
+
+  /** One frame's ring work; the chunks still waiting for a body. */
+  update(): number {
+    const t0 = performance.now();
+    const u = this.ring.update();
+    if (u.added + u.removed > 0) this.ms.add(performance.now() - t0);
+    this.waiting = u.waiting;
+    return u.waiting;
+  }
+
+  /** Until every chunk the ring reached has its body (adds are otherwise spread over frames). */
+  async settle(): Promise<void> {
+    while (this.update() > 0) await new Promise((ok) => setTimeout(ok, 0));
+  }
+
+  stats(): Record<string, unknown> {
+    const q = (p: number): number => Number(this.ms.quantile(p).toFixed(3));
+    const r = this.ring;
+    return { ...this.collision.stats(), ring: { bodies: r.count, bytes: r.bytes, adds: r.adds, removes: r.removes, waiting: this.waiting, bounds: r.bounds, updateMs: { p50: q(0.5), p95: q(0.95), max: q(1), n: this.ms.count } } };
   }
 }

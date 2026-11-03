@@ -20,3 +20,4 @@ export {
   type RapierPhysicsPort3D,
 } from './port3d';
 export { RAPIER_PIN } from './constants';
+export { estimateStaticBodyBytes3D } from './memory3d';

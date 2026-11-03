@@ -10,13 +10,20 @@
  * a height function collides as a heightfield: drops and sweeps on it land
  * where they land on the same ground as a mesh, and ground with an
  * overhang or underside, ground leaving the chunk, or a box stays a mesh.
+ * The collision ring keeps bodies only near a moving focus: added nearest
+ * first, removed farthest first past its hysteresis, each counted in the
+ * budget, and the physics heap stops growing once the ring has been round.
  */
 import {
   ASSEMBLY_CLASS,
   buildApron,
   cellOutputs,
   chunkGrid,
+  chunkKey,
   chunkOfKey,
+  CollisionRing,
+  collisionRingBounds,
+  COLLISION_PART,
   collisionGeometry,
   createWorldStore,
   deriveFromStore,
@@ -33,6 +40,7 @@ import {
   RUN_X,
   RUN_Z,
   VOXEL_ROLE,
+  type CollisionBodies,
   type CollisionSource,
   type DerivedData,
   type PaletteStore,
@@ -44,6 +52,8 @@ import { loadArea } from './regions';
 import { flatGround, placeWallBeamBanister, putVoxel } from './scenes';
 import { MAT } from './world-kit';
 import { townWorld } from './town';
+import { hillyWorld } from './worlds';
+import { physicsMemoryBytes3D } from '@thirdlight/physics-rapier';
 
 const grid = chunkGrid(32);
 /** The streamer's derive sections (the engine's default edge). */
@@ -330,3 +340,150 @@ describe('ground as a heightfield', () => {
     expect(groundHeightfield(joinedChunk(s, 2, 0, 0).ground, 32)).toBe('uncovered');
   });
 });
+
+describe('the collision ring', () => {
+  it('gives bodies only to chunks near a moving focus: nearest first in, farthest first out past the hysteresis, counted as a part; the heap stops growing', async () => {
+    // A hilly strip 480 m along x and 48 m across, every chunk of it resident.
+    const s = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 1024 }).grids[0]!, s, -480, -48, 480, 48);
+    const groundY = (x: number, z: number): number => {
+      const v = { material: 0, role: 0, shape: 0, wetness: 0 };
+      for (let y = 300; y > -140; y--) if (s.voxelAt(x, y, z, v).material !== 0) return y + 1;
+      throw new Error(`no ground at ${x}, ${z}`);
+    };
+    const joins = new Map<number, CollisionSource>();
+    const parts = new Map<number, number>();
+    const physics = await VoxelCollision.create(grid, new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } }));
+    let removing: number[] | null = null;
+    const bodies: CollisionBodies = {
+      set: (k, cx, cy, cz, src) => physics.set(k, cx, cy, cz, src),
+      remove: (k) => {
+        removing?.push(k);
+        physics.remove(k);
+      },
+    };
+    const inStrip = (cx: number, cz: number): boolean => cx >= -15 && cx < 15 && cz >= -2 && cz < 2;
+    const feed = {
+      isResident: (cx: number, _cy: number, cz: number): boolean => inStrip(cx, cz),
+      joinedChunk: (cx: number, cy: number, cz: number): CollisionSource => {
+        const k = chunkKey(grid, cx, cy, cz);
+        let j = joins.get(k);
+        if (j === undefined) joins.set(k, (j = joinedChunk(s, cx, cy, cz)));
+        return j;
+      },
+      setPart: (cx: number, cy: number, cz: number, part: string, bytes: number): boolean => {
+        expect(part).toBe(COLLISION_PART);
+        const k = chunkKey(grid, cx, cy, cz);
+        if (bytes > 0) parts.set(k, bytes);
+        else parts.delete(k);
+        return true;
+      },
+    };
+    const ring = new CollisionRing({
+      grid,
+      bodies,
+      feed,
+      // 32 m around and 12 m up and down, 8 m kept: small, so the strip holds many rings.
+      bounds: collisionRingBounds({ radius: 64, height: 24 }, 16),
+    });
+    expect(ring.bounds).toEqual({ radius: 64, height: 24, keepRadius: 80, keepHeight: 40 });
+    const E = grid.edge;
+    const gap = (p: number, lo: number): number => (p < lo ? lo - p : p > lo + E ? p - lo - E : 0);
+    const within = (f: { x: number; y: number; z: number }, cx: number, cy: number, cz: number, r: number, h: number): boolean => Math.hypot(gap(f.x, cx * E), gap(f.z, cz * E)) < r && gap(f.y, cy * E) < h;
+    const hasGeometry = (cx: number, cy: number, cz: number): boolean => {
+      const j = feed.joinedChunk(cx, cy, cz);
+      return j.ground.indices.length > 0 || j.collision.boxes.length > 0;
+    };
+    let focus = { x: 0, y: 0, z: 0 };
+    const goTo = (x: number): { added: number; removed: number; removedOrder: number[] } => {
+      focus = { x, y: groundY(x, 0) + 4, z: 0 };
+      ring.setFoci([focus]);
+      removing = [];
+      let added = 0;
+      let removed = 0;
+      for (;;) {
+        const u = ring.update();
+        added += u.added;
+        removed += u.removed;
+        if (u.waiting === 0) break;
+      }
+      const order = removing;
+      removing = null;
+      return { added, removed, removedOrder: order };
+    };
+    const check = (): void => {
+      // Every body within the keep bounds; every chunk within the add bounds with something to collide has one.
+      const c = { cx: 0, cy: 0, cz: 0 };
+      let n = 0;
+      for (const k of parts.keys()) {
+        chunkOfKey(grid, k, c);
+        expect(within(focus, c.cx, c.cy, c.cz, 80, 40), `(${c.cx}, ${c.cy}, ${c.cz}) from ${focus.x}`).toBe(true);
+        expect(ring.has(c.cx, c.cy, c.cz)).toBe(true);
+        n++;
+      }
+      for (let cx = Math.floor((focus.x - 64) / E); cx <= Math.floor((focus.x + 64) / E); cx++) for (let cz = -2; cz < 2; cz++) for (let cy = Math.floor((focus.y - 24) / E); cy <= Math.floor((focus.y + 24) / E); cy++) {
+        if (!within(focus, cx, cy, cz, 64, 24) || !inStrip(cx, cz)) continue;
+        expect(parts.has(chunkKey(grid, cx, cy, cz)), `(${cx}, ${cy}, ${cz}) from ${focus.x}`).toBe(hasGeometry(cx, cy, cz));
+      }
+      // Counted once each: the parts, the ring's bytes and the physics side agree, and every body is one of the port's.
+      expect(n).toBe(ring.count);
+      expect(physics.count).toBe(ring.count);
+      expect([...parts.values()].reduce((a, b) => a + b, 0)).toBe(ring.bytes);
+      expect(ring.bytes).toBe(physics.bytes);
+    };
+
+    const first = goTo(0);
+    expect(first.added).toBeGreaterThan(8);
+    expect(first.removed).toBe(0);
+    check();
+    // Across a chunk edge and back, 4 m each way: once both sides' chunks are in, the hysteresis keeps them.
+    const edge = 2 * E;
+    goTo(edge - 8);
+    goTo(edge + 8);
+    goTo(edge - 8);
+    const settled = { adds: ring.adds, removes: ring.removes };
+    for (let i = 0; i < 5; i++) {
+      expect(goTo(edge + 8)).toMatchObject({ added: 0, removed: 0 });
+      expect(goTo(edge - 8)).toMatchObject({ added: 0, removed: 0 });
+    }
+    expect({ adds: ring.adds, removes: ring.removes }).toEqual(settled);
+    check();
+
+    // A flight along the strip and back, a chunk's half at a time: bodies follow the focus, removals farthest first.
+    const heaps: number[] = [];
+    let most = 0;
+    for (let trip = 0; trip < 3; trip++) {
+      for (const x of [...Array.from({ length: 27 }, (_, i) => i * 16), ...Array.from({ length: 27 }, (_, i) => 416 - i * 16), ...Array.from({ length: 27 }, (_, i) => -i * 16), ...Array.from({ length: 27 }, (_, i) => -416 + i * 16)]) {
+        const u = goTo(x);
+        const d = u.removedOrder.map((k) => {
+          chunkOfKey(grid, k, c0);
+          return Math.hypot(gap(focus.x, c0.cx * E), gap(focus.z, c0.cz * E));
+        });
+        for (let i = 1; i < d.length; i++) expect(d[i]!).toBeLessThanOrEqual(d[i - 1]!);
+        most = Math.max(most, ring.count);
+        check();
+      }
+      heaps.push(physicsMemoryBytes3D()!);
+    }
+    // The ring holds what is near the focus, never the strip: the count stays near the first ring's.
+    expect(most).toBeLessThanOrEqual(2 * first.added);
+    expect(ring.adds).toBeGreaterThan(10 * first.added);
+    // The later trips' ~600 bodies (tens of MB added and removed) fit in what the first trip's removed bodies freed:
+    // the heap grows by a few 64 KiB pages at most (fragmentation), not by what was added.
+    expect(heaps[2]! - heaps[0]!).toBeLessThanOrEqual(4 * 65_536);
+
+    // A capsule dropped by the focus lands; one dropped 100 m behind it, where no body is, falls through.
+    const here = physics.dropCapsule([focus.x + 2, focus.y, 2], 0.2, 0.3);
+    expect(here.grounded).toBe(true);
+    const behind = physics.dropCapsule([focus.x + 200, groundY(focus.x + 200, 2) + 2, 2], 0.2, 0.3, 120);
+    expect(behind.grounded).toBe(false);
+
+    // The time slice: none left, one body an update all the same.
+    const slow = new CollisionRing({ grid, bodies, feed, bounds: ring.bounds, addMsPerUpdate: 0 });
+    slow.setFoci([{ x: 200, y: groundY(200, 0) + 4, z: 0 }]);
+    const u = slow.update();
+    expect(u.added).toBe(1);
+    expect(u.waiting).toBeGreaterThan(0);
+  }, 120_000);
+});
+const c0 = { cx: 0, cy: 0, cz: 0 };

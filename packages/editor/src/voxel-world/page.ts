@@ -18,10 +18,14 @@
  * shift-click adds one, Z undoes the newest edit. `window.__tlVoxelWorld`
  * is the hook a test or a measuring run drives.
  *
- * Every storage chunk also becomes one static body in the engine's physics
- * backend (`?collision=0` leaves physics out; `?heightfields=0` keeps all
- * ground as meshes), replaced when one of its sections is derived again; the hook drops capsules and sweeps spheres against it and
- * reports, per cell, what every consumer of the derived data received.
+ * Every storage chunk within the collision ring around the camera's target
+ * (the engine's default, 48 m around and 24 m up and down, collision-ring.ts)
+ * also becomes one static body in the engine's physics backend
+ * (`?collision=0` leaves physics out; `?heightfields=0` keeps all ground as
+ * meshes; `?collisionRing=0` gives every resident chunk a body, to compare),
+ * replaced when one of its sections is derived again; the hook drops
+ * capsules and sweeps spheres against it and reports, per cell, what every
+ * consumer of the derived data received.
  *
  * Everything is derived per section of `?section=` cells (8, 16 or 32, the
  * whole chunk; default the engine's {@link DEFAULT_SECTION_EDGE}): an edit
@@ -77,7 +81,7 @@ import {
 } from '@thirdlight/voxel';
 import { createGpuTiming, createRenderer, createVoxelSurface, feedVoxelChunkView, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { pageToken } from '../config';
-import { VoxelCollision } from './collision';
+import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
 import { PendingEdits, type SwapSeen } from './pending-edits';
 import { EDIT_VISIBLE_TIMEOUT_MS, localEditHooks } from './local-edits';
@@ -220,11 +224,9 @@ async function main(): Promise<void> {
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
-  const collision = params.get('collision') === '0' ? null : await VoxelCollision.create(grid, origin, params.get('heightfields') !== '0');
-  origin.onRebase(() => {
-    meshes.rebase();
-    collision?.rebase();
-  });
+  const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
+  const collision = ring?.collision ?? null;
+  origin.onRebase(() => meshes.rebase());
 
   const pending = new PendingEdits();
   /** Every resident chunk, so a world changed on disk can be read again whole. */
@@ -249,10 +251,9 @@ async function main(): Promise<void> {
     // Only shader data changed: the body stands as it is.
     if (r.shaderOnly) return;
     meshMs.add(r.ms);
-    if (collision === null) return;
+    if (ring === null) return;
     const t0 = performance.now();
-    streamer.setPart(r.cx, r.cy, r.cz, 'collision', collision.set(key, r.cx, r.cy, r.cz, r.joined));
-    bodySetAt.set(key, at);
+    if (ring.ring.changed(r.cx, r.cy, r.cz, r.joined)) bodySetAt.set(key, at);
     buildMs += performance.now() - t0;
   });
 
@@ -271,7 +272,7 @@ async function main(): Promise<void> {
     }
     if (e.type === 'unloaded') {
       resident.delete(chunkKey(grid, e.cx, e.cy, e.cz));
-      collision?.remove(chunkKey(grid, e.cx, e.cy, e.cz));
+      ring?.ring.unloaded(e.cx, e.cy, e.cz);
       return;
     }
     // Draws and bodies follow the chunk view's `chunk` events (above).
@@ -294,6 +295,7 @@ async function main(): Promise<void> {
     camera.position.set(tx + Math.sin(view.yaw) * c * view.distM, ty + Math.sin(view.pitch) * view.distM, tz + Math.cos(view.yaw) * c * view.distM);
     camera.lookAt(tx, ty, tz);
     streamer.setFocus(target.x, target.y, target.z);
+    ring?.ring.setFoci([target]);
   }
 
   // ---- input: orbit, zoom, move, pick to edit ----
@@ -482,6 +484,7 @@ async function main(): Promise<void> {
     last = t;
     placeCamera();
     streamer.update();
+    ring?.update();
     const r0 = performance.now();
     renderer.render(scene, camera);
     renderMs.add(performance.now() - r0);
@@ -542,6 +545,7 @@ async function main(): Promise<void> {
     pickAndEdit,
     async settle(): Promise<void> {
       await streamer.settle();
+      await ring?.settle();
     },
     voxelAt(x: number, y: number, z: number): { material: number; role: number; shape: number; wetness: number } {
       streamer.voxelAt(x, y, z, v);
@@ -576,7 +580,7 @@ async function main(): Promise<void> {
         missed,
         rebases: origin.rebases,
         edits: lastEdits.slice(),
-        collision: collision?.stats() ?? null,
+        collision: ring?.stats() ?? null,
       };
     },
   };
