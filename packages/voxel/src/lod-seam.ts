@@ -330,7 +330,9 @@ export function buildFaceSeam(input: SeamFaceInput): FaceSeam {
   for (const kind of ['ground', 'base'] as const) {
     const coarse = new Rows(axis, plane, key0, span);
     coarse.add(input.coarse[kind], 2, input.coarse.x0, input.coarse.y0, input.coarse.z0, S, true);
-    for (const c of input.coarseAround) coarse.add(c[kind], 2, c.x0, c.y0, c.z0, S);
+    // Their triangles at the face too: one touching a vertex this seam moves is drawn again moved, or a gap opens
+    // between it and the moved copies of the node's own.
+    for (const c of input.coarseAround) coarse.add(c[kind], 2, c.x0, c.y0, c.z0, S, true);
     const fine = new Rows(axis, plane, key0, span);
     for (const f of input.fine) fine.add(f[kind], 1, f.x0, f.y0, f.z0, S / 2);
     // Only this face's coarse edges: their middle within the face (edges of the node's other faces meet it at its rim).

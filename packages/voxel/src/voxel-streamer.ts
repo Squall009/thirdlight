@@ -66,6 +66,7 @@ import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
 import type { DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, StoredChunk } from './stream-job';
 import { StreamMips, type MipEvent } from './stream-mips';
+import type { SeamEvent } from './stream-seams';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
 import { checkRing, chunkDistance2, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
@@ -146,14 +147,17 @@ export interface VoxelStreamerOptions {
  * took new results in one task (its joined draw is to be replaced); `swap`
  * closes an edit's atomic swap, after the `chunk` events of its chunks;
  * `node` names a chunk-tree node whose derived result changed
- * ({@link VoxelStreamer.mips}).
+ * ({@link VoxelStreamer.mips}); `seams` names the seams between levels
+ * built and dropped in one swap (`mips.seams`), just before the `swap` or
+ * after the `node` event of what changed them.
  */
 export type StreamEvent =
   | { readonly type: 'loaded' | 'unloaded'; readonly cx: number; readonly cy: number; readonly cz: number }
   | SectionEvent
   | { readonly type: 'damaged'; readonly cx: number; readonly cy: number; readonly cz: number; readonly reason: string }
   | { readonly type: 'mismatch'; readonly cx: number; readonly cy: number; readonly cz: number; readonly applied: boolean }
-  | MipEvent;
+  | MipEvent
+  | SeamEvent;
 
 type Phase = 'reading' | 'decoding' | 'resident' | 'damaged';
 
@@ -346,8 +350,13 @@ export class VoxelStreamer {
               lane: (cx, cy, cz) => (inNearRing(this.grid, this.ring, this.focus, cx, cz) ? 'near' : 'far'),
               distance2: (cx, cy, cz) => chunkDistance2(this.grid, this.focus, cx, cy, cz),
               setPart: (cx, cy, cz, part, bytes) => this.setPart(cx, cy, cz, part, bytes),
-              emit: (e) => this.emit(e),
+              emit: (e) => {
+                this.emit(e);
+                // A chunk's drawn surfaces changed: the seams reading them follow (a group's own are rebuilt in its swap).
+                if (e.type === 'chunk' && !e.shaderOnly) this.mips?.seams.chunkChanged(e.cx, e.cy, e.cz);
+              },
               poke: () => this.poke(),
+              seamHold: (chunks, surfaces, ready) => this.mips?.seams.holdChunks(chunks, surfaces, ready) ?? null,
             },
             opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
             opts.editDeriveMsPerUpdate ?? 8,
@@ -366,6 +375,7 @@ export class VoxelStreamer {
               radius: this.radius,
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
               chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
+              chunkSurfaces: (cx, cy, cz, axis, plane) => this.derives?.seamSurfaces(cx, cy, cz, axis, plane),
               focus: () => this.focus,
               emit: (e) => this.emit(e),
               poke: () => this.poke(),

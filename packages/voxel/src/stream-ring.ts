@@ -63,6 +63,13 @@ export interface MipRing {
  */
 export const DEFAULT_MIP_RINGS: readonly MipRing[] = Object.freeze([Object.freeze({ level: 1, radius: 256 }), Object.freeze({ level: 2, radius: 384 })]);
 
+/**
+ * Cells (horizontal box distance from the focus) within which level 0 is
+ * drawn (64 m) before the level selection with hysteresis takes over; past
+ * it each kept level is drawn to its ring's radius.
+ */
+export const DEFAULT_LEVEL0_DRAW_RADIUS = 128;
+
 /** Cells past its ring's radius a node's derived result is kept, so a focus moving back and forth does not drop and rebuild it (8 m). */
 export const MIP_RING_HYSTERESIS_CELLS = 16;
 

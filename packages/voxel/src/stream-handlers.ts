@@ -30,6 +30,7 @@ import { applySaveChunk, baseChunkHash, sameHash, saveContentFromPayload } from 
 import { stampShapeHash, type StampResolver } from './stamp-shape';
 import { encodeUndoRecord } from './undo-store';
 import { downsampleMip } from './voxel-mips';
+import { buildFaceSeam, type SeamFaceInput } from './lod-seam';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
 
 export interface StreamHandlerOptions {
@@ -327,6 +328,14 @@ function mip(raw: unknown): JobResult {
   }
 }
 
+/** A coarse node face's seam (lod-seam.ts); its pieces' buffers move back. */
+function seam(raw: unknown): JobResult {
+  const output = buildFaceSeam(raw as SeamFaceInput);
+  const transfer: ArrayBuffer[] = [];
+  for (const p of output.pieces) for (const b of [p.ground, p.base]) transfer.push(b.vertices.buffer as ArrayBuffer, b.indices.buffer as ArrayBuffer);
+  return { output, transfer };
+}
+
 /** The stream job handlers ({@link serveJobs} serves them). */
 export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
   return {
@@ -335,6 +344,7 @@ export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
     edit: (input) => edit(input),
     derive: (input) => derive(input),
     mip: (input) => mip(input),
+    seam: (input) => seam(input),
   };
 }
 

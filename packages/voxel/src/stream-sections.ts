@@ -24,7 +24,9 @@
  *   group. An edit that meets a group still open (a second blast before
  *   the first is shown) merges into it: no frame shows half an edit. The
  *   voxels themselves change at once: reads see an edit as soon as it is
- *   applied.
+ *   applied. The seams between levels that read the group's chunks are
+ *   rebuilt from its held results before it swaps, and go in with it
+ *   (stream-seams.ts).
  */
 import { apronBytes, apronTransfer, buildApron, dependentChunks, type Apron } from './apron';
 import { rulesRef, type AssemblyRuleSet } from './assembly';
@@ -39,6 +41,8 @@ import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
 import type { DeriveInput, DeriveOutput, JobLane } from './stream-job';
+import type { SeamSurface } from './lod-seam';
+import type { SeamHold } from './stream-seams';
 import type { SampleRing, WorkerPool } from './worker-pool';
 import { crc32 } from '@thirdlight/shared';
 
@@ -106,6 +110,12 @@ export interface SectionHost {
   setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean;
   emit(e: SectionEvent): void;
   poke(): void;
+  /**
+   * The seams reading a group's chunks, rebuilt from `surfaces` (the
+   * group's results as they will be drawn) before it swaps; `ready` when
+   * they are. Null: no seam reads them.
+   */
+  seamHold?(chunks: ReadonlyArray<readonly [number, number, number]>, surfaces: (cx: number, cy: number, cz: number, axis: number, plane: number) => SeamSurface[] | undefined, ready: () => void): SeamHold | null;
 }
 
 interface Section {
@@ -145,6 +155,8 @@ interface EditGroup {
   workerUs: number;
   workerUsMax: number;
   mainMs: number;
+  /** The seams reading the group's chunks: being rebuilt from its held results, or none needed ('none'); null: not asked yet. */
+  seams: SeamHold | 'none' | null;
 }
 
 const EMPTY_OUTPUT: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
@@ -263,6 +275,29 @@ export class SectionDerives {
     return any ? results : null;
   }
 
+  /**
+   * A chunk's derive sections within a cell of a plane (`axis`, cells) as a
+   * seam reads them: each section's drawn result (with `held`, the one
+   * waiting for its group's swap first). Undefined while one of them has
+   * never had a result, or the chunk has no sections.
+   */
+  seamSurfaces(cx: number, cy: number, cz: number, axis: number, plane: number, held = false): SeamSurface[] | undefined {
+    if (!chunkInWorld(this.host.grid, cx, cy, cz)) return undefined;
+    const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
+    if (list === undefined) return undefined;
+    const e = this.sections.edge;
+    const out: SeamSurface[] = [];
+    for (const s of list) {
+      const lo = [s.sx * e, s.sy * e, s.sz * e];
+      if (plane < lo[axis]! - 1 || plane > lo[axis]! + e + 1) continue;
+      const r = (held ? (s.held ?? s.derived) : s.derived) ?? null;
+      if (r === null) return undefined;
+      const a = r.assembly;
+      if (a !== null && (a.ground.vertexCount > 0 || a.base.vertexCount > 0)) out.push({ x0: lo[0]!, y0: lo[1]!, z0: lo[2]!, ground: a.ground, base: a.base });
+    }
+    return out;
+  }
+
   /** Registers what a section's derived representation costs, against its chunk's budget entry. */
   setPart(sx: number, sy: number, sz: number, part: string, bytes: number): boolean {
     if (!chunkInWorld(this.sections, sx, sy, sz)) return false;
@@ -340,7 +375,7 @@ export class SectionDerives {
   }
 
   private open(): EditGroup {
-    const g: EditGroup = { ids: [++this.groupSeq], members: new Set(), waiting: new Set(), chunks: new Set(), startedAt: performance.now(), open: true, jobs: 0, workerUs: 0, workerUsMax: 0, mainMs: 0 };
+    const g: EditGroup = { ids: [++this.groupSeq], members: new Set(), waiting: new Set(), chunks: new Set(), startedAt: performance.now(), open: true, jobs: 0, workerUs: 0, workerUsMax: 0, mainMs: 0, seams: null };
     this.groups.set(g.ids[0]!, g);
     return g;
   }
@@ -409,6 +444,7 @@ export class SectionDerives {
       else if (s.group !== null) {
         s.held = null;
         s.group.waiting.add(s);
+        this.unready(s.group);
       }
     }
   }
@@ -427,7 +463,14 @@ export class SectionDerives {
     g.waiting.add(s);
     s.held = null;
     s.heldTimes = null;
+    this.unready(g);
     return g;
+  }
+
+  /** A group's results changed after its seams were asked for: they are asked for again once all are back. */
+  private unready(g: EditGroup): void {
+    if (g.seams !== null && g.seams !== 'none') g.seams.cancel();
+    g.seams = null;
   }
 
   /** Merges group `a` into `b` (both swap together, as one). */
@@ -448,6 +491,8 @@ export class SectionDerives {
     b.workerUs += a.workerUs;
     b.workerUsMax = Math.max(a.workerUsMax, b.workerUsMax);
     b.mainMs += a.mainMs;
+    this.unready(a);
+    this.unready(b);
     a.open = false;
     for (const id of a.ids) this.groups.set(id, b);
     return b;
@@ -462,13 +507,19 @@ export class SectionDerives {
     s.heldTimes = null;
     g.members.delete(s);
     g.waiting.delete(s);
+    this.unready(g);
     if (swap) this.maybeSwap(g);
   }
 
   private maybeSwap(g: EditGroup): void {
     if (!g.open || g.waiting.size > 0 || g.chunks.size > 0) return;
-    g.open = false;
     const members = [...g.members].sort((a, b) => a.key - b.key);
+    if (g.seams === null) {
+      const chunks = [...new Map(members.map((m) => [m.chunk, [m.cx, m.cy, m.cz] as const])).values()];
+      g.seams = this.host.seamHold?.(chunks, (cx, cy, cz, axis, plane) => this.seamSurfaces(cx, cy, cz, axis, plane, true), () => this.maybeSwap(g)) ?? 'none';
+    }
+    if (g.seams !== 'none' && !g.seams.done) return;
+    g.open = false;
     const meshUs: number[] = [];
     const deriveUs: number[] = [];
     for (const m of members) {
@@ -486,6 +537,7 @@ export class SectionDerives {
     for (const id of g.ids) this.groups.delete(id);
     const chunks = [...new Map(members.map((m) => [m.chunk, [m.cx, m.cy, m.cz] as const])).entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
     this.flushChunks();
+    if (g.seams !== 'none') g.seams.commit();
     this.host.counters.swaps++;
     this.host.emit({ type: 'swap', report: { groups: g.ids.slice(), sections: members.length, jobs: g.jobs, workerUs: { sum: Math.round(g.workerUs), max: Math.round(g.workerUsMax) }, mainMs: Number(g.mainMs.toFixed(3)), meshUs, deriveUs, ms: Number((performance.now() - g.startedAt).toFixed(2)), chunks } });
   }

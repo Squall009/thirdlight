@@ -49,6 +49,16 @@ import {
   VoxelStreamer,
   WorkerPool,
   worldStreamer,
+  buildFaceSeam,
+  faceLevels,
+  POSITION_STEPS_PER_CELL,
+  ringSelection,
+  SURFACE_VERTEX_BYTES,
+  type FaceSeam,
+  type NodeFace,
+  type SeamEvent,
+  type SeamKey,
+  type SeamSurface,
   type ChunkCoord,
   type JobOutcome,
   type LoadOutput,
@@ -1270,6 +1280,157 @@ describe('streamer (workers, region files on disk)', () => {
     sameAsFresh();
     console.log('mips', JSON.stringify(measured));
   }, 120_000);
+
+  it('builds the seams between the levels drawn in workers: each equal to a fresh build, a level change re-derives exactly the faces it adds and drops in one swap, an edit at a border re-derives the strip inside its own swap', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    let minCy = Infinity;
+    let maxCy = -Infinity;
+    for (const key of oracle.chunkKeys()) {
+      const c = chunkOfKey(grid, key);
+      minCy = Math.min(minCy, c.cy);
+      maxCy = Math.max(maxCy, c.cy);
+    }
+    const midY = ((minCy + maxCy + 1) * 32) / 2;
+    const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
+    const ring: StreamRing = { loadRadius: 256, unloadRadius: 288, loadHeight: half, unloadHeight: half + 32, nearRadius: 96 };
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, deriveMsPerUpdate: 10_000, mips: [{ level: 1, radius: 160 }] });
+    const seams = s.mips!.seams;
+    const focus = { x: 0, y: midY, z: 0 };
+    // Level 0 where its level-1 parent lies within 48 cells of the focus (the 2 × 2 nodes round it), level 1 past it.
+    seams.setSelection(ringSelection(grid, () => focus, [48], 1));
+    const log: Array<{ type: string; e?: SeamEvent }> = [];
+    s.on((e) => log.push(e.type === 'seams' ? { type: e.type, e } : { type: e.type }));
+    const truth = copyOracle();
+    const id = (k: SeamKey): string => `${k.level}:${k.nx},${k.ny},${k.nz}:${k.face}`;
+    /** A seam's triangles as world positions (finer-level steps) and normals, sorted: the same seam whatever the order it was built in. */
+    const canonical = (seam: FaceSeam): string[] => {
+      const out: string[] = [];
+      for (const p of seam.pieces) for (const buf of [p.ground, p.base]) {
+        const v = new DataView(buf.vertices.buffer, buf.vertices.byteOffset, buf.vertices.byteLength);
+        const corner = (i: number): string => [0, 1, 2].map((a) => p.origin[a]! * POSITION_STEPS_PER_CELL + v.getUint16(i * SURFACE_VERTEX_BYTES + 2 * a, true)).join(',') + '/' + [8, 9, 10].map((o) => v.getInt8(i * SURFACE_VERTEX_BYTES + o)).join(',');
+        for (let t = 0; t < buf.indices.length; t += 3) out.push(`${buf === p.ground ? 'g' : 'b'} ${corner(buf.indices[t]!)} ${corner(buf.indices[t + 1]!)} ${corner(buf.indices[t + 2]!)}`);
+      }
+      return out.sort();
+    };
+    /** A face's seam built from a fresh derive of `truth`: the node and its neighbours beside the face, the chunks against it and beside them. */
+    let tree = new MipTree(truth);
+    const chunkDerives = new Map<string, ReturnType<typeof deriveFromStore>>();
+    const fresh = (k: SeamKey): FaceSeam => {
+      const axis = k.face >> 1;
+      const inPlane = [0, 1, 2].filter((a) => a !== axis);
+      const n = [k.nx, k.ny, k.nz];
+      const node = (x: number, y: number, z: number): SeamSurface => {
+        const d = deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, WORLD_RULES);
+        return { x0: x * 32, y0: y * 32, z0: z * 32, ground: d.ground, base: d.base };
+      };
+      const coarseAround: SeamSurface[] = [];
+      for (let du = -1; du <= 1; du++) for (let dw = -1; dw <= 1; dw++) {
+        if (du === 0 && dw === 0) continue;
+        const m = [...n];
+        m[inPlane[0]!]! += du;
+        m[inPlane[1]!]! += dw;
+        // Only neighbours the streamer has a result for (past the loaded height it has none).
+        if (s.mips!.derivedOf(1, m[0]!, m[1]!, m[2]!) !== null) coarseAround.push(node(m[0]!, m[1]!, m[2]!));
+      }
+      const fine: SeamSurface[] = [];
+      for (let i = -1; i <= 2; i++) for (let j = -1; j <= 2; j++) {
+        const c = [0, 0, 0];
+        c[axis] = k.face & 1 ? 2 * (n[axis]! + 1) : 2 * n[axis]! - 1;
+        c[inPlane[0]!] = 2 * n[inPlane[0]!]! + i;
+        c[inPlane[1]!] = 2 * n[inPlane[1]!]! + j;
+        if (s.derivedOf(c[0]!, c[1]!, c[2]!) === null) continue;
+        const ck = c.join();
+        let d = chunkDerives.get(ck);
+        if (d === undefined) chunkDerives.set(ck, (d = deriveFromStore(truth, c[0]!, c[1]!, c[2]!, WORLD_RULES)));
+        fine.push({ x0: c[0]! * 32, y0: c[1]! * 32, z0: c[2]! * 32, ground: d.ground, base: d.base });
+      }
+      return buildFaceSeam({ edge: 32, level: 1, nx: k.nx, ny: k.ny, nz: k.nz, face: k.face, coarse: node(k.nx, k.ny, k.nz), coarseAround, fine });
+    };
+    /** Faces a selection wants on the derived level-1 nodes: drawn, with level 0 drawn across. */
+    const wanted = (sel: ReturnType<typeof ringSelection>): Set<string> => {
+      const out = new Set<string>();
+      for (const d of s.mips!.derived()) {
+        if (!sel.drawn(1, d.nx, d.ny, d.nz)) continue;
+        faceLevels(sel, 1, 1, d.nx, d.ny, d.nz).forEach((l, f) => {
+          if (l === 0) out.add(id({ level: 1, nx: d.nx, ny: d.ny, nz: d.nz, face: f as NodeFace }));
+        });
+      }
+      return out;
+    };
+    const built = (): Map<string, FaceSeam> => new Map([...seams.seams()].filter((x) => x.seam !== null).map((x) => [id(x.key), x.seam!]));
+    const checkFresh = (keys: Iterable<string>): number => {
+      let n = 0;
+      const have = built();
+      for (const key of keys) {
+        const seam = have.get(key);
+        if (seam === undefined) throw new Error(`face ${key} has no seam`);
+        const want = fresh(seam);
+        expect(canonical(seam), key).toEqual(canonical(want));
+        n++;
+      }
+      return n;
+    };
+
+    s.setFocus(focus.x, focus.y, focus.z);
+    await s.settle();
+    const sel48 = ringSelection(grid, () => focus, [48], 1);
+    const first = wanted(sel48);
+    // Every face the selection wants on the derived nodes has its seam, as a fresh build gives it; nothing else does.
+    expect(first.size).toBeGreaterThan(8);
+    expect(new Set(built().keys())).toEqual(first);
+    expect(checkFresh(first)).toBe(first.size);
+    let tris = 0;
+    for (const seam of built().values()) tris += seam.counts.strip + seam.counts.flaps;
+    const m = s.metrics();
+    expect(m.bytes.mips).toBe(s.mips!.cellBytes() + [...s.mips!.derived()].reduce((a, d) => a + (d.result === null ? 0 : derivedBytes(d.result)), 0) + s.mips!.nodeCount * RESIDENT_CHUNK_OVERHEAD_BYTES + seams.bytes);
+    const measured = { faces: first.size, trianglesPerFace: Math.round(tris / first.size), seamKB: Math.round(seams.bytes / 1024), seamUsP50: Math.round(seams.seamUs.quantile(0.5)), seamUsP95: Math.round(seams.seamUs.quantile(0.95)) };
+
+    // Level 0 out to 80 cells: the faces it adds are built and those it drops removed in one `seams` event, nothing else.
+    log.length = 0;
+    const c0 = { ...seams.counters };
+    const sel80 = ringSelection(grid, () => focus, [80], 1);
+    seams.setSelection(sel80);
+    await s.settle();
+    const second = wanted(sel80);
+    const events = log.filter((l) => l.type === 'seams').map((l) => l.e!);
+    expect(events.length).toBe(1);
+    const added = [...second].filter((k) => !first.has(k)).sort();
+    const dropped = [...first].filter((k) => !second.has(k)).sort();
+    expect(added.length).toBeGreaterThan(0);
+    expect(dropped.length).toBeGreaterThan(0);
+    expect(events[0]!.built.map(id).sort()).toEqual(added);
+    for (const k of dropped) expect(events[0]!.removed.map(id)).toContain(k);
+    expect(seams.counters.built - c0.built).toBe(added.length);
+    expect(new Set(built().keys())).toEqual(second);
+    checkFresh(added);
+
+    // A dig on the level-0 side of a face, two cells from it: the strip is built again inside the edit's swap (its
+    // `seams` event just before the `swap`), as a fresh build of the dug world gives it.
+    const face = [...second].map((k) => k.split(/[:,]/).map(Number)).find(([, nx, , nz, f]) => f === 0 && nz! >= 0 && nx! > 0);
+    if (face === undefined) throw new Error('no low-x face toward level 0');
+    const [, fx, , fz] = face;
+    const x = fx! * 64 - 2;
+    const z = fz! * 64 + 20;
+    let y = 300;
+    const v = voxel();
+    while (y > -300 && (truth.voxelAt(x, y, z, v).material === 0 || v.role === VOXEL_ROLE.liquid)) y--;
+    const fk = `1:${fx},${y >> 6},${fz}:0`;
+    expect(second.has(fk)).toBe(true);
+    const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [3, 3, 3], points: [x, y, z], mode: 'dig', smooth: false });
+    log.length = 0;
+    s.edit(dig);
+    applyEdit({ store: () => truth }, dig);
+    tree = new MipTree(truth);
+    chunkDerives.clear();
+    await s.settle();
+    const swapAt = log.findIndex((l) => l.type === 'swap');
+    expect(swapAt).toBeGreaterThan(0);
+    expect(log[swapAt - 1]!.type).toBe('seams');
+    expect(log[swapAt - 1]!.e!.built.map(id)).toContain(fk);
+    checkFresh([fk]);
+    console.log('seams', JSON.stringify(measured));
+  }, 180_000);
 
   it('builds the worker module for browsers with no Node built-ins, passing the export scan', async () => {
     const out = join(dir, 'browser-worker.mjs');

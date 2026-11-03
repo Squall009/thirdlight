@@ -11,7 +11,9 @@
  *   stroke command over the chunks it touches) and `derive` (anything
  *   rebuilt from a chunk and its neighbours: the placeholder here, meshing
  *   and its kin later; with a `level`, a node of the chunk tree), and `mip`
- *   (a node of the chunk tree downsampled from its 8 children).
+ *   (a node of the chunk tree downsampled from its 8 children), and `seam`
+ *   (a coarse node face's seam toward the finer nodes against it, from their
+ *   derived surfaces: lod-seam.ts).
  * - **Lanes.** Work is queued by lane, then by distance: `edit` (rebuilds an
  *   edit made stale) before `near` before `far` (prefetch) before `mip` (the
  *   coarser levels, built from what level 0 already holds).
@@ -34,13 +36,14 @@ import type { SectionResult } from './derive-assembly';
 import type { ShaderOut } from './derived-shader';
 import type { DerivedData } from './derived-data';
 import type { VoxelEditCommand } from './edit-command';
+import type { FaceSeam, SeamFaceInput } from './lod-seam';
 import type { MismatchChoice, SaveContentKind } from './save-file';
 import type { StampShape } from './stamp-shape';
 
 /** Version of the job messages; a worker refuses any other. */
 export const STREAM_JOB_VERSION = 1;
 
-export type StreamJobKind = 'load' | 'apply-save' | 'edit' | 'derive' | 'mip';
+export type StreamJobKind = 'load' | 'apply-save' | 'edit' | 'derive' | 'mip' | 'seam';
 
 /**
  * Queue lanes in priority order: an edit's rebuilds, then near work, then
@@ -197,6 +200,7 @@ export interface StreamJobInputs {
   edit: EditInput;
   derive: DeriveInput;
   mip: MipInput;
+  seam: SeamFaceInput;
 }
 
 export interface StreamJobOutputs {
@@ -205,6 +209,7 @@ export interface StreamJobOutputs {
   edit: EditOutput;
   derive: DeriveOutput;
   mip: MipOutput;
+  seam: FaceSeam;
 }
 
 /** A job message to a worker. `kind` is any handler's name: the pool is not tied to the stream kinds. */
