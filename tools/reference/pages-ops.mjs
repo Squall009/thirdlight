@@ -12,7 +12,12 @@ const VOXEL_OP_NOTE =
   'A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` ' +
   '(its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project\'s `undo` does not take it back (`undoVoxels` does). ' +
   'It answers the world\'s new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; ' +
-  'the connected editor gets the same as a `voxelsChanged` event. A stroke that changes no voxel is refused with `no_change`.';
+  'the connected editor gets the same as a `voxelsChanged` event.';
+/** What each voxel world op adds to the note: its own refusal when there is nothing to do. */
+const VOXEL_OP_REFUSAL = {
+  editVoxels: 'A stroke that changes no voxel is refused with `no_change`.',
+  undoVoxels: 'It takes back the world\'s newest edit still in this backend\'s undo history; with none left it is refused with `nothing_to_undo`.',
+};
 
 export function opPages(ops, types, opLists, descriptors, envelope, routing) {
   const writes = new Map();
@@ -23,7 +28,10 @@ export function opPages(ops, types, opLists, descriptors, envelope, routing) {
   const opSection = (op) => {
     const o = ops[op];
     const lines = [];
-    if (voxelOps.has(op)) lines.push(VOXEL_OP_NOTE, '');
+    if (voxelOps.has(op)) {
+      if (VOXEL_OP_REFUSAL[op] === undefined) throw new Error(`voxel world op ${op} has no refusal line in the reference`);
+      lines.push(`${VOXEL_OP_NOTE} ${VOXEL_OP_REFUSAL[op]}`, '');
+    }
     const w = writes.get(op);
     if (w !== undefined) lines.push(`Writes: ${w.map((k) => ref(`content-${k}`, code(`content.${k}`))).join(', ')}.`, '');
     lines.push('Arguments (`args`):', '');

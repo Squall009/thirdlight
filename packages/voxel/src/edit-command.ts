@@ -1,5 +1,5 @@
 /**
- * Voxel edit commands, format v1 DRAFT: one command is one stroke (a brush
+ * Voxel edit commands, stroke command format v2: one command is one stroke (a brush
  * drag, a box fill, a stamp, or a runtime set/dig of a few cells), so undo,
  * MCP, the editor and game sessions edit at a useful granularity and history
  * stays small.

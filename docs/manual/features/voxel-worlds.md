@@ -169,7 +169,11 @@ of a 1 m ball at cell (0, 4, 0):
 
 ## Exports
 
-**To be confirmed:** Exported games ship the world's region files.
+An export ships each world its scenes name with all of the world's region
+files, whole (about 4–6 MB per km² for the test world). Each file is checked
+against its digest when the game reads it. The exported game needs no
+backend and makes no range requests. An export is refused when a world it
+names is missing or has a missing or damaged region file.
 
 ## Not built yet
 

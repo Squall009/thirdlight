@@ -104,6 +104,8 @@ export interface BehaviorContext {
   /**
    * The voxel worlds of the loaded scenes — read a voxel at a world position (null where the world is not loaded), set, dig and paint
    * regions (read at once; meshes and colliders follow in one swap), wait for a region to load, and the changes swapped in.
+   * Always there in Play and in an exported game, also without voxel worlds (reads then give null and edits are
+   * refused); optional, like `grid` and `surface`, because contexts made outside the runtime (tools, tests) may leave it out.
    */
   readonly voxels?: BehaviorVoxels;
   /**

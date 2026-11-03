@@ -955,6 +955,9 @@ inside), in x, z, y order.
   (§3.2): a file of another world or grid reports its chunks damaged.
 - Which files exist is the world's to say (§3.2 manifest): a region the world does not list reads as all air; a
   listed file that is gone or fails to open reports its chunks as damaged.
+- As built (46a.11, no format change): an export ships each named world's listed region files whole (about 4–6 MB
+  per km² for the test world), as content files checked by digest when read, with no backend and no range reads; an
+  export is refused if a named world is missing or has a missing or damaged region file.
 
 **Open contract gap: dependencies across grids (review M7; for the owner before 47a).** Aprons, dependency and
 invalidation keys (`dependentChunks`, tracker stamps) and derived results are all per grid: a job names one grid's
