@@ -16,7 +16,8 @@
  * one of its modules.
  *
  * Forbidden (any node): `backend`, `editor`, `workspace`, `commands`,
- * `mcp-adapter`, `protocol`, `exporter` beyond the bootstrap, `behavior-build`,
+ * `mcp-adapter`, `protocol`, `exporter` beyond the entry and its content
+ * reader (`export-content-reader.ts`), `behavior-build`,
  * `asset-pipeline`, and any `node:` builtin. A bundle built from the frozen
  * engine (`export-engine.ts`) may link no engine source of the working tree:
  * the copy and the live tree must never mix. Pure data processing, no I/O.
@@ -31,6 +32,12 @@ export interface GraphReport {
 }
 
 const MAX_REPORTED = 8;
+
+/**
+ * The exporter's one shared platform file: the reader of the export's own
+ * files, linked by the page and the simulation worker alike.
+ */
+const CONTENT_READER_FILE = 'export-content-reader.ts';
 
 /** The virtual-module keys the export build generates (esbuild namespaces them). */
 const VIRTUAL_KEYS = new Set(['thirdlight-export-modules:export-modules']);
@@ -80,7 +87,8 @@ export function checkBundleGraphM3(metafile: { inputs: Record<string, unknown> }
     if (VIRTUAL_KEYS.has(p)) continue;
     if (toRepoRel(p) === boot) continue;
     if (p.includes('packages/exporter/')) {
-      reject(p); // only the bootstrap file of the exporter may enter the graph
+      // Only the entry file and the content reader of the exporter may enter the graph (from the same engine).
+      if (toRepoRel(p) !== `packages/exporter/src/${CONTENT_READER_FILE}` || (frozen && !inFrozenEngine(p))) reject(p);
       continue;
     }
     if (frozen && /(^|\/)packages\/[^/]+\/src\//.test(p) && !inFrozenEngine(p)) {
