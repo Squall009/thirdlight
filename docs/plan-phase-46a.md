@@ -101,7 +101,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.5b | done e317f7b0 (+ 9d22034d boundary, 87c50d84): adapter `VoxelChunkView`, one draw a chunk from joined sections, grid entries straight to upload; page uses it. render() CPU 16³ slice 1.4–1.6 / town 4.0 ms (was 4.2 / 13.8; same-hour 32³ 1.6 / 3.9–4.0): D440 draw half fixed. Town 8 m blast main ~180–220 ms (bodies a section, 46a.6a). D441 fixed, D442 open. voxel-world.e2e 19.8 → 21.3 s. |
 | 46a.6a | done 325206fc, 70176c6b: one Rapier body a 32³ chunk from its joined 16³ sections, built from the draw's join in the same task and frame; ground alone, facing up, within 5 mm of a lattice heightfield → heightfield. Share slice/hilly 0 %, town 24 %; 4.3 vs 37.5 KB a body. Town 8 m blast main 50–104 ms (was 180–220). D440 fixed, D443 opened. voxel-world.e2e 21.3 → 19.0 s. |
 | 46a.6b | done df6e67b0: `CollisionRing` (voxel): bodies only within 48/24 m of the foci (box distance, 8 m hysteresis, in nearest first in 4 ms, out farthest first), each the chunk's `collision` part at Rapier's heap estimate. Heap cold / after 4 flights: slice 14 / 19.4 MB (was 131 / 172; 53–58 bodies of 493), town 6–7 / 14.6 MB (was 174). D434 fixed. voxel-world.e2e 19.0 → 17.3 s. |
-| 46a.7a | not started |
+| 46a.7a | done 327a806b (+ d6744249 boundary, 6dccf2b9): `RuntimeVoxels` + `VoxelWorldHost` a `voxelWorld`, ports injected; `ctx.voxels` get (null off-ring), set/dig/paint read at once, body/mesh/shader in one swap, `changes`, `whenResident` → `waits`. Node 4 m dig: step 3.5–6.1 ms (first 17–19), edit → change 8–16 ms. Fast gate green; voxel-world.e2e 17.3 → 17.7 s. |
 | 46a.7b | not started |
 | 46a.8 | not started |
 | 46a.9 | not started |
@@ -374,6 +374,39 @@ Flight (`run.mjs slice --phase fly`, staging, headless Chrome, Iris Xe, 1280×72
   renderers. `voxel-world.e2e.ts` 19.0 → 17.3 s (8.0 + 4.5 + 4.8 s; load 6.7 at the start, uptime 10 d 8.7 h; no e2e
   change: the scene's blasts and drops lie inside the ring around the camera's target).
 
+**46a.7a** (d6744249 boundary: runtime → voxel; 327a806b host and `ctx.voxels`; 6dccf2b9 graph API). `voxel-worlds.ts`
+(`RuntimeVoxels`, owned by `RuntimeEntities`: an object with `voxelWorld` brings its world on attach, the last one
+leaving disposes it) and `voxel-world-host.ts` (`VoxelWorldHost`: streamer with `PLACEHOLDER_RULES`, the component's
+ring/collision/section edge in cells, `CollisionRing` over `PortBodies` in the runtime's physics port, world
+coordinates). Ports injected through `instantiateRuntime({ voxels: { open(world) } })` → `{grid, source, pool,
+budgetBytes?, close?}`; without them worlds read null. `ctx.voxels` (`voxel-api.ts`, metres): `get`, `set`, `dig`,
+`paint`, `isResident`, `whenResident` (answered in `waits`), `changes`, `worlds()`, `world(name)`. Edits are exact
+`set`/`dig` commands on the region's cells, applied on the step's thread; `paint` is one set per resulting voxel, all
+in one task (one swap, one change). Chunk body parts moved to `collisionBodyParts` (voxel; the page uses it);
+`PhysicsPort3D.staticBodyBytes?` (Rapier: `estimateStaticBodyBytes3D`).
+Test `tools/voxel-bench/world-host.test.ts` (real runtime, hilly 128 m region files on disk, 2 `worker_threads`
+workers a world, real Rapier port): resident wait answered; far `get` null and `dig` refused `not_resident`; a 4 m dig
+reads air in the same step, the body under it unchanged until the swap and ≥ 2.5 m lower after it, the change reported
+once with chunk boxes inside the rules' reach including the dug chunk; a `set` reads back at once; wetness paint reads
+at once, reported `shaderOnly`, collider count and ground unchanged; world b (scene loaded later, same files) reads
+none of a's changes and a none of b's; unloading b closes its pool and source, removes its bodies (body count back),
+answers its wait `false`; `dispose` closes a. Node numbers (i5-12600H, load ~3, uptime 10 d 9.2 h, 2 runs):
+
+| 4 m dig (radius 2 m, ~270 cells) | Step ms (overlay apply + edit job build) | Edit → change seen by the next step |
+|---|---|---|
+| first edit of the run | 16.6–18.7 | 41–66 ms |
+| next three | 3.5–6.1 | 7.6–16.3 ms |
+
+The first edit pays JIT and worker warm-up; the step cost is mostly building the rebuilt sections' aprons and
+payloads on the step's thread (`editDeriveMsPerUpdate`, 8 ms cap). No browser or Play wiring (46a.7b).
+Fast gate (gate-fast-20261103-014523, + voxel-world, scene-loads, script-api, play-export e2e): RED in vitest on two
+stale expectations this item made wrong (`tests/m2-physics/physics-boundary.test.ts` listed runtime's dependencies
+without the new voxel edge; `tools/gen-behavior-graph-api` could not type the region calls), fixed in 6dccf2b9;
+rerun (gate-rerun-20261103-015632) GREEN, 4 min, 4.4 GB peak, village perf at the cap 0 missed on both renderers.
+`voxel-world.e2e.ts` 17.3 → 17.7 s (8.1 + 4.6 + 5.0 s; no e2e change; load 4.8 at the end, uptime 10 d 9.6 h).
+Once, in an ad-hoc parallel vitest run, `stream.test.ts` 'rebuilds every derived result within R …' failed and
+passed alone and in two later runs (load, not reproduced; the full gate's first vitest pass had it green).
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -502,5 +535,26 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
 - 2026-11-03 (46a.6b): the streamer emits `unloaded` while the chunk is still listed, so a consumer that clears its
   part there subtracts it a second time; consumers leave an unloaded chunk's parts to the streamer (the ring does;
   the chunk view never cleared its `mesh` part). 46a.7b moves `PageCollisionRing`'s glue next to the sim's physics.
+- 2026-11-03 (46a.7a, default chosen, owner to confirm): **one host a world name**, made by the first `voxelWorld`
+  object to arrive and disposed when the last leaves; a second object naming a loaded world joins it with the first's
+  settings (a warning when they differ); a scene reload disposes and reopens (the game's changes go). **Ports give a
+  pool a world** (closed with it) and a budget a world (default the low tier's 256 MiB; two worlds do not share one).
+  The world's cell 0 is at the world origin: the object's transform places only the focus.
+- 2026-11-03 (46a.7a, default chosen, owner to confirm): **focus** = where a live camera looks (its target, else the
+  camera), else the first object naming the world; bodies around the focus and every player controller. Physics in
+  world coordinates (as planned); collider ids `voxel:<world>:cx,cy,cz`.
+- 2026-11-03 (46a.7a, default chosen, owner to confirm): **`ctx.voxels` regions** are a point, a box (every cell it
+  touches) or a ball (every cell whose centre is inside), metres; `set`/`dig` are exact `set`/`dig` commands over the
+  cells (whole cells; smooth digs and brushes stay 47b's); `set` of air or shape 0 is a dig; `paint` changes only
+  material/wetness and keeps each cell's role and shape, as one exact set per resulting voxel applied in one task;
+  top-level calls act on the first world loaded, `world(name)` the others. A new run (restart) clears the overlay.
+- 2026-11-03 (46a.7a): **`whenResident` cannot return a promise**: script hooks are synchronous and the ctx guard
+  refuses a call after the hook (a `.then` included). Replacement keeping the goal: it returns a wait id answered in
+  `ctx.voxels.waits` at a later step's start (`resident` true, or false when the world unloads first), for that step
+  only, like the other step events. `changes` likewise: each swapped edit once, at the next step, with its chunks'
+  boxes and `shaderOnly`; streaming swaps are not reported.
+- 2026-11-03 (46a.7a): the visual-script generator cannot type a region or a nullable world handle, so `set`, `dig`,
+  `paint`, `isResident`, `whenResident` and `world` are skipped as graph nodes with that reason (reads are nodes);
+  graph inputs for regions can come with 47b's brushes.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
