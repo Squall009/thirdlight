@@ -81,6 +81,8 @@ export interface PlayContentSet {
   readonly artifacts: ReadonlyMap<string, PlayServed>;
   /** The page needs the Basis transcoder (a shipped KTX2 texture, or a model that uses it). */
   readonly needsBasis: boolean;
+  /** The voxel worlds the play's scenes name: the only ones its locator serves. */
+  readonly voxelWorlds: ReadonlySet<string>;
   readonly issuedAtMs: number;
   /** Until when it is readable while its play runs: `PLAY_CONTENT_TTL` from publish at least, then its play's own expiry. */
   expiresAtMs: number;
@@ -108,6 +110,8 @@ export interface PublishPlayContentInput {
   artifacts: ReadonlyArray<PlayServed>;
   /** The page needs the Basis transcoder. */
   needsBasis?: boolean;
+  /** The voxel worlds the play's scenes name (none when absent). */
+  voxelWorlds?: readonly string[];
 }
 
 export type PublishPlayContentResult =
@@ -217,6 +221,7 @@ export class PlayContentStore {
       manifestBytes: input.manifestBytes,
       artifacts,
       needsBasis: input.needsBasis === true,
+      voxelWorlds: new Set(input.voxelWorlds ?? []),
       issuedAtMs: nowMs,
       expiresAtMs: nowMs + this.ttlMs,
       terminalAtMs: null,

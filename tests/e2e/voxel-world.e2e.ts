@@ -469,10 +469,15 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
     await page.getByTitle('Start an isolated play preview').click();
-    const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+    const answer = (await (await started).json()) as { playSessionId: string; playContent: { path: string } };
+    const psid = String(answer.playSessionId);
     const frame = page.frameLocator('iframe.tl-app__preview-frame');
     const canvas = frame.locator('canvas').first();
     await expectRendererBackend(canvas, renderer);
+    // The play's locator serves the world its scenes name, not the project's other worlds.
+    const preview = new URL((await page.locator('iframe.tl-app__preview-frame').getAttribute('src'))!, be.origin).origin;
+    const voxelStatus = async (world: string): Promise<number> => (await fetch(`${preview}${answer.playContent.path}voxels/${world}`)).status;
+    expect([await voxelStatus('far'), await voxelStatus('slice')]).toEqual([200, 404]);
     const observe = async (): Promise<PlayObservation> => (await projectApi(`play/${psid}/observe`)).json as PlayObservation;
     const drawn = (): Promise<ReturnType<VoxelPlayHook['stats']>> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats());
     await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
@@ -610,6 +615,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
 });
 
 // ---- The export plays the world with no backend ------------------------------------------------------------------
+// This test halts the file's one backend (an export is checked with the backend stopped): it stays the file's last test.
 
 test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it, stands the character on it, and a console dig opens the pit', async ({ page }) => {
   test.setTimeout(180_000);

@@ -39,7 +39,8 @@ export interface PreviewRoutesContext {
 /**
  * A play's voxel world routes on the preview origin: `/play-content/<contentId>/voxels/<world>` (the
  * manifest and file list) and `…/voxels/<world>/regions/<file>` (read by range). Play's simulation streams
- * the project's worlds from there as the backend has them now.
+ * the worlds its scenes name from there as the backend has them now; another world of the project is not
+ * served under the locator.
  */
 const PLAY_VOXELS_RE = /^\/play-content\/([^/]+)\/voxels\/([^/]+)(?:\/regions\/([^/]+))?$/;
 
@@ -212,6 +213,10 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
       file = m[3] !== undefined ? decodeURIComponent(m[3]) : undefined;
     } catch {
       locatorError(res, sessionError('path_rejected', 'validation', 'the voxel world path is not valid'), 400);
+      return;
+    }
+    if (!set.voxelWorlds.has(world)) {
+      locatorError(res, sessionError('invalid_request', 'not_found', 'no scene of this play names that voxel world'), 404);
       return;
     }
     locatorBaseHeaders(res);

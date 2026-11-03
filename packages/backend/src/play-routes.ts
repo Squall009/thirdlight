@@ -8,7 +8,7 @@ import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
 import { PlayContentStore, sha256HexBytes, type PlayServed } from './play-content';
 import { buildPlayContentM3 } from './play-m3';
-import { withProjectSceneDerivations, type ClosureTextureSlots } from '@thirdlight/exporter';
+import { referencedVoxelWorlds, withProjectSceneDerivations, type ClosureTextureSlots } from '@thirdlight/exporter';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
 import type { HeadlessEditors } from './headless';
@@ -315,7 +315,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       );
       return;
     }
-    let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayServed[]; needsBasis: boolean };
+    let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayServed[]; needsBasis: boolean; voxelWorlds: readonly string[] };
     // The compiled outputs' source maps (kept on the play record, never served).
     let playSourceMaps: ReadonlyMap<string, { behaviorId?: string; libraryId?: string; sourceMap: string }> | undefined;
     let startNotes: string[] = [];
@@ -417,6 +417,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         manifestBytes: builtM3.built.manifestBytes,
         artifacts: builtM3.built.artifacts,
         needsBasis: builtM3.built.needsBasis,
+        // Any scene of the play may be loaded, so every world a scene names may be read.
+        voxelWorlds: referencedVoxelWorlds([snapshot.scene, ...(captured.read.scenes ?? [])]),
       };
       playSourceMaps = new Map(builtM3.built.sourceMaps.map((m) => [m.outputDigest, m] as const));
       placeholders = builtM3.built.placeholders;
@@ -429,11 +431,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       projectId,
       revision: state.revision,
       snapshotId,
-      buildId: builtCore.buildId,
-      contentDigest: builtCore.contentDigest,
-      manifestBytes: builtCore.manifestBytes,
-      artifacts: builtCore.artifacts,
-      needsBasis: builtCore.needsBasis,
+      ...builtCore,
     });
     mark('publish');
     if (!published.ok) {
