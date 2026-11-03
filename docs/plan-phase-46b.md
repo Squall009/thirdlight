@@ -1164,6 +1164,11 @@ features`, `--spots town`; one round, 21:54–21:57, uptime 11 d 5.5 h, load 1.4
   frames change once, from the whole house and ground to the cut house and the crater with all 8 nodes and 8 seams;
   no frame with the house cut and the ground not dug, no gap seen.
 
+Fast gate (gate-fast-20261103-220009, uptime 11 d 5.5 h, load 3–5.4): vitest and lint green, e2e red only on D417
+(`start.e2e.ts` stop), GREEN on the rerun (gate-rerun-20261103-221305, perf at the cap in limits); 12 min, 5.4 GB peak.
+`voxel-world.e2e.ts` 58.7 s (sum of its tests; not touched; 56.6 s at 46b.11a, the host's load). L0-ring blasts were
+not re-run on staging (their ancestors are not shown, so they do not wait; the vitest dig tests cover it).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
