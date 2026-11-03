@@ -174,6 +174,76 @@ describe('sphere casts on sloped heightfields', () => {
     for (const p of worlds) p.dispose();
   });
 
+  it('long casts (10 m, 100 m, 1 km) over a row of patches land as on the meshes, at a cost that follows the ground passed, not the length', async () => {
+    // 16 patches of 16 × 16 cells of 0.5 m in a row along +x (a chunk's patches), bumpy as above.
+    const P = 16;
+    const ys = new Float32Array((P + 1) * (P + 1));
+    for (let i = 0; i <= P; i++) for (let k = 0; k <= P; k++) ys[i * (P + 1) + k] = heights[i * (N + 1) + k]!;
+    const patchMesh = (): StaticColliderSpec3D['shape'] => {
+      const vertices: number[] = [];
+      const indices: number[] = [];
+      const n = P + 1;
+      for (let i = 0; i <= P; i++) for (let k = 0; k <= P; k++) vertices.push(i * CELL, ys[i * n + k]!, k * CELL);
+      for (let i = 0; i < P; i++) for (let k = 0; k < P; k++) {
+        const a = i * n + k;
+        indices.push(a, a + 1, a + n, a + n, a + 1, a + n + 1);
+      }
+      return { type: 'mesh', vertices, indices, oriented: true };
+    };
+    const row = (shape: () => StaticColliderSpec3D['shape']): StaticColliderSpec3D[] => Array.from({ length: 16 }, (_, j) => ({ entityId: `patch-${j}`, shape: shape(), position: { x: j * P * CELL, y: 0, z: 0 }, rotation: IDENTITY }));
+    const [hf, tm] = await Promise.all([
+      row(() => ({ type: 'heightfield', cellsX: P, cellsZ: P, cellX: CELL, cellZ: CELL, heights: ys })),
+      row(patchMesh),
+    ].map((statics) => portOf(config({ noCharacter: true, statics, layers: [] })))) as [PhysicsPort3D, PhysicsPort3D];
+    let seed = 5;
+    const rnd = (): number => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const cost: Record<string, number> = {};
+    let casts = 0;
+    let grazes = 0;
+    let worst = 0;
+    // The first pass warms the casts up (the 10 m one again last, measured).
+    for (const [pass, length] of [[0, 10], [1, 10], [1, 100], [1, 1000]] as const) {
+      let us = 0;
+      let n = 0;
+      for (let t = 0; t < 40; t++) {
+        const r = [0.05, 0.15, 0.3, 0.5][t % 4]!;
+        // Aimed at a point of the row from `length` away, coming down at 3–17° from any side, so most of a long cast
+        // runs over no field and its last metres over the row.
+        const to = { x: 4 + rnd() * 120, y: 1.5, z: 1 + rnd() * 6 };
+        const yaw = rnd() * 2 * Math.PI;
+        const pitch = (3 + rnd() * 14) * (Math.PI / 180);
+        const d = { x: Math.cos(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.sin(yaw) * Math.cos(pitch) };
+        const from = { x: to.x - d.x * length, y: to.y - d.y * length, z: to.z - d.z * length };
+        const want = tm.castSphere!(from, d, r, length * 1.2);
+        const t0 = performance.now();
+        const got = hf.castSphere!(from, d, r, length * 1.2);
+        us += (performance.now() - t0) * 1000;
+        n++;
+        if (want === null) {
+          expect(got, `${JSON.stringify(from)} ${JSON.stringify(d)} r ${r}`).toBeNull();
+          continue;
+        }
+        casts++;
+        const off = got === null ? Infinity : Math.abs(got.distance - want.distance);
+        if (off > 0.01) {
+          const thinner = tm.castSphere!(from, d, r - 0.005, length * 1.2);
+          expect(got, `${JSON.stringify(from)} ${JSON.stringify(d)} r ${r}`).not.toBeNull();
+          expect(Math.abs(thinner!.distance - got!.distance), `${JSON.stringify(from)} ${JSON.stringify(d)} r ${r}`).toBeLessThan(0.01);
+          grazes++;
+          continue;
+        }
+        worst = Math.max(worst, off);
+      }
+      if (pass === 1) cost[`${length} m`] = Math.round(us / n);
+    }
+    console.log('long casts µs a cast (mean)', JSON.stringify(cost));
+    expect(casts).toBeGreaterThan(110);
+    expect(grazes).toBeLessThan(casts * 0.05);
+    expect(worst).toBeLessThan(0.01);
+    hf.dispose();
+    tm.dispose();
+  });
+
   it('a character walking and falling over them goes where it goes on the same triangles as a mesh', async () => {
     // The bumps at 0.3 of their height (slopes it walks up). At full height a walk square into a slope too steep to
     // climb slid off to opposite sides on the two shapes (a millimetre decides the side), which is not a late sweep.

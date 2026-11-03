@@ -12,7 +12,8 @@
  *
  * So the ball is cast once against everything but heightfields, and against
  * the heightfields near its path in casts of at most one of their cells
- * across them, up to the first hit. Filters (groups, the excluded collider,
+ * across them, up to the first hit; stretches of the path no field's box
+ * meets are skipped, so the cost follows the ground passed, not the length. Filters (groups, the excluded collider,
  * the predicate) are Rapier's own on every cast.
  */
 import * as RAPIER from '@dimforge/rapier3d-compat';
@@ -59,9 +60,25 @@ export function castBall(world: RAPIER.World, origin: PhysicsVec3, u: PhysicsVec
   const rest = world.castShape(origin, IDENTITY, u, ball, 0, maxDistance, false, undefined, groups, exclude, undefined, (c) => !isField(c) && keep(c));
   let best: BallHit | null = rest === null ? null : { collider: rest.collider, distance: rest.time_of_impact };
   const limit = best?.distance ?? maxDistance;
-  // The heightfields the swept ball's box meets, and the longest cast that crosses at most one cell of any of them.
-  const half = { x: Math.abs(u.x) * limit * 0.5 + radius, y: Math.abs(u.y) * limit * 0.5 + radius, z: Math.abs(u.z) * limit * 0.5 + radius };
-  const centre = { x: origin.x + u.x * limit * 0.5, y: origin.y + u.y * limit * 0.5, z: origin.z + u.z * limit * 0.5 };
+  const hit = castFields(world, origin, u, ball, radius, 0, limit, groups, exclude, keep);
+  return hit !== null && hit.distance < limit ? hit : best;
+}
+
+/** A stretch of the cast at most this many cells of the finest field it meets is stepped; a longer one is halved. */
+const LEAF_CELLS = 8;
+
+/**
+ * The first heightfield hit on the stretch [t0, t1) of the cast, met a cell
+ * at a time. Only stretches whose swept box meets a field (the broad phase's
+ * boxes, which hold the field's heights) are stepped, halving the cast until
+ * a stretch is a few cells of the fields it meets, nearer half first; so a
+ * long cast costs about the cells it passes near ground, not its length.
+ */
+function castFields(world: RAPIER.World, origin: PhysicsVec3, u: PhysicsVec3, ball: RAPIER.Ball, radius: number, t0: number, t1: number, groups: number | undefined, exclude: RAPIER.Collider | undefined, keep: (c: RAPIER.Collider) => boolean): BallHit | null {
+  const len = t1 - t0;
+  const mid = t0 + len * 0.5;
+  const half = { x: Math.abs(u.x) * len * 0.5 + radius, y: Math.abs(u.y) * len * 0.5 + radius, z: Math.abs(u.z) * len * 0.5 + radius };
+  const centre = { x: origin.x + u.x * mid, y: origin.y + u.y * mid, z: origin.z + u.z * mid };
   let stride = Infinity;
   let fields = 0;
   world.collidersWithAabbIntersectingAabb(centre, half, (c) => {
@@ -71,15 +88,13 @@ export function castBall(world: RAPIER.World, origin: PhysicsVec3, u: PhysicsVec
     }
     return true;
   });
-  if (fields === 0) return best;
-  stride = Math.min(stride, limit);
-  for (let t = 0; t < limit; t += stride) {
+  if (fields === 0) return null;
+  if (len > LEAF_CELLS * stride) return castFields(world, origin, u, ball, radius, t0, mid, groups, exclude, keep) ?? castFields(world, origin, u, ball, radius, mid, t1, groups, exclude, keep);
+  stride = Math.min(stride, len);
+  for (let t = t0; t < t1; t += stride) {
     const at = { x: origin.x + u.x * t, y: origin.y + u.y * t, z: origin.z + u.z * t };
-    const hit = world.castShape(at, IDENTITY, u, ball, 0, Math.min(stride, limit - t), false, undefined, groups, exclude, undefined, (c) => isField(c) && keep(c));
-    if (hit !== null) {
-      if (t + hit.time_of_impact < limit) best = { collider: hit.collider, distance: t + hit.time_of_impact };
-      break;
-    }
+    const hit = world.castShape(at, IDENTITY, u, ball, 0, Math.min(stride, t1 - t), false, undefined, groups, exclude, undefined, (c) => isField(c) && keep(c));
+    if (hit !== null) return { collider: hit.collider, distance: t + hit.time_of_impact };
   }
-  return best;
+  return null;
 }
