@@ -934,7 +934,8 @@ inside), in x, z, y order.
 - **Workers keep no world state.**
   - Settings: pool size, queue bound and timeouts. The bench used 4 workers, 256 queued, a 5 s timeout, and a hung
     worker replaced after 4 × the timeout.
-  - Proposed engine default for the pool size: `min(4, hardwareConcurrency − 2)`, at least 1.
+  - Engine default for the pool size (built in 46a, `defaultVoxelWorkers`; one pool a world wherever it streams):
+    `min(4, hardwareConcurrency − 2)`, at least 1.
 
 **Floating origin (R62, R63).**
 - **When:** the origin re-bases when the focus is more than 1,000 m from it on any axis.

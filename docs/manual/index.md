@@ -49,6 +49,7 @@ use and why.
 
 - [Which tool for which job](guides/which-tool.md)
 - Building worlds
+  - [Voxel worlds: cells, the `voxelWorld` component, streaming and edits](features/voxel-worlds.md)
   - [Level editors: terrain, blocks, vertex paint, decals and their keys](guides/level-editors.md)
   - [Build a level with block layers](guides/block-layers.md)
   - [The block editor: modes, palette, block types](guides/block-editor.md)
@@ -79,6 +80,7 @@ use and why.
   - [Game modes](guides/game-modes.md)
   - [Switching to a plane and back (a side-view stretch in a 3D level)](guides/switching-to-a-plane.md)
   - [Saves](guides/saves.md)
+  - [Script a voxel world (`ctx.voxels`)](guides/voxel-scripts.md)
   - [Input and rebinding](guides/input.md)
   - [Local co-op players](guides/co-op.md)
 - Presentation
@@ -96,7 +98,7 @@ use and why.
 
 [Features](features/index.md) holds the full description of each feature
 area, one page per area: everything a feature does, its settings and its
-edge cases. New: [Occlusion culling](features/occlusion.md). Growing now: [Decals](features/decals.md) and
+edge cases. New: [Voxel worlds](features/voxel-worlds.md), [Occlusion culling](features/occlusion.md). Growing now: [Decals](features/decals.md) and
 [Vertex paint](features/vertex-paint.md) (painted in the Scene view or over
 MCP and drawn; the phase's acceptance follows).
 

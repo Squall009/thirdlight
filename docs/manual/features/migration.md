@@ -317,6 +317,26 @@ Saves written before load in both cases: a game without `world` ignores a
 save's world. The default changes (no `world` unless listed) once no game
 relies on it.
 
+### Voxel worlds beside block layers and terrain
+
+Voxel worlds ([Voxel worlds](voxel-worlds.md)) are new and stand beside
+what a project already has; nothing is converted and no upgrade step runs.
+
+- **Block layers, terrain and generated architecture are unchanged.** They
+  draw, collide, stream and save as before, and
+  [`ctx.grid`](../reference/script-api.md#ctx-grid),
+  [`ctx.surface`](scripting.md#the-ground-at-a-point-ctxsurface) and the
+  terrain calls read them as before. `ctx.grid` does not read voxel worlds;
+  scripts reach those through
+  [`ctx.voxels`](../guides/voxel-scripts.md).
+- **Existing games keep running** with no change: a project with no
+  `voxelWorld` component opens no world and pays nothing for it.
+- **Later**, converters will turn terrain and block layers into voxel
+  worlds, and `ctx.grid` will then work over the converted world, so
+  scripts written against it keep working. Until then, the two are
+  separate: a voxel world and a block layer in one scene do not affect each
+  other's cells.
+
 ### What else behaves differently for an existing game
 
 No upgrade step and no Problems line; worth a look after updating the
