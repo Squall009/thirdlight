@@ -1,28 +1,57 @@
 /**
- * Voxel mips for the chunk tree (DRAFT): level L of the tree holds voxels
- * of 0.5 m × 2^L, one node per 2^L chunks a side, each node a chunk-shaped
+ * Voxel mips for the chunk tree: level L of the tree holds voxels of
+ * 0.5 m × 2^L, one node per 2^L chunks a side, each node a chunk-shaped
  * block of edge³ voxels. A parent node is made from its 8 children (the
- * nodes one level down; at level 1, chunks) by a 2 × 2 × 2 downsample:
+ * nodes one level down; at level 1, chunks) by a 2 × 2 × 2 downsample that
+ * keeps the shape field meaning what it means at level 0, so the same rule
+ * set and the same mesher read every level:
  *
- * - **shape** is the mean of the 8 cells' fill levels (air 0, full 15),
- *   rounded;
- * - **material** is the dominant one: the material with the largest summed
- *   density among the 8 (ties: the lower id); air when the mean rounds to 0;
- * - **role** and wetness come from the first cell (in local-index
- *   order) of the dominant material.
+ * - **shape** is the share of the parent that is solid: the mean of the 8
+ *   cells' fill levels, counting only solid roles (open roles, {@link OPEN_ROLE}:
+ *   air, liquid, openings, add nothing), rounded to the 16 levels;
+ * - **role** goes by priority ({@link MIP_ROLE_PRIORITY}): the first role
+ *   among the children that holds its ground in the parent. A body drawn as
+ *   whole cells (every solid role but terrain) holds it when its cells fill
+ *   at least half the parent, so a block grows by at most half a parent cell
+ *   and thinner bodies leave the level; terrain, drawn from its fill, holds
+ *   it with any fill. A parent with no solid role is liquid when its liquid
+ *   cells fill it to at least one level (the shape is then the liquid's
+ *   share), else air;
+ * - **material** is the dominant one among the cells the shape counted: the
+ *   material with the largest summed fill (ties: the lower id);
+ * - wetness comes from the first cell (in local-index order) of that
+ *   material.
  *
  * A node therefore has the same form as a chunk (the same planes, the same
- * palette store and codec), so it streams, compresses and meshes with the
- * same code. Paint colour folding waits for paint storage.
+ * palette store and codec), so it streams, compresses, derives and meshes
+ * with the same code. Mips are derived, never stored.
  *
  * An edit marks the nodes above every changed chunk stale, level by level
  * ({@link MipStaleSet}); the editor rebuilds them in the background, a
  * running game only the low levels near the edit.
  */
+import { OPEN_ROLE } from './assembly';
 import { localIndex, type ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import { OCCUPANCY } from './derived-data';
-import { MATERIAL_AIR, SHAPE_EMPTY } from './record';
+import { MATERIAL_AIR, SHAPE_EMPTY, SHAPE_FULL, VOXEL_ROLE } from './record';
+
+/**
+ * Which role a parent takes when its children hold several (first wins):
+ * bodies drawn as whole cells before ground, so a wall standing in a node
+ * of ground keeps its block and the ground's surface closes round it; walls
+ * and their footings before floors, so a wall meeting a slab keeps its
+ * height; terrain last.
+ */
+export const MIP_ROLE_PRIORITY: readonly number[] = Object.freeze([
+  VOXEL_ROLE.wall,
+  VOXEL_ROLE.foundation,
+  VOXEL_ROLE.pillar,
+  VOXEL_ROLE.floor,
+  VOXEL_ROLE.stair,
+  VOXEL_ROLE.roof,
+  VOXEL_ROLE.terrain,
+]);
 
 /** A node of the chunk tree: level (0 = a chunk) and its coordinates at that level. */
 export interface MipNode {
@@ -50,6 +79,44 @@ export function mipChildren(n: MipNode): MipNode[] {
   return out;
 }
 
+/** Summed fill a parent of 8 cells needs from a whole-cell role to take it: half the parent. */
+const HALF_PARENT = (8 * SHAPE_FULL) / 2;
+
+/** Scratch for one parent cell's downsample: per material and per role, summed fill and first cell. */
+const mats = new Uint16Array(8);
+const matFill = new Uint16Array(8);
+const matFirst = new Int32Array(8);
+const roleFill = new Uint16Array(16);
+
+/**
+ * The dominant material among the 8 cells at `cells` whose role passes
+ * `counts` (largest summed fill, ties: the lower id), and the first such
+ * cell of it; returns the index of that cell in `child`.
+ */
+function dominantCell(child: DenseChunk, cells: Int32Array, counts: (role: number) => boolean): number {
+  let k = 0;
+  for (let c = 0; c < 8; c++) {
+    const ci = cells[c]!;
+    const m = child.material[ci]!;
+    if (m === MATERIAL_AIR || !counts(child.role[ci]!)) continue;
+    let j = 0;
+    while (j < k && mats[j] !== m) j++;
+    if (j === k) {
+      mats[k] = m;
+      matFill[k] = 0;
+      matFirst[k] = ci;
+      k++;
+    }
+    matFill[j]! += child.shape[ci]!;
+  }
+  let best = 0;
+  for (let j = 1; j < k; j++) if (matFill[j]! > matFill[best]! || (matFill[j] === matFill[best] && mats[j]! < mats[best]!)) best = j;
+  return matFirst[best]!;
+}
+
+const solidRole = (r: number): boolean => OPEN_ROLE[r] !== 1;
+const liquidRole = (r: number): boolean => r === VOXEL_ROLE.liquid;
+
 /**
  * Downsamples 8 children (octant order; null = all air) into `out`, a node
  * of the same edge. Returns false when the parent is all air (`out` is
@@ -59,10 +126,14 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
   if (children.length !== 8) throw new RangeError('a mip node has 8 children');
   const e = grid.edge;
   const h = e >> 1;
-  const mats = new Uint16Array(8);
-  const dens = new Uint16Array(8);
-  const firsts = new Int32Array(8);
+  const cells = new Int32Array(8);
   let any = false;
+  const air = (pi: number): void => {
+    out.material[pi] = MATERIAL_AIR;
+    out.role[pi] = VOXEL_ROLE.air;
+    out.shape[pi] = SHAPE_EMPTY;
+    out.wetness[pi] = 0;
+  };
   for (let o = 0; o < 8; o++) {
     const child = children[o] ?? null;
     const ox = (o & 1) * h;
@@ -71,47 +142,40 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
     for (let x = 0; x < h; x++) for (let z = 0; z < h; z++) for (let y = 0; y < h; y++) {
       const pi = localIndex(grid, ox + x, oy + y, oz + z);
       if (child === null) {
-        out.material[pi] = MATERIAL_AIR;
-        out.role[pi] = 0;
-        out.shape[pi] = SHAPE_EMPTY;
-        out.wetness[pi] = 0;
+        air(pi);
         continue;
       }
-      let sum = 0;
-      let k = 0;
+      roleFill.fill(0);
       for (let c = 0; c < 8; c++) {
         const ci = localIndex(grid, 2 * x + (c & 1), 2 * y + ((c >> 1) & 1), 2 * z + ((c >> 2) & 1));
-        const m = child.material[ci]!;
-        if (m === MATERIAL_AIR) continue;
-        const d = child.shape[ci]!;
-        sum += d;
-        // The cell's weight under its material, keeping the first cell of each material.
-        let j = 0;
-        while (j < k && mats[j] !== m) j++;
-        if (j === k) {
-          mats[k] = m;
-          dens[k] = 0;
-          firsts[k] = ci;
-          k++;
-        }
-        dens[j]! += d;
+        cells[c] = ci;
+        if (child.material[ci] !== MATERIAL_AIR) roleFill[child.role[ci]!]! += child.shape[ci]!;
       }
-      const mean = Math.round(sum / 8);
-      if (k === 0 || mean === 0) {
-        out.material[pi] = MATERIAL_AIR;
-        out.role[pi] = 0;
-        out.shape[pi] = SHAPE_EMPTY;
-        out.wetness[pi] = 0;
+      let solid = 0;
+      for (const r of MIP_ROLE_PRIORITY) solid += roleFill[r]!;
+      let role: number = VOXEL_ROLE.air;
+      for (const r of MIP_ROLE_PRIORITY) {
+        const f = roleFill[r]!;
+        if (f === 0 || (r !== VOXEL_ROLE.terrain && f < HALF_PARENT)) continue;
+        role = r;
+        break;
+      }
+      let shape = Math.round(solid / 8);
+      let counts = solidRole;
+      if (role === VOXEL_ROLE.air || shape === 0) {
+        shape = Math.round(roleFill[VOXEL_ROLE.liquid]! / 8);
+        role = VOXEL_ROLE.liquid;
+        counts = liquidRole;
+      }
+      if (shape === 0) {
+        air(pi);
         continue;
       }
-      let best = 0;
-      for (let j = 1; j < k; j++) if (dens[j]! > dens[best]! || (dens[j] === dens[best] && mats[j]! < mats[best]!)) best = j;
-      const m = mats[best]!;
-      const first = firsts[best]!;
-      out.material[pi] = m;
-      out.role[pi] = child.role[first]!;
+      const first = dominantCell(child, cells, counts);
+      out.material[pi] = child.material[first]!;
+      out.role[pi] = role;
       out.wetness[pi] = child.wetness[first]!;
-      out.shape[pi] = mean;
+      out.shape[pi] = shape;
       any = true;
     }
   }

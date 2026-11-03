@@ -47,7 +47,7 @@ export interface GroundHeightfield {
   /** The heightfield's first lattice node (cells from the chunk's corner, 0 or 1). */
   readonly x0: number;
   readonly z0: number;
-  /** Cells along x and z; each cell is {@link VOXEL_SIZE_M} square. */
+  /** Cells along x and z; each cell is the surface's cell square ({@link VOXEL_SIZE_M} at level 0). */
   readonly cellsX: number;
   readonly cellsZ: number;
   /** (cellsX + 1) · (cellsZ + 1) heights, metres from the chunk's corner, x-major: node (i, k) at i · (cellsZ + 1) + k. */
@@ -69,9 +69,11 @@ function upArea(ax: number, az: number, bx: number, bz: number, cx: number, cz: 
 
 /**
  * The ground surface as a heightfield over a chunk of `edge` cells, or why
- * not. `toleranceM` is the vertical distance allowed between the two.
+ * not. `toleranceM` is the vertical distance allowed between the two;
+ * `cellMetres` the edge of the surface's cells (a mip node's are coarser,
+ * coords.ts `mipCellMetres`).
  */
-export function groundHeightfield(buf: SurfaceBuffer, edge: number, toleranceM = GROUND_HEIGHTFIELD_TOLERANCE_M): GroundHeightfield | HeightfieldRefusal {
+export function groundHeightfield(buf: SurfaceBuffer, edge: number, toleranceM = GROUND_HEIGHTFIELD_TOLERANCE_M, cellMetres = VOXEL_SIZE_M): GroundHeightfield | HeightfieldRefusal {
   const tris = buf.indices.length / 3;
   if (buf.vertexCount === 0 || tris === 0) return 'empty';
   const S = POSITION_STEPS_PER_CELL;
@@ -88,7 +90,7 @@ export function groundHeightfield(buf: SurfaceBuffer, edge: number, toleranceM =
   }
   const idx = buf.indices;
   const n = edge + 1;
-  const tol = toleranceM / VOXEL_SIZE_M;
+  const tol = toleranceM / cellMetres;
   // Twice the footprint of a riser triangle leaning by a few steps over two cells: no area of its own.
   const riser = 4 / S;
   // Triangles by the lattice nodes their footprint may hold, so a node finds the triangles over it.
@@ -181,8 +183,8 @@ export function groundHeightfield(buf: SurfaceBuffer, edge: number, toleranceM =
   const cellsX = x1 - x0;
   const cellsZ = z1 - z0;
   const out = new Float32Array((cellsX + 1) * (cellsZ + 1));
-  for (let i = 0, o = 0; i <= cellsX; i++) for (let k = 0; k <= cellsZ; k++, o++) out[o] = heights[(x0 + i) * n + z0 + k]! * VOXEL_SIZE_M;
-  return { x0, z0, cellsX, cellsZ, heights: out, deviationM: worst * VOXEL_SIZE_M, rest: Uint32Array.from(rest) };
+  for (let i = 0, o = 0; i <= cellsX; i++) for (let k = 0; k <= cellsZ; k++, o++) out[o] = heights[(x0 + i) * n + z0 + k]! * cellMetres;
+  return { x0, z0, cellsX, cellsZ, heights: out, deviationM: worst * cellMetres, rest: Uint32Array.from(rest) };
 }
 
 /** Triangle t's height (cells) over the point (x, z), or null when the point is outside its footprint. */

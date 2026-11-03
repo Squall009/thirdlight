@@ -4,12 +4,12 @@
  * recorded goldens, and meshes broken on purpose (a hole torn, vertices
  * moved, a feature removed, a hole covered) fail them.
  */
-import { chunkGrid, CREASE_SPLIT_DEG, createWorldStore, deriveFromStore, groundHeightfield, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, VOXEL_ROLE, type SurfaceBuffer } from '@thirdlight/voxel';
+import { chunkGrid, CREASE_SPLIT_DEG, createWorldStore, deriveFromStore, deriveMipNode, groundHeightfield, GROUND_HEIGHTFIELD_TOLERANCE_M, mipCellMetres, MipTree, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, VOXEL_ROLE, type SurfaceBuffer } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { chunkBase, coverage, exposedFaces, naiveOpenSegments, openSegments, tJunctions, unmatchedEdges, weldBase, type BaseMesh } from './base-cases';
 import { FEATURE_GROUND, featureCases, featuresStore } from './features';
 import { REFERENCE_GOLDENS, TERRAIN_NORMAL_GOLDENS } from './mesh-goldens';
-import { creaseAngles, goldenFailures, meshFeatures, measureCases, measureNormals, referenceMesher, terrainMesher, type CaseResult, type NormalResult, type WorldMesh } from './mesh-cases';
+import { creaseAngles, goldenFailures, meshFeatures, meshFeaturesAtLevel, measureCases, measureNormals, referenceMesher, terrainMesher, type CaseResult, type NormalResult, type WorldMesh } from './mesh-cases';
 import { chunkMesherOf, MESHER_CANDIDATES, mesherCandidate } from './mesher-candidates';
 import { loadArea } from './regions';
 import { townWorld } from './town';
@@ -233,6 +233,81 @@ describe('the terrain mesher', () => {
     };
     expect(count(referenceMesher)).toBe(0);
     expect(count(terrainMesher)).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * What each mip level is expected to lose of the hard cases (probe names;
+ * every other probe kept). A level's cell is 2^L cells: a feature at least
+ * that size stays, a thinner one may leave the level or thin out, and a
+ * probe that passes within half a level cell of another face can no longer
+ * tell the two apart.
+ */
+const LEVEL_LOST: Readonly<Record<number, Readonly<Record<string, readonly string[] | 'all'>>>> = {
+  // A one-cell wall is half a level-1 cell: it stays, drawn thin round its column's middle, so rays at its ends and on
+  // its top's side miss it; the one-cell spike (a quarter) and pit (three quarters ground) leave the level.
+  1: { 'wall-1': ['wall z 16.5', 'wall z 47.5', 'wall top'], 'spike-1': ['spike top', 'spike side'], 'pit-1': ['pit bottom'] },
+  // Level 2 (4-cell cells): the one-cell wall and spike, the pit and the 2-cell slab with the hole leave the level; the
+  // cliff's foot probe runs half a cell from its face.
+  2: { 'cliff-20m': ['cliff foot'], 'wall-1': 'all', 'spike-1': ['spike top', 'spike side'], 'pit-1': ['pit bottom'], 'hole-1': ['above the hole', 'beside the hole'] },
+};
+
+describe('mip levels through the same mesher', () => {
+  const levels = new Map<number, CaseResult[]>();
+  const atLevel = (level: number): CaseResult[] => {
+    let r = levels.get(level);
+    if (r === undefined) levels.set(level, (r = measureCases(meshFeaturesAtLevel(store, level), cases, 0.5 * (1 << level))));
+    return r;
+  };
+
+  it('keeps the hard cases watertight at levels 1 and 2, every surface within the level\'s cell of the true one, each level about a quarter of the triangles of the one below', { timeout: 60_000 }, () => {
+    let below = measureCases(terrainMesh(), cases);
+    for (const level of [1, 2]) {
+      const results = atLevel(level);
+      const cellM = mipCellMetres(level);
+      for (const r of results) {
+        const at = `L${level} ${r.name}`;
+        expect(r.openEdges, at).toBe(0);
+        expect(r.degenerate, at).toBe(0);
+        expect(r.maxErrorM, at).toBeLessThanOrEqual(cellM);
+        // Measured 0.22–0.25 (ground two triangles a column at every level, a quarter of the columns).
+        expect(r.triangles, at).toBeLessThanOrEqual(0.3 * below.find((b) => b.name === r.name)!.triangles);
+      }
+      below = results;
+    }
+  });
+
+  it('keeps every feature at least the level\'s cell in size; the thinner ones leave exactly as expected', { timeout: 60_000 }, () => {
+    for (const level of [1, 2]) {
+      for (const r of atLevel(level)) {
+        const want = LEVEL_LOST[level]![r.name] ?? [];
+        expect(r.lost, `L${level} ${r.name}`).toEqual(want === 'all' ? r.probes.map((p) => p.name) : want);
+      }
+    }
+  });
+
+  it('keeps ground on the column lattice at every level: hilly nodes collide as heightfields at levels 1 and 2', { timeout: 60_000 }, () => {
+    const grid = chunkGrid(32);
+    const hilly = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 512 }).grids[0]!, hilly, -128, -128, 384, 384);
+    const tree = new MipTree(hilly);
+    for (const level of [1, 2]) {
+      const span = grid.edge << level;
+      let ground = 0;
+      let fields = 0;
+      for (let nx = 0; nx < 256 / span; nx++) for (let nz = 0; nz < 256 / span; nz++) for (let ny = (-4 >> level) - 1; ny <= 8 >> level; ny++) {
+        const d = deriveMipNode(tree, { level, nx, ny, nz }, TERRAIN_RULES);
+        if (d.ground.indices.length === 0) continue;
+        ground++;
+        const hf = groundHeightfield(d.ground, grid.edge, GROUND_HEIGHTFIELD_TOLERANCE_M, mipCellMetres(level));
+        if (typeof hf === 'string') continue;
+        fields++;
+        // Heights in metres of the level's cells: the field spans the node's footprint at the level's scale.
+        expect(hf.cellsX, `L${level}`).toBeGreaterThanOrEqual(grid.edge - 2);
+      }
+      expect(ground, `L${level}`).toBeGreaterThan(0);
+      expect(fields, `L${level}`).toBeGreaterThan(0);
+    }
   });
 });
 

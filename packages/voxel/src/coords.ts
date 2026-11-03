@@ -15,6 +15,16 @@
 export const VOXEL_SIZE_M = 0.5;
 
 /**
+ * Edge in metres of one cell of chunk-tree level `level` (0: a voxel; L: a
+ * cell of a level-L mip node, 2^L voxels a side). Derived data of a node is
+ * in its own cells; this is the one scale from them to metres.
+ */
+export function mipCellMetres(level: number): number {
+  if (!Number.isInteger(level) || level < 0) throw new RangeError(`chunk-tree level ${level}`);
+  return VOXEL_SIZE_M * 2 ** level;
+}
+
+/**
  * Horizontal cell bounds (inclusive), the same on x and z. The design target
  * is a 10 km world (20,000 cells); ±32,768 cells (±16.4 km) holds it whether
  * the origin sits at its centre or at a corner, with room to grow, and each

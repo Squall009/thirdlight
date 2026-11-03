@@ -18,7 +18,7 @@
  * is the naive surface nets the derive used before the terrain mesher (kept
  * in the bench, mesher-candidates.ts). Goldens bound later meshers per case.
  */
-import { deriveFromStore, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, chunkGrid, type PaletteStore, type SurfaceBuffer } from '@thirdlight/voxel';
+import { deriveFromStore, deriveMipNode, MipTree, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, chunkGrid, type AssemblyRuleSet, type PaletteStore, type SurfaceBuffer } from '@thirdlight/voxel';
 import { caseIndexAt, FEATURE_BASE, FEATURE_PAD, FEATURE_TOP, FEATURE_WIDTH, featureCases, type FeatureCase, type FeatureProbe, type Sdf } from './features';
 import { chunkMesherOf, mesherCandidate } from './mesher-candidates';
 
@@ -90,24 +90,46 @@ const grid = chunkGrid(32);
  * axis's first) and welds the vertices by their quantized world position.
  */
 export function meshFeatures(store: PaletteStore, mesher: ChunkMesher): WorldMesh {
+  return weldNodes(0, (cx, cy, cz) => mesher(store, cx, cy, cz));
+}
+
+/**
+ * The row's ground at chunk-tree level `level` (mip nodes of 0.5 m × 2^L
+ * cells, voxel-mips.ts), each node derived by the derive itself (the same
+ * rules and mesher as level 0), welded in level-0 cells so the cases
+ * measure it as they measure a chunk mesh.
+ */
+export function meshFeaturesAtLevel(store: PaletteStore, level: number, rules: AssemblyRuleSet = TERRAIN_RULES): WorldMesh {
+  const tree = new MipTree(store);
+  return weldNodes(level, (nx, ny, nz) => deriveMipNode(tree, { level, nx, ny, nz }, rules).ground);
+}
+
+/**
+ * Welds the ground of every node of `level` that can own an edge of the
+ * row's surface (one node below each axis's first); positions in level-0
+ * cells.
+ */
+function weldNodes(level: number, ground: (nx: number, ny: number, nz: number) => SurfaceBuffer): WorldMesh {
   const e = grid.edge;
   const steps = POSITION_STEPS_PER_CELL;
+  const span = e << level;
+  const scale = 1 << level;
   const ids = new Map<string, number>();
   const pos: number[] = [];
   const tris: number[] = [];
   const normals: number[] = [];
-  const range = (lo: number, hi: number): [number, number] => [(lo >> grid.shift) - 1, (hi - 1) >> grid.shift];
+  const range = (lo: number, hi: number): [number, number] => [Math.floor(lo / span) - 1, Math.floor((hi - 1) / span)];
   const [x0, x1] = range(0, FEATURE_WIDTH);
   const [y0, y1] = range(FEATURE_BASE, FEATURE_TOP);
   const [z0, z1] = range(0, FEATURE_PAD);
   for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) for (let cz = z0; cz <= z1; cz++) {
-    const buf = mesher(store, cx, cy, cz);
+    const buf = ground(cx, cy, cz);
     if (buf.indices.length === 0) continue;
     const view = new DataView(buf.vertices.buffer, buf.vertices.byteOffset, buf.vertices.byteLength);
     const local = new Uint32Array(buf.vertexCount);
     for (let v = 0; v < buf.vertexCount; v++) {
       const o = v * SURFACE_VERTEX_BYTES;
-      // World position in whole steps: equal bit for bit where two chunks compute the same vertex.
+      // World position in whole steps of the level's cells: equal bit for bit where two nodes compute the same vertex.
       const wx = (cx * e - 1) * steps + view.getUint16(o, true);
       const wy = (cy * e - 1) * steps + view.getUint16(o + 2, true);
       const wz = (cz * e - 1) * steps + view.getUint16(o + 4, true);
@@ -116,7 +138,7 @@ export function meshFeatures(store: PaletteStore, mesher: ChunkMesher): WorldMes
       if (id === undefined) {
         id = pos.length / 3;
         ids.set(key, id);
-        pos.push(wx / steps, wy / steps, wz / steps);
+        pos.push((wx * scale) / steps, (wy * scale) / steps, (wz * scale) / steps);
       }
       local[v] = id;
     }
@@ -179,8 +201,12 @@ export function analyticHit(sdf: Sdf, p: FeatureProbe): number | null {
   return null;
 }
 
-/** Measures every case of the hard-case world on a welded mesh. */
-export function measureCases(mesh: WorldMesh, cases: readonly FeatureCase[] = featureCases()): CaseResult[] {
+/**
+ * Measures every case of the hard-case world on a welded mesh. `probeTolerance`
+ * (cells) is how far a probe's hit may lie from the analytic one: half a cell
+ * of the mesh's level.
+ */
+export function measureCases(mesh: WorldMesh, cases: readonly FeatureCase[] = featureCases(), probeTolerance = PROBE_TOLERANCE): CaseResult[] {
   const P = mesh.positions;
   const T = mesh.triangles;
   const nTri = T.length / 3;
@@ -249,7 +275,7 @@ export function measureCases(mesh: WorldMesh, cases: readonly FeatureCase[] = fe
     const probes = c.probes.map((p): ProbeResult => {
       const expected = analyticHit(c.sdf, p);
       const got = rayHit(mesh, perCase[k]!, p);
-      const ok = expected === null ? got === null : got !== null && Math.abs(got - expected) <= PROBE_TOLERANCE;
+      const ok = expected === null ? got === null : got !== null && Math.abs(got - expected) <= probeTolerance;
       return { name: p.name, ok, expected, got };
     });
     return {

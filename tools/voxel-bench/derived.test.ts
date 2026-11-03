@@ -36,7 +36,11 @@ import {
   LIGHT_COVERAGE,
   lightCoverage,
   lightCoverageAt,
+  mipCellMetres,
   mipChildren,
+  MIP_ROLE_PRIORITY,
+  deriveMipNode,
+  MipTree,
   mipNodeKey,
   mipNodeOf,
   MipStaleSet,
@@ -68,6 +72,7 @@ import {
   terrainFeatureOf,
   VOXEL_ROLE,
   valueRole,
+  voxel,
   type AssemblyRuleSet,
   type DenseChunk,
   type DeriveOutput,
@@ -871,30 +876,54 @@ describe('meshes', () => {
 });
 
 describe('voxel mips', () => {
-  it('downsamples 8 children: mean density, dominant material, its role', () => {
+  it('downsamples 8 children: fill the share of solid, role by priority (whole-cell bodies at least half the parent), dominant material', () => {
     const kids: Array<DenseChunk | null> = [];
     for (let o = 0; o < 8; o++) kids.push(o === 7 ? null : createDenseChunk(grid));
     const c0 = kids[0]!;
-    const set = (c: DenseChunk, x: number, y: number, z: number, m: number, cat: number, shape: number): void => {
+    const set = (c: DenseChunk, x: number, y: number, z: number, m: number, cat: number, shape: number, wet = 0): void => {
       const i = (x * E + z) * E + y;
       c.material[i] = m;
       c.role[i] = cat;
       c.shape[i] = shape;
+      c.wetness[i] = wet;
     };
-    // Parent cell (0, 0, 0): 3 stone cells (full), 2 grass cells (half full), 3 air.
-    set(c0, 0, 0, 0, MAT.stone, C.wall, 15);
-    set(c0, 1, 0, 0, MAT.stone, C.wall, 15);
-    set(c0, 0, 1, 0, MAT.stone, C.wall, 15);
-    set(c0, 1, 1, 0, MAT.grass, C.terrain, 8);
-    set(c0, 0, 0, 1, MAT.grass, C.terrain, 8);
-    // Parent cell (1, 0, 0): one grass cell nearly empty: the mean rounds to 0, air.
-    set(c0, 2, 0, 0, MAT.grass, C.terrain, 3);
+    /** The 8 child cells of parent cell (px, 0, 0) in child 0, octant order. */
+    const cell = (px: number, k: number): [number, number, number] => [2 * px + (k & 1), (k >> 1) & 1, (k >> 2) & 1];
+    const fill = (px: number, specs: ReadonlyArray<readonly [number, number, number, number?] | null>): void =>
+      specs.forEach((sp, k) => {
+        if (sp !== null) set(c0, ...cell(px, k), sp[0], sp[1], sp[2], sp[3] ?? 0);
+      });
+    // 0: 3 wall cells (under half the parent) and 2 half-full terrain cells: terrain, the share of all 5 solid cells,
+    // material the one with the most fill (stone 45 against grass 16).
+    fill(0, [[MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], [MAT.grass, C.terrain, 8], [MAT.grass, C.terrain, 8], null, null, null]);
+    // 1: a one-cell wall's 4 cells (half the parent) beside two full terrain cells: the wall wins by priority, the fill is
+    // the 6 solid cells' share; wetness from the dominant material's first cell.
+    fill(1, [[MAT.stone, C.wall, 15, 3], [MAT.stone, C.wall, 15], [MAT.grass, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], null, null]);
+    // 2: liquid and an opening fill nothing: one full terrain cell among 4 water cells and an opening is ground of 2/15.
+    fill(2, [[MAT.grass, C.terrain, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.stone, C.opening, 15], null, null]);
+    // 3: water alone: a liquid parent of its share (6 full cells of 8: 11/15).
+    fill(3, [[MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], null, null]);
+    // 4: a nearly empty grass cell: the share rounds to 0, air.
+    fill(4, [[MAT.grass, C.terrain, 3], null, null, null, null, null, null, null]);
+    // 5: a post's two cells (a quarter of the parent) and nothing else: a body under half the parent leaves the level.
+    fill(5, [[MAT.stone, C.pillar, 15], null, [MAT.stone, C.pillar, 15], null, null, null, null, null]);
+    // 6: a floor slab's 4 cells under a wall's 4: the wall first; the material by the existing rule (a tie: the lower id).
+    fill(6, [[MAT.stone, C.floor, 15], [MAT.stone, C.floor, 15], [MAT.brick, C.wall, 15], [MAT.brick, C.wall, 15], [MAT.stone, C.floor, 15], [MAT.stone, C.floor, 15], [MAT.brick, C.wall, 15], [MAT.brick, C.wall, 15]]);
     const out = createDenseChunk(grid);
     expect(downsampleMip(grid, kids, out)).toBe(true);
-    expect(out.material[0]).toBe(MAT.stone);
-    expect(out.role[0]).toBe(C.wall);
-    expect(out.shape[0]).toBe(Math.round((3 * 15 + 2 * 8) / 8));
-    expect(out.material[(1 * E + 0) * E + 0]).toBe(0);
+    const at = (px: number): [number, number, number, number] => {
+      const i = (px * E + 0) * E + 0;
+      return [out.material[i]!, out.role[i]!, out.shape[i]!, out.wetness[i]!];
+    };
+    expect(at(0)).toEqual([MAT.stone, C.terrain, Math.round((3 * 15 + 2 * 8) / 8), 0]);
+    expect(at(1)).toEqual([MAT.stone, C.wall, Math.round((6 * 15) / 8), 3]);
+    expect(at(2)).toEqual([MAT.grass, C.terrain, 2, 0]);
+    expect(at(3)).toEqual([MAT.water, C.liquid, Math.round((6 * 15) / 8), 0]);
+    expect(at(4)).toEqual([0, 0, 0, 0]);
+    expect(at(5)).toEqual([0, 0, 0, 0]);
+    expect(at(6)).toEqual([MAT.stone, C.wall, 15, 0]);
+    expect(MIP_ROLE_PRIORITY.indexOf(C.wall)).toBeLessThan(MIP_ROLE_PRIORITY.indexOf(C.floor));
+    expect(MIP_ROLE_PRIORITY[MIP_ROLE_PRIORITY.length - 1]).toBe(C.terrain);
     expect(downsampleMip(grid, Array<DenseChunk | null>(8).fill(null), out)).toBe(false);
   });
 
@@ -1004,6 +1033,76 @@ describe('voxel mips', () => {
     expect(flags.staleNodes()).toEqual([]);
     expect(() => flags.setChunk(0, 0, 0, 3)).toThrow(RangeError);
   }, 60_000);
+});
+
+describe('mip nodes through the same derive', () => {
+  let built: PaletteStore | null = null;
+  // The hard-case row (5 s to build) only when these tests run.
+  beforeAll(() => {
+    built = featuresStore();
+  }, 60_000);
+  const caseNode = (name: string, level: number): MipNode => ({ level, nx: Math.floor(featureCases().find((c) => c.name === name)!.x0 / (E << level)), ny: 0, nz: 0 });
+
+  it('derives a level-L node with the chunk derive (rules, mesher, consumers): the bytes of a chunk holding the node\'s cells, its level recorded', { timeout: 30_000 }, () => {
+    const tree = new MipTree(built!);
+    // Level 0 through the tree is the chunk derive itself.
+    const c0 = deriveMipNode(tree, { level: 0, nx: 6, ny: 0, nz: 0 }, TERRAIN_RULES);
+    expect(c0.level).toBe(0);
+    expect(encodeDerived(c0)).toEqual(encodeDerived(deriveFromStore(built!, 6, 0, 0, TERRAIN_RULES)));
+    let crease = 0;
+    for (const n of [caseNode('cliff-20m', 1), caseNode('cave', 1), caseNode('terraces-2', 1), caseNode('overhang', 2), caseNode('arch', 2)]) {
+      // The node and its 26 neighbours as chunks of a level-0 store: a derive there sees exactly the node's cells and apron.
+      const copy = createWorldStore(grid);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const k = tree.node({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
+        if (k !== null) copy.importChunk(n.nx + dx, n.ny + dy, n.nz + dz, k);
+      }
+      const node = deriveMipNode(tree, n, TERRAIN_RULES);
+      const chunk = deriveFromStore(copy, n.nx, n.ny, n.nz, TERRAIN_RULES);
+      const at = mipNodeKey(n);
+      expect(node.level, at).toBe(n.level);
+      expect(chunk.level, at).toBe(0);
+      expect(node.ground.indices.length, at).toBeGreaterThan(0);
+      expect(encodeDerived(node), at).toEqual(encodeDerived({ ...chunk, level: n.level }));
+      // The canonical bytes carry the level: a node is never taken for a chunk of the same cells.
+      expect(crc32(encodeDerived(node)), at).not.toBe(crc32(encodeDerived(chunk)));
+      // Crease placement and splits run at coarse levels too (the rules' thresholds are in cells).
+      const view = new DataView(node.ground.vertices.buffer, node.ground.vertices.byteOffset, node.ground.vertices.byteLength);
+      const seen = new Map<string, string>();
+      for (let v = 0; v < node.ground.vertexCount; v++) {
+        const o = v * SURFACE_VERTEX_BYTES;
+        const pos = `${view.getUint16(o, true)},${view.getUint16(o + 2, true)},${view.getUint16(o + 4, true)}`;
+        const nrm = `${view.getInt8(o + 8)},${view.getInt8(o + 9)},${view.getInt8(o + 10)}`;
+        if (seen.has(pos) && seen.get(pos) !== nrm) crease++;
+        seen.set(pos, nrm);
+      }
+    }
+    expect(crease).toBeGreaterThan(0);
+  });
+
+  it('gives a node shader data over its own cells: a 34³ grid of the node and one node cell round it, each cell its downsampled material and wetness', { timeout: 30_000 }, () => {
+    const tree = new MipTree(built!);
+    for (const n of [caseNode('cave', 1), caseNode('bumps', 2)]) {
+      const d = deriveMipNode(tree, n, TERRAIN_RULES);
+      const view = tree.level(n.level);
+      const side = E + 2 * SHADER_BORDER_CELLS;
+      expect(d.shader.side).toBe(side);
+      const v = voxel();
+      const entries = new Set<number>();
+      let i = 0;
+      for (let x = 0; x < side; x++) for (let z = 0; z < side; z++) for (let y = 0; y < side; y++, i++) {
+        view.voxelAt(n.nx * E + x - SHADER_BORDER_CELLS, n.ny * E + y - SHADER_BORDER_CELLS, n.nz * E + z - SHADER_BORDER_CELLS, v);
+        const want = shaderEntry(v.material, v.wetness);
+        if (shaderEntryAt(d.shader, i) !== want) expect(shaderEntryAt(d.shader, i), `${mipNodeKey(n)} grid ${x},${y},${z}`).toBe(want);
+        entries.add(want);
+      }
+      // Grass, soil, rock and air: the blend has neighbours to blend at every level.
+      expect(entries.size).toBeGreaterThanOrEqual(3);
+    }
+    // One scale from a level's cells to metres: the blend distance and positions are converted with it.
+    expect([0, 1, 2, 3].map(mipCellMetres)).toEqual([0.5, 1, 2, 4]);
+    expect(() => mipCellMetres(-1)).toThrow(RangeError);
+  });
 });
 
 describe('prop lighting-occupancy channel', () => {

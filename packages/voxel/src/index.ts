@@ -28,6 +28,7 @@ export {
   localIndex,
   REGION_FOOTPRINTS,
   localOf,
+  mipCellMetres,
   regionKey,
   regionOfCell,
   regionOfChunk,
@@ -282,7 +283,8 @@ export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismat
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
 export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
 export { groundHeightfield, GROUND_HEIGHTFIELD_TOLERANCE_M, type GroundHeightfield, type HeightfieldRefusal } from './ground-heightfield';
-export { ChunkTreeFlags, downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export { ChunkTreeFlags, downsampleMip, MIP_ROLE_PRIORITY, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';
 export { PROP_COVERAGE_PART, PropLightChannel, type PropChannelHost } from './prop-channel';
 export { VoxelOverlay } from './voxel-overlay';

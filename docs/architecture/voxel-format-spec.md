@@ -981,7 +981,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v6 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v7 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1164,15 +1164,40 @@ visible in 48–71 ms.
   - an edit 3 cells under a chunk boundary changes the chunk above;
   - 16 random edits leave every result in a 32-chunk window equal to a fresh derive.
 
-**Voxel mips (R84, R85).**
-- A level-L node has the chunk's form: 32³ cells of 0.5 m × 2^L, using the same store, codec and mesher input.
-- Its density is the rounded mean of its 8 children.
-- Its material is the one with the largest summed density (ties: the lower id). It becomes air when the mean rounds
-  to 0.
-- Its shape is the rounded mean of the 8 children's fill levels (0–15); role and wetness come from the first cell
-  of that material.
+**Voxel mips (R84, R85; downsample v7).**
+- A level-L node has the chunk's form: 32³ cells of 0.5 m × 2^L (`mipCellMetres`), using the same store, codec and
+  mesher input. Mips are derived, never stored.
+- Its shape is the share of the node cell that is solid: the rounded mean of the 8 children's fill levels (0–15),
+  counting only solid roles (air, liquid and openings add nothing). So a fill means the same at every level and
+  the terrain mesher's surface sits where the solid volume is.
+- Its role goes by priority, `MIP_ROLE_PRIORITY`: wall, foundation, pillar, floor, stair, roof, terrain. The first
+  role among the children that holds its place wins. A body drawn as whole cells (every solid role but terrain)
+  holds it when its cells fill at least half the node cell (a block grows by at most half a node cell; a thinner
+  body leaves the level). Terrain holds it with any fill.
+- With no solid role, the cell is liquid when its liquid cells' share rounds to at least 1 (the shape is then that
+  share), else air.
+- Its material is the dominant one among the cells the shape counted: the largest summed fill (ties: the lower id).
+  Wetness comes from the first cell of that material.
 - `MipStaleSet` marks the ancestors of every changed chunk; they are rebuilt lowest first.
 - There is no paint layer (O16 closed by the owner): colour comes from the material and the shader.
+
+**Deriving a node (46b.6a, `mip-derive.ts`).** A level-L node derives through the chunk derive unchanged
+(`deriveWithApron`, `deriveSectionsWithApron` with `level`): its cells and an apron of the same level's
+neighbouring nodes, the same rule set (`WORLD_RULES`), the same terrain mesher, base surface and consumers. The
+rules' thresholds and reach, the mesher's lattice and crease rules and the shader border stay in cells: a node's
+terrace lip is a step of 0.5–2.5 of its own cells. Tested: a node's bytes equal a chunk derive of the same cells
+except the level.
+- The result records `level`. Every position, box, cell index and the 34³ shader grid (the node's cells plus one
+  node cell round it, each its downsampled material and wetness) are in the level's cells. A vertex at p steps
+  lies at ((n · E − 1) · steps + p) / steps cells of the level, × `mipCellMetres(L)` metres.
+- The surface shader's blend distance is set in metres. Per level it is converted with `mipCellMetres`, so a blend
+  is equally wide at every level. The converting is done by the chunk view (46b.8b).
+- `groundHeightfield` takes the level's cell size, so a node's lattice ground collides or measures as a heightfield
+  at every level.
+- `MipTree` builds nodes on demand from a level-0 store (benches and tests); the streamer builds them in workers
+  (46b.6b).
+- Measured (Node, hard cases): levels 1 and 2 are closed, and every surface lies within the level's cell of the
+  true one. Triangles are 22–25 % of the level below. Features of at least the level's cell stay.
 
 **Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
 culling, rays and the far field skip whole empty or solid subtrees without reading voxels.
@@ -1212,7 +1237,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 5 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 7 | refused | rebuilt, never upgraded |
 
 **Derived data 3 → 4 (46b.3b, owner note: default chosen, owner to confirm).** The layout is unchanged (12-byte
 vertices, u16/u32 indices); the meaning of the ground's vertex positions changed (the terrain mesher's placement,
@@ -1232,6 +1257,15 @@ placed on the column lattice at the column's top, where the QEF of the interpola
 a cell low and in front of the face (D461); and the base surface's coplanar faces are merged inside a section (a
 triangle may span many faces; a whole-chunk derive and its joined sections cover the same faces in different
 triangles). Nothing is stored, nothing to upgrade, no world regenerated.
+
+**Derived data 6 → 7 (46b.6a, owner note: default chosen, owner to confirm).** A result records its chunk-tree
+level (0: a chunk; L: a mip node, every position and size in the node's cells), and the canonical bytes carry it,
+so a node is never taken for a chunk with the same cells. The mip downsample's meaning changed:
+- the shape is the share of solid (open roles add nothing);
+- the role goes by priority, with whole-cell bodies needing half the node cell;
+- the material is dominant among the cells that count.
+Before, the shape counted liquid and openings, and the role came from the dominant material's first cell. Mips
+are never stored, so there is nothing to upgrade and no world is regenerated.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
@@ -1332,7 +1366,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R106 | — | — | later: 48a |
 | R107 | §3.6 sections, atomic swap | 45.10c; `stream.test.ts`, `voxel-world.e2e.ts`, plan **45.10c** (blast benchmark) | partly: built and measured (local 1–4 m on terrain the next frame); big blasts in the town 3–5 frames (D440, 46a) |
 | R108 | §3.7 assembly contract (radius, conformance) | — | later: 46b (the mesher's budget: 45.10c, 0.1–0.2 ms a 16³ section p50 for the reference) |
-| R109 | §3.7 voxel mips, shader data | 45.9 baseline (0.90 M triangles) | later: 46b |
+| R109 | §3.7 voxel mips, shader data | 45.9 baseline (0.90 M triangles); 46b.6a: nodes derived by the same mesher (`mesh-cases.test.ts`, `derived.test.ts`) | partly: levels derive; streaming, seams, rings later in 46b |
 | R110 | — | — | later: 46e |
 
 **Not served yet, and where each goes:**
@@ -1398,7 +1432,7 @@ every remaining default below is accepted** (the world layout and scale, the edi
 29. Light coverage as bits + a partial list (bricks if 46e's tracer needs O(1) access); placeholder coverages (45.6).
 30. Collision input as boxes in 1/16 cell + the ground trimesh; nav input as blocking bits + standable cells (45.6).
 31. ~~Mesh buffers: 20-byte vertices with material slots~~ → owner 2026-11-02 (45.10b): 12-byte vertices (position, normal), no material; u16/u32 indices, two surfaces, 8-byte instances with `replacesBase` and a reserved u16.
-32. Voxel mips: a node has the chunk's form; mean density, dominant material; stale ancestors rebuilt lowest first (45.6).
+32. Voxel mips: a node has the chunk's form; fill the share of solid, role by priority, dominant material; stale ancestors rebuilt lowest first (45.6); a node derives through the chunk derive and records its level (46b.6a).
 33. Prop lighting channel: a coverage byte a cell, rebuilt from the prop list, never saved (45.6).
 
 **Format gaps closed (45.7d)**

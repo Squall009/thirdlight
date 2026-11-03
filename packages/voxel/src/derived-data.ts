@@ -62,8 +62,11 @@ import { utf8Encode } from '@thirdlight/shared';
  * straight step's crease vertex sits on the column lattice at a column's top
  * (its true edge), not at the dual-contouring point, and the base
  * surface's coplanar faces are merged inside a section; the layout is v3's.
+ * 7: a result records its chunk-tree level (0: a chunk; L: a mip node of
+ * 0.5 m × 2^L cells, every position and size in the node's own cells), and
+ * the canonical bytes carry it; mip nodes' shape is the share of solid.
  */
-export const DERIVED_FORMAT_VERSION = 6;
+export const DERIVED_FORMAT_VERSION = 7;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -149,6 +152,13 @@ export interface DerivedData {
   readonly v: number;
   readonly rules: AssemblyRulesRef;
   readonly edge: number;
+  /**
+   * The chunk-tree level it was derived at (voxel-mips.ts): 0 for a chunk,
+   * L for a mip node. Every position, box and cell index is in the level's
+   * cells ({@link mipCellMetres}), so one mesher and one layout serve every
+   * level and only the scale to metres differs.
+   */
+  readonly level: number;
   readonly occupancy: OccupancyOut;
   readonly light: LightOut;
   readonly collision: CollisionOut;
@@ -398,7 +408,7 @@ function countsOf(n: Neighbourhood, classes: Uint8Array): DerivedCounts {
  * and wetness do not decide it (only the shader data reads them), so a
  * material change never moves a chunk between the two paths.
  */
-function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array): DerivedData | null {
+function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array, level: number): DerivedData | null {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -430,6 +440,7 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
     edge: e,
+    level,
     occupancy: { flag, bricks, mask: null },
     light: { uniform: coverage(n, classes, first), full: null, partialCells: new Uint16Array(0), partialCover: new Uint8Array(0) },
     collision: { boxes, fullBoxes: boxes.length / 6 },
@@ -452,14 +463,17 @@ export interface DeriveTimes {
 /**
  * Derives a chunk from its filled neighbourhood (pad = jobRadius(rules)):
  * the one assembly evaluation, then every consumer's output from it.
- * Deterministic: the same voxels give the same arrays.
+ * Deterministic: the same voxels give the same arrays. A mip node derives
+ * the same way from its own cells (`level` > 0): the rule set's thresholds
+ * and the mesher read cells, whatever their size.
  */
-export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: Uint8Array, times?: DeriveTimes): DerivedData {
+export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: Uint8Array, times?: DeriveTimes, level = 0): DerivedData {
+  if (!Number.isInteger(level) || level < 0) throw new RangeError(`derive: level ${level}`);
   const classes = scratch !== undefined && scratch.length === n.values.length ? scratch : new Uint8Array(n.values.length);
   const t0 = performance.now();
   evaluateAssembly(n, rules, classes);
   const t1 = performance.now();
-  const uniform = uniformDerived(n, rules, classes);
+  const uniform = uniformDerived(n, rules, classes, level);
   if (uniform !== null) {
     if (times !== undefined) times.evaluateUs += (t1 - t0) * 1000;
     return uniform;
@@ -473,6 +487,7 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
     edge: n.edge,
+    level,
     occupancy: occupancyOf(n, classes),
     light: lightOf(n, classes),
     collision,
@@ -539,7 +554,7 @@ export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayB
 export function encodeDerived(d: DerivedData): Uint8Array {
   const id = utf8Encode(d.rules.id);
   const arrays = arraysOf(d);
-  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.shader.side, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width];
+  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.shader.side, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width, d.level];
   let size = 4 + id.length + 4 * flags.length;
   for (const a of arrays) size += 4 + a.byteLength;
   const out = new Uint8Array(size);

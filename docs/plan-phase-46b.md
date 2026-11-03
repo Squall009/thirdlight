@@ -107,7 +107,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.3b | done (abcb8b7d; fast gate green): `terrain-mesher.ts` derives the ground (lattice+dc, reach 3 cells), derived v4, worlds on `WORLD_RULES` (terrain v1). Eval + mesh µs/16³ section p50 slice 256 → 217, town 227 → 207, caves 332 → 307 (mesh alone ~110; caves ~190); slice triangles −11 %; heightfield-eligible chunks slice 0 → 32 % (collision takes level ones only). |
 | 46b.4 | done (this commit; fast gate green): lattice normals from 4 × 4 columns (slope max error 1:20 5.4 → 1.4°, 1:5 5.7 → 1.6°), crease vertices split with face normals (cliff top 64°, terrace lips 40/59°, ledge 57°, wall foot 64°; no split on slopes or bank), derived v5. Vertices slice +0.07 %, town +1 %, caves +26 %; µs a 16³ section p50 +26–35 (caves +100). |
 | 46b.5 | done (05145625 + this commit; fast gates green): base faces merged per section, no T-junction (derived v6): town (terrain rules, 32³) 2.72 → 1.62 M triangles (base 1.41 → 0.30 M), base bytes a chunk 16.4 → 2.5 KB, drawn 2.96 → 1.96 M; derive µs equal. D461 fixed: lips on the true edge, terraces-1 max 12.2 → 2.5 cm, normal p95 73 → 4.5°. |
-| 46b.6a | not started |
+| 46b.6a | done (this commit; fast gate green after a rerun): nodes derive through the chunk derive (`mip-derive.ts`, level recorded, derived v7); downsample keeps fill = solid share, roles by priority. L1/L2 hard cases closed, max error 0.50 / 1.11 m (≤ the level cell), features ≥ the cell kept; triangles slice 1.05 M → 262 k → 66 k, town 1.62 M → 431 k → 82 k; derive µs a node ≈ a chunk's. |
 | 46b.6b | not started |
 | 46b.7a | not started |
 | 46b.7b | not started |
@@ -455,6 +455,66 @@ load 3–7: vitest and lint green, e2e red only on D320 (watch, `rendering.e2e.t
 passed on the rerun; perf at the cap green, gate-rerun-20261103-133417). `voxel-world.e2e.ts` 49.5 s and 48.1 s (not
 touched; 53.1 s at 46b.4 under load 15–17).
 
+### 46b.6a a mip level through the same mesher
+
+`packages/voxel/src/mip-derive.ts`: `MipTree` (nodes built on demand from a level-0 store, a level read like a store
+of chunks) and `deriveMipNode` = the node's cells and an apron of the same level's nodes through `deriveWithApron`
+(the chunk derive: `WORLD_RULES`, terrain mesher, base surface, consumers, 34³ shader grid). `deriveChunk`,
+`deriveWithApron` and `deriveSectionsWithApron` take a `level`; `DerivedData.level` is recorded and carried by
+`encodeDerived` (derived 6 → 7, spec §3.8 owner note); `mipCellMetres(L)` (coords.ts) is the one scale to metres;
+`groundHeightfield` takes the level's cell size. The downsample (`voxel-mips.ts`) now keeps the fill a share of
+solid (open roles add nothing), takes the role by `MIP_ROLE_PRIORITY` (whole-cell bodies need half the node cell,
+terrain any fill), the material dominant among the counted cells. Tests: `derived.test.ts` (downsample rules
+cell by cell; a node's bytes = a chunk derive of the same cells except the level, crease splits present at L1/L2;
+the shader grid = the node's 34³ cells, entry for entry), `mesh-cases.test.ts` (`meshFeaturesAtLevel`: L1/L2
+closed, max error ≤ the level's cell, triangles ≤ 0.3 × the level below, lost probes exactly as expected; hilly
+nodes heightfields at L1 and L2).
+
+Hard cases (Node, triangles in the box / max / mean error cm; lost probes), L0 → L1 → L2:
+
+| Case | L0 | L1 (1 m cells) | L2 (2 m cells) |
+|---|---|---|---|
+| slope-1:20 / 1:5 | 5,408 / 3.1 / 0.4, 2.2 / 0.6 | 1,352 / 3.7 / 0.7, 3.1 / 0.8 | 338 / 6.4 / 1.3, 12.7 / 1.8 |
+| bank-1:1 | 6,796 / 9.9 / 1.5 | 1,520 / 28.9 / 4.8 | 378 / 40.6 / 11.6 |
+| cliff-20m | 9,568 / 14.2 / 1.2 | 2,392 / 22.9 / 2.4 | 598 / 42.6 / 5.8; cliff foot |
+| terraces-1 / -2 | 6,344 / 2.5 / 1.3, 6,864 / 13.3 / 2.5 | 1,352 / 20.6 / 7.1, 1,716 / 5.0 / 2.8 | 338 / 33.3 / 11.8, 338 / 58.3 / 18.1 |
+| overhang / arch / cave | 15.0 / 1.9, 14.2 / 1.7, 19.1 / 1.9 | 35.0 / 6.3, 39.2 / 5.4, 45.4 / 5.7 | 77.1 / 17.7, 52.5 / 15.2, 111.1 / 20.8 |
+| wall-1 | 16.7 / 2.0 | 50.0 / 7.0; wall ends (2), wall top | 51.6 / 14.0; all 33 probes |
+| spike-1 / pit-1 | 16.7 / 1.8, 12.6 / 1.7 | 5.0, 6.7; spike (2), pit bottom | 11.8, 11.8; spike (2), pit bottom |
+| hole-1 / bumps | 14.2 / 1.6, 16.1 / 2.4 | 50.0 / 7.5, 39.9 / 7.0 | 49.8 / 12.8; above and beside the hole, 96.4 / 17.6 |
+
+Every level closed (0 open edges, 0 degenerate). The largest error is 0.5 of a level cell at L1 (50 cm) and 0.56 at
+L2 (111 cm, the cave's mouth). Kept: everything of at least the level's cell (terraces-2's 2-cell risers, the
+2-cell slab and its hole at L1; ledge, arch, cave and bumps at L2). The 1-cell wall (half an L1 cell) stays at L1,
+drawn thin round its column's middle (fill 8/15 beside air puts the surface just off the cell centre): rays at its ends and beside its top miss it. The spike (a quarter)
+and the pit leave L1. At L2 the wall, spike, pit and the 2-cell slab leave. The cliff-foot probe runs 0.5 cell from
+the face, under half an L2 cell.
+
+Worlds (`run.mjs mips`, Node 22, i5-12600H, 13:47, uptime 10 d 21.4 h, load 3.5–4.4; report
+`~/.cache/thirdlight-phase46/work/46b.6a/r2/mips.md`; round 1 timed the apron inside the derive). The windows are
+the same area at every level (whole L2 nodes):
+
+| World (window) | Triangles L0 → L1 → L2 | Heightfield ground nodes L0 / L1 / L2 | Downsample µs a node p50 (L1 / L2) | Derive µs a node p50 L0 / L1 / L2 (mesh) |
+|---|---|---|---|---|
+| slice (512² round the scene) | 1,048,824 → 262,174 → 65,540 | 187/580, 45/150, 14/32 | 3,583 / 5,437 | 2,615 / 2,739 / 4,748 (964 / 1,008 / 3,128) |
+| hilly (256²) | 460,407 → 115,135 → 28,814 | 34/227, 6/57, 1/11 | 5,062 / 5,959 | 2,610 / 2,466 / 5,334 (1,027 / 966 / 3,436) |
+| town (512²) | 1,619,410 → 430,634 → 82,256 | 211/605, 37/143, 2/32 | 3,595 / 3,060 | 2,855 / 2,824 / 4,457 (1,165 / 1,206 / 2,508) |
+
+Each level has 25–27 % of the triangles of the one below (town L2 19 %: houses under half a node cell leave). Vertex
+KB a level: slice 6,568 → 1,642 → 408; shader KB 6,194 → 1,537 → 307. The derive (evaluation + mesh + consumers) of
+a node costs what a chunk's does. The L2 mesh p50 (2.5–3.4 ms against ~1 ms) is the bench's single cold pass right
+after building the tree; it is not the level. A warm scratch loop over the same hilly nodes measured mesh 1,108 /
+1,126 / 1,218 µs a node at L0 / L1 / L2, i.e. 546 / 557 / 465 µs per 1,000 triangles. The per-level class mix is
+the same (cliff ~42 % of featured cells at every level).
+
+The downsample (3–6 ms a node, L1 reading its 8 chunks from the palette store) and the apron through the level
+view (0.6–6.6 ms p50; up to 0.13–0.21 s at L2 p95 where it builds the neighbour nodes) are the bench's on-demand
+tree, not what 46b.6b's worker path costs.
+Fast gate (gate-fast-20261103-135535, uptime 10 d 21.5 h, load 5–8): vitest and lint green (`stream.test.ts`
+worker-pool timeout, D454's file, failed once under load and passed alone); e2e red only on D417 (`start.e2e.ts`
+stop), passed on the rerun (gate-rerun-20261103-140844, GREEN, perf at the cap in limits). `voxel-world.e2e.ts`
+43.2 s (not touched; 48.1 s at 46b.5).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -557,6 +617,29 @@ touched; 53.1 s at 46b.4 under load 15–17).
   corners rather than stopping merges there (same crack-freedom, fewer triangles). Derived v6.
 - 2026-11-03 (46b.5): **a straight step's crease vertex goes on the column lattice** (D461); corners of steps
   (three tops) and rounded rims keep the QEF.
+
+- 2026-11-03 (46b.6a, default chosen, owner to confirm): **the rule set's thresholds stay in cells at every level,
+  not scaled to metres.** A node derives through the same rule set and mesher with no level input. A terrace lip at
+  L2 is then a step of 0.5–2.5 two-metre cells, and a cliff a drop of more than 2.5 such cells. Why:
+  - The radius, the job's apron and conformance stay one contract for every level.
+  - The thresholds read the 4-bit fill, whose resolution is a fraction of a cell at any level. Scaled to metres,
+    the L2 cliff drop would be 0.6 cells, inside the fill's rounding.
+  - The mesher's crease and lattice rules are about the level's own voxel edges.
+  - What a coarse level cannot hold (features under its cell) leaves through the downsample, not through the rules.
+- 2026-11-03 (46b.6a, default chosen, owner to confirm): **the mip downsample** (derived v7):
+  - The fill is the share of solid; liquid and openings add nothing. Before, they counted, and a lake shore became
+    ground.
+  - The role goes by `MIP_ROLE_PRIORITY`: wall, foundation, pillar, floor, stair, roof, terrain. A whole-cell body
+    needs half the node cell, so a one-cell wall (exactly half) stays at L1 and a post or rail leaves.
+  - Liquid takes the cell only when there is no solid.
+  - The material is dominant among the counted cells (ties: the lower id), as before.
+  - The alternative of the role of the dominant material's first cell (45.6) let one wall cell in eight turn a node
+    cell into a full block, a 1 m cube from a 0.5 m post.
+- 2026-11-03 (46b.6a): **a derived result records its level** and the canonical bytes carry it (derived 6 → 7). Every
+  position and size stays in the level's cells, with one scale (`mipCellMetres`). The shader's blend distance
+  stays a metres setting, converted per level by the chunk view (46b.8b), so a blend is equally wide at every
+  level.
+
 
 ## 9. Open questions for the owner
 
