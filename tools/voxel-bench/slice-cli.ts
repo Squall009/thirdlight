@@ -31,14 +31,19 @@
  * `--phase blast` (per renderer and section edge, `--sections 32,16,8`):
  * spheres of 1, 2, 4 and 8 m dug at a chunk corner and in a chunk middle
  * (`--spots terrain`: the hilly ground around the scene; `--spots town`:
- * among the town's houses), locally in the page (a game's runtime edit,
+ * among the town's houses; `--spots features`: the hard-case row's 20 m
+ * cliff face and its cave's roof, from inside), locally in the page (a game's runtime edit,
  * no round trip; `--repeats` times, the world read again after each) and
  * as a command (undone after each): sections derived again, jobs, worker
  * and main-thread ms, mesher µs per section, frames from the edit to the
  * frame showing the atomic swap (draws and colliders), the frames each
  * chunk's body and draw were replaced in, missed
  * frames; plus an orbit's frames, draws, triangles and bodies per section
- * edge.
+ * edge. `--ring 1` digs the same spots seen from where they lie in the
+ * level-1 ring (the camera's target, the stream's focus, put behind them
+ * past level 0's ring): the edit's ancestors and seams derived again and
+ * the node draws replaced, each in frames from the edit; `--shots 2,8`
+ * takes a picture before and after the first local blast of those radii.
  *
  *   --origin URL        the backend (default http://127.0.0.1:4180, staging)
  *   --token-file FILE   its owner token (default ~/thirdlight-staging-p45/owner-token)
@@ -55,6 +60,8 @@ import { join } from 'node:path';
 import { benchDir } from './bench-dirs';
 import type { Page } from '@playwright/test';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
+import { FEATURE_GROUND, featureCases } from './features';
+import { DEFAULT_LEVEL_RINGS, VOXEL_SIZE_M } from '@thirdlight/voxel';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -73,7 +80,11 @@ const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
 const OUT = arg('out', benchDir('slice', PHASE));
 const MISSED_MS = 25;
 const SECTIONS = arg('sections', '32,16,8').split(',').map(Number);
-const SPOTS = arg('spots', 'terrain') as 'terrain' | 'town';
+const SPOTS = arg('spots', 'terrain') as 'terrain' | 'town' | 'features';
+/** The blast phase's level: 0 digs where the camera's target is (level 0 drawn), 1 looks from where the spot lies in the level-1 ring. */
+const RING = Number(arg('ring', '0'));
+/** Blast radii (m) whose first local blast gets a picture before and after (empty: none). */
+const SHOT_RADII = arg('shots', '').split(',').filter((x) => x !== '').map(Number);
 const REPEATS = Number(arg('repeats', '2'));
 const RADII_M = [1, 2, 4, 8];
 /** Page parameters added to every page this run opens (e.g. `&collisionRing=0`). */
@@ -368,8 +379,47 @@ async function shader(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, unk
   return out;
 }
 
+/** The features world's blast spots: the cliff's face half way up, and the cave's ceiling under its roof (seen through the mouth). */
+function featureSpots(): Record<string, Cell> {
+  const x0 = (name: string): number => featureCases().find((c) => c.name === name)!.x0;
+  const g = Math.floor(FEATURE_GROUND);
+  // Cliff (case `cliff-20m`): its face stands at x0 + 28, 40 cells high; cave: its ceiling is 8 cells over the ground, 30 in.
+  return { cliff: [x0('cliff-20m') + 28, g + 20, 32], cave: [x0('cave') + 30, g + 9, 32] };
+}
+
+/** Where the camera looks at a spot from (yaw, pitch): the cliff from its open −x side, the cave from below through its mouth. */
+function spotView(where: string): { yaw: number; pitch: number } {
+  if (where === 'cliff') return { yaw: -1.2, pitch: 0.3 };
+  if (where === 'cave') return { yaw: -1.5, pitch: -0.1 };
+  return { yaw: -0.75, pitch: 0.6 };
+}
+
+/**
+ * Points the camera at a spot from `distM`. At ring 1 the target (the
+ * stream's focus) goes behind the spot along the view line, far enough that
+ * the spot's level-1 node lies past level 0's ring and its hysteresis, so
+ * the spot is in view and drawn at level 1.
+ */
+async function lookAtSpot(page: Page, at: Cell, where: string, distM: number): Promise<void> {
+  const { yaw, pitch } = spotView(where);
+  // The cave is seen from between its mouth and the arch case before it (closer, the arch stands in the way).
+  if (where === 'cave') distM = Math.min(distM, 18);
+  if (RING === 0) {
+    await hook(page, 'look', at[0], at[1], at[2], yaw, pitch, distM);
+    return;
+  }
+  const r = DEFAULT_LEVEL_RINGS;
+  // Horizontal cells from the focus to the spot: level 0's ring, its hysteresis and one level-1 node (64 cells).
+  const across = r.radii[0]! + r.hysteresis + 64 * 1.3;
+  const behindM = (across * VOXEL_SIZE_M) / Math.cos(pitch);
+  const u = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
+  const t = at.map((c, i) => Math.round(c - (u[i]! * behindM) / VOXEL_SIZE_M));
+  await hook(page, 'look', t[0], t[1], t[2], yaw, pitch, behindM + distM);
+}
+
 /** The chunk corner and chunk middle a blast run digs at, near the scene. */
-async function blastSpots(page: Page): Promise<{ corner: Cell; middle: Cell }> {
+async function blastSpots(page: Page): Promise<Record<string, Cell>> {
+  if (SPOTS === 'features') return featureSpots();
   const [ax, ay, az] = AT;
   if (SPOTS === 'town') {
     // Ground is at y 0 (a chunk face): a corner where 8 chunks meet among walls, floors and roofs, and a middle inside a house.
@@ -406,20 +456,27 @@ async function blasts(renderer: 'webgpu' | 'webgl2', section: number): Promise<R
     const state = await hook<Record<string, unknown>>(page, 'state');
     const spots = await blastSpots(page);
     // A first blast warms what a page does once (code paths, physics shapes); it is not recorded.
-    await hook(page, 'blast', spots.corner, 1, 'local');
+    const first = Object.entries(spots)[0]!;
+    await lookAtSpot(page, first[1], first[0], 20);
+    await hook(page, 'settle');
+    await hook(page, 'blast', first[1], 1, 'local');
     await hook(page, 'reread');
     const runs: Array<Record<string, unknown>> = [];
     for (const [where, at] of Object.entries(spots)) {
       for (const radiusM of RADII_M) {
         for (const how of ['local', 'command'] as const) {
           for (let k = 0; k < (how === 'local' ? REPEATS : 1); k++) {
-            await hook(page, 'look', at[0], at[1], at[2], -0.75, 0.6, 14 + radiusM * 3);
+            await lookAtSpot(page, at, where, 14 + radiusM * 3);
             await hook(page, 'settle');
             await page.evaluate(() => new Promise((ok) => setTimeout(ok, 500)));
+            const pictured = how === 'local' && k === 0 && SHOT_RADII.includes(radiusM);
+            const tag = `${SPOTS}-${where}-${radiusM}m-l${RING}-${renderer}`;
+            const before = pictured ? await shot(page, `${tag}-before.png`) : null;
             const r = await hook<Record<string, unknown>>(page, 'blast', at, radiusM, how);
+            const after = pictured ? await shot(page, `${tag}-after.png`) : null;
             const swap = r['swap'] as Record<string, unknown> | undefined;
-            runs.push({ where, at, radiusM, how, ok: r['ok'], code: r['code'], cells: r['cells'], chunks: r['chunks'], frames: r['frames'], swap, buildMs: r['buildMs'], applyMs: r['applyMs'], answerMs: r['answerMs'], swappedMs: r['swappedMs'], visibleMs: r['visibleMs'], replacedBodies: r['replacedBodies'], replacedChunks: r['replacedChunks'], replacedFrames: r['replacedFrames'], replacedSwaps: r['replacedSwaps'], readAtOnce: r['readAtOnce'], missedDuring: r['missedDuring'], longestFrameMs: r['longestFrameMs'] });
-            console.log(JSON.stringify({ renderer, section, where, radiusM, how, frames: r['frames'], sections: swap?.['sections'], jobs: swap?.['jobs'], workerUs: swap?.['workerUs'], mainMs: swap?.['mainMs'], buildMs: r['buildMs'], ms: swap?.['ms'], replacedFrames: r['replacedFrames'] }));
+            runs.push({ where, at, radiusM, how, ok: r['ok'], code: r['code'], cells: r['cells'], chunks: r['chunks'], frames: r['frames'], swap, buildMs: r['buildMs'], applyMs: r['applyMs'], answerMs: r['answerMs'], swappedMs: r['swappedMs'], visibleMs: r['visibleMs'], replacedBodies: r['replacedBodies'], replacedChunks: r['replacedChunks'], replacedFrames: r['replacedFrames'], replacedSwaps: r['replacedSwaps'], readAtOnce: r['readAtOnce'], missedDuring: r['missedDuring'], longestFrameMs: r['longestFrameMs'], levels: r['levels'], mipWorker: r['mipWorker'], shots: before === null ? undefined : [before, after] });
+            console.log(JSON.stringify({ renderer, section, ring: RING, where, radiusM, how, frames: r['frames'], sections: swap?.['sections'], jobs: swap?.['jobs'], workerUs: swap?.['workerUs'], mainMs: swap?.['mainMs'], buildMs: r['buildMs'], ms: swap?.['ms'], replacedFrames: r['replacedFrames'], longestFrameMs: r['longestFrameMs'], levels: r['levels'], mipWorker: r['mipWorker'] }));
             if (how === 'local') await hook(page, 'reread');
             else await hook(page, 'undo');
             await hook(page, 'settle');
@@ -439,8 +496,8 @@ const probeCells = (['webgpu', 'webgl2'] as const).flatMap((r) => dabsFor(r).map
 if (PHASE === 'blast') {
   const runs = [];
   for (const r of RENDERERS) for (const section of SECTIONS) runs.push(await blasts(r, section));
-  const file = join(OUT, `blast-${SPOTS}.json`);
-  writeFileSync(file, JSON.stringify({ host, at: AT, world: WORLD, runs }, null, 2));
+  const file = join(OUT, `blast-${SPOTS}-l${RING}.json`);
+  writeFileSync(file, JSON.stringify({ host, at: AT, world: WORLD, ring: RING, runs }, null, 2));
   console.log(`blast: ${file}`);
 } else if (PHASE === 'assembly' || PHASE === 'fly' || PHASE === 'shader') {
   const runs = [];

@@ -117,7 +117,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.8c | done (89598c15; fast gate green): mip material = the material of the cells nearest the surface (derived v8), the shader reads 0.125 m deep at every level. Columns showing another material than L0: hills L1 / L2 20.8 / 71.0 % → 0 / 0.005 %, hard cases 74.1 / 85.0 % → 0.007 / 0.09 %. Downsample µs a node +20–30 % (Node). Stripes gone on staging, both renderers. D464 fixed. |
 | 46b.9 | done (b797a34e; fast gate green): pieces per level (L0 high, L1 `low` flag, L2+ none, their cells drawn as bodies; `VoxelPieceMeshes` hook for 46c, stand-in low box 8 tris), derived v9. D465: mip bodies hold a cell by cells (half, or 2 sheet cells): shells closed at L1/L2 (rays out 7–19 / 96 → 0), town tris L1 431 → 386 k, L2 82 → 106 k (houses kept). |
 | 46b.10 | done (41643ba9; fast gate green): D443 is Rapier 0.20's heightfield cast; the port sweeps heightfields a cell at a time (fixed). Sloped heightfields on, in patches per chunk: ground chunks with fields slice/hilly 0 → 53/54 % (eligible 32 %), town 24 → 42 %; flight heap slice 12.2 → 16.4 vs 2.3 → 2.4 MiB. Slanted sweeps 21 → 86 µs p50. D466 open. |
-| 46b.11a | not started |
+| 46b.11a | done (this commit; fast gate green): 288 blasts, both renderers. L0: atomic, local 1–4 m 1–2 frames, 8 m 2–3 (main 18–52 ms), commands 3–5 as 46a.12; ancestors next swap. L1: shown 3–9 frames (mip job chain), not atomic: nodes over 2–6 frames (D467). Cliff/cave shots looked at. |
 | 46b.11b | not started |
 | 46b.12 | done (this commit; docs only, no gate): spec §3.7 one terrain/levels/seams/LOD-selection subsection as built, derived v3 → v9 history with its owner notes in one place (no stored format changed), §3.8 row 8 → 9, §4 rows; requirements trace R107–R109 (holds/misses, hard cases, D462/D463); manual "Distance levels". No API change: reference not regenerated. |
 | 46b.13 | not started |
@@ -1037,6 +1037,81 @@ on both shapes (D466): the test drops where nothing stands within 0.6 m.
 Fast gate (gate-fast-20261103-205103, uptime 11 d 4.4 h, load 1–5): GREEN, 12 min, 5.0 GB peak, perf at the cap in
 limits. `voxel-world.e2e.ts` 57.5 s (sum of its tests; not touched; 57.6 s at 46b.9). `collision.test.ts` ~26 s alone
 (the hard cases ~10 s of it).
+
+### 46b.11a blasts and remesh with the new mesher, mips, seams and levels
+
+**Run** (staging, dist of this commit, headless Chrome on the Iris Xe, 1280 × 720, DPR 1, the 60 Hz cap, WebGPU and
+WebGL 2, 16³ sections, default level rings; `run.mjs slice --phase blast --repeats 2 --seconds 10`, one round,
+21:11–21:18, uptime 11 d 4.8 h, load 1.2–2.3; reports `~/.cache/thirdlight-phase46/work/46b.11a/r1/`, `summary.md`).
+Spheres of 1, 2, 4 and 8 m, local twice and as a command once (undone), 288 blasts, all shown:
+- terrain: the slice's hills, chunk corner and middle (46a.12's spots);
+- `--spots features` (new): the 20 m cliff's face half way up, and the cave's ceiling under its 3 m roof, seen from
+  inside through the mouth (the features world already in staging);
+- the town: corner and middle, as 46a.12.
+At **L0** the camera's target is the spot. At **L1** (`--ring 1`, new) the target (the stream's focus) sits ~115 m
+behind the spot along the view line, so the spot is in view and drawn at level 1 (`levelAt` = 1 in every blast).
+
+The page's `blast` (`local-edits.ts`) now also reports per blast:
+- the mip node results derived after the edit, drawn or not (its ancestors), by level and frame;
+- the node and seam draws replaced, with their frames and batches and the batches' main-thread ms;
+- the mip workers' µs: downsample + derive, and seams.
+
+Frames = from the edit to the first frame showing it (1 = the next frame). Main ms = aprons and payloads + the page's
+joins, bodies and draws. Worker ms = the summed jobs: L0 derive / mips (downsample + derive) / seams.
+
+| World, spot (ring) | local 1–4 m / 8 m, frames | command 1–4 / 8 m | main ms 1–4 / 8 m | worker ms L0 1–4 / 8 m; mips; seams | 46a.12 (frames, main) |
+|---|---|---|---|---|---|
+| terrain (L0) | 1 / 2 | 3–4 / 4–5 | 4–24 / 18–40 | 6–14 / 33–54; 13–53; 0 | 1 / 2; 3–4 cmd; 8 m 20–40 ms |
+| cliff (L0) | 1–2 / 2–3 | 2–3 / 3 | 21–35 / 28–39 | 7–13 / 18–31; 12–22; 0 | – |
+| cave (L0) | 1 / 2 | 3 / 3 | 15–20 / 35–45 | 6–12 / 32–39; 10–19; 0 | – |
+| town (L0) | 1–2 / 2–3 | 3–4 / 4–5 | 3–39 / 31–52 | 4–21 / 30–42; 18–68; 0 | 1–2 / 2–3; 3–5 cmd; 8 m 31–58 ms |
+| terrain (L1) | 3–5 / 4–5 | 4–6 / 5–8 | 2–32 / 5–18 | 5–15 / 26–42; 13–62; 1–10 | – |
+| cliff (L1) | 3–4 / 4–5 | 4–5 / 6 | 5–12 / 6–13 | 9–14 / 27–37; 12–30; 5–9 | – |
+| cave (L1) | 3 / 3 | 3–4 / 4–5 | 2–13 / 6–13 | 6–11 / 31–38; 11–22; 0–0.1 | – |
+| town (L1) | 4–7 / 5–9 | 5–9 / 9–11 | 2–26 / 7–26 | 4–18 / 35–50; 15–75; 14–64 | – |
+
+Two outliers, one each on the cave and the town at L1: main 107–144 ms on a page's first measured blast (first use,
+as in 45.10c).
+
+**L0:**
+- Every swap was atomic: chunks and bodies in one frame, 0 of 144 split.
+- The ancestors (levels 1 and 2, not drawn there) derive 1–3 frames after the swap: the next swap, not the same one.
+- No L0|L1 face lay within reach of these spots, so no held seam was drawn.
+- R107 (within a frame): met by local 1–4 m blasts on terrain, cave and the town middle.
+- 8 m blasts take 2–3 frames, as at 46a.12. The cause is the derive: 64 sections, 30–54 ms of workers over 4 threads,
+  plus 31–52 ms main. In the town that main time spills into one 33 ms frame in 6 of 48 blasts, the cave in 3 of 48
+  (46a.12: 8 of 48).
+- A 1–4 m blast on the cliff takes 1–2 frames: main 21–35 ms. That is the joins and bodies of the cliff's 20 m of
+  vertical chunks.
+- Commands take 3–5 frames, as at 46a.12. The backend's answer takes 2 of them.
+
+**L1:**
+- The level-0 swap comes as fast as at L0 but changes nothing on screen: those chunks are not drawn, and no body
+  exists that far out.
+- The edit shows when the level-1 node is re-derived. That is the mip chain after the swap: downsample, then derive,
+  then the seams held with it. It lands 2–4 frames after the swap: 3–5 frames local on terrain, 4–9 in the town.
+- Main ms are lower than at L0 (2–26; the node draw is 0.2–0.4 ms).
+- Miss, recorded: R107 is never met at L1. The cause is the chain's job latency: mip jobs run after level-0 work in
+  lane `mip`. Each node costs ~3 ms downsample + 3–7 ms derive, and seams up to 64 ms in the town. CPU is not the
+  limit.
+- **Not atomic (D467).** Each stale node commits on its own, with its seams. A blast across node faces (2–8 nodes)
+  shows over 2–6 frames:
+  - terrain: 46 of 48;
+  - town: 48 of 48;
+  - cliff/cave: 13 of 48, where a neighbour's seam came a frame late; a single node otherwise.
+- Looked at frame by frame (every frame's canvas copied after it was drawn; town middle 8 m, WebGL 2): one frame shows
+  the house cut and the ground beside it not yet dug. The next shows the crater. No sky gap was seen in those frames.
+  A crack along the node face for a frame is possible (same-level nodes from different cells) and not excluded.
+
+**Pictures** (looked at; `~/.cache/thirdlight-phase46/acceptance/46b/blasts/`): cliff face and cave ceiling, 2 m and
+8 m, before/after, L0 and L1, both renderers, and the town frames `l1-town-8m-frames-webgl2/`.
+- Cliff: a round crater with a soil rim and rock inside at L0. At L1 the same crater in 1 m cells.
+- Cave: the 2 m blast leaves a round recess in the ceiling. The 8 m blast opens a chamber of soil and rock beyond the
+  mouth; at L1 it is blockier.
+- No hole or background was seen through any crater.
+
+Fast gate (gate-fast-20261103-212314, uptime 11 d 4.9 h): GREEN, 12 min, 4.3 GB peak, perf at the cap in limits.
+`voxel-world.e2e.ts` 56.6 s (sum of its tests; 57.5 s at 46b.10). The hook only adds fields to `blast`.
 
 ## 8. Decision log
 

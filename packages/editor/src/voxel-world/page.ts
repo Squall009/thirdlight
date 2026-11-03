@@ -82,7 +82,7 @@ import { pageToken } from '../config';
 import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
 import { PendingEdits, type SwapSeen } from './pending-edits';
-import { EDIT_VISIBLE_TIMEOUT_MS, localEditHooks } from './local-edits';
+import { EDIT_VISIBLE_TIMEOUT_MS, LevelDrawLog, localEditHooks } from './local-edits';
 import { rangeReadStats } from './range-reads';
 import { RangeWorld } from './range-world';
 
@@ -154,6 +154,9 @@ export interface EditTiming {
   swap?: SwapReport;
   /** Main-thread ms replacing the swapped sections' meshes and colliders. */
   buildMs?: number;
+  /** The frames drawn and performance.now() when the edit started (what the level draws an edit causes are timed from). */
+  startFrame?: number;
+  startedAt?: number;
 }
 
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
@@ -206,6 +209,8 @@ async function main(): Promise<void> {
   const bodySetAt = new Map<number, { frame: number; swap: number }>();
   /** The same for each storage chunk's draw. */
   const chunkSetAt = new Map<number, { frame: number; swap: number }>();
+  /** When the coarser levels' node and seam draws were replaced and mip node results came in (an edit's ancestors). */
+  const levelLog = new LevelDrawLog();
   const swaps: SwapSeen[] = [];
 
   // A swap's chunks are joined and their bodies replaced, from the one join, in the task announcing them; the
@@ -215,6 +220,7 @@ async function main(): Promise<void> {
     const done = applyChunkDrawBatch(meshes, b);
     const ms = performance.now() - t0 + b.joinMs;
     buildMs += ms;
+    levelLog.batch(b, frames, ms);
     const drawnChunks = done.chunkBytes.length / 4;
     if (drawnChunks > 0) meshMs.add(ms / drawnChunks);
     batcher.drawn(done.chunkBytes);
@@ -251,7 +257,8 @@ async function main(): Promise<void> {
       return;
     }
     // Draws and bodies follow the batcher (above): chunks, level nodes, their seams and the levels chosen.
-    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'node' || e.type === 'seams' || e.type === 'levels') return;
+    if (e.type === 'node') return levelLog.node(e.level, frames);
+    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'seams' || e.type === 'levels') return;
     if (e.type === 'shader') {
       // Only the shader data changed (material or wetness): bodies stand as they are; the view uploads the chunk's grid.
       for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);
@@ -378,7 +385,7 @@ async function main(): Promise<void> {
     const visibleMs = performance.now() - t0;
     // Everything the edit invalidated (its dependents within the radius too) derived again.
     await streamer.settle();
-    return { ok: true, swappedMs, collidersMs: swappedMs, visibleMs, frames: seen.frame - startFrame + 1, swap: seen.report, buildMs: seen.buildMs };
+    return { ok: true, swappedMs, collidersMs: swappedMs, visibleMs, frames: seen.frame - startFrame + 1, swap: seen.report, buildMs: seen.buildMs, startFrame, startedAt: t0 };
   }
 
   /** The world's files changed on disk behind this page: everything resident is read again from them. */
@@ -479,14 +486,6 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
-    /** The level drawn where a cell lies (null: none drawn there, or no levels). */
-    levelAt(x: number, y: number, z: number): number | null {
-      const mips = streamer.mips;
-      if (mips === null) return null;
-      const c = [x, y, z].map((v) => Math.floor(v / grid.edge));
-      for (let l = 0; l <= mips.maxLevel; l++) if (mips.lod.drawn.drawn(l, c[0]! >> l, c[1]! >> l, c[2]! >> l)) return l;
-      return null;
-    },
     /** Metres two neighbouring cells' materials blend over (no new program). */
     setBlend(m: number): void {
       surface.setBlendMetres(m);
@@ -503,7 +502,7 @@ async function main(): Promise<void> {
     dab,
     edit,
     undo,
-    ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
+    ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, levelLog, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
     swaps: () => swaps.slice(),
     ...assemblyProbes({ streamer, grid, origin, collision, scene, files }),
