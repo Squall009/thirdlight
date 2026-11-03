@@ -186,6 +186,12 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       diff: rec('grid.diff', { version: 1, layers: [] }),
       applyDiff: rec('grid.applyDiff', true),
     },
+    voxels: {
+      worlds: rec('voxels.worlds', () => ['slice']),
+      changes: [],
+      waits: [],
+      get: rec('voxels.get', { material: 1, role: 0, shape: 15, wetness: 0 }),
+    },
     scatter: {
       near: rec('scatter.near', () => [{ address: 'ground#scatter:trees:1,2', source: 'ground', rule: 'trees', cell: [1, 2], position: [1, 0, 2], rotation: [0, 0, 0, 1], scale: 1, hidden: false }]),
       get: rec('scatter.get', { address: 'ground#scatter:trees:1,2', source: 'ground', rule: 'trees', cell: [1, 2], position: [1, 0, 2], rotation: [0, 0, 0, 1], scale: 1, hidden: false }),
@@ -533,6 +539,13 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'scatter.changed',
       // The timeline events as a list (Timeline ended / marker check one).
       'timeline.events',
+      // A region (point, box or ball) and a world handle are not graph types yet (brushes bring region inputs).
+      'voxels.dig',
+      'voxels.isResident',
+      'voxels.paint',
+      'voxels.set',
+      'voxels.whenResident',
+      'voxels.world',
     ]);
     // Intents: one node per kind, with its phase.
     const emit = BEHAVIOR_API_NODES.filter((s) => s.type.startsWith('api.emit.'));
