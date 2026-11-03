@@ -54,6 +54,7 @@ import {
   POSITION_STEPS_PER_CELL,
   SURFACE_VERTEX_BYTES,
   type FaceSeam,
+  type LevelNode,
   type LevelSelection,
   levelNodeDistance,
   type NodeFace,
@@ -1581,7 +1582,7 @@ describe('streamer (workers, region files on disk)', () => {
     const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, mips: [{ level: 1, radius: 384 }, { level: 2, radius: 384 }], levels });
     const lod = s.mips!.lod;
     const seams = s.mips!.seams;
-    const stats = { events: 0, swaps: 0, lost: 0, doubled: 0, unbalanced: 0, uncovered: 0, pastReach: 0, bare: 0, seamsBefore: 0, notResident: 0, flips: 0 };
+    const stats = { events: 0, swaps: 0, lost: 0, doubled: 0, unbalanced: 0, uncovered: 0, pastReach: 0, bare: 0, seamsBefore: 0, notResident: 0, flips: 0, standInsLeft: 0 };
     let lastType = '';
     let now = { x: 0, y: 0, z: 0 };
     let jitter: Set<string> | null = null;
@@ -1604,12 +1605,20 @@ describe('streamer (workers, region files on disk)', () => {
       }
       stats.swaps++;
       if (jitter !== null) {
-        // Under jitter a node may come in once (work the jitter's loads made possible), but never go and come back.
-        for (const n of [...e.added, ...e.removed]) {
-          const k = `${n.level}:${n.nx},${n.ny},${n.nz}`;
-          if (jitter.has(k)) stats.flips++;
-          jitter.add(k);
+        // Under jitter a node may come in once (work the jitter's loads made possible), but never go and come back. The
+        // one way a node that came in may go again is a stand-in leaving for the level it stood in for, when that comes in
+        // for the first time: the jitter's loads complete a coarse node at the load ring's edge, and the step that brought
+        // its finer children within their stand-in reach drew them first (which comes first is the workers' timing).
+        const key = (n: LevelNode): string => `${n.level}:${n.nx},${n.ny},${n.nz}`;
+        const arriving = e.added.filter((a) => !jitter!.has(key(a)));
+        for (const n of e.added) if (jitter.has(key(n))) stats.flips++;
+        for (const n of e.removed) {
+          if (!jitter.has(key(n))) continue;
+          const over = arriving.some((a) => a.level > n.level && n.nx >> (a.level - n.level) === a.nx && n.ny >> (a.level - n.level) === a.ny && n.nz >> (a.level - n.level) === a.nz);
+          if (over) stats.standInsLeft++;
+          else stats.flips++;
         }
+        for (const n of [...e.added, ...e.removed]) jitter.add(key(n));
       }
       // A swap draws again all the space it stops drawing.
       const added = new Set<string>();
@@ -1694,7 +1703,7 @@ describe('streamer (workers, region files on disk)', () => {
     expect(lod.counters.swaps - swaps).toBe(0);
     const measured = {
       flight: { ...flight, metres: 320 * 0.5, ms: Math.round(flightMs), swapMsP50: Number(lod.swapMs.quantile(0.5).toFixed(1)), swapMsP95: Number(lod.swapMs.quantile(0.95).toFixed(1)), swapMsMax: Number(lod.swapMs.quantile(1).toFixed(1)) },
-      events: { cold: cold.events, all: stats.events, seamsBefore: stats.seamsBefore, swaps: stats.swaps, lost: stats.lost, pastReach: stats.pastReach },
+      events: { cold: cold.events, all: stats.events, seamsBefore: stats.seamsBefore, swaps: stats.swaps, lost: stats.lost, pastReach: stats.pastReach, jitterStandInsLeft: stats.standInsLeft },
       drawn: [0, 1, 2].map((l) => lod.drawn.countAt(l)),
       planMsP50: Number(s.planMs.quantile(0.5).toFixed(2)),
       planMsP95: Number(s.planMs.quantile(0.95).toFixed(2)),
