@@ -6,8 +6,13 @@
  * One vertex a dual cube the surface crosses, one quad a sign-changing
  * sample edge whose lower sample lies in the chunk (the derive's ground
  * layout, derived-mesh.ts). Where a vertex goes, in this order:
- * - **crease** (a cube touching a cell the rules call a cliff or a terrace
- *   lip): dual contouring, the point nearest the tangent planes of the
+ * - **step** (a cube touching a cell the rules call a cliff or a terrace
+ *   lip, whose four sample columns are a straight step: two a side, each a
+ *   height function or wholly full or empty over the lattice window): the
+ *   cube's centre x/z at the higher column top inside the cube (the step's
+ *   edge or foot), see `placeStep`;
+ * - **crease** (any other cube touching a cliff or terrace-lip cell):
+ *   dual contouring, the point nearest the tangent planes of the
  *   cube's edge crossings (normals from the cube's own trilinear field, so
  *   a one-cell pit or wall beside the crease does not bend them), pulled a
  *   little toward their mean so a crease along one axis stays solvable,
@@ -40,7 +45,8 @@
  * **Crack-free.** A vertex is a function of samples within the job's pad,
  * quantised to whole position steps, so every chunk and section that meets
  * it computes the same bits; each sample edge belongs to one chunk. Only
- * column-lattice vertices are shared between cubes. Every other vertex is
+ * column-lattice vertices are shared between cubes (a step vertex is its
+ * cube's alone: one cube of a stack takes a given top). Every other vertex is
  * kept strictly inside its own cube and off the cube's centre line, so it
  * never lands on another cube's vertex: a vertex's normal is then the one
  * its own placement gives whichever cubes a section happens to reference, a
@@ -462,6 +468,59 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
   };
 
   /**
+   * Crease placement on the column lattice into place[0…2], or false: when
+   * the cube's four sample columns are each a height function over the
+   * lattice window (or wholly full or wholly empty there) and not all the
+   * same, the crease is a step between columns. The 4-bit fill is a height,
+   * so a step's face stands on the cell boundary (the cube's centre x/z) and
+   * its edge lies at a column's top: the highest top between the cube's two
+   * sample centres (a lip, or a step's foot when only the lower top lies
+   * there). Interpolating the density across the step instead puts the edge
+   * up to a third of a cell low and in front of the face. The span is half
+   * open, so one cube of a stack takes a given top; a plain lattice vertex
+   * (the four columns' mean) never lands there, as the tops differ.
+   */
+  const placeStep = (x: number, y: number, z: number): boolean => {
+    const ka = y - W + R;
+    const kb = ka + 2 * W + 1;
+    const lo = (y + 1) * STEPS + HALF;
+    const hi = lo + STEPS;
+    let first = 0;
+    let other = 0;
+    /** Columns whose top differs from the first column's. */
+    let highs = 0;
+    let best = -1;
+    for (let c = 0; c < 4; c++) {
+      const col = colOf(x + (c & 1), z + (c >> 1));
+      if (stamp[col] !== now) prefixes(col);
+      const p0 = col * (ny + 1);
+      // Filling again going up inside the window: not a height here (an overhang, a cave).
+      if (PR[p0 + kb + 1]! !== PR[p0 + ka + 1]!) return false;
+      const f0 = col * ny;
+      // A top below the window reads as −1, above it as 2^30: never inside the cube's span.
+      let h: number;
+      if (F[f0 + ka]! !== DENSITY_FULL) h = -1;
+      else if (F[f0 + kb]! !== 0) h = 1 << 30;
+      else h = (y - W + 1) * STEPS + Math.round(((PS[p0 + kb + 1]! - PS[p0 + ka]!) * STEPS) / DENSITY_FULL);
+      if (c === 0) first = h;
+      else if (h !== first) {
+        if (highs > 0 && h !== other) return false;
+        other = h;
+        highs++;
+      }
+      if (h >= lo && h < hi && h > best) best = h;
+    }
+    // Two columns a side: a straight step along x or z. One column against three is a lone column's corner or a
+    // notch, which on rounded ground (a bump's rim the rules call steep enough) is not an edge; those keep the QEF.
+    // With two tops only, the plain lattice height (the four tops' mean) never equals the one picked.
+    if (highs !== 2 || best < 0) return false;
+    place[0] = (x + 2) * STEPS;
+    place[1] = best;
+    place[2] = (z + 2) * STEPS;
+    return true;
+  };
+
+  /**
    * A lattice vertex's normal into place[3…5] (its position in place[0…2]),
    * from the column heights round it: over the 4 × 4 columns (tent-weighted,
    * a gradient across two to three cells) when each is a height function
@@ -637,6 +696,10 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
       } else {
         v = shared;
       }
+    } else if (crease && placeStep(x, y, z)) {
+      // One cube of the stack takes this top (see placeStep): nothing to share.
+      cubeCorners(fi(x, y, z));
+      v = addDual(place[0]!, place[1]!, place[2]!, place[3]!, place[4]!, place[5]!, creaseVertex());
     } else {
       cubeCorners(fi(x, y, z));
       if (crease) placeQef();

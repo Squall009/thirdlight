@@ -339,7 +339,14 @@ describe('ground as a heightfield', () => {
     expect(walled.heightfield).toBeNull();
     // Ground climbing out of the chunk's top: nodes there have no ground in it.
     for (let x = 70; x < 90; x++) for (let z = 0; z < 32; z++) for (let y = 4; y < 40; y++) putVoxel(s, x, y, z, MAT.soil, C.terrain);
-    expect(groundHeightfield(joinedChunk(s, 2, 0, 0).ground, 32)).toBe('uncovered');
+    // Where the block's corner meets the chunk's face, its foot (on the lattice: a straight step's edge) and the
+    // other face's riser give one node two heights, found before the uncovered nodes.
+    expect(groundHeightfield(joinedChunk(s, 2, 0, 0).ground, 32)).toBe('layers');
+    // Across the chunk's whole width (no corner in it) only the uncovered nodes refuse it.
+    const wide = createWorldStore(grid);
+    flatGround(wide, 32, 104, -40, 72, 40, 4);
+    for (let x = 70; x < 90; x++) for (let z = -8; z < 40; z++) for (let y = 4; y < 40; y++) putVoxel(wide, x, y, z, MAT.soil, C.terrain);
+    expect(groundHeightfield(joinedChunk(wide, 2, 0, 0).ground, 32)).toBe('uncovered');
   });
 });
 

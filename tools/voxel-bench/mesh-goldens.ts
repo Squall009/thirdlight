@@ -34,20 +34,22 @@ export interface NormalGolden {
 /**
  * The terrain mesher's normals per case, rounded up to 0.1°: smooth lattice
  * normals over 4 × 4 columns, creases split with face normals. Where a
- * crease's placement sits off the true corner (a terrace lip ~0.3 cell low),
- * the face normals show that offset, so the p95/max there measure the
- * placement as much as the normals.
+ * crease's placement sits off the true corner, the face normals show that
+ * offset, so the p95/max at creases measure the placement as much as the
+ * normals (a straight step's edge is placed on the column tops, so the
+ * terraces and the cliff top are nearly exact; a step's corner and a cave's
+ * rim still carry the QEF's offset).
  */
 export const TERRAIN_NORMAL_GOLDENS: Readonly<Record<string, NormalGolden>> = {
   'slope-1:20': { p50Deg: 0.3, p95Deg: 1.3, maxDeg: 1.5 },
   'slope-1:5': { p50Deg: 0.8, p95Deg: 1.2, maxDeg: 1.6 },
   'bank-1:1': { p50Deg: 0.3, p95Deg: 9.8, maxDeg: 35.3 },
-  'cliff-20m': { p50Deg: 0.1, p95Deg: 0.1, maxDeg: 74.5 },
-  'terraces-1': { p50Deg: 0.1, p95Deg: 73.2, maxDeg: 73.2 },
-  'terraces-2': { p50Deg: 0.1, p95Deg: 45.1, maxDeg: 73 },
-  'overhang': { p50Deg: 0.1, p95Deg: 11.4, maxDeg: 73 },
+  'cliff-20m': { p50Deg: 0.1, p95Deg: 0.1, maxDeg: 45.1 },
+  'terraces-1': { p50Deg: 0.1, p95Deg: 4.6, maxDeg: 4.6 },
+  'terraces-2': { p50Deg: 0.1, p95Deg: 45.1, maxDeg: 45.1 },
+  'overhang': { p50Deg: 0.1, p95Deg: 11.4, maxDeg: 68.3 },
   'arch': { p50Deg: 0.1, p95Deg: 11.4, maxDeg: 76.9 },
-  'cave': { p50Deg: 0.1, p95Deg: 11.9, maxDeg: 76.9 },
+  'cave': { p50Deg: 0.1, p95Deg: 11.4, maxDeg: 75.9 },
   'wall-1': { p50Deg: 0.1, p95Deg: 4.1, maxDeg: 68.3 },
   'spike-1': { p50Deg: 0.1, p95Deg: 0.1, maxDeg: 20.3 },
   'pit-1': { p50Deg: 0.1, p95Deg: 0.1, maxDeg: 79.2 },

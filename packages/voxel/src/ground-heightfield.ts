@@ -89,6 +89,8 @@ export function groundHeightfield(buf: SurfaceBuffer, edge: number, toleranceM =
   const idx = buf.indices;
   const n = edge + 1;
   const tol = toleranceM / VOXEL_SIZE_M;
+  // Twice the footprint of a riser triangle leaning by a few steps over two cells: no area of its own.
+  const riser = 4 / S;
   // Triangles by the lattice nodes their footprint may hold, so a node finds the triangles over it.
   const buckets: number[][] = Array.from({ length: n * n }, () => []);
   for (let t = 0; t < tris; t++) {
@@ -96,10 +98,12 @@ export function groundHeightfield(buf: SurfaceBuffer, edge: number, toleranceM =
     const b = idx[t * 3 + 1]!;
     const c = idx[t * 3 + 2]!;
     const area = upArea(px[a]!, pz[a]!, px[b]!, pz[b]!, px[c]!, pz[c]!);
+    // On edge seen from above (a step's riser): no height of its own; its corners and edges are checked below. A riser
+    // may lean a few position steps either way (vertices off the lattice are kept a step off its lines), which is
+    // not an underside.
+    if (Math.abs(area) <= riser) continue;
     // Facing down: the underside of ground (an overhang, a ledge, the bottom of the world's ground), never a heightfield's top.
     if (area < 0) return 'facing';
-    // On edge seen from above (a step's riser): no height of its own; its corners and edges are checked below.
-    if (area === 0) continue;
     const x0 = Math.max(0, Math.ceil(Math.min(px[a]!, px[b]!, px[c]!)));
     const x1 = Math.min(edge, Math.floor(Math.max(px[a]!, px[b]!, px[c]!)));
     const z0 = Math.max(0, Math.ceil(Math.min(pz[a]!, pz[b]!, pz[c]!)));

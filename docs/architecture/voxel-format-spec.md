@@ -980,7 +980,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v5 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v6 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1017,7 +1017,7 @@ hash results; they are never stored.
 | rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
 | liquid | no | none (49) | no / no | 0 |
 
-**Outputs per chunk.** A result records `v` (derived format version 5), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 6), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1066,8 +1066,12 @@ chunk):
   integer steps in world cells, so both chunks (and both sections) compute the same bits. A sample edge belongs to
   the chunk of its lower sample, so no triangle is drawn twice.
 - **Ground: the terrain mesher (v4, `terrain-mesher.ts`).** Surface nets over the terrain cells' density, one vertex
-  a dual cube, placed by the terrain rules' features: a cube touching a cliff or terrace-lip cell takes the
-  dual-contouring point of its edge crossings (QEF, pulled 0.05 toward their mean, inside the cube); a cube whose
+  a dual cube, placed by the terrain rules' features: a cube touching a cliff or terrace-lip cell whose four sample
+  columns are a straight step (two columns a side, each a height function over the lattice window or wholly full or
+  empty there; v6) takes the lattice point at the higher column top between its two sample centres (the step's
+  edge, or its foot when only the lower top lies there: the 4-bit fill is a height, so the step's face stands on
+  the cell boundary); any other such cube takes the dual-contouring point of its edge crossings (QEF, pulled 0.05
+  toward their mean, inside the cube); a cube whose
   four sample columns are each a height function over `LATTICE_WINDOW` (2) cells either side takes the column
   lattice point (the cube's centre x/z, a cell corner, at the columns' mean fill height), shared by every cube of
   that column stack, so the quads between them collapse; any other cube the mean of its crossings. Non-lattice
@@ -1213,6 +1217,11 @@ format changed.
 the ground's normals changed (lattice vertices' wider slope, split crease vertices: a position may appear in more
 than one vertex, each with its face's normal), so the version steps. Nothing is stored, nothing to upgrade, no world
 regenerated.
+
+**Derived data 5 → 6 (46b.5, owner note: default chosen, owner to confirm).** The layout is unchanged; the meaning of
+the ground's crease vertices changed: a straight step's edge (a terrace lip, a cliff's top, a step's foot) is
+placed on the column lattice at the column's top, where the QEF of the interpolated density put it up to a third of
+a cell low and in front of the face (D461). Nothing is stored, nothing to upgrade, no world regenerated.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules

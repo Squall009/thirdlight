@@ -57,9 +57,11 @@ import { utf8Encode } from '@thirdlight/shared';
  * at the mean of their crossings); the layout is v3's. 5: the ground's
  * normals: lattice vertices take the slope over 4 × 4 columns, and crease
  * vertices are split into copies carrying their quads' face normals (one
- * position may now appear in several vertices); the layout is v3's.
+ * position may now appear in several vertices); the layout is v3's. 6: a
+ * straight step's crease vertex sits on the column lattice at a column's top
+ * (its true edge), not at the dual-contouring point; the layout is v3's.
  */
-export const DERIVED_FORMAT_VERSION = 5;
+export const DERIVED_FORMAT_VERSION = 6;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

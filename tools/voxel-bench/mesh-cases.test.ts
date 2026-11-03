@@ -141,23 +141,29 @@ describe('the terrain mesher', () => {
   let cached: CaseResult[] | null = null;
   const terrain = (): CaseResult[] => (cached ??= measureCases(terrainMesh(), cases));
 
-  it('is the derive\'s ground under the terrain rules: the bench pick (lattice+dc), its other vertices kept off the lattice', () => {
+  it('is the derive\'s ground under the terrain rules: the bench pick (lattice+dc), its other vertices kept off the lattice, a straight step\'s edge on its column top', () => {
     const pick = chunkMesherOf(mesherCandidate('lattice+dc'));
     const steps = POSITION_STEPS_PER_CELL;
     let compared = 0;
     let nudged = 0;
+    let stepped = 0;
     for (let cx = 0; cx < 28; cx += 3) for (const cy of [-1, 0, 1]) for (const cz of [0, 1]) {
       const derived = deriveFromStore(store, cx, cy, cz, TERRAIN_RULES).ground;
       const bench = pick(store, cx, cy, cz);
       const at = `${cx},${cy},${cz}`;
       expect(derived.indices.length, at).toBe(bench.indices.length);
-      // Same triangles; a non-lattice vertex on its cube's centre line (where only lattice vertices sit) moves one step along x.
+      // Same triangles; a non-lattice vertex on its cube's centre line (where only lattice vertices sit) moves one step
+      // along x; a crease vertex of a straight step moves onto the lattice (the derive's step placement), within its cube.
       const a = new DataView(derived.vertices.buffer, derived.vertices.byteOffset, derived.vertices.byteLength);
       const b = new DataView(bench.vertices.buffer, bench.vertices.byteOffset, bench.vertices.byteLength);
       for (let t = 0; t < derived.indices.length; t++) {
         const p = [0, 1, 2].map((k) => a.getUint16(derived.indices[t]! * SURFACE_VERTEX_BYTES + 2 * k, true));
         const q = [0, 1, 2].map((k) => b.getUint16(bench.indices[t]! * SURFACE_VERTEX_BYTES + 2 * k, true));
         if (p.every((v, k) => v === q[k])) continue;
+        if (p[0]! % steps === 0 && p[2]! % steps === 0 && p.every((v, k) => Math.abs(v - q[k]!) < steps)) {
+          stepped++;
+          continue;
+        }
         expect([p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!, q[0]! % steps, q[2]! % steps], `${at} corner ${t}`).toEqual([1, 0, 0, 0, 0]);
         nudged++;
       }
@@ -165,6 +171,7 @@ describe('the terrain mesher', () => {
     }
     expect(compared).toBeGreaterThan(20000);
     expect(nudged).toBeGreaterThan(0);
+    expect(stepped).toBeGreaterThan(0);
   });
 
   it('marching cubes (bench) and the terrain mesher close every hard case and keep every feature', { timeout: 30_000 }, () => {
@@ -188,6 +195,25 @@ describe('the terrain mesher', () => {
       expect(r.meanErrorM, name).toBeLessThan(REFERENCE_GOLDENS[name]!.meanErrorM / 2);
       expect(r.triangles, name).toBeLessThan(REFERENCE_GOLDENS[name]!.triangles);
     }
+  });
+
+  it('puts a straight step\'s edge on the true edge: every terrace lip and the cliff top within the fill rounding (1/30 cell), the one-cell terraces within 3 cm everywhere', { timeout: 30_000 }, () => {
+    const mesh = terrainMesh();
+    const P = mesh.positions;
+    // Welded positions on the z = 32 line (a lattice row through every riser).
+    const row: Array<[number, number]> = [];
+    for (let v = 0; v < P.length / 3; v++) if (P[3 * v + 2] === 32) row.push([P[3 * v]!, P[3 * v + 1]!]);
+    const edges: Array<[string, number, number]> = [
+      ...Array.from({ length: 9 }, (_, k) => ['terraces-1', x0('terraces-1') + 8 + 6 * k, G + k + 1] as [string, number, number]),
+      ...Array.from({ length: 7 }, (_, k) => ['terraces-2', x0('terraces-2') + 8 + 8 * k, G + 2 * k + 2] as [string, number, number]),
+      ['cliff-20m', x0('cliff-20m') + 28, G + 40],
+    ];
+    for (const [name, ex, ey] of edges) {
+      const off = Math.min(...row.map(([px, py]) => Math.hypot(px - ex, py - ey)));
+      // The 4-bit fill holds a top to 1/30 cell (0.3 is stored as 5/15); the lattice puts the face on the cell boundary.
+      expect(off, `${name} edge at ${ex - x0(name)}, ${ey}`).toBeLessThanOrEqual(1 / 30 + 1 / POSITION_STEPS_PER_CELL);
+    }
+    expect(terrain().find((r) => r.name === 'terraces-1')!.maxErrorM).toBeLessThanOrEqual(0.03);
   });
 
   it('makes hilly ground chunks heightfields where the reference makes none', () => {
