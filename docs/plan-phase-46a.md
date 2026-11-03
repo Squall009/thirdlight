@@ -113,7 +113,8 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.11b | done b09ea245, 5764c93d, e0686593: D450 fixed (edit sections waiting for neighbours on their way stay in the swap group; reported once after the whole swap; test fails before). D442 fixed (`look` moved the focus a frame late; first blast now its 8 chunks, was 486–520). undoVoxels refusal, export as built, ctx.voxels doc. Fast gate green 12 min; voxel-world.e2e 47.7 → 46.5 s. |
 | 46a.12 | done: acceptance on staging + gate e2e, both renderers at the cap. Orbit/flight p95 16.7–16.8, 0 missed; blasts local 1–4 m 1 frame, 8 m 2–3 (town 8 m main 31–58 ms, was 200–220); heap 126→172 → 14.5→20 MB; +40 ms 0 holes; render town 4.0 → 4.6–4.7 ms (miss, not isolated); Play edit → screen 30–52 ms (was 16–17). Pictures + README in acceptance/46a. |
 | 46a.13 | done a2eb64a1: manual `features/voxel-worlds.md` (cells, `voxelWorld`, streaming + budget, Scene view, editVoxels/undoVoxels, not built yet; export line to be confirmed after 46a.11), `guides/voxel-scripts.md` (`ctx.voxels`, examples type-checked), migration note; spec pool default built. Links test + check-docs green. |
-| 46a.14 | not started |
+| 46a.14 | full gate at df73f8f4 (gate-full-20261103-073335, both renderers): RED, 35 min (29 before), 8.0 GB peak; 1 real failure (D451), 3 watch (D452–D454), D435 again. Review, fixes, staging look not started. |
+| 46a.14a | done fcf462b3: D451 (playtest.e2e:238 preview_timeout) — the editor took a stopped page's late `tl.stopped` as the next play's stop; ends Play only for the play the session holds. Also at the base (1 of 21 runs); at df73f8f4 3 of 10 alone. Fixed: 16 of 16. Watch D452–D454, D435 seen. Fast gate green 12 min, 4.3 GB; playtest.e2e 37.1 s. |
 
 ## 7. Results
 
@@ -739,6 +740,29 @@ logs its edit → screen, the only code change). 2026-11-03 07:03–07:33, load 
   the wider unload ring (7,750–7,920 resident).
 - Fast gate (gate-fast-20261103-072002): GREEN, 11 min, 5.1 GB peak, 36 e2e passed, village perf at the cap 0 missed
   on both renderers (main thread 5.79 / 4.17 ms against 9.02 / 7.84).
+
+**46a.14 full gate** (gate-full-20261103-073335, df73f8f4, `--both-renderers`, 2 workers, 8G cap): RED, 35 min
+(previous green full gate 29 min, 20261102-093824), memory peak 8.0 GB. Lint clean; vitest 2 files failed once and
+passed alone (`see-through.test.ts:587` 5.57 ms against 5: D435 again; `tools/voxel-bench/stream.test.ts` two tests:
+D454); e2e 3 failed / 390 passed in 27.0 min, alone 1 failed / 2 passed: `playtest.e2e.ts:238` failed both times
+(D451), `block-editor.e2e.ts:144` (D452) and `start.e2e.ts:62` (D453) passed alone (watch).
+
+**46a.14a** (fcf462b3). **D451:** the play-test's MCP run stops a play and starts the next at once. The stopped
+preview disposes and posts `tl.stopped`; that report reached the editor after the next `play.started` in 14 of 17
+plays seen (logged in the headless editor), and the bridge's `tl.stopped` handler (a closure of the stopped play, or the
+next play's bridge through the reused iframe) set Play off and the play info null: the next play's iframe was never
+made or never loaded, and the backend ended it `preview_timeout` 15 s later with no load progress. The handler now acts
+only when the report is this bridge's play and the session (`getActivePlay`) holds no other play. Not new in 46a: the
+base aeb8114a (worktree, built) passed 13 of 13 plain and failed 1 of 8 with the same logging (8 late reports in 47
+plays); df73f8f4 failed twice in the gate and 3 of 10 runs alone (1 of 1, 1 of 4, 1 of 5; 18 runs with a once-a-second
+`evaluate` probe on the editor page all passed, so the probe hid it); a first fix that checked only the closure's play
+failed 1 of 3 (the stale closure matched itself); the fix as committed passed 16 of 16. 46a's Play changes (the voxel draws and
+ports every play page now carries) shifted the timing; the race was the editor's. Proof: the e2e at the real boundary
+(MCP stdio → backend → headless editor → preview), no new test.
+Fast gate (gate-fast-20261103-083838, playtest + voxel-world e2e): GREEN, 12 min, 4.3 GB peak, 38 e2e passed;
+`playtest.e2e.ts` 18.9 + 18.2 s (the fixed test 18.2 s, 17.6–17.7 s alone at the base and with the fix);
+`voxel-world.e2e.ts` 42.5 s over its 7 tests (both renderers' variants, unchanged by this item); village perf at the
+cap 0 missed on both renderers (main thread 5.93 / 3.99 ms against 9.02 / 7.84).
 
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
