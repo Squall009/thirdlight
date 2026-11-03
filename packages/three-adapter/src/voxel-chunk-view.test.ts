@@ -280,12 +280,14 @@ describe('the voxel chunk view', () => {
         parts.set(`${cx},${cy},${cz}:${part}`, bytes);
         return true;
       },
+      setCoarseGpuBytes: () => undefined,
     };
     const batches: ChunkDrawBatch[] = [];
     let flush: () => void = () => {};
     const batcher = new ChunkDrawBatcher('w', feed, SECTION, (b) => {
       batches.push(b);
-      batcher.drawn(applyChunkDrawBatch(view, b).chunkBytes);
+      const done = applyChunkDrawBatch(view, b);
+      batcher.drawn(done.chunkBytes, done.coarseBytes);
     }, { schedule: (f) => (flush = f), inPlace: true });
     const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
     const corner = [[-1, 0, -1], [-1, 0, 0], [0, 0, -1], [0, 0, 0]] as const;
@@ -331,12 +333,16 @@ describe('the voxel chunk view', () => {
       on: (l: (e: StreamEvent) => void) => void listeners.push(l),
       joinedChunk: (cx: number, cy: number, cz: number, _t: unknown, cells: Uint16Array) => joined(s, cx, cy, cz, cells),
       setPart: () => true,
+      // The nodes' and seams' GPU bytes as the page reports them back: the stream budget's mip share counts them.
+      setCoarseGpuBytes: (bytes: number) => void (coarse = bytes),
     };
+    let coarse = -1;
     let flush: () => void = () => {};
     const batches: ChunkDrawBatch[] = [];
-    new ChunkDrawBatcher('w', feed, SECTION, (b) => {
+    const batcher = new ChunkDrawBatcher('w', feed, SECTION, (b) => {
       batches.push(b);
-      applyChunkDrawBatch(view, b);
+      const done = applyChunkDrawBatch(view, b);
+      batcher.drawn(done.chunkBytes, done.coarseBytes);
     }, { schedule: (f) => (flush = f) });
     const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
     const children = [[-2, -2, -2], [-1, -2, -2], [-2, -1, -2], [-1, -1, -2], [-2, -2, -1], [-1, -2, -1], [-2, -1, -1], [-1, -1, -1]] as const;
@@ -393,6 +399,10 @@ describe('the voxel chunk view', () => {
     for (let i = 0; i < sp.count; i += 11) for (let a = 0; a < 3; a++) expect(sp.getComponent(i, a)).toBeCloseTo(wp.getComponent(i, a) + VOXEL_SIZE_M + shift[a]!, 5);
     expect(seamMesh.userData[VOXEL_SURFACE_KEY]).toBe(values);
     expect(view.seamTriangles).toBe(seamMesh.geometry.index!.count / 3);
+    // Counted: the node's meshes and grid region, and the seam's mesh.
+    const geoBytes = (g: THREE.BufferGeometry): number => Object.values(g.attributes).reduce((n, a) => n + (a as THREE.BufferAttribute).array.byteLength, g.index?.array.byteLength ?? 0);
+    expect(coarse).toBe(view.coarseBytes());
+    expect(coarse).toBeGreaterThanOrEqual(geoBytes(mesh.geometry) + geoBytes(seamMesh.geometry));
 
     // The node's new result (an edit in its ring): its draw is replaced; the seam reads the new draw's grid.
     const tris = view.triangles;
@@ -412,6 +422,7 @@ describe('the voxel chunk view', () => {
     expect(view.levelCounts()[1]).toBe(0);
     expect(view.seamCount).toBe(0);
     expect(view.seamTriangles).toBe(0);
+    expect(coarse).toBe(0);
     expect(view.levelCounts()[0]).toBeGreaterThan(level0);
     // A node that loses its result leaves (nothing drawn for it).
     result = null;

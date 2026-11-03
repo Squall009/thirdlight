@@ -464,12 +464,17 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     for (const b of batches.splice(0)) apply(b);
     expect(sameAsFresh()).toBeGreaterThan(10);
 
-    // The page's GPU bytes of a drawn chunk count as its mesh part of the world's budget.
+    // The page's GPU bytes of a drawn chunk count as its mesh part of the world's budget, and those of its nodes and
+    // seams (one sum) in the mip share.
     const [k0] = [...drawn.keys()].filter((k) => s.isResident(...(k.split(',').map(Number) as [number, number, number])));
-    const total0 = s.metrics().bytes.total;
-    presentation!.drawn('a', [...k0!.split(',').map(Number), 100_000]);
+    const before = s.metrics().bytes;
+    presentation!.drawn('a', [...k0!.split(',').map(Number), 100_000], 30_000);
     // Nothing reported bytes for it before (no page here), so the total grows by exactly these.
-    expect(s.metrics().bytes.total - total0).toBe(100_000);
+    expect(s.metrics().bytes.total - before.total).toBe(130_000);
+    expect(s.metrics().bytes.mips - before.mips).toBe(30_000);
+    // A later report replaces the sum.
+    presentation!.drawn('a', [], 10_000);
+    expect(s.metrics().bytes.mips - before.mips).toBe(10_000);
     expect(h.rt.dispose().ok).toBe(true);
     // The world closed: the page is told to let go of its draws.
     expect(batches.at(-1)).toMatchObject({ world: 'a', closed: true, chunks: [] });

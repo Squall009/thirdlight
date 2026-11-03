@@ -299,6 +299,14 @@ export class VoxelChunkView {
     return this.seams.size;
   }
 
+  /** GPU bytes of the mip nodes (level 1 and up: meshes and grid regions) and the seams drawn. */
+  coarseBytes(): number {
+    let n = 0;
+    for (let l = 1; l < this.levels.length; l++) for (const m of this.levels[l]?.values() ?? []) n += m.bytes;
+    for (const s of this.seams.values()) n += s.bytes;
+    return n;
+  }
+
   /** Whether a chunk (or a node of `level`) is drawn. */
   has(cx: number, cy: number, cz: number, level = 0): boolean {
     return this.levels[level]?.has(chunkKey(this.grid, cx, cy, cz)) ?? false;
@@ -536,10 +544,12 @@ export class VoxelChunkView {
   }
 }
 
-/** What applying a batch replaced: per level-0 chunk, its bytes now (`[cx, cy, cz, bytes]` repeated), and the entries applied. */
+/** What applying a batch replaced: per level-0 chunk, its bytes now (`[cx, cy, cz, bytes]` repeated), the coarse draws' bytes, and the entries applied. */
 export interface VoxelBatchApplied {
   /** Level-0 chunks' GPU bytes, for the stream budget's mesh parts. */
   readonly chunkBytes: number[];
+  /** GPU bytes of every node and seam drawn after the batch, for the stream budget's mip share. */
+  readonly coarseBytes: number;
   /** Chunk and node entries applied (shader-only and removals included), and seams. */
   readonly replaced: number;
   readonly seams: number;
@@ -572,5 +582,5 @@ export function applyChunkDrawBatch(view: VoxelChunkView, b: ChunkDrawBatch): Vo
     if (s.kind === 'remove') view.removeSeam(s.level, s.nx, s.ny, s.nz, s.face);
     else view.setSeam(s.level, s.nx, s.ny, s.nz, s.face, s.pieces ?? null);
   }
-  return { chunkBytes, replaced, seams };
+  return { chunkBytes, coarseBytes: view.coarseBytes(), replaced, seams };
 }

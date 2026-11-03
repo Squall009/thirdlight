@@ -28,6 +28,7 @@ function feed(): { feed: ChunkDrawFeed; emit(e: StreamEvent): void; parts: Map<s
         else parts.delete(k);
         return true;
       },
+      setCoarseGpuBytes: () => undefined,
     },
   };
 }
@@ -45,7 +46,7 @@ describe('ChunkDrawBatcher', () => {
     f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false });
     flush();
     expect(sent.at(-1)!.chunks.map((c) => c.kind)).toEqual(['draw']);
-    b.drawn([1, 0, 2, 4096]);
+    b.drawn([1, 0, 2, 4096], 0);
     expect(f.parts.get(`1,0,2:${MESH_PART}`)).toBe(4096);
     // Its sections no longer join to anything: the page drops the draw and the budget its bytes.
     f.joins.set('1,0,2', null);
@@ -54,7 +55,7 @@ describe('ChunkDrawBatcher', () => {
     expect(sent.at(-1)!.chunks.map((c) => c.kind)).toEqual(['remove']);
     expect(f.parts.has(`1,0,2:${MESH_PART}`)).toBe(false);
     // A late report for the removed draw counts nothing.
-    b.drawn([1, 0, 2, 4096]);
+    b.drawn([1, 0, 2, 4096], 0);
     expect(f.parts.has(`1,0,2:${MESH_PART}`)).toBe(false);
   });
 });

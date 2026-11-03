@@ -234,9 +234,12 @@ export class StreamMips {
     );
   }
 
-  /** Bytes counted against the stream budget: node cells, derived results, seams and bookkeeping. */
+  /** The page's GPU bytes of the nodes and seams it draws (reported after each batch it applies). */
+  gpuBytes = 0;
+
+  /** Bytes counted against the stream budget: node cells, derived results, seams, bookkeeping and the page's GPU bytes of their draws. */
   get bytes(): number {
-    return this.total + this.seams.bytes;
+    return this.total + this.seams.bytes + this.gpuBytes;
   }
 
   /** Nodes kept (with cells), all levels. */

@@ -18,7 +18,8 @@
  * one batch, so the old level is drawn until the new one is complete.
  *
  * Every drawn chunk's GPU bytes go back to the simulation (`report`), where
- * they count as the chunk's mesh part of the world's stream budget.
+ * they count as the chunk's mesh part of the world's stream budget; the
+ * nodes' and seams' bytes go with them as one sum, counted in its mip share.
  *
  * While a world is drawn, an animation-frame loop retires replaced grid
  * textures and records frame times, so an edit's way to the screen can be
@@ -54,8 +55,8 @@ export interface VoxelWorldDrawsOptions {
   scene(): THREE.Scene | null;
   /** The renderer the shader grids upload through (null until it can draw). */
   renderer(): VoxelGridRenderer | null;
-  /** Drawn chunks' GPU bytes for the simulation: `[cx, cy, cz, bytes]` repeated. */
-  report(world: string, bytes: number[]): void;
+  /** Drawn chunks' GPU bytes for the simulation (`[cx, cy, cz, bytes]` repeated), and every drawn node's and seam's summed. */
+  report(world: string, bytes: number[], coarse: number): void;
   /** A batch was applied (a view drawing on demand draws a frame). */
   applied?(): void;
 }
@@ -75,6 +76,8 @@ export interface VoxelWorldDrawStats {
 interface WorldDraw {
   readonly view: VoxelChunkView;
   readonly surface: VoxelSurface;
+  /** The nodes' and seams' GPU bytes last reported. */
+  coarse: number;
 }
 
 /** Edits kept for measurements. */
@@ -137,7 +140,7 @@ export class VoxelWorldDraws {
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer });
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);
-    this.worlds.set(name, (w = { view, surface }));
+    this.worlds.set(name, (w = { view, surface, coarse: 0 }));
     return w;
   }
 
@@ -161,11 +164,13 @@ export class VoxelWorldDraws {
     const renderer = this.opts.renderer();
     if (scene === null || renderer === null) return false;
     const t0 = performance.now();
-    const { view } = this.world(b.world, b.edge, scene, renderer);
-    const done = applyChunkDrawBatch(view, b);
+    const w = this.world(b.world, b.edge, scene, renderer);
+    const done = applyChunkDrawBatch(w.view, b);
     this.replaced += done.chunkBytes.length / 4;
     this.applied++;
-    if (done.chunkBytes.length > 0) this.opts.report(b.world, done.chunkBytes);
+    const was = w.coarse;
+    w.coarse = done.coarseBytes;
+    if (done.chunkBytes.length > 0 || was !== done.coarseBytes) this.opts.report(b.world, done.chunkBytes, done.coarseBytes);
     this.opts.applied?.();
     const applyMs = performance.now() - t0;
     const hopMs = receivedAt - b.sentAt;

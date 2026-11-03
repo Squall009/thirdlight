@@ -924,7 +924,8 @@ inside), in x, z, y order.
   - the runtime overlay's arrays (§2.3; counted, never evicted);
   - 96 B of bookkeeping per resident chunk, air included;
   - every derived part registered per chunk;
-  - the chunk tree's nodes (`bytes.mips`: node cells, derived results, 96 B each), which leave with their chunks;
+  - the chunk tree's nodes (`bytes.mips`: node cells, derived results, 96 B each, the seams, and the page's GPU
+    bytes of every node and seam it draws, reported back as one sum after each batch), which leave with their chunks;
   - the open region tables;
   - each chunk body's physics cost (its `collision` part: the physics heap's estimate for its shape plus the
     geometry kept for re-bases, D434).

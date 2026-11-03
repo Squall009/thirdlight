@@ -522,6 +522,11 @@ export class VoxelStreamer {
    * against the same budget as the voxels. False when the chunk is not
    * resident (its data is then not kept either).
    */
+  /** The page's GPU bytes of the nodes and seams it draws: part of the mip share (no mips: nothing draws them). */
+  setCoarseGpuBytes(bytes: number): void {
+    if (this.mips !== null) this.mips.gpuBytes = bytes;
+  }
+
   setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean {
     const c = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
     if (c === undefined || c.phase !== 'resident') return false;

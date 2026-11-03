@@ -639,12 +639,12 @@ const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
  * straight from the page's own simulation.
  */
 function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null) {
-  let report: (world: string, bytes: number[]) => void = () => undefined;
+  let report: (world: string, bytes: number[], coarse: number) => void = () => undefined;
   const draws = new VoxelWorldDraws({
     scene: () => adapter()?.threeScene?.() ?? null,
     // The grids upload through the renderer once it can draw.
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
-    report: (world, bytes) => report(world, bytes),
+    report: (world, bytes, coarse) => report(world, bytes, coarse),
   });
   (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits] };
   return {
@@ -652,7 +652,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     /** The worker's batches go to the draws; the drawn bytes go back to it. */
     worker(h: SimWorkerHandle | null): SimWorkerHandle | null {
       if (h === null) return null;
-      report = (world, bytes) => h.post({ t: 'voxels.drawn', world, bytes });
+      report = (world, bytes, coarse) => h.post({ t: 'voxels.drawn', world, bytes, coarse });
       return {
         ...h,
         listen: (onMessage) => h.listen((m) => (typeof m === 'object' && m !== null && (m as { t?: unknown }).t === 'voxels' ? draws.receive((m as { batch: Parameters<VoxelWorldDraws['receive']>[0] }).batch) : onMessage(m))),
@@ -661,7 +661,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
       const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b));
-      report = (world, bytes) => p.drawn(world, bytes);
+      report = (world, bytes, coarse) => p.drawn(world, bytes, coarse);
       return p.ports;
     },
   };

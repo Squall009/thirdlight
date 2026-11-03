@@ -227,7 +227,7 @@ async function main(): Promise<void> {
     levelLog.batch(b, frames, ms);
     const drawnChunks = done.chunkBytes.length / 4;
     if (drawnChunks > 0) meshMs.add(ms / drawnChunks);
-    batcher.drawn(done.chunkBytes);
+    batcher.drawn(done.chunkBytes, done.coarseBytes);
   }, {
     inPlace: true,
     onJoined: (cx, cy, cz, joined, shaderOnly, drawn) => {
@@ -543,7 +543,7 @@ async function main(): Promise<void> {
         heapMB: Number((heap / 1e6).toFixed(1)),
         gpu: rendererMemory(renderer),
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
-        mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
+        mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, gpuBytes: mips.gpuBytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,

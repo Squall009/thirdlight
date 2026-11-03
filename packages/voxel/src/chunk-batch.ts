@@ -115,6 +115,8 @@ export interface ChunkDrawFeed {
   on(listener: (e: StreamEvent) => void): void;
   joinedChunk(cx: number, cy: number, cz: number, times: JoinTimes | undefined, cells: Uint16Array): JoinedDraw | null;
   setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean;
+  /** The page's GPU bytes of every node and seam drawn, counted in the mip share of the budget. */
+  setCoarseGpuBytes(bytes: number): void;
 }
 
 export interface ChunkDrawBatcherOptions {
@@ -330,9 +332,10 @@ export class ChunkDrawBatcher {
     this.send(b);
   }
 
-  /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated): each chunk's `mesh` part. */
-  drawn(bytes: readonly number[]): void {
+  /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated): each chunk's `mesh` part; `coarse`: every node's and seam's, summed. */
+  drawn(bytes: readonly number[], coarse: number): void {
     if (this.closed) return;
+    this.feed.setCoarseGpuBytes(coarse);
     for (let i = 0; i + 3 < bytes.length; i += 4) {
       const cx = bytes[i]!;
       const cy = bytes[i + 1]!;

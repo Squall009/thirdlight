@@ -17,8 +17,8 @@ import { ChunkDrawBatcher, type ChunkDrawBatch } from '@thirdlight/voxel';
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
   readonly ports: VoxelWorldPorts;
-  /** The page's GPU bytes of a world's drawn chunks (`[cx, cy, cz, bytes]` repeated). */
-  drawn(world: string, bytes: readonly number[]): void;
+  /** The page's GPU bytes of a world's drawn chunks (`[cx, cy, cz, bytes]` repeated), and of its nodes and seams summed. */
+  drawn(world: string, bytes: readonly number[], coarse: number): void;
 }
 
 /** Wraps a play's world ports so each opened world sends its chunk draws through `send`. */
@@ -51,6 +51,6 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
         };
       },
     },
-    drawn: (world, bytes) => batchers.get(world)?.drawn(bytes),
+    drawn: (world, bytes, coarse) => batchers.get(world)?.drawn(bytes, coarse),
   };
 }
