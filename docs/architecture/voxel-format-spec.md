@@ -1127,8 +1127,8 @@ backend only.
   along its shortest axis by a GPU copy (edge at most 2,048 texels: 216 k regions).
 - **Per object:** the region's origin and the one-entry fallback (a vec4), and the chunk corner's cell modulo 1,024
   (the texture phase): uniforms of the object, so a floating-origin shift never moves a texture.
-- **Blend.** A pixel moves a quarter cell into the surface along its normal (a face between a solid and an air
-  cell reads the solid cell), clamps to the grid and reads the 8 cell centres around it. Each corner's weight is,
+- **Blend.** A pixel moves a quarter of a level-0 cell (`SHADER_READ_DEPTH_CELLS`, 0.125 m at every level) into
+  the surface along its normal (a face between a solid and an air cell reads the solid cell), clamps to the grid and reads the 8 cell centres around it. Each corner's weight is,
   per axis, a ramp of the blend distance across the face between two cells (`clamp((f − ½) / d + ½)`, d the
   distance in cells; a setting, default 0.25 m, 0.05–0.5 m seen), air left out. The two heaviest materials are
   kept, looked up in a material table (colour, test pattern) and mixed by their weights; wetness, averaged the same
@@ -1178,8 +1178,11 @@ visible in 48–71 ms.
   body leaves the level). Terrain holds it with any fill.
 - With no solid role, the cell is liquid when its liquid cells' share rounds to at least 1 (the shape is then that
   share), else air.
-- Its material is the dominant one among the cells the shape counted: the largest summed fill (ties: the lower id).
-  Wetness comes from the first cell of that material.
+- Its material is the one its surface shows (derived 8). Among the counted cells nearest the surface it takes the
+  material of the most cells (ties: the larger summed fill, then the lower id). Nearest means, best first: partly
+  filled or beside an open cell; beside a partly filled cell; beside the node's side (not read there); buried. So
+  grass one cell thick over earth stays grass at every level. A liquid parent takes its dominant liquid. Wetness
+  comes from the first such cell of that material.
 - `MipStaleSet` marks the ancestors of every changed chunk; they are rebuilt lowest first.
 - There is no paint layer (O16 closed by the owner): colour comes from the material and the shader.
 
@@ -1253,7 +1256,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 7 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 8 | refused | rebuilt, never upgraded |
 
 **Derived data 3 → 4 (46b.3b, owner note: default chosen, owner to confirm).** The layout is unchanged (12-byte
 vertices, u16/u32 indices); the meaning of the ground's vertex positions changed (the terrain mesher's placement,
@@ -1282,6 +1285,12 @@ so a node is never taken for a chunk with the same cells. The mip downsample's m
 - the material is dominant among the cells that count.
 Before, the shape counted liquid and openings, and the role came from the dominant material's first cell. Mips
 are never stored, so there is nothing to upgrade and no world is regenerated.
+
+**Derived data 7 → 8 (46b.8c, owner note: default chosen, owner to confirm).** The layout is unchanged; a mip
+node's material changed meaning: the material its surface shows (the cells nearest the surface), not the dominant
+one, which let earth under a one-cell grass skin win at levels 1 and 2 (D464). The surface shader reads a fixed
+0.125 m into the surface at every level instead of a quarter of the level's cell. Nothing is stored, nothing to
+upgrade, no world regenerated.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
@@ -1448,7 +1457,7 @@ every remaining default below is accepted** (the world layout and scale, the edi
 29. Light coverage as bits + a partial list (bricks if 46e's tracer needs O(1) access); placeholder coverages (45.6).
 30. Collision input as boxes in 1/16 cell + the ground trimesh; nav input as blocking bits + standable cells (45.6).
 31. ~~Mesh buffers: 20-byte vertices with material slots~~ → owner 2026-11-02 (45.10b): 12-byte vertices (position, normal), no material; u16/u32 indices, two surfaces, 8-byte instances with `replacesBase` and a reserved u16.
-32. Voxel mips: a node has the chunk's form; fill the share of solid, role by priority, dominant material; stale ancestors rebuilt lowest first (45.6); a node derives through the chunk derive and records its level (46b.6a).
+32. Voxel mips: a node has the chunk's form; fill the share of solid, role by priority, the surface's material (46b.8c); stale ancestors rebuilt lowest first (45.6); a node derives through the chunk derive and records its level (46b.6a).
 33. Prop lighting channel: a coverage byte a cell, rebuilt from the prop list, never saved (45.6).
 
 **Format gaps closed (45.7d)**

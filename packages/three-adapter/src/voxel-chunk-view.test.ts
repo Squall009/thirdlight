@@ -31,6 +31,7 @@ import {
   MATERIAL_BITS,
   PLACEHOLDER_RULES,
   SHADER_BORDER_CELLS,
+  SHADER_READ_DEPTH_CELLS,
   shaderGridEntries,
   shaderGridSide,
   shaderSolidEntry,
@@ -113,7 +114,7 @@ function triangles(geo: THREE.BufferGeometry | null): string[] {
 }
 
 function setup(): { view: VoxelChunkView; r: ReturnType<typeof recorder>; origin: FloatingOrigin } {
-  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: voxelStandInLook, blendMetres: 0.25 });
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } });
   const r = recorder();
   return { view: new VoxelChunkView({ grid, origin, surface, renderer: r }), r, origin };

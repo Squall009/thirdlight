@@ -67,6 +67,7 @@ import {
   type SectionEdge,
   type SwapReport,
   SHADER_BORDER_CELLS,
+  SHADER_READ_DEPTH_CELLS,
   shaderGridSide,
   voxel,
   VOXEL_ROLE,
@@ -183,7 +184,7 @@ async function main(): Promise<void> {
   const view = { yaw: -0.6, pitch: 0.45, distM: 22 };
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
-  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: voxelStandInLook, blendMetres: blendM, shading });
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: blendM, shading });
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
   const gpu = createGpuTiming();

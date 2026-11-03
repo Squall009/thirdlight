@@ -65,8 +65,10 @@ import { utf8Encode } from '@thirdlight/shared';
  * 7: a result records its chunk-tree level (0: a chunk; L: a mip node of
  * 0.5 m × 2^L cells, every position and size in the node's own cells), and
  * the canonical bytes carry it; mip nodes' shape is the share of solid.
+ * 8: a mip node's material is the one its surface shows (the material of
+ * the cells nearest the surface), not the dominant one; the layout is v3's.
  */
-export const DERIVED_FORMAT_VERSION = 7;
+export const DERIVED_FORMAT_VERSION = 8;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

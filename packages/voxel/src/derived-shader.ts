@@ -29,6 +29,15 @@ import { MATERIAL_BITS, valueMaterial, valueWetness } from './record';
 /** Cells of neighbouring chunks the shader data holds around its chunk, on every side. */
 export const SHADER_BORDER_CELLS = 1;
 
+/**
+ * How far into a surface (level-0 cells, along its normal) the surface
+ * shader reads the grid, so a face between a solid and an air cell reads
+ * the solid one. A length in metres, the same at every level of the chunk
+ * tree: read a fraction of a coarse cell deep instead, a coarse level would
+ * show what lies under a surface layer thinner than its cells.
+ */
+export const SHADER_READ_DEPTH_CELLS = 0.25;
+
 /** Cells along a side of a chunk's shader grid. */
 export function shaderGridSide(edge: number): number {
   return edge + 2 * SHADER_BORDER_CELLS;

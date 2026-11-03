@@ -27,7 +27,7 @@
  */
 import * as THREE from 'three';
 import { wallClock } from '@thirdlight/shared';
-import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
+import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
@@ -133,7 +133,7 @@ export class VoxelWorldDraws {
     let w = this.worlds.get(name);
     if (w !== undefined) return w;
     const grid = chunkGrid(edge as ChunkEdge);
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: voxelStandInLook, blendMetres: VOXEL_SIZE_M / 2 });
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: VOXEL_SIZE_M / 2 });
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer });
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);

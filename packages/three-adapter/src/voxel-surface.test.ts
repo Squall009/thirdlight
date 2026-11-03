@@ -10,7 +10,7 @@ import { fragmentWgslOf, settle, wgslRenderer } from './test-wgsl';
 import { LIGHT_PATH_TEXTURE_UNITS, LIT_TEXTURE_UNITS } from './texture-units';
 import { createVoxelSurface, VOXEL_SURFACE_KEY, type VoxelGridRenderer } from './voxel-surface';
 
-const LAYOUT = { cellMetres: 0.5, side: 34, border: 1, materialBits: 12, wetnessMax: 7 };
+const LAYOUT = { cellMetres: 0.5, side: 34, border: 1, materialBits: 12, wetnessMax: 7, readDepthCells: 0.25 };
 
 function program(shading: 'blend' | 'flat'): string {
   const surface = createVoxelSurface(LAYOUT, { look: (m) => ({ colour: 0x808080 + m, pattern: m % 4 }), blendMetres: 0.5, shading });

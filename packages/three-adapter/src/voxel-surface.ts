@@ -5,7 +5,7 @@
  * the materials around it in its chunk's shader grid (a cell's material id
  * and wetness, the chunk's cells plus a border of its neighbours', so a
  * blend crosses a chunk face without a seam) and blends them in the
- * shader: the eight cell centres around the pixel (moved a quarter cell into
+ * shader: the eight cell centres around the pixel (moved a fixed depth into
  * the surface along its normal, so a face between a solid and an air cell
  * reads the solid one), each weighted per axis by a ramp of the blend
  * distance across the face between two cells, air cells left out. The two
@@ -22,9 +22,9 @@
  *
  * Coarser levels of the chunk tree draw through the same program: a node's
  * grid holds its own (coarser) cells, so each object passes its cell size
- * and the grid is read in its cells, while the blend distance and the
- * pattern scale stay in metres: a blend is equally wide, and a pattern the
- * same size, at every level.
+ * and the grid is read in its cells, while the read depth, the blend
+ * distance and the pattern scale stay in metres: a blend is equally wide, a
+ * pattern the same size, and a thin surface layer read, at every level.
  *
  * The grids live in one GPU-only 3D texture (two bytes a cell, `rg8unorm`:
  * the entry's low byte, then its high byte), a chunk a `side`³ region. A
@@ -72,6 +72,8 @@ export interface VoxelSurfaceLayout {
   readonly materialBits: number;
   /** Largest wetness. */
   readonly wetnessMax: number;
+  /** How far into a surface the grid is read (level-0 cells, so the same metres at every level). */
+  readonly readDepthCells: number;
 }
 
 /** What a surface object passes the shader (in its `userData` under {@link VOXEL_SURFACE_KEY}). */
@@ -363,9 +365,10 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   } else {
     const shade = Fn(() => {
       const n = normalLocal.normalize();
-      // Cells of the object's grid from its corner, a quarter cell into the surface, kept on the grid (border included).
+      // Cells of the object's grid from its corner, read into the surface by a depth in metres (not a share of the
+      // object's cells: a coarse cell's share would reach under a thin surface layer), kept on the grid (border included).
       const edge = layout.side - 2 * layout.border;
-      const q = clamp(positionLocal.div(cellU).sub(n.mul(0.25)), -0.5, edge + 0.5);
+      const q = clamp(positionLocal.sub(n.mul(layout.readDepthCells * layout.cellMetres)).div(cellU), -0.5, edge + 0.5);
       const t = q.sub(0.5);
       const c0 = floor(t);
       // The blend's metres in this grid's cells (at most one cell): the same width at every level.

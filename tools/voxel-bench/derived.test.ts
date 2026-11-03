@@ -877,7 +877,7 @@ describe('meshes', () => {
 });
 
 describe('voxel mips', () => {
-  it('downsamples 8 children: fill the share of solid, role by priority (whole-cell bodies at least half the parent), dominant material', () => {
+  it('downsamples 8 children: fill the share of solid, role by priority (whole-cell bodies at least half the parent), the material the surface shows', () => {
     const kids: Array<DenseChunk | null> = [];
     for (let o = 0; o < 8; o++) kids.push(o === 7 ? null : createDenseChunk(grid));
     const c0 = kids[0]!;
@@ -894,11 +894,12 @@ describe('voxel mips', () => {
       specs.forEach((sp, k) => {
         if (sp !== null) set(c0, ...cell(px, k), sp[0], sp[1], sp[2], sp[3] ?? 0);
       });
-    // 0: 3 wall cells (under half the parent) and 2 half-full terrain cells: terrain, the share of all 5 solid cells,
-    // material the one with the most fill (stone 45 against grass 16).
+    // 0: 3 wall cells (under half the parent) and 2 half-full terrain cells: terrain, the share of all 5 solid cells;
+    // at the surface (beside air or partly filled) 2 stone and 2 grass cells, so the material of the larger fill (stone).
     fill(0, [[MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], [MAT.grass, C.terrain, 8], [MAT.grass, C.terrain, 8], null, null, null]);
     // 1: a one-cell wall's 4 cells (half the parent) beside two full terrain cells: the wall wins by priority, the fill is
-    // the 6 solid cells' share; wetness from the dominant material's first cell.
+    // the 6 solid cells' share. Beside the two air cells lie 2 grass and 2 stone cells (the other two stone cells lie
+    // against the node's side, not read): a tie of cells and of fill, the lower id (grass); wetness from its first cell.
     fill(1, [[MAT.stone, C.wall, 15, 3], [MAT.stone, C.wall, 15], [MAT.grass, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], null, null]);
     // 2: liquid and an opening fill nothing: one full terrain cell among 4 water cells and an opening is ground of 2/15.
     fill(2, [[MAT.grass, C.terrain, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.water, C.liquid, 15], [MAT.stone, C.opening, 15], null, null]);
@@ -910,6 +911,16 @@ describe('voxel mips', () => {
     fill(5, [[MAT.stone, C.pillar, 15], null, [MAT.stone, C.pillar, 15], null, null, null, null, null]);
     // 6: a floor slab's 4 cells under a wall's 4: the wall first; the material by the existing rule (a tie: the lower id).
     fill(6, [[MAT.stone, C.floor, 15], [MAT.stone, C.floor, 15], [MAT.brick, C.wall, 15], [MAT.brick, C.wall, 15], [MAT.stone, C.floor, 15], [MAT.stone, C.floor, 15], [MAT.brick, C.wall, 15], [MAT.brick, C.wall, 15]]);
+    // 9: a grass skin of one full cell over soil, a partly filled grass cell above it (in the parent above): grass,
+    // though soil fills the other half; the parent above (grass partly filled over air) is grass too.
+    fill(9, [[MAT.soil, C.terrain, 15], [MAT.soil, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.soil, C.terrain, 15], [MAT.soil, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.grass, C.terrain, 15]]);
+    for (let k = 0; k < 8; k++) if (((k >> 1) & 1) === 0) set(c0, 18 + (k & 1), 2, (k >> 2) & 1, MAT.grass, C.terrain, 5);
+    // The same ground round it (soil under grass), so only its top lies near the surface.
+    for (let x = 17; x < 21; x++) for (let z = 0; z < 3; z++) if (x === 17 || x === 20 || z === 2) for (let y = 0; y < 2; y++) set(c0, x, y, z, y === 0 ? MAT.soil : MAT.grass, C.terrain, 15);
+    // 11: the same skin buried in full soil, against the node's bottom and front sides: no cell beside air or a partly
+    // filled one, so the cells against the sides (not read there) count, 4 soil and 2 grass: soil.
+    fill(11, [[MAT.soil, C.terrain, 15], [MAT.soil, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.soil, C.terrain, 15], [MAT.soil, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.grass, C.terrain, 15]]);
+    for (let x = 21; x < 25; x++) for (let y = 0; y < 4; y++) for (let z = 0; z < 4; z++) if (x === 21 || x === 24 || y >= 2 || z >= 2) set(c0, x, y, z, MAT.soil, C.terrain, 15);
     const out = createDenseChunk(grid);
     expect(downsampleMip(grid, kids, out)).toBe(true);
     const at = (px: number): [number, number, number, number] => {
@@ -917,12 +928,15 @@ describe('voxel mips', () => {
       return [out.material[i]!, out.role[i]!, out.shape[i]!, out.wetness[i]!];
     };
     expect(at(0)).toEqual([MAT.stone, C.terrain, Math.round((3 * 15 + 2 * 8) / 8), 0]);
-    expect(at(1)).toEqual([MAT.stone, C.wall, Math.round((6 * 15) / 8), 3]);
+    expect(at(1)).toEqual([MAT.grass, C.wall, Math.round((6 * 15) / 8), 0]);
     expect(at(2)).toEqual([MAT.grass, C.terrain, 2, 0]);
     expect(at(3)).toEqual([MAT.water, C.liquid, Math.round((6 * 15) / 8), 0]);
     expect(at(4)).toEqual([0, 0, 0, 0]);
     expect(at(5)).toEqual([0, 0, 0, 0]);
     expect(at(6)).toEqual([MAT.stone, C.wall, 15, 0]);
+    expect(at(9)).toEqual([MAT.grass, C.terrain, 15, 0]);
+    expect(out.material[(9 * E + 0) * E + 1]).toBe(MAT.grass);
+    expect(at(11)).toEqual([MAT.soil, C.terrain, 15, 0]);
     expect(MIP_ROLE_PRIORITY.indexOf(C.wall)).toBeLessThan(MIP_ROLE_PRIORITY.indexOf(C.floor));
     expect(MIP_ROLE_PRIORITY[MIP_ROLE_PRIORITY.length - 1]).toBe(C.terrain);
     expect(downsampleMip(grid, Array<DenseChunk | null>(8).fill(null), out)).toBe(false);

@@ -17,8 +17,13 @@
  *   it with any fill. A parent with no solid role is liquid when its liquid
  *   cells fill it to at least one level (the shape is then the liquid's
  *   share), else air;
- * - **material** is the dominant one among the cells the shape counted: the
- *   material with the largest summed fill (ties: the lower id);
+ * - **material** is what the surface shows, so a coarse level wears the
+ *   skin level 0 wears and not what lies under it (grass one cell thick over
+ *   earth stays grass): among the counted cells nearest the surface (partly
+ *   filled or beside an open cell; else beside a partly filled one; else
+ *   beside the node's side, where the neighbour is not read; else all), the
+ *   material of the most cells (ties: the larger summed fill, then the lower
+ *   id). A liquid parent takes its dominant liquid;
  * - wetness comes from the first cell (in local-index order) of that
  *   material.
  *
@@ -86,35 +91,85 @@ for (const r of MIP_ROLE_PRIORITY) SOLID_PRIORITY[r] = 1;
 /** Summed fill a parent of 8 cells needs from a whole-cell role to take it: half the parent. */
 const HALF_PARENT = (8 * SHAPE_FULL) / 2;
 
-/** Scratch for one parent cell's downsample: per material and per role, summed fill and first cell. */
+/** Scratch for one parent cell's downsample: per material, cells, summed fill and first cell; per role, summed fill. */
 const mats = new Uint16Array(8);
+const matCells = new Uint8Array(8);
 const matFill = new Uint16Array(8);
 const matFirst = new Int32Array(8);
 const roleFill = new Uint16Array(16);
+/** Per cell of a parent: how near the surface it lies ({@link EXPOSURE}). */
+const exposure = new Uint8Array(8);
 
 /**
- * The dominant material among the 8 cells at `cells` whose role passes
- * `counts` (largest summed fill, ties: the lower id), and the first such
- * cell of it; returns the index of that cell in `child`.
+ * How near the surface a child cell lies, best first: partly filled or
+ * beside an open cell (the surface runs through or along it); beside a
+ * partly filled cell (under a thin top, the surface a fraction of a cell
+ * away); beside a cell outside the node (not known here); buried.
  */
-function dominantCell(child: DenseChunk, cells: Int32Array, counts: (role: number) => boolean): number {
+const EXPOSURE = Object.freeze({ surface: 3, under: 2, unknown: 1, buried: 0 });
+
+/** The 6 face neighbours (x, y, z offsets). */
+const FACES: ReadonlyArray<readonly [number, number, number]> = [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];
+
+const openRole = (r: number): boolean => OPEN_ROLE[r] === 1;
+
+/**
+ * Exposure ({@link EXPOSURE}) of child cell (x, y, z) of a parent node, in
+ * the node's child cells (0 … 2 · edge − 1 a side, octant by the half).
+ */
+function exposureOf(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x: number, y: number, z: number): number {
+  const e = grid.edge;
+  const own = children[(x >= e ? 1 : 0) | (y >= e ? 2 : 0) | (z >= e ? 4 : 0)]!;
+  const oi = localIndex(grid, x % e, y % e, z % e);
+  if (own.shape[oi]! < SHAPE_FULL) return EXPOSURE.surface;
+  let best: number = EXPOSURE.buried;
+  for (const [dx, dy, dz] of FACES) {
+    const nx = x + dx, ny = y + dy, nz = z + dz;
+    if (nx < 0 || ny < 0 || nz < 0 || nx >= 2 * e || ny >= 2 * e || nz >= 2 * e) {
+      if (best < EXPOSURE.unknown) best = EXPOSURE.unknown;
+      continue;
+    }
+    const c = children[(nx >= e ? 1 : 0) | (ny >= e ? 2 : 0) | (nz >= e ? 4 : 0)] ?? null;
+    if (c === null) return EXPOSURE.surface;
+    const ni = localIndex(grid, nx % e, ny % e, nz % e);
+    if (c.material[ni] === MATERIAL_AIR || openRole(c.role[ni]!)) return EXPOSURE.surface;
+    if (c.shape[ni]! < SHAPE_FULL && best < EXPOSURE.under) best = EXPOSURE.under;
+  }
+  return best;
+}
+
+/**
+ * The material the 8 cells at `cells` show (those whose role passes
+ * `counts`): among the cells nearest the surface ({@link EXPOSURE}; `near`
+ * null: all alike), the material of the most cells, then of the largest
+ * summed fill, then the lower id; returns the index of that material's
+ * first such cell in `child`.
+ */
+function dominantCell(child: DenseChunk, cells: Int32Array, counts: (role: number) => boolean, near: Uint8Array | null): number {
+  let top = 0;
+  if (near !== null) for (let c = 0; c < 8; c++) if (near[c]! > top && child.material[cells[c]!] !== MATERIAL_AIR && counts(child.role[cells[c]!]!)) top = near[c]!;
   let k = 0;
   for (let c = 0; c < 8; c++) {
     const ci = cells[c]!;
     const m = child.material[ci]!;
-    if (m === MATERIAL_AIR || !counts(child.role[ci]!)) continue;
+    if (m === MATERIAL_AIR || !counts(child.role[ci]!) || (near !== null && near[c] !== top)) continue;
     let j = 0;
     while (j < k && mats[j] !== m) j++;
     if (j === k) {
       mats[k] = m;
+      matCells[k] = 0;
       matFill[k] = 0;
       matFirst[k] = ci;
       k++;
     }
+    matCells[j]!++;
     matFill[j]! += child.shape[ci]!;
   }
   let best = 0;
-  for (let j = 1; j < k; j++) if (matFill[j]! > matFill[best]! || (matFill[j] === matFill[best] && mats[j]! < mats[best]!)) best = j;
+  for (let j = 1; j < k; j++) {
+    const more = matCells[j]! - matCells[best]! || matFill[j]! - matFill[best]! || mats[best]! - mats[j]!;
+    if (more > 0) best = j;
+  }
   return matFirst[best]!;
 }
 
@@ -196,7 +251,22 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
         air(pi);
         continue;
       }
-      const first = dominantCell(child, cells, counts);
+      let near: Uint8Array | null = null;
+      // Which cells lie nearest the surface matters only between two or more materials.
+      let m1 = MATERIAL_AIR;
+      let mixed = false;
+      for (let c = 0; c < 8 && !mixed; c++) {
+        const ci = cells[c]!;
+        const m = material[ci]!;
+        if (m === MATERIAL_AIR || !counts(roles[ci]!)) continue;
+        if (m1 === MATERIAL_AIR) m1 = m;
+        else mixed = m !== m1;
+      }
+      if (mixed && counts === solidRole) {
+        for (let c = 0; c < 8; c++) exposure[c] = exposureOf(grid, children, ox * 2 + 2 * x + (c & 1), oy * 2 + 2 * y + ((c >> 1) & 1), oz * 2 + 2 * z + ((c >> 2) & 1));
+        near = exposure;
+      }
+      const first = dominantCell(child, cells, counts, near);
       out.material[pi] = child.material[first]!;
       out.role[pi] = role;
       out.wetness[pi] = child.wetness[first]!;

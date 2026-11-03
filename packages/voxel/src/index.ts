@@ -284,7 +284,7 @@ export {
 } from './derived-data';
 export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
-export { encodeShader, SHADER_BORDER_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
+export { encodeShader, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
 export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
