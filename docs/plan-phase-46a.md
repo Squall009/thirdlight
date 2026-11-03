@@ -102,7 +102,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.6a | done 325206fc, 70176c6b: one Rapier body a 32³ chunk from its joined 16³ sections, built from the draw's join in the same task and frame; ground alone, facing up, within 5 mm of a lattice heightfield → heightfield. Share slice/hilly 0 %, town 24 %; 4.3 vs 37.5 KB a body. Town 8 m blast main 50–104 ms (was 180–220). D440 fixed, D443 opened. voxel-world.e2e 21.3 → 19.0 s. |
 | 46a.6b | done df6e67b0: `CollisionRing` (voxel): bodies only within 48/24 m of the foci (box distance, 8 m hysteresis, in nearest first in 4 ms, out farthest first), each the chunk's `collision` part at Rapier's heap estimate. Heap cold / after 4 flights: slice 14 / 19.4 MB (was 131 / 172; 53–58 bodies of 493), town 6–7 / 14.6 MB (was 174). D434 fixed. voxel-world.e2e 19.0 → 17.3 s. |
 | 46a.7a | done 327a806b (+ d6744249 boundary, 6dccf2b9): `RuntimeVoxels` + `VoxelWorldHost` a `voxelWorld`, ports injected; `ctx.voxels` get (null off-ring), set/dig/paint read at once, body/mesh/shader in one swap, `changes`, `whenResident` → `waits`. Node 4 m dig: step 3.5–6.1 ms (first 17–19), edit → change 8–16 ms. Fast gate green; voxel-world.e2e 17.3 → 17.7 s. |
-| 46a.7b | not started |
+| 46a.7b | done 41f8fb70 (+ 0d309961, 4cfafdf1): world runs with the sim (worker, or page), Play reads the locator's range route, derive workers started in the sim worker; one transferred batch a streamer task drawn by `VoxelWorldDraws`; bodies wait for voxel collision. Edit → screen 16–17 ms (1 / 2 frames) worker / single. voxel-world.e2e 17.7 → 36.4 s. D444 opened, D445 fixed. |
 | 46a.8 | not started |
 | 46a.9 | not started |
 | 46a.10 | not started |
@@ -407,6 +407,57 @@ rerun (gate-rerun-20261103-015632) GREEN, 4 min, 4.4 GB peak, village perf at th
 Once, in an ad-hoc parallel vitest run, `stream.test.ts` 'rebuilds every derived result within R …' failed and
 passed alone and in two later runs (load, not reproduced; the full gate's first vitest pass had it green).
 
+**46a.7b** (0d309961 boundary: game-host → voxel; 41f8fb70 Play wiring; 4cfafdf1 D445). Where things are: `@thirdlight/voxel` `chunk-batch.ts` (`ChunkDrawBatcher`: a world's `chunk`,
+`unloaded` and `swap` events of one streamer task collected and sent at the task's end (a microtask) as one
+`ChunkDrawBatch`: per chunk `draw` (ground, base, pieces, grid entries or the solid entry), `shader` (a chunk already
+sent whose shader data alone changed) or `remove`, plus the swaps' measures; buffers made by the join, so a worker
+transfers them (`chunkDrawBatchTransfer`; whole-chunk sections' own buffers are copied first); `MESH_PART` defined
+here). `game-host/voxel-play.ts` (`presentVoxelWorlds`) wraps the play's world ports: the runtime's host hands each
+world's streamer to the connection's new `present` hook, which starts the batcher. The sim worker (`voxelPorts(root)`
+dep, init `voxels.root`) posts `{ t: 'voxels', batch }` with the transfer list; the page answers `voxels.drawn` with
+each drawn chunk's GPU bytes (the chunk's mesh part of the world's budget, where the world runs). In single-thread
+mode the page's own runtime gets the same wrapped ports and the batches go straight to the draws.
+`three-adapter/voxel-world-draws.ts` (`VoxelWorldDraws`, game page): a 46a.5b `VoxelChunkView` a world under the
+adapter's scene, each batch applied in the task it arrives in (queued until the renderer can draw), grid textures
+retired and frame times kept by an animation-frame loop while a world is drawn; `window.__tlVoxelPlay` (stats, edits).
+Play's source (`editor/preview/voxel-ports.ts`): the preview origin's new routes `/play-content/<contentId>/voxels/<world>`
+(manifest, files) and `…/regions/<file>` (range), allowed by the play's locator like its other files (no token on that
+origin; `voxel-routes.ts` `reads`), with 46a.4's batched reads (`editor/voxel-world/range-reads.ts`, shared with the
+slice page), a pool of module workers a world (`voxel-worker.js`, new in the play build, started next to the sim
+worker's script). Collision: the 46a.7a ring in the sim's physics, unchanged; new: bodies wait over a voxel column whose
+bodies are not in (`BodySuspension` asks `RuntimeVoxels.loadedAt`: the world open and every chunk of the column within
+the ring's add bounds in the ring with its derive arrived, `CollisionRing.columnSettled`), so a character placed on a
+world that is still streaming no longer falls through it. `startGamePage` moved the input exercise's input to
+`relayedInput` (529 → 500 lines).
+Tests: `tools/voxel-bench/world-host.test.ts` (real runtime, region files, Node workers, real Rapier, through
+`presentVoxelWorlds` with each batch structured-cloned with its transfer list): after the ring filled, every drawn
+chunk the page would hold equals a fresh `joinedChunk` (surfaces, pieces, grid entries); a dig's swap arrives in
+exactly one batch with every chunk it names; the page's bytes land as the mesh part; the world's close tells the page.
+`tests/e2e/voxel-world.e2e.ts` + 2 tests: Play of the e2e project with a `voxelWorld` (the slice), a fixed camera, a
+character and a script that digs a 1.75 m ball under it 5 s after `whenResident`: the character waits over unloaded
+ground, then stands on the pad; the pit shows (pixels changed, png.ts), the character falls > 1 m, on WebGPU with the
+sim in its worker and on WebGL 2 with `?threads=off`. Pictures looked at: WebGPU before and after (ground, wall,
+banister, the pit), WebGL 2 after.
+Edit → screen (`__tlVoxelPlay.edits`, e2e run, headless Chrome on the host's GPU, editor Game view ~670×250, not at a
+720p cap; one dig of 2 sections in 1 chunk; ad-hoc run 02:27 at load ~2 / the gate rerun 02:44 at load ~5):
+
+| Mode | Edit → swap (sim) | Hop sim → page | Apply on the page | Edit → first frame drawn after | Frames |
+|---|---|---|---|---|---|
+| WebGPU, sim worker | 6.8 / 10.4 ms | 0.2 / 0.2 ms | 0.8 / 0.8 ms | 17.1 / 16.4 ms | 1 / 1 |
+| WebGL 2, single thread | 8.9 / 7.9 ms | 0 / 0 | 0.7 / 0.8 ms | 15.9 / 16.9 ms | 2 / 2 |
+| slice page (46a.5b), local blast 1–4 m | – | – | – | next frame | 1 |
+
+Sim step: the worker's tick round trip (step + messages) averaged 3.4 / 6.1 ms, max 66 / 90 ms (the world's open and
+cold fill); not split per step (46a.12 measures at the cap). Streaming in Play: 194–219 chunks drawn, 571–652 batches
+over the cold fill. The WebGL 2 page's 2 frames: the dig's batch arrived after that frame had begun (the page's own
+simulation steps inside the frame), so it shows in the next one; not looked into further.
+Fast gate (gate-fast-20261103-023043, + voxel-world, sim-worker, relay-input, character-3d e2e): RED in vitest on D445
+(a stale catalogue test from 46a.7a, hidden by its rerun of only the failed files), fixed in 4cfafdf1; rerun
+(gate-rerun-20261103-024032) GREEN, 4 min, 4.1 GB peak, 42 e2e passed, village perf at the cap 0 missed on both
+renderers. `voxel-world.e2e.ts` 17.7 → 36.4 s (9.2 + 5.2 + 6.1 + 8.1 + 7.8 s; load 5.3, uptime 10 d 10.3 h): the two Play
+tests add 15.9 s, about 5 s each of it the script's wait before the dig (time for the "before" picture), which a later
+item extending these tests can shorten.
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -556,5 +607,22 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
 - 2026-11-03 (46a.7a): the visual-script generator cannot type a region or a nullable world handle, so `set`, `dig`,
   `paint`, `isResident`, `whenResident` and `world` are skipped as graph nodes with that reason (reads are nodes);
   graph inputs for regions can come with 47b's brushes.
+- 2026-11-03 (46a.7b, default chosen, owner to confirm): **Play reads voxel worlds on the preview origin under the
+  play's locator** (`/play-content/<contentId>/voxels/…`, the live files, by range): the play page and its workers have
+  no token, and the locator already is the permission for the play's other files; it stops working when the locator
+  expires. The world's derive workers are module workers started by the simulation worker (by the page in single-thread
+  mode), one pool a world (`defaultVoxelWorkers`, 1–4).
+- 2026-11-03 (46a.7b, default chosen, owner to confirm): **one batch a streamer task**, sent at the task's end: a swap's
+  chunks always share a message (the edit stays atomic for draws); streaming answers go out as they come (one message a
+  job answer). A chunk is joined once for the draw by the batcher and once more by the collision ring when it is inside
+  the ring (the ring is the host's own listener): ~0.3 ms a chunk on the simulation's thread, left for 46a.12 to weigh.
+- 2026-11-03 (46a.7b, default chosen, owner to confirm): **a body waits over voxel ground not streamed in yet**, as over
+  terrain tiles (one rule, `body-suspension.ts`): over a column in a loaded world, until every chunk of it within the
+  collision ring has its derived body; a column no focus reaches is not ready. A world that cannot open holds nothing up.
+- 2026-11-03 (46a.7b): nothing of the page's collision glue had to move: Play's bodies are 46a.7a's `PortBodies` in the
+  simulation's physics port, and `PageCollisionRing` stays the slice page's. The new `unloaded` listeners (the batcher,
+  the host's derived set) clear no budget part (46a.6b's note).
+- 2026-11-03 (46a.7b): Play draws voxel chunks in the scene's world coordinates (no floating origin in the game view;
+  D444); the plan's "floating origin re-bases draws" holds for the slice page and the editor, not Play yet.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
