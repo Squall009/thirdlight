@@ -4,11 +4,11 @@
  * recorded goldens, and meshes broken on purpose (a hole torn, vertices
  * moved, a feature removed, a hole covered) fail them.
  */
-import { chunkGrid, createWorldStore, deriveFromStore, groundHeightfield, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, type SurfaceBuffer } from '@thirdlight/voxel';
+import { chunkGrid, CREASE_SPLIT_DEG, createWorldStore, deriveFromStore, groundHeightfield, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, type SurfaceBuffer } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { FEATURE_GROUND, featureCases, featuresStore } from './features';
-import { REFERENCE_GOLDENS } from './mesh-goldens';
-import { goldenFailures, meshFeatures, measureCases, referenceMesher, terrainMesher, type CaseResult, type WorldMesh } from './mesh-cases';
+import { REFERENCE_GOLDENS, TERRAIN_NORMAL_GOLDENS } from './mesh-goldens';
+import { creaseAngles, goldenFailures, meshFeatures, measureCases, measureNormals, referenceMesher, terrainMesher, type CaseResult, type NormalResult, type WorldMesh } from './mesh-cases';
 import { chunkMesherOf, MESHER_CANDIDATES, mesherCandidate } from './mesher-candidates';
 import { loadArea } from './regions';
 import { hillyWorld } from './worlds';
@@ -18,6 +18,9 @@ const cases = featureCases();
 const store = featuresStore();
 const reference = meshFeatures(store, referenceMesher);
 const x0 = (name: string): number => cases.find((c) => c.name === name)!.x0;
+let terrainWelded: WorldMesh | null = null;
+/** The derive's ground over the row, welded (built once, on first use). */
+const terrainMesh = (): WorldMesh => (terrainWelded ??= meshFeatures(store, terrainMesher));
 
 /** Every failure of every case against the reference goldens. */
 function failures(mesh: WorldMesh): string[] {
@@ -136,7 +139,7 @@ describe('the golden harness', () => {
 
 describe('the terrain mesher', () => {
   let cached: CaseResult[] | null = null;
-  const terrain = (): CaseResult[] => (cached ??= measureCases(meshFeatures(store, terrainMesher), cases));
+  const terrain = (): CaseResult[] => (cached ??= measureCases(terrainMesh(), cases));
 
   it('is the derive\'s ground under the terrain rules: the bench pick (lattice+dc), its other vertices kept off the lattice', () => {
     const pick = chunkMesherOf(mesherCandidate('lattice+dc'));
@@ -201,5 +204,77 @@ describe('the terrain mesher', () => {
     };
     expect(count(referenceMesher)).toBe(0);
     expect(count(terrainMesher)).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The smallest angle (degrees) the shading normals must turn by across a
+ * crease the rules call sharp: the placed geometry's own corner (a 90° cliff
+ * edge placed ~64°, a one-cell terrace lip ~40°), well above the
+ * {@link CREASE_SPLIT_DEG} a curved face may turn without splitting.
+ */
+const CREASE_KEPT_DEG = 35;
+
+/** The worst normal error a gentle plane slope may show (the 4-bit fill's rounding banded 1:5 up to 7° before). */
+const SLOPE_NORMAL_MAX_DEG = 2;
+
+describe('the terrain mesher\'s normals', () => {
+  let normals: NormalResult[] | null = null;
+  const terrain = (): NormalResult[] => (normals ??= measureNormals(terrainMesh(), cases));
+  const at = (name: string): NormalResult => terrain().find((r) => r.name === name)!;
+
+  it('are within their goldens in every case (angle to the analytic normal, p50 / p95 / max)', { timeout: 30_000 }, () => {
+    for (const r of terrain()) {
+      const g = TERRAIN_NORMAL_GOLDENS[r.name]!;
+      expect(r.corners, r.name).toBeGreaterThan(1000);
+      expect(r.p50Deg, `${r.name} p50`).toBeLessThanOrEqual(g.p50Deg);
+      expect(r.p95Deg, `${r.name} p95`).toBeLessThanOrEqual(g.p95Deg);
+      expect(r.maxDeg, `${r.name} max`).toBeLessThanOrEqual(g.maxDeg);
+    }
+  });
+
+  it('show no stair banding on 1:20 and 1:5 slopes: every corner within 2° where the reference nets turn up to 7°', { timeout: 30_000 }, () => {
+    const before = measureNormals(reference, cases);
+    for (const name of ['slope-1:20', 'slope-1:5']) {
+      expect(at(name).maxDeg, name).toBeLessThanOrEqual(SLOPE_NORMAL_MAX_DEG);
+      expect(before.find((r) => r.name === name)!.maxDeg, `${name} before`).toBeGreaterThan(SLOPE_NORMAL_MAX_DEG);
+    }
+  });
+
+  it('keep creases sharp: cliff top, terrace lips, ledge front and wall foot turn by at least the named angle; the reference blurs them', { timeout: 30_000 }, () => {
+    const x = (name: string): number => x0(name);
+    const near = (a: number, b: number): boolean => Math.abs(a - b) < 0.5;
+    const lines: Array<[string, (px: number, py: number, pz: number) => boolean]> = [
+      ['cliff-20m', (px, py) => near(px, x('cliff-20m') + 28) && near(py, G + 40)],
+      ['terraces-1', (px, py) => Array.from({ length: 9 }, (_, k) => k).some((k) => near(px, x('terraces-1') + 8 + 6 * k) && near(py, G + k + 1))],
+      ['terraces-2', (px, py) => Array.from({ length: 7 }, (_, k) => k).some((k) => near(px, x('terraces-2') + 8 + 8 * k) && near(py, G + 2 * k + 2))],
+      ['overhang', (px, py) => near(px, x('overhang') + 22) && (near(py, G + 16) || near(py, G + 11))],
+      ['wall-1', (px, py, pz) => (near(px, x('wall-1') + 32) || near(px, x('wall-1') + 33)) && near(py, G) && pz > 17 && pz < 47],
+    ];
+    for (const [name, line] of lines) {
+      const c = cases.find((k) => k.name === name)!;
+      const angles = creaseAngles(terrainMesh(), c, line);
+      expect(angles.length, name).toBeGreaterThan(40);
+      expect(Math.min(...angles), name).toBeGreaterThanOrEqual(CREASE_KEPT_DEG);
+      expect(Math.max(...creaseAngles(reference, c, line)), `${name} before`).toBe(0);
+    }
+    // The cave's mouth: most of the opening's rim (its rounded tunnel corners stay smooth).
+    const cave = cases.find((k) => k.name === 'cave')!;
+    const mouth = creaseAngles(terrainMesh(), cave, (px, py, pz) => near(px, cave.x0 + 12) && py > G && py < G + 9 && pz > 25 && pz < 39).sort((a, b) => a - b);
+    expect(mouth[Math.floor(mouth.length / 2)]!).toBeGreaterThanOrEqual(CREASE_KEPT_DEG);
+  });
+
+  it('split no vertex on gentle ground: slopes and the bank keep one normal a position (across chunk faces too); bumps split only at their rims', { timeout: 30_000 }, () => {
+    expect(CREASE_SPLIT_DEG).toBeLessThan(CREASE_KEPT_DEG);
+    for (const name of ['slope-1:20', 'slope-1:5', 'bank-1:1']) {
+      expect(at(name).splitVertices, name).toBe(0);
+      expect(at(name).vertices, name).toBeGreaterThan(2000);
+    }
+    const bumps = cases.find((k) => k.name === 'bumps')!;
+    const rims = [[16, 16, 6, 3], [40, 20, 8, 5], [24, 44, 4, 2], [47, 45, 10, 2.5], [33, 33, 3, 1.5]].map(([u, w, r, h]) => [bumps.x0 + u!, w!, Math.sqrt(r! * r! - (r! - h!) * (r! - h!))] as const);
+    const offRim = creaseAngles(terrainMesh(), bumps, (px, py, pz) => !rims.some(([u, w, rr]) => Math.abs(Math.hypot(px - u, pz - w) - rr) < 1.5 && py < G + 1.5));
+    expect(offRim.length).toBeGreaterThan(2000);
+    expect(offRim.filter((a) => a > 0)).toEqual([]);
+    expect(at('bumps').splitVertices).toBeGreaterThan(0);
   });
 });

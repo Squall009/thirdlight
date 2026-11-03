@@ -105,7 +105,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.2 | done (this commit; fast gate green): `terrain-rules.ts`, rule set `terrain` v1 (placeholder rules + 8 ground features, R 2, apron unchanged), registered; conformance on random assembly + terrain worlds at 16/32; every hard case classified as named; derived bytes unchanged. Evaluation a 16³ ground section p50 92–116 µs vs placeholder 38–45 (Node). |
 | 46b.3a | done (this commit; fast gate green): `mesher-candidates.ts` (reference, lattice, dc, lattice+dc, mc), `run.mjs mesher`. Pick (owner to confirm): column-lattice nets + DC at the rules' creases. Slice/hilly triangles −11 %, heightfield chunks 0 → 32/33 %, slope mean error 2.7 → 0.4 cm, one golden miss (bump rim +2.8 cm); µs/section +30 (caves/vertical over budget). |
 | 46b.3b | done (abcb8b7d; fast gate green): `terrain-mesher.ts` derives the ground (lattice+dc, reach 3 cells), derived v4, worlds on `WORLD_RULES` (terrain v1). Eval + mesh µs/16³ section p50 slice 256 → 217, town 227 → 207, caves 332 → 307 (mesh alone ~110; caves ~190); slice triangles −11 %; heightfield-eligible chunks slice 0 → 32 % (collision takes level ones only). |
-| 46b.4 | not started |
+| 46b.4 | done (this commit; fast gate green): lattice normals from 4 × 4 columns (slope max error 1:20 5.4 → 1.4°, 1:5 5.7 → 1.6°), crease vertices split with face normals (cliff top 64°, terrace lips 40/59°, ledge 57°, wall foot 64°; no split on slopes or bank), derived v5. Vertices slice +0.07 %, town +1 %, caves +26 %; µs a 16³ section p50 +26–35 (caves +100). |
 | 46b.5 | not started |
 | 46b.6a | not started |
 | 46b.6b | not started |
@@ -339,6 +339,70 @@ work/46b.3b/shots/`. Fast gate (gate-fast-20261103-112246, uptime 10 d 18.9 h, l
 peak; `voxel-world.e2e.ts` 44.3 s (47.9 s at 46b.3a). `edits.test.ts` 'apply the same cells…' timed out once in an
 ad-hoc run at load 5 (6.1 s of 5 s; passed alone and in the gate; untouched).
 
+### 46b.4 normals and sharp edges
+
+`terrain-mesher.ts` now builds dual vertices (position, smooth normal, split flag) and turns them into output vertices
+as quads are emitted. **Smooth normals:** a column-lattice vertex takes the slope of the column heights over the
+4 × 4 columns round it (least squares with weights 1, 3, 3, 1 both ways) when each is a height function over the two
+cells either side of the cell boundary nearest the vertex's height, else its cube's four (as 46b.3b); the window
+follows the vertex, so every cube of a stack, section and chunk gives the same normal (the field is one column wider
+each side; the reach stays inside the job's pad, tested). Other vertices keep their cube's sample gradient.
+**Creases:** a vertex whose cube touches a cliff, terrace-lip, overhang, thin or spike cell, whose inside corners are
+not one half of the cube and whose crossing edges each have a whole cell or whole air at one end is a crease vertex;
+each quad whose face (Newell's normal of its four placed positions) turns more than `CREASE_SPLIT_DEG` (10°) from
+the vertex's gradient takes a copy carrying the face normal (copies with equal snorm8 normals are one vertex).
+Derived data 4 → 5 (spec §3.7, §3.8 owner note): layout unchanged, a position may appear in several vertices.
+
+Harness (`mesh-cases.ts`): the welded mesh keeps every corner's normal; `measureNormals` (angle to the analytic
+normal at a point a quarter of the way to the triangle's centroid, so a corner on a crease is measured on its own
+side; p50 / p95 / max; split vertices and the vertices they add), `creaseAngles` (the largest turn between normals at
+one position). Goldens `TERRAIN_NORMAL_GOLDENS`. Node, 2026-11-03 12:00, degrees, reference → 46b.3b → 46b.4:
+
+| Case | p50 / p95 / max | Splits (positions; vertices added) | Crease turn (min) |
+|---|---|---|---|
+| slope-1:20 | 1.1/2.9/3.1 → 0.8/2.9/5.4 → 0.2/1.2/1.4 | 0 | — |
+| slope-1:5 | 2.8/6.3/7.1 → 0.4/3.8/5.7 → 0.7/1.2/1.6 | 0 | — |
+| bank-1:1 | 0.6/9.7/35.3 → 0.3/9.7/35.3 → same | 0 | — |
+| cliff-20m | 0/0/45 → 0/0/45 → 0/0/74.4 | 53; +53 | 0 → 64 (top edge) |
+| terraces-1 | p95 45 → 45 → 73.1 | 954; +954 | 0 → 40 (lips) |
+| terraces-2 | p95 45 → 45 → 45 | 371; +371 | 0 → 59 |
+| overhang | p95 11.3 → 11.3 → 11.3 | 106; +106 | 0 → 57 (ledge front) |
+| arch / cave | p95 26.6 → 26.6 → 11.4 / 11.9 | 170; +302 / 251; +329 | cave mouth p50 0 → 40 |
+| wall-1 | p95 11.3 → 11.3 → 4.1 | 156; +212 | 0 → 64 (foot) |
+| spike / pit / hole | p95 0 / 0 / 45 → 0 / 0 / 11.3 | 44 / 12 / 124 | — |
+| bumps | p95 16.8 → 15.6 → 16.2 | 8; +20 (rims only) | — |
+
+Reading: the 4-bit fill rounds a column by up to 1/30 cell, which across one cell turned 1:5 and 1:20 normals by up to
+5.7° (stair banding, worse than the reference's 3.1° on 1:20 because 46b.3b's lattice normal spanned one cell);
+across the 4 × 4 columns every slope corner is within 1.6°. Creases now turn by 40–64° where every normal was
+shared. The max errors at creases (cliff 74°, terraces-1 p95 73°) are the placement's, not the normals': a placed
+crease sits up to 0.3 cell off the true corner (46b.3b), and a face normal shows that offset where the smooth normal
+hid it. Tests (`mesh-cases.test.ts`, +4): within the normal goldens; slopes within `SLOPE_NORMAL_MAX_DEG` (2°) where
+the reference turns more; cliff top, terrace lips, ledge front and wall foot turn by at least `CREASE_KEPT_DEG` (35°)
+and the reference by 0; cave mouth p50 ≥ 35°; no split on the slopes or the bank across chunk faces, bumps only at
+their rims. Watertightness, probes and position goldens unchanged (same triangles); the join test (16³ and 8³ sections
+= the whole chunk, normals included) green on the cliff and terraces.
+
+Cost (`run.mjs mesher --worlds slice,hilly,caves,town --candidates terrain`, Node 22, i5-12600H, 12:11–12:12, uptime
+10 d 19.7 h, load 4.6–5.2; before = HEAD in two rounds bracketing after): µs a 16³ section with ground (evaluation +
+mesh) p50 / p95, before → after: slice 200–226 / 249–277 → 252 / 364, hilly 228–232 / 520–558 → 263 / 463, caves
+299–302 / 498–504 → 399 / 741, town 213–231 / 268–315 → 258 / 406. Mesher alone, same process interleaved (scratch
+micro-bench, 32³ chunks p50): hilly 615 → 694, caves 1,468 → 2,090, town 563 → 752 µs. Vertices: slice 315,061 →
+315,281 (+0.07 %), hilly 78,738 → 78,735, town 698,087 → 705,442 (+1.1 %), caves 719,978 → 907,532 (+26 %, 8.4 → 10.6 MB
+of vertices in the window); triangles unchanged. Causes: the lattice normal reads 16 columns (cached per column and
+window), the field is two columns wider, the dual-vertex step, and in caves the crease test and copies (the carved
+tunnels are real voxel edges). Recorded, not tuned further (never blocking).
+
+Pictures (staging, dist before/after this change, `features` and the slice, WebGPU and WebGL 2, the page's fixed sun
+at ~60° elevation; the page has no sun control, so a low sun was not looked at): the cliff's top edge lost its dark
+blurred band and reads as one sharp line; the terraces' risers read as distinct dark bands with sharp lips (before:
+soft rolls); the wall's foot and ends are crisp; the slice's dug ring and rocks read blockier. The 1:20 slope looks the
+same before and after at this sun: banding was not visible in either (the numbers above are the evidence; a low sun
+is 46b.11b's). Shots `~/.cache/thirdlight-phase46/work/46b.4/shots/{before,after}/`.
+Fast gate (gate-fast-20261103-121415, uptime 10 d 19.8–20.0 h, load 5.6 at the start, 15–17 during e2e): GREEN, 14 min,
+4.9 GB peak; vitest red only on D418 (`scan-bounded-log.test.ts`, 5 s timeout, passed alone in the gate's rerun);
+`voxel-world.e2e.ts` 53.1 s (not touched; 44.3 s at 46b.3b, the host's load).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -419,6 +483,19 @@ ad-hoc run at load 5 (6.1 s of 5 s; passed alone and in the gate; untouched).
 - 2026-11-03 (46b.3b, default chosen, owner to confirm): **one rule set for every streamed world**, `WORLD_RULES` =
   the terrain rules (placeholder construction + ground features). The placeholder set stays registered for tests;
   under it the mesher places creases as plain nets.
+
+- 2026-11-03 (46b.4, default chosen, owner to confirm): **crease vertices split by class and by the voxels' own
+  edges**: a vertex splits only where its cube touches a cliff, terrace-lip, overhang, thin or spike cell, its inside
+  corners are not one half of the cube and each crossing edge has a whole cell or whole air at one end; then each quad
+  turning more than 10° from the vertex's gradient takes its face normal. Measured alternatives: the class and the
+  angle alone (caves +70–83 % vertices: every rough cave wall faceted); the spread of the cube's own crossing normals
+  (missed the cliff top and terrace lips: the in-cube field blurs a corner); a three-cell gradient as the reference
+  (only one side of a lip split, 12–23° creases). Cost: caves +26 % vertices, +100 µs a section.
+- 2026-11-03 (46b.4, default chosen, owner to confirm): **lattice normals over 4 × 4 columns** in a window that
+  follows the vertex's height (deterministic for every cube, section and chunk); a cross of 12 columns was cheaper but
+  left 1:20 at 1.9°, so the tent stays.
+- 2026-11-03 (46b.4): **a low-sun look is still owed**: the slice page's sun is fixed at ~60°, where the 1:20 banding
+  was invisible before and after; 46b.11b looks under a low sun (a page parameter or the Scene view's light).
 
 ## 9. Open questions for the owner
 

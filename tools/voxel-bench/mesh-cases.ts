@@ -37,6 +37,8 @@ export interface WorldMesh {
   readonly positions: Float64Array;
   /** Three welded vertex ids a triangle, counter-clockwise seen from outside. */
   readonly triangles: Uint32Array;
+  /** The unit normal each triangle corner carries (x, y, z per corner, in triangle order); welding is by position only, so a split vertex's copies show here. */
+  readonly cornerNormals?: Float32Array;
 }
 
 export interface ProbeResult {
@@ -93,6 +95,7 @@ export function meshFeatures(store: PaletteStore, mesher: ChunkMesher): WorldMes
   const ids = new Map<string, number>();
   const pos: number[] = [];
   const tris: number[] = [];
+  const normals: number[] = [];
   const range = (lo: number, hi: number): [number, number] => [(lo >> grid.shift) - 1, (hi - 1) >> grid.shift];
   const [x0, x1] = range(0, FEATURE_WIDTH);
   const [y0, y1] = range(FEATURE_BASE, FEATURE_TOP);
@@ -117,9 +120,15 @@ export function meshFeatures(store: PaletteStore, mesher: ChunkMesher): WorldMes
       }
       local[v] = id;
     }
-    for (const i of buf.indices) tris.push(local[i]!);
+    for (const i of buf.indices) {
+      tris.push(local[i]!);
+      const o = i * SURFACE_VERTEX_BYTES + 8;
+      const nx = view.getInt8(o), ny = view.getInt8(o + 1), nz = view.getInt8(o + 2);
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      normals.push(nx / len, ny / len, nz / len);
+    }
   }
-  return { positions: Float64Array.from(pos), triangles: Uint32Array.from(tris) };
+  return { positions: Float64Array.from(pos), triangles: Uint32Array.from(tris), cornerNormals: Float32Array.from(normals) };
 }
 
 /** Distance along the ray to its first hit on the triangles listed (cells), or null. */
@@ -265,5 +274,139 @@ export function goldenFailures(r: CaseResult, g: CaseGolden, slackM = 0): string
   if (r.maxErrorM > g.maxErrorM + slackM) out.push(`${r.name}: max error ${r.maxErrorM.toFixed(4)} m > ${g.maxErrorM} m`);
   if (r.meanErrorM > g.meanErrorM + slackM) out.push(`${r.name}: mean error ${r.meanErrorM.toFixed(4)} m > ${g.meanErrorM} m`);
   for (const name of r.lost) if (!g.lost.includes(name)) out.push(`${r.name}: lost ${name}`);
+  return out;
+}
+
+/** A case's shading normals against its analytic solid. */
+export interface NormalResult {
+  readonly name: string;
+  /** Angle (degrees) between a corner's normal and the solid's at a point a quarter of the way from the corner to its triangle's centroid: p50, p95, max. */
+  readonly p50Deg: number;
+  readonly p95Deg: number;
+  readonly maxDeg: number;
+  /** Corners measured (triangles whose centroid is in the measuring box). */
+  readonly corners: number;
+  /** Welded positions in the box whose corners carry more than one normal (split vertices). */
+  readonly splitVertices: number;
+  /** Corner normals beyond one a position: the vertices splits add to a fully welded mesh. */
+  readonly addedVertices: number;
+  /** Welded positions in the box. */
+  readonly vertices: number;
+}
+
+/** The solid's outward unit normal at (x, y, z) (cells), by central differences. */
+export function analyticNormal(sdf: Sdf, x: number, y: number, z: number): [number, number, number] {
+  const h = 0.01;
+  const gx = sdf(x - h, y, z) - sdf(x + h, y, z);
+  const gy = sdf(x, y - h, z) - sdf(x, y + h, z);
+  const gz = sdf(x, y, z - h) - sdf(x, y, z + h);
+  const len = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1;
+  return [gx / len, gy / len, gz / len];
+}
+
+const angleDeg = (ax: number, ay: number, az: number, bx: number, by: number, bz: number): number =>
+  (Math.acos(Math.max(-1, Math.min(1, ax * bx + ay * by + az * bz))) * 180) / Math.PI;
+
+const quantile = (sorted: readonly number[], q: number): number => (sorted.length === 0 ? 0 : sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!);
+
+/** Each corner normal's position key → the distinct normals there (snorm8 back to 3 decimals). */
+function normalsByVertex(mesh: WorldMesh, tris: readonly number[]): Map<number, Set<string>> {
+  const N = mesh.cornerNormals!;
+  const T = mesh.triangles;
+  const out = new Map<number, Set<string>>();
+  for (const t of tris) for (let j = 0; j < 3; j++) {
+    const c = 3 * t + j;
+    const v = T[c]!;
+    let set = out.get(v);
+    if (set === undefined) out.set(v, (set = new Set()));
+    set.add(`${N[3 * c]!.toFixed(3)},${N[3 * c + 1]!.toFixed(3)},${N[3 * c + 2]!.toFixed(3)}`);
+  }
+  return out;
+}
+
+/** The triangles whose centroid lies in a case's measuring box. */
+function boxTriangles(mesh: WorldMesh, c: FeatureCase): number[] {
+  const P = mesh.positions;
+  const T = mesh.triangles;
+  const lo = c.x0 + MEASURE_MARGIN;
+  const hi = c.x0 + FEATURE_PAD - MEASURE_MARGIN;
+  const out: number[] = [];
+  for (let t = 0; t < T.length / 3; t++) {
+    let x = 0, y = 0, z = 0;
+    for (let j = 0; j < 3; j++) {
+      const v = T[3 * t + j]!;
+      x += P[3 * v]! / 3;
+      y += P[3 * v + 1]! / 3;
+      z += P[3 * v + 2]! / 3;
+    }
+    if (x >= lo && x <= hi && z >= MEASURE_MARGIN && z <= FEATURE_PAD - MEASURE_MARGIN && y > FEATURE_BASE + 1) out.push(t);
+  }
+  return out;
+}
+
+/** Normal angle error and splits per case (the mesh must carry corner normals). */
+export function measureNormals(mesh: WorldMesh, cases: readonly FeatureCase[] = featureCases()): NormalResult[] {
+  const P = mesh.positions;
+  const T = mesh.triangles;
+  const N = mesh.cornerNormals;
+  if (N === undefined) throw new Error('measureNormals: the mesh carries no corner normals');
+  return cases.map((c) => {
+    const tris = boxTriangles(mesh, c);
+    const angles: number[] = [];
+    for (const t of tris) {
+      let cx = 0, cy = 0, cz = 0;
+      for (let j = 0; j < 3; j++) {
+        const v = T[3 * t + j]!;
+        cx += P[3 * v]! / 3;
+        cy += P[3 * v + 1]! / 3;
+        cz += P[3 * v + 2]! / 3;
+      }
+      for (let j = 0; j < 3; j++) {
+        const v = T[3 * t + j]!;
+        const k = 3 * (3 * t + j);
+        // A quarter of the way in: on the triangle's own side of a crease the corner may sit on.
+        const [ax, ay, az] = analyticNormal(c.sdf, 0.75 * P[3 * v]! + 0.25 * cx, 0.75 * P[3 * v + 1]! + 0.25 * cy, 0.75 * P[3 * v + 2]! + 0.25 * cz);
+        angles.push(angleDeg(N[k]!, N[k + 1]!, N[k + 2]!, ax, ay, az));
+      }
+    }
+    angles.sort((a, b) => a - b);
+    const byVertex = normalsByVertex(mesh, tris);
+    let split = 0;
+    let added = 0;
+    for (const set of byVertex.values()) if (set.size > 1) {
+      split++;
+      added += set.size - 1;
+    }
+    return { name: c.name, p50Deg: quantile(angles, 0.5), p95Deg: quantile(angles, 0.95), maxDeg: angles[angles.length - 1] ?? 0, corners: angles.length, splitVertices: split, addedVertices: added, vertices: byVertex.size };
+  });
+}
+
+/**
+ * The largest angle (degrees) between two normals the corners at one welded
+ * position carry, for every position `near` picks among the case's measured
+ * triangles: how sharp a crease reads in light (0 where one normal is shared).
+ */
+export function creaseAngles(mesh: WorldMesh, c: FeatureCase, near: (x: number, y: number, z: number) => boolean): number[] {
+  const P = mesh.positions;
+  const T = mesh.triangles;
+  const N = mesh.cornerNormals!;
+  const per = new Map<number, number[]>();
+  for (const t of boxTriangles(mesh, c)) for (let j = 0; j < 3; j++) {
+    const v = T[3 * t + j]!;
+    if (!near(P[3 * v]!, P[3 * v + 1]!, P[3 * v + 2]!)) continue;
+    let list = per.get(v);
+    if (list === undefined) per.set(v, (list = []));
+    list.push(3 * (3 * t + j));
+  }
+  const out: number[] = [];
+  for (const list of per.values()) {
+    let worst = 0;
+    for (const a of list) for (const b of list) {
+      // Equal normals turn by nothing (acos of a dot product rounded under 1 would say ~0.01°).
+      if (N[a] === N[b] && N[a + 1] === N[b + 1] && N[a + 2] === N[b + 2]) continue;
+      worst = Math.max(worst, angleDeg(N[a]!, N[a + 1]!, N[a + 2]!, N[b]!, N[b + 1]!, N[b + 2]!));
+    }
+    out.push(worst);
+  }
   return out;
 }

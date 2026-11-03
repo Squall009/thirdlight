@@ -54,9 +54,12 @@ import { utf8Encode } from '@thirdlight/shared';
 /**
  * Version of the derived-data layout and meaning. 4: the ground surface is
  * the terrain mesher's (vertices on the column lattice and at creases, not
- * at the mean of their crossings); the layout is v3's.
+ * at the mean of their crossings); the layout is v3's. 5: the ground's
+ * normals: lattice vertices take the slope over 4 × 4 columns, and crease
+ * vertices are split into copies carrying their quads' face normals (one
+ * position may now appear in several vertices); the layout is v3's.
  */
-export const DERIVED_FORMAT_VERSION = 4;
+export const DERIVED_FORMAT_VERSION = 5;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

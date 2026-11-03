@@ -23,18 +23,34 @@
  *   collider and a coarser lattice level can take as it is;
  * - otherwise the mean of the cube's edge crossings (plain surface nets).
  *
+ * **Normals.** A column-lattice vertex takes the slope of the column heights
+ * round it, over 4 × 4 columns where they are all height functions near the
+ * vertex (else its cube's four): the 4-bit fill rounds a column by up to
+ * 1/30 cell, which across one cell bands a gentle slope by several degrees.
+ * Any other vertex takes the gradient of its cube's eight samples. A crease
+ * vertex (a cube touching a cliff, terrace lip, ledge or cave-mouth lip,
+ * one-cell wall or spike, whose inside corners are not one half of the cube
+ * and whose crossing edges each have a whole cell or a whole air cell at one
+ * end: an edge or corner of the voxels, not a smooth surface through them)
+ * is split: each quad whose face turns more than {@link CREASE_SPLIT_DEG}
+ * from the vertex's gradient takes a copy of it carrying the face's normal,
+ * so light breaks at the crease instead of blurring across it. Gentle and
+ * steep ground never split.
+ *
  * **Crack-free.** A vertex is a function of samples within the job's pad,
  * quantised to whole position steps, so every chunk and section that meets
  * it computes the same bits; each sample edge belongs to one chunk. Only
  * column-lattice vertices are shared between cubes. Every other vertex is
  * kept strictly inside its own cube and off the cube's centre line, so it
  * never lands on another cube's vertex: a vertex's normal is then the one
- * its own placement gives whichever cubes a section happens to reference,
- * and a chunk's joined sections are its whole derive triangle for triangle.
+ * its own placement gives whichever cubes a section happens to reference, a
+ * split copy's is its quad's face (a function of the quad's four placed
+ * positions), and a chunk's joined sections are its whole derive triangle
+ * for triangle, normals included.
  *
  * **Reach.** The lattice test reads values and shapes up to
  * {@link TERRAIN_MESHER_REACH} cells above and below the chunk, one cell
- * across; the creases read resolved classes of the cube's cells (one cell
+ * across (two for a lattice vertex's normal); the creases read resolved classes of the cube's cells (one cell
  * round the chunk, the consumers' reach). A job's pad must cover it.
  */
 import type { Neighbourhood } from './assembly';
@@ -56,11 +72,32 @@ const HALF = STEPS / 2;
 const R = TERRAIN_MESHER_REACH;
 const W = LATTICE_WINDOW;
 
+/** Per inside-corner mask of a cube (bit c: corner c, bit 0 x, bit 1 y, bit 2 z): 1 when the inside corners are one half of the cube, a face across it. */
+const HALF_CUBE = new Uint8Array(256);
+for (const m of [0x55, 0xaa, 0x33, 0xcc, 0x0f, 0xf0]) HALF_CUBE[m] = 1;
+
+/**
+ * Angle (degrees) between a quad's face normal and a crease vertex's smooth
+ * normal past which that corner of the quad takes its own copy of the vertex
+ * with the face normal. A crease's smooth normal is the blur of both faces
+ * (about 45° off each at a 90° corner), so each side takes its own.
+ */
+export const CREASE_SPLIT_DEG = 10;
+
+const SPLIT_COS = Math.cos((CREASE_SPLIT_DEG * Math.PI) / 180);
+
 /** Per class byte: 1 when the cell is a crease the mesher places sharp (cliff, terrace lip). */
 const SHARP = new Uint8Array(256);
+/**
+ * Per class byte: 1 when a cube touching the cell may split its vertex's
+ * normal (the sharp classes, a ledge's lip or cave mouth, one-cell walls
+ * and spikes); never gentle or steep ground, nor a cave's ceiling.
+ */
+const CREASE = new Uint8Array(256);
 for (let b = 0; b < 256; b++) {
   const f = terrainFeatureOf(b);
   if (f === TERRAIN_FEATURE.cliff || f === TERRAIN_FEATURE.terraceLip) SHARP[b] = 1;
+  if (SHARP[b] === 1 || f === TERRAIN_FEATURE.overhang || f === TERRAIN_FEATURE.thin || f === TERRAIN_FEATURE.spike) CREASE[b] = 1;
 }
 
 /** Cube corners (bit 0 x, bit 1 y, bit 2 z) and the 12 edges as corner pairs, flat. */
@@ -80,16 +117,45 @@ let prefixSum = new Int32Array(0);
 let prefixRise = new Uint16Array(0);
 /** Per column: the call whose prefix sums it holds (they are built only for columns a lattice test reads). */
 let prefixStamp = new Uint32Array(0);
+/** Per column: the last lattice-normal window read (call stamp, window cell, its column height or −1). */
+let heightStamp = new Uint32Array(0);
+let heightAt = new Int32Array(0);
+let heightOf = new Int32Array(0);
 let call = 0;
+/** Per dual cube: its dual vertex, −1 none yet. */
 let dual = new Int32Array(0);
+/** Dual vertices (one a cube, or a column-lattice one shared by a stack): position, unit smooth normal, flags, output vertex. */
+let dpos = new Int32Array(3 * 1024);
+let dnrm = new Float32Array(3 * 1024);
+let dsplit = new Uint8Array(1024);
+let dout = new Int32Array(1024);
+let dualCount = 0;
+/** Output vertices. */
 let pos = new Int32Array(3 * 1024);
 let nrm = new Int8Array(3 * 1024);
 let tris = new Uint32Array(3 * 2048);
 let vertexCount = 0;
 let triLen = 0;
 const lattice = new Map<number, number>();
+/**
+ * A split vertex's copies, a block of {@link COPY_SLOTS} a vertex (one per
+ * quad it can be a corner of): face normal key (snorm8 bytes) and output
+ * vertex; the block's start and count per dual vertex.
+ */
+const COPY_SLOTS = 12;
+let copyKey = new Int32Array(COPY_SLOTS * 256);
+let copyOut = new Int32Array(COPY_SLOTS * 256);
+let copyLen = 0;
+let dcopyAt = new Int32Array(1024);
+let dcopyN = new Uint8Array(1024);
 const corner = new Float64Array(8);
 const place = new Float64Array(6);
+/** The cube's four column sums (at 5, 6, 9, 10: x-major 4 × 4) from the lattice placement's window. */
+const ring = new Int32Array(16);
+/** The 4 × 4 column sums round a lattice vertex in the window at its height. */
+const wide16 = new Int32Array(16);
+/** Weights of the four columns (or rows) across a lattice vertex's gradient: a tent. */
+const TENT = [1, 3, 3, 1] as const;
 
 function addVertex(qx: number, qy: number, qz: number, nx: number, ny: number, nz: number): number {
   if (3 * vertexCount + 3 > pos.length) {
@@ -100,17 +166,100 @@ function addVertex(qx: number, qy: number, qz: number, nx: number, ny: number, n
     q.set(nrm);
     nrm = q;
   }
-  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
   const o = 3 * vertexCount;
   pos[o] = qx;
   pos[o + 1] = qy;
   pos[o + 2] = qz;
-  nrm[o] = snorm8(nx / len);
-  nrm[o + 1] = snorm8(ny / len);
-  nrm[o + 2] = snorm8(nz / len);
+  nrm[o] = snorm8(nx);
+  nrm[o + 1] = snorm8(ny);
+  nrm[o + 2] = snorm8(nz);
   return vertexCount++;
 }
 
+/** A dual vertex with its smooth normal (any length); `split`: it may take copies at a crease. */
+function addDual(qx: number, qy: number, qz: number, nx: number, ny: number, nz: number, split: boolean): number {
+  if (dualCount === dsplit.length) {
+    const n = dsplit.length * 2;
+    const p = new Int32Array(3 * n);
+    p.set(dpos);
+    dpos = p;
+    const q = new Float32Array(3 * n);
+    q.set(dnrm);
+    dnrm = q;
+    const f = new Uint8Array(n);
+    f.set(dsplit);
+    dsplit = f;
+    const o = new Int32Array(n);
+    o.set(dout);
+    dout = o;
+    const ca = new Int32Array(n);
+    ca.set(dcopyAt);
+    dcopyAt = ca;
+    const cn = new Uint8Array(n);
+    cn.set(dcopyN);
+    dcopyN = cn;
+  }
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  const o = 3 * dualCount;
+  dpos[o] = qx;
+  dpos[o + 1] = qy;
+  dpos[o + 2] = qz;
+  dnrm[o] = nx / len;
+  dnrm[o + 1] = ny / len;
+  dnrm[o + 2] = nz / len;
+  dsplit[dualCount] = split ? 1 : 0;
+  dout[dualCount] = -1;
+  dcopyAt[dualCount] = -1;
+  dcopyN[dualCount] = 0;
+  return dualCount++;
+}
+
+/** The output vertex of a dual vertex with its smooth normal. */
+function smoothOut(dv: number): number {
+  let v = dout[dv]!;
+  if (v < 0) {
+    const o = 3 * dv;
+    v = addVertex(dpos[o]!, dpos[o + 1]!, dpos[o + 2]!, dnrm[o]!, dnrm[o + 1]!, dnrm[o + 2]!);
+    dout[dv] = v;
+  }
+  return v;
+}
+
+/** Face normal of the quad being emitted (unit; zero when it has no area). */
+const face = new Float64Array(3);
+
+/** The output vertex for one corner of the quad whose unit normal is in `face`. */
+function cornerOut(dv: number): number {
+  if (dsplit[dv] === 0) return smoothOut(dv);
+  const o = 3 * dv;
+  const fx = face[0]!, fy = face[1]!, fz = face[2]!;
+  if (fx * dnrm[o]! + fy * dnrm[o + 1]! + fz * dnrm[o + 2]! >= SPLIT_COS || (fx === 0 && fy === 0 && fz === 0)) return smoothOut(dv);
+  const bx = snorm8(fx), by = snorm8(fy), bz = snorm8(fz);
+  const key = ((bx & 255) << 16) | ((by & 255) << 8) | (bz & 255);
+  let at = dcopyAt[dv]!;
+  if (at < 0) {
+    if (copyLen + COPY_SLOTS > copyKey.length) {
+      const k = new Int32Array(copyKey.length * 2);
+      k.set(copyKey);
+      copyKey = k;
+      const c = new Int32Array(copyOut.length * 2);
+      c.set(copyOut);
+      copyOut = c;
+    }
+    at = copyLen;
+    copyLen += COPY_SLOTS;
+    dcopyAt[dv] = at;
+  }
+  const n = dcopyN[dv]!;
+  for (let i = at; i < at + n; i++) if (copyKey[i] === key) return copyOut[i]!;
+  const v = addVertex(dpos[o]!, dpos[o + 1]!, dpos[o + 2]!, fx, fy, fz);
+  copyKey[at + n] = key;
+  copyOut[at + n] = v;
+  dcopyN[dv] = n + 1;
+  return v;
+}
+
+/** A triangle of output vertices. */
 function addTri(a: number, b: number, c: number): void {
   if (triLen + 3 > tris.length) {
     const t = new Uint32Array(tris.length * 2);
@@ -122,22 +271,54 @@ function addTri(a: number, b: number, c: number): void {
   tris[triLen++] = c;
 }
 
-/** A quad a → c → d → f; vertices shared by collapsed lattice cubes leave one triangle or nothing (zero area). */
+/**
+ * The quad's face normal into `face` (Newell's, so a quad with two corners
+ * shared still gets its triangle's normal): a function of the four placed
+ * positions only, so every section and chunk emitting the quad's corners
+ * gets the same copies.
+ */
+function faceNormal(a: number, c: number, d: number, f: number): void {
+  let nx = 0, ny = 0, nz = 0;
+  for (let k = 0; k < 4; k++) {
+    const i = 3 * (k === 0 ? a : k === 1 ? c : k === 2 ? d : f);
+    const j = 3 * (k === 0 ? c : k === 1 ? d : k === 2 ? f : a);
+    nx += (dpos[i + 1]! - dpos[j + 1]!) * (dpos[i + 2]! + dpos[j + 2]!);
+    ny += (dpos[i + 2]! - dpos[j + 2]!) * (dpos[i]! + dpos[j]!);
+    nz += (dpos[i]! - dpos[j]!) * (dpos[i + 1]! + dpos[j + 1]!);
+  }
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  face[0] = len === 0 ? 0 : nx / len;
+  face[1] = len === 0 ? 0 : ny / len;
+  face[2] = len === 0 ? 0 : nz / len;
+}
+
+/** A quad a → c → d → f of dual vertices; vertices shared by collapsed lattice cubes leave one triangle or nothing (zero area). */
 function addQuad(a: number, c: number, d: number, f: number): void {
-  if (a !== c && c !== d && d !== f && f !== a) {
-    if (a === d || c === f) return;
-    addTri(a, c, d);
-    addTri(a, d, f);
+  const whole = a !== c && c !== d && d !== f && f !== a;
+  if (whole ? a === d || c === f : (a === f ? 0 : 1) + (c === a ? 0 : 1) + (d === c ? 0 : 1) + (f === d ? 0 : 1) !== 3) return;
+  let oa: number, oc: number, od: number, of: number;
+  if ((dsplit[a]! | dsplit[c]! | dsplit[d]! | dsplit[f]!) === 0) {
+    oa = dout[a]! >= 0 ? dout[a]! : smoothOut(a);
+    oc = dout[c]! >= 0 ? dout[c]! : smoothOut(c);
+    od = dout[d]! >= 0 ? dout[d]! : smoothOut(d);
+    of = dout[f]! >= 0 ? dout[f]! : smoothOut(f);
+  } else {
+    faceNormal(a, c, d, f);
+    oa = cornerOut(a);
+    oc = cornerOut(c);
+    od = cornerOut(d);
+    of = cornerOut(f);
+  }
+  if (whole) {
+    addTri(oa, oc, od);
+    addTri(oa, od, of);
     return;
   }
-  // Two neighbours equal: the other three corners (when distinct) are the triangle left.
-  const q0 = a, q1 = c, q2 = d, q3 = f;
-  const keep: number[] = [];
-  if (q0 !== q3) keep.push(q0);
-  if (q1 !== q0) keep.push(q1);
-  if (q2 !== q1) keep.push(q2);
-  if (q3 !== q2) keep.push(q3);
-  if (keep.length === 3) addTri(keep[0]!, keep[1]!, keep[2]!);
+  // Two neighbours equal (one shared vertex, the same output for both): the other three corners are the triangle left.
+  if (a === f) addTri(oc, od, of);
+  else if (c === a) addTri(oa, od, of);
+  else if (d === c) addTri(oa, oc, of);
+  else addTri(oa, oc, od);
 }
 
 function buildSurface(): SurfaceBuffer {
@@ -178,8 +359,10 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
   if (p < R) throw new RangeError(`terrain mesher: pad ${p}, it reads ${R} cells past the chunk`);
   vertexCount = 0;
   triLen = 0;
-  // The field: columns x, z in −1 … e, cells y in −R … e + R − 1; index ((x + 1) · m + z + 1) · ny + y + R.
-  const m = e + 2;
+  dualCount = 0;
+  // The field: columns x, z in −2 … e + 1 (the samples −1 … e and one more each side for the lattice normals),
+  // cells y in −R … e + R − 1; index ((x + 2) · m + z + 2) · ny + y + R.
+  const m = e + 4;
   const ny = e + 2 * R;
   const FSX = m * ny;
   const FSZ = ny;
@@ -189,6 +372,9 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
     prefixSum = new Int32Array(m * m * (ny + 1));
     prefixRise = new Uint16Array(m * m * (ny + 1));
     prefixStamp = new Uint32Array(m * m);
+    heightStamp = new Uint32Array(m * m);
+    heightAt = new Int32Array(m * m);
+    heightOf = new Int32Array(m * m);
     call = 0;
   }
   call++;
@@ -198,16 +384,18 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
   const shapes = n.shapes;
   let inside0 = 0;
   for (let cx = 0; cx < m; cx++) for (let cz = 0; cz < m; cz++) {
-    const src = ((cx - 1 + p) * s + (cz - 1 + p)) * s + (p - R);
+    const src = ((cx - 2 + p) * s + (cz - 2 + p)) * s + (p - R);
     const dst = (cx * m + cz) * ny;
+    const sample = cx >= 1 && cx <= e + 2 && cz >= 1 && cz <= e + 2;
     for (let k = 0; k < ny; k++) {
       const d = ((vals[src + k]! >> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.terrain ? shapes[src + k]! : 0;
       F[dst + k] = d;
-      if (d >= SURFACE_ISO && k >= R - 1 && k <= R + e) inside0++;
+      if (sample && d >= SURFACE_ISO && k >= R - 1 && k <= R + e) inside0++;
     }
   }
   // All outside or all inside over the samples −1 … e: no sample edge changes sign.
-  if (inside0 === 0 || inside0 === m * m * m) return buildSurface();
+  const samples = e + 2;
+  if (inside0 === 0 || inside0 === samples * samples * samples) return buildSurface();
   // Per column, built when a lattice test first reads it: prefix sums of the fill and of the places it rises going
   // up, so every window's test on that column is O(1).
   const PS = prefixSum;
@@ -232,34 +420,36 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
       PR[p0 + k + 1] = rises;
     }
   };
+  /** Field cells ka … kb of the column summed when it is a height function over them (full at ka, empty at kb, never rising), else −1. */
+  const columnHeight = (col: number, ka: number, kb: number): number => {
+    const f0 = col * ny;
+    if (F[f0 + ka]! !== DENSITY_FULL || F[f0 + kb]! !== 0) return -1;
+    if (stamp[col] !== now) prefixes(col);
+    const p0 = col * (ny + 1);
+    // A rise between cells ka … kb (at k when F[k] > F[k − 1], k in ka + 1 … kb).
+    if (PR[p0 + kb + 1]! !== PR[p0 + ka + 1]!) return -1;
+    return PS[p0 + kb + 1]! - PS[p0 + ka]!;
+  };
   const d1 = e + 1;
   if (dual.length < d1 * d1 * d1) dual = new Int32Array(d1 * d1 * d1);
   dual.fill(-1, 0, d1 * d1 * d1);
   lattice.clear();
+  copyLen = 0;
   const ps = p;
   const cls = classes;
-  const fi = (x: number, y: number, z: number): number => ((x + 1) * m + (z + 1)) * ny + (y + R);
+  const fi = (x: number, y: number, z: number): number => ((x + 2) * m + (z + 2)) * ny + (y + R);
+  const colOf = (x: number, z: number): number => (x + 2) * m + (z + 2);
 
-  /** Column-lattice placement into `place`, or false. */
+  /** Column-lattice placement into place[0…2] (its four column sums into ring 5, 6, 9, 10), or false. */
   const placeLattice = (x: number, y: number, z: number): boolean => {
     // Window cells y − W … y + W + 1 of each sample column: field index ka … kb.
     const ka = y - W + R;
     const kb = ka + 2 * W + 1;
     let total = 0;
-    let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
     for (let c = 0; c < 4; c++) {
-      const col = (x + 1 + (c & 1)) * m + (z + 1 + (c >> 1));
-      const f0 = col * ny;
-      if (F[f0 + ka]! !== DENSITY_FULL || F[f0 + kb]! !== 0) return false;
-      if (stamp[col] !== now) prefixes(col);
-      const p0 = col * (ny + 1);
-      // A rise between cells ka … kb (at k when F[k] > F[k − 1], k in ka + 1 … kb).
-      if (PR[p0 + kb + 1]! !== PR[p0 + ka + 1]!) return false;
-      const sum = PS[p0 + kb + 1]! - PS[p0 + ka]!;
-      if (c === 0) s0 = sum;
-      else if (c === 1) s1 = sum;
-      else if (c === 2) s2 = sum;
-      else s3 = sum;
+      const sum = columnHeight(colOf(x + (c & 1), z + (c >> 1)), ka, kb);
+      if (sum < 0) return false;
+      ring[(1 + (c & 1)) * 4 + 1 + (c >> 1)] = sum;
       total += sum;
     }
     // Height in local cells: (y − W) + total / (4 · full); kept within [y, y + 2] (the cube's samples ± half a cell).
@@ -268,10 +458,62 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
     place[0] = (x + 2) * STEPS;
     place[1] = (y - W + 1) * STEPS + Math.round((total * STEPS) / (4 * DENSITY_FULL));
     place[2] = (z + 2) * STEPS;
-    place[3] = -(s1 + s3 - s0 - s2) / (2 * DENSITY_FULL);
-    place[4] = 1;
-    place[5] = -(s2 + s3 - s0 - s1) / (2 * DENSITY_FULL);
     return true;
+  };
+
+  /**
+   * A lattice vertex's normal into place[3…5] (its position in place[0…2]),
+   * from the column heights round it: over the 4 × 4 columns (tent-weighted,
+   * a gradient across two to three cells) when each is a height function
+   * over the two cells either side of the cell boundary nearest the
+   * vertex's height, so the 4-bit fill's rounding (up to 1/30 cell a column)
+   * does not band a gentle slope; else across the cube's own four columns.
+   * The window follows the vertex's height, not the cube's, so every cube of
+   * a stack, in any section or chunk, gives the vertex the same normal.
+   */
+  const latticeNormal = (x: number, z: number): void => {
+    // The cell boundary nearest the vertex's height (positions count from one cell below the chunk): the window, cells
+    // fh − 2 … fh + 1, keeps half a cell or more either side of the vertex and stays inside the field (heights −1 … e + 1).
+    const fh = Math.round(place[1]! / STEPS) - 1;
+    const ka = fh - 2 + R;
+    const kb = fh + 1 + R;
+    let wide = true;
+    for (let k = 0; k < 16; k++) {
+      const col = colOf(x - 1 + (k >> 2), z - 1 + (k & 3));
+      // Neighbouring vertices mostly share a window: each column keeps its last answer.
+      let h: number;
+      if (heightStamp[col] === now && heightAt[col] === ka) {
+        h = heightOf[col]!;
+      } else {
+        h = columnHeight(col, ka, kb);
+        heightStamp[col] = now;
+        heightAt[col] = ka;
+        heightOf[col] = h;
+      }
+      if (h < 0) {
+        wide = false;
+        break;
+      }
+      wide16[k] = h;
+    }
+    let gx = 0, gz = 0;
+    if (wide) {
+      // Per row: (h₂ + h₃ − h₀ − h₁) / 4, the least-squares slope of four columns weighted 1, 3, 3, 1; the rows
+      // weighted the same way (summing to 8).
+      for (let k = 0; k < 4; k++) {
+        const w = TENT[k]!;
+        gx += w * (wide16[8 + k]! + wide16[12 + k]! - wide16[k]! - wide16[4 + k]!);
+        gz += w * (wide16[4 * k + 2]! + wide16[4 * k + 3]! - wide16[4 * k]! - wide16[4 * k + 1]!);
+      }
+      gx /= 32 * DENSITY_FULL;
+      gz /= 32 * DENSITY_FULL;
+    } else {
+      gx = (ring[9]! + ring[10]! - ring[5]! - ring[6]!) / (2 * DENSITY_FULL);
+      gz = (ring[6]! + ring[10]! - ring[5]! - ring[9]!) / (2 * DENSITY_FULL);
+    }
+    place[3] = -gx;
+    place[4] = 1;
+    place[5] = -gz;
   };
 
   /** The cube's corners into `corner` and its gradient normal (outward: density rises into the ground) into place[3…5]. */
@@ -288,7 +530,6 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
     place[4] = -gy;
     place[5] = -gz;
   };
-
   /** Mean of the edge crossings, cube-relative, into place[0…2]. */
   const placeMean = (): void => {
     let fx = 0, fy = 0, fz = 0, k = 0;
@@ -354,10 +595,29 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
     place[2] = (a00 * (a11 * b2 - b1 * a12) - a01 * (a01 * b2 - b1 * a02) + b0 * (a01 * a12 - a11 * a02)) / det;
   };
 
+  /**
+   * Whether the cube's vertex sits on an edge or corner of the voxels: its
+   * inside corners are not one half of the cube, and every crossing edge has
+   * a whole cell or a whole air cell at one end (a smooth density surface
+   * slanting through the cube leaves both ends of some edge partly full).
+   */
+  const creaseVertex = (): boolean => {
+    let mask = 0;
+    for (let c = 0; c < 8; c++) if (corner[c]! >= SURFACE_ISO) mask |= 1 << c;
+    if (HALF_CUBE[mask] !== 0) return false;
+    for (let ed = 0; ed < 12; ed++) {
+      const da = corner[EDGE_A[ed]!]!;
+      const dc = corner[EDGE_C[ed]!]!;
+      if (da >= SURFACE_ISO === dc >= SURFACE_ISO) continue;
+      if (da !== DENSITY_FULL && dc !== DENSITY_FULL && da !== 0 && dc !== 0) return false;
+    }
+    return true;
+  };
+
   /** Whether any of the cube's eight cells is a crease (cube corners are cells −1 … e: resolved). */
-  const sharp = (x: number, y: number, z: number): boolean => {
+  const anyOf = (table: Uint8Array, x: number, y: number, z: number): boolean => {
     const j = ((x + ps) * s + (z + ps)) * s + (y + ps);
-    return (SHARP[cls[j]!]! | SHARP[cls[j + 1]!]! | SHARP[cls[j + s]!]! | SHARP[cls[j + s + 1]!]! | SHARP[cls[j + s * s]!]! | SHARP[cls[j + s * s + 1]!]! | SHARP[cls[j + s * s + s]!]! | SHARP[cls[j + s * s + s + 1]!]!) === 1;
+    return (table[cls[j]!]! | table[cls[j + 1]!]! | table[cls[j + s]!]! | table[cls[j + s + 1]!]! | table[cls[j + s * s]!]! | table[cls[j + s * s + 1]!]! | table[cls[j + s * s + s]!]! | table[cls[j + s * s + s + 1]!]!) === 1;
   };
 
   const vertexOf = (x: number, y: number, z: number): number => {
@@ -365,13 +625,14 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
     const had = dual[key]!;
     if (had >= 0) return had;
     let v: number;
-    const crease = sharp(x, y, z);
+    const crease = anyOf(SHARP, x, y, z);
     if (!crease && placeLattice(x, y, z)) {
-      // Cubes of one stack at one height share the vertex (the column's normal is the same for each of them).
+      // Cubes of one stack at one height share the vertex (its normal does not depend on which cube found it).
       const lk = ((x + 1) * d1 + (z + 1)) * 0x20000 + place[1]!;
       const shared = lattice.get(lk);
       if (shared === undefined) {
-        v = addVertex(place[0]!, place[1]!, place[2]!, place[3]!, place[4]!, place[5]!);
+        latticeNormal(x, z);
+        v = addDual(place[0]!, place[1]!, place[2]!, place[3]!, place[4]!, place[5]!, false);
         lattice.set(lk, v);
       } else {
         v = shared;
@@ -384,7 +645,8 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
       const qz = inside(z, place[2]!);
       // Off the cube's centre line, where only a column-lattice vertex may sit.
       const qx = qx0 === (x + 2) * STEPS && qz === (z + 2) * STEPS ? qx0 + 1 : qx0;
-      v = addVertex(qx, inside(y, place[1]!), qz, place[3]!, place[4]!, place[5]!);
+      const split = (crease || anyOf(CREASE, x, y, z)) && creaseVertex();
+      v = addDual(qx, inside(y, place[1]!), qz, place[3]!, place[4]!, place[5]!, split);
     }
     dual[key] = v;
     return v;

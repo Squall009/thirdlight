@@ -980,7 +980,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v4 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v5 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1017,7 +1017,7 @@ hash results; they are never stored.
 | rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
 | liquid | no | none (49) | no / no | 0 |
 
-**Outputs per chunk.** A result records `v` (derived format version 4), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 5), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1077,6 +1077,19 @@ chunk):
   (R + 1 = 3), so invalidation is unchanged; a narrower pad is refused, and a test meshes random terrain with the
   job's pad and 3 cells more and gets the same bytes. With rules that set no features (placeholder), creases are
   placed as plain nets. The naive surface nets of v3 live on in the bench as the goldens' "before".
+- **Ground normals (v5).** A column-lattice vertex takes the slope of the column heights round it: over the 4 × 4
+  columns (weights 1, 3, 3, 1 each way) when each is a height function over the two cells either side of the cell
+  boundary nearest the vertex's height (a window that follows the vertex, not the cube, so every cube, section and
+  chunk gives it the same normal), else over its cube's four. One cell's slope of 4-bit fills rounds by up to 1/30
+  cell a column and banded 1:5 slopes by up to 6°; the wider slope keeps them within 2°. Other vertices take their
+  cube's sample gradient. **Creases split:** a vertex whose cube touches a cliff, terrace-lip, overhang, thin or
+  spike cell, whose inside corners are not one half of the cube and whose crossing edges each have a whole cell or
+  a whole air cell at one end (an edge or corner of the voxels, not a smooth surface slanting through them) is a
+  crease vertex; each quad whose face turns more than `CREASE_SPLIT_DEG` (10°) from the vertex's gradient takes a
+  copy of the vertex carrying the face's normal (Newell's, from the quad's four placed positions, so every section
+  and chunk gets the same copies; copies with equal snorm8 normals are one vertex). One position can therefore
+  appear in several vertices; consumers that weld (collision: Rapier merges duplicate vertices) are unaffected.
+  Gentle and steep ground never split.
 - The base surface is a reference producer (one quad per exposed face); 46c (kits and cases) replaces it, writing
   the same layout or bumping the version.
 
@@ -1187,7 +1200,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 4 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 5 | refused | rebuilt, never upgraded |
 
 **Derived data 3 → 4 (46b.3b, owner note: default chosen, owner to confirm).** The layout is unchanged (12-byte
 vertices, u16/u32 indices); the meaning of the ground's vertex positions changed (the terrain mesher's placement,
@@ -1195,6 +1208,11 @@ vertices, u16/u32 indices); the meaning of the ground's vertex positions changed
 Derived data is never stored, so there is nothing to upgrade: everything is derived again. The streamed worlds
 (slice page, Play, the Scene view) derive with `WORLD_RULES` = the terrain rules (`terrain` v1, R 2). No stored
 format changed.
+
+**Derived data 4 → 5 (46b.4, owner note: default chosen, owner to confirm).** The layout is unchanged; the meaning of
+the ground's normals changed (lattice vertices' wider slope, split crease vertices: a position may appear in more
+than one vertex, each with its face's normal), so the version steps. Nothing is stored, nothing to upgrade, no world
+regenerated.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
