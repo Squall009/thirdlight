@@ -105,7 +105,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.7a | done 327a806b (+ d6744249 boundary, 6dccf2b9): `RuntimeVoxels` + `VoxelWorldHost` a `voxelWorld`, ports injected; `ctx.voxels` get (null off-ring), set/dig/paint read at once, body/mesh/shader in one swap, `changes`, `whenResident` → `waits`. Node 4 m dig: step 3.5–6.1 ms (first 17–19), edit → change 8–16 ms. Fast gate green; voxel-world.e2e 17.3 → 17.7 s. |
 | 46a.7b | done 41f8fb70 (+ 0d309961, 4cfafdf1): world runs with the sim (worker, or page), Play reads the locator's range route, derive workers started in the sim worker; one transferred batch a streamer task drawn by `VoxelWorldDraws`; bodies wait for voxel collision. Edit → screen 16–17 ms (1 / 2 frames) worker / single. voxel-world.e2e 17.7 → 36.4 s. D444 opened, D445 fixed. |
 | 46a.7c | done 73ea05cf: voxel surface and pieces placed with a 64-bit camera-relative model-view per draw (no re-base needed): 8 km vertex error 1.3 µm vs 0.56 mm; Play e2e plays the world 8 km out on both renderers. Dig on a debug command, not a 5 s wait: voxel-world.e2e 36.4 → 24.5 s. D444 fixed, D446 opened (other objects far out). |
-| 46a.8 | not started |
+| 46a.8 | done eb0dc688: `ctx.voxels.setSavedFields`, `save()` (save file v2, answered later as bytes + base64 text), `restore(bytes\|text, 'save'\|'base')` into the overlay, never the base (unloaded chunks' entries land with them), mismatches reported. Save of 10 / 100 1 m digs: 1.8 / 17.7 KB. Play e2e saves, restarts, restores (both renderers). voxel-world.e2e 24.5 → 26.6 s. D447 opened. |
 | 46a.9 | not started |
 | 46a.10 | not started |
 | 46a.11 | not started |
@@ -487,6 +487,46 @@ before, WebGL 2 after: ground, wall, banister, the pit). Jitter with a moving ca
 the end, uptime 10 d 11.0 h): the whole of 46a.7b's dig wait won back; the rest of the growth since 46a.7a's 17.7 s is
 the two Play tests' own streaming and checks.
 
+**46a.8** (eb0dc688). **Restore into the overlay.** `VoxelStreamer.setSave`/`putSaveEntry` (which wrote a save's
+entries into the base store as chunks loaded, through the worker's `apply-save`) are replaced by `restoreSave(entries,
+onMismatch)`: the overlay is cleared and each entry of the world's grid goes into it; a resident chunk's entry is laid
+over it at once (`PendingRestore.apply` in `stream-overlay.ts`: the base hash from the store's chunk, then only the
+player's cells written into the overlay, `applySaveChunk(…, false)`: on the base it was made against that is the saved
+chunk whole) and the cells it changed are rebuilt in one group with the dropped overrides; any other entry waits
+(counted in `bytes.overlay`, written again unchanged by a `saveChunks` made meanwhile) and is laid over its chunk in
+`land`, before the chunk is resident, so no read sees the base without it. The base store stays the files' content,
+so a save made after a restore hashes the shipped chunks. The worker job `apply-save` stays (spec §3.6) but the
+streamer no longer uses it. **`ctx.voxels`** (world and top level): `setSavedFields(fields)` (the component's
+`savedFields` until set; a new run resets it; false for an unknown field), `save()` → an id answered in
+`ctx.voxels.saves` at a later step (`{save, world, ok, bytes, text, chunks, message?}`: save file v2, not compressed,
+`text` its base64 for a save document), `restore(bytes | text, 'save' | 'base')` → `{ok, edit, chunks}` or a refusal
+(`invalid`: another world's save, a broken one, bad text or choice; `not_resident`: the world not open yet), reported
+as a change after its swap; each mismatched chunk once in `ctx.voxels.mismatches` (`{world, chunk, kept}`). The
+connection gives the world's id (`VoxelWorldConnection.worldId`, from the manifest in Play).
+Tests: `stream.test.ts` (4 real workers, region files on disk, derives on): restored before its chunk loads (waits, in
+the budget, saved again unchanged), then the base equals the files, the overlay over it equals the oracle with the
+entry laid over it, only the player's cells are overrides, every derive equals the truth's, saved again the same
+entry; restored after (a game edit dropped, read at once, its group swaps, same checks); a changed base with `base`
+(reported, the files stand, saves nothing) and `save` (reported, the player's cells, saved against the files now).
+`world-host.test.ts` (real runtime, Node workers, region files, real Rapier): dig + rain, saved (bytes = text, the
+default fields), every field saved is bigger; a restart reads the files again (body back on the ground), the restore
+reads the pit air and the rim dry in the same step, the body drops after its swap, saved again the same bytes; another
+world's save, a truncated one, bad text and a bad choice refused, nothing changed; world b opened from a scene loaded
+later restores while nothing is resident (reads null) and reads the pit air once it lands; entries with changed base
+hashes reported once each, `base` keeps the files, `save` the hole. Save sizes (default fields, 1 m balls at the
+ground, each at its own spot of a 10 × 10 grid 4.8 m apart; Node, load ~3): 10 digs 1,848 B in 4 chunks (2,464
+chars as text), 100 digs 17,707 B in 17 chunks (23,612 chars); uncompressed (the runtime has no zstd compressor; the
+spec's zstd figure is 0.3–0.5 MB after 1,000 strokes).
+E2E (`voxel-world.e2e.ts` Play, both renderers): after the dig the script wets the ground beside the pit (reads 7),
+saves (`text` into the game's save document, slot 1, `setSaveSchema` one slot), the game restarts (`replay`: the pit
+filled, the character on the pad again, pixels changed), the script loads the slot and restores: pit air, wetness 0
+(`get`), the character falls again, pixels changed > 500. Pictures looked at: WebGPU restarted and restored (pit
+back), WebGL 2 restored. The wet patch itself was not photographed (wetness gone is the script's read; unverified by
+eye). Fast gate (gate-fast-20261103-034607): GREEN, 11 min, 4.5 GB peak, village perf at the cap 0 missed on both
+renderers; vitest `stream.test.ts` 'times out a slow job …' (worker pool, untouched) failed once and passed alone
+(load ~4.8). `voxel-world.e2e.ts` 24.5 → 26.6 s (7.6 + 4.4 + 4.9 + 5.0 + 4.7 s; the Play tests 3.8 + 3.5 → 5.0 + 4.7
+s; load 3.8 at the start, uptime 10 d 11.3 h).
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -666,5 +706,20 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   (the game's own way for tools to drive a play), so the test waits on the world's residency and the character's
   landing, not a fixed time; the world it plays is the slice world written 8 km out (the near world is the slice
   page's, in the other tests).
+- 2026-11-03 (46a.8, default chosen, owner to confirm): **`save()` answers at a later step**, not at once: a save
+  reads the base of edited chunks that left again (46a.3's decision: a save costs reads, play costs nothing), and
+  hooks are synchronous, so the bytes come in `ctx.voxels.saves` like `waits`. A save is **not compressed** (no zstd
+  compressor in the browser; fzstd only decompresses); `restore` refuses a compressed save. The game's save
+  document holds JSON only (D447), so the answer carries the bytes and the same as base64 text, and `restore` takes
+  either.
+- 2026-11-03 (46a.8, default chosen, owner to confirm): **`restore` replaces the game's changes** (the overlay is
+  cleared first) and needs the world open (`not_resident` before; `whenResident` tells). **The mismatch choice is a
+  value given with the restore** (`'save'`: the player's cells over the new files; `'base'`: the files), not a
+  callback per chunk: a chunk that loads later is decided outside any hook, where a script function cannot run;
+  every mismatched chunk is reported in `mismatches`, so a game that wants another outcome there edits it. No
+  default: the game always names its choice. The `report` mode of the streamer's old `setSave` is gone (reporting
+  is always on).
+- 2026-11-03 (46a.8, default chosen, owner to confirm): **the saved fields are per run**: `setSavedFields` lasts
+  until the next restart (the component's `savedFields` again), like the overlay itself.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
