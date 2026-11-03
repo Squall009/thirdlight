@@ -103,7 +103,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 |---|---|
 | 46b.1 | done (this commit; fast gate green): `features` world (14 cases, analytic solids, 83 probes), harness `mesh-cases.ts`, goldens, `slice-world --kind features`. Reference: all closed, every probe kept; max error 4.4–5.0 cm on slopes, 12–23 cm at creases; mean 1.7–4.3 cm; 5.4–12.3 k triangles a case. Broken meshes fail. Voxel e2e 47.9 → 43.8 s (untouched). |
 | 46b.2 | done (this commit; fast gate green): `terrain-rules.ts`, rule set `terrain` v1 (placeholder rules + 8 ground features, R 2, apron unchanged), registered; conformance on random assembly + terrain worlds at 16/32; every hard case classified as named; derived bytes unchanged. Evaluation a 16³ ground section p50 92–116 µs vs placeholder 38–45 (Node). |
-| 46b.3a | not started |
+| 46b.3a | done (this commit; fast gate green): `mesher-candidates.ts` (reference, lattice, dc, lattice+dc, mc), `run.mjs mesher`. Pick (owner to confirm): column-lattice nets + DC at the rules' creases. Slice/hilly triangles −11 %, heightfield chunks 0 → 32/33 %, slope mean error 2.7 → 0.4 cm, one golden miss (bump rim +2.8 cm); µs/section +30 (caves/vertical over budget). |
 | 46b.3b | not started |
 | 46b.4 | not started |
 | 46b.5 | not started |
@@ -197,6 +197,98 @@ Fast gate (gate-fast-20261103-101542, uptime 10 d 17 h, load 4.8–6.4): vitest 
 (`start.e2e.ts` stop exited 1), passed on the rerun (gate-rerun-20261103-102738, GREEN, perf at the cap in limits);
 `voxel-world.e2e.ts` 48.1 s (not touched; 43.8 s at 46b.1, the host's load).
 
+### 46b.3a mesher candidates
+
+`tools/voxel-bench/mesher-candidates.ts`: five ground meshers over one density field (terrain-role cells' shape
+density, the whole job neighbourhood), each writing the derive's 12-byte ground layout so the harness, the heightfield
+check and byte counts apply unchanged. **reference**: the derive's surface nets (tested equal to the derive's ground,
+triangle for triangle). **lattice**: nets whose dual cube over a height function (its four sample columns each full at
+the bottom of a 6-cell window, empty at the top, never filling again upward) puts its vertex on the column lattice
+(the cube's centre x/z, a cell corner) at the four columns' mean fill height; that height does not depend on the
+window's start, so stacked cubes of a column weld into one vertex and the quads between them collapse; vertices
+more than half a cell outside the cube's sample span fall back to the mean. **dc**: QEF placement (crossing planes from
+the cube's own trilinear gradient, pulled 0.05 toward the crossings' mean, clamped to the cube) only in cubes touching
+a cell the rules call cliff or terrace lip; central-difference normals first gave pit 17.6 / hole 24.4 cm (the
+one-cell gap bent them), the in-cube gradient fixed it. **lattice+dc**: crease first, then lattice, then mean.
+**mc**: marching cubes on the same samples, the case table built from the cube's faces (each run of inside corners on a
+face cut off by one segment; ambiguous faces separate the inside corners, a face-local rule, so neighbours agree).
+`run.mjs mesher` (`mesher-cli.ts`) measures all of them; one sweep, report `~/.cache/thirdlight-phase46/work/46b.3a/
+sweep/mesher.md` (Node 22, i5-12600H, 2026-11-03 10:46, uptime 10 d 18 h, load 3.5–3.8; an earlier sweep with the
+slice at ±384 cells agreed within 4 % on µs).
+
+Hard cases (triangles in the box / max / mean error, cm; ! misses its golden; every candidate closed, every probe kept):
+
+| Case | reference | lattice | dc | lattice+dc | mc |
+|---|---|---|---|---|---|
+| slope-1:20 | 5,768 / 5.0 / 2.7 | 5,408 / 3.1 / 0.4 | = ref | 5,408 / 3.1 / 0.4 | 5,772 / 5.9 / 2.8 ! |
+| slope-1:5 | 6,885 / 4.4 / 1.8 | 5,408 / 2.2 / 0.6 | = ref | 5,408 / 2.2 / 0.6 | 6,896 / 5.8 / 2.4 ! |
+| bank-1:1 | 8,052 / 12.0 / 1.7 | 6,796 / 9.9 / 1.5 | = ref | 6,796 / 9.9 / 1.5 | 8,053 / 6.7 / 1.8 ! |
+| cliff-20m | 9,568 / 17.3 / 2.8 | 9,568 / 15.9 / 1.3 | 14.2 / 2.8 | 9,568 / 14.2 / 1.3 | 16.7 / 2.7 |
+| terraces-1 | 6,344 / 15.0 / 3.9 | 5,408 / 16.7 / 3.9 ! | 12.2 / 3.6 | 6,344 / 12.2 / 3.1 | 12.5 / 3.4 |
+| terraces-2 | 6,864 / 15.0 / 4.3 | 6,136 / 16.7 / 3.5 ! | 13.3 / 3.7 | 6,864 / 13.3 / 3.3 | 15.0 / 3.7 |
+| overhang | 9,568 / 15.0 / 2.6 | 15.0 / 2.1 | 15.0 / 2.6 | 9,568 / 15.0 / 2.0 | 15.0 / 2.4 |
+| arch | 7,544 / 23.3 / 2.7 | 23.3 / 2.0 | 17.6 / 2.5 | 7,544 / 17.6 / 1.9 | 16.7 / 2.4 |
+| cave | 12,316 / 23.3 / 2.7 | 12,168 / 23.3 / 2.3 | 17.6 / 2.5 | 12,190 / 17.6 / 2.1 | 16.7 / 2.2 |
+| wall-1, spike-1 | 16.7 / 2.7, 2.6 | 16.7 / 2.0, 1.8 | = ref | 16.7 / 2.0, 1.8 | 16.7 / 2.4 !, 2.5 ! |
+| pit-1, hole-1 | 16.7 / 2.6, 2.5 | 16.7 / 1.7, 1.9 | 12.6 / 2.5, 14.2 / 2.4 | 12.6 / 1.7, 14.2 / 1.8 | 16.7 / 2.5 !, 2.2 ! |
+| bumps | 6,384 / 13.3 / 2.6 | 5,688 / 16.1 / 2.4 ! | 13.3 / 2.7 ! | 5,840 / 16.1 / 2.4 ! | 6,384 / 10.0 / 2.5 |
+| golden failures | 0 | 4 | 1 | 1 (bump rim max) | 9 |
+
+Worlds (ground triangles; vertex KB at 12 B; heightfield chunks of ground chunks; µs a 16³ section with ground,
+terrain rules' evaluation + mesh, p50 / p95; the evaluation alone 95–126 p50):
+
+| World (window) | reference | lattice+dc | lattice | mc | dc µs |
+|---|---|---|---|---|---|
+| slice (±192 cells) | 663,980; 4,139 KB; 0/324; 251/308 | 589,944 (−11 %); 3,692 KB; 104/324 (32 %); 281/323 | 589,824; 104; 268/302 | 663,950; 0; 276/356 | 262/330 |
+| hilly (192²) | 166,320; 0/81; 247/302 | 147,456 (−11 %); 27/81 (33 %); 273/309 | 147,456; 27; 261/292 | 166,306; 0; 268/319 | 257/319 |
+| plain (192²) | 148,312; 21/72; 238/339 | 147,456; 36/72 (50 %); 259/327 | same; 36; 247/297 | 148,312; 0; 261/284 | 248/371 |
+| caves (192²) | 1,434,266; 0/285; 349/556 | 1,353,357 (−6 %); 0; 440/779 | 1,312,326 (−9 %); 1; 379/626 | 1,434,170; 0; 362/538 | 407/710 |
+| vertical (128²) | 1,654,524; 0/674; 281/396 | 1,570,428 (−5 %); 0; 355/549 | 1,541,951; 3; 304/446 | 1,654,222; 0; 299/394 | 332/504 |
+| town (512²) | 1,315,712 (+ base 1,409,686); 197/605; 234/289 | 1,315,192; 197; 262/377 | 1,314,984; 197; 247/329 | 1,313,408; 197; 258/297 | 252/363 |
+| features row | 315,366; 263/330 | 310,598; 301/452 | 308,148; 283/353 | 313,176; 284/334 | 281/440 |
+
+Reading:
+- The slice window here (±192 cells round the scene, the collision bench's) holds 0.66 M ground triangles; the page's
+  0.90 M ring is larger, so 46b.11b re-measures it in the browser. The bench reference's ground equals the derive's
+  on the slice and the town (same counts).
+- Heightfields: the not-heightfield chunks of the lattice candidates are the world's underside (`facing`: the chunk
+  under each column, 144 of 324 in the slice, 36 of 81 hilly), ground that leaves the chunk through its top or bottom
+  (`uncovered`: 72 slice, 18 hilly) and built chunks; of the slice's top-surface chunks 104 of 180 (58 %) are
+  heightfields, plain all 36. `deviation` (vertices off the lattice) is gone. MC's vertices sit at cell centres (the
+  lattice shifted half a cell), so even plain ground fails the lattice check (0 %, reference 29 %).
+- Flat ground (horizontal triangles): slice 1 %, hilly 0 %, plain 25 %, town 39 %, features 27 %. Natural ground is
+  never exactly level, so a coplanar merge takes little outside towns and pads; the triangles there go with coarser
+  levels (46b.6–8), which the lattice candidates make a regular grid problem.
+- Cost: lattice +15–30 µs (the height-function test reads four columns of six cells a cube; caching it a column is the
+  first saving), the crease QEF +10–90 µs where the rules call cliffs (caves, vertical). Mesh alone (total less the
+  evaluation): slice reference ~150, lattice+dc ~180 µs; caves 223 → 314, vertical 176 → 250 (over the 0.1–0.2 ms
+  budget; the reference already misses caves). The bench builds the density field over the whole 22³ neighbourhood
+  for every candidate (the product's reference reads 18³), the same for all.
+
+Flat-ground reduction and LOD seams per candidate:
+- reference / dc: a horizontal patch's vertices sit on the lattice (only vertical sample edges cross), so coplanar
+  quads can merge into larger polygons that keep every boundary vertex of their non-flat neighbours (no T-junction);
+  sloped ground is off the lattice and never merges. Seams: finer-side stitch strip between the fine node's boundary
+  dual cubes and the coarse node's (the plan's default).
+- lattice / lattice+dc: everything above plus every height-function vertex on the lattice: a coarser pattern over
+  the lattice (a restricted quadtree, the heightfield LOD the editor's terrain already uses) needs no new topology,
+  and a coarse level's nodes are every second fine node, so a ground seam is a 2 : 1 fan with the fine boundary
+  nodes snapped to the coarse heights (a coarse node's mean fill height differs from the fine one at the same x/z by
+  up to the level's quantization); non-lattice cubes (creases, caves) take the stitch strip. Exact coplanar merging
+  of slopes fails (4-bit fill makes their heights not exactly planar).
+- mc: flat patches merge as with the reference; seams would be Transvoxel transition cells (published tables to
+  import, their licence to check) — the one place it would win, not enough for 9 golden misses, no triangle saving
+  and no heightfield.
+
+Tests (`mesh-cases.test.ts`): the bench reference equals the derive's ground triangle for triangle (20 k+ triangles of
+the row); MC and lattice+dc close every case with no degenerate triangle and keep every probe; lattice+dc meets the
+goldens within 3 cm (only the bump rim needs it) with less than half the reference's mean error and fewer triangles on
+both slopes; the lattice makes hilly ground chunks heightfields where the reference makes none. Tests 14.2 s alone
+(the 46b.1 tests ~5 s of it; +9 s: two candidates over the row), 15.8 s in the gate. Fast gate
+(gate-fast-20261103-104840, uptime 10 d 18 h, load 3.5–3.8): vitest (see-through D311/D435 timing, passed alone) and
+lint green, e2e red only on D417 (`start.e2e.ts` stop), passed on the rerun (gate-rerun-20261103-110039, GREEN, perf at
+the cap in limits); `voxel-world.e2e.ts` 47.9 s (not touched; 48.1 s at 46b.2).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -250,8 +342,26 @@ Fast gate (gate-fast-20261103-101542, uptime 10 d 17 h, load 4.8–6.4): vitest 
 - 2026-11-03 (46b.2): **the slice and Play keep the placeholder rules until 46b.3b** switches them to `terrain`
   (nothing reads the features before the mesher; switching now would add ~50–70 µs a ground section for nothing).
 
+- 2026-11-03 (46b.3a, default chosen, owner to confirm): **the terrain mesher is the column-lattice surface nets
+  with dual-contouring placement where the rules say cliff or terrace lip** (`lattice+dc`). Against the reference it
+  keeps the nets' topology, edge ownership and section join (crack-free unchanged), cuts slice/hilly ground triangles
+  11 % and vertex bytes 11 %, turns 32–33 % of slice/hilly ground chunks into heightfields (0 % today; 58 % of the
+  slice's top-surface chunks), cuts slope mean error 2.7 → 0.4 cm (1:20) and sharpens cliffs, terraces, arch, cave,
+  pit and hole; costs +30 µs a section p50. Lattice alone loses terraces (no crease placement); DC alone keeps the
+  triangles and gains no heightfield; marching cubes misses 9 goldens, saves nothing and its vertices are off the
+  heightfield lattice. Its one golden miss (a bump's concave rim, +2.8 cm max, mean better) is accepted with the
+  goldens' slack at 3 cm (logged here, owner to confirm). Over budget on caves (314 µs mesh p50) and the vertical world
+  (250): 46b.3b measures again after caching the column test.
+- 2026-11-03 (46b.3a): **flat-ground merging is not the triangle lever on natural ground**: exactly level triangles
+  are 0–1 % of the slice and hilly ground (25 % plain, 39 % town), so 46b.5 merges built faces and level patches
+  only; terrain triangles come down through coarser levels over the lattice (46b.6–8).
+- 2026-11-03 (46b.3a): the lattice test reads raw cell roles 2 cells past the chunk (inside the job's 3-cell pad, past
+  the consumers' 1-cell reach): 46b.3b states the mesher's reach and keeps conformance covering it, or reads classes
+  if ground ever depends on more than the role.
+
 ## 9. Open questions for the owner
 
 - Ring distances (64/128/192 m) and whether 46b should also reach past the load ring or leave that to 46d's far field.
 - Whether one composed rule set per world (terrain + construction) is right, or terrain should be selectable per world.
+- The terrain mesher pick (46b.3a: column-lattice nets + crease placement) and the 3 cm slack it needs at a bump's rim.
 - Deferring the displacement prototype to 46d (with the material model) instead of a 46b experiment.

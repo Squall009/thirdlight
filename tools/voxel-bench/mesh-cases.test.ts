@@ -4,11 +4,15 @@
  * recorded goldens, and meshes broken on purpose (a hole torn, vertices
  * moved, a feature removed, a hole covered) fail them.
  */
-import { voxel } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, deriveFromStore, groundHeightfield, PLACEHOLDER_RULES, voxel } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { FEATURE_GROUND, featureCases, featuresStore } from './features';
 import { REFERENCE_GOLDENS } from './mesh-goldens';
-import { goldenFailures, meshFeatures, measureCases, referenceMesher, type WorldMesh } from './mesh-cases';
+import { goldenFailures, meshFeatures, measureCases, referenceMesher, type CaseResult, type WorldMesh } from './mesh-cases';
+import { chunkMesherOf, MESHER_CANDIDATES, mesherCandidate } from './mesher-candidates';
+import { triangleList } from './mesh-compare';
+import { loadArea } from './regions';
+import { hillyWorld } from './worlds';
 
 const G = FEATURE_GROUND;
 const cases = featureCases();
@@ -128,5 +132,63 @@ describe('the golden harness', () => {
     const f = failures({ positions: P, triangles: Uint32Array.from([...reference.triangles, ...cover]) });
     expect(f).toContainEqual('hole-1: lost through the hole');
     expect(f.filter((m) => m.includes('open edges'))).toEqual([]);
+  });
+});
+
+describe('the terrain mesher candidates', () => {
+  let cached: CaseResult[] | null = null;
+  const latticeDc = (): CaseResult[] => (cached ??= measureCases(meshFeatures(store, chunkMesherOf(mesherCandidate('lattice+dc'))), cases));
+
+  it('the bench reference is the derive\'s ground surface, triangle for triangle', () => {
+    const bench = chunkMesherOf(mesherCandidate('reference'));
+    let compared = 0;
+    for (let cx = 0; cx < 28; cx += 3) for (const cy of [-1, 0, 1]) for (const cz of [0, 1]) {
+      const derived = deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES).ground;
+      expect(triangleList(bench(store, cx, cy, cz)), `${cx},${cy},${cz}`).toEqual(triangleList(derived));
+      compared += derived.indices.length / 3;
+    }
+    expect(compared).toBeGreaterThan(20000);
+  });
+
+  // The other candidates combine these two's placements on the same nets (bench report only).
+  it('marching cubes (its face-built case table) and the column lattice with crease placement close every hard case and keep every feature', { timeout: 30_000 }, () => {
+    expect(MESHER_CANDIDATES.map((m) => m.name)).toEqual(['reference', 'lattice', 'dc', 'lattice+dc', 'mc']);
+    for (const name of ['mc', 'lattice+dc']) {
+      const results = name === 'lattice+dc' ? latticeDc() : measureCases(meshFeatures(store, chunkMesherOf(mesherCandidate(name))), cases);
+      for (const r of results) {
+        expect(r.openEdges, `${name} ${r.name}`).toBe(0);
+        expect(r.degenerate, `${name} ${r.name}`).toBe(0);
+        expect(r.lost, `${name} ${r.name}`).toEqual([]);
+      }
+    }
+  });
+
+  it('the column lattice with crease placement meets the goldens within 3 cm and is far closer on slopes', { timeout: 30_000 }, () => {
+    const results = latticeDc();
+    // The slack covers one place: the concave rim of a bump, where a lattice vertex lies on a ramp across a cell.
+    expect(results.flatMap((r) => goldenFailures(r, REFERENCE_GOLDENS[r.name]!, 0.03))).toEqual([]);
+    expect(results.flatMap((r) => goldenFailures(r, REFERENCE_GOLDENS[r.name]!))).toEqual([expect.stringMatching(/^bumps: max error /)]);
+    for (const name of ['slope-1:20', 'slope-1:5']) {
+      const r = results.find((c) => c.name === name)!;
+      expect(r.meanErrorM, name).toBeLessThan(REFERENCE_GOLDENS[name]!.meanErrorM / 2);
+      expect(r.triangles, name).toBeLessThan(REFERENCE_GOLDENS[name]!.triangles);
+    }
+  });
+
+  it('the column lattice makes hilly ground chunks heightfields where the reference makes none', () => {
+    const grid = chunkGrid(32);
+    const hilly = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 512 }).grids[0]!, hilly, 0, 0, 160, 160);
+    const count = (name: string): number => {
+      const mesh = chunkMesherOf(mesherCandidate(name));
+      let n = 0;
+      for (let cx = 1; cx < 4; cx++) for (let cz = 1; cz < 4; cz++) for (let cy = -4; cy < 8; cy++) {
+        const buf = mesh(hilly, cx, cy, cz);
+        if (buf.indices.length > 0 && typeof groundHeightfield(buf, grid.edge) !== 'string') n++;
+      }
+      return n;
+    };
+    expect(count('reference')).toBe(0);
+    expect(count('lattice')).toBeGreaterThan(0);
   });
 });
