@@ -31,9 +31,12 @@
  * - **Memory.** Node cells, derived results and bookkeeping are one part of
  *   the stream budget; a node whose chunks unload loses its result and,
  *   once none is left, its cells.
- * - **Seams.** The seams between the levels drawn (stream-seams.ts) are
- *   kept here too: a node's new result goes in together with the seams
- *   rebuilt from it, and the seams' bytes are part of this budget share.
+ * - **Seams and levels.** The seams between the levels drawn
+ *   (stream-seams.ts) and the choice of which level is drawn where
+ *   (stream-lod.ts) are kept here too: a node's new result goes in together
+ *   with the seams rebuilt from it, a drawn node that loses its result
+ *   leaves the levels drawn at once, and the seams' bytes are part of this
+ *   budget share.
  */
 import { apronTransfer, buildApron, dependentChunks } from './apron';
 import { rulesRef, type AssemblyRuleSet } from './assembly';
@@ -45,8 +48,10 @@ import { createWorldStore, type PaletteStore } from './palette-store';
 import type { CellBox } from './stroke';
 import type { DeriveInput, DeriveOutput, MipInput, MipOutput } from './stream-job';
 import type { SeamSurface } from './lod-seam';
-import { DEFAULT_LEVEL0_DRAW_RADIUS, MIP_RING_HYSTERESIS_CELLS, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing } from './stream-ring';
-import { ringSelection, StreamSeams, type SeamEvent, type SeamHold } from './stream-seams';
+import { DrawnLevels, levelNodeDistance, type LevelRings } from './lod-select';
+import { MIP_RING_HYSTERESIS_CELLS, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
+import { StreamLod, type LevelEvent } from './stream-lod';
+import { StreamSeams, type SeamEvent, type SeamHold } from './stream-seams';
 import { MipStaleSet, type MipNode } from './voxel-mips';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
 
@@ -73,9 +78,13 @@ export interface MipHost {
   /** A resident chunk as the game sees it, as a payload of its own arrays. */
   chunkPayload(cx: number, cy: number, cz: number): ChunkPayload;
   focus(): Focus;
+  /** The load ring (the level choice covers its unload bounds). */
+  readonly ring: StreamRing;
   /** A level-0 chunk's drawn derive-section surfaces near a plane, for the seams (undefined: one has no result yet). */
   chunkSurfaces(cx: number, cy: number, cz: number, axis: number, plane: number): SeamSurface[] | undefined;
-  emit(e: MipEvent | SeamEvent): void;
+  /** Whether every derive section of a resident chunk has a result (it can be drawn). */
+  chunkReady(cx: number, cy: number, cz: number): boolean;
+  emit(e: MipEvent | SeamEvent | LevelEvent): void;
   poke(): void;
 }
 
@@ -118,6 +127,8 @@ export class StreamMips {
   readonly counters = { downsamples: 0, derives: 0, staleRefused: 0 };
   /** The seams between the levels drawn (stream-seams.ts). */
   readonly seams: StreamSeams;
+  /** Which level is drawn where (stream-lod.ts). */
+  readonly lod: StreamLod;
   private readonly rings: ReadonlyMap<number, number>;
   /** Nodes by level (index 0 unused), by key within the level. */
   private readonly levels: Array<Map<number, Node>> = [];
@@ -132,6 +143,7 @@ export class StreamMips {
   constructor(
     private readonly host: MipHost,
     rings: readonly MipRing[],
+    levelRings: LevelRings,
   ) {
     const levels = new Map<number, number>();
     for (const r of rings) {
@@ -148,9 +160,6 @@ export class StreamMips {
       this.levels.push(new Map());
       this.stores.push(createWorldStore(host.grid, `mip-${l}`));
     }
-    // Level 0 drawn to its radius, each kept level to its ring's (a level not kept: as the one below).
-    const radii = [DEFAULT_LEVEL0_DRAW_RADIUS];
-    for (let l = 1; l < this.maxLevel; l++) radii.push(levels.get(l) ?? radii[l - 1]!);
     this.seams = new StreamSeams(
       {
         grid: host.grid,
@@ -164,7 +173,19 @@ export class StreamMips {
         emit: (e) => host.emit(e),
         poke: () => host.poke(),
       },
-      ringSelection(host.grid, () => host.focus(), radii, this.maxLevel),
+      new DrawnLevels(host.grid, this.maxLevel),
+    );
+    this.lod = new StreamLod(
+      {
+        grid: host.grid,
+        maxLevel: this.maxLevel,
+        ring: host.ring,
+        seams: this.seams,
+        focus: () => host.focus(),
+        ready: (l, nx, ny, nz) => (l === 0 ? host.isResident(nx, ny, nz) && host.chunkReady(nx, ny, nz) : this.drawnResult(l, nx, ny, nz) !== undefined),
+        emit: (e) => host.emit(e),
+      },
+      levelRings,
     );
   }
 
@@ -222,6 +243,7 @@ export class StreamMips {
 
   /** A chunk left: its ancestors lose their results at once (they are no longer complete) and are rebuilt without it. */
   chunkDropped(cx: number, cy: number, cz: number): void {
+    this.lod.lost(0, cx, cy, cz);
     this.stale.markChanged([{ cx, cy, cz }]);
     for (let l = 1; l <= this.maxLevel; l++) {
       const n = this.levels[l]!.get(chunkKey(this.host.grid, cx >> l, cy >> l, cz >> l));
@@ -260,7 +282,6 @@ export class StreamMips {
 
   /** The focus moved: results past their ring (and its hysteresis) are dropped, and the levels drawn may change. */
   focusMoved(): void {
-    this.seams.selectionChanged();
     for (const [l, radius] of this.rings) {
       for (const n of this.levels[l]!.values()) {
         if ((n.fresh || n.deriveJob !== 0) && this.distance(n) > radius + MIP_RING_HYSTERESIS_CELLS) this.dropDerived(n);
@@ -273,7 +294,7 @@ export class StreamMips {
     if (this.jobs.size > 0) return true;
     for (const m of this.stale.nodes()) if (this.childrenSettled(m)) return true;
     for (const n of this.unfresh) if (this.derivable(n)) return true;
-    return this.seams.pending();
+    return this.lod.pending() || this.seams.pending();
   }
 
   /** Sends what can go: node rebuilds lowest level first, then derives, within `ms` of main-thread time and the pool's room. */
@@ -292,6 +313,7 @@ export class StreamMips {
       }
       if (this.derivable(n)) room -= this.derive(n);
     }
+    this.lod.update();
     this.seams.request();
   }
 
@@ -307,13 +329,7 @@ export class StreamMips {
 
   /** Horizontal box distance (cells) from the focus to a node. */
   private distance(n: MipNode): number {
-    const f = this.host.focus();
-    const size = this.host.grid.edge * 2 ** n.level;
-    const x0 = n.nx * size;
-    const z0 = n.nz * size;
-    const dx = Math.max(0, x0 - f.x, f.x - (x0 + size));
-    const dz = Math.max(0, z0 - f.z, f.z - (z0 + size));
-    return Math.sqrt(dx * dx + dz * dz);
+    return levelNodeDistance(this.host.grid, [this.host.focus()], n);
   }
 
   /** Whether a node's cells are what its children hold now (not waiting for a rebuild, none running). */
@@ -497,6 +513,7 @@ export class StreamMips {
     this.recount(n);
     this.host.emit({ type: 'node', level: n.level, nx: n.nx, ny: n.ny, nz: n.nz, removed: d === null });
     if (alone) this.seams.nodeChanged(n.level, n.nx, n.ny, n.nz);
+    this.lod.changed();
   }
 
   /** A held result is no longer what the node's inputs give (they changed, or it left): it and its seams go. */
@@ -519,6 +536,8 @@ export class StreamMips {
       this.host.emit({ type: 'node', level: n.level, nx: n.nx, ny: n.ny, nz: n.nz, removed: true });
       this.seams.nodeChanged(n.level, n.nx, n.ny, n.nz);
     }
+    // Drawn with no result (nothing to draw) or with one, it can no longer be drawn.
+    this.lod.lost(n.level, n.nx, n.ny, n.nz);
   }
 
   /** Keeps a node of a kept level in the set of those to derive (levels kept only as the next one's children are never derived). */

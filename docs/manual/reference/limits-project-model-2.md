@@ -374,7 +374,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-voxel-world-defaults"></a>`VOXEL_WORLD_DEFAULTS` | `{"ring":{"loadRadius":192,"unloadRadius":224,"loadHeight":96,"unloadHeight":128},"collision":{"radius":48,"height":24},"sectionEdge":16,"savedFields":["material","role","shape"]}` | The voxel format's defaults in metres, as a world without its own settings streams. |
+| <a id="limit-voxel-world-defaults"></a>`VOXEL_WORLD_DEFAULTS` | `{"ring":{"loadRadius":192,"unloadRadius":224,"loadHeight":96,"unloadHeight":128},"collision":{"radius":48,"height":24},"levels":{"level0":64,"level1":128},"sectionEdge":16,"savedFields":["material","role","shape"]}` | The voxel format's defaults in metres, as a world without its own settings streams. |
 
 <a id="limits-project-model--wind"></a>
 ## `wind.ts`

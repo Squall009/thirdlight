@@ -66,10 +66,12 @@ import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
 import type { DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, StoredChunk } from './stream-job';
 import { StreamMips, type MipEvent } from './stream-mips';
+import type { LevelEvent } from './stream-lod';
 import type { SeamEvent } from './stream-seams';
+import type { LevelRings } from './lod-select';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
-import { checkRing, chunkDistance2, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
+import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
@@ -136,6 +138,11 @@ export interface VoxelStreamerOptions {
    * from the resident chunks, never stored.
    */
   readonly mips?: readonly MipRing[];
+  /**
+   * Where each level is drawn, with mips (default
+   * {@link DEFAULT_LEVEL_RINGS}): `mips.lod` chooses, from it and the foci.
+   */
+  readonly levels?: LevelRings;
 }
 
 /**
@@ -149,7 +156,10 @@ export interface VoxelStreamerOptions {
  * `node` names a chunk-tree node whose derived result changed
  * ({@link VoxelStreamer.mips}); `seams` names the seams between levels
  * built and dropped in one swap (`mips.seams`), just before the `swap` or
- * after the `node` event of what changed them.
+ * after the `node` event of what changed them; `levels` names the nodes
+ * drawn and no longer drawn (`mips.lod`): a change of the levels drawn,
+ * just after the `seams` event of the same swap, or nodes that can no
+ * longer be drawn.
  */
 export type StreamEvent =
   | { readonly type: 'loaded' | 'unloaded'; readonly cx: number; readonly cy: number; readonly cz: number }
@@ -157,7 +167,8 @@ export type StreamEvent =
   | { readonly type: 'damaged'; readonly cx: number; readonly cy: number; readonly cz: number; readonly reason: string }
   | { readonly type: 'mismatch'; readonly cx: number; readonly cy: number; readonly cz: number; readonly applied: boolean }
   | MipEvent
-  | SeamEvent;
+  | SeamEvent
+  | LevelEvent;
 
 type Phase = 'reading' | 'decoding' | 'resident' | 'damaged';
 
@@ -352,8 +363,11 @@ export class VoxelStreamer {
               setPart: (cx, cy, cz, part, bytes) => this.setPart(cx, cy, cz, part, bytes),
               emit: (e) => {
                 this.emit(e);
-                // A chunk's drawn surfaces changed: the seams reading them follow (a group's own are rebuilt in its swap).
-                if (e.type === 'chunk' && !e.shaderOnly) this.mips?.seams.chunkChanged(e.cx, e.cy, e.cz);
+                // A chunk's drawn surfaces changed: the seams reading them follow (a group's own are rebuilt in its swap), and it may be drawable now.
+                if (e.type === 'chunk' && !e.shaderOnly) {
+                  this.mips?.seams.chunkChanged(e.cx, e.cy, e.cz);
+                  this.mips?.lod.changed();
+                }
               },
               poke: () => this.poke(),
               seamHold: (chunks, surfaces, ready) => this.mips?.seams.holdChunks(chunks, surfaces, ready) ?? null,
@@ -376,11 +390,14 @@ export class VoxelStreamer {
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
               chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
               chunkSurfaces: (cx, cy, cz, axis, plane) => this.derives?.seamSurfaces(cx, cy, cz, axis, plane),
+              chunkReady: (cx, cy, cz) => this.derives?.chunkReady(cx, cy, cz) ?? false,
+              ring: this.ring,
               focus: () => this.focus,
               emit: (e) => this.emit(e),
               poke: () => this.poke(),
             },
             rings,
+            opts.levels ?? DEFAULT_LEVEL_RINGS,
           )
         : null;
   }

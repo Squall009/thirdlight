@@ -4,7 +4,7 @@
  * nothing added), and the defaults taken from the voxel format.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_COLLISION_RING, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, VOXEL_SIZE_M } from '@thirdlight/voxel';
 
 import type { ModelErrorV2 } from './errors';
 import { validatePrefabDefinitions } from './content';
@@ -20,6 +20,7 @@ const FULL: VoxelWorldComponent = {
   world: 'town_1',
   ring: { loadRadius: 120, unloadRadius: 150, loadHeight: 60, unloadHeight: 80 },
   collision: { radius: 40, height: 20 },
+  levels: { level0: 50, level1: 100 },
   sectionEdge: 32,
   savedFields: ['material', 'shape', 'wetness'],
 };
@@ -48,22 +49,25 @@ describe('the voxelWorld component', () => {
     expect(errorsOf('town')).toEqual(['field_type ']);
     expect(errorsOf({ world: 'Town' })).toEqual(['field_value /world']);
     expect(errorsOf({ world: 'a'.repeat(65) })).toEqual(['field_value /world']);
-    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], climate: 1 })).toEqual([
+    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, levels: { level0: 0, level1: '9', level2: 300 }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], climate: 1 })).toEqual([
       'field_unexpected /climate',
       'field_unexpected /ring/near',
       'field_value /ring/loadRadius',
       'field_value /ring/unloadRadius',
       'field_value /collision/radius',
       'field_value /collision/height',
+      'field_unexpected /levels/level2',
+      'field_value /levels/level0',
+      'field_value /levels/level1',
       'field_value /sectionEdge',
       'field_value /savedFields/1',
       'field_value /savedFields/2',
     ]);
-    expect(errorsOf({ world: 'w', ring: 5, collision: [], savedFields: 'material' })).toEqual(['field_type /ring', 'field_type /collision', 'field_type /savedFields']);
+    expect(errorsOf({ world: 'w', ring: 5, collision: [], levels: 64, savedFields: 'material' })).toEqual(['field_type /ring', 'field_type /collision', 'field_type /levels', 'field_type /savedFields']);
   });
 
   it('keeps every field through the scene validator and the canonical bytes, in order, adding nothing', () => {
-    const shuffled = { savedFields: ['wetness', 'material', 'shape'], sectionEdge: 32, collision: { height: 20, radius: 40 }, ring: { unloadHeight: 80, loadHeight: 60, unloadRadius: 150, loadRadius: 120 }, world: 'town_1' };
+    const shuffled = { savedFields: ['wetness', 'material', 'shape'], sectionEdge: 32, levels: { level1: 100, level0: 50 }, collision: { height: 20, radius: 40 }, ring: { unloadHeight: 80, loadHeight: 60, unloadRadius: 150, loadRadius: 120 }, world: 'town_1' };
     const doc = canonicalScene([{ id: 'world-000001', components: { transform: T, voxelWorld: shuffled } }]);
     const vw = componentsOf(doc, 'world-000001')['voxelWorld'];
     expect(JSON.stringify(vw)).toBe(JSON.stringify(FULL));
@@ -71,8 +75,11 @@ describe('the voxelWorld component', () => {
     // A second pass is the same bytes.
     expect(JSON.stringify(canonicalScene((doc['entities'] as { id: string }[]).filter((e) => e.id !== CAMERA.id)))).toBe(JSON.stringify(doc));
     // A bare world stays bare: the defaults are the engine's, not written into the project.
-    const bare = canonicalScene([{ id: 'world-000001', components: { transform: T, voxelWorld: { world: 'w', ring: {}, savedFields: [] } } }]);
-    expect(componentsOf(bare, 'world-000001')['voxelWorld']).toEqual({ world: 'w', ring: {}, savedFields: [] });
+    const bare = canonicalScene([{ id: 'world-000001', components: { transform: T, voxelWorld: { world: 'w', ring: {}, levels: {}, savedFields: [] } } }]);
+    expect(componentsOf(bare, 'world-000001')['voxelWorld']).toEqual({ world: 'w', ring: {}, levels: {}, savedFields: [] });
+    // One level distance set keeps only that one.
+    const one = canonicalScene([{ id: 'world-000001', components: { transform: T, voxelWorld: { world: 'w', levels: { level1: 90 } } } }]);
+    expect(componentsOf(one, 'world-000001')['voxelWorld']).toEqual({ world: 'w', levels: { level1: 90 } });
   });
 
   it('is refused in a scene with a bad value, and in a prefab', () => {
@@ -94,6 +101,9 @@ describe('the voxelWorld component', () => {
     expect(r.collision).toEqual({ radius: DEFAULT_COLLISION_RING.radius * VOXEL_SIZE_M, height: DEFAULT_COLLISION_RING.height * VOXEL_SIZE_M });
     // The plan's numbers: collision 48 m across, 24 m up and down; 16³ sections; wetness not saved.
     expect(r.collision).toEqual({ radius: 48, height: 24 });
+    // The plan's level distances: full detail to 64 m, level 1 to 128 m (level 2 past it).
+    expect(r.levels).toEqual({ level0: DEFAULT_LEVEL_RINGS.radii[0]! * VOXEL_SIZE_M, level1: DEFAULT_LEVEL_RINGS.radii[1]! * VOXEL_SIZE_M });
+    expect(r.levels).toEqual({ level0: 64, level1: 128 });
     expect(r.sectionEdge).toBe(DEFAULT_SECTION_EDGE);
     expect(r.sectionEdge).toBe(16);
     expect(r.savedFields).toBe(DEFAULT_SAVED_FIELDS);
@@ -104,6 +114,9 @@ describe('the voxelWorld component', () => {
     const gap = (DEFAULT_STREAM_RING.unloadRadius - DEFAULT_STREAM_RING.loadRadius) * VOXEL_SIZE_M;
     expect(own.ring).toEqual({ loadRadius: 300, unloadRadius: 300 + gap, loadHeight: 50, unloadHeight: 50 });
     expect(own.collision).toEqual({ radius: 48, height: 8 });
+    // A level-1 distance inside level 0 is taken as it; one left out is the default.
+    expect(resolveVoxelWorld({ world: 'w', levels: { level0: 70, level1: 20 } }).levels).toEqual({ level0: 70, level1: 70 });
+    expect(resolveVoxelWorld({ world: 'w', levels: { level0: 30 } }).levels).toEqual({ level0: 30, level1: 128 });
     expect(own.sectionEdge).toBe(8);
     expect(own.savedFields).toBe(PLANE_BIT.wetness);
     expect(resolveVoxelWorld({ world: 'w', savedFields: [] }).savedFields).toBe(0);

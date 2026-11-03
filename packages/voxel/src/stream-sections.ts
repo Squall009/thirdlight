@@ -275,6 +275,13 @@ export class SectionDerives {
     return any ? results : null;
   }
 
+  /** Whether a chunk has sections and each has had a result (what it draws is known; air included). */
+  chunkReady(cx: number, cy: number, cz: number): boolean {
+    if (!chunkInWorld(this.host.grid, cx, cy, cz)) return false;
+    const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
+    return list !== undefined && list.every((s) => s.derived !== null);
+  }
+
   /**
    * A chunk's derive sections within a cell of a plane (`axis`, cells) as a
    * seam reads them: each section's drawn result (with `held`, the one

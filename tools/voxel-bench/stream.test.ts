@@ -52,9 +52,10 @@ import {
   buildFaceSeam,
   faceLevels,
   POSITION_STEPS_PER_CELL,
-  ringSelection,
   SURFACE_VERTEX_BYTES,
   type FaceSeam,
+  type LevelSelection,
+  levelNodeDistance,
   type NodeFace,
   type SeamEvent,
   type SeamKey,
@@ -79,6 +80,7 @@ import { instanceList, triangleList } from './mesh-compare';
 import { pickStore } from './regions';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
+import { checkLevels, chunkId, nodeChunks } from './lod-checks';
 
 const grid = chunkGrid(32);
 /** A 256 m hilly square centred on the origin: four region columns meet at (0, 0), stacks meet at y = 0. */
@@ -1294,11 +1296,10 @@ describe('streamer (workers, region files on disk)', () => {
     const midY = ((minCy + maxCy + 1) * 32) / 2;
     const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
     const ring: StreamRing = { loadRadius: 256, unloadRadius: 288, loadHeight: half, unloadHeight: half + 32, nearRadius: 96 };
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, deriveMsPerUpdate: 10_000, mips: [{ level: 1, radius: 160 }] });
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, deriveMsPerUpdate: 10_000, mips: [{ level: 1, radius: 160 }], levels: { radii: [48], hysteresis: 0 } });
     const seams = s.mips!.seams;
     const focus = { x: 0, y: midY, z: 0 };
     // Level 0 where its level-1 parent lies within 48 cells of the focus (the 2 × 2 nodes round it), level 1 past it.
-    seams.setSelection(ringSelection(grid, () => focus, [48], 1));
     const log: Array<{ type: string; e?: SeamEvent }> = [];
     s.on((e) => log.push(e.type === 'seams' ? { type: e.type, e } : { type: e.type }));
     const truth = copyOracle();
@@ -1348,7 +1349,7 @@ describe('streamer (workers, region files on disk)', () => {
       return buildFaceSeam({ edge: 32, level: 1, nx: k.nx, ny: k.ny, nz: k.nz, face: k.face, coarse: node(k.nx, k.ny, k.nz), coarseAround, fine });
     };
     /** Faces a selection wants on the derived level-1 nodes: drawn, with level 0 drawn across. */
-    const wanted = (sel: ReturnType<typeof ringSelection>): Set<string> => {
+    const wanted = (sel: LevelSelection): Set<string> => {
       const out = new Set<string>();
       for (const d of s.mips!.derived()) {
         if (!sel.drawn(1, d.nx, d.ny, d.nz)) continue;
@@ -1374,8 +1375,7 @@ describe('streamer (workers, region files on disk)', () => {
 
     s.setFocus(focus.x, focus.y, focus.z);
     await s.settle();
-    const sel48 = ringSelection(grid, () => focus, [48], 1);
-    const first = wanted(sel48);
+    const first = wanted(s.mips!.lod.drawn);
     // Every face the selection wants on the derived nodes has its seam, as a fresh build gives it; nothing else does.
     expect(first.size).toBeGreaterThan(8);
     expect(new Set(built().keys())).toEqual(first);
@@ -1389,10 +1389,9 @@ describe('streamer (workers, region files on disk)', () => {
     // Level 0 out to 80 cells: the faces it adds are built and those it drops removed in one `seams` event, nothing else.
     log.length = 0;
     const c0 = { ...seams.counters };
-    const sel80 = ringSelection(grid, () => focus, [80], 1);
-    seams.setSelection(sel80);
+    s.mips!.lod.setRings({ radii: [80], hysteresis: 0 });
     await s.settle();
-    const second = wanted(sel80);
+    const second = wanted(s.mips!.lod.drawn);
     const events = log.filter((l) => l.type === 'seams').map((l) => l.e!);
     expect(events.length).toBe(1);
     const added = [...second].filter((k) => !first.has(k)).sort();
@@ -1431,6 +1430,145 @@ describe('streamer (workers, region files on disk)', () => {
     checkFresh([fk]);
     console.log('seams', JSON.stringify(measured));
   }, 180_000);
+
+  it('chooses the levels drawn round a moving focus in real workers: every chunk drawn once across the levels at every task boundary, neighbours a level apart, a level change one swap with its seams, stable under jitter', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    let minCy = Infinity;
+    let maxCy = -Infinity;
+    for (const key of oracle.chunkKeys()) {
+      const c = chunkOfKey(grid, key);
+      minCy = Math.min(minCy, c.cy);
+      maxCy = Math.max(maxCy, c.cy);
+    }
+    const midY = ((minCy + maxCy + 1) * 32) / 2;
+    const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
+    // The default load ring over the whole height (past the hilly square the chunks are air); the levels at half the default distances.
+    const ring: StreamRing = { loadRadius: 384, unloadRadius: 448, loadHeight: half, unloadHeight: half + 32, nearRadius: 192 };
+    const levels = { radii: [64, 128], hysteresis: 16 };
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, mips: [{ level: 1, radius: 384 }, { level: 2, radius: 384 }], levels });
+    const lod = s.mips!.lod;
+    const seams = s.mips!.seams;
+    const stats = { events: 0, swaps: 0, lost: 0, doubled: 0, unbalanced: 0, uncovered: 0, pastReach: 0, bare: 0, seamsBefore: 0, notResident: 0, flips: 0 };
+    let lastType = '';
+    let now = { x: 0, y: 0, z: 0 };
+    let jitter: Set<string> | null = null;
+    s.on((e) => {
+      const before = lastType;
+      lastType = e.type;
+      if (e.type !== 'levels') return;
+      stats.events++;
+      // Every task that changes the levels drawn leaves them whole: each chunk under one node, neighbours a level apart.
+      const c = checkLevels(lod.drawn.nodes());
+      stats.doubled += c.doubled;
+      stats.unbalanced += c.unbalanced;
+      for (const n of lod.drawn.nodes()) {
+        const [x, y, z] = nodeChunks(n).next().value!;
+        if (!s.isResident(x, y, z)) stats.notResident++;
+      }
+      if (e.reason === 'lost') {
+        stats.lost++;
+        return;
+      }
+      stats.swaps++;
+      if (jitter !== null) {
+        // Under jitter a node may come in once (work the jitter's loads made possible), but never go and come back.
+        for (const n of [...e.added, ...e.removed]) {
+          const k = `${n.level}:${n.nx},${n.ny},${n.nz}`;
+          if (jitter.has(k)) stats.flips++;
+          jitter.add(k);
+        }
+      }
+      // A swap draws again all the space it stops drawing.
+      const added = new Set<string>();
+      for (const a of e.added) for (const [x, y, z] of nodeChunks(a)) added.add(chunkId(x, y, z));
+      // Except a finer level standing in for a coarser one that is not ready (at the load box's top and bottom, where the
+      // coarser nodes are never complete), which goes once it is past its reach: one node of the next level past its ring.
+      for (const r of e.removed) {
+        const atReach = levelNodeDistance(grid, [now], r) >= levels.radii[r.level]! + 32 * 2 ** (r.level + 1) - 4;
+        for (const [x, y, z] of nodeChunks(r)) if (!added.has(chunkId(x, y, z))) stats[atReach ? 'pastReach' : 'uncovered']++;
+      }
+      // And it comes with its seams: every face toward a finer level has one, built in the same task.
+      for (const n of lod.drawn.nodes()) {
+        if (n.level === 0) continue;
+        faceLevels(lod.drawn, 2, n.level, n.nx, n.ny, n.nz).forEach((l, f) => {
+          if (l === n.level - 1 && seams.seamOf(n.level, n.nx, n.ny, n.nz, f as NodeFace) === null) stats.bare++;
+        });
+      }
+      if (before === 'seams') stats.seamsBefore++;
+    });
+    /** After settling: every resident chunk with its result, within level 0's reach, is drawn once (itself or a node over it). */
+    const expectSettledCover = (focus: { x: number; z: number }): number => {
+      const c = checkLevels(lod.drawn.nodes());
+      let n = 0;
+      for (const key of oracle.chunkKeys()) {
+        const k = chunkOfKey(grid, key);
+        if (!s.isResident(k.cx, k.cy, k.cz) || s.derivedOf(k.cx, k.cy, k.cz, true) === null) continue;
+        const dx = Math.max(0, k.cx * 32 - focus.x, focus.x - (k.cx + 1) * 32);
+        const dz = Math.max(0, k.cz * 32 - focus.z, focus.z - (k.cz + 1) * 32);
+        if (Math.hypot(dx, dz) >= levels.radii[0]! + 64) continue;
+        expect(c.covered.has(chunkId(k.cx, k.cy, k.cz)), `${k.cx},${k.cy},${k.cz}`).toBe(true);
+        n++;
+      }
+      expect(c.doubled).toBe(0);
+      expect(c.unbalanced).toBe(0);
+      return n;
+    };
+
+    const focus = { x: -160, y: midY, z: 8 };
+    const move = (x: number, y: number, z: number): void => {
+      now = { x, y, z };
+      s.setFocus(x, y, z);
+    };
+    move(focus.x, focus.y, focus.z);
+    await s.settle();
+    expect(expectSettledCover(focus)).toBeGreaterThan(20);
+    const cold = { ...stats };
+    const c0 = { ...lod.counters };
+    // A 160 m flight along x at about 40 m/s: a 2 m step every ~50 ms of updates (the work streams behind it, as in a game).
+    const t0 = performance.now();
+    for (let step = 1; step <= 160; step++) {
+      focus.x = -160 + 2 * step;
+      move(focus.x, focus.y, focus.z);
+      for (let k = 0; k < 6; k++) {
+        s.update();
+        await sleep(8);
+      }
+    }
+    const flightMs = performance.now() - t0;
+    await s.settle();
+    expect(expectSettledCover(focus)).toBeGreaterThan(20);
+    const flight = { swaps: lod.counters.swaps - c0.swaps, levelChanges: lod.counters.levelChanges - c0.levelChanges, lost: lod.counters.lost - c0.lost, choices: lod.counters.choices - c0.choices };
+    expect(stats.doubled).toBe(0);
+    expect(stats.unbalanced).toBe(0);
+    expect(stats.uncovered).toBe(0);
+    expect(stats.bare).toBe(0);
+    expect(stats.notResident).toBe(0);
+    expect(flight.levelChanges).toBeGreaterThan(0);
+    expect(lod.drawn.countAt(0)).toBeGreaterThan(0);
+    expect(lod.drawn.countAt(1)).toBeGreaterThan(0);
+    expect(lod.drawn.countAt(2)).toBeGreaterThan(0);
+    expect(lod.counters.unbalanced).toBe(0);
+
+    // Jitter of 6 cells either way round the end (12 steps): no node flips, and the last six steps swap nothing.
+    jitter = new Set();
+    let swaps = -1;
+    for (let i = 0; i < 12; i++) {
+      if (i === 6) swaps = lod.counters.swaps;
+      move(focus.x + (i % 2 === 0 ? 6 : -6), focus.y, focus.z);
+      await s.settle();
+    }
+    expect(stats.flips).toBe(0);
+    expect(lod.counters.swaps - swaps).toBe(0);
+    const measured = {
+      flight: { ...flight, metres: 320 * 0.5, ms: Math.round(flightMs), swapMsP50: Number(lod.swapMs.quantile(0.5).toFixed(1)), swapMsP95: Number(lod.swapMs.quantile(0.95).toFixed(1)), swapMsMax: Number(lod.swapMs.quantile(1).toFixed(1)) },
+      events: { cold: cold.events, all: stats.events, seamsBefore: stats.seamsBefore, swaps: stats.swaps, lost: stats.lost, pastReach: stats.pastReach },
+      drawn: [0, 1, 2].map((l) => lod.drawn.countAt(l)),
+      planMsP50: Number(s.planMs.quantile(0.5).toFixed(2)),
+      planMsP95: Number(s.planMs.quantile(0.95).toFixed(2)),
+    };
+    console.log('levels', JSON.stringify(measured));
+  }, 300_000);
 
   it('builds the worker module for browsers with no Node built-ins, passing the export scan', async () => {
     const out = join(dir, 'browser-worker.mjs');

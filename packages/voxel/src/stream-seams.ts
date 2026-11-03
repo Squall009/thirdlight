@@ -4,11 +4,9 @@
  * same swap as whatever changed what they read.
  *
  * - **Selection.** A {@link LevelSelection} says which node of which level
- *   is drawn; a face of a drawn node of level L whose neighbours across it
- *   are drawn at L − 1 needs a seam, owned by that node. Until the level
- *   selection with hysteresis drives it, the static rings do
- *   ({@link ringSelection}: level 0 within the first radius, level 1 within
- *   the next, …).
+ *   is drawn (the level choice, stream-lod.ts, sets it); a face of a drawn
+ *   node of level L whose neighbours across it are drawn at L − 1 needs a
+ *   seam, owned by that node.
  * - **Inputs.** A face's seam reads its node's derived result, the results
  *   of its same-level neighbours beside the face (they close the node's rim)
  *   and the finer level's results against the face and beside it: nodes of
@@ -30,7 +28,6 @@ import type { DerivedData } from './derived-data';
 import type { SurfaceBuffer } from './derived-mesh';
 import type { DirtyTracker } from './dirty-tracker';
 import { seamBytes, type FaceSeam, type NodeFace, type SeamFaceInput, type SeamSurface } from './lod-seam';
-import type { Focus } from './stream-ring';
 import type { JobLane } from './stream-job';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
 
@@ -87,31 +84,6 @@ export function faceLevels(sel: LevelSelection, maxLevel: number, level: number,
     else out.push(-1);
   }
   return out;
-}
-
-/**
- * Static distance rings: a node of level L ≥ 1 is split into level L − 1
- * while its horizontal box distance from the focus is under `radii[L − 1]`
- * (cells); the top level `maxLevel` is never inside a coarser one. Radii
- * growing by at least a node of the next level keep neighbours within one
- * level of each other.
- */
-export function ringSelection(grid: ChunkGrid, focus: () => Focus, radii: readonly number[], maxLevel: number): LevelSelection {
-  const distance = (level: number, nx: number, nz: number): number => {
-    const f = focus();
-    const size = grid.edge * 2 ** level;
-    const dx = Math.max(0, nx * size - f.x, f.x - (nx + 1) * size);
-    const dz = Math.max(0, nz * size - f.z, f.z - (nz + 1) * size);
-    return Math.sqrt(dx * dx + dz * dz);
-  };
-  return {
-    drawn(level, nx, ny, nz) {
-      if (!Number.isInteger(level) || level < 0 || level > maxLevel) return false;
-      if (!chunkInWorld(grid, nx * 2 ** level, ny * 2 ** level, nz * 2 ** level)) return false;
-      if (level > 0 && distance(level, nx, nz) < radii[level - 1]!) return false;
-      return level === maxLevel || distance(level + 1, nx >> 1, nz >> 1) < radii[level]!;
-    },
-  };
 }
 
 /** What the seams need from the streamer and its mip levels. */
@@ -174,6 +146,8 @@ export class StreamSeams {
   /** The wanted faces are to be worked out again (a node landed or left); `batch`: the selection changed (one swap). */
   private stale = true;
   private batch = false;
+  /** Called when the selection's swap is in. */
+  private swapped: (() => void) | null = null;
 
   constructor(
     private readonly host: SeamHost,
@@ -201,9 +175,14 @@ export class StreamSeams {
     for (const e of this.entries.values()) if (!e.leaving) yield { key: e.key, seam: e.seam };
   }
 
-  /** Replaces the level selection (the selection with hysteresis drives it); its change is one swap. */
-  setSelection(sel: LevelSelection): void {
+  /**
+   * Replaces the level selection; its change is one swap: `swapped` is
+   * called in the task of its `seams` event (or, when no seam changes, of
+   * the next refresh), once every face it adds is built.
+   */
+  setSelection(sel: LevelSelection, swapped?: () => void): void {
     this.selection = sel;
+    this.swapped = swapped ?? null;
     this.selectionChanged();
   }
 
@@ -312,11 +291,19 @@ export class StreamSeams {
       return;
     }
     // One swap: the old seams stay drawn until every new one that can be built now is back.
+    const swapped = this.swapped;
+    this.swapped = null;
     for (const e of removed) e.leaving = true;
-    const hold = this.hold(added, { level: -1 }, 'mip', () => hold?.commit(), removed);
-    if (hold === null && removed.length > 0) {
-      for (const e of removed) this.drop(e);
-      this.host.emit({ type: 'seams', built: [], removed: removed.map((e) => e.key) });
+    const hold = this.hold(added, { level: -1 }, 'mip', () => {
+      hold?.commit();
+      swapped?.();
+    }, removed);
+    if (hold === null) {
+      if (removed.length > 0) {
+        for (const e of removed) this.drop(e);
+        this.host.emit({ type: 'seams', built: [], removed: removed.map((e) => e.key) });
+      }
+      swapped?.();
     }
   }
 
@@ -348,7 +335,7 @@ export class StreamSeams {
           if (!results.some((r) => r[0] === e)) this.dirty.add(e.id);
           if (e.seq !== seq) this.dirty.add(e.id);
         }
-        this.put(results, removing);
+        this.put(results, removing, true);
       },
       cancel: () => {
         if (committed) return;
@@ -378,19 +365,30 @@ export class StreamSeams {
     return hold;
   }
 
-  /** Puts built seams in (each only if no newer build of its face was sent since) and drops the removed ones; one event. */
-  private put(results: ReadonlyArray<readonly [Entry, number, FaceSeam]>, removed: readonly Entry[]): void {
+  /**
+   * Puts built seams in and drops the removed ones; one event. A streaming
+   * rebuild goes in only if no newer build of its face was sent since (or
+   * the face has none yet); a hold's always goes in, being part of the swap
+   * committing it, and a build still on its way is refused (the face is
+   * built again from the inputs as they are then).
+   */
+  private put(results: ReadonlyArray<readonly [Entry, number, FaceSeam]>, removed: readonly Entry[], held = false): void {
     const built: SeamKey[] = [];
     for (const [e, seq, seam] of results) {
       if (this.entries.get(e.id) !== e || e.leaving) continue;
-      if (e.seq !== seq) {
+      const newer = e.seq !== seq;
+      if (newer) {
         this.counters.superseded++;
-        continue;
+        if (!held && e.seam !== null) continue;
+        if (held) {
+          e.seq = ++this.seq;
+          this.dirty.add(e.id);
+        }
       }
       this.total += seamBytes(seam) - e.bytes;
       e.bytes = seamBytes(seam);
       e.seam = seam;
-      this.dirty.delete(e.id);
+      if (!newer) this.dirty.delete(e.id);
       this.counters.built++;
       built.push(e.key);
     }

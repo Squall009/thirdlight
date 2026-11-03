@@ -111,7 +111,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.6b | done (this commit; fast gate green): `stream-mips.ts`: nodes L1/L2 downsampled (`mip` jobs) and derived (`level`) in workers from resident chunks, lane `mip` last, `bytes.mips` in the budget, dig re-derives its 2 ancestors only. Slice ring (Node): 330 L1 + 13 L2 nodes, 6.4 MB (level 0 25.4 MB); µs a node p50 downsample 2,600, derive 1,600. |
 | 46b.7a | done (this commit; fast gate green): `lod-seams.ts`, `run.mjs seams`: 28 two-level patches (11 hard cases, hilly, caves, town; L0\|L1, L1\|L2), 2.8 M rays. Pick (owner to confirm): coarser side's transition strip + flaps where shapes differ: 0 cracks except a caves saddle (380 of 0.62 M rays, none 50,600), +42–45 tris and ~50–70 µs a fine face, L0 untouched. |
 | 46b.7b | done (5a1b790d, 1b8220cf; fast gates green): `lod-seam.ts` (strip, moved boundary copies, flaps; pieces in finer steps), `stream-seams.ts` (`LevelSelection`, `seam` jobs, held in the node's or edit's swap, a level change one `seams` event). 28 patches: 0 crack rays but the cave saddle 358 (pick 380; D462); +23–55 tris a fine face (caves 76 / 139); worker µs a face p50 62. |
-| 46b.8a | not started |
+| 46b.8a | done (this commit; fast gate green): `lod-select.ts` (choice by box distance, 8 m hysteresis, ready-only, stand-ins, 2 : 1), `stream-lod.ts` (a swap = `seams` + `levels` in one task), `voxelWorld.levels`. Default ring: L2 never complete, L1 stands in at the edge. 160 m flight: 23–28 level changes, swap p50 0.5 / p95 4.5–10 ms; 0 doubled, 0 unbalanced. |
 | 46b.8b | not started |
 | 46b.9 | not started |
 | 46b.10 | not started |
@@ -712,6 +712,64 @@ timing, passed alone), e2e red only on D417 (`start.e2e.ts` stop), GREEN on the 
 perf at the cap in limits); gate-fast-20261103-162326 (uptime 10 d 24.0 h, load 5.6): GREEN, 13 min, 5.0 GB peak.
 `voxel-world.e2e.ts` 50.5 s and 56.6 s (not touched; its pages now build seams after the mips; 55.6 s at 46b.7a).
 
+### 46b.8a level rings and selection
+
+**Choice** (`packages/voxel/src/lod-select.ts`, `chooseLevels`, pure): per top-level node over the unload bounds, a
+node of level L ≥ 1 splits while its horizontal box distance from the nearest focus is under `radii[L − 1]` (+ the
+hysteresis once split). Only ready nodes are drawn (a node: a result, `null` included; a chunk: every derive section
+has had one): a node wanted split whose children are not all ready stays whole (the old level stays until the new is
+there); a node wanted whole that is not ready is drawn as its children, a finer level standing in only to one node of
+the next level past its own ring (+ the hysteresis once drawn). Then 2 : 1: a drawn node facing nodes two or more
+levels finer is split while its children are ready; what cannot be mended is counted (`unbalanced`), never hidden.
+`DrawnLevels` is the `LevelSelection` the seams read. Defaults `DEFAULT_LEVEL_RINGS` (`stream-ring.ts`): radii 128 /
+256 cells (L0 to 64 m, L1 to 128 m, L2 past it), hysteresis 16 cells (8 m).
+
+**Streamer** (`stream-lod.ts`, `StreamLod`, `streamer.mips.lod`; the streamer class unchanged at 80 members): chooses
+again after a focus moved ≥ 1 cell, a node or chunk became ready or left, or the rings changed; a choice that differs
+from what is drawn becomes the seams' selection (`seams.setSelection(sel, swapped)`) and goes in only once every face
+it adds is built: a `seams` event, then a `levels` event (`reason: 'swap'`, nodes added and removed) in the same task.
+One swap is built at a time. A drawn node that loses its result or chunk leaves at once (`reason: 'lost'`). Extra
+foci (`lod.setFoci`): the runtime host passes the collision foci (characters), so level 0 is drawn round them too.
+`DEFAULT_MIP_RINGS` level 1 now reaches the load ring (384 cells, was 256), so it can stand in for level 2. A hold's
+seams now always go in with the swap committing them (a build still on its way is refused and the face rebuilt):
+the 46b.7b dig test failed once on this race (the edit's seam superseded by the ancestor's hold).
+
+**Component** (`voxelWorld.levels { level0?, level1? }`, metres, add-only, canonicalized field by field, refused
+outside 1–100,000 m or with unknown fields; `level1` below `level0` taken as it; inspector "Detail levels";
+reference regenerated, manual row). `worldLevelRings` (voxel) widens level 0 to the collision radius + its 8 m
+hysteresis, so a chunk with a collider is always drawn at level 0 (Play, the Scene view; the slice page keeps the
+defaults).
+
+Tests: `tools/voxel-bench/lod-select.test.ts` (pure, +5, 1.9 s, brute-force checks in `lod-checks.ts`): every chunk
+of 2 km × 256 m covered once, levels by distance from one or two foci, level 0 round both; hysteresis: a ±6-cell jitter
+round a ring flips the choice 20 of 20 steps without it, 0 with it; stand-ins (level 2 never ready, level 1 to 300 / 150
+cells) and refinement keeping the coarse node while a child is not ready; a no-level-1 band balanced (0 unbalanced),
+and reported when level 1 is never ready; `worldLevelRings` clamping. `stream.test.ts` (+1, real workers, region files,
+14 s alone): the hilly world, default load ring, levels at half the defaults (64 / 128 cells), cold fill then a 160 m
+flight at ~18 m/s (a 2 m step every ~50 ms of updates, work streaming behind): at every `levels` event 0 chunks
+doubled, 0 faces more than a level apart, every drawn node over resident chunks, no swap leaving space undrawn but
+stand-ins past their reach (552 chunk-events at the load box's top and bottom), no face toward a finer level without
+its seam; settled: every resident derived chunk within level 0's reach drawn once; level changes > 0, all three levels
+drawn; a ±6-cell jitter (12 steps): no node flips, the last 6 steps swap nothing. The seams test now drives the choice
+(`levels: { radii: [48] }`, then `lod.setRings([80])`: one `seams` event, the same faces). `voxel-world.test.ts`
+(project-model): fields survive the scene validator in order, refusals, resolve; descriptor size bound + 0.7 KB, the
+script-access digest re-pinned for the added optional field (schema 8).
+
+Measured (Node 22, i5-12600H, 4 workers; 17:15–17:16, uptime 11 d 0.8 h, load 5.0–5.4):
+- Test world flight (half rings): 127 swaps in 160 m (of them 28 level changes; the rest streaming in), 10 lost;
+  choice → swap ms p50 0.5 / p95 10.3 / max 61.
+- Slice world, default rings (scratch `~/.cache/thirdlight-phase46/work/46b.8a/lod-slice.mts`, 2 runs + 1 with
+  level 1 to 256): cold drawn 800 L0 chunks (stand-ins to 80 m near side), 350 L1 nodes (near side to 158 m), **no L2**
+  (13 L2 nodes derive, all within ~100 m, where L1 or L0 is wanted); a 160 m flight at ~33 m/s: 72 swaps, 23 level
+  changes, swap ms p50 0.5 / p95 4.5 / max 118; streamer update ms p50 0.78 / p95 2.6 / max 19.5 (the choice and the
+  seams' refresh inside it). Level 1 to the load ring: mip bytes 6.5 → 8.2 MB cold (9.4 after the flight), level-1
+  nodes derived 277 → 373, with the old ring 41 level changes in the same
+  flight (cause not traced).
+Fast gate (gate-fast-20261103-171632, uptime 11 d 0.8–1.1 h, load 5–7.5): GREEN, 15 min, 5.6 GB peak, perf at the cap in
+limits; vitest failed once only on `stream.test.ts` (the worker-pool timeout test, D454, and the refresh test at 5.07 s
+of its 5 s default; neither builds mips) and `scan-bounded-log.test.ts` (D418), all passed alone in the gate's rerun.
+`voxel-world.e2e.ts` 62 s (sum of its tests; not touched; 56.6 s at 46b.7b, the host's load).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -892,6 +950,25 @@ perf at the cap in limits); gate-fast-20261103-162326 (uptime 10 d 24.0 h, load 
 - 2026-11-03 (46b.7b): **the cave saddle stays open** (D462, 358 rays at one place, 0.06 %); the voxel-sample strip
   was not tried in this item.
 
+- 2026-11-03 (46b.8a, default chosen, owner to confirm): **the outer ring draws a lower level, the ring does not
+  grow.** A level-2 node (64 m) is complete only where the chunks of the level-1 nodes round it are resident: in the
+  192 m load ring that is about 100 m out, inside level 1's 128 m ring, so by default level 2 is never drawn and
+  level 1 stands in from 128 m to where its own nodes end (~160 m near side; level 1 is kept derived to the load
+  ring for this, +1.7 MB). Growing the load ring until level 2 reaches 192 m needs ~288 m of chunks (2.25× the area
+  and its bytes, past the low tier's budget). Level 2 appears with a larger load ring or the far field (46d).
+- 2026-11-03 (46b.8a, default chosen, owner to confirm): **stand-ins reach one node of the next level past their
+  ring** (level 0 to 96 m, level 1 to 192 m by default, + 8 m once drawn), so the far edge is never drawn at full
+  detail. Consequence: at the top and bottom of the load box (96 m up and down) coarse nodes are never complete, so
+  a band of one level-1 node (32 m) there is drawn only within 96 m (before: level 0 to the load ring); a mountain
+  rising more than ~64 m above the camera loses its top past 96 m until the load height is raised.
+- 2026-11-03 (46b.8a, default chosen, owner to confirm): **"level 0 covers edits" is read as level 0 covers where
+  characters act**: level 0 reaches the collision radius + its 8 m hysteresis round the stream focus and every
+  collision focus; an edit further out shows at the level drawn there (its ancestors re-derive, 46b.6b), as 46b.8b's
+  "an edit in the L1 ring shows" expects.
+- 2026-11-03 (46b.8a): **a swap waits only for seams.** A choice includes only ready nodes, so the old level stays
+  drawn where the new one is not ready (by the choice itself), and the swap waits only for the faces it adds; one swap
+  builds at a time, so a flight never starves it (p95 4.5–10 ms, max 61–118 ms under streaming load).
+
 ## 9. Open questions for the owner
 
 - Ring distances (64/128/192 m) and whether 46b should also reach past the load ring or leave that to 46d's far field.
@@ -899,3 +976,4 @@ perf at the cap in limits); gate-fast-20261103-162326 (uptime 10 d 24.0 h, load 
 - The terrain mesher pick (46b.3a: column-lattice nets + crease placement) and the 3 cm slack it needs at a bump's rim.
 - Deferring the displacement prototype to 46d (with the material model) instead of a 46b experiment.
 - Seams by the coarser side's transition strip (46b.7a) instead of the finer side's stitch, and the residual hole at a cave saddle the levels connect differently.
+- Level 2 not drawn in the default 192 m load ring (46b.8a: level 1 stands in at the edge) — grow the ring, or leave level 2 to 46d's far field.

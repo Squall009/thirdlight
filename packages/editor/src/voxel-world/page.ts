@@ -234,8 +234,8 @@ async function main(): Promise<void> {
       ring?.ring.unloaded(e.cx, e.cy, e.cz);
       return;
     }
-    // Draws and bodies follow the chunk view's `chunk` events (above); level nodes and their seams are not drawn here yet.
-    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'node' || e.type === 'seams') return;
+    // Draws and bodies follow the chunk view's `chunk` events (above); level nodes, their seams and the levels chosen are not drawn here yet.
+    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'node' || e.type === 'seams' || e.type === 'levels') return;
     if (e.type === 'shader') {
       // Only the shader data changed (material or wetness): bodies stand as they are; the view uploads the chunk's grid.
       for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);

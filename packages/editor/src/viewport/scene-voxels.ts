@@ -112,7 +112,7 @@ export class SceneVoxels {
       const s = settings.get(name)!;
       this.start();
       this.open.set(name, key);
-      this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, sectionEdge: s.sectionEdge });
+      this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: s.levels, collision: s.collision, sectionEdge: s.sectionEdge });
       if (this.focusSent !== null) this.post({ t: 'focus', x: this.focusSent[0], y: this.focusSent[1], z: this.focusSent[2] });
     }
   }

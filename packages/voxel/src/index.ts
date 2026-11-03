@@ -230,15 +230,17 @@ export { JobQueue } from './job-queue';
 export { defaultVoxelWorkers, eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { DEFAULT_STREAM_READS, FocusMotion, readOrder, STREAM_PREFETCH_SECONDS, type WantedChunk } from './stream-reads';
-export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_LEVEL0_DRAW_RADIUS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
+export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
 export { StreamMips, type MipEvent, type MipHost } from './stream-mips';
-export { faceLevels, ringSelection, StreamSeams, type LevelSelection, type SeamEvent, type SeamHold, type SeamHost, type SeamKey } from './stream-seams';
+export { checkLevelRings, chooseLevels, DrawnLevels, levelNodeDistance, type LevelChoice, type LevelChoiceStats, type LevelNode, type LevelRings } from './lod-select';
+export { StreamLod, type LevelEvent, type LodHost } from './stream-lod';
+export { faceLevels, StreamSeams, type LevelSelection, type SeamEvent, type SeamHold, type SeamHost, type SeamKey } from './stream-seams';
 export { COLLISION_ADD_MS_PER_UPDATE, COLLISION_PART, COLLISION_RING_HYSTERESIS_CELLS, CollisionRing, collisionRingBounds, type CollisionBodies, type CollisionRingBounds, type CollisionRingFeed, type CollisionRingOptions, type CollisionRingUpdate } from './collision-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { joinCollision, joinInstances, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawFeed, type ChunkDrawWire, type ChunkSwapWire } from './chunk-batch';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
-export { worldStreamer, worldStreamRing, type WorldRingMetres } from './world-streamer';
+export { worldLevelRings, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres } from './world-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
 export {
   ASSEMBLY_CLASS,

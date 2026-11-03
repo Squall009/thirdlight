@@ -338,6 +338,8 @@ export class VoxelWorldHost {
     if (s === null || this.disposed) return;
     const f = toCells(foci.stream);
     s.setFocus(f.x, f.y, f.z);
+    // Level 0 is drawn round every collision focus too: what a character touches is what is drawn.
+    s.mips?.lod.setFoci(foci.collide.map(toCells));
     s.update();
     if (this.ring !== null) {
       this.ring.setFoci([f, ...foci.collide.map(toCells)]);

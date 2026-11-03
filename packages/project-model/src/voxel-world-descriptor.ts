@@ -5,7 +5,7 @@
  *
  * Pure data.
  */
-import { SECTION_EDGES, VOXEL_PLANES } from '@thirdlight/voxel';
+import { COLLISION_RING_HYSTERESIS_CELLS, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { enm, ID, int, list, num, obj, str } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
@@ -17,6 +17,8 @@ const metres = (key: string, label: string, tooltip: string, value?: number): Re
 /** An unload distance left empty keeps the default ring's gap past its load distance. */
 const gapRadius = D.ring.unloadRadius - D.ring.loadRadius;
 const gapHeight = D.ring.unloadHeight - D.ring.loadHeight;
+/** How far past the collision radius a chunk keeps its collider (level 0 reaches at least that far). */
+const colliderKeep = COLLISION_RING_HYSTERESIS_CELLS * VOXEL_SIZE_M;
 
 export const voxelWorld: ComponentDescriptor = {
   name: 'voxelWorld',
@@ -34,6 +36,10 @@ export const voxelWorld: ComponentDescriptor = {
     obj('collision', 'Collision ring', 'Where loaded chunks have colliders round a focus (never past the load ring).', [
       metres('radius', 'Radius', 'Metres across the ground.', D.collision.radius),
       metres('height', 'Height', 'Metres above and below.', D.collision.height),
+    ]),
+    obj('levels', 'Detail levels', 'Where the world is drawn coarser, from full detail near the camera and characters to 2 m voxels far out (level 0 always covers the collision ring).', [
+      metres('level0', 'Full detail', `Metres across the ground within which the world is drawn at full detail (0.5 m voxels); at least the collision radius + ${colliderKeep} m.`, D.levels.level0),
+      metres('level1', 'Level 1', 'Metres across the ground within which 1 m voxels are drawn; past it, 2 m voxels to the load ring (below full detail: taken as it).', D.levels.level1),
     ]),
     int('sectionEdge', 'Section edge', 'Voxels along the edge of the sections a chunk is rebuilt in after an edit: smaller rebuilds less per edit, larger draws fewer pieces.', { values: SECTION_EDGES, default: D.sectionEdge }),
     list('savedFields', 'Saved fields', "The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again).", enm('field', 'Field', 'A voxel field.', VOXEL_PLANES), { unique: true, default: [...D.savedFields] }),

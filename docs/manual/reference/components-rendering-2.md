@@ -131,5 +131,8 @@ Streams one of the project's voxel worlds (voxels/<world>/) round the camera whi
 | `collision` | object |  |  | **Collision ring.** Where loaded chunks have colliders round a focus (never past the load ring). (scripts read) |
 | `collision.radius` | number | `48` | 1 – 100000, step 1, m | **Radius.** Metres across the ground. |
 | `collision.height` | number | `24` | 1 – 100000, step 1, m | **Height.** Metres above and below. |
+| `levels` | object |  |  | **Detail levels.** Where the world is drawn coarser, from full detail near the camera and characters to 2 m voxels far out (level 0 always covers the collision ring). (scripts read) |
+| `levels.level0` | number | `64` | 1 – 100000, step 1, m | **Full detail.** Metres across the ground within which the world is drawn at full detail (0.5 m voxels); at least the collision radius + 8 m. |
+| `levels.level1` | number | `128` | 1 – 100000, step 1, m | **Level 1.** Metres across the ground within which 1 m voxels are drawn; past it, 2 m voxels to the load ring (below full detail: taken as it). |
 | `sectionEdge` | int (one of 8, 16, 32) | `16` | step 1 | **Section edge.** Voxels along the edge of the sections a chunk is rebuilt in after an edit: smaller rebuilds less per edit, larger draws fewer pieces. (scripts read) |
 | `savedFields` | list of enum: `material`, `role`, `shape`, `wetness`, distinct | `["material","role","shape"]` |  | **Saved fields.** The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again). (scripts read) |

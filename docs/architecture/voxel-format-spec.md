@@ -1199,7 +1199,8 @@ except the level.
 - `MipTree` builds nodes on demand from a level-0 store (benches and tests); the streamer builds them in workers.
 
 **Mips at runtime (46b.6b, `stream-mips.ts`).** With rules, the streamer keeps nodes of the levels in its mip rings
-(`DEFAULT_MIP_RINGS`: level 1 to 256 cells, level 2 to 384, horizontal box distance; results kept 16 cells past).
+(`DEFAULT_MIP_RINGS`: level 1 and level 2 to 384 cells, horizontal box distance; results kept 16 cells past; level 1 reaches
+the load ring to stand in where level-2 nodes are not complete, 46b.8a).
 - Cells: a `mip` job downsamples a node from its 8 children (level 1: resident chunks with the overlay laid over the
   base; above: the level below's complete nodes). A child not known counts as air and the node records the octants
   it was built from; it is complete when all 8 were known. Cells of every node over resident chunks are kept.

@@ -57,18 +57,23 @@ export interface MipRing {
 }
 
 /**
- * The default levels kept: level 1 (1 m cells) to 128 m and level 2 (2 m
- * cells) to 192 m, the load ring; level 0 is drawn to 64 m. Nodes exist
+ * The default levels kept derived: level 1 (1 m cells) and level 2 (2 m
+ * cells) to 192 m, the load ring. Level 1 reaches the load ring although it
+ * is drawn only to 128 m: a level-2 node is complete only where the chunks
+ * a level-1 node round it hold are resident, about 100 m out in a 192 m
+ * ring, so past that level 1 stands in for it (lod-select.ts). Nodes exist
  * only over resident chunks, so no level reaches past the load ring.
  */
-export const DEFAULT_MIP_RINGS: readonly MipRing[] = Object.freeze([Object.freeze({ level: 1, radius: 256 }), Object.freeze({ level: 2, radius: 384 })]);
+export const DEFAULT_MIP_RINGS: readonly MipRing[] = Object.freeze([Object.freeze({ level: 1, radius: 384 }), Object.freeze({ level: 2, radius: 384 })]);
 
 /**
- * Cells (horizontal box distance from the focus) within which level 0 is
- * drawn (64 m) before the level selection with hysteresis takes over; past
- * it each kept level is drawn to its ring's radius.
+ * Where the levels are drawn by default (cells, horizontal box distance from
+ * the nearest focus; lod-select.ts): level 0 within 64 m, level 1 within
+ * 128 m, level 2 past it, with 8 m of hysteresis. Level 0 covers the default
+ * collision ring and its hysteresis (56 m), so what a character touches is
+ * what is drawn.
  */
-export const DEFAULT_LEVEL0_DRAW_RADIUS = 128;
+export const DEFAULT_LEVEL_RINGS: Readonly<{ radii: readonly number[]; hysteresis: number }> = Object.freeze({ radii: Object.freeze([128, 256]), hysteresis: 16 });
 
 /** Cells past its ring's radius a node's derived result is kept, so a focus moving back and forth does not drop and rebuild it (8 m). */
 export const MIP_RING_HYSTERESIS_CELLS = 16;
