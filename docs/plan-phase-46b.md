@@ -112,7 +112,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.7a | done (this commit; fast gate green): `lod-seams.ts`, `run.mjs seams`: 28 two-level patches (11 hard cases, hilly, caves, town; L0\|L1, L1\|L2), 2.8 M rays. Pick (owner to confirm): coarser side's transition strip + flaps where shapes differ: 0 cracks except a caves saddle (380 of 0.62 M rays, none 50,600), +42–45 tris and ~50–70 µs a fine face, L0 untouched. |
 | 46b.7b | done (5a1b790d, 1b8220cf; fast gates green): `lod-seam.ts` (strip, moved boundary copies, flaps; pieces in finer steps), `stream-seams.ts` (`LevelSelection`, `seam` jobs, held in the node's or edit's swap, a level change one `seams` event). 28 patches: 0 crack rays but the cave saddle 358 (pick 380; D462); +23–55 tris a fine face (caves 76 / 139); worker µs a face p50 62. |
 | 46b.8a | done (this commit; fast gate green): `lod-select.ts` (choice by box distance, 8 m hysteresis, ready-only, stand-ins, 2 : 1), `stream-lod.ts` (a swap = `seams` + `levels` in one task), `voxelWorld.levels`. Default ring: L2 never complete, L1 stands in at the edge. 160 m flight: 23–28 level changes, swap p50 0.5 / p95 4.5–10 ms; 0 doubled, 0 unbalanced. |
-| 46b.8b | not started |
+| 46b.8b | done (71afe7cb; fast gate green): the batcher sends only what the level choice draws (chunks, nodes, seams; a level swap one batch), the view draws a node per level and seams from its node's grid, blend in metres; page, Play, Scene view. Slice / town render CPU 1.4–1.5 / 3.0–3.2 ms, 0.31 / 0.80 M tris drawn. D464 (grass stripes), D465 (roofless houses at L1). |
 | 46b.9 | not started |
 | 46b.10 | not started |
 | 46b.11a | not started |
@@ -770,6 +770,78 @@ limits; vitest failed once only on `stream.test.ts` (the worker-pool timeout tes
 of its 5 s default; neither builds mips) and `scan-bounded-log.test.ts` (D418), all passed alone in the gate's rerun.
 `voxel-world.e2e.ts` 62 s (sum of its tests; not touched; 56.6 s at 46b.7b, the host's load).
 
+### 46b.8b the levels drawn
+
+**Batcher** (`chunk-batch.ts`, `ChunkDrawBatcher`): with mips on the feed it sends only what `mips.lod.drawn` draws.
+A `chunk` event for a chunk not drawn at level 0 sends nothing (its draw goes if it had one). A `levels` event sends
+its removals, then its additions: a chunk joined then, or a node's draw from `derivedOf`. A `node` event replaces a
+drawn node's draw. A `seams` event sends the built seams' pieces and removes the dropped ones (`SeamDrawWire`,
+`batch.seams`). The streamer emits a swap's `seams` and `levels` events in one task, so they leave in one batch and
+the page applies them between two frames: the old level stays drawn until the new one is complete. Node results and
+seam pieces stay with the streamer (seams read them), so a batch that leaves the thread takes copies; `inPlace`
+skips the copies where the batch is applied where the world runs (the slice page). `onJoined` gives every chunk's
+join, drawn or not, to what is built from it (the page's bodies; collision stays level 0, as before).
+**View** (`voxel-chunk-view.ts`): objects per level (`set`/`setShader`/`remove`/`has` take a level, default 0), a node
+placed at its corner (level-0 cells × 2^L) with its derive scaled by `mipCellMetres(L)`. Stand-in pieces at its
+cell's size. Seams (`setSeam`) are one object a face, at the coarse node's corner, its pieces moved from their
+origins (finer-level cells). A seam is shaded from the coarse node's grid, read through a getter so a node replaced
+on its own is followed. `applyChunkDrawBatch` is the one apply for the slice page and `VoxelWorldDraws` (Play, the
+Scene view, exports). Picking takes level 0 only. **Shader** (`voxel-surface.ts`): each object passes its grid's cell
+metres (`cellMetres`, an object uniform). The grid is read in that object's cells. The blend is a metres uniform
+divided by the cell in the shader (at most one cell), so it is equally wide at every level. Triplanar patterns stay
+in level-0 cells from the object's phase, so they are the same size everywhere. The 64-bit camera-relative
+model-view is unchanged (the same material).
+The slice page goes through the batcher too (`feedVoxelChunkView` left the adapter). It gained `?levels=a,b`
+(metres), `setLevels`, `levelAt` and per-level counts in `state()` and the HUD.
+
+Tests: `voxel-chunk-view.test.ts` (+1, the feed test moved to the batcher). A level-1 node from `deriveMipNode` is
+placed at its corner, its triangles equal its derive scaled to 1 m, and its grid is uploaded with `cellMetres` 1.
+Chunks under it that stream in while it is not drawn draw nothing. A swap to it with its seam is one batch, nothing
+changes before it, and its buffers are copies. The seam sits at the node's corner with its piece moved there, and
+it reads the node's values, including after the node's new result replaced its draw. The swap back removes the node
+and its seam in one batch and adds the chunks. A node that loses its result is not drawn. `voxel-world.e2e.ts` (one test extended, both renderers):
+after the reload check, `setLevels([4, 24])`. Then levels 0 and 1 are drawn with seams, and a grazing view (10° down,
+30 m) shows no background pixel below the horizon (`png.ts`; the band starts at 0.62 of the height, because the
+horizon reaches 0.57 at the left edge; a first bound of 0.55 counted 163 sky pixels above it). A runtime dig (2.5 m)
+at a ground cell drawn at level 1, in view, changes > 300 pixels and stays at level 1 (`levelAt`).
+
+Measured (staging, 1280 × 720, 60 Hz cap, `frames(8)` orbit, `?gpuTime=1`; 18:05–18:10, uptime 11 d 1.6 h, load
+1.6–3.5; 3 rounds; "level 0 to the ring" = the same build with `&levels=200,200`, the drawing before this item):
+
+| | slice: levels / level 0 to the ring | town: levels / level 0 to the ring |
+|---|---|---|
+| objects drawn (by level), seams | 212 (107 / 105), 18 / 498 | 387 (258 / 129), 33 / 950 |
+| triangles drawn (seams) | 309,588 (1,473) / 807,827 | 802,361 (4,549) / 1,964,346 |
+| render() CPU p50 / p95 WebGPU | 1.4 / 2.3–2.4 vs 2.2–2.3 / 2.7–3.8 ms | 3.2 / 4.9 vs 6.1 / 8.3 ms |
+| render() CPU p50 / p95 WebGL 2 | 1.5 / 2.7 vs 2.4 / 3.2 ms | 3.0 / 4.1 vs 6.3 / 7.4 ms |
+| GPU ms a frame WebGPU | 8.1–8.2 vs 6.4–6.5 (top-down 7.5–8.5 vs 7.1–7.4; flat 3.85 vs 4.62) | 4.75 vs 3.18 |
+| GPU ms a frame WebGL 2 | 3.89 vs 3.96 | 3.86 vs 4.05 |
+| stream MB (node draws not counted) | 58 vs 101 | 84 vs 148 |
+
+Every frame at 16.7 ms p50 (the cap). Against 46a (slice 1.5–2.0 / town 4.6–4.7 ms render CPU, 1.17 M / 1.96 M
+triangles drawn): render CPU −0.1 to −0.5 / −1.5 ms, triangles −74 % / −59 %. The "level 0 to the ring" town run
+(6.1–6.3 ms) is above 46a's 4.6–4.7 because its view and ring hold more chunks than 46a's camera did. **Miss:**
+WebGPU GPU time rises with the levels in the oblique views (slice +1.7 ms, town +1.6 ms), in two orders. It is equal
+from above (second pair), it falls with flat shading, and WebGL 2 is equal. So the blend shader is run on more
+fragments on WebGPU in oblique views. The cause was not traced in 3 rounds. Candidates: coarse surfaces drawn under
+or behind finer ones, and less early-depth rejection with fewer, larger objects. Recorded for 46b.11b and the
+performance phase.
+
+Looked at (staging, both renderers the same; shots `~/.cache/thirdlight-phase46/work/46b.8b/shots/{a,b,c,d}`):
+- Slice overview, default rings: the 128 m level-0 square reads plainly as a lighter, unbanded square inside the
+  level-1 ring.
+- The hills there are all grass at level 0. At levels 1 and 2 they show earth stripes along every contour step, with
+  a hard line at the boundary (D464: the downsample's dominant material loses a one-cell grass layer). This is the
+  visible shading jump. The pattern texture is the same size across the boundary.
+- Small rings (16 / 32 m): grazing, low and close views across L0|L1 and L1|L2 show no crack, no background through
+  the ground and no flicker or shading line along the double-drawn band in stills. It was not looked at in motion.
+- Town far away (from its corner, 20 m out): houses within 64 m are full. Past it, at level 1, roofs leave and walls
+  have gaps: houses read as roofless frames (D465).
+Fast gate (gate-fast-20261103-175206, uptime 11 d 1.4 h, load 1.8–4.3): GREEN, 12 min, 4.9 GB peak, perf at the cap
+in limits. `voxel-world.e2e.ts` 56.7 s (sum of its tests; 62 s at 46b.8a). The extended test is 8.5 / 8.8 s (9.1 /
+9.3 s at 46b.8a, at a lower load now). Play draws levels [189, 10, 0] with 16 seams, the Scene view [185, 12, 0] with
+18 seams (their e2e logs).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -969,6 +1041,21 @@ of its 5 s default; neither builds mips) and `scan-bounded-log.test.ts` (D418), 
   drawn where the new one is not ready (by the choice itself), and the swap waits only for the faces it adds; one swap
   builds at a time, so a flight never starves it (p95 4.5–10 ms, max 61–118 ms under streaming load).
 
+- 2026-11-03 (46b.8b, default chosen, owner to confirm): **one apply path for draws, the batch.** The slice page
+  draws through the same `ChunkDrawBatcher` → `applyChunkDrawBatch` as Play and the Scene view (applied in the
+  announcing task, `inPlace`). A level change and its seams are one batch everywhere. There is no second way of
+  reading levels from the streamer.
+- 2026-11-03 (46b.8b, default chosen, owner to confirm): **a seam is shaded from its coarse node's grid.** The strip
+  and the moved copies are the coarse node's surface, so they read its grid in its cells. A finer neighbour's grid
+  would put the coarse node's materials at finer cells. The double-drawn band (46b.7b) therefore shades the same on
+  both copies. No depth offset was added, because none was seen to be needed in stills.
+- 2026-11-03 (46b.8b, default chosen, owner to confirm): **node and seam draws are not yet counted in the stream
+  budget's mesh parts.** Their GPU bytes are reported in the view (and `bytes.mips` counts their cells, results and
+  seams). The budget's per-chunk `mesh` part has no node key. Level-0 chunks no longer drawn give their part back.
+  46b.11b decides whether the budget gains a per-node part.
+- 2026-11-03 (46b.8b): **level-1 and level-2 pieces stand in at their cell's size** (the stand-in boxes scaled by
+  2^L) until 46b.9 decides pieces per level.
+
 ## 9. Open questions for the owner
 
 - Ring distances (64/128/192 m) and whether 46b should also reach past the load ring or leave that to 46d's far field.
@@ -977,3 +1064,4 @@ of its 5 s default; neither builds mips) and `scan-bounded-log.test.ts` (D418), 
 - Deferring the displacement prototype to 46d (with the material model) instead of a 46b experiment.
 - Seams by the coarser side's transition strip (46b.7a) instead of the finer side's stitch, and the residual hole at a cave saddle the levels connect differently.
 - Level 2 not drawn in the default 192 m load ring (46b.8a: level 1 stands in at the edge) — grow the ring, or leave level 2 to 46d's far field.
+- The coarse levels' look (46b.8b): earth stripes on grass hills (D464) and roofless houses at level 1 (D465): change the downsample, or draw built cells at level 0 further.
