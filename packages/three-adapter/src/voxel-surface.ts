@@ -35,6 +35,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
+import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
 
@@ -327,7 +328,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     tdata.set([c.r, c.g, c.b, Math.max(0, Math.min(VOXEL_PATTERNS - 1, l.pattern))], m * 4);
   }
   const patterns = patternTexture();
-  const material = new THREE.MeshStandardNodeMaterial();
+  // Placed relative to the camera in 64 bits: a voxel world may lie kilometres from the origin.
+  const material = cameraRelative(new THREE.MeshStandardNodeMaterial());
   material.metalness = 0;
   material.name = 'voxel surface';
   const cellsOfBlend = (m: number): number => Math.max(1e-3, Math.min(1, m / layout.cellMetres));

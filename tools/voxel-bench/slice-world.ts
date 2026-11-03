@@ -6,7 +6,7 @@
  * the same options always give the same files.
  */
 import { join } from 'node:path';
-import { chunkGrid, createWorldStore, VOXEL_ROLE, voxel, type PaletteStore } from '@thirdlight/voxel';
+import { chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, VOXEL_ROLE, voxel, type PaletteStore } from '@thirdlight/voxel';
 import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
 import { loadArea } from './regions';
 import { placeWallBeamBanister, putVoxel, WALL_BEAM_BANISTER_HALF } from './scenes';
@@ -69,9 +69,25 @@ export function buildSliceWorld(footprint = SLICE_FOOTPRINT): SliceWorld {
   return { store, scene: [best.x, best.y, best.z] };
 }
 
-/** Writes the slice world into a project folder (`voxels/<name>/`); refuses a folder that already holds one. */
-export function writeSliceWorld(projectDir: string, name = SLICE_WORLD_NAME, footprint = SLICE_FOOTPRINT): SliceWorld & { dir: string; files: number } {
-  const w = buildSliceWorld(footprint);
+/** The same world moved by whole chunks on x and z (`chunks`: chunks to add to each chunk coordinate). */
+export function shiftSliceWorld(w: SliceWorld, chunks: { readonly x: number; readonly z: number }): SliceWorld {
+  const store = createWorldStore(grid);
+  const cells = createDenseChunk(grid);
+  const at = { cx: 0, cy: 0, cz: 0 };
+  for (const key of w.store.chunkKeys()) {
+    chunkOfKey(grid, key, at);
+    if (w.store.exportChunk(at.cx, at.cy, at.cz, cells)) store.importChunk(at.cx + chunks.x, at.cy, at.cz + chunks.z, cells);
+  }
+  return { store, scene: [w.scene[0] + chunks.x * grid.edge, w.scene[1], w.scene[2] + chunks.z * grid.edge] };
+}
+
+/**
+ * Writes the slice world into a project folder (`voxels/<name>/`); refuses a folder that already holds one.
+ * `shiftChunks` moves it by whole chunks on x and z (a world far from the origin).
+ */
+export function writeSliceWorld(projectDir: string, name = SLICE_WORLD_NAME, footprint = SLICE_FOOTPRINT, shiftChunks?: { readonly x: number; readonly z: number }): SliceWorld & { dir: string; files: number } {
+  const built = buildSliceWorld(footprint);
+  const w = shiftChunks === undefined ? built : shiftSliceWorld(built, shiftChunks);
   const dir = join(projectDir, VOXEL_WORLDS_FOLDER, name);
   const hex = [...TEST_WORLD_ID].map((b) => b.toString(16).padStart(2, '0')).join('');
   const { files } = writeVoxelWorld(dir, { worldId: hex, edge: 32, layout: 'stacked', footprint: 512 }, w.store);

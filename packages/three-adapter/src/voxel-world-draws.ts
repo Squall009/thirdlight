@@ -6,9 +6,12 @@
  * swap's chunks change between the same two frames.
  *
  * The views hang under the scene adapter's scene and draw in its world
- * coordinates: the game's scene has no floating origin, so the views'
- * origin stays at the world origin and is never re-based (a world's chunks
- * then lie where the scene's objects do).
+ * coordinates, so a world's chunks lie where the scene's objects do; their
+ * origin stays at the world origin and is never re-based. Precision far out
+ * comes from the view's materials instead: they place vertices relative to
+ * the camera with a model-view made in 64 bits (camera-relative.ts), which
+ * a 32-bit re-base of the views alone could not give, since the GPU would
+ * still subtract the camera's large position from theirs.
  *
  * Every drawn chunk's GPU bytes go back to the simulation (`report`), where
  * they count as the chunk's mesh part of the world's stream budget.

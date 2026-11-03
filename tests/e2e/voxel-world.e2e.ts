@@ -28,13 +28,14 @@
  * wetness paint of the wall (across a chunk face) change the picture with
  * no mesh rebuilt and no chunk derived again but for its shader data.
  *
- * Play streams the same world with the simulation: a project with a
- * `voxelWorld` object, a player character standing on the world's ground
- * and a script that digs a pit under it once the ground is resident. The
- * pixels change where the pit opens, the character falls into it, on both
- * renderers, with the simulation in its worker (WebGPU) and in the page
- * (WebGL 2, `?threads=off`); each edit's way from the script to the screen
- * is read from the play page's hook.
+ * Play streams the same world, written 8 km out on x and z, with the
+ * simulation: a project with a `voxelWorld` object, a player character
+ * standing on the world's ground and a script that digs a pit under it when
+ * the test asks (a debug command, after the "before" picture) once the
+ * ground is resident. The pixels change where the pit opens, the character
+ * falls into it, on both renderers, with the simulation in its worker
+ * (WebGPU) and in the page (WebGL 2, `?threads=off`); each edit's way from
+ * the script to the screen is read from the play page's hook.
  *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
@@ -58,11 +59,15 @@ import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius
 type Cell = [number, number, number];
 let be: E2EBackend;
 let scene: Cell;
+/** The same world 8 km out on x and z (512 chunks), for Play: a world far from the origin. */
+const FAR_CHUNKS = 512;
+let farScene: Cell;
 
 test.beforeAll(async () => {
   be = await startBackend('e2e-voxel');
   // 128 m square: enough ground around the scene for the ring, quick to write.
   scene = [...writeSliceWorld(be.projectDir, 'slice', 256).scene] as Cell;
+  farScene = [...writeSliceWorld(be.projectDir, 'far', 256, { x: FAR_CHUNKS, z: FAR_CHUNKS }).scene] as Cell;
 });
 test.afterAll(async () => {
   await be?.stop();
@@ -384,17 +389,18 @@ async function publishScript(behaviorId: string, source: string, entityId: strin
   await playCmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
 }
 
-/** Steps the script waits once the pit's ground is resident before it digs (5 s at 120 Hz: time for the "before" picture). */
-const DIG_DELAY_STEPS = 600;
 /** Where the character stands (metres): the slice's flat pad, beside the wall scene. */
 let standAt: [number, number, number] | null = null;
 
-/** The play project: the slice world as a `voxelWorld`, a camera looking at the pad, a character on it, the digging script. */
+/**
+ * The play project: the slice world 8 km out as a `voxelWorld`, a camera looking at the pad, a character on it, and
+ * a script that digs once the test asks (a debug command) after the pit's ground is resident.
+ */
 async function playProject(): Promise<[number, number, number]> {
   if (standAt !== null) return standAt;
-  const [ox, oy, oz] = scene;
+  const [ox, oy, oz] = farScene;
   const at: [number, number, number] = [(ox + 9.5) / 2, oy / 2, (oz + 10.5) / 2];
-  const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'slice' } } }))['createdId']);
+  const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far' } } }))['createdId']);
   const pitch = (35 * Math.PI) / 180;
   await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: { position: [at[0], at[1] + 5, at[2] + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
   const player = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [at[0], at[1] + 1.5, at[2]] } }))['createdId']);
@@ -411,7 +417,7 @@ async function playProject(): Promise<[number, number, number]> {
     '    if (state.wait < 0) state.wait = v.whenResident(pit);',
     "    for (const w of v.waits) if (w.wait === state.wait && w.resident && state.at < 0) { state.at = ctx.stepIndex; ctx.game.add('resident', 1); }",
     "    for (const c of v.changes) ctx.game.add('changes', 1);",
-    `    if (!state.dug && state.at >= 0 && ctx.stepIndex >= state.at + ${DIG_DELAY_STEPS}) { const r = v.dig(pit); state.dug = true; ctx.game.add(r.ok ? 'dug' : 'refused', 1); }`,
+    "    for (const _ of ctx.debug.command('dig')) if (!state.dug) { const r = v.dig(pit); state.dug = r.ok; ctx.game.add(r.ok ? 'dug' : 'refused', 1); }",
     '  },',
     '  dispose() {},',
     '};',
@@ -426,7 +432,7 @@ interface VoxelPlayHook { stats(): { worlds: Record<string, { chunks: number; tr
 for (const renderer of ['webgpu', 'webgl2'] as const) {
   // WebGPU plays with the simulation in its worker, WebGL 2 in the page: both ways the world reaches the draws.
   const threads = renderer === 'webgpu' ? 'worker' : 'single';
-  test(`Play: the world streams with the simulation (${threads}), a script digs a pit, the pixels change and the character falls in (${renderer})`, async ({ page }) => {
+  test(`Play: a world 8 km out streams with the simulation (${threads}), a script digs a pit, the pixels change and the character falls in (${renderer})`, async ({ page }) => {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 1280, height: 720 });
     const at = await playProject();
@@ -444,13 +450,15 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const drawn = (): Promise<ReturnType<VoxelPlayHook['stats']>> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats());
     await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
     // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
-    await expect.poll(async () => (await drawn()).worlds['slice']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
+    await expect.poll(async () => (await drawn()).worlds['far']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
     // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
     await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     const standing = (await observe()).player!;
-    expect((await observe()).counters?.['dug'] ?? 0, 'the picture before the dig is taken in time').toBe(0);
     const before = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('before.png') }));
+    const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
+    expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
+    expect((await observe()).counters?.['refused'] ?? 0).toBe(0);
     await expect.poll(async () => (await observe()).counters?.['changes'] ?? 0, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
     // The character falls into the pit (its collider went with the swap that drew the hole).
     await expect.poll(async () => standing.y - ((await observe()).player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);

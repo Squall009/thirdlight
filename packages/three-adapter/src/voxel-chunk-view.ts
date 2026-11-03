@@ -17,7 +17,10 @@
  *
  * Chunks are placed relative to the floating origin from their integer
  * cell; after a re-base every chunk is placed again. Objects keep their
- * matrices until placed (no per-frame matrix work for a still world).
+ * matrices until placed (no per-frame matrix work for a still world). The
+ * surface and the pieces draw with a camera-relative model-view made in 64
+ * bits (camera-relative.ts), so a view whose origin is never moved (a game
+ * view kilometres out) draws as exactly as one kept near its origin.
  *
  * A swap's chunks are replaced in the task that announces them (the
  * streamer emits every `chunk` event of a swap in one task, just before the
@@ -27,6 +30,7 @@
  * kits and detail art come later.
  */
 import * as THREE from 'three';
+import { MeshLambertNodeMaterial } from 'three/webgpu';
 import {
   chunkKey,
   chunkOrigin,
@@ -44,6 +48,7 @@ import {
   type SurfaceBuffer,
   type JoinTimes,
 } from '@thirdlight/voxel';
+import { cameraRelative } from './camera-relative';
 import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
@@ -144,7 +149,7 @@ export class VoxelChunkView {
   /** A join writes a chunk's shader grid entries here; the upload reads them. */
   readonly cells: Uint16Array;
   private readonly chunks = new Map<number, ChunkDraw>();
-  private readonly pieceMaterials = new Map<number, THREE.MeshLambertMaterial>();
+  private readonly pieceMaterials = new Map<number, MeshLambertNodeMaterial>();
   private readonly pieceBoxes = new Map<number, THREE.BoxGeometry>();
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
@@ -291,7 +296,7 @@ export class VoxelChunkView {
       let box = this.pieceBoxes.get(family);
       if (box === undefined) this.pieceBoxes.set(family, (box = new THREE.BoxGeometry(size[0], size[1], size[2])));
       let mat = this.pieceMaterials.get(family);
-      if (mat === undefined) this.pieceMaterials.set(family, (mat = new THREE.MeshLambertMaterial({ color: PIECE_COLOUR[family] ?? 0x888888 })));
+      if (mat === undefined) this.pieceMaterials.set(family, (mat = cameraRelative(new MeshLambertNodeMaterial({ color: PIECE_COLOUR[family] ?? 0x888888 }))));
       const mesh = new THREE.InstancedMesh(box, mat, offsets.length);
       mesh.matrixAutoUpdate = false;
       offsets.forEach((o, i) => {

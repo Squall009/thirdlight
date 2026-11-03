@@ -5,7 +5,9 @@
  * uploaded with the whole-chunk derive's entries (or its one solid entry
  * passed, no region); a shader-only change uploads the grid again and
  * builds no mesh; a floating-origin re-base moves every chunk to its new
- * 32-bit position; the feed replaces a swap's chunks in the task that
+ * 32-bit position; a chunk 8 km out, its origin never moved (Play), draws
+ * with a model-view made in 64 bits, its vertices as exact as near the
+ * origin, the surface and the pieces alike; the feed replaces a swap's chunks in the task that
  * announces them and counts their bytes against the stream budget.
  */
 import * as THREE from 'three';
@@ -34,6 +36,8 @@ import {
 } from '@thirdlight/voxel';
 
 import { feedVoxelChunkView, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry } from './voxel-chunk-view';
+import { cameraRelativeModelView } from './camera-relative';
+import { observerOf, wgslOf, wgslRenderer } from './test-wgsl';
 import { createVoxelSurface, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelSurfaceObject } from './voxel-surface';
 
 const grid = chunkGrid(32);
@@ -230,5 +234,71 @@ describe('the voxel chunk view', () => {
     emit({ type: 'unloaded', cx: 0, cy: 0, cz: 0 } as StreamEvent);
     expect(view.has(0, 0, 0)).toBe(false);
     expect(view.count).toBe(3);
+  });
+  it('draws a chunk 8 km out (origin never moved) with a model-view made in 64 bits: vertices as exact as near the origin', () => {
+    const s = world();
+    const { view } = setup();
+    // A chunk with ground, wall and beam, drawn 512 chunks (8,192 m) out on x and z.
+    const far = 512;
+    view.set(far, 0, far, joined(s, 0, 0, -1, view.cells));
+    const scene = new THREE.Scene();
+    scene.add(view.root);
+    const g = view.root.children[0]!;
+    expect(g.position.x).toBe(far * 32 * VOXEL_SIZE_M);
+    const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 300);
+    camera.position.set(far * 16 + 3.37, 6.13, far * 16 + 9.71);
+    camera.lookAt(far * 16 + 4, 2, far * 16 + 2);
+    scene.updateMatrixWorld();
+    camera.updateMatrixWorld();
+    const surface = surfaceOf(g);
+    const piece = g.children.find((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh)!;
+    expect(piece).toBeDefined();
+    // Both programs take the view-space position from the 64-bit matrix, never from camera view × model world on the GPU.
+    const r = wgslRenderer();
+    for (const mesh of [surface, piece]) {
+      const vertex = wgslOf(r, scene, mesh).split('@fragment')[0]!;
+      expect(vertex).not.toMatch(/cameraViewMatrix \* object\./);
+      expect(vertex).toMatch(/modelViewMatrix = object\.nodeUniform\d+;/);
+      // Refreshed at every draw (the matrix follows a moving camera), the plain piece material too.
+      expect((observerOf(r, scene, mesh) as unknown as { hasNode: boolean }).hasNode).toBe(true);
+      expect(vertex).toMatch(/v_positionView = \( modelViewMatrix \* vec4<f32>\( (varyings\.)?positionLocal, 1\.0 \) \)\.xyz/);
+    }
+    const f = Math.fround;
+    const mul32 = (a: readonly number[], b: readonly number[]): number[] => {
+      const out = new Array<number>(16).fill(0);
+      for (let c = 0; c < 4; c++) for (let r2 = 0; r2 < 4; r2++) {
+        let acc = 0;
+        for (let k = 0; k < 4; k++) acc = f(acc + f(f(a[k * 4 + r2]!) * f(b[c * 4 + k]!)));
+        out[c * 4 + r2] = acc;
+      }
+      return out;
+    };
+    const apply32 = (m: readonly number[], p: THREE.Vector3): THREE.Vector3 => {
+      const e = m.map(f);
+      const row = (r2: number): number => f(f(f(f(e[r2]! * f(p.x)) + f(e[4 + r2]! * f(p.y))) + f(e[8 + r2]! * f(p.z))) + e[12 + r2]!);
+      return new THREE.Vector3(row(0), row(1), row(2));
+    };
+    const pos = surface.geometry.getAttribute('position');
+    let worst = 0;
+    let worstGpu = 0;
+    const update = (cameraRelativeModelView as unknown as { update(frame: { object: THREE.Object3D; camera: THREE.Camera }): void }).update;
+    update.call(cameraRelativeModelView, { object: surface, camera });
+    const mv = (cameraRelativeModelView.value as THREE.Matrix4).elements;
+    // What three's node materials do by default: both matrices rounded to 32 bits and multiplied on the GPU.
+    const gpu = mul32(camera.matrixWorldInverse.elements, surface.matrixWorld.elements);
+    for (let i = 0; i < pos.count; i += 7) {
+      const local = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+      // Exact: the vertex to world metres and into the camera's space in 64 bits.
+      const exact = camera.worldToLocal(surface.localToWorld(local.clone()));
+      worst = Math.max(worst, apply32(mv, local).distanceTo(exact));
+      worstGpu = Math.max(worstGpu, apply32(gpu, local).distanceTo(exact));
+    }
+    // Within a few 32-bit steps of a 10 m position (~1 µm); the default way is off by a large part of a millimetre.
+    expect(worst).toBeLessThan(1e-5);
+    expect(worstGpu).toBeGreaterThan(1e-4);
+    // The pieces' instances apply first (to the local position), so their matrix is the same kind.
+    update.call(cameraRelativeModelView, { object: piece, camera });
+    const pv = (cameraRelativeModelView.value as THREE.Matrix4).elements;
+    expect(Math.hypot(pv[12]!, pv[13]!, pv[14]!)).toBeLessThan(30);
   });
 });
