@@ -104,7 +104,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.1 | done (this commit; fast gate green): `features` world (14 cases, analytic solids, 83 probes), harness `mesh-cases.ts`, goldens, `slice-world --kind features`. Reference: all closed, every probe kept; max error 4.4–5.0 cm on slopes, 12–23 cm at creases; mean 1.7–4.3 cm; 5.4–12.3 k triangles a case. Broken meshes fail. Voxel e2e 47.9 → 43.8 s (untouched). |
 | 46b.2 | done (this commit; fast gate green): `terrain-rules.ts`, rule set `terrain` v1 (placeholder rules + 8 ground features, R 2, apron unchanged), registered; conformance on random assembly + terrain worlds at 16/32; every hard case classified as named; derived bytes unchanged. Evaluation a 16³ ground section p50 92–116 µs vs placeholder 38–45 (Node). |
 | 46b.3a | done (this commit; fast gate green): `mesher-candidates.ts` (reference, lattice, dc, lattice+dc, mc), `run.mjs mesher`. Pick (owner to confirm): column-lattice nets + DC at the rules' creases. Slice/hilly triangles −11 %, heightfield chunks 0 → 32/33 %, slope mean error 2.7 → 0.4 cm, one golden miss (bump rim +2.8 cm); µs/section +30 (caves/vertical over budget). |
-| 46b.3b | not started |
+| 46b.3b | done (abcb8b7d; fast gate green): `terrain-mesher.ts` derives the ground (lattice+dc, reach 3 cells), derived v4, worlds on `WORLD_RULES` (terrain v1). Eval + mesh µs/16³ section p50 slice 256 → 217, town 227 → 207, caves 332 → 307 (mesh alone ~110; caves ~190); slice triangles −11 %; heightfield-eligible chunks slice 0 → 32 % (collision takes level ones only). |
 | 46b.4 | not started |
 | 46b.5 | not started |
 | 46b.6a | not started |
@@ -289,6 +289,56 @@ both slopes; the lattice makes hilly ground chunks heightfields where the refere
 lint green, e2e red only on D417 (`start.e2e.ts` stop), passed on the rerun (gate-rerun-20261103-110039, GREEN, perf at
 the cap in limits); `voxel-world.e2e.ts` 47.9 s (not touched; 48.1 s at 46b.2).
 
+### 46b.3b the terrain mesher
+
+`packages/voxel/src/terrain-mesher.ts` (`terrainSurface`) is the derive's ground producer; `groundSurface` left the
+package (the bench's `reference` candidate is the "before"). It is the 46b.3a pick (`lattice+dc`) with two changes,
+both for the section join: only column-lattice vertices are shared (keyed by cube column and height; the candidate
+welded any two cubes landing on one point, so a vertex's normal depended on which cube a section met first), and
+every other vertex is kept one position step inside its cube and, on the cube's centre line, one step off it along
+x, so it never meets a lattice vertex. Against the bench pick: the same triangles on the hard-case row, 0.5 mm moves
+only where a mean vertex sat on its centre line (tested); caves +69 triangles of 1.35 M (non-lattice points no
+longer weld). Goldens: as the pick, every case closed, every probe kept, one miss within the 3 cm slack (bump rim).
+Reach: `TERRAIN_MESHER_REACH` = 3 cells above and below the chunk (the lattice window), classes one cell round it;
+the job pad is 3, so aprons and invalidation are unchanged; `derived.test.ts` meshes random terrain at 16³ and 32³
+with the job's pad and with 3 cells more (same bytes) and a narrower pad is refused. Derived data 3 → 4 (spec §3.7,
+§3.8 owner note): layout unchanged, ground vertex meaning changed; no stored format changed, so no world was
+regenerated. `WORLD_RULES` (= `TERRAIN_RULES`, `rule-registry.ts`) is what `worldStreamer` (Play, the Scene view),
+the slice page, its probes and the voxel e2e derive with; `stream.test.ts`, `world-host.test.ts`, `collision.test.ts`
+and the join/crack/invalidation tests of `derived.test.ts` moved to it, and the join test gained the cliff and
+terrace cases (16³ and 8³ joined sections = whole chunk, crease vertices on section faces).
+
+Cost: the per-column height test reads prefix sums of the column's fill and of its rises, built on first use per
+column (O(1) a window instead of 24 reads a cube); `Math.hypot` → `sqrt`; typed scratch arrays. µs a 16³ section with
+ground, terrain rules' evaluation + mesh, Node 22, i5-12600H, `run.mjs mesher --candidates reference,lattice+dc,terrain`
+(report `~/.cache/thirdlight-phase46/work/46b.3b/r2/mesher.md`, 11:20, uptime 10 d 18.9 h, load 3.3–3.6; round 1
+before the last two savings at load 5.0–5.2), p50 / p95:
+
+| World | reference (before) | bench pick | terrain mesher | evaluation alone |
+|---|---|---|---|---|
+| slice (±192 cells) | 256 / 308 | 283 / 312 | 217 / 271 | 104 / 113 |
+| hilly (192²) | 240 / 341 | 262 / 354 | 210 / 358 | 97 / 109 |
+| caves (192²) | 332 / 537 | 425 / 756 | 307 / 506 | 117 / 159 |
+| town (512²) | 227 / 309 | 261 / 370 | 207 / 269 | 95 / 114 |
+
+The mesh alone (total less the evaluation) is ~110 µs p50 on slice, hilly and town, inside the 0.1–0.2 ms budget;
+caves ~190 µs (a scratch micro-bench of the mesher alone: 256 → 224 µs p50, hilly 131 → 125). Miss's cause: the
+evaluation (46b.2's terrain rules, ~100 µs) puts every total over 0.2 ms, and caves sections hold ~4× hilly's surface
+cubes (each placed; the QEF at cliff cubes was ~18 % of the mesher's CPU profile there before the `sqrt`), on top
+of the fixed field build (18 × 18 × 22 cells a section). Not tuned further (budget recorded, never blocking).
+Triangles (Node, the same report): slice window 663,980 → 589,944 (−11 %), hilly 166,320 → 147,456, caves 1,434,266 →
+1,353,426, town ground 1,315,712 → 1,315,192 (+ base 1,409,686: 2.73 M, built faces are 46b.5's). Heightfield-eligible
+ground chunks (`groundHeightfield`): slice 0 → 104 / 324 (32 %), hilly 0 → 27 / 81, town 197 → 198 / 605, caves 0.
+Collision takes a heightfield only where it is level (`collisionGeometry`'s default; `'sloped'` opts in, the slice
+page's `?heightfields=sloped`) until 46b.10 re-checks D443; `collision.test.ts` green (the town's drops and sweeps
+within 1 cm). Staging (dist of abcb8b7d, `slice-world --kind features` written into the staging project, kept for
+46b.11b): the slice and the features row on WebGPU and WebGL 2 looked at — cliff block and terrace lips sharp,
+arch, cave mouth, one-cell wall and spike present, no crack or hole seen at chunk faces; the slice ring 0.80 M
+triangles drawn (493 chunks; 45.10c's 0.90 M was the old nets' cold ring). Pictures `~/.cache/thirdlight-phase46/
+work/46b.3b/shots/`. Fast gate (gate-fast-20261103-112246, uptime 10 d 18.9 h, load 4.4–6.9): GREEN, 13 min, 4.5 GB
+peak; `voxel-world.e2e.ts` 44.3 s (47.9 s at 46b.3a). `edits.test.ts` 'apply the same cells…' timed out once in an
+ad-hoc run at load 5 (6.1 s of 5 s; passed alone and in the gate; untouched).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -358,6 +408,17 @@ the cap in limits); `voxel-world.e2e.ts` 47.9 s (not touched; 48.1 s at 46b.2).
 - 2026-11-03 (46b.3a): the lattice test reads raw cell roles 2 cells past the chunk (inside the job's 3-cell pad, past
   the consumers' 1-cell reach): 46b.3b states the mesher's reach and keeps conformance covering it, or reads classes
   if ground ever depends on more than the role.
+
+- 2026-11-03 (46b.3b, default chosen, owner to confirm): **sloped heightfields wait for D443**: the terrain mesher
+  makes a third of slice and hilly ground chunks heightfield-eligible, but sphere casts on sloped Rapier
+  heightfields land late (D443), so `collisionGeometry` takes only level heightfields by default until 46b.10
+  re-checks D443 on this ground; sloped eligibility is measured and opt-in (`'sloped'`).
+- 2026-11-03 (46b.3b): **only lattice vertices are shared, others stay inside their cube and off the lattice**: the
+  candidate's weld-by-position made a shared vertex's normal depend on which cube a section met first (joined
+  sections ≠ whole chunk); the change moves vertices by at most one step (0.5 mm).
+- 2026-11-03 (46b.3b, default chosen, owner to confirm): **one rule set for every streamed world**, `WORLD_RULES` =
+  the terrain rules (placeholder construction + ground features). The placeholder set stays registered for tests;
+  under it the mesher places creases as plain nets.
 
 ## 9. Open questions for the owner
 
