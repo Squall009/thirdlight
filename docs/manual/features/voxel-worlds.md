@@ -4,7 +4,7 @@ A **voxel world** is ground and buildings made of cells half a metre on a
 side, streamed round the camera while a scene that names it is loaded. A
 game digs, builds and paints it at run time; the editor and AI agents edit
 its files through two commands. This page says what a world is, how it is
-set up, streamed, shown and edited, and what is not built yet. Scripting
+set up, streamed, shown at a distance and edited, and what is not built yet. Scripting
 it: [Script a voxel world](../guides/voxel-scripts.md). Next to block
 layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-layers-and-terrain).
 
@@ -113,6 +113,53 @@ lighting comes later.
   chunk is placed relative to the camera in double precision); physics
   stays in world coordinates.
 
+## Distance levels
+
+A world is drawn in less detail the further it is from the camera and the
+player characters, so a large view costs a fraction of drawing every cell:
+
+- **Three rings.** Within 64 m (by default) the world is drawn at full
+  detail, from its 0.5 m cells. Out to 128 m it is drawn as if its cells were
+  1 m, past that as if they were 2 m, up to the load ring. Set the distances
+  with the component's **Detail levels** (`levels`). A ring is measured
+  across the ground from the camera's focus and from every player character,
+  and full detail always reaches 8 m past the collision ring.
+- **What a game sees.** Far away the shapes are coarser: a slope or a cliff
+  keeps its line, small bumps, one-cell spikes and pits leave, and a
+  one-cell wall, floor or roof is drawn as thick as the level's cell, so a
+  house keeps its walls and roof and looks a little larger. Beams, rails and
+  posts are drawn whole near by, simpler in the 1 m ring and not at all
+  further out; fences and lone posts thinner than the level's cell leave.
+  The ground's colours are the same at every distance.
+- **Changing level.** A ring moves with the camera and switches with 8 m of
+  slack, so standing still at its edge does not flip it. A switch happens
+  between two frames, only once everything it needs is built: the old
+  detail stays on screen until then, and the two levels are joined without
+  cracks.
+- **Edits far away.** A change in a coarse ring shows there too, a few
+  frames later than it would at full detail (the coarse level is rebuilt
+  after the full-detail one).
+- **Collision is always full detail.** Colliders exist only in the collision
+  ring, and they are built from the full-detail shape, never from a coarse
+  level. Most open ground there collides as height grids (much lighter on
+  the physics engine than triangles); cliff faces, overhangs, cave roofs and
+  buildings keep exact triangles and boxes. Scripts' rays and sweeps hit the
+  same ground the characters stand on.
+- Reading cells (`ctx.voxels`) always reads the full-detail cells, whatever
+  ring they are drawn in.
+
+Limits today:
+
+- **Tall ground far away.** The load ring reaches 96 m above and below the
+  focus, and the coarse rings stop short of its top and bottom. A mountain or
+  cliff rising more than about 64 m above the camera loses its top beyond
+  about 96 m. The 2 m ring is not drawn with the default 192 m load ring:
+  the 1 m ring stands in to its edge.
+- **A rare gap between levels.** Where two caves meet in a saddle that the
+  two levels join differently, a small hole (about 1 × 5 m) can show at a
+  level boundary inside the cave.
+- Nothing is drawn past the load ring.
+
 ## In the editor
 
 - **The Scene view draws the world** of every `voxelWorld` object in the
@@ -180,16 +227,11 @@ names is missing or has a missing or damaged region file.
 
 These come later; worlds made now keep working when they arrive:
 
-- **Distance levels, finished.** The world is drawn in coarser voxels with
-  distance (the **Detail levels** above), joined without cracks. In the
-  coarser levels thin walls, floors and roofs are drawn as thick as the
-  level's voxel (a house keeps its outline and its roof, a little larger),
-  beams, rails and posts are drawn simpler at 1 m voxels and as blocks or
-  not at all at 2 m, and fences and lone posts thinner than the voxel leave.
-  The far field past the load ring is not drawn. Built cells are still drawn
-  as plain block faces.
+- **The far field**: the world past the load ring, and tall ground far
+  away (above).
 - **Kits and cases**: which kit piece a wall, floor, roof, stair or opening
-  cell becomes, and a trim layout for detail pieces.
+  cell becomes, and a trim layout for detail pieces. Built cells are drawn
+  as plain block faces and pieces as stand-in boxes until then.
 - **Materials**: material records, texture arrays and wetness beyond
   darkening (shine and filled-in crevices). Today's surface shader is a
   stand-in.

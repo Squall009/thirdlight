@@ -983,7 +983,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v7 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v9 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1015,12 +1015,12 @@ hash results; they are never stored.
 | Class | Render solid | Collision | Nav blocks / stands on | Light coverage |
 |---|---|---|---|---|
 | wall (built roles, roof) | yes | full box | yes / yes | 255 |
-| ground (terrain) | density ≥ 128 | the ground surface (trimesh) | density ≥ 128 | its density |
+| ground (terrain) | density ≥ 128 | the ground surface: heightfield patches where it is a lattice, else triangles (level 0 only) | density ≥ 128 | its density |
 | beam | no (detail piece) | bar, 10/16 cell square | yes / no | 128 (placeholder) |
 | rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
 | liquid | no | none (49) | no / no | 0 |
 
-**Outputs per chunk.** A result records `v` (derived format version 6), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 9, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1068,44 +1068,8 @@ chunk):
 - **No cracks between chunks.** A boundary vertex is a function of samples within the job's pad, quantised as
   integer steps in world cells, so both chunks (and both sections) compute the same bits. A sample edge belongs to
   the chunk of its lower sample, so no triangle is drawn twice.
-- **Ground: the terrain mesher (v4, `terrain-mesher.ts`).** Surface nets over the terrain cells' density, one vertex
-  a dual cube, placed by the terrain rules' features: a cube touching a cliff or terrace-lip cell whose four sample
-  columns are a straight step (two columns a side, each a height function over the lattice window or wholly full or
-  empty there; v6) takes the lattice point at the higher column top between its two sample centres (the step's
-  edge, or its foot when only the lower top lies there: the 4-bit fill is a height, so the step's face stands on
-  the cell boundary); any other such cube takes the dual-contouring point of its edge crossings (QEF, pulled 0.05
-  toward their mean, inside the cube); a cube whose
-  four sample columns are each a height function over `LATTICE_WINDOW` (2) cells either side takes the column
-  lattice point (the cube's centre x/z, a cell corner, at the columns' mean fill height), shared by every cube of
-  that column stack, so the quads between them collapse; any other cube the mean of its crossings. Non-lattice
-  vertices stay one step inside their cube and off its centre line, so only lattice vertices are ever shared and
-  a chunk's joined sections are its whole derive, triangle for triangle. **Reach:** the mesher reads voxels
-  `TERRAIN_MESHER_REACH` (3) cells above and below the chunk and classes one cell round it, within the job's pad
-  (R + 1 = 3), so invalidation is unchanged; a narrower pad is refused, and a test meshes random terrain with the
-  job's pad and 3 cells more and gets the same bytes. With rules that set no features (placeholder), creases are
-  placed as plain nets. The naive surface nets of v3 live on in the bench as the goldens' "before".
-- **Ground normals (v5).** A column-lattice vertex takes the slope of the column heights round it: over the 4 × 4
-  columns (weights 1, 3, 3, 1 each way) when each is a height function over the two cells either side of the cell
-  boundary nearest the vertex's height (a window that follows the vertex, not the cube, so every cube, section and
-  chunk gives it the same normal), else over its cube's four. One cell's slope of 4-bit fills rounds by up to 1/30
-  cell a column and banded 1:5 slopes by up to 6°; the wider slope keeps them within 2°. Other vertices take their
-  cube's sample gradient. **Creases split:** a vertex whose cube touches a cliff, terrace-lip, overhang, thin or
-  spike cell, whose inside corners are not one half of the cube and whose crossing edges each have a whole cell or
-  a whole air cell at one end (an edge or corner of the voxels, not a smooth surface slanting through them) is a
-  crease vertex; each quad whose face turns more than `CREASE_SPLIT_DEG` (10°) from the vertex's gradient takes a
-  copy of the vertex carrying the face's normal (Newell's, from the quad's four placed positions, so every section
-  and chunk gets the same copies; copies with equal snorm8 normals are one vertex). One position can therefore
-  appear in several vertices; consumers that weld (collision: Rapier merges duplicate vertices) are unaffected.
-  Gentle and steep ground never split.
-- **Base surface (v6, `base-surface.ts`).** The exposed faces of wall-class cells, coplanar faces of one direction
-  merged inside the job's section into rectangles (greedy, row by row a layer), whatever their materials (vertices
-  carry none). No T-junctions: a rectangle's edge also takes every lattice point where another rectangle of the
-  section has a corner, and on the section's faces every lattice point (the neighbour merges on its own); merges
-  never cross a section face. The ground and detail pieces share no edge with the base, so they set no vertex on
-  it. A rectangle fans from a corner whose two edges have no extra point, else from its centre. Joined sections
-  and a whole-chunk derive then cover the same faces once each, crack-free, in different triangles (tested on
-  the town and a closed shell). 46c (kits and cases) replaces the producer, writing the same layout or bumping
-  the version.
+- **Ground and base producers:** the terrain mesher and the base surface, below in *Terrain rule set, mesher,
+  base surface, levels, seams and LOD selection*.
 
 **Detail instance (8 bytes):**
 - u8 x, y, z: the cell inside the chunk;
@@ -1113,13 +1077,6 @@ chunk):
 - u16 piece: family << 2 | section. Families: beam 1, rail 2, post 3. Sections: single 0, start 1, body 2, end 3;
 - u16 reserved, 0 (v1's material slot; the stride stays a multiple of four, as a GPU instance buffer needs). A
   piece's material is its cell's, in the shader data. The slice still draws pieces in stand-in colours by family.
-
-**Pieces per level (46b.9, derived 9; `pieceDetailAt`).** A chunk (level 0) lists its pieces at high detail; a
-level-1 node lists the pieces its own cells resolve to with `low` set; level 2 and coarser list none, and the base
-surface draws the cells the rules call beams and rails as bodies (the cell meshed from its mip shape, so the
-outline stays and the surface under a removed piece is present). Collision, navigation and light read the class,
-not the level. The renderer takes a piece's mesh by family and detail (three-adapter `VoxelPieceMeshes`: a kit's
-authored high and low meshes, stand-in boxes without one, the low box without its two ends); 46c's kits fill it.
 
 **Shader data on the GPU and the surface shader (45.10b; three-adapter `voxel-surface.ts`).** One renderer path:
 the engine's node materials (`MeshStandardNodeMaterial`), the same program on WebGPU and WebGL 2, no feature of one
@@ -1172,6 +1129,84 @@ visible in 48–71 ms.
   - a corner edit rebuilds exactly the 8 chunks around it;
   - an edit 3 cells under a chunk boundary changes the chunk above;
   - 16 random edits leave every result in a 32-chunk window equal to a fresh derive.
+
+#### Terrain rule set, mesher, base surface, levels, seams and LOD selection (as built in 46b; derived v3 → v9)
+
+This subsection is the whole terrain and level-of-detail path as built (R108, R109), in the order a world takes it:
+the rules classify, the mesher and the base surface build a chunk's surfaces, the downsample builds coarser levels,
+the same derive meshes them, seams join two levels, the selection picks what is drawn, and the view draws it.
+**No stored format changed in 46b.** Chunk codec, region file, manifest, stroke command, undo record, save and
+overrides are as approved in v1; every output here is derived in workers and never stored, so each change of its
+meaning stepped `DERIVED_FORMAT_VERSION` (now 9; the history and owner notes are at the end of this subsection),
+nothing was upgraded and no world had to be regenerated. The one authored addition is the scene setting
+`voxelWorld.levels` (project schema 8, an optional field added canonicalized field by field), not a voxel format.
+
+**Terrain rule set (`terrain-rules.ts`, `rule-registry.ts`).**
+- `TERRAIN_RULES` (id `terrain`, version 1) = `withTerrainFeatures(PLACEHOLDER_RULES, 'terrain', 1)`: the
+  placeholder construction rules and the ground features in **one** `AssemblyRuleSet`, one evaluation a job,
+  radius the larger of the two (`TERRAIN_RULES_RADIUS` = 2), so the job's pad stays 3 and aprons and invalidation
+  are unchanged. `WORLD_RULES` (= `TERRAIN_RULES`) is what every streamed world derives with: the slice page, Play,
+  the Scene view and the voxel e2e. `PLACEHOLDER_RULES` stays registered for tests; under it the mesher places
+  creases as plain nets.
+- Every solid (non-open role, fill at or above the surface threshold) ground cell with an exposed face gets a
+  feature in the high nibble of its class byte (`TERRAIN_FEATURE_SHIFT` 4; every consumer masks the class, so the
+  other outputs' bytes are unchanged): `gentle`, `steep`, `cliff`, `terraceLip`, `overhang`, `caveRoof`, `thin`,
+  `spike` (`TERRAIN_FEATURE`; `none` for buried, partly filled and non-ground cells). Order: spike (open both sides
+  along two or more axes) → thin (one axis) → open below: overhang if the mass ends within 2 cells with open cells
+  above its end, else cave roof → open above and on a side: cliff if the drop over the 5 cells level with the cell
+  exceeds 2.5 cells, terrace lip if it is 0.5–2.5 with flat ground behind and in front → else by the rise a cell:
+  ≥ 2 cliff, ≥ 0.5 steep, else gentle (`TERRAIN_THRESHOLDS`; terraces are read along x and z only).
+- Features are local (radius 2): a ledge wider than that reads as a cave roof underneath except the 2 cells behind
+  its front. The mesher treats both as downward faces. Features live only in the job, like every class.
+- **Conformance:** `ruleRadiusMismatches` passes for every registered set on random assembly and random terrain
+  worlds at 16 and 32 (`derived.test.ts`), and every hard case of the `features` world is classified as named.
+- Thresholds stay in cells at every level (a level-2 terrace lip is a step of 0.5–2.5 two-metre cells): the radius,
+  apron and conformance stay one contract, and what a level cannot hold leaves through the downsample.
+- Cost: evaluation ~92–116 µs a 16³ ground section p50 (Node), against 38–45 for the placeholder rules alone.
+
+**Ground: the terrain mesher (`terrain-mesher.ts`, `terrainSurface`).** It replaced the naive surface nets
+(`groundSurface`, v3), which live on in the bench (`tools/voxel-bench/mesher-candidates.ts`, `reference`) as the
+goldens' "before"; it was picked over plain nets, column-lattice nets alone, dual contouring alone and marching cubes
+by measurement on the hard cases and five worlds (plan-46b 46b.3a).
+- **Placement (v4; straight steps v6).** Surface nets over the terrain cells' density, one vertex
+  a dual cube, placed by the terrain rules' features: a cube touching a cliff or terrace-lip cell whose four sample
+  columns are a straight step (two columns a side, each a height function over the lattice window or wholly full or
+  empty there; v6) takes the lattice point at the higher column top between its two sample centres (the step's
+  edge, or its foot when only the lower top lies there: the 4-bit fill is a height, so the step's face stands on
+  the cell boundary); any other such cube takes the dual-contouring point of its edge crossings (QEF, pulled 0.05
+  toward their mean, inside the cube); a cube whose
+  four sample columns are each a height function over `LATTICE_WINDOW` (2) cells either side takes the column
+  lattice point (the cube's centre x/z, a cell corner, at the columns' mean fill height), shared by every cube of
+  that column stack, so the quads between them collapse; any other cube the mean of its crossings. Non-lattice
+  vertices stay one step inside their cube and off its centre line, so only lattice vertices are ever shared and
+  a chunk's joined sections are its whole derive, triangle for triangle. **Reach:** the mesher reads voxels
+  `TERRAIN_MESHER_REACH` (3) cells above and below the chunk and classes one cell round it, within the job's pad
+  (R + 1 = 3), so invalidation is unchanged; a narrower pad is refused, and a test meshes random terrain with the
+  job's pad and 3 cells more and gets the same bytes. With rules that set no features (placeholder), creases are
+  placed as plain nets.
+- **Ground normals (v5).** A column-lattice vertex takes the slope of the column heights round it: over the 4 × 4
+  columns (weights 1, 3, 3, 1 each way) when each is a height function over the two cells either side of the cell
+  boundary nearest the vertex's height (a window that follows the vertex, not the cube, so every cube, section and
+  chunk gives it the same normal), else over its cube's four. One cell's slope of 4-bit fills rounds by up to 1/30
+  cell a column and banded 1:5 slopes by up to 6°; the wider slope keeps them within 2°. Other vertices take their
+  cube's sample gradient. **Creases split:** a vertex whose cube touches a cliff, terrace-lip, overhang, thin or
+  spike cell, whose inside corners are not one half of the cube and whose crossing edges each have a whole cell or
+  a whole air cell at one end (an edge or corner of the voxels, not a smooth surface slanting through them) is a
+  crease vertex; each quad whose face turns more than `CREASE_SPLIT_DEG` (10°) from the vertex's gradient takes a
+  copy of the vertex carrying the face's normal (Newell's, from the quad's four placed positions, so every section
+  and chunk gets the same copies; copies with equal snorm8 normals are one vertex). One position can therefore
+  appear in several vertices; consumers that weld (collision: Rapier merges duplicate vertices) are unaffected.
+  Gentle and steep ground never split.
+
+**Base surface (v6, `base-surface.ts`).** The exposed faces of wall-class cells, coplanar faces of one direction
+merged inside the job's section into rectangles (greedy, row by row a layer), whatever their materials (vertices
+carry none). No T-junctions: a rectangle's edge also takes every lattice point where another rectangle of the
+section has a corner, and on the section's faces every lattice point (the neighbour merges on its own); merges
+never cross a section face. The ground and detail pieces share no edge with the base, so they set no vertex on
+it. A rectangle fans from a corner whose two edges have no extra point, else from its centre. Joined sections
+and a whole-chunk derive then cover the same faces once each, crack-free, in different triangles (tested on
+the town and a closed shell). 46c (kits and cases) replaces the producer, writing the same layout or bumping
+the version.
 
 **Voxel mips (R84, R85; downsample v9).**
 - A level-L node has the chunk's form: 32³ cells of 0.5 m × 2^L (`mipCellMetres`), using the same store, codec and
@@ -1228,45 +1263,117 @@ the load ring to stand in where level-2 nodes are not complete, 46b.8a).
 - Measured (Node, hard cases): levels 1 and 2 are closed, and every surface lies within the level's cell of the
   true one. Triangles are 22–25 % of the level below. Features of at least the level's cell stay.
 
-**Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
-culling, rays and the far field skip whole empty or solid subtrees without reading voxels.
-- Level 0 is a chunk: its derived occupancy flag. A chunk never given one (absent: air) is empty.
-- A node above is empty when all 8 children are, solid when all 8 are, and mixed otherwise.
-- A chunk whose flag changes marks its ancestors stale (the same `MipStaleSet`); a read refreshes stale nodes first,
-  lowest level first, so a flag read is never stale. `refresh()` names the nodes whose flag changed.
-- Tested against every node recomputed from fresh derives, before and after an edit that digs a cave into a solid
-  node and fills it again (only the edit's dependent chunks derived again).
+**Seams between levels (`lod-seam.ts`, `buildFaceSeam`; `stream-seams.ts`, `StreamSeams`).** Picked by measurement
+over the finer side's stitch strip, skirts and skirts with flaps (plan-46b 46b.7a): the **coarser** side's
+transition strip with flaps.
+- One coarse node face's seam is built (job kind `seam`, in a worker, pure) from the node's derived surfaces, its 8
+  same-level neighbours beside the face and the finer surfaces against the face and beside it (the 4 finer nodes,
+  or the level-0 chunks' sections within a cell of the plane), all read in a window of the face ±
+  `SEAM_RIM_CELLS` (4 finer cells).
+- Every coarse boundary vertex moves to the nearer end of its nearest finer boundary edge, so every seam vertex is
+  exactly a vertex of one of the two meshes. The coarse triangles touching a moved vertex (the node's and its
+  neighbours') are drawn again by the seam with it moved; the originals stay drawn (a band up to a coarse cell wide
+  drawn twice, nearly coplanar, shaded the same). The fill between the moved coarse boundary and the finer one is
+  fanned; flaps one coarse cell deep go under coarse edges whose ends land on different boundary chains or the wrong
+  way round, and under finer edges no strip reached.
+- **Level 0 is never touched:** no level-0 vertex moves, so the drawn level-0 mesh, its heightfield and its collider
+  stay one. The coarse node's own mesh is not changed either (a node's mesh never depends on its neighbours' levels).
+- Output: pieces, one per finer node against the face, three vertices a triangle, positions in the finer level's
+  steps from that node's corner less `SEAM_PIECE_PAD_CELLS` (8) on every axis (a whole face and its rim do not fit
+  u16 steps); `seamBytes`. Seams count in `bytes.mips`.
+- **When rebuilt (atomic where something is replaced):** a mip node's new result is held until the seams reading it
+  are rebuilt from it (its `node` event and their `seams` event in one task); an edit's section group swaps only once
+  the seams reading its chunks are rebuilt from its held results (their `seams` event just before the `swap`); a
+  level change builds every face it adds before it goes in (below). Seams whose inputs arrive while streaming in are
+  built as their jobs come back (there is no old seam to keep).
+- Measured (28 two-level patches: 11 hard cases, hilly, caves, town, at L0|L1 and L1|L2; 2.8 M rays): crack rays
+  79,268 without seams → 0 in every patch but one cave saddle (358 rays at one place, **D462**: two cavities that
+  level 0 and level 1 connect in a different order; a strip matching boundary chains cannot join them; proposed fix
+  a strip meshed from voxel samples). +23–55 triangles a fine node face (caves 76 / 139), worker µs a face p50 62.
 
-**Prop lighting channel (R93–R96).**
-- Per chunk: one coverage byte a cell, or null when no prop covers the chunk.
-- Rebuilt from the prop list when a chunk loads or a prop is placed or moved: 4³ sample points per host cell, tested
-  inside the prop's frame (inverse yaw and scale).
-- Overlaps combine as `255 − round((255 − a)(255 − b) / 255)`, and this channel joins the construction's light
-  coverage the same way.
-- It is never part of the world voxels and never written to a file.
+**LOD selection and the level rings (`lod-select.ts`, `chooseLevels`; `stream-lod.ts`, `StreamLod`).**
+- Per top-level node over the unload bounds, a node of level L ≥ 1 splits while its horizontal box distance from
+  the nearest focus is under `radii[L − 1]` (+ the hysteresis once split). Defaults `DEFAULT_LEVEL_RINGS`
+  (`stream-ring.ts`): radii 128 / 256 cells (level 0 to 64 m, level 1 to 128 m, level 2 past it), hysteresis 16
+  cells (8 m). The foci are the stream focus and every collision focus (characters, passed by the runtime host).
+- Only ready nodes are drawn (a node: a result, `null` included; a chunk: every section has had one). A node wanted
+  split whose children are not all ready stays whole; a node wanted whole that is not ready is drawn as its
+  children, a finer level standing in only to one node of the next level past its own ring. Then 2 : 1: a node
+  facing nodes two or more levels finer is split while its children are ready; what cannot be mended is counted
+  (`unbalanced`), never hidden. `DrawnLevels` is the `LevelSelection` the seams read (`faceLevels`).
+- **A swap:** the streamer chooses again after the focus moved a cell, a node or chunk became ready or left, or the
+  rings changed; a choice that differs becomes the seams' selection and goes in only once every face it adds is
+  built: one `seams` event, then one `levels` event (`reason: 'swap'`) in the same task, so the old level stays drawn
+  until the new one is complete. One swap builds at a time. A drawn node that loses its result leaves at once
+  (`reason: 'lost'`).
+- **The `levels` setting:** `voxelWorld.levels { level0?, level1? }` in metres (1–100,000, unknown fields refused,
+  `level1` below `level0` taken as it); `worldLevelRings` turns it into cells and widens level 0 to the collision
+  radius + its 8 m hysteresis, so a chunk with a collider is always drawn at level 0.
+- **Mip rings:** `DEFAULT_MIP_RINGS` keeps levels 1 and 2 derived to the load ring (384 cells), results kept
+  `MIP_RING_HYSTERESIS_CELLS` (16) past it. A level-2 node is complete only where the chunks round it are
+  resident, about 100 m out in the 192 m load ring, so by default level 2 is never drawn and level 1 stands in from
+  128 m to where its nodes end (~160 m).
+- Measured (Node, slice world, default rings, 160 m flight at ~33 m/s): 72 swaps, 23 level changes, choice → swap
+  ms p50 0.5 / p95 4.5 / max 118; streamer update p50 0.78 / p95 2.6 ms. A ±6-cell jitter round a ring flips nothing.
 
-**Measured (45.6, Node).**
-- Derive time: 0.5–3.4 ms a chunk (median); the evaluation is about 0.2 ms of that.
-- Derived bytes: 11–69 KB a chunk (mean).
-- Light: 0.5–4.3 KB a chunk, against 3.5–19 KB dense.
-- Town collision: 183 B a chunk; 19 wall cells a box.
-- The estimated ring at 192 m on hilly ground is about 38 MB of derived data. That figure is extrapolated from the
-  window, not measured in the streamer.
+**Drawing the levels (three-adapter `chunk-batch.ts`, `voxel-chunk-view.ts`, `voxel-surface.ts`).** The batcher
+sends only what the selection draws; a level swap and its seams leave in one batch and are applied between two
+frames (one apply path, `applyChunkDrawBatch`, for the slice page, Play, the Scene view and exports). One draw a
+node, placed at its corner (level-0 cells × 2^L) and scaled by `mipCellMetres(L)`; seams one object a face, shaded
+from the coarse node's grid. **Shader data per level:** each node's 34³ grid is its own (the surface's material,
+above); each object passes its grid's cell size (`cellMetres`); the blend distance is a metres setting divided by
+the cell in the shader, the read depth `SHADER_READ_DEPTH_CELLS` is a quarter of a level-0 cell (0.125 m) at every
+level, and triplanar patterns stay in level-0 cells, so a material and its blend look the same at every level
+(columns showing another material than level 0: hills 0 / 0.005 %, hard cases 0.007 / 0.09 % at L1 / L2). Picking
+takes level 0 only. Measured on staging (1280 × 720, 60 Hz cap): triangles drawn slice 0.81 → 0.31 M, town 1.96 →
+0.80 M; render() CPU slice 1.4–1.5, town 3.0–3.2 ms. Miss, cause not traced: WebGPU GPU time +1.6–1.7 ms in oblique
+views with the levels (equal from above and on WebGL 2).
 
-### 3.8 Versions and upgrades (R3)
+**Pieces per level (46b.9, derived 9; `pieceDetailAt`).** A chunk (level 0) lists its pieces at high detail; a
+level-1 node lists the pieces its own cells resolve to with `low` set; level 2 and coarser list none, and the base
+surface draws the cells the rules call beams and rails as bodies (the cell meshed from its mip shape, so the
+outline stays and the surface under a removed piece is present). Collision, navigation and light read the class,
+not the level. The renderer takes a piece's mesh by family and detail (three-adapter `VoxelPieceMeshes`: a kit's
+authored high and low meshes, stand-in boxes without one, the low box without its two ends); 46c's kits fill it.
 
-| Format | Magic / field | Version | An unknown version | Upgrade path |
-|---|---|---|---|---|
-| Chunk codec | `VC` | 2 | a newer one refused | `CHUNK_CODEC_UPGRADES`, add-only, keyed by the version lifted from (v2 has none) |
-| Region file | `TLVR` | 2 (+ codec version byte) | a newer one refused | `REGION_UPGRADES` (header and table; chunks by the codec's steps), add-only (v2 has none) |
-| World manifest | `world.json` `format` | 2 | a newer one refused | step 1 → 2 lists the region files found (§3.2) |
-| Edit command | `v` | 2 | refused | none yet |
-| Undo record | `TLVU` | 2 | refused | not needed (session data) |
-| Save | `TLVS` | 2 | a newer one refused | `SAVE_UPGRADES`, append-only (v2 has none) |
-| Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
-| Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
-| Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 8 | refused | rebuilt, never upgraded |
+**Collision stays at level 0, ground as heightfield patches (`ground-heightfield.ts`, `groundHeightfieldPatches`;
+`derived-collision.ts`, `collisionGeometry`).** Only level-0 chunks inside the collision ring have bodies; a node,
+a seam or a stand-in never collides. The column-lattice ground of a chunk is read once: cells within 5 mm of a
+lattice heightfield with no riser on an edge and no air under solid (overhang, arch, cave roof stay triangles) are
+covered by rectangles (greedy), and a rectangle of at least `MIN_HEIGHTFIELD_PATCH_CELLS` (16) becomes a heightfield
+in the chunk's one body, the rest triangles (`'level'` keeps the older level-only rule, `false` none). Sloped
+heightfields are on because the physics port sweeps them a cell at a time (`physics-rapier` `sweep3d.ts`; Rapier
+0.20's own heightfield cast landed late, D443, fixed). Measured: ground chunks with fields slice / hilly 53 / 54 %,
+town 42 %; the slice flight's physics heap 16.4 → 2.4 MiB; a slanted sweep 21 → 86 µs p50.
+
+**Limits as built (open, for the owner).**
+- D462: the cave saddle hole at an L0|L1 seam (above).
+- D463: the load box is 192 m across but only ±96 m up and down, and coarser levels stand in only one node past
+  their ring, so the top and bottom 32 m of the box are drawn only within 96 m: terrain rising more than ~64 m above
+  the camera loses its top beyond ~96 m, and level 2 is never drawn in the default ring.
+- R107's frame budget: evaluation + mesh 207–307 µs a 16³ ground section p50 (Node; mesh alone ~110, caves ~190)
+  against 0.1–0.2 ms: the rules' evaluation (~100 µs) is the cause.
+
+**Measured (Node, hard cases and worlds).** Hard cases at level 0: every case closed, every probe kept, slope mean
+error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slope normals within 2°, creases kept
+(40–64°). Triangles, naive → as built: slice window 0.66 → 0.59 M (−11 %), town 2.87 M (45.10c) → 1.62 M; levels 1 and 2 each
+22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
+section: see the limits above.
+
+**Derived version history (v2 → v9).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
+
+| Step | Item | What changed | Layout |
+|---|---|---|---|
+| 2 → 3 | 45.10b (owner 2026-11-02) | no material in vertices, instances and boxes; shader data grid (§7, 45.10b) | 12-byte vertex |
+| 3 → 4 | 46b.3b | the terrain mesher places the ground's vertices | unchanged |
+| 4 → 5 | 46b.4 | ground normals: lattice slope over 4 × 4 columns; crease vertices split | unchanged (a position may repeat) |
+| 5 → 6 | 46b.5 | a straight step's crease on the lattice (D461); base faces merged per section | unchanged |
+| 6 → 7 | 46b.6a | a result records its level; downsample by solid share and role priority | `level` in the canonical bytes |
+| 7 → 8 | 46b.8c | a mip cell wears the material its surface shows; shader reads 0.125 m deep (D464) | unchanged |
+| 8 → 9 | 46b.9 | pieces per level (`low` at level 1, none past it); mip bodies hold a cell by cells (D465) | unchanged |
+
+The owner notes, as each step recorded them:
 
 **Derived data 3 → 4 (46b.3b, owner note: default chosen, owner to confirm).** The layout is unchanged (12-byte
 vertices, u16/u32 indices); the meaning of the ground's vertex positions changed (the terrain mesher's placement,
@@ -1308,6 +1415,48 @@ cells drawn by the base surface. A mip node's bodies hold a node cell by their c
 sheet), not by their fill: before, a one-cell house shell lost its stepped roof at level 1 and its walls at level 2
 (D465). Nothing is stored, nothing to upgrade, no world regenerated.
 
+**Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
+culling, rays and the far field skip whole empty or solid subtrees without reading voxels.
+- Level 0 is a chunk: its derived occupancy flag. A chunk never given one (absent: air) is empty.
+- A node above is empty when all 8 children are, solid when all 8 are, and mixed otherwise.
+- A chunk whose flag changes marks its ancestors stale (the same `MipStaleSet`); a read refreshes stale nodes first,
+  lowest level first, so a flag read is never stale. `refresh()` names the nodes whose flag changed.
+- Tested against every node recomputed from fresh derives, before and after an edit that digs a cave into a solid
+  node and fills it again (only the edit's dependent chunks derived again).
+
+**Prop lighting channel (R93–R96).**
+- Per chunk: one coverage byte a cell, or null when no prop covers the chunk.
+- Rebuilt from the prop list when a chunk loads or a prop is placed or moved: 4³ sample points per host cell, tested
+  inside the prop's frame (inverse yaw and scale).
+- Overlaps combine as `255 − round((255 − a)(255 − b) / 255)`, and this channel joins the construction's light
+  coverage the same way.
+- It is never part of the world voxels and never written to a file.
+
+**Measured (45.6, Node).**
+- Derive time: 0.5–3.4 ms a chunk (median); the evaluation is about 0.2 ms of that.
+- Derived bytes: 11–69 KB a chunk (mean).
+- Light: 0.5–4.3 KB a chunk, against 3.5–19 KB dense.
+- Town collision: 183 B a chunk; 19 wall cells a box.
+- The estimated ring at 192 m on hilly ground is about 38 MB of derived data. That figure is extrapolated from the
+  window, not measured in the streamer.
+
+### 3.8 Versions and upgrades (R3)
+
+| Format | Magic / field | Version | An unknown version | Upgrade path |
+|---|---|---|---|---|
+| Chunk codec | `VC` | 2 | a newer one refused | `CHUNK_CODEC_UPGRADES`, add-only, keyed by the version lifted from (v2 has none) |
+| Region file | `TLVR` | 2 (+ codec version byte) | a newer one refused | `REGION_UPGRADES` (header and table; chunks by the codec's steps), add-only (v2 has none) |
+| World manifest | `world.json` `format` | 2 | a newer one refused | step 1 → 2 lists the region files found (§3.2) |
+| Edit command | `v` | 2 | refused | none yet |
+| Undo record | `TLVU` | 2 | refused | not needed (session data) |
+| Save | `TLVS` | 2 | a newer one refused | `SAVE_UPGRADES`, append-only (v2 has none) |
+| Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
+| Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
+| Job message | `v` | 1 | refused | not needed (same build both ends) |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 9 | refused | rebuilt, never upgraded |
+
+**Derived data 3 → 9 (46b):** the steps and their owner notes are in §3.7, *Derived version history*.
+
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
 1 → 2. Every v1 was an unapproved draft with nothing shipped in it; v1 bytes are refused, with no upgrade step (§7,
@@ -1344,7 +1493,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R10 | all | — | later: 48 retires the old systems |
 | R11 | §2.2 | 45.1, 45.2a (plane costs), 45.10a (value v2 before → after) | served: the value v2 (owner 2026-11-02) |
 | R12, R13 | §3.7 (classes are derived, not stored) | 45.6; `derived.test.ts` | superseded (§7a) |
-| R14 | §2.2 role + shape | — | later: terrain slope cases in 46b, roof and stair cases in 46c (the stored role tells roof, stair and terrain apart; no orientation) |
+| R14 | §2.2 role + shape; §3.7 terrain rule set | 46b.2 (terrain features from role and shape; `derived.test.ts`) | partly: terrain slope cases built in 46b; roof and stair cases in 46c (the stored role tells roof, stair and terrain apart; no orientation) |
 | R15–R17 | §3.1 | 45.2a, 45.2b; `palette-store.test.ts`, `brick-layout.test.ts` | served |
 | R18 | §1 replacement 1 | 45.2a, 45.2b | replaced (owner accepted 2026-11-02) |
 | R19 | §2.2, §3.1 | 45.2a | served |
@@ -1385,7 +1534,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R70 | package rule | 45.1b; `stream.test.ts` (worker bundle passes the export scan) | served (default, owner to confirm) |
 | R71 | — | — | later: deferred scatter |
 | R72 | §3.7 | 45.6 (worker = main thread, deterministic) | served |
-| R73, R74 | §3.7 reference producers | 45.6 | partly: 46b mesher, 46c case pass |
+| R73, R74 | §3.7 reference producers, terrain mesher and base surface | 45.6, 46b.3b–46b.5 | partly: the terrain mesher and the merged base surface built (46b); the case pass is 46c |
 | R75–R77 | §3.7 | 45.6; `derived.test.ts`; slice proof 45.7 (§6) | served (placeholder rules) |
 | R78, R80 | — | — | superseded by R77 |
 | R79 | §1 replacement 3 | 45.6 | replaced (owner accepted 2026-11-02) |
@@ -1405,9 +1554,9 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R104 | — | — | later: 46e (O19) |
 | R105 | §3.7 collision | 45.6 | partly: Rapier churn in 46a |
 | R106 | — | — | later: 48a |
-| R107 | §3.6 sections, atomic swap | 45.10c; `stream.test.ts`, `voxel-world.e2e.ts`, plan **45.10c** (blast benchmark) | partly: built and measured (local 1–4 m on terrain the next frame); big blasts in the town 3–5 frames (D440, 46a) |
-| R108 | §3.7 assembly contract (radius, conformance) | — | later: 46b (the mesher's budget: 45.10c, 0.1–0.2 ms a 16³ section p50 for the reference) |
-| R109 | §3.7 voxel mips, shader data | 45.9 baseline (0.90 M triangles); 46b.6a: nodes derived by the same mesher (`mesh-cases.test.ts`, `derived.test.ts`) | partly: levels derive; streaming, seams, rings later in 46b |
+| R107 | §3.6 sections, atomic swap; §3.7 seams (an edit's swap waits for its seams) | 45.10c, 46a.12, 46b.7b; `stream.test.ts`, `voxel-world.e2e.ts`, plan **45.10c** (blast benchmark) | partly: local 1–4 m blasts the next frame, 8 m 2–3 frames (46a.12); the mesher misses its 0.1–0.2 ms budget (207–307 µs a 16³ section with the rules); coarse levels show an edit after its ancestors re-derive; 46b.11a re-measures (requirements §5) |
+| R108 | §3.7 terrain rule set, terrain mesher | 46b.1–46b.5, 46b.10; `mesh-cases.test.ts` (the `features` hard-case world, goldens), `derived.test.ts` (conformance), `collision.test.ts` | served: rules with radius 2 and conformance, the hard cases closed with every probe kept; D463 (tall far terrain) open |
+| R109 | §3.7 terrain, levels, seams and LOD selection | 46b.6a–46b.9; `mesh-cases.test.ts`, `derived.test.ts`, `stream.test.ts`, `lod-select.test.ts`, `level-materials.test.ts`, `voxel-chunk-view.test.ts`, `voxel-world.e2e.ts` | served with limits: rings, seams, one blend, pieces high → low → none; D462 (a cave saddle) and D463 (level 2 not drawn, tall far terrain) open |
 | R110 | — | — | later: 46e |
 
 **Not served yet, and where each goes:**
@@ -1416,7 +1565,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 - **46b / 46c:** R14, R73, R74, R87–R90 (the terrain mesher and LOD, then kits and cases).
 - **46d:** R27 and R28 (the material model; the id width is set).
 - **46e:** R97–R101, R103, R104 and R110.
-- **46a / 46b:** R107's remaining frames (D440), R108, R109.
+- **46b.11 / performance phase:** R107's remaining frames and the mesher budget; D462, D463 for R108/R109.
 - **48a:** R106.
 - **49:** R26, R41, R42 and R61.
 

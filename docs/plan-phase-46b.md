@@ -119,7 +119,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.10 | done (41643ba9; fast gate green): D443 is Rapier 0.20's heightfield cast; the port sweeps heightfields a cell at a time (fixed). Sloped heightfields on, in patches per chunk: ground chunks with fields slice/hilly 0 → 53/54 % (eligible 32 %), town 24 → 42 %; flight heap slice 12.2 → 16.4 vs 2.3 → 2.4 MiB. Slanted sweeps 21 → 86 µs p50. D466 open. |
 | 46b.11a | not started |
 | 46b.11b | not started |
-| 46b.12 | not started |
+| 46b.12 | done (this commit; docs only, no gate): spec §3.7 one terrain/levels/seams/LOD-selection subsection as built, derived v3 → v9 history with its owner notes in one place (no stored format changed), §3.8 row 8 → 9, §4 rows; requirements trace R107–R109 (holds/misses, hard cases, D462/D463); manual "Distance levels". No API change: reference not regenerated. |
 | 46b.13 | not started |
 
 ## 7. Results
