@@ -110,7 +110,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.10 | done f4f530a4 (+ f305e979 boundary): Scene view streams a `voxelWorld` world round its orbit target in a worker (Play's batches, `VoxelWorldDraws`), reads `voxelsChanged`; command-route dig shown without reload (e2e, pictures looked at). render() CPU 2.1–2.9 / 0.5–0.6 ms p50 with / without (225 chunks). D449 fixed, D437 open. voxel-world.e2e 32.0 → 38.6 s. |
 | 46a.11 | not started |
 | 46a.12 | not started |
-| 46a.13 | not started |
+| 46a.13 | done a2eb64a1: manual `features/voxel-worlds.md` (cells, `voxelWorld`, streaming + budget, Scene view, editVoxels/undoVoxels, not built yet; export line to be confirmed after 46a.11), `guides/voxel-scripts.md` (`ctx.voxels`, examples type-checked), migration note; spec pool default built. Links test + check-docs green. |
 | 46a.14 | not started |
 
 ## 7. Results
