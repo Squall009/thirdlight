@@ -1,6 +1,7 @@
 /**
  * The synthetic test worlds of the storage harness: plain terrain, a hilly
- * 2 × 2 km area, a dense town (town.ts), caves, and a world 2 km tall.
+ * 2 × 2 km area, a dense town (town.ts), caves, and a world 2 km tall; and
+ * the terrain mesher's hard-case row (features.ts).
  *
  * Engine-owned test data for measuring storage, not a product feature and
  * not world generation for games: each world is a deterministic function of
@@ -215,6 +216,14 @@ export function cavesWorld(opts: WorldOptions = {}): TestWorld {
 
 /** The town lives in its own module; re-exported so every world comes from here. */
 export { townWorld };
+
+/**
+ * The terrain mesher's hard cases (slopes, bank, cliff, terraces, overhang,
+ * arch, cave, one-cell wall, spike, pit and hole, bumps), each with its
+ * analytic solid, in their own module. Not in {@link allWorlds}: they test
+ * meshes, not storage.
+ */
+export { featuresWorld } from './features';
 
 /**
  * A world 2 km tall on a 256 m footprint: base −1,000 m, a mountain to

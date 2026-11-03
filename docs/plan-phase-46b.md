@@ -101,7 +101,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 
 | Item | Status |
 |---|---|
-| 46b.1 | not started |
+| 46b.1 | done (this commit; fast gate green): `features` world (14 cases, analytic solids, 83 probes), harness `mesh-cases.ts`, goldens, `slice-world --kind features`. Reference: all closed, every probe kept; max error 4.4–5.0 cm on slopes, 12–23 cm at creases; mean 1.7–4.3 cm; 5.4–12.3 k triangles a case. Broken meshes fail. Voxel e2e 47.9 → 43.8 s (untouched). |
 | 46b.2 | not started |
 | 46b.3a | not started |
 | 46b.3b | not started |
@@ -123,6 +123,47 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 ## 7. Results
 
 (Filled per item: numbers, rounds, uptime, report paths.)
+
+### 46b.1 hard cases and goldens
+
+The `features` world (`tools/voxel-bench/features.ts`, re-exported from `worlds.ts`; not in `allWorlds`, so storage
+reports are unchanged): 14 cases on 32 m pads in a row 448 × 32 m, ground 8 m deep, ground level 8.3 cells (partial
+cells), each case an analytic solid (cells, positive inside; max/min compositions are exact outside and a lower bound
+near the joins of two parts). Fill = the cell's volume fraction inside the solid, measured to 1/8 cell, rounded to
+the 16 levels. Slopes run 30° off the axes (not grid-aligned); one-cell features sit on whole cells. Harness
+`mesh-cases.ts`: meshes every chunk that owns a surface edge (32³ chunks through the real `deriveFromStore`), welds
+by exact position, then per case: open edges (every edge used once each way), max/mean distance to the analytic
+surface at vertices and triangle centroids in the measuring box (pad less 6 cells, above the floor), probe rays (83
+over all cases: first hit within half a cell of the analytic first hit, or both miss), triangles in the box.
+Goldens `mesh-goldens.ts`. `run.mjs slice-world --kind features` writes it (116 chunks, 4 files, 5 s).
+
+**Before (reference surface nets)**, Node 2026-11-03 (uptime 10 d 17 h, load 2.3–2.8): every case closed (0 open
+edges, 0 degenerate), every probe kept (wall unbroken, spike, pit, hole, arch opening, cave mouth/roof present).
+
+| Case | Triangles | Max error | Mean error | Where the max is |
+|---|---|---|---|---|
+| slope-1:20 | 5,768 | 4.95 cm | 2.67 cm | plane (45.10a, vertical: 5.5 cm) |
+| slope-1:5 | 6,885 | 4.37 cm | 1.84 cm | plane (45.10a: 5.1 cm) |
+| bank-1:1 | 8,052 | 12.0 cm | 1.74 cm | bank lip |
+| cliff-20m | 9,568 | 17.3 cm | 2.81 cm | cliff top edge |
+| terraces-1 | 6,344 | 15.0 cm | 3.88 cm | riser lips |
+| terraces-2 | 6,864 | 15.0 cm | 4.32 cm | riser lips |
+| overhang | 9,568 | 15.0 cm | 2.63 cm | ledge corners |
+| arch | 7,544 | 23.3 cm | 2.66 cm | arch block corner |
+| cave | 12,316 | 23.3 cm | 2.66 cm | hill corner |
+| wall-1 | 6,332 | 16.7 cm | 2.69 cm | wall corners |
+| spike-1 | 5,488 | 16.7 cm | 2.64 cm | spike corners |
+| pit-1 | 5,432 | 16.7 cm | 2.55 cm | pit rim |
+| hole-1 | 7,052 | 16.7 cm | 2.50 cm | slab corners |
+| bumps | 6,384 | 13.3 cm | 2.63 cm | bump rim (concave crease) |
+
+Reading: every max sits on a crease the nets round off (a third of a cell at a one-cell corner); smooth ground is
+2–5 cm (flat ground 2.5 cm: 0.3 of a cell stored as 5/15). Flat ground costs 2 triangles a cell (a 52 × 52-cell box
+5,408), the bulk of every count: the triangle target. Broken meshes fail (vitest): a torn patch (open edges), vertices
+moved 15 cm (max error), the wall or spike removed (probes and open edges), the hole covered by a closed two-sided
+patch (only the probe). `mesh-cases.test.ts` 14 s alone (world 5 s), 5.2 s in the gate. Fast gate
+(gate-fast-20261103-093837, uptime 10 d 17 h, load 2.3–2.8): GREEN, 11 min, 5.9 GB peak; `voxel-world.e2e.ts` 43.8 s
+(not touched; 47.9 s at the 46b start); D418 (watch) timed out once more and passed alone.
 
 ## 8. Decision log
 
@@ -152,6 +193,15 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
   an experiment: it needs material height maps (46d's material model and texture arrays), shadow-pass displacement
   and conservative culling bounds (46d's renderer work), and the mesher budget is spent on shape. Not ruled out
   (§7a): 46b's levels are shape levels only, so a subdivision level can be chosen separately later; 46d prototypes.
+- 2026-11-03 (46b.1, default chosen, owner to confirm): **what the goldens bound.** A later mesher meets a case's
+  golden when it is closed, loses no probe and its max and mean errors are at most the reference's (`goldenFailures`,
+  an optional slack in metres for a mesher that trades a few millimetres on smooth ground for kept creases, logged when
+  used); triangles are reported, not bounded. Error is measured at vertices and triangle centroids, one-sided (mesh to
+  surface); a lost feature is caught by the probes, not by the error.
+- 2026-11-03 (46b.1, default chosen, owner to confirm): **hard-case data**: fill = volume fraction (to 1/8 cell) of
+  the analytic solid, as an import or a brush would store it; one-cell features on whole cells, the ground at 8.3
+  cells; slopes 30° off the axes so the grid does not flatter them. The harness meshes 32³ chunks through the real
+  derive (one function a chunk, so 46b.3a plugs candidates in); sections are checked by the join tests.
 - 2026-11-03 (plan, default chosen, owner to confirm): **the reference surface nets leave the package** for the bench
   (`tools/voxel-bench`), kept as the "before" in the goldens; if the derived layout or meaning changes, derived data
   takes an add-only version step with an owner note in the spec (derived data is never stored: nothing to migrate).

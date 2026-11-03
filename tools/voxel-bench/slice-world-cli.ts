@@ -7,9 +7,10 @@
  *   --project-dir DIR   the project's folder (required)
  *   --name NAME         the world's folder name (default slice)
  *   --footprint CELLS   cells a side (default 1024: 512 m)
- *   --kind slice|town   the slice's hilly square (default) or the bench's dense town (256 m)
+ *   --kind slice|town|features   the slice's hilly square (default), the bench's dense town (256 m)
+ *                       or the terrain mesher's hard-case row (448 × 32 m)
  */
-import { SLICE_FOOTPRINT, SLICE_WORLD_NAME, writeSliceWorld, writeTownWorld } from './slice-world';
+import { SLICE_FOOTPRINT, SLICE_WORLD_NAME, writeFeaturesWorld, writeSliceWorld, writeTownWorld } from './slice-world';
 
 function arg(name: string, fallback: string | null): string | null {
   const i = process.argv.indexOf(`--${name}`);
@@ -22,5 +23,13 @@ if (projectDir === null) {
   process.exit(2);
 }
 const t0 = performance.now();
-const w = arg('kind', 'slice') === 'town' ? writeTownWorld(projectDir, arg('name', 'town')!) : writeSliceWorld(projectDir, arg('name', SLICE_WORLD_NAME)!, Number(arg('footprint', String(SLICE_FOOTPRINT))));
+const kind = arg('kind', 'slice');
+if (kind !== 'slice' && kind !== 'town' && kind !== 'features') {
+  console.error(`slice-world: --kind ${kind}: not slice, town or features`);
+  process.exit(2);
+}
+const w =
+  kind === 'town' ? writeTownWorld(projectDir, arg('name', 'town')!)
+  : kind === 'features' ? writeFeaturesWorld(projectDir, arg('name', 'features')!)
+  : writeSliceWorld(projectDir, arg('name', SLICE_WORLD_NAME)!, Number(arg('footprint', String(SLICE_FOOTPRINT))));
 console.log(JSON.stringify({ dir: w.dir, files: w.files, scene: w.scene, chunks: [...w.store.chunkKeys()].length, ms: Math.round(performance.now() - t0) }));

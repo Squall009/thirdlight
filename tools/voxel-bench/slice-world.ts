@@ -14,6 +14,7 @@ import { TEST_WORLD_ID } from './stream-node';
 import { MAT } from './world-kit';
 import { townWorld } from './town';
 import { hillyWorld } from './worlds';
+import { FEATURE_GROUND, FEATURE_PAD, FEATURE_WIDTH, featuresStore } from './features';
 
 /** The world's folder name in the project. */
 export const SLICE_WORLD_NAME = 'slice';
@@ -111,4 +112,18 @@ export function writeTownWorld(projectDir: string, name = 'town'): SliceWorld & 
   const hex = [...TEST_WORLD_ID].map((b) => b.toString(16).padStart(2, '0')).join('');
   const { files } = writeVoxelWorld(dir, { worldId: hex, edge: 32, layout: 'stacked', footprint: 512 }, store);
   return { store, scene: [TOWN_FOOTPRINT / 2, 0, TOWN_FOOTPRINT / 2], dir, files };
+}
+
+/**
+ * Writes the terrain mesher's hard-case row (features.ts: one 32 m pad a
+ * case along +x, 0 … 896 cells on x, 0 … 64 on z) as a project's voxel
+ * world, for looking at each case's mesh in the page; the scene is the
+ * row's middle on the ground.
+ */
+export function writeFeaturesWorld(projectDir: string, name = 'features'): SliceWorld & { dir: string; files: number } {
+  const store = featuresStore();
+  const dir = join(projectDir, VOXEL_WORLDS_FOLDER, name);
+  const hex = [...TEST_WORLD_ID].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const { files } = writeVoxelWorld(dir, { worldId: hex, edge: 32, layout: 'stacked', footprint: 512 }, store);
+  return { store, scene: [FEATURE_WIDTH / 2, Math.ceil(FEATURE_GROUND), FEATURE_PAD / 2], dir, files };
 }
