@@ -26,8 +26,8 @@ export interface CellOutputs {
   readonly renderSolid: boolean;
   /** Base surface quads emitted for this cell (exposed faces of a wall cell; 0 under a piece that replaces it). */
   readonly baseFaces: number;
-  /** The detail piece in this cell, if any: family, run section, quarter turns, whether it replaces the base. */
-  readonly piece: { readonly family: number; readonly section: number; readonly turns: number; readonly replacesBase: boolean } | null;
+  /** The detail piece in this cell, if any: family, run section, quarter turns, whether it replaces the base, whether drawn at low detail. */
+  readonly piece: { readonly family: number; readonly section: number; readonly turns: number; readonly replacesBase: boolean; readonly low: boolean } | null;
   /** `full`: inside a full-cell box; `partial`: a partial shape inside the cell; `none`: neither (ground collides as its surface). */
   readonly collision: 'full' | 'partial' | 'none';
   /** The partial shape's box in 1/16 cell within the cell (min x, y, z, max x, y, z), when `collision` is partial. */
@@ -105,7 +105,7 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     if (list.data[o] !== lx || list.data[o + 1] !== ly || list.data[o + 2] !== lz) continue;
     const id = list.data[o + 4]! | (list.data[o + 5]! << 8);
     const flags = list.data[o + 3]!;
-    piece = { family: id >> 2, section: id & 3, turns: flags & 3, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0 };
+    piece = { family: id >> 2, section: id & 3, turns: flags & 3, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0, low: (flags & INSTANCE_FLAG.low) !== 0 };
     break;
   }
   const S = COLLISION_STEPS_PER_CELL;

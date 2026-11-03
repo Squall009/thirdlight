@@ -6,9 +6,11 @@
  * are. Play, an exported game and the editor draw through this one view.
  *
  * A chunk is one mesh holding its ground and its modular base surfaces (the
- * same material, so one draw), plus stand-in boxes for the detail instances
- * the assembly rules resolved (beams, rails, posts), one instanced mesh a
- * piece family. The surface buffers' packed vertices are unpacked to float
+ * same material, so one draw), plus the detail instances the assembly rules
+ * resolved (beams, rails, posts), one instanced mesh a piece family and
+ * detail: a chunk's at high detail, a level-1 node's at low (a kit's meshes
+ * through {@link VoxelPieceMeshes}, stand-ins without one); coarser nodes
+ * list no pieces and draw those cells as bodies. The surface buffers' packed vertices are unpacked to float
  * attributes here (positions in metres from the chunk's corner, normals).
  * They carry no material: the voxel surface shader blends the materials it
  * finds in the chunk's shader grid, uploaded as the join wrote its entries
@@ -43,6 +45,7 @@ import {
   chunkKey,
   chunkOrigin,
   INSTANCE_BYTES,
+  INSTANCE_FLAG,
   mipCellMetres,
   PIECE_FAMILY,
   POSITION_STEPS_PER_CELL,
@@ -74,6 +77,49 @@ const PIECE_SIZE: Record<number, readonly [number, number, number]> = {
   [PIECE_FAMILY.post]: [0.12, VOXEL_SIZE_M, 0.12],
 };
 const PIECE_COLOUR: Record<number, number> = { [PIECE_FAMILY.beam]: 0x6b4423, [PIECE_FAMILY.rail]: 0x8a5a2b, [PIECE_FAMILY.post]: 0x7a4e25 };
+
+/** The detail a piece is drawn at: a chunk's pieces high, a level-1 node's low (coarser nodes list none). */
+export type VoxelPieceDetail = 'high' | 'low';
+
+/**
+ * Where a view gets a detail piece's mesh, by family ({@link PIECE_FAMILY})
+ * and detail: a kit's authored high and low meshes are given here; without
+ * one the view draws stand-ins. A mesh is in metres for a level-0 cell,
+ * centred on the cell, its run along +x (the view turns and scales it to
+ * the instance's cell). Null: the family is not drawn. The view never
+ * disposes what this gives.
+ */
+export interface VoxelPieceMeshes {
+  geometry(family: number, detail: VoxelPieceDetail): THREE.BufferGeometry | null;
+}
+
+/** Axis of a box's longest side (0 x, 1 y, 2 z). */
+function longAxis(size: readonly [number, number, number]): number {
+  return size[0] >= size[1] && size[0] >= size[2] ? 0 : size[1] >= size[2] ? 1 : 2;
+}
+
+/**
+ * The stand-in pieces: a box of the family's size (12 triangles) at high
+ * detail; at low detail the same box without its two ends along its long
+ * axis (8 triangles: in a run the ends are hidden by the neighbours, and a
+ * low piece is only seen from afar).
+ */
+export function standInPieceGeometry(family: number, detail: VoxelPieceDetail): THREE.BufferGeometry | null {
+  const size = PIECE_SIZE[family];
+  if (size === undefined) return null;
+  const box = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  if (detail === 'high') return box;
+  // BoxGeometry's index holds 6 faces of 6 indices in the order +x, −x, +y, −y, +z, −z.
+  const axis = longAxis(size);
+  const src = box.index!.array;
+  const keep: number[] = [];
+  for (let f = 0; f < 6; f++) if (f >> 1 !== axis) for (let k = 0; k < 6; k++) keep.push(src[f * 6 + k]!);
+  box.setIndex(keep);
+  box.clearGroups();
+  return box;
+}
+
+const STAND_IN_PIECES: VoxelPieceMeshes = { geometry: standInPieceGeometry };
 
 /** A surface buffer to place: metres a position step, and the metres added to every position. */
 interface PlacedSurface {
@@ -181,6 +227,8 @@ export interface VoxelChunkViewOptions {
   /** The surface material and its grid store (a grid side of the chunk's: edge + 2 · border). */
   readonly surface: VoxelSurface;
   readonly renderer: VoxelGridRenderer;
+  /** Detail pieces' meshes (a kit's); stand-ins when left out. */
+  readonly pieces?: VoxelPieceMeshes;
 }
 
 /** Every drawn chunk, mip node and seam of a voxel world, in one scene group. */
@@ -194,7 +242,12 @@ export class VoxelChunkView {
   private readonly levels: Array<Map<number, ChunkDraw>> = [];
   private readonly seams = new Map<string, SeamDraw>();
   private readonly pieceMaterials = new Map<number, MeshLambertNodeMaterial>();
-  private readonly pieceBoxes = new Map<number, THREE.BoxGeometry>();
+  /** Piece meshes by family and detail (key family · 2 + low), and whether this view made them (stand-ins: it disposes those). */
+  private readonly pieceMeshes = new Map<number, THREE.BufferGeometry | null>();
+  private readonly pieceSource: VoxelPieceMeshes;
+  private readonly ownsPieces: boolean;
+  /** Pieces drawn, by detail. */
+  readonly piecesDrawn = { high: 0, low: 0 };
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -220,6 +273,8 @@ export class VoxelChunkView {
     this.shading = opts.surface;
     this.renderer = opts.renderer;
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
+    this.pieceSource = opts.pieces ?? STAND_IN_PIECES;
+    this.ownsPieces = opts.pieces === undefined;
   }
 
   /** Objects drawing with a grid region. */
@@ -352,23 +407,26 @@ export class VoxelChunkView {
   private addPieces(group: THREE.Group, d: VoxelChunkDraw, cellM: number): number {
     const list = d.instances;
     if (list.count === 0) return 0;
-    const byFamily = new Map<number, number[]>();
+    // One instanced mesh a family and detail (key family · 2 + 1 when low).
+    const byMesh = new Map<number, number[]>();
     for (let k = 0; k < list.count; k++) {
       const o = k * INSTANCE_BYTES;
       const family = (list.data[o + 4]! | (list.data[o + 5]! << 8)) >> 2;
-      let l = byFamily.get(family);
-      if (l === undefined) byFamily.set(family, (l = []));
+      const key = family * 2 + ((list.data[o + 3]! & INSTANCE_FLAG.low) !== 0 ? 1 : 0);
+      let l = byMesh.get(key);
+      if (l === undefined) byMesh.set(key, (l = []));
       l.push(o);
     }
-    // A coarser level's pieces stand in at its cell's size (its stand-in boxes scaled with the cell).
+    // A level-1 node's pieces are drawn at its cell's size: one piece a 1 m cell, its low mesh scaled with the cell.
     const k = cellM / VOXEL_SIZE_M;
     this.scale.set(k, k, k);
     let bytes = 0;
-    for (const [family, offsets] of byFamily) {
-      const size = PIECE_SIZE[family];
-      if (size === undefined) continue;
-      let box = this.pieceBoxes.get(family);
-      if (box === undefined) this.pieceBoxes.set(family, (box = new THREE.BoxGeometry(size[0], size[1], size[2])));
+    for (const [key, offsets] of byMesh) {
+      const family = key >> 1;
+      const low = (key & 1) === 1;
+      let box = this.pieceMeshes.get(key);
+      if (box === undefined) this.pieceMeshes.set(key, (box = this.pieceSource.geometry(family, low ? 'low' : 'high')));
+      if (box === null) continue;
       let mat = this.pieceMaterials.get(family);
       if (mat === undefined) this.pieceMaterials.set(family, (mat = cameraRelative(new MeshLambertNodeMaterial({ color: PIECE_COLOUR[family] ?? 0x888888 }))));
       const mesh = new THREE.InstancedMesh(box, mat, offsets.length);
@@ -381,8 +439,10 @@ export class VoxelChunkView {
       });
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
+      mesh.userData['voxelPieceDetail'] = low ? 'low' : 'high';
       group.add(mesh);
       this.instances += offsets.length;
+      this.piecesDrawn[low ? 'low' : 'high'] += offsets.length;
       bytes += offsets.length * 64;
     }
     return bytes;
@@ -407,6 +467,7 @@ export class VoxelChunkView {
       if (i >= 0) this.pickable.splice(i, 1);
       if (child instanceof THREE.InstancedMesh) {
         this.instances -= child.count;
+        this.piecesDrawn[child.userData['voxelPieceDetail'] === 'low' ? 'low' : 'high'] -= child.count;
         child.dispose();
       } else if (child instanceof THREE.Mesh) {
         this.triangles -= ((child.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
@@ -461,7 +522,7 @@ export class VoxelChunkView {
     this.seamTriangles -= s.triangles;
   }
 
-  /** Removes every chunk, node and seam; the piece boxes and materials are disposed (the surface is its owner's). */
+  /** Removes every chunk, node and seam; the stand-in pieces and the piece materials are disposed (the surface and a kit's pieces are their owners'). */
   dispose(): void {
     for (const m of this.levels) {
       if (m === undefined) continue;
@@ -469,7 +530,8 @@ export class VoxelChunkView {
       m.clear();
     }
     for (const s of [...this.seams.values()]) this.removeSeam(s.level, ...s.node);
-    for (const b of this.pieceBoxes.values()) b.dispose();
+    if (this.ownsPieces) for (const b of this.pieceMeshes.values()) b?.dispose();
+    this.pieceMeshes.clear();
     for (const mt of this.pieceMaterials.values()) mt.dispose();
   }
 }

@@ -34,6 +34,13 @@
  * the shader data like a surface's. A piece that replaces its cell's base
  * surface says so (`replacesBase`): the base surface is then not emitted
  * there, so an open rail is open, not a rail drawn over a solid block.
+ *
+ * **Pieces per level** ({@link pieceDetailAt}): a chunk (level 0) lists its
+ * pieces at high detail, a level-1 node at low detail (`low` set: the
+ * renderer draws the family's low mesh, which a kit provides beside its high
+ * one), and coarser nodes list none: there the cells the rules read as
+ * beams and rails are drawn by the base surface as the bodies their mip
+ * cells are, so a distant balcony or fence keeps its outline as blocks.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type Neighbourhood } from './assembly';
 
@@ -53,7 +60,17 @@ export const INSTANCE_BYTES = 8;
 export const INSTANCE_FLAG = Object.freeze({
   /** The piece replaces its cell's base surface (none is emitted under it). */
   replacesBase: 0x10,
+  /** The piece is drawn at low detail (a level-1 node's). */
+  low: 0x20,
 });
+
+/** How detailed a level's pieces are: level 0 high, level 1 low, coarser none (their cells drawn as bodies). */
+export const PIECE_DETAIL = Object.freeze({ high: 0, low: 1, none: 2 });
+
+/** The detail of chunk-tree level `level`'s pieces ({@link PIECE_DETAIL}). */
+export function pieceDetailAt(level: number): number {
+  return level === 0 ? PIECE_DETAIL.high : level === 1 ? PIECE_DETAIL.low : PIECE_DETAIL.none;
+}
 
 /** Detail piece families (piece = family << 2 | section). */
 export const PIECE_FAMILY = Object.freeze({ beam: 1, rail: 2, post: 3 });
@@ -107,9 +124,12 @@ export function snorm8(v: number): number {
 /**
  * Detail instances for the chunk's beams, rails and posts: one per cell,
  * with its run section from the neighbours along the run (same class), so
- * a renderer can merge a run of bodies between two ends.
+ * a renderer can merge a run of bodies between two ends. `detail`
+ * ({@link PIECE_DETAIL}): none lists nothing, low flags every piece.
  */
-export function detailInstances(n: Neighbourhood, classes: Uint8Array): InstanceList {
+export function detailInstances(n: Neighbourhood, classes: Uint8Array, detail: number = PIECE_DETAIL.high): InstanceList {
+  if (detail === PIECE_DETAIL.none) return { count: 0, data: new Uint8Array(0) };
+  const flags = INSTANCE_FLAG.replacesBase | (detail === PIECE_DETAIL.low ? INSTANCE_FLAG.low : 0);
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -137,7 +157,7 @@ export function detailInstances(n: Neighbourhood, classes: Uint8Array): Instance
     d.setUint8(at, x);
     d.setUint8(at + 1, y);
     d.setUint8(at + 2, z);
-    d.setUint8(at + 3, (runZ && !post ? 1 : 0) | INSTANCE_FLAG.replacesBase);
+    d.setUint8(at + 3, (runZ && !post ? 1 : 0) | flags);
     d.setUint16(at + 4, (family << 2) | section, true);
     d.setUint16(at + 6, 0, true);
     count++;

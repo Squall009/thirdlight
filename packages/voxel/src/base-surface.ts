@@ -5,8 +5,9 @@
  * in each face layer), in the derive's surface layout (derived-mesh.ts).
  *
  * A face is exposed when its neighbour is neither another body nor ground
- * at least half full. Beams and rails get none (their detail pieces replace
- * them), so the faces of the walls behind them are kept.
+ * at least half full. Beams and rails get none where their detail pieces
+ * replace them, so the faces of the walls behind them are kept; at a level
+ * that draws no pieces (`piecesAsBodies`) they are bodies like walls.
  *
  * **No T-junctions.** A rectangle's edge takes, besides its corners, every
  * lattice point on it where another rectangle of the job has a corner, so
@@ -116,17 +117,25 @@ function buildSurface(): SurfaceBuffer {
   return { vertexCount, vertices, indices };
 }
 
+/** Per class: 1 for a body the base surface draws (bit 0), and with pieces drawn as bodies too (bit 1). */
+const BODY_CLASS = new Uint8Array(16);
+BODY_CLASS[ASSEMBLY_CLASS.wall] = 3;
+BODY_CLASS[ASSEMBLY_CLASS.beam] = 2;
+BODY_CLASS[ASSEMBLY_CLASS.rail] = 2;
+
 /** Whether a resolved cell hides a body's face (another body, or ground at least half full). */
-function hides(n: Neighbourhood, classes: Uint8Array, i: number): boolean {
+function hides(n: Neighbourhood, classes: Uint8Array, i: number, body: number): boolean {
   const k = classes[i]! & CLASS_MASK;
-  return k === ASSEMBLY_CLASS.wall || (k === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO);
+  return (BODY_CLASS[k]! & body) !== 0 || (k === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO);
 }
 
 /**
  * The base surface of a job's chunk (or section) from its neighbourhood and
- * resolved classes (reads one cell round the chunk).
+ * resolved classes (reads one cell round the chunk). `piecesAsBodies`: beam
+ * and rail cells are drawn as bodies (a level without pieces).
  */
-export function baseSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBuffer {
+export function baseSurface(n: Neighbourhood, classes: Uint8Array, piecesAsBodies = false): SurfaceBuffer {
+  const body = piecesAsBodies ? 2 : 1;
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -140,8 +149,8 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBuffe
   for (let x = 0; x < e; x++) for (let y = 0; y < e; y++) for (let z = 0; z < e; z++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     let f = 0;
-    if ((classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.wall) {
-      for (let d = 0; d < 6; d++) if (!hides(n, classes, i + SIGN[d]! * stride[AXIS[d]!]!)) f |= 1 << d;
+    if ((BODY_CLASS[classes[i]! & CLASS_MASK]! & body) !== 0) {
+      for (let d = 0; d < 6; d++) if (!hides(n, classes, i + SIGN[d]! * stride[AXIS[d]!]!, body)) f |= 1 << d;
     }
     faces[(x * e + y) * e + z] = f;
     any |= f;

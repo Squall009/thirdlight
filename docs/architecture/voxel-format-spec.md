@@ -1109,10 +1109,17 @@ chunk):
 
 **Detail instance (8 bytes):**
 - u8 x, y, z: the cell inside the chunk;
-- u8: bits 0–1 quarter turns about +y, bits 4–7 flags (0x10 `replacesBase`);
+- u8: bits 0–1 quarter turns about +y, bits 4–7 flags (0x10 `replacesBase`, 0x20 `low`: drawn at low detail);
 - u16 piece: family << 2 | section. Families: beam 1, rail 2, post 3. Sections: single 0, start 1, body 2, end 3;
 - u16 reserved, 0 (v1's material slot; the stride stays a multiple of four, as a GPU instance buffer needs). A
   piece's material is its cell's, in the shader data. The slice still draws pieces in stand-in colours by family.
+
+**Pieces per level (46b.9, derived 9; `pieceDetailAt`).** A chunk (level 0) lists its pieces at high detail; a
+level-1 node lists the pieces its own cells resolve to with `low` set; level 2 and coarser list none, and the base
+surface draws the cells the rules call beams and rails as bodies (the cell meshed from its mip shape, so the
+outline stays and the surface under a removed piece is present). Collision, navigation and light read the class,
+not the level. The renderer takes a piece's mesh by family and detail (three-adapter `VoxelPieceMeshes`: a kit's
+authored high and low meshes, stand-in boxes without one, the low box without its two ends); 46c's kits fill it.
 
 **Shader data on the GPU and the surface shader (45.10b; three-adapter `voxel-surface.ts`).** One renderer path:
 the engine's node materials (`MeshStandardNodeMaterial`), the same program on WebGPU and WebGL 2, no feature of one
@@ -1166,16 +1173,19 @@ visible in 48–71 ms.
   - an edit 3 cells under a chunk boundary changes the chunk above;
   - 16 random edits leave every result in a 32-chunk window equal to a fresh derive.
 
-**Voxel mips (R84, R85; downsample v7).**
+**Voxel mips (R84, R85; downsample v9).**
 - A level-L node has the chunk's form: 32³ cells of 0.5 m × 2^L (`mipCellMetres`), using the same store, codec and
   mesher input. Mips are derived, never stored.
 - Its shape is the share of the node cell that is solid: the rounded mean of the 8 children's fill levels (0–15),
   counting only solid roles (air, liquid and openings add nothing). So a fill means the same at every level and
   the terrain mesher's surface sits where the solid volume is.
-- Its role goes by priority, `MIP_ROLE_PRIORITY`: wall, foundation, pillar, floor, stair, roof, terrain. The first
-  role among the children that holds its place wins. A body drawn as whole cells (every solid role but terrain)
-  holds it when its cells fill at least half the node cell (a block grows by at most half a node cell; a thinner
-  body leaves the level). Terrain holds it with any fill.
+- Its role goes by priority, `MIP_ROLE_PRIORITY`: wall, foundation, pillar, floor, stair, roof, terrain. Bodies
+  drawn as whole cells (every solid role but terrain) hold the node cell when their cells are at least 4 of the 8,
+  or when at least `MIP_SHEET_CELLS` (2) of them lie in a sheet: `MIP_SHEET_NEIGHBOURS` (6) bodies among the
+  cell's 26 neighbours (a neighbour outside the node is read as its mirror through the cell). Cells count, not
+  their fill (derived 9): a body is drawn whole whatever its fill. So a one-cell wall, floor or 45° roof stays a
+  closed shell at every level, thickened to the level's cell, and a line of cells (post, rail, fence) leaves the
+  level. The node cell takes the first body role among those cells. Terrain holds it with any fill.
 - With no solid role, the cell is liquid when its liquid cells' share rounds to at least 1 (the shape is then that
   share), else air.
 - Its material is the one its surface shows (derived 8). Among the counted cells nearest the surface it takes the
@@ -1291,6 +1301,12 @@ node's material changed meaning: the material its surface shows (the cells neare
 one, which let earth under a one-cell grass skin win at levels 1 and 2 (D464). The surface shader reads a fixed
 0.125 m into the surface at every level instead of a quarter of the level's cell. Nothing is stored, nothing to
 upgrade, no world regenerated.
+
+**Derived data 8 → 9 (46b.9, owner note: default chosen, owner to confirm).** The layout is unchanged; two meanings
+changed. A level-1 node's detail instances carry the `low` flag and coarser nodes list none, their beam and rail
+cells drawn by the base surface. A mip node's bodies hold a node cell by their cells (half of the 8, or two in a
+sheet), not by their fill: before, a one-cell house shell lost its stepped roof at level 1 and its walls at level 2
+(D465). Nothing is stored, nothing to upgrade, no world regenerated.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
@@ -1457,7 +1473,7 @@ every remaining default below is accepted** (the world layout and scale, the edi
 29. Light coverage as bits + a partial list (bricks if 46e's tracer needs O(1) access); placeholder coverages (45.6).
 30. Collision input as boxes in 1/16 cell + the ground trimesh; nav input as blocking bits + standable cells (45.6).
 31. ~~Mesh buffers: 20-byte vertices with material slots~~ → owner 2026-11-02 (45.10b): 12-byte vertices (position, normal), no material; u16/u32 indices, two surfaces, 8-byte instances with `replacesBase` and a reserved u16.
-32. Voxel mips: a node has the chunk's form; fill the share of solid, role by priority, the surface's material (46b.8c); stale ancestors rebuilt lowest first (45.6); a node derives through the chunk derive and records its level (46b.6a).
+32. Voxel mips: a node has the chunk's form; fill the share of solid, role by priority (bodies by cells: half the parent or two sheet cells, 46b.9), the surface's material (46b.8c); stale ancestors rebuilt lowest first (45.6); a node derives through the chunk derive and records its level (46b.6a); pieces high at level 0, low at level 1, none coarser (46b.9).
 33. Prop lighting channel: a coverage byte a cell, rebuilt from the prop list, never saved (45.6).
 
 **Format gaps closed (45.7d)**

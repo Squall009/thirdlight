@@ -8,6 +8,7 @@ import {
   applyEdit,
   ASSEMBLY_CLASS,
   buildApron,
+  cellOutputs,
   canonicalEditCommand,
   cellBit,
   ChunkTreeFlags,
@@ -21,6 +22,7 @@ import {
   DEFAULT_REGION_FOOTPRINT,
   dependentChunks,
   deriveFromStore,
+  deriveWithApron,
   deriveSectionsWithApron,
   downsampleMip,
   editBounds,
@@ -46,7 +48,9 @@ import {
   MipStaleSet,
   NAV_CLEARANCE_CONTINUES,
   OCCUPANCY,
+  PIECE_DETAIL,
   PIECE_FAMILY,
+  pieceDetailAt,
   PLACEHOLDER_RULES,
   RULE_CONFORMANCE_EXTRA_PAD,
   TERRAIN_MESHER_REACH,
@@ -213,6 +217,45 @@ describe('assembly evaluation and per-consumer outputs', () => {
     for (let x = -6; x < 6; x++) for (let y = 0; y < 5; y++) put(s, x, y, -1, MAT.timber, C.wall);
     expect(classAt(s, 0, 5, -1)).toBe(ASSEMBLY_CLASS.wall);
     expect(consumersAt(s, 0, 5, -1)).toMatchObject({ light: 255, collision: 'full', instance: null });
+  });
+
+  it('lists detail pieces per level: high in a chunk, low in a level-1 node, none coarser, where the base surface draws their cells as the bodies they are', () => {
+    const s = wallBeamBanister();
+    // The same cells derived as a chunk (level 0) and as nodes of levels 1 and 2: only the level differs.
+    const at = (x: number, y: number, z: number, level: number): DerivedData => {
+      const [cx, cy, cz] = [chunkOf(x), chunkOf(y), chunkOf(z)];
+      return deriveWithApron(grid, PLACEHOLDER_RULES, buildApron(s, cx, cy, cz, R), (out) => s.exportChunk(cx, cy, cz, out), undefined, level);
+    };
+    // Beam, rail and post, with the faces each exposes once drawn as a body (its run neighbours and supports hide the rest).
+    const pieces: Array<[number, number, number, number, number]> = [[0, 5, -1, PIECE_FAMILY.beam, 3], [1, 2, 7, PIECE_FAMILY.rail, 4], [0, 1, 7, PIECE_FAMILY.post, 4]];
+    expect(pieceDetailAt(0)).toBe(PIECE_DETAIL.high);
+    expect(pieceDetailAt(1)).toBe(PIECE_DETAIL.low);
+    expect(pieceDetailAt(2)).toBe(PIECE_DETAIL.none);
+    expect(pieceDetailAt(5)).toBe(PIECE_DETAIL.none);
+    for (const [x, y, z, family, faces] of pieces) {
+      const outs = [0, 1, 2].map((level) => cellOutputs(at(x, y, z, level), local(x), local(y), local(z)));
+      const name = `piece ${family} at ${x},${y},${z}`;
+      expect(outs[0]!.piece, name).toMatchObject({ family, replacesBase: true, low: false });
+      expect(outs[1]!.piece, name).toMatchObject({ family, replacesBase: true, low: true });
+      expect(outs[2]!.piece, name).toBeNull();
+      // Under a drawn piece no base face; where the piece is removed the base surface draws the cell.
+      expect(outs[0]!.baseFaces, name).toBe(0);
+      expect(outs[1]!.baseFaces, name).toBe(0);
+      expect(outs[2]!.baseFaces, name).toBe(faces);
+      // Every other consumer reads the class, not the level.
+      for (const o of outs.slice(1)) expect({ ...o, piece: null, baseFaces: 0 }, name).toEqual({ ...outs[0]!, piece: null, baseFaces: 0 });
+    }
+    for (const [cx, cy, cz] of [[0, 0, -1], [0, 0, 0], [-1, 0, 0]] as const) {
+      const [d0, d1, d2] = [0, 1, 2].map((level) => at(cx * E, cy * E, cz * E, level)) as [DerivedData, DerivedData, DerivedData];
+      expect(d0.instances.count).toBeGreaterThan(0);
+      expect(d1.instances.count).toBe(d0.instances.count);
+      expect(d2.instances.count).toBe(0);
+      // Level 1 only adds the low flag; its walls' faces are level 0's, and level 2's base holds more faces than level 0's.
+      expect(d1.instances.data.filter((_, k) => k % INSTANCE_BYTES !== 3)).toEqual(d0.instances.data.filter((_, k) => k % INSTANCE_BYTES !== 3));
+      expect([...d1.instances.data.filter((_, k) => k % INSTANCE_BYTES === 3)].every((f) => (f & INSTANCE_FLAG.low) !== 0)).toBe(true);
+      expect(d1.base).toEqual(d0.base);
+      expect(d2.collision).toEqual(d0.collision);
+    }
   });
 
   it('is deterministic: the same voxels give the same bytes, after a codec round trip and in the worker job', async () => {

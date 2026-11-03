@@ -9,14 +9,19 @@
  * - **shape** is the share of the parent that is solid: the mean of the 8
  *   cells' fill levels, counting only solid roles (open roles, {@link OPEN_ROLE}:
  *   air, liquid, openings, add nothing), rounded to the 16 levels;
- * - **role** goes by priority ({@link MIP_ROLE_PRIORITY}): the first role
- *   among the children that holds its ground in the parent. A body drawn as
- *   whole cells (every solid role but terrain) holds it when its cells fill
- *   at least half the parent, so a block grows by at most half a parent cell
- *   and thinner bodies leave the level; terrain, drawn from its fill, holds
- *   it with any fill. A parent with no solid role is liquid when its liquid
- *   cells fill it to at least one level (the shape is then the liquid's
- *   share), else air;
+ * - **role** goes by priority ({@link MIP_ROLE_PRIORITY}). Bodies drawn as
+ *   whole cells (every solid role but terrain) hold the parent when their
+ *   cells are at least half of its 8, or when at least
+ *   {@link MIP_SHEET_CELLS} of them lie in a sheet ({@link MIP_SHEET_NEIGHBOURS}
+ *   body cells among a cell's 26 neighbours): a one-cell wall, floor or
+ *   stepped roof stays closed at every level (thickened to the parent's
+ *   cell), while a post, a rail or a fence (a line of cells) leaves the
+ *   level. Cells count, not their fill: a body is drawn whole whatever its
+ *   fill, so a level-1 wall (fill one half) holds level 2 as level 0's held
+ *   level 1. The parent then takes the first body role among those cells;
+ *   terrain, drawn from its fill, holds it with any fill. A parent with no
+ *   solid role is liquid when its liquid cells fill it to at least one level
+ *   (the shape is then the liquid's share), else air;
  * - **material** is what the surface shows, so a coarse level wears the
  *   skin level 0 wears and not what lies under it (grass one cell thick over
  *   earth stays grass): among the counted cells nearest the surface (partly
@@ -88,8 +93,28 @@ export function mipChildren(n: MipNode): MipNode[] {
 const SOLID_PRIORITY = new Uint8Array(16);
 for (const r of MIP_ROLE_PRIORITY) SOLID_PRIORITY[r] = 1;
 
-/** Summed fill a parent of 8 cells needs from a whole-cell role to take it: half the parent. */
-const HALF_PARENT = (8 * SHAPE_FULL) / 2;
+/** Per role: 1 for a body drawn as whole cells (every counted solid role but terrain). */
+const WHOLE_CELL = new Uint8Array(16);
+for (const r of MIP_ROLE_PRIORITY) if (r !== VOXEL_ROLE.terrain) WHOLE_CELL[r] = 1;
+
+/** Body cells of a parent's 8 that hold it whatever their arrangement: half the parent. */
+const HALF_PARENT_CELLS = 4;
+
+/**
+ * Body cells among a cell's 26 neighbours from which it lies in a sheet or
+ * a mass rather than a line: a cell inside a flat one-cell wall has 8, a
+ * step of a 45° roof 8 (its row and the rows above and below it, edge to
+ * edge), a wall's edge 5 and a beam against a wall 11, while a rail or a
+ * post has 2 and a rail's cell over its post 3–5.
+ */
+export const MIP_SHEET_NEIGHBOURS = 6;
+
+/**
+ * Sheet cells of a parent's 8 that hold it: two, so a one-cell sheet at any
+ * axis-aligned or 45° slope keeps every parent it passes (it crosses each in
+ * at least two cells), while a lone cell at a sheet's rim does not grow it.
+ */
+export const MIP_SHEET_CELLS = 2;
 
 /** Scratch for one parent cell's downsample: per material, cells, summed fill and first cell; per role, summed fill. */
 const mats = new Uint16Array(8);
@@ -97,6 +122,7 @@ const matCells = new Uint8Array(8);
 const matFill = new Uint16Array(8);
 const matFirst = new Int32Array(8);
 const roleFill = new Uint16Array(16);
+const roleCells = new Uint8Array(16);
 /** Per cell of a parent: how near the surface it lies ({@link EXPOSURE}). */
 const exposure = new Uint8Array(8);
 
@@ -173,6 +199,32 @@ function dominantCell(child: DenseChunk, cells: Int32Array, counts: (role: numbe
   return matFirst[best]!;
 }
 
+/** Whether child cell (x, y, z) of a parent node (0 … 2 · edge − 1 a side) is a whole-cell body. */
+function bodyAt(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x: number, y: number, z: number): boolean {
+  const e = grid.edge;
+  const c = children[(x >= e ? 1 : 0) | (y >= e ? 2 : 0) | (z >= e ? 4 : 0)] ?? null;
+  if (c === null) return false;
+  const i = localIndex(grid, x % e, y % e, z % e);
+  return c.material[i] !== MATERIAL_AIR && c.shape[i] !== SHAPE_EMPTY && WHOLE_CELL[c.role[i]!] === 1;
+}
+
+/**
+ * Whether body cell (x, y, z) of a parent node lies in a sheet: at least
+ * {@link MIP_SHEET_NEIGHBOURS} bodies among its 26 neighbours. A neighbour
+ * outside the node (not read here) is taken as its mirror through the cell,
+ * so a line or a sheet crossing the node's side counts as it does inside.
+ */
+function sheetAt(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x: number, y: number, z: number): boolean {
+  const last = 2 * grid.edge - 1;
+  const at = (v: number, d: number): number => (v + d < 0 || v + d > last ? v - d : v + d);
+  let n = 0;
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    if ((dx | dy | dz) === 0 || !bodyAt(grid, children, at(x, dx), at(y, dy), at(z, dz))) continue;
+    if (++n >= MIP_SHEET_NEIGHBOURS) return true;
+  }
+  return false;
+}
+
 const solidRole = (r: number): boolean => OPEN_ROLE[r] !== 1;
 const liquidRole = (r: number): boolean => r === VOXEL_ROLE.liquid;
 
@@ -227,16 +279,31 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
         continue;
       }
       roleFill.fill(0);
+      roleCells.fill(0);
+      let bodies = 0;
       for (let c = 0; c < 8; c++) {
         const ci = cells[c]!;
-        if (material[ci] !== MATERIAL_AIR) roleFill[roles[ci]!]! += shapes[ci]!;
+        if (material[ci] === MATERIAL_AIR) continue;
+        const r = roles[ci]!;
+        roleFill[r]! += shapes[ci]!;
+        if (WHOLE_CELL[r] === 1 && shapes[ci] !== SHAPE_EMPTY) {
+          roleCells[r]!++;
+          bodies++;
+        }
       }
       let solid = 0;
       for (const r of MIP_ROLE_PRIORITY) solid += roleFill[r]!;
+      let held = bodies >= HALF_PARENT_CELLS;
+      if (!held && bodies >= MIP_SHEET_CELLS) {
+        let sheets = 0;
+        for (let c = 0; c < 8 && !held; c++) {
+          const bx = ox * 2 + 2 * x + (c & 1), by = oy * 2 + 2 * y + ((c >> 1) & 1), bz = oz * 2 + 2 * z + ((c >> 2) & 1);
+          if (bodyAt(grid, children, bx, by, bz) && sheetAt(grid, children, bx, by, bz)) held = ++sheets >= MIP_SHEET_CELLS;
+        }
+      }
       let role: number = VOXEL_ROLE.air;
       for (const r of MIP_ROLE_PRIORITY) {
-        const f = roleFill[r]!;
-        if (f === 0 || (r !== VOXEL_ROLE.terrain && f < HALF_PARENT)) continue;
+        if (r === VOXEL_ROLE.terrain ? roleFill[r] === 0 : !held || roleCells[r] === 0) continue;
         role = r;
         break;
       }

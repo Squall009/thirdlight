@@ -13,6 +13,7 @@ import { creaseAngles, goldenFailures, meshFeatures, meshFeaturesAtLevel, measur
 import { featureSpecs, measurePatch, type SeamResult } from './lod-seams';
 import { chunkMesherOf, MESHER_CANDIDATES, mesherCandidate } from './mesher-candidates';
 import { loadArea } from './regions';
+import { compareSilhouettes, raysOut, SHELL_HOUSES, SHELL_VIEWS, shellMesh, shellStore, silhouette, unbalancedEdges } from './shell-cases';
 import { townWorld } from './town';
 import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
@@ -312,7 +313,48 @@ describe('mip levels through the same mesher', () => {
   });
 });
 
+describe('one-cell shells at coarse levels (built bodies thickened, never opened)', () => {
+  it('keeps a house of one-cell walls, floor and roof (gable, hip and flat, at odd and even cells) watertight and closed at levels 1 and 2, its silhouette kept and grown by at most the level\'s cell', { timeout: 60_000 }, () => {
+    const s = shellStore();
+    const m0 = shellMesh(s, 0);
+    const l0 = SHELL_HOUSES.map((h) => SHELL_VIEWS.map((axis) => silhouette(h, m0.points, m0.mesh, axis, 1)));
+    for (const h of SHELL_HOUSES) expect(raysOut(h, m0.points, m0.mesh), `L0 ${h.name}`).toBe(0);
+    for (const level of [1, 2]) {
+      const { mesh, points } = shellMesh(s, level);
+      const cell = 1 << level;
+      expect(mesh.triangles.length, `L${level}`).toBeGreaterThan(0);
+      expect(unbalancedEdges(mesh), `L${level}`).toBe(0);
+      SHELL_HOUSES.forEach((h, i) => {
+        const at = `L${level} ${h.name}`;
+        // Before: the roof left level 1 (rays out of 96: 7–19) and the whole house level 2 (96).
+        expect(raysOut(h, points, mesh), at).toBe(0);
+        SHELL_VIEWS.forEach((axis, j) => {
+          const c = compareSilhouettes(h, axis, l0[i]![j]!, silhouette(h, points, mesh, axis, 2 * cell), cell);
+          // A rim one level-0 cell wide (an eave's overhang) may leave; before, level 1 kept 0.56–0.86 of a gable, level 2 nothing.
+          expect(c.kept, `${at} view ${axis}`).toBeGreaterThanOrEqual(SHELL_SILHOUETTE_KEPT);
+          expect(c.outside, `${at} view ${axis}`).toBe(0);
+        });
+      });
+    }
+  });
+
+  it('leaves lines of cells (posts, rails, a fence) out of coarse levels: only sheets and masses are thickened', () => {
+    const s = shellStore([]);
+    const wall = { material: MAT.timber, role: VOXEL_ROLE.wall, shape: 15, wetness: 0 };
+    // A fence in air: posts two cells tall every fourth cell under a rail along x; a rail along z; a lone post.
+    for (let x = 4; x < 40; x++) {
+      s.setVoxel(x, 9, 9, wall);
+      if (x % 4 === 1) s.setVoxel(x, 8, 9, wall);
+    }
+    for (let z = 20; z < 40; z++) s.setVoxel(9, 12, z, wall);
+    for (let y = 4; y < 14; y++) s.setVoxel(30, y, 30, wall);
+    const tree = new MipTree(s);
+    for (const level of [1, 2]) for (let nx = 0; nx < 2; nx++) for (let nz = 0; nz < 2; nz++) expect(tree.node({ level, nx, ny: 0, nz }), `L${level} ${nx},${nz}`).toBeNull();
+  });
+});
+
 /**
+ * The smallest angle (degrees) the shading normals must turn by across a/**
  * The smallest angle (degrees) the shading normals must turn by across a
  * crease the rules call sharp: the placed geometry's own corner (a 90° cliff
  * edge placed ~64°, a one-cell terrace lip ~40°), well above the
@@ -322,6 +364,13 @@ const CREASE_KEPT_DEG = 35;
 
 /** The worst normal error a gentle plane slope may show (the 4-bit fill's rounding banded 1:5 up to 7° before). */
 const SLOPE_NORMAL_MAX_DEG = 2;
+
+/**
+ * The share of level 0's silhouette (from above and two sides) a coarse
+ * level keeps: all but a rim one level-0 cell wide on a side (measured
+ * 0.917–1.0; before, level 1 kept 0.56 of a gable's side and level 2 none).
+ */
+const SHELL_SILHOUETTE_KEPT = 0.9;
 
 describe('the terrain mesher\'s normals', () => {
   let normals: NormalResult[] | null = null;

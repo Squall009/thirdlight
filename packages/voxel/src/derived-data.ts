@@ -47,7 +47,7 @@
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { BRICK_EDGE } from './brick-layout';
 import { baseSurface } from './base-surface';
-import { detailInstances, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { detailInstances, PIECE_DETAIL, pieceDetailAt, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
@@ -67,8 +67,13 @@ import { utf8Encode } from '@thirdlight/shared';
  * the canonical bytes carry it; mip nodes' shape is the share of solid.
  * 8: a mip node's material is the one its surface shows (the material of
  * the cells nearest the surface), not the dominant one; the layout is v3's.
+ * 9: pieces per level: a level-1 node's pieces carry the `low` instance
+ * flag, coarser nodes list none and draw those cells in the base surface;
+ * a mip node's bodies hold a parent cell by their cells (half of the 8, or
+ * two in a sheet), not their fill, so one-cell shells stay closed; the
+ * layout is v3's.
  */
-export const DERIVED_FORMAT_VERSION = 8;
+export const DERIVED_FORMAT_VERSION = 9;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -481,8 +486,9 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     return uniform;
   }
   const ground = terrainSurface(n, classes);
-  const base = baseSurface(n, classes);
-  const instances = detailInstances(n, classes);
+  const detail = pieceDetailAt(level);
+  const base = baseSurface(n, classes, detail === PIECE_DETAIL.none);
+  const instances = detailInstances(n, classes, detail);
   const t2 = performance.now();
   const collision = collisionOf(n, classes);
   const out: DerivedData = {
