@@ -96,6 +96,16 @@ case "$mode" in
     exit $? ;;
 esac
 
+# A gate run straight from a shell has no memory cap: one such rerun peaked at 12.7 GB on this 16 GiB host,
+# which has OOM-killed every session on it before. Only run inside a capped cgroup (the detached unit, or a
+# capped systemd-run scope).
+cg=$(sed -n 's/^0:://p' /proc/self/cgroup 2> /dev/null)
+cap=$(cat "/sys/fs/cgroup$cg/memory.max" 2> /dev/null || echo max)
+if [ "$cap" = max ]; then
+  echo "refused: no memory cap on this shell; use tools/gate.sh start $mode … then tools/gate.sh wait"
+  exit 2
+fi
+
 exec 9> "$LOGS/gate.lock"
 flock -n 9 || { echo "another gate is running (lock $LOGS/gate.lock)"; exit 1; }
 # /tmp is RAM on this host (tmpfs) and doesn't show as used memory, so a gate's test projects, exports and caches
