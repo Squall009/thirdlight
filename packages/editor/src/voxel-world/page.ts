@@ -468,6 +468,8 @@ async function main(): Promise<void> {
     look(x: number, y: number, z: number, yaw: number, pitch: number, distM: number): void {
       Object.assign(target, { x, y, z });
       Object.assign(view, { yaw, pitch, distM });
+      // The streamer's focus moves now, not at the next frame: a `settle` right after waits for the new ring.
+      placeCamera();
     },
     dab,
     edit,
