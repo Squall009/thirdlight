@@ -10,9 +10,11 @@
  *   (a save entry over its base chunk, with the base-hash check), `edit` (a
  *   stroke command over the chunks it touches) and `derive` (anything
  *   rebuilt from a chunk and its neighbours: the placeholder here, meshing
- *   and its kin later).
+ *   and its kin later; with a `level`, a node of the chunk tree), and `mip`
+ *   (a node of the chunk tree downsampled from its 8 children).
  * - **Lanes.** Work is queued by lane, then by distance: `edit` (rebuilds an
- *   edit made stale) before `near` before `far` (LOD, prefetch).
+ *   edit made stale) before `near` before `far` (prefetch) before `mip` (the
+ *   coarser levels, built from what level 0 already holds).
  * - **Staleness.** A job snapshots the input version of the chunks it reads
  *   (an edit, a neighbour edit within R, a reload each move it on); a result
  *   is accepted only while those are unchanged.
@@ -38,11 +40,15 @@ import type { StampShape } from './stamp-shape';
 /** Version of the job messages; a worker refuses any other. */
 export const STREAM_JOB_VERSION = 1;
 
-export type StreamJobKind = 'load' | 'apply-save' | 'edit' | 'derive';
+export type StreamJobKind = 'load' | 'apply-save' | 'edit' | 'derive' | 'mip';
 
-/** Queue lanes in priority order: an edit's rebuilds, then near work, then far work (LOD, prefetch). */
-export type JobLane = 'edit' | 'near' | 'far';
-export const JOB_LANES: readonly JobLane[] = Object.freeze(['edit', 'near', 'far']);
+/**
+ * Queue lanes in priority order: an edit's rebuilds, then near work, then
+ * far work (prefetch), then the chunk tree's coarser levels (drawn only
+ * past level 0, and built from it, so they never hold level 0 back).
+ */
+export type JobLane = 'edit' | 'near' | 'far' | 'mip';
+export const JOB_LANES: readonly JobLane[] = Object.freeze(['edit', 'near', 'far', 'mip']);
 
 /** A chunk of a grid (0 the world grid, else a structure's own grid). */
 export interface ChunkRef {
@@ -144,6 +150,24 @@ export interface DeriveInput {
    * reads its neighbours inside the chunk from the chunk's own cells.
    */
   readonly sections?: { readonly edge: SectionEdge; readonly ids: readonly number[] };
+  /**
+   * The chunk-tree level of the chunk (default 0): a node of level L
+   * (voxel-mips.ts) is derived like a chunk from its cells and an apron of
+   * the same level's nodes, with the rules (no sections), and its result
+   * records the level.
+   */
+  readonly level?: number;
+}
+
+/** A chunk-tree node's 8 children (octant order: bit 0 x, bit 1 y, bit 2 z; null: air, or not known). */
+export interface MipInput {
+  readonly edge: ChunkEdge;
+  readonly children: ReadonlyArray<ChunkPayload | null>;
+}
+
+export interface MipOutput {
+  /** The node's cells (`downsampleMip`), in the chunk payload form. */
+  readonly payload: ChunkPayload;
 }
 
 /**
@@ -172,6 +196,7 @@ export interface StreamJobInputs {
   'apply-save': ApplySaveInput;
   edit: EditInput;
   derive: DeriveInput;
+  mip: MipInput;
 }
 
 export interface StreamJobOutputs {
@@ -179,6 +204,7 @@ export interface StreamJobOutputs {
   'apply-save': ApplySaveOutput;
   edit: EditOutput;
   derive: DeriveOutput;
+  mip: MipOutput;
 }
 
 /** A job message to a worker. `kind` is any handler's name: the pool is not tied to the stream kinds. */

@@ -235,7 +235,7 @@ async function main(): Promise<void> {
       return;
     }
     // Draws and bodies follow the chunk view's `chunk` events (above).
-    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk') return;
+    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'node') return;
     if (e.type === 'shader') {
       // Only the shader data changed (material or wetness): bodies stand as they are; the view uploads the chunk's grid.
       for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);
@@ -493,6 +493,7 @@ async function main(): Promise<void> {
     },
     state(): Record<string, unknown> {
       const m = streamer.metrics();
+      const mips = streamer.mips;
       const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? NaN;
       return {
         backend: backendName,
@@ -506,6 +507,7 @@ async function main(): Promise<void> {
         heapMB: Number((heap / 1e6).toFixed(1)),
         gpu: rendererMemory(renderer),
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
+        mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,

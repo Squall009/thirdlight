@@ -16,7 +16,7 @@ import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWit
 import { derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';
 import { CellDelta } from './cell-delta';
-import type { DenseChunk } from './dense-chunk';
+import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { payloadTransfer } from './chunk-wire';
 import { CHUNK_EDGES, chunkGrid, chunkOfKey, type ChunkEdge } from './coords';
 import { applyEdit } from './edit-apply';
@@ -29,7 +29,8 @@ import { regionChunkCodecBytes, type RegionChunkRead } from './region-file';
 import { applySaveChunk, baseChunkHash, sameHash, saveContentFromPayload } from './save-file';
 import { stampShapeHash, type StampResolver } from './stamp-shape';
 import { encodeUndoRecord } from './undo-store';
-import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, StoredChunk } from './stream-job';
+import { downsampleMip } from './voxel-mips';
+import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
 
 export interface StreamHandlerOptions {
   /** Decompresses one stored chunk's zstd frame. */
@@ -192,6 +193,9 @@ function derive(raw: unknown): JobResult {
     store.adoptPayload(c.cx, c.cy, c.cz, input.payload);
     const parts = input.parts ?? ALL_DERIVED_PARTS;
     if ((parts & ALL_DERIVED_PARTS) !== parts || parts === 0) throw new RangeError(`derive job: parts ${parts}`);
+    const level = input.level ?? 0;
+    if (!Number.isInteger(level) || level < 0) throw new RangeError(`derive job: level ${String(level)}`);
+    if (level > 0 && (input.rules === undefined || input.sections !== undefined || parts !== ALL_DERIVED_PARTS)) throw new RangeError('derive job: a chunk-tree node derives whole, with rules');
     if (input.sections !== undefined) return deriveSections(store, input, parts);
     if (parts === DERIVED_PART.shader) {
       // Material and wetness feed only the shader data, which reads the chunk and its border.
@@ -203,7 +207,7 @@ function derive(raw: unknown): JobResult {
     if (input.rules !== undefined) {
       const rules = assemblyRules(input.rules);
       if (jobRadius(rules) !== r) throw new RangeError(`derive job: radius ${r} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
-      const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out));
+      const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out), undefined, level);
       const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeDerived(assembly)), assembly, shader: null };
       return { output, transfer: derivedTransfer(assembly) };
     }
@@ -289,6 +293,40 @@ function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveO
   return { solid, exposed, mask, hash: fnv(mask), assembly: null, shader: null };
 }
 
+/** Dense blocks a `mip` job reads its children into and builds its node in (per edge, reused). */
+const mipScratch = new Map<ChunkEdge, { children: DenseChunk[]; node: DenseChunk }>();
+
+/** Downsamples a chunk-tree node from its 8 children's payloads (voxel-mips.ts `downsampleMip`). */
+function mip(raw: unknown): JobResult {
+  const input = raw as MipInput;
+  const store = storeFor(input.edge);
+  const g = store.grid;
+  if (!Array.isArray(input.children) || input.children.length !== 8) throw new RangeError('mip job: a node has 8 children');
+  let s = mipScratch.get(input.edge);
+  if (s === undefined) {
+    s = { children: Array.from({ length: 8 }, () => createDenseChunk(g)), node: createDenseChunk(g) };
+    mipScratch.set(input.edge, s);
+  }
+  try {
+    const children: Array<DenseChunk | null> = [];
+    input.children.forEach((p, o) => {
+      if (p === null || p.form === 'air') {
+        children.push(null);
+        return;
+      }
+      store.adoptPayload(0, 0, 0, p);
+      children.push(store.exportChunk(0, 0, 0, s.children[o]!) ? s.children[o]! : null);
+      store.dropChunk(0, 0, 0);
+    });
+    if (downsampleMip(g, children, s.node)) store.importChunk(0, 0, 0, s.node);
+    const payload = store.chunkPayload(0, 0, 0, false);
+    const output: MipOutput = { payload };
+    return { output, transfer: payloadTransfer(payload) };
+  } finally {
+    clear(store);
+  }
+}
+
 /** The stream job handlers ({@link serveJobs} serves them). */
 export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
   return {
@@ -296,6 +334,7 @@ export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
     'apply-save': (input) => applySave(opts, input),
     edit: (input) => edit(input),
     derive: (input) => derive(input),
+    mip: (input) => mip(input),
   };
 }
 

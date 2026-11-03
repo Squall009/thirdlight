@@ -887,7 +887,8 @@ differ from a whole-chunk derive's while covering the same faces once each with 
 whole-chunk derive's (`encodeShader`). Nothing is kept: the join is rebuilt from the section results when asked.
 Measured (Node, 16³, plan-46a 46a.5a): 0.28–0.31 ms p50 / 0.59–0.69 ms p95 a drawn chunk, nine tenths of it the grid.
 
-**Lanes.** `edit` before `near` before `far`; within a lane by distance², then by arrival. The queue is an indexed
+**Lanes.** `edit` before `near` before `far` before `mip` (the chunk tree's nodes, built from level 0, so they never
+hold it back); within a lane by distance², then by arrival. The queue is an indexed
 heap with back-pressure: `maxQueued`, `room()`, and `queue_full` when full.
 
 **Staleness (R67).** Ids and input stamps come from the `DirtyTracker`, from one counter that never repeats.
@@ -923,6 +924,7 @@ inside), in x, z, y order.
   - the runtime overlay's arrays (§2.3; counted, never evicted);
   - 96 B of bookkeeping per resident chunk, air included;
   - every derived part registered per chunk;
+  - the chunk tree's nodes (`bytes.mips`: node cells, derived results, 96 B each), which leave with their chunks;
   - the open region tables;
   - each chunk body's physics cost (its `collision` part: the physics heap's estimate for its shape plus the
     geometry kept for re-bases, D434).
@@ -1194,8 +1196,21 @@ except the level.
   is equally wide at every level. The converting is done by the chunk view (46b.8b).
 - `groundHeightfield` takes the level's cell size, so a node's lattice ground collides or measures as a heightfield
   at every level.
-- `MipTree` builds nodes on demand from a level-0 store (benches and tests); the streamer builds them in workers
-  (46b.6b).
+- `MipTree` builds nodes on demand from a level-0 store (benches and tests); the streamer builds them in workers.
+
+**Mips at runtime (46b.6b, `stream-mips.ts`).** With rules, the streamer keeps nodes of the levels in its mip rings
+(`DEFAULT_MIP_RINGS`: level 1 to 256 cells, level 2 to 384, horizontal box distance; results kept 16 cells past).
+- Cells: a `mip` job downsamples a node from its 8 children (level 1: resident chunks with the overlay laid over the
+  base; above: the level below's complete nodes). A child not known counts as air and the node records the octants
+  it was built from; it is complete when all 8 were known. Cells of every node over resident chunks are kept.
+- Derive: a `derive` job with `level` for a complete node in its ring once the octants of its 26 neighbours that face
+  it are known (the apron, R ≤ half a node deep, lies only in those). A node over chunks not all resident is never
+  derived or drawn from guessed cells.
+- Staleness: a level-0 change marks every ancestor stale (`MipStaleSet`, rebuilt lowest first once the children are
+  settled) and moves the derive stamp of the nodes within R of the change at each level (the box scaled by 2^L): a
+  dig inside a node re-derives its ancestors only. A chunk leaving drops its ancestors' results at once.
+- Measured (Node, slice ring, default rings, 4 workers): 330 level-1 and 13 level-2 nodes derived, 6.4 MB of mips
+  (1.6 MB cells) against 25.4 MB for level 0; worker µs a node p50/p95 downsample 2,600/7,100, derive 1,600/9,700.
 - Measured (Node, hard cases): levels 1 and 2 are closed, and every surface lies within the level's cell of the
   true one. Triangles are 22–25 % of the level below. Features of at least the level's cell stay.
 

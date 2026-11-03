@@ -79,6 +79,10 @@ export function mipChildren(n: MipNode): MipNode[] {
   return out;
 }
 
+/** Per role: 1 when it is in {@link MIP_ROLE_PRIORITY} (a solid role the downsample counts). */
+const SOLID_PRIORITY = new Uint8Array(16);
+for (const r of MIP_ROLE_PRIORITY) SOLID_PRIORITY[r] = 1;
+
 /** Summed fill a parent of 8 cells needs from a whole-cell role to take it: half the parent. */
 const HALF_PARENT = (8 * SHAPE_FULL) / 2;
 
@@ -139,17 +143,38 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
     const ox = (o & 1) * h;
     const oy = ((o >> 1) & 1) * h;
     const oz = ((o >> 2) & 1) * h;
+    const { material, role: roles, shape: shapes, wetness } = child ?? out;
     for (let x = 0; x < h; x++) for (let z = 0; z < h; z++) for (let y = 0; y < h; y++) {
       const pi = localIndex(grid, ox + x, oy + y, oz + z);
       if (child === null) {
         air(pi);
         continue;
       }
+      for (let c = 0; c < 8; c++) cells[c] = localIndex(grid, 2 * x + (c & 1), 2 * y + ((c >> 1) & 1), 2 * z + ((c >> 2) & 1));
+      // Most parents cover one voxel 8 times (sky, rock): air stays air, a whole-cell solid stays itself.
+      const c0 = cells[0]!;
+      const m0 = material[c0]!;
+      let same = true;
+      for (let c = 1; c < 8 && same; c++) {
+        const ci = cells[c]!;
+        same = material[ci] === m0 && (m0 === MATERIAL_AIR || (roles[ci] === roles[c0] && shapes[ci] === shapes[c0] && wetness[ci] === wetness[c0]));
+      }
+      if (same && m0 === MATERIAL_AIR) {
+        air(pi);
+        continue;
+      }
+      if (same && shapes[c0] === SHAPE_FULL && SOLID_PRIORITY[roles[c0]!] === 1) {
+        out.material[pi] = m0;
+        out.role[pi] = roles[c0]!;
+        out.shape[pi] = SHAPE_FULL;
+        out.wetness[pi] = wetness[c0]!;
+        any = true;
+        continue;
+      }
       roleFill.fill(0);
       for (let c = 0; c < 8; c++) {
-        const ci = localIndex(grid, 2 * x + (c & 1), 2 * y + ((c >> 1) & 1), 2 * z + ((c >> 2) & 1));
-        cells[c] = ci;
-        if (child.material[ci] !== MATERIAL_AIR) roleFill[child.role[ci]!]! += child.shape[ci]!;
+        const ci = cells[c]!;
+        if (material[ci] !== MATERIAL_AIR) roleFill[roles[ci]!]! += shapes[ci]!;
       }
       let solid = 0;
       for (const r of MIP_ROLE_PRIORITY) solid += roleFill[r]!;
@@ -199,6 +224,17 @@ export class MipStaleSet {
       const n = mipNodeOf(c.cx, c.cy, c.cz, l);
       this.stale.set(mipNodeKey(n), n);
     }
+  }
+
+  /** Marks one node stale (its rebuild failed, or was refused, and must run again). */
+  mark(n: MipNode): void {
+    if (n.level < 1 || n.level > this.maxLevel) throw new RangeError(`mip level ${n.level} outside 1 … ${this.maxLevel}`);
+    this.stale.set(mipNodeKey(n), { level: n.level, nx: n.nx, ny: n.ny, nz: n.nz });
+  }
+
+  /** Whether a node waits to be rebuilt. */
+  has(n: MipNode): boolean {
+    return this.stale.has(mipNodeKey(n));
   }
 
   /** Stale nodes, lowest level first (a parent is rebuilt after its children), then by coordinates. */

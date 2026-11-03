@@ -1,5 +1,5 @@
 /**
- * The priority queue jobs wait in: lane first (edit, then near, then far),
+ * The priority queue jobs wait in: lane first (JOB_LANES: edit, near, far, mip),
  * then distance, then arrival. An indexed binary heap, so a job can be
  * removed (cancelled) or moved (its distance changed as the focus moved)
  * in O(log n) without scanning.

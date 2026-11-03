@@ -108,7 +108,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.4 | done (this commit; fast gate green): lattice normals from 4 × 4 columns (slope max error 1:20 5.4 → 1.4°, 1:5 5.7 → 1.6°), crease vertices split with face normals (cliff top 64°, terrace lips 40/59°, ledge 57°, wall foot 64°; no split on slopes or bank), derived v5. Vertices slice +0.07 %, town +1 %, caves +26 %; µs a 16³ section p50 +26–35 (caves +100). |
 | 46b.5 | done (05145625 + this commit; fast gates green): base faces merged per section, no T-junction (derived v6): town (terrain rules, 32³) 2.72 → 1.62 M triangles (base 1.41 → 0.30 M), base bytes a chunk 16.4 → 2.5 KB, drawn 2.96 → 1.96 M; derive µs equal. D461 fixed: lips on the true edge, terraces-1 max 12.2 → 2.5 cm, normal p95 73 → 4.5°. |
 | 46b.6a | done (this commit; fast gate green after a rerun): nodes derive through the chunk derive (`mip-derive.ts`, level recorded, derived v7); downsample keeps fill = solid share, roles by priority. L1/L2 hard cases closed, max error 0.50 / 1.11 m (≤ the level cell), features ≥ the cell kept; triangles slice 1.05 M → 262 k → 66 k, town 1.62 M → 431 k → 82 k; derive µs a node ≈ a chunk's. |
-| 46b.6b | not started |
+| 46b.6b | done (this commit; fast gate green): `stream-mips.ts`: nodes L1/L2 downsampled (`mip` jobs) and derived (`level`) in workers from resident chunks, lane `mip` last, `bytes.mips` in the budget, dig re-derives its 2 ancestors only. Slice ring (Node): 330 L1 + 13 L2 nodes, 6.4 MB (level 0 25.4 MB); µs a node p50 downsample 2,600, derive 1,600. |
 | 46b.7a | not started |
 | 46b.7b | not started |
 | 46b.8a | not started |
@@ -515,6 +515,62 @@ worker-pool timeout, D454's file, failed once under load and passed alone); e2e 
 stop), passed on the rerun (gate-rerun-20261103-140844, GREEN, perf at the cap in limits). `voxel-world.e2e.ts`
 43.2 s (not touched; 48.1 s at 46b.5).
 
+### 46b.6b mips at runtime
+
+`packages/voxel/src/stream-mips.ts` (`StreamMips`, the streamer's `mips`; the streamer class stays at 80 members:
+`partBytes` became a module function). With rules the streamer keeps the levels of its mip rings (`mips` option,
+default `DEFAULT_MIP_RINGS` = level 1 to 256 cells, level 2 to 384, `stream-ring.ts`; `[]` turns them off), on in
+the slice page, Play and the Scene view (nothing draws them before 46b.8b).
+- **Cells:** `mip` jobs (new job kind; `downsampleMip` in the worker over the 8 children's payloads) build every node
+  over resident chunks into a per-level store (level 1 from the overlay-merged chunks, level 2 from level 1's
+  complete nodes). An unknown child counts as air; the node records the octants it was built from.
+- **Derive:** `derive` jobs with a new `level` field (whole node, rules, `deriveWithApron`), for complete nodes in
+  their ring whose 26 neighbours have the octants facing them known (the apron is R = 3 cells, inside those octants).
+- **Staleness:** `MipStaleSet` (gained `mark`/`has`) holds the nodes to rebuild, lowest level first, a parent once
+  its children are settled; per-node cell and derive stamps refuse late results; a level-0 change moves the derive
+  stamp of the nodes within R of the change box scaled to each level. Hooks: chunk landed (also a reload), chunk
+  dropped or evicted (ancestors lose their results at once), edit (main or worker), refresh swap, restored or
+  cleared overlay.
+- **Order and budget:** lane `mip` after `edit`, `near`, `far` (`JOB_LANES`); `bytes.mips` (node cells + results +
+  96 B a node) in `metrics()` and in the eviction total; a `node` stream event per changed or removed result; the
+  slice page's `state()` reports `mips`.
+- **Downsample cost:** the worker spent ~5.5 ms a node in `downsampleMip` itself (Node, half air/half rock block);
+  a fast path for parents covering one voxel eight times (air, or a whole-cell solid) took it to 1.6 ms, same
+  bytes (the mip tests of `derived.test.ts`/`mesh-cases.test.ts` unchanged).
+
+Tests (`stream.test.ts`, real workers, region files on disk, +1 test, 11–15 s alone): with rings level 1 to 64 and
+level 2 to 32 cells around a ring of 256 cells over the hilly world's whole height, every node with a result equals
+`deriveMipNode` over a fresh `MipTree` of the oracle byte for byte (48 at level 1, 8 at level 2), every node in its
+ring of the world's layers has one, and each lies over resident chunks only; `bytes.mips` = cells + results + 96 B a
+node and is in the total; a 1.5 m dig inside a level-1 node (more than R from every node face at both levels) gives
+exactly two `node` events (its ancestors), two downsamples and two derives, every other result the same object, all
+equal to a fresh derive of the dug oracle; moving the focus 224 m away drops every old node's result (a `removed`
+event each), lowers `bytes.mips`, and leaves only nodes over resident chunks. The pool's lane test gained `mip`
+(after `far`). The overlay test's byte sum gained `mips`.
+
+Measured (Node 22, i5-12600H, 4 worker threads, the slice world (`buildSliceWorld`) on disk, default ring and mip
+rings, cold fill to settled, scratch `~/.cache/thirdlight-phase46/work/46b.6b/slice-mips.ts`; 14:27–14:28, uptime
+10 d 22 h, load 3.3–3.7, 3 runs, the last pair interleaved off/on):
+
+| | mips off | mips on |
+|---|---|---|
+| settle (cold fill) | 3.3 s | 4.8–5.4 s (mips after every level-0 job) |
+| resident / stored chunks | 5,904 / 749 | same |
+| stream bytes (no draws) | 25.4 MB (chunks 5.8, derived 19.5) | 31.8 MB: + mips 6.4 MB (cells 1.6, 1,054 nodes) |
+| nodes derived | — | level 1: 330 (264 with a mesh, 135 k triangles); level 2: 13 (13, 27 k) |
+| worker µs a node p50 / p95 / max | — | downsample 2,600–3,100 / 7,100–7,900 / 46–51 k; derive 1,600–1,700 / 9,700–11,800 / 22–33 k |
+| level-0 derive µs a job p50 / p95 | 2,203 / 6,542 | 1,997–2,346 / 6,394–7,210 (unchanged) |
+
+Reading: a node costs what a chunk does (downsample ≈ one chunk derive, the 8 payloads' decode about half of it),
+and mips add ~25 % to the stream bytes before draws (the browser's slice ring counted 114 MB with draws: ~6 %).
+Level 2 reaches only 13 nodes: a node derives once its neighbours' facing octants (two chunks deep at level 2) are
+resident, so with the level-2 ring equal to the load ring (192 m) level-2 nodes stop about a node short of the ring's
+edge (horizontally and at the ring's 96 m height); 46b.8a decides whether the outer ring draws level 2 there or the
+ring grows.
+Fast gate (gate-fast-20261103-142919, uptime 10 d 22 h, load 3.6 at the start, 6 during e2e): GREEN, 14 min, 4.4 GB
+peak, perf at the cap in limits; vitest red only on D418 (`scan-bounded-log.test.ts`, passed alone in the gate's
+rerun). `voxel-world.e2e.ts` 48.9 s (not touched; 43.2 s at 46b.6a; its pages now build mips after level 0).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -639,6 +695,19 @@ stop), passed on the rerun (gate-rerun-20261103-140844, GREEN, perf at the cap i
   position and size stays in the level's cells, with one scale (`mipCellMetres`). The shader's blend distance
   stays a metres setting, converted per level by the chunk view (46b.8b), so a blend is equally wide at every
   level.
+
+- 2026-11-03 (46b.6b, default chosen, owner to confirm): **a node is drawn only from known cells.** A node is
+  derived only when all its chunks are resident and its neighbours' octants facing it are known; until then it has
+  no result (never drawn from cells guessed as air). Its cells are still built from what is resident (unknown
+  children as air, octants recorded), since the next level and the neighbours' aprons read them. Waiting only for
+  the facing octants (not whole neighbours) is exact because the apron (R = 3) lies within half a node; the streamer
+  refuses rules with R over half a chunk edge.
+- 2026-11-03 (46b.6b, default chosen, owner to confirm): **mips are on wherever the streamer derives with rules**
+  (slice page, Play, the Scene view), with `DEFAULT_MIP_RINGS` (level 1 to 128 m, level 2 to 192 m, results kept
+  8 m past). Nothing draws them until 46b.8b; the cost is worker time after all level-0 work and ~6 MB in the slice
+  ring. `mips: []` turns them off.
+- 2026-11-03 (46b.6b): **ancestors re-derive outside the edit's swap.** Mip results commit as each job lands (a
+  `node` event), not in the level-0 group's atomic swap; 46b.8a swaps levels and 46b.11a checks blasts with them.
 
 
 ## 9. Open questions for the owner

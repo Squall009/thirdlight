@@ -17,7 +17,10 @@
  *   absent and uniform chunks land at once, stored ones go to a worker
  *   (`load`);
  * - with derive on, a chunk whose neighbours within R are all known gets a
- *   `derive` job (the placeholder for meshing and its kin) with its apron.
+ *   `derive` job (the placeholder for meshing and its kin) with its apron;
+ * - with assembly rules, the chunk tree's coarser levels are built from
+ *   the resident chunks and derived within their rings, after all level-0
+ *   work (stream-mips.ts).
  *
  * Every job carries a tracker id and the input stamps it read; a result
  * whose chunk was edited, reloaded or had a neighbour within R change
@@ -62,9 +65,10 @@ import type { MismatchChoice, SaveChunk } from './save-file';
 import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
 import type { DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, StoredChunk } from './stream-job';
+import { StreamMips, type MipEvent } from './stream-mips';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
-import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type StreamRing } from './stream-ring';
+import { checkRing, chunkDistance2, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
@@ -125,6 +129,12 @@ export interface VoxelStreamerOptions {
    * fits one, else the chunk edge.
    */
   readonly sectionEdge?: SectionEdge;
+  /**
+   * The chunk tree's levels kept derived, with `rules` (default
+   * {@link DEFAULT_MIP_RINGS}; empty: none). Nodes are built in workers
+   * from the resident chunks, never stored.
+   */
+  readonly mips?: readonly MipRing[];
 }
 
 /**
@@ -134,13 +144,16 @@ export interface VoxelStreamerOptions {
  * name a derive section in section coordinates (chunks when the section
  * edge is the chunk edge); `chunk` names a storage chunk whose sections
  * took new results in one task (its joined draw is to be replaced); `swap`
- * closes an edit's atomic swap, after the `chunk` events of its chunks.
+ * closes an edit's atomic swap, after the `chunk` events of its chunks;
+ * `node` names a chunk-tree node whose derived result changed
+ * ({@link VoxelStreamer.mips}).
  */
 export type StreamEvent =
   | { readonly type: 'loaded' | 'unloaded'; readonly cx: number; readonly cy: number; readonly cz: number }
   | SectionEvent
   | { readonly type: 'damaged'; readonly cx: number; readonly cy: number; readonly cz: number; readonly reason: string }
-  | { readonly type: 'mismatch'; readonly cx: number; readonly cy: number; readonly cz: number; readonly applied: boolean };
+  | { readonly type: 'mismatch'; readonly cx: number; readonly cy: number; readonly cz: number; readonly applied: boolean }
+  | MipEvent;
 
 type Phase = 'reading' | 'decoding' | 'resident' | 'damaged';
 
@@ -220,8 +233,8 @@ export interface StreamMetrics {
   readonly decoding: number;
   readonly damaged: number;
   readonly deriving: number;
-  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables (and region files a source holds whole). */
-  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly budget: number };
+  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables (and region files a source holds whole), the chunk tree's nodes. */
+  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly mips: number; readonly budget: number };
   /** The store's own count of its arrays (to check the streamer's sum). */
   readonly storeBytes: number;
   readonly counters: Readonly<StreamCounters>;
@@ -285,6 +298,8 @@ export class VoxelStreamer {
   private readonly heldOutside = new Set<number>();
   /** The derive sections (null when the streamer derives nothing). */
   private readonly derives: SectionDerives | null;
+  /** The chunk tree's coarser levels: their nodes' derived results, metrics and bytes (null without rules or levels). */
+  readonly mips: StreamMips | null;
   private wake: (() => void) | null = null;
 
   constructor(opts: VoxelStreamerOptions) {
@@ -336,6 +351,26 @@ export class VoxelStreamer {
             },
             opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
             opts.editDeriveMsPerUpdate ?? 8,
+          )
+        : null;
+    const rings = opts.mips ?? DEFAULT_MIP_RINGS;
+    this.mips =
+      this.derives !== null && opts.rules !== undefined && rings.length > 0
+        ? new StreamMips(
+            {
+              grid: this.grid,
+              gridId: this.gridId,
+              pool: opts.pool,
+              tracker: this.tracker,
+              rules: opts.rules,
+              radius: this.radius,
+              isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
+              chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
+              focus: () => this.focus,
+              emit: (e) => this.emit(e),
+              poke: () => this.poke(),
+            },
+            rings,
           )
         : null;
   }
@@ -488,6 +523,7 @@ export class VoxelStreamer {
     }
     const deriving = this.derives?.deriving ?? 0;
     const tables = this.opts.source.memoryBytes();
+    const mips = this.mips?.bytes ?? 0;
     return {
       resident,
       residentStored: stored,
@@ -495,7 +531,7 @@ export class VoxelStreamer {
       decoding,
       damaged,
       deriving,
-      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, budget: this.budgetBytes },
+      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + mips, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, mips, budget: this.budgetBytes },
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
     };
@@ -522,6 +558,7 @@ export class VoxelStreamer {
         if (this.plan.pastUnload(this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
         else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, this.laneOf(c), c.d2);
       }
+      this.mips?.focusMoved();
     } else if (this.heldOutside.size > 0) {
       for (const key of [...this.heldOutside]) {
         const c = this.chunks.get(key);
@@ -540,6 +577,7 @@ export class VoxelStreamer {
     if (n > 0) held.splice(0, n);
     this.requestLoads();
     this.derives?.request(this.opts.deriveMsPerUpdate ?? 2);
+    this.mips?.request(this.opts.deriveMsPerUpdate ?? 2);
     for (const [key, at] of this.unloadedAt) {
       if (t0 - at <= CHURN_WINDOW_MS) break;
       this.unloadedAt.delete(key);
@@ -572,7 +610,7 @@ export class VoxelStreamer {
   private idle(): boolean {
     if (this.reads > 0 || this.refreshing > 0) return false;
     for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding') return false;
-    if (this.derives?.pending() === true) return false;
+    if (this.derives?.pending() === true || this.mips?.pending() === true) return false;
     for (let i = this.cursor; i < this.wanted.length; i++) {
       const w = this.wanted[i]!;
       if (w.d2 >= this.horizon) continue;
@@ -602,9 +640,10 @@ export class VoxelStreamer {
       }
       this.derives?.chunkDropped(c.cx, c.cy, c.cz);
       this.store.dropChunk(c.cx, c.cy, c.cz);
+      this.mips?.chunkDropped(c.cx, c.cy, c.cz);
       this.tracker.unload(ref);
-      this.bytesChunks -= c.bytes - this.partBytes(c);
-      this.bytesDerived -= this.partBytes(c);
+      this.bytesChunks -= c.bytes - partBytes(c);
+      this.bytesDerived -= partBytes(c);
       this.unloadedAt.delete(c.key);
       this.unloadedAt.set(c.key, performance.now());
       this.counters.unloads++;
@@ -620,16 +659,11 @@ export class VoxelStreamer {
     return true;
   }
 
-  private partBytes(c: Chunk): number {
-    let n = 0;
-    if (c.parts !== null) for (const b of c.parts.values()) n += b;
-    return n;
-  }
-
   private enforceBudget(): void {
     const tables = this.opts.source.memoryBytes();
     // The overlay counts but is never evicted: it is the game's changes, not a copy of the files.
-    let total = this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables;
+    // Mip nodes count too; they leave with the chunks under them.
+    let total = this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + (this.mips?.bytes ?? 0);
     if (total <= this.budgetBytes) {
       if (total < this.budgetBytes * RESUME_BELOW && this.horizon !== Infinity) {
         this.horizon = Infinity;
@@ -642,8 +676,9 @@ export class VoxelStreamer {
     for (const c of candidates) {
       if (total <= this.budgetBytes * EVICT_TO) break;
       const bytes = c.bytes;
+      const mips = this.mips?.bytes ?? 0;
       if (!this.drop(c, true)) continue;
-      total -= bytes;
+      total -= bytes + mips - (this.mips?.bytes ?? 0);
       this.horizon = Math.min(this.horizon, c.d2);
     }
     if (total > this.budgetBytes) this.counters.overBudgetTicks++;
@@ -800,6 +835,7 @@ export class VoxelStreamer {
     if (at !== undefined && performance.now() - at <= CHURN_WINDOW_MS) this.counters.reloads++;
     this.tracker.loaded(jobRef(this, c));
     this.derives?.chunkLanded(c.cx, c.cy, c.cz);
+    this.mips?.chunkLanded(c.cx, c.cy, c.cz);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
@@ -818,7 +854,10 @@ export class VoxelStreamer {
     const d = this.derives;
     if (d === null) return 0;
     const group = d.newGroup();
-    if (changed.length > 0) d.invalidate(box, 'edit', parts, group);
+    if (changed.length > 0) {
+      d.invalidate(box, 'edit', parts, group);
+      this.mips?.changed(changed, box);
+    }
     d.request(this.opts.deriveMsPerUpdate ?? 2, true);
     d.settleGroup(group);
     return group;
@@ -982,7 +1021,7 @@ export class VoxelStreamer {
     const t0 = performance.now();
     this.store.adoptPayload(c.cx, c.cy, c.cz, payload);
     this.adoptMs.add(performance.now() - t0);
-    const bytes = this.store.chunkBytes(c.cx, c.cy, c.cz) + RESIDENT_CHUNK_OVERHEAD_BYTES + this.partBytes(c);
+    const bytes = this.store.chunkBytes(c.cx, c.cy, c.cz) + RESIDENT_CHUNK_OVERHEAD_BYTES + partBytes(c);
     this.bytesChunks += bytes - c.bytes;
     c.bytes = bytes;
     this.tracker.loaded(ref);
@@ -994,6 +1033,7 @@ export class VoxelStreamer {
     c.refreshBox = null;
     const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
     this.derives?.contentLanded(c.cx, c.cy, c.cz, box, parts);
+    this.mips?.changed([c], box);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
@@ -1035,6 +1075,7 @@ export class VoxelStreamer {
       box.maxZ = Math.max(box.maxZ, z);
     }
     this.derives?.invalidate(box, 'edit', ALL_DERIVED_PARTS, group);
+    this.mips?.changed([c], box);
   }
 
   private settleRebuild(group: number): void {
@@ -1075,6 +1116,13 @@ export class VoxelStreamer {
     out.push(...this.restoring.entries());
     return out;
   }
+}
+
+/** Bytes of a chunk's derived parts. */
+function partBytes(c: Chunk): number {
+  let n = 0;
+  if (c.parts !== null) for (const b of c.parts.values()) n += b;
+  return n;
 }
 
 /** A chunk's key in the dirty tracker's job references. */

@@ -4,7 +4,7 @@
  * - **Workers** are module workers behind {@link PoolWorker} (a browser
  *   `Worker`, or a Node `worker_threads` Worker in tests), each serving
  *   {@link serveJobs}. The pool's size is a setting; it holds no world state.
- * - **Priority.** Jobs wait in one {@link JobQueue} (edit, near, far, then
+ * - **Priority.** Jobs wait in one {@link JobQueue} (edit, near, far, mip, then
  *   distance) and go to a worker as one frees up; a queued job can be moved
  *   (the focus moved) or cancelled.
  * - **Back-pressure.** At most `maxQueued` jobs wait; past that a submit is

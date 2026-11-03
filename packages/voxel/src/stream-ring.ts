@@ -46,6 +46,26 @@ export const DEFAULT_STREAM_RING: StreamRing = Object.freeze({ loadRadius: 384, 
  */
 export const DEFAULT_COLLISION_RING: Readonly<{ radius: number; height: number }> = Object.freeze({ radius: 96, height: 48 });
 
+/**
+ * A level of the chunk tree the streamer keeps derived nodes of
+ * (voxel-mips.ts): level L ≥ 1 within `radius` cells (horizontal box
+ * distance from the focus to the node).
+ */
+export interface MipRing {
+  readonly level: number;
+  readonly radius: number;
+}
+
+/**
+ * The default levels kept: level 1 (1 m cells) to 128 m and level 2 (2 m
+ * cells) to 192 m, the load ring; level 0 is drawn to 64 m. Nodes exist
+ * only over resident chunks, so no level reaches past the load ring.
+ */
+export const DEFAULT_MIP_RINGS: readonly MipRing[] = Object.freeze([Object.freeze({ level: 1, radius: 256 }), Object.freeze({ level: 2, radius: 384 })]);
+
+/** Cells past its ring's radius a node's derived result is kept, so a focus moving back and forth does not drop and rebuild it (8 m). */
+export const MIP_RING_HYSTERESIS_CELLS = 16;
+
 /** Quality tiers with a streaming budget of their own. */
 export type StreamTier = 'low' | 'medium' | 'high';
 

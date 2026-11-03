@@ -22,6 +22,8 @@ import {
   DEFAULT_SECTION_EDGE,
   dependentChunks,
   deriveFromStore,
+  deriveMipNode,
+  derivedBytes,
   deriveSectionFromStore,
   DERIVED_PART,
   deriveNow,
@@ -31,6 +33,7 @@ import {
   exportOrAir,
   FloatingOrigin,
   jobRadius,
+  MipTree,
   WORLD_RULES,
   PLANE_BIT,
   RegionChunkSource,
@@ -49,6 +52,7 @@ import {
   type ChunkCoord,
   type JobOutcome,
   type LoadOutput,
+  type MipEvent,
   type PaletteStore,
   type SaveChunk,
   type StreamEvent,
@@ -188,11 +192,12 @@ describe('worker pool (real module workers)', () => {
     expect(new Uint8Array(echoed.output.buf)[1000]).toBe((1000 * 7) & 0xff);
   });
 
-  it('runs queued jobs edit lane first, then near, then far, nearest first', async () => {
+  it('runs queued jobs edit lane first, then near, then far, then mip, nearest first', async () => {
     const p = pool(1);
     const order: number[] = [];
     const blocker = p.submit({ id: 100, kind: 'test-sleep', lane: 'far', distance: 0, input: { ms: 80 }, transfer: [] });
-    const jobs: Array<[number, 'edit' | 'near' | 'far', number]> = [
+    const jobs: Array<[number, 'edit' | 'near' | 'far' | 'mip', number]> = [
+      [107, 'mip', 0],
       [101, 'far', 5],
       [102, 'near', 50],
       [103, 'edit', 900],
@@ -202,7 +207,7 @@ describe('worker pool (real module workers)', () => {
     ];
     const done = jobs.map(([id, lane, d]) => p.submit({ id, kind: 'test-sleep', lane, distance: d, input: { ms: 0 }, transfer: [] }).then(() => order.push(id)));
     await Promise.all([blocker, ...done]);
-    expect(order).toEqual([106, 103, 104, 102, 105, 101]);
+    expect(order).toEqual([106, 103, 104, 102, 105, 101, 107]);
   });
 
   it('cancels a queued job unsent and a sent one at once (its late reply ignored); back-pressure answers queue_full', async () => {
@@ -638,7 +643,8 @@ describe('streamer (workers, region files on disk)', () => {
     expect(expectStoreEqual(s, s.store, oracle)).toBeGreaterThan(30);
     const m = s.metrics();
     expect(m.bytes.overlay).toBe(s.overlay.memoryBytes());
-    expect(m.bytes.total).toBe(m.bytes.chunks + m.bytes.derived + m.bytes.overlay + m.bytes.tables);
+    expect(m.bytes.total).toBe(m.bytes.chunks + m.bytes.derived + m.bytes.overlay + m.bytes.tables + m.bytes.mips);
+    expect(m.bytes.mips).toBe(s.mips!.bytes);
 
     /** What a save of the edits restores onto the shipped world: the saved fields of the edits, the base's wetness. */
     const expectSaved = (entries: readonly SaveChunk[]): void => {
@@ -1134,6 +1140,136 @@ describe('streamer (workers, region files on disk)', () => {
       expect(await m.saveChunks()).toEqual(choice === 'save' ? [entry] : []);
     }
   }, 60_000);
+
+  it('builds mip nodes in workers from the resident chunks: each a fresh downsample and derive, a dig re-derives its ancestors only, bytes in the budget, unload drops them', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    // The whole world's height and two chunks above and below it are loaded, 256 cells around: the four level-2 nodes
+    // meeting at the focus have the octants of their neighbours that face them (two chunks deep) resident.
+    let minCy = Infinity;
+    let maxCy = -Infinity;
+    for (const key of oracle.chunkKeys()) {
+      const c = chunkOfKey(grid, key);
+      minCy = Math.min(minCy, c.cy);
+      maxCy = Math.max(maxCy, c.cy);
+    }
+    const midY = ((minCy + maxCy + 1) * 32) / 2;
+    const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
+    const ring: StreamRing = { loadRadius: 256, unloadRadius: 288, loadHeight: half, unloadHeight: half + 32, nearRadius: 96 };
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, deriveMsPerUpdate: 10_000, mips: [{ level: 1, radius: 64 }, { level: 2, radius: 32 }] });
+    const mips = s.mips!;
+    const events: MipEvent[] = [];
+    s.on((e) => {
+      if (e.type === 'node') events.push(e);
+    });
+    const truth = copyOracle();
+    /** Every node with a result equals a fresh downsample of `truth` derived through the chunk derive; the count per level. */
+    const sameAsFresh = (): number[] => {
+      const tree = new MipTree(truth);
+      const n = [0, 0, 0];
+      for (const d of mips.derived()) {
+        const want = deriveMipNode(tree, { level: d.level, nx: d.nx, ny: d.ny, nz: d.nz }, WORLD_RULES);
+        if (d.result === null) {
+          // Nothing to draw: air with air around it.
+          expect(want.ground.vertexCount + want.base.vertexCount + want.instances.count).toBe(0);
+        } else if (Buffer.compare(Buffer.from(encodeDerived(d.result)), Buffer.from(encodeDerived(want))) !== 0) throw new Error(`node ${d.level}:${d.nx},${d.ny},${d.nz} differs from a fresh derive`);
+        expect(d.result?.level ?? d.level).toBe(d.level);
+        n[d.level]!++;
+      }
+      return n;
+    };
+    /** Every node with a result lies over resident chunks only. */
+    const overResident = (): void => {
+      for (const d of mips.derived()) {
+        const k = 2 ** d.level;
+        for (let x = 0; x < k; x++) for (let y = 0; y < k; y++) for (let z = 0; z < k; z++) expect(s.isResident(d.nx * k + x, d.ny * k + y, d.nz * k + z)).toBe(true);
+      }
+    };
+    const surface = (x: number, z: number): number => {
+      const v = voxel();
+      for (let y = 300; y > -300; y--) if (truth.voxelAt(x, y, z, v).material !== 0 && v.role !== VOXEL_ROLE.liquid) return y;
+      throw new Error(`no ground at ${x}, ${z}`);
+    };
+
+    s.setFocus(0, midY, 0);
+    await s.settle();
+    const counts = sameAsFresh();
+    // Every node of the world's layers within its ring (box distance: 12 of level 1 a layer, the 2 × 2 of level 2
+    // meeting at the focus); air above and below may add nodes with nothing to draw.
+    const keys = new Set([...mips.derived()].map((d) => `${d.level}:${d.nx},${d.ny},${d.nz}`));
+    const boxDistance = (lo: number, size: number): number => Math.max(0, lo, -(lo + size));
+    let inRings = 0;
+    for (const [l, radius] of [[1, 64], [2, 32]] as const) {
+      const size = 32 * 2 ** l;
+      for (let ny = minCy >> l; ny <= maxCy >> l; ny++) for (let nx = -4; nx < 4; nx++) for (let nz = -4; nz < 4; nz++) {
+        if (Math.hypot(boxDistance(nx * size, size), boxDistance(nz * size, size)) > radius) continue;
+        expect(keys.has(`${l}:${nx},${ny},${nz}`)).toBe(true);
+        inRings++;
+      }
+    }
+    expect(inRings).toBe(12 * ((maxCy >> 1) - (minCy >> 1) + 1) + 4 * ((maxCy >> 2) - (minCy >> 2) + 1));
+    expect(counts[1]! + counts[2]!).toBe(keys.size);
+    overResident();
+    expect(mips.counters.staleRefused).toBe(0);
+    // Mip bytes are a budget part: node cells, results and bookkeeping.
+    let derived = 0;
+    for (const d of mips.derived()) derived += d.result === null ? 0 : derivedBytes(d.result);
+    const m = s.metrics();
+    expect(m.bytes.mips).toBe(mips.cellBytes() + derived + mips.nodeCount * RESIDENT_CHUNK_OVERHEAD_BYTES);
+    expect(m.bytes.mips).toBeGreaterThan(0);
+    expect(m.bytes.total).toBe(m.bytes.chunks + m.bytes.derived + m.bytes.overlay + m.bytes.tables + m.bytes.mips);
+    const measured = { l1: counts[1], l2: counts[2], mipKB: Math.round(m.bytes.mips / 1024), chunkKB: Math.round(m.bytes.chunks / 1024), derivedKB: Math.round(m.bytes.derived / 1024), downsampleUsP50: Math.round(mips.downsampleUs.quantile(0.5)), deriveUsP50: Math.round(mips.deriveUs.quantile(0.5)) };
+
+    // A dig in the middle of a level-1 node, its cells more than the rules' radius from every node face at both
+    // levels: its two ancestors are downsampled and derived again, nothing else.
+    let at: [number, number, number] | null = null;
+    for (const [x, z] of [[32, 32], [40, 32], [32, 40], [24, 24], [40, 40], [-32, -32], [-40, -32], [-24, -24], [32, -32], [-32, 32]] as const) {
+      const y = surface(x, z);
+      const in1 = ((y % 64) + 64) % 64;
+      const in2 = ((y % 128) + 128) % 128;
+      if (in1 >= 12 && in1 <= 52 && in2 >= 20 && in2 <= 104) {
+        at = [x, y, z];
+        break;
+      }
+    }
+    if (at === null) throw new Error('no ground in the middle of a node');
+    const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [3, 3, 3], points: at, mode: 'dig', smooth: false });
+    const before = new Map<string, unknown>();
+    for (const d of mips.derived()) before.set(`${d.level}:${d.nx},${d.ny},${d.nz}`, d.result);
+    const d0 = { ...mips.counters };
+    events.length = 0;
+    s.edit(dig);
+    applyEdit({ store: () => truth }, dig);
+    await s.settle();
+    const ancestors = [1, 2].map((l) => `${l}:${at![0] >> (5 + l)},${at![1] >> (5 + l)},${at![2] >> (5 + l)}`);
+    expect(events.map((e) => `${e.level}:${e.nx},${e.ny},${e.nz}`).sort()).toEqual(ancestors.sort());
+    expect(events.every((e) => !e.removed)).toBe(true);
+    expect(mips.counters.derives - d0.derives).toBe(2);
+    expect(mips.counters.downsamples - d0.downsamples).toBe(2);
+    for (const d of mips.derived()) {
+      const key = `${d.level}:${d.nx},${d.ny},${d.nz}`;
+      if (!ancestors.includes(key)) expect(d.result).toBe(before.get(key));
+    }
+    expect(sameAsFresh()).toEqual(counts);
+
+    // The focus leaves: every node over unloaded chunks loses its result (a `removed` event), its cells and bytes go.
+    const withNodes = s.metrics().bytes.mips;
+    events.length = 0;
+    s.setFocus(448, midY, 0);
+    await s.settle();
+    overResident();
+    for (const key of before.keys()) {
+      const [l, rest] = key.split(':');
+      const [nx, ny, nz] = rest!.split(',').map(Number);
+      expect(mips.derivedOf(Number(l), nx!, ny!, nz!)).toBeNull();
+    }
+    const removed = new Set(events.filter((e) => e.removed).map((e) => `${e.level}:${e.nx},${e.ny},${e.nz}`));
+    for (const [key, r] of before) if (r !== null) expect(removed.has(key)).toBe(true);
+    for (const d of mips.derived()) expect(d.nx * 2 ** d.level * 32).toBeGreaterThan(64);
+    expect(s.metrics().bytes.mips).toBeLessThan(withNodes);
+    sameAsFresh();
+    console.log('mips', JSON.stringify(measured));
+  }, 120_000);
 
   it('builds the worker module for browsers with no Node built-ins, passing the export scan', async () => {
     const out = join(dir, 'browser-worker.mjs');
