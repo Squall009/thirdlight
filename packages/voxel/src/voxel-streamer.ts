@@ -220,7 +220,7 @@ export interface StreamMetrics {
   readonly decoding: number;
   readonly damaged: number;
   readonly deriving: number;
-  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables. */
+  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables (and region files a source holds whole). */
   readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly budget: number };
   /** The store's own count of its arrays (to check the streamer's sum). */
   readonly storeBytes: number;

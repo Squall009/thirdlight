@@ -629,6 +629,8 @@ export function regionChunkCodecBytes(grid: ChunkGrid, read: RegionChunkRead, de
 export interface RegionByteSource {
   /** Up to `length` bytes from `offset` (fewer only at the end of the file). */
   read(offset: number, length: number): Promise<Uint8Array>;
+  /** Bytes it keeps in memory between reads (a file held whole), counted in the streaming budget with its table. */
+  heldBytes?(): number;
 }
 
 /** Bytes the opening read asks for: the header and, for most files, the whole table in one request. */

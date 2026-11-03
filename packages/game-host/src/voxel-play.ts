@@ -28,6 +28,9 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
     ports: {
       open: async (world: string): Promise<VoxelWorldConnection> => {
         const conn = await ports.open(world);
+        // A world reopened while this connection still opened (a scene reload) has its own batcher under
+        // the same name: this connection closes only the one it made.
+        let mine: ChunkDrawBatcher | null = null;
         return {
           grid: conn.grid,
           worldId: conn.worldId,
@@ -36,11 +39,13 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);
-            batchers.set(world, new ChunkDrawBatcher(world, stream, sectionEdge, send));
+            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send);
+            batchers.set(world, mine);
           },
           close: () => {
-            batchers.get(world)?.close();
-            batchers.delete(world);
+            mine?.close();
+            if (mine !== null && batchers.get(world) === mine) batchers.delete(world);
+            mine = null;
             conn.close?.();
           },
         };

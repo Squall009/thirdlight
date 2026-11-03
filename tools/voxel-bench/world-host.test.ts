@@ -104,6 +104,8 @@ interface Harness {
   changeLog: { change: BehaviorVoxels['changes'][number]; probe: unknown }[];
   /** Read in the step that is given each change (its answer goes in the log). */
   probe?: () => unknown;
+  /** Runs once in the script's next step with its whole ctx (then cleared). */
+  once?: (ctx: unknown) => void;
   /** Places an owned object (world metres) at the script's next transform phase. */
   move(entityId: string, position: readonly [number, number, number]): void;
 }
@@ -160,6 +162,9 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
         for (const c of lastChanges) changeLog.push({ change: c, probe: h.probe?.() });
       }
       if (job?.(ctx.voxels) === true) job = null;
+      const once = h.once;
+      h.once = undefined;
+      once?.(ctx);
     }),
   });
   // Each object the test moves carries a mover, which places its own object.
@@ -468,6 +473,45 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(h.rt.dispose().ok).toBe(true);
     // The world closed: the page is told to let go of its draws.
     expect(batches.at(-1)).toMatchObject({ world: 'a', closed: true, chunks: [] });
+  }, 120_000);
+
+  it("keeps a reloaded world's draws when the connection it replaced finishes opening last (out-of-order opens in Play)", async () => {
+    const batches: ChunkDrawBatch[] = [];
+    // The first open of the world waits until the test lets it go; later opens answer at once (as two fetches can resolve).
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    let opens = 0;
+    const slowFirst = (ports: VoxelWorldPorts): VoxelWorldPorts => ({
+      open: async (world) => {
+        const first = opens++ === 0;
+        const conn = await ports.open(world);
+        if (first) await held;
+        return conn;
+      },
+    });
+    const h = await harness((ports) => presentVoxelWorlds(slowFirst(ports), (b) => batches.push(b)).ports);
+    // The scene reloads while its world is still opening: the first host is disposed, a second one opens and draws.
+    await h.until(() => opens === 1, 'the first open');
+    h.once = (ctx) => (ctx as { scenes: { reload(id: string): void } }).scenes.reload('scene-main');
+    await h.until(() => opens === 2 && batches.some((b) => b.chunks.length > 0), "the reloaded world's first draws");
+    // Now the first connection arrives, to a host already gone: it is closed, and must not close the second's draws.
+    release();
+    await h.until(() => h.poolsClosed.length === 1, 'the stale connection to close');
+    expect(batches.filter((b) => b.closed === true)).toHaveLength(0);
+    // The world still draws: a dig's swap reaches the page.
+    const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
+    const pit = { center: [0.25, surfaceM - 1, 0.25] as [number, number, number], radius: 2 };
+    await h.stepUntil((v) => (v.isResident(pit) ? true : undefined), 'the pit region to load');
+    const before = batches.length;
+    const dug = await h.inStep((v) => v.dig(pit));
+    expect(dug.ok).toBe(true);
+    if (!dug.ok) return;
+    const id = dug.edit;
+    await h.stepUntil((v) => v.changes.find((x) => x.edit === id), 'the dig to swap');
+    expect(batches.slice(before).some((b) => b.swaps.length > 0 && b.chunks.some((c) => c.kind === 'draw'))).toBe(true);
+    expect(h.rt.dispose().ok).toBe(true);
+    // Only the live world's dispose tells the page to let go.
+    expect(batches.filter((b) => b.closed === true)).toHaveLength(1);
   }, 120_000);
 
   it("saves the game's changes as the game's own bytes (saved fields only) and restores them into a new run's overlay, before and after their chunks load; a changed base is the game's choice", async () => {
@@ -875,6 +919,11 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     const g = parseRegionFileName('stacked', good.name)!;
     const other = chunks.map((c) => ({ cx: c.cx + (g.rx - at.rx) * side, cy: c.cy + (g.ry - at.ry) * side, cz: c.cz + (g.rz - at.rz) * side }));
     expect((await source.read(other)).map((r) => r.kind)).toEqual((await plain.read(other)).map((r) => r.kind));
+    // The good file is held whole and counts in the budget with its table; the damaged one holds nothing.
+    const goodOnly = disk.source(grid, 'stacked', 512);
+    await goodOnly.read(other);
+    expect(goodOnly.memoryBytes()).toBeGreaterThan(0);
+    expect(source.memoryBytes()).toBe(goodOnly.memoryBytes() + good.byteLength);
     rmSync(shipDir, { recursive: true, force: true });
   }, 120_000);
 });

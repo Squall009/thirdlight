@@ -46,7 +46,7 @@ const FILE_KEYS = 'name,digest,byteLength';
 const DIGEST = /^[0-9a-f]{64}$/;
 const WORLD_ID = new RegExp(`^[0-9a-f]{${WORLD_ID_BYTES * 2}}$`);
 
-/** Region tables a world's chunk source keeps open at once (a shipped one holds each open file's bytes too). */
+/** Region tables a world's chunk source keeps open at once (a shipped one holds each open file's bytes too, counted in its budget). */
 export const OPEN_REGION_FILES = 64;
 
 /** A shipped world rebuilt field by field, in the canonical key order. */
@@ -101,16 +101,24 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
  * A region file read whole on its first read (`load`, once) and every read
  * served from those bytes (a copy of the range): up to `length` bytes from
  * `offset`, fewer at the end. A failed load fails this read and the next
- * one tries again.
+ * one tries again. The held bytes are reported (`heldBytes`), so a world's
+ * open files count in its stream budget like its tables.
  */
 export function wholeFileByteSource(load: () => Promise<Uint8Array>): RegionByteSource {
   let bytes: Promise<Uint8Array> | null = null;
+  let held = 0;
   return {
+    heldBytes: () => held,
     read: async (offset, length) => {
       const p = (bytes ??= load());
-      p.catch(() => {
-        if (bytes === p) bytes = null;
-      });
+      p.then(
+        (b) => {
+          if (bytes === p) held = b.length;
+        },
+        () => {
+          if (bytes === p) bytes = null;
+        },
+      );
       const all = await p;
       // A copy, never a view: what a read returns may be transferred to a worker, which would detach the whole file.
       return all.slice(Math.min(offset, all.length), Math.min(offset + length, all.length));

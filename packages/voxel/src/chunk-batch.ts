@@ -142,7 +142,11 @@ export class ChunkDrawBatcher {
     const d = this.feed.joinedChunk(cx, cy, cz, undefined, this.scratch);
     this.joinMs += performance.now() - t0;
     if (d === null) {
-      if (this.sent.delete(key)) this.push({ cx, cy, cz, kind: 'remove' });
+      if (this.sent.delete(key)) {
+        this.push({ cx, cy, cz, kind: 'remove' });
+        // The chunk stays resident with no draw: the page reports no bytes for a removed draw, so its part goes here.
+        this.feed.setPart(cx, cy, cz, MESH_PART, 0);
+      }
       return;
     }
     const cells = d.solid < 0 ? this.scratch.slice() : undefined;

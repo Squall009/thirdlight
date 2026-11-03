@@ -23,7 +23,7 @@ import { openRegion, readRegionChunks, REGION_READ_GAP_BYTES, regionFileName, ty
 export interface ChunkSource {
   /** One result per chunk, in the order asked; a damaged chunk is reported, never read as air. */
   read(chunks: readonly ChunkCoord[]): Promise<RegionChunkRead[]>;
-  /** Bytes the source holds in memory (open tables), counted in the streaming budget. */
+  /** Bytes the source holds in memory (open tables, and files a byte source keeps whole), counted in the streaming budget. */
   memoryBytes(): number;
   /** Forgets what it holds about these chunks' files (they were replaced): the next read sees the new files. */
   invalidate?(chunks: readonly ChunkCoord[]): void;
@@ -59,6 +59,8 @@ export interface RegionChunkSourceOptions {
 
 interface OpenRegion {
   readonly source: RegionByteSource | null;
+  /** The opened file's own source, asked what it holds in memory. */
+  readonly raw: RegionByteSource | null;
   index: Promise<RegionIndex | null>;
   /** Bytes the parsed table holds (known once open). */
   bytes: number;
@@ -110,7 +112,7 @@ export class RegionChunkSource implements ChunkSource {
               return b;
             },
           };
-    const r: OpenRegion = { source, index: Promise.resolve(null), bytes: 0, error: null };
+    const r: OpenRegion = { source, raw, index: Promise.resolve(null), bytes: 0, error: null };
     if (source !== null) {
       const o = this.opts;
       const expect = { worldId: o.worldId, gridId: o.gridId, layout: o.layout, grid: o.grid, footprint: o.footprint, ...this.addressOf(at) };
@@ -177,7 +179,7 @@ export class RegionChunkSource implements ChunkSource {
 
   memoryBytes(): number {
     let n = 0;
-    for (const r of this.regions.values()) n += r.bytes;
+    for (const r of this.regions.values()) n += r.bytes + (r.raw?.heldBytes?.() ?? 0);
     return n;
   }
 }
