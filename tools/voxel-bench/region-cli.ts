@@ -13,13 +13,14 @@
  *   (per layout), .git size before and after `git gc`.
  *
  * Writes region.md and region.json to --out (default
- * ~/.cache/thirdlight-phase45/work/45.3/results); scratch files go to
+ * ~/.cache/thirdlight-voxel-bench/region); scratch files go to
  * --work and are deleted at the end unless --keep.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg } from 'node:os';
 import { join } from 'node:path';
+import { benchDir } from './bench-dirs';
 import { deflateRawSync, zstdCompressSync } from 'node:zlib';
 import { mulberry32 } from '@thirdlight/shared';
 import {
@@ -436,8 +437,8 @@ async function main(): Promise<void> {
     console.log(`port ${port}`);
     return;
   }
-  const out = arg('--out', join(homedir(), '.cache', 'thirdlight-phase45', 'work', '45.3', 'results'));
-  const work = arg('--work', join(homedir(), '.cache', 'thirdlight-phase45', 'work', '45.3', 'scratch'));
+  const out = arg('--out', benchDir('region'));
+  const work = arg('--work', benchDir('region', 'scratch'));
   const parts = arg('--parts', 'sizes,amp,reads,repo').split(',');
   const samples = Number(arg('--samples', '60'));
   mkdirSync(out, { recursive: true });

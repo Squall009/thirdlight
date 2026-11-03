@@ -11,12 +11,13 @@
  * neighbourhood holds anything other than air is derived on this thread
  * with the placeholder rules (R = 2, apron 3); chunks on the window's outer
  * ring are left out (their aprons would read unloaded air). Writes
- * derive.md/derive.json to --out (default ~/.cache/thirdlight-phase45/work/
- * 45.6/results).
+ * derive.md/derive.json to --out (default ~/.cache/thirdlight-voxel-bench/
+ * derive).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { cpus, homedir, loadavg } from 'node:os';
 import { join } from 'node:path';
+import { benchDir } from './bench-dirs';
 import { performance } from 'node:perf_hooks';
 import {
   BRICK_EDGE,
@@ -367,7 +368,7 @@ function summarize(name: string, rows: ChunkRow[]): Record<string, unknown> {
 
 function main(): void {
   const names = arg('--worlds', 'town,plain,hilly,caves,vertical').split(',');
-  const outDir = arg('--out', join(homedir(), '.cache', 'thirdlight-phase45', 'work', '45.6', 'results'));
+  const outDir = arg('--out', benchDir('derive'));
   mkdirSync(outDir, { recursive: true });
   const started = new Date().toISOString();
   const windows: Window[] = [];

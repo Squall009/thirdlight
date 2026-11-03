@@ -16,6 +16,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { cpus, homedir, loadavg } from 'node:os';
 import { join } from 'node:path';
+import { benchDir } from './bench-dirs';
 import { physicsMemoryBytes3D } from '@thirdlight/physics-rapier';
 import {
   buildApron,
@@ -124,7 +125,7 @@ function measure(name: string, store: PaletteStore, x0: number, z0: number, x1: 
 
 async function main(): Promise<void> {
   const heightfields = arg('--heightfields', '1') !== '0';
-  const outDir = arg('--out', join(homedir(), '.cache', 'thirdlight-phase46', 'work', '46a.6a'));
+  const outDir = arg('--out', benchDir('collision'));
   mkdirSync(outDir, { recursive: true });
   const started = new Date().toISOString();
   const load0 = loadavg();

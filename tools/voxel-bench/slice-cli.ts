@@ -45,13 +45,14 @@
  *   --project ID        (default voxel-slice)   --world NAME (default slice)
  *   --at X,Y,Z          the scene's origin cell (the slice-world tool prints it)
  *   --phase measure|reload   --seconds S (frames, default 30)   --renderers webgpu,webgl2
- *   --viewport WxH      (default 1280x720)   --out DIR (default ~/.cache/thirdlight-phase45/acceptance/45.7a)
+ *   --viewport WxH      (default 1280x720)   --out DIR (default ~/.cache/thirdlight-voxel-bench/slice/<phase>)
  *   --page-extra STR    page parameters added to every page (e.g. `&collisionRing=0`: a body every resident chunk)
  *   --trips N           the fly phase's flights out and back (default 1)
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
 import { join } from 'node:path';
+import { benchDir } from './bench-dirs';
 import type { Page } from '@playwright/test';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
 
@@ -69,7 +70,7 @@ const PHASE = arg('phase', 'measure');
 const SECONDS = Number(arg('seconds', '30'));
 const RENDERERS = arg('renderers', 'webgpu,webgl2').split(',') as Array<'webgpu' | 'webgl2'>;
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
-const OUT = arg('out', join(homedir(), '.cache', 'thirdlight-phase45', 'acceptance', PHASE === 'assembly' || PHASE === 'fly' ? '45.7b' : '45.7a'));
+const OUT = arg('out', benchDir('slice', PHASE));
 const MISSED_MS = 25;
 const SECTIONS = arg('sections', '32,16,8').split(',').map(Number);
 const SPOTS = arg('spots', 'terrain') as 'terrain' | 'town';

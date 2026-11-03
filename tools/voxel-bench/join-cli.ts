@@ -18,6 +18,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { cpus, homedir, loadavg } from 'node:os';
 import { join } from 'node:path';
+import { benchDir } from './bench-dirs';
 import { performance } from 'node:perf_hooks';
 import {
   buildApron,
@@ -136,7 +137,7 @@ function measure(name: string, store: PaletteStore, x0: number, z0: number, x1: 
 function main(): void {
   const edge = Number(arg('--section', '16'));
   const rounds = Math.max(2, Number(arg('--rounds', '3')));
-  const outDir = arg('--out', join(homedir(), '.cache', 'thirdlight-phase46', 'work', '46a.5a'));
+  const outDir = arg('--out', benchDir('join'));
   mkdirSync(outDir, { recursive: true });
   const started = new Date().toISOString();
   const load0 = loadavg();

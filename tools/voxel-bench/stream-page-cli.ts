@@ -28,14 +28,15 @@
  *   --no-trace        skip the traced run
  *   --only NAMES      run only the specs whose names contain one of these (comma-separated)
  *   --viewport WxH    page size (default 1280x720)
- *   --world DIR       region files (default the 45.5a hilly world)
- *   --out DIR         report, site and trace (default ~/.cache/thirdlight-phase45/work/45.5b)
+ *   --world DIR       region files (default the stream bench's hilly world)
+ *   --out DIR         report, site and trace (default ~/.cache/thirdlight-voxel-bench/stream-page)
  */
 import { execFileSync } from 'node:child_process';
 import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { homedir, loadavg } from 'node:os';
 import { extname, join, normalize } from 'node:path';
+import { benchDir } from './bench-dirs';
 import * as esbuild from 'esbuild';
 import type { Browser, CDPSession } from '@playwright/test';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
@@ -43,7 +44,6 @@ import { summarize, type Summary } from '../perf/stats';
 import type { StreamPageSpec } from './stream-page';
 import { bundleWorker, REPO } from './stream-node';
 
-const WORK = join(homedir(), '.cache', 'thirdlight-phase45', 'work');
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -64,8 +64,8 @@ const PREFETCH_S = optional('prefetch');
 const ONLY = arg('only', '').split(',').filter((x) => x !== '');
 const TRACE = !process.argv.includes('--no-trace');
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
-const WORLD = arg('world', join(WORK, '45.5a', 'world-hilly'));
-const OUT = arg('out', join(WORK, '45.5b'));
+const WORLD = arg('world', benchDir('stream', 'world-hilly'));
+const OUT = arg('out', benchDir('stream-page'));
 /** A frame that missed a 60 Hz display's next refresh: half a refresh longer than one (vsync jitter is not a miss). */
 const MISSED_MS = 25;
 

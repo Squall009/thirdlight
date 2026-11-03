@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg } from 'node:os';
 import { join } from 'node:path';
+import { benchDir } from './bench-dirs';
 import {
   apronCellCount,
   chunkGrid,
@@ -37,7 +38,7 @@ import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } fr
 import { hillyWorld } from './worlds';
 
 const grid = chunkGrid(32);
-const WORK = join(homedir(), '.cache', 'thirdlight-phase45', 'work', '45.5a');
+const WORK = benchDir('stream');
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);

@@ -608,7 +608,7 @@ describe('meshes', () => {
       // Unwelded vertices on the faces between sections: more vertices, never fewer, and a minority.
       expect(seen.extraVertices).toBeGreaterThan(0);
       expect(seen.extraVertices).toBeLessThan(seen.vertices);
-      // The 45.6 seam check on joined chunks: every edge inside the window, across section and chunk faces, has two triangles.
+      // The crack-free seam check on joined chunks: every edge inside the window, across section and chunk faces, has two triangles.
       const { edges, tris, surface } = groundEdges((s, cx, cy, cz) => joinedFromStore(s, cx, cy, cz, edge).ground);
       expect(surface).toBeGreaterThanOrEqual(4);
       expect(tris).toBeGreaterThan(1000);

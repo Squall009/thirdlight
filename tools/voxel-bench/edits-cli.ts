@@ -1,5 +1,5 @@
 /**
- * Edit, undo and save costs on the test worlds (the 45.2 pick, 32³, stacked
+ * Edit, undo and save costs on the test worlds (the picked store, 32³, stacked
  * 256 m region files, zstd 3).
  *
  *   node tools/voxel-bench/run.mjs edits [--samples 60] [--strokes 1000] [--out DIR] [--keep]
@@ -14,12 +14,13 @@
  * delta (the other encoding that keeps the changed cells); base-chunk hash
  * µs per chunk (bytes already in the base form, and through a decode).
  * Writes
- * edits.md/edits.json to --out (default ~/.cache/thirdlight-phase45/work/
- * 45.4/results); scratch region files go next to it and are deleted after.
+ * edits.md/edits.json to --out (default ~/.cache/thirdlight-voxel-bench/
+ * edits); scratch region files go next to it and are deleted after.
  */
 import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg } from 'node:os';
 import { join } from 'node:path';
+import { benchDir } from './bench-dirs';
 import { performance } from 'node:perf_hooks';
 import { mulberry32 } from '@thirdlight/shared';
 import {
@@ -322,7 +323,7 @@ async function measureSession(a: Area, strokes: number, work: string): Promise<S
 async function main(): Promise<void> {
   const samples = Number(arg('--samples', '60'));
   const strokes = Number(arg('--strokes', '1000'));
-  const out = arg('--out', join(homedir(), '.cache', 'thirdlight-phase45', 'work', '45.4', 'results'));
+  const out = arg('--out', benchDir('edits'));
   const work = join(out, '..', 'scratch');
   mkdirSync(out, { recursive: true });
   const report: Record<string, unknown> = { started: new Date().toISOString(), node: process.version, loadavg: loadavg(), undoBudgetBytes: UNDO_MEMORY_BUDGET_BYTES };
