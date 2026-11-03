@@ -3,18 +3,28 @@
  * real derive and the engine's real physics backend (Rapier through
  * physics-rapier's port): the wall, beam and banister scene's cells read
  * back per consumer, the ground surface cut into meshes a port takes, and
- * bodies dropped and swept against every derived chunk's static body —
- * onto the ground, the wall top, the beam and the rail, between the
- * banister's posts, and into a hole dug after the bodies were built.
+ * bodies dropped and swept against every storage chunk's static body (its
+ * 16³ derive sections joined, as the streamer hands them over) — onto the
+ * ground, the wall top, the beam and the rail, between the banister's
+ * posts, and into a hole dug after the bodies were built. Ground that is
+ * a height function collides as a heightfield: drops and sweeps on it land
+ * where they land on the same ground as a mesh, and ground with an
+ * overhang, a second layer or a box stays a mesh.
  */
 import {
   ASSEMBLY_CLASS,
+  buildApron,
   cellOutputs,
   chunkGrid,
+  chunkOfKey,
   collisionGeometry,
   createWorldStore,
   deriveFromStore,
+  deriveSectionsWithApron,
   FloatingOrigin,
+  groundHeightfield,
+  jobRadius,
+  joinSections,
   LIGHT_COVERAGE,
   PIECE_FAMILY,
   PIECE_SECTION,
@@ -23,15 +33,29 @@ import {
   RUN_X,
   RUN_Z,
   VOXEL_ROLE,
+  type CollisionSource,
   type DerivedData,
   type PaletteStore,
+  type SurfaceBuffer,
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
-import { placeWallBeamBanister, putVoxel } from './scenes';
+import { loadArea } from './regions';
+import { flatGround, placeWallBeamBanister, putVoxel } from './scenes';
 import { MAT } from './world-kit';
+import { hillyWorld } from './worlds';
 
 const grid = chunkGrid(32);
+/** The streamer's derive sections (the engine's default edge). */
+const SECTION = 16;
+const SECTION_IDS = Array.from({ length: (32 / SECTION) ** 3 }, (_, i) => i);
+
+/** A chunk's collision as the streamer hands it over: its 16³ sections derived and joined. */
+function joinedChunk(s: PaletteStore, cx: number, cy: number, cz: number): CollisionSource {
+  const apron = buildApron(s, cx, cy, cz, jobRadius(PLACEHOLDER_RULES));
+  const sections = deriveSectionsWithApron(grid, PLACEHOLDER_RULES, apron, (out) => s.exportChunk(cx, cy, cz, out), SECTION, SECTION_IDS).map((r) => r.assembly);
+  return joinSections(grid.edge, SECTION, sections);
+}
 const C = VOXEL_ROLE;
 const SCENE_CHUNKS = [-1, 0].flatMap((x) => [-1, 0].flatMap((y) => [-1, 0].map((z) => [x, y, z] as const)));
 
@@ -118,10 +142,7 @@ describe('collision through the engine physics backend', () => {
   async function world(s: PaletteStore): Promise<{ physics: VoxelCollision; rebuild: () => void }> {
     const physics = await VoxelCollision.create(grid, new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } }));
     const rebuild = (): void => {
-      for (const [cx, cy, cz] of SCENE_CHUNKS) {
-        const d: DerivedData = deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES);
-        physics.set(cx * 1000 + cy * 100 + cz, cx, cy, cz, d);
-      }
+      for (const [cx, cy, cz] of SCENE_CHUNKS) physics.set(cx * 1000 + cy * 100 + cz, cx, cy, cz, joinedChunk(s, cx, cy, cz));
     };
     rebuild();
     return { physics, rebuild };
@@ -164,5 +185,148 @@ describe('collision through the engine physics backend', () => {
     expect(inPit.feet[1]).toBeLessThan(-1.5);
     expect(physics.adds).toBe(24);
     expect(physics.removes).toBe(16);
+  });
+});
+
+/** A surface buffer of lattice vertices (cells from the chunk's corner), split as the voxel ground splits its quads. */
+function latticeSurface(edge: number, height: (i: number, k: number) => number, inset = 0): SurfaceBuffer {
+  const n = edge + 1;
+  const vertices = new Uint8Array(n * n * 12);
+  const view = new DataView(vertices.buffer);
+  for (let i = 0; i < n; i++) for (let k = 0; k < n; k++) {
+    const at = (i * n + k) * 12;
+    // Positions in 1/1024 cell steps from one cell below the chunk's corner.
+    view.setUint16(at, Math.round((i + 1 + (i === 0 ? inset : 0)) * 1024), true);
+    view.setUint16(at + 2, Math.round((height(i, k) + 1) * 1024), true);
+    view.setUint16(at + 4, (k + 1) * 1024, true);
+  }
+  const tris: number[] = [];
+  for (let i = 0; i < edge; i++) for (let k = 0; k < edge; k++) {
+    const a = i * n + k;
+    // (min x, min z) → (+x, +z) diagonal, counter-clockwise seen from above.
+    tris.push(a, a + 1, a + n + 1, a, a + n + 1, a + n);
+  }
+  return { vertexCount: n * n, vertices, indices: Uint32Array.from(tris) };
+}
+
+const NO_BOXES = { boxes: new Uint16Array(0), fullBoxes: 0 };
+
+describe('ground as a heightfield', () => {
+  it('stands for bumpy ground whose every cell bends across its diagonal: rays and drops land where they land on the same ground as a mesh', async () => {
+    // Heights in cells, on the lattice: the heightfield stands for the mesh exactly, so only a wrong split or a wrong turn shows.
+    const bumps = (i: number, k: number): number => 2 + 1.5 * Math.sin(i * 0.9) + 1.2 * Math.cos(k * 1.3) + ((i * 7 + k * 3) % 5) * 0.2;
+    // The second ground's vertices on the x = 0 face sit 0.3 cells inside the chunk (as a neighbour's shared vertices may):
+    // the nodes on that face are under no triangle of this chunk, so the heightfield starts a node in and the strip's
+    // triangles stay a mesh.
+    for (const inset of [0, 0.3]) {
+      const src: CollisionSource = { edge: 32, collision: NO_BOXES, ground: latticeSurface(32, bumps, inset) };
+      const geo = collisionGeometry(src);
+      expect(geo.heightfield).toMatchObject(inset === 0 ? { x: 0, z: 0, cellsX: 32, cellsZ: 32 } : { x: 0.5, z: 0, cellsX: 31, cellsZ: 32 });
+      expect(geo.meshes.reduce((n, m) => n + m.indices.length / 3, 0)).toBe(inset === 0 ? 0 : 64);
+      const origin = (): FloatingOrigin => new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } });
+      const field = await VoxelCollision.create(grid, origin());
+      const mesh = await VoxelCollision.create(grid, origin(), false);
+      for (const p of [field, mesh]) p.set(1, 0, 0, 0, src);
+      expect(field.stats()).toMatchObject({ bodies: 1, heightfields: 1 });
+      expect(mesh.stats()).toMatchObject({ bodies: 1, heightfields: 0 });
+      expect(field.stats()['bytes'] as number).toBeLessThan((mesh.stats()['bytes'] as number) / 3);
+      let worst = 0;
+      // Thin rays down through points on both diagonals of cells and between them, the strip included.
+      for (let x = 0.45; x < 32; x += 1.37) for (let z = 0.2; z < 32; z += 1.29) {
+        const a = field.castSphere([x, 12, z], [0, -1, 0], 0.01, 20);
+        const b = mesh.castSphere([x, 12, z], [0, -1, 0], 0.01, 20);
+        expect(a, `${x},${z}`).not.toBeNull();
+        worst = Math.max(worst, Math.abs(a!.distanceM - b!.distanceM));
+      }
+      expect(worst).toBeLessThan(0.001);
+      for (const [x, z] of [[0.4, 5.5], [5.5, 5.5], [16.2, 9.7], [27.4, 21.1], [9.9, 30.3]] as const) {
+        const a = field.dropCapsule([x, 10, z], 0.2, 0.2);
+        const b = mesh.dropCapsule([x, 10, z], 0.2, 0.2);
+        expect(a.grounded && b.grounded).toBe(true);
+        expect(Math.abs(a.feet[1] - b.feet[1]) * 0.5, `${x},${z}`).toBeLessThan(0.01);
+      }
+    }
+  });
+
+  it('on hilly ground, chunks of ground alone collide as heightfields where they are within the tolerance, and land drops and sweeps as the meshes do', async () => {
+    const s = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 512 }).grids[0]!, s, -96, -96, 96, 96);
+    const chunks: Array<[number, number, number]> = [];
+    const c = { cx: 0, cy: 0, cz: 0 };
+    const seen = new Set<string>();
+    for (const key of s.chunkKeys()) {
+      chunkOfKey(grid, key, c);
+      if (c.cx < -2 || c.cx > 1 || c.cz < -2 || c.cz > 1) continue;
+      for (let cy = c.cy - 1; cy <= c.cy + 1; cy++) {
+        const id = `${c.cx},${cy},${c.cz}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        chunks.push([c.cx, cy, c.cz]);
+      }
+    }
+    const origin = (): FloatingOrigin => new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } });
+    const field = await VoxelCollision.create(grid, origin());
+    const mesh = await VoxelCollision.create(grid, origin(), false);
+    const fields: Array<[number, number, number]> = [];
+    for (const [cx, cy, cz] of chunks) {
+      const d = joinedChunk(s, cx, cy, cz);
+      const key = ((cx + 8) * 64 + cy + 8) * 64 + cz + 8;
+      field.set(key, cx, cy, cz, d);
+      mesh.set(key, cx, cy, cz, d);
+      const geo = collisionGeometry(d);
+      if (geo.heightfield === null) continue;
+      fields.push([cx, cy, cz]);
+      // Joined sections' ground is the whole-chunk derive's: the same heightfield.
+      const whole = groundHeightfield(deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES).ground, 32);
+      expect(typeof whole === 'string' ? whole : Array.from(whole.heights)).toEqual(Array.from(geo.heightfield.heights));
+    }
+    expect(field.stats()['heightfields']).toBe(fields.length);
+    expect(fields.length).toBeGreaterThanOrEqual(2);
+    expect(field.stats()['bytes'] as number).toBeLessThan(mesh.stats()['bytes'] as number);
+    let worst = 0;
+    let drops = 0;
+    for (const [cx, , cz] of fields) {
+      // Across the chunk and over its faces into the neighbours.
+      for (let x = cx * 32 - 1.3; x < cx * 32 + 33; x += 4.7) for (let z = cz * 32 - 0.9; z < cz * 32 + 33; z += 5.3) {
+        const a = field.castSphere([x, 200, z], [0, -1, 0], 0.01, 400);
+        const b = mesh.castSphere([x, 200, z], [0, -1, 0], 0.01, 400);
+        expect(a === null, `${x},${z}`).toBe(b === null);
+        if (a === null || b === null) continue;
+        worst = Math.max(worst, Math.abs(a.distanceM - b.distanceM));
+        const slant: [number, number, number] = [0.6, -1, -0.3];
+        const sa = field.castSphere([x, a.centre[1] + 6, z], slant, 0.25, 30);
+        const sb = mesh.castSphere([x, a.centre[1] + 6, z], slant, 0.25, 30);
+        if (sa !== null && sb !== null) worst = Math.max(worst, Math.abs(sa.distanceM - sb.distanceM));
+        if (drops++ % 7 !== 0) continue;
+        const fa = field.dropCapsule([x, a.centre[1] + 2, z], 0.2, 0.3);
+        const fb = mesh.dropCapsule([x, a.centre[1] + 2, z], 0.2, 0.3);
+        expect(fa.grounded && fb.grounded, `${x},${z}`).toBe(true);
+        worst = Math.max(worst, Math.abs(fa.feet[1] - fb.feet[1]) * 0.5);
+      }
+    }
+    expect(drops).toBeGreaterThan(50);
+    expect(worst).toBeLessThan(0.01);
+  }, 60_000);
+
+  it('keeps an overhang, a second layer and a chunk with boxes as meshes', () => {
+    const s = createWorldStore(grid);
+    flatGround(s, -40, 104, -40, 72, 40, 4);
+    // A ledge of ground over air in chunk (0, 0, 0): its underside faces down over the ground below.
+    for (let x = 8; x < 20; x++) for (let z = 8; z < 20; z++) for (let y = 10; y < 13; y++) putVoxel(s, x, y, z, MAT.soil, C.terrain);
+    const ledge = joinedChunk(s, 0, 0, 0);
+    expect(groundHeightfield(ledge.ground, 32)).toBe('layers');
+    expect(collisionGeometry(ledge).heightfield).toBeNull();
+    // The flat chunk beside it is one.
+    const flat = collisionGeometry(joinedChunk(s, 1, 0, 0));
+    expect(flat.heightfield).not.toBeNull();
+    expect(flat.meshes).toHaveLength(0);
+    // A wall on the ground: boxes, so a mesh.
+    for (let y = 4; y < 8; y++) putVoxel(s, 40, y, 10, MAT.stone, C.wall);
+    const walled = collisionGeometry(joinedChunk(s, 1, 0, 0));
+    expect(walled.boxes.length).toBeGreaterThan(0);
+    expect(walled.heightfield).toBeNull();
+    // Ground climbing out of the chunk's top: nodes there have no ground in it.
+    for (let x = 70; x < 90; x++) for (let z = 0; z < 32; z++) for (let y = 4; y < 40; y++) putVoxel(s, x, y, z, MAT.soil, C.terrain);
+    expect(groundHeightfield(joinedChunk(s, 2, 0, 0).ground, 32)).toBe('uncovered');
   });
 });

@@ -352,6 +352,8 @@ export interface VoxelChunkReplaced {
   readonly cz: number;
   readonly shaderOnly: boolean;
   readonly ms: number;
+  /** The chunk's joined sections the draw was made from (null: nothing derived), for what else is built per chunk with it (its collision). */
+  readonly joined: JoinedDraw | null;
 }
 
 /**
@@ -372,6 +374,6 @@ export function feedVoxelChunkView(view: VoxelChunkView, feed: VoxelChunkFeed, o
     const shaderOnly = e.shaderOnly && d !== null && view.has(e.cx, e.cy, e.cz);
     const bytes = shaderOnly ? view.setShader(e.cx, e.cy, e.cz, d.solid) : view.set(e.cx, e.cy, e.cz, d);
     feed.setPart(e.cx, e.cy, e.cz, 'mesh', bytes);
-    onReplaced?.({ cx: e.cx, cy: e.cy, cz: e.cz, shaderOnly, ms: performance.now() - t0 });
+    onReplaced?.({ cx: e.cx, cy: e.cy, cz: e.cz, shaderOnly, ms: performance.now() - t0, joined: d });
   });
 }

@@ -2,15 +2,20 @@
  * A derived chunk's collision as plain geometry in metres from the chunk's
  * corner, for a physics engine: the boxes (full-cell merges and the partial
  * shapes of beams, rails and posts) as centre + half extents, and the
- * projected ground surface as triangle meshes.
+ * projected ground surface as triangle meshes — or, when the chunk has no
+ * boxes and its ground is a height function, as a heightfield
+ * (ground-heightfield.ts) plus the few triangles at the chunk's faces it
+ * does not cover. A heightfield costs a physics engine a height a lattice
+ * node where a mesh costs vertices, indices and a tree over its triangles.
  *
  * A physics port may bound one mesh's size (vertices, triangles); the
  * ground is then cut into several meshes of whole triangles, each with only
  * the vertices it uses. Nothing here knows the physics engine.
  */
 import { VOXEL_SIZE_M } from './coords';
-import { COLLISION_STEPS_PER_CELL, type DerivedData } from './derived-data';
+import { COLLISION_STEPS_PER_CELL, type CollisionOut } from './derived-data';
 import { POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
+import { groundHeightfield } from './ground-heightfield';
 
 export interface CollisionMesh {
   /** x, y, z per vertex, metres from the chunk's corner. */
@@ -19,14 +24,39 @@ export interface CollisionMesh {
   readonly indices: Uint32Array;
 }
 
+/**
+ * The ground as a heightfield: `cellsX` × `cellsZ` cells of {@link VOXEL_SIZE_M}
+ * from (x, z) metres from the chunk's corner, each cell split from its
+ * (min x, min z) corner to its (+x, +z) corner.
+ */
+export interface CollisionHeightfield {
+  readonly x: number;
+  readonly z: number;
+  readonly cellsX: number;
+  readonly cellsZ: number;
+  /** (cellsX + 1) · (cellsZ + 1) heights, metres from the chunk's corner, x-major: node (i, k) at i · (cellsZ + 1) + k. */
+  readonly heights: Float32Array;
+}
+
 export interface CollisionGeometry {
   /** Per box: centre x, y, z then half extents x, y, z, metres from the chunk's corner. */
   readonly boxes: Float32Array;
   /** How many leading boxes are full-cell merges (the rest are partial shapes). */
   readonly fullBoxes: number;
+  /** The ground where it is a heightfield (null: all of it is in {@link meshes}). */
+  readonly heightfield: CollisionHeightfield | null;
+  /** The ground's triangles the heightfield does not stand for (all of them without one). */
   readonly meshes: readonly CollisionMesh[];
   /** Bytes of the arrays above (what a physics engine is handed). */
   readonly bytes: number;
+}
+
+/** What a chunk's collision is made from: a derived chunk, or its sections joined (chunk-join.ts). */
+export interface CollisionSource {
+  /** The chunk's edge (cells). */
+  readonly edge: number;
+  readonly collision: CollisionOut;
+  readonly ground: SurfaceBuffer;
 }
 
 /** Limits on one mesh (a port's); unbounded when absent. */
@@ -48,15 +78,15 @@ function groundPositions(buf: SurfaceBuffer): Float32Array {
   return out;
 }
 
-/** The ground surface as meshes of whole triangles within the limits. */
-function groundMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits): CollisionMesh[] {
-  const tris = buf.indices.length / 3;
+/** The ground surface's triangles (all, or those listed in `only`) as meshes of whole triangles within the limits. */
+function groundMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits, only?: Uint32Array): CollisionMesh[] {
+  const tris = only?.length ?? buf.indices.length / 3;
   if (buf.vertexCount === 0 || tris === 0) return [];
   const pos = groundPositions(buf);
   const maxV = limits.maxVertices ?? Infinity;
   const maxT = limits.maxTriangles ?? Infinity;
   if (maxV < 3 || maxT < 1) throw new RangeError('collision mesh limits must allow one triangle');
-  if (buf.vertexCount <= maxV && tris <= maxT) return [{ vertices: pos, indices: Uint32Array.from(buf.indices) }];
+  if (only === undefined && buf.vertexCount <= maxV && tris <= maxT) return [{ vertices: pos, indices: Uint32Array.from(buf.indices) }];
   const out: CollisionMesh[] = [];
   let remap = new Map<number, number>();
   let verts: number[] = [];
@@ -68,7 +98,8 @@ function groundMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits): Collisio
     verts = [];
     idx = [];
   };
-  for (let t = 0; t < tris; t++) {
+  for (let j = 0; j < tris; j++) {
+    const t = only === undefined ? j : only[j]!;
     let fresh = 0;
     for (let k = 0; k < 3; k++) if (!remap.has(buf.indices[t * 3 + k]!)) fresh++;
     if (idx.length / 3 + 1 > maxT || remap.size + fresh > maxV) flush();
@@ -87,8 +118,12 @@ function groundMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits): Collisio
   return out;
 }
 
-/** A derived chunk's collision geometry (boxes and ground meshes), in metres from its corner. */
-export function collisionGeometry(d: DerivedData, limits: CollisionMeshLimits = {}): CollisionGeometry {
+/**
+ * A chunk's collision geometry (boxes, the ground's heightfield where it is
+ * one, and ground meshes), in metres from its corner. `heightfields: false`
+ * keeps all of the ground as meshes.
+ */
+export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimits = {}, heightfields = true): CollisionGeometry {
   const src = d.collision.boxes;
   const boxes = new Float32Array(src.length);
   const toM = VOXEL_SIZE_M / COLLISION_STEPS_PER_CELL;
@@ -100,8 +135,16 @@ export function collisionGeometry(d: DerivedData, limits: CollisionMeshLimits = 
       boxes[b * 6 + 3 + a] = (hi - lo) / 2;
     }
   }
-  const meshes = groundMeshes(d.ground, limits);
-  let bytes = boxes.byteLength;
+  // Only a chunk of ground alone: a box (a wall, a beam) on it keeps the whole chunk a mesh.
+  const hf = heightfields && boxes.length === 0 ? groundHeightfield(d.ground, d.edge) : null;
+  let heightfield: CollisionHeightfield | null = null;
+  let meshes: CollisionMesh[];
+  if (hf === null || typeof hf === 'string') meshes = groundMeshes(d.ground, limits);
+  else {
+    heightfield = { x: hf.x0 * VOXEL_SIZE_M, z: hf.z0 * VOXEL_SIZE_M, cellsX: hf.cellsX, cellsZ: hf.cellsZ, heights: hf.heights };
+    meshes = groundMeshes(d.ground, limits, hf.rest);
+  }
+  let bytes = boxes.byteLength + (heightfield?.heights.byteLength ?? 0);
   for (const m of meshes) bytes += m.vertices.byteLength + m.indices.byteLength;
-  return { boxes, fullBoxes: d.collision.fullBoxes, meshes, bytes };
+  return { boxes, fullBoxes: d.collision.fullBoxes, heightfield, meshes, bytes };
 }

@@ -1,7 +1,8 @@
 /**
- * Joining a storage chunk's derive sections into what a renderer draws for
- * the chunk: one ground and one base surface buffer, one detail-instance
- * list and one shader grid of the chunk's side (edge + 2 · border, 34 at
+ * Joining a storage chunk's derive sections into what a renderer draws and
+ * a physics engine collides with for the chunk: one ground and one base
+ * surface buffer, one detail-instance list, one list of collision boxes and
+ * one shader grid of the chunk's side (edge + 2 · border, 34 at
  * 32³). Sections keep an edit's derive work small (only the sections within
  * the rules' reach are derived again); drawing per chunk keeps the object
  * count, and so the render CPU and the swap's replace work, at the chunk
@@ -16,6 +17,9 @@
  *   position with the same normal, so the triangles equal the whole-chunk
  *   derive's and only the vertex count is a little higher.
  * - **Instances.** Concatenated, cells moved to the chunk.
+ * - **Collision boxes.** Concatenated, moved to the chunk, every section's
+ *   full-cell merges before the partial shapes. Boxes are not merged across
+ *   section faces again: the same space is solid, in a few more boxes.
  * - **Shader grid.** Each grid cell is taken from the section that holds
  *   it (a cell of the chunk's border from the section at that face), then
  *   the palette is built in grid order, so the bytes equal a whole-chunk
@@ -24,7 +28,7 @@
  * A missing section (none derived: air with air around it) adds no
  * triangles and air to the grid.
  */
-import type { DerivedData } from './derived-data';
+import { COLLISION_STEPS_PER_CELL, type CollisionOut, type DerivedData } from './derived-data';
 import { INSTANCE_BYTES, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderGridEntries, shaderGridSide, shaderSolidEntry, SHADER_BORDER_CELLS, type ShaderOut } from './derived-shader';
 import { sectionLocalOrigin } from './derive-assembly';
@@ -39,6 +43,8 @@ export interface JoinedChunk {
   readonly base: SurfaceBuffer;
   /** Cells chunk-local. */
   readonly instances: InstanceList;
+  /** Collision boxes in steps from the chunk's corner (the ground collides as {@link ground}). */
+  readonly collision: CollisionOut;
   /** Side edge + 2 · border: equal to a whole-chunk derive's shader data. */
   readonly shader: ShaderOut;
 }
@@ -53,6 +59,7 @@ export interface JoinedDraw {
   readonly ground: SurfaceBuffer;
   readonly base: SurfaceBuffer;
   readonly instances: InstanceList;
+  readonly collision: CollisionOut;
   /** The grid's one solid entry (0: all air), or −1: its side³ entries are in the cell array given to the join. */
   readonly solid: number;
   /** The grid's side (edge + 2 · border). */
@@ -131,6 +138,33 @@ export function joinInstances(chunkEdge: number, sectionEdge: number, parts: Rea
     at += bytes;
   });
   return { count, data };
+}
+
+/** The sections' collision boxes moved to the chunk's corner: every full-cell merge, then every partial shape. */
+export function joinCollision(chunkEdge: number, sectionEdge: number, parts: ReadonlyArray<CollisionOut | null>): CollisionOut {
+  checkSectionCount(chunkEdge, sectionEdge, parts.length);
+  let total = 0;
+  let fullBoxes = 0;
+  for (const p of parts) {
+    total += p === null ? 0 : p.boxes.length / 6;
+    fullBoxes += p?.fullBoxes ?? 0;
+  }
+  const boxes = new Uint16Array(total * 6);
+  let full = 0;
+  let partial = fullBoxes;
+  parts.forEach((p, id) => {
+    if (p === null) return;
+    const [ox, oy, oz] = sectionLocalOrigin(chunkEdge, sectionEdge, id).map((o) => o * COLLISION_STEPS_PER_CELL) as [number, number, number];
+    for (let b = 0; b * 6 < p.boxes.length; b++) {
+      const at = (b < p.fullBoxes ? full++ : partial++) * 6;
+      for (let k = 0; k < 6; k += 3) {
+        boxes[at + k] = p.boxes[b * 6 + k]! + ox;
+        boxes[at + k + 1] = p.boxes[b * 6 + k + 1]! + oy;
+        boxes[at + k + 2] = p.boxes[b * 6 + k + 2]! + oz;
+      }
+    }
+  });
+  return { boxes, fullBoxes };
 }
 
 let chunkCells = new Uint16Array(0);
@@ -247,19 +281,20 @@ export function joinSections(chunkEdge: number, sectionEdge: number, sections: R
   checkSectionCount(chunkEdge, sectionEdge, sections.length);
   if (sectionEdge === chunkEdge && sections[0] != null) {
     const d = sections[0];
-    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, shader: d.shader };
+    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, collision: d.collision, shader: d.shader };
   }
   const t0 = performance.now();
   const ground = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.ground ?? null));
   const base = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.base ?? null));
   const instances = joinInstances(chunkEdge, sectionEdge, sections.map((s) => s?.instances ?? null));
+  const collision = joinCollision(chunkEdge, sectionEdge, sections.map((s) => s?.collision ?? null));
   const t1 = performance.now();
   const shader = joinShader(chunkEdge, sectionEdge, sections.map((s) => s?.shader ?? null));
   if (times !== undefined) {
     times.surfacesUs += (t1 - t0) * 1000;
     times.shaderUs += (performance.now() - t1) * 1000;
   }
-  return { edge: chunkEdge, ground, base, instances, shader };
+  return { edge: chunkEdge, ground, base, instances, collision, shader };
 }
 
 /**
@@ -276,17 +311,18 @@ export function joinSectionsForDraw(chunkEdge: number, sectionEdge: number, sect
     const solid = shaderSolidEntry(d.shader);
     if (solid < 0) shaderGridEntries(d.shader, cells);
     if (times !== undefined) times.shaderUs += (performance.now() - t0) * 1000;
-    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, solid, side };
+    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, collision: d.collision, solid, side };
   }
   const t0 = performance.now();
   const ground = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.ground ?? null));
   const base = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.base ?? null));
   const instances = joinInstances(chunkEdge, sectionEdge, sections.map((s) => s?.instances ?? null));
+  const collision = joinCollision(chunkEdge, sectionEdge, sections.map((s) => s?.collision ?? null));
   const t1 = performance.now();
   const solid = joinShaderCells(chunkEdge, sectionEdge, sections.map((s) => s?.shader ?? null), cells);
   if (times !== undefined) {
     times.surfacesUs += (t1 - t0) * 1000;
     times.shaderUs += (performance.now() - t1) * 1000;
   }
-  return { edge: chunkEdge, ground, base, instances, solid, side };
+  return { edge: chunkEdge, ground, base, instances, collision, solid, side };
 }

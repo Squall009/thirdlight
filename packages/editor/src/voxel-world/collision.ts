@@ -1,12 +1,15 @@
 /**
  * Collision for a streamed voxel world through the engine's one physics
- * backend (physics-rapier's port): every derived chunk becomes one static
- * body holding its collision boxes (full-cell merges, and the partial
- * shapes of beams, rails and posts the assembly resolved) and its
- * projected ground surface as triangle meshes. A chunk's body is replaced
- * whenever the chunk is derived again (an edit within the rules' radius, a
- * neighbour landing) and removed when it unloads, so physics always agrees
- * with what the assembly evaluation resolved and with what is drawn.
+ * backend (physics-rapier's port): every storage chunk becomes one static
+ * body, built from its derive sections joined (chunk-join.ts) in the same
+ * task as its draw, holding its collision boxes (full-cell merges, and the
+ * partial shapes of beams, rails and posts the assembly resolved) and its
+ * projected ground surface: a heightfield where the chunk is ground alone
+ * and a height function (derived-collision.ts), else triangle meshes. A
+ * chunk's body is replaced whenever one of its sections is derived again
+ * (an edit within the rules' reach, a neighbour landing) and removed when
+ * it unloads, so physics always agrees with what the assembly evaluation
+ * resolved and with what is drawn.
  *
  * Positions are relative to the floating origin, like the meshes; a
  * re-base re-places every body.
@@ -17,9 +20,11 @@
  * way of moving one) or a swept sphere (`castSphere`).
  */
 import { createPhysicsPort3D, MAX_MESH_TRIANGLES_3D, MAX_MESH_VERTICES_3D, physicsMemoryBytes3D, type ColliderShape3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { chunkOrigin, collisionGeometry, SampleRing, VOXEL_SIZE_M, type CellGrid, type DerivedData, type FloatingOrigin } from '@thirdlight/voxel';
+import { chunkOrigin, collisionGeometry, SampleRing, VOXEL_SIZE_M, type CellGrid, type CollisionHeightfield, type CollisionSource, type FloatingOrigin } from '@thirdlight/voxel';
 
 const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
+/** A quarter turn about +y: (x, z) → (z, −x). */
+const QUARTER_Y = Object.freeze({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
 /** The physics step rate a drop is simulated at. */
 const STEP_HZ = 60;
 /** Gravity along y, m/s². */
@@ -35,6 +40,26 @@ interface ChunkBody {
   readonly cell: Vec3;
   readonly parts: ColliderPart3D[];
   readonly bytes: number;
+  readonly heightfield: boolean;
+}
+
+/**
+ * The ground's heightfield as a port part. The port splits a heightfield
+ * cell from (+x, min z) to (min x, +z), the voxel ground from (min x, min z)
+ * to (+x, +z): the field is handed over turned a quarter about +y, which
+ * maps one diagonal onto the other, with its heights turned to match.
+ */
+function heightfieldPart(h: CollisionHeightfield): ColliderPart3D {
+  // The part's own x runs along the chunk's −z (from the field's +z end), its own z along the chunk's +x.
+  const ownX = h.cellsZ;
+  const ownZ = h.cellsX;
+  const heights = new Float32Array((ownX + 1) * (ownZ + 1));
+  for (let u = 0; u <= ownX; u++) for (let v = 0; v <= ownZ; v++) heights[u * (ownZ + 1) + v] = h.heights[v * (h.cellsZ + 1) + (h.cellsZ - u)]!;
+  return {
+    shape: { type: 'heightfield', cellsX: ownX, cellsZ: ownZ, cellX: VOXEL_SIZE_M, cellZ: VOXEL_SIZE_M, heights },
+    position: { x: h.x, y: 0, z: h.z + h.cellsZ * VOXEL_SIZE_M },
+    rotation: QUARTER_Y,
+  };
 }
 
 /** Where a dropped capsule came to rest. */
@@ -62,10 +87,15 @@ export class VoxelCollision {
     private readonly port: RapierPhysicsPort3D,
     private readonly grid: CellGrid,
     private readonly origin: FloatingOrigin,
+    private readonly heightfields: boolean,
   ) {}
 
-  /** A physics world with no character of its own (probes add theirs). */
-  static async create(grid: CellGrid, origin: FloatingOrigin): Promise<VoxelCollision> {
+  /**
+   * A physics world with no character of its own (probes add theirs), a
+   * body a chunk of `grid`. `heightfields: false` keeps all ground as
+   * meshes (to compare the two).
+   */
+  static async create(grid: CellGrid, origin: FloatingOrigin, heightfields = true): Promise<VoxelCollision> {
     const r = await createPhysicsPort3D({
       character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } },
       noCharacter: true,
@@ -74,7 +104,7 @@ export class VoxelCollision {
       controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: 0.8, minSlopeSlideRad: 0.9, autostep: false },
     });
     if (!r.ok) throw new Error(`physics: ${r.error.message}`);
-    return new VoxelCollision(r.port, grid, origin);
+    return new VoxelCollision(r.port, grid, origin, heightfields);
   }
 
   get count(): number {
@@ -86,20 +116,24 @@ export class VoxelCollision {
     return { x: (cell[0] - o.x) * VOXEL_SIZE_M, y: (cell[1] - o.y) * VOXEL_SIZE_M, z: (cell[2] - o.z) * VOXEL_SIZE_M };
   }
 
-  /** Replaces a chunk's body with its derived result's collision; returns the bytes handed to physics. */
-  set(key: number, cx: number, cy: number, cz: number, d: DerivedData | null): number {
+  /**
+   * Replaces a chunk's body with the collision of its joined sections (null:
+   * nothing derived, no body); returns the bytes handed to physics.
+   */
+  set(key: number, cx: number, cy: number, cz: number, d: CollisionSource | null): number {
     this.remove(key);
     if (d === null) return 0;
     const t0 = performance.now();
-    const geo = collisionGeometry(d, { maxVertices: MAX_MESH_VERTICES_3D, maxTriangles: MAX_MESH_TRIANGLES_3D });
+    const geo = collisionGeometry(d, { maxVertices: MAX_MESH_VERTICES_3D, maxTriangles: MAX_MESH_TRIANGLES_3D }, this.heightfields);
     const parts: ColliderPart3D[] = [];
+    if (geo.heightfield !== null) parts.push(heightfieldPart(geo.heightfield));
     const b = geo.boxes;
     for (let i = 0; i < b.length; i += 6) parts.push({ shape: { type: 'box', hx: b[i + 3]!, hy: b[i + 4]!, hz: b[i + 5]! }, position: { x: b[i]!, y: b[i + 1]!, z: b[i + 2]! }, rotation: IDENTITY });
     // The ground surface is wound counter-clockwise from outside: one-sided, so edges between its triangles never catch.
     for (const m of geo.meshes) parts.push({ shape: { type: 'mesh', vertices: m.vertices as unknown as number[], indices: m.indices as unknown as number[], oriented: true }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY });
     if (parts.length === 0) return 0;
     const cell: Vec3 = [chunkOrigin(this.grid, cx), chunkOrigin(this.grid, cy), chunkOrigin(this.grid, cz)];
-    const body: ChunkBody = { id: `voxel:${cx},${cy},${cz}`, cell, parts, bytes: geo.bytes };
+    const body: ChunkBody = { id: `voxel:${cx},${cy},${cz}`, cell, parts, bytes: geo.bytes, heightfield: geo.heightfield !== null };
     this.port.addStaticColliders([{ entityId: body.id, shape: { type: 'compound', parts }, position: this.position(cell), rotation: IDENTITY }]);
     this.bodies.set(key, body);
     this.bytes += body.bytes;
@@ -182,8 +216,17 @@ export class VoxelCollision {
   stats(): Record<string, unknown> {
     const q = (r: SampleRing, p: number): number => Number(r.quantile(p).toFixed(3));
     const diag = this.port.diagnostics();
+    let heightfields = 0;
+    let heightfieldBytes = 0;
+    for (const b of this.bodies.values()) {
+      if (!b.heightfield) continue;
+      heightfields++;
+      heightfieldBytes += b.bytes;
+    }
     return {
       bodies: this.bodies.size,
+      heightfields,
+      heightfieldBytes,
       colliders: diag.worldColliderCount,
       bytes: this.bytes,
       wasmBytes: physicsMemoryBytes3D(),

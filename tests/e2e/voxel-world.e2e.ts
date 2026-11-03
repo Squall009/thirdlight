@@ -268,19 +268,19 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
 
     // A 2 m blast at the scene's chunk corner in x and z (the pad's ground under the wall's foot), first as a game's
     // runtime edit in the page: the dug cells read as air in the same task as the edit, before anything is rebuilt;
-    // every section it rebuilt has its body, and every storage chunk holding them its one draw (the sections joined),
+    // every storage chunk holding the sections it rebuilt has its one body and its one draw (the sections joined)
     // replaced in one frame (one swap).
-    interface Blast { ok: boolean; code?: string; frames: number; readAtOnce?: { material: number }; swap: { sections: number; chunks: Cell[] }; replacedSections: number; replacedChunks: number; replacedFrames: number[]; replacedSwaps: number[] }
+    interface Blast { ok: boolean; code?: string; frames: number; readAtOnce?: { material: number }; swap: { sections: number; chunks: Cell[] }; replacedBodies: number; replacedChunks: number; replacedFrames: number[]; replacedSwaps: number[] }
     const spot: Cell = [ox, oy - 1, oz];
     const atomic = (b: Blast, what: string): void => {
       expect(b.ok, `${what}: ${b.code}`).toBe(true);
       expect(b.swap.sections, what).toBeGreaterThan(1);
-      expect(b.replacedSections, what).toBe(b.swap.sections);
       // At a chunk corner in x and z: at least four chunks' draws, never more than the sections (a corner's sections
       // may each lie in a chunk of their own).
       expect(b.swap.chunks.length, what).toBeGreaterThanOrEqual(4);
       expect(b.swap.chunks.length, what).toBeLessThanOrEqual(b.swap.sections);
       expect(b.replacedChunks, what).toBe(b.swap.chunks.length);
+      expect(b.replacedBodies, what).toBe(b.swap.chunks.length);
       expect(b.replacedFrames, what).toHaveLength(1);
       expect(b.replacedSwaps, what).toHaveLength(1);
       expect(b.frames, what).toBeGreaterThanOrEqual(1);

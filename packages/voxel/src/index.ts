@@ -229,7 +229,7 @@ export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } fr
 export { DEFAULT_STREAM_READS, FocusMotion, readOrder, STREAM_PREFETCH_SECONDS, type WantedChunk } from './stream-reads';
 export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
-export { joinInstances, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
+export { joinCollision, joinInstances, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
 export {
@@ -277,7 +277,8 @@ export { deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriv
 export { encodeShader, SHADER_BORDER_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
-export { collisionGeometry, type CollisionGeometry, type CollisionMesh, type CollisionMeshLimits } from './derived-collision';
+export { collisionGeometry, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource } from './derived-collision';
+export { groundHeightfield, GROUND_HEIGHTFIELD_TOLERANCE_M, type GroundHeightfield, type HeightfieldRefusal } from './ground-heightfield';
 export { ChunkTreeFlags, downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export { combineCoverage, lightCoverage, PROP_SAMPLES_PER_AXIS, propCoverageChunk, type PropShape } from './prop-coverage';
 export { VoxelOverlay } from './voxel-overlay';

@@ -36,7 +36,7 @@
  * as a command (undone after each): sections derived again, jobs, worker
  * and main-thread ms, mesher µs per section, frames from the edit to the
  * frame showing the atomic swap (draws and colliders), the frames each
- * section's collider and each chunk's draw were replaced in, missed
+ * chunk's body and draw were replaced in, missed
  * frames; plus an orbit's frames, draws, triangles and bodies per section
  * edge.
  *
@@ -402,7 +402,7 @@ async function blasts(renderer: 'webgpu' | 'webgl2', section: number): Promise<R
             await page.evaluate(() => new Promise((ok) => setTimeout(ok, 500)));
             const r = await hook<Record<string, unknown>>(page, 'blast', at, radiusM, how);
             const swap = r['swap'] as Record<string, unknown> | undefined;
-            runs.push({ where, at, radiusM, how, ok: r['ok'], code: r['code'], cells: r['cells'], chunks: r['chunks'], frames: r['frames'], swap, buildMs: r['buildMs'], applyMs: r['applyMs'], answerMs: r['answerMs'], swappedMs: r['swappedMs'], visibleMs: r['visibleMs'], replacedSections: r['replacedSections'], replacedChunks: r['replacedChunks'], replacedFrames: r['replacedFrames'], replacedSwaps: r['replacedSwaps'], readAtOnce: r['readAtOnce'], missedDuring: r['missedDuring'], longestFrameMs: r['longestFrameMs'] });
+            runs.push({ where, at, radiusM, how, ok: r['ok'], code: r['code'], cells: r['cells'], chunks: r['chunks'], frames: r['frames'], swap, buildMs: r['buildMs'], applyMs: r['applyMs'], answerMs: r['answerMs'], swappedMs: r['swappedMs'], visibleMs: r['visibleMs'], replacedBodies: r['replacedBodies'], replacedChunks: r['replacedChunks'], replacedFrames: r['replacedFrames'], replacedSwaps: r['replacedSwaps'], readAtOnce: r['readAtOnce'], missedDuring: r['missedDuring'], longestFrameMs: r['longestFrameMs'] });
             console.log(JSON.stringify({ renderer, section, where, radiusM, how, frames: r['frames'], sections: swap?.['sections'], jobs: swap?.['jobs'], workerUs: swap?.['workerUs'], mainMs: swap?.['mainMs'], buildMs: r['buildMs'], ms: swap?.['ms'], replacedFrames: r['replacedFrames'] }));
             if (how === 'local') await hook(page, 'reread');
             else await hook(page, 'undo');
