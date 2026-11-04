@@ -280,7 +280,6 @@ describe('the voxel chunk view', () => {
         parts.set(`${cx},${cy},${cz}:${part}`, bytes);
         return true;
       },
-      setCoarseGpuBytes: () => undefined,
     };
     const batches: ChunkDrawBatch[] = [];
     let flush: () => void = () => {};
@@ -329,14 +328,13 @@ describe('the voxel chunk view', () => {
         lod: { drawn: { drawn: (l: number, x: number, y: number, z: number) => drawn.has(`${l},${x},${y},${z}`) } },
         derivedOf: (l: number, x: number, y: number, z: number) => (l === 1 && x === -1 && y === -1 && z === -1 ? result : null),
         seams: { seamOf: (l: number, x: number, y: number, z: number, f: number) => (l === 1 && x === -1 && y === -1 && z === -1 && f === 1 ? seam : null) },
+        // The nodes' and seams' GPU bytes as the page reports them back: the stream budget's mip share counts them.
+        gpuBytes: -1,
       },
       on: (l: (e: StreamEvent) => void) => void listeners.push(l),
       joinedChunk: (cx: number, cy: number, cz: number, _t: unknown, cells: Uint16Array) => joined(s, cx, cy, cz, cells),
       setPart: () => true,
-      // The nodes' and seams' GPU bytes as the page reports them back: the stream budget's mip share counts them.
-      setCoarseGpuBytes: (bytes: number) => void (coarse = bytes),
     };
-    let coarse = -1;
     let flush: () => void = () => {};
     const batches: ChunkDrawBatch[] = [];
     const batcher = new ChunkDrawBatcher('w', feed, SECTION, (b) => {
@@ -401,8 +399,8 @@ describe('the voxel chunk view', () => {
     expect(view.seamTriangles).toBe(seamMesh.geometry.index!.count / 3);
     // Counted: the node's meshes and grid region, and the seam's mesh.
     const geoBytes = (g: THREE.BufferGeometry): number => Object.values(g.attributes).reduce((n, a) => n + (a as THREE.BufferAttribute).array.byteLength, g.index?.array.byteLength ?? 0);
-    expect(coarse).toBe(view.coarseBytes());
-    expect(coarse).toBeGreaterThanOrEqual(geoBytes(mesh.geometry) + geoBytes(seamMesh.geometry));
+    expect(feed.mips.gpuBytes).toBe(view.coarseBytes());
+    expect(feed.mips.gpuBytes).toBeGreaterThanOrEqual(geoBytes(mesh.geometry) + geoBytes(seamMesh.geometry));
 
     // The node's new result (an edit in its ring): its draw is replaced; the seam reads the new draw's grid.
     const tris = view.triangles;
@@ -422,7 +420,7 @@ describe('the voxel chunk view', () => {
     expect(view.levelCounts()[1]).toBe(0);
     expect(view.seamCount).toBe(0);
     expect(view.seamTriangles).toBe(0);
-    expect(coarse).toBe(0);
+    expect(feed.mips.gpuBytes).toBe(0);
     expect(view.levelCounts()[0]).toBeGreaterThan(level0);
     // A node that loses its result leaves (nothing drawn for it).
     result = null;

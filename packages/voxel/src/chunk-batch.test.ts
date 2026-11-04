@@ -28,7 +28,6 @@ function feed(): { feed: ChunkDrawFeed; emit(e: StreamEvent): void; parts: Map<s
         else parts.delete(k);
         return true;
       },
-      setCoarseGpuBytes: () => undefined,
     },
   };
 }

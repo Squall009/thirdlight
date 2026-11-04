@@ -428,7 +428,7 @@ describe('ground as a heightfield', () => {
       });
       if (!clear) {
         // Beside a face: a capsule that starts clear of it (16 level rays at three heights of it reach no face within
-        // its radius) falls along the face without the step throwing; one that starts in it throws (D466).
+        // its radius) falls along the face without the step throwing; one that starts in it throws (the port's move bound).
         const start: [number, number, number] = [x, a.centre[1] + 3, z];
         let gap = Infinity;
         for (let k = 0; k < 16; k++) for (const up of [0.4, 1, 1.6]) {

@@ -105,6 +105,8 @@ export interface ChunkDrawLevels {
   readonly lod: { readonly drawn: { drawn(level: number, nx: number, ny: number, nz: number): boolean } };
   derivedOf(level: number, nx: number, ny: number, nz: number): DerivedData | null;
   readonly seams: { seamOf(level: number, nx: number, ny: number, nz: number, face: NodeFace): FaceSeam | null };
+  /** The page's GPU bytes of every node and seam it draws, counted in the mip share of the budget. */
+  gpuBytes: number;
 }
 
 /** What the batcher needs of a streamer. */
@@ -115,8 +117,6 @@ export interface ChunkDrawFeed {
   on(listener: (e: StreamEvent) => void): void;
   joinedChunk(cx: number, cy: number, cz: number, times: JoinTimes | undefined, cells: Uint16Array): JoinedDraw | null;
   setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean;
-  /** The page's GPU bytes of every node and seam drawn, counted in the mip share of the budget. */
-  setCoarseGpuBytes(bytes: number): void;
 }
 
 export interface ChunkDrawBatcherOptions {
@@ -335,7 +335,8 @@ export class ChunkDrawBatcher {
   /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated): each chunk's `mesh` part; `coarse`: every node's and seam's, summed. */
   drawn(bytes: readonly number[], coarse: number): void {
     if (this.closed) return;
-    this.feed.setCoarseGpuBytes(coarse);
+    // Nothing draws nodes or seams without mip levels.
+    if (this.feed.mips != null) this.feed.mips.gpuBytes = coarse;
     for (let i = 0; i + 3 < bytes.length; i += 4) {
       const cx = bytes[i]!;
       const cy = bytes[i + 1]!;
