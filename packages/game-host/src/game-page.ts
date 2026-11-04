@@ -36,7 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { VoxelWorldDraws, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { VoxelKitMeshes, voxelKitMeshRefs, VoxelWorldDraws, type GlbLoaderPort, type VoxelGridRenderer, type VoxelKitRecordLike } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -482,6 +482,24 @@ function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog,
 }
 
 /** A texture asset's verified bytes as stored (a probe tile's file is data: never decoded as an image). */
+/** The build's voxel kits (none: every world draws the engine's default kit). */
+function voxelKitsOf(manifest: GamePageManifest): VoxelKitRecordLike[] {
+  return (manifest as { voxelKits?: VoxelKitRecordLike[] }).voxelKits ?? [];
+}
+
+/** The build's voxel kits with their models' verified bytes (a kit mesh's model row, read as any model's) and the page's GLB loader. */
+function pageVoxelKitsOf(manifest: GamePageManifest, reader: VerifiedAssetReader, catalog: RuntimeCatalog, decoderBase: string): PageVoxelKits {
+  return {
+    records: voxelKitsOf(manifest),
+    bytes: async (assetId) => {
+      const row = await catalog.lookup(assetId);
+      if (row === undefined || row.kind !== 'model') return null;
+      return { bytes: new Uint8Array(await reader.bytes(row.assetId, row.version)), version: row.version };
+    },
+    loader: () => createGltfLoaderPort({ decoderBase }),
+  };
+}
+
 function pageAssetBytes(reader: VerifiedAssetReader, catalog: RuntimeCatalog): (assetId: string) => Promise<Uint8Array> {
   return async (assetId) => {
     const row = await catalog.lookup(assetId);
@@ -630,25 +648,41 @@ function relayedInput(relay: RelayActionSource, browserInput: BrowserInput, r: {
   };
 }
 
-/** The test hook on a game page with voxel worlds: what is drawn and each edit's way to the screen. */
+/** The test hook on a game page with voxel worlds: what is drawn, each edit's way to the screen, and the kit meshes' states. */
 const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
+
+/** The build's voxel kits (the catalog's `voxelKits` block) and where their GLBs' verified bytes come from. */
+interface PageVoxelKits {
+  readonly records: readonly VoxelKitRecordLike[];
+  /** A kit mesh's model, at the version the build ships (the one its digest names). */
+  bytes(assetId: string): Promise<{ bytes: Uint8Array; version: number } | null>;
+  loader(): GlbLoaderPort;
+}
 
 /**
  * A page's voxel worlds: their draws (fed by the simulation's batches) and
  * the two ways the batches come: from the simulation worker's messages, or
- * straight from the page's own simulation.
+ * straight from the page's own simulation. Kit pieces draw from the build's
+ * kits through the piece table the simulation derives with; their GLBs are
+ * read from the build's content and parsed as the page's models are, and a
+ * chunk drawn before its kit's meshes are there builds those pieces when
+ * they arrive.
  */
-function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null) {
+function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits) {
   let report: (world: string, bytes: number[], coarse: number) => void = () => undefined;
+  const kitMeshes = new VoxelKitMeshes();
+  if (voxelKitMeshRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
   const draws = new VoxelWorldDraws({
+    kits: kitMeshes.world(kits.records),
     scene: () => adapter()?.threeScene?.() ?? null,
     // The grids upload through the renderer once it can draw.
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
     report: (world, bytes, coarse) => report(world, bytes, coarse),
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits] };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states() };
   return {
     draws,
+    kitMeshes,
     /** The worker's batches go to the draws; the drawn bytes go back to it. */
     worker(h: SimWorkerHandle | null): SimWorkerHandle | null {
       if (h === null) return null;
@@ -660,7 +694,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
-      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b));
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records);
       report = (world, bytes, coarse) => p.drawn(world, bytes, coarse);
       return p.ports;
     },
@@ -765,8 +799,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
     // The voxel worlds run with the simulation; the page draws the chunks each swap sends.
-    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current) : null;
-    if (voxels !== null) releases.push(() => voxels.draws.dispose());
+    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase)) : null;
+    if (voxels !== null) releases.push(() => (voxels.draws.dispose(), voxels.kitMeshes.dispose()));
     if (threadMode === 'worker') {
       const worker = voxels === null ? createBrowserSimWorker(o.workerUrl) : voxels.worker(createBrowserSimWorker(o.workerUrl));
       if (worker === null) {
@@ -789,7 +823,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}) } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest) } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),

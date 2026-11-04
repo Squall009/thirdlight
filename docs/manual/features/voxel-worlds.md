@@ -256,9 +256,24 @@ them as `voxelKits`.
   applies to, until materials name their kit. **`trimLayout`** names the
   trim layout the pieces' UVs follow; absent, the kit uses no trim sheet.
 
+**How worlds draw them.** The voxel world page, Play, the Scene view and an
+exported game draw every world with the project's kits: a cell's piece is
+its material's kit's piece for the cell's case and run section, its variant
+picked from the cell (an edit elsewhere never reshuffles it), turned and
+mirrored to fit. Near the camera a piece's `high` mesh draws, one level out
+its `low` one (its `high` one where none is authored), farther out none:
+the cells draw as blocks. A material no kit binds draws the engine's
+**default kit**: plain procedural boxes (copings, plinths, sills, edges,
+mouldings, skirts, frames) with a labelled debug UV texture, and the engine's
+stand-in beams, rails and posts. Kit pieces draw with a stand-in material a
+kit and that debug texture until materials arrive. A kit mesh still loading
+draws when it arrives; one that fails draws nothing (the page's status names
+it). In the Scene view a kit edited while a world is open shows once the
+world is opened again (another scene, or a reload).
+
 The case and section ids, the checks a kit must pass and the trim layout
-for detail pieces are drafts awaiting the owner's approval: kits are stored
-and shipped now, but worlds do not draw with them yet.
+for detail pieces are drafts awaiting the owner's approval: worlds draw with
+kits now, but the cases and layouts may still change.
 
 ## Not built yet
 
@@ -266,10 +281,8 @@ These come later; worlds made now keep working when they arrive:
 
 - **The far field**: the world past the load ring, and tall ground far
   away (above).
-- **Kits and cases**: which kit piece a wall, floor, roof, stair or opening
-  cell becomes (the case catalogue), drawing worlds with their voxel kits,
-  the kit check, and a trim layout for detail pieces. Built cells are drawn
-  as plain block faces and pieces as stand-in boxes until then.
+- **Kits and cases**: the approved case catalogue (the draft draws now),
+  the kit check, and a trim layout for detail pieces.
 - **Materials**: material records, texture arrays and wetness beyond
   darkening (shine and filled-in crevices). Today's surface shader is a
   stand-in.

@@ -244,7 +244,7 @@ export { joinCollision, joinInstances, joinSections, joinSectionsForDraw, joinSh
 export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkSwapWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
-export { worldLevelRings, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres } from './world-streamer';
+export { worldLevelRings, worldPieceTable, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres } from './world-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
 export {
   ASSEMBLY_CLASS,
@@ -287,6 +287,7 @@ export {
   type OccupancyOut,
 } from './derived-data';
 export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { DEFAULT_KIT_ID, DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, defaultKitSource, type DefaultKitBox, type DefaultKitPiece } from './default-kit';
 export {
   buildPieceTable,
   defaultPiece,

@@ -12,10 +12,18 @@
  * An edit applied by the command route (the editor's, MCP's) arrives as the
  * feed's `voxelsChanged` and is handed to the worker, which reads the
  * chunks it names again; the view shows it without a reload.
+ *
+ * Detail pieces are the project's voxel kits, read once when the first
+ * world opens (through the command route; their GLBs from the backend), with
+ * the engine's default kit for the materials no kit binds: the worker
+ * derives with the piece table of those kits, the draws use the same. A kit
+ * edited while the view is open shows when the worlds are opened again
+ * (another scene, a reload).
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
 import type { VoxelsChangedPayload } from '@thirdlight/protocol';
-import { VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer, type VoxelKitRecordLike } from '@thirdlight/three-adapter';
+import { pageKitPieces, readVoxelKits, type KitRoute } from '../voxel-world/kit-pieces';
 import type * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
 import type { SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
@@ -24,6 +32,8 @@ import type { SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-
 export interface SceneVoxelsSource {
   url(world: string): string;
   readonly headers: Readonly<Record<string, string>>;
+  /** Where the project's voxel kits and their models are read (absent: the default kit only). */
+  readonly kits?: KitRoute;
 }
 
 export interface SceneVoxelsHost {
@@ -48,9 +58,38 @@ export class SceneVoxels {
   /** The focus last sent (cells' worth of metres apart before another is sent). */
   private focusSent: [number, number, number] | null = null;
   private stampMark = '';
+  /** The project's kits once read (null until the first world opens), and their meshes. */
+  private kits: Promise<readonly VoxelKitRecordLike[]> | null = null;
+  private kitMeshes: VoxelKitMeshes | null = null;
 
   constructor(private readonly host: SceneVoxelsHost) {
     this.draws = this.makeDraws();
+  }
+
+  /** Reads the project's kits once and gives the draws their pieces; resolves to the kits the worker derives with. */
+  private projectKits(): Promise<readonly VoxelKitRecordLike[]> {
+    if (this.kits !== null) return this.kits;
+    const route = this.host.source?.kits;
+    this.kits = (route === undefined ? Promise.resolve([]) : readVoxelKits(route)).catch((e: unknown) => {
+      for (const name of this.open.keys()) this.problems.set(name, `voxel kits: ${e instanceof Error ? e.message : String(e)}`);
+      return [];
+    });
+    void this.kits.then((kits) => {
+      if (route !== undefined) {
+        const p = pageKitPieces(route, kits);
+        this.kitMeshes = p.meshes;
+        this.draws.setKits(p.set);
+        void p.loaded.then((why) => {
+          if (why === '') return;
+          for (const name of this.open.keys()) this.problems.set(name, why);
+          this.host.requestRender();
+        });
+      } else {
+        this.kitMeshes = new VoxelKitMeshes();
+        this.draws.setKits(this.kitMeshes.world(kits));
+      }
+    });
+    return this.kits;
   }
 
   private makeDraws(): VoxelWorldDraws {
@@ -112,8 +151,12 @@ export class SceneVoxels {
       const s = settings.get(name)!;
       this.start();
       this.open.set(name, key);
-      this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: s.levels, collision: s.collision, sectionEdge: s.sectionEdge });
-      if (this.focusSent !== null) this.post({ t: 'focus', x: this.focusSent[0], y: this.focusSent[1], z: this.focusSent[2] });
+      void this.projectKits().then((kits) => {
+        // Closed (or opened again with other settings) while the kits were read.
+        if (this.open.get(name) !== key) return;
+        this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: s.levels, collision: s.collision, sectionEdge: s.sectionEdge, kits });
+        if (this.focusSent !== null) this.post({ t: 'focus', x: this.focusSent[0], y: this.focusSent[1], z: this.focusSent[2] });
+      });
     }
   }
 
@@ -137,6 +180,10 @@ export class SceneVoxels {
   adapterReplaced(): void {
     this.draws.dispose();
     this.draws = this.makeDraws();
+    // The kits are read again for the new draws, their meshes loaded again for the new renderer.
+    this.kitMeshes?.dispose();
+    this.kitMeshes = null;
+    this.kits = null;
     const names = [...this.open.keys()];
     for (const name of names) this.post({ t: 'close', world: name });
     this.open.clear();
@@ -159,6 +206,8 @@ export class SceneVoxels {
     this.worker?.terminate();
     this.worker = null;
     this.draws.dispose();
+    this.kitMeshes?.dispose();
+    this.kitMeshes = null;
     this.open.clear();
   }
 }

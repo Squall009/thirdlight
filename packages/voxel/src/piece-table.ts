@@ -29,6 +29,11 @@
  *   reshuffles it. The seed is a hash of the kit's id, so a new kit
  *   revision keeps every variant where it was.
  *
+ * - **The default kit.** A table may name one kit (the engine's procedural
+ *   fallback kit, default-kit.ts) that every material no kit binds draws
+ *   with, so a world without game kits still shows pieces; it is a kit like
+ *   any other in the table, numbered and hashed the same way.
+ *
  * The table is versioned ({@link PIECE_TABLE_FORMAT}) and names the rule set
  * whose catalogue numbered its cases; a derive refuses a table of another
  * rule set. Its bytes are canonical: equal kits give equal bytes and hash.
@@ -39,8 +44,8 @@ import type { CaseCatalogueDef, CaseDef } from './kit-cases';
 import { RUN_SECTION } from './kit-runs';
 import { MATERIAL_ID_MAX, swapFrom, swapTo } from './record';
 
-/** The table's byte layout version; a reader refuses any other. */
-export const PIECE_TABLE_FORMAT = 1;
+/** The table's byte layout version; a reader refuses any other (2: the default kit's slot after the kit count). */
+export const PIECE_TABLE_FORMAT = 2;
 
 /** Run section ids as kits name them, by section index ({@link RUN_SECTION}). */
 export const RUN_SECTION_IDS: readonly string[] = Object.freeze(
@@ -139,6 +144,8 @@ export interface PieceTableKit {
 export interface PieceTable {
   readonly rules: { readonly id: string; readonly version: number };
   readonly caseCount: number;
+  /** The kit every unbound material draws with (its index in `kits`), or {@link NO_KIT}. */
+  readonly defaultKit: number;
   /** Per voxel material id: its kit's index in `kits`, or {@link NO_KIT}. */
   readonly materialKit: Uint16Array;
   readonly kits: readonly PieceTableKit[];
@@ -214,13 +221,17 @@ function weightThresholds(weights: readonly number[]): number[] {
  * Builds the piece table of `kits` for a rule set with a case pass (its
  * catalogue numbers the cases). A material two kits bind goes to the first
  * by kit id; that and the kits' unknown cases and sections are `problems`
- * (the kit check's rows), never refusals.
+ * (the kit check's rows), never refusals. `defaultKit`: the kit every
+ * material no kit binds draws with (its own binding is not read); it takes
+ * the slot after the sorted kits.
  */
-export function buildPieceTable(kits: readonly PieceKitSource[], rules: AssemblyRuleSet): { table: PieceTable; problems: string[] } {
+export function buildPieceTable(kits: readonly PieceKitSource[], rules: AssemblyRuleSet, defaultKit?: PieceKitSource): { table: PieceTable; problems: string[] } {
   const catalogue = rules.catalogue;
   if (catalogue === undefined) throw new RangeError(`rule set ${rules.id} has no case catalogue: no kit pieces`);
   const problems: string[] = [];
-  const sorted = [...kits].sort((a, b) => (a.voxelKitId < b.voxelKitId ? -1 : a.voxelKitId > b.voxelKitId ? 1 : 0));
+  const own = [...kits].sort((a, b) => (a.voxelKitId < b.voxelKitId ? -1 : a.voxelKitId > b.voxelKitId ? 1 : 0));
+  if (defaultKit !== undefined && own.some((k) => k.voxelKitId === defaultKit.voxelKitId)) throw new RangeError(`kit ${defaultKit.voxelKitId}: a project kit has the default kit's id`);
+  const sorted = defaultKit === undefined ? own : [...own, { ...defaultKit, materials: [] }];
   const caseIndex = new Map(catalogue.cases.map((c, k) => [c.id, k]));
   const w = new Writer();
   w.u16(PIECE_TABLE_FORMAT);
@@ -228,6 +239,7 @@ export function buildPieceTable(kits: readonly PieceKitSource[], rules: Assembly
   w.u16(rules.version);
   w.u16(catalogue.cases.length);
   w.u16(sorted.length);
+  w.u16(defaultKit === undefined ? NO_KIT : own.length);
   const bound = new Map<number, number>();
   sorted.forEach((kit, slot) => {
     const { pieces, problems: p } = kitPieceList(kit, catalogue);
@@ -303,6 +315,8 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
   const rules = { id: text(), version: u16() };
   const caseCount = u16();
   const kitCount = u16();
+  const defaultKit = u16();
+  if (defaultKit !== NO_KIT && defaultKit >= kitCount) throw new RangeError(`piece table: default kit ${defaultKit} of ${kitCount}`);
   const kits: PieceTableKit[] = [];
   for (let k = 0; k < kitCount; k++) {
     const start = o;
@@ -325,7 +339,9 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
     thresholdStart[pieces] = thresholds.length;
     kits.push({ id, seed, hash: crc32(bytes.subarray(start, o)), slots, thresholdStart, thresholds: Uint16Array.from(thresholds) });
   }
-  const materialKit = new Uint16Array(MATERIAL_ID_MAX + 1).fill(NO_KIT);
+  // Air (0) never draws a piece; every other material no pair names takes the default kit.
+  const materialKit = new Uint16Array(MATERIAL_ID_MAX + 1).fill(defaultKit);
+  materialKit[0] = NO_KIT;
   const pairs = u32();
   for (let i = 0; i < pairs; i++) {
     const m = u16();
@@ -334,7 +350,7 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
     materialKit[m] = slot;
   }
   if (o !== bytes.length) throw new RangeError(`piece table: ${bytes.length - o} bytes past its end`);
-  return { rules, caseCount, materialKit, kits, bytes, hash: crc32(bytes) };
+  return { rules, caseCount, defaultKit, materialKit, kits, bytes, hash: crc32(bytes) };
 }
 
 /** Whether a table binds any material to a kit (else every cell draws the default pieces, as without a table). */

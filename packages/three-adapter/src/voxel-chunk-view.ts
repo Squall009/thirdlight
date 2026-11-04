@@ -7,10 +7,15 @@
  *
  * A chunk is one mesh holding its ground and its modular base surfaces (the
  * same material, so one draw), plus the detail instances the assembly rules
- * resolved (beams, rails, posts), one instanced mesh a piece family and
- * detail: a chunk's at high detail, a level-1 node's at low (a kit's meshes
- * through {@link VoxelPieceMeshes}, stand-ins without one); coarser nodes
- * list no pieces and draw those cells as bodies. The surface buffers' packed vertices are unpacked to float
+ * resolved: the engine's default pieces (beams, rails, posts) one instanced
+ * mesh a stand-in family and detail, and kit pieces one instanced mesh a
+ * (kit piece, variant, mirror, detail): a chunk's at high detail, a level-1
+ * node's at low; coarser nodes list no pieces and draw those cells as
+ * bodies. A kit piece's kit is its cell's material's, read from the chunk's
+ * shader data as the surface shader reads it; its mesh comes from the
+ * view's {@link VoxelKitSet} (the world's piece table and kits). A chunk
+ * whose kit meshes are still loading draws its other pieces and builds the
+ * waiting ones when they arrive. The surface buffers' packed vertices are unpacked to float
  * attributes here (positions in metres from the chunk's corner, normals).
  * They carry no material: the voxel surface shader blends the materials it
  * finds in the chunk's shader grid, uploaded as the join wrote its entries
@@ -59,8 +64,12 @@ import {
   type JoinedDraw,
   type SeamPieceWire,
   type SurfaceBuffer,
+  type InstanceList,
+  MATERIAL_ID_MAX,
+  SHADER_BORDER_CELLS,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
+import type { VoxelKitSet } from './voxel-kit-pieces';
 import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
@@ -202,6 +211,12 @@ interface ChunkDraw {
   readonly surface: VoxelSurfaceObject;
   /** The object's grid region (null: none, its one solid entry is passed instead). */
   region: THREE.Vector3 | null;
+  /** Its detail instances (a copy) and each one's material (0 for a default piece), kept to build its kit pieces again. */
+  readonly instances: InstanceList;
+  readonly materials: Uint16Array;
+  readonly cellMetres: number;
+  /** Kit pieces whose meshes were still loading when its pieces were built. */
+  waiting: boolean;
 }
 
 interface SeamDraw {
@@ -228,8 +243,10 @@ export interface VoxelChunkViewOptions {
   /** The surface material and its grid store (a grid side of the chunk's: edge + 2 · border). */
   readonly surface: VoxelSurface;
   readonly renderer: VoxelGridRenderer;
-  /** Detail pieces' meshes (a kit's); stand-ins when left out. */
+  /** The default pieces' meshes by family; stand-ins when left out. */
   readonly pieces?: VoxelPieceMeshes;
+  /** Kit pieces' meshes (the world's piece table and kits); absent: kit pieces are not drawn ({@link VoxelChunkView.setKits}). */
+  readonly kits?: VoxelKitSet | null;
 }
 
 /** Every drawn chunk, mip node and seam of a voxel world, in one scene group. */
@@ -247,8 +264,12 @@ export class VoxelChunkView {
   private readonly pieceMeshes = new Map<number, THREE.BufferGeometry | null>();
   private readonly pieceSource: VoxelPieceMeshes;
   private readonly ownsPieces: boolean;
-  /** Pieces drawn, by detail. */
-  readonly piecesDrawn = { high: 0, low: 0 };
+  /** Pieces drawn, by detail, and of them kit pieces. */
+  readonly piecesDrawn = { high: 0, low: 0, kit: 0 };
+  /** Instanced piece meshes drawn (each one draw call). */
+  pieceDraws = 0;
+  private kitSet: VoxelKitSet | null;
+  private kitLoaded: (() => void) | null = null;
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -276,6 +297,36 @@ export class VoxelChunkView {
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     this.pieceSource = opts.pieces ?? STAND_IN_PIECES;
     this.ownsPieces = opts.pieces === undefined;
+    this.kitSet = null;
+    this.setKits(opts.kits ?? null);
+  }
+
+  /** The kit pieces drawn now (null: none). */
+  get kits(): VoxelKitSet | null {
+    return this.kitSet;
+  }
+
+  /**
+   * Draws kit pieces from `set` from now on (a world's piece table changed:
+   * its streamer derives again what the change touches, and those draws come
+   * with the new pieces). Drawn chunks keep the pieces they were built with,
+   * but those that waited for meshes are built again now, and whenever the
+   * set's meshes finish loading.
+   */
+  setKits(set: VoxelKitSet | null): void {
+    this.kitLoaded?.();
+    this.kitLoaded = null;
+    this.kitSet = set;
+    if (set !== null) {
+      const off = set.meshes.onLoaded(() => this.buildWaiting());
+      this.kitLoaded = off;
+    }
+    this.buildWaiting();
+  }
+
+  /** Builds again the pieces of every drawn chunk and node that waited for kit meshes. */
+  private buildWaiting(): void {
+    for (const map of this.levels) for (const m of map?.values() ?? []) if (m.waiting) this.buildPieces(m);
   }
 
   /** Objects drawing with a grid region. */
@@ -363,9 +414,10 @@ export class VoxelChunkView {
       bytes += geometryBytes(geo);
       this.triangles += (geo.index?.count ?? 0) / 3;
     }
-    bytes += this.addPieces(group, d, cellM);
-    if (group.children.length === 0) return 0;
-    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null };
+    const kept = keptInstances(d.instances, this.kitMaterialsOf(d));
+    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, cellMetres: cellM, waiting: false };
+    this.buildPieces(m);
+    if (group.children.length === 0 && !m.waiting) return 0;
     this.place(group, cell);
     this.root.add(group);
     let map = this.levels[level];
@@ -413,50 +465,93 @@ export class VoxelChunkView {
     this.uploadMs.add(performance.now() - t0);
   }
 
-  private addPieces(group: THREE.Group, d: VoxelChunkDraw, cellM: number): number {
-    const list = d.instances;
-    if (list.count === 0) return 0;
-    // One instanced mesh a family and detail (key family · 2 + 1 when low).
-    const byMesh = new Map<number, number[]>();
+  /** Reads each kit instance's cell material from the shader data the draw arrived with ({@link cells}, or its one solid entry). */
+  private kitMaterialsOf(d: VoxelChunkDraw): (x: number, y: number, z: number) => number {
+    if (d.solid >= 0) return () => d.solid & MATERIAL_ID_MAX;
+    const side = this.shading.grids.layout.side;
+    const b = SHADER_BORDER_CELLS;
+    const cells = this.cells;
+    return (x, y, z) => cells[((x + b) * side + (z + b)) * side + (y + b)]! & MATERIAL_ID_MAX;
+  }
+
+  /** Removes a draw's instanced pieces and builds them again from its instances and the pieces the view has now. */
+  private buildPieces(m: ChunkDraw): void {
+    for (const child of [...m.group.children]) {
+      if (!(child instanceof THREE.InstancedMesh)) continue;
+      m.group.remove(child);
+      this.dropPieceMesh(child);
+      m.bytes -= child.count * 64;
+    }
+    m.waiting = false;
+    const list = m.instances;
+    if (list.count === 0) return;
+    // One instanced mesh a draw: a default family and detail, or a kit piece's resolved key.
+    const byMesh = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material; kit: boolean; low: boolean; turnSign: number; offsets: number[] }>();
     for (let k = 0; k < list.count; k++) {
       const o = k * INSTANCE_BYTES;
-      // Stand-ins by the default piece's family; a kit's own pieces (family 0) are drawn from their kit's meshes, not here.
-      const family = defaultPieceFamily(list.data[o + 4]! | (list.data[o + 5]! << 8));
-      if (family === 0) continue;
-      const key = family * 2 + ((list.data[o + 3]! & INSTANCE_FLAG.low) !== 0 ? 1 : 0);
-      let l = byMesh.get(key);
-      if (l === undefined) byMesh.set(key, (l = []));
-      l.push(o);
+      const piece = list.data[o + 4]! | (list.data[o + 5]! << 8);
+      const low = (list.data[o + 3]! & INSTANCE_FLAG.low) !== 0;
+      const family = defaultPieceFamily(piece);
+      let key: string;
+      if (family !== 0) {
+        key = `f${family}:${low ? 1 : 0}`;
+        if (!byMesh.has(key)) {
+          const mk = family * 2 + (low ? 1 : 0);
+          let box = this.pieceMeshes.get(mk);
+          if (box === undefined) this.pieceMeshes.set(mk, (box = this.pieceSource.geometry(family, low ? 'low' : 'high')));
+          if (box === null) continue;
+          let mat = this.pieceMaterials.get(family);
+          if (mat === undefined) this.pieceMaterials.set(family, (mat = cameraRelative(new MeshLambertNodeMaterial({ color: PIECE_COLOUR[family] ?? 0x888888 }))));
+          // The stand-ins are symmetric under a half turn: their turn sign is the one they were always drawn with.
+          byMesh.set(key, { geometry: box, material: mat, kit: false, low, turnSign: 1, offsets: [] });
+        }
+      } else {
+        const r = this.kitSet?.resolve(m.materials[k]!, piece, list.data[o + 6]! | (list.data[o + 7]! << 8), low) ?? null;
+        if (r === 'pending') {
+          m.waiting = true;
+          continue;
+        }
+        if (r === null) continue;
+        key = r.key;
+        // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
+        if (!byMesh.has(key)) byMesh.set(key, { geometry: r.geometry, material: r.material, kit: true, low, turnSign: -1, offsets: [] });
+      }
+      byMesh.get(key)?.offsets.push(o);
     }
     // A level-1 node's pieces are drawn at its cell's size: one piece a 1 m cell, its low mesh scaled with the cell.
-    const k = cellM / VOXEL_SIZE_M;
-    this.scale.set(k, k, k);
-    let bytes = 0;
-    for (const [key, offsets] of byMesh) {
-      const family = key >> 1;
-      const low = (key & 1) === 1;
-      let box = this.pieceMeshes.get(key);
-      if (box === undefined) this.pieceMeshes.set(key, (box = this.pieceSource.geometry(family, low ? 'low' : 'high')));
-      if (box === null) continue;
-      let mat = this.pieceMaterials.get(family);
-      if (mat === undefined) this.pieceMaterials.set(family, (mat = cameraRelative(new MeshLambertNodeMaterial({ color: PIECE_COLOUR[family] ?? 0x888888 }))));
-      const mesh = new THREE.InstancedMesh(box, mat, offsets.length);
+    const cellM = m.cellMetres;
+    const s = cellM / VOXEL_SIZE_M;
+    this.scale.set(s, s, s);
+    for (const g of byMesh.values()) {
+      const n = g.offsets.length;
+      if (n === 0) continue;
+      const mesh = new THREE.InstancedMesh(g.geometry, g.material, n);
       mesh.matrixAutoUpdate = false;
-      offsets.forEach((o, i) => {
+      g.offsets.forEach((o, i) => {
         // Quarter turns about +y turn the piece's run (its x) to the cell's run axis.
-        this.quat.setFromAxisAngle(this.up, ((list.data[o + 3]! & 3) * Math.PI) / 2);
+        this.quat.setFromAxisAngle(this.up, (g.turnSign * (list.data[o + 3]! & 3) * Math.PI) / 2);
         this.at.set((list.data[o]! + 0.5) * cellM, (list.data[o + 1]! + 0.5) * cellM, (list.data[o + 2]! + 0.5) * cellM);
         mesh.setMatrixAt(i, this.matrix.compose(this.at, this.quat, this.scale));
       });
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
-      mesh.userData['voxelPieceDetail'] = low ? 'low' : 'high';
-      group.add(mesh);
-      this.instances += offsets.length;
-      this.piecesDrawn[low ? 'low' : 'high'] += offsets.length;
-      bytes += offsets.length * 64;
+      mesh.userData['voxelPieceDetail'] = g.low ? 'low' : 'high';
+      mesh.userData['voxelKitPiece'] = g.kit;
+      m.group.add(mesh);
+      this.instances += n;
+      this.pieceDraws++;
+      this.piecesDrawn[g.low ? 'low' : 'high'] += n;
+      if (g.kit) this.piecesDrawn.kit += n;
+      m.bytes += n * 64;
     }
-    return bytes;
+  }
+
+  private dropPieceMesh(child: THREE.InstancedMesh): void {
+    this.instances -= child.count;
+    this.pieceDraws--;
+    this.piecesDrawn[child.userData['voxelPieceDetail'] === 'low' ? 'low' : 'high'] -= child.count;
+    if (child.userData['voxelKitPiece'] === true) this.piecesDrawn.kit -= child.count;
+    child.dispose();
   }
 
   /** Stops drawing a chunk (unloaded, or nothing left to draw), or a node of `level`. */
@@ -476,11 +571,8 @@ export class VoxelChunkView {
     for (const child of m.group.children) {
       const i = this.pickable.indexOf(child);
       if (i >= 0) this.pickable.splice(i, 1);
-      if (child instanceof THREE.InstancedMesh) {
-        this.instances -= child.count;
-        this.piecesDrawn[child.userData['voxelPieceDetail'] === 'low' ? 'low' : 'high'] -= child.count;
-        child.dispose();
-      } else if (child instanceof THREE.Mesh) {
+      if (child instanceof THREE.InstancedMesh) this.dropPieceMesh(child);
+      else if (child instanceof THREE.Mesh) {
         this.triangles -= ((child.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
         (child.geometry as THREE.BufferGeometry).dispose();
       }
@@ -535,6 +627,8 @@ export class VoxelChunkView {
 
   /** Removes every chunk, node and seam; the stand-in pieces and the piece materials are disposed (the surface and a kit's pieces are their owners'). */
   dispose(): void {
+    this.kitLoaded?.();
+    this.kitLoaded = null;
     for (const m of this.levels) {
       if (m === undefined) continue;
       for (const d of m.values()) this.removeDraw(d);
@@ -545,6 +639,21 @@ export class VoxelChunkView {
     this.pieceMeshes.clear();
     for (const mt of this.pieceMaterials.values()) mt.dispose();
   }
+}
+
+/**
+ * A draw's instances copied (a batch's buffers may be reused once applied)
+ * with each kit piece's cell material read now, while the draw's shader
+ * data is in the view's grid buffer; default pieces get material 0.
+ */
+function keptInstances(list: InstanceList, materialAt: (x: number, y: number, z: number) => number): { instances: InstanceList; materials: Uint16Array } {
+  const data = list.data.slice(0, list.count * INSTANCE_BYTES);
+  const materials = new Uint16Array(list.count);
+  for (let k = 0; k < list.count; k++) {
+    const o = k * INSTANCE_BYTES;
+    if (defaultPieceFamily(data[o + 4]! | (data[o + 5]! << 8)) === 0) materials[k] = materialAt(data[o]!, data[o + 1]!, data[o + 2]!);
+  }
+  return { instances: { count: list.count, data }, materials };
 }
 
 /** What applying a batch replaced: per level-0 chunk, its bytes now (`[cx, cy, cz, bytes]` repeated), the coarse draws' bytes, and the entries applied. */

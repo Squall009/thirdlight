@@ -216,7 +216,7 @@ export function useEditorMount(deps: EditorMountDeps): void {
       snapping: () => snappingRef.current && !shiftRef.current,
       renderer: initialRenderer,
       // The project's voxel worlds, read by range from the backend with the editor's token (in the view's worker).
-      voxels: { url: (world) => `${config.authoringOrigin}/api/v1/projects/${encodeURIComponent(config.projectId)}/voxels/${encodeURIComponent(world)}`, headers: { authorization: `Bearer ${config.authoringToken}` } },
+      voxels: { url: (world) => `${config.authoringOrigin}/api/v1/projects/${encodeURIComponent(config.projectId)}/voxels/${encodeURIComponent(world)}`, headers: { authorization: `Bearer ${config.authoringToken}` }, kits: { api: `${config.authoringOrigin}/api/v1/projects/${encodeURIComponent(config.projectId)}`, projectId: config.projectId, headers: { authorization: `Bearer ${config.authoringToken}` } } },
     });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;

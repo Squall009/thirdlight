@@ -136,7 +136,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.5 | done: `case-forms.ts`: each case declares base keep/suppress/reshape + shape box/slab/panel/bar/post/none; every consumer reads the form (class's without a case); soffit reshaped to a slab. Catalogue v2, `kits` v3, derived v10 → v11 (spec note). Town 229 chunks: 15.29 → 15.80 MB, boxes full 22,429 → 23,201, partial 18,792 → 20,154; slice unchanged. 4 + 1 Rapier tests |
 | 46c.6 | done: `piece-table.ts` (material → kit by test binding, kit-local pieces, missing case → body → single → same-form role fallback → engine default), variant word (hash of cell + kit seed, bit 15 mirror), still 8 B; derived v11 → v12. Kit change re-derives only chunks/L1 nodes holding its materials. Table 1.65 kB a full kit; town L0 instances/chunk p50 80 → 1,355 with a full kit |
 | 46c.6b | done: wetness and a same-kit material paint re-derive shader data only, kit bound or not (real workers: 0 mesh derives); a cross-kit paint derives whole exactly the sections holding the painted cells. Edits report `materialSwaps`. Case windows drop the same-material bit unless a rule reads it (D478 fixed); derived v12 → v13. L1+ nodes still derive whole (D479) |
-| 46c.7 | not started |
+| 46c.7 | done: kit pieces drawn on the slice page, Play, Scene view, export: hosts build `worldPieceTable(kits)` (+ engine default kit `default-kit.ts`, 45 cases: 29 box pieces, 16 none; table format 2), GLBs via the content closure/backend, one instanced draw a (kit piece, variant, mirror, level) a chunk. Town render() CPU 3.2 → 8.1 ms (1,420 piece draws), slice unchanged; frames at the cap |
 | 46c.8 | not started |
 | 46c.9 | not started |
 | 46c.10 | not started |
@@ -391,6 +391,63 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   5.94 / 4.17 ms). `voxel-world.e2e.ts` untouched: 7 tests sum 63.8 s (61.8 s at 46c.6). Staging slice world needs no
   regenerating (derived data only).
 
+### 46c.7 pieces drawn
+
+- **Built:** `@thirdlight/voxel` `default-kit.ts` (`DEFAULT_KIT_ID` `@engine-default`, `DEFAULT_KIT_PIECES`: every catalogue
+  case a procedural piece of boxes in sixteenths in the case's orientation, or none; `defaultKitSource`), piece table
+  format 1 → 2 (a default-kit slot: every material no kit binds draws it), `worldPieceTable(kits)` (the world rules'
+  table with the default kit), `worldStreamer` and `VoxelWorldConnection` take `pieces`. Three-adapter
+  `voxel-kit-pieces.ts`: `VoxelKitMeshes` (GLB meshes parsed by the page's loader port from bytes the host hands it,
+  merged per mesh/node with `mergeWorldGeometry`, mirrored copies, default pieces built from boxes, a 256² labelled
+  debug UV texture, a stand-in tint a kit, `world(kits)`), `VoxelKitSet` (`resolve`, `describe`); `VoxelChunkView`
+  draws kit pieces (kit from the cell's material in the shader grid; one `InstancedMesh` a (kit piece, variant,
+  mirror, detail) a chunk; turn −90° a quarter (+x → +z, `applyFold`); waiting meshes built on arrival; `setKits`;
+  `pieceDraws`, `piecesDrawn.kit`); `VoxelWorldDraws.setKits`, stats `kitInstances`/`pieceDraws`. Hosts: slice page
+  (`queryGameConfig` kits, GLBs from the asset bytes route; `?kits=0` = no table; state `kits`, `pieceDraws`,
+  `drawCalls`; probes derive fresh with the table, `cellAt.kitPiece`), Play and export (`manifest.voxelKits` to the
+  sim init; GLBs by catalog row through the verified reader; hook `kits()`), Scene view (kits read once per open, sent
+  with `open`; the worker derives with them). Spec §3.7 table format 2; manual voxel worlds (how worlds draw kits).
+- **Default kit (engine-owned, procedural, game-ready report):** 29 pieces of 34 boxes (12 triangles a box high, 10 low
+  without the downward face: 12–48 / 10–40 a piece, 408 / 340 all); beam, rail, post stay the engine's stand-ins
+  (12 / 8). Texture: one 256² RGBA8 debug texture (256 KiB, mips ~341 KiB), shared by every kit piece. No files (code
+  only, `default-kit.ts`). Mirror-symmetric pieces share their unmirrored draw. The e2e test kit's GLB: 1,732 B, 12
+  triangles, no low, no texture.
+- **Tests:** `voxel-kit-pieces.test.ts` (adapter, 3: real derive + real GLB through `createGltfLoaderPort`: draws a
+  (kit piece, detail), instance at its cell, +x turned onto the run, determinant +1; waiting coping built when the GLB
+  arrives; L1 low; remove frees counts; a kit swap: untouched chunk keeps kit A's mesh, re-derived uses B's; the
+  mirrored copy; default geometry triangles/UVs and the debug texture's labels). `kit-pieces.test.ts` +2 (default kit
+  covers exactly the catalogue; world table binds, refuses the reserved id, paints within the default kit; on the
+  wall-beam-banister scene every no-table piece unchanged, default pieces only on kept feature cases). e2e
+  `voxel-world.e2e.ts` (no new test): a stone test kit (GLB end board) imported in `beforeAll`; per renderer: kit ids,
+  mesh ready, kit pieces > 5, the wall end's piece is the kit's, banister grown → wall: rail piece gone, default
+  coping on the new top, > 300 pixels changed (png.ts), dug back; Play (worker, single), Scene view, export (backend
+  stopped): kit meshes ready, kit instances > 5. Assembly proof: the beam stub's piece may now be a default trim on
+  the kept body (was `null`: no kit drew kept cells), never one replacing it.
+- **Measured** (staging, 1280 × 720 at the 60 Hz cap, `frames(8)` orbit, `?gpuTime=1`, 2026-11-04 05:19–05:24, uptime
+  11.5 d, load 2.3–2.8; 2 rounds; slice `[0,106,-30]`, town `[256,6,256]` as 46b.8b):
+  | | slice: kits / `?kits=0` | town: kits / `?kits=0` |
+  |---|---|---|
+  | draw calls | 193 / 183 | 1,179 / 414 (round 1: 1,496) |
+  | instances drawn (kit; L0 / L1) | 70 (51; 70 / 0) / 19 | 42,548 (34,247; 24,927 / 17,621) / 8,301 |
+  | instanced piece meshes | 16 / 6 | 1,420 / 273 (round 1: 1,904) |
+  | render() CPU p50 / p95 WebGPU | 1.3 / 2.1 vs 1.4 / 2.3 ms | 8.1 / 9.0 vs 3.2 / 5.2 ms (round 1: 10.8 / 18.9) |
+  | render() CPU p50 / p95 WebGL 2 | 1.4 / 2.6 vs 1.4 / 1.7 ms | 7.9 / 9.3 vs 3.0 / 3.8 ms (round 1: 10.6 / 12.0) |
+  | GPU ms a frame WebGPU / WebGL 2 | 8.0 / 3.8 vs 8.3 / 4.3 | 2.6 / 3.7 vs 4.6 / 3.9 |
+  | frame p50 / p95 | 16.7 / 16.8 both | 16.7 / 16.8 both |
+
+  Round 2's one change: mirror-symmetric default pieces share their draw (−26 % piece draws). **Miss, cause recorded:**
+  town render() CPU +4.9 ms from one instanced draw a (kit piece, variant, mirror, level) a chunk: 387 chunks and
+  nodes × ~4 piece kinds each (skirts, sills, headers, verges, mouldings at L0 and L1); frames still at the cap.
+  Fewer draws (pieces of a kind across chunks in one instanced draw, GPU culling, merged caches) is 46d's measurement
+  as planned; not tuned here. WebGPU GPU ms in the town read lower with kits (2.6 vs 4.6) in both rounds' orbits:
+  unexplained, recorded as read. Looked at (shots in `~/.cache/thirdlight-phase46/work/46c.7/shots`): slice close
+  (coping, end/corner boards, slab band with the debug texture; banister stand-ins), town near (foundation skirts,
+  sills and headers, running boards, verge boards stepped up the gables): pieces sit on their faces, no floating
+  pieces seen; WebGL 2 shots not looked at.
+- **Gate:** fast gate gate-fast-20261104-053229 GREEN (12 min, peak 4.3 GB; vitest 838 files; 36 e2e; perf at the cap
+  0 missed both renderers, 5.92 / 4.16 ms). `voxel-world.e2e.ts`: 7 tests sum 55.6 s alone (63.8 s at 46c.6b). Staging
+  slice world needs no regenerating (derived data and a job table only).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -554,6 +611,22 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   has no shader-only derive (46b design); out of this fix's scope, D479 (proposed for 46d with the per-level shader).
 - 2026-11-04 (46c.6, default chosen, owner to confirm): **the piece table is not stored in a result**: staleness is
   carried by the stamps of what a table change re-derives; results of untouched chunks are the same under both tables.
+
+- 2026-11-04 (46c.7, default chosen, owner to confirm): **the default kit binds every material no kit binds** through
+  a default-kit slot in the piece table (format 2), not a 4,095-pair binding list (16 KB a job); its pieces add to kept
+  bases only (copings, plinths, sills, edges, mouldings, skirts, frames); suppressed cases (beam, rail, post) stay the
+  engine's stand-in pieces, which every kit falls back to. A paint between two unbound materials stays shader data.
+- 2026-11-04 (46c.7, default chosen, owner to confirm): **one instanced draw a (kit piece, variant, mirror, level) a
+  chunk**: variants and mirrors are separate meshes (a mirrored copy keeps instance matrices unmirrored, so culling
+  and winding stay right); symmetric default pieces share their unmirrored draw. Cost recorded (town 1,420 piece
+  draws); cross-chunk instancing is 46d's.
+- 2026-11-04 (46c.7, default chosen, owner to confirm): **kit meshes stay loaded while the page has them** (a few dozen
+  a project); a table change keeps untouched chunks on the meshes they were built with until derived again; a mesh
+  still loading draws when it arrives, a failed one draws nothing (the slice page's status names it). The Scene view
+  reads the kits once a world opens: a kit edited while it is open shows after the world is opened again.
+- 2026-11-04 (46c.7, default chosen, owner to confirm): **kit pieces draw with a stand-in tint a kit and the debug UV
+  texture**, not the cell's material colour: a same-kit material paint is shader data only and builds no piece, so
+  pieces follow materials when 46d's material model gives them their own.
 
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this

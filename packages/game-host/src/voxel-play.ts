@@ -10,9 +10,13 @@
  * worker posts each batch to the page in one transferred message, a page
  * simulation hands it straight to the page's draws. The page answers with
  * the drawn chunks' GPU bytes (`drawn`), counted in the world's budget.
+ *
+ * Every world derives its detail pieces from the build's voxel kits (with
+ * the engine's default kit for the materials no kit binds): one piece table
+ * for all of them, the one the page draws the pieces from.
  */
 import type { VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, type ChunkDrawBatch } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, worldPieceTable, type ChunkDrawBatch, type PieceKitSource, type PieceTable } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
@@ -21,9 +25,10 @@ export interface VoxelPresentation {
   drawn(world: string, bytes: readonly number[], coarse: number): void;
 }
 
-/** Wraps a play's world ports so each opened world sends its chunk draws through `send`. */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void): VoxelPresentation {
+/** Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from `kits`. */
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[]): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
+  let table: PieceTable | null = null;
   return {
     ports: {
       open: async (world: string): Promise<VoxelWorldConnection> => {
@@ -37,6 +42,7 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           source: conn.source,
           pool: conn.pool,
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),
+          pieces: (table ??= worldPieceTable(kits)),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);
             mine = new ChunkDrawBatcher(world, stream, sectionEdge, send);

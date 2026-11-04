@@ -1439,9 +1439,12 @@ section: see the limits above.
   posts (`collision.test.ts`). A chunk's 16³ and 8³ sections give the whole chunk's case grid cell for cell, the
   reach margin included (tested).
 - **Kit pieces (46c.6, `piece-table.ts`, `stream-pieces.ts`):** a world's **piece table** is built on the main thread
-  from the project's voxel kits (§3.9) and the rule set's catalogue, and a derive job carries its bytes (format 1:
-  the rules' id and version, the case count, per kit its id, seed, own piece count, a kit-local piece per (case, run
-  section) and its variants' u16 weight thresholds, then the (material, kit) pairs; canonical: equal kits give equal
+  from the project's voxel kits (§3.9) and the rule set's catalogue, and a derive job carries its bytes (format 2:
+  the rules' id and version, the case count, the kit count, the **default kit's** slot (u16, 0xffff none), per kit
+  its id, seed, own piece count, a kit-local piece per (case, run section) and its variants' u16 weight thresholds,
+  then the (material, kit) pairs; every material no pair names draws the default kit; format 1 had no default slot.
+  Hosts build it with `worldPieceTable(kits)`: the project's kits plus the engine's procedural default kit
+  (`default-kit.ts`, every catalogue case a piece or none; DRAFT with the catalogue); canonical: equal kits give equal
   bytes; a worker decodes it once and keeps it by hash; a newer format, damaged bytes or another rule set's table are
   refused). **Material → kit** by the kit's test binding (`materials`; a material two kits bind goes to the first by
   id, a kit-check problem). **Missing pieces**, in order: the case's own run section, its body, its single; then

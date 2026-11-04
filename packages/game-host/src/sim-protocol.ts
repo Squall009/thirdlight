@@ -93,9 +93,10 @@ export interface SimInitMessage {
   /**
    * Where the play's voxel worlds are read from (the worker entry's voxel
    * ports open them there) and, in an export, the worlds its build ships;
-   * absent: they stream nothing.
+   * `kits`, the build's voxel kits their derives choose pieces from (the
+   * page draws them from the same kits); absent: they stream nothing.
    */
-  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[] };
+  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[]; readonly kits?: readonly import('@thirdlight/voxel').PieceKitSource[] };
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */

@@ -62,6 +62,7 @@ import {
   type VoxelPlane,
   type VoxelRecord,
   type WorkerPool,
+  type PieceTable,
 } from '@thirdlight/voxel';
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import {
@@ -98,6 +99,8 @@ export interface VoxelWorldConnection {
   readonly pool: WorkerPool;
   /** The world's memory budget in bytes (default the low tier's, `VOXEL_STREAM_BUDGET_BYTES.low`). */
   readonly budgetBytes?: number;
+  /** The kit piece table its derives choose detail pieces from (the project's kits, `worldPieceTable`; absent: the default pieces only). */
+  readonly pieces?: PieceTable | null;
   /** Lets go of what the source holds (open files, connections); called once when the world unloads. */
   close?(): void;
   /**

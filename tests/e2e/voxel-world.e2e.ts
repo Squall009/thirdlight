@@ -48,6 +48,14 @@
  * workers it starts; the world draws, the character stands on it, and a
  * dig typed into the debug console opens the pit (pixels) and drops it in.
  *
+ * Detail pieces come from the project's voxel kits: a test kit gives the
+ * stone wall's free ends a board from a GLB imported into the project, every
+ * other material draws the engine's default kit. The page, Play, the Scene
+ * view and the export (its GLB from the shipped content) all draw kit
+ * pieces; on the page, on both renderers, the banister grown into a wall
+ * takes the rail's pieces away and puts the default coping on the new top,
+ * and the picture changes.
+ *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
  * corner, locally (a game's runtime edit) and as a command, swaps every
@@ -56,7 +64,9 @@
  * the edit.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
+import * as THREE from 'three';
+import { glbBytes } from '@thirdlight/shared';
 import { dirname, join } from 'node:path';
 import { decodePng, changedPixels } from './png';
 import { expect, test, type Page } from './pw';
@@ -65,7 +75,7 @@ import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, LIGHT_COVERAGE, WORLD_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, DEFAULT_KIT_ID, dependentChunks, editBounds, jobRadius, LIGHT_COVERAGE, PIECE_FAMILY, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -79,7 +89,56 @@ test.beforeAll(async () => {
   // 128 m square: enough ground around the scene for the ring, quick to write.
   scene = [...writeSliceWorld(be.projectDir, 'slice', 256).scene] as Cell;
   farScene = [...writeSliceWorld(be.projectDir, 'far', 256, { x: FAR_CHUNKS, z: FAR_CHUNKS }).scene] as Cell;
+  await addStoneKit();
 });
+
+/**
+ * The test kit's id: end boards up the stone wall's free ends from a GLB (clear of the rows the tests paint and
+ * dig, so their pictures compare the surface). It binds stone and the two materials the wall is painted with below
+ * (brick, plank), so those paints stay within one kit (shader data only); every other material draws the engine's
+ * default kit.
+ */
+const STONE_KIT = 'stone-test';
+
+/**
+ * A voxel kit for the stone material with one authored piece, a wall end's board: a GLB (a 0.1 × 0.5 × 0.6 m box
+ * standing proud of the free end, 12 triangles, no texture) written into the project and imported as every model
+ * is, named by its version's digest.
+ */
+async function addStoneKit(): Promise<void> {
+  const box = new THREE.BoxGeometry(0.1, VOXEL_SIZE_M, 0.6).translate(VOXEL_SIZE_M / 2 + 0.02, 0, 0);
+  const parts = [box.getAttribute('position'), box.getAttribute('normal'), box.getAttribute('uv')].map((a) => new Uint8Array((a.array as Float32Array).slice().buffer));
+  const index = new Uint8Array(Uint16Array.from(box.index!.array as ArrayLike<number>).buffer);
+  const bin = new Uint8Array([...parts, index].reduce((n, b) => n + b.length, 0));
+  let at = 0;
+  const views = [...parts, index].map((b, i) => {
+    bin.set(b, at);
+    const v = { buffer: 0, byteOffset: at, byteLength: b.length, target: i < 3 ? 34962 : 34963 };
+    at += b.length;
+    return v;
+  });
+  box.computeBoundingBox();
+  const n = box.getAttribute('position').count;
+  const json = {
+    asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ name: 'End board', mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3 }] }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: n, type: 'VEC3', min: box.boundingBox!.min.toArray(), max: box.boundingBox!.max.toArray() },
+      { bufferView: 1, componentType: 5126, count: n, type: 'VEC3' },
+      { bufferView: 2, componentType: 5126, count: n, type: 'VEC2' },
+      { bufferView: 3, componentType: 5123, count: box.index!.count, type: 'SCALAR' },
+    ],
+    bufferViews: views, buffers: [{ byteLength: bin.length }],
+  };
+  const glb = glbBytes(JSON.stringify(json), bin);
+  mkdirSync(join(be.projectDir, 'assets', 'kits'), { recursive: true });
+  writeFileSync(join(be.projectDir, 'assets', 'kits', 'stone-end.glb'), glb);
+  const imported = (await playCmd('importAssets', { folder: 'assets/kits' })) as { change: { added: { assetId: string }[] } };
+  const assetId = imported.change.added[0]!.assetId;
+  const digest = createHash('sha256').update(glb).digest('hex');
+  console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no low mesh (L1 draws the high), no texture`);
+  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], cases: { 'wall-end': { sections: { body: { variants: [{ high: { assetId, digest } }] } } } } } });
+}
 test.afterAll(async () => {
   await be?.stop();
 });
@@ -103,7 +162,9 @@ async function open(page: Page, renderer: 'webgpu' | 'webgl2'): Promise<void> {
 interface CellReport {
   voxel: { material: number; role: number };
   resolved: string;
-  outputs: { renderSolid: boolean; baseFaces: number; piece: { family: number; section: number } | null; collision: string; navBlocks: boolean; standable: boolean; light: number } | null;
+  outputs: { renderSolid: boolean; baseFaces: number; piece: { family: number; section: number; replacesBase: boolean } | null; collision: string; navBlocks: boolean; standable: boolean; light: number } | null;
+  /** A kit piece's kit, case and run section (null: none, or an engine default piece). */
+  kitPiece: { kit: string; caseId: string; section: string } | null;
 }
 interface EditAnswer {
   ok: boolean;
@@ -210,7 +271,12 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   const cutAnswer = await send(cut);
   expect(cutAnswer.rederived).toContain(sectionName(beam));
   expect(sectionName(beam)).not.toBe(sectionName(behindBeam[0]!));
-  expect(await cellAt(page, beam)).toMatchObject({ resolved: 'wall', outputs: { collision: 'full', light: 255, piece: null } });
+  // A whole wall for every consumer; its piece, if any, is no beam: a default-kit trim added to the kept body (the
+  // stub's exposed edges), never one replacing it.
+  const stub = await cellAt(page, beam);
+  expect(stub).toMatchObject({ resolved: 'wall', outputs: { collision: 'full', light: 255 } });
+  expect(stub.outputs?.piece?.replacesBase ?? false).toBe(false);
+  expect(stub.outputs?.piece === null || stub.kitPiece?.kit === DEFAULT_KIT_ID).toBe(true);
   expect((await cellAt(page, [ox - 5, oy + 5, oz - 1])).outputs?.piece?.section).not.toBe(2);
   await send({ v: 2, grid: 0, kind: 'set', cells: behindBeam.flat(), voxel: { material: MAT.stone, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } });
   expect((await cellAt(page, beam)).resolved).toBe('beam');
@@ -291,6 +357,27 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect((await hook<{ centre: Cell } | null>(page, 'sweep', [ox - 2.5, oy + 1.5, oz + 12], [0, 0, -1], 0.15, 20))!.centre[2]).toBeCloseTo(oz + 1.3, 1);
     // The probes' markers out of the pictures compared below.
     await hook(page, 'clearMarkers');
+
+    // Kit pieces: the stone wall's free end draws the test kit's GLB board (read from the backend, parsed by the page's
+    // loader); every other material the engine's default kit (copings, edges, frames).
+    const kitState = await hook<{ piecesByDetail: { kit: number }; kits: { ids: string[]; meshes: Record<string, string> } }>(page, 'state');
+    expect(kitState.kits.ids).toEqual([STONE_KIT, DEFAULT_KIT_ID]);
+    expect(Object.values(kitState.kits.meshes)).toEqual(['ready']);
+    expect(kitState.piecesByDetail.kit).toBeGreaterThan(5);
+    expect((await cellAt(page, [ox + 5, oy + 2, oz])).kitPiece).toMatchObject({ kit: STONE_KIT, caseId: 'wall-end' });
+    // The banister grown into a wall (its gaps and a row over the rail): the rail's default pieces go, the new wall's
+    // top draws the default kit's coping, the picture changes; dug back, the banister and its pieces are as before.
+    const railCell: Cell = [ox - 3, oy + 2, oz + 7];
+    expect((await cellAt(page, railCell)).outputs?.piece?.family).toBe(PIECE_FAMILY.rail);
+    const grown: number[] = [];
+    for (let x = -4; x < 4; x++) grown.push(...((x & 1) !== 0 ? [ox + x, oy + 1, oz + 7] : []), ox + x, oy + 3, oz + 7);
+    const banisterShot = await shot(page);
+    expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'set', cells: grown, voxel: { material: MAT.timber, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } })).ok).toBe(true);
+    expect((await cellAt(page, railCell)).outputs?.piece).toBeNull();
+    expect((await cellAt(page, [ox - 3, oy + 3, oz + 7])).kitPiece).toMatchObject({ kit: DEFAULT_KIT_ID, caseId: 'wall-top' });
+    expect(changedPixels(banisterShot, await shot(page)), 'banister → wall').toBeGreaterThan(300);
+    expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'dig', cells: grown })).ok).toBe(true);
+    expect((await cellAt(page, railCell)).outputs?.piece?.family).toBe(PIECE_FAMILY.rail);
 
     // A 2 m blast at the scene's chunk corner in x and z (the pad's ground under the wall's foot), first as a game's
     // runtime edit in the page: the dug cells read as air in the same task as the edit, before anything is rebuilt;
@@ -492,7 +579,7 @@ async function playProject(): Promise<[number, number, number]> {
 }
 
 interface PlayObservation { state?: string; stepIndex?: number; counters?: Record<string, number>; player?: { x: number; y: number; z: number } }
-interface VoxelPlayHook { stats(): { worlds: Record<string, { chunks: number; triangles: number }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }> }
+interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }> }
 
 for (const renderer of ['webgpu', 'webgl2'] as const) {
   // WebGPU plays with the simulation in its worker, WebGL 2 in the page: both ways the world reaches the draws.
@@ -521,6 +608,9 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
     // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
     await expect.poll(async () => (await drawn()).worlds['far']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
+    // Kit pieces drawn: the stone kit's GLB read from the build's content and parsed on the page, the default kit's elsewhere.
+    await expect.poll(async () => Object.values(await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.kits())), { timeout: 20_000 }).toEqual(['ready']);
+    expect((await drawn()).worlds['far']!.kitInstances).toBeGreaterThan(5);
     // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
     await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     const standing = (await observe()).player!;
@@ -593,7 +683,7 @@ async function sceneViewStill(page: Page, name: string): Promise<ReturnType<type
   return decodePng(png!);
 }
 
-interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
+interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number; kitInstances: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
 
 test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit sent through the command route shows without a reload", async ({ page }) => {
   test.setTimeout(120_000);
@@ -619,6 +709,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   expect(changedPixels(bare, world)).toBeGreaterThan(20_000);
   const drawn = (await voxels())!;
   expect(drawn.problems).toEqual({});
+  expect(drawn.worlds['slice']!.kitInstances, 'kit pieces drawn').toBeGreaterThan(5);
 
   // A 3 m pit dug through the command route (as MCP sends it): the view reads the changed chunks again and shows it.
   const before = drawn.states['slice']!.revision;
@@ -702,6 +793,10 @@ test('Export: the Play project exported and served statically with the backend s
     }, { timeout: 60_000, intervals: [100], message: 'the world is drawn round the camera' }).toBe(true);
     const fillMs = grewAt - t0;
     await expect.poll(async () => { const y = (await observe())?.player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
+    // The kit's GLB came with the build's content files (the backend is stopped) and draws; the default kit's pieces too.
+    const play = (): Promise<{ kits: Record<string, string>; kitInstances: number }> => game.evaluate(() => { const h = (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay; return { kits: h.kits(), kitInstances: h.stats().worlds['far']?.kitInstances ?? 0 }; });
+    await expect.poll(async () => Object.values((await play()).kits), { timeout: 20_000 }).toEqual(['ready']);
+    expect((await play()).kitInstances).toBeGreaterThan(5);
     const threading = await game.evaluate(() => (window as unknown as { __thirdlightThreading?: { mode: string } }).__thirdlightThreading?.mode ?? null);
     console.log(`[voxel-export] cold fill (page load → drawn chunks steady): ${fillMs} ms, ${chunks} chunks; pit resident at ${residentMs} ms; simulation ${String(threading)}`);
     const standing = (await observe())!.player!;

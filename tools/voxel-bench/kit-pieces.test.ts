@@ -9,6 +9,15 @@
 import {
   buildApron,
   buildPieceTable,
+  DEFAULT_KIT_ID,
+  DEFAULT_KIT_PIECES,
+  DEFAULT_KIT_UNITS,
+  defaultKitSource,
+  materialSwap,
+  NO_KIT,
+  PIECE_TABLE_FORMAT,
+  pieceTableKitChanges,
+  worldPieceTable,
   chunkGrid,
   createWorldStore,
   defaultPiece,
@@ -122,8 +131,8 @@ describe('the piece table', () => {
     expect(again.hash).toBe(table.hash);
     expect(again.kits.map((k) => k.hash)).toEqual(table.kits.map((k) => k.hash));
     const newer = table.bytes.slice();
-    newer[0] = 2;
-    expect(() => readPieceTable(newer)).toThrow(/format 2/);
+    newer[0] = PIECE_TABLE_FORMAT + 1;
+    expect(() => readPieceTable(newer)).toThrow(new RegExp(`format ${PIECE_TABLE_FORMAT + 1}`));
     expect(() => readPieceTable(table.bytes.subarray(0, table.bytes.length - 1))).toThrow(RangeError);
     // A table names its rule set: the terrain rules have no catalogue, and a derive refuses a table of other rules.
     expect(() => deriveFromStore(createWorldStore(grid), 0, 0, 0, { ...KIT_RULES, version: KIT_RULES.version + 1, resolve: KIT_RULES.resolve }, undefined, table)).toThrow(/piece table/);
@@ -338,5 +347,63 @@ describe('kit pieces per level', () => {
     expect(count.l1kit).toBeGreaterThan(0);
     expect(count.replaced[0]).toBeGreaterThan(0);
     expect(count.replaced[1]).toBeGreaterThan(0);
+  });
+});
+
+describe('the default kit', () => {
+  it('answers every catalogue case (a piece or none), and a world table draws it for every material no kit binds', () => {
+    expect(Object.keys(DEFAULT_KIT_PIECES).sort()).toEqual(DRAFT_CASE_CATALOGUE.cases.map((c) => c.id).sort());
+    for (const [id, p] of Object.entries(DEFAULT_KIT_PIECES)) {
+      if (p === null) continue;
+      const c = DRAFT_CASE_CATALOGUE.cases.find((x) => x.id === id)!;
+      // A suppressed case is the engine's default pieces' (they carry its run sections); the kit adds to kept bases only.
+      expect(c.base, id).not.toBe('suppress');
+      expect(p.boxes.length).toBeGreaterThan(0);
+      for (const b of p.boxes) for (let a = 0; a < 3; a++) {
+        expect(b[a + 3]!, id).toBeGreaterThan(b[a]!);
+        expect(Math.min(b[a]!, b[a + 3]!)).toBeGreaterThanOrEqual(-2);
+        expect(Math.max(b[a]!, b[a + 3]!)).toBeLessThanOrEqual(DEFAULT_KIT_UNITS + 6);
+      }
+    }
+    const log = fullTestKit('log', [MAT.timber], 2);
+    const t = worldPieceTable([log]);
+    expect(t.kits.map((k) => k.id)).toEqual(['log', DEFAULT_KIT_ID]);
+    expect(t.defaultKit).toBe(1);
+    expect(t.materialKit[MAT.timber]).toBe(0);
+    expect(t.materialKit[MAT.stone]).toBe(1);
+    expect(t.materialKit[0]).toBe(NO_KIT);
+    expect(readPieceTable(t.bytes).materialKit).toEqual(t.materialKit);
+    expect(worldPieceTable([log]).bytes).toEqual(t.bytes);
+    expect(() => buildPieceTable([{ voxelKitId: DEFAULT_KIT_ID, cases: {} }], KIT_RULES, defaultKitSource(DRAFT_CASE_CATALOGUE))).toThrow(/default kit's id/);
+    // Painting between two unbound materials stays within the default kit; onto the log kit's, it changes kits.
+    expect(pieceTableKitChanges(t, [materialSwap(MAT.stone, MAT.plank)])).toBe(false);
+    expect(pieceTableKitChanges(t, [materialSwap(MAT.stone, MAT.timber)])).toBe(true);
+  });
+
+  it('puts its pieces on the kept edges of the wall-beam-banister scene and leaves the beam, rail and posts the engine\'s default pieces', () => {
+    const s = createWorldStore(grid);
+    placeWallBeamBanister(s);
+    const t = worldPieceTable([]);
+    const cases = new Map<string, number>();
+    const seenCase = (inst: Inst): void => {
+      const pc = kitPieceList(defaultKitSource(DRAFT_CASE_CATALOGUE), DRAFT_CASE_CATALOGUE).pieces[inst.piece - KIT_PIECE_BASE]!;
+      cases.set(pc.caseId, (cases.get(pc.caseId) ?? 0) + 1);
+    };
+    for (const [cx, cy, cz] of [[-1, 0, -1], [0, 0, -1], [-1, 0, 0], [0, 0, 0]] as const) {
+      const plain = instancesOf(deriveFromStore(s, cx, cy, cz, KIT_RULES));
+      const now = instancesOf(deriveFromStore(s, cx, cy, cz, KIT_RULES, undefined, t));
+      // Every piece without a table is there unchanged (the suppressed cells' default pieces).
+      for (const [i, b] of plain) expect(now.get(i), `cell ${i}`).toEqual(b);
+      for (const [i, inst] of now) {
+        if (plain.has(i)) continue;
+        expect(inst.piece).toBeGreaterThanOrEqual(KIT_PIECE_BASE);
+        expect(inst.flags & INSTANCE_FLAG.replacesBase).toBe(0);
+        seenCase(inst);
+      }
+    }
+    // The wall's coping and its end and corner boards, the slab's edge band; nothing for plain faces.
+    expect(cases.get('wall-top')).toBeGreaterThan(5);
+    expect([...cases.keys()].every((id) => DEFAULT_KIT_PIECES[id] !== null)).toBe(true);
+    expect(cases.has('wall-plain')).toBe(false);
   });
 });

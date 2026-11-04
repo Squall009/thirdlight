@@ -45,6 +45,12 @@
  * a quarter metre, half a cell), `?shading=flat` draws one colour with no texture
  * reads (to measure what the blend costs), `?gpuTime=1` records GPU
  * timestamps where the device has them, `?sun=` sets the sun's elevation in degrees.
+ *
+ * Detail pieces are the project's voxel kits (read through the command
+ * route, their GLBs from the backend), with the engine's default kit for
+ * every material no kit binds, through the one piece table the streamer
+ * derives with; `?kits=0` derives without a table (the engine's default
+ * stand-in pieces only, to compare).
  */
 import * as THREE from 'three';
 import {
@@ -78,6 +84,7 @@ import {
   WETNESS_MAX,
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { pageToken } from '../config';
 import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
@@ -161,6 +168,15 @@ export interface EditTiming {
   startedAt?: number;
 }
 
+/** The page's sky light and sun: ~60° high by default; `?sun=` lowers it (same azimuth) so slope banding and creases can be looked at in grazing light. */
+function addLights(scene: THREE.Scene): void {
+  scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a4030, 1.3));
+  const sun = new THREE.DirectionalLight(0xfff2dc, 2.2);
+  const sunHorizontal = Math.hypot(0.5, 0.3);
+  sun.position.set(0.5, sunElevationDeg === null ? 1 : Math.tan((sunElevationDeg * Math.PI) / 180) * sunHorizontal, 0.3);
+  scene.add(sun);
+}
+
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
 async function main(): Promise<void> {
   const world = await RangeWorld.open({ url: `${api}/voxels/${encodeURIComponent(worldName)}`, headers, workerUrl: './voxel-worker.js', workers, stats: range }).catch((e: unknown) => fail(`voxel world ${worldName}: ${e instanceof Error ? e.message : String(e)}`));
@@ -179,12 +195,7 @@ async function main(): Promise<void> {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9fc4e8);
-  scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a4030, 1.3));
-  const sun = new THREE.DirectionalLight(0xfff2dc, 2.2);
-  // ~60° high by default; `?sun=` lowers it (same azimuth) so slope banding and creases can be looked at in grazing light.
-  const sunHorizontal = Math.hypot(0.5, 0.3);
-  sun.position.set(0.5, sunElevationDeg === null ? 1 : Math.tan((sunElevationDeg * Math.PI) / 180) * sunHorizontal, 0.3);
-  scene.add(sun);
+  addLights(scene);
   const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1500);
 
   // The camera orbits a target point (cells, 64-bit); everything drawn is relative to the floating origin.
@@ -193,8 +204,11 @@ async function main(): Promise<void> {
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: blendM, shading });
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
-  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
+  // The project's kits and the default kit, one table for the derives and the draws; their meshes load beside the stream.
+  const kitRoute = { api, projectId, headers };
+  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
   const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') === 'level' ? 'level' : params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
@@ -465,6 +479,7 @@ async function main(): Promise<void> {
   const t0 = performance.now();
   await streamer.settle();
   const coldMs = performance.now() - t0;
+  notice = await kits.loaded; // kit meshes that failed draw nothing: the status names them
   requestAnimationFrame(frame);
 
   const q = (r: SampleRing, p: number): number => Number(r.quantile(p).toFixed(3));
@@ -509,10 +524,11 @@ async function main(): Promise<void> {
     ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, levelLog, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
     swaps: () => swaps.slice(),
-    ...assemblyProbes({ streamer, grid, origin, collision, scene, files }),
+    ...assemblyProbes({ streamer, grid, origin, collision, scene, files, kitPiece: (material, piece) => meshes.kits?.describe(material, piece) ?? null }),
     /** A dab at the cell under a screen point. */
     pickAndEdit,
     async settle(): Promise<void> {
+      await kits.loaded;
       await streamer.settle();
       await ring?.settle();
     },
@@ -538,7 +554,8 @@ async function main(): Promise<void> {
         seamTriangles: meshes.seamTriangles,
         lod: mips === null ? null : { ...mips.lod.counters, radii: mips.lod.levelRings.radii, swapMs: { p50: q(mips.lod.swapMs, 0.5), p95: q(mips.lod.swapMs, 0.95), n: mips.lod.swapMs.count } },
         triangles: meshes.triangles,
-        pieces: meshes.instances, piecesByDetail: { ...meshes.piecesDrawn },
+        pieces: meshes.instances, piecesByDetail: { ...meshes.piecesDrawn }, pieceDraws: meshes.pieceDraws, drawCalls: (renderer.info as unknown as { render: { drawCalls: number } }).render.drawCalls,
+        kits: { ids: kits.table?.kits.map((k) => k.id) ?? [], meshes: kits.meshes.states() },
         streamBytes: m.bytes,
         heapMB: Number((heap / 1e6).toFixed(1)),
         gpu: rendererMemory(renderer),

@@ -211,11 +211,11 @@ describe('the voxel chunk view', () => {
     expect(high.every((m) => [...kit].some(([k, g]) => g === m.geometry && k.endsWith(':high')))).toBe(true);
     expect(low.every((m) => [...kit].some(([k, g]) => g === m.geometry && k.endsWith(':low')))).toBe(true);
     expect(high.reduce((n, m) => n + m.count, 0)).toBe(d0.instances.count);
-    expect(view.piecesDrawn).toEqual({ high: d0.instances.count, low: d1.instances.count });
+    expect(view.piecesDrawn).toEqual({ high: d0.instances.count, low: d1.instances.count, kit: 0 });
     // Each family and detail is asked for once; the kit's meshes are its own.
     expect(new Set(asked).size).toBe(asked.length);
     view.remove(cx!, cy!, cz!, 1);
-    expect(view.piecesDrawn).toEqual({ high: d0.instances.count, low: 0 });
+    expect(view.piecesDrawn).toEqual({ high: d0.instances.count, low: 0, kit: 0 });
     view.dispose();
     expect(disposed).toEqual([]);
     // The stand-ins: the low mesh is the high box without its two ends along its long axis.

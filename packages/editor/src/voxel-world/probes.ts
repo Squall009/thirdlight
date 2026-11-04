@@ -49,6 +49,8 @@ export interface ProbeContext {
   readonly scene: THREE.Scene;
   /** Region files by name → tag, as the page knows them now. */
   readonly files: ReadonlyMap<string, string | null>;
+  /** What a kit piece of a cell of `material` is (its kit, case and run section), or null. */
+  readonly kitPiece?: (material: number, piece: number) => { readonly kit: string; readonly caseId: string; readonly section: string } | null;
 }
 
 export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: never[]) => unknown> {
@@ -61,8 +63,8 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
   ctx.scene.add(markers);
 
   /**
-   * A section derived afresh in this thread from the store as it is now,
-   * as the streamer's hash would be (0: in an air chunk with only air
+   * A section derived afresh in this thread from the store as it is now
+   * (with the streamer's piece table), as the streamer's hash would be (0: in an air chunk with only air
    * around, which a derive skips). Compared with the streamer's result, it
    * shows whether that result is stale.
    */
@@ -73,7 +75,7 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
       const apron = buildApron(store, cx, cy, cz, jobRadius(WORLD_RULES));
       if (apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) return 0;
     }
-    return crc32(encodeDerived(deriveSectionFromStore(store, sections, sx, sy, sz, WORLD_RULES)));
+    return crc32(encodeDerived(deriveSectionFromStore(store, sections, sx, sy, sz, WORLD_RULES, streamer.pieces.table)));
   }
 
   /** The derived sections within `r` sections of (cx, cy, cz) (section coordinates): their hashes by "x,y,z" (null: not derived). */
@@ -105,10 +107,13 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
     cellAt(x: number, y: number, z: number): Record<string, unknown> {
       streamer.voxelAt(x, y, z, v);
       const d = streamer.derivedOf(chunkOf(sections, x), chunkOf(sections, y), chunkOf(sections, z))?.assembly ?? null;
+      const outputs = d === null ? null : cellOutputs(d, localOf(sections, x), localOf(sections, y), localOf(sections, z));
+      const p = outputs?.piece ?? null;
       return {
         voxel: { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness },
         resolved: className(resolvedClassAt(streamer.overlay, WORLD_RULES, x, y, z)),
-        outputs: d === null ? null : cellOutputs(d, localOf(sections, x), localOf(sections, y), localOf(sections, z)),
+        outputs,
+        kitPiece: p === null || p.family !== 0 ? null : (ctx.kitPiece?.(v.material, p.piece) ?? null),
       };
     },
     windowHashes,

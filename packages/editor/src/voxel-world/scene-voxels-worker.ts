@@ -16,7 +16,7 @@
  * for the next focus move or change once everything around the focus is
  * drawn, so an idle view costs nothing here.
  */
-import { ChunkDrawBatcher, chunkDrawBatchTransfer, chunkKey, VOXEL_SIZE_M, worldStreamer, type ChunkCoord, type VoxelStreamer } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, chunkDrawBatchTransfer, chunkKey, VOXEL_SIZE_M, worldPieceTable, worldStreamer, type ChunkCoord, type VoxelStreamer } from '@thirdlight/voxel';
 import { RangeWorld, type WorldChange } from './range-world';
 import type { SceneVoxelsIn, SceneVoxelsOut } from './scene-voxels-wire';
 
@@ -85,7 +85,8 @@ async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
     world.pool.close();
     return;
   }
-  const streamer = worldStreamer(world, m);
+  // The project's kits (with the default kit): the table the page draws the pieces from too.
+  const streamer = worldStreamer({ grid: world.grid, source: world.source, pool: world.pool, pieces: worldPieceTable(m.kits) }, m);
   w.world = world;
   w.streamer = streamer;
   streamer.on((e) => {
