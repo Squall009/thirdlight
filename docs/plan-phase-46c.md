@@ -994,6 +994,10 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   when and how much damage is game logic. Next: a 46c revision (case catalogue, roof mesher, kits, role spec and
   trim drafts re-done), then re-present.
 
+- 2026-11-04 (OWNER): **construction tiling textures are authored to a 4 × 4 m full wall**: one texture repeat = one
+  full-size wall (4 m) in both directions, anchored to the build grid in metres, floors on the same grid (46d material
+  model; replaces the trim draft's 4 m U period / 1 m field assumptions for base surfaces).
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
