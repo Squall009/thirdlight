@@ -113,7 +113,7 @@ describe('the level choice', () => {
     expect(there.drawn(0, 4, 0, 0)).toBe(true);
   });
 
-  it('splits a coarse node facing nodes two levels finer (no level-1 band), and reports what it cannot mend', () => {
+  it('splits a coarse node facing or touching at an edge or corner nodes two levels finer (no level-1 band), and reports what it cannot mend', () => {
     const foci = [{ x: 0, y: 0, z: 0 }];
     const noBand: LevelRings = { radii: [128, 128], hysteresis: 0 };
     const { drawn, unbalanced } = choose(foci, noBand);

@@ -210,26 +210,27 @@ export function chooseLevels(c: LevelChoice): { readonly drawn: DrawnLevels; rea
   return { drawn: out, stats: { unbalanced: balance(out, c, ready) } };
 }
 
-/** The drawn levels across one face of node n (the layer of its same-size neighbour against the face). */
-function finerAcross(drawn: DrawnLevels, n: LevelNode, f: number, below: number): boolean {
-  const axis = f >> 1;
-  const m = [n.nx, n.ny, n.nz];
-  m[axis]! += f & 1 ? 1 : -1;
-  const inPlane = [0, 1, 2].filter((a) => a !== axis);
+/** The 26 directions to a node's face, edge and corner neighbours. */
+const NEIGHBOURS: ReadonlyArray<readonly [number, number, number]> = [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => [x, y, z] as const))).filter(([x, y, z]) => x !== 0 || y !== 0 || z !== 0);
+
+/**
+ * Whether a node of level `below` or finer is drawn against node n in
+ * direction d (a face, edge or corner: the layer of its same-size neighbour
+ * that touches n). Edges and corners count too: a seam's rim reads its
+ * edge and corner neighbours, and two levels apart there leave a gap.
+ */
+function finerAcross(drawn: DrawnLevels, n: LevelNode, d: readonly [number, number, number], below: number): boolean {
+  const m = [n.nx + d[0], n.ny + d[1], n.nz + d[2]];
   for (let l = 0; l <= below; l++) {
     const s = 2 ** (n.level - l);
-    for (let i = 0; i < s; i++) for (let j = 0; j < s; j++) {
-      const c = [0, 0, 0];
-      c[axis] = f & 1 ? m[axis]! * s : m[axis]! * s + s - 1;
-      c[inPlane[0]!] = m[inPlane[0]!]! * s + i;
-      c[inPlane[1]!] = m[inPlane[1]!]! * s + j;
-      if (drawn.drawn(l, c[0]!, c[1]!, c[2]!)) return true;
-    }
+    // Per axis the cells of the neighbour beside n: its first layer (d +1), its last (d −1), or all of them (d 0).
+    const span = d.map((v, a) => (v === 1 ? [m[a]! * s] : v === -1 ? [m[a]! * s + s - 1] : Array.from({ length: s }, (_, i) => m[a]! * s + i)));
+    for (const x of span[0]!) for (const y of span[1]!) for (const z of span[2]!) if (drawn.drawn(l, x, y, z)) return true;
   }
   return false;
 }
 
-/** Splits drawn nodes that face nodes two or more levels finer while their children are ready; returns the faces left so. */
+/** Splits drawn nodes that touch nodes two or more levels finer while their children are ready; returns the nodes left so. */
 function balance(drawn: DrawnLevels, c: LevelChoice, ready: (n: LevelNode) => boolean): number {
   let unbalanced = 0;
   const queue = [...drawn.nodes()].filter((n) => n.level >= 2).sort((a, b) => b.level - a.level);
@@ -237,7 +238,7 @@ function balance(drawn: DrawnLevels, c: LevelChoice, ready: (n: LevelNode) => bo
     const n = queue.shift()!;
     if (!drawn.drawn(n.level, n.nx, n.ny, n.nz)) continue;
     let bad = false;
-    for (let f = 0; f < 6 && !bad; f++) bad = finerAcross(drawn, n, f, n.level - 2);
+    for (let i = 0; i < NEIGHBOURS.length && !bad; i++) bad = finerAcross(drawn, n, NEIGHBOURS[i]!, n.level - 2);
     if (!bad) continue;
     const kids: LevelNode[] = [];
     for (let o = 0; o < 8; o++) {
@@ -253,10 +254,9 @@ function balance(drawn: DrawnLevels, c: LevelChoice, ready: (n: LevelNode) => bo
       drawn.add(k);
       if (k.level >= 2) queue.push(k);
     }
-    // Its coarser neighbours may now face nodes two levels finer.
-    for (let f = 0; f < 6; f++) {
-      const m = [n.nx, n.ny, n.nz];
-      m[f >> 1]! += f & 1 ? 1 : -1;
+    // Its coarser neighbours (across faces, edges and corners) may now touch nodes two levels finer.
+    for (const d of NEIGHBOURS) {
+      const m = [n.nx + d[0], n.ny + d[1], n.nz + d[2]];
       const up = { level: n.level + 1, nx: m[0]! >> 1, ny: m[1]! >> 1, nz: m[2]! >> 1 };
       if (up.level <= c.maxLevel && drawn.drawn(up.level, up.nx, up.ny, up.nz)) queue.push(up);
     }

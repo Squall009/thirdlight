@@ -2,8 +2,9 @@
  * Brute-force checks of a set of drawn level nodes, independent of how the
  * level choice works: every node expanded to the level-0 chunks it covers.
  * - doubled: chunks covered by more than one drawn node;
- * - unbalanced: node faces with a node more than one level apart across them
- *   (the seams join only neighbouring levels);
+ * - unbalanced: node faces, edges and corners with a node more than one
+ *   level apart across them (the seams join only neighbouring levels, and a
+ *   seam's rim reads its edge and corner neighbours);
  * - covered: chunk key → the level of the node drawn over it.
  */
 import type { LevelNode } from '@thirdlight/voxel';
@@ -13,6 +14,9 @@ export interface LevelCheck {
   readonly unbalanced: number;
   readonly covered: Map<string, number>;
 }
+
+/** The 26 directions to a node's face, edge and corner neighbours. */
+const NEIGHBOURS: ReadonlyArray<readonly [number, number, number]> = [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => [x, y, z] as const))).filter(([x, y, z]) => x !== 0 || y !== 0 || z !== 0);
 
 export const chunkId = (cx: number, cy: number, cz: number): string => `${cx},${cy},${cz}`;
 
@@ -37,16 +41,12 @@ export function checkLevels(nodes: Iterable<LevelNode>): LevelCheck {
   for (const n of list) {
     const s = 2 ** n.level;
     const base = [n.nx * s, n.ny * s, n.nz * s];
-    for (let f = 0; f < 6; f++) {
-      const axis = f >> 1;
-      const inPlane = [0, 1, 2].filter((a) => a !== axis);
+    for (const d of NEIGHBOURS) {
+      // The chunks beside the node in direction d: one layer past it on each axis d moves along, all of it on the others.
+      const span = d.map((v, a) => (v === 1 ? [base[a]! + s] : v === -1 ? [base[a]! - 1] : Array.from({ length: s }, (_, i) => base[a]! + i)));
       let bad = false;
-      for (let i = 0; i < s && !bad; i++) for (let j = 0; j < s && !bad; j++) {
-        const c = [0, 0, 0];
-        c[axis] = f & 1 ? base[axis]! + s : base[axis]! - 1;
-        c[inPlane[0]!] = base[inPlane[0]!]! + i;
-        c[inPlane[1]!] = base[inPlane[1]!]! + j;
-        const l = covered.get(chunkId(c[0]!, c[1]!, c[2]!));
+      for (const x of span[0]!) for (const y of span[1]!) for (const z of span[2]!) {
+        const l = covered.get(chunkId(x, y, z));
         if (l !== undefined && Math.abs(l - n.level) > 1) bad = true;
       }
       if (bad) unbalanced++;
