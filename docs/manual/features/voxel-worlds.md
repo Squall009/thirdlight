@@ -230,6 +230,23 @@ versions their meshes name.
 
 ## Voxel kits
 
+> **Draft:** the case list and the kit format may still change. Both wait
+> for the owner's approval of the role spec (and, for kits that use a trim
+> sheet, the trim layout for detail pieces); worlds draw with kits now.
+
+**What a kit is.** Cells store only a role (wall, floor, roof …), never
+"beam" or "corner" or "window sill". The engine reads each built cell's
+neighbourhood (two cells round it) and gives it a **case**: a plain wall, a
+wall's top, its end, an outside corner, a beam under a floor's edge, a
+banister rail, a soffit under an overhang, and so on. A kit is the set of
+3D pieces a material type draws those cases with: a log kit lays half-logs
+along plain walls and log ends out of the corners, a stone kit lays ashlar,
+copings and quoins. Runs (a beam, a coping, a rail) are built from short
+sections (start, body, end, corner, junction), so any length works, and
+where the run ends, the kit's end piece goes. What collides, what blocks
+walking and how much light passes come from the case, never from a kit's
+pieces, so every kit of a material type plays the same.
+
 A voxel kit is one project item (its own file under `assets/voxel-kits/`,
 a `voxelkit` in the project index) holding the detail pieces a material
 type draws a world's cases with. It belongs to a material *type* (wood,
@@ -252,8 +269,9 @@ them as `voxelKits`.
 - **`gameData`** on the kit and on each case: any JSON (break, sound,
   physics defaults). The engine keeps it, ships it and never reads it; a
   game's scripts read it.
-- **`materials`** is a test binding, the voxel material ids the kit
-  applies to, until materials name their kit. **`trimLayout`** names the
+- **`materials`** binds the kit to materials, for now: the voxel material
+  ids the kit draws. Once materials have records of their own, a material
+  names its kit and this field is no longer read. **`trimLayout`** names the
   trim layout the pieces' UVs follow; absent, the kit uses no trim sheet.
 
 **How worlds draw them.** The voxel world page, Play, the Scene view and an
@@ -274,9 +292,37 @@ draws when it arrives; one that fails draws nothing (the page's status names
 it). In the Scene view a kit edited while a world is open shows once the
 world is opened again (another scene, or a reload).
 
-The case and section ids, the checks a kit must pass and the trim layout
-for detail pieces are drafts awaiting the owner's approval: worlds draw with
-kits now, but the cases and layouts may still change.
+Painting cells another material of the same kit (oak to pine of a wood
+kit) only changes the shading; painting them a material of another kit (a
+log wall to stone) also rebuilds the pieces of the painted cells.
+
+**Kit check.** Every kit is checked when the project opens and after a kit
+or a model it names changes; problems show in the editor's **Problems** (and
+MCP's `tl_diagnostics`) as `voxel_kit_check` lines, one a rule:
+
+- **error** — something draws wrong or not at all: a case or section id
+  the case list does not have, a mesh whose model is missing, unreadable or
+  has no such node, a piece whose pivot is off its cell, trim rules T1, T2
+  and T4;
+- **warning** — something draws, just not from the kit: a required case
+  the kit leaves to its role's plain piece, the base surface or the
+  engine's stand-in (the line names which), a role without its fallback
+  piece, a low mesh heavier than its high one, a mesh past half a cell
+  round its cell, section ends whose outlines differ, a mesh made from a
+  model version the project no longer has;
+- triangle counts and texture sizes are reported, never capped.
+
+A kit passes when it has no error. Trim rules (T1–T10) run only for kits
+naming a trim layout and are marked "(draft layout)".
+
+**Kit test scene.** `writeKitTestScene {world, origin [x, y, z], material}`
+(the editor, MCP and scripts alike; one undo with `undoVoxels`) empties a
+box at `origin` and builds every case of the case list there from voxels,
+one row a role, one exhibit a case, all in `material`: pick a material your
+kit binds to see each case drawn with its pieces, and a missing one drawn
+by its fallback. The answer lists each exhibit's cell, role, case and run
+section; the voxel world page labels them (`?kitScene=x,y,z,material`).
+Writing the same scene again changes nothing (`no_change`).
 
 ## Not built yet
 
@@ -284,8 +330,9 @@ These come later; worlds made now keep working when they arrive:
 
 - **The far field**: the world past the load ring, and tall ground far
   away (above).
-- **Kits and cases**: the approved case catalogue (the draft draws now),
-  the kit check, and a trim layout for detail pieces.
+- **Kits and cases**: the approved case list and trim layout for detail
+  pieces (the drafts draw now), a kit page in the editor, and the guide to
+  making a kit.
 - **Materials**: material records, texture arrays and wetness beyond
   darkening (shine and filled-in crevices). Today's surface shader is a
   stand-in.
