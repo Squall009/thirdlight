@@ -998,6 +998,14 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   full-size wall (4 m) in both directions, anchored to the build grid in metres, floors on the same grid (46d material
   model; replaces the trim draft's 4 m U period / 1 m field assumptions for base surfaces).
 
+- 2026-11-04 (OWNER): **damage uses the shape field, no new bits.** Shape means fill for terrain, fill level for
+  liquid, and **integrity for construction roles** (15 intact; lower = damage stages, as many as the game uses; fully
+  broken = air). The engine has no "damage" value: construction rules read shape < 15 and draw the cell as debris
+  pieces and the neighbour faces opening toward it as debris; a damaged cell stays solid for collision/light until
+  it becomes air. What lowers it and when is game logic. No format change; the 9 reserved bits stay free (O15
+  shoreline first). Consequences: shape readers for construction (mips, case window, collision/light) are role-aware;
+  digs and damage share the saved shape field; a construction cell placed over terrain is written at shape 15.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
