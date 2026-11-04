@@ -1410,7 +1410,7 @@ section: see the limits above.
 codec, region file, manifest, edit command, undo record, save and overrides keep their v2 bytes (§3.8). Cases, run
 sections, forms and piece choices live only inside a derive job; what 46c adds is derived data (versions 10–13,
 never stored, table below) and one project content item, the voxel kit record (§3.9, **format 1, DRAFT**). The case
-catalogue (`cases-draft` v4) and the kit format are **drafts**: they freeze as v1 only when the owner approves the
+catalogue (`cases-draft` v5) and the kit format are **drafts**: they freeze as v1 only when the owner approves the
 role spec (`voxel-role-spec.md`, DRAFT, hard stop) and, for kits that opt into trim, the trim layout for detail
 pieces (`voxel-trim-layout.md`, DRAFT). Until then nothing builds on them as final.
 
@@ -1428,23 +1428,25 @@ pieces (`voxel-trim-layout.md`, DRAFT). Until then nothing builds on them as fin
   16,384 windows (~400 KB, a memory budget) skips folding and matching for windows seen before (results identical,
   tested). **No material in a case:** the same-material bit is set only when a rule reads it
   (`catalogueReadsMaterial`; the draft reads none), so cases and transforms never depend on materials (D478).
-- **The draft catalogue** (`DRAFT_CASE_CATALOGUE`, `cases-draft` v4, `draft: true`): 46 cases, 52 rules, 7 role
+- **The draft catalogue** (`DRAFT_CASE_CATALOGUE`, `cases-draft` v5, `draft: true`): 46 cases, 51 rules, 7 role
   fallbacks; per case its roles, required or optional, run axis (x, y or none), the inferred feature it draws (beam,
   banister rail and post, soffit, moulding, running board, foundation skirt: cases, never roles), base and shape.
   The role spec draft lists it case by case (`role-spec-doc.test.ts` pins doc = catalogue). Every case whose piece
   shows on a face names that face in its rule. Versions: v0 45 cases, 43 rules; v1 + the cells where runs turn and
   branch (rail L/T/X, beam and storey-line corners); v2 + base and shape; v3 + `wall-thin` (one cell thick, both
   faces dressed) and named fronts (a fallback had taken the key fold, facing pieces along the wall); v4 `wall-thin`
-  above `wall-base`.
-- **The kit rule set** (`kit-rules.ts`): `KIT_RULES` (id `kits`, version 5) = `withCases(TERRAIN_RULES,
-  DRAFT_CASE_CATALOGUE, 'kits', 5)`: the terrain rules' classes, the case pass, the run pass and the forms in **one**
+  above `wall-base`; v5 named fronts for wall and opening jambs (in a wall two cells thick a jamb faced into the other
+  layer).
+- **The kit rule set** (`kit-rules.ts`): `KIT_RULES` (id `kits`, version 6) = `withCases(TERRAIN_RULES,
+  DRAFT_CASE_CATALOGUE, 'kits', 6)`: the terrain rules' classes, the case pass, the run pass and the forms in **one**
   `AssemblyRuleSet` (`resolveCases`, `resolveRuns`, `caseForms`, `catalogue`), one evaluation a job, radius
   max(terrain 2, `CASE_REACH` 2) = 2, so the job pad stays 3 and aprons and invalidation are unchanged;
   `ruleRadiusMismatches` compares class and case (random worlds, chunk edges 16 and 32). `WORLD_RULES` = `KIT_RULES`
   (slice page, Play, the Scene view, exports, the voxel e2e). A change to either part takes a new `kits` version:
-  1 = terrain v1 + `cases-draft` v0; 2 = + v1 and the run pass; 3 = + v2 and forms; 4 = + v3; 5 = + v4. Versions 2, 4
-  and 5 took no derived step: a result names its rules' id and version, so a worker never mixes them (4 and 5 turned
-  pieces to their named fronts).
+  1 = terrain v1 + `cases-draft` v0; 2 = + v1 and the run pass; 3 = + v2 and forms; 4 = + v3; 5 = + v4; 6 = + v5 and a run
+  cell that keeps its own axis when joined only across it (a junction there: before, it took the other run's axis
+  while its piece, collision box and U stayed on its own). Versions 2, 4, 5 and 6 took no derived step: a result names
+  its rules' id and version, so a worker never mixes them (4–6 turned pieces to their named fronts or axes).
 - **Run sections** (`kit-runs.ts`, `resolveRuns`): every cell with a case gets a u16 in the job only (bits 0–2
   section single/start/body/end/corner/junction, 3–4 and 5–6 what its start and end sides meet: joined, open, butt
   or inner mitre, 7–8 the world run axis x/y/z/none). Two neighbours join when their cases share a run group (the

@@ -1,13 +1,8 @@
 /**
- * The case catalogue, version 4 (version 0, plus the rules where runs turn
- * and branch in version 1: rail L, T and cross, beam inside and outside
- * corners, the storey line's outside corner; plus each case's base and
- * declared shape for the consumers in version 2; plus a front for the
- * plain wall, lintels, sills and the tops and bottoms of openings, and the
- * one-cell-thick wall's case, in version 3; that case above the plinth in
- * version 4): **DRAFT — not the role spec's v1.** It is the source the role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
- * and stays a draft until the owner approves that spec; nothing builds on
- * its case list as final before then.
+ * The case catalogue: **DRAFT — not the role spec's v1.** It is the source
+ * the role spec draft (`docs/architecture/voxel-role-spec.md`) is written
+ * from, and stays a draft until the owner approves that spec; nothing
+ * builds on its case list as final before then.
  *
  * Every case is written in its own orientation: the exposed face looks
  * toward +z ("front"), a run follows x, up is +y. A rule's cells are
@@ -121,8 +116,9 @@ const rules: CaseRule[] = [
   r('soffit', 60, [[0, -1, 0, A], [0, 0, 1, A], [0, -1, 1, A]]),
   r('foundation-skirt', 70, [[0, 0, 1, O], [0, -1, 1, G]]),
   // wall
-  r('wall-jamb', 65, [[1, 0, 0, OP]]),
-  // Lintels and sills name their front: the opening above or below alone leaves the piece's face free to turn into the wall.
+  // Jambs, lintels and sills name their front: the opening beside, above or below alone leaves the piece's face free to
+  // turn into the wall (in a wall two cells thick, into the other layer).
+  r('wall-jamb', 65, [[1, 0, 0, OP], [0, 0, 1, O]]),
   r('wall-lintel', 64, [[0, -1, 0, OP], [0, 0, 1, O]]),
   r('wall-sill', 63, [[0, 1, 0, OP], [0, 0, 1, O]]),
   r('wall-end', 55, [[0, 0, 1, O], [0, 0, -1, O], [1, 0, 0, O], [-1, 0, 0, S]]),
@@ -164,17 +160,17 @@ const rules: CaseRule[] = [
   r('pillar-shaft', 55, [...SIDES_OPEN, [0, 1, 0, CELL.pillar], [0, -1, 0, CELL.pillar]]),
   // opening: its frame is the solid around it in its plane (x, y); front and back are open.
   r('opening-single', 60, [[0, 1, 0, S], [0, -1, 0, S], [1, 0, 0, S], [-1, 0, 0, S]]),
-  // Bottoms and tops name their front as air: beside another opening cell the frame's run would otherwise turn across the wall.
+  // Bottoms, tops and sides name their front as air: beside another opening cell the frame would otherwise turn across the wall.
   r('opening-threshold', 58, [[0, -1, 0, G | CELL.floor | CELL.foundation | CELL.stair], [0, 0, 1, A]]),
   r('opening-sill', 56, [[0, -1, 0, S], [0, 0, 1, A]]),
   r('opening-head', 54, [[0, 1, 0, S], [0, 0, 1, A]]),
-  r('opening-jamb', 52, [[1, 0, 0, S]]),
+  r('opening-jamb', 52, [[1, 0, 0, S], [0, 0, 1, A]]),
 ];
 
 /** The draft catalogue (see the file comment: DRAFT — not v1, the role spec draft's source). */
 export const DRAFT_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'cases-draft',
-  version: 4,
+  version: 5,
   draft: true,
   cases,
   rules,

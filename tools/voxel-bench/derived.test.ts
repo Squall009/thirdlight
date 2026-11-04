@@ -65,9 +65,11 @@ import {
   KIT_RULES,
   NO_SECTION,
   packRunSection,
+  resolveRunSections,
   RUN_AXIS,
   RUN_END,
   RUN_SECTION,
+  RunTable,
   runAxisOf,
   runEndEndOf,
   runSectionOf,
@@ -697,7 +699,7 @@ describe('the kit rule set', () => {
   it('is the world rule set: the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3', () => {
     expect(WORLD_RULES).toBe(KIT_RULES);
     expect(registeredAssemblyRules()).toContain(KIT_RULES);
-    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 5, radius: 2 });
+    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 6, radius: 2 });
     expect(KIT_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
     expect(jobRadius(KIT_RULES)).toBe(3);
     // The classes are the terrain rules' (one class byte a cell); only the kit rules give cases.
@@ -767,7 +769,7 @@ describe('the kit rule set', () => {
       const tree = new MipTree(store);
       for (const [cx, cy, cz] of chunks) {
         const a = deriveFromStore(store, cx, cy, cz, KIT_RULES);
-        expect(a.rules).toEqual({ id: 'kits', version: 5, radius: 2 });
+        expect(a.rules).toEqual({ id: 'kits', version: 6, radius: 2 });
         // Does any cell the consumers read take another form from its case than from its class?
         const job = kitJob(store, cx, cy, cz);
         const forms = new Uint8Array(job.n.values.length);
@@ -1082,6 +1084,24 @@ describe('run sections', () => {
     }
     expect(compared).toBeGreaterThan(1000);
   }, 60_000);
+
+  it('keeps a cell joined only across its own axis on that axis: the end of another run meeting its side is a junction there, never a section along the other run', () => {
+    // Hand cases on an empty neighbourhood: a beam run along z (its case turned once, +x onto +z) ending at a beam cell
+    // whose case lies along x. Its piece, collision box and U all follow its case's axis, so its section must too.
+    const n = createNeighbourhood(16, KR);
+    const s = n.side;
+    const cases = new Uint16Array(n.values.length).fill(NO_CASE);
+    const beam = DRAFT_CASE_CATALOGUE.cases.findIndex((c) => c.id === 'beam');
+    const at = (x: number, y: number, z: number): number => ((x + KR) * s + (z + KR)) * s + (y + KR);
+    for (let z = 3; z < 7; z++) cases[at(5, 5, z)] = (beam << 3) | 1;
+    cases[at(5, 5, 7)] = beam << 3;
+    const out = new Uint16Array(n.values.length);
+    resolveRunSections(n, cases, new RunTable(DRAFT_CASE_CATALOGUE.cases), KR, KR + 16, out);
+    expect(show(out[at(5, 5, 7)]!)).toBe('junction open-open x');
+    // The run along z joins it: its last cell's end toward it is joined, its first one's free end open.
+    expect(show(out[at(5, 5, 6)]!)).toBe('body joined-joined z');
+    expect(openTermination(out[at(5, 5, 3)]!), show(out[at(5, 5, 3)]!)).toBe(true);
+  });
 
   it('gives a section to exactly the cells with a case, and none for a rule set without the run pass', () => {
     const s = longBeam(-8, 8);

@@ -15,9 +15,11 @@
  * **Section.** From the joins along the cell's own axis (0–2) and across it
  * (0–2, horizontal runs only): none → single; one along → start or end (the
  * free end at the piece's own −x is a start, at its own +x an end); two along
- * → body; one along and one across → corner; three or four → junction. A cell
- * joined only across its own axis takes that axis (its neighbours set the
- * run's direction).
+ * → body; one along and one across → corner; three or four, or joins only
+ * across (another run's end meeting its side), → junction. A cell keeps its
+ * own axis even when joined only across it: its piece is drawn, its
+ * collision box placed and its U read along its case's axis, so a section
+ * along another axis would draw an end cap sideways and a U out of step.
  *
  * **Ends.** Each end along the axis is joined, open (an exposed termination:
  * nothing beyond it), butt (it stops against a solid cell), or inner: the run
@@ -162,38 +164,28 @@ export function resolveRunSections(n: Neighbourhood, cases: Uint16Array, table: 
       }
       count++;
       const p = slot(c);
-      let ax = axisOf[p]!;
+      const ax = axisOf[p]!;
       if (ax === RUN_AXIS.none) {
         out[i] = packRunSection(RUN_SECTION.single, RUN_END.open, RUN_END.open, RUN_AXIS.none);
         continue;
       }
       const g = group[p]!;
-      let sign = signOf[p]!;
-      const ownAx = ax;
+      const sign = signOf[p]!;
       const joins = (j: number, dirAx: number): boolean => {
         const cj = cases[j]!;
         if (cj === NO_CASE) return false;
         const q = slot(cj);
-        return group[q] === g && (ownAx === dirAx || axisOf[q] === dirAx);
+        return group[q] === g && (ax === dirAx || axisOf[q] === dirAx);
       };
-      let st = step[ax]!;
-      let neg = joins(i - st, ax);
-      let pos = joins(i + st, ax);
+      const st = step[ax]!;
+      const neg = joins(i - st, ax);
+      const pos = joins(i + st, ax);
       let across = 0;
       // A horizontal run's other horizontal axis: what corners, junctions and inner corners are read across.
       const pAx = ax === RUN_AXIS.x ? RUN_AXIS.z : ax === RUN_AXIS.z ? RUN_AXIS.x : RUN_AXIS.none;
       if (pAx !== RUN_AXIS.none) {
         const ps = step[pAx]!;
-        const pn = joins(i - ps, pAx);
-        const pp = joins(i + ps, pAx);
-        if (!neg && !pos && (pn || pp)) {
-          // Joined only across: the neighbours set the run's axis, read in the world's + direction.
-          ax = pAx;
-          sign = 1;
-          st = ps;
-          neg = pn;
-          pos = pp;
-        } else across = (pn ? 1 : 0) + (pp ? 1 : 0);
+        across = (joins(i - ps, pAx) ? 1 : 0) + (joins(i + ps, pAx) ? 1 : 0);
       }
       const along = (neg ? 1 : 0) + (pos ? 1 : 0);
       const ownNeg = sign > 0 ? neg : pos;

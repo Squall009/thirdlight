@@ -161,6 +161,77 @@ describe.each([
   }
 });
 
+/**
+ * A house whose walls are two cells thick (x 2…15 by z 2…11, 6 high, the outer layer at the box's edge), a door
+ * (x 5–6, y 0–3) and a window (x 11–12, y 2–3) through both layers of the front wall: each layer of a jamb, lintel
+ * and sill has one open face, so each one's front is fixed, and the other layer is solid behind it.
+ */
+function thickHouse(s: PaletteStore, m: number): void {
+  flatGround(s, 0, 32, 0, 32, 3, 0);
+  for (let y = 0; y < 6; y++) for (let x = 2; x < 16; x++) for (let z = 2; z < 12; z++) if (x < 4 || x > 13 || z < 4 || z > 9) putVoxel(s, x, y, z, m, R.wall);
+  for (const z of [2, 3]) {
+    for (let x = 5; x < 7; x++) for (let y = 0; y < 4; y++) putVoxel(s, x, y, z, m, R.opening);
+    for (let x = 11; x < 13; x++) for (let y = 2; y < 4; y++) putVoxel(s, x, y, z, m, R.opening);
+  }
+}
+
+/** Per world cell with a kit or default piece: its case and the fold its instance carries. */
+function thickFolds(kits: VoxelKit[], material: number): { store: PaletteStore; at: (x: number, y: number, z: number) => { caseId: string; fold: number } } {
+  const store = createWorldStore(grid);
+  thickHouse(store, material);
+  const d = deriveFromStore(store, 0, 0, 0, WORLD_RULES, undefined, worldPieceTable(kits));
+  const folds = new Map<string, number>();
+  const b = d.instances.data;
+  for (let k = 0; k < d.instances.count; k++) {
+    const o = k * INSTANCE_BYTES;
+    const word = b[o + 6]! | (b[o + 7]! << 8);
+    folds.set(`${b[o]},${b[o + 1]},${b[o + 2]}`, (b[o + 3]! & 3) + ((word & PIECE_VARIANT_MIRROR) !== 0 ? 4 : 0));
+  }
+  return {
+    store,
+    at: (x, y, z) => {
+      const caseId = caseAndSectionAt(store, x, y, z).caseId ?? 'none';
+      const fold = folds.get(`${x},${y},${z}`);
+      if (fold === undefined) throw new Error(`no piece at ${x},${y},${z} (case ${caseId})`);
+      return { caseId, fold };
+    },
+  };
+}
+
+describe.each([
+  ['the engine default kit', null, MAT.plaster],
+  ['the log kit', 'log', MAT.timber],
+  ['the stone kit', 'stone', MAT.stone],
+] as const)('%s on a two-cell-thick wall', (_label, id, material) => {
+  const { at } = thickFolds(id === null ? [] : [kitFiles(id).kit], material);
+
+  it("faces each layer's jambs, lintels and sills out of its own open face (never into the other layer), the jamb's side toward the opening", () => {
+    const want: Array<[number, number, number, string, string, string | null]> = [];
+    for (const [z, front] of [[2, '0,0,-1'], [3, '0,0,1']] as const) {
+      for (let y = 0; y < 4; y++) want.push([4, y, z, 'wall-jamb', front, '1,0,0'], [7, y, z, 'wall-jamb', front, '-1,0,0']);
+      for (const x of [5, 6, 11, 12]) want.push([x, 4, z, 'wall-lintel', front, null]);
+      for (const x of [11, 12]) want.push([x, 1, z, 'wall-sill', front, null]);
+      for (const y of [2, 3]) want.push([10, y, z, 'wall-jamb', front, '1,0,0'], [13, y, z, 'wall-jamb', front, '-1,0,0']);
+    }
+    for (const [x, y, z, c, front, side] of want) {
+      const p = at(x, y, z);
+      expect(p.caseId, `${x},${y},${z}`).toBe(c);
+      expect(dir(p.fold, [0, 0, 1]), `${x},${y},${z} ${c} front`).toBe(front);
+      if (side !== null) expect(dir(p.fold, [1, 0, 0]), `${x},${y},${z} ${c} side`).toBe(side);
+    }
+  });
+
+  it('puts a corner piece on each outer layer corner, its two faces on the two open sides', () => {
+    for (const [x, z, open] of [[2, 2, ['-1,0,0', '0,0,-1']], [15, 2, ['1,0,0', '0,0,-1']], [2, 11, ['-1,0,0', '0,0,1']], [15, 11, ['1,0,0', '0,0,1']]] as const) {
+      for (let y = 0; y < 6; y++) {
+        const p = at(x, y, z);
+        expect(p.caseId, `${x},${y},${z}`).toBe('wall-corner');
+        expect([dir(p.fold, [1, 0, 0]), dir(p.fold, [0, 0, 1])].sort(), `${x},${y},${z}`).toEqual([...open].sort());
+      }
+    }
+  });
+});
+
 describe('trim pieces drawn with world-anchored U', () => {
   it.each([
     ['log', MAT.timber],

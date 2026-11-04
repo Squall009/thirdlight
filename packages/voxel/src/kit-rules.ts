@@ -110,11 +110,11 @@ export function evaluateRuns(n: Neighbourhood, rules: AssemblyRuleSet, cases: Ui
 /**
  * The world rule set from kits on: the terrain rules (`terrain` v1) with
  * the case pass over the case catalogue and the run pass over its cases.
- * Version 5 composes catalogue `cases-draft` v4 (version 4 composed v3,
- * version 3 v2, version 2 v1, version 1 v0), a DRAFT until the owner approves the role
- * spec. From
- * version 3 every consumer reads a cell's case (its declared shape and
- * base, case-forms.ts) where it has one, so derived results differ from the
- * terrain rules' wherever a case's form differs from its class's.
+ * Its version names the pair it composes (terrain rules and catalogue
+ * versions), a DRAFT until the owner approves the role spec; the spec's
+ * kit rule set section lists what each version composed. Every consumer
+ * reads a cell's case (its declared shape and base, case-forms.ts) where
+ * it has one, so derived results differ from the terrain rules' wherever
+ * a case's form differs from its class's.
  */
-export const KIT_RULES: AssemblyRuleSet = withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 5);
+export const KIT_RULES: AssemblyRuleSet = withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 6);
