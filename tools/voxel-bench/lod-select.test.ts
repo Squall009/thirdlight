@@ -35,6 +35,7 @@ describe('the level choice', () => {
       expect(c.doubled).toBe(0);
       expect(c.covered.size).toBe(ALL_CHUNKS);
       expect(c.unbalanced).toBe(0);
+      expect(c.unbalancedAround).toBe(0);
       expect(unbalanced).toBe(0);
       for (const n of drawn.nodes()) {
         // Level L is drawn where its parent is within ring L (split) and it is not (whole); the balance only ever splits.
@@ -121,6 +122,7 @@ describe('the level choice', () => {
     expect(c.doubled).toBe(0);
     expect(c.covered.size).toBe(ALL_CHUNKS);
     expect(c.unbalanced).toBe(0);
+    expect(c.unbalancedAround).toBe(0);
     expect(unbalanced).toBe(0);
     // Level 1 is drawn between level 0 and level 2 (where a split level-2 node's children lie past the ring, and where the balance splits).
     expect(drawn.countAt(1)).toBeGreaterThan(0);

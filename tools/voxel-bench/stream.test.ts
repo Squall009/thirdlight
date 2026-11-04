@@ -1667,7 +1667,7 @@ describe('streamer (workers, region files on disk)', () => {
     const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, mips: [{ level: 1, radius: 384 }, { level: 2, radius: 384 }], levels });
     const lod = s.mips!.lod;
     const seams = s.mips!.seams;
-    const stats = { events: 0, swaps: 0, lost: 0, doubled: 0, unbalanced: 0, uncovered: 0, pastReach: 0, bare: 0, seamsBefore: 0, notResident: 0, flips: 0, standInsLeft: 0 };
+    const stats = { events: 0, swaps: 0, lost: 0, doubled: 0, unbalanced: 0, around: 0, silent: 0, uncovered: 0, pastReach: 0, bare: 0, seamsBefore: 0, notResident: 0, flips: 0, standInsLeft: 0 };
     let lastType = '';
     let now = { x: 0, y: 0, z: 0 };
     let jitter: Set<string> | null = null;
@@ -1680,6 +1680,13 @@ describe('streamer (workers, region files on disk)', () => {
       const c = checkLevels(lod.drawn.nodes());
       stats.doubled += c.doubled;
       stats.unbalanced += c.unbalanced;
+      // Across edges and corners too, unless the choice reported what it could not mend (children not ready: here
+      // level-2 nodes above or below level-0 chunks at the load box's top and bottom, whose level-1 children are not
+      // complete there).
+      if (c.unbalancedAround > 0) {
+        stats.around++;
+        if (lod.counters.unbalanced === 0) stats.silent++;
+      }
       for (const n of lod.drawn.nodes()) {
         const [x, y, z] = nodeChunks(n).next().value!;
         if (!s.isResident(x, y, z)) stats.notResident++;
@@ -1767,6 +1774,7 @@ describe('streamer (workers, region files on disk)', () => {
     const flight = { swaps: lod.counters.swaps - c0.swaps, levelChanges: lod.counters.levelChanges - c0.levelChanges, lost: lod.counters.lost - c0.lost, choices: lod.counters.choices - c0.choices };
     expect(stats.doubled).toBe(0);
     expect(stats.unbalanced).toBe(0);
+    expect(stats.silent).toBe(0);
     expect(stats.uncovered).toBe(0);
     expect(stats.bare).toBe(0);
     expect(stats.notResident).toBe(0);

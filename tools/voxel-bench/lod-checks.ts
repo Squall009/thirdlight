@@ -2,9 +2,10 @@
  * Brute-force checks of a set of drawn level nodes, independent of how the
  * level choice works: every node expanded to the level-0 chunks it covers.
  * - doubled: chunks covered by more than one drawn node;
- * - unbalanced: node faces, edges and corners with a node more than one
- *   level apart across them (the seams join only neighbouring levels, and a
- *   seam's rim reads its edge and corner neighbours);
+ * - unbalanced: node faces with a node more than one level apart across
+ *   them (the seams join only neighbouring levels);
+ * - unbalancedAround: the same across node edges and corners (a seam's rim
+ *   reads those neighbours);
  * - covered: chunk key → the level of the node drawn over it.
  */
 import type { LevelNode } from '@thirdlight/voxel';
@@ -12,6 +13,7 @@ import type { LevelNode } from '@thirdlight/voxel';
 export interface LevelCheck {
   readonly doubled: number;
   readonly unbalanced: number;
+  readonly unbalancedAround: number;
   readonly covered: Map<string, number>;
 }
 
@@ -38,6 +40,7 @@ export function checkLevels(nodes: Iterable<LevelNode>): LevelCheck {
     }
   }
   let unbalanced = 0;
+  let unbalancedAround = 0;
   for (const n of list) {
     const s = 2 ** n.level;
     const base = [n.nx * s, n.ny * s, n.nz * s];
@@ -49,8 +52,10 @@ export function checkLevels(nodes: Iterable<LevelNode>): LevelCheck {
         const l = covered.get(chunkId(x, y, z));
         if (l !== undefined && Math.abs(l - n.level) > 1) bad = true;
       }
-      if (bad) unbalanced++;
+      if (!bad) continue;
+      if (Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2]) === 1) unbalanced++;
+      else unbalancedAround++;
     }
   }
-  return { doubled, unbalanced, covered };
+  return { doubled, unbalanced, unbalancedAround, covered };
 }
