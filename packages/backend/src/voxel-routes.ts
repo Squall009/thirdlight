@@ -124,7 +124,7 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     const r = await worlds.command(projectId, envelope);
     if (r.ok) {
       sendJson(res, 200, r);
-      if (!r.duplicated) onApplied?.(projectId, { op: r.op, world: r.world, revision: r.revision, chunks: r.chunks, box: r.box, parts: r.parts, files: r.files, requestId: r.requestId, origin: originOf(envelope.origin) });
+      if (!r.duplicated) onApplied?.(projectId, { op: r.op, world: r.world, revision: r.revision, chunks: r.chunks, box: r.box, parts: r.parts, materialSwaps: r.materialSwaps, files: r.files, requestId: r.requestId, origin: originOf(envelope.origin) });
       return;
     }
     if (r.error.code !== 'no_change') recordProblem(projectId, 'command', r.error.code, `${String(envelope.op)}: ${r.error.message}`);

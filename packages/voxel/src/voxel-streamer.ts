@@ -897,8 +897,9 @@ export class VoxelStreamer {
    * (jobs reading them are stale; they do not become dirty, the base is
    * unchanged), recount the overlay, and rebuild what the changed fields
    * feed in the edit's group: the shader data alone of the sections within
-   * the shader border of `box` when only material or wetness changed, else
-   * every section within R of `box`. The jobs go out at once (an edit is
+   * the shader border of `box` when only material or wetness changed (and
+   * the sections holding `box` whole when the paint moved cells to another
+   * kit's pieces), else every section within R of `box`. The jobs go out at once (an edit is
    * waited on), and the group swaps when all are back.
    */
   private afterEdit(changed: readonly ChunkCoord[], box: CellBox, parts: number): number {
@@ -929,7 +930,7 @@ export class VoxelStreamer {
   edit(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): EditOutcome & { readonly group: number } {
     const resolve = resolver(stamps);
     const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.overlay : undefined) }, cmd, { stamps: resolve, loaded: (g, cx, cy, cz) => g === this.gridId && this.isResident(cx, cy, cz) });
-    const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(outcome.fields)));
+    const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(outcome.fields), outcome.materialSwaps));
     return { ...outcome, group };
   }
 
@@ -963,7 +964,7 @@ export class VoxelStreamer {
       this.merged.adoptEdited(cx, cy, cz, ch.payload);
       changed.push({ cx, cy, cz });
     }
-    const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(o.output.fields)));
+    const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(o.output.fields), o.output.materialSwaps));
     return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo), group };
   }
 
@@ -980,14 +981,19 @@ export class VoxelStreamer {
    * `parts` (DERIVED_PART bits, `fieldsFeed` of the changed fields;
    * default all) says what the change makes stale: only the shader data
    * rebuilds the shader data of the chunks within the shader border of the
-   * box (or of the refreshed chunks) and nothing else.
+   * box (or of the refreshed chunks) and nothing else. `materialSwaps`
+   * (the edit's `EditOutcome.materialSwaps`) tell a shader-only change that
+   * keeps every kit piece (wetness, a paint within one kit) from one moving
+   * cells to another kit's, which derives the sections holding them whole;
+   * without them, while a kit binds a material, a shader-only change counts
+   * as the latter.
    *
    * Returns the refresh's edit group: what it rebuilds swaps in together,
    * once every resident chunk named has landed again (the `swap` event
    * naming it; 0 when the streamer derives nothing).
    */
-  refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS): number {
-    parts = this.pieces.feeds(parts);
+  refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS, materialSwaps?: readonly number[]): number {
+    parts = this.pieces.feeds(parts, materialSwaps);
     this.opts.source.invalidate?.(chunks);
     const list: Chunk[] = [];
     const token = ++this.refreshSeq;

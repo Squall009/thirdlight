@@ -37,7 +37,7 @@ import { crc32, latticeHash4, utf8Decode, utf8Encode } from '@thirdlight/shared'
 import type { AssemblyRuleSet } from './assembly';
 import type { CaseCatalogueDef, CaseDef } from './kit-cases';
 import { RUN_SECTION } from './kit-runs';
-import { MATERIAL_ID_MAX } from './record';
+import { MATERIAL_ID_MAX, swapFrom, swapTo } from './record';
 
 /** The table's byte layout version; a reader refuses any other. */
 export const PIECE_TABLE_FORMAT = 1;
@@ -341,6 +341,20 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
 export function pieceTableBindsKits(t: PieceTable | null): boolean {
   if (t === null) return false;
   for (let m = 1; m < t.materialKit.length; m++) if (t.materialKit[m] !== NO_KIT) return true;
+  return false;
+}
+
+/**
+ * Whether any of an edit's material changes ({@link materialSwap}s) moves
+ * cells to another kit's pieces: the material it left and the one it took
+ * are bound to different kits (no kit counts as one). A change within one
+ * kit (oak to maple of the same timber kit) keeps every piece and variant:
+ * a cell's piece reads its material only through its kit, and its variant
+ * hashes the cell and the kit's seed, never the material.
+ */
+export function pieceTableKitChanges(t: PieceTable | null, swaps: readonly number[]): boolean {
+  if (t === null) return false;
+  for (const sw of swaps) if (t.materialKit[swapFrom(sw)] !== t.materialKit[swapTo(sw)]) return true;
   return false;
 }
 

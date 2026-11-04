@@ -168,6 +168,8 @@ export interface VoxelsChangedPayload {
   box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number };
   /** The derived parts made stale (the voxel package's DERIVED_PART bits). */
   parts: number;
+  /** The distinct material changes (the voxel package's `materialSwap`: from, to): whether a paint moves cells to another kit's pieces. */
+  materialSwaps: readonly number[];
   /** The region files rewritten, with their new entity tags (null: the file is gone). */
   files: ReadonlyArray<{ name: string; etag: string | null }>;
   /** The command's request id, so the client that sent it can tell its own change. */
@@ -176,7 +178,7 @@ export interface VoxelsChangedPayload {
 }
 
 export function makeVoxelsChanged(p: VoxelsChangedPayload): string {
-  return emit({ type: 'voxelsChanged', op: p.op, world: p.world, revision: p.revision, chunks: p.chunks, box: p.box, parts: p.parts, files: p.files, requestId: p.requestId, origin: p.origin });
+  return emit({ type: 'voxelsChanged', op: p.op, world: p.world, revision: p.revision, chunks: p.chunks, box: p.box, parts: p.parts, materialSwaps: p.materialSwaps, files: p.files, requestId: p.requestId, origin: p.origin });
 }
 
 /**

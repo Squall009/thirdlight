@@ -26,7 +26,7 @@ import { CellDelta, chunkScratch, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAi
 import { type BrushEdit, type EditMode, type EditVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { encodePaletteImage } from './palette-codec';
-import { ALL_PLANES, changedFields, DENSITY_FULL, MATERIAL_AIR, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
+import { ALL_PLANES, changedFields, DENSITY_FULL, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
 import type { StampResolver, StampShape } from './stamp-shape';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
@@ -67,6 +67,12 @@ export interface EditOutcome {
    * decides which derived outputs go stale (`fieldsFeed`).
    */
   readonly fields: number;
+  /**
+   * The distinct material changes it made ({@link materialSwap}: from, to),
+   * ascending: what tells a paint within one kit (shader data alone) from
+   * one that moves cells to another kit's pieces.
+   */
+  readonly materialSwaps: readonly number[];
 }
 
 /** Why an edit could not be applied (nothing was written). */
@@ -451,6 +457,8 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
   const undo: ChunkUndo[] = [];
   let changed = 0;
   let fields = 0;
+  const swaps = new Set<number>();
+  let lastSwap = -1;
   const s = grid.shift;
   const m = grid.mask;
   for (const c of chunks) {
@@ -467,6 +475,12 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
       if (!nextVoxel(plan, cov, old, next)) return;
       const before = valueOf(old);
       fields |= changedFields(before, valueOf(next));
+      if (old.material !== next.material) {
+        const sw = materialSwap(old.material, next.material);
+        // A stroke writes one material: the last change is nearly always the same one.
+        if (sw !== lastSwap) swaps.add(sw);
+        lastSwap = sw;
+      }
       delta.push((((lx << s) | lz) << s) | ly, before);
       store.setVoxel(x, y, z, next);
     };
@@ -491,7 +505,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
     changed += delta.count;
     undo.push({ grid: cmd.grid, cx: c.cx, cy: c.cy, cz: c.cz, before: beforeOf(store, c, delta, form) });
   }
-  return { cells: changed, chunks: undo, fields };
+  return { cells: changed, chunks: undo, fields, materialSwaps: [...swaps].sort((a, b) => a - b) };
 }
 
 /**

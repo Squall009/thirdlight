@@ -124,6 +124,8 @@ export interface EditOutput {
   readonly undo: Uint8Array;
   /** The fields that changed in any cell (PLANE_BIT mask): what decides which derived parts go stale. */
   readonly fields: number;
+  /** The distinct material changes (`EditOutcome.materialSwaps`). */
+  readonly materialSwaps: readonly number[];
 }
 
 export interface DeriveInput {

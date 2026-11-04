@@ -134,7 +134,7 @@ function edit(raw: unknown): JobResult {
     const outcome = applyEdit({ store: (g) => (g === cmd.grid ? store : undefined) }, cmd, { stamps, loaded: (_g, cx, cy, cz) => held.has(`${cx},${cy},${cz}`) });
     const undo = encodeUndoRecord(store.grid, outcome.chunks);
     const chunks = outcome.chunks.map((u) => ({ chunk: { grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz }, payload: store.chunkPayload(u.cx, u.cy, u.cz, false) }));
-    const output: EditOutput = { cells: outcome.cells, chunks, undo, fields: outcome.fields };
+    const output: EditOutput = { cells: outcome.cells, chunks, undo, fields: outcome.fields, materialSwaps: outcome.materialSwaps };
     const transfer: ArrayBuffer[] = [undo.buffer as ArrayBuffer];
     for (const ch of chunks) payloadTransfer(ch.payload, transfer);
     return { output, transfer };

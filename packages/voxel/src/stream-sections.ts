@@ -168,9 +168,18 @@ interface EditGroup {
 
 const EMPTY_OUTPUT: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
 
+/**
+ * A flag an invalidation may carry beside its DERIVED_PART bits: the
+ * sections holding the change's cells derive whole, though the change
+ * itself feeds only the shader data. A paint that moves cells to another
+ * kit's pieces needs it: a cell's piece reads its own material only, so
+ * nothing past those sections changes geometry.
+ */
+export const PIECES_AT_CELLS = 1 << 5;
+
 /** Whether parts (DERIVED_PART bits) include any output the assembly evaluation builds (anything but the shader data). */
 export function geometryParts(parts: number): boolean {
-  return (parts & ~DERIVED_PART.shader) !== 0;
+  return (parts & ALL_DERIVED_PARTS & ~DERIVED_PART.shader) !== 0;
 }
 
 /** The sections of a chunk, as section-grid coordinates. */
@@ -449,15 +458,22 @@ export class SectionDerives {
    * Every resident section within reach of `box` is stale: its stamp moves
    * (results already on their way are refused) and it is derived again. A
    * change that feeds only the shader data reaches no further than the
-   * shader border and rebuilds only that. With a group, the sections join
-   * it and swap with it.
+   * shader border and rebuilds only that; with {@link PIECES_AT_CELLS} the
+   * sections holding `box` derive whole besides. With a group, the sections
+   * join it and swap with it.
    */
   invalidate(box: CellBox, why: 'yes' | 'edit', parts: number, groupOrId: EditGroup | number | null): void {
     let g = typeof groupOrId === 'number' ? this.group(groupOrId) : groupOrId;
-    const geometry = geometryParts(parts);
+    const own = parts & ALL_DERIVED_PARTS;
+    const geometry = geometryParts(own);
     for (const d of dependentChunks(this.sections, box, geometry ? this.host.radius : SHADER_BORDER_CELLS)) {
       const s = this.bySection.get(chunkKey(this.sections, d.cx, d.cy, d.cz));
-      if (s !== undefined) g = this.stale(s, why, geometry ? ALL_DERIVED_PARTS : parts, g);
+      if (s !== undefined) g = this.stale(s, why, geometry ? ALL_DERIVED_PARTS : own, g);
+    }
+    if (geometry || (parts & PIECES_AT_CELLS) === 0) return;
+    for (const d of dependentChunks(this.sections, box, 0)) {
+      const s = this.bySection.get(chunkKey(this.sections, d.cx, d.cy, d.cz));
+      if (s !== undefined) g = this.stale(s, why, ALL_DERIVED_PARTS, g);
     }
   }
 

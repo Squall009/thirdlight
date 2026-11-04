@@ -42,6 +42,9 @@ import {
   CHUNK_EDGES,
   editBounds,
   fieldsFeed,
+  materialSwap,
+  swapFrom,
+  swapTo,
   EditCommandError,
   EditRefused,
   isRegionFootprint,
@@ -223,6 +226,12 @@ export interface VoxelCommandApplied {
    * shader data of the chunks within its border of the box, nothing else).
    */
   readonly parts: number;
+  /**
+   * The distinct material changes (@thirdlight/voxel `materialSwap`: from,
+   * to; an undo answers its edit's turned round): what tells a client
+   * whether a shader-only change moves cells to another kit's pieces.
+   */
+  readonly materialSwaps: readonly number[];
   /** The region files rewritten, with their new entity tags. */
   readonly files: ReadonlyArray<{ readonly name: string; readonly etag: string | null }>;
   /** Edits that can still be undone. */
@@ -241,6 +250,7 @@ interface HistoryEntry {
   readonly cells: number;
   readonly box: Readonly<CellBox>;
   readonly parts: number;
+  readonly materialSwaps: readonly number[];
 }
 
 /** What a world folder holds as this process last read or wrote it. */
@@ -514,6 +524,7 @@ export class VoxelWorlds {
     let cells: number;
     let box: Readonly<CellBox>;
     let parts: number;
+    let materialSwaps: readonly number[];
     let undone: HistoryEntry | null = null;
     /** The undone chunks as the undo found them: written back if the undo cannot be saved. */
     let redo: ChunkUndo[] = [];
@@ -526,6 +537,7 @@ export class VoxelWorlds {
         cells = out.cells;
         box = editBounds(w.world.opts.grid, cmd);
         parts = fieldsFeed(out.fields);
+        materialSwaps = out.materialSwaps;
       } catch (e) {
         if (e instanceof EditCommandError) return refuse('invalid_args', 'validation', e.message, `/args/command${e.path}`);
         if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
@@ -541,6 +553,8 @@ export class VoxelWorlds {
       cells = undone.cells;
       box = undone.box;
       parts = undone.parts;
+      // Undoing a change takes each cell back from the material it took to the one it left.
+      materialSwaps = undone.materialSwaps.map((sw) => materialSwap(swapTo(sw), swapFrom(sw))).sort((x, y) => x - y);
     }
     const t1 = performance.now();
     const saved = this.save(w);
@@ -560,13 +574,13 @@ export class VoxelWorlds {
       return refuse('write_failed', 'internal', `voxel world ${w.name}: ${saved.why}`);
     }
     // Written in full, or in part: memory keeps the change, which the files written hold.
-    if (op === 'editVoxels') w.history.push({ id: await w.undo.put(record), cells, box, parts });
+    if (op === 'editVoxels') w.history.push({ id: await w.undo.put(record), cells, box, parts, materialSwaps });
     if (!saved.ok) {
       return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${op === 'editVoxels' ? 'edit' : 'undo'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
     }
     const chunks = record.map((u) => [u.cx, u.cy, u.cz] as const);
     const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
-    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, parts, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 } };
+    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 } };
     if (requestId !== null) {
       w.answers.set(requestId, answer);
       if (w.answers.size > ANSWERS_KEPT) w.answers.delete(w.answers.keys().next().value!);

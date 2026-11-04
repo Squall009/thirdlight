@@ -185,6 +185,25 @@ export function changedFields(a: number, b: number): number {
   return m;
 }
 
+/**
+ * A cell's material change as one number, `from << MATERIAL_BITS | to`: an
+ * edit reports the distinct ones it made, so what reads materials beside
+ * the shader data (a kit's pieces) can tell whether the change reaches it.
+ */
+export function materialSwap(from: number, to: number): number {
+  return (from << MATERIAL_BITS) | to;
+}
+
+/** The material a {@link materialSwap} changed from. */
+export function swapFrom(swap: number): number {
+  return swap >>> MATERIAL_BITS;
+}
+
+/** The material a {@link materialSwap} changed to. */
+export function swapTo(swap: number): number {
+  return swap & MATERIAL_ID_MAX;
+}
+
 /** Bytes per cell of each field in a dense chunk and the measurement encodings. */
 export const PLANE_BYTES: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 2, role: 1, shape: 1, wetness: 1 });
 

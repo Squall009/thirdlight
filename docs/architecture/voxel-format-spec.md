@@ -291,6 +291,10 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
   cell (`derive` job with `parts: shader`, an apron 1 deep). `fieldsFeed(fields)` is the whole rule: no output but
   the shader data holds a material (45.10b: vertices, detail instances and collision boxes carry none), so the
   build derives exactly what the table says.
+- **Kits (46c.6b, owner to confirm):** with voxel kits bound to materials, wetness and a material paint within one
+  kit stay shader data alone; a material paint moving cells to another kit's pieces also derives whole the sections
+  holding the painted cells (§3.7 *Kit pieces*, `EditOutcome.materialSwaps`). Kits are per material type (§1), so
+  that geometry change is by design: the one exception to this table.
 - Tested in real workers on region files on disk (`stream.test.ts`): a wetness-only paint over 4 chunks and a
   material-only paint of one cell on two chunk faces (one chunk changed, 4 shader derives, 3 of them neighbours
   with no changed cell): 0 full derives (no mesh, collision, nav or light), every result equal to a fresh full
@@ -1400,7 +1404,7 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-#### Kit rule set (46c; derived v12, `kit-rules.ts`, `piece-table.ts`)
+#### Kit rule set (46c; derived v13, `kit-rules.ts`, `piece-table.ts`)
 
 - `KIT_RULES` (id `kits`, version 3) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 3)`: the terrain
   rules' classes and the case pass over the case catalogue in **one** `AssemblyRuleSet`, one evaluation a job, radius
@@ -1452,9 +1456,19 @@ section: see the limits above.
   replaces keeps one at levels 0 and 1 (tested on the town, with and without a kit). **Changes:** a new table derives
   again only what holds a material whose pieces changed (`pieceTableChanges`: bound, unbound, moved, or its kit's
   bytes changed): every section of each resident chunk holding one and every level-1 node holding one, nothing within
-  R of them (a cell's piece reads its own material only), in one swap group. While a kit binds a material, a change
-  that feeds the shader data (a material paint) also rebuilds the meshes there, since it may move cells to another
-  kit's pieces; without a kit, material and wetness stay shader data alone (§2.2 feeds).
+  R of them (a cell's piece reads its own material only), in one swap group. **Paints (§2.2 feeds):** wetness never
+  changes a piece, and a material paint within one kit (oak to maple of a timber kit) keeps every piece and variant
+  (a piece reads its material only through its kit; the variant hashes the cell and the kit's seed), so both stay
+  shader data alone, kit bound or not. A material paint that moves cells to another kit's pieces (the materials it
+  left and took bound to different kits, no kit counting as one) also derives whole the sections holding the painted
+  cells, and nothing past them: the one exception to the feeds rule (owner to confirm, 46c plan decision log). An
+  edit reports its distinct material changes (`EditOutcome.materialSwaps`, `materialSwap(from, to)`; the worker's
+  `edit` job, the command answer and `voxelsChanged` too; an undo answers them turned round), which
+  `VoxelStreamer.edit`/`refresh` read through `pieceTableKitChanges`; a refresh without them, kits bound, counts a
+  shader-only change as one between kits. **No material in a case:** a case window carries the same-material bit
+  only when a rule of the catalogue reads it (`catalogueReadsMaterial`; the draft reads none), so cases and their
+  transforms never depend on materials; a catalogue whose rules read it makes a material paint feed geometry.
+  Level-1+ nodes still derive whole on any edit, paints included (no shader-only mip derive yet, D479).
 - **Bytes and boxes (46c.5, `run.mjs cases`):** whole 512² town, 229 chunks with construction, 46c.4 → 46c.5: derived
   15.29 → 15.80 MB (base 6.43 → 6.90, collision 0.49 → 0.52), boxes full 22,429 → 23,201 and partial 18,792 →
   20,154, base triangles 304 k → 324 k (the soffits' slabs); slice ring unchanged (no soffits).
@@ -1462,7 +1476,7 @@ section: see the limits above.
   rules → kit rules, p50 / p95 90 / 115 → 207 / 419 µs (town), 112 / 166 → 231 / 269 µs (slice); evaluation + ground
   mesh (the 46b measure) 242 / 299 → 255 / 408 µs (town), 214 / 315 → 227 / 330 µs (slice).
 
-**Derived version history (v2 → v12).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+**Derived version history (v2 → v13).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |
@@ -1477,6 +1491,7 @@ worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules
 | 9 → 10 | 46c.3 | `WORLD_RULES` = the kit rule set (`kits` v1): the job resolves each cell's case beside its class | unchanged |
 | 10 → 11 | 46c.5 | consumers read forms (a case's declared shape and base); coverage = the shape's share; reshaped soffits | unchanged |
 | 11 → 12 | 46c.6 | instances carry kit pieces: kit-local piece, variant word (variant, mirror bit); kept cells' kit pieces | unchanged (8 bytes) |
+| 12 → 13 | 46c.6b | a case window carries the same-material bit only for catalogues whose rules read it (D478) | unchanged |
 
 The owner notes, as each step recorded them:
 
@@ -1542,6 +1557,14 @@ material names), and the former reserved u16 is the variant word (variant from a
 seed; bit 15 the case transform's mirror). Kits bound to materials add pieces on kept cells that show. Without a kit
 the instance list differs from v11 only in the default piece numbers and the corner and junction sections. Nothing
 is stored, nothing to upgrade, no world regenerated (the staging slice world does not need regenerating).
+
+**Derived data 12 → 13 (46c.6b, owner note: default chosen, owner to confirm).** The layout is unchanged; the meaning
+of a case's transform changed: the case pass folds a window without the same-material bit when no rule of the
+catalogue reads it (the draft reads none), so the transform a symmetric window takes (its pieces' turns and mirror)
+no longer depends on its neighbours' materials. Before, a material paint, shader data by the feeds mask, could turn
+or mirror neighbours' pieces without their sections being derived again (D478). Cases are unchanged (no rule read the
+bit). Nothing is stored, nothing to upgrade, no world regenerated (the staging slice world does not need
+regenerating).
 
 **Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
 culling, rays and the far field skip whole empty or solid subtrees without reading voxels.

@@ -37,6 +37,8 @@ export interface WorldChange {
   readonly chunks: ReadonlyArray<readonly [number, number, number]>;
   readonly box: CellBox;
   readonly parts: number;
+  /** The change's material changes (absent: unknown, a shader-only change may move cells to another kit's pieces). */
+  readonly materialSwaps?: readonly number[];
   readonly files: ReadonlyArray<{ readonly name: string; readonly etag: string | null }>;
 }
 
@@ -102,7 +104,7 @@ export class RangeWorld {
       if (f.etag === null) this.files.delete(f.name);
       else this.files.set(f.name, f.etag);
     }
-    return streamer.refresh(c.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })), c.box, c.parts);
+    return streamer.refresh(c.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })), c.box, c.parts, c.materialSwaps);
   }
 
   /**

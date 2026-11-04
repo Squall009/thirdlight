@@ -360,7 +360,7 @@ async function main(): Promise<void> {
     const t0 = performance.now();
     const startFrame = frames;
     const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ op, projectId, requestId: requestId(), args: { world: worldName, ...args } }) });
-    const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; parts: number; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
+    const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; parts: number; materialSwaps: number[]; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
     const answerMs = performance.now() - t0;
     if (!body.ok) {
       const code = body.error?.code ?? String(r.status);

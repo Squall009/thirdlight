@@ -39,6 +39,7 @@ import {
   DERIVED_PART,
   editBounds,
   exportOrAir,
+  materialSwap,
   parseRegionFileName,
   RegionChunkSource,
   sameDenseChunk,
@@ -348,14 +349,15 @@ describe('voxel world routes', () => {
     applyEdit({ store: () => expected }, canonicalEditCommand(SET));
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
     // Every answer names the derived parts its change makes stale: a geometry change all of them, a change of only
-    // wetness or only material the shader data alone (and their undos the same).
+    // wetness or only material the shader data alone (and their undos the same). The material changes ride along
+    // (from << 12 | to), turned round by an undo: what tells a client whether a paint moves cells to another kit.
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...SET, cells: [0, 13, 0] } } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
     const WET = { v: 2, grid: 0, kind: 'fill', min: [0, 12, 0], max: [1, 12, 0], mode: 'paint', voxel: { material: 3, role: 3, wetness: 6 } };
-    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WET } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader });
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WET } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader, materialSwaps: [] });
     const MATERIAL = { ...WET, voxel: { ...WET.voxel, material: 4 } };
-    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: MATERIAL } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader });
-    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader });
-    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader });
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: MATERIAL } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader, materialSwaps: [materialSwap(3, 4)] });
+    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [materialSwap(4, 3)] });
+    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [] });
     expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
   });
@@ -468,7 +470,7 @@ describe('voxel world routes', () => {
       return changes()[n - 1]!;
     };
     /** What the feed must carry of an answer: everything a view reads again by. */
-    const asFeed = (a: Record<string, unknown>, origin: unknown): Record<string, unknown> => ({ type: 'voxelsChanged', op: a.op, world: FEED_WORLD, revision: a.revision, chunks: a.chunks, box: a.box, parts: a.parts, files: a.files, requestId: a.requestId, origin });
+    const asFeed = (a: Record<string, unknown>, origin: unknown): Record<string, unknown> => ({ type: 'voxelsChanged', op: a.op, world: FEED_WORLD, revision: a.revision, chunks: a.chunks, box: a.box, parts: a.parts, materialSwaps: a.materialSwaps, files: a.files, requestId: a.requestId, origin });
 
     // MCP: the real adapter (tool schema, envelope, origin) over an in-memory transport, against this backend.
     const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'voxel-mcp' });
@@ -500,7 +502,7 @@ describe('voxel world routes', () => {
       const viaMcp = await tool({ op: 'editVoxels', args: { world: FEED_WORLD, command: DIG } });
       expect(viaMcp.isError, JSON.stringify(viaMcp.body)).toBe(false);
       expect(viaMcp.body).toMatchObject({ ok: true, op: 'editVoxels', revision: 3, undoable: 1, duplicated: false });
-      for (const k of ['cells', 'chunks', 'box', 'parts', 'files']) expect(viaMcp.body[k], k).toEqual(page.json[k]);
+      for (const k of ['cells', 'chunks', 'box', 'parts', 'materialSwaps', 'files']) expect(viaMcp.body[k], k).toEqual(page.json[k]);
       const oracle = sceneStore();
       applyEdit({ store: () => oracle }, canonicalEditCommand(DIG));
       expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), oracle, SCENE_CHUNKS);

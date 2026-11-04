@@ -98,8 +98,13 @@ import { utf8Encode } from '@thirdlight/shared';
  * the kit's seed, bit 15 the case transform's mirror); a kit's piece on a
  * cell whose base stays (a moulding, a coping) is listed without
  * `replacesBase` where the cell shows; still 8 bytes an instance.
+ * 13: a case window carries the same-material bit only for a catalogue
+ * whose rules read it, so with the draft catalogue a cell's case transform
+ * (its pieces' turns and mirror) no longer depends on its neighbours'
+ * materials, and a material paint changes no piece within one kit; the
+ * layout is v12's.
  */
-export const DERIVED_FORMAT_VERSION = 12;
+export const DERIVED_FORMAT_VERSION = 13;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

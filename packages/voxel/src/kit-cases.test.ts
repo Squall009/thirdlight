@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
 import {
   applyFold,
+  catalogueReadsMaterial,
   CASE_ROLES,
   CASE_SYMBOL,
   CASE_WINDOW,
@@ -25,6 +26,9 @@ import { VOXEL_ROLE } from './record';
 
 const R = VOXEL_ROLE;
 const SYMBOLS = 15;
+
+/** A symbol without the same-material bit (a built role in "another material"). */
+const plain = (sy: number): number => (sy > CASE_SYMBOL.built ? sy - ((sy - CASE_SYMBOL.built) & 1) : sy);
 
 /** A window of one symbol, with cells set. */
 function windowOf(fill: number, cells: ReadonlyArray<readonly [number, number, number, number]> = []): Uint8Array {
@@ -69,8 +73,10 @@ describe('folding', () => {
       const role = CASE_ROLES[Math.floor(rnd() * CASE_ROLES.length)]!;
       // Sparse built windows reach more cases than uniform noise does.
       const density = rnd();
-      const win = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < density ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
-      const a = cat.matchWindow(role, win);
+      // The draft's rules read no material, so its windows carry no same-material bit (matching takes it off).
+      const raw = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < density ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
+      const win = raw.map(plain);
+      const a = cat.matchWindow(role, raw);
       const A = Math.floor(rnd() * FOLD_TRANSFORMS);
       const turned = foldWindow(win, A);
       const b = cat.matchWindow(role, turned);
@@ -94,6 +100,25 @@ describe('folding', () => {
       }
     }
     expect(asymmetric).toBeGreaterThan(2000);
+  });
+
+  it('decides no case or transform by materials unless a rule reads the same-material bit', () => {
+    const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
+    expect(cat.readsMaterial).toBe(false);
+    expect(catalogueReadsMaterial(DRAFT_CASE_CATALOGUE)).toBe(false);
+    const rnd = mulberry32(9);
+    for (let trial = 0; trial < 2000; trial++) {
+      const role = CASE_ROLES[Math.floor(rnd() * CASE_ROLES.length)]!;
+      const win = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < 0.5 ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
+      // The same roles with each built neighbour's material drawn again: the case and its transform stay.
+      const repainted = win.map((sy) => (sy >= CASE_SYMBOL.built ? plain(sy) + (rnd() < 0.5 ? 1 : 0) : sy));
+      const a = cat.matchWindow(role, win);
+      const b = cat.matchWindow(role, repainted);
+      expect([b.caseId, b.fold, b.key]).toEqual([a.caseId, a.fold, a.key]);
+    }
+    // A rule that tells the centre's material from another makes the catalogue read materials.
+    expect(catalogueReadsMaterial({ rules: [{ case: 'a', priority: 1, cells: [[0, -1, 0, CELL.floor & CELL.same]] }] })).toBe(true);
+    expect(catalogueReadsMaterial({ rules: [{ case: 'a', priority: 1, cells: [[0, -1, 0, CELL.floor | CELL.ground]] }] })).toBe(false);
   });
 
   it('never flips a case upside down: a window and its vertical flip may differ', () => {

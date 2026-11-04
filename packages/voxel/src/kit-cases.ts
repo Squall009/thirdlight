@@ -11,7 +11,12 @@
  * a 4-bit symbol: open (air, liquid, a cell filled below the surface),
  * an opening, ground, or one of the six built roles in the centre's
  * material or another one. So a case sees roles and fill classes, never
- * materials themselves: two materials of one kit give the same cases.
+ * materials themselves. A catalogue none of whose rules tells the centre's
+ * material from another ({@link catalogueReadsMaterial}) gets windows
+ * without the same-material bit at all, so its cases and their transforms
+ * are the same whatever the materials: a material paint then changes no
+ * case, form or consumer (the feeds mask: material is shader data). A
+ * catalogue whose rules read it makes a material paint feed geometry.
  *
  * **Folding.** The same arrangement turned or mirrored is the same case. A
  * window is folded over the four quarter turns about +y and the mirror
@@ -105,6 +110,28 @@ export const CELL = (() => {
     any: (1 << (CASE_SYMBOL.built + 2 * BUILT_ROLES.length)) - 1,
   });
 })();
+
+/** A symbol with the same-material bit taken off (a built role reads as "another material"). */
+function withoutSame(sy: number): number {
+  return sy > CASE_SYMBOL.built ? sy - ((sy - CASE_SYMBOL.built) & 1) : sy;
+}
+
+/**
+ * Whether any rule of a catalogue tells a built cell in the centre's
+ * material from one in another (a rule cell accepting one of a role's two
+ * symbols but not the other). Only then do materials decide cases.
+ */
+export function catalogueReadsMaterial(def: Pick<CaseCatalogueDef, 'rules'>): boolean {
+  for (const r of def.rules) {
+    for (const c of r.cells) {
+      const mask = c[3];
+      for (let b = 0; b < BUILT_ROLES.length; b++) {
+        if (((mask >> (CASE_SYMBOL.built + 2 * b)) & 1) !== ((mask >> (CASE_SYMBOL.built + 2 * b + 1)) & 1)) return true;
+      }
+    }
+  }
+  return false;
+}
 
 /** Every symbol but those of `mask`. */
 export function notCell(mask: number): number {
@@ -304,6 +331,8 @@ export class CaseCatalogue {
   readonly draft: boolean;
   readonly cases: readonly CaseDef[];
   readonly rules: readonly CaseRule[];
+  /** Whether its rules read the same-material bit ({@link catalogueReadsMaterial}); without, windows never carry it. */
+  readonly readsMaterial: boolean;
   private readonly caseIndex = new Map<string, number>();
   private readonly byRole: CompiledRule[][] = [];
   private readonly fallbackIndex = new Int32Array(ROLE_MASK + 1).fill(-1);
@@ -322,6 +351,7 @@ export class CaseCatalogue {
     this.draft = def.draft;
     this.cases = def.cases;
     this.rules = def.rules;
+    this.readsMaterial = catalogueReadsMaterial(def);
     const fail = (msg: string): never => {
       throw new RangeError(`case catalogue ${def.id}: ${msg}`);
     };
@@ -397,7 +427,7 @@ export class CaseCatalogue {
    */
   matchWindow(role: number, win: Uint8Array): CaseMatch {
     if (this.fallbackIndex[role]! < 0) throw new RangeError(`role ${role} carries no case`);
-    const packed = this.resolve(role, win);
+    const packed = this.resolve(role, this.readsMaterial ? win : win.map(withoutSame));
     const fold = caseFoldOf(packed);
     const caseIndex = caseIndexOf(packed);
     const folded = this.folded.slice();
@@ -490,7 +520,8 @@ export class CaseCatalogue {
         if (own < CASE_SYMBOL.built && own !== CASE_SYMBOL.opening) continue;
         const role = (vals[i]! >> ROLE_SHIFT) & ROLE_MASK;
         if (CARRIES[role] !== 1) continue;
-        const mat = vals[i]! & MATERIAL_ID_MAX;
+        // -1 matches no material: the same-material bit stays off where no rule reads it.
+        const mat = this.readsMaterial ? vals[i]! & MATERIAL_ID_MAX : -1;
         words.fill(0);
         let h = role + 1;
         for (let k = 0; k < CASE_WINDOW_CELLS; k++) {

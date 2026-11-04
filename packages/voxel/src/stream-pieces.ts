@@ -6,17 +6,24 @@
  * come from roles and fills), so when the table changes, only what holds a
  * material whose pieces changed is derived again: every derive section of
  * each resident chunk holding one, and every node of the levels that draw
- * pieces holding one; nothing within the rules' reach of them. And while a
- * kit binds a material, a change that feeds only the shader data (a
- * material paint) may move cells to another kit's pieces, so it rebuilds
- * the meshes too.
+ * pieces holding one; nothing within the rules' reach of them.
+ *
+ * The same holds for an edit (the feeds mask: material and wetness are
+ * shader data). Wetness never changes a piece. A material paint changes
+ * pieces only where a cell moves to another kit's (the material it left
+ * and the one it took bound to different kits): then the sections holding
+ * the painted cells derive whole, and nothing past them. A paint within one
+ * kit keeps every piece and variant, so it stays shader data. The one
+ * exception is a case catalogue whose rules read the same-material bit:
+ * there materials decide cases, so a material paint feeds geometry.
  */
 import type { AssemblyRuleSet } from './assembly';
 import { payloadHolds, type ChunkPayload } from './chunk-wire';
 import type { ChunkCoord } from './coords';
-import { pieceTableBindsKits, pieceTableChanges, type PieceTable } from './piece-table';
-import { DERIVED_PART, MATERIAL_ID_MAX } from './record';
-import type { SectionDerives } from './stream-sections';
+import { catalogueReadsMaterial } from './kit-cases';
+import { pieceTableBindsKits, pieceTableChanges, pieceTableKitChanges, type PieceTable } from './piece-table';
+import { ALL_DERIVED_PARTS, DERIVED_PART, MATERIAL_ID_MAX } from './record';
+import { geometryParts, PIECES_AT_CELLS, type SectionDerives } from './stream-sections';
 import type { StreamMips } from './stream-mips';
 
 /** What the pieces need from the streamer that owns the chunks. */
@@ -37,6 +44,8 @@ function checkRules(t: PieceTable, rules: AssemblyRuleSet | undefined): void {
 
 export class StreamPieces {
   private current: PieceTable | null;
+  /** The rules' cases read materials: a material paint feeds geometry. */
+  private readonly casesReadMaterial: boolean;
 
   constructor(
     private readonly host: PiecesHost,
@@ -44,6 +53,8 @@ export class StreamPieces {
   ) {
     if (table !== null) checkRules(table, host.rules);
     this.current = table;
+    const cat = host.rules?.catalogue;
+    this.casesReadMaterial = cat !== undefined && catalogueReadsMaterial(cat);
   }
 
   /** The table the derives choose pieces from (null: no kit, the default pieces). */
@@ -51,9 +62,20 @@ export class StreamPieces {
     return this.current;
   }
 
-  /** The derived parts a change feeding `parts` makes stale while this table holds. */
-  feeds(parts: number): number {
-    return (parts & DERIVED_PART.shader) !== 0 && pieceTableBindsKits(this.current) ? parts | DERIVED_PART.mesh : parts;
+  /**
+   * What a change feeding `parts` (`fieldsFeed` of its fields) makes stale
+   * while this table holds: `parts`, with {@link PIECES_AT_CELLS} when a
+   * shader-only change moves cells to another kit's pieces. `swaps` are the
+   * change's material changes (`EditOutcome.materialSwaps`; empty: wetness
+   * alone). Without them (a refresh whose caller does not know) a
+   * shader-only change counts as a material paint that may change kits.
+   */
+  feeds(parts: number, swaps?: readonly number[]): number {
+    if ((parts & DERIVED_PART.shader) === 0 || geometryParts(parts)) return parts;
+    if (swaps !== undefined && swaps.length === 0) return parts;
+    if (this.casesReadMaterial) return ALL_DERIVED_PARTS;
+    const moved = swaps === undefined ? pieceTableBindsKits(this.current) : pieceTableKitChanges(this.current, swaps);
+    return moved ? parts | PIECES_AT_CELLS : parts;
   }
 
   /**

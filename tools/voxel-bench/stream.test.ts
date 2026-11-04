@@ -621,13 +621,40 @@ describe('streamer (workers, region files on disk)', () => {
     expect(s.pieces.set(buildPieceTable([fullTestKit('stone', [STONE], 1), fullTestKit('log', [LOG], 2)], WORLD_RULES).table)).toEqual({ group: 0, chunks: [] });
     await s.settle();
     expect(derivedChunks).toHaveLength(0);
-    // A paint of half the log wall to an unbound material: the meshes (its pieces) are rebuilt, not only the shader data.
-    const paint = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [4, logY, 4], max: [8, logY + 6, 4], mode: 'paint', voxel: { material: PLAIN, role: VOXEL_ROLE.wall, wetness: 0 } });
-    s.edit(paint);
-    applyEdit({ store: () => truth }, paint);
-    await s.settle();
-    drawsLike(both, holding(LOG));
-    drawsLike(both, holding(PLAIN));
+    // Paints with the kits bound (the feeds mask: material and wetness are shader data). Sections derived whole, and shader-only.
+    const whole: string[] = [];
+    const shaded: string[] = [];
+    s.on((e) => {
+      if (e.type === 'derived') whole.push(`${e.cx},${e.cy},${e.cz}`);
+      else if (e.type === 'shader') shaded.push(`${e.cx},${e.cy},${e.cz}`);
+    });
+    const paintLog = async (material: number, wetness: number, table: PieceTable): Promise<VoxelEditCommand> => {
+      const cmd = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [4, logY, 4], max: [8, logY + 6, 4], mode: 'paint', voxel: { material, role: VOXEL_ROLE.wall, wetness } });
+      whole.length = 0;
+      shaded.length = 0;
+      s.edit(cmd);
+      applyEdit({ store: () => truth }, cmd);
+      await s.settle();
+      drawsLike(table, holding(material));
+      return cmd;
+    };
+    // Rain on half the log wall: no section derives its meshes or instances again, only shader data.
+    await paintLog(LOG, 4, both);
+    expect(whole).toEqual([]);
+    expect(shaded.length).toBeGreaterThan(0);
+    // A second timber (94) bound to the log kit, held by no chunk: nothing to derive. Log to it is a paint within the kit: shader data only.
+    const LOG2 = 94;
+    const kits2 = buildPieceTable([fullTestKit('log', [LOG, LOG2], 2), fullTestKit('stone', [STONE], 1)], WORLD_RULES).table;
+    expect(s.pieces.set(kits2).chunks).toEqual([]);
+    await paintLog(LOG2, 4, kits2);
+    expect(whole).toEqual([]);
+    expect(shaded.length).toBeGreaterThan(0);
+    // To an unbound material (another kit's pieces: the engine's): exactly the sections holding the painted cells derive whole.
+    const cross = await paintLog(PLAIN, 4, kits2);
+    expect([...new Set(whole)].sort()).toEqual(dependentChunks(s.sections, editBounds(grid, cross), 0).map((c) => `${c.cx},${c.cy},${c.cz}`).sort());
+    expect(whole.length).toBe(new Set(whole).size);
+    expect(whole.length).toBeGreaterThan(0);
+    drawsLike(kits2, holding(LOG));
   }, 30_000);
 
   it('reads through the runtime overlay: the base never written, every derive a fresh derive of the merged view, digs kept over unload and reload, paints rebuild shader data only, saves keep the saved fields', async () => {

@@ -238,6 +238,74 @@ describe('instances carry kit pieces', () => {
   });
 });
 
+describe('material and wetness feed the shader data, kits bound', () => {
+  it('keeps every output but the shader data under a wetness paint and a material paint within one kit; a paint to another kit changes only the painted cells\' pieces', () => {
+    const s = townStore();
+    // Timber and plank are one kit, the masonry another: a paint between kits moves cells' pieces, one within a kit none.
+    const { table } = buildPieceTable([fullTestKit('wood', [MAT.timber, MAT.plank], 3), fullTestKit('masonry', [MAT.stone, MAT.brick, MAT.plaster, MAT.roofTile], 2)], KIT_RULES);
+    const v = voxel();
+    // The town's west half: enough of every material, half the derive time.
+    const chunks = TOWN_CHUNKS.filter(([cx]) => cx < 2);
+    const derive = (): DerivedData[] => chunks.map((c) => deriveFromStore(s, ...c, KIT_RULES, undefined, table));
+    /** The bytes of a result with another's shader data: equal when only the shader data differ. */
+    const withShader = (d: DerivedData, from: DerivedData): Uint8Array => encodeDerived({ ...d, shader: from.shader });
+    /** Rewrites one field of every cell `pick` takes in the town's construction chunks; returns the cells. */
+    const repaint = (pick: (m: number) => boolean, write: (x: number, y: number, z: number) => void, box?: { x1: number; z1: number }): Set<string> => {
+      const cells = new Set<string>();
+      for (const [cx, cy, cz] of chunks) for (let lx = 0; lx < E; lx++) for (let lz = 0; lz < E; lz++) for (let ly = 0; ly < E; ly++) {
+        const [x, y, z] = [cx * E + lx, cy * E + ly, cz * E + lz];
+        if (box !== undefined && (x >= box.x1 || z >= box.z1)) continue;
+        if (!pick(s.voxelAt(x, y, z, v).material)) continue;
+        write(x, y, z);
+        cells.add(`${x},${y},${z}`);
+      }
+      return cells;
+    };
+    const set = (x: number, y: number, z: number, f: Partial<{ material: number; wetness: number }>): void => {
+      s.voxelAt(x, y, z, v);
+      s.setVoxel(x, y, z, { material: f.material ?? v.material, role: v.role, shape: v.shape, wetness: f.wetness ?? v.wetness });
+    };
+    const steps: Array<[string, () => Set<string>]> = [
+      ['wetness on every built cell', () => repaint((m) => BUILDING_MATERIALS.includes(m), (x, y, z) => set(x, y, z, { wetness: 5 }))],
+      ['timber to plank (one kit)', () => repaint((m) => m === MAT.timber, (x, y, z) => set(x, y, z, { material: MAT.plank }))],
+      ['stone to brick (one kit)', () => repaint((m) => m === MAT.stone, (x, y, z) => set(x, y, z, { material: MAT.brick }))],
+    ];
+    let before = derive();
+    for (const [what, step] of steps) {
+      expect(step().size, what).toBeGreaterThan(100);
+      const after = derive();
+      let shaderChanged = 0;
+      after.forEach((d, k) => {
+        expect(withShader(before[k]!, d), `${what}: chunk ${chunks[k]!.join(',')}`).toEqual(encodeDerived(d));
+        if (Buffer.compare(Buffer.from(encodeDerived(before[k]!)), Buffer.from(encodeDerived(d))) !== 0) shaderChanged++;
+      });
+      expect(shaderChanged, what).toBeGreaterThan(0);
+      before = after;
+    }
+    // Plank to brick in a quarter of it (wood to masonry): pieces change at painted cells only.
+    const painted = repaint((m) => m === MAT.plank, (x, y, z) => set(x, y, z, { material: MAT.brick }), { x1: 64, z1: 64 });
+    expect(painted.size).toBeGreaterThan(100);
+    const after = derive();
+    let moved = 0;
+    after.forEach((d, k) => {
+      const [cx, cy, cz] = chunks[k]!;
+      const was = instancesOf(before[k]!);
+      const now = instancesOf(d);
+      for (const i of new Set([...was.keys(), ...now.keys()])) {
+        const [lx, lz, ly] = [Math.floor(i / (E * E)), Math.floor(i / E) % E, i % E];
+        if (painted.has(`${cx * E + lx},${cy * E + ly},${cz * E + lz}`)) {
+          // The kits number alike, so the variant (the other kit's seed and weights) tells them apart where the piece does not.
+          if (JSON.stringify(was.get(i)) !== JSON.stringify(now.get(i))) moved++;
+        } else expect(now.get(i), `cell ${lx},${ly},${lz} of ${cx},${cy},${cz}`).toEqual(was.get(i));
+      }
+      // Everything but the instances and the shader data stays.
+      expect(encodeDerived({ ...before[k]!, shader: d.shader, instances: d.instances })).toEqual(encodeDerived(d));
+    });
+    expect(moved).toBeGreaterThan(50);
+    // Five derives of 16 town chunks and four passes over their cells: past vitest's 5 s default on a loaded host.
+  }, 30_000);
+});
+
 describe('kit pieces per level', () => {
   it('lists the kit\'s pieces high in chunks and low in level-1 nodes and none from level 2; every cell a piece replaces keeps one at levels 0 and 1 (no roofless houses at level 1)', () => {
     const s = townStore();

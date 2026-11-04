@@ -110,6 +110,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.4 | **Merge-compatible run sections:** runs of beams, banisters, soffits, mouldings, running boards (and foundation skirts where a foundation meets terrain) with body / junction / corner / termination sections, read across chunk faces within the reach; the 45.7b neighbours (wall ↔ beam ↔ banister) as the seed cases. | `derived.test.ts`: section per cell on hand runs incl. across chunk faces; adding/removing a neighbour changes only cells within R | sections a run, µs | 45.7b proof passes with the new sections |
 | 46c.5 | **Base and consumers from the case:** per case keep / suppress / reshape the base surface; collision, nav and light from the case's declared coarse shape (box, slab, bar, none), never from piece meshes (R77). | `collision.test.ts` (real Rapier: ball through a banister's gaps, capsule on a beam), nav/light outputs per case | bytes, boxes a chunk | an open rail is open for every consumer |
 | 46c.6 | **Instances carry kit pieces; high/low filled:** instance u16 piece = kit-local piece index, reserved u16 = variant (hash of the world cell, stable under unrelated edits) — still 8 B, derived version step with owner note; 46b.9 hooks get the kit's high at L0, low at L1, none from L2; D465 rechecked with low pieces. | `derived.test.ts` (variant stable after dig/rebuild elsewhere; per-level lists); `stream.test.ts` (real workers) | instances a chunk per level | hooks filled; D465 closed or re-recorded |
+| 46c.6b | **Fix (lead): the feeds rule with kits bound:** wetness never re-derives meshes or instances; a material paint only where a cell changes kit (old material's kit ≠ new's); within a kit shader data only; variant hash from cell + kit seed only. | `stream.test.ts` (real workers), `kit-pieces.test.ts` | derives per paint | owner rule kept; the cross-kit exception logged |
 | 46c.7 | **Pieces drawn (adapter + hosts):** GLB pieces through the content closure (no URL), one instanced draw per (kit piece, level) a chunk, section ends meeting by join profile; stand-in material + labelled debug UV texture; page, Play, Scene view. Default fallback kit (procedural, engine-owned) covers every case. | e2e `voxel-world.e2e.ts` (one test extended: kit pieces drawn, a banister → wall edit swaps pieces, `png.ts` reads); export served statically, backend stopped | render() CPU, draws, instances | both renderers draw kits |
 | 46c.8 | **Kit check + kit test scene:** `kit-check.ts` rows (ok/warn/err/info): every required case present, fallback present, high/low pairs, pivots and cell sizes, join profiles matching at section ends, triangle and texture budgets reported, trim conformance only for kits that opt in; backend Problems; a command writes the generated test scene (every case in a labelled grid) into a staging world. | vitest (bad kits fail each row), e2e (Problems shows a broken kit; test scene opens) | check ms a kit | check green on both placeholder kits |
 | 46c.9 | **Two placeholder kits (log, stone):** produced through the Blender pipeline on this host (`/usr/local/bin/blender`, the blender-pipeline skill; the lead confirms at the item) else procedural meshes from a script in `tools/voxel-bench`; engine-owned test data, high + low per case, debug UVs, small GLBs with their generating script. | kit check green; GLB bytes read by the real loader | tris per piece per level, texture sizes, file sizes | both kits drawn in the test scene |
@@ -134,6 +135,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.4 | done: `kit-runs.ts` run sections (job only, u16 a cell: single/start/body/end/corner/junction, ends joined/open/butt/inner mitre, world axis); catalogue `cases-draft` v1 (+6 rules: rail L/T/X, beam corners, storey-line corner), `kits` v2; U world-anchored (`runU`). 6 tests. Town eval with detail cells p50/p95 207/419 → 241/479 µs; run pass alone 34/49 (slice 45/55) |
 | 46c.5 | done: `case-forms.ts`: each case declares base keep/suppress/reshape + shape box/slab/panel/bar/post/none; every consumer reads the form (class's without a case); soffit reshaped to a slab. Catalogue v2, `kits` v3, derived v10 → v11 (spec note). Town 229 chunks: 15.29 → 15.80 MB, boxes full 22,429 → 23,201, partial 18,792 → 20,154; slice unchanged. 4 + 1 Rapier tests |
 | 46c.6 | done: `piece-table.ts` (material → kit by test binding, kit-local pieces, missing case → body → single → same-form role fallback → engine default), variant word (hash of cell + kit seed, bit 15 mirror), still 8 B; derived v11 → v12. Kit change re-derives only chunks/L1 nodes holding its materials. Table 1.65 kB a full kit; town L0 instances/chunk p50 80 → 1,355 with a full kit |
+| 46c.6b | done: wetness and a same-kit material paint re-derive shader data only, kit bound or not (real workers: 0 mesh derives); a cross-kit paint derives whole exactly the sections holding the painted cells. Edits report `materialSwaps`. Case windows drop the same-material bit unless a rule reads it (D478 fixed); derived v12 → v13. L1+ nodes still derive whole (D479) |
 | 46c.7 | not started |
 | 46c.8 | not started |
 | 46c.9 | not started |
@@ -364,6 +366,31 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   0 missed both renderers). `voxel-world.e2e.ts` untouched (no browser behaviour): its 7 tests sum to 61.8 s (57.9 s at
   46c.5, load 3.2). Staging slice world needs no regenerating (derived data only).
 
+### 46c.6b the feeds rule with kits bound (fix)
+
+- **Built:** `EditOutcome.materialSwaps` (distinct `materialSwap(from, to)`, record.ts; the worker's `edit` output,
+  the command answer, history and `voxelsChanged` carry it; an undo answers its edit's turned round);
+  `pieceTableKitChanges(table, swaps)`; `StreamPieces.feeds(parts, swaps)`: wetness or a paint within one kit →
+  shader parts only; a paint between kits → `PIECES_AT_CELLS` (stream-sections.ts), with which `invalidate` also
+  derives whole the sections holding the edit box (radius 0, a piece reads only its own cell's material); a refresh
+  without swaps, kits bound, counts as between kits. `CaseCatalogue.readsMaterial` / `catalogueReadsMaterial`: the
+  same-material bit is set in a window only when a rule reads it (the draft reads none), else materials decided the
+  fold of symmetric windows (D478); a catalogue that reads it makes a material paint feed geometry. Derived v12 → v13.
+- **Tests:** `kit-pieces.test.ts` +1 (16 town chunks, two kits wood {timber, plank} / masonry): wetness on every built
+  cell, timber → plank, stone → brick: every derived byte but the shader data equal (fails at v12: chunk 1,0,0 under
+  timber → plank); plank → brick (cross-kit) in a quarter: instances change only at painted cells (> 50), everything
+  but instances and shader equal. `stream.test.ts` (real workers, extended the pieces test): rain on the log wall and
+  log → a second log-kit material: 0 `derived` events, shader only, joined instances = in-thread derive; log → an
+  unbound material: `derived` = exactly the sections overlapping the edit box, each once. `kit-cases.test.ts` +1:
+  repainting a window's neighbours never changes the draft's case, fold or key; a rule with `CELL.same` reads material.
+  No kit bound: the existing overlay and refresh paint tests pass unchanged. `voxel-world.test.ts` (command route):
+  answers and the `voxelsChanged` feed carry `materialSwaps`, an undo's turned round.
+- **Gate:** gate-fast-20261104-043713 RED only on `voxel-world.test.ts` (the feed's exact shape lacked the new field:
+  test updated); rerun gate-rerun-20261104-044807 vitest + 36 e2e green, perf webgpu main-thread CPU 10.32 ms > 9.02
+  (load 6.3, a one-off: the village draws no voxels); rerun gate-rerun-20261104-045317 GREEN (perf 0 missed both,
+  5.94 / 4.17 ms). `voxel-world.e2e.ts` untouched: 7 tests sum 63.8 s (61.8 s at 46c.6). Staging slice world needs no
+  regenerating (derived data only).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -507,6 +534,24 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   within R as a shape change does (wetness included: the streamer cannot tell them apart in a refresh). Alternative
   for the owner: pieces resolved per kit at draw time from the material (no derive), at the cost of the derive no
   longer choosing variants by weight per kit.
+- 2026-11-04 (46c.6b, lead fix, supersedes the 46c.6 entry above): **the owner's feeds rule holds with kits bound**:
+  wetness never re-derives meshes or instances; a material paint within one kit is shader data only (pieces and
+  variants read the material only through its kit). **For the owner: a material paint that changes the cell's kit
+  DOES change geometry** (sections holding the painted cells, nothing within R): by design, since kits are per
+  material type (§1), a stone wall painted timber must draw timber pieces. It is the one exception to "material →
+  shader data only", proposed for the owner. Alternative: resolve pieces at draw time (instances carry a
+  kit-independent case + section + cell hash; the renderer maps material → kit → piece per frame or per material
+  change). Costs: the derive no longer knows which kit pieces exist (missing-piece fallbacks, kept cells' pieces only
+  where they show, and per-kit variant weights move to the renderer, per instance on the GPU or in a CPU pass per
+  paint); instance lists grow to every cell any kit might draw; the low/high choice per level and kit checks at
+  derive time are lost. Default chosen (owner to confirm): the derive-time exception.
+- 2026-11-04 (46c.6b, default chosen, owner to confirm): **the same-material bit only where a rule reads it**: the
+  draft catalogue has no rule telling the centre's material from another, but the bit decided which transform a
+  symmetric window took, so a material paint (shader-only) could turn or mirror its neighbours' pieces without
+  re-deriving them (D478). A catalogue whose rules read the bit (a future role spec) makes material paints feed
+  geometry: the owner should keep the role spec free of material-reading rules, or accept that exception.
+- 2026-11-04 (46c.6b): **level-1+ nodes still derive whole on any edit** (paints and wetness included): a mip node
+  has no shader-only derive (46b design); out of this fix's scope, D479 (proposed for 46d with the per-level shader).
 - 2026-11-04 (46c.6, default chosen, owner to confirm): **the piece table is not stored in a result**: staleness is
   carried by the stamps of what a table change re-derives; results of untouched chunks are the same under both tables.
 
