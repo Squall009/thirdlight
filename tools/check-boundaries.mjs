@@ -291,6 +291,7 @@ export const NODE_SIDE_ALLOWED = {
         'arch-style-rows', // a trim sheet's problems name the presets that do not fit its rows
         'kits', // what a kit names that the project lacks
         'kit-checks', // a kit piece's file and its sheet's table and pixels
+        'voxel-kit-check', // a voxel kit against the world rules' case catalogue and its meshes' files
         'model-occluders', // a model's occluder stand-ins checked against its pieces
         'content-helpers', // a content digest's format is defined once, where the model checks it
       ],
