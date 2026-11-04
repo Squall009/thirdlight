@@ -103,8 +103,14 @@ import { utf8Encode } from '@thirdlight/shared';
  * (its pieces' turns and mirror) no longer depends on its neighbours'
  * materials, and a material paint changes no piece within one kit; the
  * layout is v12's.
+ * 14: a construction cell's shape is its integrity, not a fill: every
+ * consumer (meshes, collision, light, navigation, cases) reads a
+ * construction cell of any integrity as full, and a mip parent of a
+ * construction role is intact; terrain and liquid keep their fill. Results
+ * differ from v13's only where a construction cell was below 15 and in mip
+ * nodes of construction; the layout is v13's.
  */
-export const DERIVED_FORMAT_VERSION = 13;
+export const DERIVED_FORMAT_VERSION = 14;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

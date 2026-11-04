@@ -137,6 +137,41 @@ export function shapeDensity(shape: number): number {
 }
 
 /**
+ * The construction roles: what a builder places as whole blocks. Their
+ * shape is the cell's **integrity** ({@link SHAPE_FULL} intact, lower a
+ * damage stage, as many as a game uses; fully broken is air), never a fill:
+ * a damaged block stays a whole block for every consumer until it is air.
+ * Terrain's shape is its fill, a liquid's its fill level.
+ */
+export const CONSTRUCTION_ROLES: readonly number[] = Object.freeze([VOXEL_ROLE.wall, VOXEL_ROLE.floor, VOXEL_ROLE.roof, VOXEL_ROLE.foundation, VOXEL_ROLE.stair, VOXEL_ROLE.pillar]);
+
+/** Per role (all 16 slots): 1 for a construction role. */
+const CONSTRUCTION = (() => {
+  const t = new Uint8Array(ROLE_MASK + 1);
+  for (const r of CONSTRUCTION_ROLES) t[r] = 1;
+  return t;
+})();
+
+/** Whether a role is a construction role (its shape is integrity, {@link CONSTRUCTION_ROLES}). */
+export function isConstructionRole(role: number): boolean {
+  return CONSTRUCTION[role & ROLE_MASK] === 1;
+}
+
+/**
+ * How full a cell of `role` with stored `shape` is for the consumers
+ * (meshes, collision, light, navigation, mips, cases): a construction cell
+ * with any integrity is full; every other role's shape is its fill.
+ */
+export function fillLevel(role: number, shape: number): number {
+  return shape !== SHAPE_EMPTY && CONSTRUCTION[role & ROLE_MASK] === 1 ? SHAPE_FULL : shape;
+}
+
+/** A value's density for the consumers ({@link fillLevel} on the {@link DENSITY_FULL} scale). */
+export function valueDensity(v: number): number {
+  return shapeDensity(fillLevel(valueRole(v), valueShape(v)));
+}
+
+/**
  * The record value form: how a raw value is laid out where a format stores
  * it outside the chunk codec (region uniform entries, cell deltas in undo
  * records and saves, save uniform payloads, structure overrides). Form 2 is

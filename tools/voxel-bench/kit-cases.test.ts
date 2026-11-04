@@ -21,6 +21,7 @@ import {
   createWorldStore,
   cropNeighbourhood,
   DRAFT_CASE_CATALOGUE,
+  EDGE_CASE_CATALOGUE,
   evaluateAssembly,
   fillNeighbourhood,
   FOLD_TRANSFORMS,
@@ -212,13 +213,42 @@ describe('extraction on random worlds', () => {
             const m = cat.matchWindow(role, caseWindowAt(n, i));
             expect(cases[i]).toBe((m.caseIndex << 3) | m.fold);
             expect(cat.cases[m.caseIndex]!.roles).toContain(role);
-            seen.set(m.caseId, (seen.get(m.caseId) ?? 0) + 1);
+            const id = m.caseId ?? '(none)';
+            seen.set(id, (seen.get(id) ?? 0) + 1);
           }
         }
       }
     }
     console.log(`cases on random worlds: ${[...seen].sort((a, b) => b[1] - a[1]).map(([id, n]) => `${id} ${n}`).join(', ')}`);
     expect(seen.size).toBeGreaterThan(20);
+  }, 60_000);
+});
+
+describe('the edge catalogue on random worlds', () => {
+  const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
+
+  it('gives the same window case as the window path (its face-cell shortcut never drops a match), beams and banisters only', () => {
+    const seen = new Map<string, number>();
+    for (const seed of [1, 2, 3]) {
+      const s = createWorldStore(grid);
+      randomAssemblyWorld(s, seed, 24);
+      placeWallBeamBanister(s, 0, 2, 0);
+      dabDetailRoles(s, seed);
+      for (let cx = -1; cx < 1; cx++) for (let cy = -1; cy < 1; cy++) for (let cz = -1; cz < 1; cz++) {
+        const { n, cases } = chunkCases(cat, s, cx, cy, cz);
+        const side = n.side;
+        for (let x = PAD; x < PAD + E; x++) for (let z = PAD; z < PAD + E; z++) for (let y = PAD; y < PAD + E; y++) {
+          const i = (x * side + z) * side + y;
+          const role = valueRole(n.values[i]!);
+          if (!CASE_ROLES.includes(role) || (role !== C.opening && n.shapes[i]! < 128)) continue;
+          const m = cat.matchWindow(role, caseWindowAt(n, i));
+          expect(cases[i], `seed ${seed}`).toBe(m.caseIndex < 0 ? NO_CASE : (m.caseIndex << 3) | m.fold);
+          const id = m.caseId ?? '(none)';
+          seen.set(id, (seen.get(id) ?? 0) + 1);
+        }
+      }
+    }
+    expect([...seen.keys()].sort()).toEqual(['(none)', 'banister-post', 'banister-rail', 'beam']);
   }, 60_000);
 });
 
@@ -265,7 +295,8 @@ describe('extraction cost', () => {
           if (out[i] === NO_CASE) continue;
           const m = cat.matchWindow(valueRole(sub.values[i]!), caseWindowAt(sub, i));
           keys.add(m.key);
-          cases.set(m.caseId, (cases.get(m.caseId) ?? 0) + 1);
+          const id = m.caseId ?? '(none)';
+          cases.set(id, (cases.get(id) ?? 0) + 1);
         }
       }
     };

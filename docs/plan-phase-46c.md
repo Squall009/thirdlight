@@ -235,7 +235,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | 46c.14b | not started: runs once after the owner approves the revision (decision log 2026-11-04 revision plan) |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
 | 46c.18 | not started (after approval) |
-| R1 | not started (edge catalogue + matcher + integrity) |
+| R1 | done: `edge-cases.ts` edge pass (12 edges + 8 corners a cell, 10 cases × yaw 4, reach 1) + `edges-draft` v0 (20 cases; window rules beam/banister only) as `edges` v1 (registered, conformance incl. edges); construction shape = integrity in every reader, derived v13 → v14. Town µs a section p50/p95: old case pass 123/318, new passes 144/290 (edge pass 52/111) |
 | R2 | not started (roof mesher) |
 | R3 | not started (pieces on edges only, debris) |
 | R3b | not started (adapter: edge instances, alias rotation, stagger, default kit) |
@@ -829,6 +829,36 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   46c.11). Perf step not run (no draw-path change beyond byte counts). Staging stopped; the slice world needs no
   regenerating.
 
+### R1 edge catalogue, matcher and integrity
+
+- **Built.** `packages/voxel/src/edge-cases.ts` (`extractEdges`, `EdgeMasks`: per cell a 20-bit piece mask + inner
+  flags; `edgeCaseOf`/`edgeYawOf` per slot; owner = the one solid cell or the cell diagonal to the open one; none
+  with terrain (any fill) or an `excluded` cell round it). `kit-case-catalogue.ts` rewritten: `EDGE_CASE_CATALOGUE`
+  `edges-draft` v0 (DRAFT): 10 edge/corner, 5 roof-edge, 2 debris (forms keep/box until R3), beam/banister kept with
+  their 10 rules (`BEAM_BANISTER_CASES/RULES`, also spread into the old draft, so no copy). `cases-draft` v5 moved
+  (`git mv`) to `cases-draft-catalogue.ts`; it stays the world's catalogue until R3 draws pieces from edges, then goes
+  to `archive/`. A catalogue's fallback may be `null` (no case); a role without one skips the 40-cell window when no
+  rule's face cells match (exact prefilter, tested against the window path). `withEdges`/`EDGE_RULES` (`edges` v1,
+  radius 2) registered; `ruleRadiusMismatches` compares edge pieces (`part: 'edge'`).
+- **Integrity.** `record.ts` `CONSTRUCTION_ROLES`, `fillLevel`, `valueDensity`: the job's neighbourhood (both fill
+  paths) and the mip downsample read a construction cell of any integrity as full; a construction mip parent is 15;
+  a smooth add stroke of a construction role places whole blocks (≥ half covered) at 15. Derived v13 → v14 (spec
+  §3.7 owner note). Slice/town write construction at 15: not regenerated.
+- **Tests** (vitest, real stores/derive): `tools/voxel-bench/edge-cases.test.ts` (11): all 16 × 3 edge patterns (+
+  terrain variants) and all 256 corner patterns give exactly the table's case, owner and yaw; a 12 × 8 wall gives
+  rim pieces only (26/26/32 edges, 4 + 4 corners); a box house gives the expected 32/32/24 outer, 24/24/16 inner
+  edges and 4 + 4 + 4 + 4 corners, inner owners floor/roof; a door adds 8 jamb edges and 2 lintel edges; terrain
+  contact removes the bottom edges/corners only; a turned L-house scene (all 10 cases) gives the same pieces at
+  yaw + 1 per turn; random worlds: no piece on a flat face, one a slot; wall at integrity 7 = 15 for occupancy,
+  light, collision, nav, base, ground, instances and edges (`kits` and `edges`); terrain at 7 differs; mips equal.
+  Plus the edge catalogue's window cases on random worlds = slow path; far-reading edge pass caught.
+- **Measured** (`run.mjs cases --edges`, 6 GB scope, 2026-11-04 21:20, load 1.4, uptime 12.2 d, 3 rounds; 16³
+  sections with construction): town 2,511 sections: superseded case pass alone 123 / 318 µs p50 / p95; edge
+  catalogue window pass + edge pass 144 / 290 (edge pass alone 52 / 111); slice 8 sections 101 / 160 vs 131 / 195
+  (50 / 69). vs 46c.3 207–479 µs (that figure is classes + cases). Still over the 0.1–0.2 ms budget: D497 open,
+  numbers updated. Town edge pieces: 493,310 (out-top 177 k, out-bottom 157 k, out-vertical 54 k, in-* 89 k, corners
+  16 k) on 156,969 owner cells, about 1.6 k a chunk: R3/R6 should expect instance counts near the 46c.6 full kit's.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1132,6 +1162,18 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 - 2026-11-04 (revision plan, default chosen, owner to confirm): **retired code is removed in place where a file is
   rewritten and `git mv`'d to `archive/` where a whole file or reviewed draft goes** (§6b list); the reviewed role spec
   and trim drafts stay readable in `archive/architecture/`.
+
+- 2026-11-04 (R1, default chosen, owner to confirm): **the world's rule set stays `kits` (cases-draft v5) until R3**:
+  switching now would leave walls without any piece and break the kit check, test scene, placeholder kits and e2e
+  kit expectations that R3/R3b/R5 rebuild; the edge catalogue and pass are built, registered and tested beside it.
+- 2026-11-04 (R1, default chosen, owner to confirm): **a mip parent of construction is intact (15)**: damage stages
+  show at level 0 only; an L1 debris stage would need a min-integrity rule.
+- 2026-11-04 (R1, default chosen, owner to confirm): **terrain with any fill blocks an edge piece** (not only
+  terrain at the surface), so partial ground cells beside a wall foot give no piece (47b's fringe there).
+- 2026-11-04 (R1, default chosen, owner to confirm): **required edge cases**: outer edges and outer corners required,
+  inner edges/corners, roof valley and debris optional (a kit may leave inner seams plain).
+- 2026-11-04 (R1, default chosen, owner to confirm): **smooth construction strokes place whole blocks** (cells at
+  least half covered, integrity 15): a fill level would now read as damage.
 
 ## 10. Open questions for the owner
 

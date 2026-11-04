@@ -988,7 +988,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v13 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v14 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1523,9 +1523,27 @@ instances; nothing stored, nothing to upgrade, no world regenerated, the staging
 | Step | Item | Meaning changed | Owner note |
 |---|---|---|---|
 | 9 → 13 | 46c.3–46c.6b | kits and cases: cases in the job, forms, kit pieces, no material in a case | *Kits and cases* above (one table with the owner notes) |
+| 13 → 14 | 46c R1 | construction shape = integrity (owner 2026-11-04) | below |
+
+**Derived data 13 → 14 (46c R1; the meaning is the owner's decision of 2026-11-04, the version step a default chosen,
+owner to confirm).** No stored format changes: shape keeps its 4 bits. For the construction roles (wall, floor,
+roof, foundation, stair, pillar) shape is the cell's **integrity** (15 intact, lower a damage stage, air broken), not
+a fill: every consumer reads a construction cell of any integrity as a whole block (`fillLevel` / `valueDensity` in
+the job's neighbourhood: meshes, collision, light, navigation, cases), and a mip parent of a construction role is
+intact (15; damage shows at level 0 only, default chosen). Terrain's shape stays its fill, a liquid's its fill level.
+Results differ from v13's only where a construction cell was below 15, and in mip nodes of construction (their
+share is no longer written as their shape). Nothing to upgrade; the slice and town worlds write construction at 15,
+so neither is regenerated. Beside it, not yet the world's rule set: the **edge pass** (`edge-cases.ts`, reach 1) and
+the **edge catalogue** `edges-draft` v0 (DRAFT, 20 cases: 10 edge/corner, 5 roof edge, 2 debris, beam and banister
+kept), composed as rule set `edges` v1 (`EDGE_RULES`, registered, radius-conformance checked incl. its edge
+pieces). Per 0.5 m lattice edge (4 cells round it) and lattice corner (8): 1 solid = outer, 3 (7) = inner, 2 side by
+side = flat (no piece), 2 diagonal = two outer edges; top / vertical / bottom by gravity, yaw 4; owned by the solid
+cell (outer) or the cell diagonal to the open one (inner); none where a terrain cell or an excluded (roof plane)
+cell touches it; a cell's 12 edges and 8 corners are a bit mask. `cases-draft` v5 (`cases-draft-catalogue.ts`)
+stays the world's catalogue until pieces are drawn from edges.
 
 
-**Derived version history (v2 → v13).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+**Derived version history (v2 → v14).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |

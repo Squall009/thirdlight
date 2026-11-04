@@ -5,7 +5,9 @@
  */
 import { mulberry32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
-import { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
+import { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
+import { EDGE_CASE_IDS } from './edge-cases';
+import { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
 import {
   applyFold,
   catalogueReadsMaterial,
@@ -193,6 +195,9 @@ describe('rules', () => {
       const fallback = { ...good.fallback } as Record<number, string>;
       delete fallback[role];
       expect(() => new CaseCatalogue({ ...good, fallback }), `role ${role}`).toThrow(/no fallback case for role/);
+      // Named as none: the role's unmatched cells carry no case.
+      const none = new CaseCatalogue({ ...good, fallback: { ...good.fallback, [role]: null } });
+      expect(none.fallbackOf(role)).toBe(-1);
     }
     const bad = (patch: Partial<CaseCatalogueDef>, msg: RegExp): void => {
       expect(() => new CaseCatalogue({ ...good, ...patch })).toThrow(msg);
@@ -259,8 +264,38 @@ describe('the draft catalogue', () => {
       const win = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < density ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
       const m = cat.matchWindow(role, win);
       expect(cat.cases[m.caseIndex]!.roles).toContain(role);
-      seen.add(m.caseId);
+      seen.add(m.caseId!);
     }
     expect(seen.size).toBeGreaterThan(cat.cases.length / 2);
+  });
+});
+
+describe('the edge catalogue (window part)', () => {
+  const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
+
+  it('is a 20-case draft whose window rules name only beams and banisters, with no fallback for any role', () => {
+    expect([cat.id, cat.version, cat.draft]).toEqual(['edges-draft', 0, true]);
+    expect(cat.cases).toHaveLength(20);
+    expect(cat.cases.map((c) => c.id).slice(0, EDGE_CASE_IDS.length)).toEqual([...EDGE_CASE_IDS]);
+    expect(new Set(cat.rules.map((r) => r.case))).toEqual(new Set(['beam', 'banister-rail', 'banister-post']));
+    for (const role of CASE_ROLES) expect(cat.fallbackOf(role)).toBe(-1);
+    expect(cat.readsMaterial).toBe(false);
+  });
+
+  it('reaches beam, rail and post from their rules, and gives every other window no case', () => {
+    const rnd = mulberry32(23);
+    const reached = new Set<string>();
+    for (const r of cat.rules) {
+      const role = cat.cases[cat.indexOf(r.case)]!.roles[0]!;
+      for (let n = 0; n < 2000 && !reached.has(r.case); n++) {
+        const win = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < 0.3 ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
+        for (const [x, y, z, mask] of r.cells) win[caseWindowIndex(x, y, z)] = pick(rnd, mask);
+        if (cat.matchWindow(role, win).caseId === r.case) reached.add(r.case);
+      }
+    }
+    expect([...reached].sort()).toEqual(['banister-post', 'banister-rail', 'beam']);
+    // A wall face, open in front and solid all round otherwise: no case (no piece on a flat face).
+    const face = windowOf(WALL_SAME, [[0, 0, 1, CASE_SYMBOL.open]]);
+    expect(cat.matchWindow(R.wall, face)).toMatchObject({ caseIndex: -1, caseId: null, rule: -1 });
   });
 });

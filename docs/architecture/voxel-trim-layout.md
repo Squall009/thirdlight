@@ -5,7 +5,7 @@ Blender template, spec sheet or art-factory graph treats these numbers as fixed 
 Sources: [plan 45](../plan-phase-45.md) §1 (one standard layout, overlays in world space), §1d (texel density,
 field, strips, caps, tiers), §7 owner 2026-11-02 (R112), §7a (trim optional, own bakes allowed); requirements
 [R73, R87, R90, R112](voxel-format-requirements.md); the kit format (`project-model` `voxel-kit.ts`, `trimLayout`)
-and the draft case catalogue (`voxel` `kit-case-catalogue.ts`). Open questions for the owner are in §12.
+and the draft case catalogue (`voxel` `cases-draft-catalogue.ts`). Open questions for the owner are in §12.
 
 ## 1. Scope
 

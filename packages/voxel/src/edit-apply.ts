@@ -26,7 +26,7 @@ import { CellDelta, chunkScratch, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAi
 import { type BrushEdit, type EditMode, type EditVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { encodePaletteImage } from './palette-codec';
-import { ALL_PLANES, changedFields, DENSITY_FULL, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
+import { ALL_PLANES, changedFields, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
 import type { StampResolver, StampShape } from './stamp-shape';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
@@ -265,9 +265,10 @@ function planOf(grid: ChunkGrid, cmd: VoxelEditCommand, stamps: StampResolver | 
  * `out`; false when the cell stays as it is.
  */
 function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: VoxelRecord): boolean {
-  const smooth = plan.smooth;
-  if (!smooth && cov < 0.5) return false;
   const v = plan.voxel;
+  // A construction shape is integrity, not a fill: a smooth rim places whole blocks where it covers half a cell.
+  const smooth = plan.smooth && (v === undefined || !isConstructionRole(v.role));
+  if (!smooth && cov < 0.5) return false;
   const oldAir = old.material === MATERIAL_AIR;
   // Exact shape (set) or full, or the coverage as a fill level at a smooth rim.
   const t = plan.shape ?? (smooth ? (cov >= 1 ? SHAPE_FULL : Math.max(1, Math.round(cov * SHAPE_FULL))) : SHAPE_FULL);

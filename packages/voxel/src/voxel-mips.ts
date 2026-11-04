@@ -8,7 +8,10 @@
  *
  * - **shape** is the share of the parent that is solid: the mean of the 8
  *   cells' fill levels, counting only solid roles (open roles, {@link OPEN_ROLE}:
- *   air, liquid, openings, add nothing), rounded to the 16 levels;
+ *   air, liquid, openings, add nothing), rounded to the 16 levels. A
+ *   construction cell's shape is its integrity, so it counts as full at any
+ *   integrity ({@link fillLevel}), and a parent of a construction role is
+ *   intact ({@link SHAPE_FULL}): damage stages show at level 0 only;
  * - **role** goes by priority ({@link MIP_ROLE_PRIORITY}). Bodies drawn as
  *   whole cells (every solid role but terrain) hold the parent when their
  *   cells are at least half of its 8, or when at least
@@ -16,9 +19,9 @@
  *   body cells among a cell's 26 neighbours): a one-cell wall, floor or
  *   stepped roof stays closed at every level (thickened to the parent's
  *   cell), while a post, a rail or a fence (a line of cells) leaves the
- *   level. Cells count, not their fill: a body is drawn whole whatever its
- *   fill, so a level-1 wall (fill one half) holds level 2 as level 0's held
- *   level 1. The parent then takes the first body role among those cells;
+ *   level. Cells count, not their share of the parent: a body is drawn
+ *   whole, so a level-1 wall made of a one-cell sheet holds level 2 as
+ *   level 0's held level 1. The parent then takes the first body role among those cells;
  *   terrain, drawn from its fill, holds it with any fill. A parent with no
  *   solid role is liquid when its liquid cells fill it to at least one level
  *   (the shape is then the liquid's share), else air;
@@ -44,7 +47,7 @@ import { OPEN_ROLE } from './assembly';
 import { localIndex, type ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import { OCCUPANCY } from './derived-data';
-import { MATERIAL_AIR, SHAPE_EMPTY, SHAPE_FULL, VOXEL_ROLE } from './record';
+import { fillLevel, isConstructionRole, MATERIAL_AIR, SHAPE_EMPTY, SHAPE_FULL, VOXEL_ROLE } from './record';
 
 /**
  * Which role a parent takes when its children hold several (first wins):
@@ -147,7 +150,7 @@ function exposureOf(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
   const e = grid.edge;
   const own = children[(x >= e ? 1 : 0) | (y >= e ? 2 : 0) | (z >= e ? 4 : 0)]!;
   const oi = localIndex(grid, x % e, y % e, z % e);
-  if (own.shape[oi]! < SHAPE_FULL) return EXPOSURE.surface;
+  if (fillLevel(own.role[oi]!, own.shape[oi]!) < SHAPE_FULL) return EXPOSURE.surface;
   let best: number = EXPOSURE.buried;
   for (const [dx, dy, dz] of FACES) {
     const nx = x + dx, ny = y + dy, nz = z + dz;
@@ -159,7 +162,7 @@ function exposureOf(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
     if (c === null) return EXPOSURE.surface;
     const ni = localIndex(grid, nx % e, ny % e, nz % e);
     if (c.material[ni] === MATERIAL_AIR || openRole(c.role[ni]!)) return EXPOSURE.surface;
-    if (c.shape[ni]! < SHAPE_FULL && best < EXPOSURE.under) best = EXPOSURE.under;
+    if (fillLevel(c.role[ni]!, c.shape[ni]!) < SHAPE_FULL && best < EXPOSURE.under) best = EXPOSURE.under;
   }
   return best;
 }
@@ -189,7 +192,7 @@ function dominantCell(child: DenseChunk, cells: Int32Array, counts: (role: numbe
       k++;
     }
     matCells[j]!++;
-    matFill[j]! += child.shape[ci]!;
+    matFill[j]! += fillLevel(child.role[ci]!, child.shape[ci]!);
   }
   let best = 0;
   for (let j = 1; j < k; j++) {
@@ -270,7 +273,7 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
         air(pi);
         continue;
       }
-      if (same && shapes[c0] === SHAPE_FULL && SOLID_PRIORITY[roles[c0]!] === 1) {
+      if (same && fillLevel(roles[c0]!, shapes[c0]!) === SHAPE_FULL && SOLID_PRIORITY[roles[c0]!] === 1) {
         out.material[pi] = m0;
         out.role[pi] = roles[c0]!;
         out.shape[pi] = SHAPE_FULL;
@@ -285,7 +288,7 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
         const ci = cells[c]!;
         if (material[ci] === MATERIAL_AIR) continue;
         const r = roles[ci]!;
-        roleFill[r]! += shapes[ci]!;
+        roleFill[r]! += fillLevel(r, shapes[ci]!);
         if (WHOLE_CELL[r] === 1 && shapes[ci] !== SHAPE_EMPTY) {
           roleCells[r]!++;
           bodies++;
@@ -318,6 +321,8 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
         air(pi);
         continue;
       }
+      // A construction shape is integrity, not fill: a parent block is intact (damage shows at the finest level only).
+      if (isConstructionRole(role)) shape = SHAPE_FULL;
       let near: Uint8Array | null = null;
       // Which cells lie nearest the surface matters only between two or more materials.
       let m1 = MATERIAL_AIR;

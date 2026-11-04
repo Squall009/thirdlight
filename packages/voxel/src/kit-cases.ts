@@ -32,9 +32,9 @@
  * case it names. The rules of the centre's role are tried in priority order
  * (equal priorities in table order), each under every transform of the
  * key; the first match wins. A cell no rule matches takes its role's
- * fallback case, which every catalogue must name for every detail role: a
- * catalogue without one is refused, so no construction cell is ever left
- * without a case.
+ * fallback case. A catalogue names the fallback of every detail role, a
+ * case or `null` (no case: the cell shows its base surface alone); a
+ * catalogue that leaves a role out is refused, so no role is forgotten.
  *
  * The extraction is pure and per thread: a small direct-mapped cache keyed
  * by the unfolded window skips folding and matching for windows seen
@@ -42,13 +42,13 @@
  */
 import { OPEN_ROLE, type Neighbourhood } from './assembly';
 import { SURFACE_ISO } from './derived-mesh';
-import { MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
+import { CONSTRUCTION_ROLES, MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
 
 /** How far (Chebyshev, cells) the case window reaches from its centre. */
 export const CASE_REACH = 2;
 
 /** The built roles, in symbol order: role b is symbol 3 + 2b (another material) and 4 + 2b (the centre's material). */
-const BUILT_ROLES: readonly number[] = [VOXEL_ROLE.wall, VOXEL_ROLE.floor, VOXEL_ROLE.roof, VOXEL_ROLE.foundation, VOXEL_ROLE.stair, VOXEL_ROLE.pillar];
+const BUILT_ROLES: readonly number[] = CONSTRUCTION_ROLES;
 
 /** The roles that carry a case: the built roles and openings. Terrain, liquid and air have none. */
 export const CASE_ROLES: readonly number[] = Object.freeze([...BUILT_ROLES, VOXEL_ROLE.opening]);
@@ -277,8 +277,8 @@ export interface CaseCatalogueDef {
   readonly draft: boolean;
   readonly cases: readonly CaseDef[];
   readonly rules: readonly CaseRule[];
-  /** Role → its fallback case id, for every role of {@link CASE_ROLES}. */
-  readonly fallback: Readonly<Record<number, string>>;
+  /** Role → its fallback case id, or null for no case (the base surface alone), for every role of {@link CASE_ROLES}. */
+  readonly fallback: Readonly<Record<number, string | null>>;
 }
 
 /** A cell's case result packed in a u16: case index << 3 | transform. */
@@ -299,8 +299,9 @@ export function caseFoldOf(packed: number): number {
 
 /** What one window resolves to. */
 export interface CaseMatch {
+  /** The case, or −1 (and a null id) for a cell no rule matches whose role has no fallback. */
   readonly caseIndex: number;
-  readonly caseId: string;
+  readonly caseId: string | null;
   /** The transform taking the case's own orientation to the world's: the matched rule's pattern placed by it fits. */
   readonly fold: number;
   /** The transform taking the key (the folded window) to the world's window. */
@@ -335,6 +336,8 @@ export class CaseCatalogue {
   readonly readsMaterial: boolean;
   private readonly caseIndex = new Map<string, number>();
   private readonly byRole: CompiledRule[][] = [];
+  /** Per role without a fallback: the face-cell masks (6 a tuple, {@link FACE_CELLS} order) some rule variant needs; null otherwise. */
+  private readonly faceTuples: (Int32Array | null)[] = Array.from({ length: ROLE_MASK + 1 }, () => null);
   private readonly fallbackIndex = new Int32Array(ROLE_MASK + 1).fill(-1);
   private readonly cacheKeys = new Uint32Array(CACHE_SLOTS * CACHE_STRIDE);
   private readonly cacheResults = new Uint16Array(CACHE_SLOTS);
@@ -367,7 +370,8 @@ export class CaseCatalogue {
     }
     for (const role of CASE_ROLES) {
       const id = def.fallback[role];
-      if (id === undefined) fail(`no fallback case for role ${role} (every detail role needs one)`);
+      if (id === undefined) fail(`no fallback case for role ${role} (every detail role names one, or null for none)`);
+      if (id === null) continue;
       const k = this.caseIndex.get(id!);
       if (k === undefined) fail(`fallback ${id} is not a case`);
       if (!def.cases[k!]!.roles.includes(role)) fail(`fallback ${id} does not list role ${role}`);
@@ -408,6 +412,22 @@ export class CaseCatalogue {
       }
       for (const role of roles) this.byRole[role]!.push({ index: i, caseIndex: k!, variants });
     }
+    // A role with no fallback: a cell none of whose rules' face cells it meets has no case, without its window.
+    for (const role of CASE_ROLES) {
+      if (this.fallbackIndex[role]! >= 0) continue;
+      const tuples = new Set<string>();
+      for (const r of this.byRole[role]!) {
+        for (const v of r.variants) {
+          const t = FACE_CELLS.map(() => CELL.any);
+          for (let j = 1; j < v.length; j += 2) {
+            const f = FACE_CELLS.indexOf(v[j]!);
+            if (f >= 0) t[f] = v[j + 1]!;
+          }
+          tuples.add(t.join(','));
+        }
+      }
+      this.faceTuples[role] = Int32Array.from([...tuples].flatMap((t) => t.split(',').map(Number)));
+    }
   }
 
   /** The index of a case id, or −1. */
@@ -415,7 +435,7 @@ export class CaseCatalogue {
     return this.caseIndex.get(id) ?? -1;
   }
 
-  /** The fallback case index of a detail role. */
+  /** The fallback case index of a detail role, or −1 when it has none (its unmatched cells get no case). */
   fallbackOf(role: number): number {
     return this.fallbackIndex[role]!;
   }
@@ -426,13 +446,13 @@ export class CaseCatalogue {
    * gives the same case and transform through its cache.
    */
   matchWindow(role: number, win: Uint8Array): CaseMatch {
-    if (this.fallbackIndex[role]! < 0) throw new RangeError(`role ${role} carries no case`);
+    if (CARRIES[role] !== 1) throw new RangeError(`role ${role} carries no case`);
     const packed = this.resolve(role, this.readsMaterial ? win : win.map(withoutSame));
-    const fold = caseFoldOf(packed);
-    const caseIndex = caseIndexOf(packed);
+    const fold = packed === NO_CASE ? this.lastKeyFold : caseFoldOf(packed);
+    const caseIndex = packed === NO_CASE ? -1 : caseIndexOf(packed);
     const folded = this.folded.slice();
     const key = `${role}:${Array.from(this.best, (w) => w.toString(16).padStart(8, '0')).join('')}`;
-    return { caseIndex, caseId: this.cases[caseIndex]!.id, fold, keyFold: this.lastKeyFold, rule: this.lastRule, key, folded };
+    return { caseIndex, caseId: caseIndex < 0 ? null : this.cases[caseIndex]!.id, fold, keyFold: this.lastKeyFold, rule: this.lastRule, key, folded };
   }
 
   private lastRule = -1;
@@ -480,7 +500,8 @@ export class CaseCatalogue {
       }
     }
     this.lastRule = -1;
-    return (this.fallbackIndex[role]! << CASE_INDEX_SHIFT) | bestT;
+    const fb = this.fallbackIndex[role]!;
+    return fb < 0 ? NO_CASE : (fb << CASE_INDEX_SHIFT) | bestT;
   }
 
   /**
@@ -488,8 +509,8 @@ export class CaseCatalogue {
    * coordinates, the same bounds on all three axes) of a neighbourhood into
    * `out` (neighbourhood indexing): a packed case ({@link caseIndexOf},
    * {@link caseFoldOf}) for a detail-bearing cell, {@link NO_CASE} for any
-   * other. Reads cells within {@link CASE_REACH} of the box, so the box must
-   * sit that far inside the neighbourhood. Returns the detail-bearing cells.
+   * other (and for a cell no rule matches whose role has no fallback). Reads cells within {@link CASE_REACH} of the box, so the box must
+   * sit that far inside the neighbourhood. Returns the cells given a case.
    */
   extract(n: Neighbourhood, lo: number, hi: number, out: Uint16Array): number {
     const s = n.side;
@@ -522,6 +543,24 @@ export class CaseCatalogue {
         if (CARRIES[role] !== 1) continue;
         // -1 matches no material: the same-material bit stays off where no rule reads it.
         const mat = this.readsMaterial ? vals[i]! & MATERIAL_ID_MAX : -1;
+        const faces = this.faceTuples[role]!;
+        if (faces !== null) {
+          for (let f = 0; f < 6; f++) {
+            const j = i + deltas[FACE_CELLS[f]!]!;
+            let sy = sym[j]!;
+            if (sy >= CASE_SYMBOL.built && (vals[j]! & MATERIAL_ID_MAX) === mat) sy++;
+            faceSym[f] = sy;
+          }
+          let may = false;
+          for (let t = 0; t < faces.length && !may; t += 6) {
+            may = true;
+            for (let f = 0; f < 6 && may; f++) may = ((faces[t + f]! >> faceSym[f]!) & 1) === 1;
+          }
+          if (!may) {
+            out[i] = NO_CASE;
+            continue;
+          }
+        }
         words.fill(0);
         let h = role + 1;
         for (let k = 0; k < CASE_WINDOW_CELLS; k++) {
@@ -545,12 +584,16 @@ export class CaseCatalogue {
           this.cacheResults[slot] = packed;
           out[i] = packed;
         }
-        count++;
+        if (out[i] !== NO_CASE) count++;
       }
     }
     return count;
   }
 }
+
+/** The window indices of the centre's 6 face cells: up first (most rules name it), then down, ±x, ±z. */
+const FACE_CELLS: readonly number[] = [caseWindowIndex(0, 1, 0), caseWindowIndex(0, -1, 0), caseWindowIndex(1, 0, 0), caseWindowIndex(-1, 0, 0), caseWindowIndex(0, 0, 1), caseWindowIndex(0, 0, -1)];
+const faceSym = new Uint8Array(6);
 
 /** Per role: 1 when cells of it carry a case. */
 const CARRIES = (() => {

@@ -8,14 +8,16 @@
  * classes and misses invalidations, all without an error. So the declared
  * radius is checked by evaluating the same chunks twice, once with the
  * neighbourhood the jobs build and once with a wider one, and comparing
- * every resolved cell the consumers read (its class, and its case when the
- * set has a case pass): a rule within its radius cannot tell the two apart.
+ * every resolved cell the consumers read (its class, its case when the set
+ * has a case pass, and the chunk's edge pieces when it has an edge pass): a
+ * rule within its radius cannot tell the two apart.
  */
 import { buildApron, checkRadius } from './apron';
 import { CONSUMER_REACH, createNeighbourhood, fillNeighbourhood, jobRadius, type AssemblyRuleSet } from './assembly';
 import type { ChunkCoord } from './coords';
 import { createDenseChunk } from './dense-chunk';
-import { evaluateCases } from './kit-rules';
+import { createEdgeMasks } from './edge-cases';
+import { evaluateCases, evaluateEdges } from './kit-rules';
 import type { VoxelStoreCandidate } from './store';
 
 /** Cells more than the job's apron that the wider evaluation sees (3: a rule reading up to 3 cells too far is caught). */
@@ -30,9 +32,9 @@ export interface RuleRadiusMismatch {
   readonly lx: number;
   readonly ly: number;
   readonly lz: number;
-  /** What differs: the class byte, or the case (a packed u16, kit-cases.ts). */
-  readonly part: 'class' | 'case';
-  /** The class byte (or case) with the job's apron, and with the wider one. */
+  /** What differs: the class byte, the case (a packed u16, kit-cases.ts), or a chunk cell's edge pieces (edge-cases.ts masks, as `pieces + inner · 2^20`). */
+  readonly part: 'class' | 'case' | 'edge';
+  /** The class byte (or case, or edge pieces) with the job's apron, and with the wider one. */
   readonly declared: number;
   readonly wider: number;
 }
@@ -58,6 +60,9 @@ export function ruleRadiusMismatches(store: VoxelStoreCandidate, rules: Assembly
   const wideOut = new Uint8Array(wideN.values.length);
   const narrowCases = new Uint16Array(narrowN.values.length);
   const wideCases = new Uint16Array(wideN.values.length);
+  const narrowEdges = createEdgeMasks(narrowN);
+  const wideEdges = createEdgeMasks(wideN);
+  const edges = rules.resolveEdges !== undefined;
   const dense = createDenseChunk(grid);
   const out: RuleRadiusMismatch[] = [];
   for (const c of chunks) {
@@ -70,6 +75,10 @@ export function ruleRadiusMismatches(store: VoxelStoreCandidate, rules: Assembly
     rules.resolve(wideN, wide - CONSUMER_REACH, wide + e + CONSUMER_REACH, wideOut);
     evaluateCases(narrowN, rules, level, narrowCases);
     evaluateCases(wideN, rules, level, wideCases);
+    if (edges) {
+      evaluateEdges(narrowN, rules, level, narrowEdges);
+      evaluateEdges(wideN, rules, level, wideEdges);
+    }
     const sn = narrowN.side;
     const sw = wideN.side;
     for (let x = -CONSUMER_REACH; x < e + CONSUMER_REACH; x++) for (let z = -CONSUMER_REACH; z < e + CONSUMER_REACH; z++) for (let y = -CONSUMER_REACH; y < e + CONSUMER_REACH; y++) {
@@ -81,6 +90,12 @@ export function ruleRadiusMismatches(store: VoxelStoreCandidate, rules: Assembly
       }
       if (narrowCases[i] !== wideCases[j]) {
         out.push({ cx: c.cx, cy: c.cy, cz: c.cz, lx: x, ly: y, lz: z, part: 'case', declared: narrowCases[i]!, wider: wideCases[j]! });
+        if (out.length >= limit) return out;
+      }
+      const own = x >= 0 && y >= 0 && z >= 0 && x < e && y < e && z < e;
+      if (edges && own && (narrowEdges.pieces[i] !== wideEdges.pieces[j] || narrowEdges.inner[i] !== wideEdges.inner[j])) {
+        const word = (m: typeof narrowEdges, k: number): number => m.pieces[k]! + m.inner[k]! * 2 ** 20;
+        out.push({ cx: c.cx, cy: c.cy, cz: c.cz, lx: x, ly: y, lz: z, part: 'edge', declared: word(narrowEdges, i), wider: word(wideEdges, j) });
         if (out.length >= limit) return out;
       }
     }

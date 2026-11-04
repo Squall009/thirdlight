@@ -24,8 +24,9 @@ import { APRON_STRIPS, checkApron, type Apron } from './apron';
 import type { ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import { denseValue } from './cell-delta';
+import type { EdgeMasks } from './edge-cases';
 import type { CaseCatalogueDef } from './kit-cases';
-import { shapeDensity, valueRole, valueShape, VOXEL_ROLE } from './record';
+import { valueDensity, valueRole, VOXEL_ROLE } from './record';
 
 /** Resolved classes (the low 4 bits of a resolved cell byte). */
 export const ASSEMBLY_CLASS = Object.freeze({
@@ -64,7 +65,11 @@ export interface Neighbourhood {
   readonly side: number;
   /** Voxel values (record.ts). */
   readonly values: Uint32Array;
-  /** Density per cell, 0 … 255 (the value's shape on the consumers' scale, {@link shapeDensity}). */
+  /**
+   * Density per cell, 0 … 255 (the value's fill on the consumers' scale,
+   * {@link valueDensity}): a construction cell's shape is its integrity, so
+   * it reads full at any integrity; the value keeps the integrity itself.
+   */
   readonly shapes: Uint8Array;
 }
 
@@ -104,6 +109,13 @@ export interface AssemblyRuleSet {
   readonly caseForms?: Uint8Array;
   /** Optional, beside `resolveCases`: the case catalogue its case indices number (what a kit piece table is built against). */
   readonly catalogue?: CaseCatalogueDef;
+  /**
+   * Optional: the edge and corner pieces (edge-cases.ts masks) every cell of
+   * the box [lo, hi) owns, for a node of chunk-tree level `level`. Reads
+   * only cells within `radius`. Returns the cells owning a piece. A set
+   * without it places no edge piece.
+   */
+  resolveEdges?(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks): number;
 }
 
 /** What a derived result records about the rules it came from. */
@@ -153,7 +165,7 @@ export function fillNeighbourhood(n: Neighbourhood, grid: ChunkGrid, chunk: Dens
     for (let y = 0; y < e; y++) {
       const v = denseValue(chunk, src + y);
       vals[row + y] = v;
-      shapes[row + y] = shapeDensity(valueShape(v));
+      shapes[row + y] = valueDensity(v);
     }
   }
   const start = (b: number): number => (b === 0 ? 0 : b === 1 ? p : p + e);
@@ -169,7 +181,7 @@ export function fillNeighbourhood(n: Neighbourhood, grid: ChunkGrid, chunk: Dens
     if (sx === 0 || sy === 0 || sz === 0) continue;
     if (apron.dense[k] === 0) {
       const value = apron.uniform[k]!;
-      const shape = shapeDensity(valueShape(value));
+      const shape = valueDensity(value);
       for (let x = 0; x < sx; x++) for (let z = 0; z < sz; z++) {
         const row = ((x0 + x) * s + (z0 + z)) * s + y0;
         vals.fill(value, row, row + sy);
@@ -183,7 +195,7 @@ export function fillNeighbourhood(n: Neighbourhood, grid: ChunkGrid, chunk: Dens
       for (let y = 0; y < sy; y++, i++) {
         const v = apron.values[i]!;
         vals[row + y] = v;
-        shapes[row + y] = shapeDensity(valueShape(v));
+        shapes[row + y] = valueDensity(v);
       }
     }
   }

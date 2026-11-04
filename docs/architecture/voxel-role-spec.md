@@ -2,7 +2,7 @@
 
 Status: **DRAFT — awaiting owner approval (46c hard stop); nothing builds on it as final.** No kit pipeline, Blender
 template, spec sheet, manual guide or art-factory request treats this case list as fixed until the owner approves it.
-It is written from the engine's draft case catalogue `cases-draft` v5 (46 cases; `packages/voxel/src/kit-case-catalogue.ts`),
+It is written from the engine's draft case catalogue `cases-draft` v5 (46 cases; `packages/voxel/src/cases-draft-catalogue.ts`),
 and a test (`tools/voxel-bench/role-spec-doc.test.ts`) fails when this page and the catalogue disagree on a case, its
 marking, its facts or its rule diagrams. Sources: [plan 45](../plan-phase-45.md) §1 (the role spec, slopes by role,
 roof kits, foundation skirts), §7 owner 2026-11-02 (the ten stored roles; beams, banisters and soffits inferred), §7a

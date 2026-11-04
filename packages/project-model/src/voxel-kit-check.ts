@@ -217,6 +217,7 @@ function caseRows(kit: VoxelKit, cat: CaseCatalogueDef): VoxelKitCheckRow[] {
   const optional = cat.cases.filter((c) => !c.required && !has(c.id));
   rows.push(optional.length > 0 ? { id: 'optional', state: 'info', title: `${optional.length} optional cases have no piece`, detail: optional.map((c) => `${c.id} (${instead(c)})`).join('; ') + '.' } : { id: 'optional', state: 'ok', title: 'Every optional case has a piece', detail: `${cat.cases.length - required.length} optional cases.` });
   for (const [role, fid] of Object.entries(cat.fallback)) {
+    if (fid === null) continue;
     const fb = known.get(fid);
     if (fb === undefined) continue;
     const name = roleName(Number(role));

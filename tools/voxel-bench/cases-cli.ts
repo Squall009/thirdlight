@@ -9,9 +9,12 @@
  * and meshes), interleaved section by section; and what the consumers
  * receive a chunk (derived bytes by part, collision boxes) under the kit
  * rules; or (`--pieces`) the kit pieces: the piece table's bytes and the
- * instances a chunk and a level-1 node list without and with a test kit.
+ * instances a chunk and a level-1 node list without and with a test kit;
+ * or (`--edges`) the edge catalogue's passes (beam and banister window cases
+ * plus the edge pass) against the superseded catalogue's case pass, section
+ * by section, and the edge pieces by case.
  *
- *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only | --pieces] [--out DIR]
+ *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only | --pieces | --edges] [--out DIR]
  *
  * Writes cases.md and cases.json.
  */
@@ -26,6 +29,7 @@ import {
   chunkGrid,
   chunkOfKey,
   createDenseChunk,
+  createEdgeMasks,
   createNeighbourhood,
   createWorldStore,
   cropNeighbourhood,
@@ -35,11 +39,16 @@ import {
   deriveFromStore,
   deriveMipNode,
   DRAFT_CASE_CATALOGUE,
+  EDGE_CASE_IDS,
+  EDGE_RULES,
+  edgePiecesOf,
   evaluateAssembly,
   evaluateCases,
+  evaluateEdges,
   evaluateRuns,
   fillNeighbourhood,
   INSTANCE_BYTES,
+  isConstructionRole,
   KIT_PIECE_BASE,
   KIT_RULES,
   MipTree,
@@ -279,6 +288,69 @@ function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [numb
   };
 }
 
+/**
+ * The edge catalogue's passes (window cases for beams and banisters, then
+ * the edge pass) against the superseded catalogue's case pass, a section
+ * at a time, the order alternating; sections with construction only.
+ */
+function measureEdges(sections: readonly Neighbourhood[], rounds: number): Record<string, unknown> {
+  const cases = new Uint16Array(sections[0]!.values.length);
+  const masks = createEdgeMasks(sections[0]!);
+  const old: number[] = [];
+  const now: number[] = [];
+  const edgesOnly: number[] = [];
+  const byCase: Record<string, number> = Object.fromEntries(EDGE_CASE_IDS.map((id) => [id, 0]));
+  let owners = 0;
+  let built = 0;
+  for (const n of sections) {
+    evaluateCases(n, KIT_RULES, 0, cases);
+    evaluateCases(n, EDGE_RULES, 0, cases);
+    evaluateEdges(n, EDGE_RULES, 0, masks);
+  }
+  for (let round = 0; round < rounds; round++) {
+    let k = 0;
+    for (const n of sections) {
+      let has = false;
+      for (let i = 0; i < n.values.length && !has; i++) has = isConstructionRole(valueRole(n.values[i]!));
+      if (!has) continue;
+      const runOld = (): number => {
+        const t = performance.now();
+        evaluateCases(n, KIT_RULES, 0, cases);
+        return (performance.now() - t) * 1000;
+      };
+      const runNew = (): [number, number] => {
+        const t = performance.now();
+        evaluateCases(n, EDGE_RULES, 0, cases);
+        const te = performance.now();
+        const count = evaluateEdges(n, EDGE_RULES, 0, masks);
+        const t1 = performance.now();
+        if (round === 0) {
+          owners += count;
+          const s = n.side;
+          for (let x = PAD; x < PAD + SECTION; x++) for (let z = PAD; z < PAD + SECTION; z++) for (let y = PAD; y < PAD + SECTION; y++) {
+            const i = (x * s + z) * s + y;
+            if (masks.pieces[i] !== 0) for (const p of edgePiecesOf(masks, i)) byCase[p.caseId]!++;
+          }
+        }
+        return [(t1 - t) * 1000, (t1 - te) * 1000];
+      };
+      if ((k++ + round) % 2 === 0) {
+        old.push(runOld());
+        const [a, e] = runNew();
+        now.push(a);
+        edgesOnly.push(e);
+      } else {
+        const [a, e] = runNew();
+        now.push(a);
+        edgesOnly.push(e);
+        old.push(runOld());
+      }
+      if (round === 0) built++;
+    }
+  }
+  return { sectionsWithConstruction: built, oldCasePassUs: q2(old), edgeCataloguePassesUs: q2(now), edgePassAloneUs: q2(edgesOnly), owners, pieces: byCase, totalPieces: Object.values(byCase).reduce((a, b) => a + b, 0) };
+}
+
 /** The case extraction alone (the extraction cost) and the keys and cases seen. */
 function measureExtraction(sections: readonly Neighbourhood[], rounds: number): { coldMs: number; roundMs: number[]; cells: number; withCellsCount: number; us: { all: { p50: number; p95: number }; withCells: { p50: number; p95: number } }; keys: number; cases: Map<string, number>; cat: CaseCatalogue } {
   const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
@@ -314,7 +386,8 @@ function measureExtraction(sections: readonly Neighbourhood[], rounds: number): 
       if (out[i] === NO_CASE) continue;
       const m = cat.matchWindow(valueRole(n.values[i]!), caseWindowAt(n, i));
       keys.add(m.key);
-      cases.set(m.caseId, (cases.get(m.caseId) ?? 0) + 1);
+      const id = m.caseId ?? '(none)';
+      cases.set(id, (cases.get(id) ?? 0) + 1);
     }
   }
   return { coldMs, roundMs, cells, withCellsCount: withCells.length / rounds, us: { all: q2(all), withCells: q2(withCells) }, keys: keys.size, cases, cat };
@@ -350,6 +423,12 @@ function main(): void {
       chunks = chunksOf(store, sx - 192, sz - 192, sx + 192, sz + 192);
       window = 'slice ring ±192 cells';
     } else throw new Error(`unknown world ${world}`);
+    if (process.argv.includes('--edges')) {
+      const edges = measureEdges(sectionsOf(store, chunks), rounds);
+      reports.push({ world, window, edges });
+      md.push(`## ${world} (${window})`, '', `- Edges: ${JSON.stringify(edges)}`, '');
+      continue;
+    }
     if (process.argv.includes('--pieces')) {
       const pieces = measurePieces(store, chunks);
       reports.push({ world, window, pieces });

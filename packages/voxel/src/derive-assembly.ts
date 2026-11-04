@@ -13,7 +13,7 @@ import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { deriveChunk, encodeDerived, type DerivedData, type DerivePieces, type DeriveTimes } from './derived-data';
 import type { PieceTable } from './piece-table';
 import { encodeShader, SHADER_BORDER_CELLS, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
-import { shapeDensity, valueOf, type VoxelRecord } from './record';
+import { valueDensity, valueOf, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
 
 interface Scratch {
@@ -216,7 +216,7 @@ export function deriveSectionFromStore(store: VoxelStoreCandidate, sections: Cel
     if (!cellInWorld(wx, wy, wz)) continue;
     store.voxelAt(wx, wy, wz, v);
     n.values[i] = valueOf(v);
-    n.shapes[i] = shapeDensity(v.shape);
+    n.shapes[i] = valueDensity(n.values[i]!);
   }
   return deriveChunk(n, rules, undefined, undefined, 0, { table, origin: [sx << sections.shift, sy << sections.shift, sz << sections.shift] });
 }

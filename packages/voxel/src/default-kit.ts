@@ -14,7 +14,7 @@
  * families with their run sections (piece-table.ts, below
  * `KIT_PIECE_BASE`), which every kit falls back to.
  *
- * A piece is written in its case's own orientation (kit-case-catalogue.ts:
+ * A piece is written in its case's own orientation (cases-draft-catalogue.ts:
  * the exposed face toward +z, a run along x, up +y), in sixteenths of a
  * cell from the cell's corner; boxes may reach a little past the cell
  * (a coping overhangs, a plinth stands proud of the face). Only the body

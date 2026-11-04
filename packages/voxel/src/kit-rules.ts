@@ -16,7 +16,9 @@
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { caseFormTable } from './case-forms';
 import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
-import { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
+import { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
+import { EDGE_REACH, extractEdges, type EdgeMasks } from './edge-cases';
+import { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
 import { CASE_REACH, CaseCatalogue, NO_CASE, type CaseCatalogueDef } from './kit-cases';
 import { NO_SECTION, resolveRunSections, RunTable } from './kit-runs';
 import { TERRAIN_RULES } from './terrain-rules';
@@ -27,7 +29,7 @@ export function levelHasCases(level: number): boolean {
 }
 
 /** Sets every cell of the box [lo, hi) (padded coordinates, all three axes) to `none` ({@link NO_CASE} by default). */
-function clearBox(n: Neighbourhood, lo: number, hi: number, out: Uint16Array, none = NO_CASE): void {
+function clearBox(n: Neighbourhood, lo: number, hi: number, out: Uint16Array | Uint32Array, none = NO_CASE): void {
   const s = n.side;
   for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) {
     const row = (x * s + z) * s;
@@ -106,6 +108,52 @@ export function evaluateRuns(n: Neighbourhood, rules: AssemblyRuleSet, cases: Ui
   }
   return rules.resolveRuns(n, cases, lo, hi, out);
 }
+
+/**
+ * A rule set with the case pass and the edge pass added ({@link withCases}
+ * plus edge-cases.ts): the window cases (beams and banisters) and every
+ * cell's edge and corner pieces. Its radius covers both passes.
+ */
+export function withEdges(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id: string, version: number): AssemblyRuleSet {
+  const cased = withCases(base, catalogue, id, version);
+  return Object.freeze({
+    ...cased,
+    radius: Math.max(cased.radius, EDGE_REACH),
+    resolveEdges(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks): number {
+      if (!levelHasCases(level)) {
+        clearBox(n, lo, hi, out.pieces, 0);
+        clearBox(n, lo, hi, out.inner, 0);
+        return 0;
+      }
+      return extractEdges(n, lo, hi, out);
+    },
+  });
+}
+
+/**
+ * The edge pieces of a derive job's own cells (the chunk) into `out`: the
+ * rule set's edge pass, or none anywhere for a set without one. Returns the
+ * cells owning a piece.
+ */
+export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: number, out: EdgeMasks): number {
+  if (out.pieces.length !== n.values.length || out.inner.length !== n.values.length) throw new RangeError('edge pieces: wrong length');
+  const lo = n.pad;
+  const hi = n.pad + n.edge;
+  if (rules.resolveEdges === undefined) {
+    clearBox(n, lo, hi, out.pieces, 0);
+    clearBox(n, lo, hi, out.inner, 0);
+    return 0;
+  }
+  return rules.resolveEdges(n, lo, hi, level, out);
+}
+
+/**
+ * The edge rule set (DRAFT, with the edge catalogue): the terrain rules,
+ * the beam and banister window cases and the edge pass. Not the world's rule
+ * set yet: the derive draws pieces from the superseded catalogue's cases
+ * until its pieces come from the edge pass.
+ */
+export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 1);
 
 /**
  * The world rule set from kits on: the terrain rules (`terrain` v1) with

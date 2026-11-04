@@ -62,6 +62,7 @@ import {
   evaluateForms,
   classForm,
   evaluateRuns,
+  EDGE_RULES,
   KIT_RULES,
   NO_SECTION,
   packRunSection,
@@ -538,6 +539,24 @@ describe('the radius conformance check every rule set must pass', () => {
     const caseMisses = ruleRadiusMismatches(s, far, cube);
     expect(caseMisses.length).toBeGreaterThan(0);
     for (const m of caseMisses) expect([m.part, m.lx]).toEqual(['case', 16]);
+    // An edge pass reading past the job's apron along x is caught too, as edge pieces of the chunk's own cells.
+    const reach = jobRadius(EDGE_RULES) + 1;
+    const farEdges: AssemblyRuleSet = {
+      ...EDGE_RULES,
+      id: 'far-edges',
+      resolveEdges(n, lo, hi, _level, out) {
+        const ss = n.side;
+        for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) for (let y = lo; y < hi; y++) {
+          const i = (x * ss + z) * ss + y;
+          out.pieces[i] = n.values[i + reach * ss * ss] !== 0 ? 1 : 0;
+          out.inner[i] = 0;
+        }
+        return 0;
+      },
+    };
+    const edgeMisses = ruleRadiusMismatches(s, farEdges, cube);
+    expect(edgeMisses.length).toBeGreaterThan(0);
+    for (const m of edgeMisses) expect([m.part, m.lx]).toEqual(['edge', 15]);
   });
 });
 
@@ -1433,8 +1452,8 @@ describe('voxel mips', () => {
     // 0: 3 wall cells (under half the parent) and 2 half-full terrain cells: terrain, the share of all 5 solid cells;
     // at the surface (beside air or partly filled) 2 stone and 2 grass cells, so the material of the larger fill (stone).
     fill(0, [[MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], [MAT.grass, C.terrain, 8], [MAT.grass, C.terrain, 8], null, null, null]);
-    // 1: a one-cell wall's 4 cells (half the parent) beside two full terrain cells: the wall wins by priority, the fill is
-    // the 6 solid cells' share. Beside the two air cells lie 2 grass and 2 stone cells (the other two stone cells lie
+    // 1: a one-cell wall's 4 cells (half the parent) beside two full terrain cells: the wall wins by priority and, a
+    // construction shape being integrity, the parent is an intact block (15), not the 6 solid cells' share. Beside the two air cells lie 2 grass and 2 stone cells (the other two stone cells lie
     // against the node's side, not read): a tie of cells and of fill, the lower id (grass); wetness from its first cell.
     fill(1, [[MAT.stone, C.wall, 15, 3], [MAT.stone, C.wall, 15], [MAT.grass, C.terrain, 15], [MAT.grass, C.terrain, 15], [MAT.stone, C.wall, 15], [MAT.stone, C.wall, 15], null, null]);
     // 2: liquid and an opening fill nothing: one full terrain cell among 4 water cells and an opening is ground of 2/15.
@@ -1464,7 +1483,7 @@ describe('voxel mips', () => {
       return [out.material[i]!, out.role[i]!, out.shape[i]!, out.wetness[i]!];
     };
     expect(at(0)).toEqual([MAT.stone, C.terrain, Math.round((3 * 15 + 2 * 8) / 8), 0]);
-    expect(at(1)).toEqual([MAT.grass, C.wall, Math.round((6 * 15) / 8), 0]);
+    expect(at(1)).toEqual([MAT.grass, C.wall, 15, 0]);
     expect(at(2)).toEqual([MAT.grass, C.terrain, 2, 0]);
     expect(at(3)).toEqual([MAT.water, C.liquid, Math.round((6 * 15) / 8), 0]);
     expect(at(4)).toEqual([0, 0, 0, 0]);

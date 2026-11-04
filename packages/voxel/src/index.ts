@@ -77,6 +77,10 @@ export {
   SHAPE_EMPTY,
   SHAPE_FULL,
   shapeDensity,
+  CONSTRUCTION_ROLES,
+  fillLevel,
+  isConstructionRole,
+  valueDensity,
   valueMaterial,
   valueOf,
   valueRole,
@@ -349,9 +353,26 @@ export {
   type CaseShape,
   type InferredFeature,
 } from './kit-cases';
-export { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
+export { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
+export { BEAM_BANISTER_CASES, BEAM_BANISTER_RULES, EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
+export {
+  CORNER_SLOTS,
+  createEdgeMasks,
+  EDGE_CASE_IDS,
+  EDGE_REACH,
+  EDGE_SLOTS,
+  edgeCaseOf,
+  edgePiecesOf,
+  edgeYawOf,
+  extractEdges,
+  PIECE_SLOT_TABLE,
+  PIECE_SLOTS,
+  type EdgeCaseId,
+  type EdgeMasks,
+  type EdgePiece,
+} from './edge-cases';
 export { caseFormTable, classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_NONE, FORM_SHAPE, FORM_SHAPE_BOX, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formFullFaces, formShapeOf, formSupports, LIGHT_COVERAGE, packForm } from './case-forms';
-export { evaluateCases, evaluateRuns, KIT_RULES, levelHasCases, withCases } from './kit-rules';
+export { EDGE_RULES, evaluateCases, evaluateEdges, evaluateRuns, KIT_RULES, levelHasCases, withCases, withEdges } from './kit-rules';
 export { KIT_TEST_SCENE_PITCH, kitTestExhibits, kitTestScene, voxelRoleName, type KitTestExhibit, type KitTestLabel, type KitTestScene, type KitTestSceneOptions } from './kit-test-scene';
 export { NO_SECTION, packRunSection, resolveRunSections, RUN_AXIS, RUN_END, RUN_SECTION, runAxisOf, runEndEndOf, runSectionOf, runStartEndOf, RunTable, runU } from './kit-runs';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
