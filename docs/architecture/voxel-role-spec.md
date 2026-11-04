@@ -1549,6 +1549,19 @@ Other limits of this draft (46c decision log):
     fence, …)? Adding one later is add-only, but every kit then needs its cases.
 15. **Case names.** Are the case ids on this page the names you want kits to use? After approval a rename needs a
     versioned step.
+16. **A paint that moves cells to another kit (46c.6b).** Material and wetness are shader data only, with one
+    exception kept as the default: a material paint that changes a cell's kit (stone painted timber) rebuilds the
+    geometry of the sections holding the painted cells, since kits are per material type. A paint within one kit and
+    any wetness change never do. Keep that exception, or resolve pieces at draw time (instances carry case, section
+    and cell hash; the renderer maps material → kit → piece)? The cost of the alternative: the derive no longer knows
+    which pieces exist (missing-piece fallbacks, per-kit variant weights and the high/low choice move to the
+    renderer), and instance lists grow to every cell any kit might draw.
+17. **Fronts named by the rule (46c.10).** Every case whose piece shows on a face names that face in its rule (a
+    fallback by a lowest-priority "front open" rule), so the matcher never picks an arbitrary turn. Make this a rule
+    of the role spec for every future case?
+18. **The engine default kit (46c.7).** Materials no kit binds draw the engine default kit, whose pieces add only to
+    kept bases (copings, plinths, sills, edges, mouldings, skirts, frames); beams, rails and posts stay the engine's
+    stand-in pieces. Is that the default you want for unbound materials?
 
 ## 20. What you are approving
 
@@ -1565,5 +1578,8 @@ that are versioned, add-only steps with an owner note). Tick each, or mark what 
 - [ ] The fallback chain and the engine default kit (§4).
 - [ ] High at L0, low at L1, none from L2 (§14).
 - [ ] Variants by world cell; pieces must read right mirrored (§15).
+- [ ] Material and wetness never rebuild pieces, with one exception: a material paint that moves cells to another
+  kit rebuilds the geometry of the sections holding them (same-kit paints and wetness are shader data only);
+  alternative: choose pieces at draw time, at the cost in question 16.
 - [ ] The piece convention: pivot at the cell centre, ±0.5 m envelope, axes, Blender node names (§16).
 - [ ] Your answers to the open questions (§19); the known gaps (§18) fixed after approval as you choose.

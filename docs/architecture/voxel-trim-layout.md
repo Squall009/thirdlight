@@ -110,26 +110,48 @@ Reserved space stays a neutral mid-grey (height 0.5, flat normal); a later layou
 - **Square texels everywhere.** A face's V span in the sheet equals its real size: 1 m of face = 1024 authored px.
   Geometry is sized to the regions (§1d): a 0.25 m beam face uses a 0.25 m strip, not a squashed 0.5 m one.
 - **U from world distance along the run.** Pieces are authored in their case orientation (front +z, run along +x,
-  up +y; a vertical run follows +y). Authored U = distance from the section's start ÷ 4 m (a 0.5 m section spans
+  up +y; a vertical run follows +y, but see "vertical runs" below). Authored U = distance from the section's start ÷ 4 m (a 0.5 m section spans
   U 0–0.125). The engine adds the run offset from the instance's cell: U = (cell along the run × 0.5 m) ÷ 4 m +
   authored U, taken along the world direction of the piece's +x after its turn; a mirrored instance uses
   (cell + 1) × 0.125 − authored U, so U still grows along the world axis. Every section of a run reads the same world
   coordinate, so body, junction and termination sections join without a seam and the pattern repeats every 4 m.
-  *As built (46c.10, for the owner's review):* the renderer makes U grow along the world's positive axis for every
-  instance, turned or mirrored, so two cells of a run that a symmetric case placed differently still meet; text on a
-  sheet then reads mirrored on faces seen from the negative side.
+  *As built (46c.10, for the owner's review):* the renderer adds the run offset per instance (`pieceU`) and makes U
+  grow along the world's positive axis for every instance, turned or mirrored, so two cells of a run that a symmetric
+  case placed differently still meet; text on a sheet then reads mirrored on faces seen from the negative side.
+- **Vertical runs: built differently, owner to decide (question 11).** The draft's intent is "a vertical run follows
+  +y": a post, quoin, wall end or jamb would take U up the member. As built (46c.9), the kit check's T4 and the
+  renderer read U along the piece's **x only** (faces with |normal x| < 0.05; faces end-on to x take U across them from
+  z and are not checked), so a post authored to the draft gets a T4 **err**. The placeholder kits therefore map
+  vertical members **planar**: U from x (or z on faces end-on to x), V up the piece, at real size. Options: (a) T4 and
+  the renderer learn the case's run axis and take U from y on y runs (the draft's intent; a pattern then runs up a
+  post and repeats every 4 m up a tall pillar), or (b) this section says vertical members map planar (as built; no
+  pattern along a post, the sheet's V detail runs up it).
 - **V by region.** Each face across the run maps to one region at its real size. A profiled strip needs the face to
   be the strip's height (±2 %); a plain strip or the field accepts a narrower face, centred in the band.
-- **Round members wrap a plain region** whose height is their circumference: diameter 0.04 m → S12, 0.08 m → S25,
-  0.16 m → S50, 0.32 m → F1. The wrap seam faces down or toward the wall.
+- **Half a texel spare forces odd member sizes (built, owner to decide: question 12).** A UV must stay half a texel
+  inside its band (§4), so a face exactly a band's height does not fit it. The placeholder kits use: boards and drip
+  faces 0.124 m (S12p), ashlar courses and heads 0.248 m (S25p, S25), plinths 0.498 m (S50p); members a full 0.5 m
+  cell tall (posts, jambs) take **F1**, not S50; a log wrapping F1 is a 12-gon of perimeter 0.99 m (Ø 0.32 m
+  nominal); a cap is at most its cell less a texel. Options: (a) accept these sizes (as built), or (b) size each band
+  a texel taller than its nominal height so faces of exactly 0.125 / 0.25 / 0.5 / 1 m fit (a new layout revision of
+  §4's rectangles).
+- **Round members wrap a plain region** whose height is their circumference: nominal diameter 0.04 m → S12, 0.08 m →
+  S25, 0.16 m → S50, 0.32 m → F1 (each a polygon a little under that perimeter, see above). The wrap seam faces down or
+  toward the wall. A member that does not wrap (the log kit's Ø 0.14 m post, the half-logs of a wall face) maps its
+  faces planar into a region tall enough for its height.
 - **Caps by end.** An end face (termination section, free post top, log end) maps once into the cap cell of the
-  next size up (≤ 0.125 → C12, ≤ 0.25 → C25, ≤ 0.5 → C50), at real size, centred, authored on cell `a`. The engine
-  moves it to b/c/d by the instance's variant hash (default; open question 6).
+  next size up (≤ 0.125 → C12, ≤ 0.25 → C25, ≤ 0.5 → C50, each less a texel), at real size, centred, authored on
+  cell `a`. The draft's default is that the engine moves it to b/c/d by the instance's variant hash (open question 6);
+  **not built**: every cap draws from cell `a` today, and b–d stay unused.
 - **Run-less pieces** (`run: null` cases: floor corner, pillar single, roof peak) map their faces planar: U from
   the world coordinate along the piece's +x, V from the vertical (or +z on horizontal faces), into the field or a
   plain strip, so they still meet their neighbours' texture.
 - **Corners** turn the run axis: the two runs meet at a mitre with U independent on each side; profiled strips keep
-  their edges at the same heights so the mitre lines up.
+  their edges at the same heights so the mitre lines up. **Built differently, owner to decide (D481, role spec
+  question 3):** a piece carries one run axis for its world U (one `pieceU` offset an instance), so a corner piece
+  cannot give both faces run U. The log corner carries its crossing log ends only and leaves both faces bare; the
+  stone quoins map planar (as vertical members above). Options: a second U offset per face, or two pieces in a
+  corner cell.
 - **Variants** (the kit's weighted variants, chosen by the world-cell hash) change the mesh, never the regions: all
   variants of a section use the same regions for the same faces, so a variant swap or a high → low switch never
   jumps the texture.
@@ -186,53 +208,73 @@ Reserved space stays a neutral mid-grey (height 0.5, flat normal); a later layou
 
 ## 10. Kit check rules (kits with `trimLayout` only)
 
-| Row | Rule | Level |
-|---|---|---|
-| T1 | Every UV0 lies inside one region's rectangle (half-texel inset); no triangle straddles two regions | err |
-| T2 | No UV0 in reserved space or a gutter | err |
-| T3 | Square texels: a face's V span × 4 m equals its real size ±2 % | warn |
-| T4 | Run density: authored U advances 0.25 per metre along the run ±2 %; a section starts at U 0 | err |
-| T5 | Profiled strips: the face is the strip's height ±2 % | warn |
-| T6 | Caps: end faces in the cell of the right size, on cell `a`, inside it at real size | warn |
-| T7 | High and low (and all variants) use the same region for the same face | warn |
-| T8 | Faces meeting at a join profile use the same region on both sides | warn |
-| T9 | A texture set for the layout: 4096² (or a power-of-two downscale), three maps present, gutters filled, normal green up | err |
-| T10 | Info: regions each piece uses, its UV area per region | info |
+`project-model` `voxel-kit-check.ts`; the last column says what is built today (46c.8, 46c.9).
 
-Kits without `trimLayout` get only the B checks: UV1 present, in 0–1, non-overlapping (bakes need unique UVs).
+| Row | Rule | Level | Built |
+|---|---|---|---|
+| T1 | Every UV0 lies inside one region's rectangle (half-texel inset); no triangle straddles two regions | err | yes |
+| T2 | No UV0 in reserved space or a gutter | err | yes |
+| T3 | Square texels: a face's V span × 4 m equals its real size ±2 % | warn | yes |
+| T4 | Run density: authored U advances 0.25 per metre along the run ±2 %; a section starts at U 0 | err | along the piece's x only, on faces not end-on to x (§5 vertical runs) |
+| T5 | Profiled strips: the face is the strip's height ±2 % | warn | yes (a region's V spans taken together) |
+| T6 | Caps: end faces in the cell of the right size, on cell `a`, inside it at real size | warn | yes, each end face on its own |
+| T7 | High and low (and all variants) use the same region for the same face | warn | yes |
+| T8 | Faces meeting at a join profile use the same region on both sides | warn | yes, along the case's run axis; cases without a run skipped |
+| T9 | A texture set for the layout: 4096² (or a power-of-two downscale), three maps present, gutters filled, normal green up | err | **not built**: the kit format names no texture set yet; reported as info |
+| T10 | Info: regions each piece uses, its UV area per region | info | yes |
+
+Kits without `trimLayout` are meant to get the B checks: UV1 present, in 0–1, non-overlapping (bakes need unique
+UVs). **Not built** (46c.8 kept the trim rows to opted-in kits); such a kit gets no UV rows today.
 
 ## 11. Worked examples: the two placeholder kits
 
-The placeholder kits (46c.9) use **debug texture sets in this layout**: each region a distinct hue with its id
-printed, a 3.125 cm checker (1/16 cell) to show stretching, a tick and a number every 0.125 m along U, arrows for
-+U and +V, gutters magenta. Any of the layout errors above shows up as a wrong colour, a stretched checker or a
+The placeholder kits (46c.9) draw with the layout's **debug texture set**: each region a distinct hue with its id
+printed, a 3.125 cm checker (1/16 cell) to show stretching, a U tick every 0.125 m and the cell number every 0.5 m,
+gutters and reserved space magenta. Any of the layout errors above shows up as a wrong colour, a stretched checker or a
 jump in the numbers at a section join.
 
-**Log kit (wood), all A:**
+These are the kits as built (`tools/voxel-bench/kits/make_placeholder_kits.py`, 46c.9/46c.10), all path A. Sizes
+are the built ones (§5: half a texel spare). Vertical members map planar (§5, question 11).
+
+**Log kit (wood):**
 
 | Case / piece | Faces → region |
 |---|---|
-| wall-top, beam: log Ø 0.32 m along x | bark wraps **F1** (circumference 1 m); end grain at terminations → **C50** |
-| banister-rail: pole Ø 0.08 m | wraps **S25**; ends → **C12** |
-| banister-post: Ø 0.16 m, run y | wraps **S50**, U up the post; top → **C25** |
-| moulding, running board: 0.125 m hewn strip | front **S12p**, top/bottom **S12** |
-| soffit: board 0.25 m deep under the edge | underside **S25** |
-| opening frame (jamb, head, sill): 0.25 × 0.125 m hewn timber | reveal **S25**, face **S12p** |
-| wall-corner: log ends crossing, run y | ends → **C50** (variant hash breaks the pattern) |
+| wall-plain body: two half-logs Ø 0.24 m on the face, one a 0.25 m course | bark **S50** |
+| wall-thin body: the same half-logs on both faces | bark **S50** |
+| wall-top ×2 variants: half-log Ø 0.40 / 0.36 m on top, 7 cm overhang at free ends | bark **F1**; end grain at start/end/single → **C50** |
+| wall-end body: log stubs Ø 0.22 m out of the end, the courses on both faces | stubs **F1**, their ends → **C25**; courses **S50** |
+| wall-corner body: crossing log stubs along x and z | stubs **F1**, ends → **C25**; the two faces bare (D481, §5 corners) |
+| beam: log Ø 0.32 m nominal (12-gon) along x | bark wraps **F1**; ends at start/end/single → **C50** |
+| banister-rail: two poles Ø 0.08 m | wrap **S25**; ends → **C12** |
+| banister-post: Ø 0.14 m, the cell's height (vertical) | sides planar **F1**, U from x/z, V up; top → **C25** |
+| running-board, moulding: 0.124 m hewn board | front **S12p**, edges **S12**; cut ends **S12** |
+| foundation-skirt: 0.248 m board at the foot | front **S25p**, edges **S12** |
+| soffit: boards 0.24 m deep under the slab | underside **S25**, front edge **S12** |
 
-**Stone kit (dressed stone), A with one material override:**
+No opening frames and no wall-base: those cases draw the role fallback or the base surface.
+
+**Stone kit (dressed stone):**
 
 | Case / piece | Faces → region |
 |---|---|
-| wall-top: coping 0.5 m wide | top **S50**, drip edges **S12p** front and back |
-| wall-base / foundation-skirt: 0.5 m course | face **S50p** (chamfered top), top ledge **S12** |
-| wall-corner / wall-end: quoins, run y | faces **S50p** U up the corner |
-| opening frame: 0.25 m reveal, 0.125 m surround | reveal **S25**, surround **S12p**, sill top **S25p** |
-| pillar shaft 0.25 × 0.25 m, run y | four faces **S25**; base and capital tops → **C25** |
-| beam | **wood** material, log kit's beam mapping (needs the override of §7) |
+| wall-plain, wall-thin ×2 variants: two ashlar courses 0.248 m, joint staggered (thin: both faces) | faces **S25p**, edges **S12**, joint faces **S25** |
+| wall-top: coping 0.49 m wide, 0.124 m drips | top **S50**, drips **S12p** front and back, chamfers **S12**; ends → **C50** |
+| wall-base, foundation-skirt: plinth 0.498 m, 4 cm proud | face **S50p**, top **S12** |
+| wall-corner, wall-end: quoins 0.248 m a course, 2 cm proud (vertical) | faces **S25p**, returns **S25**, tops/bottoms **F1**; planar |
+| moulding: cornice, 0.124 m face | face **S12p**, chamfer and soffit **S12**; cut ends **S12** |
+| opening-jamb: 0.125 × 0.25 m, the cell's height (vertical) | reveal and faces **F1**, planar |
+| opening-head: underside 0.248 m deep | underside **S25**, front and back **S12p** |
+| opening-sill / opening-threshold: 0.1 / 0.03 m high | top **S25p**, noses **S12** |
+| opening-single: head, sill and two short jambs | as head and sill; jambs **S50**, planar |
 
-Triangles, LOD pairs, texture sizes and file sizes of these kits are reported with 46c.9; the debug sets are
-1024² (low tier size), generated, not painted.
+No pillar pieces and no beam: those cases draw the role fallback or the engine stand-ins. The wooden beam with a
+per-case material override (§7) is not built: the kit format has no override field yet (question 8).
+
+Triangles, LOD pairs, texture sizes and file sizes of these kits are reported with 46c.9 and 46c.10 (log 29 pieces,
+896 / 433 triangles high / low, GLB 104,700 B; stone 20 pieces, 360 / 360, 40,276 B; no textures embedded). Until 46d
+gives texture sets, a trim kit draws with its layout's **generated debug set** (1024², the low tier size, not painted;
+built in the renderer, shared by every trim kit).
 
 ## 12. Open questions for the owner
 
@@ -248,6 +290,11 @@ Triangles, LOD pairs, texture sizes and file sizes of these kits are reported wi
 8. A per-case material override in the kit (stone kit, wooden beams): approve the idea (an add-only kit field)?
 9. One absolute height scale for the sheet (0–5 cm), or per region?
 10. Round members limited to the four wrap diameters (0.04 / 0.08 / 0.16 / 0.32 m): acceptable for art?
+11. **Vertical runs (§5, T4; 46c.9).** Should T4 and the renderer learn the case's run axis so posts, quoins, wall
+    ends and jambs take U up the member (the draft's intent), or do vertical members map planar, U from x, as built?
+12. **Band sizes and the half-texel spare (§5; 46c.9).** Accept the odd member sizes the bands force (0.124 m boards,
+    0.248 m courses, full-height members on F1, a 12-gon log of perimeter 0.99 m), or size each band a texel taller
+    so faces of exactly 0.125 / 0.25 / 0.5 / 1 m fit?
 
 ## 13. What you are approving
 
@@ -255,8 +302,9 @@ Triangles, LOD pairs, texture sizes and file sizes of these kits are reported wi
 - [ ] Both paths allowed: A (this layout) and B (own bakes + material arrays), chosen per kit.
 - [ ] Sheet: 4096², authored 1024 px/m, tiers cap at 256/512/1024 px/m, 32 px gutters, U period 4 m.
 - [ ] Regions and their rectangles in §4 (field 1 m; strips 0.5/0.25/0.125 m plain + profiled; caps 3 sizes × 4).
-- [ ] Mapping: U from world distance along the run, V by region at real size, caps by end, round wrap rule.
+- [ ] Mapping: U from world distance along the run (growing along the world's + axis, §5), V by region at real
+  size, caps by end, round wrap rule; vertical runs as you answer question 11, corners as you answer role spec question 3 (D481).
 - [ ] Maps: albedo / normal + height (A) / ORM, OpenGL normals, one height scale.
 - [ ] Interchangeability: any texture set of the layout dresses any kit of the layout.
-- [ ] Kit check rows T1–T10 (warn vs err as listed).
+- [ ] Kit check rows T1–T10 (warn vs err as listed; T9 and the B checks are not built yet).
 - [ ] Your answers to §12.
