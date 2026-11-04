@@ -123,6 +123,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.16 | *After approval:* specs frozen as v1 (owner note), kit pipeline final, changes the owner asked for. | vitest, fast gate | — | v1 in the docs |
 | 46c.17 | *After approval:* authoring package: spec sheets, Blender templates per role (UV guides, scale/pivot, high/low naming), manual guide "make a kit and a material set"; an art-factory request doc for the Texture Designer graphs (made there, not here). | check-docs | — | package complete |
 | 46c.14b | *Close before the stop (lead):* full gate once (detached), independent review, High/Medium fixes (fast gates), acceptance shots → acc46c. | full gate | gate time and peak; voxel e2e time | review in the decision log |
+| 46c.14c | **Review fixes (before the stop):** the 46c review's Mediums M1–M5 and its code Lows (M6, the two drafts, by a docs agent beside it); what is not small gets a D-row. | vitest, integration (backend + export), fast gate | town stream total on staging | Mediums fixed; Lows fixed or D-rows |
 | 46c.18 | *After approval (lead):* rows closed, STATUS; then 46d on the owner's word. | — | — | — |
 
 ## 7. Progress
@@ -148,6 +149,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.16 | not started (waits for owner approval) |
 | 46c.17 | not started (waits for owner approval) |
 | 46c.14b | not started |
+| 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
 | 46c.18 | not started (after approval) |
 
 ## 8. Results
@@ -691,6 +693,48 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   untouched: its 7 tests sum 65.8 s (65.1–65.4 s at 46c.10). Staging stopped; the pad undone (17 commands); the slice
   world needs no regenerating.
 
+### 46c.14c review fixes
+
+- **M1 (D486):** `wall-jamb` and `opening-jamb` name their front (`[0, 0, 1, O]` / `[0, 0, 1, A]`); catalogue
+  `cases-draft` v5, `kits` v6 (no derived step: results name the rules' version). `kit-house.test.ts` gains a house two
+  cells thick (door and window through both layers) for the default, log and stone kits: 36 cells pinned (jambs of both
+  layers with the side toward the opening, lintels, sills) and 24 outer corner cells, the front's sign checked; it failed before
+  (`4,0,2` jamb faced +z into the other layer). The one-cell house tests are unchanged and pass.
+- **M2 (D487):** a run cell joined only across its own axis keeps its axis and is a `junction` (default chosen, owner to
+  confirm: the reviewer's second option; turning the instance instead would leave the collision bar and the case's
+  front on the old axis). Hand case in `derived.test.ts` (a z run of beams ending at a beam folded along x).
+- **M3 (D488):** `collectAssetRefsV3` adds kit pins last and only for a model nothing else names (first mesh decides
+  between kits); the editor reads the digest's version, else `currentVersion` (was the newest). Kit check row `pinned`
+  (warn). Found while testing: a reimport **replaces** a model's version (older ones stay only while an animation
+  binding names them), so a kit's digest usually goes stale (`digests` warn, current ships) rather than pinning an
+  older version. Tests: `voxel-kit.test.ts` (capture rules, fails on the old code), `voxel-kit-check.test.ts`,
+  integration `voxel-world.test.ts` (real backend: reimport through "check files", export with the kit alone and with a
+  scene placing the model: the current version ships both times, the old digest's file does not).
+- **M4 (D489, rest D495):** `glbGeometry` skips meshes under `_COL`/`_OCC` nodes with `pieces.ts` `underHelperNode`
+  (the model import convention, now exported). Test GLB: render triangle + hull child + `_OCC` stand-in; fails on the
+  old code.
+- **M5 (D490):** `VoxelKitMeshes.gpuBytes()` goes back with every draw report (4th argument through Play's worker
+  message, Play's single-thread ports, the Scene view's worker and the slice page) into `StreamPieces.gpuBytes`,
+  counted whole in each world's budget (`metrics().bytes.kits`; default chosen, owner to confirm: every world on a page
+  counts the shared kits, as each must leave room for them). Trim draws count 72 B an instance; a view tells
+  (`rebuilt`) when waiting pieces are built and the draws, nodes and kits are reported again. Staging, town with
+  log + stone, WebGPU at the cap, 1 round, 10:34, load 1.8–1.9: stream total cold **112.7 MB** (46c.11: 105.7;
+  derived 74.4, mips 29.2, **kits 6.58** = 0.64 meshes + 5.94 textures), after the flight 120.7 MB (113.4). Orbit
+  57 of 419 missed (D485, unchanged).
+- **Lows fixed:** L1 (Scene view: a kit read finishing after the renderer was replaced or the view disposed makes no
+  meshes; comment says when an edited kit shows; no test: a guard), L5 (`voxelKitMeshKey` once, the check's sections
+  are `RUN_SECTION_IDS`, `WORLD_GRID_ID` in the test scene), L6 (no phase names in `cases-cli.ts`, no version history in
+  the catalogue and kit rules comments, `pageAssetBytes`' doc block back on it), L7 (spec: 51 rules). **D-rows:** L2
+  D491, L3 D492, L4 D493, L5 rest D494, M4 rest D495, L7 split D496, the 46c.3 case-pass miss D497; D498 watch.
+- **Role spec:** this item's catalogue change leaves `role-spec-doc.test.ts` red until the draft says `cases-draft` v5
+  and its `wall-jamb` and `opening-jamb` blocks are regenerated (`ROLE_SPEC_PRINT=1`; fresh blocks in
+  `~/.cache/thirdlight-phase46/work/46c14c/role-spec-blocks.txt`). Not edited here (owner hard-stop draft, docs agent).
+- **Gate:** fast gate gate-fast-20261104-102008 RED only on `role-spec-doc.test.ts` (above; build, lint and every other
+  vitest file green, peak 4.7 GB); the gate's e2e set then run capped by hand (smoke + `voxel-world.e2e.ts` +
+  `play-export.e2e.ts`, 2 workers): 36 passed, 2.9 min. `voxel-world.e2e.ts` untouched: 7 tests sum 60.8 s (65.8 s at
+  46c.11). Perf step not run (no draw-path change beyond byte counts). Staging stopped; the slice world needs no
+  regenerating.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -914,6 +958,15 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   each piece's +x: cells of one run placed with different turns or mirrors (symmetric cases) meet without a seam. The
   cost: debug text reads mirrored on faces seen from the negative side (no reading direction in real trim art). This
   refines the trim draft §5's mirrored-U rule (which made U follow each piece) for the owner's review.
+
+- 2026-11-04 (46c review, independent, range 6ffc2031..9107abbd; fixes 46c.14c): **0 H, 6 M, 8 L.** M1 jamb without a
+  front, M2 a run cell's section on another axis than its piece, M3 a kit pin moving other references, M4 hulls drawn,
+  M5 kits outside the stream budget: fixed (D486–D490). M6 (the trim draft against the built kits, two owner questions,
+  a doc test): docs agent, in the drafts. Lows: L1, L5 (part), L6, L7 (count) fixed; L2–L4, L5 rest, L7 split, M4 rest
+  and the 46c.3 case-pass miss as D491–D497. L8 (tests reading `LIGHT_COVERAGE`, the trim tests' hand facts) recorded,
+  no change. Hard stop clean. For the owner's eyes: the cross-kit paint exception, D485 town draws, the role spec gaps
+  D480–D482 and its 15 questions, `kitFormat: 1` stored as a draft (a changed case list gives "unknown case" rows,
+  not a migration).
 
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
