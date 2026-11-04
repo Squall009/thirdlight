@@ -10,6 +10,7 @@
  * default kit's procedural pieces where no kit binds the material.
  */
 import * as THREE from 'three';
+import { glbBytes } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 import {
   buildApron,
@@ -62,6 +63,10 @@ function world(): PaletteStore {
 
 function renderer(): VoxelGridRenderer {
   return { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
+}
+
+function view2(kits: VoxelChunkView['kits']): VoxelChunkView {
+  return view(kits);
 }
 
 function view(kits: VoxelChunkView['kits']): VoxelChunkView {
@@ -161,6 +166,41 @@ describe('kit pieces in the chunk view', () => {
     expect([v.instances, v.pieceDraws, v.piecesDrawn.kit, v.piecesDrawn.high, v.piecesDrawn.low]).toEqual([0, 0, 0, 0, 0]);
     v.dispose();
     meshes.dispose();
+  });
+
+  it("never draws a piece's collision or occluder nodes (`_COL`, `_OCC`): only the render mesh under the node the kit names", async () => {
+    // One render triangle under `Coping`, a two-triangle hull under its `Coping_COL` child and an `_OCC` stand-in beside.
+    const tri = [0, 0, 0, 0.2, 0, 0, 0, 0.2, 0];
+    const quad = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
+    const bin = new Float32Array([...tri, ...quad, ...quad]);
+    const view = (k: number, n: number): Record<string, unknown> => ({ buffer: 0, byteOffset: k * 4, byteLength: n * 4 });
+    const acc = (v: number, count: number): Record<string, unknown> => ({ bufferView: v, componentType: 5126, count, type: 'VEC3', min: [-0.5, -0.5, 0], max: [0.5, 0.5, 0] });
+    const json = {
+      asset: { version: '2.0' },
+      scene: 0,
+      scenes: [{ nodes: [0, 2] }],
+      nodes: [{ name: 'Coping', mesh: 0, children: [1] }, { name: 'Coping_COL', mesh: 1 }, { name: 'Coping_OCC', mesh: 2 }],
+      meshes: [0, 1, 2].map((a) => ({ primitives: [{ attributes: { POSITION: a } }] })),
+      accessors: [acc(0, 3), acc(1, 6), acc(2, 6)],
+      bufferViews: [view(0, 9), view(9, 18), view(27, 18)],
+      buffers: [{ byteLength: bin.byteLength }],
+    };
+    const glb = glbBytes(JSON.stringify(json), new Uint8Array(bin.buffer));
+    for (const node of ['Coping', undefined]) {
+      const kits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [STONE], cases: { 'wall-top': { sections: { body: { variants: [{ high: { assetId: 'coping', digest: DIGEST_A, ...(node !== undefined ? { node } : {}) } }] } } } } }];
+      const table = worldPieceTable(kits);
+      const meshes = new VoxelKitMeshes();
+      const v = view2(meshes.set(table, kits));
+      expect(await meshes.load(kits, async () => ({ bytes: glb, version: 1 }), createGltfLoaderPort())).toEqual({ loaded: 1, failed: [] });
+      draw(v, derive(world(), table));
+      // The render triangle draws (3 vertices); with the hull it would be 9, with the stand-in too 15 (the default
+      // kit's pieces are boxes of 24 a box).
+      const counts = pieceMeshes(v).map((m) => m.geometry.getAttribute('position').count);
+      expect(counts.filter((c) => c === 3).length, `node ${node}`).toBeGreaterThan(0);
+      expect(counts.filter((c) => c === 9 || c === 15), `node ${node}`).toEqual([]);
+      v.dispose();
+      meshes.dispose();
+    }
   });
 
   it('a kit swap: chunks derived again draw the new kit\'s meshes, others keep the meshes they were built with; a mirrored case draws a mirrored mesh', async () => {

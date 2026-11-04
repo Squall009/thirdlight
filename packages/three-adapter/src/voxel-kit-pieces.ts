@@ -48,6 +48,7 @@ import {
   type PieceTable,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
+import { underHelperNode } from './pieces';
 import { mergeLayout, mergeWorldGeometry } from './static-merge';
 import type { GlbLoaderPort } from './visual';
 import { drawGlyphs, trimDebugTexture } from './voxel-trim-debug-texture';
@@ -193,7 +194,11 @@ function mirrored(g: THREE.BufferGeometry): THREE.BufferGeometry {
   return mergeWorldGeometry([{ geometry: g, matrixWorld: new THREE.Matrix4().makeScale(-1, 1, 1) }]);
 }
 
-/** One mesh (or one node of it) of a parsed GLB, in the file root's space, as one geometry; null without a mesh. */
+/**
+ * One mesh (or one node of it) of a parsed GLB, in the file root's space, as one geometry; null without a mesh.
+ * Collision and occluder nodes (`_COL`, `_OCC`, the model import convention) are never drawn, as the kit check
+ * leaves them out of what it measures.
+ */
 function glbGeometry(root: THREE.Object3D, node: string | undefined): THREE.BufferGeometry | null {
   let from: THREE.Object3D = root;
   if (node !== undefined) {
@@ -205,7 +210,7 @@ function glbGeometry(root: THREE.Object3D, node: string | undefined): THREE.Buff
   const parts: { geometry: THREE.BufferGeometry; matrixWorld: THREE.Matrix4 }[] = [];
   from.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.isMesh === true && m.geometry !== undefined) parts.push({ geometry: m.geometry, matrixWorld: m.matrixWorld.clone() });
+    if (m.isMesh === true && m.geometry !== undefined && !underHelperNode(o, root)) parts.push({ geometry: m.geometry, matrixWorld: m.matrixWorld.clone() });
   });
   if (parts.length === 0) return null;
   // The meshes of one layout merge (a piece is one draw); others in the file are left out.

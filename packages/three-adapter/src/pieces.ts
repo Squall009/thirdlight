@@ -360,7 +360,7 @@ function underHigherLod(o: THREE.Object3D, root: THREE.Object3D): boolean {
 }
 
 /** Whether `o` or one of its ancestors below `root` is a `_COL` or `_OCC` node (no render geometry of the piece). */
-function underHelperNode(o: THREE.Object3D, root: THREE.Object3D): boolean {
+export function underHelperNode(o: THREE.Object3D, root: THREE.Object3D): boolean {
   for (let n: THREE.Object3D | null = o; n !== null && n !== root; n = n.parent) if (isCollisionNode(n) || isOccluderNode(n)) return true;
   return false;
 }
