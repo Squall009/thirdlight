@@ -24,13 +24,14 @@ export async function readVoxelKits(r: KitRoute): Promise<VoxelKitRecordLike[]> 
   return ((await res.json()) as { voxelKits?: VoxelKitRecordLike[] }).voxelKits ?? [];
 }
 
-/** Reads a kit mesh's GLB from the backend: the asset's version whose source digest the mesh names, else its newest. */
+/** Reads a kit mesh's GLB from the backend: the asset's version whose source digest the mesh names, else its current one (as a build ships it). */
 export function backendKitBytes(r: KitRoute): VoxelKitBytes {
   return async (ref) => {
     const rec = await fetch(`${r.api}/content/assets/${encodeURIComponent(ref.assetId)}`, { headers: r.headers });
     if (!rec.ok) return null;
-    const versions = ((await rec.json()) as { versions?: { version: number; sourceDigest?: string }[] }).versions ?? [];
-    const v = versions.find((x) => x.sourceDigest === ref.digest) ?? versions.reduce<{ version: number } | undefined>((a, b) => (a === undefined || b.version > a.version ? b : a), undefined);
+    const record = (await rec.json()) as { asset?: { currentVersion?: number }; versions?: { version: number; sourceDigest?: string }[] };
+    const versions = record.versions ?? [];
+    const v = versions.find((x) => x.sourceDigest === ref.digest) ?? versions.find((x) => x.version === record.asset?.currentVersion);
     if (v === undefined) return null;
     const bytes = await fetch(`${r.api}/content/assets/${encodeURIComponent(ref.assetId)}/versions/${v.version}/bytes`, { headers: r.headers });
     if (!bytes.ok) return null;

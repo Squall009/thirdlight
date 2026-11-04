@@ -23,7 +23,8 @@
  *   textures per piece, totals per kit.
  * - **Assets.** A mesh whose model the project lacks, or whose file cannot
  *   be read, draws nothing of its own (err); a digest no version has ships
- *   the current version (warn). Never refusals (the kit record validator
+ *   the current version (warn), and one naming an older version holds only
+ *   while nothing else uses the model (warn). Never refusals (the kit record validator
  *   accepts them, so deleting an asset is never refused for a kit).
  * - **Trim conformance** (T1–T10) only for a kit that names a trim layout,
  *   labelled draft: the layout is a draft the owner has not approved
@@ -66,8 +67,8 @@ export interface VoxelKitMeshFacts {
   textures: { count: number; bytes: number; sizes: [number, number][] };
 }
 
-/** The project's model assets as the check reads them: kind and every version's source digest. */
-export type VoxelKitAssets = ReadonlyMap<string, { readonly kind: string; readonly digests: readonly string[] }>;
+/** The project's model assets as the check reads them: kind, every version's source digest and the current version's. */
+export type VoxelKitAssets = ReadonlyMap<string, { readonly kind: string; readonly digests: readonly string[]; readonly current?: string }>;
 
 export interface VoxelKitPieceReport {
   caseId: string;
@@ -255,6 +256,7 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
   const unreadable: string[] = [];
   const noNode: string[] = [];
   const stale: string[] = [];
+  const older: string[] = [];
   const detached: string[] = [];
   const over: string[] = [];
   for (const p of pieces) {
@@ -269,6 +271,7 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
       continue;
     }
     if (!a.digests.includes(p.mesh.digest)) stale.push(what);
+    else if (a.current !== undefined && a.current !== p.mesh.digest) older.push(what);
     const f = p.facts;
     if (f === null) continue;
     if (f.unreadable !== null) {
@@ -291,6 +294,8 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
     rows.push({ id: 'assets', state: 'err', title: `${bad.length} meshes cannot be drawn`, detail: `${parts.join('; ')}. The fallback draws those cases instead.` });
   } else rows.push({ id: 'assets', state: 'ok', title: 'Every mesh is a readable model', detail: `${pieces.length} meshes.` });
   if (stale.length > 0) rows.push({ id: 'digests', state: 'warn', title: `${stale.length} meshes name a file version the model does not have`, detail: `${named(stale)}: the model's current version ships instead of the one the piece was made from.` });
+  // A build ships one version of a model: the pin holds only while the kit alone uses it (capture.ts).
+  if (older.length > 0) rows.push({ id: 'pinned', state: 'warn', title: `${older.length} meshes name an older version of their model`, detail: `${named(older)}: a build ships that version only while nothing else uses the model (a scene, a prefab, a loadable asset, another mesh naming another version); otherwise the current version draws. Point the piece at the current version, or keep the kit's model to the kit.` });
   if (detached.length > 0) rows.push({ id: 'pivot', state: 'err', title: `${detached.length} pieces do not touch their cell`, detail: `${named(detached)}: a piece is in metres centred on its cell (±${HALF} m); these draw beside it. Move the geometry to the cell's centre.` });
   else rows.push({ id: 'pivot', state: 'ok', title: 'Every piece sits on its cell', detail: `Centred on the cell, ±${HALF} m.` });
   if (over.length > 0) rows.push({ id: 'fit', state: 'warn', title: `${over.length} pieces reach past half a cell around theirs`, detail: `${named(over)}: they overlap the neighbours' pieces (allowed: ±${HALF + REACH} m).` });

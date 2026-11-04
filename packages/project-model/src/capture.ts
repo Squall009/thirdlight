@@ -182,16 +182,20 @@ export function collectAssetRefsV3(
     for (const g of bake.probes?.grids ?? []) setRef(g.asset);
     for (const id of bake.surface?.files ?? []) setRef(id);
   }
-  // The models voxel kits draw their pieces with, at the version a mesh's digest names (the current one when no
-  // version has those bytes). A mesh naming an asset the project lacks ships nothing: the kit check reports it and
-  // the fallback kit draws the case.
+  // The models voxel kits draw their pieces with. A build ships one version of an asset, so a kit mesh's pin (the
+  // version its digest names) holds only for a model nothing else uses: it never moves a scene's, a prefab's or a
+  // bake's reference off the version they ship, and the first mesh naming a model decides for every later one. A
+  // digest no version has ships the current one. A mesh naming an asset the project lacks ships nothing: the kit
+  // check reports it and the fallback kit draws the case.
   const records = new Map(content.assets.map((a) => [a.assetId, a]));
+  const kitPins = new Map<string, number | null>();
   for (const kit of (content as { voxelKits?: VoxelKit[] }).voxelKits ?? []) {
     for (const m of voxelKitMeshes(kit)) {
       const record = records.get(m.assetId);
-      if (record !== undefined) setRef(m.assetId, record.versions.find((v) => v.sourceDigest === m.digest)?.version);
+      if (record !== undefined && !refs.has(m.assetId) && !kitPins.has(m.assetId)) kitPins.set(m.assetId, record.versions.find((v) => v.sourceDigest === m.digest)?.version ?? null);
     }
   }
+  for (const [assetId, version] of kitPins) setRef(assetId, version ?? undefined);
   // The textures a model's images were extracted into travel with the model.
   const extracted = new Map(content.assets.map((a) => [a.assetId, (a as { textures?: Record<string, string> }).textures]));
   for (const assetId of [...refs.keys()]) for (const id of Object.values(extracted.get(assetId) ?? {})) setRef(id);

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { MATERIAL_ID_MAX } from '@thirdlight/voxel';
 
 import type { ModelErrorV2 } from './errors';
+import { collectAssetRefsV3 } from './capture';
 import { catalogBlockProblem } from './manifest-v5';
 import { canonicalVoxelKit, canonicalVoxelKits, validateVoxelKit, validateVoxelKits, VOXEL_KIT_FORMAT, VOXEL_KIT_LIMITS, type VoxelKit } from './voxel-kit';
 
@@ -191,5 +192,23 @@ describe('voxel kit record', () => {
     expect(catalogBlockProblem('voxelKits', canonicalVoxelKits([full()]))).toBeNull();
     expect(catalogBlockProblem('voxelKits', [{ ...full(), kitFormat: 2 }])).toMatch(/voxelKits: kit format 2 is newer/);
     expect(catalogBlockProblem('voxelKits', {})).toMatch(/voxelKits is a list/);
+  });
+});
+
+describe('the models a build ships for kit meshes', () => {
+  const D = (n: number): string => n.toString(16).padStart(64, '0');
+  const kit = (id: string, digest: string): VoxelKit => ({ kitFormat: VOXEL_KIT_FORMAT, voxelKitId: id, name: id, version: 1, materialType: 'wood', cases: { beam: { sections: { body: { variants: [{ high: { assetId: 'crate', digest } }] } } } } });
+  // Two versions kept (a reimport keeps an older one only while something names it): v1 the mesh's, v2 current.
+  const crate = { assetId: 'crate', kind: 'model', currentVersion: 2, versions: [{ version: 1, sourceDigest: D(1) }, { version: 2, sourceDigest: D(2) }] };
+  const refs = (entities: unknown[], kits: VoxelKit[]): ReturnType<typeof collectAssetRefsV3> => collectAssetRefsV3({ schemaVersion: 3, sceneId: 'main', revision: 1, entities } as never, { assets: [crate], behaviors: [], prefabs: [], voxelKits: kits } as never, []);
+
+  it("pins the version a mesh's digest names only for a model nothing else uses, and never moves another reference off its version", () => {
+    expect(refs([], [kit('log', D(1))])).toEqual([{ assetId: 'crate', version: 1 }]);
+    // A scene places the model: its current version ships, and the kit draws it too (one version an asset).
+    expect(refs([{ id: 'e-1', components: { model: { asset: { assetId: 'crate' } } } }], [kit('log', D(1))])).toEqual([{ assetId: 'crate', version: null }]);
+    // Two meshes naming two versions: the first decides.
+    expect(refs([], [kit('a', D(2)), kit('b', D(1))])).toEqual([{ assetId: 'crate', version: 2 }]);
+    // A digest no version has: the current one.
+    expect(refs([], [kit('log', D(9))])).toEqual([{ assetId: 'crate', version: null }]);
   });
 });

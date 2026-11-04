@@ -25,6 +25,11 @@ export const VOXEL_KIT_CHECK_CODE = 'voxel_kit_check';
 
 type CapturedAsset = { assetId: string; kind?: string; currentVersion: number; versions: { version: number; sourceDigest: string }[] };
 
+const currentDigest = (a: CapturedAsset): { current?: string } => {
+  const d = a.versions.find((v) => v.version === a.currentVersion)?.sourceDigest;
+  return d === undefined ? {} : { current: d };
+};
+
 const imageSize = (bytes: Uint8Array, mime: string): [number, number] | null => {
   if (!MIMES.has(mime)) return null;
   const d = imageDimensions(bytes, mime as Parameters<typeof imageDimensions>[1]);
@@ -68,7 +73,7 @@ export function createVoxelKitProblemChecker(deps: {
     if (!captured.ok) return null;
     const content = captured.read.content as unknown as { voxelKits?: VoxelKit[]; assets?: CapturedAsset[] };
     const assets = new Map((content.assets ?? []).map((a) => [a.assetId, a]));
-    const view = new Map([...assets].map(([id, a]) => [id, { kind: a.kind ?? 'model', digests: a.versions.map((v) => v.sourceDigest) }]));
+    const view = new Map([...assets].map(([id, a]) => [id, { kind: a.kind ?? 'model', digests: a.versions.map((v) => v.sourceDigest), ...currentDigest(a) }]));
     const kept = facts.get(projectId) ?? new Map<string, VoxelKitMeshFacts | null>();
     const used = new Map<string, VoxelKitMeshFacts | null>();
     const factsOf = (m: VoxelKitMesh): VoxelKitMeshFacts | null => {

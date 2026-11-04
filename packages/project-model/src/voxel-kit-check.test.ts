@@ -53,8 +53,8 @@ function fullKit(): VoxelKit {
   return { kitFormat: 1, voxelKitId: 'full', name: 'Full', version: 1, materialType: 'wood', materials: [11], cases, joinProfiles: { flat: { outline: [[0, 0], [16, 0], [16, 16]] } } };
 }
 
-function assetsOf(kit: VoxelKit): Map<string, { kind: string; digests: string[] }> {
-  const out = new Map<string, { kind: string; digests: string[] }>();
+function assetsOf(kit: VoxelKit): Map<string, { kind: string; digests: string[]; current?: string }> {
+  const out = new Map<string, { kind: string; digests: string[]; current?: string }>();
   for (const c of Object.values(kit.cases)) for (const s of Object.values(c.sections ?? {})) for (const v of s.variants) for (const m of [v.high, v.low]) if (m !== undefined) out.set(m.assetId, { kind: 'model', digests: [m.digest] });
   return out;
 }
@@ -127,6 +127,14 @@ describe('the voxel kit check', () => {
     const broken = run(full, { assets, facts: noFile });
     expect(only(broken)).toEqual(['err assets', 'warn digests']);
     expect(broken.find((r) => r.id === 'assets')!.detail).toMatch(/no such model: beam\/body \(beam-h\).*not a model: roof-peak.*unreadable: soffit.*no such node: moulding/);
+    // A mesh naming an older version of its model (v1 of two, v2 current): the pin holds only while nothing else
+    // uses the model; one naming the current version is fine.
+    const pinned = assetsOf(full);
+    pinned.set('wall-end-h', { kind: 'model', digests: [D(1), D(9)], current: D(9) });
+    pinned.set('wall-top-h', { kind: 'model', digests: [D(9), D(1)], current: D(1) });
+    const older = run(full, { assets: pinned });
+    expect(only(older)).toEqual(['warn pinned']);
+    expect(older.find((r) => r.id === 'pinned')!.detail).toMatch(/^wall-end\/body \(wall-end-h\): a build ships that version only while nothing else uses the model/);
     // Pivots: a piece beside its cell; one reaching into the neighbours.
     expect(only(run(full, { facts: (m) => (m.assetId === 'wall-top-h' ? box(H + 0.1, H + 0.4) : box()) }))).toEqual(['err pivot']);
     expect(only(run(full, { facts: (m) => (m.assetId === 'wall-top-h' ? facts(quad(-H, 0.8, -H, H, H, () => [0, 0])) : box()) }))).toEqual(['warn fit']);

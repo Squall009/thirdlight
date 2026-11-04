@@ -92,15 +92,15 @@ const auth = { authorization: `Bearer ${TOKEN}` };
 const rid = (n: number): string => `req-${n.toString(16).padStart(32, '0')}`;
 
 /** One triangle as a GLB of one node: the pieces' model a voxel kit names (real bytes through the real import). */
-function pieceGlb(): Uint8Array {
-  const positions = new Float32Array([0, 0, 0, 0.5, 0, 0, 0, 0.5, 0]);
+function pieceGlb(size = 0.5): Uint8Array {
+  const positions = new Float32Array([0, 0, 0, size, 0, 0, 0, size, 0]);
   const json = {
     asset: { version: '2.0' },
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ name: 'Beam_Body', mesh: 0 }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
-    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [0.5, 0.5, 0] }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [size, size, 0] }],
     bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.byteLength }],
     buffers: [{ byteLength: positions.byteLength }],
   };
@@ -124,6 +124,48 @@ function logKit(assetId: string, digest: string): VoxelKit {
     },
     gameData: { sound: { hit: 'wood-knock' }, physics: { density: 0.6 }, tags: ['flammable', 2, null] },
   };
+}
+
+/** The model rows an export's catalog ships (one version an asset). */
+function shippedModels(outputDir: string): Map<string, { version: number; sourceDigest: string }> {
+  const out = join(root, 'exports', outputDir);
+  const content = readRuntimeContentSync(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')), (path) => {
+    try {
+      return new Uint8Array(readFileSync(join(out, path)));
+    } catch {
+      return null;
+    }
+  }) as unknown as { dependencies?: Array<{ assetId: string; version: number; sourceDigest: string }> };
+  return new Map((content.dependencies ?? []).map((e) => [e.assetId, e]));
+}
+
+/**
+ * A kit mesh's model imported again: the file is the asset, so its new version replaces the one the mesh's digest
+ * names, and a build ships the current version for the kit alone and with a scene placing the model (one version an
+ * asset: the kit never moves the scene's reference).
+ * The scene object is deleted again after.
+ */
+async function kitMeshAfterReimport(assetId: string, pinned: string, send: (op: string, args: Record<string, unknown>) => Promise<{ status: number; json: Record<string, unknown> }>, exportNow: () => Promise<{ status: number; json: Record<string, unknown> }>): Promise<void> {
+  const dir = backend._test.service.projectDir(PROJECT)!;
+  const newer = pieceGlb(0.25);
+  writeFileSync(join(dir, 'assets', 'kits', 'log-pieces.glb'), newer);
+  // A changed file is imported again (the editor's "check files").
+  const checked = await fetch(`${base()}/api/v1/projects/${PROJECT}/content/files/check`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: '{}' });
+  expect(checked.status, await checked.clone().text()).toBe(200);
+  const currentDigest = createHash('sha256').update(newer).digest('hex');
+  const record = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/content/assets/${assetId}`, { headers: auth })).json()) as { asset: { currentVersion: number }; versions: Array<{ version: number; sourceDigest: string }> };
+  expect(record.versions.map((v) => v.sourceDigest)).toEqual([currentDigest]);
+  for (const scene of [false, true]) {
+    const placed = scene ? await send('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Kit model in the scene', model: { asset: { assetId } } }) : null;
+    if (placed !== null) expect(placed.status, JSON.stringify(placed.json)).toBe(200);
+    const done = await exportNow();
+    expect(done.status, JSON.stringify(done.json)).toBe(200);
+    expect(shippedModels(String(done.json['outputDir'])).get(assetId), scene ? 'with a scene' : 'kit alone').toMatchObject({ version: record.asset.currentVersion, sourceDigest: currentDigest });
+    const outDir = join(root, 'exports', String(done.json['outputDir']));
+    expect(readFileSync(join(outDir, 'content', 'sha256', currentDigest)).equals(newer)).toBe(true);
+    expect(existsSync(join(outDir, 'content', 'sha256', pinned))).toBe(false);
+    if (placed !== null) expect((await send('deleteEntity', { entityId: placed.json['createdId'] as string })).status).toBe(200);
+  }
 }
 
 function sceneStore(): PaletteStore {
@@ -737,6 +779,7 @@ describe('voxel world routes', () => {
     const kitMesh = (shippedKits![0]!['cases'] as Record<string, { sections: Record<string, { variants: Array<{ high: { digest: string } }> }> }>)['beam']!.sections['body']!.variants[0]!.high;
     expect(readFileSync(join(out, 'content', 'sha256', kitMesh.digest)).equals(pieceGlb())).toBe(true);
     expect(((content as unknown as { dependencies?: Array<{ assetId: string }> }).dependencies ?? []).map((e) => e.assetId)).toContain(KIT_MODEL.assetId);
+    await kitMeshAfterReimport(KIT_MODEL.assetId, kitMesh.digest, send, exportNow);
     const worldDir = join(backend._test.service.projectDir(PROJECT)!, 'voxels', FEED_WORLD);
     const manifest = JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { worldId: string; regions: string[]; revision: number };
     expect(content.voxelWorlds?.length).toBe(1);
