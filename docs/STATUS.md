@@ -66,7 +66,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 43 | Clustered forward lighting, shared shadow atlas, 16-light cap lifted — `docs/plan-phase-43.md` | done 2026-10-30; open D400, D405 |
 | 44 | Consolidation from the global audit (G1–G22) and a docs reset — `docs/plan-phase-44.md` | done 2026-11-01, owner look pending (e73f0f5a): G1–G22 fixed; @thirdlight/shared + redefinition ratchet 163→26; docs 6.3→4.3 MB; full gate green 30 min |
 | 44b | Camera: occlusion modes per camera, adaptive exposure — `docs/plan-phase-44b.md` | done 2026-11-01, owner look pending: pull-in/see-through/none per camera, auto-exposure, bloom after exposure, three r187; D339 fixed; full gate red→fixed; open D427, D429 |
-| 45–49 | Voxel world: formats (45), core (46a–e), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | 45 done 2026-11-02 (format spec v1 approved); 46a done 2026-11-03 (owner look pending, `docs/plan-phase-46a.md`); 46b in progress (`docs/plan-phase-46b.md`), branch `phase-45` |
+| 45–49 | Voxel world: formats (45), core (46a–e), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | 45 done 2026-11-02 (format spec v1 approved); 46a done 2026-11-03 (owner look pending, `docs/plan-phase-46a.md`); 46b done 2026-11-04 (owner look pending); 46c in progress (`docs/plan-phase-46c.md`, owner hard stop), branch `phase-45` |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |
 
 Phases 0–43 are owner look pending where visual or audible (see above). A row's open D-rows are the ones it named;

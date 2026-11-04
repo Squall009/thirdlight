@@ -1,6 +1,6 @@
 # Phase 46c — Kits and cases
 
-Status: **46c: planned (draft, starts after 46b closes)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
+Status: **46c: in progress (started 2026-11-04, after 46b closed)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
 main frozen at d4053cab). Planned from `docs/plan-phase-45.md` §4 (46c) as revised by §7a (the kit and surface
 session, which takes precedence) and the owner decisions of 2026-11-02 (§7: the ten stored roles, beams, banisters
 and soffits inferred; R112: no trim sheet for terrain or construction voxels), with §1 (roles, kits per material
@@ -63,8 +63,8 @@ title. After approval: 46c.16–46c.18 (§6). Work that does not depend on the s
 
 ## 3. three.js check
 
-(Filled at the 46c start: `npm view three`; three 0.187.0 at the 46b start, 2026-11-03. A newer release is assessed
-against `docs/three-upgrade-checklist.md` and recorded here; never updated, owner-only.)
+Checked 2026-11-04 at the 46c start: three 0.187.0 (released 2026-10-30) is still the newest on npm. No newer
+release, so nothing to assess against `docs/three-upgrade-checklist.md`; no update (owner-only).
 
 ## 4. Baseline (re-read at 46b.13; the numbers 46c reports against)
 
