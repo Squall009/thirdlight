@@ -988,7 +988,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v14 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v15 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1524,6 +1524,7 @@ instances; nothing stored, nothing to upgrade, no world regenerated, the staging
 |---|---|---|---|
 | 9 → 13 | 46c.3–46c.6b | kits and cases: cases in the job, forms, kit pieces, no material in a case | *Kits and cases* above (one table with the owner notes) |
 | 13 → 14 | 46c R1 | construction shape = integrity (owner 2026-11-04) | below |
+| 14 → 15 | 46c R2 | roofs as sloped planes, colliding as ramps (owner 2026-11-04, 2026-10-27) | below |
 
 **Derived data 13 → 14 (46c R1; the meaning is the owner's decision of 2026-11-04, the version step a default chosen,
 owner to confirm).** No stored format changes: shape keeps its 4 bits. For the construction roles (wall, floor,
@@ -1542,8 +1543,33 @@ cell (outer) or the cell diagonal to the open one (inner); none where a terrain 
 cell touches it; a cell's 12 edges and 8 corners are a bit mask. `cases-draft` v5 (`cases-draft-catalogue.ts`)
 stays the world's catalogue until pieces are drawn from edges.
 
+**Derived data 14 → 15 (46c R2; the meaning is the owner's decisions of 2026-11-04, "roofs get their own mesher",
+and 2026-10-27, "roof slope cases collide as ramps"; the version step and the rules below are defaults chosen, owner
+to confirm).** No stored format changes. The **roof mesher** (`roof-mesher.ts`) reads role `roof` cells laid as a
+45° stair: a **plane cell** is an intact roof cell (shape 15) with nothing solid above that rises toward a
+horizontal direction d (an intact roof cell one up and across in d, or one down and across against d; an eave
+corner of a hip by the diagonal); a one-direction cell with a roof cell beside it on its low side is a flatter stair
+and keeps its voxel faces, as do damaged and lone roof cells (reach 1; at that reach the high cell of a 1:2 step reads
+as 45°, D500). Its top is the plane through the stair's outer corners (the voxel's top on its low side, one cell
+higher on its high side), its underside one cell lower, or the voxel's floor where a solid cell carries it (gable
+and eave walls), so the slab closes onto the wall; two or more directions take the lowest plane (ridge, hip, apex),
+or the highest where both slopes go on up or the cell sits where a valley meets the ridges (valley). Each plane cell
+is a closed prism; shared sides cancel or leave their difference; single-direction rows merge along their level line
+inside a section; every edge is split at the job's polygon corners and, on a section face, at every half-cell
+point, so the roof is closed across sections and chunks. The planes are appended to the **base surface** (same
+12-byte vertex); plane cells draw no voxel faces, hide none of their neighbours' faces (a wall beside, under or
+through the roof keeps its faces), take no kit piece and give no collision box: **`collision.ramps`** (a new array
+in the canonical bytes, its vertex count a new header flag) carries the planes as a triangle mesh the physics
+body takes, so a character stands on the drawn roof. Light, occupancy and navigation still read the stair voxels.
+Per plane cell a **roof word** (rising directions, valley, seated; eave, verge and ridge sides; centre ridge) gives
+R3's roof-edge cases with their yaw (`roofEdgesOf`); the edge pass (rule set `edges` v2) places no edge piece round
+a plane cell. The roof words are part of the radius conformance check. Mips run the same mesher (a stair not aligned
+to a level's grid downsamples two cells thick and its planes sit on top, up to 1.5 of the level's cells above the
+level-0 roof, D501). Results differ from v14's only round roof cells; nothing to upgrade, the slice world is not
+regenerated (the town's roofs are 45° stairs and draw as planes).
 
-**Derived version history (v2 → v14).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+
+**Derived version history (v2 → v15).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |

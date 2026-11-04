@@ -236,7 +236,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
 | 46c.18 | not started (after approval) |
 | R1 | done: `edge-cases.ts` edge pass (12 edges + 8 corners a cell, 10 cases × yaw 4, reach 1) + `edges-draft` v0 (20 cases; window rules beam/banister only) as `edges` v1 (registered, conformance incl. edges); construction shape = integrity in every reader, derived v13 → v14. Town µs a section p50/p95: old case pass 123/318, new passes 144/290 (edge pass 52/111) |
-| R2 | not started (roof mesher) |
+| R2 | done (53c71768): `roof-mesher.ts`: 45° roof stairs → closed sloped prisms (ridge, hip, valley, pyramid apex; underside onto gable/eave walls), appended to the base, collide as ramps (`collision.ramps`); roof-edge words for R3; derived v15, `edges` v2. Town base tris 328 k → 303 k, roof mesher 188/403 µs a section; fast gate green 13 min; D500–D503 |
 | R3 | not started (pieces on edges only, debris) |
 | R3b | not started (adapter: edge instances, alias rotation, stagger, default kit) |
 | R4 | not started (grid-anchored 4 m UVs, band debug pattern, roof slope projection) |
@@ -859,6 +859,48 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   numbers updated. Town edge pieces: 493,310 (out-top 177 k, out-bottom 157 k, out-vertical 54 k, in-* 89 k, corners
   16 k) on 156,969 owner cells, about 1.6 k a chunk: R3/R6 should expect instance counts near the 46c.6 full kit's.
 
+### R2 roof mesher
+
+- **Built.** `packages/voxel/src/roof-mesher.ts` on the derive (job reach 2 = plane cells one round the job, each
+  read one cell round): `classifyRoofs` (a u32 word a plane cell: rising directions, valley, seated, eave / verge /
+  ridge sides, centre ridge) and `roofSurface` (each plane cell a closed prism: top through the stair's outer corners,
+  underside one cell lower or the voxel's floor where a solid cell carries it; ridge/hip/apex = lowest plane, valley
+  = highest; sides that meet exactly are dropped, unequal ones leave their difference read at the segment middle;
+  single-direction rows merged along the level line inside a section; every edge split at the job's corners, on a
+  section face at every half-cell point). `deriveChunk` appends the planes to the base surface, `base-surface.ts`
+  skips plane cells and hides nothing behind them, collision drops their boxes and carries `collision.ramps`
+  (joined like the surfaces, a mesh part of the chunk body), pieces skip them; light/occupancy/nav unchanged. Edge pass
+  (`edges` v2) places no piece round a plane cell. `ruleRadiusMismatches` compares roof words (`part: 'roof'`).
+  `roofEdgesOf(word)` gives R3 the cases `roof-ridge/eave/gable/hip/valley` with yaw. Derived v14 → v15 (spec §3.7
+  owner note). Tests updated where their reference was the stair: `base-cases.ts` naive faces treat plane cells as
+  open and compare the bodies only (`bodySurface`), `case-forms.test.ts` plane cells collide as the ramp, no piece.
+- **Tests** (`tools/voxel-bench/roof-mesher.test.ts`, 7, real derive, sections joined, mip nodes, real Rapier):
+  gable (odd), hip (13 × 8), pyramid (9 × 9), L hip roof with a valley and a large hip: every roof cell a plane cell;
+  ramps welded over all chunks closed (0 unbalanced edges), every top/underside vertex on the expected surface within
+  1/1024 cell; eave/verge/ridge/hip/valley counts and yaws on hand cells; 16³ sections joined = whole chunk (area per
+  normal), conformance at 16³ and 32³ chunks (world, edges, terrain rules); swept sphere and dropped capsule on all
+  four within 2 cm of the plane; L1/L2 closed with 45° planes, L1 within 1.5 cells (D501); gable walls + 2 × 2
+  chimney: bodies + planes closed, rays under the verge all stop at the gable face, chimney keeps its faces, no edge
+  piece on plane cells; damaged (shape 7), lone and 1:2 cells keep voxel faces (1:2: every other cell, D500). The shell
+  houses' L1/L2 test (gable/hip/flat, watertight, rays, silhouettes) passes with the planes.
+- **Measured** (`run.mjs cases --roofs`, 6 GB scope, Node 22, 2026-11-04 22:55, load 2.3, uptime 12.2 d, 2 rounds;
+  town 512², 1,070 16³ sections with plane cells, 68,244 plane cells): roof mesher (classify + planes) **188 / 403 µs**
+  p50 / p95 (classify 34 / 44), whole section derive 913 / 1,396 µs; base triangles with the same cells as stair
+  faces 328,168 → **302,508** with planes (113,362 of them roof, 1.66 a plane cell; collision carries the same
+  triangles again). First cut was 422,924 / 337 µs: raw side strips and fans; cut by differencing at segment middles,
+  pre-cancelling matched sides, typed stamps. p95 over budget: D502. Fast gate GREEN at 53c71768 (13 min,
+  voxel-world.e2e.ts 62.0 s, was ~58–65; village perf 0 missed both renderers).
+- **Looked at** (staging town world, the four roofs written floating at y 24 through `editVoxels` and undone after,
+  1280 × 720, both renderers, 2026-11-04 22:57, load 3.8; shots `~/.cache/thirdlight-phase46/acceptance/46c-r/r2`):
+  the town's gables, the hip, pyramid and L (hips meeting at the apex, the valley crease at the inner corner) draw as
+  flat slopes on WebGPU and WebGL 2, no cracks seen; the gable over its walls closes (geometry); the planes and
+  verges show grey bands a cell apart where the shader reads air cells above the treads (D503); the town's old
+  wall pieces (cases-draft copings) still step along the verges until R3; far houses keep planes at L1. Frames were
+  not measured here (R6); the town's rotated-grid houses (if any are drawn) were not identified: unverified.
+- **Remaining for later items / owner:** visible T-junctions between roof planes and walls are not removed (separate
+  shells meet edge to edge, unsplit); thick (2+ cell) roofs plane only the top cells (lower ones keep voxel faces);
+  only 90° hips/valleys at 45°.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1174,6 +1216,24 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   inner edges/corners, roof valley and debris optional (a kit may leave inner seams plain).
 - 2026-11-04 (R1, default chosen, owner to confirm): **smooth construction strokes place whole blocks** (cells at
   least half covered, integrity 15): a fill level would now read as damage.
+
+- 2026-11-04 (R2, lead note + owner 2026-10-27 "roof slope cases collide as ramps"; replaces the revision plan's
+  "collision stays voxel"): **roof plane cells collide as the drawn planes** (`collision.ramps`, a mesh), not as
+  their stair boxes; light, occupancy and navigation keep the voxels. Default chosen, owner to confirm.
+- 2026-11-04 (R2, default chosen, owner to confirm): **the underside sits on what carries the roof**: a plane cell
+  with a solid cell under it (a gable or eave wall) takes its voxel's floor as underside, so the slab closes onto
+  the wall and the wall's steps under the verge are filled (the risk "gable fill" in §6b, built instead of offered).
+- 2026-11-04 (R2, default chosen, owner to confirm): **plane cells at one cell's reach** (the edge pass excludes them
+  within its radius 2): a 1:2 stair is only half left to voxel faces (D500); a valley cell where it meets the ridges
+  (an L's corner top) reads concave by its level neighbours.
+- 2026-11-04 (R2, default chosen, owner to confirm): **plane cells hide nothing and take no piece**: walls beside,
+  under or through a roof keep their faces; the superseded catalogue's roof pieces stop drawing on planes now (R3
+  draws roof-edge pieces from the roof words).
+- 2026-11-04 (R2, default chosen, owner to confirm): **roof-edge words and yaw** (`roofEdgesOf`): eave and verge open
+  toward +z at yaw 0, ridge along x, hip/valley to the cell's +x +z corner; a ridge between two cells is owned by the
+  one rising toward +x or +z; damaged roof cells (shape < 15) are holes for R3.
+- 2026-11-04 (R2, default chosen, owner to confirm): **mips run the same mesher**; a stair off the level's grid sits
+  up to 1.5 of its cells high (D501), not fixed here.
 
 ## 10. Open questions for the owner
 
