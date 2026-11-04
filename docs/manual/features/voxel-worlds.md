@@ -99,7 +99,7 @@ lighting comes later.
   happens on the page.
 - **One memory budget a world** (256 MiB, the low-end machine's budget)
   holds everything the world keeps: its loaded cells, the game's changes,
-  the meshes and shading data, and the colliders at what the physics engine
+  the meshes and shading data of every distance level, and the colliders at what the physics engine
   spends on them. Over budget, the farthest chunks go first, and loading
   stops short of them until there is room again. The game's own changes are
   never dropped to make room (a chunk that leaves gets them back when it

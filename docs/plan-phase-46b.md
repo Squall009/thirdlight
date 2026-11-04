@@ -99,6 +99,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.12 | **Docs:** spec §3.7 (terrain rule set, mesher, seams, levels, the derived version step with its owner note), requirements traceability R107–R109, manual `features/voxel-worlds.md` (rings), reference regenerated. | check-docs, `tools/manual-links.test.mjs` | — | pages match the built code |
 | 46b.13 | **Close (lead):** full gate once (detached), independent review, fixes, acceptance by eye on staging, STATUS row; then 46c starts with its owner hard stops. | full gate | gate time and peak; voxel e2e time vs 46.5 s | review in the decision log; owner look pending |
 | 46b.13a | **Full gate's vitest failure (fix item):** the levels test's jitter check counted 4 flips (D469); fix the product or write why the test was wrong; watch rows for the run's timeouts; finish the full gate with its rerun (e2e, both renderers). | `stream.test.ts` (the file alone, 3 runs); the full gate's rerun | flips, gate time and peak | D469 closed; watch rows |
+| 46b.13b | **Review fixes (fix item):** H1 edits held by undrawn nodes, M1 unbounded heightfield sweeps, M2 node/seam GPU bytes outside the budget, the lows (2 : 1 at edges/corners, history ids, copies, self-modelling tests, physics edges, e2e growth split per test). | `stream.test.ts`, `port3d-queries.test.ts`, `world-host.test.ts`, `voxel-chunk-view.test.ts`, `lod-select.test.ts`, `collision.test.ts`; fast gate | µs of 10 m / 100 m / 1 km casts, stream MB with GPU bytes (staging, both renderers), per-test e2e times | D-rows for H1/M1/M2 opened and closed; review in the decision log |
 
 ## 6. Progress
 
@@ -125,6 +126,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.12 | done (this commit; docs only, no gate): spec §3.7 one terrain/levels/seams/LOD-selection subsection as built, derived v3 → v9 history with its owner notes in one place (no stored format changed), §3.8 row 8 → 9, §4 rows; requirements trace R107–R109 (holds/misses, hard cases, D462/D463); manual "Distance levels". No API change: reference not regenerated. |
 | 46b.13 | full gate at ae036083 + its rerun at f4c9b7c3: GREEN, 36 min (vitest step 8 min, RED on D469; rerun 28 min: vitest 4 files, e2e both renderers 392 passed, 1 failed once and passed alone, D472 watch), peak 8.0 GB (previous green full gate 29 min). `voxel-world.e2e.ts` 65.4 s in the run. Review, fixes, acceptance by eye, STATUS row: not started |
 | 46b.13a | done (df593467; full gate's rerun green): the jitter check counted a stand-in leaving for its level-2 parent, arriving from the jitter's loads, as a flip (D469, test wrong, product as specified, no product change since 46b.8a); 4 stand-ins left, 0 flips in 3 of 3 runs of the file. Watch D470, D471, D472; sightings D418, D454. H1 not the cause (no edits in the test) |
+| 46b.13b | done (ed68f69f…0692474f; fast gate green after a rerun): H1 D473 only shown nodes join an edit's swap; M1 D474 1 km sweep 2.7 → 0.15 ms; M2 D475 node/seam GPU bytes in the budget, slice 46.9 → 58.0 MB, town 83.8 → 97.9; 2 : 1 at edges/corners; D476 shared Rapier init; lows fixed or recorded. Voxel e2e 58.0 → 64.8 s, untouched (growth per test in results) |
 
 ## 7. Results
 
@@ -1227,6 +1229,88 @@ numbers `~/.cache/thirdlight-phase46/work/46b.11b/`; pictures and the owner's RE
 Fast gate (gate-fast-20261103-224009, uptime 11 d 6.2 h): GREEN, 12 min, 5.2 GB peak, perf at the cap in limits.
 `voxel-world.e2e.ts` 58.0 s (sum of its tests; its tests untouched, the page gained two measuring hooks; 58.7 s at 46b.11c).
 
+### 46b.13b review fixes
+
+**H1 (D473), edits held by undrawn nodes.** `StreamMips.changed` now joins a stale node to the edit's group only when
+it is shown (drawn, or read by a drawn seam); a node nobody shows gets an `edited` flag (its jobs stay in the edit
+lane, `urgent`) and goes in alone, as before 46b.11c. `stream.test.ts` +1 test (real workers, hilly world, level 0
+within 112 cells so the level-1 nodes round the focus are split and no seam reads them; 3.0 s alone): two digs 44
+cells apart under one level-1 node swap apart, naming no node, the node re-derived in the edit lane and equal to a
+fresh derive; a dig made while another spot is dug every update swaps after 1 update (the old code: never within
+300 updates, the test fails). The case at level 1 is the same mechanism the review found under a level-2 node.
+Two edits whose shown nodes meet still merge (46b.11c's test unchanged).
+
+**M1 (D474), sweep cost.** `castFields` halves the cast against the broad phase's boxes (Rapier's heightfield boxes
+hold the heights) until a stretch is 8 cells of the finest field it meets, nearer half first, and steps only those
+stretches. `port3d-queries.test.ts` +1 test: 16 patches of 16 × 16 cells of 0.5 m in a row, 40 casts each of
+10 m / 100 m / 1 km aimed at the row from any side at 3–17°, against the same triangles as meshes: within 1 cm,
+grazes < 5 %. Mean µs a cast (Node, 2 runs each, 23:51, load 2.4): before 84–89 / 359–363 / 2,637–2,768, after
+61–146 / 99–157 / 126–171 (the 10 m figure is noise-bound: a few more box queries against fewer casts). The hard-case
+and town sweep tests (`collision.test.ts`) pass unchanged. **For the 48c merge:** `castSphere` on main's terrain
+tiles (heightfields of 16 × 16 cells of 2 m) goes through this path too: behaviour changes from Rapier's own cast
+(late across > 2 cells on slopes, D443) to the per-cell sweep, exact; cost now follows the ground passed (a 2 m
+cell is 4× the stride of a voxel patch's, so long casts over tiles cost less than over patches). Sprout's camera
+pull-in and script casts should be re-checked there. Rapier 0.21 not re-checked (owner decision).
+
+**M2 (D475), node and seam GPU bytes.** The page's chunk view sums its level ≥ 1 draws' bytes (meshes and grid
+regions) and its seams' (`coarseBytes`); `applyChunkDrawBatch` returns it, `VoxelWorldDraws` reports it with the
+chunks' bytes when it changes, and the batcher sets it on the feed's mip levels (`gpuBytes`, in `bytes.mips`).
+Paths: voxel page, Play (worker and single-thread), Scene view. Tests: `voxel-chunk-view.test.ts` (the node and its
+seam counted, 0 after the swap back), `world-host.test.ts` (the runtime's presentation: the sum lands in
+`bytes.mips`, a later report replaces it). Staging (dist of 78790bd1, headless Chrome on the Iris Xe, 1280 × 720,
+DPR 1, the 60 Hz cap, default rings, the page cold at 46b.11b's spots; 1 round per renderer, 23:56–23:58, uptime
+11 d 7.5 h, load 2.9–5.3; `~/.cache/thirdlight-phase46/work/46b.13b/perf.jsonl`):
+
+| | 46b.11b (node/seam GPU bytes left out) | 46b.13b, WebGPU = WebGL 2 |
+|---|---|---|
+| stream MB slice cold | 46.9 (mips 8.2) | 58.0 (mips 19.3: cells 1.6, seams 0.1, GPU 11.1) |
+| stream MB town | 83.8 (mips 11.5) | 97.9 (mips 25.5: cells 0.7, seams 0.2, GPU 14.1) |
+| drawn L0 / L1 nodes | slice 107 / 105, town 258 / 129 | the same |
+
+46a's 100 MB slice counted every draw at level 0, so the comparison is now like for like: 100 → 58.0 MB. Frames
+16.7–16.8 ms p95, 0 errors.
+
+**Lows.**
+- L1: the 2 : 1 balance (`lod-select.ts`) and the brute-force check (`lod-checks.ts`) look at all 26 neighbours. The
+  old balance fails the new check on the no-band rings (`lod-select.test.ts`). In the streamer test, level-2 nodes
+  above or below level-0 chunks at the load box's top and bottom touch them at a corner while their level-1
+  children are not complete: the choice cannot mend these and reports them (`unbalanced`), and the test now fails an
+  edge or corner imbalance the choice did not report; faces stay at 0. Default rings never draw level 2.
+- L2: the two item ids out of comments.
+- L3: `level-materials.test.ts` covers all 14 hard cases again (30 s alone, timeout 240 s). The shader's pick stays
+  modelled in TypeScript from the shader's own layout constants (the shader runs only on a GPU; a pixel check would
+  grow the browser test); the test header says so. The normal goldens are the mesher's own output rounded up: they
+  are regression bounds; the bound against the truth is the analytic error check beside them (unchanged).
+- L5: `SEAM_WALK_STEPS` defined once in voxel (the bench imports it); the surface test's layout from the voxel
+  constants; the `cellMetres` uniform noted on D458.
+- L6: a character moving 3–8 cells a step (180–480 m/s at 120 Hz) onto sloped heightfields lands within 2 cm of the
+  mesh (0.5–16.6 mm). D466: capsules that start clear of a cliff face and fall along it never throw (> 30 drops on
+  fields and meshes, `collision.test.ts`); only a start inside the face throws (10 of 15 such starts in a probe): a
+  placement problem, not a fall; stays low. Running the two-port tests alone found D476 (two `RAPIER.init()` at once;
+  fixed: one shared init).
+- L4, `voxel-world.e2e.ts` growth split per test (each test's own time in the fast gates' logs, 2 workers, both
+  renderers where it runs twice; s):
+
+  | Gate (item) | assembly proof | streams (webgpu / webgl2) | Play (worker / single) | Scene view | Export | sum |
+  |---|---|---|---|---|---|---|
+  | 09:09 (46a end, 46b start) | 9.9 | 6.0 / 5.9 | 5.9 / 5.5 | 8.0 | 6.7 | 47.9 |
+  | 14:29 (46b.6a) | 11.1 | 5.9 / 6.8 | 5.3 / 5.5 | 8.3 | 6.0 | 48.9 |
+  | 15:13 (46b.6b, mips at runtime) | 12.4 | 7.1 / 7.9 | 6.1 / 6.3 | 9.0 | 6.8 | 55.6 |
+  | 16:23 (46b.7b, seams) | 14.0 | 7.7 / 8.3 | 6.0 / 5.6 | 8.8 | 6.2 | 56.6 |
+  | 17:16 (46b.8a, levels) | 14.9 | 9.1 / 9.3 | 6.2 / 6.3 | 9.6 | 6.6 | 62.0 |
+  | 22:40 (46b.11b) | 14.3 | 8.5 / 8.7 | 6.3 / 5.3 | 8.8 | 6.1 | 58.0 |
+  | 00:28 (46b.13b) | 15.3 | 9.5 / 10.0 | 7.3 / 6.2 | 9.4 | 7.1 | 64.8 |
+
+  The growth (+10 s) is the assembly proof (+4.4–5.4 s) and the streams test (+2.5–4.1 s each); Play, the Scene view
+  and the export moved ≤ 1 s (load). The two grew with the commits that put mips (46b.6b), seams (46b.7b) and the
+  level choice (46b.8a) into the page, before any test was extended (46b.8b extended the streams test). Why: both
+  tests wait on the page's `settle`, which waits until the streamer is idle, now including every level-1/2 node's
+  downsample and derive, the seams and the level swaps of the whole ring, work the tests' own edits re-trigger. No
+  test has a fixed sleep (every wait is a readiness poll). The same-hour A/B with mips off was not run (it needs a
+  page build without mips, and the streams test asserts levels): the cause is from the commit series, not an A/B.
+  Trim left for the owner: a `settle` that waits for level 0 only, in the waits that check level-0 cells and
+  consumers (the assembly proof's), would take back most of it without weakening a check; not done here.
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -1482,6 +1566,30 @@ Fast gate (gate-fast-20261103-224009, uptime 11 d 6.2 h): GREEN, 12 min, 5.2 GB 
   the edit's level-0 rebuilds, which are not drawn where the nodes are; elsewhere (level-0 ring) the ancestors follow
   them. Limits, recorded: a node that becomes shown after its group's seams were built goes in alone later; two edits
   whose level-0 groups do not merge but whose nodes meet swap in one task (two `swap` events, one batch).
+
+- 2026-11-04 (46b review, independent agent, read-only, ac283f22..ae036083, during the full gate): **1H 2M 6L.**
+  Held: the mesher's reach inside the job pad, the base merge's T-junction handling, mip staleness, `chooseLevels`
+  covering each root once, seam holds always resolving, no stored format changed (derived v3 → v9 only,
+  `voxelWorld.levels` add-only). Findings and what 46b.13b did:
+  H1 an edit's undrawn coarse nodes coupled edits (a held tool could starve another's swap): fixed (D473).
+  M1 the per-cell heightfield sweep unbounded in cast length, and on every heightfield incl. main's terrain tiles:
+  bounded by broad-phase halving (D474), the merge note in 46b.13b's results. M2 node and seam GPU bytes outside the
+  budget and 46b.11b's memory figure: counted (D475), figures restated. L1 2 : 1 faces only: edges and corners
+  balanced. L2 history ids: removed. L3 tests modelling their own code: level-material test back to 14 cases, the
+  TS model of the shader's pick kept and why recorded, normal goldens recorded as regression bounds. L4 e2e and
+  vitest growth unexplained: split per test, cause by commit series (no A/B), a level-0 `settle` named as the trim.
+  L5 copies: fixed, `cellMetres` on D458. L6 physics edges: fast movers and drops along faces tested, D466 stays low;
+  found D476 on the way. Rules check: no caps, no boundary or dependency change, no file over 2,000 lines.
+  For the owner's eyes (unchanged by the fixes): the double-drawn seam band in motion, normal jumps at L0|L1 creases,
+  horizon pops at the ring's edge, houses at L1/L2, fences gone from 64 m; never seen: the cave saddle hole (D462), a
+  low sun on WebGL 2, Play and the Scene view with levels, the high tier; R108/R109 gaps (D463), the mesher budget
+  missed on features/town, D468; sloped heightfields vs a Rapier update; 40 defaults to confirm in this log.
+- 2026-11-04 (46b.13b, default chosen, owner to confirm): **node and seam GPU bytes count as one sum in the mip
+  share**, not a part per node: the page reports the sum after each batch; nodes leave with their chunks, so eviction
+  stays per chunk. A per-node part would let the budget evict nodes on their own (none does today).
+- 2026-11-04 (46b.13b): **edge and corner imbalance the choice cannot mend is reported, not hidden**: level-2 nodes
+  touching level-0 chunks at a corner at the load box's top and bottom, whose level-1 children are not complete
+  (D463's family; level 2 is not drawn in the default rings).
 
 ## 9. Open questions for the owner
 
