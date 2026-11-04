@@ -6,10 +6,15 @@
  * coarse cell deep, 21 % (level 1) and 71 % (level 2) of the columns of a
  * 128 m square of the slice's hills, and 74 % / 85 % of the hard cases',
  * showed earth where level 0 shows grass.
+ *
+ * The pick is the shader's modelled in TypeScript (level-materials.ts) from
+ * the same layout constants the shader is built from: the shader runs only
+ * on a GPU, and a pixel check in the browser test would cost its time. A
+ * change to the shader's pick must change the model with it.
  */
 import { chunkGrid, createWorldStore, TERRAIN_RULES, VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
-import { FEATURE_BASE, FEATURE_PAD, FEATURE_TOP, featuresStore } from './features';
+import { FEATURE_BASE, FEATURE_PAD, FEATURE_TOP, FEATURE_WIDTH, featuresStore } from './features';
 import { levelMaterialMismatch, levelSurfaces, type LevelMaterialResult } from './level-materials';
 import { loadArea, surfaceY } from './regions';
 import { hillyWorld } from './worlds';
@@ -46,10 +51,9 @@ describe('the material shown at every level', () => {
     expectMatch(levelMaterialMismatch(s, { margin: 8, blendM: BLEND_M }));
   }, 120_000);
 
-  it('matches level 0 on the hard cases at levels 1 and 2', () => {
-    // The first 8 cases (slopes, bank, cliff, terraces, overhang, arch: two level-2 nodes); the thin ones after them
-    // leave the coarse levels by the fill, and deriving them too would double the test's time.
-    const s = levelSurfaces(featuresStore(), TERRAIN_RULES, { x0: 0, x1: 8 * FEATURE_PAD, z0: 0, z1: FEATURE_PAD, y0: FEATURE_BASE, y1: FEATURE_TOP }, 2);
+  it('matches level 0 on every hard case at levels 1 and 2', () => {
+    // All 14 cases, the thin ones too (what of them is left at a coarse level must show level 0's material).
+    const s = levelSurfaces(featuresStore(), TERRAIN_RULES, { x0: 0, x1: FEATURE_WIDTH, z0: 0, z1: FEATURE_PAD, y0: FEATURE_BASE, y1: FEATURE_TOP }, 2);
     expectMatch(levelMaterialMismatch(s, { margin: 8, blendM: BLEND_M }));
-  }, 120_000);
+  }, 240_000);
 });

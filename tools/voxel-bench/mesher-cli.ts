@@ -284,7 +284,7 @@ function main(): void {
   if (worlds.includes('slice')) {
     const slice = buildSliceWorld();
     const [sx, , sz] = slice.scene;
-    // The slice page's drawn ring round the scene (45.9's 448 chunks, 0.90 M triangles).
+    // The slice page's drawn ring round the scene (448 chunks, 0.90 M triangles with the naive mesher).
     reports.push(measureWorld('slice', 'ring ±192 cells', slice.store, sx - 192, sz - 192, sx + 192, sz + 192, candidates, true));
     log('slice done');
   }

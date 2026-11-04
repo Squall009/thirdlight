@@ -1341,7 +1341,7 @@ describe('seams between levels: the coarser node\'s transition strip (lod-seam.t
       const by = (c: string): SeamResult => r.results.find((x) => x.candidate === c)!;
       expect(r.controlMisses, at).toEqual([0, 0]);
       expect(by('none').crackRays, at).toBeGreaterThan(0);
-      // The bench's pick lets no ray through on these cases (46b.7a); the package's seam must not either.
+      // The bench's pick lets no ray through on these cases (`lod-seams.ts`, transition+flaps); the package's seam must not either.
       expect(by('transition+flaps').crackRays, at).toBe(0);
       expect(by('seam').crackRays, at).toBe(0);
       expect(by('seam').addedTriangles, at).toBeGreaterThan(0);

@@ -57,6 +57,7 @@ import {
   type PaletteStore,
   type SurfaceBuffer,
   type VoxelRecord,
+  SEAM_WALK_STEPS,
 } from '@thirdlight/voxel';
 import { featureCases, featuresStore } from './features';
 
@@ -277,8 +278,6 @@ interface ZipOut {
   readonly bare: Array<[number, number]>;
 }
 
-/** Longest walk along the target boundary between the targets of one moved edge's two ends. */
-const WALK = 64;
 
 /**
  * Moves the boundary of `A` at the plane onto the boundary of `B` there and
@@ -364,7 +363,7 @@ function zip(A: Soup, aEdges: Array<[number, number]>, B: Soup, bEdges: Array<[n
     const path: number[] = [];
     let e = P.e;
     let found = false;
-    for (let k = 0; k < WALK; k++) {
+    for (let k = 0; k < SEAM_WALK_STEPS; k++) {
       const u = bEdges[e]![0];
       path.push(u);
       const prev = incoming.get(u);
@@ -380,7 +379,7 @@ function zip(A: Soup, aEdges: Array<[number, number]>, B: Soup, bEdges: Array<[n
       loose.push([p, q]);
       let f = P.e;
       let ahead = false;
-      for (let k = 0; k < WALK && !ahead; k++) {
+      for (let k = 0; k < SEAM_WALK_STEPS && !ahead; k++) {
         const next = outgoing.get(bEdges[f]![1]);
         if (next === undefined) break;
         if (next === Q.e) ahead = true;

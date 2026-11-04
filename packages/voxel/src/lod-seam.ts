@@ -265,8 +265,8 @@ class Rows {
 /** Welded vertex ids stay below this (the directed-edge key's base). */
 const EDGE_KEY = 1 << 26;
 
-/** Longest walk along the fine boundary between the targets of one coarse edge's ends. */
-const WALK = 64;
+/** Longest walk along the fine boundary between the targets of one coarse edge's ends (a search bound, not a content cap). */
+export const SEAM_WALK_STEPS = 64;
 
 /** Bucket rings searched for a coarse vertex's nearest fine boundary edge (coarse cells). */
 const SEARCH_RINGS = 64;
@@ -459,7 +459,7 @@ export function buildFaceSeam(input: SeamFaceInput): FaceSeam {
       }
       // Against the fine boundary's direction from P's edge: its start, the start of the edge before it, … to Q's edge.
       let e = P.e;
-      for (let k = 0; k < WALK && !found; k++) {
+      for (let k = 0; k < SEAM_WALK_STEPS && !found; k++) {
         const u = fEdges[e]![0];
         path.push(u);
         const prev = incoming.get(u);
