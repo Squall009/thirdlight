@@ -95,6 +95,12 @@ export interface AssemblyRuleSet {
    * job. Returns the cells given a section.
    */
   resolveRuns?(n: Neighbourhood, cases: Uint16Array, lo: number, hi: number, out: Uint16Array): number;
+  /**
+   * Optional, beside `resolveCases`: per case index, the case's declared
+   * shape and base (case-forms.ts form bytes without the transform), which
+   * every consumer reads in place of the class for a cell with a case.
+   */
+  readonly caseForms?: Uint8Array;
 }
 
 /** What a derived result records about the rules it came from. */

@@ -132,7 +132,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.2 | done: `kit-cases.ts` case pass (40-cell reach-2 window, 4-bit role/fill symbols, folded over 4 turns × mirror, rules by priority, fallback per role mandatory) + catalogue v0 **DRAFT** (45 cases, 43 rules; `kit-case-catalogue.ts`). Town (Node): 726 keys, µs a 16³ section with cells p50/p95 111/267 (all 13/115). 15 vitest |
 | 46c.3 | done: `kit-rules.ts` `KIT_RULES` (`kits` v1 = terrain rules + case pass, R 2, apron 3) registered, `WORLD_RULES`; cases a u16 a cell in the job only; L0/L1 run, L2+ skip; derived v9 → v10 (spec note). Outputs byte-equal to terrain rules. Conformance class+case at 16/32. 16³ evaluation with detail p50/p95 town 90/115 → 207/419 µs; eval+ground 242/299 → 255/408 |
 | 46c.4 | done: `kit-runs.ts` run sections (job only, u16 a cell: single/start/body/end/corner/junction, ends joined/open/butt/inner mitre, world axis); catalogue `cases-draft` v1 (+6 rules: rail L/T/X, beam corners, storey-line corner), `kits` v2; U world-anchored (`runU`). 6 tests. Town eval with detail cells p50/p95 207/419 → 241/479 µs; run pass alone 34/49 (slice 45/55) |
-| 46c.5 | not started |
+| 46c.5 | done: `case-forms.ts`: each case declares base keep/suppress/reshape + shape box/slab/panel/bar/post/none; every consumer reads the form (class's without a case); soffit reshaped to a slab. Catalogue v2, `kits` v3, derived v10 → v11 (spec note). Town 229 chunks: 15.29 → 15.80 MB, boxes full 22,429 → 23,201, partial 18,792 → 20,154; slice unchanged. 4 + 1 Rapier tests |
 | 46c.6 | not started |
 | 46c.7 | not started |
 | 46c.8 | not started |
@@ -281,6 +281,53 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   timed out once and passed alone, D418 watch noted; 36 e2e; perf at the cap 0 missed both renderers).
   `voxel-world.e2e.ts` untouched (no browser behaviour): its 7 tests sum to 57.8 s (58.0 s at 46c.3).
 
+### 46c.5 base and consumers from the case
+
+- **Built:** `packages/voxel/src/case-forms.ts` (form byte a cell in the job: shape, transform, base; `FORM_SHAPE_BOX`
+  in 1/16 cell, case orientation; `LIGHT_COVERAGE` = the shape's share; `classForm` for cells without a case;
+  `evaluateForms`), `CaseDef.base`/`shape` + `caseFormProblem` (a catalogue pairing them wrongly is refused),
+  `AssemblyRuleSet.caseForms`. Consumers (`derived-data.ts`): render solid = box, nav blocks = any shape, supports =
+  shape covers the top, light = share, collision = merged boxes + one shape box a cell; base surface (`base-surface.ts`):
+  keep = body, suppress = nothing (a body at levels without pieces), reshape = the shape's own quads (lattice corners
+  stamped so merged rectangles split there); instances from suppressed cells, family by shape, sections from the run
+  pass (corner/junction → body). A uniform body region takes the short path only when every form is the box.
+  Catalogue `cases-draft` v1 → v2 (beam suppress/bar, banister-rail suppress/panel, banister-post suppress/post,
+  soffit reshape/slab, openings keep/none, the rest keep/box), `kits` v2 → v3, derived v10 → v11 with an owner note
+  (spec §3.7). `scenes.ts` `placeBalcony`; `run.mjs cases` measures consumers (`--consumers-only`).
+- **Tests:** `tools/voxel-bench/case-forms.test.ts` (4): shapes and class forms (beam/rail/post boxes as before);
+  every cell of chunks and level-1/2 nodes of the town, both hand scenes and two random worlds gives light, nav
+  blocking, standability, render occupancy, collision (full or the exact box) and piece exactly from its form
+  (> 5,000 case cells, all six shapes seen); the balcony: soffit/floor-plain cases, slab box, light 128, standable on
+  top, free below, the base's underside at y 4.5 under a soffit and 4 under the floor, every base triangle wound
+  out; 16³ and 8³ sections = the whole chunk's consumers cell for cell, base area equal in every face plane (scene,
+  balcony, town, random). `collision.test.ts` +1 (real Rapier): capsule stands on the soffit and the floor (y 5), a
+  ball rising under the floor stops at 4, under the front and side soffits at 4.5; the banister-gap ball, beam and
+  rail capsules still pass. `derived.test.ts`: the 46c.3 byte-equality test now holds where no consumer-read cell's
+  case form differs from its class's (and on every level-2 node); the rest differ only through forms. `kit-cases`
+  refusal test +5 form rows. 45.7b proof (rail ↔ wall ↔ beam per consumer) unchanged and green.
+- **Measured** (`run.mjs cases`, 6 GB scope, Node 22, i5-12600H, 2026-11-04 03:00 (before) and 03:16 (after), load
+  0.6 / 3.0, uptime 11.4 d), whole 32³ chunks with construction, 46c.4 → 46c.5:
+  | | town (229 chunks) | slice ring (4) |
+  |---|---|---|
+  | derived bytes | 15,291,705 → 15,795,018 (+3.3 %) | 259,994 → 259,994 |
+  | base / collision / light / nav bytes | 6.43 → 6.90 M / 495 → 520 k / 994 → 998 k / 1.93 → 1.93 M | unchanged |
+  | boxes full / partial | 22,429 → 23,201 / 18,792 → 20,154 | 4 / 24 unchanged |
+  | a chunk p50 / p95: bytes; full; partial boxes | 67.8 / 98.0 → 70.1 / 103.8 kB; 102 / 187 → 104 / 193; 78 / 164 → 85 / 175 | 66.0 kB; 2; 6 |
+  | base triangles; instances | 304,218 → 323,886; 18,792 → 18,879 | 128; 24 |
+
+  The growth is the town's 1,275 soffit cells (0.4 % of its 320,430 case cells): each a slab box (no longer merged
+  into the full boxes, which also split round it) and up to 5 base quads in place of merged faces; instances net +87
+  (18,879 = beam 4,911 + banister-rail 12,383 + post 1,585 cases) where the cases and the placeholder classes
+  disagree on a beam or banister cell. Section derive (all meshes and consumers) on the town's sections
+  with a surface, kit rules: p50 / p95 563 / 911 µs (46c.3 476 / 763, load 1.8 then, 3.0 now; terrain rules in the
+  same run 477 / 592): the forms pass and the reshaped quads, recorded, not tuned (perf phase after 49).
+- **Gate:** fast gate gate-fast-20261104-031848 RED on one e2e assertion: the assembly proof read the old placeholder
+  coverages (rail 51, beam 128) as literals; it now reads `LIGHT_COVERAGE.panel`/`.bar` (the meaning step above, not
+  a widened bound); `scan-bounded-log.test.ts` failed once and passed alone (D418 watch). Rerun
+  gate-rerun-20261104-033226 GREEN (perf at the cap 0 missed both renderers). `voxel-world.e2e.ts` (no test added):
+  its 7 tests sum to 57.9 s (57.8 s at 46c.4). The slice world has no soffits, so the page draws as before
+  (unverified by eye).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -387,6 +434,24 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   T junctions do not arise (a beam needs a wall behind); rails on posts over gaps do not turn corners (only on a wider
   support); a running board's inside corner and a soffit's inside corner are mitres (`inner`), copings stop against
   `wall-corner` cells (butt).
+- 2026-11-04 (46c.5, default chosen, owner to confirm): **a case declares one coarse shape box and a base mode**
+  (keep / suppress / reshape) in the catalogue, the role spec's vocabulary, not the kit's: shapes box, slab (upper
+  half), panel (z 6–10/16), bar (y, z 3–13/16), post (x, z 6–10/16), none. Every consumer reads it (light = its
+  share of the cell, supports = it covers the top); cells without a case keep their class's form, which is the
+  placeholder shapes unchanged, so levels ≥ 2 and rule sets without a case pass behave as before but for light.
+- 2026-11-04 (46c.5, default chosen, owner to confirm): **"reshape" means the base surface draws the declared shape
+  itself** (a soffit's underside raised to half the cell, no piece needed to close it), not a hole for a piece:
+  suppress is the piece's mode. Its quads meet the merged faces with a T-junction only where a sub-cell corner
+  touches a face (the slab's underside against the wall or floor behind), as a piece standing on a face does.
+- 2026-11-04 (46c.5, default chosen, owner to confirm): **soffit = reshape/slab (upper half)**: the only reshaping
+  case in draft v2; a balcony or flat-roof overhang edge is now a 0.25 m slab where it is open below and in front
+  (town: +3.3 % derived bytes). Mouldings, running boards, skirts, copings stay keep/box (their pieces add on in
+  46c.6); openings keep/none.
+- 2026-11-04 (46c.5, default chosen, owner to confirm): **light coverage from the declared shape**: beam 128 → 100,
+  rail 51 → 64, post 51 → 16, slab 128 (was the placeholder 128/51/51 per class).
+- 2026-11-04 (46c.5, default chosen, owner to confirm): **pieces until 46c.6** stay the placeholder families, now
+  chosen by the suppressed case's shape (bar → beam, panel → rail, post → post) with the run pass's section (corner
+  and junction drawn as body: the u16 piece has 2 section bits until kit-local pieces) and the case's quarter turns.
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
   repo's authoring package (46c.17).

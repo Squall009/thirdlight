@@ -114,7 +114,7 @@ function tiny(rules: CaseCatalogueDef['rules'], extraCases: string[] = []): Case
     id: 'tiny',
     version: 1,
     draft: true,
-    cases: [{ id: 'plain', roles: CASE_ROLES, run: null, required: true, note: '' }, ...['a', 'b', ...extraCases].map((id) => ({ id, roles: [R.wall], run: 'x' as const, required: false, note: '' }))],
+    cases: [{ id: 'plain', roles: CASE_ROLES, run: null, required: true, base: 'keep', shape: 'box', note: '' }, ...['a', 'b', ...extraCases].map((id) => ({ id, roles: [R.wall], run: 'x' as const, required: false, base: 'keep' as const, shape: 'box' as const, note: '' }))],
     rules,
     fallback,
   });
@@ -175,8 +175,15 @@ describe('rules', () => {
     bad({ fallback: { ...good.fallback, [R.wall]: 'floor-plain' } }, /does not list role/);
     bad({ fallback: { ...good.fallback, [R.wall]: 'nope' } }, /is not a case/);
     bad({ cases: [...good.cases, good.cases[0]!] }, /listed twice/);
-    bad({ cases: [...good.cases, { id: 'Bad Id', roles: [R.wall], run: null, required: false, note: '' }] }, /id syntax/);
-    bad({ cases: [...good.cases, { id: 'ground', roles: [R.terrain], run: null, required: false, note: '' }] }, /detail roles/);
+    bad({ cases: [...good.cases, { id: 'Bad Id', roles: [R.wall], run: null, required: false, base: 'keep', shape: 'box', note: '' }] }, /id syntax/);
+    bad({ cases: [...good.cases, { id: 'ground', roles: [R.terrain], run: null, required: false, base: 'keep', shape: 'box', note: '' }] }, /detail roles/);
+    // A case's base and declared shape must go together (a kept base is the whole cell, a reshaped one a partial shape).
+    const formOf = (base: string, shape: string): CaseCatalogueDef['cases'][number] => ({ id: 'odd', roles: [R.wall], run: null, required: false, base, shape, note: '' }) as unknown as CaseCatalogueDef['cases'][number];
+    bad({ cases: [...good.cases, formOf('keep', 'bar')] }, /kept base needs the box/);
+    bad({ cases: [...good.cases, formOf('reshape', 'box')] }, /reshaped base needs a partial shape/);
+    bad({ cases: [...good.cases, formOf('suppress', 'box')] }, /suppressed base with the whole box/);
+    bad({ cases: [...good.cases, formOf('hide', 'box')] }, /base "hide"/);
+    bad({ cases: [...good.cases, formOf('keep', 'sphere')] }, /shape "sphere"/);
     bad({ rules: [...good.rules, { case: 'nope', priority: 1, cells: [] }] }, /unknown case/);
     bad({ rules: [...good.rules, { case: 'beam', priority: 1, cells: [[3, 0, 0, CELL.air]] }] }, /outside the case window/);
     bad({ rules: [...good.rules, { case: 'beam', priority: 1, cells: [[1, 1, 1, CELL.air], [1, 1, 1, CELL.air]] }] }, /listed twice/);

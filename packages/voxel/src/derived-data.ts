@@ -4,18 +4,22 @@
  * lighting. Never committed, never saved: always rebuilt, in workers, from
  * a chunk and its apron.
  *
- * One assembly evaluation (assembly.ts) resolves the cells; each consumer
- * then reads the resolved classes through its own table, so the same open
- * rail is open for every consumer while the wall beside it is solid for
- * every consumer:
+ * One assembly evaluation (assembly.ts) resolves the cells: their classes,
+ * and with the kit rules their cases. Each consumer then reads a cell's
+ * form (case-forms.ts): its case's declared coarse shape and base where it
+ * has a case, its class's otherwise; ground reads its density. So the same
+ * open rail is open for every consumer while the wall beside it is solid
+ * for every consumer, and no consumer reads a piece mesh:
  *
- * | class  | render solid | collision            | nav blocks / supports | light coverage |
- * |--------|--------------|----------------------|-----------------------|----------------|
- * | wall   | yes          | full box             | yes / yes             | 255            |
- * | ground | density ≥ 128 | the ground surface  | density ≥ 128         | its density    |
- * | beam   | no           | partial box          | yes / no              | {@link LIGHT_COVERAGE}.beam |
- * | rail   | no           | thin slab (post: bar)| yes / no              | {@link LIGHT_COVERAGE}.rail |
- * | liquid | no           | none                 | no / no               | 0              |
+ * | form / class  | render solid  | collision          | nav blocks / supports | light coverage   |
+ * |---------------|---------------|--------------------|-----------------------|------------------|
+ * | box (wall)    | yes           | full box           | yes / yes             | 255              |
+ * | slab, panel, bar, post | no   | the shape's box    | yes / slab only       | the shape's share ({@link LIGHT_COVERAGE}) |
+ * | none          | no            | none               | no / no               | 0                |
+ * | ground        | density ≥ 128 | the ground surface | density ≥ 128         | its density      |
+ *
+ * A class without a case takes the form its class stands for: a wall the
+ * box, a beam a bar, a rail a panel (a post a post).
  *
  * Representations (picked by the measurements in the phase plan):
  * - **occupancy**: a chunk flag (empty, solid, mixed), a 2-bit flag per 4³
@@ -44,12 +48,14 @@
  * version, radius), so a result of other rules is never mistaken for a
  * current one.
  */
-import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_SHAPE, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formShapeOf, formSupports } from './case-forms';
 import { BRICK_EDGE } from './brick-layout';
 import { baseSurface } from './base-surface';
-import { detailInstances, PIECE_DETAIL, pieceDetailAt, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { detailInstances, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import { evaluateCases, evaluateRuns } from './kit-rules';
+import { NO_SECTION, runSectionOf } from './kit-runs';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
 
@@ -75,41 +81,26 @@ import { utf8Encode } from '@thirdlight/shared';
  * layout is v3's.
  * 10: the job resolves every detail-bearing cell's case beside its class
  * (the kit rule set's case pass); the layout and every output are v9's.
+ * 11: every consumer reads a cell's form: its case's declared shape and
+ * base where it has a case (an open banister's posts and rail, a beam's
+ * bar, a soffit's raised underside drawn by the base surface), its class's
+ * otherwise; light coverage is the shape's share of the cell (a beam 100, a
+ * rail 64, a post 16, was 128, 51, 51); pieces come from suppressed cases
+ * with their case's run section; the layout is v3's.
  */
-export const DERIVED_FORMAT_VERSION = 10;
+export const DERIVED_FORMAT_VERSION = 11;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
 
-/**
- * Light coverage of the resolved features (0 … 255 for 0 … 1): placeholder
- * values standing in for each piece's measured cover, which the kit pipeline
- * will supply per piece.
- */
-export const LIGHT_COVERAGE = Object.freeze({ wall: 255, beam: 128, rail: 51 });
-
-/** Collision box steps per cell (1/16 cell ≈ 3 cm). */
-export const COLLISION_STEPS_PER_CELL = 16;
+/** Collision box steps per cell: the declared shapes' steps (1/16 cell ≈ 3 cm), so a shape's box is a collision box. */
+export const COLLISION_STEPS_PER_CELL = FORM_STEPS;
 
 /** Standing room a standable cell's clearance counts up to (4 cells = 2 m). */
 export const NAV_CLEARANCE_CELLS = 4;
 
 /** Clearance bit: the free run reaches the chunk's top before {@link NAV_CLEARANCE_CELLS}; read on in the chunk above. */
 export const NAV_CLEARANCE_CONTINUES = 0x80;
-
-/**
- * Partial collision shapes per resolved class and run, as boxes in
- * collision steps within a cell: a beam is a 0.3 m-ish bar along its run,
- * a rail a thin slab along its run, a post a thin bar.
- */
-function partialBox(resolved: number): readonly [number, number, number, number, number, number] {
-  const k = resolved & CLASS_MASK;
-  const x = (resolved & RUN_X) !== 0;
-  const z = (resolved & RUN_Z) !== 0;
-  if (k === ASSEMBLY_CLASS.beam) return x ? [0, 3, 3, 16, 13, 13] : [3, 3, 0, 13, 13, 16];
-  if (x && z) return [6, 0, 6, 10, 16, 10];
-  return x ? [0, 0, 6, 16, 16, 10] : [6, 0, 0, 10, 16, 16];
-}
 
 export interface OccupancyOut {
   /** {@link OCCUPANCY} of the whole chunk. */
@@ -183,32 +174,24 @@ export interface DerivedData {
   readonly counts: DerivedCounts;
 }
 
-/** Whether a resolved cell is solid for rendering and culling. */
-function renderSolid(n: Neighbourhood, classes: Uint8Array, i: number): boolean {
-  const k = classes[i]! & CLASS_MASK;
-  return k === ASSEMBLY_CLASS.wall || (k === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO);
+/** Ground filled to the surface: solid for every consumer. */
+function solidGround(n: Neighbourhood, classes: Uint8Array, i: number): boolean {
+  return (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO;
 }
 
-/** Whether a resolved cell blocks movement. */
-function navBlocks(n: Neighbourhood, classes: Uint8Array, i: number): boolean {
-  const k = classes[i]! & CLASS_MASK;
-  return k === ASSEMBLY_CLASS.wall || k === ASSEMBLY_CLASS.beam || k === ASSEMBLY_CLASS.rail || (k === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO);
+/** Whether a cell is solid for rendering and culling: a whole-box form, or ground. */
+function renderSolid(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number): boolean {
+  return formShapeOf(forms[i]!) === FORM_SHAPE.box || solidGround(n, classes, i);
 }
 
-/** Light coverage of a resolved cell. */
-function coverage(n: Neighbourhood, classes: Uint8Array, i: number): number {
-  switch (classes[i]! & CLASS_MASK) {
-    case ASSEMBLY_CLASS.wall:
-      return LIGHT_COVERAGE.wall;
-    case ASSEMBLY_CLASS.ground:
-      return n.shapes[i]!;
-    case ASSEMBLY_CLASS.beam:
-      return LIGHT_COVERAGE.beam;
-    case ASSEMBLY_CLASS.rail:
-      return LIGHT_COVERAGE.rail;
-    default:
-      return 0;
-  }
+/** Whether a cell blocks movement: any shape, or ground. */
+function navBlocks(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number): boolean {
+  return formShapeOf(forms[i]!) !== FORM_SHAPE.none || solidGround(n, classes, i);
+}
+
+/** Light coverage of a cell: its shape's share, or ground's density. */
+function coverage(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number): number {
+  return (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground ? n.shapes[i]! : formCoverage(forms[i]!);
 }
 
 /** A per-cell bit set over a chunk (local index (x·E + z)·E + y). */
@@ -225,7 +208,7 @@ export function cellBit(m: Uint32Array | null, i: number): boolean {
   return m !== null && ((m[i >>> 5]! >>> (i & 31)) & 1) === 1;
 }
 
-function occupancyOf(n: Neighbourhood, classes: Uint8Array): OccupancyOut {
+function occupancyOf(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array): OccupancyOut {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -236,7 +219,7 @@ function occupancyOf(n: Neighbourhood, classes: Uint8Array): OccupancyOut {
   for (let bx = 0; bx < nb; bx++) for (let bz = 0; bz < nb; bz++) for (let by = 0; by < nb; by++) {
     let inBrick = 0;
     for (let x = bx * BRICK_EDGE; x < (bx + 1) * BRICK_EDGE; x++) for (let z = bz * BRICK_EDGE; z < (bz + 1) * BRICK_EDGE; z++) for (let y = by * BRICK_EDGE; y < (by + 1) * BRICK_EDGE; y++) {
-      if (!renderSolid(n, classes, ((x + p) * s + (z + p)) * s + (y + p))) continue;
+      if (!renderSolid(n, classes, forms, ((x + p) * s + (z + p)) * s + (y + p))) continue;
       setBit(mask, (x * e + z) * e + y);
       inBrick++;
     }
@@ -249,7 +232,7 @@ function occupancyOf(n: Neighbourhood, classes: Uint8Array): OccupancyOut {
   return { flag, bricks, mask: flag === OCCUPANCY.mixed ? mask : null };
 }
 
-function lightOf(n: Neighbourhood, classes: Uint8Array): LightOut {
+function lightOf(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array): LightOut {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -260,7 +243,7 @@ function lightOf(n: Neighbourhood, classes: Uint8Array): LightOut {
   let first = -1;
   let uniform = true;
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
-    const c = coverage(n, classes, ((x + p) * s + (z + p)) * s + (y + p));
+    const c = coverage(n, classes, forms, ((x + p) * s + (z + p)) * s + (y + p));
     if (first < 0) first = c;
     else if (c !== first) uniform = false;
     const i = (x * e + z) * e + y;
@@ -276,7 +259,7 @@ function lightOf(n: Neighbourhood, classes: Uint8Array): LightOut {
   return { uniform: -1, full: fulls === 0 ? null : full, partialCells: Uint16Array.from(cells), partialCover: Uint8Array.from(cover) };
 }
 
-function navOf(n: Neighbourhood, classes: Uint8Array): NavOut {
+function navOf(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array): NavOut {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -289,16 +272,14 @@ function navOf(n: Neighbourhood, classes: Uint8Array): NavOut {
     for (let y = 0; y < e; y++) {
       const i = col + y;
       const local = (x * e + z) * e + y;
-      if (navBlocks(n, classes, i)) {
+      if (navBlocks(n, classes, forms, i)) {
         setBit(blocks, local);
         blocking++;
         continue;
       }
-      const k = classes[i - 1]! & CLASS_MASK;
-      const supported = k === ASSEMBLY_CLASS.wall || (k === ASSEMBLY_CLASS.ground && n.shapes[i - 1]! >= SURFACE_ISO);
-      if (!supported) continue;
+      if (!formSupports(forms[i - 1]!) && !solidGround(n, classes, i - 1)) continue;
       let free = 0;
-      while (free < NAV_CLEARANCE_CELLS && y + free < e && !navBlocks(n, classes, i + free)) free++;
+      while (free < NAV_CLEARANCE_CELLS && y + free < e && !navBlocks(n, classes, forms, i + free)) free++;
       standable.push(local);
       clearance.push(free < NAV_CLEARANCE_CELLS && y + free === e ? free | NAV_CLEARANCE_CONTINUES : free);
     }
@@ -308,14 +289,15 @@ function navOf(n: Neighbourhood, classes: Uint8Array): NavOut {
 }
 
 /**
- * Collision boxes: wall cells merged into vertical runs, runs merged along
- * z where equal, then those slabs merged along x where equal; beams and
- * rails one partial box a cell. Ground collides against its surface, liquid
- * not at all. Boxes carry no material (a physics material comes from the
- * shader data's cell, where a game needs one), so a material change leaves
- * them as they are.
+ * Collision boxes: whole-box cells merged into vertical runs, runs merged
+ * along z where equal, then those slabs merged along x where equal; every
+ * other shape (a beam's bar, a rail's panel, a post, a soffit's slab) one
+ * box a cell, its declared shape's. Ground collides against its surface,
+ * liquid not at all. Boxes carry no material (a physics material comes from
+ * the shader data's cell, where a game needs one), so a material change
+ * leaves them as they are.
  */
-function collisionOf(n: Neighbourhood, classes: Uint8Array): CollisionOut {
+function collisionOf(n: Neighbourhood, forms: Uint8Array): CollisionOut {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -333,12 +315,12 @@ function collisionOf(n: Neighbourhood, classes: Uint8Array): CollisionOut {
       const col = ((x + p) * s + (z + p)) * s + p;
       let y = 0;
       while (y < e) {
-        if ((classes[col + y]! & CLASS_MASK) !== ASSEMBLY_CLASS.wall) {
+        if (formShapeOf(forms[col + y]!) !== FORM_SHAPE.box) {
           y++;
           continue;
         }
         let y1 = y + 1;
-        while (y1 < e && (classes[col + y1]! & CLASS_MASK) === ASSEMBLY_CLASS.wall) y1++;
+        while (y1 < e && formShapeOf(forms[col + y1]!) === FORM_SHAPE.box) y1++;
         const key = y * 64 + y1;
         const slab = open.get(key);
         if (slab !== undefined && slab[3] === z) {
@@ -369,12 +351,11 @@ function collisionOf(n: Neighbourhood, classes: Uint8Array): CollisionOut {
     prev = now;
   }
   const fullBoxes = count;
+  const b = [0, 0, 0, 0, 0, 0];
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
-    const i = ((x + p) * s + (z + p)) * s + (y + p);
-    const k = classes[i]! & CLASS_MASK;
-    if (k !== ASSEMBLY_CLASS.beam && k !== ASSEMBLY_CLASS.rail) continue;
-    const b = partialBox(classes[i]!);
-    boxes.push(x * S + b[0], y * S + b[1], z * S + b[2], x * S + b[3], y * S + b[4], z * S + b[5]);
+    const f = forms[((x + p) * s + (z + p)) * s + (y + p)]!;
+    if (formShapeOf(f) === FORM_SHAPE.box || !formBox(f, b)) continue;
+    boxes.push(x * S + b[0]!, y * S + b[1]!, z * S + b[2]!, x * S + b[3]!, y * S + b[4]!, z * S + b[5]!);
   }
   return { boxes: Uint16Array.from(boxes), fullBoxes };
 }
@@ -434,8 +415,11 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
     for (let y = lo; y < hi; y++) if (classes[row + y] !== k0 || n.shapes[row + y] !== s0) return null;
   }
   const cells = e * e * e;
-  const solid = renderSolid(n, classes, first);
-  const blocks = navBlocks(n, classes, first);
+  // A uniform region holds no case of another form than its class's (deriveChunk checks a body region's cases).
+  const form = classForm(k0);
+  const ground = k === ASSEMBLY_CLASS.ground && s0 >= SURFACE_ISO;
+  const solid = formShapeOf(form) === FORM_SHAPE.box || ground;
+  const blocks = formShapeOf(form) !== FORM_SHAPE.none || ground;
   const flag = solid ? OCCUPANCY.solid : OCCUPANCY.empty;
   const nb = e / BRICK_EDGE;
   const bricks = new Uint8Array(Math.ceil((nb * nb * nb) / 4)).fill(flag * 0x55);
@@ -452,7 +436,7 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
     edge: e,
     level,
     occupancy: { flag, bricks, mask: null },
-    light: { uniform: coverage(n, classes, first), full: null, partialCells: new Uint16Array(0), partialCover: new Uint8Array(0) },
+    light: { uniform: k === ASSEMBLY_CLASS.ground ? s0 : formCoverage(form), full: null, partialCells: new Uint16Array(0), partialCover: new Uint8Array(0) },
     collision: { boxes, fullBoxes: boxes.length / 6 },
     nav: { blocking: blocks ? OCCUPANCY.solid : OCCUPANCY.empty, blocks: null, standable: new Uint16Array(0), clearance: new Uint8Array(0) },
     ground: empty,
@@ -463,9 +447,10 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
   };
 }
 
-/** Per thread, by neighbourhood size: the cells' cases and run sections of the derive running (a u16 each a cell beside the class byte). */
+/** Per thread, by neighbourhood size: the cells' cases and run sections (a u16 each a cell beside the class byte) and forms (a byte) of the derive running. */
 const caseScratches = new Map<number, Uint16Array>();
 const runScratches = new Map<number, Uint16Array>();
+const formScratches = new Map<number, Uint8Array>();
 
 function u16Scratch(map: Map<number, Uint16Array>, len: number): Uint16Array {
   let a = map.get(len);
@@ -474,6 +459,57 @@ function u16Scratch(map: Map<number, Uint16Array>, len: number): Uint16Array {
     map.set(len, a);
   }
   return a;
+}
+
+/** The placeholder piece family standing for each declared shape a piece replaces (0: none). */
+const SHAPE_FAMILY = new Uint8Array(8);
+SHAPE_FAMILY[FORM_SHAPE.bar] = PIECE_FAMILY.beam;
+SHAPE_FAMILY[FORM_SHAPE.panel] = PIECE_FAMILY.rail;
+SHAPE_FAMILY[FORM_SHAPE.post] = PIECE_FAMILY.post;
+
+/**
+ * The piece of a cell whose form leaves its base to a piece (a beam, a
+ * banister's rail and posts), as detailInstances takes it, or −1: the
+ * placeholder family standing for its declared shape, turned by its case's
+ * transform, with its case's run section (corners and junctions draw as
+ * bodies until kits carry their own pieces), else, for a cell without a
+ * case, from the neighbours along its run with the same class byte.
+ */
+function pieceAt(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, runs: Uint16Array, i: number): number {
+  const f = forms[i]!;
+  if (formBaseOf(f) !== FORM_BASE.suppress) return -1;
+  const family = SHAPE_FAMILY[formShapeOf(f)]!;
+  if (family === 0) return -1;
+  const turns = formFoldOf(f) & 3;
+  const run = runs[i]!;
+  let section: number = PIECE_SECTION.single;
+  if (run !== NO_SECTION) {
+    const r = runSectionOf(run);
+    section = r <= PIECE_SECTION.end ? r : PIECE_SECTION.body;
+  } else if (family !== PIECE_FAMILY.post) {
+    // Along the run: x unturned or half turned, z otherwise.
+    const s = n.side;
+    const step = (turns & 1) === 0 ? s * s : s;
+    const k = classes[i]!;
+    const prev = classes[i - step] === k;
+    const next = classes[i + step] === k;
+    section = prev && next ? PIECE_SECTION.body : next ? PIECE_SECTION.start : prev ? PIECE_SECTION.end : PIECE_SECTION.single;
+  }
+  return (family << 2) | section | (turns << 16);
+}
+
+/** Whether every cell the consumers read of a uniform body region keeps the body's form once its case is resolved. */
+function bodyFormsOnly(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array, cases: Uint16Array, forms: Uint8Array, level: number): boolean {
+  evaluateCases(n, rules, level, cases);
+  evaluateForms(n, rules, classes, cases, forms);
+  const s = n.side;
+  const lo = n.pad - 1;
+  const hi = n.pad + n.edge + 1;
+  for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) {
+    const row = (x * s + z) * s;
+    for (let y = lo; y < hi; y++) if (forms[row + y] !== FORM_BODY) return false;
+  }
+  return true;
 }
 
 /** Microseconds the parts of a derive took (for measurements). */
@@ -496,30 +532,36 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   const t0 = performance.now();
   evaluateAssembly(n, rules, classes);
   const uniform = uniformDerived(n, rules, classes, level);
-  if (uniform !== null) {
+  const cases = u16Scratch(caseScratches, classes.length);
+  let forms = formScratches.get(classes.length);
+  if (forms === undefined) formScratches.set(classes.length, (forms = new Uint8Array(classes.length)));
+  // A uniform region (one class and shape: deep ground, open sky, the inside of a mass) draws no piece, so it
+  // resolves no cases, unless it is a body whose cells could still have cases of another form than the box
+  // (a margin cell's case reads cells past the region): those are checked, and any such form takes the general path.
+  if (uniform !== null && (uniform.counts.wall === 0 || rules.resolveCases === undefined || bodyFormsOnly(n, rules, classes, cases, forms, level))) {
     if (times !== undefined) times.evaluateUs += (performance.now() - t0) * 1000;
     return uniform;
   }
-  // A uniform region (one class and shape: deep ground, open sky, the inside of a mass) draws no piece, so only
-  // the general path resolves cases and their run sections; they stay in this job, read by the consumers beside the classes.
-  const cases = u16Scratch(caseScratches, classes.length);
-  evaluateRuns(n, rules, cases, u16Scratch(runScratches, classes.length), evaluateCases(n, rules, level, cases));
+  // Cases, run sections and forms stay in this job, read by the consumers beside the classes.
+  const runs = u16Scratch(runScratches, classes.length);
+  evaluateRuns(n, rules, cases, runs, evaluateCases(n, rules, level, cases));
+  evaluateForms(n, rules, classes, cases, forms);
   const t1 = performance.now();
   const ground = terrainSurface(n, classes);
   const detail = pieceDetailAt(level);
-  const base = baseSurface(n, classes, detail === PIECE_DETAIL.none);
-  const instances = detailInstances(n, classes, detail);
+  const base = baseSurface(n, classes, forms, detail === PIECE_DETAIL.none);
+  const instances = detailInstances(n, (i) => pieceAt(n, classes, forms, runs, i), detail);
   const t2 = performance.now();
-  const collision = collisionOf(n, classes);
+  const collision = collisionOf(n, forms);
   const out: DerivedData = {
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
     edge: n.edge,
     level,
-    occupancy: occupancyOf(n, classes),
-    light: lightOf(n, classes),
+    occupancy: occupancyOf(n, classes, forms),
+    light: lightOf(n, classes, forms),
     collision,
-    nav: navOf(n, classes),
+    nav: navOf(n, classes, forms),
     ground,
     base,
     instances,

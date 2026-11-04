@@ -58,6 +58,8 @@ import {
   cropNeighbourhood,
   DRAFT_CASE_CATALOGUE,
   evaluateCases,
+  evaluateForms,
+  classForm,
   evaluateRuns,
   KIT_RULES,
   NO_SECTION,
@@ -213,9 +215,9 @@ describe('assembly evaluation and per-consumer outputs', () => {
     const beam = consumersAt(s, 0, 5, -1);
     const rail = consumersAt(s, 1, 2, 7);
     expect(wall).toMatchObject({ light: 255, navBlocks: true, collision: 'full', instance: null, renderSolid: true });
-    expect(beam).toMatchObject({ light: LIGHT_COVERAGE.beam, navBlocks: true, collision: 'partial', renderSolid: false });
+    expect(beam).toMatchObject({ light: LIGHT_COVERAGE.bar, navBlocks: true, collision: 'partial', renderSolid: false });
     expect(beam.instance! >> 2).toBe(PIECE_FAMILY.beam);
-    expect(rail).toMatchObject({ light: LIGHT_COVERAGE.rail, navBlocks: true, collision: 'partial', renderSolid: false });
+    expect(rail).toMatchObject({ light: LIGHT_COVERAGE.panel, navBlocks: true, collision: 'partial', renderSolid: false });
     expect(rail.instance! >> 2).toBe(PIECE_FAMILY.rail);
     // Standing: on top of the wall yes, on top of the rail no; the slab under the banister holds standable cells.
     expect(consumersAt(s, 0, 8, 0).standable).toBe(true);
@@ -694,7 +696,7 @@ describe('the kit rule set', () => {
   it('is the world rule set: the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3', () => {
     expect(WORLD_RULES).toBe(KIT_RULES);
     expect(registeredAssemblyRules()).toContain(KIT_RULES);
-    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 2, radius: 2 });
+    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 3, radius: 2 });
     expect(KIT_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
     expect(jobRadius(KIT_RULES)).toBe(3);
     // The classes are the terrain rules' (one class byte a cell); only the kit rules give cases.
@@ -748,12 +750,9 @@ describe('the kit rule set', () => {
     expect(rails).toBeGreaterThan(0);
   });
 
-  it('changes no derived output: chunks, sections and mip nodes of levels 1 and 2 derive to the terrain rules\' bytes but the rule set they name', () => {
+  it('changes derived outputs only through the cases\' forms: a chunk whose cells all keep their class\'s form, its sections, and every level-2 node derive to the terrain rules\' bytes', () => {
     const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 } });
-    const same = (a: DerivedData, b: DerivedData, at: string): void => {
-      expect(a.rules, at).toEqual({ id: 'kits', version: 2, radius: 2 });
-      expect(encodeDerived(strip(a)), at).toEqual(encodeDerived(strip(b)));
-    };
+    const bytes = (d: DerivedData): Uint8Array => encodeDerived(strip(d));
     const town = createWorldStore(grid);
     loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
     const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
@@ -762,24 +761,45 @@ describe('the kit rule set', () => {
       ['mixed', mixedWorld(grid, 3), [[-1, -1, -1], [0, -1, 0], [-1, 0, 0], [0, 0, -1]]],
       ['features', featuresStore(), [[6, 0, 0], [7, 0, 0], [8, 1, 0]]],
     ];
-    let instances = 0;
+    const seen = { same: 0, changed: 0 };
     for (const [name, store, chunks] of stores) {
       const tree = new MipTree(store);
       for (const [cx, cy, cz] of chunks) {
         const a = deriveFromStore(store, cx, cy, cz, KIT_RULES);
-        same(a, deriveFromStore(store, cx, cy, cz, TERRAIN_RULES), `${name} chunk ${cx},${cy},${cz}`);
-        instances += a.instances.count;
+        expect(a.rules).toEqual({ id: 'kits', version: 3, radius: 2 });
+        // Does any cell the consumers read take another form from its case than from its class?
+        const job = kitJob(store, cx, cy, cz);
+        const forms = new Uint8Array(job.n.values.length);
+        evaluateForms(job.n, KIT_RULES, job.classes, job.cases, forms);
+        let differs = false;
+        const side = job.n.side;
+        for (let x = KR - 1; x < KR + E + 1 && !differs; x++) for (let z = KR - 1; z < KR + E + 1 && !differs; z++) for (let y = KR - 1; y < KR + E + 1; y++) {
+          const i = (x * side + z) * side + y;
+          if (forms[i] !== classForm(job.classes[i]!)) {
+            differs = true;
+            break;
+          }
+        }
+        const at = `${name} chunk ${cx},${cy},${cz}`;
+        if (differs) {
+          seen.changed++;
+          continue;
+        }
+        seen.same++;
+        expect(bytes(a), at).toEqual(bytes(deriveFromStore(store, cx, cy, cz, TERRAIN_RULES)));
         const ids = Array.from({ length: 8 }, (_, i) => i);
         const ks = deriveSectionsWithApron(grid, KIT_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), 16, ids);
         const ts = deriveSectionsWithApron(grid, TERRAIN_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), 16, ids);
-        ks.forEach((r, k) => same(r.assembly!, ts[k]!.assembly!, `${name} chunk ${cx},${cy},${cz} section ${k}`));
-        for (const level of [1, 2]) {
-          const node: MipNode = { level, nx: cx >> level, ny: cy >> level, nz: cz >> level };
-          same(deriveMipNode(tree, node, KIT_RULES), deriveMipNode(tree, node, TERRAIN_RULES), `${name} level ${level} node ${node.nx},${node.ny},${node.nz}`);
-        }
+        ks.forEach((r, k) => expect(bytes(r.assembly!), `${at} section ${k}`).toEqual(bytes(ts[k]!.assembly!)));
+      }
+      // Level 2 resolves no case: every node is the terrain rules' (level 1's cases are checked against their forms in case-forms.test.ts).
+      for (const [cx, cy, cz] of chunks) {
+        const node: MipNode = { level: 2, nx: cx >> 2, ny: cy >> 2, nz: cz >> 2 };
+        expect(bytes(deriveMipNode(tree, node, KIT_RULES)), `${name} level 2 node ${node.nx},${node.ny},${node.nz}`).toEqual(bytes(deriveMipNode(tree, node, TERRAIN_RULES)));
       }
     }
-    expect(instances).toBeGreaterThan(0);
+    expect(seen.same).toBeGreaterThan(3);
+    expect(seen.changed).toBeGreaterThan(3);
   }, 60_000);
 
   it('joins a chunk\'s 16³ and 8³ sections into the whole chunk\'s case grid, cell for cell (the reach margin included)', () => {
@@ -1643,9 +1663,9 @@ describe('prop lighting-occupancy channel', () => {
     const d = derivedAt(s, 1, 2, 7);
     const props = new Uint8Array(grid.cellsPerChunk);
     props[li(1, 2, 7)] = 128;
-    expect(lightCoverage(grid, d.light, props)[li(1, 2, 7)]).toBe(combineCoverage(LIGHT_COVERAGE.rail, 128));
+    expect(lightCoverage(grid, d.light, props)[li(1, 2, 7)]).toBe(combineCoverage(LIGHT_COVERAGE.panel, 128));
     for (let i = 0; i < props.length; i += 97) expect(lightCoverageAt(d.light, i, props[i]!)).toBe(lightCoverage(grid, d.light, props)[i]);
-    expect(lightCoverageAt(d.light, li(1, 2, 7), 128)).toBe(combineCoverage(LIGHT_COVERAGE.rail, 128));
+    expect(lightCoverageAt(d.light, li(1, 2, 7), 128)).toBe(combineCoverage(LIGHT_COVERAGE.panel, 128));
   });
 
   it('keeps a channel per resident chunk: a move rebuilds only the chunks the prop left and entered, equal to a fresh build, counted as a budget part', () => {

@@ -6,7 +6,8 @@
  * bodies dropped and swept against every storage chunk's static body (its
  * 16³ derive sections joined, as the streamer hands them over) — onto the
  * ground, the wall top, the beam and the rail, between the banister's
- * posts, and into a hole dug after the bodies were built. Ground that is
+ * posts, under and onto a balcony's soffits (their declared slab, not the
+ * whole cell), and into a hole dug after the bodies were built. Ground that is
  * a height function collides as a heightfield: drops and sweeps on it land
  * where they land on the same ground as a mesh, and ground with an
  * overhang or underside, ground leaving the chunk, or a box stays a mesh.
@@ -51,7 +52,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
 import { loadArea } from './regions';
-import { flatGround, placeWallBeamBanister, putVoxel } from './scenes';
+import { flatGround, placeBalcony, placeWallBeamBanister, putVoxel } from './scenes';
 import { MAT } from './world-kit';
 import { townWorld } from './town';
 import { hillyWorld } from './worlds';
@@ -104,10 +105,10 @@ describe('per-cell outputs of one assembly evaluation', () => {
     // The wall's back face (towards the beam's side) is drawn only where no beam stands in front of it; its top row has an open top.
     expect(outputsAt(s, -4, 7, 0).baseFaces).toBeGreaterThanOrEqual(2);
     const beam = outputsAt(s, -4, 5, -1);
-    expect(beam).toMatchObject({ renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, light: LIGHT_COVERAGE.beam });
+    expect(beam).toMatchObject({ renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, light: LIGHT_COVERAGE.bar });
     expect(beam.piece).toMatchObject({ family: PIECE_FAMILY.beam, section: PIECE_SECTION.body, replacesBase: true });
     const rail = outputsAt(s, -3, 2, 7);
-    expect(rail).toMatchObject({ renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, light: LIGHT_COVERAGE.rail, standable: false });
+    expect(rail).toMatchObject({ renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, light: LIGHT_COVERAGE.panel, standable: false });
     expect(rail.piece?.family).toBe(PIECE_FAMILY.rail);
     // A rail is a thin slab along its run: full length in x, 4/16 of a cell across z.
     expect(rail.partialBox).toEqual([0, 0, 6, 16, 16, 10]);
@@ -198,6 +199,23 @@ describe('collision through the engine physics backend', () => {
     expect(inPit.feet[1]).toBeLessThan(-1.5);
     expect(physics.adds).toBe(24);
     expect(physics.removes).toBe(16);
+  });
+
+  it('collides a balcony\'s soffits as their declared slab: a capsule stands on top, a ball from below meets the raised underside', async () => {
+    const s = createWorldStore(grid);
+    placeBalcony(s);
+    const { physics } = await world(s);
+    // The floor's top is at y 5 (cells) over the plain floor and over the soffit at its front edge alike.
+    expect(physics.dropCapsule([1.5, 8, 1.5], 0.1, 0.1).feet[1]).toBeCloseTo(5, 1);
+    const onSoffit = physics.dropCapsule([1.5, 8, 3.5], 0.1, 0.1);
+    expect(onSoffit.grounded).toBe(true);
+    expect(onSoffit.feet[1]).toBeCloseTo(5, 1);
+    // From below, a ball rising under the plain floor stops at its underside (y 4); under the soffit at the slab's (y 4.5).
+    const r = 0.3;
+    expect(physics.castSphere([1.5, 1.5, 1.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4 - r, 1);
+    expect(physics.castSphere([1.5, 1.5, 3.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4.5 - r, 1);
+    // The side edge's soffit, turned along z: the same raised underside.
+    expect(physics.castSphere([3.5, 1.5, 2.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4.5 - r, 1);
   });
 });
 

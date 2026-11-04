@@ -984,7 +984,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v10 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v11 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1016,17 +1016,35 @@ hash results; they are never stored.
   rules pass it. A rule (or a case pass) reading 3 cells while declaring 2 is caught (tested), a mismatch naming its
   `part` (`class` or `case`).
 
-**Consumer tables.** One evaluation feeds every consumer:
+**Consumer tables (v11, `case-forms.ts`).** One evaluation feeds every consumer. Each cell the consumers read gets a
+**form** in the job (a byte, never stored): its case's declared coarse **shape** and **base** where it has a case
+(the catalogue declares them per case, R77: never read from a piece mesh, so a kit cannot change gameplay shapes and
+every kit of a material type collides the same), else the form its class stands for (wall → box; beam → bar; rail →
+panel; post → post; empty, liquid → none). Shapes are one box in 1/16 cell in the case's own orientation (front +z,
+run x, up +y), turned by the case's transform: `box` 0–16³; `slab` the upper half (y 8–16); `panel` a thin upright
+sheet along the run (z 6–10); `bar` a horizontal member along the run (y, z 3–13); `post` a thin upright bar
+(x, z 6–10); `none`. Bases: `keep` (the base surface draws the cell: shape box, or none for openings), `suppress`
+(nothing drawn, the cell hides no neighbour's face: a piece replaces it; a level without pieces draws it as a body)
+and `reshape` (the base surface draws the shape's own faces in place of the cell's). A catalogue pairing them
+otherwise is refused (`caseFormProblem`). Draft catalogue v2: beam suppress/bar, banister-rail suppress/panel,
+banister-post suppress/post, soffit reshape/slab, openings keep/none, every other case keep/box.
 
-| Class | Render solid | Collision | Nav blocks / stands on | Light coverage |
+| Form | Render solid | Collision | Nav blocks / stands on | Light coverage |
 |---|---|---|---|---|
-| wall (built roles, roof) | yes | full box | yes / yes | 255 |
-| ground (terrain) | density ≥ 128 | the ground surface: heightfield patches where it is a lattice, else triangles (level 0 only) | density ≥ 128 | its density |
-| beam | no (detail piece) | bar, 10/16 cell square | yes / no | 128 (placeholder) |
-| rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
-| liquid | no | none (49) | no / no | 0 |
+| box (walls, floors, roofs …) | yes | full box (merged) | yes / yes | 255 |
+| slab (soffit) | no | its box | yes / yes (covers the top) | 128 |
+| panel (banister rail) | no (piece) | its box | yes / no | 64 |
+| bar (beam) | no (piece) | its box | yes / no | 100 |
+| post (banister post) | no (piece) | its box | yes / no | 16 |
+| none (air, liquid, openings) | no | none (liquid: 49) | no / no | 0 |
+| ground (terrain, by class) | density ≥ 128 | the ground surface: heightfield patches where it is a lattice, else triangles (level 0 only) | density ≥ 128 | its density |
 
-**Outputs per chunk.** A result records `v` (derived format version 10, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
+Light coverage is the shape's share of the cell (`LIGHT_COVERAGE`); a cell supports standing when its shape covers
+its whole top face. A uniform body region (one class and shape over the chunk and its margin) takes the short path
+only when every cell's form is the box once its case is resolved (a margin cell's case may read open cells past the
+region).
+
+**Outputs per chunk.** A result records `v` (derived format version 11, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1046,7 +1064,10 @@ shape (v3, 45.10b: v2's material table and the material slots of vertices, insta
   - the standable cells (free, on a supporting cell) as u16 cells, plus a u8 clearance each: free cells upward up to
     4 (2 m), with bit 0x80 meaning the free run continues into the chunk above.
 - **surface buffers:** two per chunk, the projected ground and the modular base. The base surface is not emitted
-  under a detail piece that replaces it.
+  under a detail piece that replaces it (a suppressed base); a reshaped cell's base is its shape's faces, one quad
+  a face no neighbour covers (corners on the cell lattice split the merged rectangles' edges; a corner part way up a
+  cell edge, the slab's underside meeting the wall behind it, leaves a T-junction there, as a piece standing on a
+  face does).
 - **detail instances:** see below.
 - **shader data** (`derived-shader.ts`): the material and wetness grid the surface shader blends from (owner
   2026-11-02: blending in the shader). It covers the chunk and a border of `SHADER_BORDER_CELLS` = 1 cell of its
@@ -1080,7 +1101,10 @@ chunk):
 **Detail instance (8 bytes):**
 - u8 x, y, z: the cell inside the chunk;
 - u8: bits 0–1 quarter turns about +y, bits 4–7 flags (0x10 `replacesBase`, 0x20 `low`: drawn at low detail);
-- u16 piece: family << 2 | section. Families: beam 1, rail 2, post 3. Sections: single 0, start 1, body 2, end 3;
+- u16 piece: family << 2 | section. Families (v11: the placeholder standing for the suppressed cell's declared shape):
+  beam 1 (bar), rail 2 (panel), post 3 (post). Sections: single 0, start 1, body 2, end 3, from the cell's run
+  section (corners and junctions as body until kits carry their own pieces); a cell without a case from its class's
+  run neighbours. Turns: the case transform's quarter turns (its mirror bit is 46c.6's);
 - u16 reserved, 0 (v1's material slot; the stride stays a multiple of four, as a GPU instance buffer needs). A
   piece's material is its cell's, in the shader data. The slice still draws pieces in stand-in colours by family.
 
@@ -1143,7 +1167,7 @@ the rules classify, the mesher and the base surface build a chunk's surfaces, th
 the same derive meshes them, seams join two levels, the selection picks what is drawn, and the view draws it.
 **No stored format changed in 46b.** Chunk codec, region file, manifest, stroke command, undo record, save and
 overrides are as approved in v1; every output here is derived in workers and never stored, so each change of its
-meaning stepped `DERIVED_FORMAT_VERSION` (9 at the end of 46b, 10 since 46c.3; the history and owner notes are at the end of this subsection),
+meaning stepped `DERIVED_FORMAT_VERSION` (9 at the end of 46b, 10 since 46c.3, 11 since 46c.5; the history and owner notes are at the end of this subsection),
 nothing was upgraded and no world had to be regenerated. The one authored addition is the scene setting
 `voxelWorld.levels` (project schema 8, an optional field added canonicalized field by field), not a voxel format.
 
@@ -1373,16 +1397,18 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-#### Kit rule set (46c; derived v10, `kit-rules.ts`)
+#### Kit rule set (46c; derived v11, `kit-rules.ts`)
 
-- `KIT_RULES` (id `kits`, version 2) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 2)`: the terrain
+- `KIT_RULES` (id `kits`, version 3) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 3)`: the terrain
   rules' classes and the case pass over the case catalogue in **one** `AssemblyRuleSet`, one evaluation a job, radius
   the larger of the two (`CASE_REACH` 2 = `TERRAIN_RULES_RADIUS`), so the job's pad stays 3 and aprons and
   invalidation are unchanged. `WORLD_RULES` = `KIT_RULES`: the slice page, Play, the Scene view and the voxel e2e
-  derive with it. Its id and version name the pair: a change to the terrain rules or the catalogue (`cases-draft` v1,
+  derive with it. Its id and version name the pair: a change to the terrain rules or the catalogue (`cases-draft` v2,
   **DRAFT** until the owner approves the role spec) takes a new `kits` version. Versions: 1 (46c.3) = terrain v1 +
   `cases-draft` v0; 2 (46c.4) = terrain v1 + `cases-draft` v1 (v0 plus the rules where runs turn and branch: rail L, T
-  and cross, beam inside and outside corners, the storey line's outside corner) and the run pass.
+  and cross, beam inside and outside corners, the storey line's outside corner) and the run pass; 3 (46c.5) = terrain
+  v1 + `cases-draft` v2 (v1 plus each case's base and declared shape) and the consumers reading forms
+  (`caseForms` on the rule set: per case index its shape and base).
 - **Run sections** (`kit-runs.ts`, `resolveRuns` beside `resolveCases`): every cell with a case gets a u16 in the job
   only (bits 0–2 section single/start/body/end/corner/junction, 3–4 and 5–6 what its start and end sides meet:
   joined/open/butt/inner mitre, 7–8 the world run axis x/y/z/none). Two neighbours join when their cases share a run
@@ -1397,15 +1423,22 @@ section: see the limits above.
   by case as a chunk picks its high one); from level 2 no level draws pieces (`pieceDetailAt`), so it is skipped and
   no cell has a case (`levelHasCases`). A uniform region (one class and shape over the chunk and its margin) draws no
   piece, so the derive skips the pass there too.
-- **Outputs:** in v10 no output reads cases or run sections yet (base and consumers by case and kit pieces follow
-  in 46c), so every result is the terrain rules' byte for byte but for the rule set it names: tested on chunks, 16³
-  sections and level-1/2 nodes of the town, the wall-beam-banister scene, the feature cases and a random world. A
-  chunk's 16³ and 8³ sections give the whole chunk's case grid cell for cell, the reach margin included (tested).
+- **Outputs (v11):** every consumer reads the cells' forms (*Consumer tables* above); instances come from suppressed
+  cells with their run sections. A chunk whose cells all keep their class's form (and every level-2 node) derives
+  to the terrain rules' bytes; the rest differ only through forms (tested). Every cell of chunks and level-1/2 nodes
+  of the town, the hand scenes and random worlds gives each consumer exactly what its form says (`case-forms.test.ts`);
+  a chunk's 16³ and 8³ sections give its consumers cell for cell and the same base area in every face plane; Rapier
+  stands a capsule on a soffit and meets its raised underside from below, and still passes a ball between banister
+  posts (`collision.test.ts`). A chunk's 16³ and 8³ sections give the whole chunk's case grid cell for cell, the
+  reach margin included (tested).
+- **Bytes and boxes (46c.5, `run.mjs cases`):** whole 512² town, 229 chunks with construction, 46c.4 → 46c.5: derived
+  15.29 → 15.80 MB (base 6.43 → 6.90, collision 0.49 → 0.52), boxes full 22,429 → 23,201 and partial 18,792 →
+  20,154, base triangles 304 k → 324 k (the soffits' slabs); slice ring unchanged (no soffits).
 - **Measured** (Node, 46c.3, `run.mjs cases`): the evaluation of a 16³ section with detail-bearing cells, terrain
   rules → kit rules, p50 / p95 90 / 115 → 207 / 419 µs (town), 112 / 166 → 231 / 269 µs (slice); evaluation + ground
   mesh (the 46b measure) 242 / 299 → 255 / 408 µs (town), 214 / 315 → 227 / 330 µs (slice).
 
-**Derived version history (v2 → v10).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+**Derived version history (v2 → v11).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |
@@ -1418,6 +1451,7 @@ worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules
 | 7 → 8 | 46b.8c | a mip cell wears the material its surface shows; shader reads 0.125 m deep (D464) | unchanged |
 | 8 → 9 | 46b.9 | pieces per level (`low` at level 1, none past it); mip bodies hold a cell by cells (D465) | unchanged |
 | 9 → 10 | 46c.3 | `WORLD_RULES` = the kit rule set (`kits` v1): the job resolves each cell's case beside its class | unchanged |
+| 10 → 11 | 46c.5 | consumers read forms (a case's declared shape and base); coverage = the shape's share; reshaped soffits | unchanged |
 
 The owner notes, as each step recorded them:
 
@@ -1468,6 +1502,14 @@ inside the job, never stored). The step marks that results come from a job that 
 never mixed with v10 ones when outputs start reading them. Nothing is stored, nothing to upgrade, no world
 regenerated.
 
+**Derived data 10 → 11 (46c.5, owner note: default chosen, owner to confirm).** The layout is unchanged; the meaning
+of every consumer output changed: each reads the cell's form, its case's declared coarse shape and base (`kits` v3,
+`cases-draft` v2, DRAFT) where it has a case and its class's otherwise. A soffit's base surface and collision are its
+raised slab (upper half), an open banister's rail, posts and a beam are their declared panel, posts and bar for every
+consumer as before, and light coverage is the shape's share of the cell (beam 128 → 100, rail 51 → 64, post 51 →
+16). Pieces come from the suppressed cases with their run sections. Nothing is stored, nothing to upgrade, no world
+regenerated (the staging slice world does not need regenerating: only derived data changed).
+
 **Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
 culling, rays and the far field skip whole empty or solid subtrees without reading voxels.
 - Level 0 is a chunk: its derived occupancy flag. A chunk never given one (absent: air) is empty.
@@ -1506,10 +1548,10 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 10 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 11 | refused | rebuilt, never upgraded |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
-**Derived data 3 → 9 (46b) and 9 → 10 (46c):** the steps and their owner notes are in §3.7, *Derived version history*.
+**Derived data 3 → 9 (46b) and 9 → 11 (46c):** the steps and their owner notes are in §3.7, *Derived version history*.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
@@ -1623,7 +1665,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R71 | — | — | later: deferred scatter |
 | R72 | §3.7 | 45.6 (worker = main thread, deterministic) | served |
 | R73, R74 | §3.7 reference producers, terrain mesher and base surface | 45.6, 46b.3b–46b.5 | partly: the terrain mesher and the merged base surface built (46b); the case pass is 46c |
-| R75–R77 | §3.7 | 45.6; `derived.test.ts`; slice proof 45.7 (§6) | served (placeholder rules) |
+| R75–R77 | §3.7 consumer tables (forms) | 45.6, 46c.5; `derived.test.ts`, `case-forms.test.ts`, `collision.test.ts`; slice proof 45.7 (§6) | served: base kept/suppressed/reshaped and consumers from the case's declared shape (draft catalogue) |
 | R78, R80 | — | — | superseded by R77 |
 | R79 | §1 replacement 3 | 45.6 | replaced (owner accepted 2026-11-02) |
 | R81 | §3.7 render solid (density ≥ 128) | 45.6 | served |

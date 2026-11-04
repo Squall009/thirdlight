@@ -6,9 +6,11 @@
  * case occurs; and the composed kit rule set against the terrain rules
  * alone, measured the way a derive job runs them: the evaluation (classes,
  * plus cases and run sections for the kit rules) and the whole section derive (evaluation
- * and meshes), interleaved section by section.
+ * and meshes), interleaved section by section; and what the consumers
+ * receive a chunk (derived bytes by part, collision boxes) under the kit
+ * rules.
  *
- *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--out DIR]
+ *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only] [--out DIR]
  *
  * Writes cases.md and cases.json.
  */
@@ -26,6 +28,9 @@ import {
   createWorldStore,
   cropNeighbourhood,
   deriveChunk,
+  derivedBytes,
+  derivedPartBytes,
+  deriveFromStore,
   DRAFT_CASE_CATALOGUE,
   evaluateAssembly,
   evaluateCases,
@@ -62,8 +67,8 @@ const pct = (xs: readonly number[], p: number): number => {
 };
 const q2 = (xs: readonly number[]): { p50: number; p95: number } => ({ p50: Math.round(pct(xs, 0.5)), p95: Math.round(pct(xs, 0.95)) });
 
-/** Every 16³ section of every stored chunk inside [x0, x1) × [z0, z1) and the chunk under it, cut from its chunk's job neighbourhood. */
-function sectionsOf(store: PaletteStore, x0: number, z0: number, x1: number, z1: number): Neighbourhood[] {
+/** Every stored chunk inside [x0, x1) × [z0, z1) and the chunk under it. */
+function chunksOf(store: PaletteStore, x0: number, z0: number, x1: number, z1: number): Array<[number, number, number]> {
   const chunks = new Set<string>();
   const c = { cx: 0, cy: 0, cz: 0 };
   for (const key of store.chunkKeys()) {
@@ -72,11 +77,15 @@ function sectionsOf(store: PaletteStore, x0: number, z0: number, x1: number, z1:
     chunks.add(`${c.cx},${c.cy},${c.cz}`);
     chunks.add(`${c.cx},${c.cy - 1},${c.cz}`);
   }
+  return [...chunks].sort().map((id) => id.split(',').map(Number) as [number, number, number]);
+}
+
+/** Every 16³ section of the chunks, cut from its chunk's job neighbourhood. */
+function sectionsOf(store: PaletteStore, chunks: ReadonlyArray<readonly [number, number, number]>): Neighbourhood[] {
   const full = createNeighbourhood(E, PAD);
   const dense = createDenseChunk(grid);
   const sections: Neighbourhood[] = [];
-  for (const id of [...chunks].sort()) {
-    const [cx, cy, cz] = id.split(',').map(Number) as [number, number, number];
+  for (const [cx, cy, cz] of chunks) {
     const has = store.exportChunk(cx, cy, cz, dense);
     fillNeighbourhood(full, grid, has ? dense : null, buildApron(store, cx, cy, cz, PAD));
     for (let s = 0; s < 8; s++) {
@@ -180,6 +189,43 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
   };
 }
 
+/** What the consumers receive a chunk (whole 32³ chunks, kit rules): bytes per part and collision boxes, over the chunks with construction (a base surface or pieces). */
+interface Consumers {
+  chunks: number;
+  built: number;
+  /** Sums over the built chunks. */
+  total: { bytes: number; collision: number; light: number; nav: number; base: number; fullBoxes: number; partialBoxes: number; instances: number; baseTriangles: number };
+  /** Per built chunk p50 / p95. */
+  perChunk: { bytes: { p50: number; p95: number }; fullBoxes: { p50: number; p95: number }; partialBoxes: { p50: number; p95: number } };
+}
+
+function measureConsumers(store: PaletteStore, chunks: ReadonlyArray<readonly [number, number, number]>): Consumers {
+  const total = { bytes: 0, collision: 0, light: 0, nav: 0, base: 0, fullBoxes: 0, partialBoxes: 0, instances: 0, baseTriangles: 0 };
+  const bytes: number[] = [];
+  const full: number[] = [];
+  const partial: number[] = [];
+  for (const [cx, cy, cz] of chunks) {
+    const d = deriveFromStore(store, cx, cy, cz, KIT_RULES);
+    if (d.base.indices.length === 0 && d.instances.count === 0) continue;
+    const parts = derivedPartBytes(d);
+    const b = derivedBytes(d);
+    const boxes = d.collision.boxes.length / 6;
+    total.bytes += b;
+    total.collision += parts.collision;
+    total.light += parts.light;
+    total.nav += parts.nav;
+    total.base += parts.base;
+    total.fullBoxes += d.collision.fullBoxes;
+    total.partialBoxes += boxes - d.collision.fullBoxes;
+    total.instances += d.instances.count;
+    total.baseTriangles += d.base.indices.length / 3;
+    bytes.push(b);
+    full.push(d.collision.fullBoxes);
+    partial.push(boxes - d.collision.fullBoxes);
+  }
+  return { chunks: chunks.length, built: bytes.length, total, perChunk: { bytes: q2(bytes), fullBoxes: q2(full), partialBoxes: q2(partial) } };
+}
+
 /** The case extraction alone (the 46c.2 measurement) and the keys and cases seen. */
 function measureExtraction(sections: readonly Neighbourhood[], rounds: number): { coldMs: number; roundMs: number[]; cells: number; withCellsCount: number; us: { all: { p50: number; p95: number }; withCells: { p50: number; p95: number } }; keys: number; cases: Map<string, number>; cat: CaseCatalogue } {
   const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
@@ -235,20 +281,29 @@ function main(): void {
   const reports: Array<Record<string, unknown>> = [];
   const md = [`# Case pass and the kit rule set (${started})`, ''];
   for (const world of worlds) {
-    let sections: Neighbourhood[];
+    let store: PaletteStore;
+    let chunks: Array<[number, number, number]>;
     let window: string;
     if (world === 'town') {
-      const store = createWorldStore(grid);
+      store = createWorldStore(grid);
       loadArea(townWorld({ footprint: TOWN_FOOTPRINT }).grids[0]!, store, 0, 0, TOWN_FOOTPRINT, TOWN_FOOTPRINT);
-      sections = sectionsOf(store, 0, 0, TOWN_FOOTPRINT, TOWN_FOOTPRINT);
+      chunks = chunksOf(store, 0, 0, TOWN_FOOTPRINT, TOWN_FOOTPRINT);
       window = `whole ${TOWN_FOOTPRINT}² town`;
     } else if (world === 'slice') {
       const slice = buildSliceWorld();
       const [sx, , sz] = slice.scene;
+      store = slice.store;
       // The slice page's drawn ring round the scene.
-      sections = sectionsOf(slice.store, sx - 192, sz - 192, sx + 192, sz + 192);
+      chunks = chunksOf(store, sx - 192, sz - 192, sx + 192, sz + 192);
       window = 'slice ring ±192 cells';
     } else throw new Error(`unknown world ${world}`);
+    const consumers = measureConsumers(store, chunks);
+    if (process.argv.includes('--consumers-only')) {
+      reports.push({ world, window, consumers });
+      md.push(`## ${world} (${window})`, '', `- Consumers: ${JSON.stringify(consumers)}`, '');
+      continue;
+    }
+    const sections = sectionsOf(store, chunks);
     const x = measureExtraction(sections, rounds);
     const composed = measureComposed(sections, rounds);
     const cat = x.cat;
@@ -263,6 +318,7 @@ function main(): void {
       coldPassMs: Math.round(x.coldMs),
       roundMs: x.roundMs.map(Math.round),
       composed,
+      consumers,
       cases: Object.fromEntries([...x.cases].sort((a, b) => b[1] - a[1])),
       neverSeen: cat.cases.filter((c) => !x.cases.has(c.id)).map((c) => c.id),
     });
@@ -276,6 +332,7 @@ function main(): void {
       `- Run sections alone (kit rules), µs a section with detail cells p50 / p95: ${c.runs.p50} / ${c.runs.p95}. Cells by section: ${Object.entries(c.sectionCells).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
       `- Section derive (evaluation + meshes) µs p50 / p95, ${c.surfaceSections} sections with a surface: terrain rules ${c.derive.terrain.surface.p50} / ${c.derive.terrain.surface.p95}, kit rules ${c.derive.kits.surface.p50} / ${c.derive.kits.surface.p95}; all sections: ${c.derive.terrain.all.p50} / ${c.derive.terrain.all.p95} vs ${c.derive.kits.all.p50} / ${c.derive.kits.all.p95}.`,
       `- Evaluation + ground mesh µs p50 / p95 (46b's measure), ${c.groundSections} sections with ground: terrain rules ${c.ground.terrain.p50} / ${c.ground.terrain.p95}, kit rules ${c.ground.kits.p50} / ${c.ground.kits.p95}.`,
+      `- Consumers (whole 32³ chunks, kit rules), ${consumers.built} of ${consumers.chunks} chunks with construction: derived bytes ${consumers.total.bytes} (collision ${consumers.total.collision}, light ${consumers.total.light}, nav ${consumers.total.nav}, base ${consumers.total.base}); boxes full ${consumers.total.fullBoxes}, partial ${consumers.total.partialBoxes}; instances ${consumers.total.instances}; base triangles ${consumers.total.baseTriangles}. A chunk p50 / p95: bytes ${consumers.perChunk.bytes.p50} / ${consumers.perChunk.bytes.p95}, full boxes ${consumers.perChunk.fullBoxes.p50} / ${consumers.perChunk.fullBoxes.p95}, partial ${consumers.perChunk.partialBoxes.p50} / ${consumers.perChunk.partialBoxes.p95}.`,
       `- Cases: ${[...x.cases].sort((a, b) => b[1] - a[1]).map(([id, n]) => `${id} ${n}`).join(', ')}; never seen: ${cat.cases.filter((k) => !x.cases.has(k.id)).map((k) => k.id).join(', ') || 'none'}.`,
       '',
     );

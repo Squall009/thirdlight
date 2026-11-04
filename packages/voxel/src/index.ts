@@ -270,7 +270,6 @@ export {
   derivedPartBytes,
   derivedTransfer,
   encodeDerived,
-  LIGHT_COVERAGE,
   NAV_CLEARANCE_CELLS,
   NAV_CLEARANCE_CONTINUES,
   OCCUPANCY,
@@ -287,14 +286,17 @@ export { cropNeighbourhood, deriveFromStore, deriveSectionFromStore, deriveSecti
 export { encodeShader, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export {
   applyFold,
+  CASE_BASES,
   CASE_INDEX_LIMIT,
   CASE_REACH,
   CASE_ROLES,
+  CASE_SHAPES,
   CASE_SYMBOL,
   CASE_WINDOW,
   CASE_WINDOW_CELLS,
   CaseCatalogue,
   caseFoldOf,
+  caseFormProblem,
   caseIndexOf,
   caseSymbol,
   caseWindowAt,
@@ -306,14 +308,17 @@ export {
   foldWindow,
   NO_CASE,
   notCell,
+  type CaseBase,
   type CaseCatalogueDef,
   type CaseDef,
   type CaseMatch,
   type CaseRule,
   type CaseRuleCell,
+  type CaseShape,
   type InferredFeature,
 } from './kit-cases';
 export { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
+export { caseFormTable, classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_NONE, FORM_SHAPE, FORM_SHAPE_BOX, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formFullFaces, formShapeOf, formSupports, LIGHT_COVERAGE, packForm } from './case-forms';
 export { evaluateCases, evaluateRuns, KIT_RULES, levelHasCases, withCases } from './kit-rules';
 export { NO_SECTION, packRunSection, resolveRunSections, RUN_AXIS, RUN_END, RUN_SECTION, runAxisOf, runEndEndOf, runSectionOf, runStartEndOf, RunTable, runU } from './kit-runs';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';

@@ -181,6 +181,33 @@ export function foldWindow(win: Uint8Array, t: number, out = new Uint8Array(CASE
 /** Inferred architectural features: cases of the stored roles, never roles themselves. */
 export type InferredFeature = 'beam' | 'banister' | 'soffit' | 'moulding' | 'running-board' | 'foundation-skirt';
 
+/**
+ * The coarse shapes a case declares for its consumers (collision,
+ * navigation, light; case-forms.ts gives each one's box), never read from a
+ * piece mesh.
+ */
+export const CASE_SHAPES = Object.freeze(['none', 'box', 'slab', 'panel', 'bar', 'post'] as const);
+export type CaseShape = (typeof CASE_SHAPES)[number];
+
+/** What a case does with the base surface of its cell: draw it, leave it to a piece, or draw its declared shape instead. */
+export const CASE_BASES = Object.freeze(['keep', 'suppress', 'reshape'] as const);
+export type CaseBase = (typeof CASE_BASES)[number];
+
+/**
+ * A case's base and shape that cannot go together, or null: a kept base
+ * draws the whole cell, so its shape is the box (or none, for an opening);
+ * a reshaped base draws the shape, so it is neither; a suppressed base
+ * leaves the cell to a piece, so its shape is not the whole box.
+ */
+export function caseFormProblem(c: { readonly base: string; readonly shape: string }): string | null {
+  if (!(CASE_BASES as readonly string[]).includes(c.base)) return `base "${c.base}" (${CASE_BASES.join(', ')})`;
+  if (!(CASE_SHAPES as readonly string[]).includes(c.shape)) return `shape "${c.shape}" (${CASE_SHAPES.join(', ')})`;
+  if (c.base === 'keep' && c.shape !== 'box' && c.shape !== 'none') return 'a kept base needs the box or no shape';
+  if (c.base === 'reshape' && (c.shape === 'box' || c.shape === 'none')) return 'a reshaped base needs a partial shape';
+  if (c.base === 'suppress' && c.shape === 'box') return 'a suppressed base with the whole box: keep it';
+  return null;
+}
+
 /** One case of a catalogue. */
 export interface CaseDef {
   /** Id syntax (lower case, digits, - and _): what a kit names the case by. */
@@ -193,6 +220,10 @@ export interface CaseDef {
   readonly required: boolean;
   /** The axis a run of the case follows in its own orientation (its sections join along it), or null. */
   readonly run: 'x' | 'y' | null;
+  /** What the base surface does in the cell. */
+  readonly base: CaseBase;
+  /** The coarse shape collision, navigation and light read (in the case's own orientation). */
+  readonly shape: CaseShape;
   /** One line: what the case is. */
   readonly note: string;
 }
@@ -300,6 +331,8 @@ export class CaseCatalogue {
       if (!ID_RE.test(c.id)) fail(`case id "${c.id}" is not id syntax`);
       if (this.caseIndex.has(c.id)) fail(`case ${c.id} listed twice`);
       if (c.roles.length === 0 || c.roles.some((r) => !CASE_ROLES.includes(r))) fail(`case ${c.id}: roles must be detail roles`);
+      const form = caseFormProblem(c);
+      if (form !== null) fail(`case ${c.id}: ${form}`);
       this.caseIndex.set(c.id, this.caseIndex.size);
     }
     for (const role of CASE_ROLES) {

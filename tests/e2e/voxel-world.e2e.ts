@@ -65,7 +65,7 @@ import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, WORLD_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, LIGHT_COVERAGE, WORLD_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -170,10 +170,10 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   expect((await hook<{ collision: { bodies: number } }>(page, 'state')).collision.bodies).toBeGreaterThan(20);
 
   // As the generator wrote it: an open banister (rail on posts), a beam one out from the wall, the wall.
-  expect(await cellAt(page, rail)).toMatchObject({ resolved: 'rail', outputs: { renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, standable: false, light: 51 } });
+  expect(await cellAt(page, rail)).toMatchObject({ resolved: 'rail', outputs: { renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, standable: false, light: LIGHT_COVERAGE.panel } });
   expect((await cellAt(page, post)).resolved).toBe('post');
   expect(await cellAt(page, gap)).toMatchObject({ resolved: 'empty', outputs: { collision: 'none', navBlocks: false, light: 0 } });
-  expect(await cellAt(page, beam)).toMatchObject({ resolved: 'beam', outputs: { renderSolid: false, collision: 'partial', light: 128 } });
+  expect(await cellAt(page, beam)).toMatchObject({ resolved: 'beam', outputs: { renderSolid: false, collision: 'partial', light: LIGHT_COVERAGE.bar } });
   expect(await cellAt(page, behindBeam[0]!)).toMatchObject({ resolved: 'wall', outputs: { renderSolid: true, collision: 'full', light: 255 } });
   // Physics: a ball rolled at post height passes between two posts and under the rail to the wall; a capsule rests on the rail,
   // another on the ground of the pad.

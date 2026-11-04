@@ -4,10 +4,20 @@
  * foundations), coplanar faces merged into rectangles (greedy, row by row
  * in each face layer), in the derive's surface layout (derived-mesh.ts).
  *
- * A face is exposed when its neighbour is neither another body nor ground
- * at least half full. Beams and rails get none where their detail pieces
- * replace them, so the faces of the walls behind them are kept; at a level
- * that draws no pieces (`piecesAsBodies`) they are bodies like walls.
+ * Which cells are bodies is read from their forms (case-forms.ts): a kept
+ * whole box is a body; a cell whose case suppresses the base (a beam, a
+ * banister's rail and posts) gets nothing, because its detail piece
+ * replaces it, so the faces of the walls behind it are kept; at a level
+ * that draws no pieces (`piecesAsBodies`) it is a body like a wall. A face
+ * is exposed when its neighbour is neither a body nor ground at least half
+ * full, nor a reshaped cell whose shape covers the whole face.
+ *
+ * **Reshaped cells** (a soffit's raised underside) draw their declared
+ * shape's own faces in place of the cell's: one quad a face of the shape's
+ * box that no body, ground or reshaped neighbour covers. Their corners on
+ * the cell lattice split the merged rectangles' edges like any corner; a
+ * corner part way up a cell's edge (the slab's underside meeting a wall's
+ * face) leaves a T-junction there, as a piece standing on a face does.
  *
  * **No T-junctions.** A rectangle's edge takes, besides its corners, every
  * lattice point on it where another rectangle of the job has a corner, so
@@ -24,6 +34,7 @@
  * merge across materials looks the same as the faces it replaces.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, type Neighbourhood } from './assembly';
+import { FORM_BASE, FORM_SHAPE, FORM_STEPS, formBaseOf, formBox, formFullFaces, formShapeOf } from './case-forms';
 import { POSITION_STEPS_PER_CELL, SURFACE_ISO, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
 
 const STEPS = POSITION_STEPS_PER_CELL;
@@ -117,25 +128,81 @@ function buildSurface(): SurfaceBuffer {
   return { vertexCount, vertices, indices };
 }
 
-/** Per class: 1 for a body the base surface draws (bit 0), and with pieces drawn as bodies too (bit 1). */
-const BODY_CLASS = new Uint8Array(16);
-BODY_CLASS[ASSEMBLY_CLASS.wall] = 3;
-BODY_CLASS[ASSEMBLY_CLASS.beam] = 2;
-BODY_CLASS[ASSEMBLY_CLASS.rail] = 2;
+/** Whether a cell's form is a body the base surface draws whole (a suppressed one only at a level without pieces). */
+function isBody(form: number, piecesAsBodies: boolean): boolean {
+  const base = formBaseOf(form);
+  if (base === FORM_BASE.keep) return formShapeOf(form) === FORM_SHAPE.box;
+  return base === FORM_BASE.suppress && piecesAsBodies;
+}
 
-/** Whether a resolved cell hides a body's face (another body, or ground at least half full). */
-function hides(n: Neighbourhood, classes: Uint8Array, i: number, body: number): boolean {
-  const k = classes[i]! & CLASS_MASK;
-  return (BODY_CLASS[k]! & body) !== 0 || (k === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO);
+/** Whether cell `i` hides the face of its neighbour looking toward it in direction `d` (a body, ground at least half full, or a reshaped shape covering the whole face). */
+function hides(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number, d: number, piecesAsBodies: boolean): boolean {
+  const f = forms[i]!;
+  if (isBody(f, piecesAsBodies)) return true;
+  if (formBaseOf(f) === FORM_BASE.reshape) return (formFullFaces(f) & (1 << (d ^ 1))) !== 0;
+  return (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO;
+}
+
+/** Reshaped quads: direction, plane, a0, b0, a1, b1 in shape steps from one cell below the job's corner (the vertex positions' origin). */
+let quads = new Int32Array(6 * 64);
+let quadCount = 0;
+const shapeBox = new Int32Array(6);
+const otherBox = new Int32Array(6);
+
+function addQuad(d: number, plane: number, a0: number, b0: number, a1: number, b1: number): void {
+  if (6 * quadCount + 6 > quads.length) {
+    const q = new Int32Array(quads.length * 2);
+    q.set(quads);
+    quads = q;
+  }
+  quads.set([d, plane, a0, b0, a1, b1], 6 * quadCount++);
 }
 
 /**
- * The base surface of a job's chunk (or section) from its neighbourhood and
- * resolved classes (reads one cell round the chunk). `piecesAsBodies`: beam
- * and rail cells are drawn as bodies (a level without pieces).
+ * The faces of every reshaped cell's shape a neighbour does not cover, as
+ * quads in the base surface's face planes.
  */
-export function baseSurface(n: Neighbourhood, classes: Uint8Array, piecesAsBodies = false): SurfaceBuffer {
-  const body = piecesAsBodies ? 2 : 1;
+function reshapedQuads(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies: boolean, stride: readonly number[]): void {
+  const e = n.edge;
+  const p = n.pad;
+  const s = n.side;
+  const H = FORM_STEPS;
+  const cell = [0, 0, 0];
+  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
+    const i = ((x + p) * s + (z + p)) * s + (y + p);
+    const f = forms[i]!;
+    if (formBaseOf(f) !== FORM_BASE.reshape || !formBox(f, shapeBox)) continue;
+    cell[0] = x;
+    cell[1] = y;
+    cell[2] = z;
+    for (let d = 0; d < 6; d++) {
+      const axis = AXIS[d]!;
+      const u = (axis + (SIGN[d]! > 0 ? 1 : 2)) % 3;
+      const v = (axis + (SIGN[d]! > 0 ? 2 : 1)) % 3;
+      const at = SIGN[d]! > 0 ? shapeBox[3 + axis]! : shapeBox[axis]!;
+      if ((SIGN[d]! > 0 && at === H) || (SIGN[d]! < 0 && at === 0)) {
+        // On the cell's face: covered by a neighbour that hides it, or by a reshaped neighbour's face over all of it.
+        const j = i + SIGN[d]! * stride[axis]!;
+        if (hides(n, classes, forms, j, d, piecesAsBodies)) continue;
+        const g = forms[j]!;
+        if (formBaseOf(g) === FORM_BASE.reshape && formBox(g, otherBox)) {
+          const back = SIGN[d]! > 0 ? otherBox[axis]! : otherBox[3 + axis]!;
+          if (back === H - at && otherBox[u]! <= shapeBox[u]! && otherBox[3 + u]! >= shapeBox[3 + u]! && otherBox[v]! <= shapeBox[v]! && otherBox[3 + v]! >= shapeBox[3 + v]!) continue;
+        }
+      }
+      const o = (c: number, a: number): number => (cell[a]! + 1) * H + c;
+      addQuad(d, o(at, axis), o(shapeBox[u]!, u), o(shapeBox[v]!, v), o(shapeBox[3 + u]!, u), o(shapeBox[3 + v]!, v));
+    }
+  }
+}
+
+/**
+ * The base surface of a job's chunk (or section) from its neighbourhood,
+ * resolved classes and forms (reads one cell round the chunk).
+ * `piecesAsBodies`: cells whose pieces replace their base are drawn as
+ * bodies (a level without pieces).
+ */
+export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -143,19 +210,21 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array, piecesAsBodie
   vertexCount = 0;
   triLen = 0;
   rectCount = 0;
+  quadCount = 0;
   // Each cell's exposed faces (bit d: direction d), cell (x, y, z) at (x · e + y) · e + z.
   if (faces.length < e * e * e) faces = new Uint8Array(e * e * e);
   let any = 0;
   for (let x = 0; x < e; x++) for (let y = 0; y < e; y++) for (let z = 0; z < e; z++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     let f = 0;
-    if ((BODY_CLASS[classes[i]! & CLASS_MASK]! & body) !== 0) {
-      for (let d = 0; d < 6; d++) if (!hides(n, classes, i + SIGN[d]! * stride[AXIS[d]!]!, body)) f |= 1 << d;
+    if (isBody(forms[i]!, piecesAsBodies)) {
+      for (let d = 0; d < 6; d++) if (!hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, d, piecesAsBodies)) f |= 1 << d;
     }
     faces[(x * e + y) * e + z] = f;
     any |= f;
   }
-  if (any === 0) return buildSurface();
+  reshapedQuads(n, classes, forms, piecesAsBodies, stride);
+  if (any === 0 && quadCount === 0) return buildSurface();
 
   // Rectangles a direction and layer: the face plane's axes u, v (u × v outward), cells a along u, b along v.
   if (mask.length < e * e) mask = new Uint8Array(e * e);
@@ -225,6 +294,25 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array, piecesAsBodie
     cornerStamp[pointOf(axis, u, v, plane, a1, b1)] = now;
     cornerStamp[pointOf(axis, u, v, plane, a0, b1)] = now;
   }
+  // Reshaped quads' corners on the cell lattice split the rectangles' edges too.
+  const H = FORM_STEPS;
+  const corner = [0, 0, 0];
+  for (let q = 0; q < quadCount; q++) {
+    const o = 6 * q;
+    const d = quads[o]!;
+    const axis = AXIS[d]!;
+    const u = (axis + (SIGN[d]! > 0 ? 1 : 2)) % 3;
+    const v = (axis + (SIGN[d]! > 0 ? 2 : 1)) % 3;
+    corner[axis] = quads[o + 1]!;
+    for (const [ka, kb] of [[2, 3], [4, 3], [4, 5], [2, 5]] as const) {
+      corner[u] = quads[o + ka]!;
+      corner[v] = quads[o + kb]!;
+      if (corner[0]! % H !== 0 || corner[1]! % H !== 0 || corner[2]! % H !== 0) continue;
+      const lx = corner[0]! / H - 1, ly = corner[1]! / H - 1, lz = corner[2]! / H - 1;
+      if (lx < 0 || ly < 0 || lz < 0 || lx > e || ly > e || lz > e) continue;
+      cornerStamp[(lx * m + ly) * m + lz] = now;
+    }
+  }
 
   for (let r = 0; r < rectCount; r++) {
     const o = 6 * r;
@@ -287,6 +375,24 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array, piecesAsBodie
       const c = addVertex(lattice[0]!, lattice[1]!, lattice[2]!, d);
       for (let j = 0; j < k; j++) addTri(c, ring[2 * j]!, ring[2 * ((j + 1) % k)]!);
     }
+  }
+  // Reshaped quads: four vertices of their own, counter-clockwise seen from outside.
+  const toPos = STEPS / H;
+  for (let q = 0; q < quadCount; q++) {
+    const o = 6 * q;
+    const d = quads[o]!;
+    const axis = AXIS[d]!;
+    const u = (axis + (SIGN[d]! > 0 ? 1 : 2)) % 3;
+    const v = (axis + (SIGN[d]! > 0 ? 2 : 1)) % 3;
+    corner[axis] = quads[o + 1]! * toPos;
+    const first = vertexCount;
+    for (const [ka, kb] of [[2, 3], [4, 3], [4, 5], [2, 5]] as const) {
+      corner[u] = quads[o + ka]! * toPos;
+      corner[v] = quads[o + kb]! * toPos;
+      addVertex(corner[0]!, corner[1]!, corner[2]!, d);
+    }
+    addTri(first, first + 1, first + 2);
+    addTri(first, first + 2, first + 3);
   }
   return buildSurface();
 }

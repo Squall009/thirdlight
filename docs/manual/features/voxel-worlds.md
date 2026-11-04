@@ -20,7 +20,10 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
   - **role** — what the cell is for: 0 air, 1 terrain, 2 liquid, 3 wall,
     4 floor, 5 roof, 6 foundation, 7 stair, 8 pillar, 9 opening (the door
     or window there is a kit piece). Beams, banisters, posts and mouldings
-    are not roles: they follow from how the cells are arranged;
+    are not roles: they follow from how the cells are arranged, and so does
+    the shape collision, walking and light use there (an open banister lets
+    a ball through between its posts, a balcony's open edge is a thinner
+    slab), never the look of a kit's piece;
   - **shape** — how full the cell is, 0 (empty) to 15 (full), so ground can
     slope and round off instead of stepping;
   - **wetness** — 0 (dry) to 7: the surface darkens as it rises.

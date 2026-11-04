@@ -42,7 +42,7 @@
  * beams and rails are drawn by the base surface as the bodies their mip
  * cells are, so a distant balcony or fence keeps its outline as blocks.
  */
-import { ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type Neighbourhood } from './assembly';
+import type { Neighbourhood } from './assembly';
 
 /** Position steps per cell (1/1024 cell ≈ 0.5 mm). */
 export const POSITION_STEPS_PER_CELL = 1024;
@@ -122,12 +122,13 @@ export function snorm8(v: number): number {
 }
 
 /**
- * Detail instances for the chunk's beams, rails and posts: one per cell,
- * with its run section from the neighbours along the run (same class), so
- * a renderer can merge a run of bodies between two ends. `detail`
- * ({@link PIECE_DETAIL}): none lists nothing, low flags every piece.
+ * Detail instances: one for each cell of the derive unit `pieceAt` gives a
+ * piece — its piece (family << 2 | section) | its quarter turns << 16, or
+ * −1 for none (derived-data.ts reads it from the cell's form: the cells a
+ * piece replaces). `detail` ({@link PIECE_DETAIL}): none lists nothing,
+ * low flags every piece.
  */
-export function detailInstances(n: Neighbourhood, classes: Uint8Array, detail: number = PIECE_DETAIL.high): InstanceList {
+export function detailInstances(n: Neighbourhood, pieceAt: (i: number) => number, detail: number = PIECE_DETAIL.high): InstanceList {
   if (detail === PIECE_DETAIL.none) return { count: 0, data: new Uint8Array(0) };
   const flags = INSTANCE_FLAG.replacesBase | (detail === PIECE_DETAIL.low ? INSTANCE_FLAG.low : 0);
   const e = n.edge;
@@ -136,29 +137,15 @@ export function detailInstances(n: Neighbourhood, classes: Uint8Array, detail: n
   const out = new Bytes();
   let count = 0;
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
-    const i = ((x + p) * s + (z + p)) * s + (y + p);
-    const r = classes[i]!;
-    const k = r & CLASS_MASK;
-    if (k !== ASSEMBLY_CLASS.beam && k !== ASSEMBLY_CLASS.rail) continue;
-    const runX = (r & RUN_X) !== 0;
-    const runZ = (r & RUN_Z) !== 0;
-    const post = runX && runZ;
-    const family = k === ASSEMBLY_CLASS.beam ? PIECE_FAMILY.beam : post ? PIECE_FAMILY.post : PIECE_FAMILY.rail;
-    let section: number = PIECE_SECTION.single;
-    if (!post) {
-      const step = runX ? s * s : s;
-      const same = (j: number): boolean => classes[j] === r;
-      const prev = same(i - step);
-      const next = same(i + step);
-      section = prev && next ? PIECE_SECTION.body : next ? PIECE_SECTION.start : prev ? PIECE_SECTION.end : PIECE_SECTION.single;
-    }
+    const piece = pieceAt(((x + p) * s + (z + p)) * s + (y + p));
+    if (piece < 0) continue;
     const at = out.reserve(INSTANCE_BYTES);
     const d = out.view;
     d.setUint8(at, x);
     d.setUint8(at + 1, y);
     d.setUint8(at + 2, z);
-    d.setUint8(at + 3, (runZ && !post ? 1 : 0) | flags);
-    d.setUint16(at + 4, (family << 2) | section, true);
+    d.setUint8(at + 3, ((piece >> 16) & 3) | flags);
+    d.setUint16(at + 4, piece & 0xffff, true);
     d.setUint16(at + 6, 0, true);
     count++;
   }

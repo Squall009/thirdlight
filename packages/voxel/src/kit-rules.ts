@@ -14,6 +14,7 @@
  * base surface), so it is skipped there and no cell gets a case.
  */
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { caseFormTable } from './case-forms';
 import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
 import { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
 import { CASE_REACH, CaseCatalogue, NO_CASE, type CaseCatalogueDef } from './kit-cases';
@@ -49,6 +50,7 @@ export function withCases(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
     id,
     version,
     radius: Math.max(base.radius, CASE_REACH),
+    caseForms: caseFormTable(catalogue.cases),
     resolve(n: Neighbourhood, lo: number, hi: number, out: Uint8Array): void {
       base.resolve(n, lo, hi, out);
     },
@@ -107,9 +109,10 @@ export function evaluateRuns(n: Neighbourhood, rules: AssemblyRuleSet, cases: Ui
 /**
  * The world rule set from kits on: the terrain rules (`terrain` v1) with
  * the case pass over the case catalogue and the run pass over its cases.
- * Version 2 composes catalogue `cases-draft` v1 (version 1 composed v0), a
- * DRAFT until the owner approves the role spec: the cases and sections it
- * gives are not yet read by any output, so derived results are the terrain
- * rules' byte for byte but for the rule set they name.
+ * Version 3 composes catalogue `cases-draft` v2 (version 2 composed v1,
+ * version 1 v0), a DRAFT until the owner approves the role spec. From
+ * version 3 every consumer reads a cell's case (its declared shape and
+ * base, case-forms.ts) where it has one, so derived results differ from the
+ * terrain rules' wherever a case's form differs from its class's.
  */
-export const KIT_RULES: AssemblyRuleSet = withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 2);
+export const KIT_RULES: AssemblyRuleSet = withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 3);

@@ -1,8 +1,9 @@
 /**
- * The case catalogue, version 1 (version 0 plus the rules where runs turn
- * and branch: rail L, T and cross, beam inside and outside corners, the
- * storey line's outside corner): **DRAFT — not the role spec's v1.** It is the source the
- * role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
+ * The case catalogue, version 2 (version 0, plus the rules where runs turn
+ * and branch in version 1: rail L, T and cross, beam inside and outside
+ * corners, the storey line's outside corner; plus each case's base and
+ * declared shape for the consumers in version 2): **DRAFT — not the role
+ * spec's v1.** It is the source the role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
  * and stays a draft until the owner approves that spec; nothing builds on
  * its case list as final before then.
  *
@@ -25,7 +26,11 @@ const R = VOXEL_ROLE;
 const { air: A, open: O, opening: OP, ground: G, built: B, solid: S } = CELL;
 const BUILT_CASE_ROLES = [R.wall, R.floor, R.roof, R.foundation, R.stair, R.pillar];
 
-const c = (id: string, roles: readonly number[], run: CaseDef['run'], required: boolean, note: string, feature?: CaseDef['feature']): CaseDef => (feature === undefined ? { id, roles, run, required, note } : { id, roles, run, required, note, feature });
+/** A case's base and declared shape: kept whole cells unless said otherwise (case-forms.ts). */
+type Form = Pick<CaseDef, 'base' | 'shape'>;
+const BODY: Form = { base: 'keep', shape: 'box' };
+const GAP: Form = { base: 'keep', shape: 'none' };
+const c = (id: string, roles: readonly number[], run: CaseDef['run'], required: boolean, note: string, feature?: CaseDef['feature'], form: Form = BODY): CaseDef => (feature === undefined ? { id, roles, run, required, ...form, note } : { id, roles, run, required, ...form, note, feature });
 const r = (id: string, priority: number, cells: readonly CaseRuleCell[], roles?: readonly number[]): CaseRule => (roles === undefined ? { case: id, priority, cells } : { case: id, priority, cells, roles });
 
 /** The four sides of the centre, level with it. */
@@ -46,16 +51,16 @@ const cases: CaseDef[] = [
   c('wall-jamb', [R.wall], 'y', true, 'beside an opening: the frame side'),
   c('wall-lintel', [R.wall], 'x', true, 'over an opening'),
   c('wall-sill', [R.wall], 'x', true, 'under an opening'),
-  c('beam', [R.wall, R.floor], 'x', true, 'one cell out from a wall body, open above and below', 'beam'),
-  c('banister-rail', [R.wall], 'x', true, 'a low thin run, open above: on a post, between posts or on a wider support', 'banister'),
-  c('banister-post', [R.wall, R.pillar], null, true, 'thin both ways on a support, under a rail', 'banister'),
+  c('beam', [R.wall, R.floor], 'x', true, 'one cell out from a wall body, open above and below', 'beam', { base: 'suppress', shape: 'bar' }),
+  c('banister-rail', [R.wall], 'x', true, 'a low thin run, open above: on a post, between posts or on a wider support', 'banister', { base: 'suppress', shape: 'panel' }),
+  c('banister-post', [R.wall, R.pillar], null, true, 'thin both ways on a support, under a rail', 'banister', { base: 'suppress', shape: 'post' }),
   c('running-board', [R.wall], 'x', false, 'the outside of a wall where a floor meets it inside: the storey line', 'running-board'),
   c('moulding', [R.wall], 'x', false, 'a wall face under a ceiling: the moulding in the corner', 'moulding'),
   // floor
   c('floor-plain', [R.floor], null, true, 'a floor with no edge in reach (fallback): the base surface'),
   c('floor-edge', [R.floor], 'x', true, 'the exposed edge of a floor slab'),
   c('floor-corner', [R.floor], null, true, 'an outside corner of a floor slab'),
-  c('soffit', [R.floor, R.roof], 'x', false, 'the underside of a projecting edge: open below and in front', 'soffit'),
+  c('soffit', [R.floor, R.roof], 'x', false, 'the underside of a projecting edge: open below and in front (its underside raised to half the cell)', 'soffit', { base: 'reshape', shape: 'slab' }),
   // roof
   c('roof-plain', [R.roof], null, true, 'a roof cell with no slope or edge in reach (fallback)'),
   c('roof-peak', [R.roof], null, true, 'open on all four sides and above: the top of a pyramid or a spire'),
@@ -82,12 +87,12 @@ const cases: CaseDef[] = [
   c('pillar-capital', [R.pillar], null, true, 'the head of a free pillar'),
   c('pillar-shaft', [R.pillar], 'y', true, 'the middle of a free pillar'),
   // opening
-  c('opening-plain', [R.opening], null, true, 'inside a larger opening (fallback): no frame in reach'),
-  c('opening-single', [R.opening], null, true, 'a one-cell opening framed on four sides'),
-  c('opening-threshold', [R.opening], 'x', true, 'the bottom of an opening on a floor or ground: a door'),
-  c('opening-sill', [R.opening], 'x', true, 'the bottom of an opening on a wall: a window'),
-  c('opening-head', [R.opening], 'x', true, 'the top of an opening'),
-  c('opening-jamb', [R.opening], 'y', true, 'the side of an opening'),
+  c('opening-plain', [R.opening], null, true, 'inside a larger opening (fallback): no frame in reach', undefined, GAP),
+  c('opening-single', [R.opening], null, true, 'a one-cell opening framed on four sides', undefined, GAP),
+  c('opening-threshold', [R.opening], 'x', true, 'the bottom of an opening on a floor or ground: a door', undefined, GAP),
+  c('opening-sill', [R.opening], 'x', true, 'the bottom of an opening on a wall: a window', undefined, GAP),
+  c('opening-head', [R.opening], 'x', true, 'the top of an opening', undefined, GAP),
+  c('opening-jamb', [R.opening], 'y', true, 'the side of an opening', undefined, GAP),
 ];
 
 const rules: CaseRule[] = [
@@ -157,7 +162,7 @@ const rules: CaseRule[] = [
 /** The draft catalogue (see the file comment: DRAFT — not v1, the role spec draft's source). */
 export const DRAFT_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'cases-draft',
-  version: 1,
+  version: 2,
   draft: true,
   cases,
   rules,

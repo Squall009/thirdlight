@@ -41,6 +41,21 @@ export function placeWallBeamBanister(s: PaletteStore, ox = 0, oy = 0, oz = 0): 
 }
 
 /**
+ * Around (ox, oy, oz), on a pad of ground 3 cells deep below oy: a wall
+ * along x at z = oz (8 tall) and a floor slab (the floor role) 3 cells deep
+ * out from it at y = oy + 4, x ox−4…ox+3: a balcony whose front edge
+ * (z = oz + 3) and side edges are open below and in front (soffits), its
+ * inner cells plain floor. Centred on a chunk corner, it crosses the chunk
+ * boundary in x.
+ */
+export function placeBalcony(s: PaletteStore, ox = 0, oy = 0, oz = 0): void {
+  const h = WALL_BEAM_BANISTER_HALF;
+  flatGround(s, ox - h, ox + h, oz - h, oz + h, 3, oy);
+  for (let x = -6; x < 6; x++) for (let y = 0; y < 8; y++) putVoxel(s, ox + x, oy + y, oz, MAT.stone, C.wall);
+  for (let x = -4; x < 4; x++) for (let z = 1; z < 4; z++) putVoxel(s, ox + x, oy + 4, oz + z, MAT.plank, C.floor);
+}
+
+/**
  * A random arrangement in the cube [−half, half)³ for checking assembly
  * rules: ground below y = 0 with pits, then walls, slabs, thin rails and
  * posts, roofs and liquid pools of random sizes, then single cells dug and
