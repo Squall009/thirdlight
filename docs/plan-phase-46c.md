@@ -140,7 +140,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.10 | not started |
 | 46c.11 | not started |
 | 46c.12 | not started |
-| 46c.13 | not started |
+| 46c.13 | draft v0 (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-trim-layout.md`: 4096² sheet authored 1024 px/m (tiers 256/512/1024), 32 px gutters, field 1 m + strips 0.5/0.25/0.125 m plain/profiled + caps 3 sizes × 4, U from world run distance (4 m repeat), path B (own bakes) beside it, kit-check rows T1–T10, log/stone examples, 10 owner questions |
 | 46c.14 | not started |
 | 46c.15 | not started (owner hard stop: the run stops here) |
 | 46c.16 | not started (waits for owner approval) |
