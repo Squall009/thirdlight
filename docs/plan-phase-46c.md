@@ -1,6 +1,6 @@
 # Phase 46c — Kits and cases
 
-Status: **46c: in progress (started 2026-11-04, after 46b closed)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
+Status: **46c: AT THE OWNER HARD STOP (2026-11-04): role spec v1 and trim layout (detail pieces) drafted, prototyped and presented; awaiting owner approval. Nothing builds on them as final; 46c.16–46c.18 wait.** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
 main frozen at d4053cab). Planned from `docs/plan-phase-45.md` §4 (46c) as revised by §7a (the kit and surface
 session, which takes precedence) and the owner decisions of 2026-11-02 (§7: the ten stored roles, beams, banisters
 and soffits inferred; R112: no trim sheet for terrain or construction voxels), with §1 (roles, kits per material
