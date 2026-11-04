@@ -14,6 +14,7 @@
  * base surface), so it is skipped there and no cell gets a case.
  */
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-mesher';
 import { caseFormTable } from './case-forms';
 import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
 import { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
@@ -118,16 +119,34 @@ export function withEdges(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
   const cased = withCases(base, catalogue, id, version);
   return Object.freeze({
     ...cased,
-    radius: Math.max(cased.radius, EDGE_REACH),
+    radius: Math.max(cased.radius, EDGE_REACH + ROOF_PLANE_REACH),
     resolveEdges(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks): number {
       if (!levelHasCases(level)) {
         clearBox(n, lo, hi, out.pieces, 0);
         clearBox(n, lo, hi, out.inner, 0);
         return 0;
       }
-      return extractEdges(n, lo, hi, out);
+      return extractEdges(n, lo, hi, out, roofExclusions(n, lo, hi));
     },
   });
+}
+
+/** Per thread, by neighbourhood size: the cells the edge pass leaves pieces off round. */
+const exclusionScratch = new Map<number, Uint8Array>();
+
+/**
+ * The cells round a box the roof's planes draw ({@link isRoofPlaneCell}): no edge piece goes round them, the roof's own
+ * edges are the roof mesher's.
+ */
+function roofExclusions(n: Neighbourhood, lo: number, hi: number): Uint8Array {
+  let out = exclusionScratch.get(n.values.length);
+  if (out === undefined) exclusionScratch.set(n.values.length, (out = new Uint8Array(n.values.length)));
+  const s = n.side;
+  for (let x = lo - 1; x <= hi; x++) for (let z = lo - 1; z <= hi; z++) {
+    const row = (x * s + z) * s;
+    for (let y = lo - 1; y <= hi; y++) out[row + y] = isRoofPlaneCell(n, row + y) ? 1 : 0;
+  }
+  return out;
 }
 
 /**
@@ -151,9 +170,10 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
  * The edge rule set (DRAFT, with the edge catalogue): the terrain rules,
  * the beam and banister window cases and the edge pass. Not the world's rule
  * set yet: the derive draws pieces from the superseded catalogue's cases
- * until its pieces come from the edge pass.
+ * until its pieces come from the edge pass. Version 2: no edge piece round a
+ * cell the roof's planes may draw.
  */
-export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 1);
+export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 2);
 
 /**
  * The world rule set from kits on: the terrain rules (`terrain` v1) with

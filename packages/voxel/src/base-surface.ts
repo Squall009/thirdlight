@@ -128,6 +128,9 @@ function buildSurface(): SurfaceBuffer {
   return { vertexCount, vertices, indices };
 }
 
+/** Per neighbourhood cell: non-zero for a cell another surface draws (a roof's plane cell): no faces of its own, and it hides none. */
+let drawnElsewhere: Uint32Array | null = null;
+
 /** Whether a cell's form is a body the base surface draws whole (a suppressed one only at a level without pieces). */
 function isBody(form: number, piecesAsBodies: boolean): boolean {
   const base = formBaseOf(form);
@@ -137,6 +140,7 @@ function isBody(form: number, piecesAsBodies: boolean): boolean {
 
 /** Whether cell `i` hides the face of its neighbour looking toward it in direction `d` (a body, ground at least half full, or a reshaped shape covering the whole face). */
 function hides(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number, d: number, piecesAsBodies: boolean): boolean {
+  if (drawnElsewhere !== null && drawnElsewhere[i] !== 0) return false;
   const f = forms[i]!;
   if (isBody(f, piecesAsBodies)) return true;
   if (formBaseOf(f) === FORM_BASE.reshape) return (formFullFaces(f) & (1 << (d ^ 1))) !== 0;
@@ -171,7 +175,7 @@ function reshapedQuads(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array,
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     const f = forms[i]!;
-    if (formBaseOf(f) !== FORM_BASE.reshape || !formBox(f, shapeBox)) continue;
+    if (formBaseOf(f) !== FORM_BASE.reshape || !formBox(f, shapeBox) || (drawnElsewhere !== null && drawnElsewhere[i] !== 0)) continue;
     cell[0] = x;
     cell[1] = y;
     cell[2] = z;
@@ -200,9 +204,21 @@ function reshapedQuads(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array,
  * The base surface of a job's chunk (or section) from its neighbourhood,
  * resolved classes and forms (reads one cell round the chunk).
  * `piecesAsBodies`: cells whose pieces replace their base are drawn as
- * bodies (a level without pieces).
+ * bodies (a level without pieces). `elsewhere` (neighbourhood indexing,
+ * non-zero: drawn by another surface, a roof's planes) leaves a cell's
+ * faces out and keeps its neighbours' faces toward it, so the bodies'
+ * surface stays closed on its own.
  */
-export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false): SurfaceBuffer {
+export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false, elsewhere: Uint32Array | null = null): SurfaceBuffer {
+  drawnElsewhere = elsewhere;
+  try {
+    return bodySurface(n, classes, forms, piecesAsBodies);
+  } finally {
+    drawnElsewhere = null;
+  }
+}
+
+function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies: boolean): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -217,7 +233,7 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8A
   for (let x = 0; x < e; x++) for (let y = 0; y < e; y++) for (let z = 0; z < e; z++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     let f = 0;
-    if (isBody(forms[i]!, piecesAsBodies)) {
+    if (isBody(forms[i]!, piecesAsBodies) && (drawnElsewhere === null || drawnElsewhere[i] === 0)) {
       for (let d = 0; d < 6; d++) if (!hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, d, piecesAsBodies)) f |= 1 << d;
     }
     faces[(x * e + y) * e + z] = f;

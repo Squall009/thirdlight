@@ -59,6 +59,7 @@ import { caseIndexOf, NO_CASE } from './kit-cases';
 import { NO_SECTION, RUN_SECTION, runSectionOf } from './kit-runs';
 import { defaultPiece, NO_PIECE, PIECE_VARIANT_MIRROR, pieceVariant, tablePiece, type PieceTable } from './piece-table';
 import { MATERIAL_ID_MAX } from './record';
+import { appendSurface, classifyRoofs, roofSurface } from './roof-mesher';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
 
@@ -109,8 +110,15 @@ import { utf8Encode } from '@thirdlight/shared';
  * construction role is intact; terrain and liquid keep their fill. Results
  * differ from v13's only where a construction cell was below 15 and in mip
  * nodes of construction; the layout is v13's.
+ * 15: roofs laid as 45° stairs are drawn as sloped planes (roof-mesher.ts):
+ * their cells' voxel faces, collision boxes and pieces are left out, the
+ * planes are appended to the base surface (same vertex layout), and the
+ * collision carries them as a ramp mesh (`collision.ramps`, a new array in
+ * the canonical bytes, and its vertex count a new header flag); light,
+ * occupancy and navigation still read the stair voxels. Results differ from
+ * v14's only round roof cells.
  */
-export const DERIVED_FORMAT_VERSION = 14;
+export const DERIVED_FORMAT_VERSION = 15;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -148,6 +156,8 @@ export interface CollisionOut {
   readonly boxes: Uint16Array;
   /** How many leading boxes are full-cell merges (the rest are partial shapes). */
   readonly fullBoxes: number;
+  /** The roof planes as a triangle mesh (the derive's surface layout): a roof collides as the ramp it is drawn as, not as its stair. */
+  readonly ramps: SurfaceBuffer;
 }
 
 export interface NavOut {
@@ -319,7 +329,7 @@ function navOf(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array): NavOut
  * the shader data's cell, where a game needs one), so a material change
  * leaves them as they are.
  */
-function collisionOf(n: Neighbourhood, forms: Uint8Array): CollisionOut {
+function collisionOf(n: Neighbourhood, forms: Uint8Array, roofs: Uint32Array, ramps: SurfaceBuffer): CollisionOut {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -337,12 +347,12 @@ function collisionOf(n: Neighbourhood, forms: Uint8Array): CollisionOut {
       const col = ((x + p) * s + (z + p)) * s + p;
       let y = 0;
       while (y < e) {
-        if (formShapeOf(forms[col + y]!) !== FORM_SHAPE.box) {
+        if (formShapeOf(forms[col + y]!) !== FORM_SHAPE.box || roofs[col + y] !== 0) {
           y++;
           continue;
         }
         let y1 = y + 1;
-        while (y1 < e && formShapeOf(forms[col + y1]!) === FORM_SHAPE.box) y1++;
+        while (y1 < e && formShapeOf(forms[col + y1]!) === FORM_SHAPE.box && roofs[col + y1] === 0) y1++;
         const key = y * 64 + y1;
         const slab = open.get(key);
         if (slab !== undefined && slab[3] === z) {
@@ -375,11 +385,12 @@ function collisionOf(n: Neighbourhood, forms: Uint8Array): CollisionOut {
   const fullBoxes = count;
   const b = [0, 0, 0, 0, 0, 0];
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
-    const f = forms[((x + p) * s + (z + p)) * s + (y + p)]!;
-    if (formShapeOf(f) === FORM_SHAPE.box || !formBox(f, b)) continue;
+    const i = ((x + p) * s + (z + p)) * s + (y + p);
+    const f = forms[i]!;
+    if (formShapeOf(f) === FORM_SHAPE.box || roofs[i] !== 0 || !formBox(f, b)) continue;
     boxes.push(x * S + b[0]!, y * S + b[1]!, z * S + b[2]!, x * S + b[3]!, y * S + b[4]!, z * S + b[5]!);
   }
-  return { boxes: Uint16Array.from(boxes), fullBoxes };
+  return { boxes: Uint16Array.from(boxes), fullBoxes, ramps };
 }
 
 function countsOf(n: Neighbourhood, classes: Uint8Array): DerivedCounts {
@@ -459,7 +470,7 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
     level,
     occupancy: { flag, bricks, mask: null },
     light: { uniform: k === ASSEMBLY_CLASS.ground ? s0 : formCoverage(form), full: null, partialCells: new Uint16Array(0), partialCover: new Uint8Array(0) },
-    collision: { boxes, fullBoxes: boxes.length / 6 },
+    collision: { boxes, fullBoxes: boxes.length / 6, ramps: { ...empty, vertices: new Uint8Array(0), indices: new Uint16Array(0) } },
     nav: { blocking: blocks ? OCCUPANCY.solid : OCCUPANCY.empty, blocks: null, standable: new Uint16Array(0), clearance: new Uint8Array(0) },
     ground: empty,
     base: { ...empty, vertices: new Uint8Array(0), indices: new Uint16Array(0) },
@@ -473,6 +484,7 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
 const caseScratches = new Map<number, Uint16Array>();
 const runScratches = new Map<number, Uint16Array>();
 const formScratches = new Map<number, Uint8Array>();
+const roofScratches = new Map<number, Uint32Array>();
 
 function u16Scratch(map: Map<number, Uint16Array>, len: number): Uint16Array {
   let a = map.get(len);
@@ -512,6 +524,8 @@ interface PieceInputs {
   readonly runs: Uint16Array;
   readonly pieces: DerivePieces;
   readonly level: number;
+  /** Roof plane words (roof-mesher.ts): a plane cell takes no piece. */
+  readonly roofs: Uint32Array;
 }
 
 /** Whether a cell whose base surface stays shows: an opening, or a body with a face against a cell that is not solid. */
@@ -533,6 +547,7 @@ function shows(p: PieceInputs, i: number): boolean {
  * class byte. Turns, and the mirror bit, come from its case's transform.
  */
 function pieceAt(p: PieceInputs, i: number, x: number, y: number, z: number, out: CellPiece): boolean {
+  if (p.roofs[i] !== 0) return false;
   const f = p.forms[i]!;
   const base = formBaseOf(f);
   const fold = formFoldOf(f);
@@ -585,6 +600,11 @@ function bodyFormsOnly(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8A
   return true;
 }
 
+/** A fresh empty surface (never shared: a result's buffers are transferred to the thread that draws). */
+function emptySurface(): SurfaceBuffer {
+  return { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) };
+}
+
 /** Microseconds the parts of a derive took (for measurements). */
 export interface DeriveTimes {
   evaluateUs: number;
@@ -624,11 +644,14 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   const t1 = performance.now();
   const ground = terrainSurface(n, classes);
   const detail = pieceDetailAt(level);
-  const base = baseSurface(n, classes, forms, detail === PIECE_DETAIL.none);
-  const inputs: PieceInputs = { n, classes, forms, cases, runs, pieces, level };
+  let roofs = roofScratches.get(classes.length);
+  if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
+  const ramps = classifyRoofs(n, roofs) === 0 ? emptySurface() : roofSurface(n, roofs);
+  const base = appendSurface(baseSurface(n, classes, forms, detail === PIECE_DETAIL.none, roofs), ramps);
+  const inputs: PieceInputs = { n, classes, forms, cases, runs, pieces, level, roofs };
   const instances = detailInstances(n, (i, x, y, z, out) => pieceAt(inputs, i, x, y, z, out), detail);
   const t2 = performance.now();
-  const collision = collisionOf(n, forms);
+  const collision = collisionOf(n, forms, roofs, ramps);
   const out: DerivedData = {
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
@@ -657,7 +680,7 @@ function arraysOf(d: DerivedData): ArrayBufferView[] {
   const out: ArrayBufferView[] = [d.occupancy.bricks];
   if (d.occupancy.mask !== null) out.push(d.occupancy.mask);
   if (d.light.full !== null) out.push(d.light.full);
-  out.push(d.light.partialCells, d.light.partialCover, d.collision.boxes);
+  out.push(d.light.partialCells, d.light.partialCover, d.collision.boxes, d.collision.ramps.vertices, d.collision.ramps.indices);
   if (d.nav.blocks !== null) out.push(d.nav.blocks);
   out.push(d.nav.standable, d.nav.clearance, d.ground.vertices, d.ground.indices, d.base.vertices, d.base.indices, d.instances.data, d.shader.palette, d.shader.ids);
   return out;
@@ -676,7 +699,7 @@ export function derivedPartBytes(d: DerivedData): { occupancy: number; light: nu
   return {
     occupancy: b(d.occupancy.bricks) + b(d.occupancy.mask),
     light: b(d.light.full) + b(d.light.partialCells) + b(d.light.partialCover),
-    collision: b(d.collision.boxes),
+    collision: b(d.collision.boxes) + b(d.collision.ramps.vertices) + b(d.collision.ramps.indices),
     nav: b(d.nav.blocks) + b(d.nav.standable) + b(d.nav.clearance),
     ground: b(d.ground.vertices) + b(d.ground.indices),
     base: b(d.base.vertices) + b(d.base.indices),
@@ -700,7 +723,7 @@ export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayB
 export function encodeDerived(d: DerivedData): Uint8Array {
   const id = utf8Encode(d.rules.id);
   const arrays = arraysOf(d);
-  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.shader.side, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width, d.level];
+  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.shader.side, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width, d.level, d.collision.ramps.vertexCount];
   let size = 4 + id.length + 4 * flags.length;
   for (const a of arrays) size += 4 + a.byteLength;
   const out = new Uint8Array(size);

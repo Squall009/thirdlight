@@ -3,7 +3,8 @@
  * corner, for a physics engine: the boxes (full-cell merges and the partial
  * shapes of beams, rails and posts) as centre + half extents, and the
  * projected ground surface as heightfield patches wherever it is a height
- * function (ground-heightfield.ts) and triangle meshes for the rest. A
+ * function (ground-heightfield.ts) and triangle meshes for the rest, and
+ * the roofs' planes as meshes (a roof collides as the ramp it is drawn as). A
  * heightfield costs a physics engine a height a lattice node where a mesh
  * costs vertices, indices and a tree over its triangles.
  *
@@ -44,7 +45,7 @@ export interface CollisionGeometry {
   readonly fullBoxes: number;
   /** The ground where it is a heightfield, in patches (none: all of it is in {@link meshes}). */
   readonly heightfields: readonly CollisionHeightfield[];
-  /** The ground's triangles no heightfield stands for (all of them without one). */
+  /** The ground's triangles no heightfield stands for (all of them without one), then the roofs' ramps. */
   readonly meshes: readonly CollisionMesh[];
   /** Bytes of the arrays above (what a physics engine is handed). */
   readonly bytes: number;
@@ -64,8 +65,8 @@ export interface CollisionMeshLimits {
   readonly maxTriangles?: number;
 }
 
-/** The ground surface's vertex positions in metres from the chunk's corner. */
-function groundPositions(buf: SurfaceBuffer): Float32Array {
+/** A surface's vertex positions in metres from the chunk's corner. */
+function surfacePositions(buf: SurfaceBuffer): Float32Array {
   const stride = SURFACE_VERTEX_BYTES;
   const view = new DataView(buf.vertices.buffer, buf.vertices.byteOffset, buf.vertices.byteLength);
   const out = new Float32Array(buf.vertexCount * 3);
@@ -77,11 +78,11 @@ function groundPositions(buf: SurfaceBuffer): Float32Array {
   return out;
 }
 
-/** The ground surface's triangles (all, or those listed in `only`) as meshes of whole triangles within the limits. */
-function groundMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits, only?: Uint32Array): CollisionMesh[] {
+/** A surface's triangles (all, or those listed in `only`) as meshes of whole triangles within the limits. */
+function surfaceMeshes(buf: SurfaceBuffer, limits: CollisionMeshLimits, only?: Uint32Array): CollisionMesh[] {
   const tris = only?.length ?? buf.indices.length / 3;
   if (buf.vertexCount === 0 || tris === 0) return [];
-  const pos = groundPositions(buf);
+  const pos = surfacePositions(buf);
   const maxV = limits.maxVertices ?? Infinity;
   const maxT = limits.maxTriangles ?? Infinity;
   if (maxV < 3 || maxT < 1) throw new RangeError('collision mesh limits must allow one triangle');
@@ -144,7 +145,8 @@ export function collisionGeometry(d: CollisionSource, limits: CollisionMeshLimit
   }
   const found = heightfields === false ? null : groundHeightfieldPatches(d.ground, d.edge, { levelOnly: heightfields === 'level' });
   const fields: CollisionHeightfield[] = (found?.patches ?? []).map((p) => ({ x: p.x0 * VOXEL_SIZE_M, z: p.z0 * VOXEL_SIZE_M, cellsX: p.cellsX, cellsZ: p.cellsZ, heights: p.heights }));
-  const meshes = groundMeshes(d.ground, limits, fields.length === 0 ? undefined : found!.rest);
+  const meshes = surfaceMeshes(d.ground, limits, fields.length === 0 ? undefined : found!.rest);
+  meshes.push(...surfaceMeshes(d.collision.ramps, limits));
   let bytes = boxes.byteLength;
   for (const f of fields) bytes += f.heights.byteLength;
   for (const m of meshes) bytes += m.vertices.byteLength + m.indices.byteLength;

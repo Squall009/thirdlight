@@ -9,10 +9,15 @@
  *   merged edge never leaves a crack against its neighbour's vertices;
  * - open edges: an edge used once (a boundary) lies where the naive faces'
  *   boundary lies, cell for cell, and a closed body stays closed.
+ * Roof cells laid as a 45° stair are the roof mesher's (roof-mesher.test.ts
+ * checks its planes): the base surface draws none of their faces and keeps
+ * its bodies' faces toward them, so here they count as open and the derive's
+ * roof planes (appended after the bodies) are left out.
  */
 import {
   ASSEMBLY_CLASS,
   buildApron,
+  classifyRoofs,
   CLASS_MASK,
   chunkGrid,
   deriveFromStore,
@@ -23,6 +28,7 @@ import {
   SURFACE_ISO,
   SURFACE_VERTEX_BYTES,
   TERRAIN_RULES,
+  type DerivedData,
   type PaletteStore,
   type SurfaceBuffer,
 } from '@thirdlight/voxel';
@@ -32,13 +38,26 @@ const grid = chunkGrid(32);
 const E = grid.edge;
 const STEPS = POSITION_STEPS_PER_CELL;
 
-/** A chunk's base surface: the whole-chunk derive (`sectionEdge` 32) or its sections joined (the streamer's draw). */
+/** A derive's base surface without the roof planes appended after its bodies' faces. */
+export function bodySurface(d: DerivedData): SurfaceBuffer {
+  const ramps = d.collision.ramps;
+  if (ramps.vertexCount === 0) return d.base;
+  const vertexCount = d.base.vertexCount - ramps.vertexCount;
+  return { vertexCount, vertices: d.base.vertices.subarray(0, vertexCount * SURFACE_VERTEX_BYTES), indices: d.base.indices.subarray(0, d.base.indices.length - ramps.indices.length) };
+}
+
+/** A derive with its base surface's bodies only ({@link bodySurface}). */
+export function bodiesOnly(d: DerivedData | null): DerivedData | null {
+  return d === null ? null : { ...d, base: bodySurface(d) };
+}
+
+/** A chunk's base surface (bodies only): the whole-chunk derive (`sectionEdge` 32) or its sections joined (the streamer's draw). */
 export function chunkBase(store: PaletteStore, cx: number, cy: number, cz: number, sectionEdge: number): SurfaceBuffer {
-  if (sectionEdge === E) return deriveFromStore(store, cx, cy, cz, TERRAIN_RULES).base;
+  if (sectionEdge === E) return bodySurface(deriveFromStore(store, cx, cy, cz, TERRAIN_RULES));
   const n = E / sectionEdge;
   const ids = Array.from({ length: n * n * n }, (_, i) => i);
   const results = deriveSectionsWithApron(grid, TERRAIN_RULES, buildApron(store, cx, cy, cz, jobRadius(TERRAIN_RULES)), (out) => store.exportChunk(cx, cy, cz, out), sectionEdge, ids);
-  return joinSections(E, sectionEdge, results.map((r) => r.assembly)).base;
+  return joinSections(E, sectionEdge, results.map((r) => bodiesOnly(r.assembly))).base;
 }
 
 /** The exposed faces of a chunk's built cells (the naive producer's quads): world cell and direction (0 −x, 1 +x, 2 −y, 3 +y, 4 −z, 5 +z). */
@@ -47,14 +66,16 @@ export function exposedFaces(store: PaletteStore, cx: number, cy: number, cz: nu
   const p = n.pad;
   const s = n.side;
   const stride = [s * s, 1, s];
+  const roofs = new Uint32Array(n.values.length);
+  classifyRoofs(n, roofs);
   const out: Array<[number, number, number, number]> = [];
   for (let x = 0; x < E; x++) for (let y = 0; y < E; y++) for (let z = 0; z < E; z++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
-    if ((classes[i]! & CLASS_MASK) !== ASSEMBLY_CLASS.wall) continue;
+    if ((classes[i]! & CLASS_MASK) !== ASSEMBLY_CLASS.wall || roofs[i] !== 0) continue;
     for (let d = 0; d < 6; d++) {
       const j = i + (d & 1 ? 1 : -1) * stride[d >> 1]!;
       const k = classes[j]! & CLASS_MASK;
-      if (k === ASSEMBLY_CLASS.wall || (k === ASSEMBLY_CLASS.ground && n.shapes[j]! >= SURFACE_ISO)) continue;
+      if ((k === ASSEMBLY_CLASS.wall && roofs[j] === 0) || (k === ASSEMBLY_CLASS.ground && n.shapes[j]! >= SURFACE_ISO)) continue;
       out.push([cx * E + x, cy * E + y, cz * E + z, d]);
     }
   }

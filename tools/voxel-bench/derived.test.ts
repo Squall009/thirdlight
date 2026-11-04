@@ -119,7 +119,7 @@ import { join } from 'node:path';
 import { crc32 } from '@thirdlight/shared';
 import { listRegionFiles, RegionWorld } from '@thirdlight/workspace';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { coverage, exposedFaces, naiveOpenSegments, openSegments, tJunctions, weldBase } from './base-cases';
+import { bodiesOnly, bodySurface, coverage, exposedFaces, naiveOpenSegments, openSegments, tJunctions, weldBase } from './base-cases';
 import { loadArea, zstdDecompress } from './regions';
 import { instanceList, triangleList } from './mesh-compare';
 import { houseVoxel, townWorld, type House } from './town';
@@ -1299,6 +1299,14 @@ function joinedFromStore(store: PaletteStore, cx: number, cy: number, cz: number
   return joinSections(E, edge, results.map((r) => r.assembly));
 }
 
+/** A chunk's sections joined with their base surfaces' bodies only (the roofs' planes are checked in roof-mesher.test.ts). */
+function joinedBodies(store: PaletteStore, cx: number, cy: number, cz: number, edge: number): SurfaceBuffer {
+  const n = E / edge;
+  const ids = Array.from({ length: n * n * n }, (_, i) => i);
+  const results = deriveSectionsWithApron(grid, TERRAIN_RULES, buildApron(store, cx, cy, cz, R), (out) => store.exportChunk(cx, cy, cz, out), edge, ids);
+  return joinSections(E, edge, results.map((r) => bodiesOnly(r.assembly))).base;
+}
+
 /** Counts every triangle edge of the ground surfaces of chunks (-1…0)² of a 96-cell hilly square, by world position. */
 function groundEdges(draw: (s: PaletteStore, cx: number, cy: number, cz: number) => SurfaceBuffer): { edges: Map<string, number>; tris: number; surface: number } {
   const s = createWorldStore(grid);
@@ -1380,13 +1388,14 @@ describe('meshes', () => {
           expect(triangleList(joined.ground), at).toEqual(triangleList(whole.ground));
           // Base faces merge inside a section only, so the triangles differ; both cover every exposed face once.
           const faces = exposedFaces(store, cx, cy, cz);
-          for (const [kind, base] of [['joined', joined.base], ['whole', whole.base]] as const) {
+          const joinedBase = joinedBodies(store, cx, cy, cz, edge);
+          for (const [kind, base] of [['joined', joinedBase], ['whole', bodySurface(whole)]] as const) {
             const mesh = weldBase([{ buf: base, cx, cy, cz }]);
             expect(coverage(mesh, faces), `${at} ${kind}`).toEqual({ uncovered: 0, doubled: 0, area: faces.length, faces: faces.length });
             expect(tJunctions(mesh), `${at} ${kind}`).toBe(0);
             expect(openSegments(mesh), `${at} ${kind}`).toEqual(naiveOpenSegments(faces));
           }
-          seen.baseTriangles += joined.base.indices.length / 3;
+          seen.baseTriangles += joinedBase.indices.length / 3;
           seen.baseFaces += faces.length;
           expect(joined.instances.count, at).toBe(whole.instances.count);
           expect(instanceList(joined.instances), at).toEqual(instanceList(whole.instances));

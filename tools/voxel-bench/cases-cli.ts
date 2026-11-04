@@ -10,11 +10,13 @@
  * receive a chunk (derived bytes by part, collision boxes) under the kit
  * rules; or (`--pieces`) the kit pieces: the piece table's bytes and the
  * instances a chunk and a level-1 node list without and with a test kit;
- * or (`--edges`) the edge catalogue's passes (beam and banister window cases
+ * or (`--roofs`) the roof mesher: µs a 16³ section with plane cells (the
+ * classification and the planes), and the roofs' triangles against the
+ * same cells drawn as stair faces (their role read as wall), or (`--edges`) the edge catalogue's passes (beam and banister window cases
  * plus the edge pass) against the superseded catalogue's case pass, section
  * by section, and the edge pieces by case.
  *
- *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only | --pieces | --edges] [--out DIR]
+ *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only | --pieces | --edges | --roofs] [--out DIR]
  *
  * Writes cases.md and cases.json.
  */
@@ -58,6 +60,13 @@ import {
   RUN_SECTION,
   runSectionOf,
   jobRadius,
+  classifyRoofs,
+  roofSurface,
+  valueMaterial,
+  valueOf,
+  valueShape,
+  valueWetness,
+  VOXEL_ROLE,
   TERRAIN_RULES,
   terrainSurface,
   valueRole,
@@ -289,6 +298,50 @@ function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [numb
 }
 
 /**
+ * The roof mesher a section at a time: classification and planes (µs,
+ * sections with a plane cell), the section's whole derive with them, and its
+ * base triangles against the same voxels with every roof cell read as a
+ * wall (the stair's faces, what the base surface drew before).
+ */
+function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Record<string, unknown> {
+  const words = new Uint32Array(sections[0]!.values.length);
+  const us: number[] = [];
+  const classifyUs: number[] = [];
+  const deriveUs: number[] = [];
+  let planeCells = 0;
+  let roofSections = 0;
+  let rampTris = 0;
+  let after = 0;
+  let before = 0;
+  for (let round = 0; round < rounds; round++) {
+    for (const n of sections) {
+      let roofs = false;
+      for (let i = 0; i < n.values.length && !roofs; i++) roofs = valueRole(n.values[i]!) === VOXEL_ROLE.roof;
+      if (!roofs) continue;
+      const t = performance.now();
+      const cells = classifyRoofs(n, words);
+      const tc = performance.now();
+      const ramps = cells === 0 ? null : roofSurface(n, words);
+      const t1 = performance.now();
+      if (cells === 0) continue;
+      us.push((t1 - t) * 1000);
+      classifyUs.push((tc - t) * 1000);
+      const t2 = performance.now();
+      const d = deriveChunk(n, KIT_RULES);
+      deriveUs.push((performance.now() - t2) * 1000);
+      if (round > 0) continue;
+      roofSections++;
+      planeCells += cells;
+      rampTris += ramps!.indices.length / 3;
+      after += d.base.indices.length / 3;
+      const asWall = { ...n, values: Uint32Array.from(n.values, (v) => (valueRole(v) === VOXEL_ROLE.roof ? valueOf({ material: valueMaterial(v), role: VOXEL_ROLE.wall, shape: valueShape(v), wetness: valueWetness(v) }) : v)) };
+      before += deriveChunk(asWall, KIT_RULES).base.indices.length / 3;
+    }
+  }
+  return { roofSections, planeCells, us: q2(us), classifyUs: q2(classifyUs), deriveUs: q2(deriveUs), rampTriangles: rampTris, baseTriangles: { stairFaces: before, planes: after } };
+}
+
+/**
  * The edge catalogue's passes (window cases for beams and banisters, then
  * the edge pass) against the superseded catalogue's case pass, a section
  * at a time, the order alternating; sections with construction only.
@@ -423,6 +476,12 @@ function main(): void {
       chunks = chunksOf(store, sx - 192, sz - 192, sx + 192, sz + 192);
       window = 'slice ring ±192 cells';
     } else throw new Error(`unknown world ${world}`);
+    if (process.argv.includes('--roofs')) {
+      const roofs = measureRoofs(sectionsOf(store, chunks), rounds);
+      reports.push({ world, window, roofs });
+      md.push(`## ${world} (${window})`, '', `- Roofs: ${JSON.stringify(roofs)}`, '');
+      continue;
+    }
     if (process.argv.includes('--edges')) {
       const edges = measureEdges(sectionsOf(store, chunks), rounds);
       reports.push({ world, window, edges });

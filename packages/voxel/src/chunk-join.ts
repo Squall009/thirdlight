@@ -22,7 +22,8 @@
  * - **Instances.** Concatenated, cells moved to the chunk.
  * - **Collision boxes.** Concatenated, moved to the chunk, every section's
  *   full-cell merges before the partial shapes. Boxes are not merged across
- *   section faces again: the same space is solid, in a few more boxes.
+ *   section faces again: the same space is solid, in a few more boxes. The
+ *   roofs' ramp meshes are joined as the surfaces are.
  * - **Shader grid.** Each grid cell is taken from the section that holds
  *   it (a cell of the chunk's border from the section at that face), then
  *   the palette is built in grid order, so the bytes equal a whole-chunk
@@ -167,7 +168,8 @@ export function joinCollision(chunkEdge: number, sectionEdge: number, parts: Rea
       }
     }
   });
-  return { boxes, fullBoxes };
+  const ramps = joinSurfaces(chunkEdge, sectionEdge, parts.map((p) => p?.ramps ?? null));
+  return { boxes, fullBoxes, ramps };
 }
 
 let chunkCells = new Uint16Array(0);

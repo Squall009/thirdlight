@@ -13,6 +13,7 @@ import {
   buildApron,
   caseIndexOf,
   cellBit,
+  classifyRoofs,
   cellOutputs,
   chunkGrid,
   CLASS_MASK,
@@ -60,6 +61,7 @@ import {
   type SurfaceBuffer,
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
+import { bodiesOnly, bodySurface } from './base-cases';
 import { loadArea } from './regions';
 import { dabDetailRoles, placeBalcony, placeWallBeamBanister, randomAssemblyWorld, randomTerrainWorld } from './scenes';
 import { townWorld } from './town';
@@ -72,7 +74,7 @@ const S = COLLISION_STEPS_PER_CELL;
 type ChunkSource = Parameters<typeof buildApron>[0] & Pick<PaletteStore, 'exportChunk'>;
 
 /** The job's classes and forms of a chunk (or a level's node) under the kit rules, the evaluation a derive runs. */
-function jobForms(src: ChunkSource, cx: number, cy: number, cz: number, level: number): { n: ReturnType<typeof createNeighbourhood>; classes: Uint8Array; cases: Uint16Array; forms: Uint8Array } {
+function jobForms(src: ChunkSource, cx: number, cy: number, cz: number, level: number): { n: ReturnType<typeof createNeighbourhood>; classes: Uint8Array; cases: Uint16Array; forms: Uint8Array; roofs: Uint32Array } {
   const n = createNeighbourhood(E, KR);
   const dense = createDenseChunk(grid);
   fillNeighbourhood(n, grid, src.exportChunk(cx, cy, cz, dense) ? dense : null, buildApron(src, cx, cy, cz, KR));
@@ -82,7 +84,9 @@ function jobForms(src: ChunkSource, cx: number, cy: number, cz: number, level: n
   evaluateCases(n, KIT_RULES, level, cases);
   const forms = new Uint8Array(n.values.length);
   evaluateForms(n, KIT_RULES, classes, cases, forms);
-  return { n, classes, cases, forms };
+  const roofs = new Uint32Array(n.values.length);
+  classifyRoofs(n, roofs);
+  return { n, classes, cases, forms, roofs };
 }
 
 /** What every consumer says about a local cell of a derived result, read from its arrays (no piece meshes involved). */
@@ -136,8 +140,12 @@ function viewer(d: DerivedData): (x: number, y: number, z: number) => CellView {
 
 const FAMILY_OF_SHAPE: Record<number, number> = { [FORM_SHAPE.bar]: PIECE_FAMILY.beam, [FORM_SHAPE.panel]: PIECE_FAMILY.rail, [FORM_SHAPE.post]: PIECE_FAMILY.post };
 
-/** What a cell's form (and, for ground, its density) says each consumer receives. */
-function expected(n: ReturnType<typeof createNeighbourhood>, classes: Uint8Array, forms: Uint8Array, i: number, piecesDrawn: boolean): Omit<CellView, 'standable'> {
+/**
+ * What a cell's form (and, for ground, its density) says each consumer
+ * receives. A roof's plane cell (`plane`) collides as the roof's ramp and
+ * takes no piece; light, navigation and occupancy read its voxel.
+ */
+function expected(n: ReturnType<typeof createNeighbourhood>, classes: Uint8Array, forms: Uint8Array, i: number, piecesDrawn: boolean, plane = false): Omit<CellView, 'standable'> {
   const f = forms[i]!;
   const ground = (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground;
   const solidGround = ground && n.shapes[i]! >= SURFACE_ISO;
@@ -148,15 +156,15 @@ function expected(n: ReturnType<typeof createNeighbourhood>, classes: Uint8Array
     light: ground ? n.shapes[i]! : formCoverage(f),
     blocks: shape !== FORM_SHAPE.none || solidGround,
     solid: shape === FORM_SHAPE.box || solidGround,
-    collision: shape === FORM_SHAPE.box ? 'full' : formBox(f, box) ? box.join(',') : 'none',
-    piece: piecesDrawn && formBaseOf(f) === FORM_BASE.suppress && family !== undefined ? `${family}:true` : null,
+    collision: plane ? 'none' : shape === FORM_SHAPE.box ? 'full' : formBox(f, box) ? box.join(',') : 'none',
+    piece: !plane && piecesDrawn && formBaseOf(f) === FORM_BASE.suppress && family !== undefined ? `${family}:true` : null,
   };
 }
 
 /** Compares every cell of a derived chunk (or node) with what its forms say; returns the cells checked and those with a case. */
 function checkAgainstForms(d: DerivedData, job: ReturnType<typeof jobForms>, at: string): { cells: number; withCase: number; shapes: Set<number> } {
   const view = viewer(d);
-  const { n, classes, forms, cases } = job;
+  const { n, classes, forms, cases, roofs } = job;
   const s = n.side;
   const p = n.pad;
   const piecesDrawn = d.level < 2;
@@ -165,7 +173,7 @@ function checkAgainstForms(d: DerivedData, job: ReturnType<typeof jobForms>, at:
   for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) for (let y = 0; y < E; y++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     const got = view(x, y, z);
-    const want = expected(n, classes, forms, i, piecesDrawn);
+    const want = expected(n, classes, forms, i, piecesDrawn, roofs[i] !== 0);
     const { standable, ...rest } = got;
     if (JSON.stringify(rest) !== JSON.stringify(want)) expect(rest, `${at} cell ${x},${y},${z} form ${forms[i]}`).toEqual(want);
     // Standable: free, on a cell whose form covers its top (or ground).
@@ -353,8 +361,9 @@ describe('consumers from the case', () => {
               if (JSON.stringify(a) !== JSON.stringify(b)) expect(a, `${name} chunk ${cx},${cy},${cz} ${edge}³ section ${id} cell ${x},${y},${z}`).toEqual(b);
             }
           });
-          const joined = joinSections(E, edge, sections);
-          const want = areaByPlane(whole.base);
+          // The bodies' faces (the roofs' sloped planes are compared in roof-mesher.test.ts).
+          const joined = joinSections(E, edge, sections.map((d) => bodiesOnly(d)));
+          const want = areaByPlane(bodySurface(whole));
           const got = areaByPlane(joined.base);
           expect([...got.keys()].sort(), `${name} ${edge}³ planes`).toEqual([...want.keys()].sort());
           for (const [k, area] of want) expect(got.get(k), `${name} ${edge}³ plane ${k}`).toBeCloseTo(area, 6);

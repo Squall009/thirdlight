@@ -240,7 +240,7 @@ function latticeSurface(edge: number, height: (i: number, k: number) => number, 
   return { vertexCount: n * n, vertices, indices: Uint32Array.from(tris) };
 }
 
-const NO_BOXES = { boxes: new Uint16Array(0), fullBoxes: 0 };
+const NO_BOXES = { boxes: new Uint16Array(0), fullBoxes: 0, ramps: { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) } };
 
 describe('ground as a heightfield', () => {
   it('stands for bumpy ground whose every cell bends across its diagonal: rays, sweeps and drops land where they land on the same ground as a mesh', async () => {

@@ -269,6 +269,7 @@ export {
 export { assemblyRules, registerAssemblyRules, registeredAssemblyRules, WORLD_RULES } from './rule-registry';
 export { TERRAIN_FEATURE, TERRAIN_FEATURE_SHIFT, TERRAIN_RULES, TERRAIN_RULES_RADIUS, TERRAIN_THRESHOLDS, terrainFeatureOf, withTerrainFeatures } from './terrain-rules';
 export { CREASE_SPLIT_DEG, LATTICE_WINDOW, TERRAIN_MESHER_REACH, terrainSurface } from './terrain-mesher';
+export { appendSurface, classifyRoofs, isRoofPlaneCell, ROOF_DIR, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofSurface, type RoofEdge, type RoofEdgeCase } from './roof-mesher';
 export {
   cellBit,
   COLLISION_STEPS_PER_CELL,
