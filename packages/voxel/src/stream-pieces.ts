@@ -46,6 +46,8 @@ export class StreamPieces {
   private current: PieceTable | null;
   /** The rules' cases read materials: a material paint feeds geometry. */
   private readonly casesReadMaterial: boolean;
+  /** The page's GPU bytes of the kit meshes and textures the pieces draw from (reported with its draws), counted in the stream budget. */
+  gpuBytes = 0;
 
   constructor(
     private readonly host: PiecesHost,

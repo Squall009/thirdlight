@@ -117,6 +117,8 @@ export interface ChunkDrawFeed {
   on(listener: (e: StreamEvent) => void): void;
   joinedChunk(cx: number, cy: number, cz: number, times: JoinTimes | undefined, cells: Uint16Array): JoinedDraw | null;
   setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean;
+  /** The kit pieces (`VoxelStreamer.pieces`): the page's GPU bytes of the kit meshes and textures they draw from, counted in the budget. */
+  readonly pieces?: { gpuBytes: number };
 }
 
 export interface ChunkDrawBatcherOptions {
@@ -332,11 +334,12 @@ export class ChunkDrawBatcher {
     this.send(b);
   }
 
-  /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated): each chunk's `mesh` part; `coarse`: every node's and seam's, summed. */
-  drawn(bytes: readonly number[], coarse: number): void {
+  /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated): each chunk's `mesh` part; `coarse`: every node's and seam's, summed; `kits`: the kit meshes and textures. */
+  drawn(bytes: readonly number[], coarse: number, kits = 0): void {
     if (this.closed) return;
     // Nothing draws nodes or seams without mip levels.
     if (this.feed.mips != null) this.feed.mips.gpuBytes = coarse;
+    if (this.feed.pieces != null) this.feed.pieces.gpuBytes = kits;
     for (let i = 0; i + 3 < bytes.length; i += 4) {
       const cx = bytes[i]!;
       const cy = bytes[i + 1]!;

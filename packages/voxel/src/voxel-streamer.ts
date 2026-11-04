@@ -256,8 +256,8 @@ export interface StreamMetrics {
   readonly decoding: number;
   readonly damaged: number;
   readonly deriving: number;
-  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables (and region files a source holds whole), the chunk tree's nodes. */
-  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly mips: number; readonly budget: number };
+  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables (and region files a source holds whole), the chunk tree's nodes, the page's kit meshes and textures. */
+  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly mips: number; readonly kits: number; readonly budget: number };
   /** The store's own count of its arrays (to check the streamer's sum). */
   readonly storeBytes: number;
   readonly counters: Readonly<StreamCounters>;
@@ -588,6 +588,7 @@ export class VoxelStreamer {
     const deriving = this.derives?.deriving ?? 0;
     const tables = this.opts.source.memoryBytes();
     const mips = this.mips?.bytes ?? 0;
+    const kits = this.pieces.gpuBytes;
     return {
       resident,
       residentStored: stored,
@@ -595,7 +596,7 @@ export class VoxelStreamer {
       decoding,
       damaged,
       deriving,
-      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + mips, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, mips, budget: this.budgetBytes },
+      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + mips + kits, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, mips, kits, budget: this.budgetBytes },
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
       evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },
@@ -727,8 +728,8 @@ export class VoxelStreamer {
   private enforceBudget(): void {
     const tables = this.opts.source.memoryBytes();
     // The overlay counts but is never evicted: it is the game's changes, not a copy of the files.
-    // Mip nodes count too; they leave with the chunks under them.
-    let total = this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + (this.mips?.bytes ?? 0);
+    // Mip nodes count too; they leave with the chunks under them. The kit meshes stay as long as the kits do.
+    let total = this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + (this.mips?.bytes ?? 0) + this.pieces.gpuBytes;
     if (total <= this.budgetBytes) {
       if (total < this.budgetBytes * RESUME_BELOW && this.horizon !== Infinity) {
         this.horizon = Infinity;

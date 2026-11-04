@@ -137,7 +137,7 @@ scope.onmessage = (e) => {
       break;
     }
     case 'drawn':
-      worlds.get(m.world)?.batcher?.drawn(m.bytes, m.coarse);
+      worlds.get(m.world)?.batcher?.drawn(m.bytes, m.coarse, m.kits);
       break;
   }
 };

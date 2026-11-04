@@ -394,7 +394,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         post({ t: 'query.result', id: m.id, result: query(m.query) });
         return;
       case 'voxels.drawn':
-        voxels?.drawn(m.world, m.bytes, m.coarse);
+        voxels?.drawn(m.world, m.bytes, m.coarse, m.kits);
         return;
       case 'dispose':
         dispose();

@@ -15,7 +15,7 @@ export type SceneVoxelsIn =
   /** A change the backend applied to `world` (the editor feed's `voxelsChanged`). */
   | { readonly t: 'changed'; readonly world: string; readonly change: WorldChange }
   /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated). */
-  | { readonly t: 'drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number };
+  | { readonly t: 'drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number; readonly kits: number };
 
 /** Worker → page. */
 export type SceneVoxelsOut =

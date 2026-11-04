@@ -764,8 +764,12 @@ describe('streamer (workers, region files on disk)', () => {
     expect(expectStoreEqual(s, s.store, oracle)).toBeGreaterThan(30);
     const m = s.metrics();
     expect(m.bytes.overlay).toBe(s.overlay.memoryBytes());
-    expect(m.bytes.total).toBe(m.bytes.chunks + m.bytes.derived + m.bytes.overlay + m.bytes.tables + m.bytes.mips);
+    expect(m.bytes.total).toBe(m.bytes.chunks + m.bytes.derived + m.bytes.overlay + m.bytes.tables + m.bytes.mips + m.bytes.kits);
     expect(m.bytes.mips).toBe(s.mips!.bytes);
+    // The page's kit meshes and textures (reported with the draws) count whole.
+    s.pieces.gpuBytes = 1 << 20;
+    expect(s.metrics().bytes.total - m.bytes.total).toBe(1 << 20);
+    s.pieces.gpuBytes = 0;
 
     /** What a save of the edits restores onto the shipped world: the saved fields of the edits, the base's wetness. */
     const expectSaved = (entries: readonly SaveChunk[]): void => {

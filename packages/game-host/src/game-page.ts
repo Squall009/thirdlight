@@ -669,7 +669,7 @@ interface PageVoxelKits {
  * they arrive.
  */
 function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits) {
-  let report: (world: string, bytes: number[], coarse: number) => void = () => undefined;
+  let report: (world: string, bytes: number[], coarse: number, kits: number) => void = () => undefined;
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
   const draws = new VoxelWorldDraws({
@@ -677,7 +677,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     scene: () => adapter()?.threeScene?.() ?? null,
     // The grids upload through the renderer once it can draw.
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
-    report: (world, bytes, coarse) => report(world, bytes, coarse),
+    report: (world, bytes, coarse, kitBytes) => report(world, bytes, coarse, kitBytes),
   });
   (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states() };
   return {
@@ -686,7 +686,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     /** The worker's batches go to the draws; the drawn bytes go back to it. */
     worker(h: SimWorkerHandle | null): SimWorkerHandle | null {
       if (h === null) return null;
-      report = (world, bytes, coarse) => h.post({ t: 'voxels.drawn', world, bytes, coarse });
+      report = (world, bytes, coarse, kitBytes) => h.post({ t: 'voxels.drawn', world, bytes, coarse, kits: kitBytes });
       return {
         ...h,
         listen: (onMessage) => h.listen((m) => (typeof m === 'object' && m !== null && (m as { t?: unknown }).t === 'voxels' ? draws.receive((m as { batch: Parameters<VoxelWorldDraws['receive']>[0] }).batch) : onMessage(m))),
@@ -695,7 +695,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
       const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records);
-      report = (world, bytes, coarse) => p.drawn(world, bytes, coarse);
+      report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       return p.ports;
     },
   };

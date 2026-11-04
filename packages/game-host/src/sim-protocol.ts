@@ -164,7 +164,7 @@ export type MainToWorker =
   | { readonly t: 'relay.idle' }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
   /** The page's GPU bytes of a voxel world's drawn chunks (`[cx, cy, cz, bytes]` repeated) and of its nodes and seams summed, for the world's budget. */
-  | { readonly t: 'voxels.drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number }
+  | { readonly t: 'voxels.drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number; readonly kits: number }
   | { readonly t: 'dispose' };
 
 /** The loaded scenes as the page mirrors them (entities only for a batch the page does not have yet). */

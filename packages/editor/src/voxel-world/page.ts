@@ -259,7 +259,7 @@ async function main(): Promise<void> {
     levelLog.batch(b, frames, ms);
     const drawnChunks = done.chunkBytes.length / 4;
     if (drawnChunks > 0) meshMs.add(ms / drawnChunks);
-    batcher.drawn(done.chunkBytes, done.coarseBytes);
+    batcher.drawn(done.chunkBytes, done.coarseBytes, kits.meshes.gpuBytes());
   }, {
     inPlace: true,
     onJoined: (cx, cy, cz, joined, shaderOnly, drawn) => {
@@ -273,6 +273,7 @@ async function main(): Promise<void> {
       buildMs += performance.now() - t0;
     },
   });
+  meshes.rebuilt = () => batcher.drawn(meshes.chunkBytes(), meshes.coarseBytes(), kits.meshes.gpuBytes()); // pieces built late change the bytes
 
   streamer.on((e) => {
     if (e.type === 'swap') {

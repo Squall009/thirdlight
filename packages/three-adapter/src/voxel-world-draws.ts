@@ -24,7 +24,11 @@
  *
  * Every drawn chunk's GPU bytes go back to the simulation (`report`), where
  * they count as the chunk's mesh part of the world's stream budget; the
- * nodes' and seams' bytes go with them as one sum, counted in its mip share.
+ * nodes' and seams' bytes go with them as one sum, counted in its mip share,
+ * and the kit meshes' and textures' bytes, which every world on the page
+ * draws from, counted whole in each world's budget (each must leave room for
+ * them). They are reported again when kit meshes arrive (the pieces that
+ * waited for them are built then) and when the kits change.
  *
  * While a world is drawn, an animation-frame loop retires replaced grid
  * textures and records frame times, so an edit's way to the screen can be
@@ -61,8 +65,8 @@ export interface VoxelWorldDrawsOptions {
   scene(): THREE.Scene | null;
   /** The renderer the shader grids upload through (null until it can draw). */
   renderer(): VoxelGridRenderer | null;
-  /** Drawn chunks' GPU bytes for the simulation (`[cx, cy, cz, bytes]` repeated), and every drawn node's and seam's summed. */
-  report(world: string, bytes: number[], coarse: number): void;
+  /** Drawn chunks' GPU bytes for the simulation (`[cx, cy, cz, bytes]` repeated), every drawn node's and seam's summed, and the kit meshes' and textures'. */
+  report(world: string, bytes: number[], coarse: number, kits: number): void;
   /** A batch was applied (a view drawing on demand draws a frame). */
   applied?(): void;
   /** The kit pieces every world draws (absent: none until {@link VoxelWorldDraws.setKits}). */
@@ -87,8 +91,9 @@ export interface VoxelWorldDrawStats {
 interface WorldDraw {
   readonly view: VoxelChunkView;
   readonly surface: VoxelSurface;
-  /** The nodes' and seams' GPU bytes last reported. */
+  /** The nodes' and seams' GPU bytes last reported, and the kits'. */
   coarse: number;
+  kits: number;
 }
 
 /** Edits kept for measurements. */
@@ -127,6 +132,20 @@ export class VoxelWorldDraws {
     this.opts.applied?.();
   }
 
+  /** The kit meshes' and textures' GPU bytes (every world draws from them). */
+  private kitBytes(): number {
+    return this.kitSet?.meshes.gpuBytes() ?? 0;
+  }
+
+  /** A view built the pieces that waited for kit meshes (or took new kits): its draws' bytes and the kits' go back again. */
+  private rebuilt(name: string): void {
+    const w = this.worlds.get(name);
+    if (w === undefined) return;
+    w.coarse = w.view.coarseBytes();
+    w.kits = this.kitBytes();
+    this.opts.report(name, w.view.chunkBytes(), w.coarse, w.kits);
+  }
+
   /** A batch from the simulation: applied now when the renderer can take it, else at the first frame it can. */
   receive(b: ChunkDrawBatch): void {
     if (this.disposed) return;
@@ -163,9 +182,10 @@ export class VoxelWorldDraws {
     const grid = chunkGrid(edge as ChunkEdge);
     const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: VOXEL_SIZE_M / 2 });
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet });
+    view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);
-    this.worlds.set(name, (w = { view, surface, coarse: 0 }));
+    this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0 }));
     return w;
   }
 
@@ -193,9 +213,10 @@ export class VoxelWorldDraws {
     const done = applyChunkDrawBatch(w.view, b);
     this.replaced += done.chunkBytes.length / 4;
     this.applied++;
-    const was = w.coarse;
+    const was = [w.coarse, w.kits];
     w.coarse = done.coarseBytes;
-    if (done.chunkBytes.length > 0 || was !== done.coarseBytes) this.opts.report(b.world, done.chunkBytes, done.coarseBytes);
+    w.kits = this.kitBytes();
+    if (done.chunkBytes.length > 0 || was[0] !== w.coarse || was[1] !== w.kits) this.opts.report(b.world, done.chunkBytes, w.coarse, w.kits);
     this.opts.applied?.();
     const applyMs = performance.now() - t0;
     const hopMs = receivedAt - b.sentAt;

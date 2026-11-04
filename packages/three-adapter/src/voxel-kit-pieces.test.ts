@@ -43,6 +43,7 @@ import { buildGlb } from './test-glb';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { defaultKitGeometry, VoxelKitMeshes, voxelKitDebugTexture, KIT_DEBUG_TEXTURE_SIDE, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
+import { VoxelWorldDraws } from './voxel-world-draws';
 import { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 import { DRAFT_TRIM_LAYOUT } from '@thirdlight/project-model';
 
@@ -201,6 +202,36 @@ describe('kit pieces in the chunk view', () => {
       v.dispose();
       meshes.dispose();
     }
+  });
+
+  it("reports the draws' GPU bytes for the stream budget again when the pieces that waited for kit meshes are built, with the kit meshes' own bytes", async () => {
+    const kits = [stoneKit(DIGEST_A)];
+    const table = worldPieceTable(kits);
+    const meshes = new VoxelKitMeshes();
+    const reports: Array<{ bytes: number[]; kits: number }> = [];
+    const scene = new THREE.Scene();
+    const draws = new VoxelWorldDraws({ scene: () => scene, renderer: () => renderer(), report: (_w, bytes, _coarse, k) => void reports.push({ bytes, kits: k }), kits: meshes.set(table, kits) });
+    const cells = new Uint16Array(shaderGridSide(grid.edge) ** 3);
+    const d = derive(world(), table);
+    const j = joinSectionsForDraw(grid.edge, grid.edge, [d], cells);
+    draws.receive({ world: 'w', edge: grid.edge, chunks: [{ kind: 'draw', cx: 0, cy: 0, cz: 0, ground: j.ground, base: j.base, instances: j.instances, solid: j.solid, cells }], swaps: [], sentAt: 0, joinMs: 0 });
+    expect(reports).toHaveLength(1);
+    const before = reports[0]!;
+    // The stone copings wait for their GLB: none of their instances is counted yet.
+    const s = world();
+    const copings = Array.from({ length: d.instances.count }, (_, k) => k * INSTANCE_BYTES).filter((o) => (d.instances.data[o + 4]! | (d.instances.data[o + 5]! << 8)) >= KIT_PIECE_BASE && s.voxelAt(d.instances.data[o]!, d.instances.data[o + 1]!, d.instances.data[o + 2]!, { material: 0, role: 0, shape: 0, wetness: 0 }).material === STONE).length;
+    expect(copings).toBeGreaterThan(5);
+    await meshes.load(kits, async () => ({ bytes: buildGlb({ clip: false }), version: 1 }), createGltfLoaderPort());
+    const after = reports.at(-1)!;
+    expect(reports.length).toBeGreaterThan(1);
+    expect([after.bytes[0], after.bytes[1], after.bytes[2]]).toEqual([0, 0, 0]);
+    // A matrix an instance (64 B) more for every coping built now; the kit meshes' bytes as the set holds them.
+    expect(after.bytes[3]! - before.bytes[3]!).toBe(copings * 64);
+    const b = meshes.bytes();
+    expect(after.kits).toBe(b.meshes + b.textures);
+    expect(after.kits).toBeGreaterThan(before.kits);
+    draws.dispose();
+    meshes.dispose();
   });
 
   it('a kit swap: chunks derived again draw the new kit\'s meshes, others keep the meshes they were built with; a mirrored case draws a mirrored mesh', async () => {

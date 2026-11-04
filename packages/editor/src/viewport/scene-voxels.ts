@@ -98,7 +98,7 @@ export class SceneVoxels {
       scene: () => adapter().threeScene?.() ?? null,
       // The grids upload through the renderer once it can draw.
       renderer: () => (adapter().rendererStarting() ? null : ((adapter().currentRenderer?.() ?? null) as VoxelGridRenderer | null)),
-      report: (world, bytes, coarse) => this.post({ t: 'drawn', world, bytes, coarse }),
+      report: (world, bytes, coarse, kits) => this.post({ t: 'drawn', world, bytes, coarse, kits }),
       applied: () => requestRender(),
     });
   }

@@ -71,7 +71,8 @@ import {
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import type { VoxelKitSet } from './voxel-kit-pieces';
-import { disposeInstancedTrimGeometry, instancedTrimGeometry, pieceU } from './voxel-trim-u';
+import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
+import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU } from './voxel-trim-u';
 import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
@@ -251,6 +252,12 @@ export interface VoxelChunkViewOptions {
   readonly kits?: VoxelKitSet | null;
 }
 
+/** GPU bytes of one instanced piece draw: a matrix an instance, and a trim draw's world-anchored U (voxel-trim-u.ts). */
+function pieceDrawBytes(mesh: THREE.InstancedMesh): number {
+  const u = mesh.geometry.getAttribute(PIECE_U_ATTRIBUTE);
+  return mesh.count * INSTANCE_MATRIX_FLOATS * Float32Array.BYTES_PER_ELEMENT + (u === undefined ? 0 : u.array.byteLength);
+}
+
 /** Every drawn chunk, mip node and seam of a voxel world, in one scene group. */
 export class VoxelChunkView {
   readonly root = new THREE.Group();
@@ -272,6 +279,8 @@ export class VoxelChunkView {
   pieceDraws = 0;
   private kitSet: VoxelKitSet | null;
   private kitLoaded: (() => void) | null = null;
+  /** Told when kit meshes arrived (or the kits changed) and the pieces that waited were built: the draws' bytes changed, for the stream budget. */
+  rebuilt: (() => void) | null = null;
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -326,9 +335,18 @@ export class VoxelChunkView {
     this.buildWaiting();
   }
 
-  /** Builds again the pieces of every drawn chunk and node that waited for kit meshes. */
+  /** Builds again the pieces of every drawn chunk and node that waited for kit meshes, then tells {@link rebuilt}. */
   private buildWaiting(): void {
     for (const map of this.levels) for (const m of map?.values() ?? []) if (m.waiting) this.buildPieces(m);
+    this.rebuilt?.();
+  }
+
+  /** Level-0 chunks' GPU bytes now (`[cx, cy, cz, bytes]` repeated), as a batch reports them. */
+  chunkBytes(): number[] {
+    const out: number[] = [];
+    const e = this.grid.edge;
+    for (const m of this.levels[0]?.values() ?? []) out.push(m.cell[0] / e, m.cell[1] / e, m.cell[2] / e, m.bytes);
+    return out;
   }
 
   /** Objects drawing with a grid region. */
@@ -481,8 +499,8 @@ export class VoxelChunkView {
     for (const child of [...m.group.children]) {
       if (!(child instanceof THREE.InstancedMesh)) continue;
       m.group.remove(child);
+      m.bytes -= pieceDrawBytes(child);
       this.dropPieceMesh(child);
-      m.bytes -= child.count * 64;
     }
     m.waiting = false;
     const list = m.instances;
@@ -555,7 +573,7 @@ export class VoxelChunkView {
       this.pieceDraws++;
       this.piecesDrawn[g.low ? 'low' : 'high'] += n;
       if (g.kit) this.piecesDrawn.kit += n;
-      m.bytes += n * 64;
+      m.bytes += pieceDrawBytes(mesh);
     }
   }
 

@@ -354,9 +354,16 @@ export class VoxelKitMeshes {
   }
 
   /**
-   * CPU-side bytes of what this holds (diagnostics): the vertex and index arrays of every loaded, default, mirrored
-   * and trim-flagged mesh, and the textures' texels (with a third more for mips). The GPU holds a copy of each.
+   * Bytes of what this holds: the vertex and index arrays of every loaded, default, mirrored and trim-flagged mesh,
+   * and the textures' texels (with a third more for mips). The GPU holds a copy of each; that copy counts in each
+   * world's stream budget (voxel-world-draws.ts).
    */
+  /** {@link bytes} summed: what a world's stream budget counts of the kits. */
+  gpuBytes(): number {
+    const b = this.bytes();
+    return b.meshes + b.textures;
+  }
+
   bytes(): { readonly meshes: number; readonly textures: number } {
     const geometries = new Set<THREE.BufferGeometry>();
     for (const s of this.meshes.values()) {

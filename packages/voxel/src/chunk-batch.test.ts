@@ -20,6 +20,7 @@ function feed(): { feed: ChunkDrawFeed; emit(e: StreamEvent): void; parts: Map<s
     emit: (e) => listener?.(e),
     feed: {
       grid,
+      pieces: { gpuBytes: 0 },
       on: (l) => void (listener = l),
       joinedChunk: (cx, cy, cz) => joins.get(`${cx},${cy},${cz}`) ?? null,
       setPart: (cx, cy, cz, part, bytes) => {
@@ -45,8 +46,10 @@ describe('ChunkDrawBatcher', () => {
     f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false });
     flush();
     expect(sent.at(-1)!.chunks.map((c) => c.kind)).toEqual(['draw']);
-    b.drawn([1, 0, 2, 4096], 0);
+    b.drawn([1, 0, 2, 4096], 0, 5000);
     expect(f.parts.get(`1,0,2:${MESH_PART}`)).toBe(4096);
+    // The kit meshes' bytes the page reports with its draws go to the streamer's budget.
+    expect(f.feed.pieces!.gpuBytes).toBe(5000);
     // Its sections no longer join to anything: the page drops the draw and the budget its bytes.
     f.joins.set('1,0,2', null);
     f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false });

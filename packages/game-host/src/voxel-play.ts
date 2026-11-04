@@ -21,8 +21,8 @@ import { ChunkDrawBatcher, worldPieceTable, type ChunkDrawBatch, type PieceKitSo
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
   readonly ports: VoxelWorldPorts;
-  /** The page's GPU bytes of a world's drawn chunks (`[cx, cy, cz, bytes]` repeated), and of its nodes and seams summed. */
-  drawn(world: string, bytes: readonly number[], coarse: number): void;
+  /** The page's GPU bytes of a world's drawn chunks (`[cx, cy, cz, bytes]` repeated), of its nodes and seams summed, and of the kit meshes and textures. */
+  drawn(world: string, bytes: readonly number[], coarse: number, kits: number): void;
 }
 
 /** Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from `kits`. */
@@ -57,6 +57,6 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
         };
       },
     },
-    drawn: (world, bytes, coarse) => batchers.get(world)?.drawn(bytes, coarse),
+    drawn: (world, bytes, coarse, kits) => batchers.get(world)?.drawn(bytes, coarse, kits),
   };
 }
