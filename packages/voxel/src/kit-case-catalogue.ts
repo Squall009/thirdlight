@@ -1,9 +1,10 @@
 /**
- * The case catalogue, version 2 (version 0, plus the rules where runs turn
+ * The case catalogue, version 3 (version 0, plus the rules where runs turn
  * and branch in version 1: rail L, T and cross, beam inside and outside
  * corners, the storey line's outside corner; plus each case's base and
- * declared shape for the consumers in version 2): **DRAFT — not the role
- * spec's v1.** It is the source the role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
+ * declared shape for the consumers in version 2; plus a front for the
+ * plain wall, lintels, sills and the tops and bottoms of openings, and the
+ * one-cell-thick wall's case, in version 3): **DRAFT — not the role spec's v1.** It is the source the role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
  * and stays a draft until the owner approves that spec; nothing builds on
  * its case list as final before then.
  *
@@ -44,6 +45,7 @@ const cases: CaseDef[] = [
   c('enclosed', BUILT_CASE_ROLES, null, false, 'no face open: nothing shows, no piece'),
   // wall
   c('wall-plain', [R.wall], null, true, 'an exposed wall face with no edge in reach (fallback): the base surface'),
+  c('wall-thin', [R.wall], 'x', false, 'a one-cell-thick wall, open in front and behind: the piece dresses both faces'),
   c('wall-top', [R.wall], 'x', true, 'the top edge of a wall: a coping cap'),
   c('wall-end', [R.wall], 'y', true, 'the free end of a one-cell-thick wall'),
   c('wall-corner', [R.wall], 'y', true, 'an outside vertical corner'),
@@ -119,12 +121,19 @@ const rules: CaseRule[] = [
   r('foundation-skirt', 70, [[0, 0, 1, O], [0, -1, 1, G]]),
   // wall
   r('wall-jamb', 65, [[1, 0, 0, OP]]),
-  r('wall-lintel', 64, [[0, -1, 0, OP]]),
-  r('wall-sill', 63, [[0, 1, 0, OP]]),
+  // Lintels and sills name their front: the opening above or below alone leaves the piece's face free to turn into the wall.
+  r('wall-lintel', 64, [[0, -1, 0, OP], [0, 0, 1, O]]),
+  r('wall-sill', 63, [[0, 1, 0, OP], [0, 0, 1, O]]),
   r('wall-end', 55, [[0, 0, 1, O], [0, 0, -1, O], [1, 0, 0, O], [-1, 0, 0, S]]),
   r('wall-corner', 54, [[0, 0, 1, O], [1, 0, 0, O], [1, 0, 1, O]]),
   r('wall-top', 50, [[0, 1, 0, A], [0, 0, 1, O]]),
   r('wall-base', 45, [[0, 0, 1, O], [0, -1, 0, G | CELL.foundation | CELL.floor], [0, -1, 1, S]]),
+  // The plain wall's front on an exposed side face: without it the fallback took the key's fold, whose front may face
+  // along the wall, into the next cell (a piece hidden in the wall or standing across its face).
+  // A one-cell-thick wall shows both faces: a piece on one face only would leave the other bare, and which one it
+  // took would flip wherever the window changes (beside a corner or an opening).
+  r('wall-thin', 2, [[0, 0, 1, O], [0, 0, -1, O]]),
+  r('wall-plain', 1, [[0, 0, 1, O]]),
   // floor
   r('floor-corner', 52, [[0, 0, 1, O], [1, 0, 0, O]]),
   r('floor-edge', 50, [[0, 0, 1, O]]),
@@ -153,16 +162,17 @@ const rules: CaseRule[] = [
   r('pillar-shaft', 55, [...SIDES_OPEN, [0, 1, 0, CELL.pillar], [0, -1, 0, CELL.pillar]]),
   // opening: its frame is the solid around it in its plane (x, y); front and back are open.
   r('opening-single', 60, [[0, 1, 0, S], [0, -1, 0, S], [1, 0, 0, S], [-1, 0, 0, S]]),
-  r('opening-threshold', 58, [[0, -1, 0, G | CELL.floor | CELL.foundation | CELL.stair]]),
-  r('opening-sill', 56, [[0, -1, 0, S]]),
-  r('opening-head', 54, [[0, 1, 0, S]]),
+  // Bottoms and tops name their front as air: beside another opening cell the frame's run would otherwise turn across the wall.
+  r('opening-threshold', 58, [[0, -1, 0, G | CELL.floor | CELL.foundation | CELL.stair], [0, 0, 1, A]]),
+  r('opening-sill', 56, [[0, -1, 0, S], [0, 0, 1, A]]),
+  r('opening-head', 54, [[0, 1, 0, S], [0, 0, 1, A]]),
   r('opening-jamb', 52, [[1, 0, 0, S]]),
 ];
 
 /** The draft catalogue (see the file comment: DRAFT — not v1, the role spec draft's source). */
 export const DRAFT_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'cases-draft',
-  version: 2,
+  version: 3,
   draft: true,
   cases,
   rules,

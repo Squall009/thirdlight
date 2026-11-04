@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
-import { TRIM_LAYOUTS } from '@thirdlight/project-model';
+import { TRIM_LAYOUTS, type TrimLayout } from '@thirdlight/project-model';
 import {
   DEFAULT_KIT_ID,
   DEFAULT_KIT_PIECES,
@@ -51,6 +51,7 @@ import { cameraRelative } from './camera-relative';
 import { mergeLayout, mergeWorldGeometry } from './static-merge';
 import type { GlbLoaderPort } from './visual';
 import { drawGlyphs, trimDebugTexture } from './voxel-trim-debug-texture';
+import { trimMaterial, trimRunGeometry, trimUPerMetre } from './voxel-trim-u';
 
 /** One authored mesh of a kit: a model asset version by its source digest, optionally one node of it. */
 export interface VoxelKitMeshRef {
@@ -73,6 +74,8 @@ export interface VoxelKitDraw {
   readonly key: string;
   readonly geometry: THREE.BufferGeometry;
   readonly material: THREE.Material;
+  /** A trim kit's piece (voxel-trim-u.ts): sheet U a metre, the draw gives each instance its world-anchored U offset. */
+  readonly uPerMetre?: number;
 }
 
 /** A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project. */
@@ -228,6 +231,8 @@ export class VoxelKitMeshes {
   private readonly defaults = new Map<string, THREE.BufferGeometry>();
   private readonly materials = new Map<string, THREE.Material>();
   private readonly trimTextures = new Map<string, THREE.Texture>();
+  /** Trim pieces' run-flagged copies, by the mesh they were made from. */
+  private readonly trimmed = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
   private readonly waiting = new Set<() => void>();
   private disposed = false;
 
@@ -321,9 +326,16 @@ export class VoxelKitMeshes {
         this.trimTextures.set(layout.id, map);
       }
       const color = isDefault ? DEFAULT_KIT_TINT : layout !== undefined ? 0xffffff : KIT_TINTS[(seed >>> 0) % KIT_TINTS.length]!;
-      this.materials.set(key, (m = cameraRelative(new MeshLambertNodeMaterial({ color, map }))));
+      this.materials.set(key, (m = layout !== undefined ? trimMaterial(map) : cameraRelative(new MeshLambertNodeMaterial({ color, map }))));
     }
     return m;
+  }
+
+  /** A trim kit's mesh with its run faces flagged for the world-anchored U (made once a mesh). */
+  trimGeometry(g: THREE.BufferGeometry, layout: TrimLayout): THREE.BufferGeometry {
+    let t = this.trimmed.get(g);
+    if (t === undefined) this.trimmed.set(g, (t = trimRunGeometry(g, layout)));
+    return t;
   }
 
   /** What a world's view draws its pieces with: `table` (its streamer's) and the kit records it was built from. */
@@ -355,6 +367,8 @@ export class VoxelKitMeshes {
     this.materials.clear();
     for (const t of this.trimTextures.values()) t.dispose();
     this.trimTextures.clear();
+    for (const g of this.trimmed.values()) g.dispose();
+    this.trimmed.clear();
     this.texture.dispose();
     this.waiting.clear();
   }
@@ -411,6 +425,10 @@ export class VoxelKitSet {
     if (v === undefined) return null;
     const g = this.meshes.mesh(low ? (v.low ?? v.high) : v.high, mirror);
     if (g === 'pending' || g === null) return g;
-    return { key, geometry: g, material: this.meshes.material(kit.seed, false, this.records.get(kit.id)?.trimLayout) };
+    const trimLayout = this.records.get(kit.id)?.trimLayout;
+    const look = this.meshes.material(kit.seed, false, trimLayout);
+    const layout = trimLayout === undefined ? undefined : TRIM_LAYOUTS.get(trimLayout);
+    if (layout === undefined) return { key, geometry: g, material: look };
+    return { key, geometry: this.meshes.trimGeometry(g, layout), material: look, uPerMetre: trimUPerMetre(layout) };
   }
 }

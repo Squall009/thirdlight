@@ -54,6 +54,7 @@ import {
   INSTANCE_FLAG,
   mipCellMetres,
   PIECE_FAMILY,
+  PIECE_VARIANT_MIRROR,
   POSITION_STEPS_PER_CELL,
   SampleRing,
   SURFACE_VERTEX_BYTES,
@@ -70,6 +71,7 @@ import {
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import type { VoxelKitSet } from './voxel-kit-pieces';
+import { disposeInstancedTrimGeometry, instancedTrimGeometry, pieceU } from './voxel-trim-u';
 import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
@@ -486,7 +488,7 @@ export class VoxelChunkView {
     const list = m.instances;
     if (list.count === 0) return;
     // One instanced mesh a draw: a default family and detail, or a kit piece's resolved key.
-    const byMesh = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material; kit: boolean; low: boolean; turnSign: number; offsets: number[] }>();
+    const byMesh = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material; kit: boolean; low: boolean; turnSign: number; offsets: number[]; uPerMetre?: number }>();
     for (let k = 0; k < list.count; k++) {
       const o = k * INSTANCE_BYTES;
       const piece = list.data[o + 4]! | (list.data[o + 5]! << 8);
@@ -514,7 +516,7 @@ export class VoxelChunkView {
         if (r === null) continue;
         key = r.key;
         // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
-        if (!byMesh.has(key)) byMesh.set(key, { geometry: r.geometry, material: r.material, kit: true, low, turnSign: -1, offsets: [] });
+        if (!byMesh.has(key)) byMesh.set(key, { geometry: r.geometry, material: r.material, kit: true, low, turnSign: -1, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
       }
       byMesh.get(key)?.offsets.push(o);
     }
@@ -525,8 +527,19 @@ export class VoxelChunkView {
     for (const g of byMesh.values()) {
       const n = g.offsets.length;
       if (n === 0) continue;
-      const mesh = new THREE.InstancedMesh(g.geometry, g.material, n);
+      // A trim piece's draw has its own geometry for the instances' world-anchored U (voxel-trim-u.ts).
+      const trim = g.uPerMetre === undefined ? null : instancedTrimGeometry(g.geometry, n);
+      const mesh = new THREE.InstancedMesh(trim?.geometry ?? g.geometry, g.material, n);
       mesh.matrixAutoUpdate = false;
+      if (trim !== null) {
+        mesh.userData['voxelTrimGeometry'] = true;
+        g.offsets.forEach((o, i) => {
+          const local = [list.data[o]!, list.data[o + 1]!, list.data[o + 2]!];
+          const mirror = ((list.data[o + 6]! | (list.data[o + 7]! << 8)) & PIECE_VARIANT_MIRROR) !== 0;
+          const [offset, factor] = pieceU(g.uPerMetre!, m.cell, local, cellM, list.data[o + 3]! & 3, mirror);
+          trim.u.setXY(i, offset, factor);
+        });
+      }
       g.offsets.forEach((o, i) => {
         // Quarter turns about +y turn the piece's run (its x) to the cell's run axis.
         this.quat.setFromAxisAngle(this.up, (g.turnSign * (list.data[o + 3]! & 3) * Math.PI) / 2);
@@ -551,6 +564,7 @@ export class VoxelChunkView {
     this.pieceDraws--;
     this.piecesDrawn[child.userData['voxelPieceDetail'] === 'low' ? 'low' : 'high'] -= child.count;
     if (child.userData['voxelKitPiece'] === true) this.piecesDrawn.kit -= child.count;
+    if (child.userData['voxelTrimGeometry'] === true) disposeInstancedTrimGeometry(child.geometry);
     child.dispose();
   }
 

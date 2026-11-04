@@ -147,6 +147,16 @@ class Piece:
         return self
 
 
+def mirror_z(piece):
+    """The piece mirrored front to back (z negated): the same faces on the back of a one-cell-thick wall, U unchanged."""
+    p = Piece()
+    flip = lambda c: ((c[0][0], c[0][1], -c[0][2]), (c[1][0], c[1][1], -c[1][2]), c[2])
+    for a, b, c in piece.tris:
+        # Mirroring turns the winding over; swapping two corners keeps the fronts outward.
+        p.tris.append((flip(a), flip(c), flip(b)))
+    return p
+
+
 def circle(r, n, cz=0.0, cy=0.0, start=0.0):
     """An n-gon of radius r round (cz, cy), points counter-clockwise from angle `start` (0: toward -y, the seam down)."""
     return [(cz + r * math.sin(start + 2 * math.pi * k / n), cy - r * math.cos(start + 2 * math.pi * k / n)) for k in range(n)]
@@ -367,6 +377,8 @@ def log_pieces():
         return p
 
     k['wall-plain'] = {'body': [(half_logs(8), half_logs(3))]}
+    # A one-cell-thick wall: half-logs on both faces, so the wall reads as whole logs from either side.
+    k['wall-thin'] = {'body': [(half_logs(8).add(mirror_z(half_logs(8))), half_logs(3).add(mirror_z(half_logs(3))))]}
 
     def top(r, sides, which):
         x0 = -HALF - (0.07 if which in ('start', 'single') else 0.0)
@@ -391,7 +403,8 @@ def log_pieces():
                 p.add(ext_x(circle(0.11, sides, 0.0 if not along_z_top else 0.125, cy), 'F1', HALF, HALF + 0.15, (0.0 if not along_z_top else 0.125, cy), closed=True, smooth=True, cap1=True))
         return p
 
-    k['wall-end'] = {'body': [(stubs(10, False), stubs(5, False))]}
+    # A free end of a one-cell-thick wall: the courses on both faces, their log ends out of the end (+x).
+    k['wall-end'] = {'body': [(stubs(10, False).add(half_logs(8)).add(mirror_z(half_logs(8))), stubs(5, False).add(half_logs(3)).add(mirror_z(half_logs(3))))]}
     k['wall-corner'] = {'body': [(stubs(10, True), stubs(5, True))]}
 
     def beam(sides, which):
@@ -466,6 +479,8 @@ def stone_pieces():
 
     # Two variants: the joint in the lower course or in the upper (the bond staggers cell to cell).
     k['wall-plain'] = {'body': [(ashlar(False, False), ashlar(False, True)), (ashlar(True, False), ashlar(True, True))]}
+    # A one-cell-thick wall: ashlar on both faces (the back's joints mirror the front's).
+    k['wall-thin'] = {'body': [(ashlar(f, False).add(mirror_z(ashlar(f, False))), ashlar(f, True).add(mirror_z(ashlar(f, True)))) for f in (False, True)]}
 
     def coping(which, low):
         # A coping on the wall top: drip faces front and back (S12p), the weathered top (S50), small chamfers (S12).
@@ -572,7 +587,7 @@ KITS = {
     },
     'stone': {
         'name': 'Stone (placeholder)', 'materialType': 'stone', 'materials': [10, 15], 'pieces': stone_pieces,
-        'weights': {'wall-plain': [1, 1]},
+        'weights': {'wall-plain': [1, 1], 'wall-thin': [1, 1]},
         'profiles': {
             'stone-coping': [[0, 16], [16, 16], [16, 15], [0, 15]],
             'stone-cornice': [[16, 11], [16, 16], [15, 16], [15, 12]],

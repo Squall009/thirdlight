@@ -105,10 +105,11 @@ describe('the draft catalogue on the wall / beam / banister neighbours', () => {
   it('reads the wall, beam, rail and posts as their cases, the beam and rail running along x, as the placeholder rules read them', () => {
     const s = createWorldStore(grid);
     placeWallBeamBanister(s);
-    expect(caseAt(cat, s, 0, 4, 0)?.id).toBe('wall-plain');
+    // The scene's wall is one cell thick: open in front and behind (wall-thin, catalogue v3).
+    expect(caseAt(cat, s, 0, 4, 0)?.id).toBe('wall-thin');
     expect(caseAt(cat, s, 0, 7, 0)?.id).toBe('wall-top');
     expect(caseAt(cat, s, -6, 3, 0)?.id).toBe('wall-end');
-    expect(caseAt(cat, s, 0, 2, 0)?.id).toBe('wall-plain');
+    expect(caseAt(cat, s, 0, 2, 0)?.id).toBe('wall-thin');
     const beam = caseAt(cat, s, 0, 5, -1)!;
     expect(beam.id).toBe('beam');
     // Its run (+x in the case) stays along x in the world; the wall behind it (−z in the case) is at +z.
@@ -146,7 +147,7 @@ describe('the draft catalogue on the wall / beam / banister neighbours', () => {
     const s = createWorldStore(grid);
     placeWallBeamBanister(s);
     for (let x = -4; x < 4; x++) putVoxel(s, x, 3, 7, MAT.timber, C.wall);
-    expect(caseAt(cat, s, 1, 2, 7)?.id).toBe('wall-plain');
+    expect(caseAt(cat, s, 1, 2, 7)?.id).toBe('wall-thin');
     expect(caseAt(cat, s, 0, 1, 7)?.id).not.toMatch(/^banister/);
     expect(caseAt(cat, s, 1, 3, 7)?.id).toBe('wall-top');
     for (let y = 0; y < 8; y++) for (const x of [-1, 0, 1]) putVoxel(s, x, y, 0, 0, C.air);

@@ -44,7 +44,7 @@ describe('the kit test scene', () => {
     expect(exhibits.map((e) => `${e.caseId}/${e.role}`)).toEqual(pairs);
     const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
     for (const e of exhibits) for (const [dx, dy, dz] of e.cells) expect(Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz))).toBeLessThanOrEqual(2);
-    expect(cat.cases.length).toBe(45);
+    expect(cat.cases.length).toBe(46);
     // The same catalogue gives the same scene.
     expect(JSON.stringify(kitTestScene(KIT_RULES, { origin: ORIGIN, material: MAT.timber }))).toBe(JSON.stringify(kitTestScene(KIT_RULES, { origin: ORIGIN, material: MAT.timber })));
   });

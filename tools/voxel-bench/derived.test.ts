@@ -697,7 +697,7 @@ describe('the kit rule set', () => {
   it('is the world rule set: the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3', () => {
     expect(WORLD_RULES).toBe(KIT_RULES);
     expect(registeredAssemblyRules()).toContain(KIT_RULES);
-    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 3, radius: 2 });
+    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 4, radius: 2 });
     expect(KIT_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
     expect(jobRadius(KIT_RULES)).toBe(3);
     // The classes are the terrain rules' (one class byte a cell); only the kit rules give cases.
@@ -767,7 +767,7 @@ describe('the kit rule set', () => {
       const tree = new MipTree(store);
       for (const [cx, cy, cz] of chunks) {
         const a = deriveFromStore(store, cx, cy, cz, KIT_RULES);
-        expect(a.rules).toEqual({ id: 'kits', version: 3, radius: 2 });
+        expect(a.rules).toEqual({ id: 'kits', version: 4, radius: 2 });
         // Does any cell the consumers read take another form from its case than from its class?
         const job = kitJob(store, cx, cy, cz);
         const forms = new Uint8Array(job.n.values.length);

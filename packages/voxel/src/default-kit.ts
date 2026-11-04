@@ -52,6 +52,7 @@ const frontStrip = (y0: number, y1: number, out: number, back = 0): DefaultKitBo
 export const DEFAULT_KIT_PIECES: Readonly<Record<string, DefaultKitPiece | null>> = Object.freeze({
   enclosed: null,
   'wall-plain': null,
+  'wall-thin': null,
   'wall-top': piece('a coping cap over the wall top, overhanging the face', [0, 14, 1, 16, 17, 17]),
   'wall-end': piece('an end board up the free end (+x)', [16, 0, 2, 17, 16, 14]),
   'wall-corner': piece('a corner post up the outside corner (+x, +z)', [14, 0, 14, 17, 16, 17]),
