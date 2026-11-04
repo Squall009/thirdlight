@@ -5,7 +5,7 @@
  * passes), the detail-bearing cells, the case keys seen and how often each
  * case occurs; and the composed kit rule set against the terrain rules
  * alone, measured the way a derive job runs them: the evaluation (classes,
- * plus cases for the kit rules) and the whole section derive (evaluation
+ * plus cases and run sections for the kit rules) and the whole section derive (evaluation
  * and meshes), interleaved section by section.
  *
  *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--out DIR]
@@ -29,10 +29,14 @@ import {
   DRAFT_CASE_CATALOGUE,
   evaluateAssembly,
   evaluateCases,
+  evaluateRuns,
   fillNeighbourhood,
   KIT_RULES,
   NO_CASE,
+  NO_SECTION,
   PLACEHOLDER_RULES,
+  RUN_SECTION,
+  runSectionOf,
   jobRadius,
   TERRAIN_RULES,
   terrainSurface,
@@ -90,6 +94,10 @@ interface Composed {
   /** The whole section derive (evaluation and meshes; deriveChunk), sections with a surface (ground, base or pieces) and all. */
   derive: { terrain: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } }; kits: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } } };
   surfaceSections: number;
+  /** The run pass alone (kit rules), sections with detail cells: what the run sections add to the evaluation. */
+  runs: { p50: number; p95: number };
+  /** Cells of each run section (kit rules, one pass). */
+  sectionCells: Record<string, number>;
   /** The evaluation and the terrain mesher's ground surface (what 46b measured), sections with ground triangles. */
   ground: { terrain: { p50: number; p95: number }; kits: { p50: number; p95: number } };
   groundSections: number;
@@ -102,6 +110,10 @@ interface Composed {
 function measureComposed(sections: readonly Neighbourhood[], rounds: number): Composed {
   const classes = new Uint8Array(sections[0]!.values.length);
   const cases = new Uint16Array(sections[0]!.values.length);
+  const runs = new Uint16Array(sections[0]!.values.length);
+  const runUs: number[] = [];
+  const sectionCells: Record<string, number> = Object.fromEntries(Object.keys(RUN_SECTION).map((k) => [k, 0]));
+  const sectionNames = Object.keys(RUN_SECTION);
   const sets: Array<[string, AssemblyRuleSet]> = [['terrain', TERRAIN_RULES], ['kits', KIT_RULES]];
   const ev = new Map(sets.map(([k]) => [k, { cells: [] as number[], all: [] as number[] }]));
   const dv = new Map(sets.map(([k]) => [k, { surface: [] as number[], all: [] as number[] }]));
@@ -121,8 +133,20 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
         const t0 = performance.now();
         evaluateAssembly(n, r, classes);
         const count = evaluateCases(n, r, 0, cases);
+        const tr = performance.now();
+        evaluateRuns(n, r, cases, runs, count);
         const evUs = (performance.now() - t0) * 1000;
         if (count > 0) detail = true;
+        if (count > 0 && name === 'kits') {
+          runUs.push((performance.now() - tr) * 1000);
+          if (round === 0) {
+            const side = n.side;
+            for (let x = PAD; x < PAD + SECTION; x++) for (let z = PAD; z < PAD + SECTION; z++) for (let y = PAD; y < PAD + SECTION; y++) {
+              const p = runs[(x * side + z) * side + y]!;
+              if (p !== NO_SECTION) sectionCells[sectionNames[runSectionOf(p)]!]!++;
+            }
+          }
+        }
         const tg = performance.now();
         const g = terrainSurface(n, classes);
         const gUs = (performance.now() - tg) * 1000;
@@ -149,6 +173,8 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
     evaluate: { terrain: { cells: q2(ev.get('terrain')!.cells), all: q2(ev.get('terrain')!.all) }, kits: { cells: q2(ev.get('kits')!.cells), all: q2(ev.get('kits')!.all) } },
     derive: { terrain: { surface: q2(dv.get('terrain')!.surface), all: q2(dv.get('terrain')!.all) }, kits: { surface: q2(dv.get('kits')!.surface), all: q2(dv.get('kits')!.all) } },
     surfaceSections,
+    runs: q2(runUs),
+    sectionCells,
     ground: { terrain: q2(gv.get('terrain')!), kits: q2(gv.get('kits')!) },
     groundSections,
   };
@@ -246,7 +272,8 @@ function main(): void {
       '',
       `- ${sections.length} sections of 16³, ${x.withCellsCount} with detail-bearing cells, ${x.cells} cells, ${x.keys} case keys seen.`,
       `- Case extraction alone, µs a section p50 / p95: with cells ${x.us.withCells.p50} / ${x.us.withCells.p95}, all ${x.us.all.p50} / ${x.us.all.p95} (${rounds} rounds: ${x.roundMs.map(Math.round).join(', ')} ms; cold pass ${Math.round(x.coldMs)} ms).`,
-      `- Evaluation µs p50 / p95, sections with detail cells: terrain rules ${c.evaluate.terrain.cells.p50} / ${c.evaluate.terrain.cells.p95}, kit rules (terrain + cases) ${c.evaluate.kits.cells.p50} / ${c.evaluate.kits.cells.p95}; all sections: ${c.evaluate.terrain.all.p50} / ${c.evaluate.terrain.all.p95} vs ${c.evaluate.kits.all.p50} / ${c.evaluate.kits.all.p95}.`,
+      `- Evaluation µs p50 / p95, sections with detail cells: terrain rules ${c.evaluate.terrain.cells.p50} / ${c.evaluate.terrain.cells.p95}, kit rules (terrain + cases + run sections) ${c.evaluate.kits.cells.p50} / ${c.evaluate.kits.cells.p95}; all sections: ${c.evaluate.terrain.all.p50} / ${c.evaluate.terrain.all.p95} vs ${c.evaluate.kits.all.p50} / ${c.evaluate.kits.all.p95}.`,
+      `- Run sections alone (kit rules), µs a section with detail cells p50 / p95: ${c.runs.p50} / ${c.runs.p95}. Cells by section: ${Object.entries(c.sectionCells).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
       `- Section derive (evaluation + meshes) µs p50 / p95, ${c.surfaceSections} sections with a surface: terrain rules ${c.derive.terrain.surface.p50} / ${c.derive.terrain.surface.p95}, kit rules ${c.derive.kits.surface.p50} / ${c.derive.kits.surface.p95}; all sections: ${c.derive.terrain.all.p50} / ${c.derive.terrain.all.p95} vs ${c.derive.kits.all.p50} / ${c.derive.kits.all.p95}.`,
       `- Evaluation + ground mesh µs p50 / p95 (46b's measure), ${c.groundSections} sections with ground: terrain rules ${c.ground.terrain.p50} / ${c.ground.terrain.p95}, kit rules ${c.ground.kits.p50} / ${c.ground.kits.p95}.`,
       `- Cases: ${[...x.cases].sort((a, b) => b[1] - a[1]).map(([id, n]) => `${id} ${n}`).join(', ')}; never seen: ${cat.cases.filter((k) => !x.cases.has(k.id)).map((k) => k.id).join(', ') || 'none'}.`,

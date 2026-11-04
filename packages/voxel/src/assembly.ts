@@ -88,6 +88,13 @@ export interface AssemblyRuleSet {
    * gives no cell a case (kit-rules.ts `evaluateCases`).
    */
   resolveCases?(n: Neighbourhood, lo: number, hi: number, level: number, out: Uint16Array): number;
+  /**
+   * Optional, beside `resolveCases`: the run section of every cell of the
+   * box [lo, hi) (kit-runs.ts's packed section, or its NO_SECTION) from the
+   * cases of the box and one cell round it. Kept only inside the derive
+   * job. Returns the cells given a section.
+   */
+  resolveRuns?(n: Neighbourhood, cases: Uint16Array, lo: number, hi: number, out: Uint16Array): number;
 }
 
 /** What a derived result records about the rules it came from. */

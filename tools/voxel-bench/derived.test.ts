@@ -58,7 +58,18 @@ import {
   cropNeighbourhood,
   DRAFT_CASE_CATALOGUE,
   evaluateCases,
+  evaluateRuns,
   KIT_RULES,
+  NO_SECTION,
+  packRunSection,
+  RUN_AXIS,
+  RUN_END,
+  RUN_SECTION,
+  runAxisOf,
+  runEndEndOf,
+  runSectionOf,
+  runStartEndOf,
+  runU,
   levelHasCases,
   NO_CASE,
   sectionLocalOrigin,
@@ -683,7 +694,7 @@ describe('the kit rule set', () => {
   it('is the world rule set: the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3', () => {
     expect(WORLD_RULES).toBe(KIT_RULES);
     expect(registeredAssemblyRules()).toContain(KIT_RULES);
-    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 1, radius: 2 });
+    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 2, radius: 2 });
     expect(KIT_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
     expect(jobRadius(KIT_RULES)).toBe(3);
     // The classes are the terrain rules' (one class byte a cell); only the kit rules give cases.
@@ -740,7 +751,7 @@ describe('the kit rule set', () => {
   it('changes no derived output: chunks, sections and mip nodes of levels 1 and 2 derive to the terrain rules\' bytes but the rule set they name', () => {
     const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 } });
     const same = (a: DerivedData, b: DerivedData, at: string): void => {
-      expect(a.rules, at).toEqual({ id: 'kits', version: 1, radius: 2 });
+      expect(a.rules, at).toEqual({ id: 'kits', version: 2, radius: 2 });
       expect(encodeDerived(strip(a)), at).toEqual(encodeDerived(strip(b)));
     };
     const town = createWorldStore(grid);
@@ -833,6 +844,239 @@ describe('the kit rule set', () => {
     expect([...roles].sort((a, b) => a - b)).toEqual([C.wall, C.floor, C.roof, C.foundation, C.stair, C.pillar, C.opening].sort((a, b) => a - b));
     expect(seen.size).toBeGreaterThan(20);
   }, 60_000);
+});
+
+describe('run sections', () => {
+  const KR = jobRadius(KIT_RULES);
+  const SEC = RUN_SECTION;
+  const END = RUN_END;
+
+  /** A chunk's job under the kit rules: its cases and run sections (what a derive's consumers read). */
+  function runJob(store: PaletteStore, cx: number, cy: number, cz: number): { n: ReturnType<typeof createNeighbourhood>; cases: Uint16Array; runs: Uint16Array } {
+    const n = createNeighbourhood(E, KR);
+    const dense = createDenseChunk(grid);
+    fillNeighbourhood(n, grid, store.exportChunk(cx, cy, cz, dense) ? dense : null, buildApron(store, cx, cy, cz, KR));
+    const cases = new Uint16Array(n.values.length);
+    evaluateCases(n, KIT_RULES, 0, cases);
+    const runs = new Uint16Array(n.values.length);
+    evaluateRuns(n, KIT_RULES, cases, runs);
+    return { n, cases, runs };
+  }
+
+  /** Reads world cells' cases and run sections, each from the job of the chunk that holds it. */
+  function reader(store: PaletteStore): { section: (x: number, y: number, z: number) => number; caseId: (x: number, y: number, z: number) => string } {
+    const jobs = new Map<string, ReturnType<typeof runJob>>();
+    const cell = (x: number, y: number, z: number): [ReturnType<typeof runJob>, number] => {
+      const key = `${chunkOf(x)},${chunkOf(y)},${chunkOf(z)}`;
+      let job = jobs.get(key);
+      if (job === undefined) {
+        job = runJob(store, chunkOf(x), chunkOf(y), chunkOf(z));
+        jobs.set(key, job);
+      }
+      const s = job.n.side;
+      return [job, ((local(x) + KR) * s + (local(z) + KR)) * s + (local(y) + KR)];
+    };
+    return {
+      section: (x, y, z) => {
+        const [job, i] = cell(x, y, z);
+        return job.runs[i]!;
+      },
+      caseId: (x, y, z) => {
+        const [job, i] = cell(x, y, z);
+        const c = job.cases[i]!;
+        return c === NO_CASE ? 'none' : DRAFT_CASE_CATALOGUE.cases[caseIndexOf(c)]!.id;
+      },
+    };
+  }
+
+  /** A wall along x at z = 0 (8 tall) over x0…x1−1 with a beam one cell out at z = −1, y = 5: a run across chunk faces. */
+  function longBeam(x0: number, x1: number): PaletteStore {
+    const s = createWorldStore(grid);
+    ground(s, x0 - 4, x1 + 4, -6, 6, 3, 0);
+    for (let x = x0; x < x1; x++) {
+      for (let y = 0; y < 8; y++) put(s, x, y, 0, MAT.stone, C.wall);
+      put(s, x, 5, -1, MAT.timber, C.wall);
+    }
+    return s;
+  }
+
+  /** Thin rails one cell high on a plank slab at y = 0: `cells` are the rail cells (x, z) at y = 1. */
+  function railsOnSlab(cells: ReadonlyArray<readonly [number, number]>): PaletteStore {
+    const s = createWorldStore(grid);
+    ground(s, -16, 16, -16, 16, 3, 0);
+    for (let x = -12; x < 12; x++) for (let z = -12; z < 12; z++) put(s, x, 0, z, MAT.plank, C.wall);
+    for (const [x, z] of cells) put(s, x, 1, z, MAT.timber, C.wall);
+    return s;
+  }
+
+  const name = (o: object, v: number): string => Object.keys(o)[Object.values(o).indexOf(v)] ?? String(v);
+  const show = (p: number): string => (p === NO_SECTION ? 'none' : `${name(SEC, runSectionOf(p))} ${name(END, runStartEndOf(p))}-${name(END, runEndEndOf(p))} ${name(RUN_AXIS, runAxisOf(p))}`);
+  const isTermination = (p: number): boolean => runSectionOf(p) === SEC.start || runSectionOf(p) === SEC.end;
+  /** A termination: joined on its run side, open (an exposed end) on its free side. */
+  const openTermination = (p: number): boolean => (runSectionOf(p) === SEC.start && runStartEndOf(p) === END.open && runEndEndOf(p) === END.joined) || (runSectionOf(p) === SEC.end && runStartEndOf(p) === END.joined && runEndEndOf(p) === END.open);
+
+  it('gives a long beam across chunk faces bodies, two open terminations and a world-anchored U that runs on without a seam', () => {
+    const x0 = -40;
+    const x1 = 40;
+    const s = longBeam(x0, x1);
+    const r = reader(s);
+    const metres = mipCellMetres(0);
+    let lastU = NaN;
+    const ends: number[] = [];
+    for (let x = x0; x < x1; x++) {
+      expect(r.caseId(x, 5, -1), `x ${x}`).toBe('beam');
+      const p = r.section(x, 5, -1);
+      expect(runAxisOf(p), show(p)).toBe(RUN_AXIS.x);
+      // U from the cell's offset in its chunk and the chunk's first cell steps one cell a cell across every chunk face.
+      const u = runU(chunkOf(x) * E, local(x), metres);
+      if (!Number.isNaN(lastU)) expect(u - lastU).toBeCloseTo(metres, 9);
+      lastU = u;
+      if (x > x0 && x < x1 - 1) {
+        expect(show(p), `x ${x}`).toBe('body joined-joined x');
+      } else ends.push(p);
+    }
+    // The two ends are terminations, the free side open (nothing beyond the beam). The two ends' windows are mirror
+    // images, so both fold to one case orientation: the same termination piece, placed mirrored at one of them.
+    expect(ends.every(openTermination), ends.map(show).join(' | ')).toBe(true);
+    // The wall's top is a run too (a case with a run axis): a coping body.
+    expect(show(r.section(0, 7, 0))).toBe('body joined-joined x');
+  });
+
+  it('breaks a run at a dig: terminations appear at the cut, open toward it; no section changes farther than the job reach', () => {
+    const s = longBeam(-20, 20);
+    const before = reader(s);
+    const cells: Array<[number, number, number]> = [];
+    for (let x = -24; x < 24; x++) for (let y = -2; y < 10; y++) for (let z = -4; z < 4; z++) cells.push([x, y, z]);
+    const was = cells.map((c) => before.section(...c));
+    put(s, 3, 5, -1, 0, C.air);
+    const after = reader(s);
+    const sides = [after.section(2, 5, -1), after.section(4, 5, -1)];
+    // Each side of the cut is now a termination whose free side opens onto the dug cell.
+    expect(sides.every(openTermination), sides.map(show).join(' | ')).toBe(true);
+    expect(after.section(3, 5, -1)).toBe(NO_SECTION);
+    let changed = 0;
+    cells.forEach((c, k) => {
+      const now = after.section(...c);
+      if (now === was[k]) return;
+      changed++;
+      const reach = Math.max(Math.abs(c[0] - 3), Math.abs(c[1] - 5), Math.abs(c[2] + 1));
+      expect(reach, `cell ${c.join(',')} ${show(was[k]!)} → ${show(now)}`).toBeLessThanOrEqual(jobRadius(KIT_RULES));
+    });
+    expect(changed).toBeGreaterThanOrEqual(3);
+    for (const x of [-19, -10, 0, 8, 15, 18]) expect(show(after.section(x, 5, -1))).toBe(show(before.section(x, 5, -1)));
+  });
+
+  it('turns a corner, branches a T and crosses an X of rails across chunk faces; a skirt turns round a foundation\'s outside corner', () => {
+    // L: the corner at (−1, −1), arms along +x and +z (crossing the chunk faces at 0).
+    const L = reader(railsOnSlab([[-1, -1], ...[0, 1, 2, 3].map((k) => [k, -1] as const), ...[0, 1, 2, 3].map((k) => [-1, k] as const)]));
+    expect(L.caseId(-1, 1, -1)).toBe('banister-rail');
+    expect(runSectionOf(L.section(-1, 1, -1)), show(L.section(-1, 1, -1))).toBe(SEC.corner);
+    for (const [x, z] of [[0, -1], [1, -1], [2, -1]] as const) expect(show(L.section(x, 1, z)), `${x},${z}`).toBe('body joined-joined x');
+    for (const [x, z] of [[-1, 0], [-1, 1], [-1, 2]] as const) expect(show(L.section(x, 1, z)), `${x},${z}`).toBe('body joined-joined z');
+    for (const [x, z] of [[3, -1], [-1, 3]] as const) expect(isTermination(L.section(x, 1, z)), show(L.section(x, 1, z))).toBe(true);
+    // T: a run along x through (0, 0) with a stem along +z from it.
+    const T = reader(railsOnSlab([...[-4, -3, -2, -1, 0, 1, 2, 3, 4].map((k) => [k, 0] as const), ...[1, 2, 3].map((k) => [0, k] as const)]));
+    expect(T.caseId(0, 1, 0)).toBe('banister-rail');
+    expect(runSectionOf(T.section(0, 1, 0)), show(T.section(0, 1, 0))).toBe(SEC.junction);
+    for (const [x, z] of [[-1, 0], [1, 0], [0, 1], [0, 2]] as const) expect(runSectionOf(T.section(x, 1, z)), `${x},${z} ${show(T.section(x, 1, z))}`).toBe(SEC.body);
+    // X: two runs crossing at (0, −1).
+    const X = reader(railsOnSlab([...[-4, -3, -2, -1, 0, 1, 2, 3, 4].map((k) => [k, -1] as const), ...[-5, -4, -3, -2, 0, 1, 2, 3].map((k) => [0, k] as const)]));
+    expect(X.caseId(0, 1, -1)).toBe('banister-rail');
+    expect(runSectionOf(X.section(0, 1, -1)), show(X.section(0, 1, -1))).toBe(SEC.junction);
+    for (const [x, z] of [[-1, -1], [1, -1], [0, -2], [0, 0]] as const) expect(runSectionOf(X.section(x, 1, z)), `${x},${z} ${show(X.section(x, 1, z))}`).toBe(SEC.body);
+    // A foundation block on ground: the skirt runs round its outside corner (the corner cell joins both runs).
+    const F = createWorldStore(grid);
+    ground(F, -12, 12, -12, 12, 3, 0);
+    for (let x = -4; x < 4; x++) for (let z = -4; z < 4; z++) for (let y = 0; y < 2; y++) put(F, x, y, z, MAT.stone, C.foundation);
+    const f = reader(F);
+    expect(f.caseId(3, 0, 3)).toBe('foundation-skirt');
+    expect(runSectionOf(f.section(3, 0, 3)), show(f.section(3, 0, 3))).toBe(SEC.corner);
+    expect(show(f.section(0, 0, 3))).toBe('body joined-joined x');
+    expect(show(f.section(3, 0, -1))).toBe('body joined-joined z');
+  });
+
+  it('meets a run across an inside corner in a mitre: mouldings under a ceiling end "inner" where two walls meet', () => {
+    const s = createWorldStore(grid);
+    ground(s, -12, 12, -12, 12, 3, 0);
+    for (let k = -3; k < 6; k++) for (let y = 0; y < 4; y++) {
+      put(s, k, y, -3, MAT.plaster, C.wall);
+      put(s, -3, y, k, MAT.plaster, C.wall);
+    }
+    for (let x = -3; x < 6; x++) for (let z = -3; z < 6; z++) put(s, x, 4, z, MAT.plank, C.floor);
+    const r = reader(s);
+    for (const [x, z] of [[-2, -3], [-3, -2]] as const) {
+      expect(r.caseId(x, 3, z)).toBe('moulding');
+      const p = r.section(x, 3, z);
+      expect(isTermination(p), show(p)).toBe(true);
+      expect([runStartEndOf(p), runEndEndOf(p)], show(p)).toContain(END.inner);
+    }
+    expect(runSectionOf(r.section(1, 3, -3))).toBe(SEC.body);
+  });
+
+  it('keeps the wall-beam-banister proof (a beam run, a rail run over single posts) and gives a chunk\'s sections from its 16³ and 8³ sections cell for cell', () => {
+    const s = wallBeamBanister();
+    const r = reader(s);
+    for (let x = -5; x < 5; x++) expect(show(r.section(x, 5, -1)), `beam ${x}`).toBe('body joined-joined x');
+    expect([r.section(-6, 5, -1), r.section(5, 5, -1)].every(openTermination)).toBe(true);
+    for (let x = -4; x < 4; x++) {
+      expect(r.caseId(x, 2, 7), `rail ${x}`).toBe('banister-rail');
+      if (x > -4 && x < 3) expect(show(r.section(x, 2, 7)), `rail ${x}`).toBe('body joined-joined x');
+      if ((x & 1) === 0) {
+        expect(r.caseId(x, 1, 7)).toBe('banister-post');
+        expect(r.section(x, 1, 7)).toBe(packRunSection(SEC.single, END.open, END.open, RUN_AXIS.none));
+      }
+    }
+    expect([r.section(-4, 2, 7), r.section(3, 2, 7)].every(openTermination)).toBe(true);
+    const town = createWorldStore(grid);
+    loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
+    const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
+      ['scene', s, [[-1, 0, -1], [0, 0, 0], [-1, 0, 0]]],
+      ['beam', longBeam(-40, 40), [[-1, 0, -1], [0, 0, -1]]],
+      ['town', town, [[1, 0, 1], [2, 1, 2]]],
+    ];
+    let compared = 0;
+    for (const [label, store, chunks] of stores) {
+      for (const [cx, cy, cz] of chunks) {
+        const whole = runJob(store, cx, cy, cz);
+        const fs = whole.n.side;
+        for (const edge of [16, 8]) {
+          const sub = createNeighbourhood(edge, KR);
+          const cases = new Uint16Array(sub.values.length);
+          const runs = new Uint16Array(sub.values.length);
+          for (let id = 0; id < (E / edge) ** 3; id++) {
+            const [lx, ly, lz] = sectionLocalOrigin(E, edge, id);
+            cropNeighbourhood(whole.n, lx, ly, lz, sub);
+            evaluateCases(sub, KIT_RULES, 0, cases);
+            evaluateRuns(sub, KIT_RULES, cases, runs);
+            const ss = sub.side;
+            for (let x = KR; x < KR + edge; x++) for (let z = KR; z < KR + edge; z++) for (let y = KR; y < KR + edge; y++) {
+              const want = whole.runs[((lx + x) * fs + (lz + z)) * fs + (ly + y)]!;
+              const got = runs[(x * ss + z) * ss + y]!;
+              if (got !== want) expect(show(got), `${label} chunk ${cx},${cy},${cz} ${edge}³ section ${id} cell ${x - KR},${y - KR},${z - KR}`).toBe(show(want));
+              if (want !== NO_SECTION) compared++;
+            }
+          }
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(1000);
+  }, 60_000);
+
+  it('gives a section to exactly the cells with a case, and none for a rule set without the run pass', () => {
+    const s = longBeam(-8, 8);
+    const job = runJob(s, -1, 0, -1);
+    const side = job.n.side;
+    const none = new Uint16Array(job.n.values.length);
+    expect(evaluateRuns(job.n, TERRAIN_RULES, job.cases, none)).toBe(0);
+    let withSection = 0;
+    for (let x = KR; x < KR + E; x++) for (let z = KR; z < KR + E; z++) for (let y = KR; y < KR + E; y++) {
+      const i = (x * side + z) * side + y;
+      expect(none[i]).toBe(NO_SECTION);
+      expect(job.runs[i] === NO_SECTION).toBe(job.cases[i] === NO_CASE);
+      if (job.runs[i] !== NO_SECTION) withSection++;
+    }
+    expect(withSection).toBeGreaterThan(0);
+  });
 });
 
 describe('the terrain mesher\'s reach', () => {

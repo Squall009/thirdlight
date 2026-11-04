@@ -49,7 +49,7 @@ import { BRICK_EDGE } from './brick-layout';
 import { baseSurface } from './base-surface';
 import { detailInstances, PIECE_DETAIL, pieceDetailAt, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
-import { evaluateCases } from './kit-rules';
+import { evaluateCases, evaluateRuns } from './kit-rules';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
 
@@ -463,14 +463,15 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
   };
 }
 
-/** Per thread, by neighbourhood size: the cells' cases of the derive running (a u16 a cell beside the class byte). */
+/** Per thread, by neighbourhood size: the cells' cases and run sections of the derive running (a u16 each a cell beside the class byte). */
 const caseScratches = new Map<number, Uint16Array>();
+const runScratches = new Map<number, Uint16Array>();
 
-function caseScratch(len: number): Uint16Array {
-  let a = caseScratches.get(len);
+function u16Scratch(map: Map<number, Uint16Array>, len: number): Uint16Array {
+  let a = map.get(len);
   if (a === undefined) {
     a = new Uint16Array(len);
-    caseScratches.set(len, a);
+    map.set(len, a);
   }
   return a;
 }
@@ -500,8 +501,9 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     return uniform;
   }
   // A uniform region (one class and shape: deep ground, open sky, the inside of a mass) draws no piece, so only
-  // the general path resolves cases; they stay in this job, read by the consumers beside the classes.
-  evaluateCases(n, rules, level, caseScratch(classes.length));
+  // the general path resolves cases and their run sections; they stay in this job, read by the consumers beside the classes.
+  const cases = u16Scratch(caseScratches, classes.length);
+  evaluateRuns(n, rules, cases, u16Scratch(runScratches, classes.length), evaluateCases(n, rules, level, cases));
   const t1 = performance.now();
   const ground = terrainSurface(n, classes);
   const detail = pieceDetailAt(level);

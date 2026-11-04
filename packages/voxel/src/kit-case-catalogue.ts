@@ -1,5 +1,7 @@
 /**
- * The case catalogue, version 0: **DRAFT — not v1.** It is the source the
+ * The case catalogue, version 1 (version 0 plus the rules where runs turn
+ * and branch: rail L, T and cross, beam inside and outside corners, the
+ * storey line's outside corner): **DRAFT — not the role spec's v1.** It is the source the
  * role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
  * and stays a draft until the owner approves that spec; nothing builds on
  * its case list as final before then.
@@ -28,6 +30,8 @@ const r = (id: string, priority: number, cells: readonly CaseRuleCell[], roles?:
 
 /** The four sides of the centre, level with it. */
 const SIDES_OPEN: CaseRuleCell[] = [[1, 0, 0, O], [-1, 0, 0, O], [0, 0, 1, O], [0, 0, -1, O]];
+/** A rail where rails meet: open above, on a support, no cell beside it diagonally (rails one cell thin). */
+const RAIL_MEET: CaseRuleCell[] = [[0, 1, 0, O], [0, -1, 0, S], [1, 0, 1, O], [1, 0, -1, O], [-1, 0, 1, O], [-1, 0, -1, O]];
 /** The six faces of the centre covered by solid cells. */
 const ENCLOSED: CaseRuleCell[] = [[1, 0, 0, S], [-1, 0, 0, S], [0, 1, 0, S], [0, -1, 0, S], [0, 0, 1, S], [0, 0, -1, S]];
 
@@ -90,12 +94,21 @@ const rules: CaseRule[] = [
   r('enclosed', 100, ENCLOSED),
   // Inferred features, read from the arrangement as the placeholder rules read beams and rails.
   r('beam', 90, [[0, 1, 0, O], [0, -1, 0, O], [0, 0, -1, B], [0, 1, -1, B], [0, -1, -1, B], [0, 0, 1, O]]),
+  // A beam round a wall's inside corner (walls behind and to the left) and round its outside corner (the wall diagonally behind).
+  r('beam', 90, [[0, 1, 0, O], [0, -1, 0, O], [0, 0, -1, B], [0, 1, -1, B], [0, -1, -1, B], [-1, 0, 0, B], [-1, 1, 0, B], [-1, -1, 0, B], [1, 0, 0, B], [0, 0, 1, B], [1, 1, 0, O], [1, -1, 0, O], [0, 1, 1, O], [0, -1, 1, O]]),
+  r('beam', 90, [[0, 1, 0, O], [0, -1, 0, O], [-1, 0, -1, B], [-1, 1, -1, B], [-1, -1, -1, B], [-1, 0, 0, B], [0, 0, -1, B], [-1, 1, 0, O], [-1, -1, 0, O], [0, 1, -1, O], [0, -1, -1, O], [1, 0, 0, O], [0, 0, 1, O]]),
   r('banister-post', 88, [...SIDES_OPEN, [0, -1, 0, S], [0, 1, 0, B], [0, 1, 1, O], [0, 1, -1, O], [0, 2, 0, O]]),
   // A rail: thin across z, open above; on a post, spanning one open cell between posts, or on a support wider than it.
   r('banister-rail', 86, [[0, 0, 1, O], [0, 0, -1, O], [0, 1, 0, O], [0, -1, 0, B], [1, -1, 0, O], [-1, -1, 0, O], [0, -1, 1, O], [0, -1, -1, O], [0, -2, 0, S]]),
   r('banister-rail', 86, [[0, 0, 1, O], [0, 0, -1, O], [0, 1, 0, O], [0, -1, 0, O], [0, -2, 0, S]]),
   r('banister-rail', 86, [[0, 0, 1, O], [0, 0, -1, O], [0, 1, 0, O], [0, -1, 0, S], [0, -1, 1, S]]),
+  // Where thin rails on a wider support meet: an L, a T and a cross (the rail's sections turn or branch there).
+  r('banister-rail', 86, [...RAIL_MEET, [1, 0, 0, B], [0, 0, 1, B], [-1, 0, 0, O], [0, 0, -1, O], [1, 1, 0, O], [0, 1, 1, O], [-1, -1, 0, S], [0, -1, -1, S]]),
+  r('banister-rail', 86, [...RAIL_MEET, [1, 0, 0, B], [-1, 0, 0, B], [0, 0, 1, B], [0, 0, -1, O], [1, 1, 0, O], [-1, 1, 0, O], [0, 1, 1, O], [0, -1, -1, S]]),
+  r('banister-rail', 86, [...RAIL_MEET, [1, 0, 0, B], [-1, 0, 0, B], [0, 0, 1, B], [0, 0, -1, B], [1, 1, 0, O], [-1, 1, 0, O], [0, 1, 1, O], [0, 1, -1, O], [1, -1, 1, S]]),
   r('running-board', 70, [[0, 0, 1, A], [0, 0, -1, CELL.floor], [0, 1, 0, CELL.wall], [0, -1, 0, CELL.wall]]),
+  // The outside corner of the storey line: the floor meets the corner diagonally inside.
+  r('running-board', 70, [[0, 0, 1, A], [1, 0, 0, A], [-1, 0, -1, CELL.floor], [0, 1, 0, CELL.wall], [0, -1, 0, CELL.wall]]),
   r('moulding', 68, [[0, 0, 1, A], [0, 1, 1, CELL.floor | CELL.roof], [0, 1, 0, B]]),
   r('soffit', 60, [[0, -1, 0, A], [0, 0, 1, A], [0, -1, 1, A]]),
   r('foundation-skirt', 70, [[0, 0, 1, O], [0, -1, 1, G]]),
@@ -144,7 +157,7 @@ const rules: CaseRule[] = [
 /** The draft catalogue (see the file comment: DRAFT — not v1, the role spec draft's source). */
 export const DRAFT_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'cases-draft',
-  version: 0,
+  version: 1,
   draft: true,
   cases,
   rules,

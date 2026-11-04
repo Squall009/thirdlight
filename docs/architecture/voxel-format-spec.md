@@ -1375,18 +1375,30 @@ section: see the limits above.
 
 #### Kit rule set (46c; derived v10, `kit-rules.ts`)
 
-- `KIT_RULES` (id `kits`, version 1) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 1)`: the terrain
+- `KIT_RULES` (id `kits`, version 2) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 2)`: the terrain
   rules' classes and the case pass over the case catalogue in **one** `AssemblyRuleSet`, one evaluation a job, radius
   the larger of the two (`CASE_REACH` 2 = `TERRAIN_RULES_RADIUS`), so the job's pad stays 3 and aprons and
   invalidation are unchanged. `WORLD_RULES` = `KIT_RULES`: the slice page, Play, the Scene view and the voxel e2e
-  derive with it. Its id and version name the pair: a change to the terrain rules or the catalogue (`cases-draft` v0,
-  **DRAFT** until the owner approves the role spec) takes a new `kits` version.
+  derive with it. Its id and version name the pair: a change to the terrain rules or the catalogue (`cases-draft` v1,
+  **DRAFT** until the owner approves the role spec) takes a new `kits` version. Versions: 1 (46c.3) = terrain v1 +
+  `cases-draft` v0; 2 (46c.4) = terrain v1 + `cases-draft` v1 (v0 plus the rules where runs turn and branch: rail L, T
+  and cross, beam inside and outside corners, the storey line's outside corner) and the run pass.
+- **Run sections** (`kit-runs.ts`, `resolveRuns` beside `resolveCases`): every cell with a case gets a u16 in the job
+  only (bits 0–2 section single/start/body/end/corner/junction, 3–4 and 5–6 what its start and end sides meet:
+  joined/open/butt/inner mitre, 7–8 the world run axis x/y/z/none). Two neighbours join when their cases share a run
+  group (the inferred feature, else the case) and the step lies along the run axis of at least one; start/end are by
+  the piece's own −x/+x as its case transform places it. It reads the cases of the cell and its face and horizontal
+  edge neighbours: the consumers' reach (1) round the case box, so the job's pad and invalidation are unchanged and a
+  chunk's 16³/8³ sections give its sections cell for cell (tested). **U along a run is world-anchored**:
+  `runU(first cell, offset, cell metres)` = the cell's world coordinate along the run axis × its size, the offset
+  being the cell's own coordinate in its derive unit (what its instance carries), so nothing more is stored and an
+  edit never shifts the U of cells beyond the sections it changes.
 - **Levels:** the case pass runs at level 0 (high pieces) and level 1 (low pieces: a level-1 node picks its low piece
   by case as a chunk picks its high one); from level 2 no level draws pieces (`pieceDetailAt`), so it is skipped and
   no cell has a case (`levelHasCases`). A uniform region (one class and shape over the chunk and its margin) draws no
   piece, so the derive skips the pass there too.
-- **Outputs:** in v10 no output reads cases yet (run sections, base and consumers by case and kit pieces follow in
-  46c), so every result is the terrain rules' byte for byte but for the rule set it names: tested on chunks, 16³
+- **Outputs:** in v10 no output reads cases or run sections yet (base and consumers by case and kit pieces follow
+  in 46c), so every result is the terrain rules' byte for byte but for the rule set it names: tested on chunks, 16³
   sections and level-1/2 nodes of the town, the wall-beam-banister scene, the feature cases and a random world. A
   chunk's 16³ and 8³ sections give the whole chunk's case grid cell for cell, the reach margin included (tested).
 - **Measured** (Node, 46c.3, `run.mjs cases`): the evaluation of a 16³ section with detail-bearing cells, terrain

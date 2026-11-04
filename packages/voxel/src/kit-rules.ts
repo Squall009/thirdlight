@@ -17,6 +17,7 @@ import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './asse
 import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
 import { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
 import { CASE_REACH, CaseCatalogue, NO_CASE, type CaseCatalogueDef } from './kit-cases';
+import { NO_SECTION, resolveRunSections, RunTable } from './kit-runs';
 import { TERRAIN_RULES } from './terrain-rules';
 
 /** True when a node of chunk-tree level `level` draws pieces, so its cells need cases. */
@@ -24,12 +25,12 @@ export function levelHasCases(level: number): boolean {
   return pieceDetailAt(level) !== PIECE_DETAIL.none;
 }
 
-/** Sets every cell of the box [lo, hi) (padded coordinates, all three axes) to {@link NO_CASE}. */
-function clearBox(n: Neighbourhood, lo: number, hi: number, out: Uint16Array): void {
+/** Sets every cell of the box [lo, hi) (padded coordinates, all three axes) to `none` ({@link NO_CASE} by default). */
+function clearBox(n: Neighbourhood, lo: number, hi: number, out: Uint16Array, none = NO_CASE): void {
   const s = n.side;
   for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) {
     const row = (x * s + z) * s;
-    out.fill(NO_CASE, row + lo, row + hi);
+    out.fill(none, row + lo, row + hi);
   }
 }
 
@@ -43,6 +44,7 @@ function clearBox(n: Neighbourhood, lo: number, hi: number, out: Uint16Array): v
  */
 export function withCases(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id: string, version: number): AssemblyRuleSet {
   let compiled: CaseCatalogue | null = null;
+  let runs: RunTable | null = null;
   return Object.freeze({
     id,
     version,
@@ -57,6 +59,10 @@ export function withCases(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
       }
       compiled ??= new CaseCatalogue(catalogue);
       return compiled.extract(n, lo, hi, out);
+    },
+    resolveRuns(n: Neighbourhood, cases: Uint16Array, lo: number, hi: number, out: Uint16Array): number {
+      runs ??= new RunTable(catalogue.cases);
+      return resolveRunSections(n, cases, runs, lo, hi, out);
     },
   });
 }
@@ -79,10 +85,31 @@ export function evaluateCases(n: Neighbourhood, rules: AssemblyRuleSet, level: n
 }
 
 /**
- * The world rule set from kits on: the terrain rules (`terrain` v1) with
- * the case pass over the case catalogue. Version 1 composes catalogue
- * `cases-draft` v0, a DRAFT until the owner approves the role spec: the
- * cases it gives are not yet read by any output, so derived results are the
- * terrain rules' byte for byte but for the rule set they name.
+ * The run sections (kit-runs.ts) of a derive job's own cells into `out`,
+ * from the cases {@link evaluateCases} gave (they reach one cell round the
+ * chunk, as far as a section reads): the rule set's run pass, or no section
+ * anywhere for a set without one. `caseCells` is what evaluateCases
+ * returned: with no case anywhere the pass only clears the box (most
+ * sections of a world hold no construction). Returns the cells given a
+ * section.
  */
-export const KIT_RULES: AssemblyRuleSet = withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 1);
+export function evaluateRuns(n: Neighbourhood, rules: AssemblyRuleSet, cases: Uint16Array, out: Uint16Array, caseCells = Infinity): number {
+  if (out.length !== n.values.length) throw new RangeError('run sections: wrong length');
+  const lo = n.pad;
+  const hi = n.pad + n.edge;
+  if (rules.resolveRuns === undefined || caseCells === 0) {
+    clearBox(n, lo, hi, out, NO_SECTION);
+    return 0;
+  }
+  return rules.resolveRuns(n, cases, lo, hi, out);
+}
+
+/**
+ * The world rule set from kits on: the terrain rules (`terrain` v1) with
+ * the case pass over the case catalogue and the run pass over its cases.
+ * Version 2 composes catalogue `cases-draft` v1 (version 1 composed v0), a
+ * DRAFT until the owner approves the role spec: the cases and sections it
+ * gives are not yet read by any output, so derived results are the terrain
+ * rules' byte for byte but for the rule set they name.
+ */
+export const KIT_RULES: AssemblyRuleSet = withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 2);

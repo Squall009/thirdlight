@@ -131,7 +131,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.1 | done: voxel kit format 1 (DRAFT) as a project content item `voxelKits` (`project-model` `voxel-kit.ts`), setVoxelKit/deleteVoxelKit one undo each (editor, MCP, HTTP), own file `assets/voxel-kits/*.voxelkit.json`, catalog block `voxelKits` + mesh model versions in exports; newer format/unknown fields refused. Test kit 535 B (file 1,043 B). Spec §3.9 |
 | 46c.2 | done: `kit-cases.ts` case pass (40-cell reach-2 window, 4-bit role/fill symbols, folded over 4 turns × mirror, rules by priority, fallback per role mandatory) + catalogue v0 **DRAFT** (45 cases, 43 rules; `kit-case-catalogue.ts`). Town (Node): 726 keys, µs a 16³ section with cells p50/p95 111/267 (all 13/115). 15 vitest |
 | 46c.3 | done: `kit-rules.ts` `KIT_RULES` (`kits` v1 = terrain rules + case pass, R 2, apron 3) registered, `WORLD_RULES`; cases a u16 a cell in the job only; L0/L1 run, L2+ skip; derived v9 → v10 (spec note). Outputs byte-equal to terrain rules. Conformance class+case at 16/32. 16³ evaluation with detail p50/p95 town 90/115 → 207/419 µs; eval+ground 242/299 → 255/408 |
-| 46c.4 | not started |
+| 46c.4 | done: `kit-runs.ts` run sections (job only, u16 a cell: single/start/body/end/corner/junction, ends joined/open/butt/inner mitre, world axis); catalogue `cases-draft` v1 (+6 rules: rail L/T/X, beam corners, storey-line corner), `kits` v2; U world-anchored (`runU`). 6 tests. Town eval with detail cells p50/p95 207/419 → 241/479 µs; run pass alone 34/49 (slice 45/55) |
 | 46c.5 | not started |
 | 46c.6 | not started |
 | 46c.7 | not started |
@@ -246,6 +246,41 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   Before the gate, one `stream.test.ts` test ('never holds an edit for another … two digs … swap apart') failed once
   in an ad-hoc run of all voxel suites at 3 workers and passed alone and in its whole file; it passed in the gate.
 
+### 46c.4 merge-compatible run sections
+
+- **Built:** `packages/voxel/src/kit-runs.ts` (`RunTable` per packed case: run group, world axis, sign of the piece's
+  own +x; `resolveRunSections`; packing `packRunSection`/`runSectionOf`/`runStartEndOf`/`runEndEndOf`/`runAxisOf`;
+  `RUN_SECTION` = `PIECE_SECTION` + corner 4, junction 5; `RUN_END`; `runU`), `AssemblyRuleSet.resolveRuns` (optional),
+  `kit-rules.ts` `evaluateRuns` (skips to a clear when the case pass found no cell), `deriveChunk` runs it into a
+  per-thread u16 scratch after the cases (never in the result). Catalogue `cases-draft` v0 → v1 (49 rules, still
+  DRAFT): rail L, T and cross on a wider support, beam round a wall's inside and outside corner, the storey line's
+  outside corner. `KIT_RULES` `kits` v1 → v2; derived bytes unchanged (no output reads sections yet), so no derived
+  version step: results name `kits` v2. Spec §3.7 kit rule set updated. `run.mjs cases` times the run pass.
+- **Tests** (`tools/voxel-bench/derived.test.ts`, block "run sections", 6): an 80-cell beam over three chunks: bodies,
+  two open terminations, world U stepping one cell a cell across every chunk face, the wall's coping a run too; a dig
+  in a 40-cell beam: both sides of the cut become open terminations, every changed section within the job reach (3)
+  of the dig, the run's other cells unchanged; rail L (corner), T and X (junction) across chunk faces, arms bodies on
+  x and z; a foundation skirt round the block's outside corner (corner); mouldings under a ceiling meeting at an
+  inside corner end in `inner` mitres; the 45.7b scene: one beam run, one rail run over single posts (no axis), and
+  sections of a chunk equal to its 16³ and 8³ sections' cell for cell (scene, long beam, town); exactly the cells
+  with a case get a section, none for a set without the pass. `kits` version expectations updated (2).
+- **Measured** (`run.mjs cases`, 6 GB scope, Node 22, i5-12600H, 2026-11-04 02:36, load 1.0, uptime 11.4 d; round 2,
+  round 1 within 2 % on detail sections): µs a 16³ section p50 / p95.
+  | | town (1,394 sections with detail cells) | slice ring (4) |
+  |---|---|---|
+  | run pass alone, sections with detail cells | 34 / 49 | 45 / 55 |
+  | evaluation (classes + cases + runs), detail sections (46c.3 without runs) | 241 / 479 (207 / 419) | 273 / 336 (231 / 269) |
+  | evaluation, all sections | 69 / 306 (65 / 259) | 66 / 115 (63 / 112) |
+  | evaluation + ground mesh, ground sections | 259 / 438 (255 / 408) | 230 / 332 (227 / 330) |
+
+  The first run had the pass clear every section without a case cell by cell (+15 µs each, all-sections p50 99);
+  it now skips on the case pass's count (3 µs). Sections (town, one pass over its 320,430 case cells): single 186,792
+  (cases without a run axis, and one-cell runs), body 99,070, start 14,376, end 19,460, corner 732, junction 0 (the
+  town builds no fences): ~16.9 k runs of two or more cells, ~7.9 cells a run on average (from the terminations).
+- **Gate:** fast gate gate-fast-20261104-024059 GREEN (12 min, peak 4.7 GB; vitest 834 files + `scan-bounded-log.test.ts`
+  timed out once and passed alone, D418 watch noted; 36 e2e; perf at the cap 0 missed both renderers).
+  `voxel-world.e2e.ts` untouched (no browser behaviour): its 7 tests sum to 57.8 s (58.0 s at 46c.3).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -333,6 +368,25 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-04 (46c.3, default chosen, owner to confirm): **the composed evaluation misses the 0.1–0.2 ms section
   budget** (town 207 µs p50 for the evaluation alone on built sections; evaluate + ground mesh 255 µs): recorded with
   its cause (results), not tuned (perf phase after 49).
+- 2026-11-04 (46c.4, default chosen, owner to confirm): **U along a run is world-anchored**, not counted from the
+  run's start: a cell's U is its world coordinate along the run axis × the cell size (`runU`). Counting from the start
+  needs the whole run, however far past the reach and the chunk it goes, and an edit at one end would shift the texture
+  of every cell after it; world-anchored U needs no reach, matches whichever chunk/section/level derives the cell, and
+  keeps bays on the world grid (owner: edits never shift things far away). Its offset is the cell's own coordinate in
+  its derive unit, which the instance already carries, so the job stores no U. Corners restart U on the other axis.
+- 2026-11-04 (46c.4, default chosen, owner to confirm): **runs join by run group and axis**: the same inferred feature
+  (beam, banister, …) or else the same case, the step along at least one of the two cells' run axes (parallel bars
+  side by side never join). Sections: single/start/body/end/corner/junction; each end joined, open (exposed
+  termination), butt (against a solid cell) or inner (an inside corner across the diagonal: a mitre). Start/end are by
+  the piece's own −x/+x: mirror-image ends fold to one orientation, so a run's two ends are often both "end", the one
+  termination piece placed mirrored. Every case with a run axis gets sections (copings, edges, eaves too), not only
+  the inferred features; cases without one (posts) are single with no axis.
+- 2026-11-04 (46c.4, default chosen, owner to confirm): **catalogue v1 adds the meeting cells** (rail L/T/X on a wider
+  support, beam inside/outside corners, the storey line's outside corner) as rules naming the existing cases: in v0
+  those cells fell to wall cases and every run stopped one cell short of its corner. Known limits for the owner: beam
+  T junctions do not arise (a beam needs a wall behind); rails on posts over gaps do not turn corners (only on a wider
+  support); a running board's inside corner and a soffit's inside corner are mitres (`inner`), copings stop against
+  `wall-corner` cells (butt).
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
   repo's authoring package (46c.17).
