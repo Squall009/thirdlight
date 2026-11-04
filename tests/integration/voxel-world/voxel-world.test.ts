@@ -15,7 +15,10 @@
  * answer, the same files) while the project's editor learns of every change
  * over its WebSocket feed, a voxel kit made, refused, undone and deleted as a
  * project content item over HTTP and MCP (its own file, kept across a
- * restart), and an export shipping the worlds its scenes name
+ * restart), a broken voxel kit's check rows in the project's Problems (HTTP
+ * and MCP), the kit test scene written as one command (each label's cell
+ * deriving as its case from the files, no_change again, one undo), and an
+ * export shipping the worlds its scenes name
  * (each listed region file whole, by digest) and the voxel kits (their block,
  * their pieces' model) or refusing a damaged world.
  *
@@ -39,6 +42,7 @@ import {
   DERIVED_PART,
   editBounds,
   exportOrAir,
+  kitTestScene,
   materialSwap,
   parseRegionFileName,
   RegionChunkSource,
@@ -48,8 +52,9 @@ import {
   type RegionChunkRead,
   type PaletteStore,
   type ShippedVoxelWorld,
+  WORLD_RULES,
 } from '@thirdlight/voxel';
-import { readRuntimeContentSync, type VoxelKit } from '@thirdlight/project-model';
+import { readRuntimeContentSync, type VoxelKit, type VoxelKitMesh } from '@thirdlight/project-model';
 import { glbBytes } from '@thirdlight/shared';
 import { importRead, writeVoxelWorld } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -58,6 +63,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client';
 import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
+import { caseAndSectionAt } from '../../../tools/voxel-bench/case-probe';
 import { flatGround, placeWallBeamBanister } from '../../../tools/voxel-bench/scenes';
 
 const ORIGIN = 'http://127.0.0.1:8501';
@@ -67,6 +73,8 @@ const PROJECT = 'vox';
 const WORLD = 'w';
 /** A second world, edited only by the editor-feed test (the tests above count the first one's revisions). */
 const FEED_WORLD = 'feed';
+/** A third world, written only by the kit test scene test. */
+const SCENE_WORLD = 'kit-scene';
 const grid = chunkGrid(32);
 const WORLD_ID = '00112233445566778899aabbccddeeff';
 const REPO = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
@@ -606,6 +614,90 @@ describe('voxel world routes', () => {
     await close();
     await start();
     expect(await kits()).toEqual([stored]);
+  }, 60_000);
+
+  it("the voxel kit check puts a broken kit's rows in the project's Problems (the HTTP log and MCP's tl_diagnostics); a kit that passes adds none", async () => {
+    expect(KIT_MODEL.assetId).not.toBe('');
+    const query = async (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
+    const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject'))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
+    const problems = async (): Promise<string[]> => ((await (await fetch(`${base()}/api/v1/projects/${PROJECT}/problems`, { headers: auth })).json()) as { problems: Array<{ code: string; message: string }> }).problems.filter((p) => p.code === 'voxel_kit_check').map((p) => p.message);
+    const captured = backend._test.service.readCapturedV3(PROJECT);
+    if (!captured.ok) throw new Error(captured.error.code);
+    const digest = (captured.read.content as { assets: Array<{ assetId: string; versions: Array<{ sourceDigest: string }> }> }).assets.find((a) => a.assetId === KIT_MODEL.assetId)!.versions[0]!.sourceDigest;
+    // A kit whose one beam piece is the imported triangle (on its cell, a readable model): no error or warning but the cases it lacks.
+    const one = (high: VoxelKitMesh) => ({ sections: { body: { variants: [{ high }] } } });
+    const broken: VoxelKit = {
+      kitFormat: 1,
+      voxelKitId: 'broken',
+      name: 'Broken',
+      version: 1,
+      materialType: 'stone',
+      cases: {
+        gazebo: one({ assetId: KIT_MODEL.assetId, digest }),
+        beam: one({ assetId: KIT_MODEL.assetId, digest: 'f'.repeat(64), node: 'No_Such_Node' }),
+        'wall-top': one({ assetId: 'no-such-model', digest }),
+      },
+    };
+    const before = (await problems()).length;
+    expect((await send('setVoxelKit', { kit: broken })).status).toBe(200);
+    let lines: string[] = [];
+    for (let i = 0; i < 100 && lines.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      lines = (await problems()).slice(before).filter((l) => l.includes('(broken)'));
+    }
+    expect(lines.find((l) => l.includes('error: Names cases or sections the catalogue does not have'))).toMatch(/case gazebo/);
+    expect(lines.find((l) => l.includes('meshes cannot be drawn'))).toMatch(/^Voxel kit "Broken" \(broken\) error: .*no such model: wall-top\/body \(no-such-model\).*no such node: beam\/body/);
+    expect(lines.find((l) => l.includes('name a file version the model does not have'))).toMatch(/warning/);
+    expect(lines.find((l) => l.includes('required rows'))).toMatch(/warning: \d+ required rows: Required case wall-plain has no piece/);
+    // MCP reads the same log.
+    const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'voxel-kit-check-mcp' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const mcp = new Client({ name: 'voxel-kit-check-test', version: '0.1.0' });
+    await mcp.connect(clientTransport);
+    try {
+      const diag = (await mcp.callTool({ name: 'tl_diagnostics', arguments: {} })) as { content: Array<{ text: string }> };
+      expect(diag.content.map((c) => c.text).join('\n')).toMatch(/Voxel kit \\"Broken\\" \(broken\) error: 2 meshes cannot be drawn/);
+    } finally {
+      await mcp.close();
+    }
+    // Mended (the beam on the file's own digest and node, the unknown and missing pieces gone): only the cases it lacks remain warnings.
+    const mended: VoxelKit = { ...broken, version: 2, cases: { beam: one({ assetId: KIT_MODEL.assetId, digest, node: 'Beam_Body' }) } };
+    const mark = (await problems()).length;
+    expect((await send('setVoxelKit', { kit: mended })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 200));
+    const after = (await problems()).slice(mark).filter((l) => l.includes('(broken)'));
+    expect(after.filter((l) => / error/.test(l.split(':')[0]!))).toEqual([]);
+    expect(after.some((l) => l.includes('required rows'))).toBe(true);
+    expect((await send('deleteVoxelKit', { voxelKitId: 'broken' })).status).toBe(200);
+  }, 60_000);
+
+  it('writes the kit test scene into a world as one command: every labelled cell derives as its case and section from the files, the same scene again is no_change, one undo takes it back', async () => {
+    const dir = backend._test.service.projectDir(PROJECT)!;
+    writeVoxelWorld(join(dir, 'voxels', SCENE_WORLD), { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, sceneStore());
+    const args = { world: SCENE_WORLD, origin: [-40, -5, -30], material: 11 };
+    expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args: { ...args, material: 0 } })).json.error as { code: string }).code).toBe('invalid_args');
+    expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args: { ...args, origin: [0, 0.5, 0] } })).json.error as { code: string }).code).toBe('invalid_args');
+    expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args: { ...args, kit: 'log' } })).json.error as { code: string }).code).toBe('invalid_request');
+    const r = await command({ op: 'writeKitTestScene', projectId: PROJECT, requestId: rid(300), args });
+    expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+    const scene = r.json.scene as { min: number[]; max: number[]; labels: Array<{ cell: [number, number, number]; roleName: string; caseId: string; section: string | null }> };
+    const want = kitTestScene(WORLD_RULES, { origin: args.origin as [number, number, number], material: 11 });
+    expect(scene).toEqual(JSON.parse(JSON.stringify({ min: want.min, max: want.max, labels: want.labels })));
+    expect(r.json).toMatchObject({ ok: true, op: 'writeKitTestScene', revision: 1, undoable: 1, box: { minX: -40, minY: -5, minZ: -30, maxX: want.max[0], maxY: want.max[1], maxZ: want.max[2] } });
+    // The world read back through the range route, as a browser reads it: each label's cell gets its case and section.
+    const chunks = (r.json.chunks as Array<[number, number, number]>).map(([cx, cy, cz]) => ({ cx, cy, cz }));
+    expect(new Set(chunks.map((c) => `${c.cx},${c.cy},${c.cz}`)).size).toBe(chunks.length);
+    const around: ChunkCoord[] = [];
+    for (let cx = (want.min[0]! >> 5) - 1; cx <= (want.max[0]! >> 5) + 1; cx++) for (let cy = (want.min[1]! >> 5) - 1; cy <= (want.max[1]! >> 5) + 1; cy++) for (let cz = (want.min[2]! >> 5) - 1; cz <= (want.max[2]! >> 5) + 1; cz++) around.push({ cx, cy, cz });
+    const store = await readChunks(around, SCENE_WORLD);
+    const got = scene.labels.map((l) => ({ cell: l.cell, ...caseAndSectionAt(store, ...l.cell) }));
+    expect(got).toEqual(scene.labels.map((l) => ({ cell: l.cell, caseId: l.caseId, section: l.section })));
+    expect(new Set(scene.labels.map((l) => l.caseId)).size).toBe(WORLD_RULES.catalogue!.cases.length);
+    expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args })).json.error as { code: string }).code).toBe('no_change');
+    const undone = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: SCENE_WORLD } });
+    expect(undone.json).toMatchObject({ ok: true, revision: 2, undoable: 0, cells: r.json.cells });
+    expectSame(await readChunks(around, SCENE_WORLD), sceneStore(), around);
   }, 60_000);
 
   it("an export ships the worlds its scenes name: each listed region file whole as a content file, listed in the catalog with its digest, the voxel worker beside the game's scripts; a world with a damaged region refuses the export", async () => {

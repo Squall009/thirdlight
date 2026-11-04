@@ -17,6 +17,7 @@ const VOXEL_OP_NOTE =
 const VOXEL_OP_REFUSAL = {
   editVoxels: 'A stroke that changes no voxel is refused with `no_change`.',
   undoVoxels: 'It takes back the world\'s newest edit still in this backend\'s undo history; with none left it is refused with `nothing_to_undo`.',
+  writeKitTestScene: 'A scene written over the same scene changes no voxel and is refused with `no_change`.',
 };
 
 export function opPages(ops, types, opLists, descriptors, envelope, routing) {

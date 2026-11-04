@@ -75,7 +75,7 @@ import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, DEFAULT_KIT_ID, dependentChunks, editBounds, jobRadius, LIGHT_COVERAGE, PIECE_FAMILY, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, DEFAULT_KIT_ID, dependentChunks, editBounds, jobRadius, kitTestScene, LIGHT_COVERAGE, PIECE_FAMILY, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -378,6 +378,28 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(changedPixels(banisterShot, await shot(page)), 'banister → wall').toBeGreaterThan(300);
     expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'dig', cells: grown })).ok).toBe(true);
     expect((await cellAt(page, railCell)).outputs?.piece?.family).toBe(PIECE_FAMILY.rail);
+
+    // The kit test scene (writeKitTestScene, the page's ?kitScene): written beside the scene in timber (the default
+    // kit's material), its exhibits labelled on the screen, each drawn with its case's piece; one undo takes it away.
+    if (renderer === 'webgpu') {
+      const at: Cell = [ox - 52, oy, oz + 16];
+      const labels = kitTestScene(WORLD_RULES, { origin: at, material: MAT.timber }).labels;
+      expect((await hook<EditAnswer>(page, 'writeKitScene', at, MAT.timber)).ok).toBe(true);
+      const top = labels.find((l) => l.roleName === 'wall' && l.caseId === 'wall-top')!;
+      await hook(page, 'look', ...top.cell, -0.6, 0.45, 8);
+      await hook(page, 'settle');
+      await page.waitForFunction(() => ((window as unknown as { __tlVoxelWorld: { labelsShown(): number } }).__tlVoxelWorld.labelsShown()) > 3);
+      for (const id of ['wall-top', 'wall-end', 'wall-corner']) {
+        const l = labels.find((x) => x.roleName === 'wall' && x.caseId === id)!;
+        expect((await cellAt(page, [...l.cell] as Cell)).kitPiece, id).toMatchObject({ kit: DEFAULT_KIT_ID, caseId: id });
+      }
+      expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
+      expect((await cellAt(page, [...top.cell] as Cell)).kitPiece).toBeNull();
+      await hook(page, 'clearKitScene');
+      // Back to the view the page opened with: the pictures below compare against a reload's.
+      await hook(page, 'look', ox, oy + 3, oz + 2, -0.75, 0.42, 16);
+      await hook(page, 'settle');
+    }
 
     // A 2 m blast at the scene's chunk corner in x and z (the pad's ground under the wall's foot), first as a game's
     // runtime edit in the page: the dug cells read as air in the same task as the edit, before anything is rebuilt;

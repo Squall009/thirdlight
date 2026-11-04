@@ -160,3 +160,4 @@ interface MutationFailure {
 | [`unpackPrefab`](ops-detail.md#op-unpackPrefab) | UnpackPrefabArgs |  |
 | [`updateEntity`](ops-detail.md#op-updateEntity) | UpdateEntityArgs |  |
 | [`updatePrefab`](ops-detail.md#op-updatePrefab) | UpdatePrefabArgs | `prefabs` |
+| [`writeKitTestScene`](ops-detail.md#op-writeKitTestScene) | { world: string; origin: [number, number, number]; material: number } |  |

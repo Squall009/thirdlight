@@ -1396,3 +1396,14 @@ interface UpdatePrefabArgs {
   displayName?: string;
 }
 ```
+
+<a id="op-writeKitTestScene"></a>
+## writeKitTestScene
+
+A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project's `undo` does not take it back (`undoVoxels` does). It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. A scene written over the same scene changes no voxel and is refused with `no_change`.
+
+Arguments (`args`):
+
+```ts
+{ world: string; origin: [number, number, number]; material: number }
+```

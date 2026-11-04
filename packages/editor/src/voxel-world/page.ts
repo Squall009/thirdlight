@@ -51,6 +51,11 @@
  * every material no kit binds, through the one piece table the streamer
  * derives with; `?kits=0` derives without a table (the engine's default
  * stand-in pieces only, to compare).
+ *
+ * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
+ * the catalogue built from voxels, `writeKitTestScene`: the same command MCP
+ * sends; a scene already there is left as it is) and labels each exhibit
+ * with its role, case and run section.
  */
 import * as THREE from 'three';
 import {
@@ -85,6 +90,7 @@ import {
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
+import { kitSceneHooks } from './kit-scene-labels';
 import { pageToken } from '../config';
 import { PageCollisionRing } from './collision';
 import { assemblyProbes } from './probes';
@@ -178,6 +184,17 @@ function addLights(scene: THREE.Scene): void {
 }
 
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
+/** What a swapped edit cost once the frame showing it is drawn (meshes and colliders swap in the same task). */
+async function shownTiming(streamer: Pick<VoxelStreamer, 'settle'>, t0: number, startFrame: number, seen: SwapSeen): Promise<EditTiming> {
+  const swappedMs = seen.at - t0;
+  // Visible once the frame after the swap is drawn: the next animation frame renders it, the one after starts once it is shown.
+  await new Promise<void>((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok())));
+  const visibleMs = performance.now() - t0;
+  // Everything the edit invalidated (its dependents within the radius too) derived again.
+  await streamer.settle();
+  return { ok: true, swappedMs, collidersMs: swappedMs, visibleMs, frames: seen.frame - startFrame + 1, swap: seen.report, buildMs: seen.buildMs, startFrame, startedAt: t0 };
+}
+
 async function main(): Promise<void> {
   const world = await RangeWorld.open({ url: `${api}/voxels/${encodeURIComponent(worldName)}`, headers, workerUrl: './voxel-worker.js', workers, stats: range }).catch((e: unknown) => fail(`voxel world ${worldName}: ${e instanceof Error ? e.message : String(e)}`));
   /** The region files the world lists, by name, and their current tags. */
@@ -360,7 +377,7 @@ async function main(): Promise<void> {
    * answer's box (the cells the edit, or the edit an undo takes back, can
    * change) bounds what is derived again.
    */
-  async function send(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>): Promise<EditTiming> {
+  async function send(op: 'editVoxels' | 'undoVoxels' | 'writeKitTestScene', args: Record<string, unknown>): Promise<EditTiming> {
     const log = new Set<string>();
     derivedLogs.add(log);
     try {
@@ -370,7 +387,7 @@ async function main(): Promise<void> {
     }
   }
 
-  async function sendLogged(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>, log: Set<string>): Promise<EditTiming> {
+  async function sendLogged(op: 'editVoxels' | 'undoVoxels' | 'writeKitTestScene', args: Record<string, unknown>, log: Set<string>): Promise<EditTiming> {
     const t0 = performance.now();
     const startFrame = frames;
     const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ op, projectId, requestId: requestId(), args: { world: worldName, ...args } }) });
@@ -395,16 +412,7 @@ async function main(): Promise<void> {
     return timing;
   }
 
-  /** What a swapped edit cost once the frame showing it is drawn (meshes and colliders swap in the same task). */
-  async function shown(t0: number, startFrame: number, seen: SwapSeen): Promise<EditTiming> {
-    const swappedMs = seen.at - t0;
-    // Visible once the frame after the swap is drawn: the next animation frame renders it, the one after starts once it is shown.
-    await new Promise<void>((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok())));
-    const visibleMs = performance.now() - t0;
-    // Everything the edit invalidated (its dependents within the radius too) derived again.
-    await streamer.settle();
-    return { ok: true, swappedMs, collidersMs: swappedMs, visibleMs, frames: seen.frame - startFrame + 1, swap: seen.report, buildMs: seen.buildMs, startFrame, startedAt: t0 };
-  }
+  const shown = (t0: number, startFrame: number, seen: SwapSeen): Promise<EditTiming> => shownTiming(streamer, t0, startFrame, seen);
 
   /** The world's files changed on disk behind this page: everything resident is read again from them. */
   async function readWorldAgain(): Promise<void> {
@@ -428,6 +436,7 @@ async function main(): Promise<void> {
   }
 
   const undo = (): Promise<EditTiming> => send('undoVoxels', {});
+  const kitScene = kitSceneHooks((args) => send('writeKitTestScene', args), document.body);
 
   // ---- frames ----
   const frameMs = new SampleRing();
@@ -464,6 +473,7 @@ async function main(): Promise<void> {
     const r0 = performance.now();
     renderer.render(scene, camera);
     renderMs.add(performance.now() - r0);
+    kitScene.update(camera, origin.origin);
     surface.grids.frame();
     gpu.afterFrame(renderer);
     frames++;
@@ -481,6 +491,7 @@ async function main(): Promise<void> {
   const coldMs = performance.now() - t0;
   notice = await kits.loaded; // kit meshes that failed draw nothing: the status names them
   requestAnimationFrame(frame);
+  await kitScene.fromParam(params.get('kitScene'));
 
   const q = (r: SampleRing, p: number): number => Number(r.quantile(p).toFixed(3));
 
@@ -521,6 +532,10 @@ async function main(): Promise<void> {
     dab,
     edit,
     undo,
+    /** Writes the kit test scene and labels it; `labelsShown` counts the tags on the screen. */
+    writeKitScene: kitScene.write,
+    labelsShown: kitScene.shown,
+    clearKitScene: kitScene.clear,
     ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, levelLog, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
     swaps: () => swaps.slice(),

@@ -49,7 +49,11 @@ import {
   EditRefused,
   isRegionFootprint,
   REGION_FOOTPRINTS,
+  kitTestScene,
   liftVersion,
+  MATERIAL_ID_MAX,
+  valueOf,
+  WORLD_RULES,
   UndoStore,
   VOXEL_WORLD_NAME_RE,
   WORLD_GRID_ID,
@@ -61,7 +65,9 @@ import {
   type PaletteStore,
   type RegionFootprint,
   type RegionLayout,
+  type KitTestLabel,
   type VoxelEditCommand,
+  type VoxelRecord,
 } from '@thirdlight/voxel';
 import { isVoxelWorldOp, type VoxelWorldOp } from '@thirdlight/commands/mutation-ops';
 import { parseOrigin } from '@thirdlight/commands';
@@ -90,6 +96,19 @@ export type VoxelWorldOpArgs =
       op: 'undoVoxels';
       /** Takes back the world's newest edit still in this backend's undo history. */
       args: { world: string };
+    }
+  | {
+      op: 'writeKitTestScene';
+      /**
+       * Writes the kit test scene (@thirdlight/voxel `kitTestScene`: every
+       * case of the world rules' catalogue built from voxels, a row a role,
+       * a column a case) into the box from `origin` (world cells, its lowest
+       * corner), emptying the box first; every built cell in `material` (a
+       * kit's bound material, so the kit's pieces draw). One change: one
+       * `undoVoxels` takes it back. The answer's `scene` labels each
+       * exhibit's centre with its role, case and run section.
+       */
+      args: { world: string; origin: [number, number, number]; material: number };
     };
 
 /** Answers kept per world for request ids sent again. */
@@ -240,6 +259,8 @@ export interface VoxelCommandApplied {
   readonly duplicated: boolean;
   /** Milliseconds: the apply, and the region and manifest writes. */
   readonly ms: { readonly apply: number; readonly save: number };
+  /** `writeKitTestScene` only: the scene's box (inclusive) and its labels. */
+  readonly scene?: { readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number]; readonly labels: readonly KitTestLabel[] };
 }
 
 export type VoxelCommandResult = VoxelCommandApplied | { ok: false; error: VoxelWorldError };
@@ -496,7 +517,7 @@ export class VoxelWorlds {
     const args = envelope.args;
     if (typeof args !== 'object' || args === null || Array.isArray(args)) return refuse('invalid_request', 'validation', 'args must be an object', '/args');
     const a = args as Record<string, unknown>;
-    const allowed = op === 'editVoxels' ? ['world', 'command'] : ['world'];
+    const allowed = op === 'editVoxels' ? ['world', 'command'] : op === 'writeKitTestScene' ? ['world', 'origin', 'material'] : ['world'];
     const extra = Object.keys(a).find((k) => !allowed.includes(k));
     if (extra !== undefined) return refuse('invalid_request', 'validation', `unknown field ${extra}`, `/args/${extra}`);
     if (typeof a.world !== 'string') return refuse('invalid_request', 'validation', 'args.world names the voxel world', '/args/world');
@@ -526,6 +547,7 @@ export class VoxelWorlds {
     let parts: number;
     let materialSwaps: readonly number[];
     let undone: HistoryEntry | null = null;
+    let scene: VoxelCommandApplied['scene'];
     /** The undone chunks as the undo found them: written back if the undo cannot be saved. */
     let redo: ChunkUndo[] = [];
     if (op === 'editVoxels') {
@@ -543,6 +565,11 @@ export class VoxelWorlds {
         if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
         throw e;
       }
+    } else if (op === 'writeKitTestScene') {
+      const made = this.writeScene(w, a);
+      if (!made.ok) return made;
+      ({ record, cells, box, parts, materialSwaps } = made);
+      scene = made.scene;
     } else {
       undone = w.history.pop() ?? null;
       if (undone === null) return refuse('nothing_to_undo', 'validation', `voxel world ${w.name} has no edit to undo`);
@@ -566,7 +593,7 @@ export class VoxelWorlds {
     }
     if (!saved.ok && saved.kind === 'failed') {
       // Nothing was written: memory and history go back to what the files hold (the chunks stay dirty; the next save rewrites them as they are).
-      if (op === 'editVoxels') w.world.undo(record);
+      if (op !== 'undoVoxels') w.world.undo(record);
       else {
         w.world.undo(redo);
         w.history.push({ ...undone!, id: await w.undo.put(record) });
@@ -574,18 +601,64 @@ export class VoxelWorlds {
       return refuse('write_failed', 'internal', `voxel world ${w.name}: ${saved.why}`);
     }
     // Written in full, or in part: memory keeps the change, which the files written hold.
-    if (op === 'editVoxels') w.history.push({ id: await w.undo.put(record), cells, box, parts, materialSwaps });
+    if (op !== 'undoVoxels') w.history.push({ id: await w.undo.put(record), cells, box, parts, materialSwaps });
     if (!saved.ok) {
-      return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${op === 'editVoxels' ? 'edit' : 'undo'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
+      return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${op === 'undoVoxels' ? 'undo' : 'edit'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
     }
-    const chunks = record.map((u) => [u.cx, u.cy, u.cz] as const);
+    // A scene's record names a chunk once an edit of it: each chunk is answered once.
+    const chunks = [...new Map(record.map((u) => [`${u.cx},${u.cy},${u.cz}`, [u.cx, u.cy, u.cz] as const])).values()];
     const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
-    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 } };
+    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 }, ...(scene !== undefined ? { scene } : {}) };
     if (requestId !== null) {
       w.answers.set(requestId, answer);
       if (w.answers.size > ANSWERS_KEPT) w.answers.delete(w.answers.keys().next().value!);
     }
     return answer;
+  }
+
+  /**
+   * The kit test scene's edits applied as one change: the undo record holds
+   * each edit's, newest first, so writing it back takes them back in turn.
+   * Cells counts the cells of the box that end different from before, so a
+   * scene written over itself changes nothing and is refused as any such
+   * edit is. Nothing stays applied when a step is refused.
+   */
+  private writeScene(w: OpenWorld, a: Record<string, unknown>): { ok: true; record: ChunkUndo[]; cells: number; box: CellBox; parts: number; materialSwaps: number[]; scene: NonNullable<VoxelCommandApplied['scene']> } | { ok: false; error: VoxelWorldError } {
+    const origin = a.origin;
+    if (!Array.isArray(origin) || origin.length !== 3 || !origin.every((v) => Number.isSafeInteger(v))) return refuse('invalid_args', 'validation', 'origin is [x, y, z], whole world cells', '/args/origin');
+    const material = a.material;
+    if (typeof material !== 'number' || !Number.isInteger(material) || material < 1 || material > MATERIAL_ID_MAX) return refuse('invalid_args', 'validation', `material is a voxel material id (1-${MATERIAL_ID_MAX})`, '/args/material');
+    const made = kitTestScene(WORLD_RULES, { origin: origin as [number, number, number], material });
+    const [x0, y0, z0] = made.min;
+    const [x1, y1, z1] = made.max;
+    const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+    const store = w.world.store;
+    const before: number[] = [];
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) before.push(valueOf(store.voxelAt(x, y, z, v)));
+    const record: ChunkUndo[] = [];
+    let parts = 0;
+    const swaps = new Set<number>();
+    try {
+      for (const cmd of made.commands) {
+        const out = w.world.edit(canonicalEditCommand(cmd));
+        record.unshift(...out.chunks);
+        parts |= fieldsFeed(out.fields);
+        for (const sw of out.materialSwaps) swaps.add(sw);
+      }
+    } catch (e) {
+      w.world.undo(record);
+      if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
+      throw e;
+    }
+    let cells = 0;
+    let k = 0;
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) if (valueOf(store.voxelAt(x, y, z, v)) !== before[k++]) cells++;
+    if (cells === 0) {
+      w.world.undo(record);
+      return refuse('no_change', 'validation', 'the kit test scene is already there: it changes no voxel');
+    }
+    const box: CellBox = { minX: x0, minY: y0, minZ: z0, maxX: x1, maxY: y1, maxZ: z1 };
+    return { ok: true, record, cells, box, parts, materialSwaps: [...swaps].sort((p, q) => p - q), scene: { min: made.min, max: made.max, labels: made.labels } };
   }
 
   private fileName(w: OpenWorld, c: ChunkCoord): string {

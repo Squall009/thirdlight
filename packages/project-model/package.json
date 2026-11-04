@@ -24,6 +24,7 @@
     "./arch-style-rows": "./src/arch-style-rows.ts",
     "./kits": "./src/kits.ts",
     "./kit-checks": "./src/kit-checks.ts",
+    "./voxel-kit-check": "./src/voxel-kit-check.ts",
     "./model-occluders": "./src/model-occluders.ts",
     "./repeated-rows": "./src/repeated-rows.ts",
     "./plane-lock": "./src/plane-lock.ts",

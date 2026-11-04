@@ -126,7 +126,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         op: { type: 'string', enum: [...MUTATION_OPS, 'stageScriptLibrary'] },
         args: { type: 'object' },
-        expectedRevision: { type: 'integer', minimum: 0, description: 'required for every op but stageScriptLibrary (which changes no revision) and the voxel world ops editVoxels/undoVoxels (a world keeps its own revision)' },
+        expectedRevision: { type: 'integer', minimum: 0, description: 'required for every op but stageScriptLibrary (which changes no revision) and the voxel world ops editVoxels/undoVoxels/writeKitTestScene (a world keeps its own revision)' },
         requestId: { type: 'string', pattern: '^req-[0-9a-f]{32}$' },
       },
       required: ['op'],

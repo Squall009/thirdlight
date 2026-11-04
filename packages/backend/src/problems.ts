@@ -1,7 +1,7 @@
 /**
  * The project problems log (the editor's Problems tab and MCP read it) and the
  * checks that fill it: what the project's open reported, its materials'
- * graphs, missing files, scripts naming unloadable assets, kits, block
+ * graphs, missing files, scripts naming unloadable assets, kits, voxel kits, block
  * layers, vertex paint, height slots, occluders and held model images. Each
  * check runs when an editor loads the project and again after a change that
  * can matter to it.
@@ -22,6 +22,7 @@ import { createMissingFiles } from './missing-files';
 import { createOccluderProblemChecker } from './occluder-problems';
 import { createPaintProblemChecker } from './paint-problems';
 import { createScriptNameChecker } from './script-name-problems';
+import { createVoxelKitProblemChecker } from './voxel-kit-problems';
 import type { TextureEncoder } from './texture-encode';
 
 /** One recorded problem: bounded, log-safe (no secrets, no host paths). */
@@ -121,6 +122,8 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
   // Kits against the trim sheet spec (the kit editor's checks); their pieces' errors join the kit Problems.
   const kitChecker = createKitChecker({ service, encoder: deps.textureEncoder });
   const kitProblems = createKitProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed, pieceErrors: kitChecker.pieceErrors });
+  // Voxel kits against the case catalogue, their meshes' files and (opted in) the draft trim layout.
+  const voxelKitProblems = createVoxelKitProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Block layers' floating blocks, empty regions and unreachable places (checked on load and after block edits settle).
   const blockProblems = createBlockProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Linked prefab copies assembly could not make as stored (checked on load and after changes to copies or prefabs).
@@ -184,6 +187,7 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
       for (const p of service.takeOpenProblems(projectId)) recordProblem(projectId, 'workspace', p.code, p.message);
       scriptNames.loaded(projectId);
       kitProblems.loaded(projectId);
+      voxelKitProblems.loaded(projectId);
       heldImages.loaded(projectId);
       blockProblems.loaded(projectId);
       prefabProblems.loaded(projectId);
@@ -209,6 +213,7 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
       }
       scriptNames.changed(projectId, change);
       kitProblems.changed(projectId, change);
+      voxelKitProblems.changed(projectId, change);
       heldImages.changed(projectId, change);
       blockProblems.changed(projectId, change);
       prefabProblems.changed(projectId, change);

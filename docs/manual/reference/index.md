@@ -26,7 +26,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 91 sections |
+| [Command op arguments](ops-detail.md) | 92 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
 | [Types (CreateEntityArgs to ModelColliderKind)](types-c-m.md) | 92 sections |
 | [Types (ModelLodSettings to TerrainSplinesLayer)](types-m-t.md) | 101 sections |

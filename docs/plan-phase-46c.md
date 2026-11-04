@@ -137,7 +137,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.6 | done: `piece-table.ts` (material → kit by test binding, kit-local pieces, missing case → body → single → same-form role fallback → engine default), variant word (hash of cell + kit seed, bit 15 mirror), still 8 B; derived v11 → v12. Kit change re-derives only chunks/L1 nodes holding its materials. Table 1.65 kB a full kit; town L0 instances/chunk p50 80 → 1,355 with a full kit |
 | 46c.6b | done: wetness and a same-kit material paint re-derive shader data only, kit bound or not (real workers: 0 mesh derives); a cross-kit paint derives whole exactly the sections holding the painted cells. Edits report `materialSwaps`. Case windows drop the same-material bit unless a rule reads it (D478 fixed); derived v12 → v13. L1+ nodes still derive whole (D479) |
 | 46c.7 | done: kit pieces drawn on the slice page, Play, Scene view, export: hosts build `worldPieceTable(kits)` (+ engine default kit `default-kit.ts`, 45 cases: 29 box pieces, 16 none; table format 2), GLBs via the content closure/backend, one instanced draw a (kit piece, variant, mirror, level) a chunk. Town render() CPU 3.2 → 8.1 ms (1,420 piece draws), slice unchanged; frames at the cap |
-| 46c.8 | not started |
+| 46c.8 | done: `voxel-kit-check.ts` (project-model) rows ok/warn/err/info: cases, role fallbacks, high/low, assets/digests, pivot/fit, join profiles, budgets, trim T1–T10 (draft, opt-in) → Problems + tl_diagnostics; `writeKitTestScene` op: 53 exhibits (45 cases × roles) from the catalogue, 98×7×49 cells, one undo; page `?kitScene=` labels. Default kit: 0 err, check 0.11 ms |
 | 46c.9 | not started |
 | 46c.10 | not started |
 | 46c.11 | not started |
@@ -448,6 +448,48 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   0 missed both renderers, 5.92 / 4.16 ms). `voxel-world.e2e.ts`: 7 tests sum 55.6 s alone (63.8 s at 46c.6b). Staging
   slice world needs no regenerating (derived data and a job table only).
 
+### 46c.8 kit check and kit test scene
+
+- **Built:** `project-model` `voxel-kit-check.ts` (`voxelKitCheck`, `worldVoxelKitCheck`, `voxelKitMeshFacts` from GLB bytes:
+  triangles, bounds, UV0, one node, embedded image sizes) and `voxel-trim-layout.ts` (`DRAFT_TRIM_LAYOUT` `detail-trim`,
+  the draft's regions; **DRAFT**). Rows: `catalogue` (unknown case/section: err), `required:<case>` (warn, naming what
+  draws it: the role's fallback piece of the same form, the base surface, or the engine stand-in), `optional` (info),
+  `fallback:<role>` (warn), `pairs` (no low: info; low heavier: warn), `assets` (missing/not a model/unreadable/no node:
+  err), `digests` (unknown digest: warn), `pivot` (not touching its cell: err), `fit` (past ±0.5 m: warn), `joins`
+  (different outlines: warn; unnamed end: info), `budget` (info: triangles per piece and kit, textures; never capped),
+  `trim:T1–T10` only with `trimLayout`, titled "(draft layout)" (T9 info: the kit format names no texture set). Backend
+  `voxel-kit-problems.ts`: on load and after kit/asset changes, warn/err rows → problems log code `voxel_kit_check`,
+  repeated per-case rows folded into one line a rule. Boundary: backend value subpath `voxel-kit-check` (own entry).
+- **Test scene:** `@thirdlight/voxel` `kit-test-scene.ts` (`kitTestScene(rules, {origin, material})`): per (case, role)
+  a window the matcher resolves to the case (readable fillers + the rule's cells first, else seeded random windows cut
+  down cell by cell), realised voxel for voxel, centres 7 cells apart in a box first emptied; each label's case and
+  run section from the real case + run passes (checked before it is handed out). Workspace op `writeKitTestScene`
+  {world, origin, material} (VOXEL_WORLD_OPS: editor, MCP, HTTP alike): the box dug, one `set` a voxel, one history
+  entry, cells = cells that end different (the same scene again: `no_change`), answer `scene {min, max, labels}`.
+  Slice page `?kitScene=x,y,z,material` / hook `writeKitScene` labels each exhibit (role · case · section).
+- **Numbers** (Node, 2026-11-04 06:15): 53 exhibits, box 98 × 7 × 49 cells, 1,432 voxels in 10 `set`s + 1 dig (11.8 kB of
+  commands); sections at the labels single 51, body 2; generation 31 ms cold, 4–13 ms warm. Default kit checked from its
+  boxes: 30 rows (5 ok, 21 warn, 4 info, 0 err), 29 pieces, 408 triangles high, 0 low, no textures; check p50 0.11 ms.
+- **Tests:** `voxel-kit-check.test.ts` (6: a full kit passes; the default kit has no err; each rule fires alone on its
+  broken kit; T1–T8 each fire on their own fault and a good strip passes; GLB facts read from bytes);
+  `tools/voxel-bench/kit-test-scene.test.ts` (3: every (case, role) reached; written into a busy random world across
+  chunk faces, each label's cell gets its case and section, and the real derive with a full test kit draws that case's
+  and section's piece); `voxel-world.test.ts` (+2, real backend: a broken kit's rows in GET …/problems and MCP
+  tl_diagnostics, mended kit no err; the scene command, files read back by range: every label derives as labelled,
+  `no_change` again, one undo restores the world); e2e `voxel-world.e2e.ts` (webgpu test extended: scene written,
+  labels on screen, wall-top/end/corner exhibits draw the default kit's pieces, undone).
+- **Looked at** (staging slice, WebGPU only, 1280 × 720, 2026-11-04 06:31, load 1.5, uptime 11.6 d; shots in
+  `~/.cache/thirdlight-phase46/work/46c.8/shots`): the scene written at [-20, 106, -10] in timber (1,432 cells, visible
+  231 ms after the send), then undone. Seen: a row a role, each exhibit labelled role · case · section above it, the
+  default kit's pieces (copings, end boards, corner posts, edge bands, opening frames) on the labelled cells with the
+  debug texture; exhibits are blocky (the generator's readable fillers: a face of the role with the front open), and
+  opening exhibits are bare frames around open cells. Labels hide past 30 m, so the overview shows none. WebGL 2
+  not looked at (unverified there).
+- **Gate:** gate-fast-20261104-061226 RED on one e2e assertion (the reload picture: the scene's labels were still on
+  the page and the camera was not put back; fixed in the test with `clearKitScene` and the opening view, not a bound);
+  rerun gate-rerun-20261104-062824 GREEN (perf at the cap 0 missed both renderers, 6.22 / 3.99 ms). vitest 840 files.
+  `voxel-world.e2e.ts`: 7 tests sum 60.9 s (55.6 s at 46c.7; the scene step ~0.8 s in the webgpu stream test).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -627,6 +669,19 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-04 (46c.7, default chosen, owner to confirm): **kit pieces draw with a stand-in tint a kit and the debug UV
   texture**, not the cell's material colour: a same-kit material paint is shader data only and builds no piece, so
   pieces follow materials when 46d's material model gives them their own.
+
+- 2026-11-04 (46c.8, default chosen, owner to confirm): **kit check lives in `project-model`** (`voxel-kit-check.ts`, not
+  `@thirdlight/voxel`): it reads the kit record and GLB geometry the project model owns; it takes the catalogue from the
+  voxel package. **No err for a missing required case**: every case is drawn by something (kit fallback, base surface,
+  engine stand-in), so a missing one is a warn naming which; err is for what draws wrong or not at all (unknown
+  case/section, missing or unreadable mesh, pivot off the cell, trim T1/T2/T4). "Passes" = no err.
+- 2026-11-04 (46c.8, default chosen, owner to confirm): **cell envelope ±0.5 m** (the cell plus half a cell round it):
+  trims may overhang (the default kit's finial reaches +6/16); past that a warn. Trim B checks (UV1 for own bakes) are
+  not built: the draft lists them, the brief limits trim rows to opted-in kits.
+- 2026-11-04 (46c.8, default chosen, owner to confirm): **the test scene is a voxel world op `writeKitTestScene`**
+  (one undoable change, no edit-format change), one exhibit a (case, role) pair generated from the catalogue rather
+  than hand-built, one labelled cell each (run sections shown are what the derive gives: mostly single; a run of every
+  section per case is not laid out). Labels are not stored: the page recomputes them from the same pure generator.
 
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
