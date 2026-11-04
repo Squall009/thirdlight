@@ -412,6 +412,7 @@ describe('ground as a heightfield', () => {
     let worst = 0;
     let rays = 0;
     let drops = 0;
+    let alongFaces = 0;
     for (let x = 1.3; x < FEATURE_WIDTH - 1; x += 3.7) for (let z = 1.1; z < FEATURE_PAD - 1; z += 4.3) {
       const a = field.castSphere([x, FEATURE_TOP + 4, z], [0, -1, 0], 0.01, 200);
       const b = mesh.castSphere([x, FEATURE_TOP + 4, z], [0, -1, 0], 0.01, 200);
@@ -425,7 +426,21 @@ describe('ground as a heightfield', () => {
         const h = mesh.castSphere([x + ox!, FEATURE_TOP + 4, z + oz!], [0, -1, 0], 0.01, 200);
         return h !== null && Math.abs(h.distanceM - b.distanceM) < 0.25;
       });
-      if (rays % 5 !== 0 || !clear) continue;
+      if (!clear) {
+        // Beside a face: a capsule that starts clear of it (16 level rays at three heights of it reach no face within
+        // its radius) falls along the face without the step throwing; one that starts in it throws (D466).
+        const start: [number, number, number] = [x, a.centre[1] + 3, z];
+        let gap = Infinity;
+        for (let k = 0; k < 16; k++) for (const up of [0.4, 1, 1.6]) {
+          const h = mesh.castSphere([x, start[1] + up, z], [Math.cos((k * Math.PI) / 8), 0, Math.sin((k * Math.PI) / 8)], 0.01, 4);
+          if (h !== null) gap = Math.min(gap, h.distanceM);
+        }
+        if (gap === Infinity || gap < 0.2) continue;
+        alongFaces++;
+        for (const w of [field, mesh]) expect(w.dropCapsule(start, 0.2, 0.3).grounded, `${x},${z}`).toBe(true);
+        continue;
+      }
+      if (rays % 5 !== 0) continue;
       drops++;
       const fa = field.dropCapsule([x, a.centre[1] + 3, z], 0.2, 0.3);
       const fb = mesh.dropCapsule([x, a.centre[1] + 3, z], 0.2, 0.3);
@@ -434,6 +449,7 @@ describe('ground as a heightfield', () => {
     }
     expect(rays).toBeGreaterThan(2000);
     expect(drops).toBeGreaterThan(300);
+    expect(alongFaces).toBeGreaterThan(30);
     expect(worst).toBeLessThan(0.01);
     const sweeps = sweepsAgree(field, mesh, [2, FEATURE_WIDTH - 2, 2, FEATURE_PAD - 2], FEATURE_TOP - 30, 3000);
     expect(sweeps.casts).toBeGreaterThan(1500);

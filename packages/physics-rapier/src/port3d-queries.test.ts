@@ -275,4 +275,33 @@ describe('sphere casts on sloped heightfields', () => {
     expect(steps).toBe(900);
     expect(worst).toBeLessThan(0.02);
   });
+
+  it('a fast mover (3–8 cells a step) dropped slanted onto them lands where it lands on the same triangles as a mesh', async () => {
+    const gentle = Float32Array.from(heights, (h) => h * 0.3);
+    const field = { type: 'heightfield' as const, cellsX: N, cellsZ: N, cellX: CELL, cellZ: CELL, heights: gentle };
+    const landed: number[][] = [];
+    for (const [dx, dz, speed] of [[1, 0, 180], [0, 1, 240], [-0.6, 0.8, 300], [0.7, -0.7, 480]] as const) {
+      const start = { x: -dx * 3, y: 6, z: -dz * 3 };
+      const ports = await Promise.all([ground(field), ground(mesh(false, gentle))].map((g) => portOf(config({ statics: [g], layers: [], character: { position: start, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0.9, z: 0 } } }))));
+      // speed m/s along (dx, -1.5, dz) normalised: 1.5–4 m a step at 120 Hz, until it stands.
+      const len = Math.hypot(dx, 1.5, dz);
+      const at = ports.map((p, j) => {
+        let last = p.step();
+        for (let i = 0; i < 30 && !last.grounded; i++) {
+          p.stageCharacterMove({ x: (dx / len) * (speed / 120), y: (-1.5 / len) * (speed / 120), z: (dz / len) * (speed / 120) });
+          try {
+            last = p.step();
+          } catch (e) {
+            throw new Error(`${j === 0 ? 'field' : 'mesh'} ${speed} step ${i}: ${(e as Error).message}`);
+          }
+        }
+        expect(last.grounded).toBe(true);
+        return [last.position.x, last.position.y, last.position.z];
+      });
+      landed.push([Math.hypot(at[0]![0]! - at[1]![0]!, at[0]![1]! - at[1]![1]!, at[0]![2]! - at[1]![2]!)]);
+      for (const p of ports) p.dispose();
+    }
+    console.log('fast movers: field vs mesh landing (m)', JSON.stringify(landed.flat().map((x) => +x.toFixed(4))));
+    for (const d of landed.flat()) expect(d).toBeLessThan(0.02);
+  });
 });

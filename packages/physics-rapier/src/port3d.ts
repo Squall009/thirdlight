@@ -406,6 +406,20 @@ export function physicsMemoryBytes3D(): number | null {
   return wasmMemory !== null ? wasmMemory.buffer.byteLength : null;
 }
 
+/** The engine's init while one runs: ports created at once share it (two inits at once instantiate the module twice, and the first port's objects then belong to a replaced instance). */
+let initRunning: Promise<void> | null = null;
+
+function sharedInit(): Promise<void> {
+  if (initRunning === null) {
+    const unwatch = watchInstantiate();
+    initRunning = RAPIER.init().finally(() => {
+      unwatch();
+      initRunning = null;
+    });
+  }
+  return initRunning;
+}
+
 function awaitInit(signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
@@ -419,17 +433,14 @@ function awaitInit(signal?: AbortSignal): Promise<void> {
       reject(CANCELLED);
     };
     signal?.addEventListener('abort', onAbort, { once: true });
-    const unwatch = watchInstantiate();
-    RAPIER.init().then(
+    sharedInit().then(
       () => {
-        unwatch();
         if (settled) return;
         settled = true;
         signal?.removeEventListener('abort', onAbort);
         resolve();
       },
       (error: unknown) => {
-        unwatch();
         if (settled) return;
         settled = true;
         signal?.removeEventListener('abort', onAbort);
