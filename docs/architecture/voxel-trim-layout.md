@@ -115,6 +115,9 @@ Reserved space stays a neutral mid-grey (height 0.5, flat normal); a later layou
   authored U, taken along the world direction of the piece's +x after its turn; a mirrored instance uses
   (cell + 1) × 0.125 − authored U, so U still grows along the world axis. Every section of a run reads the same world
   coordinate, so body, junction and termination sections join without a seam and the pattern repeats every 4 m.
+  *As built (46c.10, for the owner's review):* the renderer makes U grow along the world's positive axis for every
+  instance, turned or mirrored, so two cells of a run that a symmetric case placed differently still meet; text on a
+  sheet then reads mirrored on faces seen from the negative side.
 - **V by region.** Each face across the run maps to one region at its real size. A profiled strip needs the face to
   be the strip's height (±2 %); a plain strip or the field accepts a narrower face, centred in the band.
 - **Round members wrap a plain region** whose height is their circumference: diameter 0.04 m → S12, 0.08 m → S25,

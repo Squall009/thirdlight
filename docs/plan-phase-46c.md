@@ -139,7 +139,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.7 | done: kit pieces drawn on the slice page, Play, Scene view, export: hosts build `worldPieceTable(kits)` (+ engine default kit `default-kit.ts`, 45 cases: 29 box pieces, 16 none; table format 2), GLBs via the content closure/backend, one instanced draw a (kit piece, variant, mirror, level) a chunk. Town render() CPU 3.2 → 8.1 ms (1,420 piece draws), slice unchanged; frames at the cap |
 | 46c.8 | done: `voxel-kit-check.ts` (project-model) rows ok/warn/err/info: cases, role fallbacks, high/low, assets/digests, pivot/fit, join profiles, budgets, trim T1–T10 (draft, opt-in) → Problems + tl_diagnostics; `writeKitTestScene` op: 53 exhibits (45 cases × roles) from the catalogue, 98×7×49 cells, one undo; page `?kitScene=` labels. Default kit: 0 err, check 0.11 ms |
 | 46c.9 | done: placeholder kits log (11 cases, 28 pieces, 768/385 tris high/low, GLB 92,956 B) and stone (12 cases, 18 pieces, 272/272, 32,436 B) from Blender 5.2 (`kits/make_placeholder_kits.py`), draft trim UVs, no textures; kit check 0 err, T1–T8 ok; on staging both renderers (`run.mjs kits`); trim debug set drawn; check T6 per face, T8 on the run axis |
-| 46c.10 | not started |
+| 46c.10 | done: lead's log-corner shot was a real bug: plain walls (fallback), lintels, sills, opening tops took a free front, pieces faced into the wall; fixed (`cases-draft` v4: fronts, `wall-thin` both faces; `kits` v5), pinned by `kit-house.test.ts`; trim U offset per instance (`pieceU`). §7a list on staging both renderers: 12 cases, table in results; D480–D484 |
 | 46c.11 | not started |
 | 46c.12 | not started |
 | 46c.13 | draft v0 (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-trim-layout.md`: 4096² sheet authored 1024 px/m (tiers 256/512/1024), 32 px gutters, field 1 m + strips 0.5/0.25/0.125 m plain/profiled + caps 3 sizes × 4, U from world run distance (4 m repeat), path B (own bakes) beside it, kit-check rows T1–T10, log/stone examples, 10 owner questions |
@@ -554,6 +554,65 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   tests sum 60.5 s (60.9 s at 46c.8). Staging keeps both kits in voxel-slice (`assets/kits`, set) for 46c.10; the slice
   world needs no regenerating.
 
+### 46c.10 prototype scene on staging (§7a list)
+
+- **The lead's observation** (`acceptance/46c/kits/log-wall-corner-webgpu.png`: log ends out of the middle of faces,
+  logs laid across faces): **both (a) and (b)**. (a), a placement bug: built as a real one-cell-thick house through the
+  real derive with the committed kits (`tools/voxel-bench/kit-house.test.ts`), the plain wall had no rule, so its
+  fallback took the window's *key* fold, whose front could face along the wall: in the probe every plain cell of the
+  house pointed its front along its wall, so the log kit's half-logs (and the stone kit's ashlar, 2 cm into the next
+  cell) lay on a face against the neighbouring wall cell; `wall-lintel`, `wall-sill`, `opening-threshold`/`-sill`/`-head` left the front free the same way (stone frames
+  ran across the wall). The instancer, pivots and turn convention (a turn takes +x to +z, mirror first) were right.
+  (b): the remaining stubs in the test-scene shots are `wall-corner` pieces on the blocky exhibits' many outside
+  vertical edges (the generator's fillers), which a real wall does not have.
+- **Fixed (catalogue `cases-draft` v3 → v4, DRAFT; `kits` v3 → v5; derived layout unchanged, spec §3.7 versions):**
+  `wall-plain` gets a lowest rule "front open"; lintels and sills name their front open, opening tops/bottoms their
+  front air; new case `wall-thin` (open in front and behind, priority above the plinth): a one-cell-thick wall's piece
+  dresses both faces (one face only made the dressed side flip wherever the window changed). Kits: log `wall-thin`
+  (half-logs both faces) and two-faced `wall-end`, stone `wall-thin` (2 variants); regenerated in Blender: log 29
+  pieces, 896 / 433 triangles high / low, GLB 104,700 B; stone 20 pieces, 360 / 360, 40,276 B; no textures (the
+  runtime debug set). Default kit: `wall-thin` none.
+- **Trim U along runs (46c.9's "not right yet"):** `three-adapter` `voxel-trim-u.ts`: a trim kit's run faces (not end-on
+  to the piece's x, not in a cap region; flagged per triangle, mesh non-indexed) read U' = offset + factor × U from a
+  per-instance `pieceU` (offset = world coordinate along the run × 0.25 / m, modulo the sheet in 64 bits; factor ±
+  the cell's size in level-0 cells), U growing along the world's positive axis. Seen on staging: cells along a run
+  show 0…7 of the 4 m sheet and continue across chunk faces. **Mirrored debug text is kept, by design** (decision log).
+- **Tests:** `kit-house.test.ts` (new, 9): the log and stone house (7 m and 5 m runs, 4 corners, a T with a free end,
+  door, window) through the real derive and the GLBs: no piece triangle stands inside a solid neighbour (5 of its 7
+  tests fail with the front rules taken out), thin cells `wall-thin` running along their wall (foot included), lintel/sill/jamb fronts on the
+  wall face, corners' +x/+z on the two open sides, the T's end out of its end, stone frames in the wall plane; the
+  drawn view (real loader port, chunk view): every run-face vertex of every instance reads U = 0.25 × its world
+  coordinate (≤ 0.0025), ≥ 8 distinct offsets. `kit-cases`, `kit-test-scene`, `derived` expectations follow the meaning
+  step (45.7b's one-cell wall is `wall-thin`; 46 cases; `kits` v5).
+- **§7a list on staging** (1280 × 720 at the 60 Hz cap, both renderers, 2026-11-04 07:54–08:03, load 1.1–5.5, uptime
+  11.6 d; shots and script `~/.cache/thirdlight-phase46/acceptance/46c/proto/`, every edit undone after): a pad at
+  x −76…−28, z 14…58 (crossing chunk faces x −64, −32 and z 32) with the log house, the stone house, a 20 m log and a
+  20 m stone wall and the wall-beam-banister scene rebuilt on it (the slice's own scene is dug by earlier runs). Every
+  shot below was looked at on both renderers; WebGPU and WebGL 2 shots match.
+
+  | Case | Renderer | Looks right / wrong + why |
+  |---|---|---|
+  | Log house, thin walls (7 m, 5 m runs) | both | right: half-logs on both faces, top logs along every run, cell numbers 0–7 along the run. **Wrong:** the top course's faces, the cells round the door and window, and the corner and end cells' faces are bare base surface (one case a cell, D480; corners one U axis, D481) |
+  | Outside corners | both | right: log ends out of the two open sides, alternating courses (interlock); stone quoins long/short a course |
+  | T wall, inside corners | both | right: the T's free end shows its log ends into the room; inside corners meet without overlap |
+  | Openings (door, window) | both | stone: jambs, head, sill and threshold in the wall plane (right after the fix). Log kit: no opening pieces (bare reveals, as authored); the wall cells round them one face only (D480) |
+  | Wall ↔ beam ↔ banister | both | right: the beam a log along the wall, posts and rails on the slab; the rail grown into a wall becomes a thin log wall with a top log and end logs (2 sections derived). **Wrong:** the wall behind the beam dug, the freed beam cells are a bare bar with a top log, not a free beam (D482) |
+  | Material, same kit (timber → plank, back wall) | both | right, no remesh: the swap re-sent 4 sections' shader data, mesh and derive µs 0; pieces unchanged (untinted debug set until 46d) |
+  | Material, across kits (timber → stone) | both | right: the wall's pieces swap to quoins, coping and ashlar; 4 sections derived |
+  | Chunk faces through a wall (x −64, −32) | both | right: pieces and U continue across the faces, no seam or gap |
+  | Long 20 m wall (repetition) | both | the debug sheet repeats every 4 m as designed; the stone kit's 2 ashlar variants barely show under the debug set: repetition with real art is 46d's (unverified) |
+  | Dig 2 × 2 + rebuild mid-wall | both | right: the hole's sides end with log ends, a top log under it; 42 probed cells: 0 changed farther than 5 cells while dug, 4 near, 0 changed after the rebuild (variants stable) |
+  | High → low in motion (focus walked 60 → 285 m, 16 frames) | both | L0 high to 75 m, low from 90 m, none from 240 m (counts); no pop seen at L0 → L1 (stone low = high). **Wrong/unexplained:** at L1 the stone coping shows a second band beneath it (D483). Past 256 m the camera's area is not streamed with the focus that far (test set-up), so L2 was not seen |
+  | Rotated grids | — | 47a's (recorded only) |
+
+  The 400 responses in the page's console are the script's edits refused as `no_change`. Frame times were not
+  measured here (46c.11).
+- **Gates:** gate-fast-20261104-073018 RED (two expectations of the meaning step: `kits` version, the trim material's
+  `map`), rerun gate-rerun-20261104-074303 GREEN (perf at the cap 0 missed both renderers, 5.92 / 4.10 ms) → 46a46ce6;
+  gate-fast-20261104-080430 GREEN (13 min, peak 4.6 GB; `world-host.test.ts` failed once and passed alone, D484
+  watch; perf 0 missed, 5.92 / 4.06 ms). `voxel-world.e2e.ts` untouched: its 7 tests sum 65.1 / 65.4 s (60.5 s at
+  46c.9, load). Staging: the kits re-imported (`run.mjs kits`); the slice world needs no regenerating (no format change).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -764,6 +823,19 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-04 (46c.9, default chosen, owner to confirm): **a trim kit draws with its layout's generated debug set**
   (adapter, until 46d's material model gives texture sets), untinted so the region hues read; the run U offset and the
   mirrored U of draft §5 are not applied by the renderer yet (46d, with the material model).
+
+- 2026-11-04 (46c.10, default chosen, owner to confirm): **a fallback case names its front by a rule** (lowest priority:
+  "front open"), and every case whose piece shows on its front names that front: a fallback took the window's key
+  fold, which is arbitrary, and a rule without a front lets the matcher pick any turn that fits. Proposed for the
+  role spec: "a case whose piece shows on a face names the face in its rule".
+- 2026-11-04 (46c.10, default chosen, owner to confirm): **`wall-thin`** (a one-cell-thick wall, open in front and
+  behind; above the plinth) is a case of the draft, required: no (a kit without it draws its plain piece on one face).
+  A thin wall with a second feature (top, opening surround, end, corner) still dresses one face or none (D480): the
+  owner chooses between thin variants of those cases and per-face pieces in the role spec.
+- 2026-11-04 (46c.10, default chosen, owner to confirm): **trim U grows along the world's positive axis**, not along
+  each piece's +x: cells of one run placed with different turns or mirrors (symmetric cases) meet without a seam. The
+  cost: debug text reads mirrored on faces seen from the negative side (no reading direction in real trim art). This
+  refines the trim draft §5's mirrored-U rule (which made U follow each piece) for the owner's review.
 
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this

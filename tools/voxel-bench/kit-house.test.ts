@@ -120,8 +120,8 @@ describe.each([
     expect(pieces.size).toBeGreaterThan(200);
   });
 
-  it('dresses both faces of a thin wall along the wall, and turns the front onto the wall face at lintels, sills and jambs', () => {
-    for (const [x, y, z, along] of [[10, 3, 11, 'x'], [4, 4, 2, 'x'], [15, 2, 6, 'z'], [2, 3, 8, 'z'], [9, 2, 5, 'z']] as const) {
+  it('dresses both faces of a thin wall along the wall (its foot too), and turns the front onto the wall face at lintels, sills and jambs', () => {
+    for (const [x, y, z, along] of [[10, 3, 11, 'x'], [10, 0, 11, 'x'], [4, 4, 2, 'x'], [15, 2, 6, 'z'], [2, 3, 8, 'z'], [9, 2, 5, 'z']] as const) {
       const p = at(x, y, z);
       expect(p.caseId, `${x},${y},${z}`).toBe('wall-thin');
       expect(axis(p.fold, [1, 0, 0]), `${x},${y},${z} run`).toBe(along === 'x' ? '1,0,0' : '0,0,1');

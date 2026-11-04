@@ -1,10 +1,11 @@
 /**
- * The case catalogue, version 3 (version 0, plus the rules where runs turn
+ * The case catalogue, version 4 (version 0, plus the rules where runs turn
  * and branch in version 1: rail L, T and cross, beam inside and outside
  * corners, the storey line's outside corner; plus each case's base and
  * declared shape for the consumers in version 2; plus a front for the
  * plain wall, lintels, sills and the tops and bottoms of openings, and the
- * one-cell-thick wall's case, in version 3): **DRAFT — not the role spec's v1.** It is the source the role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
+ * one-cell-thick wall's case, in version 3; that case above the plinth in
+ * version 4): **DRAFT — not the role spec's v1.** It is the source the role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
  * and stays a draft until the owner approves that spec; nothing builds on
  * its case list as final before then.
  *
@@ -131,8 +132,9 @@ const rules: CaseRule[] = [
   // The plain wall's front on an exposed side face: without it the fallback took the key's fold, whose front may face
   // along the wall, into the next cell (a piece hidden in the wall or standing across its face).
   // A one-cell-thick wall shows both faces: a piece on one face only would leave the other bare, and which one it
-  // took would flip wherever the window changes (beside a corner or an opening).
-  r('wall-thin', 2, [[0, 0, 1, O], [0, 0, -1, O]]),
+  // took would flip wherever the window changes (beside a corner or an opening). Above the plinth, so a thin wall's
+  // foot is dressed on both faces too (a one-sided plinth is the same flip).
+  r('wall-thin', 46, [[0, 0, 1, O], [0, 0, -1, O]]),
   r('wall-plain', 1, [[0, 0, 1, O]]),
   // floor
   r('floor-corner', 52, [[0, 0, 1, O], [1, 0, 0, O]]),
@@ -172,7 +174,7 @@ const rules: CaseRule[] = [
 /** The draft catalogue (see the file comment: DRAFT — not v1, the role spec draft's source). */
 export const DRAFT_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'cases-draft',
-  version: 3,
+  version: 4,
   draft: true,
   cases,
   rules,

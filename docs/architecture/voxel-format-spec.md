@@ -1406,11 +1406,11 @@ section: see the limits above.
 
 #### Kit rule set (46c; derived v13, `kit-rules.ts`, `piece-table.ts`)
 
-- `KIT_RULES` (id `kits`, version 4) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 4)`: the terrain
+- `KIT_RULES` (id `kits`, version 5) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 5)`: the terrain
   rules' classes and the case pass over the case catalogue in **one** `AssemblyRuleSet`, one evaluation a job, radius
   the larger of the two (`CASE_REACH` 2 = `TERRAIN_RULES_RADIUS`), so the job's pad stays 3 and aprons and
   invalidation are unchanged. `WORLD_RULES` = `KIT_RULES`: the slice page, Play, the Scene view and the voxel e2e
-  derive with it. Its id and version name the pair: a change to the terrain rules or the catalogue (`cases-draft` v3,
+  derive with it. Its id and version name the pair: a change to the terrain rules or the catalogue (`cases-draft` v4,
   **DRAFT** until the owner approves the role spec) takes a new `kits` version. Versions: 1 (46c.3) = terrain v1 +
   `cases-draft` v0; 2 (46c.4) = terrain v1 + `cases-draft` v1 (v0 plus the rules where runs turn and branch: rail L, T
   and cross, beam inside and outside corners, the storey line's outside corner) and the run pass; 3 (46c.5) = terrain
@@ -1419,7 +1419,8 @@ section: see the limits above.
   plus `wall-thin`, a one-cell-thick wall open in front and behind whose piece dresses both faces, and a front for the
   plain wall, lintels, sills and the tops and bottoms of openings: before, a plain wall took its window's key fold and
   those rules left the front free, so pieces could face along the wall into the next cell). Derived layout unchanged
-  (no derived version step): results name `kits` v4, and an instance's turns now follow the fronts.
+  (no derived version step): results name `kits` v4, and an instance's turns now follow the fronts; 5 (46c.10) =
+  terrain v1 + `cases-draft` v4 (`wall-thin` above `wall-base`: a thin wall's foot dressed on both faces).
 - **Run sections** (`kit-runs.ts`, `resolveRuns` beside `resolveCases`): every cell with a case gets a u16 in the job
   only (bits 0–2 section single/start/body/end/corner/junction, 3–4 and 5–6 what its start and end sides meet:
   joined/open/butt/inner mitre, 7–8 the world run axis x/y/z/none). Two neighbours join when their cases share a run
