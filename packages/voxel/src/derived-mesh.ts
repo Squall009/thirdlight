@@ -28,17 +28,22 @@
  *
  * **Detail instances**: 8 bytes each: x, y, z (chunk-local cell, uint8),
  * a byte of rotation (bits 0–1: quarter turns about +y) and flags (bits
- * 4–7, {@link INSTANCE_FLAG}), the piece (uint16: family << 2 | section)
- * and a reserved uint16 (0) that keeps the stride a multiple of four, as a
- * GPU instance buffer needs; the piece's material is its cell's, read from
- * the shader data like a surface's. A piece that replaces its cell's base
- * surface says so (`replacesBase`): the base surface is then not emitted
- * there, so an open rail is open, not a rail drawn over a solid block.
+ * 4–7, {@link INSTANCE_FLAG}), the piece (uint16) and its variant word
+ * (uint16): the stride stays a multiple of four, as a GPU instance buffer
+ * needs. The piece is **kit-local** (piece-table.ts): below
+ * `KIT_PIECE_BASE` the engine's default piece (stand-in family << 3 | run
+ * section), from there the own piece of the kit its cell's material names;
+ * the material is its cell's, read from the shader data like a surface's.
+ * The variant word holds the variant (bits 0–14) and the mirror of the
+ * case's transform (bit 15). A piece that replaces its cell's base surface
+ * says so (`replacesBase`): the base surface is then not emitted there, so
+ * an open rail is open, not a rail drawn over a solid block; a kit's piece
+ * on a cell whose base is kept (a moulding, a coping) adds to it.
  *
  * **Pieces per level** ({@link pieceDetailAt}): a chunk (level 0) lists its
  * pieces at high detail, a level-1 node at low detail (`low` set: the
- * renderer draws the family's low mesh, which a kit provides beside its high
- * one), and coarser nodes list none: there the cells the rules read as
+ * renderer draws the piece variant's low mesh, or its high one where the kit
+ * authored no low), and coarser nodes list none: there the cells the rules read as
  * beams and rails are drawn by the base surface as the bodies their mip
  * cells are, so a distant balcony or fence keeps its outline as blocks.
  */
@@ -72,7 +77,7 @@ export function pieceDetailAt(level: number): number {
   return level === 0 ? PIECE_DETAIL.high : level === 1 ? PIECE_DETAIL.low : PIECE_DETAIL.none;
 }
 
-/** Detail piece families (piece = family << 2 | section). */
+/** The default pieces' stand-in families (a default piece = family << 3 | run section, piece-table.ts). */
 export const PIECE_FAMILY = Object.freeze({ beam: 1, rail: 2, post: 3 });
 
 /** Run sections: a merge-compatible piece is a body with ends, or a single. */
@@ -121,32 +126,43 @@ export function snorm8(v: number): number {
   return Math.max(-127, Math.min(127, Math.round(v * 127)));
 }
 
+/** What a derive's piece choice gives for one cell (detailInstances reuses one). */
+export interface CellPiece {
+  /** The kit-local piece. */
+  piece: number;
+  /** Quarter turns about +y. */
+  turns: number;
+  /** {@link INSTANCE_FLAG} bits the piece sets (`replacesBase`). */
+  flags: number;
+  /** The variant word: variant | mirror bit (piece-table.ts). */
+  variant: number;
+}
+
 /**
  * Detail instances: one for each cell of the derive unit `pieceAt` gives a
- * piece — its piece (family << 2 | section) | its quarter turns << 16, or
- * −1 for none (derived-data.ts reads it from the cell's form: the cells a
- * piece replaces). `detail` ({@link PIECE_DETAIL}): none lists nothing,
- * low flags every piece.
+ * piece (padded index, then the cell's local x, y, z; false: none).
+ * `detail` ({@link PIECE_DETAIL}): none lists nothing, low flags every
+ * piece.
  */
-export function detailInstances(n: Neighbourhood, pieceAt: (i: number) => number, detail: number = PIECE_DETAIL.high): InstanceList {
+export function detailInstances(n: Neighbourhood, pieceAt: (i: number, x: number, y: number, z: number, out: CellPiece) => boolean, detail: number = PIECE_DETAIL.high): InstanceList {
   if (detail === PIECE_DETAIL.none) return { count: 0, data: new Uint8Array(0) };
-  const flags = INSTANCE_FLAG.replacesBase | (detail === PIECE_DETAIL.low ? INSTANCE_FLAG.low : 0);
+  const low = detail === PIECE_DETAIL.low ? INSTANCE_FLAG.low : 0;
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
   const out = new Bytes();
+  const cell: CellPiece = { piece: 0, turns: 0, flags: 0, variant: 0 };
   let count = 0;
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
-    const piece = pieceAt(((x + p) * s + (z + p)) * s + (y + p));
-    if (piece < 0) continue;
+    if (!pieceAt(((x + p) * s + (z + p)) * s + (y + p), x, y, z, cell)) continue;
     const at = out.reserve(INSTANCE_BYTES);
     const d = out.view;
     d.setUint8(at, x);
     d.setUint8(at + 1, y);
     d.setUint8(at + 2, z);
-    d.setUint8(at + 3, ((piece >> 16) & 3) | flags);
-    d.setUint16(at + 4, piece & 0xffff, true);
-    d.setUint16(at + 6, 0, true);
+    d.setUint8(at + 3, (cell.turns & 3) | cell.flags | low);
+    d.setUint16(at + 4, cell.piece, true);
+    d.setUint16(at + 6, cell.variant, true);
     count++;
   }
   return { count, data: out.done() };

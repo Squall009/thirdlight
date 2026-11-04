@@ -51,6 +51,7 @@ export function withCases(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
     version,
     radius: Math.max(base.radius, CASE_REACH),
     caseForms: caseFormTable(catalogue.cases),
+    catalogue,
     resolve(n: Neighbourhood, lo: number, hi: number, out: Uint8Array): void {
       base.resolve(n, lo, hi, out);
     },

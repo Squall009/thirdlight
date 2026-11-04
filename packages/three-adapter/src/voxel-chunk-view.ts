@@ -45,6 +45,7 @@ import {
   chunkKey,
   chunkOrigin,
   INSTANCE_BYTES,
+  defaultPieceFamily,
   INSTANCE_FLAG,
   mipCellMetres,
   PIECE_FAMILY,
@@ -419,7 +420,9 @@ export class VoxelChunkView {
     const byMesh = new Map<number, number[]>();
     for (let k = 0; k < list.count; k++) {
       const o = k * INSTANCE_BYTES;
-      const family = (list.data[o + 4]! | (list.data[o + 5]! << 8)) >> 2;
+      // Stand-ins by the default piece's family; a kit's own pieces (family 0) are drawn from their kit's meshes, not here.
+      const family = defaultPieceFamily(list.data[o + 4]! | (list.data[o + 5]! << 8));
+      if (family === 0) continue;
       const key = family * 2 + ((list.data[o + 3]! & INSTANCE_FLAG.low) !== 0 ? 1 : 0);
       let l = byMesh.get(key);
       if (l === undefined) byMesh.set(key, (l = []));

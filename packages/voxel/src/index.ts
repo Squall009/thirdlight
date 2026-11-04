@@ -193,7 +193,7 @@ export {
 export { chunkOverridesOf, decodeOverrides, encodeOverrides, OVERRIDE_CELL_BYTES, OVERRIDE_FIRST_VERSION, OVERRIDE_FORMAT_VERSION, OVERRIDE_UPGRADES, overridesOf, reapplyOverrides, type ChunkOverrides, type OverrideUpgradeStep, type OverrideMisfit, type OverrideReport, type StructureOverrides } from './structure-overrides';
 export { repairChunks, type RepairOutcome, type RepairSource } from './chunk-repair';
 export { DirtyTracker, type ChunkJob, type DirtyChunk, type JobRefusal, type SaveJob } from './dirty-tracker';
-export { checkPayloadEdge, payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
+export { checkPayloadEdge, payloadBytes, payloadHolds, payloadTransfer, type ChunkPayload } from './chunk-wire';
 export type { RecordChunkWire } from './palette-chunk';
 export type { PlaneWire } from './palette-plane';
 export type { BrickWire } from './brick-layout';
@@ -240,6 +240,7 @@ export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { joinCollision, joinInstances, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkSwapWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
+export { StreamPieces, type PiecesHost } from './stream-pieces';
 export { worldLevelRings, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres } from './world-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
 export {
@@ -276,13 +277,38 @@ export {
   type CollisionOut,
   type DerivedData,
   type DerivedCounts,
+  type DerivePieces,
   type DeriveTimes,
   type LightOut,
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
-export { cropNeighbourhood, deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
+export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export {
+  buildPieceTable,
+  defaultPiece,
+  defaultPieceFamily,
+  defaultPieceSection,
+  KIT_PIECE_BASE,
+  kitPieceList,
+  NO_KIT,
+  NO_PIECE,
+  PIECE_TABLE_FORMAT,
+  PIECE_VARIANT_MASK,
+  PIECE_VARIANT_MIRROR,
+  pieceTableBindsKits,
+  pieceTableChanges,
+  pieceVariant,
+  readPieceTable,
+  RUN_SECTION_IDS,
+  RUN_SECTIONS,
+  tablePiece,
+  type KitPiece,
+  type PieceKitSource,
+  type PieceTable,
+  type PieceTableKit,
+} from './piece-table';
+export { cropNeighbourhood, type ChunkPieces, deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
 export { encodeShader, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export {
   applyFold,

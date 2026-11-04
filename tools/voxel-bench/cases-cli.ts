@@ -8,9 +8,10 @@
  * plus cases and run sections for the kit rules) and the whole section derive (evaluation
  * and meshes), interleaved section by section; and what the consumers
  * receive a chunk (derived bytes by part, collision boxes) under the kit
- * rules.
+ * rules; or (`--pieces`) the kit pieces: the piece table's bytes and the
+ * instances a chunk and a level-1 node list without and with a test kit.
  *
- *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only] [--out DIR]
+ *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only | --pieces] [--out DIR]
  *
  * Writes cases.md and cases.json.
  */
@@ -19,6 +20,7 @@ import { cpus, loadavg, uptime } from 'node:os';
 import { join } from 'node:path';
 import {
   buildApron,
+  buildPieceTable,
   CaseCatalogue,
   caseWindowAt,
   chunkGrid,
@@ -31,12 +33,16 @@ import {
   derivedBytes,
   derivedPartBytes,
   deriveFromStore,
+  deriveMipNode,
   DRAFT_CASE_CATALOGUE,
   evaluateAssembly,
   evaluateCases,
   evaluateRuns,
   fillNeighbourhood,
+  INSTANCE_BYTES,
+  KIT_PIECE_BASE,
   KIT_RULES,
+  MipTree,
   NO_CASE,
   NO_SECTION,
   PLACEHOLDER_RULES,
@@ -47,12 +53,14 @@ import {
   terrainSurface,
   valueRole,
   type AssemblyRuleSet,
+  type DerivedData,
   type Neighbourhood,
   type PaletteStore,
 } from '@thirdlight/voxel';
 import { benchDir } from './bench-dirs';
 import { loadArea } from './regions';
 import { buildSliceWorld, TOWN_FOOTPRINT } from './slice-world';
+import { BUILDING_MATERIALS, fullTestKit } from './test-kits';
 import { townWorld } from './town';
 
 const grid = chunkGrid(32);
@@ -226,6 +234,51 @@ function measureConsumers(store: PaletteStore, chunks: ReadonlyArray<readonly [n
   return { chunks: chunks.length, built: bytes.length, total, perChunk: { bytes: q2(bytes), fullBoxes: q2(full), partialBoxes: q2(partial) } };
 }
 
+/** Instances a derive unit lists, per level, with no kit and with a full test kit bound to the building materials. */
+interface PieceCounts {
+  units: number;
+  total: number;
+  kitOwn: number;
+  perUnit: { p50: number; p95: number; max: number };
+  deriveMs: number;
+}
+
+/**
+ * Kit pieces (piece table): the table's bytes for one and for six full test
+ * kits, and the instances each 32³ chunk (level 0) and level-1 node lists
+ * without a kit and with one, and the whole derive's ms for each.
+ */
+function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [number, number, number]>): Record<string, unknown> {
+  const one = buildPieceTable([fullTestKit('town', BUILDING_MATERIALS, 2)], KIT_RULES).table;
+  const six = buildPieceTable(BUILDING_MATERIALS.map((m, k) => fullTestKit(`kit-${k}`, [m], 4)), KIT_RULES).table;
+  const tree = new MipTree(store);
+  const nodes = [...new Set(chunks.map(([x, y, z]) => `${x >> 1},${y >> 1},${z >> 1}`))].map((k) => k.split(',').map(Number) as [number, number, number]);
+  const count = (units: ReadonlyArray<readonly [number, number, number]>, derive: (u: readonly [number, number, number]) => DerivedData): PieceCounts => {
+    const per: number[] = [];
+    let own = 0;
+    const t0 = performance.now();
+    for (const u of units) {
+      const d = derive(u);
+      if (d.instances.count === 0) continue;
+      per.push(d.instances.count);
+      for (let i = 0; i < d.instances.count; i++) if ((d.instances.data[i * INSTANCE_BYTES + 4]! | (d.instances.data[i * INSTANCE_BYTES + 5]! << 8)) >= KIT_PIECE_BASE) own++;
+    }
+    const ms = performance.now() - t0;
+    return { units: per.length, total: per.reduce((a, b) => a + b, 0), kitOwn: own, perUnit: { ...q2(per), max: Math.max(0, ...per) }, deriveMs: Math.round(ms) };
+  };
+  return {
+    tableBytes: { oneKit: one.bytes.length, sixKits: six.bytes.length, noKit: 0 },
+    level0: {
+      noKit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, KIT_RULES)),
+      kit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, KIT_RULES, undefined, one)),
+    },
+    level1: {
+      noKit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, KIT_RULES)),
+      kit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, KIT_RULES, undefined, one)),
+    },
+  };
+}
+
 /** The case extraction alone (the 46c.2 measurement) and the keys and cases seen. */
 function measureExtraction(sections: readonly Neighbourhood[], rounds: number): { coldMs: number; roundMs: number[]; cells: number; withCellsCount: number; us: { all: { p50: number; p95: number }; withCells: { p50: number; p95: number } }; keys: number; cases: Map<string, number>; cat: CaseCatalogue } {
   const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
@@ -297,6 +350,12 @@ function main(): void {
       chunks = chunksOf(store, sx - 192, sz - 192, sx + 192, sz + 192);
       window = 'slice ring ±192 cells';
     } else throw new Error(`unknown world ${world}`);
+    if (process.argv.includes('--pieces')) {
+      const pieces = measurePieces(store, chunks);
+      reports.push({ world, window, pieces });
+      md.push(`## ${world} (${window})`, '', `- Pieces: ${JSON.stringify(pieces)}`, '');
+      continue;
+    }
     const consumers = measureConsumers(store, chunks);
     if (process.argv.includes('--consumers-only')) {
       reports.push({ world, window, consumers });

@@ -31,6 +31,7 @@ import {
   evaluateAssembly,
   fillNeighbourhood,
   INSTANCE_BYTES,
+  defaultPieceFamily,
   INSTANCE_FLAG,
   joinSections,
   PLANE_BIT,
@@ -216,9 +217,9 @@ describe('assembly evaluation and per-consumer outputs', () => {
     const rail = consumersAt(s, 1, 2, 7);
     expect(wall).toMatchObject({ light: 255, navBlocks: true, collision: 'full', instance: null, renderSolid: true });
     expect(beam).toMatchObject({ light: LIGHT_COVERAGE.bar, navBlocks: true, collision: 'partial', renderSolid: false });
-    expect(beam.instance! >> 2).toBe(PIECE_FAMILY.beam);
+    expect(defaultPieceFamily(beam.instance!)).toBe(PIECE_FAMILY.beam);
     expect(rail).toMatchObject({ light: LIGHT_COVERAGE.panel, navBlocks: true, collision: 'partial', renderSolid: false });
-    expect(rail.instance! >> 2).toBe(PIECE_FAMILY.rail);
+    expect(defaultPieceFamily(rail.instance!)).toBe(PIECE_FAMILY.rail);
     // Standing: on top of the wall yes, on top of the rail no; the slab under the banister holds standable cells.
     expect(consumersAt(s, 0, 8, 0).standable).toBe(true);
     expect(consumersAt(s, 1, 3, 7).standable).toBe(false);

@@ -50,6 +50,10 @@ import {
   WorkerPool,
   worldStreamer,
   buildFaceSeam,
+  buildPieceTable,
+  KIT_PIECE_BASE,
+  payloadHolds,
+  type PieceTable,
   faceLevels,
   POSITION_STEPS_PER_CELL,
   SURFACE_VERTEX_BYTES,
@@ -78,10 +82,11 @@ import { scanExportFiles } from '../../packages/exporter/src/scan';
 import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
 import { RegionWorld } from '@thirdlight/workspace';
 import { instanceList, triangleList } from './mesh-compare';
-import { pickStore } from './regions';
+import { pickStore, surfaceY } from './regions';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
 import { checkLevels, chunkId, nodeChunks } from './lod-checks';
+import { fullTestKit } from './test-kits';
 
 const grid = chunkGrid(32);
 /** A 256 m hilly square centred on the origin: four region columns meet at (0, 0), stacks meet at y = 0. */
@@ -552,6 +557,77 @@ describe('streamer (workers, region files on disk)', () => {
       expect(sameAsFresh(truth)).toBeGreaterThan(40);
     }
     // Two section edges, each a cold fill of the ring in real workers plus whole-chunk oracle derives: past vitest's 5 s default on a loaded host.
+  }, 30_000);
+
+  it('re-derives exactly the chunks holding a changed kit\'s materials when the piece table changes (real workers); a paint moving cells to another kit rebuilds their pieces', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, mips: [] });
+    const truth = copyOracle();
+    // Level with the hill tops here, so the walls' chunks and all their neighbours are resident.
+    s.setFocus(0, 100, 0);
+    await s.settle();
+    // Two walls of materials no terrain uses, in different chunks: the log kit binds 91, the stone kit 92.
+    const [LOG, STONE, PLAIN] = [91, 92, 93];
+    // Standing on the hills (a cell above the highest ground under them), so their faces show.
+    const wallY = (x: number, z: number): number => Math.max(...[0, 8].map((dx) => surfaceY(truth, x + dx, z, 200, -100)!)) + 1;
+    const [logY, stoneY] = [wallY(4, 4), wallY(-44, -40)];
+    const wall = (x: number, z: number, material: number, y: number): VoxelEditCommand => canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [x, y, z], max: [x + 8, y + 6, z], mode: 'place', voxel: { material, role: VOXEL_ROLE.wall, wetness: 0 } });
+    for (const cmd of [wall(4, 4, LOG, logY), wall(-44, -40, STONE, stoneY)]) {
+      s.edit(cmd);
+      applyEdit({ store: () => truth }, cmd);
+    }
+    await s.settle();
+    const holding = (m: number): string[] => {
+      const out: string[] = [];
+      for (let cx = -4; cx < 4; cx++) for (let cy = -2; cy < 7; cy++) for (let cz = -4; cz < 4; cz++) {
+        if (s.isResident(cx, cy, cz) && payloadHolds(truth.chunkPayload(cx, cy, cz, true), (v) => (v & 0xfff) === m)) out.push(`${cx},${cy},${cz}`);
+      }
+      return out.sort();
+    };
+    const derivedChunks: string[] = [];
+    s.on((e) => {
+      if (e.type === 'derived') derivedChunks.push(`${Math.floor((e.cx * s.sections.edge) / 32)},${Math.floor((e.cy * s.sections.edge) / 32)},${Math.floor((e.cz * s.sections.edge) / 32)}`);
+    });
+    const perChunk = (32 / s.sections.edge) ** 3;
+    // The pieces each changed chunk now draws equal the in-thread derive with the table, and the kit's own pieces are among them.
+    const drawsLike = (table: PieceTable | null, chunks: readonly string[]): number => {
+      let own = 0;
+      for (const k of chunks) {
+        const [cx, cy, cz] = k.split(',').map(Number) as [number, number, number];
+        const whole = deriveFromStore(truth, cx, cy, cz, WORLD_RULES, undefined, table);
+        expect(instanceList(s.joinedChunk(cx, cy, cz)!.instances), k).toEqual(instanceList(whole.instances));
+        for (let i = 0; i < whole.instances.count; i++) if ((whole.instances.data[i * 8 + 4]! | (whole.instances.data[i * 8 + 5]! << 8)) >= KIT_PIECE_BASE) own++;
+      }
+      return own;
+    };
+    const log = buildPieceTable([fullTestKit('log', [LOG], 2)], WORLD_RULES).table;
+    const r1 = s.pieces.set(log);
+    expect(r1.chunks.map((c) => `${c.cx},${c.cy},${c.cz}`).sort()).toEqual(holding(LOG));
+    expect(r1.chunks.length).toBeGreaterThan(0);
+    await s.settle();
+    // Only the sections of those chunks were derived again, each once.
+    expect([...new Set(derivedChunks)].sort()).toEqual(holding(LOG));
+    expect(derivedChunks).toHaveLength(r1.chunks.length * perChunk);
+    expect(drawsLike(log, holding(LOG))).toBeGreaterThan(10);
+    // Adding the stone kit touches the stone wall's chunks only; the same table again touches nothing.
+    derivedChunks.length = 0;
+    const both = buildPieceTable([fullTestKit('log', [LOG], 2), fullTestKit('stone', [STONE], 1)], WORLD_RULES).table;
+    expect(s.pieces.set(both).chunks.map((c) => `${c.cx},${c.cy},${c.cz}`).sort()).toEqual(holding(STONE));
+    await s.settle();
+    expect([...new Set(derivedChunks)].sort()).toEqual(holding(STONE));
+    expect(drawsLike(both, holding(STONE))).toBeGreaterThan(10);
+    derivedChunks.length = 0;
+    expect(s.pieces.set(buildPieceTable([fullTestKit('stone', [STONE], 1), fullTestKit('log', [LOG], 2)], WORLD_RULES).table)).toEqual({ group: 0, chunks: [] });
+    await s.settle();
+    expect(derivedChunks).toHaveLength(0);
+    // A paint of half the log wall to an unbound material: the meshes (its pieces) are rebuilt, not only the shader data.
+    const paint = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [4, logY, 4], max: [8, logY + 6, 4], mode: 'paint', voxel: { material: PLAIN, role: VOXEL_ROLE.wall, wetness: 0 } });
+    s.edit(paint);
+    applyEdit({ store: () => truth }, paint);
+    await s.settle();
+    drawsLike(both, holding(LOG));
+    drawsLike(both, holding(PLAIN));
   }, 30_000);
 
   it('reads through the runtime overlay: the base never written, every derive a fresh derive of the merged view, digs kept over unload and reload, paints rebuild shader data only, saves keep the saved fields', async () => {

@@ -24,6 +24,7 @@ import { APRON_STRIPS, checkApron, type Apron } from './apron';
 import type { ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import { denseValue } from './cell-delta';
+import type { CaseCatalogueDef } from './kit-cases';
 import { shapeDensity, valueRole, valueShape, VOXEL_ROLE } from './record';
 
 /** Resolved classes (the low 4 bits of a resolved cell byte). */
@@ -101,6 +102,8 @@ export interface AssemblyRuleSet {
    * every consumer reads in place of the class for a cell with a case.
    */
   readonly caseForms?: Uint8Array;
+  /** Optional, beside `resolveCases`: the case catalogue its case indices number (what a kit piece table is built against). */
+  readonly catalogue?: CaseCatalogueDef;
 }
 
 /** What a derived result records about the rules it came from. */

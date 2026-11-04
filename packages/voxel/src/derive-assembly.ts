@@ -10,7 +10,8 @@ import { assemblyRules } from './rule-registry';
 import { crc32 } from '@thirdlight/shared';
 import { cellInWorld, SECTION_EDGES, type CellGrid, type ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
-import { deriveChunk, encodeDerived, type DerivedData, type DeriveTimes } from './derived-data';
+import { deriveChunk, encodeDerived, type DerivedData, type DerivePieces, type DeriveTimes } from './derived-data';
+import type { PieceTable } from './piece-table';
 import { encodeShader, SHADER_BORDER_CELLS, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import { shapeDensity, valueOf, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
@@ -36,18 +37,34 @@ function scratchFor(grid: ChunkGrid, pad: number): Scratch {
 }
 
 /**
+ * The kit pieces of a chunk's derive: the world's piece table (null: no
+ * kit) and which chunk (or node of its level) it is, so each cell's
+ * variant is read at its world cell.
+ */
+export interface ChunkPieces {
+  readonly table: PieceTable | null;
+  readonly chunk: readonly [number, number, number];
+}
+
+/** The pieces of a derive unit whose first cell is (lx, ly, lz) in its chunk. */
+function unitPieces(edge: number, p: ChunkPieces | undefined, lx = 0, ly = 0, lz = 0): DerivePieces | undefined {
+  if (p === undefined) return undefined;
+  return { table: p.table, origin: [p.chunk[0] * edge + lx, p.chunk[1] * edge + ly, p.chunk[2] * edge + lz] };
+}
+
+/**
  * Derives a chunk of `store` (resident, or absent = air) whose apron is
  * already built (radius = jobRadius(rules)); `exportChunk` writes its cells.
  * A mip node of chunk-tree level `level` derives the same way from its own
  * cells and apron (mip-derive.ts); the result records the level.
  */
-export function deriveWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, times?: DeriveTimes, level = 0): DerivedData {
+export function deriveWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, times?: DeriveTimes, level = 0, pieces?: ChunkPieces): DerivedData {
   const pad = jobRadius(rules);
   if (apron.radius !== pad) throw new RangeError(`assembly derive: apron ${apron.radius} deep, rules need ${pad}`);
   const s = scratchFor(grid, pad);
   const has = exportChunk(s.dense);
   fillNeighbourhood(s.n, grid, has ? s.dense : null, apron);
-  return deriveChunk(s.n, rules, s.classes, times, level);
+  return deriveChunk(s.n, rules, s.classes, times, level, unitPieces(grid.edge, pieces));
 }
 
 /**
@@ -64,10 +81,10 @@ export function deriveShaderWithApron(grid: ChunkGrid, apron: Apron, exportChunk
 }
 
 /** Derives chunk (cx, cy, cz) of a store in this thread (its neighbours read from the same store). */
-export function deriveFromStore(store: VoxelStoreCandidate, cx: number, cy: number, cz: number, rules: AssemblyRuleSet | { id: string; version: number }, times?: DeriveTimes): DerivedData {
+export function deriveFromStore(store: VoxelStoreCandidate, cx: number, cy: number, cz: number, rules: AssemblyRuleSet | { id: string; version: number }, times?: DeriveTimes, table: PieceTable | null = null): DerivedData {
   const r = 'resolve' in rules ? rules : assemblyRules(rules);
   const apron = buildApron(store, cx, cy, cz, jobRadius(r));
-  return deriveWithApron(store.grid, r, apron, (out) => store.exportChunk(cx, cy, cz, out), times);
+  return deriveWithApron(store.grid, r, apron, (out) => store.exportChunk(cx, cy, cz, out), times, 0, { table, chunk: [cx, cy, cz] });
 }
 
 /**
@@ -145,7 +162,7 @@ export function cropNeighbourhood(full: Neighbourhood, lx: number, ly: number, l
  * whole edge is the chunk's derive, byte for byte. A mip node's sections
  * derive the same way (`level` > 0).
  */
-export function deriveSectionsWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, sectionEdge: number, ids: readonly number[], level = 0): SectionResult[] {
+export function deriveSectionsWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, sectionEdge: number, ids: readonly number[], level = 0, pieces?: ChunkPieces): SectionResult[] {
   checkSections(grid.edge, sectionEdge, ids);
   const pad = jobRadius(rules);
   if (apron.radius !== pad) throw new RangeError(`assembly derive: apron ${apron.radius} deep, rules need ${pad}`);
@@ -153,9 +170,10 @@ export function deriveSectionsWithApron(grid: ChunkGrid, rules: AssemblyRuleSet,
   fillNeighbourhood(s.n, grid, exportChunk(s.dense) ? s.dense : null, apron);
   const sub = sectionEdge === grid.edge ? s : sectionScratch(grid, sectionEdge, pad);
   return ids.map((id) => {
-    if (sub !== s) cropNeighbourhood(s.n, ...sectionLocalOrigin(grid.edge, sectionEdge, id), sub.n);
+    const at = sectionLocalOrigin(grid.edge, sectionEdge, id);
+    if (sub !== s) cropNeighbourhood(s.n, ...at, sub.n);
     const times: DeriveTimes = { evaluateUs: 0, consumersUs: 0, meshUs: 0 };
-    const assembly = deriveChunk(sub.n, rules, sub.classes, times, level);
+    const assembly = deriveChunk(sub.n, rules, sub.classes, times, level, unitPieces(grid.edge, pieces, ...at));
     return { id, hash: crc32(encodeDerived(assembly)), assembly, shader: null, times };
   });
 }
@@ -181,8 +199,8 @@ export function deriveSectionShadersWithApron(grid: ChunkGrid, apron: Apron, exp
  * worker's section results are checked against). Sections of the store's
  * chunk edge are chunks, derived as {@link deriveFromStore} does.
  */
-export function deriveSectionFromStore(store: VoxelStoreCandidate, sections: CellGrid, sx: number, sy: number, sz: number, rules: AssemblyRuleSet): DerivedData {
-  if (sections.edge === store.grid.edge) return deriveFromStore(store, sx, sy, sz, rules);
+export function deriveSectionFromStore(store: VoxelStoreCandidate, sections: CellGrid, sx: number, sy: number, sz: number, rules: AssemblyRuleSet, table: PieceTable | null = null): DerivedData {
+  if (sections.edge === store.grid.edge) return deriveFromStore(store, sx, sy, sz, rules, undefined, table);
   const pad = jobRadius(rules);
   const n = createNeighbourhood(sections.edge, pad);
   const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
@@ -200,5 +218,5 @@ export function deriveSectionFromStore(store: VoxelStoreCandidate, sections: Cel
     n.values[i] = valueOf(v);
     n.shapes[i] = shapeDensity(v.shape);
   }
-  return deriveChunk(n, rules);
+  return deriveChunk(n, rules, undefined, undefined, 0, { table, origin: [sx << sections.shift, sy << sections.shift, sz << sections.shift] });
 }

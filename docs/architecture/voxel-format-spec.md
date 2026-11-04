@@ -1098,15 +1098,18 @@ chunk):
 - **Ground and base producers:** the terrain mesher and the base surface, below in *Terrain rule set, mesher,
   base surface, levels, seams and LOD selection*.
 
-**Detail instance (8 bytes):**
+**Detail instance (8 bytes, v12):**
 - u8 x, y, z: the cell inside the chunk;
 - u8: bits 0–1 quarter turns about +y, bits 4–7 flags (0x10 `replacesBase`, 0x20 `low`: drawn at low detail);
-- u16 piece: family << 2 | section. Families (v11: the placeholder standing for the suppressed cell's declared shape):
-  beam 1 (bar), rail 2 (panel), post 3 (post). Sections: single 0, start 1, body 2, end 3, from the cell's run
-  section (corners and junctions as body until kits carry their own pieces); a cell without a case from its class's
-  run neighbours. Turns: the case transform's quarter turns (its mirror bit is 46c.6's);
-- u16 reserved, 0 (v1's material slot; the stride stays a multiple of four, as a GPU instance buffer needs). A
-  piece's material is its cell's, in the shader data. The slice still draws pieces in stand-in colours by family.
+- u16 piece, **kit-local** (`piece-table.ts`): below `KIT_PIECE_BASE` (32) the engine's default piece, stand-in family
+  << 3 | run section (families beam 1 (bar), rail 2 (panel), post 3 (post); sections single 0, start 1, body 2, end 3,
+  corner 4, junction 5), the same in every kit; from 32 the own piece of the kit the cell's material names (*Kit
+  pieces* below), in the kit's piece order. A cell without a case (rule sets without a case pass) takes its default
+  piece's section from its class's run neighbours;
+- u16 variant word: bits 0–14 the variant of a kit's own piece (0 for a default piece), bit 15 the mirror of the
+  case transform (the transform is mirror first, then the quarter turns). A piece's material is its cell's, in the
+  shader data; the kit is the one its material names. The stride stays a multiple of four, as a GPU instance buffer
+  needs. The slice still draws the default pieces in stand-in colours by family; kit pieces are drawn from 46c.7.
 
 **Shader data on the GPU and the surface shader (45.10b; three-adapter `voxel-surface.ts`).** One renderer path:
 the engine's node materials (`MeshStandardNodeMaterial`), the same program on WebGPU and WebGL 2, no feature of one
@@ -1167,7 +1170,7 @@ the rules classify, the mesher and the base surface build a chunk's surfaces, th
 the same derive meshes them, seams join two levels, the selection picks what is drawn, and the view draws it.
 **No stored format changed in 46b.** Chunk codec, region file, manifest, stroke command, undo record, save and
 overrides are as approved in v1; every output here is derived in workers and never stored, so each change of its
-meaning stepped `DERIVED_FORMAT_VERSION` (9 at the end of 46b, 10 since 46c.3, 11 since 46c.5; the history and owner notes are at the end of this subsection),
+meaning stepped `DERIVED_FORMAT_VERSION` (9 at the end of 46b, 10 since 46c.3, 11 since 46c.5, 12 since 46c.6; the history and owner notes are at the end of this subsection),
 nothing was upgraded and no world had to be regenerated. The one authored addition is the scene setting
 `voxelWorld.levels` (project schema 8, an optional field added canonicalized field by field), not a voxel format.
 
@@ -1397,7 +1400,7 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-#### Kit rule set (46c; derived v11, `kit-rules.ts`)
+#### Kit rule set (46c; derived v12, `kit-rules.ts`, `piece-table.ts`)
 
 - `KIT_RULES` (id `kits`, version 3) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 3)`: the terrain
   rules' classes and the case pass over the case catalogue in **one** `AssemblyRuleSet`, one evaluation a job, radius
@@ -1423,7 +1426,7 @@ section: see the limits above.
   by case as a chunk picks its high one); from level 2 no level draws pieces (`pieceDetailAt`), so it is skipped and
   no cell has a case (`levelHasCases`). A uniform region (one class and shape over the chunk and its margin) draws no
   piece, so the derive skips the pass there too.
-- **Outputs (v11):** every consumer reads the cells' forms (*Consumer tables* above); instances come from suppressed
+- **Outputs (v11, instances v12):** every consumer reads the cells' forms (*Consumer tables* above); instances come from suppressed
   cells with their run sections. A chunk whose cells all keep their class's form (and every level-2 node) derives
   to the terrain rules' bytes; the rest differ only through forms (tested). Every cell of chunks and level-1/2 nodes
   of the town, the hand scenes and random worlds gives each consumer exactly what its form says (`case-forms.test.ts`);
@@ -1431,6 +1434,27 @@ section: see the limits above.
   stands a capsule on a soffit and meets its raised underside from below, and still passes a ball between banister
   posts (`collision.test.ts`). A chunk's 16³ and 8³ sections give the whole chunk's case grid cell for cell, the
   reach margin included (tested).
+- **Kit pieces (46c.6, `piece-table.ts`, `stream-pieces.ts`):** a world's **piece table** is built on the main thread
+  from the project's voxel kits (§3.9) and the rule set's catalogue, and a derive job carries its bytes (format 1:
+  the rules' id and version, the case count, per kit its id, seed, own piece count, a kit-local piece per (case, run
+  section) and its variants' u16 weight thresholds, then the (material, kit) pairs; canonical: equal kits give equal
+  bytes; a worker decodes it once and keeps it by hash; a newer format, damaged bytes or another rule set's table are
+  refused). **Material → kit** by the kit's test binding (`materials`; a material two kits bind goes to the first by
+  id, a kit-check problem). **Missing pieces**, in order: the case's own run section, its body, its single; then
+  the same in the fallback case of the case's (first) role when that case declares the same base and shape (a wall
+  piece never stands in for a beam); then the engine's default piece where the base is suppressed, and no piece where
+  the base surface draws the cell. A kit's piece on a kept or reshaped cell adds to the base surface (no
+  `replacesBase`) and is listed only where the cell shows (an opening, or a face against a cell that is not solid).
+  **Variant** = a hash of the world cell at its level and the kit's seed (a hash of its id), placed by the variants'
+  weights: stable under edits elsewhere, under a kit's revision, and whichever chunk, section or node derives it.
+  **Per level** (46b.9's hooks): chunks list the kit's pieces (high), level-1 nodes the same choice with `low` (the
+  renderer draws a variant's low mesh, its high one where none is authored), none from level 2; every cell a piece
+  replaces keeps one at levels 0 and 1 (tested on the town, with and without a kit). **Changes:** a new table derives
+  again only what holds a material whose pieces changed (`pieceTableChanges`: bound, unbound, moved, or its kit's
+  bytes changed): every section of each resident chunk holding one and every level-1 node holding one, nothing within
+  R of them (a cell's piece reads its own material only), in one swap group. While a kit binds a material, a change
+  that feeds the shader data (a material paint) also rebuilds the meshes there, since it may move cells to another
+  kit's pieces; without a kit, material and wetness stay shader data alone (§2.2 feeds).
 - **Bytes and boxes (46c.5, `run.mjs cases`):** whole 512² town, 229 chunks with construction, 46c.4 → 46c.5: derived
   15.29 → 15.80 MB (base 6.43 → 6.90, collision 0.49 → 0.52), boxes full 22,429 → 23,201 and partial 18,792 →
   20,154, base triangles 304 k → 324 k (the soffits' slabs); slice ring unchanged (no soffits).
@@ -1438,7 +1462,7 @@ section: see the limits above.
   rules → kit rules, p50 / p95 90 / 115 → 207 / 419 µs (town), 112 / 166 → 231 / 269 µs (slice); evaluation + ground
   mesh (the 46b measure) 242 / 299 → 255 / 408 µs (town), 214 / 315 → 227 / 330 µs (slice).
 
-**Derived version history (v2 → v11).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+**Derived version history (v2 → v12).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |
@@ -1452,6 +1476,7 @@ worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules
 | 8 → 9 | 46b.9 | pieces per level (`low` at level 1, none past it); mip bodies hold a cell by cells (D465) | unchanged |
 | 9 → 10 | 46c.3 | `WORLD_RULES` = the kit rule set (`kits` v1): the job resolves each cell's case beside its class | unchanged |
 | 10 → 11 | 46c.5 | consumers read forms (a case's declared shape and base); coverage = the shape's share; reshaped soffits | unchanged |
+| 11 → 12 | 46c.6 | instances carry kit pieces: kit-local piece, variant word (variant, mirror bit); kept cells' kit pieces | unchanged (8 bytes) |
 
 The owner notes, as each step recorded them:
 
@@ -1510,6 +1535,14 @@ consumer as before, and light coverage is the shape's share of the cell (beam 12
 16). Pieces come from the suppressed cases with their run sections. Nothing is stored, nothing to upgrade, no world
 regenerated (the staging slice world does not need regenerating: only derived data changed).
 
+**Derived data 11 → 12 (46c.6, owner note: default chosen, owner to confirm).** The layout is unchanged (8-byte
+instances); the meaning of an instance's two u16 changed: the piece is kit-local (the engine's default pieces family
+<< 3 | run section below 32, corners and junctions now their own sections, then the own piece of the kit its cell's
+material names), and the former reserved u16 is the variant word (variant from a hash of the world cell and the kit's
+seed; bit 15 the case transform's mirror). Kits bound to materials add pieces on kept cells that show. Without a kit
+the instance list differs from v11 only in the default piece numbers and the corner and junction sections. Nothing
+is stored, nothing to upgrade, no world regenerated (the staging slice world does not need regenerating).
+
 **Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
 culling, rays and the far field skip whole empty or solid subtrees without reading voxels.
 - Level 0 is a chunk: its derived occupancy flag. A chunk never given one (absent: air) is empty.
@@ -1548,7 +1581,8 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 11 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 12 | refused | rebuilt, never upgraded |
+| Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 1 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
 **Derived data 3 → 9 (46b) and 9 → 11 (46c):** the steps and their owner notes are in §3.7, *Derived version history*.

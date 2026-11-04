@@ -53,6 +53,8 @@ import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
 import { jobRadius, type AssemblyRuleSet } from './assembly';
 import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, type VoxelRecord } from './record';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
+import type { PieceTable } from './piece-table';
+import { StreamPieces } from './stream-pieces';
 import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
@@ -143,6 +145,12 @@ export interface VoxelStreamerOptions {
    * {@link DEFAULT_LEVEL_RINGS}): `mips.lod` chooses, from it and the foci.
    */
   readonly levels?: LevelRings;
+  /**
+   * The world's kit piece table (piece-table.ts, built for `rules`): what
+   * the derives choose detail pieces from. Absent: no kit, the default
+   * pieces (`pieces.set` changes it).
+   */
+  readonly pieces?: PieceTable | null;
 }
 
 /**
@@ -316,6 +324,8 @@ export class VoxelStreamer {
   /** The chunk tree's coarser levels: their nodes' derived results, metrics and bytes (null without rules or levels). */
   readonly mips: StreamMips | null;
   private wake: (() => void) | null = null;
+  /** The kit piece table the derives choose pieces from ({@link StreamPieces.set} changes it). */
+  readonly pieces: StreamPieces;
 
   constructor(opts: VoxelStreamerOptions) {
     this.opts = opts;
@@ -350,6 +360,7 @@ export class VoxelStreamer {
               tracker: this.tracker,
               radius: this.radius,
               rules: opts.rules,
+              pieceTable: () => this.pieces.table,
               counters: this.counters,
               rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs, joinUs: this.joinUs },
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
@@ -386,6 +397,7 @@ export class VoxelStreamer {
               pool: opts.pool,
               tracker: this.tracker,
               rules: opts.rules,
+              pieceTable: () => this.pieces.table,
               radius: this.radius,
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
               chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
@@ -400,6 +412,20 @@ export class VoxelStreamer {
             opts.levels ?? DEFAULT_LEVEL_RINGS,
           )
         : null;
+    const chunks = this.chunks;
+    const merged = this.merged;
+    this.pieces = new StreamPieces(
+      {
+        rules: opts.rules,
+        derives: this.derives,
+        mips: this.mips,
+        deriveMs: opts.deriveMsPerUpdate ?? 2,
+        *resident() {
+          for (const c of chunks.values()) if (c.phase === 'resident') yield { cx: c.cx, cy: c.cy, cz: c.cz, payload: () => merged.payload(c.cx, c.cy, c.cz) };
+        },
+      },
+      opts.pieces ?? null,
+    );
   }
 
   /**
@@ -892,8 +918,6 @@ export class VoxelStreamer {
     return group;
   }
 
-  private loadedCheck = (g: number, cx: number, cy: number, cz: number): boolean => g === this.gridId && this.isResident(cx, cy, cz);
-
   /**
    * Applies an edit command to the overlay on the main thread (small
    * strokes: tens of µs). Every chunk it can touch must be resident, else
@@ -904,8 +928,8 @@ export class VoxelStreamer {
    */
   edit(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): EditOutcome & { readonly group: number } {
     const resolve = resolver(stamps);
-    const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.overlay : undefined) }, cmd, { stamps: resolve, loaded: this.loadedCheck });
-    const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), fieldsFeed(outcome.fields));
+    const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.overlay : undefined) }, cmd, { stamps: resolve, loaded: (g, cx, cy, cz) => g === this.gridId && this.isResident(cx, cy, cz) });
+    const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(outcome.fields)));
     return { ...outcome, group };
   }
 
@@ -918,7 +942,7 @@ export class VoxelStreamer {
   async editInWorker(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): Promise<{ status: 'done'; cells: number; undo: ChunkUndo[]; group: number } | { status: 'superseded' | 'refused' | 'failed'; message: string }> {
     const resolve = resolver(stamps);
     const touched = editChunks(this.grid, cmd, resolve);
-    for (const t of touched) if (!this.loadedCheck(cmd.grid, t.cx, t.cy, t.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${t.cx}, ${t.cy}, ${t.cz}) of grid ${cmd.grid} is not loaded`);
+    for (const t of touched) if (cmd.grid !== this.gridId || !this.isResident(t.cx, t.cy, t.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${t.cx}, ${t.cy}, ${t.cz}) of grid ${cmd.grid} is not loaded`);
     const job = this.tracker.beginJob(touched.map((t) => jobRef(this, t)));
     const chunks = touched.map((t) => ({ chunk: { grid: this.gridId, cx: t.cx, cy: t.cy, cz: t.cz }, payload: this.merged.payload(t.cx, t.cy, t.cz) }));
     const transfer: ArrayBuffer[] = [];
@@ -939,7 +963,7 @@ export class VoxelStreamer {
       this.merged.adoptEdited(cx, cy, cz, ch.payload);
       changed.push({ cx, cy, cz });
     }
-    const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), fieldsFeed(o.output.fields));
+    const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(o.output.fields)));
     return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo), group };
   }
 
@@ -963,6 +987,7 @@ export class VoxelStreamer {
    * naming it; 0 when the streamer derives nothing).
    */
   refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS): number {
+    parts = this.pieces.feeds(parts);
     this.opts.source.invalidate?.(chunks);
     const list: Chunk[] = [];
     const token = ++this.refreshSeq;

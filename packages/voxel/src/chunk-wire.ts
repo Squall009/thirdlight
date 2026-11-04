@@ -50,3 +50,12 @@ export function payloadBytes(p: ChunkPayload): number {
 export function checkPayloadEdge(grid: ChunkGrid, p: ChunkPayload): void {
   if (p.form === 'stored' && p.edge !== grid.edge) throw new RangeError(`chunk payload of edge ${p.edge}, store edge ${grid.edge}`);
 }
+
+/** Whether any cell of a payload holds a voxel value `test` accepts (stored chunks: their live palette entries). */
+export function payloadHolds(p: ChunkPayload, test: (value: number) => boolean): boolean {
+  if (p.form === 'air') return false;
+  if (p.form === 'uniform') return test(p.value);
+  const { values, meta, size } = p.wire.plane;
+  for (let e = 0; e < size; e++) if (meta[e]! > 0 && test(values[e]!)) return true;
+  return false;
+}

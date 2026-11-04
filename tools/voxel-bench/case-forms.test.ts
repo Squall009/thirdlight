@@ -38,6 +38,7 @@ import {
   formShapeOf,
   formSupports,
   INSTANCE_BYTES,
+  defaultPieceFamily,
   INSTANCE_FLAG,
   jobRadius,
   joinSections,
@@ -114,7 +115,7 @@ function viewer(d: DerivedData): (x: number, y: number, z: number) => CellView {
   for (let k = 0; k < d.instances.count; k++) {
     const o = k * INSTANCE_BYTES;
     const data = d.instances.data;
-    pieces.set((data[o]! * e + data[o + 2]!) * e + data[o + 1]!, `${(data[o + 4]! | (data[o + 5]! << 8)) >> 2}:${(data[o + 3]! & INSTANCE_FLAG.replacesBase) !== 0}`);
+    pieces.set((data[o]! * e + data[o + 2]!) * e + data[o + 1]!, `${defaultPieceFamily(data[o + 4]! | (data[o + 5]! << 8))}:${(data[o + 3]! & INSTANCE_FLAG.replacesBase) !== 0}`);
   }
   const partialLight = new Map<number, number>();
   d.light.partialCells.forEach((c, k) => partialLight.set(c, d.light.partialCover[k]!));

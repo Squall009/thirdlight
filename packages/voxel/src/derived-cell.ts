@@ -18,6 +18,7 @@ import { chunkOf, localOf, type ChunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { cellBit, COLLISION_STEPS_PER_CELL, OCCUPANCY, type DerivedData } from './derived-data';
 import { INSTANCE_BYTES, INSTANCE_FLAG, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
+import { defaultPieceFamily, defaultPieceSection, KIT_PIECE_BASE, PIECE_VARIANT_MASK, PIECE_VARIANT_MIRROR } from './piece-table';
 import type { VoxelStoreCandidate } from './store';
 
 /** A cell's view through every consumer of a derived chunk. */
@@ -26,8 +27,13 @@ export interface CellOutputs {
   readonly renderSolid: boolean;
   /** Base surface quads emitted for this cell (exposed faces of a wall cell; 0 under a piece that replaces it). */
   readonly baseFaces: number;
-  /** The detail piece in this cell, if any: family, run section, quarter turns, whether it replaces the base, whether drawn at low detail. */
-  readonly piece: { readonly family: number; readonly section: number; readonly turns: number; readonly replacesBase: boolean; readonly low: boolean } | null;
+  /**
+   * The detail piece in this cell, if any: its kit-local index, a default
+   * piece's stand-in family and run section (0 and −1 for a kit's own),
+   * quarter turns, the mirror and variant, whether it replaces the base,
+   * whether drawn at low detail.
+   */
+  readonly piece: { readonly piece: number; readonly family: number; readonly section: number; readonly turns: number; readonly mirror: boolean; readonly variant: number; readonly replacesBase: boolean; readonly low: boolean } | null;
   /** `full`: inside a full-cell box; `partial`: a partial shape inside the cell; `none`: neither (ground collides as its surface). */
   readonly collision: 'full' | 'partial' | 'none';
   /** The partial shape's box in 1/16 cell within the cell (min x, y, z, max x, y, z), when `collision` is partial. */
@@ -105,7 +111,8 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     if (list.data[o] !== lx || list.data[o + 1] !== ly || list.data[o + 2] !== lz) continue;
     const id = list.data[o + 4]! | (list.data[o + 5]! << 8);
     const flags = list.data[o + 3]!;
-    piece = { family: id >> 2, section: id & 3, turns: flags & 3, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0, low: (flags & INSTANCE_FLAG.low) !== 0 };
+    const variant = list.data[o + 6]! | (list.data[o + 7]! << 8);
+    piece = { piece: id, family: defaultPieceFamily(id), section: id < KIT_PIECE_BASE ? defaultPieceSection(id) : -1, turns: flags & 3, mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0, low: (flags & INSTANCE_FLAG.low) !== 0 };
     break;
   }
   const S = COLLISION_STEPS_PER_CELL;

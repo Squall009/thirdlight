@@ -43,6 +43,7 @@ import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
 import type { DeriveInput, DeriveOutput, JobLane } from './stream-job';
 import type { SeamSurface } from './lod-seam';
+import type { PieceTable } from './piece-table';
 import type { EditHold } from './stream-seams';
 import type { SampleRing, WorkerPool } from './worker-pool';
 import { crc32 } from '@thirdlight/shared';
@@ -102,6 +103,8 @@ export interface SectionHost {
   /** The dependency radius R (the rules' job radius). */
   readonly radius: number;
   readonly rules: AssemblyRuleSet | undefined;
+  /** The world's kit piece table the derives choose pieces from (null: none, the default pieces). */
+  pieceTable(): PieceTable | null;
   readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
@@ -454,16 +457,31 @@ export class SectionDerives {
     const geometry = geometryParts(parts);
     for (const d of dependentChunks(this.sections, box, geometry ? this.host.radius : SHADER_BORDER_CELLS)) {
       const s = this.bySection.get(chunkKey(this.sections, d.cx, d.cy, d.cz));
-      if (s === undefined) continue;
-      s.stamp = ++this.stampSeq;
-      this.want(s, why, geometry ? ALL_DERIVED_PARTS : parts);
-      if (g !== null) g = this.join(g, s);
-      else if (s.group !== null) {
-        s.held = null;
-        s.group.waiting.add(s);
-        this.unready(s.group);
-      }
+      if (s !== undefined) g = this.stale(s, why, geometry ? ALL_DERIVED_PARTS : parts, g);
     }
+  }
+
+  /**
+   * Every resident section of storage chunk (cx, cy, cz), and no other, is
+   * derived again in `groupId`'s swap: what a change of the inputs a section
+   * reads only at its own cells needs (a kit's pieces for its materials).
+   */
+  rederiveChunk(cx: number, cy: number, cz: number, groupId: number): void {
+    let g = this.group(groupId);
+    for (const s of this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz)) ?? []) g = this.stale(s, 'edit', ALL_DERIVED_PARTS, g);
+  }
+
+  /** A section's inputs changed: its stamp moves (results on their way are refused), it is wanted again, in group `g` when given. */
+  private stale(s: Section, why: 'yes' | 'edit', parts: number, g: EditGroup | null): EditGroup | null {
+    s.stamp = ++this.stampSeq;
+    this.want(s, why, parts);
+    if (g !== null) return this.join(g, s);
+    if (s.group !== null) {
+      s.held = null;
+      s.group.waiting.add(s);
+      this.unready(s.group);
+    }
+    return g;
   }
 
   private want(s: Section, why: 'yes' | 'edit', parts: number): void {
@@ -741,6 +759,7 @@ export class SectionDerives {
     const distance = isEdit ? 0 : host.distance2(cx, cy, cz);
     const k = Math.min(list.length, split);
     const ref = { grid: host.gridId, key: list[0]!.chunk };
+    const pieces = host.pieceTable();
     for (let j = 0; j < k; j++) {
       const part = list.filter((_, i) => i % k === j);
       const t1 = performance.now();
@@ -767,6 +786,7 @@ export class SectionDerives {
         radius,
         apron: a,
         ...(shaderOnly ? { parts: DERIVED_PART.shader } : rules === undefined ? {} : { rules: rulesRef(rules) }),
+        ...(shaderOnly || rules === undefined || pieces === null ? {} : { pieces: pieces.bytes }),
         ...(sections === undefined ? {} : { sections }),
       };
       void host.pool.submit<DeriveOutput>({ id, kind: 'derive', lane, distance, input, transfer: payloadTransfer(payload, apronTransfer(a)) }).then((o) => this.answered(id, part, stamps, o));

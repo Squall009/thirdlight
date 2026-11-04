@@ -12,7 +12,8 @@
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
 import { jobRadius } from './assembly';
 import { assemblyRules } from './rule-registry';
-import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type SectionResult } from './derive-assembly';
+import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type ChunkPieces, type SectionResult } from './derive-assembly';
+import { pieceTableOf } from './piece-table';
 import { derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';
 import { CellDelta } from './cell-delta';
@@ -208,7 +209,7 @@ function derive(raw: unknown): JobResult {
     if (input.rules !== undefined) {
       const rules = assemblyRules(input.rules);
       if (jobRadius(rules) !== r) throw new RangeError(`derive job: radius ${r} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
-      const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out), undefined, level);
+      const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out), undefined, level, jobPieces(input));
       const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeDerived(assembly)), assembly, shader: null };
       return { output, transfer: derivedTransfer(assembly) };
     }
@@ -217,6 +218,11 @@ function derive(raw: unknown): JobResult {
   } finally {
     clear(store);
   }
+}
+
+/** A derive job's kit pieces: its table (decoded once a thread) and its chunk. */
+function jobPieces(input: DeriveInput): ChunkPieces {
+  return { table: input.pieces === undefined ? null : pieceTableOf(input.pieces), chunk: [input.chunk.cx, input.chunk.cy, input.chunk.cz] };
 }
 
 /** A derive job naming sections: each section's derived data (or its shader data alone), one result a section. */
@@ -233,7 +239,7 @@ function deriveSections(store: PaletteStore, input: DeriveInput, parts: number):
     if (input.rules === undefined) throw new RangeError('derive job: sections need assembly rules');
     const rules = assemblyRules(input.rules);
     if (jobRadius(rules) !== input.radius) throw new RangeError(`derive job: radius ${input.radius} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
-    results = deriveSectionsWithApron(g, rules, input.apron, exportChunk, edge, ids);
+    results = deriveSectionsWithApron(g, rules, input.apron, exportChunk, edge, ids, 0, jobPieces(input));
   }
   const transfer: ArrayBuffer[] = [];
   for (const r of results) {

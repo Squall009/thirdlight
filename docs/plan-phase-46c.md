@@ -133,7 +133,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.3 | done: `kit-rules.ts` `KIT_RULES` (`kits` v1 = terrain rules + case pass, R 2, apron 3) registered, `WORLD_RULES`; cases a u16 a cell in the job only; L0/L1 run, L2+ skip; derived v9 → v10 (spec note). Outputs byte-equal to terrain rules. Conformance class+case at 16/32. 16³ evaluation with detail p50/p95 town 90/115 → 207/419 µs; eval+ground 242/299 → 255/408 |
 | 46c.4 | done: `kit-runs.ts` run sections (job only, u16 a cell: single/start/body/end/corner/junction, ends joined/open/butt/inner mitre, world axis); catalogue `cases-draft` v1 (+6 rules: rail L/T/X, beam corners, storey-line corner), `kits` v2; U world-anchored (`runU`). 6 tests. Town eval with detail cells p50/p95 207/419 → 241/479 µs; run pass alone 34/49 (slice 45/55) |
 | 46c.5 | done: `case-forms.ts`: each case declares base keep/suppress/reshape + shape box/slab/panel/bar/post/none; every consumer reads the form (class's without a case); soffit reshaped to a slab. Catalogue v2, `kits` v3, derived v10 → v11 (spec note). Town 229 chunks: 15.29 → 15.80 MB, boxes full 22,429 → 23,201, partial 18,792 → 20,154; slice unchanged. 4 + 1 Rapier tests |
-| 46c.6 | not started |
+| 46c.6 | done: `piece-table.ts` (material → kit by test binding, kit-local pieces, missing case → body → single → same-form role fallback → engine default), variant word (hash of cell + kit seed, bit 15 mirror), still 8 B; derived v11 → v12. Kit change re-derives only chunks/L1 nodes holding its materials. Table 1.65 kB a full kit; town L0 instances/chunk p50 80 → 1,355 with a full kit |
 | 46c.7 | not started |
 | 46c.8 | not started |
 | 46c.9 | not started |
@@ -328,6 +328,42 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   its 7 tests sum to 57.9 s (57.8 s at 46c.4). The slice world has no soffits, so the page draws as before
   (unverified by eye).
 
+### 46c.6 instances carry kit pieces
+
+- **Built:** `packages/voxel/src/piece-table.ts` (`buildPieceTable(kits, rules)` → canonical bytes, format 1, read back
+  by `readPieceTable`, kept by hash in each worker; `kitPieceList`, `tablePiece`, `pieceVariant`, `pieceTableChanges`,
+  `defaultPiece`/`defaultPieceFamily`), `AssemblyRuleSet.catalogue` (set by `withCases`), `deriveChunk(…, pieces)`
+  with the derive unit's world origin (chunks, sections and mip nodes pass theirs), `DeriveInput.pieces` (the table's
+  bytes), `stream-pieces.ts` (`VoxelStreamer.pieces`: `table`, `set(table)` → group + chunks re-derived, `feeds`),
+  `SectionDerives.rederiveChunk`, `StreamMips.piecesChanged`, `payloadHolds`. Instance: u16 piece kit-local (default
+  pieces family << 3 | run section below 32, so corners and junctions keep their sections), u16 variant word. Kept or
+  reshaped cells get a kit piece (no `replacesBase`) only where they show. Derived v11 → v12, spec §3.7 (kit pieces,
+  instance, history, owner note), §3.8. Adapter stand-ins decode the default family; kit pieces draw from 46c.7.
+- **Tests:** `tools/voxel-bench/kit-pieces.test.ts` (new vitest file: `derived.test.ts` is at 1,823 of 2,000 lines),
+  4: the table (piece order, fallback order case → body → single → same-form role fallback → default/none, a material
+  two kits bind, canonical bytes, newer format and short bytes refused, a table of other rules refused, changes by
+  material); the wall-beam-banister scene (kit pieces on timber/stone, default post where the kit lacks it, kept
+  pieces only where a face shows, every suppressed cell still has its piece, an unbound table = no table byte for
+  byte, 3 variants seen, 8 B an instance); the town (variant stable after a 3³ dig: every cell farther than pad + 2
+  identical, every cell keeping its piece keeps its variant; 16³ sections = the chunk cell for cell); per level
+  (kit pieces high at L0, `low` at L1, none at L2; the cells a piece replaces are the same with and without a kit at
+  L0 and L1). `stream.test.ts` +1 (real workers): `pieces.set` re-derives exactly the resident chunks holding the
+  kit's material (8 sections each, nothing else), joined pieces = in-thread derive with the table; a second kit
+  touches only its chunks; the same table again nothing; a paint of log cells to an unbound material rebuilds their
+  pieces. Existing tests decode default families (`defaultPieceFamily`).
+- **Measured** (`run.mjs cases --pieces`, 6 GB scope, 2026-11-04 04:01, load 3.2, uptime 11.5 d; one run, counts are
+  deterministic): table bytes one full test kit (every case but `enclosed`, 6 sections, 2 variants) 1,650 B, six
+  kits (4 variants) 16,032 B, no kit none sent. Whole 512² town: L0 chunks with pieces 218 → 229, instances 18,879 →
+  320,160 (p50 / p95 / max a chunk 80 / 164 / 217 → 1,355 / 3,012 / 3,857); L1 nodes 62: 4,710 → 53,333 (73 / 127 /
+  154 → 876 / 1,546 / 1,799), 51,377 kit pieces. Slice ring: L0 24 → 152, L1 0 → 26. A full kit puts a piece on every
+  shown construction cell (the worst case: a kit that leaves walls to the base surface adds none there); whole-chunk
+  derive time unchanged within noise (town L0 4.97 s → 4.94 s for 229 chunks).
+- **D465 rechecked with low pieces:** at L1 every cell a piece replaces has one with and without a kit (tested), the
+  bodies past L1 are unchanged; drawing real low meshes is 46c.7, so the look stays unverified (no picture taken).
+- **Gate:** fast gate gate-fast-20261104-040147 GREEN (13 min, peak 4.8 GB; vitest 837 files; 36 e2e; perf at the cap
+  0 missed both renderers). `voxel-world.e2e.ts` untouched (no browser behaviour): its 7 tests sum to 61.8 s (57.9 s at
+  46c.5, load 3.2). Staging slice world needs no regenerating (derived data only).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -452,6 +488,28 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-04 (46c.5, default chosen, owner to confirm): **pieces until 46c.6** stay the placeholder families, now
   chosen by the suppressed case's shape (bar → beam, panel → rail, post → post) with the run pass's section (corner
   and junction drawn as body: the u16 piece has 2 section bits until kit-local pieces) and the case's quarter turns.
+- 2026-11-04 (46c.6, default chosen, owner to confirm): **piece indices are kit-local**, the engine's default pieces
+  first (below 32, the same in every kit) and the instance's kit is its cell's material's. A table-wide numbering
+  would shift every kit after one that gains a piece, re-deriving chunks of unrelated kits; kit-local numbers keep
+  "a kit change re-derives only its materials' chunks" exact. The renderer (46c.7) reads the material from the shader
+  data as it already does for colour.
+- 2026-11-04 (46c.6, default chosen, owner to confirm): **the mirror bit is bit 15 of the variant word**, not one of the
+  rotation byte's free flags (the earlier plan line): the lead's item brief put it there, and it keeps the rotation
+  byte's meaning unchanged; the variant has 15 bits.
+- 2026-11-04 (46c.6, default chosen, owner to confirm): **missing pieces**: the case's section, its body, its single;
+  then the role's fallback case only when it declares the same base and shape; then the engine default where the base
+  is suppressed, nothing where the base surface draws the cell. A kit's piece on a kept cell is drawn only where the
+  cell shows (no pieces inside masses or for `enclosed`). The variant seed is a hash of the kit's id, so a kit's
+  revision never reshuffles variants.
+- 2026-11-04 (46c.6, default chosen, owner to confirm): **with a kit bound, a material paint rebuilds meshes too**: a
+  paint can move cells to another kit's pieces, so `fieldsFeed`'s shader-only rule (owner: material/wetness never
+  remesh) holds only while no kit binds a material. With kits, a material or wetness change re-derives the sections
+  within R as a shape change does (wetness included: the streamer cannot tell them apart in a refresh). Alternative
+  for the owner: pieces resolved per kit at draw time from the material (no derive), at the cost of the derive no
+  longer choosing variants by weight per kit.
+- 2026-11-04 (46c.6, default chosen, owner to confirm): **the piece table is not stored in a result**: staleness is
+  carried by the stamps of what a table change re-derives; results of untouched chunks are the same under both tables.
+
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
   repo's authoring package (46c.17).

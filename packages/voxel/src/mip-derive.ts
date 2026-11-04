@@ -26,6 +26,7 @@ import { localIndex, type ChunkGrid } from './coords';
 import { copyDenseChunk, createDenseChunk, type DenseChunk } from './dense-chunk';
 import type { DerivedData, DeriveTimes } from './derived-data';
 import { deriveWithApron } from './derive-assembly';
+import type { PieceTable } from './piece-table';
 import { mipChildren, mipNodeKey, downsampleMip, type MipNode } from './voxel-mips';
 import type { VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
@@ -130,8 +131,8 @@ export class MipTree {
  * same level's neighbours, through the chunk derive. The result's `level`
  * is the node's.
  */
-export function deriveMipNode(tree: MipTree, n: MipNode, rules: AssemblyRuleSet, times?: DeriveTimes): DerivedData {
+export function deriveMipNode(tree: MipTree, n: MipNode, rules: AssemblyRuleSet, times?: DeriveTimes, table: PieceTable | null = null): DerivedData {
   const view = tree.level(n.level);
   const apron = buildApron(view, n.nx, n.ny, n.nz, jobRadius(rules));
-  return deriveWithApron(tree.grid, rules, apron, (out) => view.exportChunk(n.nx, n.ny, n.nz, out), times, n.level);
+  return deriveWithApron(tree.grid, rules, apron, (out) => view.exportChunk(n.nx, n.ny, n.nz, out), times, n.level, { table, chunk: [n.nx, n.ny, n.nz] });
 }

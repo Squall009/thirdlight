@@ -160,6 +160,12 @@ export interface DeriveInput {
    * records the level.
    */
   readonly level?: number;
+  /**
+   * The world's kit piece table (piece-table.ts bytes; absent: no kit, the
+   * default pieces), with the rules: a worker decodes it once and keeps it
+   * by hash.
+   */
+  readonly pieces?: Uint8Array;
 }
 
 /** A chunk-tree node's 8 children (octant order: bit 0 x, bit 1 y, bit 2 z; null: air, or not known). */
