@@ -141,7 +141,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.9 | done: placeholder kits log (11 cases, 28 pieces, 768/385 tris high/low, GLB 92,956 B) and stone (12 cases, 18 pieces, 272/272, 32,436 B) from Blender 5.2 (`kits/make_placeholder_kits.py`), draft trim UVs, no textures; kit check 0 err, T1–T8 ok; on staging both renderers (`run.mjs kits`); trim debug set drawn; check T6 per face, T8 on the run axis |
 | 46c.10 | done: lead's log-corner shot was a real bug: plain walls (fallback), lintels, sills, opening tops took a free front, pieces faced into the wall; fixed (`cases-draft` v4: fronts, `wall-thin` both faces; `kits` v5), pinned by `kit-house.test.ts`; trim U offset per instance (`pieceU`). §7a list on staging both renderers: 12 cases, table in results; D480–D484 |
 | 46c.11 | not started |
-| 46c.12 | not started |
+| 46c.12 | draft v1 candidate (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-role-spec.md` from `cases-draft` v4: 10 roles, 6 inferred features, reach-2 window + folds, 46 cases (40 required, 7 fallbacks, 6 optional) with rule diagrams, sections, base/shape, engine default, levels, piece/Blender convention, D480–D483, 15 questions; `role-spec-doc.test.ts` (5) pins doc = catalogue |
 | 46c.13 | draft v0 (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-trim-layout.md`: 4096² sheet authored 1024 px/m (tiers 256/512/1024), 32 px gutters, field 1 m + strips 0.5/0.25/0.125 m plain/profiled + caps 3 sizes × 4, U from world run distance (4 m repeat), path B (own bakes) beside it, kit-check rows T1–T10, log/stone examples, 10 owner questions |
 | 46c.14 | not started |
 | 46c.15 | not started (owner hard stop: the run stops here) |
