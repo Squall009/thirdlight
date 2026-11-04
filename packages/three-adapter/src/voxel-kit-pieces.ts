@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
-import { TRIM_LAYOUTS, type TrimLayout } from '@thirdlight/project-model';
+import { TRIM_LAYOUTS, voxelKitMeshKey, type TrimLayout } from '@thirdlight/project-model';
 import {
   DEFAULT_KIT_ID,
   DEFAULT_KIT_PIECES,
@@ -81,11 +81,6 @@ export interface VoxelKitDraw {
 
 /** A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project. */
 export type VoxelKitBytes = (ref: VoxelKitMeshRef) => Promise<{ readonly bytes: Uint8Array; readonly version: number } | null>;
-
-/** A mesh ref's cache key. */
-export function voxelKitMeshKey(m: VoxelKitMeshRef): string {
-  return `${m.assetId}@${m.digest}${m.node !== undefined ? `#${m.node}` : ''}`;
-}
 
 /** Every mesh a kit names (each once). */
 export function voxelKitMeshRefs(kits: readonly VoxelKitRecordLike[]): VoxelKitMeshRef[] {

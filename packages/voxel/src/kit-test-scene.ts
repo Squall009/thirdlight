@@ -34,6 +34,7 @@ import { CASE_REACH, CASE_SYMBOL, CASE_WINDOW, CASE_WINDOW_CELLS, CaseCatalogue,
 import { evaluateCases, evaluateRuns } from './kit-rules';
 import { NO_SECTION, runSectionOf } from './kit-runs';
 import { RUN_SECTION_IDS } from './piece-table';
+import { WORLD_GRID_ID } from './region-file';
 import { MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
 
 /**
@@ -272,9 +273,9 @@ export function kitTestScene(rules: AssemblyRuleSet, opts: KitTestSceneOptions):
   }
   const min: [number, number, number] = [ox, oy, oz];
   const max: [number, number, number] = [ox + Math.max(1, cols) * p - 1, oy + p - 1, oz + Math.max(1, roles.length) * p - 1];
-  const clear: FillEdit = { v: 2, grid: 0, kind: 'fill', min, max, mode: 'dig' };
+  const clear: FillEdit = { v: 2, grid: WORLD_GRID_ID, kind: 'fill', min, max, mode: 'dig' };
   const sets: SetEdit[] = [...byValue.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([v, cells]) => ({ v: 2, grid: 0, kind: 'set', cells, voxel: { material: valueMaterial(v), role: valueRole(v), shape: valueShape(v), wetness: valueWetness(v) } }));
+    .map(([v, cells]) => ({ v: 2, grid: WORLD_GRID_ID, kind: 'set', cells, voxel: { material: valueMaterial(v), role: valueRole(v), shape: valueShape(v), wetness: valueWetness(v) } }));
   return { min, max, labels, commands: [clear, ...sets], unreached };
 }

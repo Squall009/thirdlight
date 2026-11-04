@@ -115,7 +115,7 @@ interface Composed {
   runs: { p50: number; p95: number };
   /** Cells of each run section (kit rules, one pass). */
   sectionCells: Record<string, number>;
-  /** The evaluation and the terrain mesher's ground surface (what 46b measured), sections with ground triangles. */
+  /** The evaluation and the terrain mesher's ground surface (the terrain mesher's measure), sections with ground triangles. */
   ground: { terrain: { p50: number; p95: number }; kits: { p50: number; p95: number } };
   groundSections: number;
 }
@@ -279,7 +279,7 @@ function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [numb
   };
 }
 
-/** The case extraction alone (the 46c.2 measurement) and the keys and cases seen. */
+/** The case extraction alone (the extraction cost) and the keys and cases seen. */
 function measureExtraction(sections: readonly Neighbourhood[], rounds: number): { coldMs: number; roundMs: number[]; cells: number; withCellsCount: number; us: { all: { p50: number; p95: number }; withCells: { p50: number; p95: number } }; keys: number; cases: Map<string, number>; cat: CaseCatalogue } {
   const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
   const out = new Uint16Array(sections[0]!.values.length);
@@ -390,7 +390,7 @@ function main(): void {
       `- Evaluation µs p50 / p95, sections with detail cells: terrain rules ${c.evaluate.terrain.cells.p50} / ${c.evaluate.terrain.cells.p95}, kit rules (terrain + cases + run sections) ${c.evaluate.kits.cells.p50} / ${c.evaluate.kits.cells.p95}; all sections: ${c.evaluate.terrain.all.p50} / ${c.evaluate.terrain.all.p95} vs ${c.evaluate.kits.all.p50} / ${c.evaluate.kits.all.p95}.`,
       `- Run sections alone (kit rules), µs a section with detail cells p50 / p95: ${c.runs.p50} / ${c.runs.p95}. Cells by section: ${Object.entries(c.sectionCells).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
       `- Section derive (evaluation + meshes) µs p50 / p95, ${c.surfaceSections} sections with a surface: terrain rules ${c.derive.terrain.surface.p50} / ${c.derive.terrain.surface.p95}, kit rules ${c.derive.kits.surface.p50} / ${c.derive.kits.surface.p95}; all sections: ${c.derive.terrain.all.p50} / ${c.derive.terrain.all.p95} vs ${c.derive.kits.all.p50} / ${c.derive.kits.all.p95}.`,
-      `- Evaluation + ground mesh µs p50 / p95 (46b's measure), ${c.groundSections} sections with ground: terrain rules ${c.ground.terrain.p50} / ${c.ground.terrain.p95}, kit rules ${c.ground.kits.p50} / ${c.ground.kits.p95}.`,
+      `- Evaluation + ground mesh µs p50 / p95 (the terrain mesher's measure), ${c.groundSections} sections with ground: terrain rules ${c.ground.terrain.p50} / ${c.ground.terrain.p95}, kit rules ${c.ground.kits.p50} / ${c.ground.kits.p95}.`,
       `- Consumers (whole 32³ chunks, kit rules), ${consumers.built} of ${consumers.chunks} chunks with construction: derived bytes ${consumers.total.bytes} (collision ${consumers.total.collision}, light ${consumers.total.light}, nav ${consumers.total.nav}, base ${consumers.total.base}); boxes full ${consumers.total.fullBoxes}, partial ${consumers.total.partialBoxes}; instances ${consumers.total.instances}; base triangles ${consumers.total.baseTriangles}. A chunk p50 / p95: bytes ${consumers.perChunk.bytes.p50} / ${consumers.perChunk.bytes.p95}, full boxes ${consumers.perChunk.fullBoxes.p50} / ${consumers.perChunk.fullBoxes.p95}, partial ${consumers.perChunk.partialBoxes.p50} / ${consumers.perChunk.partialBoxes.p95}.`,
       `- Cases: ${[...x.cases].sort((a, b) => b[1] - a[1]).map(([id, n]) => `${id} ${n}`).join(', ')}; never seen: ${cat.cases.filter((k) => !x.cases.has(k.id)).map((k) => k.id).join(', ') || 'none'}.`,
       '',

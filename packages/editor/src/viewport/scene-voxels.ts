@@ -17,8 +17,8 @@
  * world opens (through the command route; their GLBs from the backend), with
  * the engine's default kit for the materials no kit binds: the worker
  * derives with the piece table of those kits, the draws use the same. A kit
- * edited while the view is open shows when the worlds are opened again
- * (another scene, a reload).
+ * edited while the view is open shows once the view reads its kits again
+ * (a page reload or a renderer change).
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
 import type { VoxelsChangedPayload } from '@thirdlight/protocol';
@@ -70,11 +70,14 @@ export class SceneVoxels {
   private projectKits(): Promise<readonly VoxelKitRecordLike[]> {
     if (this.kits !== null) return this.kits;
     const route = this.host.source?.kits;
-    this.kits = (route === undefined ? Promise.resolve([]) : readVoxelKits(route)).catch((e: unknown) => {
+    const read = (route === undefined ? Promise.resolve([]) : readVoxelKits(route)).catch((e: unknown) => {
       for (const name of this.open.keys()) this.problems.set(name, `voxel kits: ${e instanceof Error ? e.message : String(e)}`);
       return [];
     });
-    void this.kits.then((kits) => {
+    this.kits = read;
+    void read.then((kits) => {
+      // The renderer was replaced or the view disposed while the kits were read: those draws are gone, make nothing.
+      if (this.kits !== read) return;
       if (route !== undefined) {
         const p = pageKitPieces(route, kits);
         this.kitMeshes = p.meshes;
@@ -208,6 +211,7 @@ export class SceneVoxels {
     this.draws.dispose();
     this.kitMeshes?.dispose();
     this.kitMeshes = null;
+    this.kits = null;
     this.open.clear();
   }
 }

@@ -34,7 +34,7 @@
  * are read from GLB bytes by {@link voxelKitMeshFacts}.
  */
 import { readGlb } from '@thirdlight/shared';
-import { VOXEL_SIZE_M, VOXEL_ROLE, WORLD_RULES, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
+import { RUN_SECTION_IDS, VOXEL_SIZE_M, VOXEL_ROLE, WORLD_RULES, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
 import type { KitCheckState } from './kit-checks';
 import { readModelGeometry } from './model-collision';
 import type { VoxelKit, VoxelKitMesh, VoxelKitSection } from './voxel-kit';
@@ -89,8 +89,8 @@ export interface VoxelKitCheckReport {
   totals: { pieces: number; highTriangles: number; lowTriangles: number; textures: number; textureBytes: number };
 }
 
-/** Run sections a kit names pieces for (piece-table.ts RUN_SECTION_IDS). */
-const SECTIONS = ['single', 'start', 'body', 'end', 'corner', 'junction'];
+/** Run sections a kit names pieces for. */
+const SECTIONS = RUN_SECTION_IDS;
 /** A cell's half side, metres: meshes are centred on the cell. */
 const HALF = VOXEL_SIZE_M / 2;
 /** How far past its cell a piece may reach before it overlaps the neighbours' pieces (half a cell). */

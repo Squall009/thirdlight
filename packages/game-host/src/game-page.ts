@@ -481,7 +481,6 @@ function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog,
     );
 }
 
-/** A texture asset's verified bytes as stored (a probe tile's file is data: never decoded as an image). */
 /** The build's voxel kits (none: every world draws the engine's default kit). */
 function voxelKitsOf(manifest: GamePageManifest): VoxelKitRecordLike[] {
   return (manifest as { voxelKits?: VoxelKitRecordLike[] }).voxelKits ?? [];
@@ -500,6 +499,7 @@ function pageVoxelKitsOf(manifest: GamePageManifest, reader: VerifiedAssetReader
   };
 }
 
+/** A texture asset's verified bytes as stored (a probe tile's file is data: never decoded as an image). */
 function pageAssetBytes(reader: VerifiedAssetReader, catalog: RuntimeCatalog): (assetId: string) => Promise<Uint8Array> {
   return async (assetId) => {
     const row = await catalog.lookup(assetId);
