@@ -45,7 +45,7 @@ import type { DeriveInput, DeriveOutput, JobLane } from './stream-job';
 import type { SeamSurface } from './lod-seam';
 import type { PieceTable } from './piece-table';
 import type { EditHold } from './stream-seams';
-import type { SampleRing, WorkerPool } from './worker-pool';
+import { SampleRing, type WorkerPool } from './worker-pool';
 import { crc32 } from '@thirdlight/shared';
 
 /** What one edit's atomic swap cost, from the edit to the swap. */
@@ -220,6 +220,12 @@ export class SectionDerives {
   private groupSeq = 0;
   /** Chunks whose sections took new results in this task, not yet announced: chunk key → whether only shader data changed. */
   private readonly touched = new Map<number, { cx: number; cy: number; cz: number; shaderOnly: boolean }>();
+  /**
+   * Worker µs a section spent evaluating the rules (classes and every pass
+   * the set has: cases, runs, forms), over all sections and over those whose
+   * result draws pieces: what the case pass costs where the world runs.
+   */
+  readonly evaluateUs = { all: new SampleRing(), pieces: new SampleRing() };
 
   constructor(
     private readonly host: SectionHost,
@@ -844,6 +850,10 @@ export class SectionDerives {
         return;
       }
       if (r.id !== s.id) throw new Error(`derive job ${id}: section ${r.id} answered for ${s.id}`);
+      if (r.assembly !== null) {
+        this.evaluateUs.all.add(r.times.evaluateUs);
+        if (r.assembly.instances.count > 0) this.evaluateUs.pieces.add(r.times.evaluateUs);
+      }
       this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader }, r.times);
     });
     this.flushChunks();

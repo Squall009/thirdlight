@@ -348,6 +348,32 @@ export class VoxelKitMeshes {
     return this.set(worldPieceTable(kits), kits);
   }
 
+  /**
+   * CPU-side bytes of what this holds (diagnostics): the vertex and index arrays of every loaded, default, mirrored
+   * and trim-flagged mesh, and the textures' texels (with a third more for mips). The GPU holds a copy of each.
+   */
+  bytes(): { readonly meshes: number; readonly textures: number } {
+    const geometries = new Set<THREE.BufferGeometry>();
+    for (const s of this.meshes.values()) {
+      if (s.state !== 'ready') continue;
+      geometries.add(s.geometry);
+      if (s.mirrored !== null) geometries.add(s.mirrored);
+    }
+    for (const g of this.defaults.values()) geometries.add(g);
+    for (const g of this.trimmed.values()) geometries.add(g);
+    let meshes = 0;
+    for (const g of geometries) {
+      for (const a of Object.values(g.attributes)) meshes += (a as THREE.BufferAttribute).array.byteLength;
+      meshes += g.index?.array.byteLength ?? 0;
+    }
+    let textures = 0;
+    for (const t of [this.texture, ...this.trimTextures.values()]) {
+      const img = t.image as { width?: number; height?: number } | null;
+      textures += Math.round(((img?.width ?? 0) * (img?.height ?? 0) * 4 * 4) / 3);
+    }
+    return { meshes, textures };
+  }
+
   /** Meshes loaded and failed, by key (diagnostics, tests). */
   states(): Record<string, string> {
     return Object.fromEntries([...this.meshes].map(([k, s]) => [k, s.state === 'failed' ? `failed: ${s.reason}` : s.state]));

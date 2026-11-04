@@ -610,6 +610,11 @@ describe('streamer (workers, region files on disk)', () => {
     expect([...new Set(derivedChunks)].sort()).toEqual(holding(LOG));
     expect(derivedChunks).toHaveLength(r1.chunks.length * perChunk);
     expect(drawsLike(log, holding(LOG))).toBeGreaterThan(10);
+    // Every section result is timed (the page reports these); those drawing pieces are among them.
+    const ev = s.metrics().evaluateUs!;
+    expect(ev.all.n).toBeGreaterThanOrEqual(derivedChunks.length);
+    expect(ev.pieces.n).toBeGreaterThan(0);
+    expect(ev.pieces.n).toBeLessThanOrEqual(ev.all.n);
     // Adding the stone kit touches the stone wall's chunks only; the same table again touches nothing.
     derivedChunks.length = 0;
     const both = buildPieceTable([fullTestKit('log', [LOG], 2), fullTestKit('stone', [STONE], 1)], WORLD_RULES).table;

@@ -50,7 +50,8 @@
  * route, their GLBs from the backend), with the engine's default kit for
  * every material no kit binds, through the one piece table the streamer
  * derives with; `?kits=0` derives without a table (the engine's default
- * stand-in pieces only, to compare).
+ * stand-in pieces only, to compare), `?kits=default` with the default kit
+ * alone (the project's kits left out).
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
  * the catalogue built from voxels, `writeKitTestScene`: the same command MCP
@@ -223,7 +224,7 @@ async function main(): Promise<void> {
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: blendM, shading });
   // The project's kits and the default kit, one table for the derives and the draws; their meshes load beside the stream.
   const kitRoute = { api, projectId, headers };
-  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
+  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : params.get('kits') === 'default' ? [] : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set });
   const gpu = createGpuTiming();
@@ -575,6 +576,8 @@ async function main(): Promise<void> {
         heapMB: Number((heap / 1e6).toFixed(1)),
         gpu: rendererMemory(renderer),
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
+        evaluateUs: m.evaluateUs,
+        kitBytes: kits.meshes.bytes(),
         mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, gpuBytes: mips.gpuBytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },

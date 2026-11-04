@@ -140,7 +140,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.8 | done: `voxel-kit-check.ts` (project-model) rows ok/warn/err/info: cases, role fallbacks, high/low, assets/digests, pivot/fit, join profiles, budgets, trim T1–T10 (draft, opt-in) → Problems + tl_diagnostics; `writeKitTestScene` op: 53 exhibits (45 cases × roles) from the catalogue, 98×7×49 cells, one undo; page `?kitScene=` labels. Default kit: 0 err, check 0.11 ms |
 | 46c.9 | done: placeholder kits log (11 cases, 28 pieces, 768/385 tris high/low, GLB 92,956 B) and stone (12 cases, 18 pieces, 272/272, 32,436 B) from Blender 5.2 (`kits/make_placeholder_kits.py`), draft trim UVs, no textures; kit check 0 err, T1–T8 ok; on staging both renderers (`run.mjs kits`); trim debug set drawn; check T6 per face, T8 on the run axis |
 | 46c.10 | done: lead's log-corner shot was a real bug: plain walls (fallback), lintels, sills, opening tops took a free front, pieces faced into the wall; fixed (`cases-draft` v4: fronts, `wall-thin` both faces; `kits` v5), pinned by `kit-house.test.ts`; trim U offset per instance (`pieceU`). §7a list on staging both renderers: 12 cases, table in results; D480–D484 |
-| 46c.11 | not started |
+| 46c.11 | done: staging both renderers at the cap, default kit vs log + stone. Town: 40.8 k → 63.1 k instances, piece draws 1,366 → 4,133, render() CPU 7.2 → 17–18 ms, **orbit misses 31–65 of 480 frames** (cause: draws a chunk); flight 0 → 1–3 missed. Houses 0 missed. Case pass Node 256/508, browser 300/800 µs. Blasts 1/4 m 1 frame, 8 m 2–3; kit swap 1 frame. Hooks: `kits=default`, evaluateUs |
 | 46c.12 | draft v1 candidate (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-role-spec.md` from `cases-draft` v4: 10 roles, 6 inferred features, reach-2 window + folds, 46 cases (40 required, 7 fallbacks, 6 optional) with rule diagrams, sections, base/shape, engine default, levels, piece/Blender convention, D480–D483, 15 questions; `role-spec-doc.test.ts` (5) pins doc = catalogue |
 | 46c.13 | draft v0 (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-trim-layout.md`: 4096² sheet authored 1024 px/m (tiers 256/512/1024), 32 px gutters, field 1 m + strips 0.5/0.25/0.125 m plain/profiled + caps 3 sizes × 4, U from world run distance (4 m repeat), path B (own bakes) beside it, kit-check rows T1–T10, log/stone examples, 10 owner questions |
 | 46c.14 | not started |
@@ -612,6 +612,84 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   gate-fast-20261104-080430 GREEN (13 min, peak 4.6 GB; `world-host.test.ts` failed once and passed alone, D484
   watch; perf 0 missed, 5.92 / 4.06 ms). `voxel-world.e2e.ts` untouched: its 7 tests sum 65.1 / 65.4 s (60.5 s at
   46c.9, load). Staging: the kits re-imported (`run.mjs kits`); the slice world needs no regenerating (no format change).
+
+### 46c.11 measurement
+
+- **Set-up:** staging, Iris Xe, 1280 × 720 at the 60 Hz cap, WebGPU and WebGL 2, 2 rounds (round 2 a plain repeat; all
+  numbers below are the two rounds' range), 2026-11-04 08:26–08:50, load 0.7–2.3, uptime 11.7 d; script, rounds and
+  `summ.py` in `~/.cache/thirdlight-phase46/work/46c.11`. Two kit configurations on the same page and world: **(a)**
+  `?kits=default` (new: the engine's default kit alone, the project's kits left out) and **(b)** the project's log +
+  stone kits bound (timber, plank → log; stone, brick → stone; every other material the default kit). Scenes: the
+  **town** world (orbit from [256, 6, 256], 60 m, as 46c.7/46b.8b) and the **prototype houses** (46c.10's pad on the
+  slice world: log house, stone house, 20 m log and stone walls; 17 commands, undone after). Per page: cold fill,
+  8 s orbit (frames, `render()` CPU, GPU timestamps), state, a 160 m flight out and back at 12 m/s with a 16 m camera
+  (the slice fly phase's); on the houses local blasts 1/4/8 m (×2) in the log house's back wall and local paints of
+  that wall (×2 each), each read back. Measuring hooks added: `?kits=default`, `state().evaluateUs` (worker µs a
+  level-0 section evaluating the rules, all sections and those drawing pieces; `VoxelStreamer.metrics().evaluateUs`),
+  `state().kitBytes` (`VoxelKitMeshes.bytes()`: kit mesh arrays and texture texels held). Node: `run.mjs cases --worlds
+  town,slice --rounds 3` (load 1.1, `cases.md` there).
+
+  | | town (a) default kit | town (b) log + stone | houses (a) | houses (b) | vs §4 / earlier |
+  |---|---|---|---|---|---|
+  | instances drawn (L0 / L1; of them kit pieces) | 40,819 (23,198 / 17,621; 32,518) | 63,149 (40,060 / 23,089; 59,130) | 379 (379 / 0) | 1,140 (1,140 / 0) | 46c.7 town 42,548; §4 placeholder families |
+  | piece draws (instanced meshes) / draw calls | 1,366 / 1,135 | 4,133 / 2,647–2,650 | 42 / 136 | 108 / 176 | 46c.7 1,420 / 1,179 |
+  | after the flight: instances / piece draws | 45,560 / 1,554 | 72,089 / 4,562 | 379 / 42 | 1,140 / 108 | |
+  | `render()` CPU p50 / p95 WebGPU | 7.1–7.2 / 8.0–9.5 ms | **17.4–17.5 / 19.2–19.4** | 1.2 / 2.0 | 1.8 / 2.2–2.4 | §4 town 3.0–3.2, 46c.7 8.1 |
+  | `render()` CPU p50 / p95 WebGL 2 | 7.2–7.4 / 8.1–8.7 | **17.0–18.1 / 18.9–20.6** | 1.2 / 1.4–1.5 | 1.7–1.8 / 2.4–3.0 | 46c.7 7.9 |
+  | GPU ms a frame WebGPU / WebGL 2 | 2.3–2.4 / 4.2 | 2.4 / 5.0–5.3 | 7.6–7.9 / 3.9–4.3 | 8.4–8.5 / 3.9–4.2 | 46c.7 town 2.6 / 3.7, slice 8.0 / 3.8 |
+  | orbit frame p50 / p95, missed (> 25 ms) of ~480 | 16.7 / 16.7–16.8, 0 | **16.7 / 33.3, 40–44 WebGPU, 31–65 WebGL 2** | 16.7 / 16.7–16.8, 0 | 16.7 / 16.7–16.8, 0 | 46c.7 0 |
+  | 160 m flight p95 / max, missed of ~1,618 | 16.7–16.8 / 16.8, 0 | 16.7–16.8 / 33.3–49.9, **1–3** | 16.7 / 16.8, 0 | 16.7–16.8 / 16.8, 0 | 46b.11b 0 missed |
+  | flight `render()` CPU p50 / p95; level changes | 3.0–3.4 / 5.5–5.9; 100–103 | 6.3–6.8 / 11.7–12.8; 99–109 | 1.0–1.1 / 1.6–1.7; 142–148 | 1.2–1.3 / 2.0–2.1; 137–145 | |
+  | stream total (derived; mips) MB, after flight | 103.7 (72.6; 28.6), 111.2 | 105.7 (74.2; 29.0), 113.4 | 62.8 (36.4; 19.9), 76.8–77.5 | 62.9 (36.5; 19.9), 77.0–78.0 | |
+  | kit meshes + textures held (CPU; GPU a copy) | 0.02 + 0.35 MB | 0.64 + 5.94 MB | 0.01 + 0.35 | 0.34 (0.45 after flight) + 5.94 | |
+  | page JS heap | 254–269 MB | 254–304 MB | 131–188 | 177–199 | |
+
+  Instance buffers are not read by a hook: at 64 B a matrix (+ 8 B `pieceU` for trim pieces) the town's (b) holds about
+  4.5 MB of them and (a) 2.6 MB (estimate). The 5.9 MB of (b)'s textures is the generated trim debug set (1024² RGBA8 +
+  mips, 5.6 MB) beside the 256² cell debug texture; real texture sets are 46d's.
+- **Case pass µs a 16³ section p50 / p95:**
+  | | Node (this thread, 3 rounds) | browser workers (cold fill, 4 workers, both renderers and configs) |
+  |---|---|---|
+  | town, evaluation (classes + cases + runs), sections with detail cells (1,394) / drawing pieces (1,308–1,311) | 256 / 508 (46c.4 241 / 479, 46c.3 207 / 419; terrain rules alone 98 / 123) | 300 / 800–900 |
+  | town, all sections (12,072 / 17,664) | 71 / 327 | 100 / 300–400 |
+  | town, case extraction alone; run pass alone | 114 / 284; 35 / 54 | — |
+  | slice ring, detail sections (4); prototype houses, sections drawing pieces (14) | 280 / 325 | houses 800–2,100 / 5,800–13,600 |
+
+  Browser workers time with `performance.now()` at 100 µs resolution (no cross-origin isolation), so their numbers are
+  multiples of 100. The town's piece sections read ~15–75 % over Node (workers derive four at a time beside meshes and
+  consumers). The houses' 14 sections are the first sections each fresh worker derives (cold code), not a steady
+  number. The case pass reads no kit: (a) and (b) time the same within the resolution.
+- **Blast → shown with kits** (local, the log house's back wall, one cell thick, 4 blasts a radius per renderer and
+  configuration): 1 m: 1 frame, 8 sections, main 2.5–4.1 ms, workers 7.2–11.6 ms summed; 4 m: 1 frame, 12 sections,
+  main 3.1–4.6 ms, workers 8.5–15.4 ms; 8 m: **2–3 frames**, 48 sections, main 9.3–13.8 ms, workers 23.4–43.1 ms; no
+  frame missed during any. (a) and (b) are the same within noise: kit pieces add no blast cost here.
+- **Kit swap (cross-kit paint, the 14 × 6 back wall timber → stone, local):** (b) 1 frame every time, 4 sections derived
+  whole (meshes and pieces), workers 4.4–7.3 ms summed, main 1.6–2.9 ms, page build 13–19 ms the first time (the stone
+  pieces' first draws of the page) and 4–6 ms again. Same-kit paint (timber → plank): 1 frame, shader data only,
+  workers 2.1–3.5 ms, main 0.4–0.7 ms. In (a) both paints are between unbound materials: shader only, 1 frame.
+- **Misses and causes (recorded, not tuned; perf phase after 49 / 46d):**
+  1. **Town with the log + stone kits misses the cap:** orbit p95 33.3 ms, 31–65 of ~480 frames missed, both
+     renderers. Cause: `render()` CPU 17–18 ms from **4,133 piece draws** (one instanced draw a (kit piece, variant,
+     mirror, level) a chunk, 46c.7's choice): the two kits give ~10.7 piece kinds a chunk or node (variants, mirrored
+     copies, start/end/body sections, L0 and L1) against ~3.5 for the default kit, over 387 chunks and nodes. GPU is
+     not the limit (2.4 / 5.0 ms). The close-camera flight shows fewer draws and misses 1–3 frames. Cross-chunk
+     instancing, GPU culling or merged caches (46d) are the measured remedy.
+  2. **Case pass over the 0.1–0.2 ms section budget** (as 46c.3): Node 256 µs p50 on detail sections, browser workers
+     300 µs; cause the 40-cell window gathered and hashed for every detail cell (46c.3); catalogue v4 added +15 µs.
+  3. **8 m blast 2–3 frames (R107):** the derive of 48 sections (23–43 ms of workers over 4 threads) and 9–14 ms of main
+     thread; the same with the default kit only, so not a kit cost (46b.11a: 2–3 frames).
+  4. **WebGPU GPU ms on the prototype pad 7.6–8.5 vs WebGL 2 3.9–4.3** in both configurations (46c.7's slice read 8.0 /
+     3.8): not kit-related; unexplained, recorded as read.
+- **Looked at** (`~/.cache/thirdlight-phase46/acceptance/46c/measure/`, both renderers): the town with the log + stone
+  kits (WebGPU and WebGL 2 identical: log-brown timber houses, grey stone houses, roofs, verge boards); the prototype
+  pad (log house of half-logs with top logs and end grain, stone house with coping and quoins, both 20 m walls); the
+  4 m blast (back wall opened through to the front wall's door and window, crater in the pad); the cross-kit paint
+  (the back wall in stone ashlar, coping and quoins, the side walls still log). The (a) shots (looked at, WebGL 2) show the
+  base walls in their stand-in colours with the default kit's copings on top. Kit-swap and blast frames were counted, not watched in motion.
+- **Gate:** fast gate gate-fast-20261104-085017 GREEN (12 min, peak 4.9 GB; vitest 843 files, `stream.test.ts` pieces test
+  now also reads `evaluateUs`; 36 e2e; perf at the cap 0 missed both renderers, 5.72 / 4.12 ms). `voxel-world.e2e.ts`
+  untouched: its 7 tests sum 65.8 s (65.1–65.4 s at 46c.10). Staging stopped; the pad undone (17 commands); the slice
+  world needs no regenerating.
 
 ## 9. Decision log
 

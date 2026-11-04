@@ -261,7 +261,18 @@ export interface StreamMetrics {
   /** The store's own count of its arrays (to check the streamer's sum). */
   readonly storeBytes: number;
   readonly counters: Readonly<StreamCounters>;
+  /** Worker µs a level-0 section evaluating the rules, all sections and those drawing pieces (null: nothing derived). */
+  readonly evaluateUs: { readonly all: SampleSummary; readonly pieces: SampleSummary } | null;
 }
+
+/** Quantiles of a sample ring (µs) and how many samples it holds. */
+export interface SampleSummary {
+  readonly p50: number;
+  readonly p95: number;
+  readonly n: number;
+}
+
+const summarize = (r: SampleRing): SampleSummary => ({ p50: Number(r.quantile(0.5).toFixed(1)), p95: Number(r.quantile(0.95).toFixed(1)), n: r.count });
 
 /** One derive section's result and its section coordinates. */
 export interface DerivedChunk {
@@ -587,6 +598,7 @@ export class VoxelStreamer {
       bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + mips, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, mips, budget: this.budgetBytes },
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
+      evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },
     };
   }
 
