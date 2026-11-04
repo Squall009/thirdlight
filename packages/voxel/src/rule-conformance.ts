@@ -8,13 +8,14 @@
  * classes and misses invalidations, all without an error. So the declared
  * radius is checked by evaluating the same chunks twice, once with the
  * neighbourhood the jobs build and once with a wider one, and comparing
- * every resolved cell the consumers read: a rule within its radius cannot
- * tell the two apart.
+ * every resolved cell the consumers read (its class, and its case when the
+ * set has a case pass): a rule within its radius cannot tell the two apart.
  */
 import { buildApron, checkRadius } from './apron';
 import { CONSUMER_REACH, createNeighbourhood, fillNeighbourhood, jobRadius, type AssemblyRuleSet } from './assembly';
 import type { ChunkCoord } from './coords';
 import { createDenseChunk } from './dense-chunk';
+import { evaluateCases } from './kit-rules';
 import type { VoxelStoreCandidate } from './store';
 
 /** Cells more than the job's apron that the wider evaluation sees (3: a rule reading up to 3 cells too far is caught). */
@@ -29,7 +30,9 @@ export interface RuleRadiusMismatch {
   readonly lx: number;
   readonly ly: number;
   readonly lz: number;
-  /** The class byte with the job's apron, and with the wider one. */
+  /** What differs: the class byte, or the case (a packed u16, kit-cases.ts). */
+  readonly part: 'class' | 'case';
+  /** The class byte (or case) with the job's apron, and with the wider one. */
   readonly declared: number;
   readonly wider: number;
 }
@@ -37,10 +40,12 @@ export interface RuleRadiusMismatch {
 /**
  * Evaluates `rules` on each chunk of `store` with the job's apron (radius +
  * reach) and with `extra` cells more, and returns every cell the consumers
- * read (the chunk and the reach around it) that differs, at most `limit`.
- * Empty: within these chunks the rules read no further than they declare.
+ * read (the chunk and the reach around it) whose class or case differs, at
+ * most `limit`. Cases are resolved as at chunk-tree level `level` (0: a
+ * chunk). Empty: within these chunks the rules read no further than they
+ * declare.
  */
-export function ruleRadiusMismatches(store: VoxelStoreCandidate, rules: AssemblyRuleSet, chunks: Iterable<Readonly<ChunkCoord>>, extra = RULE_CONFORMANCE_EXTRA_PAD, limit = 100): RuleRadiusMismatch[] {
+export function ruleRadiusMismatches(store: VoxelStoreCandidate, rules: AssemblyRuleSet, chunks: Iterable<Readonly<ChunkCoord>>, extra = RULE_CONFORMANCE_EXTRA_PAD, limit = 100, level = 0): RuleRadiusMismatch[] {
   const grid = store.grid;
   const e = grid.edge;
   const pad = jobRadius(rules);
@@ -51,6 +56,8 @@ export function ruleRadiusMismatches(store: VoxelStoreCandidate, rules: Assembly
   const wideN = createNeighbourhood(e, wide);
   const narrowOut = new Uint8Array(narrowN.values.length);
   const wideOut = new Uint8Array(wideN.values.length);
+  const narrowCases = new Uint16Array(narrowN.values.length);
+  const wideCases = new Uint16Array(wideN.values.length);
   const dense = createDenseChunk(grid);
   const out: RuleRadiusMismatch[] = [];
   for (const c of chunks) {
@@ -61,14 +68,21 @@ export function ruleRadiusMismatches(store: VoxelStoreCandidate, rules: Assembly
     wideOut.fill(0);
     rules.resolve(narrowN, pad - CONSUMER_REACH, pad + e + CONSUMER_REACH, narrowOut);
     rules.resolve(wideN, wide - CONSUMER_REACH, wide + e + CONSUMER_REACH, wideOut);
+    evaluateCases(narrowN, rules, level, narrowCases);
+    evaluateCases(wideN, rules, level, wideCases);
     const sn = narrowN.side;
     const sw = wideN.side;
     for (let x = -CONSUMER_REACH; x < e + CONSUMER_REACH; x++) for (let z = -CONSUMER_REACH; z < e + CONSUMER_REACH; z++) for (let y = -CONSUMER_REACH; y < e + CONSUMER_REACH; y++) {
-      const a = narrowOut[((x + pad) * sn + (z + pad)) * sn + (y + pad)]!;
-      const b = wideOut[((x + wide) * sw + (z + wide)) * sw + (y + wide)]!;
-      if (a === b) continue;
-      out.push({ cx: c.cx, cy: c.cy, cz: c.cz, lx: x, ly: y, lz: z, declared: a, wider: b });
-      if (out.length >= limit) return out;
+      const i = ((x + pad) * sn + (z + pad)) * sn + (y + pad);
+      const j = ((x + wide) * sw + (z + wide)) * sw + (y + wide);
+      if (narrowOut[i] !== wideOut[j]) {
+        out.push({ cx: c.cx, cy: c.cy, cz: c.cz, lx: x, ly: y, lz: z, part: 'class', declared: narrowOut[i]!, wider: wideOut[j]! });
+        if (out.length >= limit) return out;
+      }
+      if (narrowCases[i] !== wideCases[j]) {
+        out.push({ cx: c.cx, cy: c.cy, cz: c.cz, lx: x, ly: y, lz: z, part: 'case', declared: narrowCases[i]!, wider: wideCases[j]! });
+        if (out.length >= limit) return out;
+      }
     }
   }
   return out;

@@ -53,6 +53,15 @@ import {
   pieceDetailAt,
   PLACEHOLDER_RULES,
   RULE_CONFORMANCE_EXTRA_PAD,
+  CASE_REACH,
+  caseIndexOf,
+  cropNeighbourhood,
+  DRAFT_CASE_CATALOGUE,
+  evaluateCases,
+  KIT_RULES,
+  levelHasCases,
+  NO_CASE,
+  sectionLocalOrigin,
   TERRAIN_MESHER_REACH,
   terrainSurface,
   WORLD_RULES,
@@ -98,7 +107,7 @@ import { loadArea, zstdDecompress } from './regions';
 import { instanceList, triangleList } from './mesh-compare';
 import { houseVoxel, townWorld, type House } from './town';
 import { FEATURE_GROUND, FEATURE_PAD, featureCases, featuresStore } from './features';
-import { flatGround, placeWallBeamBanister, putVoxel, randomAssemblyWorld, randomTerrainWorld } from './scenes';
+import { dabDetailRoles, flatGround, placeWallBeamBanister, putVoxel, randomAssemblyWorld, randomTerrainWorld } from './scenes';
 import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
 import { featureSpecs, measurePatch, type SeamResult } from './lod-seams';
@@ -425,15 +434,18 @@ describe('the radius conformance check every rule set must pass', () => {
   const cube: Array<{ cx: number; cy: number; cz: number }> = [];
   for (let cx = -2; cx <= 1; cx++) for (let cy = -2; cy <= 1; cy++) for (let cz = -2; cz <= 1; cz++) cube.push({ cx, cy, cz });
 
-  // Each registered rule set (the terrain rules and any catalogue registered later) resolves every cell the consumers
-  // read the same with the job's apron (radius + reach) as with 3 cells more, on random worlds at both chunk edges:
-  // the assembly arrangements and random terrain (cliffs, risers, slopes with partial fills, ledges, one-cell walls and spikes, caves).
+  // Each registered rule set (the terrain rules, the kit rules with their case pass, and any set registered later)
+  // resolves every cell the consumers read the same, class and case, with the job's apron (radius + reach) as with 3
+  // cells more, on random worlds at both chunk edges (16: every face of a 32³ chunk's 16³ sections is a chunk face):
+  // the assembly arrangements and random terrain (cliffs, risers, slopes with partial fills, ledges, one-cell walls
+  // and spikes, caves), each with every detail role dabbed in.
   it.each(registeredAssemblyRules().map((r) => [r.id, r] as const))('%s reads no further than its declared radius', (_id, rules) => {
     for (const [g, seeds] of [[g16, [1, 2, 3]], [grid, [4]]] as const) {
       for (const seed of seeds) {
         for (const [kind, world] of [['assembly', randomAssemblyWorld], ['terrain', randomTerrainWorld]] as const) {
           const s = createWorldStore(g);
           world(s, seed, 24);
+          dabDetailRoles(s, seed);
           const chunks = g.edge === 16 ? cube : [-1, 0].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0].map((cz) => ({ cx, cy, cz }))));
           expect(ruleRadiusMismatches(s, rules, chunks), `${kind} world, edge ${g.edge}, seed ${seed}`).toEqual([]);
         }
@@ -494,6 +506,22 @@ describe('the radius conformance check every rule set must pass', () => {
     for (const m of found) expect(m.lx).toBe(16);
     // The same rule declared honestly passes.
     expect(ruleRadiusMismatches(s, { ...short, radius: 2 }, cube)).toEqual([]);
+    // A case pass reading 3 cells along x under a set declaring 2 is caught the same way, as a case.
+    const far: AssemblyRuleSet = {
+      ...KIT_RULES,
+      id: 'far',
+      resolveCases(n, lo, hi, _level, out) {
+        const ss = n.side;
+        for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) for (let y = lo; y < hi; y++) {
+          const i = (x * ss + z) * ss + y;
+          out[i] = n.values[i + 3 * ss * ss] !== 0 ? 8 : NO_CASE;
+        }
+        return 0;
+      },
+    };
+    const caseMisses = ruleRadiusMismatches(s, far, cube);
+    expect(caseMisses.length).toBeGreaterThan(0);
+    for (const m of caseMisses) expect([m.part, m.lx]).toEqual(['case', 16]);
   });
 });
 
@@ -625,6 +653,186 @@ describe('the terrain rule set', () => {
       expect(encodeDerived(strip(deriveFromStore(s, cx, cy, cz, TERRAIN_RULES)))).toEqual(encodeDerived(strip(deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES))));
     }
   }, 30_000);
+});
+
+describe('the kit rule set', () => {
+  const KR = jobRadius(KIT_RULES);
+
+  /** A chunk's job neighbourhood under the kit rules, its classes and its cases at `level` (the evaluation a derive runs). */
+  function kitJob(store: PaletteStore, cx: number, cy: number, cz: number, level = 0): { n: ReturnType<typeof createNeighbourhood>; classes: Uint8Array; cases: Uint16Array; count: number } {
+    const g = store.grid;
+    const n = createNeighbourhood(g.edge, KR);
+    const dense = createDenseChunk(g);
+    fillNeighbourhood(n, g, store.exportChunk(cx, cy, cz, dense) ? dense : null, buildApron(store, cx, cy, cz, KR));
+    const classes = new Uint8Array(n.values.length);
+    evaluateAssembly(n, KIT_RULES, classes);
+    const cases = new Uint16Array(n.values.length);
+    const count = evaluateCases(n, KIT_RULES, level, cases);
+    return { n, classes, cases, count };
+  }
+
+  /** A random assembly world with every detail role dabbed in, and random terrain under its own seed. */
+  function mixedWorld(g: ReturnType<typeof chunkGrid>, seed: number): PaletteStore {
+    const s = createWorldStore(g);
+    randomTerrainWorld(s, seed + 10, 24);
+    randomAssemblyWorld(s, seed, 24);
+    dabDetailRoles(s, seed);
+    return s;
+  }
+
+  it('is the world rule set: the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3', () => {
+    expect(WORLD_RULES).toBe(KIT_RULES);
+    expect(registeredAssemblyRules()).toContain(KIT_RULES);
+    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 1, radius: 2 });
+    expect(KIT_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
+    expect(jobRadius(KIT_RULES)).toBe(3);
+    // The classes are the terrain rules' (one class byte a cell); only the kit rules give cases.
+    const s = mixedWorld(grid, 7);
+    for (const [cx, cy, cz] of [[-1, -1, -1], [0, 0, 0], [-1, 0, 0]] as const) {
+      const job = kitJob(s, cx, cy, cz);
+      expect(job.count).toBeGreaterThan(0);
+      const terrain = new Uint8Array(job.n.values.length);
+      evaluateAssembly(job.n, TERRAIN_RULES, terrain);
+      expect(job.classes).toEqual(terrain);
+      const none = new Uint16Array(job.n.values.length);
+      expect(evaluateCases(job.n, TERRAIN_RULES, 0, none)).toBe(0);
+      const side = job.n.side;
+      for (let x = KR - 1; x < KR + E + 1; x++) for (let z = KR - 1; z < KR + E + 1; z++) for (let y = KR - 1; y < KR + E + 1; y++) expect(none[(x * side + z) * side + y]).toBe(NO_CASE);
+    }
+  });
+
+  it('gives cases at levels 0 and 1 (high and low pieces) and none past them; beams and rails get the beam and banister cases', () => {
+    expect([0, 1, 2, 3].map(levelHasCases)).toEqual([true, true, false, false]);
+    expect([0, 1, 2, 3].map((l) => pieceDetailAt(l) !== PIECE_DETAIL.none)).toEqual([true, true, false, false]);
+    const s = wallBeamBanister();
+    const feature = (c: number): string | undefined => DRAFT_CASE_CATALOGUE.cases[caseIndexOf(c)]!.feature;
+    let beams = 0;
+    let rails = 0;
+    for (const [cx, cy, cz] of [[-1, 0, -1], [0, 0, -1], [-1, 0, 0], [0, 0, 0]] as const) {
+      const l0 = kitJob(s, cx, cy, cz, 0);
+      const l1 = kitJob(s, cx, cy, cz, 1);
+      const l2 = kitJob(s, cx, cy, cz, 2);
+      expect(l0.count).toBeGreaterThan(0);
+      // The same cells give the same cases at level 1 (a level-1 node's cells are read like a chunk's); none at level 2.
+      expect(l1.cases).toEqual(l0.cases);
+      expect(l2.count).toBe(0);
+      const side = l0.n.side;
+      for (let x = KR - 1; x < KR + E + 1; x++) for (let z = KR - 1; z < KR + E + 1; z++) for (let y = KR - 1; y < KR + E + 1; y++) {
+        const i = (x * side + z) * side + y;
+        expect(l2.cases[i]).toBe(NO_CASE);
+        const k = l0.classes[i]! & CLASS_MASK;
+        if (k === ASSEMBLY_CLASS.beam) {
+          beams++;
+          expect(feature(l0.cases[i]!)).toBe('beam');
+        }
+        if (k === ASSEMBLY_CLASS.rail) {
+          rails++;
+          expect(feature(l0.cases[i]!)).toBe('banister');
+        }
+        const role = valueRole(l0.n.values[i]!);
+        if (role === C.terrain || role === C.air || role === C.liquid) expect(l0.cases[i]).toBe(NO_CASE);
+      }
+    }
+    expect(beams).toBeGreaterThan(0);
+    expect(rails).toBeGreaterThan(0);
+  });
+
+  it('changes no derived output: chunks, sections and mip nodes of levels 1 and 2 derive to the terrain rules\' bytes but the rule set they name', () => {
+    const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 } });
+    const same = (a: DerivedData, b: DerivedData, at: string): void => {
+      expect(a.rules, at).toEqual({ id: 'kits', version: 1, radius: 2 });
+      expect(encodeDerived(strip(a)), at).toEqual(encodeDerived(strip(b)));
+    };
+    const town = createWorldStore(grid);
+    loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
+    const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
+      ['scene', wallBeamBanister(), [[-1, -1, -1], [-1, 0, -1], [0, 0, 0], [-1, 0, 0]]],
+      ['town', town, [[0, 0, 0], [1, 0, 1], [2, 1, 2], [3, 0, 1], [1, 1, 3]]],
+      ['mixed', mixedWorld(grid, 3), [[-1, -1, -1], [0, -1, 0], [-1, 0, 0], [0, 0, -1]]],
+      ['features', featuresStore(), [[6, 0, 0], [7, 0, 0], [8, 1, 0]]],
+    ];
+    let instances = 0;
+    for (const [name, store, chunks] of stores) {
+      const tree = new MipTree(store);
+      for (const [cx, cy, cz] of chunks) {
+        const a = deriveFromStore(store, cx, cy, cz, KIT_RULES);
+        same(a, deriveFromStore(store, cx, cy, cz, TERRAIN_RULES), `${name} chunk ${cx},${cy},${cz}`);
+        instances += a.instances.count;
+        const ids = Array.from({ length: 8 }, (_, i) => i);
+        const ks = deriveSectionsWithApron(grid, KIT_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), 16, ids);
+        const ts = deriveSectionsWithApron(grid, TERRAIN_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), 16, ids);
+        ks.forEach((r, k) => same(r.assembly!, ts[k]!.assembly!, `${name} chunk ${cx},${cy},${cz} section ${k}`));
+        for (const level of [1, 2]) {
+          const node: MipNode = { level, nx: cx >> level, ny: cy >> level, nz: cz >> level };
+          same(deriveMipNode(tree, node, KIT_RULES), deriveMipNode(tree, node, TERRAIN_RULES), `${name} level ${level} node ${node.nx},${node.ny},${node.nz}`);
+        }
+      }
+    }
+    expect(instances).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('joins a chunk\'s 16³ and 8³ sections into the whole chunk\'s case grid, cell for cell (the reach margin included)', () => {
+    const town = createWorldStore(grid);
+    loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
+    const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
+      ['scene', wallBeamBanister(), [[-1, 0, -1], [0, 0, 0]]],
+      ['town', town, [[1, 0, 1], [2, 1, 2]]],
+      ['mixed', mixedWorld(grid, 5), [[-1, -1, -1], [0, 0, -1]]],
+    ];
+    let compared = 0;
+    let withCase = 0;
+    for (const [name, store, chunks] of stores) {
+      for (const [cx, cy, cz] of chunks) {
+        const whole = kitJob(store, cx, cy, cz);
+        const fs = whole.n.side;
+        for (const edge of [16, 8]) {
+          const sub = createNeighbourhood(edge, KR);
+          const cases = new Uint16Array(sub.values.length);
+          const per = E / edge;
+          for (let id = 0; id < per ** 3; id++) {
+            const [lx, ly, lz] = sectionLocalOrigin(E, edge, id);
+            cropNeighbourhood(whole.n, lx, ly, lz, sub);
+            evaluateCases(sub, KIT_RULES, 0, cases);
+            const ss = sub.side;
+            for (let x = KR - 1; x < KR + edge + 1; x++) for (let z = KR - 1; z < KR + edge + 1; z++) for (let y = KR - 1; y < KR + edge + 1; y++) {
+              const want = whole.cases[((lx + x) * fs + (lz + z)) * fs + (ly + y)]!;
+              const got = cases[(x * ss + z) * ss + y]!;
+              if (got !== want) expect(got, `${name} chunk ${cx},${cy},${cz} ${edge}³ section ${id} cell ${x - KR},${y - KR},${z - KR}`).toBe(want);
+              compared++;
+              if (want !== NO_CASE) withCase++;
+            }
+          }
+        }
+      }
+    }
+    expect(withCase).toBeGreaterThan(1000);
+    expect(compared).toBeGreaterThan(withCase);
+  }, 60_000);
+
+  it('meets cases of every detail role in the random worlds its conformance runs on', () => {
+    // The conformance check proves the cases it reaches: the dabbed random worlds must reach many cases of every role.
+    const seen = new Set<string>();
+    const roles = new Set<number>();
+    for (const seed of [1, 2, 3]) {
+      const s = createWorldStore(chunkGrid(16));
+      randomAssemblyWorld(s, seed, 24);
+      dabDetailRoles(s, seed);
+      for (let cx = -2; cx <= 1; cx++) for (let cy = -1; cy <= 0; cy++) for (let cz = -2; cz <= 1; cz++) {
+        const job = kitJob(s, cx, cy, cz);
+        const side = job.n.side;
+        // The chunk's own cells (outside the evaluated box the array holds nothing).
+        for (let x = KR; x < KR + 16; x++) for (let z = KR; z < KR + 16; z++) for (let y = KR; y < KR + 16; y++) {
+          const i = (x * side + z) * side + y;
+          const c = job.cases[i]!;
+          if (c === NO_CASE) continue;
+          seen.add(DRAFT_CASE_CATALOGUE.cases[caseIndexOf(c)]!.id);
+          roles.add(valueRole(job.n.values[i]!));
+        }
+      }
+    }
+    expect([...roles].sort((a, b) => a - b)).toEqual([C.wall, C.floor, C.roof, C.foundation, C.stair, C.pillar, C.opening].sort((a, b) => a - b));
+    expect(seen.size).toBeGreaterThan(20);
+  }, 60_000);
 });
 
 describe('the terrain mesher\'s reach', () => {

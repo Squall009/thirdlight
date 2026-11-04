@@ -49,6 +49,7 @@ import { BRICK_EDGE } from './brick-layout';
 import { baseSurface } from './base-surface';
 import { detailInstances, PIECE_DETAIL, pieceDetailAt, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
+import { evaluateCases } from './kit-rules';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
 
@@ -72,8 +73,10 @@ import { utf8Encode } from '@thirdlight/shared';
  * a mip node's bodies hold a parent cell by their cells (half of the 8, or
  * two in a sheet), not their fill, so one-cell shells stay closed; the
  * layout is v3's.
+ * 10: the job resolves every detail-bearing cell's case beside its class
+ * (the kit rule set's case pass); the layout and every output are v9's.
  */
-export const DERIVED_FORMAT_VERSION = 9;
+export const DERIVED_FORMAT_VERSION = 10;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -460,6 +463,18 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
   };
 }
 
+/** Per thread, by neighbourhood size: the cells' cases of the derive running (a u16 a cell beside the class byte). */
+const caseScratches = new Map<number, Uint16Array>();
+
+function caseScratch(len: number): Uint16Array {
+  let a = caseScratches.get(len);
+  if (a === undefined) {
+    a = new Uint16Array(len);
+    caseScratches.set(len, a);
+  }
+  return a;
+}
+
 /** Microseconds the parts of a derive took (for measurements). */
 export interface DeriveTimes {
   evaluateUs: number;
@@ -479,12 +494,15 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   const classes = scratch !== undefined && scratch.length === n.values.length ? scratch : new Uint8Array(n.values.length);
   const t0 = performance.now();
   evaluateAssembly(n, rules, classes);
-  const t1 = performance.now();
   const uniform = uniformDerived(n, rules, classes, level);
   if (uniform !== null) {
-    if (times !== undefined) times.evaluateUs += (t1 - t0) * 1000;
+    if (times !== undefined) times.evaluateUs += (performance.now() - t0) * 1000;
     return uniform;
   }
+  // A uniform region (one class and shape: deep ground, open sky, the inside of a mass) draws no piece, so only
+  // the general path resolves cases; they stay in this job, read by the consumers beside the classes.
+  evaluateCases(n, rules, level, caseScratch(classes.length));
+  const t1 = performance.now();
   const ground = terrainSurface(n, classes);
   const detail = pieceDetailAt(level);
   const base = baseSurface(n, classes, detail === PIECE_DETAIL.none);

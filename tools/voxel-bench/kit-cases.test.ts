@@ -39,7 +39,7 @@ import {
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { loadArea } from './regions';
-import { placeWallBeamBanister, putVoxel, randomAssemblyWorld, randomTerrainWorld } from './scenes';
+import { dabDetailRoles, placeWallBeamBanister, putVoxel, randomAssemblyWorld, randomTerrainWorld } from './scenes';
 import { townWorld } from './town';
 import { MAT } from './world-kit';
 
@@ -196,12 +196,7 @@ describe('extraction on random worlds', () => {
         const s = createWorldStore(grid);
         build(s, seed);
         // Roles the generators do not write (floor, roof as slopes, foundation, stair, pillar, opening): dab some in.
-        let k = seed * 7919;
-        const roles = [C.floor, C.roof, C.foundation, C.stair, C.pillar, C.opening];
-        for (let j = 0; j < 400; j++) {
-          k = (k * 1103515245 + 12345) >>> 0;
-          putVoxel(s, (k % 48) - 24, ((k >> 8) % 20) - 4, ((k >> 16) % 48) - 24, MAT.stone + (j & 1), roles[j % roles.length]!);
-        }
+        dabDetailRoles(s, seed);
         for (let cx = -1; cx < 1; cx++) for (let cy = -1; cy < 1; cy++) for (let cz = -1; cz < 1; cz++) {
           const { n, cases } = chunkCases(cat, s, cx, cy, cz);
           const side = n.side;

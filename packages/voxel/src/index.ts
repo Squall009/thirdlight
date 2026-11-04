@@ -314,6 +314,7 @@ export {
   type InferredFeature,
 } from './kit-cases';
 export { DRAFT_CASE_CATALOGUE } from './kit-case-catalogue';
+export { evaluateCases, KIT_RULES, levelHasCases, withCases } from './kit-rules';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
 export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';

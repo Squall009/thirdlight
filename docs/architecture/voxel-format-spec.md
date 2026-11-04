@@ -984,7 +984,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v9 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v10 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1000,6 +1000,10 @@ hash results; they are never stored.
   - bit 5: the feature runs along z;
   - both bits set: a post.
 - Classes live only inside the job.
+- A rule set may add a **case pass** (`resolveCases`, optional): the detail case of every cell of the same box, a
+  u16 a cell beside the class byte (case index × 8 + fold transform, `NO_CASE` 0xffff for a cell with none;
+  `kit-cases.ts`). Cases, like classes, live only inside the job: they are never stored, transferred or encoded,
+  and no world format changes for them. `evaluateCases` runs it (a set without one gives no cell a case).
 - **Placeholder rules v2** (`placeholder`, version 2, R = 2) read only the role (§2.2): beams, rails and posts are
   read from the built roles (wall, floor, foundation, stair, pillar), roof is a wall, an opening is open and empty,
   everything else built is a wall. Version 1 read the draft category (construction, roof). The case catalogue is
@@ -1008,8 +1012,9 @@ hash results; they are never stored.
   read past the job's apron (air, or another row's cells) with no error. `ruleRadiusMismatches(store, rules,
   chunks)` evaluates each chunk with the job's pad (R + 1) and with 3 cells more and lists every cell the
   consumers read that differs. A test runs it for every registered rule set (`registeredAssemblyRules`) on random
-  worlds at both chunk edges; 46c's catalogue passes it once registered. A rule reading 2 cells while declaring 1
-  is caught (tested).
+  worlds at both chunk edges (with every detail role dabbed in), comparing each cell's class **and case**; the kit
+  rules pass it. A rule (or a case pass) reading 3 cells while declaring 2 is caught (tested), a mismatch naming its
+  `part` (`class` or `case`).
 
 **Consumer tables.** One evaluation feeds every consumer:
 
@@ -1021,7 +1026,7 @@ hash results; they are never stored.
 | rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
 | liquid | no | none (49) | no / no | 0 |
 
-**Outputs per chunk.** A result records `v` (derived format version 9, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 10, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1138,7 +1143,7 @@ the rules classify, the mesher and the base surface build a chunk's surfaces, th
 the same derive meshes them, seams join two levels, the selection picks what is drawn, and the view draws it.
 **No stored format changed in 46b.** Chunk codec, region file, manifest, stroke command, undo record, save and
 overrides are as approved in v1; every output here is derived in workers and never stored, so each change of its
-meaning stepped `DERIVED_FORMAT_VERSION` (now 9; the history and owner notes are at the end of this subsection),
+meaning stepped `DERIVED_FORMAT_VERSION` (9 at the end of 46b, 10 since 46c.3; the history and owner notes are at the end of this subsection),
 nothing was upgraded and no world had to be regenerated. The one authored addition is the scene setting
 `voxelWorld.levels` (project schema 8, an optional field added canonicalized field by field), not a voxel format.
 
@@ -1146,8 +1151,8 @@ nothing was upgraded and no world had to be regenerated. The one authored additi
 - `TERRAIN_RULES` (id `terrain`, version 1) = `withTerrainFeatures(PLACEHOLDER_RULES, 'terrain', 1)`: the
   placeholder construction rules and the ground features in **one** `AssemblyRuleSet`, one evaluation a job,
   radius the larger of the two (`TERRAIN_RULES_RADIUS` = 2), so the job's pad stays 3 and aprons and invalidation
-  are unchanged. `WORLD_RULES` (= `TERRAIN_RULES`) is what every streamed world derives with: the slice page, Play,
-  the Scene view and the voxel e2e. `PLACEHOLDER_RULES` stays registered for tests; under it the mesher places
+  are unchanged. `WORLD_RULES` was `TERRAIN_RULES` through 46b; from 46c it is the kit rule set below, which
+  resolves the same classes. `PLACEHOLDER_RULES` stays registered for tests; under it the mesher places
   creases as plain nets.
 - Every solid (non-open role, fill at or above the surface threshold) ground cell with an exposed face gets a
   feature in the high nibble of its class byte (`TERRAIN_FEATURE_SHIFT` 4; every consumer masks the class, so the
@@ -1368,7 +1373,27 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-**Derived version history (v2 → v9).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+#### Kit rule set (46c; derived v10, `kit-rules.ts`)
+
+- `KIT_RULES` (id `kits`, version 1) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 1)`: the terrain
+  rules' classes and the case pass over the case catalogue in **one** `AssemblyRuleSet`, one evaluation a job, radius
+  the larger of the two (`CASE_REACH` 2 = `TERRAIN_RULES_RADIUS`), so the job's pad stays 3 and aprons and
+  invalidation are unchanged. `WORLD_RULES` = `KIT_RULES`: the slice page, Play, the Scene view and the voxel e2e
+  derive with it. Its id and version name the pair: a change to the terrain rules or the catalogue (`cases-draft` v0,
+  **DRAFT** until the owner approves the role spec) takes a new `kits` version.
+- **Levels:** the case pass runs at level 0 (high pieces) and level 1 (low pieces: a level-1 node picks its low piece
+  by case as a chunk picks its high one); from level 2 no level draws pieces (`pieceDetailAt`), so it is skipped and
+  no cell has a case (`levelHasCases`). A uniform region (one class and shape over the chunk and its margin) draws no
+  piece, so the derive skips the pass there too.
+- **Outputs:** in v10 no output reads cases yet (run sections, base and consumers by case and kit pieces follow in
+  46c), so every result is the terrain rules' byte for byte but for the rule set it names: tested on chunks, 16³
+  sections and level-1/2 nodes of the town, the wall-beam-banister scene, the feature cases and a random world. A
+  chunk's 16³ and 8³ sections give the whole chunk's case grid cell for cell, the reach margin included (tested).
+- **Measured** (Node, 46c.3, `run.mjs cases`): the evaluation of a 16³ section with detail-bearing cells, terrain
+  rules → kit rules, p50 / p95 90 / 115 → 207 / 419 µs (town), 112 / 166 → 231 / 269 µs (slice); evaluation + ground
+  mesh (the 46b measure) 242 / 299 → 255 / 408 µs (town), 214 / 315 → 227 / 330 µs (slice).
+
+**Derived version history (v2 → v10).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |
@@ -1380,6 +1405,7 @@ worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules
 | 6 → 7 | 46b.6a | a result records its level; downsample by solid share and role priority | `level` in the canonical bytes |
 | 7 → 8 | 46b.8c | a mip cell wears the material its surface shows; shader reads 0.125 m deep (D464) | unchanged |
 | 8 → 9 | 46b.9 | pieces per level (`low` at level 1, none past it); mip bodies hold a cell by cells (D465) | unchanged |
+| 9 → 10 | 46c.3 | `WORLD_RULES` = the kit rule set (`kits` v1): the job resolves each cell's case beside its class | unchanged |
 
 The owner notes, as each step recorded them:
 
@@ -1423,6 +1449,13 @@ cells drawn by the base surface. A mip node's bodies hold a node cell by their c
 sheet), not by their fill: before, a one-cell house shell lost its stepped roof at level 1 and its walls at level 2
 (D465). Nothing is stored, nothing to upgrade, no world regenerated.
 
+**Derived data 9 → 10 (46c.3, owner note: default chosen, owner to confirm).** The layout and every output are
+unchanged; the streamed worlds derive with the kit rule set (`kits` v1: the terrain rules plus the case pass over the
+DRAFT case catalogue), and the job now resolves every detail-bearing cell's case beside its class (a u16 a cell, only
+inside the job, never stored). The step marks that results come from a job that resolves cases, so a v9 result is
+never mixed with v10 ones when outputs start reading them. Nothing is stored, nothing to upgrade, no world
+regenerated.
+
 **Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
 culling, rays and the far field skip whole empty or solid subtrees without reading voxels.
 - Level 0 is a chunk: its derived occupancy flag. A chunk never given one (absent: air) is empty.
@@ -1461,10 +1494,10 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 9 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 10 | refused | rebuilt, never upgraded |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
-**Derived data 3 → 9 (46b):** the steps and their owner notes are in §3.7, *Derived version history*.
+**Derived data 3 → 9 (46b) and 9 → 10 (46c):** the steps and their owner notes are in §3.7, *Derived version history*.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules

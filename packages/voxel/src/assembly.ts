@@ -79,6 +79,15 @@ export interface AssemblyRuleSet {
    * neighbourhood). Reads only cells within `radius` of the cell resolved.
    */
   resolve(n: Neighbourhood, lo: number, hi: number, out: Uint8Array): void;
+  /**
+   * Optional: the detail case of every cell of the same box into `out` (a
+   * u16 a cell beside the class byte, same indexing: kit-cases.ts's packed
+   * case, or its NO_CASE), for a node of chunk-tree level `level` (0: a
+   * chunk). Like classes, cases live only inside the derive job. Reads only
+   * cells within `radius`. Returns the cells given a case. A set without it
+   * gives no cell a case (kit-rules.ts `evaluateCases`).
+   */
+  resolveCases?(n: Neighbourhood, lo: number, hi: number, level: number, out: Uint16Array): number;
 }
 
 /** What a derived result records about the rules it came from. */

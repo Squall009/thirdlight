@@ -6,16 +6,18 @@
  * here rather than registering themselves.
  */
 import { PLACEHOLDER_RULES, type AssemblyRuleSet } from './assembly';
+import { KIT_RULES } from './kit-rules';
 import { TERRAIN_RULES } from './terrain-rules';
 
 /**
  * The rule set every streamed world derives with (the slice page, Play and
  * the Scene view): the placeholder construction rules with the terrain
- * features the terrain mesher places creases by.
+ * features the terrain mesher places creases by, and the case pass kits
+ * choose their pieces by.
  */
-export const WORLD_RULES: AssemblyRuleSet = TERRAIN_RULES;
+export const WORLD_RULES: AssemblyRuleSet = KIT_RULES;
 
-const RULE_SETS = new Map<string, AssemblyRuleSet>([PLACEHOLDER_RULES, TERRAIN_RULES].map((r) => [r.id, r]));
+const RULE_SETS = new Map<string, AssemblyRuleSet>([PLACEHOLDER_RULES, TERRAIN_RULES, KIT_RULES].map((r) => [r.id, r]));
 
 /** Registers a rule set (a later catalogue, or a test's); an id may hold one version at a time. */
 export function registerAssemblyRules(rules: AssemblyRuleSet): void {

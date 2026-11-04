@@ -75,6 +75,21 @@ export function randomAssemblyWorld(s: PaletteStore, seed: number, half: number)
 }
 
 /**
+ * Dabs 400 single cells of the detail roles the random worlds do not write
+ * (floor, roof, foundation, stair, pillar, opening) into the cube
+ * [−24, 24) × [−4, 16) × [−24, 24), in two materials, so the case pass
+ * meets every role there. Same seed, same cells.
+ */
+export function dabDetailRoles(s: PaletteStore, seed: number): void {
+  let k = seed * 7919;
+  const roles = [C.floor, C.roof, C.foundation, C.stair, C.pillar, C.opening];
+  for (let j = 0; j < 400; j++) {
+    k = (k * 1103515245 + 12345) >>> 0;
+    putVoxel(s, (k % 48) - 24, ((k >> 8) % 20) - 4, ((k >> 16) % 48) - 24, MAT.stone + (j & 1), roles[j % roles.length]!);
+  }
+}
+
+/**
  * Random terrain in the cube [−half, half)³ for checking the terrain rules:
  * ground on 4 × 4-cell blocks of random heights (cliffs, terrace risers and
  * flat treads between them), each block tilted at a random gentle to steep

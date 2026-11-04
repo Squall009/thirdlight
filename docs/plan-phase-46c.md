@@ -130,7 +130,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 |---|---|
 | 46c.1 | done: voxel kit format 1 (DRAFT) as a project content item `voxelKits` (`project-model` `voxel-kit.ts`), setVoxelKit/deleteVoxelKit one undo each (editor, MCP, HTTP), own file `assets/voxel-kits/*.voxelkit.json`, catalog block `voxelKits` + mesh model versions in exports; newer format/unknown fields refused. Test kit 535 B (file 1,043 B). Spec §3.9 |
 | 46c.2 | done: `kit-cases.ts` case pass (40-cell reach-2 window, 4-bit role/fill symbols, folded over 4 turns × mirror, rules by priority, fallback per role mandatory) + catalogue v0 **DRAFT** (45 cases, 43 rules; `kit-case-catalogue.ts`). Town (Node): 726 keys, µs a 16³ section with cells p50/p95 111/267 (all 13/115). 15 vitest |
-| 46c.3 | not started |
+| 46c.3 | done: `kit-rules.ts` `KIT_RULES` (`kits` v1 = terrain rules + case pass, R 2, apron 3) registered, `WORLD_RULES`; cases a u16 a cell in the job only; L0/L1 run, L2+ skip; derived v9 → v10 (spec note). Outputs byte-equal to terrain rules. Conformance class+case at 16/32. 16³ evaluation with detail p50/p95 town 90/115 → 207/419 µs; eval+ground 242/299 → 255/408 |
 | 46c.4 | not started |
 | 46c.5 | not started |
 | 46c.6 | not started |
@@ -207,6 +207,45 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - **Gate:** fast gate gate-fast-20261104-013505 GREEN (13 min, peak 4.5 GB; vitest 835 files; 36 e2e; perf at the cap
   0 missed both renderers). `voxel-world.e2e.ts` untouched (no browser behaviour).
 
+### 46c.3 the registered kit rule set
+
+- **Built:** `packages/voxel/src/kit-rules.ts`: `withCases(base, catalogue, id, version)` and `KIT_RULES` (`kits` v1 =
+  `terrain` v1 + catalogue `cases-draft` v0, radius max(2, `CASE_REACH` 2) = 2, job apron 3); `evaluateCases`,
+  `levelHasCases`. `AssemblyRuleSet` gained an optional `resolveCases(n, lo, hi, level, out: Uint16Array)`; the derive
+  (`deriveChunk`) runs it after the classes into a per-thread u16 scratch (never in the result, never stored);
+  `ruleRadiusMismatches` compares every consumer-read cell's class and case (`part`). Registered; `WORLD_RULES` =
+  `KIT_RULES`. `DERIVED_FORMAT_VERSION` 9 → 10, spec §3.7 (kit rule set, contract, history row and owner note), §3.8.
+  `run.mjs cases` now measures town and the slice ring, the case pass alone and composed with the terrain rules.
+- **Tests** (`tools/voxel-bench/derived.test.ts`): conformance for every registered set now on random assembly and
+  terrain worlds with every detail role dabbed in (`scenes.ts` `dabDetailRoles`, also used by `kit-cases.test.ts`) at
+  chunk edges 16 and 32, `kits` included; a case pass reading 3 cells under a declared 2 is caught as `case` at the
+  reach cells; new block "the kit rule set" (5): world set, radius 2, apron 3, classes = terrain rules', terrain rules
+  give no case; cases at L0 = L1, none at L2 (beam cells get the beam case, rail cells the banister cases); **byte
+  equality** with the terrain rules but the rule set named on chunks, 16³ sections and L1/L2 nodes of the town, the
+  wall-beam-banister scene, the feature cases and a mixed random world; 16³ and 8³ sections joined = the whole chunk's
+  case grid cell for cell incl. the reach margin; the random worlds reach cases of all 7 detail roles (> 20 cases).
+- **Measured** (`run.mjs cases`, 6 GB scope, Node 22, i5-12600H, 2026-11-04 02:04, load 1.8, uptime 11.4 d; 2 runs,
+  the second's numbers, the first within 5 %): µs a 16³ section p50 / p95, terrain rules → kit rules.
+  | | town (12,072 sections) | slice ring (9,616) |
+  |---|---|---|
+  | evaluation, sections with detail cells (1,394 / 4) | 90 / 115 → 207 / 419 | 112 / 166 → 231 / 269 |
+  | evaluation, all sections | 52 / 104 → 65 / 259 | 50 / 99 → 63 / 112 |
+  | evaluation + ground mesh, ground sections (2,489 / 1,297): 46b's measure | 242 / 299 → 255 / 408 | 214 / 315 → 227 / 330 |
+  | whole section derive (all meshes and consumers), sections with a surface | 418 / 532 → 476 / 763 | 390 / 513 → 402 / 526 |
+  | case extraction alone, sections with cells | 109 / 269 | 102 / 112 |
+
+  Against §4 (evaluate + mesh 207–307 µs p50) and the 0.1–0.2 ms budget: **missed, cause recorded**. The terrain
+  rules' evaluation was already the cause of 46b's miss; the case pass adds about that again on built sections
+  (+117 µs p50 town), from gathering the 40-cell window and hashing it for every detail-bearing cell (~230 a built
+  section) even when the window cache hits; p95 grows most (+304 µs) in roof and wall shells dense in such cells.
+  Ground-only sections pay ~13 µs (the role scan). Left for the performance phase (ideas: skip cells with six solid
+  faces from the class pass, slide the window along y); not tuned here. The 46c.2 "all sections" figure (13 / 115)
+  read the last 8,192 samples only (`SampleRing`); with every sample it is 11 / 125.
+- **Gate:** fast gate gate-fast-20261104-020807 GREEN (12 min, peak 4.3 GB; vitest 835 files; 36 e2e; perf at the cap
+  0 missed both renderers). `voxel-world.e2e.ts` untouched, its 7 tests sum to 58.0 s (was 66.9 s at 46c.1, load).
+  Before the gate, one `stream.test.ts` test ('never holds an edit for another … two digs … swap apart') failed once
+  in an ad-hoc run of all voxel suites at 3 workers and passed alone and in its whole file; it passed in the gate.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -282,6 +321,18 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-04 (46c.2, default chosen, owner to confirm): **a per-thread direct-mapped cache of 16,384 windows**
   (~400 KB, a memory budget, not a count) skips folding and matching for windows seen before; results are identical
   with or without it (tested on random worlds against the window path).
+- 2026-11-04 (46c.3, default chosen, owner to confirm): **the case pass runs at levels 0 and 1, not from level 2**:
+  a level-1 node picks its low piece by case as a chunk picks its high one (46b.9: L0 high, L1 low), and from level 2
+  no piece is drawn (cells are base-surface bodies), so no case is needed there. A uniform region (one class and
+  shape) draws no piece and skips the pass as well.
+- 2026-11-04 (46c.3, default chosen, owner to confirm): **the case pass is an optional part of `AssemblyRuleSet`**
+  (`resolveCases`, a u16 a cell beside the class byte, only inside the job), so one rule set, one radius and one
+  conformance check cover classes and cases; `kits` v1 names terrain v1 + catalogue `cases-draft` v0 (a DRAFT), and a
+  change to either part takes a new `kits` version. **Derived v9 → v10** with an owner note in the spec although no
+  output reads cases yet, so a result of a job that resolves cases is never mixed with an older one.
+- 2026-11-04 (46c.3, default chosen, owner to confirm): **the composed evaluation misses the 0.1–0.2 ms section
+  budget** (town 207 µs p50 for the evaluation alone on built sections; evaluate + ground mesh 255 µs): recorded with
+  its cause (results), not tuned (perf phase after 49).
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
   repo's authoring package (46c.17).
