@@ -932,6 +932,7 @@ function runAllProbes(): void {
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
   probe('blockStamps[1]', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'room', name: 'Room', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]], edgePalette: [{ block: 'wall' }], edges: [[2, 0, 0, 0, 0]] }], '', block('blockStamps'), 'blockStamps:');
+  probe('voxelKits', contentErrors, contentDoc({ voxelKits: [{ kitFormat: 1, voxelKitId: 'log', name: 'Log', version: 1, materialType: 'wood', materials: [3], cases: { beam: { sections: { body: { variants: [{ high: { assetId: 'logs', digest: 'a'.repeat(64) } }] } } } }, joinProfiles: { square: { outline: [[0, 0], [16, 0], [16, 16]] } }, trimLayout: 'detail-draft', gameData: { hits: 2 } }] }), '/voxelKits', block('voxelKits'), 'voxelKits:');
   probe('kits', contentErrors, contentDoc({ kits: [{ kitId: 'town', name: 'Town', description: 'Plaster and timber', thumbnail: 'town-pic', trimMaterial: 'town-trim', presets: ['house'], blockTypes: ['wall'], pieces: { door: [{ assetId: 'doors', piece: 'Door_A', weight: 2 }] } }] }), '/kits', block('kits'), 'kits:');
   // UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
@@ -1070,8 +1071,8 @@ describe('descriptor registry', () => {
     // a quality level's shadow atlas side, about 0.3 KB; a virtual camera's occlusion mode and pull-in times, about 1.4 KB;
     // a virtual camera's auto-exposure fields, about 2.1 KB; a scene's voxel world — its world, load and collision rings,
     // section edge and saved fields — and a model's lighting occupancy flag, about 3.4 KB; a voxel world's level
-    // distances, about 0.7 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(361_900);
+    // distances, about 0.7 KB; a project's voxel kits, about 2.7 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(364_700);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

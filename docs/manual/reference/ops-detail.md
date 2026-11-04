@@ -408,6 +408,17 @@ Arguments (`args`):
 { uiThemeId: string }
 ```
 
+<a id="op-deleteVoxelKit"></a>
+## deleteVoxelKit
+
+Writes: [`content.voxelKits`](content-blocks-effects.md#content-voxelKits).
+
+Arguments (`args`):
+
+```ts
+{ voxelKitId: string }
+```
+
 <a id="op-editBlocks"></a>
 ## editBlocks
 
@@ -1296,6 +1307,19 @@ Arguments (`args`):
 ```
 
 Types: [`UiTheme`](types-t-w.md#type-ui-theme).
+
+<a id="op-setVoxelKit"></a>
+## setVoxelKit
+
+Writes: [`content.voxelKits`](content-blocks-effects.md#content-voxelKits).
+
+Arguments (`args`):
+
+```ts
+{ kit: VoxelKit }
+```
+
+Types: [`VoxelKit`](types-t-w.md#type-voxel-kit).
 
 <a id="op-undo"></a>
 ## undo

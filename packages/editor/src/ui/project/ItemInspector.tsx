@@ -43,8 +43,8 @@ export interface ItemInspectorProps {
   kits?: { list: readonly KitDef[]; names: KitSummaryProps['names'] };
 }
 
-/** Kinds that are editor-side organisation: never loadable, so they have no address or labels. */
-const EDITOR_ONLY = new Set(RESOURCE_KIND_TABLE.filter((k) => k.editorOnly === true).map((k) => k.kind));
+/** Kinds a script never loads by name (editor-side organisation, or shipped whole for what draws with it), so they have no address or labels. */
+const UNADDRESSED = new Set(RESOURCE_KIND_TABLE.filter((k) => k.unaddressed !== undefined).map((k) => k.kind));
 
 /** An index entry by kind and id, read again whenever the index changed (names, files, labels change with commands). */
 function useEntry(item: ProjectItem): IndexEntryView | null | undefined {
@@ -120,7 +120,7 @@ function ResourceInspector(p: ItemInspectorProps & { deleteError: string | null 
             {renameError}
           </div>
         )}
-        {p.loading !== undefined && e.kind !== 'scene' && !EDITOR_ONLY.has(e.kind) && <LoadableFields item={{ kind: e.kind, id: e.id }} address={e.address ?? null} labels={e.labels} actions={p.loading} />}
+        {p.loading !== undefined && e.kind !== 'scene' && !UNADDRESSED.has(e.kind) && <LoadableFields item={{ kind: e.kind, id: e.id }} address={e.address ?? null} labels={e.labels} actions={p.loading} />}
         {(opens(item) || actions.canDelete(e.kind)) && e.kind !== 'prefab' && (
           <div className="tl-assets__row">
             {opens(item) && (

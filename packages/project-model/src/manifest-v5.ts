@@ -73,6 +73,8 @@ import { isAssetLabel } from './content-assets';
 import type { GameplaySettings } from './types-v2';
 import { isDigest } from './content-helpers';
 import { canonicalShippedVoxelWorld, shippedVoxelWorldsProblem, type ShippedVoxelWorld } from '@thirdlight/voxel';
+import { canonicalVoxelKits, validateVoxelKits, type VoxelKit } from './voxel-kit';
+import type { ModelErrorV2 } from './errors';
 
 export const RUNTIME_CONTENT_MANIFEST_VERSION_5 = 5 as const;
 
@@ -177,6 +179,8 @@ export const CATALOG_BLOCK_KEYS = [
   'dependencies',
   // The voxel worlds an export ships (each world's region files as content files); Play reads its worlds from the backend.
   'voxelWorlds',
+  // The voxel kits (each its record as authored, game data untouched): the world draws its cases with them.
+  'voxelKits',
 ] as const;
 export type CatalogBlockKey = (typeof CATALOG_BLOCK_KEYS)[number];
 
@@ -254,6 +258,8 @@ export type CaptureManifestV5Input = Omit<CaptureManifestV2Input, 'assets' | 'sc
   loadable?: readonly LoadableRow[];
   /** The voxel worlds the build ships with their region files (an export; absent: none, as in Play). */
   voxelWorlds?: readonly ShippedVoxelWorld[];
+  /** The project's voxel kits (absent or empty: none). */
+  voxelKits?: readonly VoxelKit[];
   /** SHA-256 (lowercase hex) of the files' bytes (default: project-model's portable one). */
   sha256?: (bytes: Uint8Array) => string;
 };
@@ -385,6 +391,7 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
   if (facts.length > 0) blocks.facts = facts;
   const shared = entriesOf(input.dependencies ?? []);
   if (shared.length > 0) blocks.dependencies = shared;
+  if (input.voxelKits !== undefined && input.voxelKits.length > 0) blocks.voxelKits = canonicalVoxelKits(input.voxelKits);
   if (input.voxelWorlds !== undefined && input.voxelWorlds.length > 0) blocks.voxelWorlds = [...input.voxelWorlds].sort((a, b) => (a.world < b.world ? -1 : a.world > b.world ? 1 : 0)).map(canonicalShippedVoxelWorld);
   const fileRows: CatalogBlockRow[] = [];
   for (const key of CATALOG_BLOCK_KEYS) {
@@ -592,7 +599,7 @@ export function catalogRootProblem(doc: unknown): string | null {
 }
 
 /** The blocks that are lists (their parts concatenate). */
-const LIST_BLOCKS: ReadonlySet<string> = new Set(['architectureStyles', 'tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies', 'voxelWorlds']);
+const LIST_BLOCKS: ReadonlySet<string> = new Set(['architectureStyles', 'tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies', 'voxelWorlds', 'voxelKits']);
 
 /** Why a list of catalog entries is not one (null: it is): shape, ascending ids. */
 export function catalogEntriesProblem(v: unknown): string | null {
@@ -638,6 +645,11 @@ export function catalogBlockProblem(key: CatalogBlockKey, value: unknown, contex
       return catalogEntriesProblem(value);
     case 'voxelWorlds':
       return shippedVoxelWorldsProblem(value);
+    case 'voxelKits': {
+      const errors: ModelErrorV2[] = [];
+      validateVoxelKits(value, '/voxelKits', errors);
+      return errors.length === 0 ? null : `voxelKits: ${errors[0]!.message} (${errors[0]!.path ?? ''})`;
+    }
     default: {
       const e = manifestBlocksProblem({ [key]: value });
       return e === null ? null : `${key}: ${e.message}`;

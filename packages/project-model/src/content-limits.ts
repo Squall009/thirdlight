@@ -199,6 +199,7 @@ export const RESOURCE_CREATING_OPS: readonly string[] = [
   'setGraph',
   'setEffect',
   'setKit',
+  'setVoxelKit',
   'setScriptLibrary',
   'setUiDocument',
   'setUiTheme',

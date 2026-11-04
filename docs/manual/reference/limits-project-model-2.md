@@ -369,6 +369,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-vertex-paint-limits"></a>`VERTEX_PAINT_LIMITS` | `{"meshKey":512,"vertices":4000000,"along":400000,"across":4000}` | What one painted mesh and one path's paint grid may hold: a mesh's name, its vertices (as many as a model read decodes, so any mesh the engine draws can be painted), and a path grid's points along and across its path. Bounds of one record, not a cap on painted objects. |
 
+<a id="limits-project-model--voxel-kit"></a>
+## `voxel-kit.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-voxel-kit-limits"></a>`VOXEL_KIT_LIMITS` | `{"profileUnits":16,"profilePointsMin":3,"gameDataDepth":32,"materialIdMax":4095,"weightMax":1000}` |  |
+
 <a id="limits-project-model--voxel-world"></a>
 ## `voxel-world.ts`
 

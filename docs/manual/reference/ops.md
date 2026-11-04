@@ -98,6 +98,7 @@ interface MutationFailure {
 | [`deleteTimeline`](ops-detail.md#op-deleteTimeline) | { timelineId: string } | `timelines` |
 | [`deleteUiDocument`](ops-detail.md#op-deleteUiDocument) | { uiDocumentId: string } | `uiDocuments` |
 | [`deleteUiTheme`](ops-detail.md#op-deleteUiTheme) | { uiThemeId: string } | `uiThemes` |
+| [`deleteVoxelKit`](ops-detail.md#op-deleteVoxelKit) | { voxelKitId: string } | `voxelKits` |
 | [`editBlocks`](ops-detail.md#op-editBlocks) | { entityId: string; edits: BlockEdit[] } |  |
 | [`editTerrain`](ops-detail.md#op-editTerrain) | EditTerrainArgs |  |
 | [`editVoxels`](ops-detail.md#op-editVoxels) | { world: string; command: VoxelEditCommand } |  |
@@ -153,6 +154,7 @@ interface MutationFailure {
 | [`setTransform`](ops-detail.md#op-setTransform) | SetTransformArgs |  |
 | [`setUiDocument`](ops-detail.md#op-setUiDocument) | { document: UiDocument } | `uiDocuments` |
 | [`setUiTheme`](ops-detail.md#op-setUiTheme) | { theme: UiTheme } | `uiThemes` |
+| [`setVoxelKit`](ops-detail.md#op-setVoxelKit) | { kit: VoxelKit } | `voxelKits` |
 | [`undo`](ops-detail.md#op-undo) | EmptyArgs |  |
 | [`undoVoxels`](ops-detail.md#op-undoVoxels) | { world: string } |  |
 | [`unpackPrefab`](ops-detail.md#op-unpackPrefab) | UnpackPrefabArgs |  |

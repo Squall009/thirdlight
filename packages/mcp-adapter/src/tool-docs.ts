@@ -70,6 +70,8 @@ import {
   BEHAVIOR_GRAPH_LIMITS,
   EFFECT_LIMITS,
   KIT_LIMITS,
+  VOXEL_KIT_FORMAT,
+  VOXEL_KIT_LIMITS,
   KIT_STANDARD_SLOTS,
   GRAPH_LIMITS,
   MATERIAL_DATA_MAX,
@@ -268,7 +270,7 @@ export const TOOL_DETAILS = {
     'folderImport lists them (skipped), files no importer takes (unsupported) and files an importer refused (rejected); undo forgets the assets, the files stay. ' +
     'Asset records and tl_content_query assets carry their labels. Addresses and labels are the names scripts load by: ' +
     'setLabels {items: [{kind, id}], add?: [label], remove?: [label]} labels any number of assets (kind "asset" or the asset kind) and resources ' +
-    '(kind prefab, material, behavior, animator, graph, effect, library, ui, uitheme, dialogue, timeline, envpreset; not a kit: kits are editor-side and never loadable) in one command and one undo; ' +
+    '(kind prefab, material, behavior, animator, graph, effect, library, ui, uitheme, dialogue, timeline, envpreset; not a kit: kits are editor-side and never loadable; not a voxelkit: shipped whole for the worlds that draw with it) in one command and one undo; ' +
     'setAddress {kind, id, address: string|null} gives one item its address (unique project-wide; refused when another asset or resource has it). ' +
     'The project window\'s file operations, each one command and one undo however many files: moveResources {items?: [{kind, id}] (kind asset or its kind, a resource kind, or scene), ' +
     'folders?: ["assets/old"], to: "assets/props" ("" the top of the game folder)} moves the files (an asset with its .tlasset sidecar, a resource file, a scene file) and whole folders ' +
@@ -441,6 +443,10 @@ export const TOOL_DETAILS = {
     'presets? [architecture preset graph ids], blockTypes? [blockIds], pieces? {slot: [{assetId (model), piece? (node name), weight?}, …]} (1-' + String(KIT_LIMITS.piecesPerSlot) + ' weighted pieces a slot; standard slots ' + KIT_STANDARD_SLOTS.map((s) => s.slot).join(', ') + ', or any id-syntax name)}} ' +
     'creates or replaces one (one undo); deleteKit {kitId}. A kit names its parts, never copies them: a part may be in several kits, deleting a part is never refused for a kit, and what a kit names that the project lacks is a problem (tl_diagnostics). ' +
     'A blockLayer and an architecture component may name their kit (kitId; absent: none). Not the same as a block type\'s kits (shown as Themes in the editor: the swaps a layer or region shows). ' +
+    'Voxel kits (a material type\'s detail pieces for voxel worlds, one project item each, shipped whole with a build): setVoxelKit {kit: {kitFormat: ' + String(VOXEL_KIT_FORMAT) + ' (a newer format is refused), voxelKitId, name, version (the kit\'s own revision, a positive integer), materialType (id: wood, stone, …), ' +
+    'materials? [voxel material ids 1-' + String(VOXEL_KIT_LIMITS.materialIdMax) + ': a test binding], cases {caseId: {sections? {sectionId: {variants: [{high: {assetId (model), digest (the GLB version\'s 64-hex sourceDigest), node?}, low? (the same), weight? (0, ' + String(VOXEL_KIT_LIMITS.weightMax) + '], absent 1)}, …], ends? {start?, end?} (join profile ids)}}, gameData?}}, ' +
+    'joinProfiles? {profileId: {outline: [[u, v], …] (a closed polygon, whole sixteenths of a cell 0-' + String(VOXEL_KIT_LIMITS.profileUnits) + ')}}, trimLayout? (id; absent: no trim sheet), gameData? (any JSON: the game\'s break, sound, physics … data, kept and shipped as given, never read by the engine)}} ' +
+    'creates or replaces one (one undo); deleteVoxelKit {voxelKitId}. Case and section ids are the case catalogue\'s; unknown fields are refused. tl_content_query target="game" lists them (voxelKits). ' +
     'Project UI (drawn by the game host over the view, in Play and exports): setUiDocument {document: {uiDocumentId, name, layer? (-100..100), modal?, focus? (takes keyboard/gamepad focus; default modal), ' +
     'actionMap? (gameplay|ui: the only input map active while it has focus), theme? (uiThemeId), scale? {reference: [w, h], mode: fit|width|height|cover (fills the view, the box larger than it)|expand (fits, the box grown to the view\'s shape)}, styles? {name: style}, icons? {name: {asset: texture, rect?: [x, y, w, h]}}, ' +
     'tweens? {name: {kind: fade|slide|scale|stamp, duration 0.01-10 s, delay?, easing?: linear|easeIn|easeOut|easeInOut|back, from?, to?, direction?: left|right|up|down, distance?}}, showTween?, hideTween?, initialFocus? (widget id), onCancel? (action), root: widget}} ' +
@@ -512,7 +518,7 @@ export const TOOL_DETAILS = {
     'as a game\'s ctx.surface reads it: {source: blocks|terrain, object, height, point, normal, slope, layers, weights (0-1, strongest first), wetness, cell?, block?} or null. target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
     'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
     '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
-    'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator, envpreset, kit — each its own file in the game folder) and scene ' +
+    'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator, envpreset, kit, voxelkit — each its own file in the game folder) and scene ' +
     'as {kind, id, path, name, labels, address?, refs} (kind, id, label, address filter; loadable: true = only those with an address or a label; ' +
     'referencing: what names that id; text: a part of the name, id or file, any case; labels: [every one]; folder: "assets/props" the entries whose file is in that ' +
     'folder of the game folder ("" its top), recursive: true also in its subfolders; sort: name|kind|path, descending; folders: true adds folders: [{path, name, hasFolders}] ' +

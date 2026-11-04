@@ -19,6 +19,7 @@ The project's content: one block per kind of document. Each block lists the ops 
 | [`cellFields`](content-blocks-effects.md#content-cellFields) | Cell fields | `setCellFields` |
 | [`blockStamps`](content-blocks-effects.md#content-blockStamps) | Block stamps | `setBlockStamp`, `deleteBlockStamp` |
 | [`kits`](content-blocks-effects.md#content-kits) | Kits | `setKit`, `deleteKit` |
+| [`voxelKits`](content-blocks-effects.md#content-voxelKits) | Voxel kits | `setVoxelKit`, `deleteVoxelKit` |
 | [`uiDocuments`](content-blocks-effects.md#content-uiDocuments) | UI documents | `setUiDocument`, `deleteUiDocument` |
 | [`modes`](content-blocks-effects.md#content-modes) | Game modes | `setModes` |
 | [`behaviorGroups`](content-blocks-effects.md#content-behaviorGroups) | Behavior groups | `setBehaviorGroups` |

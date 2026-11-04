@@ -197,7 +197,7 @@ export type {
   SetCellFieldsInverse, SetComponentChange, SetComponentInverse, SetDialogueChange, SetDialogueInverse,
   SetEffectChange, SetEffectInverse, SetEnvironmentChange, SetEnvironmentInverse, SetEventCuesChange,
   SetEventCuesInverse, SetGraphChange, SetGraphInverse, SetInputChange, SetInputInverse, SetKitChange,
-  SetKitInverse, SetLightingChange, SetLightingInverse, SetMaterialChange, SetMaterialInverse, SetModesChange,
+  SetKitInverse, SetVoxelKitChange, SetVoxelKitInverse, SetLightingChange, SetLightingInverse, SetMaterialChange, SetMaterialInverse, SetModesChange,
   SetModesInverse, SetSaveSchemaChange, SetSaveSchemaInverse, SetSceneIndexChange, SetSceneIndexInverse,
   SetScenePlaneChange, SetScenePlaneInverse, SetScriptLibrariesChange, SetScriptLibrariesInverse,
   SetScriptLibraryChange, SetScriptLibraryInverse, SetSettingsChange, SetSettingsInverse, SetShellChange,

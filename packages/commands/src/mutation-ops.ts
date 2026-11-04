@@ -80,6 +80,9 @@ export const V3_MUTATION_OPS = [
   // Kits
   'setKit',
   'deleteKit',
+  // Voxel kits
+  'setVoxelKit',
+  'deleteVoxelKit',
   // Project UI documents and themes
   'setUiDocument',
   'deleteUiDocument',

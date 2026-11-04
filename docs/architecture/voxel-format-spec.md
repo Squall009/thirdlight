@@ -1462,6 +1462,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
 | Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 9 | refused | rebuilt, never upgraded |
+| Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
 **Derived data 3 → 9 (46b):** the steps and their owner notes are in §3.7, *Derived version history*.
 
@@ -1469,6 +1470,40 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
 1 → 2. Every v1 was an unapproved draft with nothing shipped in it; v1 bytes are refused, with no upgrade step (§7,
 45.10a).
+
+### 3.9 Voxel kit record, format 1 — DRAFT, not v1 (`project-model` `voxel-kit.ts`; 46c)
+
+**Owner note:** added in 46c as an add-only step beside the approved formats; it changes none of them. It is a
+draft until the owner approves the role spec and the trim layout for detail pieces (46c hard stop): the case and
+section ids it holds are opaque here and the catalogue that names them is a draft. Nothing builds on it as final.
+
+- **Where it lives.** A kit is a project content item (`content.voxelKits`, resource kind `voxelkit`, one file a
+  kit under `assets/voxel-kits/`), made by `setVoxelKit {kit}` and removed by `deleteVoxelKit {voxelKitId}`, one
+  undo each; the editor, MCP and scripts send the same commands. It is not loadable by address or label: a build
+  ships every kit whole in its catalog block `voxelKits`. It lives in `project-model`, not `@thirdlight/voxel`,
+  because it names project assets and uses the project's id syntax; the voxel package stays free of both.
+- **Fields, in canonical order:** `kitFormat` (1), `voxelKitId`, `name`, `version` (the kit's own revision, a
+  positive integer), `materialType` (an id: a kit belongs to a material type, never to one material),
+  `materials?` (test binding: voxel material ids 1–4095, ascending, each once; 46d's material model replaces it
+  and the field is then left unread, never repurposed), `cases` (case id → `{sections?, gameData?}`; a section id →
+  `{variants: [{high, low?, weight?}, …] (one or more), ends?: {start?, end?}}`; a mesh is `{assetId, digest,
+  node?}`, the digest the GLB version's SHA-256 source digest), `joinProfiles?` (profile id → `{outline: [[u, v],
+  …]}`, a closed polygon of at least 3 points in whole sixteenths of a cell 0–16; a section end names one of the
+  kit's own, a dangling one is refused), `trimLayout?` (an id; absent: no trim sheet), `gameData?`.
+- **Canonical form.** Rebuilt field by field: maps by key, materials ascending, a weight of 1 and empty maps left
+  out, game data with its object keys sorted and its values as given. Unknown fields at any level are refused.
+- **Game data** (per kit and per case) is any JSON nested at most 32 deep (finite numbers): break, sound and
+  physics defaults are the game's; the engine validates, keeps and ships it and never reads a member.
+- **What is not refused.** A case or section id the catalogue lacks, a mesh naming an asset the project lacks or a
+  digest no version has: these are kit-check rows (46c.8), never refusals, so a catalogue change or an asset
+  re-import never invalidates a stored kit. A build ships, for each mesh, the asset version whose source digest the
+  mesh names (the current one when none has it); a mesh naming an absent asset ships nothing and the fallback kit
+  draws its case.
+- **Size.** No count caps: a kit's file is held to the content file byte cap (1 MiB) like every resource.
+  Measured (the backend test's kit: 2 cases, 1 section, 1 variant, 1 join profile, game data): 535 bytes compact,
+  1,043 bytes as its file on disk (indented, with the resource file's header).
+- **Versions.** A newer `kitFormat` is refused whole (`kit_format_unsupported`), never read in part; a later
+  format adds fields only.
 
 ---
 

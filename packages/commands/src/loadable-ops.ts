@@ -61,10 +61,10 @@ export interface SetLoadingInverse {
   items: { kind: string; id: string; value: LoadingValue }[];
 }
 
-/** The kind an item is stored as: `asset`, or a resource kind (null: neither, or an editor-side kind such as a kit, which is never loadable). */
+/** The kind an item is stored as: `asset`, or a resource kind (null: neither, or a kind never loaded by name, such as a kit). */
 function storedKind(kind: string): string | null {
   const def = resourceKindDef(kind);
-  if (def !== undefined) return def.editorOnly === true ? null : kind;
+  if (def !== undefined) return def.unaddressed !== undefined ? null : kind;
   return kind === 'asset' || kind === 'model' || kind === 'texture' || kind === 'audio' || kind === 'font' ? 'asset' : null;
 }
 

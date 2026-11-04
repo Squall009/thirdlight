@@ -34,6 +34,7 @@ import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
 import { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
+import { VOXEL_KIT_FORMAT, VOXEL_KIT_LIMITS } from './voxel-kit';
 import { ANTIALIAS_KINDS, BLOOM_DEFAULTS, BLOOM_LIMITS, DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
@@ -598,6 +599,25 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     ]), { default: [] }),
     ops: ['setKit', 'deleteKit'],
   },
+  {
+    key: 'voxelKits',
+    label: 'Voxel kits',
+    tooltip: 'The detail pieces a material type (wood, stone, …) draws a voxel world\'s cases with: per case and run section the authored high and low meshes with weighted variants, the outlines section ends meet by, and the game\'s own data. Shipped whole with the build; the engine never reads the game data.',
+    required: false,
+    value: list('voxelKits', 'Voxel kits', 'The project\'s voxel kits (each its own file).', obj('*', 'Voxel kit', 'A voxel kit.', [
+      int('kitFormat', 'Format', `The kit record's format (${VOXEL_KIT_FORMAT}); a newer one is refused.`, { required: true, min: VOXEL_KIT_FORMAT, max: VOXEL_KIT_FORMAT, default: VOXEL_KIT_FORMAT, readOnly: true }),
+      str('voxelKitId', 'Id', 'The stable voxel kit id.', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in the project window.', { ...NAME, required: true }),
+      int('version', 'Version', 'The kit\'s own revision (a positive integer its author moves).', { required: true, min: 1, default: 1 }),
+      str('materialType', 'Material type', 'The material type the kit dresses (wood, stone, …): every material of the type shares its pieces.', { ...ID, required: true }),
+      list('materials', 'Materials', `Test binding: the voxel material ids (1-${VOXEL_KIT_LIMITS.materialIdMax}) the kit applies to, until materials name their kit.`, int('*', 'Material', 'A voxel material id.', { min: 1, max: VOXEL_KIT_LIMITS.materialIdMax }), { unique: true }),
+      json('cases', 'Cases', `{caseId: {sections?: {sectionId: {variants: [{high, low?, weight?}, …], ends?: {start?, end?}}}, gameData?}}; a mesh is {assetId, digest (the GLB's SHA-256), node?}; weight in (0, ${VOXEL_KIT_LIMITS.weightMax}], absent 1. Case and section ids are the case catalogue's.`, { required: true, shape: 'Record<string, VoxelKitCase>' }),
+      json('joinProfiles', 'Join profiles', `{profileId: {outline: [[u, v], …]}}: a section end's closed outline, at least ${VOXEL_KIT_LIMITS.profilePointsMin} points in whole sixteenths of a cell (0-${VOXEL_KIT_LIMITS.profileUnits}).`, { shape: 'Record<string, VoxelKitJoinProfile>' }),
+      str('trimLayout', 'Trim layout', 'The trim layout the pieces\' UVs follow (absent: the kit uses no trim sheet).', ID),
+      json('gameData', 'Game data', `The game's own data for the kit (break, sound, physics defaults …): JSON nested at most ${VOXEL_KIT_LIMITS.gameDataDepth} deep, shipped as it is, never read by the engine.`),
+    ]), { default: [] }),
+    ops: ['setVoxelKit', 'deleteVoxelKit'],
+  },
   // Project UI documents and themes (JSON widget trees, also edited in the visual UI editor).
   { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', 'The project\'s documents (each its own file).', json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true, shape: 'UiDocument' }), { default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
   // Game modes (the first is the start mode) and the behavior groups modes tick.
@@ -667,7 +687,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     tooltip: 'The resources (prefabs, materials, dialogue, …) a script may load by address or label; Play and export ship them even when no scene uses them.',
     required: false,
     value: list('loadable', 'Loadable resources', 'One entry per resource with an address or labels.', obj('*', 'Resource', 'A resource and the names scripts load it by.', [
-      enm('kind', 'Kind', 'The resource kind.', RESOURCE_KIND_TABLE.filter((k) => k.editorOnly !== true).map((k) => k.kind), { required: true, default: 'prefab' }),
+      enm('kind', 'Kind', 'The resource kind.', RESOURCE_KIND_TABLE.filter((k) => k.unaddressed === undefined).map((k) => k.kind), { required: true, default: 'prefab' }),
       str('id', 'Id', 'The resource id.', { ...ID, required: true }),
       str('address', 'Address', 'The one name a script loads it by (unique in the project).', { minLength: 1, maxLength: ADDRESS_MAX_LENGTH }),
       list('labels', 'Labels', 'Names a script loads it by, with everything else carrying them (ascending).', str('*', 'Label', 'A letter or digit, then letters, digits, _ - . /.', { minLength: 1, maxLength: ASSET_LABEL_MAX_LENGTH }), { minItems: 1, unique: true }),

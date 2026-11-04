@@ -221,7 +221,41 @@ An export ships each world its scenes name with all of the world's region
 files, whole (about 4–6 MB per km² for the test world). Each file is checked
 against its digest when the game reads it. The exported game needs no
 backend and makes no range requests. An export is refused when a world it
-names is missing or has a missing or damaged region file.
+names is missing or has a missing or damaged region file. The project's
+voxel kits ship whole in the build's catalog (`voxelKits`), with the model
+versions their meshes name.
+
+## Voxel kits
+
+A voxel kit is one project item (its own file under `assets/voxel-kits/`,
+a `voxelkit` in the project index) holding the detail pieces a material
+type draws a world's cases with. It belongs to a material *type* (wood,
+stone), never to one material, so every material of the type shares its
+pieces. Make, change and delete one with `setVoxelKit {kit}` and
+`deleteVoxelKit {voxelKitId}` (one undo each, the editor, MCP and scripts
+alike); `queryGameConfig` (MCP: `tl_content_query target="game"`) lists
+them as `voxelKits`.
+
+- **`kitFormat`** is 1. A kit of a newer format is refused whole, as is any
+  field this engine does not know; fields are only ever added.
+- **`cases`**: per case id, its run `sections` (body, corner, termination …
+  by section id), each with one or more weighted `variants` of a `high` mesh
+  and an optional `low` one. A mesh is a model asset and the SHA-256 of the
+  GLB version it was made from (`{assetId, digest, node?}`), so it ships as
+  every model does. A case may hold only game data.
+- **`joinProfiles`**: the outline a section's end has, in whole sixteenths
+  of a cell; a section's `ends` name them, so neighbouring sections can be
+  checked to meet.
+- **`gameData`** on the kit and on each case: any JSON (break, sound,
+  physics defaults). The engine keeps it, ships it and never reads it; a
+  game's scripts read it.
+- **`materials`** is a test binding, the voxel material ids the kit
+  applies to, until materials name their kit. **`trimLayout`** names the
+  trim layout the pieces' UVs follow; absent, the kit uses no trim sheet.
+
+The case and section ids, the checks a kit must pass and the trim layout
+for detail pieces are drafts awaiting the owner's approval: kits are stored
+and shipped now, but worlds do not draw with them yet.
 
 ## Not built yet
 
@@ -230,7 +264,8 @@ These come later; worlds made now keep working when they arrive:
 - **The far field**: the world past the load ring, and tall ground far
   away (above).
 - **Kits and cases**: which kit piece a wall, floor, roof, stair or opening
-  cell becomes, and a trim layout for detail pieces. Built cells are drawn
+  cell becomes (the case catalogue), drawing worlds with their voxel kits,
+  the kit check, and a trim layout for detail pieces. Built cells are drawn
   as plain block faces and pieces as stand-in boxes until then.
 - **Materials**: material records, texture arrays and wetness beyond
   darkening (shine and filled-in crevices). Today's surface shader is a

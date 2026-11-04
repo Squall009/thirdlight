@@ -57,7 +57,7 @@ export interface MissingPlayFile {
 }
 
 /** The content blocks every scene shares (what the project-wide blocks need), in the order the build scans them. */
-const PROJECT_WIDE_KEYS = ['environment', 'effects', 'uiDocuments', 'uiThemes', 'shell', 'timelines', 'eventCues', 'blockTypes', 'input', 'speakers'] as const;
+const PROJECT_WIDE_KEYS = ['environment', 'effects', 'uiDocuments', 'uiThemes', 'shell', 'timelines', 'eventCues', 'blockTypes', 'input', 'speakers', 'voxelKits'] as const;
 
 /** The project-wide blocks of `content`; `effects` may be given in their runtime form (the build ships those). */
 export function projectWideRoots(content: Readonly<Record<string, unknown>> | null | undefined, effects?: unknown): unknown[] {

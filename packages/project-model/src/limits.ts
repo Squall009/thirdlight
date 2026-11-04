@@ -46,6 +46,7 @@ export { AREA_LIGHT_DEFAULTS, AREA_LIGHT_SHAPES, AREA_LIGHT_SIZE_MAX } from './a
 // Kits: the standard piece slots and where their pieces stand (the kit editor lists them), a kit's bounds and slot
 // names, the worst of a piece's checks; the block layer's default cell (what a piece is sized against).
 export { KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, kitCheckTally, kitSlotLabel, kitSlotPlacement } from './kits';
+export { VOXEL_KIT_FORMAT, VOXEL_KIT_LIMITS } from './voxel-kit';
 export { BLOCK_LAYER_DEFAULT, BLOCK_LIMITS } from './block-layers';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
 export { DECAL_CELL_BUDGET, DECAL_LAYER_COUNT, DECAL_LAYERS_ALL, DECAL_LIMITS, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS } from './decals';

@@ -957,6 +957,16 @@ interface VertexPaintStroke {
 }
 ```
 
+<a id="type-voxel-kit-format"></a>
+### VOXEL_KIT_FORMAT
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** The kit record's format. A later format adds fields only; a reader refuses one newer than it knows. */
+const VOXEL_KIT_FORMAT: 1;
+```
+
 <a id="type-voxel-edit-command"></a>
 ### VoxelEditCommand
 
@@ -964,6 +974,117 @@ Declared in `packages/voxel/src/edit-command.ts`.
 
 ```ts
 type VoxelEditCommand = BrushEdit | FillEdit | StampEdit | SetEdit | DigEdit;
+```
+
+<a id="type-voxel-kit"></a>
+### VoxelKit
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+interface VoxelKit {
+  kitFormat: typeof VOXEL_KIT_FORMAT;
+  voxelKitId: string;
+  name: string;
+  /** The kit's own revision (a positive integer the author moves). */
+  version: number;
+  /** The material type the kit dresses (an id; the material model names the types). */
+  materialType: string;
+  /** Test binding: the voxel material ids this kit applies to (ascending, each once; absent: none). */
+  materials?: number[];
+  /** Case id → its pieces and data (an empty kit is valid: the fallback kit draws every case). */
+  cases: Record<string, VoxelKitCase>;
+  /** Profile id → the outline section ends named by it meet with (absent: none). */
+  joinProfiles?: Record<string, VoxelKitJoinProfile>;
+  /** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). */
+  trimLayout?: string;
+  /** The game's own data for the whole kit, never read by the engine. */
+  gameData?: VoxelKitJson;
+}
+```
+
+<a id="type-voxel-kit-case"></a>
+### VoxelKitCase
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** One case of the kit: its sections and the game's data for the case. */
+interface VoxelKitCase {
+  /** Section id → its pieces (absent: no pieces; the fallback draws the case). */
+  sections?: Record<string, VoxelKitSection>;
+  /** The game's own data for this case (break, sound, physics …), never read by the engine. */
+  gameData?: VoxelKitJson;
+}
+```
+
+<a id="type-voxel-kit-join-profile"></a>
+### VoxelKitJoinProfile
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** A section end's outline: a closed polygon in the end plane, in sixteenths of a cell. */
+interface VoxelKitJoinProfile {
+  /** [u, v] points, each 0–{@link VOXEL_KIT_LIMITS.profileUnits}. */
+  outline: [number, number][];
+}
+```
+
+<a id="type-voxel-kit-json"></a>
+### VoxelKitJson
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** JSON as a kit's game data holds it. */
+type VoxelKitJson = null | boolean | number | string | VoxelKitJson[] | { [key: string]: VoxelKitJson };
+```
+
+<a id="type-voxel-kit-mesh"></a>
+### VoxelKitMesh
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** One authored mesh: a model asset, the digest of the GLB version it was made from, optionally one node of it. */
+interface VoxelKitMesh {
+  assetId: string;
+  /** SHA-256 (64 lowercase hex) of the GLB bytes: the asset version's source digest. */
+  digest: string;
+  /** The node drawn when the file holds several pieces (absent: the whole model). */
+  node?: string;
+}
+```
+
+<a id="type-voxel-kit-section"></a>
+### VoxelKitSection
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** A run section's pieces and the join profiles its two ends have. */
+interface VoxelKitSection {
+  /** One or several weighted variants (an empty section is not stored). */
+  variants: VoxelKitVariant[];
+  /** The join profile ids at the section's start and end (absent: the end is not checked against its neighbour). */
+  ends?: { start?: string; end?: string };
+}
+```
+
+<a id="type-voxel-kit-variant"></a>
+### VoxelKitVariant
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** One variant of a section: its high mesh (near), its low mesh (the next detail level; absent: none authored). */
+interface VoxelKitVariant {
+  high: VoxelKitMesh;
+  low?: VoxelKitMesh;
+  /** Relative weight among the section's variants (absent: 1). */
+  weight?: number;
+}
 ```
 
 <a id="type-wind-config"></a>

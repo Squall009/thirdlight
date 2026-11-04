@@ -334,6 +334,19 @@ export interface SetKitInverse {
   restore: import('@thirdlight/project-model').KitDef | null;
 }
 
+/** `setVoxelKit`/`deleteVoxelKit` change data: one voxel kit before and after (null = none). */
+export interface SetVoxelKitChange {
+  type: 'setVoxelKit';
+  voxelKitId: string;
+  previous: import('@thirdlight/project-model').VoxelKit | null;
+  next: import('@thirdlight/project-model').VoxelKit | null;
+}
+export interface SetVoxelKitInverse {
+  kind: 'setVoxelKit';
+  voxelKitId: string;
+  restore: import('@thirdlight/project-model').VoxelKit | null;
+}
+
 /** `setBlockStamp`/`deleteBlockStamp` change data. */
 export interface SetBlockStampChange {
   type: 'setBlockStamp';
@@ -792,6 +805,7 @@ export type ChangeData =
   | SetCellFieldsChange
   | SetBlockStampChange
   | SetKitChange
+  | SetVoxelKitChange
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
@@ -849,6 +863,7 @@ export type ForwardChange =
   | SetCellFieldsChange
   | SetBlockStampChange
   | SetKitChange
+  | SetVoxelKitChange
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
@@ -1062,6 +1077,7 @@ export type InverseSpec =
   | SetCellFieldsInverse
   | SetBlockStampInverse
   | SetKitInverse
+  | SetVoxelKitInverse
   | GraphEditInverse
   | SetGraphInverse
   | SetEffectInverse

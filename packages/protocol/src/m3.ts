@@ -122,6 +122,8 @@ export const CHANGE_TYPES = [
   'setBlockStamp',
   // Kits.
   'setKit',
+  // Voxel kits.
+  'setVoxelKit',
   'setUi',
   // Dialogue.
   'setDialogue',

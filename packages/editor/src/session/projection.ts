@@ -741,6 +741,8 @@ export class Projection {
       case 'setBlockStamp':
       // Kits too.
       case 'setKit':
+      // Voxel kits (the editor reads them from the next full state).
+      case 'setVoxelKit':
       // UI documents and themes too.
       case 'setUi':
       // Dialogue content too.

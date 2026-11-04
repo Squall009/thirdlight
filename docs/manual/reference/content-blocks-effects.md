@@ -178,6 +178,28 @@ What a level style is built from, as one item: a trim sheet material, the archit
 | `kits[].blockTypes` | list of string, id, 1–64 chars, distinct |  |  | **Block types.** Block types the block editor's palette offers. |
 | `kits[].pieces` | JSON: `Record<string, KitPiece[]>` ([KitPiece](types-c-m.md#type-kit-piece)) |  |  | **Pieces.** Piece slots: {slot: [{assetId, piece?, weight?}, …]} (1-8 weighted pieces a slot). Standard slots: door, window, wall-override, corner, stairs, railing, roof-edge. |
 
+<a id="content-voxelKits"></a>
+## voxelKits — Voxel kits
+
+The detail pieces a material type (wood, stone, …) draws a voxel world's cases with: per case and run section the authored high and low meshes with weighted variants, the outlines section ends meet by, and the game's own data. Shipped whole with the build; the engine never reads the game data.
+
+- In every project: no
+- Written by: [`setVoxelKit`](ops-detail.md#op-setVoxelKit), [`deleteVoxelKit`](ops-detail.md#op-deleteVoxelKit)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `voxelKits` | list of objects | `[]` |  | **Voxel kits.** The project's voxel kits (each its own file). |
+| `voxelKits[].kitFormat` | int | `1` | 1 – 1, step 1 | **Format.** The kit record's format (1); a newer one is refused. (required; written by a tool) |
+| `voxelKits[].voxelKitId` | string, id, 1–64 chars |  |  | **Id.** The stable voxel kit id. (required; format id) |
+| `voxelKits[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the project window. (required; format name) |
+| `voxelKits[].version` | int | `1` | ≥ 1, step 1 | **Version.** The kit's own revision (a positive integer its author moves). (required) |
+| `voxelKits[].materialType` | string, id, 1–64 chars |  |  | **Material type.** The material type the kit dresses (wood, stone, …): every material of the type shares its pieces. (required; format id) |
+| `voxelKits[].materials` | list of int, distinct |  |  | **Materials.** Test binding: the voxel material ids (1-4095) the kit applies to, until materials name their kit. |
+| `voxelKits[].cases` | JSON: `Record<string, VoxelKitCase>` ([VoxelKitCase](types-t-w.md#type-voxel-kit-case)) |  |  | **Cases.** {caseId: {sections?: {sectionId: {variants: [{high, low?, weight?}, …], ends?: {start?, end?}}}, gameData?}}; a mesh is {assetId, digest (the GLB's SHA-256), node?}; weight in (0, 1000], absent 1. Case and section ids are the case catalogue's. (required) |
+| `voxelKits[].joinProfiles` | JSON: `Record<string, VoxelKitJoinProfile>` ([VoxelKitJoinProfile](types-t-w.md#type-voxel-kit-join-profile)) |  |  | **Join profiles.** {profileId: {outline: [[u, v], …]}}: a section end's closed outline, at least 3 points in whole sixteenths of a cell (0-16). |
+| `voxelKits[].trimLayout` | string, id, 1–64 chars |  |  | **Trim layout.** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). (format id) |
+| `voxelKits[].gameData` | JSON |  |  | **Game data.** The game's own data for the kit (break, sound, physics defaults …): JSON nested at most 32 deep, shipped as it is, never read by the engine. |
+
 <a id="content-uiDocuments"></a>
 ## uiDocuments — UI documents
 

@@ -13,15 +13,18 @@
  * patched and refused through setComponent and kept across a restart, and
  * MCP's tl_command sending the same voxel ops as the editor page (the same
  * answer, the same files) while the project's editor learns of every change
- * over its WebSocket feed, and an export shipping the worlds its scenes name
- * (each listed region file whole, by digest) or refusing a damaged one.
+ * over its WebSocket feed, a voxel kit made, refused, undone and deleted as a
+ * project content item over HTTP and MCP (its own file, kept across a
+ * restart), and an export shipping the worlds its scenes name
+ * (each listed region file whole, by digest) and the voxel kits (their block,
+ * their pieces' model) or refusing a damaged world.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
  * compared with the same commands applied to a copy in this process.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
@@ -45,7 +48,8 @@ import {
   type PaletteStore,
   type ShippedVoxelWorld,
 } from '@thirdlight/voxel';
-import { readRuntimeContentSync } from '@thirdlight/project-model';
+import { readRuntimeContentSync, type VoxelKit } from '@thirdlight/project-model';
+import { glbBytes } from '@thirdlight/shared';
 import { importRead, writeVoxelWorld } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -77,6 +81,41 @@ let expected: PaletteStore;
 const base = (): string => `http://127.0.0.1:${backend.portAuthoring}`;
 const auth = { authorization: `Bearer ${TOKEN}` };
 const rid = (n: number): string => `req-${n.toString(16).padStart(32, '0')}`;
+
+/** One triangle as a GLB of one node: the pieces' model a voxel kit names (real bytes through the real import). */
+function pieceGlb(): Uint8Array {
+  const positions = new Float32Array([0, 0, 0, 0.5, 0, 0, 0, 0.5, 0]);
+  const json = {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ name: 'Beam_Body', mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [0.5, 0.5, 0] }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.byteLength }],
+    buffers: [{ byteLength: positions.byteLength }],
+  };
+  return glbBytes(JSON.stringify(json), new Uint8Array(positions.buffer));
+}
+
+/** The kit the content-item test makes (its model is imported there); the export test checks what ships of it. */
+const KIT_MODEL = { assetId: '' };
+function logKit(assetId: string, digest: string): VoxelKit {
+  return {
+    kitFormat: 1,
+    voxelKitId: 'log',
+    name: 'Log',
+    version: 1,
+    materialType: 'wood',
+    materials: [3],
+    joinProfiles: { square: { outline: [[4, 4], [12, 4], [12, 12], [4, 12]] } },
+    cases: {
+      'wall-banister': { gameData: { break: { hits: 1 } } },
+      beam: { sections: { body: { variants: [{ high: { assetId, digest, node: 'Beam_Body' }, weight: 1 }], ends: { start: 'square', end: 'square' } } } },
+    },
+    gameData: { sound: { hit: 'wood-knock' }, physics: { density: 0.6 }, tags: ['flammable', 2, null] },
+  };
+}
 
 function sceneStore(): PaletteStore {
   const s = createWorldStore(grid);
@@ -496,6 +535,77 @@ describe('voxel world routes', () => {
     }
   });
 
+  it('a voxel kit is a project content item: set, replaced, refused and deleted over HTTP and through MCP, one undo each, its own file on disk, read back after a restart', async () => {
+    const query = async (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
+    const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject'))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
+    const kits = async (): Promise<Array<Record<string, unknown>>> => (await query('queryGameConfig'))['voxelKits'] as Array<Record<string, unknown>>;
+    // The pieces' model: a GLB imported as every model is (its version's source digest is what a kit's mesh names).
+    const dir = backend._test.service.projectDir(PROJECT)!;
+    mkdirSync(join(dir, 'assets', 'kits'), { recursive: true });
+    const glb = pieceGlb();
+    writeFileSync(join(dir, 'assets', 'kits', 'log-pieces.glb'), glb);
+    const imported = await send('importAssets', { folder: 'assets/kits' });
+    expect(imported.status, JSON.stringify(imported.json)).toBe(200);
+    const captured = backend._test.service.readCapturedV3(PROJECT);
+    if (!captured.ok) throw new Error(captured.error.code);
+    const model = (captured.read.content as { assets: Array<{ assetId: string; kind: string; versions: Array<{ sourceDigest: string }> }> }).assets.find((a) => a.kind === 'model')!;
+    const digest = model.versions[0]!.sourceDigest;
+    expect(digest).toBe(createHash('sha256').update(glb).digest('hex'));
+    KIT_MODEL.assetId = model.assetId;
+    const kit = logKit(model.assetId, digest);
+
+    // Created over HTTP; read back in canonical form (cases by id, the default weight left out, game data as given).
+    const made = await send('setVoxelKit', { kit });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    expect(made.json['change']).toMatchObject({ type: 'setVoxelKit', voxelKitId: 'log', previous: null });
+    const stored = (await kits())[0]!;
+    expect(Object.keys(stored)).toEqual(['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'cases', 'joinProfiles', 'gameData']);
+    expect(Object.keys(stored['cases'] as object)).toEqual(['beam', 'wall-banister']);
+    expect(stored['gameData']).toEqual(kit.gameData);
+    // Its own file in the game folder (the resource kind's folder), holding the record.
+    const file = join(dir, 'assets', 'voxel-kits', 'log.voxelkit.json');
+    expect(JSON.stringify(JSON.parse(readFileSync(file, 'utf8')))).toContain('"voxelKitId":"log"');
+    console.log(`[voxel kit] ${Object.keys(stored['cases'] as object).length} cases: file ${statSync(file).size} bytes, record ${JSON.stringify(stored).length} bytes compact`);
+    // A newer format and an unknown field are refused and change nothing.
+    for (const bad of [{ ...kit, kitFormat: 2 }, { ...kit, pieces: {} }]) {
+      const r = await send('setVoxelKit', { kit: bad });
+      expect(r.status, JSON.stringify(r.json)).toBe(400);
+    }
+    expect((await kits())[0]).toEqual(stored);
+
+    // MCP's tl_command sends the same op (its op list has both); undo takes the replacement back in one step.
+    const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'voxel-kit-mcp' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const mcp = new Client({ name: 'voxel-kit-mcp-test', version: '0.1.0' });
+    await mcp.connect(clientTransport);
+    try {
+      const { tools } = await mcp.listTools();
+      const opEnum = (tools.find((t) => t.name === 'tl_command')!.inputSchema as { properties: { op: { enum: string[] } } }).properties.op.enum;
+      expect(opEnum).toEqual(expect.arrayContaining(['setVoxelKit', 'deleteVoxelKit']));
+      const res = (await mcp.callTool({ name: 'tl_command', arguments: { op: 'setVoxelKit', expectedRevision: (await query('queryProject'))['revision'], args: { kit: { ...kit, version: 2 } } } })) as { isError?: boolean; content: Array<{ text: string }> };
+      expect(res.isError === true, res.content[0]!.text).toBe(false);
+      expect((await kits())[0]!['version']).toBe(2);
+      const game = (await mcp.callTool({ name: 'tl_content_query', arguments: { target: 'game' } })) as { content: Array<{ text: string }> };
+      expect((JSON.parse(game.content[0]!.text) as { voxelKits: Array<{ version: number }> }).voxelKits[0]!.version).toBe(2);
+    } finally {
+      await mcp.close();
+      await server.close();
+    }
+    expect((await send('undo', {})).status).toBe(200);
+    expect((await kits())[0]).toEqual(stored);
+
+    // Deleted (its file goes), undone (it comes back); kept across a restart that reads the project from its files.
+    expect((await send('deleteVoxelKit', { voxelKitId: 'log' })).status).toBe(200);
+    expect(await kits()).toEqual([]);
+    expect(existsSync(file)).toBe(false);
+    expect((await send('undo', {})).status).toBe(200);
+    expect(existsSync(file)).toBe(true);
+    await close();
+    await start();
+    expect(await kits()).toEqual([stored]);
+  }, 60_000);
+
   it("an export ships the worlds its scenes name: each listed region file whole as a content file, listed in the catalog with its digest, the voxel worker beside the game's scripts; a world with a damaged region refuses the export", async () => {
     const query = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
     const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject', {}))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
@@ -526,6 +636,13 @@ describe('voxel world routes', () => {
         return null;
       }
     }) as unknown as { voxelWorlds?: ShippedVoxelWorld[] };
+    // The voxel kit ships whole in its own catalog block (game data as authored); its pieces' model ships as every model does.
+    const shippedKits = (content as unknown as { voxelKits?: Array<Record<string, unknown>> }).voxelKits;
+    expect(shippedKits?.map((k) => k['voxelKitId'])).toEqual(['log']);
+    expect(shippedKits![0]!['gameData']).toEqual(logKit(KIT_MODEL.assetId, 'x').gameData);
+    const kitMesh = (shippedKits![0]!['cases'] as Record<string, { sections: Record<string, { variants: Array<{ high: { digest: string } }> }> }>)['beam']!.sections['body']!.variants[0]!.high;
+    expect(readFileSync(join(out, 'content', 'sha256', kitMesh.digest)).equals(pieceGlb())).toBe(true);
+    expect(((content as unknown as { dependencies?: Array<{ assetId: string }> }).dependencies ?? []).map((e) => e.assetId)).toContain(KIT_MODEL.assetId);
     const worldDir = join(backend._test.service.projectDir(PROJECT)!, 'voxels', FEED_WORLD);
     const manifest = JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { worldId: string; regions: string[]; revision: number };
     expect(content.voxelWorlds?.length).toBe(1);

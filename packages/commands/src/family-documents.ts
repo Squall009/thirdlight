@@ -1,16 +1,17 @@
 /**
- * Authored documents: graphs, effects, kits, UI documents and themes,
+ * Authored documents: graphs, effects, kits, voxel kits, UI documents and themes,
  * dialogue, timelines and shared script libraries. Each op's step and the
  * undo and redo of what it records.
  */
 
 import type { OpFamily } from './op-table-types';
-import type { EffectDef, GraphDocument, GraphOp, KitDef } from '@thirdlight/project-model';
+import type { EffectDef, GraphDocument, GraphOp, KitDef, VoxelKit } from '@thirdlight/project-model';
 import { contentOf } from './content-ops';
 import { historyInvalid } from './errors';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph, editOwnerGraph, withGraphDocument } from './graph-ops';
 import { applyDeleteEffect, applyRenameEffect, applySetEffect, effectsOf, withEffect } from './effect-ops';
 import { applyDeleteKit, applySetKit, kitsOf, withKit } from './kit-ops';
+import { applyDeleteVoxelKit, applySetVoxelKit, voxelKitsOf, withVoxelKit } from './voxel-kit-ops';
 import { applyDeleteUi, applySetUiDocument, applySetUiTheme, uiOf, withUi } from './ui-ops';
 import { applyDeleteDialogueValue, applySetDialogue, applySetDialogueSettings, applySetSpeaker, dialogueValueOf, withDialogueValue } from './dialogue-ops';
 import { applyDeleteTimeline, applySetTimeline, timelineOf, withTimeline } from './timeline-ops';
@@ -29,6 +30,8 @@ export const documentFamily = {
     renameEffect: { apply: (input, args) => applyRenameEffect(input, args), records: [['setEffect', 'setEffect']] },
     setKit: { apply: (input, args) => applySetKit(input, args as { kit: KitDef }), records: [['setKit', 'setKit']] },
     deleteKit: { apply: (input, args) => applyDeleteKit(input, args), records: [['setKit', 'setKit']] },
+    setVoxelKit: { apply: (input, args) => applySetVoxelKit(input, args as { kit: VoxelKit }), records: [['setVoxelKit', 'setVoxelKit']] },
+    deleteVoxelKit: { apply: (input, args) => applyDeleteVoxelKit(input, args), records: [['setVoxelKit', 'setVoxelKit']] },
     setUiDocument: { apply: (input, args) => applySetUiDocument(input, args), records: [['setUi', 'setUi']] },
     deleteUiDocument: { apply: (input, args) => applyDeleteUi(input, 'document', String(args.uiDocumentId)), records: [['setUi', 'setUi']] },
     setUiTheme: { apply: (input, args) => applySetUiTheme(input, args), records: [['setUi', 'setUi']] },
@@ -123,6 +126,13 @@ export const documentFamily = {
       const change: ChangeData = { type: 'setKit', kitId: inv.kitId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
       return finish(state, bumped(scene), withKit(content, inv.kitId, inv.restore), change, entry.requestId);
     },
+    setVoxelKit: (state, entry, inv) => {
+      const scene = state.scene;
+      const content = contentOf(state.content);
+      const before = voxelKitsOf(content).find((k) => k.voxelKitId === inv.voxelKitId) ?? null;
+      const change: ChangeData = { type: 'setVoxelKit', voxelKitId: inv.voxelKitId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+      return finish(state, bumped(scene), withVoxelKit(content, inv.voxelKitId, inv.restore), change, entry.requestId);
+    },
   },
   redo: {
     graphEdit: (state, entry, f) => {
@@ -195,6 +205,13 @@ export const documentFamily = {
       const before = kitsOf(content).find((k) => k.kitId === f.kitId) ?? null;
       const change: ChangeData = { type: 'setKit', kitId: f.kitId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
       return finish(state, bumped(scene), withKit(content, f.kitId, f.next), change, entry.requestId);
+    },
+    setVoxelKit: (state, entry, f) => {
+      const scene = state.scene;
+      const content = contentOf(state.content);
+      const before = voxelKitsOf(content).find((k) => k.voxelKitId === f.voxelKitId) ?? null;
+      const change: ChangeData = { type: 'setVoxelKit', voxelKitId: f.voxelKitId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+      return finish(state, bumped(scene), withVoxelKit(content, f.voxelKitId, f.next), change, entry.requestId);
     },
   },
 } satisfies OpFamily;

@@ -27,6 +27,9 @@ const EDITOR_SRC = resolve(import.meta.dirname, '..', 'packages', 'editor', 'src
 const API_ONLY: Readonly<Record<string, string>> = {
   importResources:
     "sent by the backend's file check, which the editor starts (Check files, and after an import): resource and scene files found in the game folder come in as one undo step; no client builds it",
+  setVoxelKit:
+    'voxel kits have no editor page yet: MCP, scripts and tools make them over the command route until the case catalogue and trim layout they follow are approved; an editor page then sends it',
+  deleteVoxelKit: 'as setVoxelKit: no editor page for voxel kits yet',
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

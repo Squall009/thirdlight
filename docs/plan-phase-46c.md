@@ -128,7 +128,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 
 | Item | Status |
 |---|---|
-| 46c.1 | not started |
+| 46c.1 | done: voxel kit format 1 (DRAFT) as a project content item `voxelKits` (`project-model` `voxel-kit.ts`), setVoxelKit/deleteVoxelKit one undo each (editor, MCP, HTTP), own file `assets/voxel-kits/*.voxelkit.json`, catalog block `voxelKits` + mesh model versions in exports; newer format/unknown fields refused. Test kit 535 B (file 1,043 B). Spec §3.9 |
 | 46c.2 | not started |
 | 46c.3 | not started |
 | 46c.4 | not started |
@@ -151,6 +151,23 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 ## 8. Results
 
 (Filled per item: numbers, rounds, uptime, report paths.)
+
+### 46c.1 kit data format
+
+- **Built:** `packages/project-model/src/voxel-kit.ts` (record, validator, canonicalizer, `voxelKitMeshes`), content key
+  `voxelKits` (resource kind `voxelkit`, folder `assets/voxel-kits`, not addressable: `unaddressed: 'block'`),
+  `commands` `voxel-kit-ops.ts` (`setVoxelKit`/`deleteVoxelKit`, change `setVoxelKit`), `queryGameConfig.voxelKits`,
+  MCP docs, catalog block `voxelKits` (manifest v5), capture ships each mesh's model at the version its digest names.
+- **Tests:** `voxel-kit.test.ts` (8: every leaf survives canonical form but the default weight, order-independent,
+  idempotent, game data untouched; newer format refused whole; unknown fields at 7 levels; bad values with paths; game
+  data depth/non-JSON; catalog block), `voxel-kit-ops.test.ts` (3: create/replace/delete, undo/redo, refusals change
+  nothing, no address/labels), `tests/integration/voxel-world/voxel-world.test.ts` (+1 test, export test extended: a
+  real backend over HTTP and MCP's tl_command, a GLB imported and named by digest, the kit's file on disk, deleted and
+  undone, read back after a restart; the export's catalog carries the kit with its game data and the GLB byte for byte).
+- **Bytes:** the integration kit (2 cases, 1 section, 1 variant, 1 profile, game data) 535 B compact, 1,043 B on disk.
+- **Gate:** fast gate gate-fast-20261104-010023 GREEN (15 min, peak 5.6 GB; vitest 833 files; 36 e2e; perf at the cap
+  0 missed both renderers). `voxel-world.e2e.ts` untouched (no browser behaviour): its 7 tests sum to 66.9 s (load
+  average 2.8–5.3, 46c start ~58–65 s), the kit test went to vitest.
 
 ## 9. Decision log
 
@@ -192,6 +209,23 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   field by field), reusable by every world of the project; **the material → kit binding in 46c is a test binding
   inside the kit file** (the material ids it applies to), with no world or schema field; 46d's material model owns the
   real binding (§1c: a material names its kit) and replaces it.
+- 2026-11-04 (46c.1, default chosen, owner to confirm): **the kit record lives in `project-model`** (`voxel-kit.ts`),
+  not `@thirdlight/voxel` as §5 planned: it names model assets and uses the project's id syntax and error shape,
+  which the voxel package must not import. The derive job (46c.3/46c.6) gets a plain case → piece table from it.
+- 2026-11-04 (46c.1, default chosen, owner to confirm): **a mesh is `{assetId, digest, node?}`**: the model asset
+  (so it ships through the content closure as every model, never a URL) plus the SHA-256 source digest of the GLB
+  version the piece was made from. A build ships the version with that digest (the current one when none has it); a
+  digest no version has, or an asset the project lacks, is a kit-check row (46c.8), never a refusal, and an absent
+  asset ships nothing (the fallback kit draws the case). Deleting an asset is never refused for a kit.
+- 2026-11-04 (46c.1, default chosen, owner to confirm): **case and section ids are opaque id-syntax strings** in the
+  record; `low` is optional (the kit check reports a missing pair); join profiles are one closed outline (≥ 3 points,
+  whole sixteenths 0–16) a section end names, a dangling name refused; `trimLayout` is an optional id; `version` is
+  the kit's own revision; game data is JSON ≤ 32 deep (the only bound: no count caps, the 1 MiB record file cap).
+- 2026-11-04 (46c.1, default chosen, owner to confirm): **no project schema bump**: `voxelKits` is a new optional
+  content key (as `kits` and `timelines` were added); an older engine refuses a project holding one (unknown field).
+- 2026-11-04 (46c.1, default chosen, owner to confirm): **the editor has no voxel kit page yet** (setVoxelKit and
+  deleteVoxelKit are API-only in `tests/editor-op-reach.test.ts`, with the reason); its project-window icon is the
+  block kit's picture copied as `voxelkit.webp` until one is drawn (unverified visually).
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
   repo's authoring package (46c.17).

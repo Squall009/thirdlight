@@ -476,6 +476,8 @@ export type ValidatedOpArgs =
   | { op: 'deleteBlockStamp'; args: { stampId: string } }
   | { op: 'setKit'; args: { kit: import('@thirdlight/project-model').KitDef } }
   | { op: 'deleteKit'; args: { kitId: string } }
+  | { op: 'setVoxelKit'; args: { kit: import('@thirdlight/project-model').VoxelKit } }
+  | { op: 'deleteVoxelKit'; args: { voxelKitId: string } }
   | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
   | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
   | { op: 'setUiTheme'; args: { theme: import('@thirdlight/project-model').UiTheme } }
@@ -859,13 +861,13 @@ export function validateOpArgs(
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setKit':
-    case 'deleteKit': {
-      // setKit {kit}; deleteKit {kitId} (the kit's values are the model's; here the shapes).
-      const key = op === 'setKit' ? 'kit' : 'kitId';
+    case 'deleteKit': case 'setVoxelKit': case 'deleteVoxelKit': {
+      // setKit/setVoxelKit {kit}; deleteKit {kitId}; deleteVoxelKit {voxelKitId} (the kits' values are the model's; here the shapes).
+      const set = op === 'setKit' || op === 'setVoxelKit', key = set ? 'kit' : op === 'deleteKit' ? 'kitId' : 'voxelKitId', shape = op === 'setKit' ? 'kitId, name, trimMaterial?, presets?, blockTypes?, pieces?' : 'kitFormat, voxelKitId, name, version, materialType, cases, materials?, joinProfiles?, trimLayout?, gameData?';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
-      if (op === 'setKit' ? !isPlainObjectStrict(args[key]) : typeof args[key] !== 'string') {
-        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setKit' ? 'object ({ kitId, name, trimMaterial?, presets?, blockTypes?, pieces? })' : 'string (kitId)') };
+      if (set ? !isPlainObjectStrict(args[key]) : typeof args[key] !== 'string') {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], set ? `object ({ ${shape} })` : `string (${key})`) };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

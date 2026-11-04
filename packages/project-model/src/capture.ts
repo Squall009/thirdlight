@@ -31,6 +31,7 @@ import { effectAssetRefs, type EffectDef } from './effects';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
 import type { ContentCatalogV3, SceneV3 } from './types-v3';
+import { voxelKitMeshes, type VoxelKit } from './voxel-kit';
 
 function tag(errors: readonly ModelErrorV2[], document: 'scene' | 'content'): ModelErrorV2[] {
   return errors.map((e) => ({ ...e, document }));
@@ -180,6 +181,16 @@ export function collectAssetRefsV3(
     for (const id of bake.atlases) setRef(id);
     for (const g of bake.probes?.grids ?? []) setRef(g.asset);
     for (const id of bake.surface?.files ?? []) setRef(id);
+  }
+  // The models voxel kits draw their pieces with, at the version a mesh's digest names (the current one when no
+  // version has those bytes). A mesh naming an asset the project lacks ships nothing: the kit check reports it and
+  // the fallback kit draws the case.
+  const records = new Map(content.assets.map((a) => [a.assetId, a]));
+  for (const kit of (content as { voxelKits?: VoxelKit[] }).voxelKits ?? []) {
+    for (const m of voxelKitMeshes(kit)) {
+      const record = records.get(m.assetId);
+      if (record !== undefined) setRef(m.assetId, record.versions.find((v) => v.sourceDigest === m.digest)?.version);
+    }
   }
   // The textures a model's images were extracted into travel with the model.
   const extracted = new Map(content.assets.map((a) => [a.assetId, (a as { textures?: Record<string, string> }).textures]));
