@@ -138,7 +138,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | 46c.6b | done: wetness and a same-kit material paint re-derive shader data only, kit bound or not (real workers: 0 mesh derives); a cross-kit paint derives whole exactly the sections holding the painted cells. Edits report `materialSwaps`. Case windows drop the same-material bit unless a rule reads it (D478 fixed); derived v12 → v13. L1+ nodes still derive whole (D479) |
 | 46c.7 | done: kit pieces drawn on the slice page, Play, Scene view, export: hosts build `worldPieceTable(kits)` (+ engine default kit `default-kit.ts`, 45 cases: 29 box pieces, 16 none; table format 2), GLBs via the content closure/backend, one instanced draw a (kit piece, variant, mirror, level) a chunk. Town render() CPU 3.2 → 8.1 ms (1,420 piece draws), slice unchanged; frames at the cap |
 | 46c.8 | done: `voxel-kit-check.ts` (project-model) rows ok/warn/err/info: cases, role fallbacks, high/low, assets/digests, pivot/fit, join profiles, budgets, trim T1–T10 (draft, opt-in) → Problems + tl_diagnostics; `writeKitTestScene` op: 53 exhibits (45 cases × roles) from the catalogue, 98×7×49 cells, one undo; page `?kitScene=` labels. Default kit: 0 err, check 0.11 ms |
-| 46c.9 | not started |
+| 46c.9 | done: placeholder kits log (11 cases, 28 pieces, 768/385 tris high/low, GLB 92,956 B) and stone (12 cases, 18 pieces, 272/272, 32,436 B) from Blender 5.2 (`kits/make_placeholder_kits.py`), draft trim UVs, no textures; kit check 0 err, T1–T8 ok; on staging both renderers (`run.mjs kits`); trim debug set drawn; check T6 per face, T8 on the run axis |
 | 46c.10 | not started |
 | 46c.11 | not started |
 | 46c.12 | not started |
@@ -490,6 +490,70 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   rerun gate-rerun-20261104-062824 GREEN (perf at the cap 0 missed both renderers, 6.22 / 3.99 ms). vitest 840 files.
   `voxel-world.e2e.ts`: 7 tests sum 60.9 s (55.6 s at 46c.7; the scene step ~0.8 s in the webgpu stream test).
 
+### 46c.9 two placeholder kits (log, stone)
+
+- **Built:** `tools/voxel-bench/kits/make_placeholder_kits.py` (Blender 5.2.2 headless, 4 GB scope; `--dry-run` under plain
+  Python checks the geometry and layout fit without Blender): pieces as extrusions of small profiles along one axis
+  (x runs; y for posts; z for a corner's crossing stubs), only faces that can show (backs against the voxel body left
+  out), smooth normals on round members, flat on cut faces, no bakes (placeholder: nothing fine to bake); one GLB a kit,
+  a node a piece (`<case>_<section>_v<k>_<high|low>`, all at the origin; a low equal to its high shares the mesh), and
+  its kit record (`log.voxelkit.json`, `stone.voxelkit.json`: kitFormat 1, digest of the GLB, materials log 11/14
+  (timber, plank), stone 10/15 (stone, brick), join profiles, `trimLayout: detail-trim`, opaque game data). Output is
+  deterministic (the stone GLB's digest was the same across reruns with unchanged geometry). `run.mjs kits`
+  (`kits-cli.ts`): GLBs into the project's `assets/kits`, `importAssets`, "check files" (a regenerated file becomes a
+  new version), `setVoxelKit` with the imported asset id, the backend's kit-check problem rows printed.
+  Three-adapter `voxel-trim-debug-texture.ts`: a kit naming a known trim layout draws untinted with that layout's
+  debug set (1024², the low tier: a hue and id a region, 3.125 cm checker, U ticks every 0.125 m and the cell number
+  every 0.5 m, gutters/reserved magenta), generated once per layout; other kits keep the cell debug texture. Kit check
+  fixes found by these kits: **T6** measured all of a region's cap triangles in a mesh as one box (both ends of a beam,
+  two rail poles: a false warn); it now measures each end face (triangles sharing a corner). **T8** compared the x
+  planes for every case; it now meets sections along the case's run axis (y for wall ends, corners, jambs) and skips
+  cases without a run.
+- **Asset table** (triangles per piece high / low; the GLB holds both levels; textures: none embedded, the debug set is
+  generated at runtime, 1024² RGBA8 4 MiB + mips once a layout, shared by every trim kit; collision, nav and light from
+  each case's declared shape, never these meshes):
+  | log (wood) | high / low | stone | high / low |
+  |---|---|---|---|
+  | wall-plain body (two half-logs Ø 0.24, S50) | 32 / 12 | wall-plain body ×2 variants (two ashlar courses, S25p faces, joint staggered) | 22 / 22 each |
+  | wall-top body ×2 variants (half-log Ø 0.40 / 0.36, F1) | 16 / 6 | wall-top body (coping: S50 top, S12p drips) | 10 / 10 |
+  | wall-top start / end ×2 (end grain C50a, 7 cm overhang) | 25 / 10 | wall-top start / end (cap C50a) | 16 / 16 |
+  | wall-top single ×2 | 34 / 14 | wall-top single | 22 / 22 |
+  | wall-end body (two stubs Ø 0.22 out of the end, C25a) | 60 / 30 | wall-end body (quoins, S25p, returns) | 44 / 44 |
+  | wall-corner body (crossing stubs x and z) | 60 / 30 | wall-corner body (quoins long/short a course) | 32 / 32 |
+  | beam body / start / end / single (log Ø 0.32, F1, C50a) | 24 / 12, 36 / 18, 36 / 18, 48 / 24 | moulding body / start / end (cornice S12p) | 8 / 8, 10 / 10, 10 / 10 |
+  | banister-rail body / start / end / single (two poles Ø 0.08, S25, C12a) | 32 / 16, 48 / 24, 48 / 24, 64 / 32 | wall-base, foundation-skirt body (plinth S50p) | 6 / 6 each |
+  | banister-post body (Ø 0.14 post, F1, top C25a) | 30 / 15 | opening-jamb, -head, -sill, -threshold body | 6 / 6 each |
+  | running-board body / start / end (S12p front) | 6 / 6, 8 / 8, 8 / 8 | opening-single body (head, sill, two jambs) | 24 / 24 |
+  | moulding body / start / end; foundation-skirt; soffit body | 4 / 4, 6 / 6, 6 / 6; 6 / 6; 6 / 6 | | |
+  | **total, 28 pieces; GLB 92,956 B; record 14,716 B (9,949 compact)** | 768 / 385 | **total, 18 pieces; GLB 32,436 B; record 9,550 B (6,598)** | 272 / 272 |
+
+  Flat-faced pieces' low is their high (nothing to drop without changing a face's region, T7); round members halve
+  their sides. Kit check (vitest and staging Problems): **0 err**; ok: catalogue, pairs, assets, pivot, fit, trim T1–T8;
+  warn: the required cases the kits leave to the role fallback, base surface or stand-ins (log 32, stone 30) and 6
+  role fallbacks each (floor, roof, foundation, stair, pillar, opening); info: optional cases, unchecked joins (log 6,
+  stone 10), budget, T9 (no texture set yet), T10 (log 9 regions, stone 8).
+- **Tests:** `tools/voxel-bench/placeholder-kits.test.ts` (6, both kits: the committed record validates and names the
+  committed GLB's digest; every node read by the project model's GLB reader passes the kit check with no err and T1–T8
+  ok; every node through the renderer's loader port (three's GLTFLoader) ready with the same triangles and UVs);
+  `voxel-kit-check.test.ts` +1 test and one T6 case (two end faces of one mesh each checked alone; a wall end's sections
+  meet up y, never across x); `voxel-kit-pieces.test.ts` +1 (the trim debug set: magenta gutters, a distinct hue a
+  region; trim kits share one material on it, others keep the cell texture).
+- **Looked at** (staging slice, 1280 × 720, both renderers, 2026-11-04 06:53–06:57, load 2.0, uptime 11.6 d; shots
+  `~/.cache/thirdlight-phase46/acceptance/46c/kits/`, script beside them): the kit test scene written in timber (log)
+  and in stone at [-20, 106, -10], 1,432 cells, visible in 182–235 ms, undone after; every one of the kit's cases'
+  exhibit cells draws the kit's own piece (log 20 exhibits, stone 18; the cases a kit lacks show its wall-plain
+  fallback or the default stand-ins), all 92 meshes ready on both renderers, no page errors. Seen on both: half-log
+  courses, top logs with green C50 end grain, log stubs with blue C25 caps, yellow S25 rail poles and a pink F1 post,
+  stone copings (green S50 tops), olive S25p ashlar courses, quoins, red F1 jambs and frames round open cells; region
+  ids legible. **Not right yet, for 46c.10/46d:** every cell shows U 0–0.125 of the sheet (cell number 0): the renderer
+  does not add the run offset from the instance's cell (draft §5), and mirrored instances show the debug text
+  mirrored (§5's mirrored U is not applied either); opening exhibits are frames round open cells with no wall
+  (the generator's fillers), so frames float there.
+- **Gate:** fast gate gate-fast-20261104-065848 GREEN (12 min, peak 4.9 GB; vitest 841 files; 36 e2e; perf at the cap
+  0 missed both renderers, 5.87 / 4.01 ms). `voxel-world.e2e.ts` untouched (browser behaviour seen on staging): its 7
+  tests sum 60.5 s (60.9 s at 46c.8). Staging keeps both kits in voxel-slice (`assets/kits`, set) for 46c.10; the slice
+  world needs no regenerating.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -682,6 +746,24 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
   (one undoable change, no edit-format change), one exhibit a (case, role) pair generated from the catalogue rather
   than hand-built, one labelled cell each (run sections shown are what the derive gives: mostly single; a run of every
   section per case is not laid out). Labels are not stored: the page recomputes them from the same pure generator.
+
+- 2026-11-04 (46c.9, default chosen, owner to confirm): **the placeholder kits are made in Blender headless from a
+  committed Python script** (geometry computed in the script, Blender builds the meshes and writes the GLB with its
+  glTF exporter), engine-owned test data in `tools/voxel-bench/kits/`; the art-factory `bp` library is not used (this
+  repo never depends on or edits art-factory). One GLB a kit, a node a piece; game kits may split files as they like.
+- 2026-11-04 (46c.9, default chosen, owner to confirm): **faces end-on to x take U across them from z**, and a vertical
+  run (post, quoin, wall end) maps its faces planar with U from x, V up the piece: the kit check's T4 reads the run
+  along x only, where the draft (§5) says "U up the post". The draft and T4 disagree for runs up y; for the owner:
+  either T4 learns the case's run axis (U from y on y runs) or §5 says vertical members map planar.
+- 2026-11-04 (46c.9, default chosen, owner to confirm): **the draft's region sizes force odd member sizes**: a face must
+  be half a texel inside its band, so a full 0.5 m cell height does not fit S50 (posts and jambs use F1), a 0.125 m
+  board is 0.124 m, a log wrapping F1 is a 12-gon of perimeter 0.99 m (Ø 0.32 m nominal), and a cap is at most its cell
+  less a texel. For the owner (draft question 1/5): size bands with a texel to spare, or accept these.
+- 2026-11-04 (46c.9, lead-scope fix): **T6 per end face, T8 along the run axis** (kit check; tests added): both were
+  false warnings on valid placeholder pieces, not widened bounds.
+- 2026-11-04 (46c.9, default chosen, owner to confirm): **a trim kit draws with its layout's generated debug set**
+  (adapter, until 46d's material model gives texture sets), untinted so the region hues read; the run U offset and the
+  mirrored U of draft §5 are not applied by the renderer yet (46d, with the material model).
 
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this

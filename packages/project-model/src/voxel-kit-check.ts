@@ -358,17 +358,44 @@ interface TrimFacts {
   start: number;
   profiled: string[];
   caps: string[];
-  /** Regions of the triangles touching the start (−x) and end (+x) planes. */
-  startRegions: Set<string>;
-  endRegions: Set<string>;
+  /** Per run axis, the regions of the triangles touching the section's start (−) and end (+) planes. */
+  ends: Record<'x' | 'y', { start: Set<string>; end: Set<string> }>;
+}
+
+/** The largest side of each end face among triangles `tris`: triangles sharing a corner make one face. */
+function capFaceExtents(pos: Float32Array, tris: readonly number[]): number[] {
+  const parent = tris.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
+  const corner = new Map<string, number>();
+  tris.forEach((t, i) => {
+    for (let k = 0; k < 3; k++) {
+      const o = t * 9 + k * 3;
+      const key = `${Math.round(pos[o]! * 1e5)},${Math.round(pos[o + 1]! * 1e5)},${Math.round(pos[o + 2]! * 1e5)}`;
+      const at = corner.get(key);
+      if (at === undefined) corner.set(key, i);
+      else parent[find(i)] = find(at);
+    }
+  });
+  const boxes = new Map<number, number[]>();
+  tris.forEach((t, i) => {
+    const root = find(i);
+    const box = boxes.get(root) ?? [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (let k = 0; k < 9; k++) {
+      const a = k % 3;
+      box[a] = Math.min(box[a]!, pos[t * 9 + k]!);
+      box[a + 3] = Math.max(box[a + 3]!, pos[t * 9 + k]!);
+    }
+    boxes.set(root, box);
+  });
+  return [...boxes.values()].map((b) => Math.max(b[3]! - b[0]!, b[4]! - b[1]!, b[5]! - b[2]!));
 }
 
 function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout): TrimFacts | null {
   if (f.uv === null) return null;
-  const out: TrimFacts = { regions: new Map(), straddle: 0, gutter: 0, texel: 0, density: 0, start: 0, profiled: [], caps: [], startRegions: new Set(), endRegions: new Set() };
+  const out: TrimFacts = { regions: new Map(), straddle: 0, gutter: 0, texel: 0, density: 0, start: 0, profiled: [], caps: [], ends: { x: { start: new Set(), end: new Set() }, y: { start: new Set(), end: new Set() } } };
   const perM = layout.pxPerMetre / layout.size;
   const spans = new Map<string, [number, number]>();
-  const capBoxes = new Map<string, number[]>();
+  const capTris = new Map<string, number[]>();
   const tris = f.triangles;
   for (let t = 0; t < tris; t++) {
     const uv = f.uv;
@@ -401,19 +428,13 @@ function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout): TrimFacts | null {
       span[1] = Math.max(span[1], v);
     }
     spans.set(r.id, span);
-    if (r.kind === 'cap') {
-      const box = capBoxes.get(r.id) ?? [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-      for (let k = 0; k < 9; k++) {
-        const a = k % 3;
-        box[a] = Math.min(box[a]!, f.positions[t * 9 + k]!);
-        box[a + 3] = Math.max(box[a + 3]!, f.positions[t * 9 + k]!);
-      }
-      capBoxes.set(r.id, box);
-    }
+    if (r.kind === 'cap') capTris.set(r.id, [...(capTris.get(r.id) ?? []), t]);
     for (let k = 0; k < 3; k++) {
-      const x = f.positions[t * 9 + k * 3]!;
-      if (x <= -HALF + EPS) out.startRegions.add(r.id);
-      if (x >= HALF - EPS) out.endRegions.add(r.id);
+      for (const [axis, a] of [['x', 0], ['y', 1]] as const) {
+        const c = f.positions[t * 9 + k * 3 + a]!;
+        if (c <= -HALF + EPS) out.ends[axis].start.add(r.id);
+        if (c >= HALF - EPS) out.ends[axis].end.add(r.id);
+      }
     }
   }
   for (const r of layout.regions) {
@@ -421,18 +442,17 @@ function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout): TrimFacts | null {
     if (span === undefined) continue;
     if (r.kind === 'profiled' && Math.abs(((span[1] - span[0]) * layout.size) / (r.y[1] - r.y[0]) - 1) > 0.02) out.profiled.push(`${r.id} spans ${((span[1] - span[0]) / perM).toFixed(3)} m of ${r.metres} m`);
     if (r.kind === 'cap') {
-      const box = capBoxes.get(r.id)!;
-      const extent = Math.max(box[3]! - box[0]!, box[4]! - box[1]!, box[5]! - box[2]!);
       const sizes = layout.regions.filter((x) => x.kind === 'cap').map((x) => x.metres);
       const smaller = Math.max(0, ...sizes.filter((m) => m < r.metres));
       if (!r.id.endsWith('a')) out.caps.push(`${r.id} (author caps on cell a)`);
-      else if (extent > r.metres * 1.02 || extent <= smaller) out.caps.push(`${r.id} for an end ${extent.toFixed(3)} m across`);
+      // Each end face on its own: a mesh may close several ends (both ends of a beam, two poles of a rail) in one cell.
+      else for (const extent of capFaceExtents(f.positions, capTris.get(r.id)!)) if (extent > r.metres * 1.02 || extent <= smaller) out.caps.push(`${r.id} for an end ${extent.toFixed(3)} m across`);
     }
   }
   return out;
 }
 
-function trimRows(kit: VoxelKit, pieces: readonly Piece[]): VoxelKitCheckRow[] {
+function trimRows(kit: VoxelKit, pieces: readonly Piece[], cat: CaseCatalogueDef): VoxelKitCheckRow[] {
   if (kit.trimLayout === undefined) return [];
   const layout = TRIM_LAYOUTS.get(kit.trimLayout);
   const d = (id: string, state: KitCheckState, title: string, detail: string): VoxelKitCheckRow => ({ id: `trim:${id}`, state, title: `${id} (draft layout): ${title}`, detail, draft: true });
@@ -464,13 +484,16 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[]): VoxelKitCheckRow[] {
   // T8: faces meeting at a section join use the same regions on both sides.
   const t8: string[] = [];
   for (const cid of Object.keys(kit.cases)) {
+    // Sections meet along their case's run (x, or y up a corner or a post); a case without a run never joins.
+    const axis = cat.cases.find((c) => c.id === cid)?.run;
+    if (axis !== 'x' && axis !== 'y') continue;
     const secs = sectionsOf(kit, cid);
     for (const [a, b] of meetingPairs(new Set(secs.keys()))) {
       const ta = [...per].find(([p]) => p.caseId === cid && p.sectionId === a && p.level === 'high' && p.variant === 0)?.[1];
       const tb = [...per].find(([p]) => p.caseId === cid && p.sectionId === b && p.level === 'high' && p.variant === 0)?.[1];
       if (ta == null || tb == null) continue;
-      const ea = [...ta.endRegions].sort().join('+');
-      const sb = [...tb.startRegions].sort().join('+');
+      const ea = [...ta.ends[axis].end].sort().join('+');
+      const sb = [...tb.ends[axis].start].sort().join('+');
       if (ea !== sb) t8.push(`${cid} ${a} end ${ea || 'none'} → ${b} start ${sb || 'none'}`);
     }
   }
@@ -518,7 +541,7 @@ export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets
     title: `${totals.pieces} pieces: ${totals.highTriangles} triangles high, ${totals.lowTriangles} low`,
     detail: `High a piece: ${highs.length > 0 ? `min ${highs[0]}, median ${highs[highs.length >> 1]}, max ${highs[highs.length - 1]}` : 'none read'}. Textures: ${totals.textures} (${totals.textureBytes} bytes${sizes.length > 0 ? `; ${sizes.join(', ')}` : ''}). Reported, never capped.`,
   });
-  rows.push(...trimRows(kit, pieces));
+  rows.push(...trimRows(kit, pieces, catalogue));
   return { voxelKitId: kit.voxelKitId, name: kit.name, rows, pieces: reports, totals };
 }
 

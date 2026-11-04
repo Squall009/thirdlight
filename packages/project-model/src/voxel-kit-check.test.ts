@@ -181,11 +181,28 @@ describe('the voxel kit check', () => {
       const cap = (x0: number) => facts([...quad(-H, H, -F, F, H, onStrip(S12P, F)), ...quad(-0.1, 0.1, -0.1, 0.1, 0, (x, y) => [(x0 + 1 + (x + 0.1) * 1024) / 4096, (3297 + (0.1 - y) * 1024) / 4096])]);
       expect(t({ 'b-h': cap(2656), 'b-l': cap(2656) })).toEqual(['warn trim:T6']);
       expect(t({ 'b-h': cap(2336), 'b-l': cap(2336) })).toEqual([]);
+      // Both ends of a member closed in one mesh: each end face is measured on its own, not the box round both.
+      const capUv = (x: number, y: number): [number, number] => [(2337 + (x + 0.1) * 1024) / 4096, (3297 + (0.1 - y) * 1024) / 4096];
+      const ends = facts([...quad(-H, H, -F, F, H, onStrip(S12P, F)), ...quad(-0.1, 0.1, -0.1, 0.1, 0, capUv), ...quad(-0.1, 0.1, -0.1, 0.1, 0.3, capUv)]);
+      expect(t({ 'b-h': ends, 'b-l': ends })).toEqual([]);
       // T7: the low on the plain strip.
       expect(t({ 'b-l': facts(quad(-H, H, -F, F, H, onStrip(2912.5, F))) })).toEqual(['warn trim:T7']);
       // T8: the start section's end face on another strip than the body's start (both its levels, so T7 holds).
       const other = facts(quad(-H, H, -F, F, H, onStrip(2912.5, F)));
       expect(t({ 's-h': other, 's-l': other })).toEqual(['warn trim:T8']);
+    });
+
+    it('meets sections along their case run: up y for a run that climbs (a wall end), never across x', () => {
+      const endKit = (): VoxelKit => ({ ...trimKit(), cases: { 'wall-end': structuredClone(trimKit().cases['beam']!) } });
+      const t = (over: Record<string, VoxelKitMeshFacts>): string[] => fired(run(endKit(), { facts: (m) => over[m.assetId] ?? good }).filter((r) => r.id.startsWith('trim:')));
+      // Faces touching the x planes on other strips: no join there for a run up y.
+      const other = facts(quad(-H, H, -F, F, H, onStrip(2912.5, F)));
+      expect(t({ 's-h': other, 's-l': other })).toEqual([]);
+      // Faces touching the y planes (the field, the cell's height) on other regions do meet.
+      const tall = (top: number): VoxelKitMeshFacts => facts(quad(-0.06, 0.06, -H, H, H, onStrip(top, H)));
+      expect(t({ 'b-h': tall(32.5), 'b-l': tall(32.5), 's-h': tall(32.5), 's-l': tall(32.5) })).toEqual([]);
+      const topped = facts([...quad(-0.06, 0.06, -H, H, H, onStrip(32.5, H)), ...quad(0.1, 0.2, H - 0.06, H, H, onStrip(2912.5, H))]);
+      expect(t({ 'b-h': tall(32.5), 'b-l': tall(32.5), 's-h': topped, 's-l': topped })).toEqual(['warn trim:T8']);
     });
   });
 

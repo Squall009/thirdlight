@@ -42,6 +42,8 @@ import { buildGlb } from './test-glb';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { defaultKitGeometry, VoxelKitMeshes, voxelKitDebugTexture, KIT_DEBUG_TEXTURE_SIDE, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
+import { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
+import { DRAFT_TRIM_LAYOUT } from '@thirdlight/project-model';
 
 const grid = chunkGrid(32);
 const R = jobRadius(WORLD_RULES);
@@ -234,5 +236,35 @@ describe('kit pieces in the chunk view', () => {
     for (let i = 0; i < px.length; i += 4) if (px[i]! < 60) dark++;
     expect(dark).toBeGreaterThan(4 * KIT_DEBUG_TEXTURE_SIDE);
     t.dispose();
+  });
+
+  it("draws a kit on a trim layout with that layout's debug set: a hue a region, gutters magenta, other kits keep the cell texture", () => {
+    const tex = trimDebugTexture(DRAFT_TRIM_LAYOUT);
+    const side = DRAFT_TRIM_LAYOUT.size * TRIM_DEBUG_TEXTURE_SCALE;
+    expect([tex.image.width, tex.image.height]).toEqual([side, side]);
+    const px = tex.image.data as Uint8Array;
+    const at = (u: number, v: number): number[] => {
+      const o = (Math.floor(v * side) * side + Math.floor(u * side)) * 4;
+      return [px[o]!, px[o + 1]!, px[o + 2]!];
+    };
+    // A gutter between the field and the 0.5 m strip, and reserved space, are magenta; regions are not, and differ.
+    expect(at(0.5, 1088 / 4096)).toEqual([255, 0, 255]);
+    expect(at(0.95, 3900 / 4096)).toEqual([255, 0, 255]);
+    const centre = (id: string): number[] => {
+      const r = DRAFT_TRIM_LAYOUT.regions.find((x) => x.id === id)!;
+      return at(r.x === undefined ? 0.51 : (r.x[0] + 6) / 4096, (r.y[0] + 6) / 4096);
+    };
+    const ids = ['F1', 'S50', 'S50p', 'S25', 'S25p', 'S12', 'S12p', 'C50a', 'C25a', 'C12a'];
+    for (const id of ids) expect(centre(id), id).not.toEqual([255, 0, 255]);
+    expect(new Set(ids.map((id) => centre(id).join())).size).toBeGreaterThan(6);
+    tex.dispose();
+    const meshes = new VoxelKitMeshes();
+    const trim = meshes.material(7, false, 'detail-trim') as THREE.MeshLambertMaterial;
+    const plain = meshes.material(7, false) as THREE.MeshLambertMaterial;
+    expect((trim.map!.image as { width: number }).width).toBe(side);
+    expect(plain.map).toBe(meshes.texture);
+    expect(meshes.material(9, false, 'detail-trim')).toBe(trim);
+    expect((meshes.material(7, false, 'unknown-layout') as THREE.MeshLambertMaterial).map).toBe(meshes.texture);
+    meshes.dispose();
   });
 });

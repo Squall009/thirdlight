@@ -266,7 +266,10 @@ the cells draw as blocks. A material no kit binds draws the engine's
 **default kit**: plain procedural boxes (copings, plinths, sills, edges,
 mouldings, skirts, frames) with a labelled debug UV texture, and the engine's
 stand-in beams, rails and posts. Kit pieces draw with a stand-in material a
-kit and that debug texture until materials arrive. A kit mesh still loading
+kit and that debug texture until materials arrive; a kit naming a trim layout
+draws with that layout's debug set instead (each region its own colour and
+id, a 3 cm checker, a tick every 0.125 m along U), so a face mapped to the
+wrong region or stretched shows at once. A kit mesh still loading
 draws when it arrives; one that fails draws nothing (the page's status names
 it). In the Scene view a kit edited while a world is open shows once the
 world is opened again (another scene, or a reload).

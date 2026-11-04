@@ -29,6 +29,7 @@
  */
 import * as THREE from 'three';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
+import { TRIM_LAYOUTS } from '@thirdlight/project-model';
 import {
   DEFAULT_KIT_ID,
   DEFAULT_KIT_PIECES,
@@ -49,6 +50,7 @@ import {
 import { cameraRelative } from './camera-relative';
 import { mergeLayout, mergeWorldGeometry } from './static-merge';
 import type { GlbLoaderPort } from './visual';
+import { drawGlyphs, trimDebugTexture } from './voxel-trim-debug-texture';
 
 /** One authored mesh of a kit: a model asset version by its source digest, optionally one node of it. */
 export interface VoxelKitMeshRef {
@@ -61,6 +63,8 @@ export interface VoxelKitMeshRef {
 export interface VoxelKitRecordLike {
   readonly voxelKitId: string;
   readonly materials?: readonly number[];
+  /** The trim layout the kit's UVs follow: its pieces draw with that layout's debug set (absent or unknown: the cell debug texture). */
+  readonly trimLayout?: string;
   readonly cases: Readonly<Record<string, { readonly sections?: Readonly<Record<string, { readonly variants: readonly { readonly high: VoxelKitMeshRef; readonly low?: VoxelKitMeshRef; readonly weight?: number }[] }>> }>>;
 }
 
@@ -89,16 +93,6 @@ export function voxelKitMeshRefs(kits: readonly VoxelKitRecordLike[]): VoxelKitM
 /** Side of the debug UV texture in texels (one cell of UV space; a 1/16-cell checker is 16 texels). */
 export const KIT_DEBUG_TEXTURE_SIDE = 256;
 
-/** 3 × 5 glyphs (rows top first, 3 bits each, high bit left) for the debug texture's labels. */
-const GLYPHS: Readonly<Record<string, readonly number[]>> = {
-  '0': [7, 5, 5, 5, 7],
-  '1': [2, 6, 2, 2, 7],
-  '2': [7, 1, 7, 4, 7],
-  '3': [7, 1, 7, 1, 7],
-  U: [5, 5, 5, 5, 7],
-  V: [5, 5, 5, 5, 2],
-};
-
 /**
  * The labelled debug UV texture: a 1/16-cell checker over a U (red) and V
  * (green) ramp, a tick line every quarter cell with its number along U,
@@ -124,12 +118,7 @@ export function voxelKitDebugTexture(): THREE.DataTexture {
       set(x, y, Math.round((150 + (x / n) * 100) * k), Math.round((150 + (y / n) * 100) * k), Math.round(170 * k));
     }
   }
-  const glyph = (ch: string, x0: number, y0: number, scale: number): void => {
-    const rows = GLYPHS[ch]!;
-    rows.forEach((bits, row) => {
-      for (let col = 0; col < 3; col++) if (((bits >> (2 - col)) & 1) !== 0) for (let a = 0; a < scale; a++) for (let b = 0; b < scale; b++) set(x0 + col * scale + a, y0 + (4 - row) * scale + b, 20, 20, 30);
-    });
-  };
+  const glyph = (ch: string, x0: number, y0: number, scale: number): void => drawGlyphs((x, y) => set(x, y, 20, 20, 30), ch, x0, y0, scale, true);
   // Rows run up in V (texture row 0 is V 0: DataTexture is not flipped).
   for (let q = 0; q < 4; q++) {
     const x = (q * n) / 4;
@@ -237,7 +226,8 @@ export class VoxelKitMeshes {
   readonly texture = voxelKitDebugTexture();
   private readonly meshes = new Map<string, MeshState>();
   private readonly defaults = new Map<string, THREE.BufferGeometry>();
-  private readonly materials = new Map<number, THREE.Material>();
+  private readonly materials = new Map<string, THREE.Material>();
+  private readonly trimTextures = new Map<string, THREE.Texture>();
   private readonly waiting = new Set<() => void>();
   private disposed = false;
 
@@ -316,11 +306,23 @@ export class VoxelKitMeshes {
     return g;
   }
 
-  /** The stand-in material of a kit (by its seed; the default kit's own tint). */
-  material(seed: number, isDefault: boolean): THREE.Material {
-    const key = isDefault ? -1 : seed >>> 0;
+  /**
+   * The stand-in material of a kit (by its seed; the default kit's own tint). A kit following a known trim layout
+   * draws untinted with that layout's debug set, so its regions read by their own hues.
+   */
+  material(seed: number, isDefault: boolean, trimLayout?: string): THREE.Material {
+    const layout = trimLayout === undefined || isDefault ? undefined : TRIM_LAYOUTS.get(trimLayout);
+    const key = isDefault ? 'default' : layout !== undefined ? `trim:${layout.id}` : `kit:${seed >>> 0}`;
     let m = this.materials.get(key);
-    if (m === undefined) this.materials.set(key, (m = cameraRelative(new MeshLambertNodeMaterial({ color: isDefault ? DEFAULT_KIT_TINT : KIT_TINTS[(seed >>> 0) % KIT_TINTS.length]!, map: this.texture }))));
+    if (m === undefined) {
+      let map: THREE.Texture = this.texture;
+      if (layout !== undefined) {
+        map = this.trimTextures.get(layout.id) ?? trimDebugTexture(layout);
+        this.trimTextures.set(layout.id, map);
+      }
+      const color = isDefault ? DEFAULT_KIT_TINT : layout !== undefined ? 0xffffff : KIT_TINTS[(seed >>> 0) % KIT_TINTS.length]!;
+      this.materials.set(key, (m = cameraRelative(new MeshLambertNodeMaterial({ color, map }))));
+    }
     return m;
   }
 
@@ -351,6 +353,8 @@ export class VoxelKitMeshes {
     this.defaults.clear();
     for (const m of this.materials.values()) m.dispose();
     this.materials.clear();
+    for (const t of this.trimTextures.values()) t.dispose();
+    this.trimTextures.clear();
     this.texture.dispose();
     this.waiting.clear();
   }
@@ -407,6 +411,6 @@ export class VoxelKitSet {
     if (v === undefined) return null;
     const g = this.meshes.mesh(low ? (v.low ?? v.high) : v.high, mirror);
     if (g === 'pending' || g === null) return g;
-    return { key, geometry: g, material: this.meshes.material(kit.seed, false) };
+    return { key, geometry: g, material: this.meshes.material(kit.seed, false, this.records.get(kit.id)?.trimLayout) };
   }
 }
