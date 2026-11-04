@@ -1,6 +1,6 @@
 # Phase 46c — Kits and cases
 
-Status: **46c: AT THE OWNER HARD STOP (2026-11-04): role spec v1 and trim layout (detail pieces) drafted, prototyped and presented; awaiting owner approval. Nothing builds on them as final; 46c.16–46c.18 wait.** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
+Status: **46c: owner reviewed the drafts 2026-11-04 and changed the approach (decision log, owner 2026-11-04): a 46c revision redoes the case catalogue (edges only), adds a roof mesher and re-presents. Nothing builds on the old drafts.** on branch `phase-45` (worktree `~/projects/thirdlight-p45`;
 main frozen at d4053cab). Planned from `docs/plan-phase-45.md` §4 (46c) as revised by §7a (the kit and surface
 session, which takes precedence) and the owner decisions of 2026-11-02 (§7: the ten stored roles, beams, banisters
 and soffits inferred; R112: no trim sheet for terrain or construction voxels), with §1 (roles, kits per material
@@ -971,6 +971,28 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
   repo's authoring package (46c.17).
+
+- 2026-11-04 (OWNER, after reviewing acc46c; replaces the 46c case approach): **walls and floors are plain voxel faces;
+  detail meshes only where faces meet.** The 46c build dressed every wall cell (logs over flat walls) and grew a
+  46-case role catalogue; that drifted from the 2026-10-27 rule "flat-wall cases get no piece". Revised direction:
+  (1) **edge cases, small list** (start; extend only if needed; many share one mesh rotated): outer edge top /
+  vertical / bottom, inner edge, outer corner, inner corner, plus the roof edges below; each per 0.5 m voxel with a
+  little hashed stagger, no merged run geometry; far = flat square voxels, near = edge pieces + material relief.
+  (2) **Roofs get their own mesher** (role roof): flat sloped planes over the stair-step voxels with tileable
+  materials, like the terrain mesher is for terrain; detail pieces only at ridge, eave, gable edge, hip and valley.
+  The stair-step voxels stay the data for lighting, occlusion and collision. (3) **Construction UVs are anchored to
+  the grid in metres** with the tiling textures authored to the defined full-size wall, so a detail band sits at the
+  same height on every wall and floor (material model, 46d). (4) **Beams and banisters stay as planned** until the
+  system is solid. (5) **Ground-contact fringe and all ground scatter belong to the terrain material's runtime
+  scatter rules** (keyed on the terrain voxel's material id, with the climate field's temperature/humidity), in the
+  phase that builds the terrain tools and dressing (47b; plan-45 §7a "deferred material-driven terrain dressing"),
+  not to building kits. (6) **Far field: no arbitrary draw cut-off** — mountains must be visible from several km;
+  this needs extremely cheap chunk/region stand-ins at distance (Enshrouded's brick renderer is the reference);
+  a requirement for 46d's far field (D463). (7) **Damage display:** when a game damages a voxel enough, the cell is
+  replaced by debris: every neighbour face that opens toward the damaged cell gets broken-piece detail meshes; when
+  fully broken the cell disappears (or the seam moves to the next damaged cell). The engine shows damage states;
+  when and how much damage is game logic. Next: a 46c revision (case catalogue, roof mesher, kits, role spec and
+  trim drafts re-done), then re-present.
 
 ## 10. Open questions for the owner
 
