@@ -129,7 +129,7 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 | Item | Status |
 |---|---|
 | 46c.1 | done: voxel kit format 1 (DRAFT) as a project content item `voxelKits` (`project-model` `voxel-kit.ts`), setVoxelKit/deleteVoxelKit one undo each (editor, MCP, HTTP), own file `assets/voxel-kits/*.voxelkit.json`, catalog block `voxelKits` + mesh model versions in exports; newer format/unknown fields refused. Test kit 535 B (file 1,043 B). Spec §3.9 |
-| 46c.2 | not started |
+| 46c.2 | done: `kit-cases.ts` case pass (40-cell reach-2 window, 4-bit role/fill symbols, folded over 4 turns × mirror, rules by priority, fallback per role mandatory) + catalogue v0 **DRAFT** (45 cases, 43 rules; `kit-case-catalogue.ts`). Town (Node): 726 keys, µs a 16³ section with cells p50/p95 111/267 (all 13/115). 15 vitest |
 | 46c.3 | not started |
 | 46c.4 | not started |
 | 46c.5 | not started |
@@ -168,6 +168,44 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - **Gate:** fast gate gate-fast-20261104-010023 GREEN (15 min, peak 5.6 GB; vitest 833 files; 36 e2e; perf at the cap
   0 missed both renderers). `voxel-world.e2e.ts` untouched (no browser behaviour): its 7 tests sum to 66.9 s (load
   average 2.8–5.3, 46c start ~58–65 s), the kit test went to vitest.
+
+### 46c.2 case catalogue, extraction and matcher
+
+- **Built:** `packages/voxel/src/kit-cases.ts` (`CaseCatalogue`: checks and compiles a catalogue, `extract(n, lo, hi, out)`
+  fills a u16 a cell = case index << 3 | transform, `NO_CASE` for cells with no case; `matchWindow` the slow path tests
+  read), `kit-case-catalogue.ts` (`DRAFT_CASE_CATALOGUE`, id `cases-draft` v0, `draft: true`: **DRAFT — not v1, the
+  role spec draft's source**), `cropNeighbourhood` exported from `derive-assembly.ts`, `run.mjs cases` (`cases-cli.ts`).
+  Nothing draws or registers yet (46c.3+).
+- **Window and key:** 40 cells within reach 2 (the 26 touching, 6 two out along an axis, 8 beside the cells two above
+  and below), each a 4-bit symbol: open (air, liquid, filled below the surface), opening, ground, or one of the six
+  built roles × same/other material than the centre. The key is the smallest packed fold (5 u32) after the centre's
+  role; the result keeps the transform that places the matched rule's pattern (authored front +z, run x, up +y) on
+  the world.
+- **Catalogue v0 (DRAFT):** `enclosed` (all built roles); wall: plain (fallback), top, end, corner, base, jamb,
+  lintel, sill; floor: plain, edge, corner; roof: plain, peak, ridge, hip, valley, verge, eave, slope, edge;
+  foundation: plain, corner, edge; stair: plain, step, side; pillar: plain, single, base, capital, shaft; opening:
+  plain, single, threshold, sill, head, jamb; inferred: beam (wall, floor), banister-rail (wall), banister-post (wall,
+  pillar), running-board, moulding, soffit (floor, roof), foundation-skirt.
+- **Tests:** `kit-cases.test.ts` (10: 8 distinct transforms forming a group over the window; 3,000 random windows turned
+  /mirrored give the same case, key and rule, the pattern fits under the returned transform, and it is the world's
+  turn after the original's when the window has no symmetry; no vertical flip (soffit vs floor edge); priority, table
+  order, wildcards, symbol sets, rule roles; refusal without a fallback for each of the 7 roles and 9 other broken
+  definitions; every one of the 45 cases reached by a window; 20,000 random windows each a case of their role) and
+  `tools/voxel-bench/kit-cases.test.ts` (5, real stores: the 45.7b scene's wall, top, end, beam (run along x, wall
+  behind), rails and posts, and exactly the 24 cells the placeholder rules read as beam/rail/post; banister grown →
+  wall, beam cut → stub; the scene turned/mirrored 7 ways gives the same case at every one of 152 cells; on 6 random
+  assembly/terrain worlds with every role dabbed in, the cached extraction equals the window path at every cell and
+  no other cell gets a case; the town smoke).
+- **Measured** (`run.mjs cases`, 6 GB scope, Node 22, i5-12600H, 2026-11-04 01:32, load 1.3, uptime 11.4 d, 3 rounds):
+  whole 512² town, 12,072 sections of 16³, 1,394 with detail-bearing cells (320,430 cells), **726 case keys seen**;
+  µs a section **p50 / p95 111 / 267 with cells, 13 / 115 all** (rounds 329 / 324 / 326 ms; cold pass, empty window
+  cache, 347 ms). Against §4: the case pass costs about the terrain rules' evaluation again on built sections
+  (92–116); 46c.3 measures the composed set. Under vitest the same pass reads ~3× slower (380 µs): the CLI is the
+  number. Town cases: wall-plain 73,475, roof-slope 57,772, foundation-plain 47,130, floor-plain 46,574, moulding
+  14,850, wall-end 13,352, banister-rail 12,331, foundation-skirt 9,992, … ; 24 cases never occur there (the town
+  writes no openings, pillars, hip/valley/peak roofs or flat roofs): they are reached by window enumeration only.
+- **Gate:** fast gate gate-fast-20261104-013505 GREEN (13 min, peak 4.5 GB; vitest 835 files; 36 e2e; perf at the cap
+  0 missed both renderers). `voxel-world.e2e.ts` untouched (no browser behaviour).
 
 ## 9. Decision log
 
@@ -226,6 +264,24 @@ game-ready asset: triangles per level, texture sizes and file size reported (own
 - 2026-11-04 (46c.1, default chosen, owner to confirm): **the editor has no voxel kit page yet** (setVoxelKit and
   deleteVoxelKit are API-only in `tests/editor-op-reach.test.ts`, with the reason); its project-window icon is the
   block kit's picture copied as `voxelkit.webp` until one is drawn (unverified visually).
+- 2026-11-04 (46c.2, default chosen, owner to confirm): **the case window is 40 cells of 4-bit symbols** (open,
+  opening, ground, six built roles × the centre's material or another): a case sees roles and fill classes, never
+  material ids, so every material of a kit gets the same cases; partly filled cells below the surface read as open.
+  The key is the smallest of the 8 folds (mirror x, then quarter turns taking +x to +z); the result's transform
+  places the matched pattern on the world (the fold's turn bits and a mirror bit for 46c.6).
+- 2026-11-04 (46c.2, default chosen, owner to confirm): **a rule is a conjunction of window cells, each a symbol set**;
+  an "or" is several rules naming one case; rules go by priority, ties in table order, each tried under all 8
+  transforms; the **fallback per detail role is mandatory** and outside the rules (a catalogue missing one is
+  refused). Cases carry roles, required/optional, a run axis (x, y or none) and the inferred feature they draw.
+- 2026-11-04 (46c.2, default chosen, owner to confirm): **catalogue v0 is a DRAFT** (45 cases, 43 rules), the source
+  of the role spec draft (46c.12); its known limits for the owner: openings resolve one frame case a cell (corners
+  left to 46c.4's sections); a soffit is any floor/roof edge open below and in front (reach 2 cannot tell an eave from
+  an inside stairwell edge, nor see a wall 2+ cells behind a deep eave); beams come from wall and floor cells,
+  banister rails from wall cells only; a rail spanning between posts does not check its support's thickness; hip,
+  valley, peak and flat-roof cases are reached by window enumeration only (no test world builds them).
+- 2026-11-04 (46c.2, default chosen, owner to confirm): **a per-thread direct-mapped cache of 16,384 windows**
+  (~400 KB, a memory budget, not a count) skips folding and matching for windows seen before; results are identical
+  with or without it (tested on random worlds against the window path).
 - 2026-11-03 (lead): **art-factory graphs and the Kit Designer** come only through a request doc
   (`docs/requests/art-factory-<date>.md`); this repo never edits art-factory. Blender templates per role ship in this
   repo's authoring package (46c.17).

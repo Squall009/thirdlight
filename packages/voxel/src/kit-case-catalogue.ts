@@ -1,0 +1,160 @@
+/**
+ * The case catalogue, version 0: **DRAFT — not v1.** It is the source the
+ * role spec draft (`docs/architecture/voxel-role-spec.md`) is written from,
+ * and stays a draft until the owner approves that spec; nothing builds on
+ * its case list as final before then.
+ *
+ * Every case is written in its own orientation: the exposed face looks
+ * toward +z ("front"), a run follows x, up is +y. A rule's cells are
+ * `[dx, dy, dz, accepts]` in that orientation; the matcher tries them under
+ * every turn and mirror. Priorities: enclosed 100, inferred features
+ * 60–90, role shapes 45–80; a cell no rule matches takes its role's
+ * fallback (the plain case: the base surface alone, or the kit's generic
+ * piece).
+ *
+ * The inferred features (beam, banister, soffit, moulding, running board,
+ * foundation skirt) are cases of the stored roles, read from the
+ * arrangement: nothing stores them.
+ */
+import { CELL, notCell, type CaseCatalogueDef, type CaseDef, type CaseRule, type CaseRuleCell } from './kit-cases';
+import { VOXEL_ROLE } from './record';
+
+const R = VOXEL_ROLE;
+const { air: A, open: O, opening: OP, ground: G, built: B, solid: S } = CELL;
+const BUILT_CASE_ROLES = [R.wall, R.floor, R.roof, R.foundation, R.stair, R.pillar];
+
+const c = (id: string, roles: readonly number[], run: CaseDef['run'], required: boolean, note: string, feature?: CaseDef['feature']): CaseDef => (feature === undefined ? { id, roles, run, required, note } : { id, roles, run, required, note, feature });
+const r = (id: string, priority: number, cells: readonly CaseRuleCell[], roles?: readonly number[]): CaseRule => (roles === undefined ? { case: id, priority, cells } : { case: id, priority, cells, roles });
+
+/** The four sides of the centre, level with it. */
+const SIDES_OPEN: CaseRuleCell[] = [[1, 0, 0, O], [-1, 0, 0, O], [0, 0, 1, O], [0, 0, -1, O]];
+/** The six faces of the centre covered by solid cells. */
+const ENCLOSED: CaseRuleCell[] = [[1, 0, 0, S], [-1, 0, 0, S], [0, 1, 0, S], [0, -1, 0, S], [0, 0, 1, S], [0, 0, -1, S]];
+
+const cases: CaseDef[] = [
+  c('enclosed', BUILT_CASE_ROLES, null, false, 'no face open: nothing shows, no piece'),
+  // wall
+  c('wall-plain', [R.wall], null, true, 'an exposed wall face with no edge in reach (fallback): the base surface'),
+  c('wall-top', [R.wall], 'x', true, 'the top edge of a wall: a coping cap'),
+  c('wall-end', [R.wall], 'y', true, 'the free end of a one-cell-thick wall'),
+  c('wall-corner', [R.wall], 'y', true, 'an outside vertical corner'),
+  c('wall-base', [R.wall], 'x', false, 'the foot of a wall on ground, a foundation or a floor: a plinth'),
+  c('wall-jamb', [R.wall], 'y', true, 'beside an opening: the frame side'),
+  c('wall-lintel', [R.wall], 'x', true, 'over an opening'),
+  c('wall-sill', [R.wall], 'x', true, 'under an opening'),
+  c('beam', [R.wall, R.floor], 'x', true, 'one cell out from a wall body, open above and below', 'beam'),
+  c('banister-rail', [R.wall], 'x', true, 'a low thin run, open above: on a post, between posts or on a wider support', 'banister'),
+  c('banister-post', [R.wall, R.pillar], null, true, 'thin both ways on a support, under a rail', 'banister'),
+  c('running-board', [R.wall], 'x', false, 'the outside of a wall where a floor meets it inside: the storey line', 'running-board'),
+  c('moulding', [R.wall], 'x', false, 'a wall face under a ceiling: the moulding in the corner', 'moulding'),
+  // floor
+  c('floor-plain', [R.floor], null, true, 'a floor with no edge in reach (fallback): the base surface'),
+  c('floor-edge', [R.floor], 'x', true, 'the exposed edge of a floor slab'),
+  c('floor-corner', [R.floor], null, true, 'an outside corner of a floor slab'),
+  c('soffit', [R.floor, R.roof], 'x', false, 'the underside of a projecting edge: open below and in front', 'soffit'),
+  // roof
+  c('roof-plain', [R.roof], null, true, 'a roof cell with no slope or edge in reach (fallback)'),
+  c('roof-peak', [R.roof], null, true, 'open on all four sides and above: the top of a pyramid or a spire'),
+  c('roof-ridge', [R.roof], 'x', true, 'the top of two slopes meeting'),
+  c('roof-hip', [R.roof], null, true, 'an outside corner of two slopes'),
+  c('roof-valley', [R.roof], null, true, 'an inside corner of two slopes'),
+  c('roof-verge', [R.roof], null, true, 'the end of a slope at a gable: the verge'),
+  c('roof-eave', [R.roof], 'x', true, 'the lowest step of a slope: the eave with its fascia'),
+  c('roof-slope', [R.roof], 'x', true, 'a 45° step of the stair pattern under the roof role'),
+  c('roof-edge', [R.roof], 'x', true, 'the edge of a flat roof'),
+  // foundation
+  c('foundation-plain', [R.foundation], null, true, 'a foundation with no exposed edge in reach (fallback)'),
+  c('foundation-skirt', [R.foundation], 'x', true, 'an exposed foundation face meeting the ground in front', 'foundation-skirt'),
+  c('foundation-corner', [R.foundation], null, true, 'an outside corner of a foundation'),
+  c('foundation-edge', [R.foundation], 'x', true, 'an exposed foundation face clear of the ground'),
+  // stair
+  c('stair-plain', [R.stair], null, true, 'a stair cell off the step pattern (fallback): a landing'),
+  c('stair-step', [R.stair], 'x', true, 'a step of the 45° stair pattern under the stair role'),
+  c('stair-side', [R.stair], null, true, 'a step at the open side of a flight: the stringer'),
+  // pillar
+  c('pillar-plain', [R.pillar], null, true, 'a pillar against other cells (fallback)'),
+  c('pillar-single', [R.pillar], null, true, 'a free pillar one cell high'),
+  c('pillar-base', [R.pillar], null, true, 'the foot of a free pillar'),
+  c('pillar-capital', [R.pillar], null, true, 'the head of a free pillar'),
+  c('pillar-shaft', [R.pillar], 'y', true, 'the middle of a free pillar'),
+  // opening
+  c('opening-plain', [R.opening], null, true, 'inside a larger opening (fallback): no frame in reach'),
+  c('opening-single', [R.opening], null, true, 'a one-cell opening framed on four sides'),
+  c('opening-threshold', [R.opening], 'x', true, 'the bottom of an opening on a floor or ground: a door'),
+  c('opening-sill', [R.opening], 'x', true, 'the bottom of an opening on a wall: a window'),
+  c('opening-head', [R.opening], 'x', true, 'the top of an opening'),
+  c('opening-jamb', [R.opening], 'y', true, 'the side of an opening'),
+];
+
+const rules: CaseRule[] = [
+  r('enclosed', 100, ENCLOSED),
+  // Inferred features, read from the arrangement as the placeholder rules read beams and rails.
+  r('beam', 90, [[0, 1, 0, O], [0, -1, 0, O], [0, 0, -1, B], [0, 1, -1, B], [0, -1, -1, B], [0, 0, 1, O]]),
+  r('banister-post', 88, [...SIDES_OPEN, [0, -1, 0, S], [0, 1, 0, B], [0, 1, 1, O], [0, 1, -1, O], [0, 2, 0, O]]),
+  // A rail: thin across z, open above; on a post, spanning one open cell between posts, or on a support wider than it.
+  r('banister-rail', 86, [[0, 0, 1, O], [0, 0, -1, O], [0, 1, 0, O], [0, -1, 0, B], [1, -1, 0, O], [-1, -1, 0, O], [0, -1, 1, O], [0, -1, -1, O], [0, -2, 0, S]]),
+  r('banister-rail', 86, [[0, 0, 1, O], [0, 0, -1, O], [0, 1, 0, O], [0, -1, 0, O], [0, -2, 0, S]]),
+  r('banister-rail', 86, [[0, 0, 1, O], [0, 0, -1, O], [0, 1, 0, O], [0, -1, 0, S], [0, -1, 1, S]]),
+  r('running-board', 70, [[0, 0, 1, A], [0, 0, -1, CELL.floor], [0, 1, 0, CELL.wall], [0, -1, 0, CELL.wall]]),
+  r('moulding', 68, [[0, 0, 1, A], [0, 1, 1, CELL.floor | CELL.roof], [0, 1, 0, B]]),
+  r('soffit', 60, [[0, -1, 0, A], [0, 0, 1, A], [0, -1, 1, A]]),
+  r('foundation-skirt', 70, [[0, 0, 1, O], [0, -1, 1, G]]),
+  // wall
+  r('wall-jamb', 65, [[1, 0, 0, OP]]),
+  r('wall-lintel', 64, [[0, -1, 0, OP]]),
+  r('wall-sill', 63, [[0, 1, 0, OP]]),
+  r('wall-end', 55, [[0, 0, 1, O], [0, 0, -1, O], [1, 0, 0, O], [-1, 0, 0, S]]),
+  r('wall-corner', 54, [[0, 0, 1, O], [1, 0, 0, O], [1, 0, 1, O]]),
+  r('wall-top', 50, [[0, 1, 0, A], [0, 0, 1, O]]),
+  r('wall-base', 45, [[0, 0, 1, O], [0, -1, 0, G | CELL.foundation | CELL.floor], [0, -1, 1, S]]),
+  // floor
+  r('floor-corner', 52, [[0, 0, 1, O], [1, 0, 0, O]]),
+  r('floor-edge', 50, [[0, 0, 1, O]]),
+  // roof: the 45° stair pattern; steps up toward −z.
+  r('roof-peak', 80, [...SIDES_OPEN.map(([x, y, z]) => [x, y, z, A] as CaseRuleCell), [0, 1, 0, A]]),
+  r('roof-ridge', 78, [[0, 1, 0, A], [0, 0, 1, A], [0, 0, -1, A], [0, -1, 1, CELL.roof], [0, -1, -1, CELL.roof]]),
+  r('roof-hip', 76, [[0, 1, 0, A], [1, 0, 0, A], [0, 0, 1, A], [-1, 0, 0, CELL.roof], [0, 0, -1, CELL.roof], [-1, 1, -1, CELL.roof]]),
+  r('roof-valley', 75, [[0, 1, 0, A], [1, 0, 1, A], [1, 0, 0, CELL.roof], [0, 0, 1, CELL.roof], [-1, 1, 0, CELL.roof], [0, 1, -1, CELL.roof]]),
+  r('roof-verge', 72, [[0, 1, 0, A], [0, 0, 1, A], [1, 0, 0, A], [0, 1, -1, CELL.roof], [-1, 0, 0, CELL.roof]]),
+  r('roof-eave', 70, [[0, 1, 0, A], [0, 0, 1, A], [0, 1, -1, CELL.roof], [0, -1, 1, notCell(CELL.roof)]]),
+  r('roof-slope', 68, [[0, 1, 0, A], [0, 0, 1, A], [0, 1, -1, CELL.roof], [0, -1, 1, CELL.roof]]),
+  r('roof-slope', 67, [[0, 1, 0, A], [0, 0, 1, A], [0, -1, 1, CELL.roof]]),
+  r('roof-edge', 50, [[0, 1, 0, A], [0, 0, 1, A]]),
+  // foundation
+  r('foundation-corner', 55, [[0, 0, 1, O], [1, 0, 0, O]]),
+  r('foundation-edge', 50, [[0, 0, 1, O]]),
+  // stair: steps up toward −z.
+  r('stair-side', 62, [[0, 1, 0, A], [0, 0, 1, A], [1, 0, 0, A], [0, 1, -1, CELL.stair]]),
+  r('stair-side', 62, [[0, 1, 0, A], [0, 0, 1, A], [1, 0, 0, A], [0, -1, 1, CELL.stair]]),
+  r('stair-step', 60, [[0, 1, 0, A], [0, 0, 1, A], [0, 1, -1, CELL.stair]]),
+  r('stair-step', 60, [[0, 1, 0, A], [0, 0, 1, A], [0, -1, 1, CELL.stair]]),
+  // pillar
+  r('pillar-single', 60, [...SIDES_OPEN, [0, 1, 0, notCell(CELL.pillar)], [0, -1, 0, notCell(CELL.pillar)]]),
+  r('pillar-base', 58, [...SIDES_OPEN, [0, 1, 0, CELL.pillar], [0, -1, 0, notCell(CELL.pillar)]]),
+  r('pillar-capital', 58, [...SIDES_OPEN, [0, -1, 0, CELL.pillar], [0, 1, 0, notCell(CELL.pillar)]]),
+  r('pillar-shaft', 55, [...SIDES_OPEN, [0, 1, 0, CELL.pillar], [0, -1, 0, CELL.pillar]]),
+  // opening: its frame is the solid around it in its plane (x, y); front and back are open.
+  r('opening-single', 60, [[0, 1, 0, S], [0, -1, 0, S], [1, 0, 0, S], [-1, 0, 0, S]]),
+  r('opening-threshold', 58, [[0, -1, 0, G | CELL.floor | CELL.foundation | CELL.stair]]),
+  r('opening-sill', 56, [[0, -1, 0, S]]),
+  r('opening-head', 54, [[0, 1, 0, S]]),
+  r('opening-jamb', 52, [[1, 0, 0, S]]),
+];
+
+/** The draft catalogue (see the file comment: DRAFT — not v1, the role spec draft's source). */
+export const DRAFT_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
+  id: 'cases-draft',
+  version: 0,
+  draft: true,
+  cases,
+  rules,
+  fallback: {
+    [R.wall]: 'wall-plain',
+    [R.floor]: 'floor-plain',
+    [R.roof]: 'roof-plain',
+    [R.foundation]: 'foundation-plain',
+    [R.stair]: 'stair-plain',
+    [R.pillar]: 'pillar-plain',
+    [R.opening]: 'opening-plain',
+  },
+});

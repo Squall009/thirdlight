@@ -125,8 +125,8 @@ function sectionScratch(grid: ChunkGrid, edge: number, pad: number): Scratch {
   return s;
 }
 
-/** Copies a section's cells and its pad out of its chunk's neighbourhood (both of the same pad). */
-function cropNeighbourhood(full: Neighbourhood, lx: number, ly: number, lz: number, out: Neighbourhood): void {
+/** Copies a section's cells and its pad out of its chunk's neighbourhood (both of the same pad), the section's first cell at local (lx, ly, lz). */
+export function cropNeighbourhood(full: Neighbourhood, lx: number, ly: number, lz: number, out: Neighbourhood): void {
   const fs = full.side;
   const os = out.side;
   for (let x = 0; x < os; x++) for (let z = 0; z < os; z++) {

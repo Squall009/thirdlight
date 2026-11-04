@@ -13,6 +13,7 @@
  *   node tools/voxel-bench/run.mjs join [options]     # joining derive sections into chunk draws, µs a chunk (join-cli.ts)
  *   node tools/voxel-bench/run.mjs collision [options]  # chunk bodies: heightfield share, bytes, add ms, Rapier heap (collision-cli.ts)
  *   node tools/voxel-bench/run.mjs mesher [options]   # terrain mesher candidates: hard cases, triangles, heightfields, µs a section (mesher-cli.ts)
+ *   node tools/voxel-bench/run.mjs cases [options]    # the case pass on the town: µs a 16³ section, keys seen, cases (cases-cli.ts)
  *   node tools/voxel-bench/run.mjs mips [options]     # mip nodes through the derive: triangles, bytes, heightfields, µs a node per level (mips-cli.ts)
  *   node tools/voxel-bench/run.mjs seams [options]    # seams between levels on two-level patches: cracks, triangles, µs (seams-cli.ts)
  *   node tools/voxel-bench/run.mjs slice-world --project-dir DIR   # the thin slice's test world into a project folder (slice-world-cli.ts)
@@ -40,7 +41,7 @@ if (why !== null) {
   console.error(`voxel-bench: not started: ${why}. Start it in a capped scope:\n  ${CAPPED_COMMAND.replace('tools/perf/run.mjs', 'tools/voxel-bench/run.mjs')}\nor pass ${NO_MEMORY_CAP_FLAG} on a host where nothing else runs.`);
   process.exit(2);
 }
-const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'mips', 'seams', 'slice-world', 'slice'].includes(args[0]) ? args[0] : null;
+const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'cases', 'mips', 'seams', 'slice-world', 'slice'].includes(args[0]) ? args[0] : null;
 const entry = mode === null ? 'cli' : `${mode}-cli`;
 const rest = (mode === null ? args : args.slice(1)).filter((a) => a !== NO_MEMORY_CAP_FLAG);
 const out = join(REPO, 'dist', 'voxel-bench', `${entry}.mjs`);
