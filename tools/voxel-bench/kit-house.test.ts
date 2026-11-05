@@ -68,6 +68,7 @@ import { loadArea } from './regions';
 import { dabDetailRoles, putVoxel, randomAssemblyWorld } from './scenes';
 import { townWorld } from './town';
 import { MAT } from './world-kit';
+import { ROOF_EDGE_NEAR_M, roofCaseOffset, type RoofEdgeCaseId } from './roof-edge-surface';
 
 const grid = chunkGrid(32);
 const E = grid.edge;
@@ -85,6 +86,8 @@ interface Piece {
   readonly yaw: number;
   readonly place: number;
   readonly flags: number;
+  /** The variant's mirror bit (a verge rising toward its own −x). */
+  readonly mirror: boolean;
 }
 
 /** The kit pieces of derived chunk (cx, cy, cz) (default stand-ins of beams and banisters left out). */
@@ -95,7 +98,7 @@ function piecesOf(d: DerivedData, cx: number, cy: number, cz: number): Piece[] {
     const o = k * INSTANCE_BYTES;
     const piece = b[o + 4]! | (b[o + 5]! << 8);
     if (piece < KIT_PIECE_BASE) continue;
-    out.push({ cell: [cx * E + b[o]!, cy * E + b[o + 1]!, cz * E + b[o + 2]!], caseId: OWN[piece - KIT_PIECE_BASE]!.caseId, yaw: b[o + 3]! & 3, place: instancePlaceOf(b[o + 3]!), flags: b[o + 3]! & 0xf0 });
+    out.push({ cell: [cx * E + b[o]!, cy * E + b[o + 1]!, cz * E + b[o + 2]!], caseId: OWN[piece - KIT_PIECE_BASE]!.caseId, yaw: b[o + 3]! & 3, place: instancePlaceOf(b[o + 3]!), flags: b[o + 3]! & 0xf0, mirror: (b[o + 7]! & 0x80) !== 0 });
   }
   return out;
 }
@@ -268,7 +271,7 @@ describe('pieces on edges only', () => {
         let q = v;
         if (p.place === INSTANCE_PLACE.faceUp) q = [q[0], q[2], -q[1]];
         if (p.place === INSTANCE_PLACE.faceDown) q = [q[0], -q[2], q[1]];
-        if (p.place === INSTANCE_PLACE.centred) q = [q[0], q[1], q[2] - 0.5];
+        if (p.place === INSTANCE_PLACE.centred) q = [q[0], q[1] - 0.5, q[2] - 0.5];
         const w = applyFold(p.yaw, q).map((c, a) => Math.floor(p.cell[a]! + 0.5 + c)) as Cell;
         points++;
         if (w.every((c, a) => c === p.cell[a])) continue;
@@ -384,6 +387,74 @@ describe('damage drawn as debris', () => {
 });
 
 describe('the default kit drawn through the real chunk view', () => {
+  it('roof-edge pieces follow the planes on both sides of a gable and up a hip: verges mirrored on one side, ridges, hips and verges on the planes as drawn', () => {
+    const s = createWorldStore(grid);
+    // Hand roofs, each cell's height b + the smallest distance to a low edge (45° everywhere); the top planes over
+    // them in world cells are b + 1 + that distance measured to the roof's outer faces.
+    const roofs = [
+      { x0: 19, x1: 29, z0: 2, z1: 13, b: 8, hip: false },
+      { x0: 2, x1: 13, z0: 2, z1: 12, b: 16, hip: false },
+      { x0: 2, x1: 13, z0: 18, z1: 29, b: 4, hip: true },
+    ];
+    for (const r of roofs) for (let x = r.x0; x <= r.x1; x++) for (let z = r.z0; z <= r.z1; z++) {
+      const d = Math.min(x - r.x0, r.x1 - x, ...(r.hip ? [z - r.z0, r.z1 - z] : []));
+      putVoxel(s, x, r.b + d, z, MAT.roofTile, R.roof);
+    }
+    const top = (x: number, z: number): number => {
+      for (const r of roofs) {
+        if (x < r.x0 - 0.2 || x > r.x1 + 1.2 || z < r.z0 - 0.2 || z > r.z1 + 1.2) continue;
+        const cx = Math.max(r.x0, Math.min(r.x1 + 1, x));
+        const cz = Math.max(r.z0, Math.min(r.z1 + 1, z));
+        return r.b + 1 + Math.min(cx - r.x0, r.x1 + 1 - cx, ...(r.hip ? [cz - r.z0, r.z1 + 1 - cz] : []));
+      }
+      throw new Error(`no roof at ${x}, ${z}`);
+    };
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
+    const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
+    const meshes = new VoxelKitMeshes();
+    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: meshes.world([]) });
+    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
+    view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
+    view.root.updateMatrixWorld(true);
+    const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
+    // Each roof case's own mesh, plain and mirrored: which draw is which.
+    const kinds: { caseId: RoofEdgeCaseId; mirror: boolean; g: THREE.BufferGeometry }[] = [];
+    for (const caseId of ['roof-ridge', 'roof-gable', 'roof-hip'] as const) for (const mirror of [false, true]) kinds.push({ caseId, mirror, g: meshes.defaultMesh(caseId, false, mirror)! });
+    // Every slope-following mesh lies on its case's planes in its own orientation; the mirrored verge does not (it rises toward −x).
+    for (const k of kinds) if (!k.mirror) expect(roofCaseOffset(k.caseId, k.g.getAttribute('position').array), k.caseId).toBeLessThan(ROOF_EDGE_NEAR_M);
+    expect(roofCaseOffset('roof-gable', kinds.find((k) => k.caseId === 'roof-gable' && k.mirror)!.g.getAttribute('position').array)).toBeGreaterThan(0.4);
+    const m4 = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const seen = new Map<string, number>();
+    let worst = 0;
+    for (const mesh of draws) {
+      const k = kinds.find((q) => q.g === mesh.geometry);
+      if (k === undefined) continue;
+      const pos = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, m4);
+        m4.premultiply(mesh.matrixWorld);
+        for (let v = 0; v < pos.count; v++) {
+          p.fromBufferAttribute(pos, v).applyMatrix4(m4).divideScalar(VOXEL_SIZE_M);
+          const off = Math.abs(p.y - top(p.x, p.z)) * VOXEL_SIZE_M;
+          worst = Math.max(worst, off);
+          expect(off, `${k.caseId}${k.mirror ? ' (mirrored)' : ''} vertex at ${p.toArray().map((c) => c.toFixed(2)).join(', ')}`).toBeLessThan(ROOF_EDGE_NEAR_M);
+        }
+      }
+      seen.set(`${k.caseId}${k.mirror ? '*' : ''}`, (seen.get(`${k.caseId}${k.mirror ? '*' : ''}`) ?? 0) + mesh.count);
+    }
+    // Both verges of every gable end are dressed, one mirrored; ridges (centred and on a side) and hips are drawn.
+    expect(seen.get('roof-gable')).toBe(seen.get('roof-gable*'));
+    expect(seen.get('roof-gable')).toBeGreaterThan(8);
+    expect(seen.get('roof-ridge')).toBeGreaterThan(20);
+    expect(seen.get('roof-hip')).toBeGreaterThan(8);
+    expect(seen.has('roof-ridge*') || seen.has('roof-hip*')).toBe(false);
+    console.log(`[roof edges] ${[...seen].map(([id, n]) => `${id} ${n}`).join(', ')}; worst offset from the planes ${(worst * 100).toFixed(1)} cm`);
+    view.dispose();
+    meshes.dispose();
+  });
+
   it('a box house, a gable house and a damaged wall: one instanced draw a (piece, level), instances by family, aliases on their target\'s geometry, every instance staggered within bounds', () => {
     const s = createWorldStore(grid);
     boxHouse(s);
@@ -404,12 +475,15 @@ describe('the default kit drawn through the real chunk view', () => {
     const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
     // Instances by case from the derive, and what the view drew of them: every kit instance, one draw a piece kind.
     const byCase = new Map<string, number>();
-    for (const p of piecesOf(d, 0, 0, 0)) byCase.set(p.caseId, (byCase.get(p.caseId) ?? 0) + 1);
+    const pieces = piecesOf(d, 0, 0, 0);
+    for (const p of pieces) byCase.set(p.caseId, (byCase.get(p.caseId) ?? 0) + 1);
     const total = [...byCase.values()].reduce((a, b) => a + b, 0);
     expect(draws.reduce((n, m) => n + m.count, 0)).toBe(total);
     expect(view.piecesDrawn.kit).toBe(total);
-    const kinds = [...byCase.keys()].filter((id) => DEFAULT_KIT_PIECES[id] !== null);
-    expect(draws.length).toBe(kinds.length);
+    // One draw a piece kind, a mirrored one (the gable's second verge) its own.
+    const kinds = new Set(pieces.filter((p) => DEFAULT_KIT_PIECES[p.caseId] !== null).map((p) => `${p.caseId}${p.mirror ? '*' : ''}`));
+    expect(kinds.has('roof-gable*')).toBe(true);
+    expect(draws.length).toBe(kinds.size);
     const family = (id: string): string => (id.startsWith('edge-') || id.startsWith('corner-') ? 'edge' : id.startsWith('roof-') ? 'roof' : id.startsWith('debris') ? 'debris' : 'other');
     const families = new Map<string, number>();
     for (const [id, n] of byCase) families.set(family(id), (families.get(family(id)) ?? 0) + n);

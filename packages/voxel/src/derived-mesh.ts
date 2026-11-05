@@ -133,9 +133,10 @@ export function snorm8(v: number): number {
  * byte), applied in the case's own orientation before the turns: `upright`
  * as authored; `faceUp` / `faceDown` tip the case's +z (its open side) to
  * +y / −y, so a piece written for a side face dresses a top or bottom face;
- * `centred` moves it half a cell toward its own −z, so a piece written on
- * the cell's +z side runs along the cell's middle (a ridge on an odd-width
- * roof).
+ * `centred` moves it half a cell toward its own −z and half a cell down,
+ * so a ridge piece written on the cell's +z side (where a 45° plane is
+ * highest) runs along the cell's middle at the plane's height there (a
+ * ridge on an odd-width roof).
  */
 export const INSTANCE_PLACE = Object.freeze({ upright: 0, faceUp: 1, faceDown: 2, centred: 3 });
 

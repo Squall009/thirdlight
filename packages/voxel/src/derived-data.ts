@@ -130,8 +130,12 @@ import { utf8Encode } from '@thirdlight/shared';
  * (bit 15, above the wetness): the surface shader maps construction from
  * the build grid in metres and terrain from three axes. Shader data differs
  * from v16's wherever a construction cell is in a grid; the layout is v16's.
+ * 18: a verge rising toward its own −x carries the variant's mirror bit (one
+ * verge mesh follows both slopes of a gable), and a centred ridge sits half
+ * a cell lower (where the planes meet in a cell's middle). Instances differ
+ * from v17's on verges; the layout is v17's.
  */
-export const DERIVED_FORMAT_VERSION = 17;
+export const DERIVED_FORMAT_VERSION = 18;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

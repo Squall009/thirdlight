@@ -56,6 +56,7 @@ import {
   mipCellMetres,
   PIECE_FAMILY,
   PIECE_VARIANT_MIRROR,
+  mirrorAxisOf,
   POSITION_STEPS_PER_CELL,
   SampleRing,
   SURFACE_VERTEX_BYTES,
@@ -558,7 +559,7 @@ export class VoxelChunkView {
           // The mesh's run through the alias's rotation, the tip and the turns: a vertical edge's U runs up y.
           const q = pieceTurn(this.quat, rot, instancePlaceOf(rot), g.turnSign);
           if (g.rotation !== 0) q.multiply(this.tip.setFromRotationMatrix(cubeRotationMatrix(g.rotation)));
-          const [axis, sign] = runAxisOf(q, g.runAxis, mirror);
+          const [axis, sign] = runAxisOf(q, g.runAxis, mirror, mirrorAxisOf(g.rotation));
           const [offset, factor] = pieceU(g.uPerMetre!, m.cell, local, cellM, axis, sign);
           trim.u.setXY(i, offset, factor);
         });

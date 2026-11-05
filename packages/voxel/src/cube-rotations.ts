@@ -64,3 +64,12 @@ export const CUBE_ROTATION_X90 = cubeRotationIndex([1, 0, 0, 0, 0, -1, 0, 1, 0])
 
 /** A quarter turn about −z (+y to +x): a top edge's piece (along x) onto the vertical edge of the same side. */
 export const CUBE_ROTATION_ZM90 = cubeRotationIndex([0, 1, 0, -1, 0, 0, 0, 0, 1]);
+
+/**
+ * The mesh axis (0 x, 1 y, 2 z) cube rotation `i` carries onto the case's x: a mirrored case (x → −x in the case's
+ * own orientation) drawn through an alias mirrors its mesh across that axis.
+ */
+export function mirrorAxisOf(i: number): 0 | 1 | 2 {
+  const m = CUBE_ROTATIONS[i]!;
+  return m[0] !== 0 ? 0 : m[1] !== 0 ? 1 : 2;
+}

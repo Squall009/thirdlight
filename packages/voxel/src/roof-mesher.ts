@@ -94,15 +94,23 @@ export type RoofEdgeCase = 'roof-ridge' | 'roof-eave' | 'roof-gable' | 'roof-hip
 
 /**
  * One roof-edge piece of a plane cell. Yaw (quarter turns about +y, +x to
- * +z) places the case's own orientation: an eave or verge open toward +z;
- * a ridge running along x on the cell's +z side; a hip or valley running to
- * the cell's +x, +z corner. A ridge along the cell's middle is `centred`
- * (moved half a cell in from the side its yaw names).
+ * +z) places the case's own orientation: an eave open toward +z, its plane
+ * rising toward −z; a verge open toward +z, its plane rising toward +x; a
+ * ridge running along x on the cell's +z side, its plane rising toward +z;
+ * a hip or valley running from the cell's +x, +z corner (the low one) up to
+ * its −x, −z corner. The two verges of a gable rise in opposite senses seen
+ * from outside, which no quarter turn of one mesh gives: the verge rising
+ * toward its own −x is `mirror` (drawn by the verge mesh mirrored across
+ * x = 0, piece-table.ts `PIECE_VARIANT_MIRROR`), so one verge mesh follows
+ * the slope on both sides. A ridge along the cell's middle is `centred`
+ * (moved half a cell in from the side its yaw names and half a cell down:
+ * the middle of a 45° cell is half a cell below its high side).
  */
 export interface RoofEdge {
   readonly caseId: RoofEdgeCase;
   readonly yaw: number;
   readonly centred?: true;
+  readonly mirror?: true;
 }
 
 /** The roof-edge pieces a plane cell's word names. */
@@ -113,7 +121,9 @@ export function roofEdgesOf(word: number): RoofEdge[] {
   for (let k = 0; k < 4; k++) {
     const yaw = (k + 3) & 3;
     if (((word >>> (ROOF_WORD.eaveShift + k)) & 1) !== 0) out.push({ caseId: 'roof-eave', yaw });
-    if (((word >>> (ROOF_WORD.vergeShift + k)) & 1) !== 0) out.push({ caseId: 'roof-gable', yaw });
+    // A verge is on a single-direction cell: at yaw k + 3 the case's +x is the direction k − 1, so the verge on the
+    // side after the rise (k = rise + 1) rises toward its +x, the one before it (k = rise − 1) toward its −x.
+    if (((word >>> (ROOF_WORD.vergeShift + k)) & 1) !== 0) out.push(((dirs >>> ((k + 1) & 3)) & 1) !== 0 ? { caseId: 'roof-gable', yaw, mirror: true } : { caseId: 'roof-gable', yaw });
     if (((word >>> (ROOF_WORD.ridgeShift + k)) & 1) !== 0) out.push({ caseId: 'roof-ridge', yaw });
   }
   if ((word & ROOF_WORD.centreRidge) !== 0) out.push({ caseId: 'roof-ridge', yaw: (dirs & 0b0101) === 0b0101 ? 3 : 0, centred: true });

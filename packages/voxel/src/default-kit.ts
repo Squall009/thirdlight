@@ -16,8 +16,11 @@
  *   three strips meeting there (its rims are their end profiles); the bottom
  *   corner is the top one turned. Inner corners take none: the three coves
  *   meet by themselves.
- * - **Roof edges:** chamfered boards (ridge cap, eave lip, verge board, hip
- *   and valley caps), where the roof mesher's planes meet or end.
+ * - **Roof edges:** where the roof mesher's planes meet or end, each
+ *   following the planes: a ridge cap and hip and valley caps over the line
+ *   the planes meet on, a verge board along the slope up the gable edge
+ *   (one mesh for both verges of a gable: the second is drawn mirrored), a
+ *   chamfered eave lip under the low edge.
  * - **Debris:** chamfered rubble chunks on a damaged cell (two stages) and a
  *   chamfered broken rim on an intact face toward it.
  *
@@ -321,6 +324,86 @@ function boxes(list: readonly DefaultKitBox[], low: boolean): KitMeshData {
   return m.done();
 }
 
+/**
+ * A member between two end sections `a` and `b` (corresponding points, 16ths from the cell's corner): the faces
+ * `segs` (point i to j, wound toward `out`) at every detail, the lips `lips` and the end caps `caps` (polygons of
+ * point indices, convex, the first end's facing `−along`, the second's `+along`) at high detail only.
+ */
+function loft(a: readonly V3[], b: readonly V3[], along: V3, segs: readonly (readonly [number, number, V3])[], lips: readonly (readonly [number, number, V3])[], caps: readonly (readonly number[])[], low: boolean): KitMeshData {
+  const m = new MeshBuilder();
+  const c = (p: V3): V3 => mul(p, 1 / U);
+  const face = (pts: V3[], out: V3): void => {
+    // The polygon's own normal, turned toward `out` (flat shading, planar UVs).
+    let nr = unit(cross(sub(pts[1]!, pts[0]!), sub(pts[2]!, pts[0]!)));
+    if (dot(nr, out) < 0) nr = mul(nr, -1);
+    m.flat(pts, nr);
+  };
+  for (const [i, j, out] of low ? segs : [...segs, ...lips]) face([c(a[i]!), c(b[i]!), c(b[j]!), c(a[j]!)], out);
+  if (!low) {
+    for (const poly of caps) {
+      face(poly.map((k) => c(a[k]!)), mul(along, -1));
+      face(poly.map((k) => c(b[k]!)), along);
+    }
+  }
+  return m.done();
+}
+
+/** How far a roof cap reaches out from its line along each plane, and how far it stands above the planes (16ths). */
+const ROOF_CAP_REACH = 2.5;
+const ROOF_CAP_RISE = 0.75;
+
+/**
+ * A cap along a line where two 45° planes meet (16ths from the cell's corner): `line(t)` the line's point at t of
+ * 0 … 1, `lateral` the horizontal offset that moves onto plane A (its negation onto plane B), `dy` how far the
+ * planes are below (convex: a ridge or a hip) or above (concave: a valley) the line at that offset. The cap covers
+ * both planes near the line, standing {@link ROOF_CAP_RISE} above them, with a lip down to each plane.
+ */
+function lineCap(line: (t: number) => V3, lateral: V3, dy: number, low: boolean): KitMeshData {
+  const r = ROOF_CAP_RISE;
+  const section = (t: number): V3[] => {
+    const l = line(t);
+    const pa = add(l, [lateral[0], dy, lateral[2]]);
+    const pb = add(l, [-lateral[0], dy, -lateral[2]]);
+    // A on its plane, A lifted, the line lifted, B lifted, B on its plane, the line on the planes.
+    return [pa, add(pa, [0, r, 0]), add(l, [0, r, 0]), add(pb, [0, r, 0]), pb, l];
+  };
+  const a = section(0);
+  const b = section(1);
+  const along = unit(sub(line(1), line(0)));
+  const up: V3 = [0, 1, 0];
+  return loft(a, b, along, [[1, 2, up], [2, 3, up]], [[0, 1, lateral], [3, 4, mul(lateral, -1)]], [[0, 1, 2, 5], [5, 2, 3, 4]], low);
+}
+
+/** The ridge cap: along x on the cell's +z side, where the plane rising toward +z (y 32 there) meets the other slope. */
+function ridgeCap(low: boolean): KitMeshData {
+  const w = ROOF_CAP_REACH;
+  return lineCap((t) => [16 * t, 32, 16], [0, 0, w], -w, low);
+}
+
+/**
+ * The verge board: up the gable edge on the +z face, along the plane rising toward +x (y 16 at x 0 to 32 at x 16,
+ * the plane through the stair's outer corners), from 3 below the plane's edge to {@link ROOF_CAP_RISE} above it,
+ * 1.25 out of the face. Its ends are cut square to the slope, so the boards of a gable's cells meet end to end; the
+ * other verge of the gable is this one mirrored (roof-mesher.ts `roofEdgesOf`).
+ */
+function vergeBoard(low: boolean): KitMeshData {
+  const n: V3 = unit([-1, 1, 0]);
+  const at = (x: number, s: number, t: number): V3 => add([x, 16 + x, 16 + s], mul(n, t));
+  const section = (x: number): V3[] => [at(x, 0, 0), at(x, 0, ROOF_CAP_RISE), at(x, 1.25, ROOF_CAP_RISE), at(x, 1.25, -3), at(x, 0, -3)];
+  // Ends square to the slope through the lattice points the plane's edge crosses (x 0 and 16).
+  const a = section(0).map((p) => add(p, mul([1, 1, 0], -dot(sub(p, [0, 16, 16]), [0.5, 0.5, 0]))));
+  const b = section(16).map((p) => add(p, mul([1, 1, 0], -dot(sub(p, [16, 32, 16]), [0.5, 0.5, 0]))));
+  const along = unit([1, 1, 0]);
+  return loft(a, b, along, [[1, 2, n], [2, 3, [0, 0, 1]], [3, 4, mul(n, -1)]], [[0, 1, [0, 0, -1]]], [[0, 1, 2, 3, 4]], low);
+}
+
+/** A hip (convex) or valley (concave) cap: from the cell's low corner (16, 16, 16) up to its high corner (0, 32, 0). */
+function diagonalCap(concave: boolean, low: boolean): KitMeshData {
+  const w = ROOF_CAP_REACH / Math.SQRT2;
+  // Off the line by (w, 0, −w): one plane's distance up the slope changes by w, so its height by ∓w.
+  return lineCap((t) => [16 - 16 * t, 16 + 16 * t, 16 - 16 * t], [w, 0, -w], concave ? w : -w, low);
+}
+
 const own = (note: string, mesh: (low: boolean) => KitMeshData): DefaultKitPiece => Object.freeze({ note, mesh });
 const box = (note: string, ...list: DefaultKitBox[]): DefaultKitPiece => own(note, (low) => boxes(list, low));
 const alias = (note: string, of: string, rotation: number): DefaultKitPiece => Object.freeze({ note, alias: Object.freeze({ case: of, rotation }) });
@@ -340,11 +423,11 @@ export const DEFAULT_KIT_PIECES: Readonly<Record<string, DefaultKitPiece | null>
   'corner-out-bottom': alias('the top corner\'s cap turned under', 'corner-out-top', CUBE_ROTATION_X90),
   'corner-in-top': null,
   'corner-in-bottom': null,
-  'roof-ridge': box('a ridge cap along the side the planes meet on', [0, 15, 14, 16, 18, 18]),
+  'roof-ridge': own('a ridge cap over the line the two planes meet on', ridgeCap),
   'roof-eave': box('an eave lip under the plane\'s low edge', [0, -1, 14, 16, 3, 17]),
-  'roof-gable': box('a verge board up the gable edge', [0, 0, 16, 16, 16, 17]),
-  'roof-hip': box('a hip cap toward the corner', [12, 12, 12, 17, 17, 17]),
-  'roof-valley': box('a valley board toward the corner', [12, 14, 12, 16, 17, 16]),
+  'roof-gable': own('a verge board up the gable edge, along the slope (rising toward +x; the other side mirrored)', vergeBoard),
+  'roof-hip': own('a hip cap up the line the two planes meet on', (low) => diagonalCap(false, low)),
+  'roof-valley': own('a valley board up the crease the two planes meet in', (low) => diagonalCap(true, low)),
   debris: box('a few chunks of rubble', [2, 0, 3, 9, 6, 10], [8, 0, 6, 14, 4, 13], [4, 5, 5, 10, 9, 11]),
   'debris-heavy': box('a low heap of rubble', [1, 0, 1, 12, 3, 9], [6, 0, 8, 15, 2, 15]),
   'debris-face': box('a broken rim on the face opening to the damage', [3, 3, 16, 13, 13, 17]),

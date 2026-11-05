@@ -21,8 +21,9 @@
  *
  * Every mesh is in metres for a level-0 cell, centred on the cell, in its
  * case's orientation (exposed face +z, run along x, up +y). A mirrored case
- * draws a mirrored copy of the mesh (x negated, triangles turned so their
- * fronts stay fronts), so instance matrices never mirror (an alias's
+ * draws a mirrored copy of the mesh (the case's x negated, triangles turned
+ * so their fronts stay fronts; through an alias, the mesh axis its rotation
+ * carries onto the case's x), so instance matrices never mirror (an alias's
  * rotation has determinant +1). Pieces draw with
  * a stand-in material a kit and a labelled debug UV texture (one cell of UV
  * space: a 1/16-cell checker, a tick and a number every quarter, U and V
@@ -41,6 +42,7 @@ import {
   defaultKitSource,
   KIT_PIECE_BASE,
   kitPieceList,
+  mirrorAxisOf,
   NO_KIT,
   PIECE_VARIANT_MASK,
   PIECE_STAGGER_FRAMES,
@@ -162,9 +164,9 @@ export function defaultKitGeometry(d: KitMeshData): THREE.BufferGeometry {
   return g;
 }
 
-/** A mesh mirrored across its x = 0 plane, its triangles turned so their fronts stay fronts. */
-function mirrored(g: THREE.BufferGeometry): THREE.BufferGeometry {
-  return mergeWorldGeometry([{ geometry: g, matrixWorld: new THREE.Matrix4().makeScale(-1, 1, 1) }]);
+/** A mesh mirrored across the plane through 0 normal to `axis` (0 x, 1 y, 2 z), its triangles turned so their fronts stay fronts. */
+function mirrored(g: THREE.BufferGeometry, axis: number): THREE.BufferGeometry {
+  return mergeWorldGeometry([{ geometry: g, matrixWorld: new THREE.Matrix4().makeScale(axis === 0 ? -1 : 1, axis === 1 ? -1 : 1, axis === 2 ? -1 : 1) }]);
 }
 
 /**
@@ -196,7 +198,8 @@ function glbGeometry(root: THREE.Object3D, node: string | undefined): THREE.Buff
 const KIT_TINTS = [0xc8a070, 0xb8b4ac, 0xe0d4bc, 0x9098a4, 0xb07850, 0xd0c090];
 const DEFAULT_KIT_TINT = 0xd8d0c4;
 
-type MeshState = { state: 'loading' } | { state: 'ready'; geometry: THREE.BufferGeometry; mirrored: THREE.BufferGeometry | null } | { state: 'failed'; reason: string };
+/** A ready mesh keeps its mirrored copies by the axis mirrored. */
+type MeshState = { state: 'loading' } | { state: 'ready'; geometry: THREE.BufferGeometry; mirrored: (THREE.BufferGeometry | undefined)[] } | { state: 'failed'; reason: string };
 
 /**
  * The page's kit meshes: every GLB mesh the kits name, parsed once, the
@@ -236,7 +239,7 @@ export class VoxelKitMeshes {
             const glb = await loader.load(got.bytes, { signal: new AbortController().signal, descriptor: { assetId: m.assetId, version: got.version, sourceDigest: m.digest, sourceByteLength: got.bytes.byteLength } });
             const g = glbGeometry(glb.root, m.node);
             glb.dispose();
-            next = g === null ? { state: 'failed', reason: m.node !== undefined ? `no mesh node "${m.node}"` : 'no mesh' } : { state: 'ready', geometry: g, mirrored: null };
+            next = g === null ? { state: 'failed', reason: m.node !== undefined ? `no mesh node "${m.node}"` : 'no mesh' } : { state: 'ready', geometry: g, mirrored: [] };
           }
         } catch (e) {
           next = { state: 'failed', reason: e instanceof Error ? e.message : String(e) };
@@ -259,29 +262,29 @@ export class VoxelKitMeshes {
     const was = this.meshes.get(key);
     if (was?.state === 'ready') {
       was.geometry.dispose();
-      was.mirrored?.dispose();
+      for (const m of was.mirrored) m?.dispose();
     }
-    this.meshes.set(key, { state: 'ready', geometry, mirrored: null });
+    this.meshes.set(key, { state: 'ready', geometry, mirrored: [] });
     for (const f of [...this.waiting]) f();
   }
 
-  /** A loaded mesh (mirrored on request); 'pending' while it loads or before it was asked for; null when it failed. */
-  mesh(ref: VoxelKitMeshRef, mirror: boolean): THREE.BufferGeometry | 'pending' | null {
+  /** A loaded mesh (mirrored across `axis` on request); 'pending' while it loads or before it was asked for; null when it failed. */
+  mesh(ref: VoxelKitMeshRef, mirror: boolean, axis = 0): THREE.BufferGeometry | 'pending' | null {
     const s = this.meshes.get(voxelKitMeshKey(ref));
     if (s === undefined || s.state === 'loading') return 'pending';
     if (s.state === 'failed') return null;
     if (!mirror) return s.geometry;
-    return (s.mirrored ??= mirrored(s.geometry));
+    return (s.mirrored[axis] ??= mirrored(s.geometry, axis));
   }
 
-  /** The default kit's own mesh of a case (null: an alias or no piece), mirrored on request (no default case is mirrored today). */
-  defaultMesh(caseId: string, low: boolean, mirror = false): THREE.BufferGeometry | null {
-    const key = `${caseId}:${low ? 1 : 0}:${mirror ? 1 : 0}`;
+  /** The default kit's own mesh of a case (null: an alias or no piece), mirrored across `axis` on request (the verge rising toward −x). */
+  defaultMesh(caseId: string, low: boolean, mirror = false, axis = 0): THREE.BufferGeometry | null {
+    const key = `${caseId}:${low ? 1 : 0}:${mirror ? 1 + axis : 0}`;
     let g = this.defaults.get(key);
     if (g === undefined) {
       const d = defaultKitMesh(caseId, low);
       if (d === null) return null;
-      g = mirror ? mirrored(this.defaultMesh(caseId, low)!) : defaultKitGeometry(d);
+      g = mirror ? mirrored(this.defaultMesh(caseId, low)!, axis) : defaultKitGeometry(d);
       this.defaults.set(key, g);
     }
     return g;
@@ -340,7 +343,7 @@ export class VoxelKitMeshes {
     for (const s of this.meshes.values()) {
       if (s.state !== 'ready') continue;
       geometries.add(s.geometry);
-      if (s.mirrored !== null) geometries.add(s.mirrored);
+      for (const m of s.mirrored) if (m !== undefined) geometries.add(m);
     }
     for (const g of this.defaults.values()) geometries.add(g);
     for (const l of this.trimmed.values()) for (const g of l) if (g !== undefined) geometries.add(g);
@@ -367,7 +370,7 @@ export class VoxelKitMeshes {
     for (const s of this.meshes.values()) {
       if (s.state !== 'ready') continue;
       s.geometry.dispose();
-      s.mirrored?.dispose();
+      for (const m of s.mirrored) m?.dispose();
     }
     this.meshes.clear();
     for (const g of this.defaults.values()) g.dispose();
@@ -427,12 +430,12 @@ export class VoxelKitSet {
     const frame = PIECE_STAGGER_FRAMES[pc.caseId];
     const placed = { rotation: pc.rotation, runAxis: pieceRunAxis(pc.meshCaseId), stagger: frame === undefined ? null : { frame, seed: kit.seed, caseIndex: pc.caseIndex } };
     if (kit.id === DEFAULT_KIT_ID) {
-      const g = this.meshes.defaultMesh(pc.meshCaseId, low, mirror);
+      const g = this.meshes.defaultMesh(pc.meshCaseId, low, mirror, mirrorAxisOf(pc.rotation));
       return g === null ? null : { key, geometry: g, material: this.meshes.material(kit.seed, true), ...placed };
     }
     const v = this.records.get(kit.id)?.cases[pc.meshCaseId]?.sections?.[pc.sectionId]?.variants[variant];
     if (v === undefined) return null;
-    const g = this.meshes.mesh(low ? (v.low ?? v.high) : v.high, mirror);
+    const g = this.meshes.mesh(low ? (v.low ?? v.high) : v.high, mirror, mirrorAxisOf(pc.rotation));
     if (g === 'pending' || g === null) return g;
     const trimLayout = this.records.get(kit.id)?.trimLayout;
     const look = this.meshes.material(kit.seed, false, trimLayout);

@@ -4,8 +4,8 @@
  * turned by its alias's cube rotation into the drawn case's orientation,
  * then staggered there (moved into the solid along the edge's bisector and
  * twisted about it through the edge's middle, by the instance's hash:
- * piece-placement.ts), shifted to the cell's middle line for a centred
- * piece, tipped onto the cell's top or bottom face for a tipped one, turned
+ * piece-placement.ts), shifted to the cell's middle line (half a cell in
+ * and half a cell down) for a centred piece, tipped onto the cell's top or bottom face for a tipped one, turned
  * by the case's quarter turns about +y, scaled to the level's cell and put
  * at the cell's centre. Every step but the stagger is exact (quarter turns,
  * half cells); the stagger is the only thing that differs between two
@@ -64,7 +64,7 @@ export function pieceMatrix(out: THREE.Matrix4, rotationByte: number, place: num
   let any = false;
   local.identity();
   if (place === INSTANCE_PLACE.centred) {
-    local.makeTranslation(0, 0, -0.5 * VOXEL_SIZE_M);
+    local.makeTranslation(0, -0.5 * VOXEL_SIZE_M, -0.5 * VOXEL_SIZE_M);
     any = true;
   }
   if (p.stagger !== null) {

@@ -7,7 +7,8 @@
  * - **edges and corners** (edge-cases.ts): one piece a lattice edge or
  *   corner the edge pass gave the cell, by its case and yaw;
  * - **roof edges** (roof-mesher.ts): the ridge, eave, verge, hip and valley
- *   pieces of a roof plane cell;
+ *   pieces of a roof plane cell (a verge rising toward its own −x
+ *   mirrored, so one verge mesh follows both slopes of a gable);
  * - **beams and banisters**: the cell's window case with its run section, a
  *   piece that replaces the cell's base (as built with the case pass);
  * - **debris**: a debris cell (case-forms.ts `isDebrisCell`) draws the piece
@@ -211,7 +212,7 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
   if (mat === 0) return;
   const cases = passCases(p.catalogue);
   const o = p.pieces.origin;
-  const put = (caseIndex: number, yaw: number, place: number, flags: number): void => {
+  const put = (caseIndex: number, yaw: number, place: number, flags: number, mirror = false): void => {
     if (caseIndex < 0) return;
     const piece = tablePiece(table, mat, caseIndex, RUN_SECTION.single);
     if (piece === NO_PIECE) return;
@@ -219,7 +220,7 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
     cell.turns = yaw;
     cell.place = place;
     cell.flags = flags;
-    cell.variant = pieceVariant(table, mat, piece, p.level, o[0] + x, o[1] + y, o[2] + z, (caseIndex << 4) | (place << 2) | yaw);
+    cell.variant = pieceVariant(table, mat, piece, p.level, o[0] + x, o[1] + y, o[2] + z, (caseIndex << 4) | (place << 2) | yaw) | (mirror ? PIECE_VARIANT_MIRROR : 0);
     emit();
   };
   const forms = p.forms;
@@ -245,7 +246,7 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
   }
   const roof = p.roofs[i]!;
   if (roof !== 0) {
-    for (const e of roofEdgesOf(roof)) put(cases.roof.get(e.caseId) ?? -1, e.yaw, e.centred === true ? INSTANCE_PLACE.centred : INSTANCE_PLACE.upright, 0);
+    for (const e of roofEdgesOf(roof)) put(cases.roof.get(e.caseId) ?? -1, e.yaw, e.centred === true ? INSTANCE_PLACE.centred : INSTANCE_PLACE.upright, 0, e.mirror === true);
     return;
   }
   if (cases.debrisFace < 0 || formBaseOf(form) !== FORM_BASE.keep || formShapeOf(form) !== FORM_SHAPE.box) return;

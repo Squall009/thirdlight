@@ -100,8 +100,10 @@ export function pieceU(uPerMetre: number, corner: readonly number[], local: read
 }
 
 /** The world axis (0–2) and sign a mesh's run axis takes under a rotation (a quarter-turn quaternion: the axis is exact). */
-export function runAxisOf(q: THREE.Quaternion, runAxis: 0 | 1, mirror: boolean): [axis: number, sign: number] {
-  const v = new THREE.Vector3(runAxis === 0 ? (mirror ? -1 : 1) : 0, runAxis === 1 ? 1 : 0, 0).applyQuaternion(q);
+export function runAxisOf(q: THREE.Quaternion, runAxis: 0 | 1, mirror: boolean, mirrorAxis = 0): [axis: number, sign: number] {
+  // A mirrored mesh has its `mirrorAxis` negated: the run flips only when it lies along that axis.
+  const flip = mirror && mirrorAxis === runAxis ? -1 : 1;
+  const v = new THREE.Vector3(runAxis === 0 ? flip : 0, runAxis === 1 ? flip : 0, 0).applyQuaternion(q);
   const a = Math.abs(v.x) >= Math.abs(v.y) && Math.abs(v.x) >= Math.abs(v.z) ? 0 : Math.abs(v.y) >= Math.abs(v.z) ? 1 : 2;
   return [a, v.getComponent(a) > 0 ? 1 : -1];
 }

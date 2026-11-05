@@ -308,9 +308,14 @@ describe('kit pieces in the chunk view', () => {
           for (let k = 0; k < 3; k++) n.add(new THREE.Vector3().fromBufferAttribute(nor, ix.getX(t + k)));
           expect(face.dot(n), `${id} triangle ${t / 3}`).toBeGreaterThan(0);
         }
-        // On its cell: within half a cell of its centre and the quarter cell a cove reaches into the open cell beside it.
+        // On its cell: within half a cell of its centre and the quarter cell a cove reaches into the open cell beside it;
+        // a roof-edge piece follows the plane, which runs up to a cell above its voxel's top (1.5 cells over the centre).
         g.computeBoundingBox();
-        for (const c of [...g.boundingBox!.min.toArray(), ...g.boundingBox!.max.toArray()]) expect(Math.abs(c), id).toBeLessThanOrEqual(VOXEL_SIZE_M * (0.5 + 1 / 4) + 1e-6);
+        const b = g.boundingBox!;
+        const reach = VOXEL_SIZE_M * (0.5 + 1 / 4) + 1e-6;
+        for (const c of [b.min.x, b.min.z, b.max.x, b.max.z]) expect(Math.abs(c), id).toBeLessThanOrEqual(reach);
+        expect(b.min.y, id).toBeGreaterThanOrEqual(-reach);
+        expect(b.max.y, id).toBeLessThanOrEqual(id.startsWith('roof-') ? VOXEL_SIZE_M * (1.5 + 1 / 4) : reach);
       }
       const bytes = [high!, low!].map((g) => Object.values(g.attributes).reduce((n, a) => n + (a as THREE.BufferAttribute).array.byteLength, 0) + g.index!.array.byteLength);
       report.push(`${id} ${tris[0]}/${tris[1]} tris, ${bytes[0]}/${bytes[1]} B`);

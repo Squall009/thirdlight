@@ -988,7 +988,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v17 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
+### 3.7 Derived data v18 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1613,7 +1613,17 @@ each where it is (a material flag could not tell them apart). The role now also 
 a role change already rebuilt every other part, so no edit derives more than before). Shader data differs from
 v16's wherever a construction cell lies in a grid; nothing to upgrade, no world regenerated.
 
-**Derived version history (v2 → v17).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+**Derived data 17 → 18 (46c R5, D506; default chosen, owner to confirm).** A verge (`roof-gable`) on the side of
+its cell before the slope's rise (its plane rising toward the case's −x) carries the variant word's mirror bit
+(`PIECE_VARIANT_MIRROR`, bit 15, as beams and banisters already use): the two verges of a gable rise in opposite
+senses seen from outside, which no quarter turn of one mesh gives, so a kit authors one verge mesh rising toward its
+own +x and the renderer draws the other side mirrored (across the case's x; through an alias, across the mesh axis
+its rotation carries onto x). A `centred` piece (a ridge along an odd roof's middle) now moves half a cell in and
+half a cell down, so the ridge mesh written for a cell's high side (the plane one cell above the voxel's top) sits
+where the planes meet in the middle. The 8-byte instance and its layout are v17's; instances differ on verges.
+Nothing stored, nothing to upgrade, no world regenerated.
+
+**Derived version history (v2 → v18).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |
