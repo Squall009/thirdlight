@@ -237,7 +237,8 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | 46c.18 | not started (after approval) |
 | R1 | done: `edge-cases.ts` edge pass (12 edges + 8 corners a cell, 10 cases × yaw 4, reach 1) + `edges-draft` v0 (20 cases; window rules beam/banister only) as `edges` v1 (registered, conformance incl. edges); construction shape = integrity in every reader, derived v13 → v14. Town µs a section p50/p95: old case pass 123/318, new passes 144/290 (edge pass 52/111) |
 | R2 | done (53c71768): `roof-mesher.ts`: 45° roof stairs → closed sloped prisms (ridge, hip, valley, pyramid apex; underside onto gable/eave walls), appended to the base, collide as ramps (`collision.ramps`); roof-edge words for R3; derived v15, `edges` v2. Town base tris 328 k → 303 k, roof mesher 188/403 µs a section; fast gate green 13 min; D500–D503 |
-| R3 | partial: `derive-pieces.ts`: instances only on edges, corners, roof edges, beams/banisters and debris (integrity < 15, exposed); `WORLD_RULES` = `edges` v3, placement bits, derived v16; no piece on a flat face (tested). Town L0 320 k → 131 k instances (p50 1,355 → 555 a chunk), L1 53 k → 73 k (D505). Left: archive the old catalogue, reshape/slab; D504–D505 |
+| R3 | done (6dff42ce, cleanup R3c): `derive-pieces.ts`: instances only on edges, corners, roof edges, beams/banisters and debris (integrity < 15, exposed); `WORLD_RULES` = `edges` v3, placement bits, derived v16; no piece on a flat face (tested). Town L0 320 k → 131 k instances (p50 1,355 → 555 a chunk), L1 53 k → 73 k (D505); D504–D505 |
+| R3c | done (57709ea4): `cases-draft-catalogue.ts` archived; `KIT_RULES`, the `reshape` base and `slab` shape (soffit base quads) removed; window, form, run and kit-check tests ported to the edge catalogue or test catalogues. Derive bytes equal on 8,180 town/slice results (derived v16 kept). stream.test: damage 15 → 7 re-derives exactly the sections within R, one swap, debris drawn |
 | R3b | not started (adapter: edge instances, alias rotation, stagger, default kit) |
 | R4 | not started (grid-anchored 4 m UVs, band debug pattern, roof slope projection) |
 | R5 | not started (log + stone kits regenerated, kit check, test scene sampler) |
@@ -952,6 +953,37 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   along one axis, so one U offset an instance serves it, but `pieceU` reads the axis from the turns only (x or z), so
   vertical edges need the edge's axis in R3b; open.
 
+### R3c cleanup: the superseded catalogue archived
+
+- **Removed.** `cases-draft-catalogue.ts` (`cases-draft` v5) moved to `archive/removed-phase-46c/` (`git mv`, README
+  says what went with it). `KIT_RULES` (`kits` v6) left `kit-rules.ts`, the rule registry (now `placeholder`,
+  `terrain`, `edges`) and the index; `BEAM_BANISTER_CASES/RULES` and `SIDES_OPEN` are module-private (only the edge
+  catalogue reads them). `CASE_BASES` = keep / suppress and `CASE_SHAPES` = none / box / panel / bar / post: the
+  `reshape` base and `slab` shape were the soffit's alone, so the base surface's reshaped-quad path (quads, their
+  lattice corners, their hiding rule) is gone and `InferredFeature` is beam / banister. `caseFormProblem` names an
+  unknown base (`reshape`) as such. Every reader was checked: forms, base surface, collision, nav, light, pieces,
+  kit check, piece table; none used the two outside the archived catalogue's soffit.
+- **Tests ported, not dropped.** The window machinery (`kit-cases.test.ts`, both: folding, priorities, fallback,
+  vertical flip, refusals, cached extraction = window path on random worlds) runs on the edge catalogue plus small
+  test catalogues with a fallback for every role (test data in the test files; the world's catalogue has no
+  fallback); `derived.test.ts` (case pass, forms, runs: the mitre now two beams against a corner column, no skirt or
+  coping) and `case-forms.test.ts` (consumers cell by cell from forms; the soffit test went with the soffit, the
+  balcony edge is a block in `collision.test.ts`) on `edges` v3; `edge-cases.test.ts` compares debris against the
+  terrain rules (no debris); `voxel-kit-check.test.ts` on the edge catalogue plus wall/stair fallbacks and a y-run
+  case; `cases-cli.ts` measures the world rules (its old-vs-new edge timing dropped). Coverage floors that counted
+  the 46 cases' cells (case grid 1,000 → 400, run sections 1,000 → 250, forms 5,000 → 300) count beam and banister
+  cells now; each cell's assertions are unchanged.
+- **No behaviour change, proven.** A throwaway bench test (not committed) hashed `encodeDerived` (crc32) of the
+  world rules' derive before and after: the whole 512² town (every chunk, no kit and a full test kit, every fifth
+  chunk's eight 16³ sections, every level-1 and level-2 node with the kit), the slice ring (6 × 6 chunk columns
+  round the scene), the balcony scene and a random assembly world: **8,180 results, 0 differ**. So no derived
+  version step (v16 stays).
+- **stream.test.ts (real workers).** The kit test now ends with a damage edit: a stone wall placed across a section
+  corner (x 0, z −1), one cell set to integrity 7: the sections derived again are exactly `dependentChunks` of the
+  edit within the streamer's radius (≥ 4 here), each once, in one swap of its group; every swapped chunk's instances
+  equal the in-thread derive with the table; the cell lists one piece replacing its base (debris) where it had none,
+  and each of its four in-plane neighbours one more piece (its debris face).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1299,6 +1331,10 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   first; no role fallback, the engine default kit only for unbound materials).
 - 2026-11-04 (R3, default chosen, owner to confirm): **the default kit stays square stand-ins** (a strip a little
   proud of both faces, a corner cap, coves in the open cell, roof boards, rubble boxes) until R3b's bevels.
+- 2026-11-05 (R3c, default chosen, owner to confirm): **the case-window fallback stays in the catalogue format**
+  although the world's catalogue names none: it is tested on test catalogues, and a later catalogue (an approved
+  role spec) may need it. The `reshape` base and `slab` shape are removed, not kept dormant: an edges-only world has
+  no case that reshapes a face; a later need adds them back as a versioned step.
 
 ## 10. Open questions for the owner
 
