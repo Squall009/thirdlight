@@ -247,7 +247,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R6b | done: L1 roofs re-laid one cell thick (`relayRoofs`; town L1 instances 72.6 k → 32.5 k, no roof-edge lattice), odd hip apex ridge/hips drawn half (`half` flag), banister posts up to the rail (kits regenerated, stand-in), D512 = wrong R2 baseline. Derived v19. D501, D510, D511 fixed, D512 won't fix |
 | R7 | done (DRAFT, hard stop; the 2026-11-04 review replaced the old drafts in place, old text in git): role spec = 21 cases of `edges-draft` v1 with diagrams, aliases, stagger, levels, debris, roof mesher, kit duties, Blender rules, D500–D509 gaps, 13 questions; texture layout = 4 × 4 m grid tile for faces + detail sheet/own bakes for pieces, 8 questions; `role-spec-doc.test.ts` (5) back |
 | R8 | done (docs only): spec §3.7 *Kits: edges, roofs and debris* (edge pass, roof mesher, pieces, debris, alias, stagger, 4 m grid UVs, `relayRoofs`), one derived table v2 → v19 with owner notes, shape = integrity in §2.2, §3.8 at 19; trace R73–R77, R86, R87, R90, R107, R112; manual roofs/damage; archive README and the 46c full-gate note corrected. Spec 2,186 → 2,115 lines |
-| R9 | not started (fast gate, acceptance, acc46c-r; owner hard stop) |
+| R9 | presented, awaiting owner approval (hard stop): 76 shots × 2 renderers (log, stone, default kit; houses near/L1/far, door, window, corner, damage 12/7/1/air, balcony, bands, town) in `acceptance/46c-r/final`, README + approve-46c-r.md, 35 questions. Town: 59.5 k instances, 3,081 draws, 0–1 missed. Seen wrong: L1 gable roofs in strips, far roofs stepped |
 
 ## 8. Results
 
