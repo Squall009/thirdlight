@@ -233,7 +233,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | 46c.15 | presented, awaiting owner approval (hard stop): 50 shots × 2 renderers re-taken at b6ec7d2f (kit scenes, log/stone houses, two-thick jambs, wall-beam-banister, long walls, cross-kit paint, town L0/L1, default kit) in `acceptance/46c/final`, older shots in `older/`; README + approve-46c.md: 65 questions. Seen: D480–D482, stone plinth breaks at jamb cells |
 | 46c.16 | not started (waits for owner approval of the revised drafts, R9) |
 | 46c.17 | not started (waits for owner approval of the revised drafts, R9) |
-| 46c.14b | not started: runs once after the owner approves the revision (decision log 2026-11-04 revision plan) |
+| 46c.14b | done for the first build: full gate GREEN at 9107abbd (33 min, 8.0 GB), review 0H 6M 8L fixed (46c.14c), acc46c. The revision (R1–R9) is verified by fast gates; one closing full gate + review runs after the owner approves the revision. |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
 | 46c.18 | not started (after approval) |
 | R1 | done: `edge-cases.ts` edge pass (12 edges + 8 corners a cell, 10 cases × yaw 4, reach 1) + `edges-draft` v0 (20 cases; window rules beam/banister only) as `edges` v1 (registered, conformance incl. edges); construction shape = integrity in every reader, derived v13 → v14. Town µs a section p50/p95: old case pass 123/318, new passes 144/290 (edge pass 52/111) |
