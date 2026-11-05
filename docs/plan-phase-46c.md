@@ -243,7 +243,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R4 | done: construction (bit 15 of the shader entry, derived v17) maps from the build grid in metres, 4 m repeat (terrain triplanar, 2 m), roofs up the slope; `?bands=1`; D503 fixed (nearest solid of the 8). Seen both renderers. Town orbit GPU 2.55 → 3.06 ms WebGPU, 3.53 → 4.15 WebGL 2, 0 missed. D506 left to R5 |
 | R5 | done: D506 fixed (a verge rising toward its −x carries the mirror bit; centred ridge half a cell down; derived v18); log + stone kits regenerated for the edge model (Blender, aliases, high/low, 22/21 pieces, 757/350 and 490/414 tris), kit check 0 err, T1–T8 ok; kit test scene fixed sampler (every case labelled). Seen both renderers; D508–D509 |
 | R6 | not started (prototype on staging + measurement vs 46c.11) |
-| R7 | not started (role spec + trim drafts rewritten, still DRAFT) |
+| R7 | done (DRAFT, hard stop; the 2026-11-04 review replaced the old drafts in place, old text in git): role spec = 21 cases of `edges-draft` v1 with diagrams, aliases, stagger, levels, debris, roof mesher, kit duties, Blender rules, D500–D509 gaps, 13 questions; texture layout = 4 × 4 m grid tile for faces + detail sheet/own bakes for pieces, 8 questions; `role-spec-doc.test.ts` (5) back |
 | R8 | not started (spec, requirements, manual) |
 | R9 | not started (fast gate, acceptance, acc46c-r; owner hard stop) |
 
