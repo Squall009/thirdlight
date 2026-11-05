@@ -1776,6 +1776,29 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   - **B1: author base tiles at 4096² (1024 px/m) by default;** the resident mip level is chosen by the quality level
     (performance settings) and the texture memory budget.
 
+- 2026-11-05 (OWNER, acc46c-r batch 3: G1, G2, B2–B6, B8; A11 and B7 still open):
+  - **G1: default damage split** stage 1 cracks 11–14, stage 2 block removed with many damage pieces 6–10, stage 3
+    fewer pieces 1–5; a kit may change it or use fewer stages. One engine crack overlay, replaceable per kit. In stage 1
+    the block's edge pieces stay.
+  - **G2: every slot is optional, no kit-check warnings for empty slots.** Cases are built by the rules; an empty slot
+    draws nothing (by design on some kits). Lets an author check textures on plain voxels first and add detail meshes
+    one at a time in a scene. Replaces the required/optional split (A2). The drag-and-drop slot panel is 47; now
+    slots are assigned through the kit command (editor/MCP).
+  - **B2: grid features at 0.5 m are a recommendation** in the authoring guide, not a kit-check rule.
+  - **B3/B4: the detail trim layout is per kit, a recommendation, not a standard.** A kit chooses its own sheet size
+    and regions (or own bakes) for the pieces it has; pieces are never larger than a 0.5 m cell, so sheets are small.
+    **This replaces the 2026-10-27 owner decision "one standardized trim UV layout for every kit"** (owner accepts the
+    trade: textures no longer swap freely between kits; that is the game's choice). Overlay/paint layers stay
+    world-projected, so they still cross every kit. The kit check keeps only the rules below (B5) and info rows.
+  - **B5: rule — one kit uses exactly one texture set** (one trim sheet or one material) for all its pieces, for
+    batching and performance. A game that wants mixed detail (timber beams on stone) makes two kits. No per-slot
+    material override.
+  - **B6: roof planes' 4 × 4 m tile follows the slope** (already built: V counts true slope distance, the grid
+    anchored to the eave); a roof-edge piece's texture follows its own UVs under per-kit layouts.
+  - **B8: no shared absolute height scale.** Height maps stay 0–1; each material declares its own height depth in
+    metres (sand shallow, jagged rock deep), so no texture is crushed; height blending compares in metres. 46d's
+    material model owns the field.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
