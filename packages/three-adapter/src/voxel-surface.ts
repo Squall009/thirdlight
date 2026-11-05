@@ -28,7 +28,9 @@
  * A pixel whose blend finds no solid cell (a roof plane runs up to a cell
  * above each step of its stair, through air cells) takes the nearest solid
  * of the eight cells read instead, by plain trilinear weight: the roof's
- * own cells, not a neutral grey.
+ * own cells, not a neutral grey. Where all eight are air (an even roof's
+ * ridge and hip apex lie a whole cell above its top voxels) it takes the
+ * cell under them in its nearest column.
  *
  * Coarser levels of the chunk tree draw through the same program: a node's
  * grid holds its own (coarser) cells, so each object passes its cell size
@@ -495,6 +497,19 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         v1.assign(av);
         m2.assign(bm);
         v2.assign(bv);
+      }
+      // An even roof's ridge and hip apex run a whole cell above the roof's top voxels, so the eight cells round such a
+      // pixel are all air: the cell under them in the pixel's nearest column is the roof's own, taken only then.
+      {
+        const bx = min(g0.x.add(select(f.x.greaterThanEqual(0.5), int(1), int(0))), hi);
+        const bz = min(g0.z.add(select(f.z.greaterThanEqual(0.5), int(1), int(0))), hi);
+        const by = max(g0.y.sub(1), int(0));
+        const texel = gridNode.load(ivec3(o.x.add(by), o.y.add(bz), o.z.add(bx)));
+        const { mat, wet } = decode(floor(texel.r.mul(255).add(0.5)).add(floor(texel.g.mul(255).add(0.5)).mul(256)));
+        const takes = mat.greaterThan(0.5).and(nw.lessThanEqual(0));
+        nm.assign(select(takes, mat, nm));
+        nWet.assign(select(takes, wet, nWet));
+        nw.assign(select(takes, float(1e-6), nw));
       }
       // A chunk of one solid entry passes it instead of a grid; a blend that found no solid takes the nearest solid.
       const solid = slot.w.greaterThanEqual(0);

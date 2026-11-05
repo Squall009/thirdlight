@@ -37,18 +37,18 @@ const bindings = (wgsl: string): number => (wgsl.match(/:\s*texture_(?:2d|3d|cub
 const reads = (wgsl: string): number => (wgsl.match(/\btexture(?:Load|Sample\w*)\s*\(/g) ?? []).length;
 
 describe('the voxel surface program', () => {
-  it('reads eight grid texels, four table texels and six pattern samples a pixel, and binds three textures (the bands: two samples and a texture more)', async () => {
+  it('reads nine grid texels (the eight round the pixel, the one under them for a pixel above its roof), four table texels and six pattern samples a pixel, and binds three textures (the bands: two samples and a texture more)', async () => {
     await settle();
     // Both programs also read three's BRDF table (the standard material's environment term): one read, one binding.
     const flat = program('flat');
     expect(reads(flat)).toBe(1);
     expect(bindings(flat)).toBe(1);
     const blend = program('blend');
-    expect(reads(blend) - reads(flat)).toBe(18);
-    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(12);
+    expect(reads(blend) - reads(flat)).toBe(19);
+    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(13);
     // The grid is a 3D texture read at whole 3D texel coordinates (no flip, no transform).
     expect(blend).toMatch(/:\s*texture_3d<f32>\s*;/);
-    expect((blend.match(/\btextureLoad\(\s*\w+,\s*vec3<i32>\(/g) ?? []).length).toBe(8);
+    expect((blend.match(/\btextureLoad\(\s*\w+,\s*vec3<i32>\(/g) ?? []).length).toBe(9);
     expect(bindings(blend) - bindings(flat)).toBe(3);
     // The engine's lit programs keep the light path's units free; the surface's leave room for them.
     expect(bindings(blend) + LIGHT_PATH_TEXTURE_UNITS).toBeLessThanOrEqual(LIT_TEXTURE_UNITS);
@@ -66,7 +66,7 @@ describe('the voxel surface program', () => {
     // WebGL 2 builds the same program: the same fetches and samples (texelFetch / texture in GLSL).
     for (const bandsOn of [false, true]) {
       const glsl = program('blend', bandsOn, true);
-      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(12);
+      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(13);
       expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (program('flat', false, true).match(/\btexture\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(bandsOn ? 8 : 6);
     }
   });

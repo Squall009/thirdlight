@@ -25,6 +25,7 @@ import {
   MipTree,
   POSITION_STEPS_PER_CELL,
   ROOF_WORD,
+  SHADER_READ_DEPTH_CELLS,
   roofEdgesOf,
   ruleRadiusMismatches,
   SURFACE_VERTEX_BYTES,
@@ -41,6 +42,7 @@ import {
   evaluateEdges,
   extractEdges,
   VOXEL_SIZE_M,
+  voxel,
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
@@ -309,7 +311,34 @@ describe('the roof mesher', () => {
     }
   });
 
-
+  it('keeps every point of a roof plane within the surface shader\'s material read: the eight cells round it, else the cell under them in its nearest column (an even ridge)', () => {
+    const s = roofWorld();
+    const m = rampMesh(s, ROOFS, 'base');
+    const v = voxel();
+    const solid = (x: number, y: number, z: number): boolean => s.voxelAt(x, y, z, v).material !== 0;
+    let fallback = 0;
+    let points = 0;
+    for (let t = 0; t < m.tris.length; t += 3) {
+      const n = [0, 1, 2].map((a) => m.normals[t + a]!);
+      if (n[1]! < 0.3 || n[1]! > 0.99) continue;
+      const p = [0, 1, 2].map((k) => [0, 1, 2].map((a) => m.pos[3 * m.tris[t + k]! + a]! / STEPS));
+      for (let i = 0; i <= 6; i++) for (let j = 0; i + j <= 6; j++) {
+        const q = [0, 1, 2].map((a) => p[0]![a]! + (p[1]![a]! - p[0]![a]!) * (i / 6) + (p[2]![a]! - p[0]![a]!) * (j / 6) - n[a]! * SHADER_READ_DEPTH_CELLS - 0.5);
+        const c0 = q.map(Math.floor);
+        let found = false;
+        for (let k = 0; k < 8 && !found; k++) found = solid(c0[0]! + (k & 1), c0[1]! + ((k >> 1) & 1), c0[2]! + ((k >> 2) & 1));
+        if (!found) {
+          fallback++;
+          found = solid(c0[0]! + (q[0]! - c0[0]! >= 0.5 ? 1 : 0), c0[1]! - 1, c0[2]! + (q[2]! - c0[2]! >= 0.5 ? 1 : 0));
+        }
+        points++;
+        expect(found, `plane point ${q.map((x) => (x + 0.5).toFixed(2))}`).toBe(true);
+      }
+    }
+    // The even roofs (the hip's 8-deep ridge, the large hip) reach the fallback; most points find their eight.
+    expect(fallback).toBeGreaterThan(0);
+    expect(fallback / points).toBeLessThan(0.1);
+  });
 
   it('classifies every cell of the four roofs as a plane cell, with its eaves, verges, ridges, hips and valleys', () => {
     const s = roofWorld();
