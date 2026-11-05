@@ -2,14 +2,15 @@
  * The edge case catalogue: **DRAFT — not the role spec's v1.** Walls,
  * floors, stairs, pillars, foundations and flat roofs are plain voxel faces
  * and get no case of their own; a detail piece goes only where faces meet.
- * Its 20 cases come from four passes:
+ * Its 21 cases come from four passes:
  *
  * - **edges and corners** (edge-cases.ts): per 0.5 m lattice edge and lattice
  *   corner, from the 4 or 8 cells round it, 10 cases with a yaw;
  * - **roof edges**: ridge, eave, gable edge (verge), hip and valley of a
  *   sloped roof's planes, written by the roof mesher;
  * - **debris**: a construction cell whose integrity (its shape) is below
- *   intact, and the intact faces opening toward it;
+ *   intact, by its stage (`debris`, `debris-heavy`), and the intact faces
+ *   opening toward it (`debris-face`);
  * - **beams and banisters**, kept as built: inferred from the arrangement by
  *   the case window's rules (kit-cases.ts), with their run sections.
  *
@@ -21,7 +22,7 @@
  */
 import { EDGE_CASE_IDS } from './edge-cases';
 import { CASE_ROLES, CELL, type CaseCatalogueDef, type CaseDef, type CaseRule, type CaseRuleCell } from './kit-cases';
-import { CONSTRUCTION_ROLES, VOXEL_ROLE } from './record';
+import { CONSTRUCTION_ROLES, SHAPE_FULL, VOXEL_ROLE } from './record';
 
 const R = VOXEL_ROLE;
 const { open: O, built: B, solid: S } = CELL;
@@ -73,6 +74,9 @@ export const BEAM_BANISTER_RULES: readonly CaseRule[] = Object.freeze([
   rule('banister-rail', 86, [...RAIL_MEET, [1, 0, 0, B], [-1, 0, 0, B], [0, 0, 1, B], [0, 0, -1, B], [1, 1, 0, O], [-1, 1, 0, O], [0, 1, 1, O], [0, 1, -1, O], [1, -1, 1, S]]),
 ]);
 
+/** The lowest integrity (shape) of the light debris stage: below it a damaged cell is drawn by `debris-heavy`. */
+export const DEBRIS_LIGHT_MIN = 8;
+
 const cases: CaseDef[] = [
   ...EDGE_CASE_IDS.map((id) => kept(id, CONSTRUCTION_ROLES, EDGE_NOTES[id][0], EDGE_NOTES[id][1])),
   kept('roof-ridge', [R.roof], true, 'the top line of two roof planes meeting'),
@@ -80,7 +84,8 @@ const cases: CaseDef[] = [
   kept('roof-gable', [R.roof], true, 'the sloped end of a roof plane at a gable: the verge'),
   kept('roof-hip', [R.roof], true, 'an outside corner line of two roof planes'),
   kept('roof-valley', [R.roof], false, 'an inside corner line of two roof planes'),
-  kept('debris', CONSTRUCTION_ROLES, false, 'a damaged cell (integrity below intact), drawn by its stage'),
+  kept('debris', CONSTRUCTION_ROLES, false, `a damaged cell, integrity ${DEBRIS_LIGHT_MIN}–${SHAPE_FULL - 1}: drawn by this piece in place of its faces`),
+  { ...kept('debris-heavy', CONSTRUCTION_ROLES, false, `a badly damaged cell, integrity below ${DEBRIS_LIGHT_MIN}: drawn by this piece in place of its faces`), standIn: 'debris' },
   kept('debris-face', CONSTRUCTION_ROLES, false, 'an intact face opening toward a damaged cell: its broken edge'),
   ...BEAM_BANISTER_CASES,
 ];
@@ -91,7 +96,7 @@ const NO_FALLBACK = Object.freeze(Object.fromEntries(CASE_ROLES.map((r) => [r, n
 /** The edge catalogue (see the file comment: DRAFT — not v1). */
 export const EDGE_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'edges-draft',
-  version: 0,
+  version: 1,
   draft: true,
   cases,
   rules: BEAM_BANISTER_RULES,

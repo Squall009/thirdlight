@@ -158,6 +158,16 @@ export function isConstructionRole(role: number): boolean {
 }
 
 /**
+ * A value's integrity when it is a damaged construction cell (1 … one below
+ * {@link SHAPE_FULL}), else 0: an intact block, air (shape 0 reads as
+ * empty) or any other role. What a renderer draws as debris.
+ */
+export function damagedIntegrity(v: number): number {
+  const shape = valueShape(v);
+  return shape !== SHAPE_EMPTY && shape < SHAPE_FULL && CONSTRUCTION[valueRole(v)] === 1 && valueMaterial(v) !== MATERIAL_AIR ? shape : 0;
+}
+
+/**
  * How full a cell of `role` with stored `shape` is for the consumers
  * (meshes, collision, light, navigation, mips, cases): a construction cell
  * with any integrity is full; every other role's shape is its fill.

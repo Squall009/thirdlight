@@ -237,7 +237,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | 46c.18 | not started (after approval) |
 | R1 | done: `edge-cases.ts` edge pass (12 edges + 8 corners a cell, 10 cases × yaw 4, reach 1) + `edges-draft` v0 (20 cases; window rules beam/banister only) as `edges` v1 (registered, conformance incl. edges); construction shape = integrity in every reader, derived v13 → v14. Town µs a section p50/p95: old case pass 123/318, new passes 144/290 (edge pass 52/111) |
 | R2 | done (53c71768): `roof-mesher.ts`: 45° roof stairs → closed sloped prisms (ridge, hip, valley, pyramid apex; underside onto gable/eave walls), appended to the base, collide as ramps (`collision.ramps`); roof-edge words for R3; derived v15, `edges` v2. Town base tris 328 k → 303 k, roof mesher 188/403 µs a section; fast gate green 13 min; D500–D503 |
-| R3 | not started (pieces on edges only, debris) |
+| R3 | partial: `derive-pieces.ts`: instances only on edges, corners, roof edges, beams/banisters and debris (integrity < 15, exposed); `WORLD_RULES` = `edges` v3, placement bits, derived v16; no piece on a flat face (tested). Town L0 320 k → 131 k instances (p50 1,355 → 555 a chunk), L1 53 k → 73 k (D505). Left: archive the old catalogue, reshape/slab; D504–D505 |
 | R3b | not started (adapter: edge instances, alias rotation, stagger, default kit) |
 | R4 | not started (grid-anchored 4 m UVs, band debug pattern, roof slope projection) |
 | R5 | not started (log + stone kits regenerated, kit check, test scene sampler) |
@@ -901,6 +901,50 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   shells meet edge to edge, unsplit); thick (2+ cell) roofs plane only the top cells (lower ones keep voxel faces);
   only 90° hips/valleys at 45°.
 
+### R3 pieces on edges only and debris
+
+- **Built.** `derive-pieces.ts` (`cellPieces`): a cell owns several instances, in cell order then its beam/banister
+  piece (alone), its debris, its edge and corner pieces in slot order (R1's case + yaw; dropped where a cell round the
+  edge is a beam or banister), its roof-edge pieces (R2's words), and a `debris-face` on each intact body face toward a
+  debris cell. `WORLD_RULES = EDGE_RULES` (`edges` v3, catalogue `edges-draft` v1: 21 cases, `debris-heavy` added with
+  `standIn: 'debris'`, piece table and kit check follow stand-ins). No case keeps a piece on a kept face (the
+  `keep + shows` path is gone). Rotation byte bits 2–3 = placement (`INSTANCE_PLACE`: upright, faceUp, faceDown,
+  centred); `roofEdgesOf` gives a ridge the yaw of its side and `centred` on a middle ridge. Variant hash + (case,
+  placement, yaw). Debris: `isDebrisCell` (construction, integrity 1–14, a face open; buried damage stays a body) →
+  `FORM_DEBRIS` (box for collision/light/nav/occupancy, faces left to the piece, hides no neighbour face); the edge
+  pass excludes debris cells like roof plane cells. Derived v15 → v16 (spec §3.7 owner note); 8 B instance kept.
+  Adapter: the view applies tip and centring (stand-in drawing kept); default kit = square stand-in boxes for the 18
+  edge/roof/debris cases (bevels and aliases R3b). Page probe `kitPieces`; `kitTestExhibits` skips cases no window rule
+  names (the edge catalogue took 21 s searching for them). Manual and spec updated.
+- **Tests** (vitest, real derive): `kit-house.test.ts` rewritten (8): box house with door and window, a 40-cell wall,
+  a floor slab: every edge piece's 4 cells 1 or 3 solid (2 diagonal) and every corner's 8 cells 1 or 7, read from
+  the store; the pieces equal a brute-force list of exposed lattice edges and corners exactly (one owner each); the
+  wall's flat faces none, its rim 188 edges + 8 corners; town and random worlds: no piece on a flat face, ≤ 2 an edge
+  (2 only diagonal); every default stand-in box placed as the renderer places it stays in its cell or open air; a
+  gable gets ridge (centred, top row), eave and verge pieces on roof cells and no edge piece round them; a wall cell at
+  12 / 7 / 1 → `debris` / `debris-heavy` on it, `debris-face` on its 4 in-plane neighbours (yaws and tips checked),
+  every other piece and every output but base and instances as intact; at air no debris, the same base surface,
+  edge pieces round the hole; buried damage byte-equal to intact; 16³ sections joined = chunk with damage; an edit
+  past the reach changes no instance. `kit-pieces.test.ts`, `kit-test-scene.test.ts`, adapter `voxel-kit-pieces.test.ts`,
+  kit check, collision (balcony edge a whole block), integrity, roof words and integration tests moved to the edge
+  catalogue. `role-spec-doc.test.ts` archived (pinned the reviewed draft to the superseded catalogue; R7).
+- **Measured** (`run.mjs cases --pieces`, 6 GB scope, Node 22, 2026-11-04 23:46, load 1.4, uptime 12.3 d; counts are
+  deterministic): whole 512² town, L0 chunks with pieces 229: instances with a full test kit **320,160 → 130,926**
+  (p50 / p95 / max a chunk 1,355 / 3,012 / 3,857 → **555 / 1,267 / 1,492**), the default kit the same count (111,707
+  of them its own pieces, the rest stand-ins); no kit 19,219 (beam/banister stand-ins). vs R1's 493,310 raw edge
+  pieces: R2's roof planes take the stair edges (most out-top/out-bottom), and terrain contact and beams/banisters
+  none. L1 nodes 62: 53,333 → **72,610** (p50 876 → 1,131): several edge pieces a 1 m cell where the old catalogue
+  put one a cell (D505). Slice ring L0 152 → 110, L1 26 → 48. Table bytes one full kit 1,650 → 813 B, six 16,032 →
+  7,683 B. Whole-town L0 derive 6.30 s without a kit, 6.70 s with one, 229 chunks (46c.6: 4.97 / 4.94 s at
+  another hour; edge pass and pieces now in it; one run, not tuned).
+  Drawn instances, draws and frames (vs 46c.11's 63.1 k drawn) are R6's.
+- **Not done here (slice 2, left for the next item or a follow-up):** the superseded catalogue (`cases-draft-catalogue.ts`,
+  `KIT_RULES`, the `kits` rule set) is still registered beside the world's (tests of the case window, case forms and
+  `cases-cli` read it), and the `reshape` base / `slab` shape and their base-surface code stay (no case of the world's
+  catalogue uses them); kit-runs needs no narrowing (it reads only the catalogue's run cases). The placeholder log /
+  stone kits name the superseded cases (kit check `catalogue` err; they draw only beams and banisters until R5).
+  Unverified: nothing was looked at on staging (R3b/R6).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1234,6 +1278,20 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   one rising toward +x or +z; damaged roof cells (shape < 15) are holes for R3.
 - 2026-11-04 (R2, default chosen, owner to confirm): **mips run the same mesher**; a stair off the level's grid sits
   up to 1.5 of its cells high (D501), not fixed here.
+
+- 2026-11-04 (R3, default chosen, owner to confirm): **debris stages are two cases**, `debris` (integrity 8–14) and
+  `debris-heavy` (1–7, `standIn: 'debris'`: a kit with one debris piece dresses both); 21 cases, not 20.
+- 2026-11-04 (R3, default chosen, owner to confirm): **only exposed damage is debris**: a damaged cell with every
+  face against solid stays a body (no hidden faces or pieces inside a mass); collision, light, navigation and
+  occupancy keep every damaged cell whole until it is air (owner).
+- 2026-11-04 (R3, default chosen, owner to confirm): **a debris face is owned by the intact cell** (its material's
+  kit), placed on its face toward the debris by yaw or by a tip (`INSTANCE_PLACE` faceUp / faceDown, the rotation
+  byte's free bits 2–3); a ridge along a cell's middle is `centred`. The instance stays 8 B.
+- 2026-11-04 (R3, default chosen, owner to confirm): **no edge piece where a cell round the edge is a beam or a
+  banister** (they are drawn thin by their own piece); a missing case in a bound kit draws nothing (its stand-in
+  first; no role fallback, the engine default kit only for unbound materials).
+- 2026-11-04 (R3, default chosen, owner to confirm): **the default kit stays square stand-ins** (a strip a little
+  proud of both faces, a corner cap, coves in the open cell, roof boards, rubble boxes) until R3b's bevels.
 
 ## 10. Open questions for the owner
 

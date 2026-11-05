@@ -95,12 +95,14 @@ export type RoofEdgeCase = 'roof-ridge' | 'roof-eave' | 'roof-gable' | 'roof-hip
 /**
  * One roof-edge piece of a plane cell. Yaw (quarter turns about +y, +x to
  * +z) places the case's own orientation: an eave or verge open toward +z;
- * a ridge running along x; a hip or valley running to the cell's +x, +z
- * corner.
+ * a ridge running along x on the cell's +z side; a hip or valley running to
+ * the cell's +x, +z corner. A ridge along the cell's middle is `centred`
+ * (moved half a cell in from the side its yaw names).
  */
 export interface RoofEdge {
   readonly caseId: RoofEdgeCase;
   readonly yaw: number;
+  readonly centred?: true;
 }
 
 /** The roof-edge pieces a plane cell's word names. */
@@ -112,9 +114,9 @@ export function roofEdgesOf(word: number): RoofEdge[] {
     const yaw = (k + 3) & 3;
     if (((word >>> (ROOF_WORD.eaveShift + k)) & 1) !== 0) out.push({ caseId: 'roof-eave', yaw });
     if (((word >>> (ROOF_WORD.vergeShift + k)) & 1) !== 0) out.push({ caseId: 'roof-gable', yaw });
-    if (((word >>> (ROOF_WORD.ridgeShift + k)) & 1) !== 0) out.push({ caseId: 'roof-ridge', yaw: (k + 1) & 1 });
+    if (((word >>> (ROOF_WORD.ridgeShift + k)) & 1) !== 0) out.push({ caseId: 'roof-ridge', yaw });
   }
-  if ((word & ROOF_WORD.centreRidge) !== 0) out.push({ caseId: 'roof-ridge', yaw: (dirs & 0b0101) === 0b0101 ? 1 : 0 });
+  if ((word & ROOF_WORD.centreRidge) !== 0) out.push({ caseId: 'roof-ridge', yaw: (dirs & 0b0101) === 0b0101 ? 3 : 0, centred: true });
   for (let a = 0; a < 4; a++) {
     const b = (a + 1) & 3;
     if (((dirs >>> a) & 1) === 0 || ((dirs >>> b) & 1) === 0) continue;

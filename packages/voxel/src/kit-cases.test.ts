@@ -273,9 +273,11 @@ describe('the draft catalogue', () => {
 describe('the edge catalogue (window part)', () => {
   const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
 
-  it('is a 20-case draft whose window rules name only beams and banisters, with no fallback for any role', () => {
-    expect([cat.id, cat.version, cat.draft]).toEqual(['edges-draft', 0, true]);
-    expect(cat.cases).toHaveLength(20);
+  it('is a 21-case draft whose window rules name only beams and banisters, with no fallback for any role', () => {
+    expect([cat.id, cat.version, cat.draft]).toEqual(['edges-draft', 1, true]);
+    expect(cat.cases).toHaveLength(21);
+    // The heavy debris stage draws the light stage's piece in a kit without its own.
+    expect(cat.cases.find((c) => c.id === 'debris-heavy')!.standIn).toBe('debris');
     expect(cat.cases.map((c) => c.id).slice(0, EDGE_CASE_IDS.length)).toEqual([...EDGE_CASE_IDS]);
     expect(new Set(cat.rules.map((r) => r.case))).toEqual(new Set(['beam', 'banister-rail', 'banister-post']));
     for (const role of CASE_ROLES) expect(cat.fallbackOf(role)).toBe(-1);

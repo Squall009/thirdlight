@@ -52,6 +52,8 @@ import {
   INSTANCE_BYTES,
   defaultPieceFamily,
   INSTANCE_FLAG,
+  INSTANCE_PLACE,
+  instancePlaceOf,
   mipCellMetres,
   PIECE_FAMILY,
   PIECE_VARIANT_MIRROR,
@@ -285,6 +287,9 @@ export class VoxelChunkView {
   private readonly quat = new THREE.Quaternion();
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly at = new THREE.Vector3();
+  private readonly tip = new THREE.Quaternion();
+  private readonly xAxis = new THREE.Vector3(1, 0, 0);
+  private readonly shift = new THREE.Vector3();
   private readonly scale = new THREE.Vector3();
   private readonly grid: ChunkGrid;
   private readonly origin: FloatingOrigin;
@@ -559,9 +564,15 @@ export class VoxelChunkView {
         });
       }
       g.offsets.forEach((o, i) => {
+        const rot = list.data[o + 3]!;
+        const place = instancePlaceOf(rot);
         // Quarter turns about +y turn the piece's run (its x) to the cell's run axis.
-        this.quat.setFromAxisAngle(this.up, (g.turnSign * (list.data[o + 3]! & 3) * Math.PI) / 2);
+        this.quat.setFromAxisAngle(this.up, (g.turnSign * (rot & 3) * Math.PI) / 2);
+        // A tipped piece takes its open side (+z) to the cell's top or bottom face first, then the turns.
+        if (place === INSTANCE_PLACE.faceUp || place === INSTANCE_PLACE.faceDown) this.quat.multiply(this.tip.setFromAxisAngle(this.xAxis, place === INSTANCE_PLACE.faceUp ? -Math.PI / 2 : Math.PI / 2));
         this.at.set((list.data[o]! + 0.5) * cellM, (list.data[o + 1]! + 0.5) * cellM, (list.data[o + 2]! + 0.5) * cellM);
+        // A centred piece runs along the cell's middle: half a cell in from the side it is written on.
+        if (place === INSTANCE_PLACE.centred) this.at.add(this.shift.set(0, 0, -0.5 * cellM).applyQuaternion(this.quat));
         mesh.setMatrixAt(i, this.matrix.compose(this.at, this.quat, this.scale));
       });
       mesh.instanceMatrix.needsUpdate = true;

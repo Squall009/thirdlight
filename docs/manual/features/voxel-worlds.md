@@ -22,8 +22,7 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
     or window there is a kit piece). Beams, banisters, posts and mouldings
     are not roles: they follow from how the cells are arranged, and so does
     the shape collision, walking and light use there (an open banister lets
-    a ball through between its posts, a balcony's open edge is a thinner
-    slab), never the look of a kit's piece;
+    a ball through between its posts), never the look of a kit's piece;
   - **shape** — how full the cell is, 0 (empty) to 15 (full), so ground can
     slope and round off instead of stepping;
   - **wetness** — 0 (dry) to 7: the surface darkens as it rises.
@@ -235,17 +234,24 @@ versions their meshes name.
 > sheet, the trim layout for detail pieces); worlds draw with kits now.
 
 **What a kit is.** Cells store only a role (wall, floor, roof …), never
-"beam" or "corner" or "window sill". The engine reads each built cell's
-neighbourhood (two cells round it) and gives it a **case**: a plain wall, a
-wall's top, its end, an outside corner, a beam under a floor's edge, a
-banister rail, a soffit under an overhang, and so on. A kit is the set of
-3D pieces a material type draws those cases with: a log kit lays half-logs
-along plain walls and log ends out of the corners, a stone kit lays ashlar,
-copings and quoins. Runs (a beam, a coping, a rail) are built from short
-sections (start, body, end, corner, junction), so any length works, and
-where the run ends, the kit's end piece goes. What collides, what blocks
-walking and how much light passes come from the case, never from a kit's
-pieces, so every kit of a material type plays the same.
+"beam" or "corner" or "window sill". Walls, floors, stairs and flat roofs
+are plain voxel faces: no piece ever stands on a flat face. A piece goes
+only where faces meet, each its own instance a 0.5 m edge or corner: the
+engine reads the cells round every edge and corner of a built cell and
+gives it a **case** (an outer top, vertical or bottom edge, an inner one
+where a wall meets a floor or ceiling, an outer or inner corner), the
+ridge, eave, verge, hip and valley of a sloped roof, a beam or a banister
+(read from how the cells are arranged, its runs built from start, body,
+end, corner and junction sections), and **debris**. A kit is the set of 3D
+pieces a material type draws those cases with; one mesh can serve many
+edges turned. What collides, what blocks walking and how much light passes
+come from the cells, never from a kit's pieces, so every kit of a material
+type plays the same. **Damage:** a built cell's shape is its integrity (15
+intact, lower damaged, air broken). A damaged cell with an open face is
+drawn by the kit's `debris` piece (`debris-heavy` below integrity 8), the
+intact faces opening toward it by `debris-face` pieces; it still collides,
+blocks light and is walked on as a whole block until it is air. How much
+damage a cell takes and when is the game's to decide.
 
 A voxel kit is one project item (its own file under `assets/voxel-kits/`,
 a `voxelkit` in the project index) holding the detail pieces a material
@@ -276,14 +282,14 @@ them as `voxelKits`.
 
 **How worlds draw them.** The voxel world page, Play, the Scene view and an
 exported game draw every world with the project's kits: a cell's piece is
-its material's kit's piece for the cell's case and run section, its variant
-picked from the cell (an edit elsewhere never reshuffles it), turned and
-mirrored to fit. Near the camera a piece's `high` mesh draws, one level out
+its material's kit's piece for the case of each of its edges and corners
+(and a beam's or banister's run section), its variant picked from the cell
+and the edge (an edit elsewhere never reshuffles it), turned to fit. Near the camera a piece's `high` mesh draws, one level out
 its `low` one (its `high` one where none is authored), farther out none:
 the cells draw as blocks. A material no kit binds draws the engine's
-**default kit**: plain procedural boxes (copings, plinths, sills, edges,
-mouldings, skirts, frames) with a labelled debug UV texture, and the engine's
-stand-in beams, rails and posts. Kit pieces draw with a stand-in material a
+**default kit**: plain procedural boxes (a strip along each edge, a cap on
+each corner, roof-edge boards, rubble for debris) with a labelled debug UV
+texture, and the engine's stand-in beams, rails and posts. Kit pieces draw with a stand-in material a
 kit and that debug texture until materials arrive; a kit naming a trim layout
 draws with that layout's debug set instead (each region its own colour and
 id, a 3 cm checker, a tick every 0.125 m along U), so a face mapped to the

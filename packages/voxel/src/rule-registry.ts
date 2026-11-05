@@ -11,11 +11,12 @@ import { TERRAIN_RULES } from './terrain-rules';
 
 /**
  * The rule set every streamed world derives with (the slice page, Play and
- * the Scene view): the placeholder construction rules with the terrain
- * features the terrain mesher places creases by, and the case pass kits
- * choose their pieces by.
+ * the Scene view): the construction classes with the terrain features the
+ * terrain mesher places creases by, the beam and banister window cases and
+ * the edge pass, so kits draw pieces on edges, corners, roof edges, beams,
+ * banisters and debris only, never on a flat face.
  */
-export const WORLD_RULES: AssemblyRuleSet = KIT_RULES;
+export const WORLD_RULES: AssemblyRuleSet = EDGE_RULES;
 
 const RULE_SETS = new Map<string, AssemblyRuleSet>([PLACEHOLDER_RULES, TERRAIN_RULES, KIT_RULES, EDGE_RULES].map((r) => [r.id, r]));
 

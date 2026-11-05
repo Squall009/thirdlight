@@ -114,6 +114,8 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
         resolved: className(resolvedClassAt(streamer.overlay, WORLD_RULES, x, y, z)),
         outputs,
         kitPiece: p === null || p.family !== 0 ? null : (ctx.kitPiece?.(v.material, p.piece) ?? null),
+        // Every kit piece the cell owns (an edge cell owns one an edge or corner), with its turns and placement.
+        kitPieces: (outputs?.pieces ?? []).filter((q) => q.family === 0).map((q) => ({ ...(ctx.kitPiece?.(v.material, q.piece) ?? { kit: null, caseId: null, section: null }), turns: q.turns, place: q.place })),
       };
     },
     windowHashes,

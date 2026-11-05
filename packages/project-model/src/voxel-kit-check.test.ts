@@ -7,7 +7,7 @@
  * one node, an embedded image's size) read from its bytes.
  */
 import { glbBytes, pngBytes } from '@thirdlight/shared';
-import { DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, DRAFT_CASE_CATALOGUE, VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, DRAFT_CASE_CATALOGUE, EDGE_CASE_CATALOGUE, VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import type { VoxelKit, VoxelKitMesh } from './voxel-kit';
 import { voxelKitCheck, voxelKitCheckState, voxelKitMeshFacts, voxelKitMeshKey, type VoxelKitAssets, type VoxelKitCheckRow, type VoxelKitMeshFacts } from './voxel-kit-check';
@@ -74,7 +74,7 @@ describe('the voxel kit check', () => {
     expect(rows.some((r) => r.id.startsWith('trim:'))).toBe(false);
   });
 
-  it('passes the engine default kit: no error; the cases it leaves to the base surface or the stand-ins are warnings saying so', () => {
+  it('passes the engine default kit: no error; the beams and banisters it leaves to the stand-ins are warnings saying so', () => {
     const cases: VoxelKit['cases'] = {};
     const shapes = new Map<string, VoxelKitMeshFacts>();
     const u = VOXEL_SIZE_M / DEFAULT_KIT_UNITS;
@@ -85,12 +85,13 @@ describe('the voxel kit check', () => {
       shapes.set(`default-${id}`, facts(p.boxes.flatMap(([x0, y0, z0, x1, y1, z1]) => [...quad(x0 * u - H, x1 * u - H, y0 * u - H, y1 * u - H, z1 * u - H, () => [0, 0]), ...quad(x0 * u - H, x1 * u - H, y0 * u - H, y1 * u - H, z0 * u - H, () => [0, 0])])));
     }
     const kit: VoxelKit = { kitFormat: 1, voxelKitId: 'engine-default', name: 'Engine default', version: 1, materialType: 'any', cases };
-    const report = voxelKitCheck(kit, DRAFT_CASE_CATALOGUE, assetsOf(kit), (m) => shapes.get(m.assetId) ?? null);
+    // Checked against the world's catalogue (the edge catalogue), the one it is written for.
+    const report = voxelKitCheck(kit, EDGE_CASE_CATALOGUE, assetsOf(kit), (m) => shapes.get(m.assetId) ?? null);
     expect(voxelKitCheckState(report)).not.toBe('err');
     const ids = bad(report.rows);
-    expect(ids).toEqual(expect.arrayContaining(['warn required:wall-plain', 'warn required:beam', 'warn fallback:wall']));
+    expect(ids.sort()).toEqual(['warn required:banister-post', 'warn required:banister-rail', 'warn required:beam']);
     expect(report.rows.find((r) => r.id === 'required:beam')!.detail).toMatch(/engine's stand-in bar/);
-    expect(report.rows.find((r) => r.id === 'required:wall-plain')!.detail).toMatch(/base surface/);
+    expect(report.rows.find((r) => r.id === 'catalogue')!.state).toBe('ok');
     expect(report.totals.pieces).toBe(Object.values(DEFAULT_KIT_PIECES).filter((p) => p !== null).length);
   });
 

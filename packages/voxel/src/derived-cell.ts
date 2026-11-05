@@ -17,7 +17,7 @@ import { buildApron } from './apron';
 import { chunkOf, localOf, type ChunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { cellBit, COLLISION_STEPS_PER_CELL, OCCUPANCY, type DerivedData } from './derived-data';
-import { INSTANCE_BYTES, INSTANCE_FLAG, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
+import { INSTANCE_BYTES, INSTANCE_FLAG, instancePlaceOf, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
 import { defaultPieceFamily, defaultPieceSection, KIT_PIECE_BASE, PIECE_VARIANT_MASK, PIECE_VARIANT_MIRROR } from './piece-table';
 import type { VoxelStoreCandidate } from './store';
 
@@ -33,7 +33,9 @@ export interface CellOutputs {
    * quarter turns, the mirror and variant, whether it replaces the base,
    * whether drawn at low detail.
    */
-  readonly piece: { readonly piece: number; readonly family: number; readonly section: number; readonly turns: number; readonly mirror: boolean; readonly variant: number; readonly replacesBase: boolean; readonly low: boolean } | null;
+  readonly piece: CellPieceOutput | null;
+  /** Every detail piece the cell owns (its edges, corners, roof edges, debris), in instance order; `piece` is the first. */
+  readonly pieces: readonly CellPieceOutput[];
   /** `full`: inside a full-cell box; `partial`: a partial shape inside the cell; `none`: neither (ground collides as its surface). */
   readonly collision: 'full' | 'partial' | 'none';
   /** The partial shape's box in 1/16 cell within the cell (min x, y, z, max x, y, z), when `collision` is partial. */
@@ -98,13 +100,27 @@ function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): number
 }
 
 /** What every consumer of a derived chunk receives for its local cell (lx, ly, lz). */
+/** One detail piece of a cell, decoded from its instance. */
+export interface CellPieceOutput {
+  readonly piece: number;
+  readonly family: number;
+  readonly section: number;
+  readonly turns: number;
+  /** The placement (derived-mesh.ts INSTANCE_PLACE). */
+  readonly place: number;
+  readonly mirror: boolean;
+  readonly variant: number;
+  readonly replacesBase: boolean;
+  readonly low: boolean;
+}
+
 export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number): CellOutputs {
   const e = d.edge;
   if (lx < 0 || ly < 0 || lz < 0 || lx >= e || ly >= e || lz >= e) throw new RangeError(`cell ${lx},${ly},${lz} outside a ${e}³ chunk`);
   const i = (lx * e + lz) * e + ly;
   const occ = d.occupancy;
   const renderSolid = occ.flag === OCCUPANCY.solid || (occ.flag === OCCUPANCY.mixed && cellBit(occ.mask, i));
-  let piece: CellOutputs['piece'] = null;
+  const pieces: CellPieceOutput[] = [];
   const list = d.instances;
   for (let k = 0; k < list.count; k++) {
     const o = k * INSTANCE_BYTES;
@@ -112,9 +128,9 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     const id = list.data[o + 4]! | (list.data[o + 5]! << 8);
     const flags = list.data[o + 3]!;
     const variant = list.data[o + 6]! | (list.data[o + 7]! << 8);
-    piece = { piece: id, family: defaultPieceFamily(id), section: id < KIT_PIECE_BASE ? defaultPieceSection(id) : -1, turns: flags & 3, mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0, low: (flags & INSTANCE_FLAG.low) !== 0 };
-    break;
+    pieces.push({ piece: id, family: defaultPieceFamily(id), section: id < KIT_PIECE_BASE ? defaultPieceSection(id) : -1, turns: flags & 3, place: instancePlaceOf(flags), mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0, low: (flags & INSTANCE_FLAG.low) !== 0 });
   }
+  const piece = pieces[0] ?? null;
   const S = COLLISION_STEPS_PER_CELL;
   const c0 = [lx * S, ly * S, lz * S];
   const c1 = [c0[0]! + S, c0[1]! + S, c0[2]! + S];
@@ -150,6 +166,7 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     renderSolid,
     baseFaces: baseFacesOf(d, lx, ly, lz),
     piece,
+    pieces,
     collision,
     partialBox,
     navBlocks,

@@ -25,6 +25,9 @@ import {
   fillNeighbourhood,
   jobRadius,
   KIT_RULES,
+  rulesDrawDebris,
+  buildPieceTable,
+  defaultKitSource,
   localIndex,
   PIECE_SLOT_TABLE,
   shapeDensity,
@@ -357,7 +360,7 @@ describe('construction shape is integrity', () => {
     instances: [...(d.instances.data ?? [])],
   });
 
-  it('a wall at integrity 7 collides, occludes, meshes and is walked on as at 15; terrain at 7 stays a partial fill', () => {
+  it('a wall at integrity 7 collides, occludes and is walked on as at 15 (meshed as at 15 without debris, as debris with the edge rules); terrain at 7 stays a partial fill', () => {
     const world = (wallShape: number, groundShape: number): PaletteStore => {
       const s = createWorldStore(grid);
       for (let x = 4; x < 28; x++) for (let z = 4; z < 28; z++) for (let y = 4; y < 8; y++) putVoxel(s, x, y, z, MAT.grass, C.terrain);
@@ -366,9 +369,16 @@ describe('construction shape is integrity', () => {
       return s;
     };
     for (const rules of [KIT_RULES, EDGE_RULES]) {
-      const intact = parts(deriveFromStore(world(15, 7), 0, 0, 0, rules));
-      const damaged = parts(deriveFromStore(world(7, 7), 0, 0, 0, rules));
-      for (const k of Object.keys(intact)) expect(damaged[k], `${rules.id}: ${k}`).toEqual(intact[k]);
+      // The engine's default kit draws every material, so the pieces show what the derive places.
+      const table = buildPieceTable([], rules, defaultKitSource(rules.catalogue!)).table;
+      const intact = parts(deriveFromStore(world(15, 7), 0, 0, 0, rules, undefined, table));
+      const damaged = parts(deriveFromStore(world(7, 7), 0, 0, 0, rules, undefined, table));
+      // The edge rules draw the damaged cell as debris (its base faces and pieces differ, nothing else); the kit rules as a block.
+      const drawn = rulesDrawDebris(rules) ? ['base', 'instances'] : [];
+      for (const k of Object.keys(intact)) {
+        if (drawn.includes(k)) expect(damaged[k], `${rules.id}: ${k}`).not.toEqual(intact[k]);
+        else expect(damaged[k], `${rules.id}: ${k}`).toEqual(intact[k]);
+      }
       // Terrain's shape is its fill: a terrain cell at 7 differs from one at 15 for the consumers.
       const fullGround = parts(deriveFromStore(world(15, 15), 0, 0, 0, rules));
       expect(fullGround['ground'], rules.id).not.toEqual(intact['ground']);
@@ -380,8 +390,13 @@ describe('construction shape is integrity', () => {
     fillNeighbourhood(n, grid, s.exportChunk(0, 0, 0, dense) ? dense : null, buildApron(s, 0, 0, 0, PAD));
     const at = (x: number, y: number, z: number): number => n.shapes[((x + PAD) * n.side + (z + PAD)) * n.side + (y + PAD)]!;
     expect([at(14, 10, 16), at(9, 8, 21)]).toEqual([shapeDensity(SHAPE_FULL), shapeDensity(7)]);
-    // The edge pass alike: the damaged wall cell is a whole block, no edge opens round it.
-    expect(piecesOf(world(7, 7), chunk0).map((p) => `${p.owner}|${p.at}|${p.caseId}`).sort()).toEqual(piecesOf(world(15, 7), chunk0).map((p) => `${p.owner}|${p.at}|${p.caseId}`).sort());
+    // The edge pass: the damaged wall cell is a whole block (no edge opens round it, none moves); the edges touching it
+    // (its own rim on the wall's two faces) take no piece, the debris pieces dress it instead.
+    const key = (p: Placed): string => `${p.owner}|${p.at}|${p.caseId}`;
+    const intactPieces = piecesOf(world(15, 7), chunk0).map(key);
+    const damagedPieces = piecesOf(world(7, 7), chunk0).map(key);
+    expect(damagedPieces.every((k) => intactPieces.includes(k))).toBe(true);
+    expect(damagedPieces.length).toBe(intactPieces.length);
   });
 
   it('places a smooth stroke of construction as whole blocks (integrity 15) and of terrain as its fill', () => {

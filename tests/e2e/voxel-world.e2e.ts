@@ -48,13 +48,14 @@
  * workers it starts; the world draws, the character stands on it, and a
  * dig typed into the debug console opens the pit (pixels) and drops it in.
  *
- * Detail pieces come from the project's voxel kits: a test kit gives the
- * stone wall's free ends a board from a GLB imported into the project, every
- * other material draws the engine's default kit. The page, Play, the Scene
- * view and the export (its GLB from the shipped content) all draw kit
- * pieces; on the page, on both renderers, the banister grown into a wall
- * takes the rail's pieces away and puts the default coping on the new top,
- * and the picture changes.
+ * Detail pieces come from the project's voxel kits and stand only where
+ * faces meet: a test kit gives the stone wall's free ends' vertical edges a
+ * board from a GLB imported into the project (the wall's flat faces get
+ * none), every other material draws the engine's default kit. The page,
+ * Play, the Scene view and the export (its GLB from the shipped content) all
+ * draw kit pieces; on the page, on both renderers, the banister grown into a
+ * wall takes the rail's pieces away and puts the default edge pieces on the
+ * new top, and the picture changes.
  *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
@@ -101,9 +102,9 @@ test.beforeAll(async () => {
 const STONE_KIT = 'stone-test';
 
 /**
- * A voxel kit for the stone material with one authored piece, a wall end's board: a GLB (a 0.1 × 0.5 × 0.6 m box
- * standing proud of the free end, 12 triangles, no texture) written into the project and imported as every model
- * is, named by its version's digest.
+ * A voxel kit for the stone material with one authored piece, an outside vertical edge's board (the free ends'
+ * corners): a GLB (a 0.1 × 0.5 × 0.6 m box standing proud of the end face, 12 triangles, no texture) written into the
+ * project and imported as every model is, named by its version's digest.
  */
 async function addStoneKit(): Promise<void> {
   const box = new THREE.BoxGeometry(0.1, VOXEL_SIZE_M, 0.6).translate(VOXEL_SIZE_M / 2 + 0.02, 0, 0);
@@ -137,7 +138,7 @@ async function addStoneKit(): Promise<void> {
   const assetId = imported.change.added[0]!.assetId;
   const digest = createHash('sha256').update(glb).digest('hex');
   console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no low mesh (L1 draws the high), no texture`);
-  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], cases: { 'wall-end': { sections: { body: { variants: [{ high: { assetId, digest } }] } } } } } });
+  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], cases: { 'edge-out-vertical': { sections: { body: { variants: [{ high: { assetId, digest } }] } } } } } });
 }
 test.afterAll(async () => {
   await be?.stop();
@@ -165,6 +166,8 @@ interface CellReport {
   outputs: { renderSolid: boolean; baseFaces: number; piece: { family: number; section: number; replacesBase: boolean } | null; collision: string; navBlocks: boolean; standable: boolean; light: number } | null;
   /** A kit piece's kit, case and run section (null: none, or an engine default piece). */
   kitPiece: { kit: string; caseId: string; section: string } | null;
+  /** Every kit piece the cell owns (one an edge or corner), its turns and placement. */
+  kitPieces: { kit: string | null; caseId: string | null; section: string | null; turns: number; place: number }[];
 }
 interface EditAnswer {
   ok: boolean;
@@ -358,15 +361,18 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // The probes' markers out of the pictures compared below.
     await hook(page, 'clearMarkers');
 
-    // Kit pieces: the stone wall's free end draws the test kit's GLB board (read from the backend, parsed by the page's
-    // loader); every other material the engine's default kit (copings, edges, frames).
+    // Kit pieces: the stone wall's free end's vertical edges draw the test kit's GLB board (read from the backend,
+    // parsed by the page's loader), its flat faces nothing; every other material the engine's default kit (edges,
+    // corners). A cell in the middle of the wall owns no piece.
     const kitState = await hook<{ piecesByDetail: { kit: number }; kits: { ids: string[]; meshes: Record<string, string> } }>(page, 'state');
     expect(kitState.kits.ids).toEqual([STONE_KIT, DEFAULT_KIT_ID]);
     expect(Object.values(kitState.kits.meshes)).toEqual(['ready']);
     expect(kitState.piecesByDetail.kit).toBeGreaterThan(5);
-    expect((await cellAt(page, [ox + 5, oy + 2, oz])).kitPiece).toMatchObject({ kit: STONE_KIT, caseId: 'wall-end' });
+    const freeEnd = await cellAt(page, [ox + 5, oy + 2, oz]);
+    expect(freeEnd.kitPieces.map((p) => `${p.kit} ${p.caseId} ${p.turns}`).sort()).toEqual([`${STONE_KIT} edge-out-vertical 0`, `${STONE_KIT} edge-out-vertical 3`]);
+    expect((await cellAt(page, [ox, oy + 3, oz])).kitPieces).toEqual([]);
     // The banister grown into a wall (its gaps and a row over the rail): the rail's default pieces go, the new wall's
-    // top draws the default kit's coping, the picture changes; dug back, the banister and its pieces are as before.
+    // top edges draw the default kit's edge pieces, the picture changes; dug back, the banister and its pieces are as before.
     const railCell: Cell = [ox - 3, oy + 2, oz + 7];
     expect((await cellAt(page, railCell)).outputs?.piece?.family).toBe(PIECE_FAMILY.rail);
     const grown: number[] = [];
@@ -374,27 +380,28 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const banisterShot = await shot(page);
     expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'set', cells: grown, voxel: { material: MAT.timber, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } })).ok).toBe(true);
     expect((await cellAt(page, railCell)).outputs?.piece).toBeNull();
-    expect((await cellAt(page, [ox - 3, oy + 3, oz + 7])).kitPiece).toMatchObject({ kit: DEFAULT_KIT_ID, caseId: 'wall-top' });
+    expect((await cellAt(page, [ox - 3, oy + 3, oz + 7])).kitPiece).toMatchObject({ kit: DEFAULT_KIT_ID, caseId: 'edge-out-top' });
     expect(changedPixels(banisterShot, await shot(page)), 'banister → wall').toBeGreaterThan(300);
     expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'dig', cells: grown })).ok).toBe(true);
     expect((await cellAt(page, railCell)).outputs?.piece?.family).toBe(PIECE_FAMILY.rail);
 
     // The kit test scene (writeKitTestScene, the page's ?kitScene): written beside the scene in timber (the default
-    // kit's material), its exhibits labelled on the screen, each drawn with its case's piece; one undo takes it away.
+    // kit's material), its exhibits (the window cases: beams and banisters) labelled on the screen, each drawn with its
+    // case's piece (the engine's stand-ins); one undo takes it away.
     if (renderer === 'webgpu') {
       const at: Cell = [ox - 52, oy, oz + 16];
       const labels = kitTestScene(WORLD_RULES, { origin: at, material: MAT.timber }).labels;
       expect((await hook<EditAnswer>(page, 'writeKitScene', at, MAT.timber)).ok).toBe(true);
-      const top = labels.find((l) => l.roleName === 'wall' && l.caseId === 'wall-top')!;
+      const top = labels.find((l) => l.caseId === 'banister-rail')!;
       await hook(page, 'look', ...top.cell, -0.6, 0.45, 8);
       await hook(page, 'settle');
       await page.waitForFunction(() => ((window as unknown as { __tlVoxelWorld: { labelsShown(): number } }).__tlVoxelWorld.labelsShown()) > 3);
-      for (const id of ['wall-top', 'wall-end', 'wall-corner']) {
-        const l = labels.find((x) => x.roleName === 'wall' && x.caseId === id)!;
-        expect((await cellAt(page, [...l.cell] as Cell)).kitPiece, id).toMatchObject({ kit: DEFAULT_KIT_ID, caseId: id });
+      for (const [id, family] of [['beam', PIECE_FAMILY.beam], ['banister-rail', PIECE_FAMILY.rail], ['banister-post', PIECE_FAMILY.post]] as const) {
+        const l = labels.find((x) => x.caseId === id)!;
+        expect((await cellAt(page, [...l.cell] as Cell)).outputs?.piece?.family, id).toBe(family);
       }
       expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
-      expect((await cellAt(page, [...top.cell] as Cell)).kitPiece).toBeNull();
+      expect((await cellAt(page, [...top.cell] as Cell)).outputs?.piece ?? null).toBeNull();
       await hook(page, 'clearKitScene');
       // Back to the view the page opened with: the pictures below compare against a reload's.
       await hook(page, 'look', ox, oy + 3, oz + 2, -0.75, 0.42, 16);

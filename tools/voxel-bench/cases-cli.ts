@@ -74,6 +74,8 @@ import {
   type DerivedData,
   type Neighbourhood,
   type PaletteStore,
+  WORLD_RULES,
+  worldPieceTable,
 } from '@thirdlight/voxel';
 import { benchDir } from './bench-dirs';
 import { loadArea } from './regions';
@@ -262,13 +264,16 @@ interface PieceCounts {
 }
 
 /**
- * Kit pieces (piece table): the table's bytes for one and for six full test
- * kits, and the instances each 32³ chunk (level 0) and level-1 node lists
- * without a kit and with one, and the whole derive's ms for each.
+ * Kit pieces (piece table, the world's rule set): the table's bytes for one
+ * and for six full test kits, and the instances each 32³ chunk (level 0) and
+ * level-1 node lists without a kit, with one full test kit and with the
+ * engine's default kit (what a world without game kits draws), and the whole
+ * derive's ms for each.
  */
 function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [number, number, number]>): Record<string, unknown> {
-  const one = buildPieceTable([fullTestKit('town', BUILDING_MATERIALS, 2)], KIT_RULES).table;
-  const six = buildPieceTable(BUILDING_MATERIALS.map((m, k) => fullTestKit(`kit-${k}`, [m], 4)), KIT_RULES).table;
+  const one = buildPieceTable([fullTestKit('town', BUILDING_MATERIALS, 2)], WORLD_RULES).table;
+  const six = buildPieceTable(BUILDING_MATERIALS.map((m, k) => fullTestKit(`kit-${k}`, [m], 4)), WORLD_RULES).table;
+  const engine = worldPieceTable([]);
   const tree = new MipTree(store);
   const nodes = [...new Set(chunks.map(([x, y, z]) => `${x >> 1},${y >> 1},${z >> 1}`))].map((k) => k.split(',').map(Number) as [number, number, number]);
   const count = (units: ReadonlyArray<readonly [number, number, number]>, derive: (u: readonly [number, number, number]) => DerivedData): PieceCounts => {
@@ -287,12 +292,14 @@ function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [numb
   return {
     tableBytes: { oneKit: one.bytes.length, sixKits: six.bytes.length, noKit: 0 },
     level0: {
-      noKit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, KIT_RULES)),
-      kit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, KIT_RULES, undefined, one)),
+      noKit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, WORLD_RULES)),
+      kit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, WORLD_RULES, undefined, one)),
+      defaultKit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, WORLD_RULES, undefined, engine)),
     },
     level1: {
-      noKit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, KIT_RULES)),
-      kit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, KIT_RULES, undefined, one)),
+      noKit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, WORLD_RULES)),
+      kit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, WORLD_RULES, undefined, one)),
+      defaultKit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, WORLD_RULES, undefined, engine)),
     },
   };
 }

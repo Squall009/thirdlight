@@ -6,8 +6,9 @@
  * bodies dropped and swept against every storage chunk's static body (its
  * 16³ derive sections joined, as the streamer hands them over) — onto the
  * ground, the wall top, the beam and the rail, between the banister's
- * posts, under and onto a balcony's soffits (their declared slab, not the
- * whole cell), and into a hole dug after the bodies were built. Ground that is
+ * posts, under and onto a balcony's floor edge (a whole block: walls and
+ * floors are plain voxels, a detail piece adds no shape), and into a hole
+ * dug after the bodies were built. Ground that is
  * a height function collides as a heightfield: drops and sweeps on it land
  * where they land on the same ground as a mesh, and ground with an
  * overhang or underside, ground leaving the chunk, or a box stays a mesh.
@@ -201,21 +202,20 @@ describe('collision through the engine physics backend', () => {
     expect(physics.removes).toBe(16);
   });
 
-  it('collides a balcony\'s soffits as their declared slab: a capsule stands on top, a ball from below meets the raised underside', async () => {
+  it('collides a balcony\'s floor edge as the whole block it is (no soffit shape): a capsule stands on top, a ball from below meets its underside', async () => {
     const s = createWorldStore(grid);
     placeBalcony(s);
     const { physics } = await world(s);
-    // The floor's top is at y 5 (cells) over the plain floor and over the soffit at its front edge alike.
+    // The floor's top is at y 5 (cells) over the plain floor and at its front edge alike.
     expect(physics.dropCapsule([1.5, 8, 1.5], 0.1, 0.1).feet[1]).toBeCloseTo(5, 1);
-    const onSoffit = physics.dropCapsule([1.5, 8, 3.5], 0.1, 0.1);
-    expect(onSoffit.grounded).toBe(true);
-    expect(onSoffit.feet[1]).toBeCloseTo(5, 1);
-    // From below, a ball rising under the plain floor stops at its underside (y 4); under the soffit at the slab's (y 4.5).
+    const onEdge = physics.dropCapsule([1.5, 8, 3.5], 0.1, 0.1);
+    expect(onEdge.grounded).toBe(true);
+    expect(onEdge.feet[1]).toBeCloseTo(5, 1);
+    // From below, a ball rising under the plain floor and under its front and side edges stops at the underside (y 4).
     const r = 0.3;
     expect(physics.castSphere([1.5, 1.5, 1.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4 - r, 1);
-    expect(physics.castSphere([1.5, 1.5, 3.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4.5 - r, 1);
-    // The side edge's soffit, turned along z: the same raised underside.
-    expect(physics.castSphere([3.5, 1.5, 2.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4.5 - r, 1);
+    expect(physics.castSphere([1.5, 1.5, 3.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4 - r, 1);
+    expect(physics.castSphere([3.5, 1.5, 2.5], [0, 1, 0], 0.15, 20)?.centre[1]).toBeCloseTo(4 - r, 1);
   });
 });
 

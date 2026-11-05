@@ -85,9 +85,9 @@ function draw(v: VoxelChunkView, d: DerivedData, level = 0): void {
 
 const pieceMeshes = (v: VoxelChunkView): THREE.InstancedMesh[] => v.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh));
 
-/** A stone kit: a coping for the wall top (its own GLB), nothing else. */
+/** A stone kit: a coping for the wall's top edges (its own GLB), nothing else. */
 function stoneKit(digest: string, assetId = 'coping'): VoxelKitRecordLike {
-  return { voxelKitId: 'stone', materials: [STONE], cases: { 'wall-top': { sections: { body: { variants: [{ high: { assetId, digest } }] } } } } };
+  return { voxelKitId: 'stone', materials: [STONE], cases: { 'edge-out-top': { sections: { body: { variants: [{ high: { assetId, digest } }] } } } } };
 }
 
 const DIGEST_A = 'a'.repeat(64);
@@ -117,7 +117,7 @@ describe('kit pieces in the chunk view', () => {
     expect(stone.length).toBeGreaterThan(5);
     expect(timber.length).toBeGreaterThan(5);
     const about = v.kits!.describe.bind(v.kits);
-    expect(new Set(stone.map((i) => about(i.material, i.piece)?.caseId))).toEqual(new Set(['wall-top']));
+    expect(new Set(stone.map((i) => about(i.material, i.piece)?.caseId))).toEqual(new Set(['edge-out-top']));
     expect(new Set(timber.map((i) => about(i.material, i.piece)?.kit))).toEqual(new Set([DEFAULT_KIT_ID]));
     expect(v.piecesDrawn.kit).toBe(timber.length);
     // The GLB arrives (read through the host's bytes, parsed by the loader port): the waiting pieces are built.
@@ -150,14 +150,15 @@ describe('kit pieces in the chunk view', () => {
         const cell = [p.x, p.y, p.z].map((c) => c / VOXEL_SIZE_M - 0.5);
         expect(atCells.has(cell.map((c) => Math.round(c)).join(','))).toBe(true);
         expect(m4.determinant()).toBeCloseTo(1, 6);
-        const inst = stone.find((i) => i.cell.join(',') === cell.map((c) => Math.round(c)).join(','))!;
+        // A wall's top cell owns two copings (its front and back top edges): the instance is one of its cell's turns.
         x.set(1, 0, 0).transformDirection(m4);
-        const want = [[1, 0], [0, 1], [-1, 0], [0, -1]][inst.turns]!;
-        expect([Math.round(x.x), Math.round(x.z)]).toEqual(want);
+        const turns = stone.filter((i) => i.cell.join(',') === cell.map((c) => Math.round(c)).join(',')).map((i) => [[1, 0], [0, 1], [-1, 0], [0, -1]][i.turns]!.join(','));
+        expect(turns).toContain([Math.round(x.x), Math.round(x.z)].join(','));
       }
     }
-    // The wall runs along x: its copings are unturned or half turned.
-    expect(stone.every((i) => i.turns % 2 === 0)).toBe(true);
+    // The wall runs along x: its top-edge pieces are unturned (its +z edge) or half turned (its −z edge), but for the
+    // top edges of its two end faces (a quarter turn each way).
+    expect(stone.filter((i) => i.turns % 2 === 1).map((i) => `${i.cell.join(',')}|${i.turns}`).sort()).toEqual(['19,11,16|3', '8,11,16|1']);
     // A level-1 node of the same cells draws the same kit's piece at low detail (no low mesh: the high one).
     draw(v, derive(s, table, 1), 1);
     expect(v.piecesDrawn.low).toBeGreaterThan(0);
@@ -188,7 +189,7 @@ describe('kit pieces in the chunk view', () => {
     };
     const glb = glbBytes(JSON.stringify(json), new Uint8Array(bin.buffer));
     for (const node of ['Coping', undefined]) {
-      const kits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [STONE], cases: { 'wall-top': { sections: { body: { variants: [{ high: { assetId: 'coping', digest: DIGEST_A, ...(node !== undefined ? { node } : {}) } }] } } } } }];
+      const kits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [STONE], cases: { 'edge-out-top': { sections: { body: { variants: [{ high: { assetId: 'coping', digest: DIGEST_A, ...(node !== undefined ? { node } : {}) } }] } } } } }];
       const table = worldPieceTable(kits);
       const meshes = new VoxelKitMeshes();
       const v = view2(meshes.set(table, kits));
@@ -298,7 +299,8 @@ describe('kit pieces in the chunk view', () => {
         expect(uv.getX(i)).toBeLessThanOrEqual(1.4);
       }
     }
-    expect(pieces).toBeGreaterThan(20);
+    // Ten edge and corner pieces, five roof-edge pieces, three debris pieces (beams and banisters are the stand-ins').
+    expect(pieces).toBe(18);
     const t = voxelKitDebugTexture();
     expect([t.image.width, t.image.height]).toEqual([KIT_DEBUG_TEXTURE_SIDE, KIT_DEBUG_TEXTURE_SIDE]);
     const px = t.image.data as Uint8Array;

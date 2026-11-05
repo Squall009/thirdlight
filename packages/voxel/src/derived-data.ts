@@ -49,16 +49,15 @@
  * current one.
  */
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
-import { classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_SHAPE, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formShapeOf, formSupports } from './case-forms';
+import { classForm, evaluateForms, FORM_BODY, FORM_SHAPE, FORM_STEPS, formBox, formCoverage, formShapeOf, formSupports } from './case-forms';
 import { BRICK_EDGE } from './brick-layout';
 import { baseSurface } from './base-surface';
-import { detailInstances, INSTANCE_FLAG, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, SURFACE_ISO, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { detailInstances, PIECE_DETAIL, pieceDetailAt, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { cellPieces, NO_PIECES, type DerivePieces, type PieceInputs } from './derive-pieces';
+export type { DerivePieces } from './derive-pieces';
+import { createEdgeMasks, type EdgeMasks } from './edge-cases';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
-import { evaluateCases, evaluateRuns } from './kit-rules';
-import { caseIndexOf, NO_CASE } from './kit-cases';
-import { NO_SECTION, RUN_SECTION, runSectionOf } from './kit-runs';
-import { defaultPiece, NO_PIECE, PIECE_VARIANT_MIRROR, pieceVariant, tablePiece, type PieceTable } from './piece-table';
-import { MATERIAL_ID_MAX } from './record';
+import { evaluateCases, evaluateEdges, evaluateRuns } from './kit-rules';
 import { appendSurface, classifyRoofs, roofSurface } from './roof-mesher';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
@@ -117,8 +116,18 @@ import { utf8Encode } from '@thirdlight/shared';
  * the canonical bytes, and its vertex count a new header flag); light,
  * occupancy and navigation still read the stair voxels. Results differ from
  * v14's only round roof cells.
+ * 16: pieces only where faces meet: the world's rule set is the edge rule
+ * set (`edges` v3), a cell may own several instances (its edges, corners,
+ * roof edges, debris), each placed by its case's yaw and a placement in
+ * bits 2–3 of the rotation byte (derived-mesh.ts INSTANCE_PLACE: tipped to
+ * a top or bottom face, or centred); no case keeps a piece on a kept face.
+ * A damaged construction cell with an open face (shape 1–14) is debris: its
+ * faces are left to its debris piece, its neighbours' faces toward it are
+ * drawn with a debris-face piece, collision, light and navigation keep the
+ * whole block. The variant hash also reads which of a cell's pieces it is.
+ * Still 8 bytes an instance; the layout is v15's.
  */
-export const DERIVED_FORMAT_VERSION = 15;
+export const DERIVED_FORMAT_VERSION = 16;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -485,6 +494,7 @@ const caseScratches = new Map<number, Uint16Array>();
 const runScratches = new Map<number, Uint16Array>();
 const formScratches = new Map<number, Uint8Array>();
 const roofScratches = new Map<number, Uint32Array>();
+const edgeScratches = new Map<number, EdgeMasks>();
 
 function u16Scratch(map: Map<number, Uint16Array>, len: number): Uint16Array {
   let a = map.get(len);
@@ -493,97 +503,6 @@ function u16Scratch(map: Map<number, Uint16Array>, len: number): Uint16Array {
     map.set(len, a);
   }
   return a;
-}
-
-/** The default piece's stand-in family for each declared shape a piece replaces (0: none). */
-const SHAPE_FAMILY = new Uint8Array(8);
-SHAPE_FAMILY[FORM_SHAPE.bar] = PIECE_FAMILY.beam;
-SHAPE_FAMILY[FORM_SHAPE.panel] = PIECE_FAMILY.rail;
-SHAPE_FAMILY[FORM_SHAPE.post] = PIECE_FAMILY.post;
-
-/**
- * The kit pieces a derive chooses from: the world's piece table (null: no
- * kit binds a material, every cell draws the default pieces) and the
- * derive unit's first cell in world cells of its level (what a variant's
- * hash reads, so a cell keeps its variant whichever chunk, section or job
- * derives it).
- */
-export interface DerivePieces {
-  readonly table: PieceTable | null;
-  readonly origin: readonly [number, number, number];
-}
-
-const NO_PIECES: DerivePieces = Object.freeze({ table: null, origin: [0, 0, 0] as const });
-
-/** What one derive's piece choice reads (built once a derive). */
-interface PieceInputs {
-  readonly n: Neighbourhood;
-  readonly classes: Uint8Array;
-  readonly forms: Uint8Array;
-  readonly cases: Uint16Array;
-  readonly runs: Uint16Array;
-  readonly pieces: DerivePieces;
-  readonly level: number;
-  /** Roof plane words (roof-mesher.ts): a plane cell takes no piece. */
-  readonly roofs: Uint32Array;
-}
-
-/** Whether a cell whose base surface stays shows: an opening, or a body with a face against a cell that is not solid. */
-function shows(p: PieceInputs, i: number): boolean {
-  if (formShapeOf(p.forms[i]!) !== FORM_SHAPE.box) return true;
-  const s = p.n.side;
-  const solid = (j: number): boolean => renderSolid(p.n, p.classes, p.forms, j);
-  return !solid(i + 1) || !solid(i - 1) || !solid(i + s) || !solid(i - s) || !solid(i + s * s) || !solid(i - s * s);
-}
-
-/**
- * The piece of padded cell `i` (local x, y, z) into `out`, or false: the
- * own piece of the kit its material names, by its case and run section
- * (piece-table.ts's fallback order), where the kit has one and the cell
- * shows; else, where its form leaves the base to a piece (a beam, a
- * banister's rail and posts), the engine's default piece for its declared
- * shape and run section, or for a cell without a case (rule sets without a
- * case pass), its section from the neighbours along its run with the same
- * class byte. Turns, and the mirror bit, come from its case's transform.
- */
-function pieceAt(p: PieceInputs, i: number, x: number, y: number, z: number, out: CellPiece): boolean {
-  if (p.roofs[i] !== 0) return false;
-  const f = p.forms[i]!;
-  const base = formBaseOf(f);
-  const fold = formFoldOf(f);
-  const packed = p.cases[i]!;
-  const run = p.runs[i]!;
-  const table = p.pieces.table;
-  out.turns = fold & 3;
-  out.flags = base === FORM_BASE.suppress ? INSTANCE_FLAG.replacesBase : 0;
-  const mirror = fold >= 4 ? PIECE_VARIANT_MIRROR : 0;
-  if (table !== null && packed !== NO_CASE) {
-    const mat = p.n.values[i]! & MATERIAL_ID_MAX;
-    const piece = tablePiece(table, mat, caseIndexOf(packed), run === NO_SECTION ? RUN_SECTION.single : runSectionOf(run));
-    if (piece !== NO_PIECE && (base !== FORM_BASE.keep || shows(p, i))) {
-      const o = p.pieces.origin;
-      out.piece = piece;
-      out.variant = pieceVariant(table, mat, piece, p.level, o[0] + x, o[1] + y, o[2] + z) | mirror;
-      return true;
-    }
-  }
-  if (base !== FORM_BASE.suppress) return false;
-  const family = SHAPE_FAMILY[formShapeOf(f)]!;
-  if (family === 0) return false;
-  let section: number = PIECE_SECTION.single;
-  if (run !== NO_SECTION) section = runSectionOf(run);
-  else if (family !== PIECE_FAMILY.post) {
-    // Along the run: x unturned or half turned, z otherwise.
-    const s = p.n.side;
-    const step = (fold & 1) === 0 ? s * s : s;
-    const k = p.classes[i]!;
-    const prev = p.classes[i - step] === k;
-    const next = p.classes[i + step] === k;
-    section = prev && next ? PIECE_SECTION.body : next ? PIECE_SECTION.start : prev ? PIECE_SECTION.end : PIECE_SECTION.single;
-  }
-  out.piece = defaultPiece(family, section);
-  out.variant = mirror;
-  return true;
 }
 
 /** Whether every cell the consumers read of a uniform body region keeps the body's form once its case is resolved. */
@@ -648,8 +567,11 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
   const ramps = classifyRoofs(n, roofs) === 0 ? emptySurface() : roofSurface(n, roofs);
   const base = appendSurface(baseSurface(n, classes, forms, detail === PIECE_DETAIL.none, roofs), ramps);
-  const inputs: PieceInputs = { n, classes, forms, cases, runs, pieces, level, roofs };
-  const instances = detailInstances(n, (i, x, y, z, out) => pieceAt(inputs, i, x, y, z, out), detail);
+  let edges = edgeScratches.get(classes.length);
+  if (edges === undefined) edgeScratches.set(classes.length, (edges = createEdgeMasks(n)));
+  if (detail !== PIECE_DETAIL.none) evaluateEdges(n, rules, level, edges);
+  const inputs: PieceInputs = { n, classes, forms, cases, runs, pieces, level, roofs, edges, catalogue: rules.catalogue };
+  const instances = detailInstances(n, (i, x, y, z, cell, emit) => cellPieces(inputs, i, x, y, z, cell, emit), detail);
   const t2 = performance.now();
   const collision = collisionOf(n, forms, roofs, ramps);
   const out: DerivedData = {

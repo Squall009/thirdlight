@@ -4,7 +4,7 @@
  * the material binding), no meshes. Shared by the kit-piece tests and the
  * `cases --pieces` measurement.
  */
-import { DRAFT_CASE_CATALOGUE, RUN_SECTION_IDS, type PieceKitSource } from '@thirdlight/voxel';
+import { RUN_SECTION_IDS, WORLD_RULES, type CaseCatalogueDef, type PieceKitSource } from '@thirdlight/voxel';
 import { MAT } from './world-kit';
 
 /** The town's and the scenes' construction materials. */
@@ -15,10 +15,10 @@ export function weightedVariants(n: number): { weight: number }[] {
   return Array.from({ length: n }, (_, k) => ({ weight: k + 1 }));
 }
 
-/** A kit with a piece for every section of every case of the draft catalogue but `enclosed` (nothing shows there), `variants` variants each. */
-export function fullTestKit(id: string, materials: readonly number[], variants = 2): PieceKitSource {
+/** A kit with a piece for every section of every case of `catalogue` (the world's) but `enclosed` (nothing shows there), `variants` variants each. */
+export function fullTestKit(id: string, materials: readonly number[], variants = 2, catalogue: CaseCatalogueDef = WORLD_RULES.catalogue!): PieceKitSource {
   const cases: Record<string, { sections: Record<string, { variants: { weight: number }[] }> }> = {};
-  for (const c of DRAFT_CASE_CATALOGUE.cases) {
+  for (const c of catalogue.cases) {
     if (c.id === 'enclosed') continue;
     cases[c.id] = { sections: Object.fromEntries(RUN_SECTION_IDS.map((s) => [s, { variants: weightedVariants(variants) }])) };
   }

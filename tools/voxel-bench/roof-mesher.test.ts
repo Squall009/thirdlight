@@ -321,9 +321,10 @@ describe('the roof mesher', () => {
     expect(roofEdgesOf(at(g, 5, 2))).toEqual([{ caseId: 'roof-eave', yaw: 2 }]);
     expect(roofEdgesOf(at(g, 3, 3))).toEqual([{ caseId: 'roof-gable', yaw: 1 }]);
     expect(roofEdgesOf(at(g, 12, 3))).toEqual([{ caseId: 'roof-gable', yaw: 3 }]);
-    expect(roofEdgesOf(at(g, 6, 6))).toEqual([{ caseId: 'roof-ridge', yaw: 0 }]);
+    expect(roofEdgesOf(at(g, 6, 6))).toEqual([{ caseId: 'roof-ridge', yaw: 0, centred: true }]);
     expect(edgeCounts(g)).toEqual({ 'roof-eave': 20, 'roof-gable': 16, 'roof-ridge': 10 });
-    // Hip (13 × 8, even depth): the ridge between rows 3 and 4 owned by row 3's cells, four hips per layer's corners.
+    // Hip (13 × 8, even depth): the ridge between rows 3 and 4 owned by row 3's cells (on their +z side, not centred),
+    // four hips per layer's corners.
     const h = roofWords(s, HIP, read);
     expect(roofEdgesOf(at(h, 26, 4))).toEqual([{ caseId: 'roof-ridge', yaw: 0 }]);
     expect(roofEdgesOf(at(h, 20, 1))).toEqual([{ caseId: 'roof-eave', yaw: 1 }, { caseId: 'roof-eave', yaw: 2 }, { caseId: 'roof-hip', yaw: 2 }]);

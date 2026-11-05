@@ -677,7 +677,7 @@ describe('voxel world routes', () => {
       cases: {
         gazebo: one({ assetId: KIT_MODEL.assetId, digest }),
         beam: one({ assetId: KIT_MODEL.assetId, digest: 'f'.repeat(64), node: 'No_Such_Node' }),
-        'wall-top': one({ assetId: 'no-such-model', digest }),
+        'edge-out-top': one({ assetId: 'no-such-model', digest }),
       },
     };
     const before = (await problems()).length;
@@ -688,9 +688,9 @@ describe('voxel world routes', () => {
       lines = (await problems()).slice(before).filter((l) => l.includes('(broken)'));
     }
     expect(lines.find((l) => l.includes('error: Names cases or sections the catalogue does not have'))).toMatch(/case gazebo/);
-    expect(lines.find((l) => l.includes('meshes cannot be drawn'))).toMatch(/^Voxel kit "Broken" \(broken\) error: .*no such model: wall-top\/body \(no-such-model\).*no such node: beam\/body/);
+    expect(lines.find((l) => l.includes('meshes cannot be drawn'))).toMatch(/^Voxel kit "Broken" \(broken\) error: .*no such model: edge-out-top\/body \(no-such-model\).*no such node: beam\/body/);
     expect(lines.find((l) => l.includes('name a file version the model does not have'))).toMatch(/warning/);
-    expect(lines.find((l) => l.includes('required rows'))).toMatch(/warning: \d+ required rows: Required case wall-plain has no piece/);
+    expect(lines.find((l) => l.includes('required rows'))).toMatch(/warning: \d+ required rows: Required case edge-out-vertical has no piece/);
     // MCP reads the same log.
     const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'voxel-kit-check-mcp' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -735,7 +735,8 @@ describe('voxel world routes', () => {
     const store = await readChunks(around, SCENE_WORLD);
     const got = scene.labels.map((l) => ({ cell: l.cell, ...caseAndSectionAt(store, ...l.cell) }));
     expect(got).toEqual(scene.labels.map((l) => ({ cell: l.cell, caseId: l.caseId, section: l.section })));
-    expect(new Set(scene.labels.map((l) => l.caseId)).size).toBe(WORLD_RULES.catalogue!.cases.length);
+    // One exhibit a case a window rule names (beams and banisters); the edge, roof and debris cases come from passes.
+    expect(new Set(scene.labels.map((l) => l.caseId))).toEqual(new Set(WORLD_RULES.catalogue!.rules.map((x) => x.case)));
     expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args })).json.error as { code: string }).code).toBe('no_change');
     const undone = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: SCENE_WORLD } });
     expect(undone.json).toMatchObject({ ok: true, revision: 2, undoable: 0, cells: r.json.cells });

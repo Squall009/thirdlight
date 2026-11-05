@@ -1,26 +1,26 @@
 /**
  * The engine's default fallback kit: procedural pieces made from a few
- * boxes, so a world whose materials no game kit binds still draws its
- * edges, trims and frames (copings, plinths, sills, mouldings, running
- * boards, skirts, ridge caps, opening frames) instead of bare voxel faces.
- * It is engine-owned test-quality art, generated in code from the table
- * below: no files, nothing to import, the same in every build.
+ * boxes, so a world whose materials no game kit binds still shows where its
+ * faces meet (edges, corners, roof edges) and its debris instead of bare
+ * voxel faces. It is engine-owned stand-in art, generated in code from the
+ * table below: no files, nothing to import, the same in every build. These
+ * are square stand-ins (a strip a little proud of the faces along an edge,
+ * a cap on a corner, a few boxes of rubble); rounded bevels are its next
+ * revision.
  *
  * **Every catalogue case has an answer here** ({@link DEFAULT_KIT_PIECES}):
  * a piece, or `null` where the cell is drawn without one of this kit's
- * pieces: by the base surface (plain faces, slopes, the reshaped soffit,
- * an enclosed cell), or, where the case leaves its base to a piece (beams,
- * banister rails and posts), by the engine's default pieces, the stand-in
- * families with their run sections (piece-table.ts, below
- * `KIT_PIECE_BASE`), which every kit falls back to.
+ * pieces: beams, banister rails and posts are drawn by the engine's
+ * default pieces, the stand-in families with their run sections
+ * (piece-table.ts, below `KIT_PIECE_BASE`), which every kit falls back to.
  *
- * A piece is written in its case's own orientation (cases-draft-catalogue.ts:
- * the exposed face toward +z, a run along x, up +y), in sixteenths of a
- * cell from the cell's corner; boxes may reach a little past the cell
- * (a coping overhangs, a plinth stands proud of the face). Only the body
- * section is given: every other run section falls back to it, so runs meet
- * end to end at the cell faces. A renderer turns, mirrors and scales the
- * boxes as it does a kit's own meshes.
+ * A piece is written in its case's own orientation (kit-case-catalogue.ts:
+ * the open side toward +z, a vertical edge or corner toward +x and +z, up
+ * +y), in sixteenths of a cell from the owning cell's corner; boxes reach a
+ * little past the cell (an edge strip stands proud of its faces, an inner
+ * edge's cove lies in the open cell beside the owner). Only the body section
+ * is given: every other run section falls back to it. A renderer turns,
+ * tips and scales the boxes as it does a kit's own meshes.
  */
 import type { CaseCatalogueDef } from './kit-cases';
 import type { PieceKitSource } from './piece-table';
@@ -42,60 +42,32 @@ export interface DefaultKitPiece {
 
 const piece = (note: string, ...boxes: DefaultKitBox[]): DefaultKitPiece => Object.freeze({ note, boxes: Object.freeze(boxes) });
 
-/** A strip along the front face (+z) between heights y0 and y1, standing `out` sixteenths proud of it. */
-const frontStrip = (y0: number, y1: number, out: number, back = 0): DefaultKitBox => [0, y0, DEFAULT_KIT_UNITS - back, DEFAULT_KIT_UNITS, y1, DEFAULT_KIT_UNITS + out];
-
 /**
  * Per catalogue case id: the default piece, or null (see the file comment).
- * A test checks this lists exactly the catalogue's cases.
+ * A test checks this lists exactly the world catalogue's cases.
  */
 export const DEFAULT_KIT_PIECES: Readonly<Record<string, DefaultKitPiece | null>> = Object.freeze({
-  enclosed: null,
-  'wall-plain': null,
-  'wall-thin': null,
-  'wall-top': piece('a coping cap over the wall top, overhanging the face', [0, 14, 1, 16, 17, 17]),
-  'wall-end': piece('an end board up the free end (+x)', [16, 0, 2, 17, 16, 14]),
-  'wall-corner': piece('a corner post up the outside corner (+x, +z)', [14, 0, 14, 17, 16, 17]),
-  'wall-base': piece('a plinth at the foot of the face', frontStrip(0, 3, 2, 1)),
-  'wall-jamb': piece('a frame board beside the opening (+x)', [13, 0, 15, 16, 16, 18]),
-  'wall-lintel': piece('a header over the opening below', frontStrip(0, 3, 2, 1)),
-  'wall-sill': piece('a sill ledge under the opening above', frontStrip(13, 16, 3, 1)),
+  'edge-out-top': piece('a strip along the top edge, proud of both faces', [0, 14, 14, 16, 17, 17]),
+  'edge-out-vertical': piece('a strip up the outside corner', [14, 0, 14, 17, 16, 17]),
+  'edge-out-bottom': piece('a strip along the underside edge', [0, -1, 14, 16, 2, 17]),
+  'edge-in-top': piece('a cove where the wall meets the ceiling, in the open cell', [0, -2, 16, 16, 0, 18]),
+  'edge-in-vertical': piece('a cove up the inside corner, in the open cell', [16, 0, 16, 18, 16, 18]),
+  'edge-in-bottom': piece('a cove where the wall meets the floor, in the open cell', [0, 16, 16, 16, 18, 18]),
+  'corner-out-top': piece('a cap on the top corner', [14, 14, 14, 17, 17, 17]),
+  'corner-out-bottom': piece('a cap on the bottom corner', [14, -1, 14, 17, 2, 17]),
+  'corner-in-top': piece('a cap in the inside corner under the ceiling', [16, -2, 16, 18, 0, 18]),
+  'corner-in-bottom': piece('a cap in the inside corner on the floor', [16, 16, 16, 18, 18, 18]),
+  'roof-ridge': piece('a ridge board along the side the planes meet on', [0, 15, 14, 16, 18, 18]),
+  'roof-eave': piece('a fascia under the eave', [0, -1, 14, 16, 3, 17]),
+  'roof-gable': piece('a barge board up the verge', [0, 0, 16, 16, 16, 17]),
+  'roof-hip': piece('a cap on the hip toward the corner', [12, 12, 12, 17, 17, 17]),
+  'roof-valley': piece('a board in the valley toward the corner', [12, 14, 12, 16, 17, 16]),
+  debris: piece('a few blocks of rubble', [2, 0, 3, 9, 6, 10], [8, 0, 6, 14, 4, 13], [4, 5, 5, 10, 9, 11]),
+  'debris-heavy': piece('a low heap of rubble', [1, 0, 1, 12, 3, 9], [6, 0, 8, 15, 2, 15]),
+  'debris-face': piece('a broken rim on the face opening to the damage', [3, 3, 16, 13, 13, 17]),
   beam: null,
   'banister-rail': null,
   'banister-post': null,
-  'running-board': piece('a board along the storey line', frontStrip(6, 10, 2, 1)),
-  moulding: piece('a moulding under the ceiling', frontStrip(13, 16, 2, 1)),
-  'floor-plain': null,
-  'floor-edge': piece('a band along the slab edge', frontStrip(12, 16, 1, 1)),
-  'floor-corner': piece('the band round the outside corner', [0, 12, 15, 17, 16, 17], [15, 12, 0, 17, 16, 15]),
-  soffit: null,
-  'roof-plain': null,
-  'roof-peak': piece('a finial on the peak', [6, 16, 6, 10, 22, 10]),
-  'roof-ridge': piece('a ridge cap along the top', [0, 15, 4, 16, 18, 12]),
-  'roof-hip': null,
-  'roof-valley': null,
-  'roof-verge': piece('a barge board at the gable end (+x)', [16, 6, 0, 17, 17, 17]),
-  'roof-eave': piece('a fascia board under the eave', frontStrip(0, 6, 1, 1)),
-  'roof-slope': null,
-  'roof-edge': piece('a curb along the flat roof edge', frontStrip(14, 18, 1, 1)),
-  'foundation-plain': null,
-  'foundation-skirt': piece('a skirt where the foundation meets the ground', frontStrip(0, 4, 2, 1)),
-  'foundation-corner': piece('a quoin up the outside corner', [14, 0, 14, 17, 16, 17]),
-  'foundation-edge': piece('a band under the top of the exposed face', frontStrip(12, 15, 1, 1)),
-  'stair-plain': null,
-  'stair-step': piece('a nosing on the step', frontStrip(14, 16, 1, 2)),
-  'stair-side': piece('a stringer on the open side (+x)', [16, 0, 0, 17, 16, 16]),
-  'pillar-plain': null,
-  'pillar-single': piece('a plinth and a cap', [-1, 0, -1, 17, 3, 17], [-1, 13, -1, 17, 16, 17]),
-  'pillar-base': piece('a plinth at the foot', [-1, 0, -1, 17, 3, 17]),
-  'pillar-capital': piece('a cap at the head', [-1, 13, -1, 17, 16, 17]),
-  'pillar-shaft': null,
-  'opening-plain': null,
-  'opening-single': piece('a frame on four sides', [0, 0, 4, 16, 2, 12], [0, 14, 4, 16, 16, 12], [0, 2, 4, 2, 14, 12], [14, 2, 4, 16, 14, 12]),
-  'opening-threshold': piece('a threshold board', [0, 0, 3, 16, 1, 13]),
-  'opening-sill': piece('a window sill', [0, 0, 3, 16, 2, 13]),
-  'opening-head': piece('a head board', [0, 14, 4, 16, 16, 12]),
-  'opening-jamb': piece('a jamb board (+x)', [14, 0, 4, 16, 16, 12]),
 });
 
 /**

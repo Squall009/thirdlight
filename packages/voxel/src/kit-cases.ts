@@ -253,6 +253,12 @@ export interface CaseDef {
   readonly shape: CaseShape;
   /** One line: what the case is. */
   readonly note: string;
+  /**
+   * Another case of the catalogue (of the same base and shape) whose piece a
+   * kit without one of this case's draws instead: a later stage of the same
+   * thing, so a kit with one debris piece still dresses every stage.
+   */
+  readonly standIn?: string;
 }
 
 /** A rule cell: an offset in the window and the symbols it accepts. */
@@ -367,6 +373,13 @@ export class CaseCatalogue {
       const form = caseFormProblem(c);
       if (form !== null) fail(`case ${c.id}: ${form}`);
       this.caseIndex.set(c.id, this.caseIndex.size);
+    }
+    for (const c of def.cases) {
+      if (c.standIn === undefined) continue;
+      const k = this.caseIndex.get(c.standIn);
+      if (k === undefined || k === this.caseIndex.get(c.id)) fail(`case ${c.id}: stand-in ${c.standIn} is not another case`);
+      const o = def.cases[k!]!;
+      if (o.base !== c.base || o.shape !== c.shape) fail(`case ${c.id}: stand-in ${c.standIn} fills another shape`);
     }
     for (const role of CASE_ROLES) {
       const id = def.fallback[role];

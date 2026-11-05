@@ -171,15 +171,18 @@ function windowFor(cat: CaseCatalogue, caseIndex: number, role: number): Uint8Ar
 
 /**
  * The exhibits of a catalogue: one a (case, role) pair, in catalogue case
- * order and each case's role order, plus the pairs no window was found for.
+ * order and each case's role order, plus the pairs no window was found for
+ * (every pair of a case no window rule names: the pass cases).
  */
 export function kitTestExhibits(def: CaseCatalogueDef): { exhibits: KitTestExhibit[]; unreached: { caseId: string; role: number }[] } {
   const cat = new CaseCatalogue(def);
   const exhibits: KitTestExhibit[] = [];
   const unreached: { caseId: string; role: number }[] = [];
+  // A case no rule names (an edge, roof-edge or debris case, from its own pass) and no role falls back to has no window.
+  const windowed = new Set([...def.rules.map((r) => r.case), ...Object.values(def.fallback).filter((f): f is string => f !== null)]);
   cat.cases.forEach((c, k) => {
     for (const role of new Set(c.roles)) {
-      const w = windowFor(cat, k, role);
+      const w = windowed.has(c.id) ? windowFor(cat, k, role) : null;
       if (w === null) {
         unreached.push({ caseId: c.id, role });
         continue;

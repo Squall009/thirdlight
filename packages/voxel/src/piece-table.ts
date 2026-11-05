@@ -18,6 +18,8 @@
  *   derive again.
  * - **Missing pieces.** A (case, section) the kit lacks takes, in order: the
  *   case's body section, then its single section; then the same in the
+ *   case's stand-in (a later debris stage drawn by the first stage's piece);
+ *   then the same in the
  *   fallback case of the case's role, when that case declares the same base
  *   and shape (a fallback must fill the same coarse shape the consumers
  *   read: a wall piece never stands in for a beam); then the engine's
@@ -257,9 +259,11 @@ export function buildPieceTable(kits: readonly PieceKitSource[], rules: Assembly
     w.u32(crc32(utf8Encode(kit.voxelKitId)));
     w.u16(pieces.length);
     catalogue.cases.forEach((c, k) => {
+      const standIn = c.standIn === undefined ? undefined : caseIndex.get(c.standIn);
       const fb = caseIndex.get(catalogue.fallback[c.roles[0]!] ?? '');
       for (let s = 0; s < RUN_SECTIONS; s++) {
         let p = inCase(k, s);
+        if (p === NO_PIECE && standIn !== undefined && sameForm(c, catalogue.cases[standIn]!)) p = inCase(standIn, s);
         if (p === NO_PIECE && fb !== undefined && fb !== k && sameForm(c, catalogue.cases[fb]!)) p = inCase(fb, s);
         w.u16(p);
       }
@@ -407,18 +411,19 @@ export function tablePiece(t: PieceTable, material: number, caseIndex: number, s
 
 /**
  * The variant of a kit's own piece at world cell (x, y, z) of chunk-tree
- * level `level`: a hash of the cell, the level and the kit's seed, placed
- * among the variants by their weights. 0 for a default piece or a piece
- * with one variant.
+ * level `level`: a hash of the cell, the level, the kit's seed and `slot`
+ * (which of the cell's pieces it is: its case, yaw and placement, so the
+ * edges of one cell vary independently), placed among the variants by their
+ * weights. 0 for a default piece or a piece with one variant.
  */
-export function pieceVariant(t: PieceTable, material: number, piece: number, level: number, x: number, y: number, z: number): number {
+export function pieceVariant(t: PieceTable, material: number, piece: number, level: number, x: number, y: number, z: number, slot = 0): number {
   if (piece < KIT_PIECE_BASE) return 0;
   const kit = t.kits[t.materialKit[material]!]!;
   const p = piece - KIT_PIECE_BASE;
   const start = kit.thresholdStart[p]!;
   const end = kit.thresholdStart[p + 1]!;
   if (end === start) return 0;
-  const h = latticeHash4(x, y, z, (kit.seed + Math.imul(level, 0x9e3779b9)) | 0) >>> 16;
+  const h = latticeHash4(x, y, z, (kit.seed + Math.imul(level, 0x9e3779b9) + Math.imul(slot, 0x85ebca6b)) | 0) >>> 16;
   let v = 0;
   while (start + v < end && h >= kit.thresholds[start + v]!) v++;
   return v;

@@ -27,8 +27,9 @@
  * chunk (the one holding its lower sample), so no triangle is emitted twice.
  *
  * **Detail instances**: 8 bytes each: x, y, z (chunk-local cell, uint8),
- * a byte of rotation (bits 0–1: quarter turns about +y) and flags (bits
- * 4–7, {@link INSTANCE_FLAG}), the piece (uint16) and its variant word
+ * a byte of rotation (bits 0–1: quarter turns about +y, bits 2–3 the
+ * placement, {@link INSTANCE_PLACE}) and flags (bits 4–7,
+ * {@link INSTANCE_FLAG}), the piece (uint16) and its variant word
  * (uint16): the stride stays a multiple of four, as a GPU instance buffer
  * needs. The piece is **kit-local** (piece-table.ts): below
  * `KIT_PIECE_BASE` the engine's default piece (stand-in family << 3 | run
@@ -37,8 +38,9 @@
  * The variant word holds the variant (bits 0–14) and the mirror of the
  * case's transform (bit 15). A piece that replaces its cell's base surface
  * says so (`replacesBase`): the base surface is then not emitted there, so
- * an open rail is open, not a rail drawn over a solid block; a kit's piece
- * on a cell whose base is kept (a moulding, a coping) adds to it.
+ * an open rail is open, not a rail drawn over a solid block; an edge
+ * piece adds to the faces it sits between. A cell may own several
+ * instances: one each edge, corner, roof edge or debris piece it carries.
  *
  * **Pieces per level** ({@link pieceDetailAt}): a chunk (level 0) lists its
  * pieces at high detail, a level-1 node at low detail (`low` set: the
@@ -126,12 +128,33 @@ export function snorm8(v: number): number {
   return Math.max(-127, Math.min(127, Math.round(v * 127)));
 }
 
-/** What a derive's piece choice gives for one cell (detailInstances reuses one). */
+/**
+ * How a piece is placed beyond its quarter turns (bits 2–3 of the rotation
+ * byte), applied in the case's own orientation before the turns: `upright`
+ * as authored; `faceUp` / `faceDown` tip the case's +z (its open side) to
+ * +y / −y, so a piece written for a side face dresses a top or bottom face;
+ * `centred` moves it half a cell toward its own −z, so a piece written on
+ * the cell's +z side runs along the cell's middle (a ridge on an odd-width
+ * roof).
+ */
+export const INSTANCE_PLACE = Object.freeze({ upright: 0, faceUp: 1, faceDown: 2, centred: 3 });
+
+/** Shift of the {@link INSTANCE_PLACE} field in the rotation byte. */
+export const INSTANCE_PLACE_SHIFT = 2;
+
+/** The {@link INSTANCE_PLACE} of an instance's rotation byte. */
+export function instancePlaceOf(rotation: number): number {
+  return (rotation >> INSTANCE_PLACE_SHIFT) & 3;
+}
+
+/** What a derive's piece choice gives for one piece of a cell (detailInstances reuses one). */
 export interface CellPiece {
   /** The kit-local piece. */
   piece: number;
   /** Quarter turns about +y. */
   turns: number;
+  /** {@link INSTANCE_PLACE}. */
+  place: number;
   /** {@link INSTANCE_FLAG} bits the piece sets (`replacesBase`). */
   flags: number;
   /** The variant word: variant | mirror bit (piece-table.ts). */
@@ -139,31 +162,40 @@ export interface CellPiece {
 }
 
 /**
- * Detail instances: one for each cell of the derive unit `pieceAt` gives a
- * piece (padded index, then the cell's local x, y, z; false: none).
+ * Detail instances: every piece `piecesAt` gives each cell of the derive
+ * unit (padded index, then the cell's local x, y, z), in cell order and then
+ * in the order given; a cell may own several (its edges, its corners).
  * `detail` ({@link PIECE_DETAIL}): none lists nothing, low flags every
  * piece.
  */
-export function detailInstances(n: Neighbourhood, pieceAt: (i: number, x: number, y: number, z: number, out: CellPiece) => boolean, detail: number = PIECE_DETAIL.high): InstanceList {
+export function detailInstances(n: Neighbourhood, piecesAt: (i: number, x: number, y: number, z: number, cell: CellPiece, emit: () => void) => void, detail: number = PIECE_DETAIL.high): InstanceList {
   if (detail === PIECE_DETAIL.none) return { count: 0, data: new Uint8Array(0) };
   const low = detail === PIECE_DETAIL.low ? INSTANCE_FLAG.low : 0;
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
   const out = new Bytes();
-  const cell: CellPiece = { piece: 0, turns: 0, flags: 0, variant: 0 };
+  const cell: CellPiece = { piece: 0, turns: 0, place: 0, flags: 0, variant: 0 };
   let count = 0;
-  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
-    if (!pieceAt(((x + p) * s + (z + p)) * s + (y + p), x, y, z, cell)) continue;
+  let cx = 0;
+  let cy = 0;
+  let cz = 0;
+  const emit = (): void => {
     const at = out.reserve(INSTANCE_BYTES);
     const d = out.view;
-    d.setUint8(at, x);
-    d.setUint8(at + 1, y);
-    d.setUint8(at + 2, z);
-    d.setUint8(at + 3, (cell.turns & 3) | cell.flags | low);
+    d.setUint8(at, cx);
+    d.setUint8(at + 1, cy);
+    d.setUint8(at + 2, cz);
+    d.setUint8(at + 3, (cell.turns & 3) | ((cell.place & 3) << INSTANCE_PLACE_SHIFT) | cell.flags | low);
     d.setUint16(at + 4, cell.piece, true);
     d.setUint16(at + 6, cell.variant, true);
     count++;
+  };
+  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
+    cx = x;
+    cy = y;
+    cz = z;
+    piecesAt(((x + p) * s + (z + p)) * s + (y + p), x, y, z, cell, emit);
   }
   return { count, data: out.done() };
 }

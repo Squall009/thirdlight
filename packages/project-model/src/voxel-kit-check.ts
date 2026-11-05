@@ -205,6 +205,8 @@ function caseRows(kit: VoxelKit, cat: CaseCatalogueDef): VoxelKitCheckRow[] {
   rows.push(unknown.length > 0 ? { id: 'catalogue', state: 'err', title: 'Names cases or sections the catalogue does not have', detail: `${named(unknown)}: never drawn (catalogue ${cat.id} v${cat.version}; sections are ${SECTIONS.join(', ')}).` } : { id: 'catalogue', state: 'ok', title: 'Every case and section is in the catalogue', detail: `Catalogue ${cat.id} v${cat.version}.` });
   const has = (id: string): boolean => sectionsOf(kit, id).size > 0;
   const instead = (c: CaseDef): string => {
+    const standIn = c.standIn === undefined ? undefined : known.get(c.standIn);
+    if (standIn !== undefined && has(standIn.id)) return `the kit's ${standIn.id} piece stands in`;
     const fb = known.get(cat.fallback[c.roles[0]!] ?? '');
     if (fb !== undefined && fb.id !== c.id && fb.base === c.base && fb.shape === c.shape && has(fb.id)) return `the kit's ${fb.id} piece stands in`;
     if (c.base !== 'suppress') return 'the base surface draws it with no piece';

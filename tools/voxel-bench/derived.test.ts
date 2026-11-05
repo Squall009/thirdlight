@@ -269,7 +269,7 @@ describe('assembly evaluation and per-consumer outputs', () => {
       expect(outs[1]!.baseFaces, name).toBe(0);
       expect(outs[2]!.baseFaces, name).toBe(faces);
       // Every other consumer reads the class, not the level.
-      for (const o of outs.slice(1)) expect({ ...o, piece: null, baseFaces: 0 }, name).toEqual({ ...outs[0]!, piece: null, baseFaces: 0 });
+      for (const o of outs.slice(1)) expect({ ...o, piece: null, pieces: [], baseFaces: 0 }, name).toEqual({ ...outs[0]!, piece: null, pieces: [], baseFaces: 0 });
     }
     for (const [cx, cy, cz] of [[0, 0, -1], [0, 0, 0], [-1, 0, 0]] as const) {
       const [d0, d1, d2] = [0, 1, 2].map((level) => at(cx * E, cy * E, cz * E, level)) as [DerivedData, DerivedData, DerivedData];
@@ -715,9 +715,11 @@ describe('the kit rule set', () => {
     return s;
   }
 
-  it('is the world rule set: the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3', () => {
-    expect(WORLD_RULES).toBe(KIT_RULES);
+  it('composes the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3; the world derives with the edge rule set', () => {
+    expect(WORLD_RULES).toBe(EDGE_RULES);
+    expect({ id: EDGE_RULES.id, version: EDGE_RULES.version, radius: EDGE_RULES.radius }).toEqual({ id: 'edges', version: 3, radius: 2 });
     expect(registeredAssemblyRules()).toContain(KIT_RULES);
+    expect(registeredAssemblyRules()).toContain(EDGE_RULES);
     expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 6, radius: 2 });
     expect(KIT_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
     expect(jobRadius(KIT_RULES)).toBe(3);

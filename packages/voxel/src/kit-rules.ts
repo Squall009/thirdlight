@@ -15,7 +15,7 @@
  */
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-mesher';
-import { caseFormTable } from './case-forms';
+import { caseFormTable, isDebrisCell } from './case-forms';
 import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
 import { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
 import { EDGE_REACH, extractEdges, type EdgeMasks } from './edge-cases';
@@ -126,7 +126,7 @@ export function withEdges(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
         clearBox(n, lo, hi, out.inner, 0);
         return 0;
       }
-      return extractEdges(n, lo, hi, out, roofExclusions(n, lo, hi));
+      return extractEdges(n, lo, hi, out, edgeExclusions(n, lo, hi));
     },
   });
 }
@@ -135,16 +135,18 @@ export function withEdges(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
 const exclusionScratch = new Map<number, Uint8Array>();
 
 /**
- * The cells round a box the roof's planes draw ({@link isRoofPlaneCell}): no edge piece goes round them, the roof's own
- * edges are the roof mesher's.
+ * The cells round a box the edge pass leaves pieces off round: the roof's
+ * plane cells ({@link isRoofPlaneCell}: the roof's own edges are the roof
+ * mesher's) and debris cells ({@link isDebrisCell}: the faces opening
+ * toward them are dressed by debris pieces, not edges).
  */
-function roofExclusions(n: Neighbourhood, lo: number, hi: number): Uint8Array {
+function edgeExclusions(n: Neighbourhood, lo: number, hi: number): Uint8Array {
   let out = exclusionScratch.get(n.values.length);
   if (out === undefined) exclusionScratch.set(n.values.length, (out = new Uint8Array(n.values.length)));
   const s = n.side;
   for (let x = lo - 1; x <= hi; x++) for (let z = lo - 1; z <= hi; z++) {
     const row = (x * s + z) * s;
-    for (let y = lo - 1; y <= hi; y++) out[row + y] = isRoofPlaneCell(n, row + y) ? 1 : 0;
+    for (let y = lo - 1; y <= hi; y++) out[row + y] = isDebrisCell(n, row + y) || isRoofPlaneCell(n, row + y) ? 1 : 0;
   }
   return out;
 }
@@ -167,13 +169,15 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
 }
 
 /**
- * The edge rule set (DRAFT, with the edge catalogue): the terrain rules,
- * the beam and banister window cases and the edge pass. Not the world's rule
- * set yet: the derive draws pieces from the superseded catalogue's cases
- * until its pieces come from the edge pass. Version 2: no edge piece round a
- * cell the roof's planes may draw.
+ * The edge rule set (DRAFT, with the edge catalogue), the world's: the
+ * terrain rules, the beam and banister window cases and the edge pass; a
+ * derive with it draws pieces only on edges, corners, roof edges, beams,
+ * banisters and damaged cells (derived-pieces.ts). Version 2: no edge piece
+ * round a cell the roof's planes may draw. Version 3 (catalogue
+ * `edges-draft` v1, two debris stages): none round a damaged construction
+ * cell either, which the derive draws as debris.
  */
-export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 2);
+export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 3);
 
 /**
  * The world rule set from kits on: the terrain rules (`terrain` v1) with

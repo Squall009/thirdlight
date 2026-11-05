@@ -83,6 +83,7 @@ export {
   valueDensity,
   valueMaterial,
   valueOf,
+  damagedIntegrity,
   valueRole,
   valueShape,
   valueWetness,
@@ -291,7 +292,7 @@ export {
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { INSTANCE_BYTES, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { DEFAULT_KIT_ID, DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, defaultKitSource, type DefaultKitBox, type DefaultKitPiece } from './default-kit';
 export {
   buildPieceTable,
@@ -355,7 +356,7 @@ export {
   type InferredFeature,
 } from './kit-cases';
 export { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
-export { BEAM_BANISTER_CASES, BEAM_BANISTER_RULES, EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
+export { BEAM_BANISTER_CASES, BEAM_BANISTER_RULES, DEBRIS_LIGHT_MIN, EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
 export {
   CORNER_SLOTS,
   createEdgeMasks,
@@ -372,12 +373,12 @@ export {
   type EdgeMasks,
   type EdgePiece,
 } from './edge-cases';
-export { caseFormTable, classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_NONE, FORM_SHAPE, FORM_SHAPE_BOX, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formFullFaces, formShapeOf, formSupports, LIGHT_COVERAGE, packForm } from './case-forms';
+export { caseFormTable, classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_DEBRIS, FORM_NONE, isDebrisCell, rulesDrawDebris, FORM_SHAPE, FORM_SHAPE_BOX, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formFullFaces, formShapeOf, formSupports, LIGHT_COVERAGE, packForm } from './case-forms';
 export { EDGE_RULES, evaluateCases, evaluateEdges, evaluateRuns, KIT_RULES, levelHasCases, withCases, withEdges } from './kit-rules';
 export { KIT_TEST_SCENE_PITCH, kitTestExhibits, kitTestScene, voxelRoleName, type KitTestExhibit, type KitTestLabel, type KitTestScene, type KitTestSceneOptions } from './kit-test-scene';
 export { NO_SECTION, packRunSection, resolveRunSections, RUN_AXIS, RUN_END, RUN_SECTION, runAxisOf, runEndEndOf, runSectionOf, runStartEndOf, RunTable, runU } from './kit-runs';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
-export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
+export { cellOutputs, resolvedClassAt, type CellOutputs, type CellPieceOutput } from './derived-cell';
 export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
 export { groundHeightfield, groundHeightfieldPatches, GROUND_HEIGHTFIELD_TOLERANCE_M, MIN_HEIGHTFIELD_PATCH_CELLS, type GroundHeightfield, type GroundHeightfieldPatches, type HeightfieldPatchOptions, type HeightfieldRefusal } from './ground-heightfield';
 export { ChunkTreeFlags, downsampleMip, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';

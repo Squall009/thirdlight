@@ -1,297 +1,360 @@
 /**
- * The placeholder kits on the walls a builder makes: a one-cell-thick house
- * (runs of 7 m and 5 m, four outside corners, a T wall inside with a free
- * end, a door and a window) through the real derive with the committed log
- * and stone kits and the real GLB geometry. Pins the placement convention
- * end to end: a case's piece, authored with its front toward +z and its run
- * along +x, lands turned (and mirrored) by the instance onto the world so
- * that its front faces open air, its run follows the wall, and no part of
- * it stands inside a neighbouring solid cell.
+ * Detail pieces stand only where faces meet, through the real derive with
+ * the world's rule set and the engine's default kit (every material no kit
+ * binds draws it; it has a piece for every edge, corner, roof-edge and
+ * debris case): on a closed box house with a door and a window, a long
+ * wall, a floor slab, a gable roof, the town and random worlds.
+ *
+ * - **No piece on a flat face**: every edge piece's 4 cells round its edge
+ *   are 1 or 3 solid, every corner piece's 8 cells 1 or 7, read straight from
+ *   the store (not from the edge pass).
+ * - **One owner an edge**: every exposed edge and corner of construction
+ *   (found by brute force over the lattice) has exactly one piece, and no
+ *   piece sits anywhere else.
+ * - **Stand-ins out of the solid**: every default box, placed as the
+ *   renderer places it (turns, tip, centring), lies in its own cell or in
+ *   open air.
+ * - **Roofs** take roof-edge pieces only; **damage** draws debris on the
+ *   damaged cell and a debris face on each intact face toward it, nothing
+ *   else changes for collision, light or navigation, and at air the
+ *   neighbours' plain faces and the hole's edges are back.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import * as THREE from 'three';
-import { DRAFT_TRIM_LAYOUT, voxelKitMeshFacts, type VoxelKit, type VoxelKitMeshFacts } from '@thirdlight/project-model';
-import { createVoxelSurface, PIECE_U_ATTRIBUTE, TRIM_RUN_ATTRIBUTE, trimUPerMetre, VoxelChunkView, VoxelKitMeshes, voxelStandInLook } from '@thirdlight/three-adapter';
-import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { applyFold, chunkGrid, createWorldStore, deriveFromStore, FloatingOrigin, joinSectionsForDraw, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, WETNESS_MAX, DRAFT_CASE_CATALOGUE, INSTANCE_BYTES, KIT_PIECE_BASE, kitPieceList, PIECE_VARIANT_MASK, PIECE_VARIANT_MIRROR, VOXEL_ROLE, VOXEL_SIZE_M, WORLD_RULES, worldPieceTable, type PaletteStore } from '@thirdlight/voxel';
-import { caseAndSectionAt } from './case-probe';
-import { flatGround, putVoxel } from './scenes';
+import {
+  applyFold,
+  buildApron,
+  chunkGrid,
+  createWorldStore,
+  DEFAULT_KIT_PIECES,
+  DEFAULT_KIT_UNITS,
+  defaultKitSource,
+  deriveFromStore,
+  deriveSectionsWithApron,
+  EDGE_CASE_IDS,
+  EDGE_SLOTS,
+  edgeCaseOf,
+  edgeYawOf,
+  encodeDerived,
+  INSTANCE_BYTES,
+  INSTANCE_FLAG,
+  INSTANCE_PLACE,
+  instancePlaceOf,
+  jobRadius,
+  KIT_PIECE_BASE,
+  kitPieceList,
+  PIECE_SLOT_TABLE,
+  PIECE_SLOTS,
+  SHAPE_FULL,
+  VOXEL_ROLE,
+  WORLD_RULES,
+  worldPieceTable,
+  type DerivedData,
+  type PaletteStore,
+} from '@thirdlight/voxel';
+import { loadArea } from './regions';
+import { dabDetailRoles, putVoxel, randomAssemblyWorld } from './scenes';
+import { townWorld } from './town';
 import { MAT } from './world-kit';
 
-const DIR = join(import.meta.dirname, 'kits');
 const grid = chunkGrid(32);
+const E = grid.edge;
 const R = VOXEL_ROLE;
-const M = VOXEL_SIZE_M;
+const RULES = WORLD_RULES;
+const CAT = RULES.catalogue!;
+const TABLE = worldPieceTable([]);
+const OWN = kitPieceList(defaultKitSource(CAT), CAT).pieces;
+type Cell = [number, number, number];
 
-/** A one-cell-thick house on flat ground: walls x 2…15 by z 2…11, 6 high; a T wall at x 9 from the front wall to z 7; a door (x 5–6, y 0–3) and a window (x 11–12, y 2–3) in the front wall. */
-function house(s: PaletteStore, m: number): void {
-  flatGround(s, 0, 32, 0, 32, 3, 0);
-  const wall = (x: number, y: number, z: number): void => putVoxel(s, x, y, z, m, R.wall);
-  for (let y = 0; y < 6; y++) {
-    for (let x = 2; x < 16; x++) {
-      wall(x, y, 2);
-      wall(x, y, 11);
-    }
-    for (let z = 2; z < 12; z++) {
-      wall(2, y, z);
-      wall(15, y, z);
-    }
-    for (let z = 3; z < 8; z++) wall(9, y, z);
-  }
-  for (let x = 5; x < 7; x++) for (let y = 0; y < 4; y++) putVoxel(s, x, y, 2, m, R.opening);
-  for (let x = 11; x < 13; x++) for (let y = 2; y < 4; y++) putVoxel(s, x, y, 2, m, R.opening);
+/** One instance read back: its world cell, case, yaw, placement and flags. */
+interface Piece {
+  readonly cell: Cell;
+  readonly caseId: string;
+  readonly yaw: number;
+  readonly place: number;
+  readonly flags: number;
 }
 
-interface Placed {
-  cell: [number, number, number];
-  caseId: string;
-  pieceCase: string;
-  fold: number;
-  /** World cells (offsets from the piece's own) that triangle centres of the piece stand well inside, and whether each is solid. */
-  into: Map<string, boolean>;
-}
-
-function solidAt(s: PaletteStore, x: number, y: number, z: number): boolean {
-  const v = s.voxelAt(x, y, z, { material: 0, role: 0, shape: 0, wetness: 0 });
-  return v.material !== 0 && v.role !== R.opening && v.role !== R.air;
-}
-
-function kitFiles(id: 'log' | 'stone'): { kit: VoxelKit; glb: Uint8Array } {
-  return { kit: JSON.parse(readFileSync(join(DIR, `${id}.voxelkit.json`), 'utf8')) as VoxelKit, glb: new Uint8Array(readFileSync(join(DIR, `voxel-kit-${id}.glb`))) };
-}
-
-function placed(id: 'log' | 'stone', material: number): { store: PaletteStore; pieces: Map<string, Placed> } {
-  const { kit, glb } = kitFiles(id);
-  const store = createWorldStore(grid);
-  house(store, material);
-  const d = deriveFromStore(store, 0, 0, 0, WORLD_RULES, undefined, worldPieceTable([kit]));
-  const list = kitPieceList(kit, DRAFT_CASE_CATALOGUE).pieces;
-  const facts = new Map<string, VoxelKitMeshFacts>();
-  const out = new Map<string, Placed>();
+/** The kit pieces of derived chunk (cx, cy, cz) (default stand-ins of beams and banisters left out). */
+function piecesOf(d: DerivedData, cx: number, cy: number, cz: number): Piece[] {
+  const out: Piece[] = [];
   const b = d.instances.data;
   for (let k = 0; k < d.instances.count; k++) {
     const o = k * INSTANCE_BYTES;
-    const cell: [number, number, number] = [b[o]!, b[o + 1]!, b[o + 2]!];
     const piece = b[o + 4]! | (b[o + 5]! << 8);
     if (piece < KIT_PIECE_BASE) continue;
-    const word = b[o + 6]! | (b[o + 7]! << 8);
-    const fold = (b[o + 3]! & 3) + ((word & PIECE_VARIANT_MIRROR) !== 0 ? 4 : 0);
-    const pc = list[piece - KIT_PIECE_BASE]!;
-    const node = kit.cases[pc.caseId]!.sections![pc.sectionId]!.variants[word & PIECE_VARIANT_MASK]!.high.node!;
-    let f = facts.get(node);
-    if (f === undefined) facts.set(node, (f = voxelKitMeshFacts(glb, node)));
-    const into = new Map<string, boolean>();
-    const P = f.positions;
-    for (let i = 0; i < P.length; i += 9) {
-      // The instance's transform as the renderer applies it: mirror x, then quarter turns taking +x to +z.
-      const [px, py, pz] = applyFold(fold, [(P[i]! + P[i + 3]! + P[i + 6]!) / 3, (P[i + 1]! + P[i + 4]! + P[i + 7]!) / 3, (P[i + 2]! + P[i + 5]! + P[i + 8]!) / 3]);
-      const w = [(cell[0] + 0.5) * M + px, (cell[1] + 0.5) * M + py, (cell[2] + 0.5) * M + pz];
-      const c = w.map((q) => Math.floor(q / M));
-      // Well inside: a centre on or near a cell face belongs to neither side.
-      if (c.every((q, a) => q === cell[a]) || !w.every((q, a) => q - c[a]! * M > 0.01 && q - c[a]! * M < M - 0.01)) continue;
-      into.set(`${c[0]! - cell[0]},${c[1]! - cell[1]},${c[2]! - cell[2]}`, solidAt(store, c[0]!, c[1]!, c[2]!));
-    }
-    out.set(cell.join(','), { cell, caseId: caseAndSectionAt(store, ...cell).caseId!, pieceCase: pc.caseId, fold, into });
+    out.push({ cell: [cx * E + b[o]!, cy * E + b[o + 1]!, cz * E + b[o + 2]!], caseId: OWN[piece - KIT_PIECE_BASE]!.caseId, yaw: b[o + 3]! & 3, place: instancePlaceOf(b[o + 3]!), flags: b[o + 3]! & 0xf0 });
   }
-  return { store, pieces: out };
+  return out;
 }
 
-/** Where a case direction lands on the world under a fold. */
-const dir = (fold: number, d: [number, number, number]): string => applyFold(fold, d).join(',');
-/** A direction's axis, sign dropped. */
-const axis = (fold: number, d: [number, number, number]): string => applyFold(fold, d).map(Math.abs).join(',');
-
-describe.each([
-  ['log', MAT.timber],
-  ['stone', MAT.stone],
-] as const)('the %s kit on a one-cell-thick house', (id, material) => {
-  const { store, pieces } = placed(id, material);
-  const at = (x: number, y: number, z: number): Placed => {
-    const p = pieces.get(`${x},${y},${z}`);
-    if (p === undefined) throw new Error(`no ${id} piece at ${x},${y},${z} (case ${caseAndSectionAt(store, x, y, z).caseId})`);
-    return p;
-  };
-
-  it('never stands a piece inside a solid neighbour: every part outside its own cell is in open air', () => {
-    const inSolid = [...pieces.values()].filter((p) => [...p.into.values()].some((solid) => solid)).map((p) => `${p.cell.join(',')} ${p.caseId}→${p.pieceCase} fold ${p.fold}: ${[...p.into].filter(([, s]) => s).map(([k]) => k).join(' ')}`);
-    expect(inSolid).toEqual([]);
-    expect(pieces.size).toBeGreaterThan(200);
-  });
-
-  it('dresses both faces of a thin wall along the wall (its foot too), and turns the front onto the wall face at lintels, sills and jambs', () => {
-    for (const [x, y, z, along] of [[10, 3, 11, 'x'], [10, 0, 11, 'x'], [4, 4, 2, 'x'], [15, 2, 6, 'z'], [2, 3, 8, 'z'], [9, 2, 5, 'z']] as const) {
-      const p = at(x, y, z);
-      expect(p.caseId, `${x},${y},${z}`).toBe('wall-thin');
-      expect(axis(p.fold, [1, 0, 0]), `${x},${y},${z} run`).toBe(along === 'x' ? '1,0,0' : '0,0,1');
-    }
-    for (const [x, y, z, c] of [[11, 1, 2, 'wall-sill'], [12, 4, 2, 'wall-lintel'], [5, 4, 2, 'wall-lintel'], [4, 1, 2, 'wall-jamb'], [7, 2, 2, 'wall-jamb']] as const) {
-      const p = at(x, y, z);
-      expect(p.caseId).toBe(c);
-      expect(axis(p.fold, [0, 0, 1]), `${x},${y},${z} front`).toBe('0,0,1');
-    }
-    expect(axis(at(15, 5, 6).fold, [1, 0, 0])).toBe('0,0,1');
-    expect(axis(at(10, 5, 11).fold, [1, 0, 0])).toBe('1,0,0');
-  });
-
-  it("puts a corner piece on each outside corner with its two faces (+x, +z) on the two open sides, and the T wall's free end out of its end", () => {
-    for (const [x, z, open] of [[2, 2, ['-1,0,0', '0,0,-1']], [15, 2, ['1,0,0', '0,0,-1']], [2, 11, ['-1,0,0', '0,0,1']], [15, 11, ['1,0,0', '0,0,1']]] as const) {
-      for (let y = 0; y < 6; y++) {
-        const p = at(x, y, z);
-        expect(p.caseId, `${x},${y},${z}`).toBe('wall-corner');
-        expect([dir(p.fold, [1, 0, 0]), dir(p.fold, [0, 0, 1])].sort(), `${x},${y},${z}`).toEqual([...open].sort());
-      }
-    }
-    for (let y = 1; y < 5; y++) {
-      const p = at(9, y, 7);
-      expect(p.caseId).toBe('wall-end');
-      expect(dir(p.fold, [1, 0, 0])).toBe('0,0,1');
-    }
-  });
-
-  if (id === 'stone') {
-    it("frames the door and window in the wall's plane: heads, sills and thresholds run along the wall", () => {
-      for (const [x, y, c] of [[5, 0, 'opening-threshold'], [6, 3, 'opening-head'], [11, 2, 'opening-sill'], [12, 3, 'opening-head']] as const) {
-        const p = at(x, y, 2);
-        expect(p.caseId).toBe(c);
-        expect(axis(p.fold, [1, 0, 0]), `${x},${y} run`).toBe('1,0,0');
-      }
-    });
+/** Every kit piece of the chunks touching the box [lo, hi) of world cells. */
+function piecesIn(s: PaletteStore, lo: Cell, hi: Cell): Piece[] {
+  const out: Piece[] = [];
+  for (let cx = Math.floor(lo[0] / E); cx <= Math.floor((hi[0] - 1) / E); cx++) for (let cy = Math.floor(lo[1] / E); cy <= Math.floor((hi[1] - 1) / E); cy++) for (let cz = Math.floor(lo[2] / E); cz <= Math.floor((hi[2] - 1) / E); cz++) {
+    out.push(...piecesOf(deriveFromStore(s, cx, cy, cz, RULES, undefined, TABLE), cx, cy, cz));
   }
-});
+  return out;
+}
+
+const v = { material: 0, role: 0, shape: 0, wetness: 0 };
+/** Solid as the edge pass reads it, from the store: a role that is not open, filled to the surface (construction at any integrity). */
+function solid(s: PaletteStore, x: number, y: number, z: number): boolean {
+  s.voxelAt(x, y, z, v);
+  if (v.material === 0 || v.role === R.air || v.role === R.opening || v.role === R.liquid) return false;
+  return v.role === R.terrain ? v.shape >= 8 : v.shape > 0;
+}
+
+/** (case, yaw) → its slot and whether it is inner, for an owner cell (the edge pass's table read backwards). */
+const SLOT_OF = new Map<string, { slot: number; inner: boolean }>();
+for (let k = 0; k < PIECE_SLOTS; k++) for (const inner of [false, true]) SLOT_OF.set(`${EDGE_CASE_IDS[edgeCaseOf(k, inner)]}|${edgeYawOf(k, inner)}`, { slot: k, inner });
+
+/** The cells round an edge or corner piece (its owner first). */
+function cellsRound(p: Piece): Cell[] {
+  const at = SLOT_OF.get(`${p.caseId}|${p.yaw}`)!;
+  const slot = PIECE_SLOT_TABLE[at.slot]!;
+  return [[0, 0, 0] as const, ...slot.faces, ...slot.rest].map((o) => [p.cell[0] + o[0], p.cell[1] + o[1], p.cell[2] + o[2]] as Cell);
+}
+
+/** A lattice edge's or corner's key: the doubled coordinates of its middle (unique whichever cell names it). */
+function slotKey(p: Piece): string {
+  const at = SLOT_OF.get(`${p.caseId}|${p.yaw}`)!;
+  const side = PIECE_SLOT_TABLE[at.slot]!.side;
+  return `${at.slot < EDGE_SLOTS ? 'e' : 'c'}${p.cell.map((c, a) => 2 * c + 1 + side[a]!).join(',')}`;
+}
+
+const isEdgePiece = (p: Piece): boolean => SLOT_OF.has(`${p.caseId}|${p.yaw}`) && p.place === INSTANCE_PLACE.upright && EDGE_CASE_IDS.includes(p.caseId as never);
 
 /**
- * A house whose walls are two cells thick (x 2…15 by z 2…11, 6 high, the outer layer at the box's edge), a door
- * (x 5–6, y 0–3) and a window (x 11–12, y 2–3) through both layers of the front wall: each layer of a jamb, lintel
- * and sill has one open face, so each one's front is fixed, and the other layer is solid behind it.
+ * Fails unless every edge piece's 4 cells are 1 or 3 solid (or 2 diagonal:
+ * two outer edges, one a cell) and every corner piece's 8 cells 1 or 7:
+ * never a piece on a flat face (2 side by side).
  */
-function thickHouse(s: PaletteStore, m: number): void {
-  flatGround(s, 0, 32, 0, 32, 3, 0);
-  for (let y = 0; y < 6; y++) for (let x = 2; x < 16; x++) for (let z = 2; z < 12; z++) if (x < 4 || x > 13 || z < 4 || z > 9) putVoxel(s, x, y, z, m, R.wall);
-  for (const z of [2, 3]) {
-    for (let x = 5; x < 7; x++) for (let y = 0; y < 4; y++) putVoxel(s, x, y, z, m, R.opening);
-    for (let x = 11; x < 13; x++) for (let y = 2; y < 4; y++) putVoxel(s, x, y, z, m, R.opening);
+function expectNoFlatFace(s: PaletteStore, pieces: readonly Piece[], what: string): number {
+  let checked = 0;
+  for (const p of pieces.filter(isEdgePiece)) {
+    const cells = cellsRound(p);
+    const n = cells.filter((c) => solid(s, ...c)).length;
+    // An edge's cells are the owner, its two face neighbours and the diagonal (cellsRound's order).
+    const diagonal = n === 2 && solid(s, ...cells[0]!) && solid(s, ...cells[3]!);
+    const ok = cells.length === 4 ? n === 1 || n === 3 || diagonal : n === 1 || n === 7;
+    expect(ok, `${what}: ${p.caseId} yaw ${p.yaw} at ${p.cell.join(',')}: ${n} of ${cells.length} solid`).toBe(true);
+    checked++;
   }
+  return checked;
 }
 
-/** Per world cell with a kit or default piece: its case and the fold its instance carries. */
-function thickFolds(kits: VoxelKit[], material: number): { store: PaletteStore; at: (x: number, y: number, z: number) => { caseId: string; fold: number } } {
-  const store = createWorldStore(grid);
-  thickHouse(store, material);
-  const d = deriveFromStore(store, 0, 0, 0, WORLD_RULES, undefined, worldPieceTable(kits));
-  const folds = new Map<string, number>();
-  const b = d.instances.data;
-  for (let k = 0; k < d.instances.count; k++) {
-    const o = k * INSTANCE_BYTES;
-    const word = b[o + 6]! | (b[o + 7]! << 8);
-    folds.set(`${b[o]},${b[o + 1]},${b[o + 2]}`, (b[o + 3]! & 3) + ((word & PIECE_VARIANT_MIRROR) !== 0 ? 4 : 0));
+/**
+ * Every exposed lattice edge and corner of the construction in [lo, hi) by
+ * brute force: 1 or 3 of its 4 cells solid (1 or 7 of 8), at least one a
+ * construction cell, none terrain; listed twice for two solid diagonally
+ * round an edge (one outer edge each).
+ */
+function exposedSlots(s: PaletteStore, lo: Cell, hi: Cell): string[] {
+  const out: string[] = [];
+  const built = (x: number, y: number, z: number): boolean => (s.voxelAt(x, y, z, v), v.material !== 0 && v.role !== R.terrain && v.role !== R.opening && v.role !== R.air && v.role !== R.liquid);
+  const terrain = (x: number, y: number, z: number): boolean => (s.voxelAt(x, y, z, v), v.material !== 0 && v.role === R.terrain);
+  for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++) {
+    // Lattice point (x, y, z) is the corner of cells x−1…x etc.; edges along each axis start at it.
+    for (let axis = -1; axis < 3; axis++) {
+      const cells: Cell[] = [];
+      for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++) {
+        const o = [a, b, c];
+        // Along an edge's axis its cells start at the lattice point (offset 1 from x − 1).
+        if (axis >= 0 && o[axis] === 0) continue;
+        cells.push([x - 1 + a, y - 1 + b, z - 1 + c]);
+      }
+      const n = cells.filter((c) => solid(s, ...c)).length;
+      // Two solid diagonally round an edge (cells 0 and 3, or 1 and 2, in this order) are two outer edges: two pieces.
+      const diagonal = axis >= 0 && n === 2 && solid(s, ...cells[0]!) === solid(s, ...cells[3]!);
+      const want = axis >= 0 ? n === 1 || n === 3 || diagonal : n === 1 || n === 7;
+      if (!want || !cells.some((c) => built(...c)) || cells.some((c) => terrain(...c))) continue;
+      const mid = [2 * x, 2 * y, 2 * z];
+      if (axis >= 0) mid[axis]! += 1;
+      const key = `${axis >= 0 ? 'e' : 'c'}${mid.join(',')}`;
+      out.push(key);
+      if (diagonal) out.push(key);
+    }
   }
-  return {
-    store,
-    at: (x, y, z) => {
-      const caseId = caseAndSectionAt(store, x, y, z).caseId ?? 'none';
-      const fold = folds.get(`${x},${y},${z}`);
-      if (fold === undefined) throw new Error(`no piece at ${x},${y},${z} (case ${caseId})`);
-      return { caseId, fold };
-    },
-  };
+  return out;
 }
 
-describe.each([
-  ['the engine default kit', null, MAT.plaster],
-  ['the log kit', 'log', MAT.timber],
-  ['the stone kit', 'stone', MAT.stone],
-] as const)('%s on a two-cell-thick wall', (_label, id, material) => {
-  const { at } = thickFolds(id === null ? [] : [kitFiles(id).kit], material);
+/** A closed box house floating clear of the ground: walls x 4…15, z 4…13, a floor at y 8 and a flat roof at y 14, a door and a window. */
+function boxHouse(s: PaletteStore): { lo: Cell; hi: Cell } {
+  const put = (x: number, y: number, z: number, role: number): void => putVoxel(s, x, y, z, MAT.stone, role);
+  for (let x = 4; x < 16; x++) for (let z = 4; z < 14; z++) {
+    put(x, 8, z, R.floor);
+    put(x, 14, z, R.roof);
+    for (let y = 9; y < 14; y++) if (x === 4 || x === 15 || z === 4 || z === 13) put(x, y, z, R.wall);
+  }
+  for (let x = 7; x < 9; x++) for (let y = 9; y < 12; y++) putVoxel(s, x, y, 4, 0, R.air);
+  // The window has two wall cells under it: a one-cell sill on the floor's edge reads as a banister rail (the window rules).
+  for (let x = 11; x < 13; x++) for (let y = 11; y < 13; y++) putVoxel(s, x, y, 13, 0, R.air);
+  return { lo: [3, 7, 3], hi: [17, 16, 15] };
+}
 
-  it("faces each layer's jambs, lintels and sills out of its own open face (never into the other layer), the jamb's side toward the opening", () => {
-    const want: Array<[number, number, number, string, string, string | null]> = [];
-    for (const [z, front] of [[2, '0,0,-1'], [3, '0,0,1']] as const) {
-      for (let y = 0; y < 4; y++) want.push([4, y, z, 'wall-jamb', front, '1,0,0'], [7, y, z, 'wall-jamb', front, '-1,0,0']);
-      for (const x of [5, 6, 11, 12]) want.push([x, 4, z, 'wall-lintel', front, null]);
-      for (const x of [11, 12]) want.push([x, 1, z, 'wall-sill', front, null]);
-      for (const y of [2, 3]) want.push([10, y, z, 'wall-jamb', front, '1,0,0'], [13, y, z, 'wall-jamb', front, '-1,0,0']);
+describe('pieces on edges only', () => {
+  it('a box house, a long wall and a floor slab: no piece on a flat face, every exposed edge and corner exactly one piece, nothing else', () => {
+    const s = createWorldStore(grid);
+    const house = boxHouse(s);
+    // A long wall (40 cells along x, 6 high, 1 thick) and a floor slab (12 × 9, 1 thick), apart and clear of the ground.
+    for (let x = -20; x < 20; x++) for (let y = 20; y < 26; y++) putVoxel(s, x, y, 40, MAT.stone, R.wall);
+    for (let x = 30; x < 42; x++) for (let z = 20; z < 29; z++) putVoxel(s, x, 4, z, MAT.plank, R.floor);
+    const boxes: Array<[string, Cell, Cell]> = [['house', house.lo, house.hi], ['wall', [-21, 19, 39], [21, 27, 42]], ['floor', [29, 3, 19], [43, 6, 30]]];
+    for (const [what, lo, hi] of boxes) {
+      const pieces = piecesIn(s, lo, hi).filter((p) => p.cell.every((c, a) => c >= lo[a]! && c < hi[a]!));
+      expect(expectNoFlatFace(s, pieces, what), what).toBeGreaterThan(20);
+      expect(pieces.filter(isEdgePiece).map(slotKey).sort(), what).toEqual(exposedSlots(s, lo, hi).sort());
+      // Only edge and corner pieces here: no roof planes, beams, banisters or damage.
+      expect(pieces.every(isEdgePiece), what).toBe(true);
     }
-    for (const [x, y, z, c, front, side] of want) {
-      const p = at(x, y, z);
-      expect(p.caseId, `${x},${y},${z}`).toBe(c);
-      expect(dir(p.fold, [0, 0, 1]), `${x},${y},${z} ${c} front`).toBe(front);
-      if (side !== null) expect(dir(p.fold, [1, 0, 0]), `${x},${y},${z} ${c} side`).toBe(side);
-    }
+    // The long wall's flat faces: 2 × 40 × 6 cells, none of whose middles takes a piece; its rim: top and bottom
+    // edges of both faces (2 × 2 × 40), four vertical edges (4 × 6), the two end faces' top and bottom (4).
+    const wall = piecesIn(s, [-21, 19, 39], [21, 27, 42]).filter(isEdgePiece);
+    expect(wall.filter((p) => p.caseId.startsWith('edge-')).length).toBe(2 * 40 * 2 + 4 * 6 + 4);
+    expect(wall.filter((p) => p.caseId.startsWith('corner-')).length).toBe(8);
+    expect(wall.filter((p) => p.cell[0] > -19 && p.cell[0] < 18 && p.cell[1] > 20 && p.cell[1] < 25)).toEqual([]);
   });
 
-  it('puts a corner piece on each outer layer corner, its two faces on the two open sides', () => {
-    for (const [x, z, open] of [[2, 2, ['-1,0,0', '0,0,-1']], [15, 2, ['1,0,0', '0,0,-1']], [2, 11, ['-1,0,0', '0,0,1']], [15, 11, ['1,0,0', '0,0,1']]] as const) {
-      for (let y = 0; y < 6; y++) {
-        const p = at(x, y, z);
-        expect(p.caseId, `${x},${y},${z}`).toBe('wall-corner');
-        expect([dir(p.fold, [1, 0, 0]), dir(p.fold, [0, 0, 1])].sort(), `${x},${y},${z}`).toEqual([...open].sort());
+  it('the town and random worlds: no piece on a flat face anywhere, one piece an edge', () => {
+    const town = createWorldStore(grid);
+    loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 64, 64);
+    const random = createWorldStore(grid);
+    randomAssemblyWorld(random, 5, 24);
+    dabDetailRoles(random, 5);
+    for (const [what, s, lo, hi] of [['town', town, [0, 0, 0], [64, 32, 64]], ['random', random, [-24, -24, -24], [24, 24, 24]]] as const) {
+      const pieces = piecesIn(s, lo as Cell, hi as Cell);
+      expect(expectNoFlatFace(s, pieces, what), what).toBeGreaterThan(500);
+      // One piece an edge or corner, two only where two cells meet diagonally across an edge.
+      const keys = new Map<string, number>();
+      for (const k of pieces.filter(isEdgePiece).map(slotKey)) keys.set(k, (keys.get(k) ?? 0) + 1);
+      expect([...keys.values()].every((n) => n <= 2), what).toBe(true);
+    }
+  }, 60_000);
+
+  it('places every default stand-in box as the renderer does in its own cell or open air, never in a solid neighbour', () => {
+    const s = createWorldStore(grid);
+    boxHouse(s);
+    const U = DEFAULT_KIT_UNITS;
+    let boxes = 0;
+    for (const p of piecesIn(s, [3, 7, 3], [17, 16, 15])) {
+      for (const b of DEFAULT_KIT_PIECES[p.caseId]!.boxes) {
+        // The box's corners, a hair inside, about the cell's centre in cells; tip, centre, then the turns (+x to +z).
+        for (const corner of [0, 1].flatMap((i) => [0, 1].flatMap((j) => [0, 1].map((k) => [i ? b[3] - 0.1 : b[0] + 0.1, j ? b[4] - 0.1 : b[1] + 0.1, k ? b[5] - 0.1 : b[2] + 0.1])))) {
+          let q = corner.map((c) => c / U - 0.5) as [number, number, number];
+          if (p.place === INSTANCE_PLACE.faceUp) q = [q[0], q[2], -q[1]];
+          if (p.place === INSTANCE_PLACE.faceDown) q = [q[0], -q[2], q[1]];
+          if (p.place === INSTANCE_PLACE.centred) q = [q[0], q[1], q[2] - 0.5];
+          const w = applyFold(p.yaw, q).map((c, a) => Math.floor(p.cell[a]! + 0.5 + c)) as Cell;
+          if (w.every((c, a) => c === p.cell[a])) continue;
+          expect(solid(s, ...w), `${p.caseId} yaw ${p.yaw} at ${p.cell.join(',')} reaches into ${w.join(',')}`).toBe(false);
+        }
+        boxes++;
       }
     }
+    expect(boxes).toBeGreaterThan(100);
+  });
+
+  it('a gable roof takes ridge, eave and verge pieces on its plane cells and no edge piece round them', () => {
+    const s = createWorldStore(grid);
+    // Gable walls x 4…12 (9 deep, odd: a ridge along the middle row) under a 45° stair roof along z 2…13.
+    for (let x = 4; x <= 12; x++) for (let y = 4; y < 8; y++) for (const z of [3, 12]) putVoxel(s, x, y, z, MAT.stone, R.wall);
+    for (let x = 3; x <= 13; x++) {
+      const y = 8 + Math.min(x - 3, 13 - x);
+      for (let z = 2; z <= 13; z++) putVoxel(s, x, y, z, MAT.roofTile, R.roof);
+    }
+    const pieces = piecesIn(s, [0, 0, 0], [16, 16, 16]);
+    const roof = pieces.filter((p) => p.caseId.startsWith('roof-'));
+    const count = (id: string): number => roof.filter((p) => p.caseId === id).length;
+    expect([count('roof-ridge'), count('roof-eave'), count('roof-gable')].every((n) => n > 0)).toBe(true);
+    expect(count('roof-hip') + count('roof-valley')).toBe(0);
+    // The odd roof's ridge runs along the middle row's centre (placed centred), on every cell of the top row.
+    const ridge = roof.filter((p) => p.caseId === 'roof-ridge');
+    expect(ridge.map((p) => p.cell[2]).sort((a, b) => a - b)).toEqual(Array.from({ length: 12 }, (_, k) => 2 + k));
+    expect(ridge.every((p) => p.place === INSTANCE_PLACE.centred && p.cell[0] === 8)).toBe(true);
+    for (const p of roof) expect((s.voxelAt(...p.cell, v), v.role), `${p.caseId} at ${p.cell.join(',')}`).toBe(R.roof);
+    // No edge piece is owned by, or lies round, a roof cell.
+    expect(expectNoFlatFace(s, pieces, 'gable')).toBeGreaterThan(0);
+    for (const p of pieces.filter(isEdgePiece)) for (const c of cellsRound(p)) expect((s.voxelAt(...c, v), v.role), `${p.caseId} at ${p.cell.join(',')}`).not.toBe(R.roof);
   });
 });
 
-describe('trim pieces drawn with world-anchored U', () => {
-  it.each([
-    ['log', MAT.timber],
-    ['stone', MAT.stone],
-  ] as const)('the %s kit: every run face of every drawn instance reads U from its world position along the run, whatever its turn, mirror or cell', async (id, material) => {
-    const { kit, glb } = kitFiles(id);
-    const store = createWorldStore(grid);
-    house(store, material);
-    const table = worldPieceTable([kit]);
-    const meshes = new VoxelKitMeshes();
-    try {
-      const loaded = await meshes.load([kit], async () => ({ bytes: glb, version: 1 }), createGltfLoaderPort());
-      expect(loaded.failed).toEqual([]);
-      const surface = createVoxelSurface({ cellMetres: M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
-      const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
-      const v = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: meshes.set(table, [kit]) });
-      const d = deriveFromStore(store, 0, 0, 0, WORLD_RULES, undefined, table);
-      const j = joinSectionsForDraw(grid.edge, grid.edge, [d], v.cells);
-      v.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid }, 0);
-      v.root.updateMatrixWorld(true);
-      const perM = trimUPerMetre(DRAFT_TRIM_LAYOUT);
-      const draws = v.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.geometry.getAttribute(PIECE_U_ATTRIBUTE) !== undefined));
-      expect(draws.length).toBeGreaterThan(5);
-      const offsets = new Set<string>();
-      let checked = 0;
-      let worst = 0;
-      const m = new THREE.Matrix4();
-      const p = new THREE.Vector3();
-      const x = new THREE.Vector3();
-      for (const mesh of draws) {
-        const g = mesh.geometry;
-        const pos = g.getAttribute('position');
-        const uvs = g.getAttribute('uv');
-        const run = g.getAttribute(TRIM_RUN_ATTRIBUTE);
-        const pu = g.getAttribute(PIECE_U_ATTRIBUTE);
-        for (let i = 0; i < mesh.count; i++) {
-          mesh.getMatrixAt(i, m);
-          m.premultiply(mesh.matrixWorld);
-          // The world axis the drawn mesh's +x lies on (instances turn by quarters about +y).
-          x.set(1, 0, 0).transformDirection(m);
-          const axis = Math.abs(x.x) > 0.5 ? 'x' : 'z';
-          offsets.add(pu.getX(i).toFixed(4));
-          for (let k = 0; k < pos.count; k++) {
-            if (run.getX(k) !== 1) continue;
-            p.fromBufferAttribute(pos, k).applyMatrix4(m);
-            const want = perM * p[axis];
-            const got = pu.getX(i) + pu.getY(i) * uvs.getX(k);
-            const off = Math.abs(got - want - Math.round(got - want));
-            worst = Math.max(worst, off);
-            checked++;
-          }
-        }
-      }
-      expect(checked).toBeGreaterThan(1000);
-      // Within a texel of a 4096 sheet: the authored U is within the kit check's 0.002.
-      expect(worst).toBeLessThan(0.0025);
-      // Cells along a 7 m run take every eighth of the sheet, not just its first (the authored 0.5 m).
-      expect(offsets.size).toBeGreaterThanOrEqual(8);
-    } finally {
-      meshes.dispose();
+describe('damage drawn as debris', () => {
+  /** A wall 10 long, 6 high, 1 thick (x 2…11, y 2…7, z 8), its cell (6, 4, 8) at `shape` (0: dug to air). */
+  function damagedWall(shape: number): PaletteStore {
+    const s = createWorldStore(grid);
+    for (let x = 2; x < 12; x++) for (let y = 2; y < 8; y++) putVoxel(s, x, y, 8, MAT.stone, R.wall);
+    if (shape === 0) putVoxel(s, 6, 4, 8, 0, R.air);
+    else s.setVoxel(6, 4, 8, { material: MAT.stone, role: R.wall, shape, wetness: 0 });
+    return s;
+  }
+  const D: Cell = [6, 4, 8];
+
+  it('a damaged wall cell: one debris piece of its stage on it, a debris face on each intact face toward it, its edges undressed; collision, light, navigation and occupancy as intact', () => {
+    const intact = deriveFromStore(damagedWall(SHAPE_FULL), 0, 0, 0, RULES, undefined, TABLE);
+    for (const [shape, stage] of [[12, 'debris'], [7, 'debris-heavy'], [1, 'debris-heavy']] as const) {
+      const d = deriveFromStore(damagedWall(shape), 0, 0, 0, RULES, undefined, TABLE);
+      const pieces = piecesOf(d, 0, 0, 0);
+      const on = pieces.filter((p) => p.cell.join(',') === D.join(','));
+      expect(on.map((p) => p.caseId), `shape ${shape}`).toEqual([stage]);
+      expect(on[0]!.flags & INSTANCE_FLAG.replacesBase).not.toBe(0);
+      // The wall's four neighbours in its plane face the hole (the two in front and behind are air).
+      const faces = pieces.filter((p) => p.caseId === 'debris-face');
+      expect(faces.map((p) => `${p.cell.join(',')}|${p.yaw}|${p.place}`).sort(), `shape ${shape}`).toEqual(
+        [`5,4,8|3|${INSTANCE_PLACE.upright}`, `7,4,8|1|${INSTANCE_PLACE.upright}`, `6,3,8|0|${INSTANCE_PLACE.faceUp}`, `6,5,8|0|${INSTANCE_PLACE.faceDown}`].sort(),
+      );
+      // Every other piece is the intact wall's (its rim): no edge round the damaged cell, none new.
+      const rest = (list: Piece[]): string[] => list.filter((p) => !p.caseId.startsWith('debris')).map((p) => `${p.cell.join(',')}|${p.caseId}|${p.yaw}`).sort();
+      expect(rest(pieces)).toEqual(rest(piecesOf(intact, 0, 0, 0)));
+      // The block stays whole for every consumer but the drawing.
+      expect(encodeDerived({ ...d, base: intact.base, instances: intact.instances })).toEqual(encodeDerived(intact));
+      expect(d.base).not.toEqual(intact.base);
     }
+  });
+
+  it('broken to air: the debris goes, the neighbours\' faces toward the hole are the ones the debris showed, and the hole\'s edges take pieces', () => {
+    const debris = deriveFromStore(damagedWall(7), 0, 0, 0, RULES, undefined, TABLE);
+    const air = deriveFromStore(damagedWall(0), 0, 0, 0, RULES, undefined, TABLE);
+    const pieces = piecesOf(air, 0, 0, 0);
+    expect(pieces.filter((p) => p.caseId.startsWith('debris'))).toEqual([]);
+    // The base surface is the same: a debris cell draws none of its faces and hides none of its neighbours'.
+    expect(air.base).toEqual(debris.base);
+    // The hole's rim: its four inner edges along z (one cell deep) on each face, as an opening has.
+    const rim = pieces.filter((p) => cellsRound(p).some((c) => c.join(',') === D.join(',')));
+    expect(rim.length).toBeGreaterThanOrEqual(8);
+    expectNoFlatFace(damagedWall(0), pieces, 'hole');
+  });
+
+  it('a damaged cell buried in a mass stays a body: no debris, no faces or pieces inside the mass', () => {
+    const mass = (shape: number): PaletteStore => {
+      const s = createWorldStore(grid);
+      for (let x = 2; x < 9; x++) for (let y = 2; y < 9; y++) for (let z = 2; z < 9; z++) putVoxel(s, x, y, z, MAT.stone, R.wall);
+      s.setVoxel(5, 5, 5, { material: MAT.stone, role: R.wall, shape, wetness: 0 });
+      return s;
+    };
+    expect(encodeDerived(deriveFromStore(mass(7), 0, 0, 0, RULES, undefined, TABLE))).toEqual(encodeDerived(deriveFromStore(mass(SHAPE_FULL), 0, 0, 0, RULES, undefined, TABLE)));
+  });
+
+  it('gives the same pieces from a chunk\'s 16³ sections joined as from the whole chunk, damage and all, and keeps them under an edit outside the reach', () => {
+    const s = damagedWall(7);
+    boxHouse(s);
+    const whole = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    const key = (p: Piece): string => `${p.cell.join(',')}|${p.caseId}|${p.yaw}|${p.place}`;
+    const chunkPieces = piecesOf(whole, 0, 0, 0).map(key).sort();
+    const pad = jobRadius(RULES);
+    const sections = deriveSectionsWithApron(grid, RULES, buildApron(s, 0, 0, 0, pad), (out) => s.exportChunk(0, 0, 0, out), 16, [0, 1, 2, 3, 4, 5, 6, 7], 0, { table: TABLE, chunk: [0, 0, 0] });
+    const joined = sections.flatMap((r) => {
+      const [ox, oy, oz] = [(r.id >> 2) & 1, r.id & 1, (r.id >> 1) & 1].map((b) => b * 16) as Cell;
+      return piecesOf(r.assembly!, 0, 0, 0).map((p) => key({ ...p, cell: [p.cell[0] + ox, p.cell[1] + oy, p.cell[2] + oz] }));
+    });
+    expect(joined.sort()).toEqual(chunkPieces);
+    // An edit past the job's reach (a block at the chunk's far corner) moves no piece and no variant.
+    putVoxel(s, 30, 30, 30, MAT.stone, R.wall);
+    const after = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    const far = (d: DerivedData): Uint8Array => {
+      const keep: number[] = [];
+      for (let k = 0; k < d.instances.count; k++) if (d.instances.data[k * INSTANCE_BYTES]! < 30 - pad - 1) keep.push(...d.instances.data.subarray(k * INSTANCE_BYTES, (k + 1) * INSTANCE_BYTES));
+      return Uint8Array.from(keep);
+    };
+    expect(far(after)).toEqual(far(whole));
   });
 });

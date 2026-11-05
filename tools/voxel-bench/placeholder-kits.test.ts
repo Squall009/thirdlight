@@ -37,7 +37,7 @@ describe.each(KITS)('placeholder kit %s', (id) => {
     for (const m of meshesOf(kit)) expect([m.assetId, m.digest]).toEqual([`voxel-kit-${id}`, digest]);
   });
 
-  it('passes the kit check (no error; trim T1–T8 ok) with every piece read from the GLB, high and low', () => {
+  it('passes the kit check (trim T1–T8 ok) with every piece read from the GLB, high and low; its one error names the cases it was made for, the superseded catalogue\'s', () => {
     const facts = new Map<string, VoxelKitMeshFacts>();
     const factsOf = (m: VoxelKitMesh): VoxelKitMeshFacts => {
       const k = voxelKitMeshKey(m);
@@ -46,8 +46,12 @@ describe.each(KITS)('placeholder kit %s', (id) => {
       return f;
     };
     const report = worldVoxelKitCheck(kit, new Map([[`voxel-kit-${id}`, { kind: 'model', digests: [digest] }]]), factsOf);
+    // The kits were made for the superseded 46-case catalogue (copings, plinths, frames on flat faces); the world's
+    // edge catalogue names none of those cases, so they draw nothing but their beams and banisters until they are
+    // made again for the edge cases. Every other row holds.
     const errors = report.rows.filter((r) => r.state === 'err');
-    expect(errors, JSON.stringify(errors, null, 1)).toEqual([]);
+    expect(errors.map((r) => r.id), JSON.stringify(errors, null, 1)).toEqual(['catalogue']);
+    expect(errors[0]!.detail).toMatch(/case wall-top/);
     for (const t of ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']) {
       const row = report.rows.find((r) => r.id === `trim:${t}`)!;
       expect(row.state, `${t}: ${row.detail}`).toBe('ok');

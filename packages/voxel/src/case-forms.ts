@@ -28,7 +28,9 @@
  * Packed in a byte a cell, inside the derive job only: bits 0–2 the shape,
  * 3–5 the transform (kit-cases.ts fold), 6–7 the base.
  */
-import { ASSEMBLY_CLASS, CLASS_MASK, CONSUMER_REACH, RUN_X, RUN_Z, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { ASSEMBLY_CLASS, CLASS_MASK, CONSUMER_REACH, OPEN_ROLE, RUN_X, RUN_Z, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { damagedIntegrity, valueRole } from './record';
+import { SURFACE_ISO } from './derived-mesh';
 import { applyFold, CASE_BASES, CASE_SHAPES, caseFoldOf, caseIndexOf, FOLD_TRANSFORMS, NO_CASE, type CaseBase, type CaseDef, type CaseShape } from './kit-cases';
 
 /** Shape steps a cell along each axis (the collision steps: 1/16 cell ≈ 3 cm). */
@@ -87,6 +89,13 @@ export function formBaseOf(form: number): number {
 export const FORM_NONE = packForm(FORM_SHAPE.none, 0, FORM_BASE.keep);
 /** A whole-cell body the base surface draws. */
 export const FORM_BODY = packForm(FORM_SHAPE.box, 0, FORM_BASE.keep);
+/**
+ * A damaged construction cell under a rule set that draws debris: still the
+ * whole box for collision, light and navigation (its integrity is not a
+ * fill), but its faces are left to its debris piece and it hides none of
+ * its neighbours' faces, so the hole shows the faces opening toward it.
+ */
+export const FORM_DEBRIS = packForm(FORM_SHAPE.box, 0, FORM_BASE.suppress);
 
 /** Per shape and transform (shape · 8 + fold): the box in the world's axes, six numbers. */
 const WORLD_BOX = new Uint8Array(SHAPES * FOLD_TRANSFORMS * 6);
@@ -165,16 +174,41 @@ export function classForm(resolved: number): number {
   return packForm(x && z ? FORM_SHAPE.post : FORM_SHAPE.panel, turn, FORM_BASE.suppress);
 }
 
+/** Whether a rule set draws damaged construction cells as debris: the sets with the edge pass. */
+export function rulesDrawDebris(rules: AssemblyRuleSet): boolean {
+  return rules.resolveEdges !== undefined;
+}
+
+/** Whether a cell is solid to look through: a role that is not open, filled to the surface. */
+function seeSolid(n: Neighbourhood, i: number): boolean {
+  return OPEN_ROLE[valueRole(n.values[i]!)] !== 1 && n.shapes[i]! >= SURFACE_ISO;
+}
+
+/**
+ * Whether cell `i` is drawn as debris (under a rule set that draws it): a
+ * damaged construction cell with at least one face open (air, liquid, an
+ * opening or ground below the surface beside it). A damaged cell buried in a
+ * mass stays a body: nothing would see its debris, and the faces round it
+ * would be hidden geometry. Reads one cell round it.
+ */
+export function isDebrisCell(n: Neighbourhood, i: number): boolean {
+  if (damagedIntegrity(n.values[i]!) === 0) return false;
+  const s = n.side;
+  return !seeSolid(n, i + 1) || !seeSolid(n, i - 1) || !seeSolid(n, i + s) || !seeSolid(n, i - s) || !seeSolid(n, i + s * s) || !seeSolid(n, i - s * s);
+}
+
 /**
  * The form of every cell the consumers read (the derive unit and
  * {@link CONSUMER_REACH} round it) into `out` (neighbourhood indexing), from
  * the classes and the cases the job resolved: a cell with a case takes its
  * case's declared shape and base, turned by its transform; any other its
- * class's form.
+ * class's form. Under a rule set that draws debris, a debris cell
+ * ({@link isDebrisCell}) is {@link FORM_DEBRIS} whatever its case.
  */
 export function evaluateForms(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array, cases: Uint16Array, out: Uint8Array): void {
   if (out.length !== n.values.length || classes.length !== n.values.length || cases.length !== n.values.length) throw new RangeError('cell forms: wrong length');
   const table = rules.caseForms;
+  const debris = rulesDrawDebris(rules);
   const s = n.side;
   const lo = n.pad - CONSUMER_REACH;
   const hi = n.pad + n.edge + CONSUMER_REACH;
@@ -183,7 +217,8 @@ export function evaluateForms(n: Neighbourhood, rules: AssemblyRuleSet, classes:
     for (let y = lo; y < hi; y++) {
       const i = row + y;
       const c = cases[i]!;
-      out[i] = c === NO_CASE || table === undefined ? classForm(classes[i]!) : table[caseIndexOf(c)]! | (caseFoldOf(c) << 3);
+      if (debris && isDebrisCell(n, i)) out[i] = FORM_DEBRIS;
+      else out[i] = c === NO_CASE || table === undefined ? classForm(classes[i]!) : table[caseIndexOf(c)]! | (caseFoldOf(c) << 3);
     }
   }
 }

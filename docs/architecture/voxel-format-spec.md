@@ -988,7 +988,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v15 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v16 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1048,7 +1048,7 @@ its whole top face. A uniform body region (one class and shape over the chunk an
 only when every cell's form is the box once its case is resolved (a margin cell's case may read open cells past the
 region).
 
-**Outputs per chunk.** A result records `v` (derived format version 13, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 16, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1525,6 +1525,7 @@ instances; nothing stored, nothing to upgrade, no world regenerated, the staging
 | 9 → 13 | 46c.3–46c.6b | kits and cases: cases in the job, forms, kit pieces, no material in a case | *Kits and cases* above (one table with the owner notes) |
 | 13 → 14 | 46c R1 | construction shape = integrity (owner 2026-11-04) | below |
 | 14 → 15 | 46c R2 | roofs as sloped planes, colliding as ramps (owner 2026-11-04, 2026-10-27) | below |
+| 15 → 16 | 46c R3 | pieces on edges only, debris from integrity; the world's rule set `edges` v3 (owner 2026-11-04) | below |
 
 **Derived data 13 → 14 (46c R1; the meaning is the owner's decision of 2026-11-04, the version step a default chosen,
 owner to confirm).** No stored format changes: shape keeps its 4 bits. For the construction roles (wall, floor,
@@ -1568,8 +1569,29 @@ to a level's grid downsamples two cells thick and its planes sit on top, up to 1
 level-0 roof, D501). Results differ from v14's only round roof cells; nothing to upgrade, the slice world is not
 regenerated (the town's roofs are 45° stairs and draw as planes).
 
+**Derived data 15 → 16 (46c R3; the meaning is the owner's decisions of 2026-11-04, "no meshes over flat faces:
+detail only where voxels meet" and "damage = the shape field: neighbour faces open toward a damaged cell get debris",
+the version step and the rules below are defaults chosen, owner to confirm).** No stored format changes; still 8
+bytes an instance. The world's rule set is **`edges` v3** (`WORLD_RULES = EDGE_RULES`, catalogue `edges-draft` v1:
+21 cases, the 20 of the revision plus `debris-heavy`, whose `standIn` is `debris`). The base surface draws every flat
+face; no case keeps a piece on a kept face. Instances (`derive-pieces.ts`): a cell may own several, in cell order then
+(a) its beam or banister piece (alone: its faces are left to it), (b) its debris piece, (c) its edge and corner pieces
+in slot order (the edge pass's case and yaw; one dropped where a cell round its edge is a beam or banister), (d) its
+roof-edge pieces (`roofEdgesOf`: a ridge's yaw now names the side it lies on, as an eave's does, and a ridge along the
+cell's middle is placed `centred`), (e) a `debris-face` piece on each face of an intact body opening toward a debris
+cell. The rotation byte's free bits 2–3 are the **placement** (`INSTANCE_PLACE`): upright (as authored), `faceUp` /
+`faceDown` (the case's +z tipped to +y / −y before the turns: a debris face on a top or bottom face), `centred` (half a
+cell toward its own −z). The piece is the kit's (case, single section) by the table's order (a missing case takes its
+stand-in, then nothing; no role falls back); the variant hash adds which of the cell's pieces it is (case, placement,
+yaw), so a cell's edges vary on their own. **Debris:** a construction cell of integrity 1–14 with at least one face
+open (`isDebrisCell`, reach 1; buried damage stays a body) is `FORM_DEBRIS` (the whole box for collision, light,
+navigation and occupancy; its faces left to its piece; it hides none of its neighbours' faces): `debris` for 8–14,
+`debris-heavy` for 1–7; no edge piece goes round it (the edge pass excludes it like a roof plane cell). At air the
+neighbours' faces are the same faces and the hole's rim takes edge pieces. Results differ from v15's in every chunk
+with pieces; nothing to upgrade, no world regenerated (the slice and town write construction at 15).
 
-**Derived version history (v2 → v15).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+
+**Derived version history (v2 → v16).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |
@@ -1662,7 +1684,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 13 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 16 | refused | rebuilt, never upgraded |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 2 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
