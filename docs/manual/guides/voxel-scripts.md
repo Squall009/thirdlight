@@ -57,6 +57,12 @@ when the world unloaded first (or no world was loaded to ask).
   every cell (shape absent: full; wetness absent: dry). Writing material 0
   or shape 0 is a dig.
 - `dig(region)` empties every cell to air.
+- **Damage** is a building cell's shape: for walls, floors, roofs,
+  foundations, stairs and pillars the shape is their integrity (15 intact).
+  `set` the same material and role with shape 1–14 and the cell draws as
+  debris with broken rims round it, while it still collides, blocks light
+  and is walked on as a whole block; `dig` it when it breaks. How much damage
+  a cell takes, and when, is the game's.
 - `paint(region, {material?, wetness?})` changes only material (1 or more)
   and wetness of the solid cells, keeping their shape and role: only the
   surface's shading is rebuilt, no mesh or collider.

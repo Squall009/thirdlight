@@ -186,7 +186,8 @@ soffits and the `reshape` base mode and `slab` shape (`case-forms.ts`, `base-sur
 but beams/banisters (`kit-runs.ts` narrowed); the old default kit table (`default-kit.ts` rewritten); the window-
 enumeration exhibit generator in `kit-test-scene.ts` (rewritten to the fixed sampler); the log/stone kit records and
 GLBs (regenerated); `kit-house.test.ts`'s per-cell front expectations (rewritten to the edge invariant); the reviewed
-role spec and trim drafts (`git mv` to `archive/architecture/`, R7). **Kept:** kit format, records and commands
+role spec and trim drafts (planned as `git mv` to `archive/architecture/`; R7 rewrote them in place instead, the reviewed
+text in git history before b7123c22). **Kept:** kit format, records and commands
 (46c.1), the rule set composition and conformance (46c.3), the window/fold/priority machinery (for beam/banister), the
 piece table, instance format and feeds rule (46c.6, 46c.6b), the adapter's GLB path and instancing (46c.7), the kit
 check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
@@ -245,7 +246,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R6 | done (50859b7c): D508 fixed (an even ridge lies a cell above its voxels; the shader takes the cell under its 8). Staging, both renderers: village (log/stone gable, hip, L, chimney, damage 12/7/1/air, balcony, stair) seen near, mid, L1, walked. Town b vs 46c.11: piece draws 4,133 → 3,203, render() 17–18 → 14.6–15.3 ms, orbit missed 31–65 → 0–2. D510–D512 open |
 | R6b | done: L1 roofs re-laid one cell thick (`relayRoofs`; town L1 instances 72.6 k → 32.5 k, no roof-edge lattice), odd hip apex ridge/hips drawn half (`half` flag), banister posts up to the rail (kits regenerated, stand-in), D512 = wrong R2 baseline. Derived v19. D501, D510, D511 fixed, D512 won't fix |
 | R7 | done (DRAFT, hard stop; the 2026-11-04 review replaced the old drafts in place, old text in git): role spec = 21 cases of `edges-draft` v1 with diagrams, aliases, stagger, levels, debris, roof mesher, kit duties, Blender rules, D500–D509 gaps, 13 questions; texture layout = 4 × 4 m grid tile for faces + detail sheet/own bakes for pieces, 8 questions; `role-spec-doc.test.ts` (5) back |
-| R8 | not started (spec, requirements, manual) |
+| R8 | done (docs only): spec §3.7 *Kits: edges, roofs and debris* (edge pass, roof mesher, pieces, debris, alias, stagger, 4 m grid UVs, `relayRoofs`), one derived table v2 → v19 with owner notes, shape = integrity in §2.2, §3.8 at 19; trace R73–R77, R86, R87, R90, R107, R112; manual roofs/damage; archive README and the 46c full-gate note corrected. Spec 2,186 → 2,115 lines |
 | R9 | not started (fast gate, acceptance, acc46c-r; owner hard stop) |
 
 ## 8. Results
@@ -1559,12 +1560,15 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 - 2026-11-04 (revision plan, default chosen, owner to confirm): **kitFormat 1 stays the draft format**; the case ids
   change (opaque strings, so old kits give "unknown case" rows) and a case may alias another case's mesh with one of the
   24 cube rotations (add-only optional field, canonicalized field by field).
-- 2026-11-04 (revision plan, default chosen, owner to confirm): **one full gate for 46c, after approval**: 46c.14b's
-  full gate and independent review were not run; running them now and again after the owner's changes would run the
-  full gate twice, so the revision closes on fast gates (R9) and 46c.14b runs once after approval, before 46c.18.
+- 2026-11-04 (revision plan, default chosen, owner to confirm; **corrected in R8**): **the revision is verified by fast
+  gates; one closing full gate after approval.** The plan first said 46c.14b's full gate and independent review were
+  not run: wrong. 46c's full gate ran GREEN at 9107abbd (33 min, peak 8.0 GB) and the independent review covered
+  6ffc2031..9107abbd (entry above, fixes 46c.14c). The owner then changed the scope, so the revision (R1–R9) closes
+  on fast gates, and one closing full gate runs after the owner approves the revision, before 46c.18.
 - 2026-11-04 (revision plan, default chosen, owner to confirm): **retired code is removed in place where a file is
   rewritten and `git mv`'d to `archive/` where a whole file or reviewed draft goes** (§6b list); the reviewed role spec
-  and trim drafts stay readable in `archive/architecture/`.
+  and trim drafts stay readable in `archive/architecture/` (R7 rewrote them in place instead: the reviewed text is in
+  git history before b7123c22; noted in R8).
 
 - 2026-11-04 (R1, default chosen, owner to confirm): **the world's rule set stays `kits` (cases-draft v5) until R3**:
   switching now would leave walls without any piece and break the kit check, test scene, placeholder kits and e2e

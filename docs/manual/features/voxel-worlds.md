@@ -23,8 +23,11 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
     are not roles: they follow from how the cells are arranged, and so does
     the shape collision, walking and light use there (an open banister lets
     a ball through between its posts), never the look of a kit's piece;
-  - **shape** — how full the cell is, 0 (empty) to 15 (full), so ground can
-    slope and round off instead of stepping;
+  - **shape** — 0 to 15. For terrain and liquid, how full the cell is (15
+    full), so ground can slope and round off instead of stepping. For the
+    building roles (wall, floor, roof, foundation, stair, pillar) it is the
+    cell's **integrity**: 15 intact, lower damaged (see *Damage* under
+    [Voxel kits](#voxel-kits)); a building cell is always a whole block;
   - **wetness** — 0 (dry) to 7: the surface darkens as it rises.
 - **What a change rebuilds.** Shape and role change the world's form: its
   meshes and colliders are rebuilt round the change. Material and wetness
@@ -137,9 +140,12 @@ player characters, so a large view costs a fraction of drawing every cell:
 - **What a game sees.** Far away the shapes are coarser: a slope or a cliff
   keeps its line, small bumps, one-cell spikes and pits leave, and a
   one-cell wall, floor or roof is drawn as thick as the level's cell, so a
-  house keeps its walls and roof and looks a little larger. Beams, rails and
-  posts are drawn whole near by, simpler in the 1 m ring and not at all
-  further out; fences and lone posts thinner than the level's cell leave.
+  house keeps its walls and roof and looks a little larger. A sloped roof
+  stays one smooth slope at every distance, its eaves at one height. Kit
+  pieces (edges, roof edges, beams, rails, posts, debris) are drawn in full
+  near by, simpler in the 1 m ring and not at all further out, where walls
+  are flat square blocks; fences and lone posts thinner than the level's
+  cell leave; damage shows near by only.
   The ground's colours are the same at every distance.
 - **Changing level.** A ring moves with the camera and switches with 8 m of
   slack, so standing still at its edge does not flip it. A switch happens
@@ -238,8 +244,8 @@ versions their meshes name.
 ## Voxel kits
 
 > **Draft:** the case list and the kit format may still change. Both wait
-> for the owner's approval of the role spec (and, for kits that use a trim
-> sheet, the trim layout for detail pieces); worlds draw with kits now.
+> for the owner's approval of the role spec and the texture layout; worlds
+> draw with kits now.
 
 **What a kit is.** Cells store only a role (wall, floor, roof …), never
 "beam" or "corner" or "window sill". Walls, floors, stairs and flat roofs
@@ -254,12 +260,26 @@ end, corner and junction sections), and **debris**. A kit is the set of 3D
 pieces a material type draws those cases with; one mesh can serve many
 edges turned. What collides, what blocks walking and how much light passes
 come from the cells, never from a kit's pieces, so every kit of a material
-type plays the same. **Damage:** a built cell's shape is its integrity (15
+type plays the same.
+
+**Roofs.** Roof cells laid as a 45° stair (each row one cell up and one
+across) are drawn as flat sloped planes over the steps, not as steps:
+gables, hips (the planes meeting at an outside corner) and valleys (an
+inside corner) all close; a wall or chimney through a roof keeps its own
+faces. Characters stand and walk on the drawn slope; light and walking
+routes still use the stepped cells. A roof that is not a 45° stair (steeper,
+flatter, a single cell) keeps its plain block faces. Pieces go along the
+roof's edges only: ridge, eave, verge (the sloped gable edge), hip and
+valley; one verge piece serves both sides of a gable (the other side is
+drawn mirrored).
+
+**Damage:** a built cell's shape is its integrity (15
 intact, lower damaged, air broken). A damaged cell with an open face is
 drawn by the kit's `debris` piece (`debris-heavy` below integrity 8), the
 intact faces opening toward it by `debris-face` pieces; it still collides,
 blocks light and is walked on as a whole block until it is air. How much
-damage a cell takes and when is the game's to decide.
+damage a cell takes and when is the game's to decide
+([scripting it](../guides/voxel-scripts.md#change-set-dig-paint)).
 
 A voxel kit is one project item (its own file under `assets/voxel-kits/`,
 a `voxelkit` in the project index) holding the detail pieces a material
@@ -327,9 +347,8 @@ MCP's `tl_diagnostics`) as `voxel_kit_check` lines, one a rule:
   has no such node, a piece whose pivot is off its cell, trim rules T1, T2
   and T4;
 - **warning** — something draws, just not from the kit: a required case
-  the kit leaves to its role's plain piece, the base surface or the
-  engine's stand-in (the line names which), a role without its fallback
-  piece, a low mesh heavier than its high one, a mesh past half a cell
+  the kit leaves to another case's piece, the plain faces or the engine's
+  stand-in (the line names which), a low mesh heavier than its high one, a mesh past half a cell
   round its cell, section ends whose outlines differ, a mesh made from a
   model version the project no longer has;
 - triangle counts and texture sizes are reported, never capped.
@@ -346,7 +365,7 @@ and corner case, a gable, a hip and an L-plan roof for the roof edges, a
 wall with two damaged cells for debris), each case labelled at one cell
 that has it. Pick a material your
 kit binds to see each case drawn with its pieces, and a missing one drawn
-by its fallback. The answer lists each exhibit's cell, role, case and run
+by its stand-in or not at all. The answer lists each exhibit's cell, role, case and run
 section; the voxel world page labels them (`?kitScene=x,y,z,material`).
 Writing the same scene again changes nothing (`no_change`).
 
@@ -356,9 +375,10 @@ These come later; worlds made now keep working when they arrive:
 
 - **The far field**: the world past the load ring, and tall ground far
   away (above).
-- **Kits and cases**: the approved case list and trim layout for detail
-  pieces (the drafts draw now), a kit page in the editor, and the guide to
-  making a kit.
+- **Kits**: the approved case list and texture layout (the drafts draw
+  now), a kit page in the editor, and the guide to making a kit; the fringe
+  where buildings meet the ground and ground scatter come with the terrain
+  tools.
 - **Materials**: material records, texture arrays and wetness beyond
   darkening (shine and filled-in crevices). Today's surface shader is a
   stand-in.
