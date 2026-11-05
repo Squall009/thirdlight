@@ -579,7 +579,9 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
     architecture detail pieces high → low → none, the base surface following the mips. Baseline to beat: the slice's
     ring is 0.90 M triangles cold (1.13 M after a flight) from the naive mesher (45.9). Remesh within a frame (R107)
     is a goal of the mesher's cost per section.
-  - **46c Kits and cases:** the case pass with rules, wildcards, priorities and fallbacks; run pieces; the role spec
+  - **46c Kits and cases** (*superseded in part by the owner's 2026-11-04 review: walls and floors are plain voxel
+    faces, detail meshes only on edges, corners and roof edges, a roof mesher, damage from the shape field; see
+    [plan 46c](plan-phase-46c.md) decision log OWNER 2026-11-04 and §6b; the text below is the original plan*): the case pass with rules, wildcards, priorities and fallbacks; run pieces; the role spec
     and the standard trim layout drafted and prototyped on two placeholder kits (log, stone), then **presented to
     the owner: hard stop, v1 only after approval**; the kit pipeline, kit check, kit test scene and a default
     fallback kit; the game-facing authoring package (§1: spec sheets, Blender templates, art-factory graphs per
