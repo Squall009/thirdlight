@@ -242,7 +242,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R3b | done: kit `alias` {case, rotation 0–23} (add-only, refused/canonical, kit check), 24 cube rotations; stagger 1/64–1/32 cell into the solid, ≤ 2°; `pieceU` on the edge's world axis (vertical up y); default kit generated (strip 16/4, cove 16/4, cap 9/4 tris; 525/122 all). Town: piece draws 1,307 (1,366), render() 7.6/8.2 ms (7.2); D506–D507, D481 superseded |
 | R4 | done: construction (bit 15 of the shader entry, derived v17) maps from the build grid in metres, 4 m repeat (terrain triplanar, 2 m), roofs up the slope; `?bands=1`; D503 fixed (nearest solid of the 8). Seen both renderers. Town orbit GPU 2.55 → 3.06 ms WebGPU, 3.53 → 4.15 WebGL 2, 0 missed. D506 left to R5 |
 | R5 | done: D506 fixed (a verge rising toward its −x carries the mirror bit; centred ridge half a cell down; derived v18); log + stone kits regenerated for the edge model (Blender, aliases, high/low, 22/21 pieces, 757/350 and 490/414 tris), kit check 0 err, T1–T8 ok; kit test scene fixed sampler (every case labelled). Seen both renderers; D508–D509 |
-| R6 | not started (prototype on staging + measurement vs 46c.11) |
+| R6 | done (50859b7c): D508 fixed (an even ridge lies a cell above its voxels; the shader takes the cell under its 8). Staging, both renderers: village (log/stone gable, hip, L, chimney, damage 12/7/1/air, balcony, stair) seen near, mid, L1, walked. Town b vs 46c.11: piece draws 4,133 → 3,203, render() 17–18 → 14.6–15.3 ms, orbit missed 31–65 → 0–2. D510–D512 open |
 | R7 | done (DRAFT, hard stop; the 2026-11-04 review replaced the old drafts in place, old text in git): role spec = 21 cases of `edges-draft` v1 with diagrams, aliases, stagger, levels, debris, roof mesher, kit duties, Blender rules, D500–D509 gaps, 13 questions; texture layout = 4 × 4 m grid tile for faces + detail sheet/own bakes for pieces, 8 questions; `role-spec-doc.test.ts` (5) back |
 | R8 | not started (spec, requirements, manual) |
 | R9 | not started (fast gate, acceptance, acc46c-r; owner hard stop) |
@@ -1129,6 +1129,92 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 - **Gate.** Fast gate (`voxel-world.e2e.ts`) at 98ad763a: GREEN first run, 13 min: lint clean, vitest 844 files
   green, 36 e2e passed (voxel-world.e2e.ts tests sum 63.6 s, R4 63.3 s; no e2e change), village perf 0 missed both
   renderers. Earlier ad-hoc vitest runs at load 7 timed out three stream/kit-pieces tests that passed alone.
+
+### R6 prototype on staging and measurement
+
+- **D508 (cause, fixed).** A 45° roof an even number of cells across has two top rows; their planes meet a whole cell
+  above the top voxels (the plane through the stair's outer corners runs up to a cell above each tread), so the eight
+  cells the surface shader reads round a pixel there (moved a quarter cell into the surface) are all air and it drew
+  the no-solid grey. Ridge caps cover it along a straight ridge; at a hip's apex they stop and the grey showed. Odd
+  roofs peak half a cell above their top cell and never reach it. Fix (`voxel-surface.ts`): a ninth grid read, the
+  cell under the eight in the pixel's nearest column, taken only when the eight hold no solid (WGSL and GLSL: 13
+  texel loads, was 12). Test (`roof-mesher.test.ts`, real derive): every point of the five test roofs' planes finds a
+  solid in the eight or that cell (the even roofs reach the fallback). Seen gone on both renderers (village
+  `log-hip-apex-*`, the 12 × 10 hip that showed it in R5).
+- **Village** (staging slice world, 1280 × 720 at the 60 Hz cap, WebGPU and WebGL 2, 2026-11-05 03:35–03:42, load
+  0.8–2.7, uptime 12.5 d; 50 commands, all undone after; script and logs `~/.cache/thirdlight-phase46/work/r6`, shots
+  `~/.cache/thirdlight-phase46/acceptance/46c-r/proto/`): log row (timber: gable with an odd roof, hip 12 × 10 even,
+  L with a valley), stone row (gable with an even roof and a 2 × 2 chimney through it, hip 13 × 11 odd, L), a 20 m
+  stone wall with cells at integrity 12, 7, 1 and one air, a log wall with the same, a stone wall with a timber beam
+  and a plank balcony with a banister, a stone stair to a landing; chunk faces x −96, −64 and z 32 crossed. Every shot
+  was looked at; WebGPU and WebGL 2 match.
+
+  | Case | Looks right / wrong |
+  |---|---|
+  | Walls, floors, stair treads | right: plain voxel faces, no piece on a flat face; edges dressed (log rims and log ends, stone strips), coves in inner edges, stagger reads as slightly uneven rims |
+  | Doors, windows | right: jambs, lintels, sills from edges on both kits; the log kit's crossing ends sit at the jamb corners |
+  | Gable roofs (odd and even), chimney through a roof | right: flat planes, verges follow both slopes, ridge cap; the chimney keeps its faces and edges through the roof; the gable's overhang shows its underside |
+  | Hip roofs | right on the even 12 × 10 hip (D508 gone). **Wrong:** the odd 13 × 11 hip's apex: the ridge board runs half a cell past each apex and the hip caps cross over it (D511) |
+  | L roofs (valley) | right: the two ridges meet, the valley crease at the inner corner; no crack seen |
+  | Damage 12 / 7 / 1 / air (one cell walked through the stages, each shown 2–3 frames after its command) | as built: rubble in the cell, chips on the faces toward it, the cell see-through from stage 12 on (the placeholder debris pieces are small); at air the hole's rims are edges. Whether stage 12 should still read as a mostly whole block is the owner's |
+  | Beam + banister balcony | beam: one log along the wall (right); slab rims dressed; posts on the front row; the rail's two poles float in the cell above the posts (authored so in the log kit: the posts stop a cell lower) and look detached |
+  | `?bands=1` | right: bands on the same rows on every wall of both rows, roofs banded parallel to the eave |
+  | L1 close (focus 110 m off, camera 20 m from the village) and the walks | **Wrong:** every level-1 roof is covered by a lattice of crossing hip/ridge/verge boards (D510); walls and their strips at L1 right |
+
+  Walks (frame sequences, `walk/`): (A) the camera fixed 25 m east of the village, the focus swept 0 → 130 m west in
+  5 m steps; (B) camera and focus retreating together (camera 12 m behind, looking back), 2 m steps to 120 m. Pieces
+  drawn: 1,864 high (196 piece draws) to 35–42 m, then 1,755 high + 17 low, 1,160 + 235 from 70–78 m, all 840 low
+  (65 draws) from 100–108 m; walls and floors switch without a visible pop; the L1 roofs' lattice appears at the switch
+  (D510; at 100 m+ in walk B it reads as spiky ridges). Past L1 (L2) not reached here. Village orbit (8 s at the cap):
+  0 missed of 479, `render()` 2.5 / 3.9 ms WebGPU, 2.2 / 2.5 WebGL 2, 1,864 instances, 196 piece draws, 275 draw calls.
+- **Measurement vs 46c.11** (same `measure.mjs`, scenes and configurations: (a) `?kits=default`, (b) log + stone kits;
+  2 rounds, round 2 a plain repeat, ranges below; 2026-11-05 03:43–03:56, load 1.4–2.7, uptime 12.5 d; the houses pad
+  of 46c.11 rebuilt with its 17 commands and undone after):
+
+  | | town (a) default | town (b) log + stone | houses (a) | houses (b) |
+  |---|---|---|---|---|
+  | instances drawn (L0 / L1) | 40,819 → **88,077** (36,703 / 51,374) | 63,149 → **88,077** (36,703 / 51,374) | 379 → 877 | 1,140 → 877 |
+  | piece draws / draw calls | 1,366 / 1,135 → 1,404 / 1,151 | 4,133 / 2,647–2,650 → **3,203 / 2,220–2,221** | 42 / 136 → 38 / 130 | 108 / 176 → 87 / 159 |
+  | after the flight: instances / piece draws | 45,560 / 1,554 → 93,521 / 1,573 | 72,089 / 4,562 → 93,521 / 3,616 | 877 / 38 | 877 / 87 |
+  | `render()` CPU p50 / p95 WebGPU | 7.1–7.2 / 8.0–9.5 → 7.9–8.1 / 9.0–9.2 ms | 17.4–17.5 / 19.2–19.4 → **14.6–14.7 / 15.9–16.9** | 1.2 / 1.7–1.8 | 1.6–1.7 / 2.4–2.5 |
+  | `render()` CPU p50 / p95 WebGL 2 | 7.2–7.4 / 8.1–8.7 → 8.1–8.3 / 8.9–9.4 | 17.0–18.1 / 18.9–20.6 → **14.6–15.3 / 15.8–17.1** | 1.1–1.2 / 1.5–1.9 | 1.6 / 2.0–2.6 |
+  | GPU ms a frame WebGPU / WebGL 2 | 2.3–2.4 / 4.2 → 2.9–3.0 / 4.19–4.25 | 2.4 / 5.0–5.3 → 2.0 / 4.65–4.71 | 9.4–9.6 / 4.6 | 8.3–8.4 / 4.0–4.3 |
+  | orbit p50 / p95, missed of ~480 | 16.7 / 16.7–16.8, 0 | 16.7 / 33.3, 31–65 → **16.7 / 16.8, 0–2** | 0 | 0 |
+  | 160 m flight p95 / max, missed of ~1,618 | 16.7 / 16.8, 0 | 16.7–16.8 / 33.2–50, 1–3 (was 1–3) | 0 | 0 |
+  | flight `render()` p50 / p95 | 3.0–3.4 / 5.5–5.9 → 3.2–3.4 / 5.4–6.3 | 6.3–6.8 / 11.7–12.8 → 5.3–5.7 / 10.1–10.9 | 1.1 / 1.6–1.8 | 1.2 / 1.9–2.0 |
+  | stream total (derived; mips) MB, after flight | 103.7 (72.6; 28.6) → 129.1 (80.6; 45.6), 137.0 | 105.7 (74.2; 29.0) → 135.3 (80.8; 45.8), 143.3 | 63.2 (36.5; 19.9) | 69.0 (36.5; 19.9) |
+  | kit meshes + textures held | 0.01 + 0.35 MB | 0.64 → 0.31 + 5.94 | 0.002 + 0.35 | 0.19 + 5.94 |
+  | page JS heap | 254–269 → 212–225 MB | 254–304 → 286–322 | 139–167 | 177–188 |
+
+  The default kit now draws every edge case (46c.11's default had pieces on few cases), so (a) and (b) draw the same
+  88.1 k instances; L1 holds 58 % of them (D505: every 1 m cell's edge takes a low piece, plus D510's roof lattice).
+  Mips stream bytes 29 → 46 MB (roof planes and edge instances at L1; not split further). Blasts and paints with kits
+  (houses, both configurations): 1 m and 4 m 1 frame (8 / 12 sections), 8 m 2–3 frames (48 sections, main 9.4–16.2 ms,
+  workers 27–47 ms summed), no frame missed during any; cross-kit paint 1 frame (4 sections, workers 1.9–5.8 ms),
+  same-kit paint 1 frame: unchanged from 46c.11.
+- **Case/edge pass µs a 16³ section p50 / p95** (Node: `run.mjs cases --worlds town,slice --rounds 3`, plain, `--edges`,
+  `--roofs`, 6 GB scope, 03:56–03:58, load 1.2–1.5): town, world rules' evaluation on sections with beam/banister
+  cells (787) 242 / 395 (46c.11: 256 / 508 on 1,394 detail sections), all sections 71 / 240; the edge catalogue's
+  passes 204 / 345 and the edge pass alone 112 / 170 on 2,511 sections with construction (R1: 144 / 290 and 52 / 111);
+  slice 186 / 235 and 102 / 123; roof mesher 193 / 418 (R2 188 / 403). Browser workers (cold fill, 100 µs resolution):
+  town sections drawing pieces 200 / 500–600 (46c.11 300 / 800–900), all 100 / 300; houses' first 14 sections
+  1,300–2,000 / 4,200–7,000 (cold workers). Town base triangles with roof planes 361,642 vs 321,876 as stair faces
+  (R2: 302,508 vs 328,168): D512.
+- **Misses and causes (recorded, not tuned):**
+  1. Town (b) orbit 0–2 of ~480 missed (was 31–65): `render()` CPU 14.6–15.3 ms p50 and up to 17.1 p95 from 3,203
+     piece draws, so the main thread sits just under the 16.7 ms frame and a slow frame misses (D485, the draws a
+     chunk; fewer piece kinds a chunk cut 4,133 → 3,203 draws).
+  2. Town (b) flight 1–3 of ~1,618 (as 46c.11): 33–50 ms frames during the ring swaps (105–109 level changes) with
+     `render()` up to 10.9 ms p95.
+  3. 8 m blast 2–3 frames (R107): the derive of 48 sections, kits or not (46b.11a).
+  4. Edge catalogue passes 204 / 345 µs and the roof mesher 193 / 418 µs a section, over the 0.1–0.2 ms budget (D497, D502).
+- **Rechecked.** D465 (houses at L1 as empty frames): the town's far houses keep walls and roofs at L1 (seen); stays
+  fixed. D483 superseded (no coping/quoin cases; one strip at L1, seen). D485 rechecked (numbers above), open.
+  D505: L1 drawn instances 23,089 → 51,374. Unverified: L2 (not reached by the walks), the town's rotated-grid houses.
+- **Gate.** Fast gate (`voxel-world.e2e.ts`) on the fix and these docs: GREEN first run (gate-fast-20261105-040013,
+  13 min, peak 4.6 GB): lint clean, vitest 845 files, 36 e2e, village perf 0 missed both renderers (6.08 / 4.16 ms).
+  `voxel-world.e2e.ts` tests sum 62.7 s (R5 63.6 s; no e2e change). Staging stopped; every edit undone (village 54
+  commands a renderer, houses 17); no world format change, the slice world needs no regenerating.
 
 ## 9. Decision log
 
