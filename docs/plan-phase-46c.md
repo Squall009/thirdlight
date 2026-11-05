@@ -944,6 +944,13 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   catalogue uses them); kit-runs needs no narrowing (it reads only the catalogue's run cases). The placeholder log /
   stone kits name the superseded cases (kit check `catalogue` err; they draw only beams and banisters until R5).
   Unverified: nothing was looked at on staging (R3b/R6).
+- **Gate.** Fast gate (`voxel-world.e2e.ts`) at 6dff42ce: lint clean, vitest 844 files green, every voxel e2e green
+  (voxel-world.e2e.ts 69.2 s, was 62.0 at R2: the kit test reworked, host load 2.4–3.6); `rendering.e2e.ts` render
+  scale (D320 watch) failed in the gate and its first rerun at load 3.6 and passed on the second at load 0.5 (GREEN,
+  village perf 0 missed both renderers). D320's row says a second failure in a row calls for its fix: noted for the
+  lead (not this item's area). D480 superseded (a cell owns one piece an edge now); D481 rechecked: an edge runs
+  along one axis, so one U offset an instance serves it, but `pieceU` reads the axis from the turns only (x or z), so
+  vertical edges need the edge's axis in R3b; open.
 
 ## 9. Decision log
 
