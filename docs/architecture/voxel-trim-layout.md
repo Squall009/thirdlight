@@ -11,6 +11,9 @@ sheet for terrain or construction voxels); the [role spec draft](voxel-role-spec
 `voxel` `derived-shader.ts` (tile repeats), `three-adapter` `voxel-surface-projection.ts` (base UVs) and
 `voxel-trim-u.ts` (`pieceU`, edge U). Open questions are in §7, the checklist in §8.
 
+**Owner 2026-11-05:** pieces are drawn near only; from the middle ring out the edges are plain square voxels. There are
+no low pieces, so every "high / low" mention below now means the one piece mesh; 46c.16 removes them when this freezes.
+
 ## 1. Two kinds of surface, two layouts
 
 | | Base surfaces | Detail pieces |
