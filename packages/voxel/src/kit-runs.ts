@@ -1,8 +1,8 @@
 /**
  * Run sections: where a cell sits in a run of its case, so a kit draws long
- * features (beams, banisters, soffits, mouldings, running boards, skirts,
- * copings, edges) from a few merge-compatible sections — body, start and end
- * terminations, corner, junction — instead of hand-made run lengths.
+ * features (beams and banisters) from a few merge-compatible sections —
+ * body, start and end terminations, corner, junction — instead of hand-made
+ * run lengths.
  *
  * **What a run is.** Every case names the axis its run follows in its own
  * orientation (`CaseDef.run`); the cell's case transform places that axis on
@@ -23,8 +23,9 @@
  *
  * **Ends.** Each end along the axis is joined, open (an exposed termination:
  * nothing beyond it), butt (it stops against a solid cell), or inner: the run
- * turns an inside corner across the diagonal (a moulding meeting the
- * moulding of the next wall), so the two cells meet in a mitre.
+ * turns an inside corner across the diagonal (a beam round a wall's inside
+ * corner meeting the beam along the next wall), so the two cells meet in a
+ * mitre.
  *
  * **U along the run** is world-anchored: a cell's U is its world coordinate
  * along the run axis times its cell size ({@link runU}), never a distance

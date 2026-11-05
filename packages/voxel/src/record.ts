@@ -13,8 +13,8 @@
  * a read or write of one voxel is one 32-bit load or store. Orientation is
  * not stored: a structure's grid carries its rotation, stamps are rotated
  * before they are voxelized and details come from the arrangement.
- * Beams, banisters and soffits are not roles either: they are inferred from
- * the arrangement, never stored.
+ * Beams, banisters and edge pieces are not roles either: they are inferred
+ * from the arrangement, never stored.
  *
  * Every form that stores raw values outside the chunk codec names the value
  * form it holds ({@link RECORD_VALUE_FORM}).
@@ -34,9 +34,9 @@ export interface VoxelRecord {
 
 /**
  * Roles: what a stored voxel is for. Values past {@link VOXEL_ROLE_COUNT}
- * are unassigned and refused (room for 16). Beams, banisters, soffits and
- * mouldings are not roles: the assembly rules read them from the
- * arrangement of the voxels around them.
+ * are unassigned and refused (room for 16). Beams, banisters and edge
+ * pieces are not roles: the assembly rules read them from the arrangement
+ * of the voxels around them.
  */
 export const VOXEL_ROLE = Object.freeze({
   air: 0,

@@ -1025,18 +1025,17 @@ hash results; they are never stored.
 (the catalogue declares them per case, R77: never read from a piece mesh, so a kit cannot change gameplay shapes and
 every kit of a material type collides the same), else the form its class stands for (wall → box; beam → bar; rail →
 panel; post → post; empty, liquid → none). Shapes are one box in 1/16 cell in the case's own orientation (front +z,
-run x, up +y), turned by the case's transform: `box` 0–16³; `slab` the upper half (y 8–16); `panel` a thin upright
-sheet along the run (z 6–10); `bar` a horizontal member along the run (y, z 3–13); `post` a thin upright bar
-(x, z 6–10); `none`. Bases: `keep` (the base surface draws the cell: shape box, or none for openings), `suppress`
-(nothing drawn, the cell hides no neighbour's face: a piece replaces it; a level without pieces draws it as a body)
-and `reshape` (the base surface draws the shape's own faces in place of the cell's). A catalogue pairing them
-otherwise is refused (`caseFormProblem`). Draft catalogue v2: beam suppress/bar, banister-rail suppress/panel,
-banister-post suppress/post, soffit reshape/slab, openings keep/none, every other case keep/box.
+run x, up +y), turned by the case's transform: `box` 0–16³; `panel` a thin upright sheet along the run (z 6–10);
+`bar` a horizontal member along the run (y, z 3–13); `post` a thin upright bar (x, z 6–10); `none`. Bases: `keep`
+(the base surface draws the cell: shape box, or none) and `suppress` (nothing drawn, the cell hides no neighbour's
+face: a piece replaces it; a level without pieces draws it as a body). A catalogue pairing them otherwise is refused
+(`caseFormProblem`). The edge catalogue: beam suppress/bar, banister-rail suppress/panel, banister-post
+suppress/post, every other case keep/box. (The superseded draft's `slab` shape and `reshape` base, used only by its
+soffit, went with it in the 46c revision R3c; no derived byte of the world's rule set changed.)
 
 | Form | Render solid | Collision | Nav blocks / stands on | Light coverage |
 |---|---|---|---|---|
 | box (walls, floors, roofs …) | yes | full box (merged) | yes / yes | 255 |
-| slab (soffit) | no | its box | yes / yes (covers the top) | 128 |
 | panel (banister rail) | no (piece) | its box | yes / no | 64 |
 | bar (beam) | no (piece) | its box | yes / no | 100 |
 | post (banister post) | no (piece) | its box | yes / no | 16 |
@@ -1068,10 +1067,7 @@ shape (v3, 45.10b: v2's material table and the material slots of vertices, insta
   - the standable cells (free, on a supporting cell) as u16 cells, plus a u8 clearance each: free cells upward up to
     4 (2 m), with bit 0x80 meaning the free run continues into the chunk above.
 - **surface buffers:** two per chunk, the projected ground and the modular base. The base surface is not emitted
-  under a detail piece that replaces it (a suppressed base); a reshaped cell's base is its shape's faces, one quad
-  a face no neighbour covers (corners on the cell lattice split the merged rectangles' edges; a corner part way up a
-  cell edge, the slab's underside meeting the wall behind it, leaves a T-junction there, as a piece standing on a
-  face does).
+  under a detail piece that replaces it (a suppressed base).
 - **detail instances:** see below.
 - **shader data** (`derived-shader.ts`): the material and wetness grid the surface shader blends from (owner
   2026-11-02: blending in the shader). It covers the chunk and a border of `SHADER_BORDER_CELLS` = 1 cell of its
@@ -1428,7 +1424,8 @@ pieces (`voxel-trim-layout.md`, DRAFT). Until then nothing builds on them as fin
   16,384 windows (~400 KB, a memory budget) skips folding and matching for windows seen before (results identical,
   tested). **No material in a case:** the same-material bit is set only when a rule reads it
   (`catalogueReadsMaterial`; the draft reads none), so cases and transforms never depend on materials (D478).
-- **The draft catalogue** (`DRAFT_CASE_CATALOGUE`, `cases-draft` v5, `draft: true`): 46 cases, 51 rules, 7 role
+- **The draft catalogue** (superseded by the edge catalogue below; removed from the engine in the 46c revision R3c,
+  kept as it stood in `archive/removed-phase-46c/cases-draft-catalogue.ts`; `cases-draft` v5, `draft: true`): 46 cases, 51 rules, 7 role
   fallbacks; per case its roles, required or optional, run axis (x, y or none), the inferred feature it draws (beam,
   banister rail and post, soffit, moulding, running board, foundation skirt: cases, never roles), base and shape.
   The role spec draft lists it case by case (`role-spec-doc.test.ts` pins doc = catalogue). Every case whose piece
@@ -1437,8 +1434,8 @@ pieces (`voxel-trim-layout.md`, DRAFT). Until then nothing builds on them as fin
   faces dressed) and named fronts (a fallback had taken the key fold, facing pieces along the wall); v4 `wall-thin`
   above `wall-base`; v5 named fronts for wall and opening jambs (in a wall two cells thick a jamb faced into the other
   layer).
-- **The kit rule set** (`kit-rules.ts`): `KIT_RULES` (id `kits`, version 6) = `withCases(TERRAIN_RULES,
-  DRAFT_CASE_CATALOGUE, 'kits', 6)`: the terrain rules' classes, the case pass, the run pass and the forms in **one**
+- **The kit rule set** (removed in R3c with the draft catalogue; `withCases` stays, the edge rule set is built on it):
+  `KIT_RULES` (id `kits`, version 6) = `withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 6)`: the terrain rules' classes, the case pass, the run pass and the forms in **one**
   `AssemblyRuleSet` (`resolveCases`, `resolveRuns`, `caseForms`, `catalogue`), one evaluation a job, radius
   max(terrain 2, `CASE_REACH` 2) = 2, so the job pad stays 3 and aprons and invalidation are unchanged;
   `ruleRadiusMismatches` compares class and case (random worlds, chunk edges 16 and 32). `WORLD_RULES` = `KIT_RULES`
@@ -1457,10 +1454,9 @@ pieces (`voxel-trim-layout.md`, DRAFT). Until then nothing builds on them as fin
   sections cell for cell (tested). **U along a run is world-anchored**: `runU` = the cell's world coordinate along
   the run axis × its size; nothing more is stored and an edit never shifts the U of cells past the sections it
   changes.
-- **Case shapes and base** (`case-forms.ts`): each case declares its base (keep / suppress / reshape) and one coarse
-  shape (box, slab, panel, bar, post, none in 1/16 cell); every consumer reads the cell's form (*Consumer tables*
-  above), never a piece mesh (R77). Draft v4: beam suppress/bar, banister-rail suppress/panel, banister-post
-  suppress/post, soffit reshape/slab, openings keep/none, every other case keep/box.
+- **Case shapes and base** (`case-forms.ts`): each case declares its base (keep / suppress) and one coarse shape
+  (box, panel, bar, post, none in 1/16 cell); every consumer reads the cell's form (*Consumer tables* above), never a
+  piece mesh (R77). The draft's `reshape` base and `slab` shape (its soffit only) were removed with it (R3c).
 - **Levels:** the case pass runs at level 0 (high pieces) and level 1 (low pieces: a level-1 node picks its low
   piece by case as a chunk picks its high one); from level 2 no level draws pieces (`pieceDetailAt`), the pass is
   skipped and no cell has a case (`levelHasCases`). A uniform region draws no piece and skips the pass too. A chunk
@@ -1541,8 +1537,8 @@ kept), composed as rule set `edges` v1 (`EDGE_RULES`, registered, radius-conform
 pieces). Per 0.5 m lattice edge (4 cells round it) and lattice corner (8): 1 solid = outer, 3 (7) = inner, 2 side by
 side = flat (no piece), 2 diagonal = two outer edges; top / vertical / bottom by gravity, yaw 4; owned by the solid
 cell (outer) or the cell diagonal to the open one (inner); none where a terrain cell or an excluded (roof plane)
-cell touches it; a cell's 12 edges and 8 corners are a bit mask. `cases-draft` v5 (`cases-draft-catalogue.ts`)
-stays the world's catalogue until pieces are drawn from edges.
+cell touches it; a cell's 12 edges and 8 corners are a bit mask. `cases-draft` v5 stayed the world's catalogue
+until pieces were drawn from edges (R3, `edges` v3), then went to the archive (R3c).
 
 **Derived data 14 → 15 (46c R2; the meaning is the owner's decisions of 2026-11-04, "roofs get their own mesher",
 and 2026-10-27, "roof slope cases collide as ramps"; the version step and the rules below are defaults chosen, owner
@@ -1802,7 +1798,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R71 | — | — | later: deferred scatter |
 | R72 | §3.7 | 45.6 (worker = main thread, deterministic) | served |
 | R73, R74 | §3.7 terrain mesher, base surface, kits and cases | 45.6, 46b.3b–46b.5, 46c.2–46c.7 | served (draft catalogue): voxel base surfaces plus inferred detail pieces from the case pass; D480–D482 open |
-| R75–R77 | §3.7 consumer tables (forms) | 45.6, 46c.5; `derived.test.ts`, `case-forms.test.ts`, `collision.test.ts`; slice proof 45.7 (§6) | served: base kept/suppressed/reshaped and consumers from the case's declared shape (draft catalogue) |
+| R75–R77 | §3.7 consumer tables (forms) | 45.6, 46c.5; `derived.test.ts`, `case-forms.test.ts`, `collision.test.ts`; slice proof 45.7 (§6) | served: base kept/suppressed and consumers from the case's declared shape (edge catalogue) |
 | R78, R80 | — | — | superseded by R77 |
 | R79 | §1 replacement 3 | 45.6 | replaced (owner accepted 2026-11-02) |
 | R81 | §3.7 render solid (density ≥ 128) | 45.6 | served |

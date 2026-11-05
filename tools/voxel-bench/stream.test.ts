@@ -28,6 +28,8 @@ import {
   DERIVED_PART,
   deriveNow,
   editBounds,
+  INSTANCE_BYTES,
+  INSTANCE_FLAG,
   encodeDerived,
   encodeShader,
   exportOrAir,
@@ -660,6 +662,46 @@ describe('streamer (workers, region files on disk)', () => {
     expect(whole.length).toBe(new Set(whole).size);
     expect(whole.length).toBeGreaterThan(0);
     drawsLike(kits2, holding(LOG));
+    // Damage (integrity 15 → 7) on a stone wall cell at a section corner (x 0, z −1): exactly the sections within the
+    // rule radius derive again, each once, and swap together; the swapped chunk draws the cell as debris (a piece
+    // replacing its base) like the in-thread derive, and the intact neighbours facing it gain their debris faces.
+    const cornerY = Math.max(...[-3, 0, 3].map((x) => surfaceY(truth, x, -1, 200, -100)!)) + 1;
+    const corner = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-3, cornerY, -1], max: [3, cornerY + 5, -1], mode: 'place', voxel: { material: STONE, role: VOXEL_ROLE.wall, wetness: 0 } });
+    s.edit(corner);
+    applyEdit({ store: () => truth }, corner);
+    await s.settle();
+    const [dx, dy, dz] = [0, cornerY + 2, -1];
+    /** The flags of the instances the drawn chunk holding world cell (x, y, z) lists on it. */
+    const at = (x: number, y: number, z: number): number[] => {
+      const d = s.joinedChunk(x >> 5, y >> 5, z >> 5)!;
+      const out: number[] = [];
+      for (let i = 0; i < d.instances.count; i++) {
+        const o = i * INSTANCE_BYTES;
+        if (d.instances.data[o] === (x & 31) && d.instances.data[o + 1] === (y & 31) && d.instances.data[o + 2] === (z & 31)) out.push(d.instances.data[o + 3]!);
+      }
+      return out;
+    };
+    const debrisOn = (x: number, y: number, z: number): number => at(x, y, z).filter((f) => (f & INSTANCE_FLAG.replacesBase) !== 0).length;
+    const sides: Array<[number, number, number]> = [[dx - 1, dy, dz], [dx + 1, dy, dz], [dx, dy - 1, dz], [dx, dy + 1, dz]];
+    const intactSides = sides.map((c) => at(...c).length);
+    expect(debrisOn(dx, dy, dz)).toBe(0);
+    const damage = canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [dx, dy, dz], voxel: { material: STONE, role: VOXEL_ROLE.wall, shape: 7, wetness: 0 } });
+    const damageSwaps: SwapReport[] = [];
+    s.on((e) => {
+      if (e.type === 'swap') damageSwaps.push(e.report);
+    });
+    whole.length = 0;
+    const group = s.edit(damage).group;
+    applyEdit({ store: () => truth }, damage);
+    await s.settle();
+    const within = dependentChunks(s.sections, editBounds(grid, damage), s.radius).map((c) => `${c.cx},${c.cy},${c.cz}`).sort();
+    expect(within.length).toBeGreaterThanOrEqual(4);
+    expect([...whole].sort()).toEqual(within);
+    expect(damageSwaps.map((r) => [r.groups, r.sections])).toEqual([[[group], within.length]]);
+    for (const c of damageSwaps[0]!.chunks) expect(instanceList(s.joinedChunk(c[0]!, c[1]!, c[2]!)!.instances), c.join(',')).toEqual(instanceList(deriveFromStore(truth, c[0]!, c[1]!, c[2]!, WORLD_RULES, undefined, kits2).instances));
+    expect(debrisOn(dx, dy, dz)).toBe(1);
+    // Each intact face toward the damaged cell in the wall's plane gains its debris face.
+    expect(sides.map((c) => at(...c).length)).toEqual(intactSides.map((n) => n + 1));
   }, 30_000);
 
   it('reads through the runtime overlay: the base never written, every derive a fresh derive of the merged view, digs kept over unload and reload, paints rebuild shader data only, saves keep the saved fields', async () => {

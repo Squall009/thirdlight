@@ -10,10 +10,9 @@
  *
  * **Shape.** One box in 1/{@link FORM_STEPS} cell, written in the case's
  * own orientation (front +z, run x, up +y) and turned into place by the
- * case's transform: `box` (the whole cell), `slab` (the upper half: a
- * projecting edge's raised underside), `panel` (a thin upright sheet along
- * the run: a rail), `bar` (a thin horizontal member along the run: a beam),
- * `post` (a thin upright bar) and `none`. Light coverage is the shape's
+ * case's transform: `box` (the whole cell), `panel` (a thin upright sheet
+ * along the run: a rail), `bar` (a thin horizontal member along the run: a
+ * beam), `post` (a thin upright bar) and `none`. Light coverage is the shape's
  * share of the cell; a cell supports standing when its shape covers the
  * cell's whole top face; it blocks movement unless it is `none`; it is
  * solid for rendering and culling only as a `box`.
@@ -22,8 +21,7 @@
  * shape is the whole box, or none); `suppress`: the base surface draws
  * nothing there and the cell hides none of its neighbours' faces, because a
  * detail piece replaces it (a level that draws no pieces draws it as a body
- * instead); `reshape`: the base surface draws the shape's own faces in
- * place of the cell's, so no piece is needed to close it.
+ * instead).
  *
  * Packed in a byte a cell, inside the derive job only: bits 0–2 the shape,
  * 3–5 the transform (kit-cases.ts fold), 6–7 the base.
@@ -46,7 +44,6 @@ export const FORM_BASE = Object.freeze(Object.fromEntries(CASE_BASES.map((k, i) 
 export const FORM_SHAPE_BOX: Readonly<Record<CaseShape, readonly [number, number, number, number, number, number] | null>> = Object.freeze({
   none: null,
   box: [0, 0, 0, 16, 16, 16],
-  slab: [0, 8, 0, 16, 16, 16],
   panel: [0, 0, 6, 16, 16, 10],
   bar: [0, 3, 3, 16, 13, 13],
   post: [6, 0, 6, 10, 16, 10],

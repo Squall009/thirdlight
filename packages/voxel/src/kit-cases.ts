@@ -21,7 +21,7 @@
  * **Folding.** The same arrangement turned or mirrored is the same case. A
  * window is folded over the four quarter turns about +y and the mirror
  * across a vertical plane (eight transforms), never flipped upside down:
- * gravity tells a soffit from a running board. The folded window with the
+ * gravity tells a rail on a post from a post under a rail. The folded window with the
  * smallest packed symbols is the case key; the transform that maps it onto
  * the world is kept with the result, so a piece authored once in the case's
  * own orientation is placed turned and mirrored to fit.
@@ -206,31 +206,30 @@ export function foldWindow(win: Uint8Array, t: number, out = new Uint8Array(CASE
 }
 
 /** Inferred architectural features: cases of the stored roles, never roles themselves. */
-export type InferredFeature = 'beam' | 'banister' | 'soffit' | 'moulding' | 'running-board' | 'foundation-skirt';
+export type InferredFeature = 'beam' | 'banister';
 
 /**
  * The coarse shapes a case declares for its consumers (collision,
  * navigation, light; case-forms.ts gives each one's box), never read from a
  * piece mesh.
  */
-export const CASE_SHAPES = Object.freeze(['none', 'box', 'slab', 'panel', 'bar', 'post'] as const);
+export const CASE_SHAPES = Object.freeze(['none', 'box', 'panel', 'bar', 'post'] as const);
 export type CaseShape = (typeof CASE_SHAPES)[number];
 
-/** What a case does with the base surface of its cell: draw it, leave it to a piece, or draw its declared shape instead. */
-export const CASE_BASES = Object.freeze(['keep', 'suppress', 'reshape'] as const);
+/** What a case does with the base surface of its cell: draw it, or leave it to a piece. */
+export const CASE_BASES = Object.freeze(['keep', 'suppress'] as const);
 export type CaseBase = (typeof CASE_BASES)[number];
 
 /**
  * A case's base and shape that cannot go together, or null: a kept base
  * draws the whole cell, so its shape is the box (or none, for an opening);
- * a reshaped base draws the shape, so it is neither; a suppressed base
- * leaves the cell to a piece, so its shape is not the whole box.
+ * a suppressed base leaves the cell to a piece, so its shape is not the
+ * whole box.
  */
 export function caseFormProblem(c: { readonly base: string; readonly shape: string }): string | null {
   if (!(CASE_BASES as readonly string[]).includes(c.base)) return `base "${c.base}" (${CASE_BASES.join(', ')})`;
   if (!(CASE_SHAPES as readonly string[]).includes(c.shape)) return `shape "${c.shape}" (${CASE_SHAPES.join(', ')})`;
   if (c.base === 'keep' && c.shape !== 'box' && c.shape !== 'none') return 'a kept base needs the box or no shape';
-  if (c.base === 'reshape' && (c.shape === 'box' || c.shape === 'none')) return 'a reshaped base needs a partial shape';
   if (c.base === 'suppress' && c.shape === 'box') return 'a suppressed base with the whole box: keep it';
   return null;
 }

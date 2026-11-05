@@ -1,11 +1,12 @@
 /**
  * The case pass on windows: folding, rule priority and wildcards, the
- * mandatory fallback, and the draft catalogue's coverage (every case
- * reachable, every window some case of its role).
+ * mandatory fallback (on a window test catalogue: the edge catalogue's
+ * beam and banister rules with directional rules and a fallback for every
+ * role, so most windows resolve through a rule), and the edge catalogue's
+ * window part.
  */
 import { mulberry32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
-import { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
 import { EDGE_CASE_IDS } from './edge-cases';
 import { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
 import {
@@ -22,6 +23,8 @@ import {
   FOLD_TRANSFORMS,
   foldWindow,
   type CaseCatalogueDef,
+  type CaseDef,
+  type CaseRule,
   type CaseRuleCell,
 } from './kit-cases';
 import { VOXEL_ROLE } from './record';
@@ -41,6 +44,32 @@ function windowOf(fill: number, cells: ReadonlyArray<readonly [number, number, n
 
 const WALL_SAME = CASE_SYMBOL.built + 1;
 const FLOOR_SAME = CASE_SYMBOL.built + 3;
+
+const { open: O, opening: OP, solid: S } = CELL;
+const rule = (c: string, priority: number, cells: readonly CaseRuleCell[]): CaseRule => ({ case: c, priority, cells });
+const testCase = (id: string, roles: readonly number[]): CaseDef => ({ id, roles, run: 'x', required: false, base: 'keep', shape: 'box', note: '' });
+
+/**
+ * A window test catalogue: the edge catalogue with rules that read one side
+ * (so a turn or mirror matters), gravity (open below against open above)
+ * and openings, and a fallback for every role, so the machinery's paths are
+ * all exercised on random windows. Test data, never a world's catalogue.
+ */
+const WINDOW_TEST_CATALOGUE: CaseCatalogueDef = Object.freeze({
+  id: 'window-test',
+  version: 1,
+  draft: true,
+  cases: [...EDGE_CASE_CATALOGUE.cases, { ...testCase('plain', CASE_ROLES), run: null }, testCase('front', CASE_ROLES), testCase('top-front', CASE_ROLES), testCase('under', [R.floor, R.roof]), testCase('jamb', [R.wall]), testCase('corner', [R.wall, R.floor])],
+  rules: [
+    ...EDGE_CASE_CATALOGUE.rules,
+    rule('jamb', 65, [[1, 0, 0, OP], [0, 0, 1, O]]),
+    rule('under', 60, [[0, -1, 0, O], [0, 0, 1, O], [0, -1, 1, O]]),
+    rule('corner', 54, [[0, 0, 1, O], [1, 0, 0, O], [1, 0, 1, O], [-1, 0, 0, S]]),
+    rule('top-front', 50, [[0, 1, 0, O], [0, 0, 1, O]]),
+    rule('front', 1, [[0, 0, 1, O]]),
+  ],
+  fallback: Object.fromEntries(CASE_ROLES.map((r) => [r, 'plain'])),
+});
 
 /** A random member of a mask. */
 function pick(rnd: () => number, mask: number): number {
@@ -68,14 +97,14 @@ describe('folding', () => {
   });
 
   it('gives a turned or mirrored window the same case and key, and a transform that maps the case onto it', () => {
-    const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
+    const cat = new CaseCatalogue(WINDOW_TEST_CATALOGUE);
     const rnd = mulberry32(5);
     let asymmetric = 0;
     for (let trial = 0; trial < 3000; trial++) {
       const role = CASE_ROLES[Math.floor(rnd() * CASE_ROLES.length)]!;
       // Sparse built windows reach more cases than uniform noise does.
       const density = rnd();
-      // The draft's rules read no material, so its windows carry no same-material bit (matching takes it off).
+      // The catalogue's rules read no material, so its windows carry no same-material bit (matching takes it off).
       const raw = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < density ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
       const win = raw.map(plain);
       const a = cat.matchWindow(role, raw);
@@ -105,9 +134,9 @@ describe('folding', () => {
   });
 
   it('decides no case or transform by materials unless a rule reads the same-material bit', () => {
-    const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
+    const cat = new CaseCatalogue(WINDOW_TEST_CATALOGUE);
     expect(cat.readsMaterial).toBe(false);
-    expect(catalogueReadsMaterial(DRAFT_CASE_CATALOGUE)).toBe(false);
+    expect(catalogueReadsMaterial(WINDOW_TEST_CATALOGUE)).toBe(false);
     const rnd = mulberry32(9);
     for (let trial = 0; trial < 2000; trial++) {
       const role = CASE_ROLES[Math.floor(rnd() * CASE_ROLES.length)]!;
@@ -124,12 +153,12 @@ describe('folding', () => {
   });
 
   it('never flips a case upside down: a window and its vertical flip may differ', () => {
-    const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
-    // A floor slab edge open below and in front is a soffit; the same edge flipped (open above) is a floor edge.
-    const soffit = windowOf(CASE_SYMBOL.open, [[0, 0, -1, FLOOR_SAME], [1, 0, 0, FLOOR_SAME], [-1, 0, 0, FLOOR_SAME], [0, 1, 0, WALL_SAME]]);
+    const cat = new CaseCatalogue(WINDOW_TEST_CATALOGUE);
+    // A floor slab edge open below and in front is the underside case; the same edge flipped (open above) is the top's.
+    const under = windowOf(CASE_SYMBOL.open, [[0, 0, -1, FLOOR_SAME], [1, 0, 0, FLOOR_SAME], [-1, 0, 0, FLOOR_SAME], [0, 1, 0, WALL_SAME]]);
     const flipped = windowOf(CASE_SYMBOL.open, [[0, 0, -1, FLOOR_SAME], [1, 0, 0, FLOOR_SAME], [-1, 0, 0, FLOOR_SAME], [0, -1, 0, WALL_SAME]]);
-    expect(cat.matchWindow(R.floor, soffit).caseId).toBe('soffit');
-    expect(cat.matchWindow(R.floor, flipped).caseId).toBe('floor-edge');
+    expect(cat.matchWindow(R.floor, under).caseId).toBe('under');
+    expect(cat.matchWindow(R.floor, flipped).caseId).toBe('top-front');
   });
 });
 
@@ -189,7 +218,7 @@ describe('rules', () => {
   });
 
   it('refuses a catalogue without a fallback for every detail role, and other broken definitions', () => {
-    const good = DRAFT_CASE_CATALOGUE;
+    const good = WINDOW_TEST_CATALOGUE;
     expect(() => new CaseCatalogue(good)).not.toThrow();
     for (const role of CASE_ROLES) {
       const fallback = { ...good.fallback } as Record<number, string>;
@@ -202,15 +231,15 @@ describe('rules', () => {
     const bad = (patch: Partial<CaseCatalogueDef>, msg: RegExp): void => {
       expect(() => new CaseCatalogue({ ...good, ...patch })).toThrow(msg);
     };
-    bad({ fallback: { ...good.fallback, [R.wall]: 'floor-plain' } }, /does not list role/);
+    bad({ fallback: { ...good.fallback, [R.wall]: 'under' } }, /does not list role/);
     bad({ fallback: { ...good.fallback, [R.wall]: 'nope' } }, /is not a case/);
     bad({ cases: [...good.cases, good.cases[0]!] }, /listed twice/);
     bad({ cases: [...good.cases, { id: 'Bad Id', roles: [R.wall], run: null, required: false, base: 'keep', shape: 'box', note: '' }] }, /id syntax/);
     bad({ cases: [...good.cases, { id: 'ground', roles: [R.terrain], run: null, required: false, base: 'keep', shape: 'box', note: '' }] }, /detail roles/);
-    // A case's base and declared shape must go together (a kept base is the whole cell, a reshaped one a partial shape).
+    // A case's base and declared shape must go together (a kept base is the whole cell, a suppressed one a partial shape).
     const formOf = (base: string, shape: string): CaseCatalogueDef['cases'][number] => ({ id: 'odd', roles: [R.wall], run: null, required: false, base, shape, note: '' }) as unknown as CaseCatalogueDef['cases'][number];
     bad({ cases: [...good.cases, formOf('keep', 'bar')] }, /kept base needs the box/);
-    bad({ cases: [...good.cases, formOf('reshape', 'box')] }, /reshaped base needs a partial shape/);
+    bad({ cases: [...good.cases, formOf('reshape', 'slab')] }, /base "reshape"/);
     bad({ cases: [...good.cases, formOf('suppress', 'box')] }, /suppressed base with the whole box/);
     bad({ cases: [...good.cases, formOf('hide', 'box')] }, /base "hide"/);
     bad({ cases: [...good.cases, formOf('keep', 'sphere')] }, /shape "sphere"/);
@@ -219,54 +248,6 @@ describe('rules', () => {
     bad({ rules: [...good.rules, { case: 'beam', priority: 1, cells: [[1, 1, 1, CELL.air], [1, 1, 1, CELL.air]] }] }, /listed twice/);
     bad({ rules: [...good.rules, { case: 'beam', priority: 1, cells: [[1, 1, 1, 0]] }] }, /accepts no symbol/);
     bad({ rules: [...good.rules, { case: 'beam', priority: 1, roles: [R.roof], cells: [] }] }, /roles outside/);
-  });
-});
-
-describe('the draft catalogue', () => {
-  const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
-
-  it('says it is a draft, names a fallback for every detail role, and covers the built roles and the inferred features', () => {
-    expect(cat.draft).toBe(true);
-    for (const role of CASE_ROLES) expect(cat.fallbackOf(role)).toBeGreaterThanOrEqual(0);
-    const features = new Set(cat.cases.map((c) => c.feature).filter((f) => f !== undefined));
-    expect([...features].sort()).toEqual(['banister', 'beam', 'foundation-skirt', 'moulding', 'running-board', 'soffit']);
-  });
-
-  it('reaches every case: each has a window that resolves to it', () => {
-    const rnd = mulberry32(11);
-    const reached = new Map<string, number>();
-    for (const [k, c] of cat.cases.entries()) {
-      const rules = cat.rules.filter((r) => r.case === c.id);
-      for (const role of c.roles) {
-        // A fallback: a window no rule of the role matches; try sparse windows of the role's own symbol.
-        const tries = rules.length === 0 ? [{ case: c.id, priority: 0, cells: [] as CaseRuleCell[] }] : rules;
-        let hit = false;
-        for (let n = 0; n < 4000 && !hit; n++) {
-          const r = tries[n % tries.length]!;
-          if (r.roles !== undefined && !r.roles.includes(role)) continue;
-          const filler = rnd() < 0.5 ? CASE_SYMBOL.open : Math.floor(rnd() * SYMBOLS);
-          const win = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < 0.3 ? Math.floor(rnd() * SYMBOLS) : filler));
-          for (const [x, y, z, mask] of r.cells) win[caseWindowIndex(x, y, z)] = pick(rnd, mask);
-          hit = cat.matchWindow(role, win).caseIndex === k;
-        }
-        if (hit) reached.set(c.id, (reached.get(c.id) ?? 0) + 1);
-      }
-    }
-    expect(cat.cases.filter((c) => !reached.has(c.id)).map((c) => c.id)).toEqual([]);
-  });
-
-  it('gives every window of every detail role a case of that role', () => {
-    const rnd = mulberry32(17);
-    const seen = new Set<string>();
-    for (let n = 0; n < 20000; n++) {
-      const role = CASE_ROLES[n % CASE_ROLES.length]!;
-      const density = rnd();
-      const win = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < density ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
-      const m = cat.matchWindow(role, win);
-      expect(cat.cases[m.caseIndex]!.roles).toContain(role);
-      seen.add(m.caseId!);
-    }
-    expect(seen.size).toBeGreaterThan(cat.cases.length / 2);
   });
 });
 

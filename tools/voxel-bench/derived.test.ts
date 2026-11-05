@@ -57,13 +57,12 @@ import {
   CASE_REACH,
   caseIndexOf,
   cropNeighbourhood,
-  DRAFT_CASE_CATALOGUE,
+  EDGE_CASE_CATALOGUE,
   evaluateCases,
   evaluateForms,
   classForm,
   evaluateRuns,
   EDGE_RULES,
-  KIT_RULES,
   NO_SECTION,
   packRunSection,
   resolveRunSections,
@@ -451,7 +450,7 @@ describe('the radius conformance check every rule set must pass', () => {
   const cube: Array<{ cx: number; cy: number; cz: number }> = [];
   for (let cx = -2; cx <= 1; cx++) for (let cy = -2; cy <= 1; cy++) for (let cz = -2; cz <= 1; cz++) cube.push({ cx, cy, cz });
 
-  // Each registered rule set (the terrain rules, the kit rules with their case pass, and any set registered later)
+  // Each registered rule set (the terrain rules, the world rules with their case and edge passes, and any set registered later)
   // resolves every cell the consumers read the same, class and case, with the job's apron (radius + reach) as with 3
   // cells more, on random worlds at both chunk edges (16: every face of a 32³ chunk's 16³ sections is a chunk face):
   // the assembly arrangements and random terrain (cliffs, risers, slopes with partial fills, ledges, one-cell walls
@@ -525,7 +524,7 @@ describe('the radius conformance check every rule set must pass', () => {
     expect(ruleRadiusMismatches(s, { ...short, radius: 2 }, cube)).toEqual([]);
     // A case pass reading 3 cells along x under a set declaring 2 is caught the same way, as a case.
     const far: AssemblyRuleSet = {
-      ...KIT_RULES,
+      ...EDGE_RULES,
       id: 'far',
       resolveCases(n, lo, hi, _level, out) {
         const ss = n.side;
@@ -690,19 +689,19 @@ describe('the terrain rule set', () => {
   }, 30_000);
 });
 
-describe('the kit rule set', () => {
-  const KR = jobRadius(KIT_RULES);
+describe('the world rule set\'s case pass', () => {
+  const KR = jobRadius(EDGE_RULES);
 
-  /** A chunk's job neighbourhood under the kit rules, its classes and its cases at `level` (the evaluation a derive runs). */
+  /** A chunk's job neighbourhood under the world rules, its classes and its cases at `level` (the evaluation a derive runs). */
   function kitJob(store: PaletteStore, cx: number, cy: number, cz: number, level = 0): { n: ReturnType<typeof createNeighbourhood>; classes: Uint8Array; cases: Uint16Array; count: number } {
     const g = store.grid;
     const n = createNeighbourhood(g.edge, KR);
     const dense = createDenseChunk(g);
     fillNeighbourhood(n, g, store.exportChunk(cx, cy, cz, dense) ? dense : null, buildApron(store, cx, cy, cz, KR));
     const classes = new Uint8Array(n.values.length);
-    evaluateAssembly(n, KIT_RULES, classes);
+    evaluateAssembly(n, EDGE_RULES, classes);
     const cases = new Uint16Array(n.values.length);
-    const count = evaluateCases(n, KIT_RULES, level, cases);
+    const count = evaluateCases(n, EDGE_RULES, level, cases);
     return { n, classes, cases, count };
   }
 
@@ -715,15 +714,13 @@ describe('the kit rule set', () => {
     return s;
   }
 
-  it('composes the terrain rules and the case pass in one evaluation, radius 2, the job apron still 3; the world derives with the edge rule set', () => {
+  it('composes the terrain rules, the case pass and the edge pass in one evaluation, radius 2, the job apron still 3; the world derives with it', () => {
     expect(WORLD_RULES).toBe(EDGE_RULES);
     expect({ id: EDGE_RULES.id, version: EDGE_RULES.version, radius: EDGE_RULES.radius }).toEqual({ id: 'edges', version: 3, radius: 2 });
-    expect(registeredAssemblyRules()).toContain(KIT_RULES);
-    expect(registeredAssemblyRules()).toContain(EDGE_RULES);
-    expect({ id: KIT_RULES.id, version: KIT_RULES.version, radius: KIT_RULES.radius }).toEqual({ id: 'kits', version: 6, radius: 2 });
-    expect(KIT_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
-    expect(jobRadius(KIT_RULES)).toBe(3);
-    // The classes are the terrain rules' (one class byte a cell); only the kit rules give cases.
+    expect(registeredAssemblyRules().map((r) => r.id).sort()).toEqual(['edges', 'placeholder', 'terrain']);
+    expect(EDGE_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
+    expect(jobRadius(EDGE_RULES)).toBe(3);
+    // The classes are the terrain rules' (one class byte a cell); only the world rules give cases.
     const s = mixedWorld(grid, 7);
     for (const [cx, cy, cz] of [[-1, -1, -1], [0, 0, 0], [-1, 0, 0]] as const) {
       const job = kitJob(s, cx, cy, cz);
@@ -742,7 +739,7 @@ describe('the kit rule set', () => {
     expect([0, 1, 2, 3].map(levelHasCases)).toEqual([true, true, false, false]);
     expect([0, 1, 2, 3].map((l) => pieceDetailAt(l) !== PIECE_DETAIL.none)).toEqual([true, true, false, false]);
     const s = wallBeamBanister();
-    const feature = (c: number): string | undefined => DRAFT_CASE_CATALOGUE.cases[caseIndexOf(c)]!.feature;
+    const feature = (c: number): string | undefined => EDGE_CASE_CATALOGUE.cases[caseIndexOf(c)]!.feature;
     let beams = 0;
     let rails = 0;
     for (const [cx, cy, cz] of [[-1, 0, -1], [0, 0, -1], [-1, 0, 0], [0, 0, 0]] as const) {
@@ -774,8 +771,9 @@ describe('the kit rule set', () => {
     expect(rails).toBeGreaterThan(0);
   });
 
-  it('changes derived outputs only through the cases\' forms: a chunk whose cells all keep their class\'s form, its sections, and every level-2 node derive to the terrain rules\' bytes', () => {
-    const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 } });
+  it('changes derived outputs but the instances only through the cases\' forms: a chunk whose cells all keep their class\'s form, its sections, and every level-2 node derive to the terrain rules\' bytes but for their pieces', () => {
+    // The edge pass adds pieces only (instances); everything else differs from the terrain rules' only through forms.
+    const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 }, instances: { count: 0, data: new Uint8Array(0) } as DerivedData['instances'] });
     const bytes = (d: DerivedData): Uint8Array => encodeDerived(strip(d));
     const town = createWorldStore(grid);
     loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
@@ -789,12 +787,12 @@ describe('the kit rule set', () => {
     for (const [name, store, chunks] of stores) {
       const tree = new MipTree(store);
       for (const [cx, cy, cz] of chunks) {
-        const a = deriveFromStore(store, cx, cy, cz, KIT_RULES);
-        expect(a.rules).toEqual({ id: 'kits', version: 6, radius: 2 });
+        const a = deriveFromStore(store, cx, cy, cz, EDGE_RULES);
+        expect(a.rules).toEqual({ id: 'edges', version: 3, radius: 2 });
         // Does any cell the consumers read take another form from its case than from its class?
         const job = kitJob(store, cx, cy, cz);
         const forms = new Uint8Array(job.n.values.length);
-        evaluateForms(job.n, KIT_RULES, job.classes, job.cases, forms);
+        evaluateForms(job.n, EDGE_RULES, job.classes, job.cases, forms);
         let differs = false;
         const side = job.n.side;
         for (let x = KR - 1; x < KR + E + 1 && !differs; x++) for (let z = KR - 1; z < KR + E + 1 && !differs; z++) for (let y = KR - 1; y < KR + E + 1; y++) {
@@ -812,14 +810,14 @@ describe('the kit rule set', () => {
         seen.same++;
         expect(bytes(a), at).toEqual(bytes(deriveFromStore(store, cx, cy, cz, TERRAIN_RULES)));
         const ids = Array.from({ length: 8 }, (_, i) => i);
-        const ks = deriveSectionsWithApron(grid, KIT_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), 16, ids);
+        const ks = deriveSectionsWithApron(grid, EDGE_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), 16, ids);
         const ts = deriveSectionsWithApron(grid, TERRAIN_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), 16, ids);
         ks.forEach((r, k) => expect(bytes(r.assembly!), `${at} section ${k}`).toEqual(bytes(ts[k]!.assembly!)));
       }
       // Level 2 resolves no case: every node is the terrain rules' (level 1's cases are checked against their forms in case-forms.test.ts).
       for (const [cx, cy, cz] of chunks) {
         const node: MipNode = { level: 2, nx: cx >> 2, ny: cy >> 2, nz: cz >> 2 };
-        expect(bytes(deriveMipNode(tree, node, KIT_RULES)), `${name} level 2 node ${node.nx},${node.ny},${node.nz}`).toEqual(bytes(deriveMipNode(tree, node, TERRAIN_RULES)));
+        expect(bytes(deriveMipNode(tree, node, EDGE_RULES)), `${name} level 2 node ${node.nx},${node.ny},${node.nz}`).toEqual(bytes(deriveMipNode(tree, node, TERRAIN_RULES)));
       }
     }
     expect(seen.same).toBeGreaterThan(3);
@@ -847,7 +845,7 @@ describe('the kit rule set', () => {
           for (let id = 0; id < per ** 3; id++) {
             const [lx, ly, lz] = sectionLocalOrigin(E, edge, id);
             cropNeighbourhood(whole.n, lx, ly, lz, sub);
-            evaluateCases(sub, KIT_RULES, 0, cases);
+            evaluateCases(sub, EDGE_RULES, 0, cases);
             const ss = sub.side;
             for (let x = KR - 1; x < KR + edge + 1; x++) for (let z = KR - 1; z < KR + edge + 1; z++) for (let y = KR - 1; y < KR + edge + 1; y++) {
               const want = whole.cases[((lx + x) * fs + (lz + z)) * fs + (ly + y)]!;
@@ -860,12 +858,13 @@ describe('the kit rule set', () => {
         }
       }
     }
-    expect(withCase).toBeGreaterThan(1000);
+    // The world catalogue's window cases are beams and banisters only, so a few hundred cells of these chunks carry one.
+    expect(withCase).toBeGreaterThan(400);
     expect(compared).toBeGreaterThan(withCase);
   }, 60_000);
 
-  it('meets cases of every detail role in the random worlds its conformance runs on', () => {
-    // The conformance check proves the cases it reaches: the dabbed random worlds must reach many cases of every role.
+  it('meets every window case (beams, rails, posts) in the random worlds its conformance runs on', () => {
+    // The conformance check proves the cases it reaches: the dabbed random worlds must reach each window case.
     const seen = new Set<string>();
     const roles = new Set<number>();
     for (const seed of [1, 2, 3]) {
@@ -880,30 +879,30 @@ describe('the kit rule set', () => {
           const i = (x * side + z) * side + y;
           const c = job.cases[i]!;
           if (c === NO_CASE) continue;
-          seen.add(DRAFT_CASE_CATALOGUE.cases[caseIndexOf(c)]!.id);
+          seen.add(EDGE_CASE_CATALOGUE.cases[caseIndexOf(c)]!.id);
           roles.add(valueRole(job.n.values[i]!));
         }
       }
     }
-    expect([...roles].sort((a, b) => a - b)).toEqual([C.wall, C.floor, C.roof, C.foundation, C.stair, C.pillar, C.opening].sort((a, b) => a - b));
-    expect(seen.size).toBeGreaterThan(20);
+    expect([...seen].sort()).toEqual(['banister-post', 'banister-rail', 'beam']);
+    expect(roles.has(C.wall)).toBe(true);
   }, 60_000);
 });
 
 describe('run sections', () => {
-  const KR = jobRadius(KIT_RULES);
+  const KR = jobRadius(EDGE_RULES);
   const SEC = RUN_SECTION;
   const END = RUN_END;
 
-  /** A chunk's job under the kit rules: its cases and run sections (what a derive's consumers read). */
+  /** A chunk's job under the world rules: its cases and run sections (what a derive's consumers read). */
   function runJob(store: PaletteStore, cx: number, cy: number, cz: number): { n: ReturnType<typeof createNeighbourhood>; cases: Uint16Array; runs: Uint16Array } {
     const n = createNeighbourhood(E, KR);
     const dense = createDenseChunk(grid);
     fillNeighbourhood(n, grid, store.exportChunk(cx, cy, cz, dense) ? dense : null, buildApron(store, cx, cy, cz, KR));
     const cases = new Uint16Array(n.values.length);
-    evaluateCases(n, KIT_RULES, 0, cases);
+    evaluateCases(n, EDGE_RULES, 0, cases);
     const runs = new Uint16Array(n.values.length);
-    evaluateRuns(n, KIT_RULES, cases, runs);
+    evaluateRuns(n, EDGE_RULES, cases, runs);
     return { n, cases, runs };
   }
 
@@ -928,7 +927,7 @@ describe('run sections', () => {
       caseId: (x, y, z) => {
         const [job, i] = cell(x, y, z);
         const c = job.cases[i]!;
-        return c === NO_CASE ? 'none' : DRAFT_CASE_CATALOGUE.cases[caseIndexOf(c)]!.id;
+        return c === NO_CASE ? 'none' : EDGE_CASE_CATALOGUE.cases[caseIndexOf(c)]!.id;
       },
     };
   }
@@ -982,8 +981,8 @@ describe('run sections', () => {
     // The two ends are terminations, the free side open (nothing beyond the beam). The two ends' windows are mirror
     // images, so both fold to one case orientation: the same termination piece, placed mirrored at one of them.
     expect(ends.every(openTermination), ends.map(show).join(' | ')).toBe(true);
-    // The wall's top is a run too (a case with a run axis): a coping body.
-    expect(show(r.section(0, 7, 0))).toBe('body joined-joined x');
+    // The wall's top is a plain edge (the edge pass's piece): no case, no run.
+    expect(r.section(0, 7, 0)).toBe(NO_SECTION);
   });
 
   it('breaks a run at a dig: terminations appear at the cut, open toward it; no section changes farther than the job reach', () => {
@@ -1004,13 +1003,13 @@ describe('run sections', () => {
       if (now === was[k]) return;
       changed++;
       const reach = Math.max(Math.abs(c[0] - 3), Math.abs(c[1] - 5), Math.abs(c[2] + 1));
-      expect(reach, `cell ${c.join(',')} ${show(was[k]!)} → ${show(now)}`).toBeLessThanOrEqual(jobRadius(KIT_RULES));
+      expect(reach, `cell ${c.join(',')} ${show(was[k]!)} → ${show(now)}`).toBeLessThanOrEqual(jobRadius(EDGE_RULES));
     });
     expect(changed).toBeGreaterThanOrEqual(3);
     for (const x of [-19, -10, 0, 8, 15, 18]) expect(show(after.section(x, 5, -1))).toBe(show(before.section(x, 5, -1)));
   });
 
-  it('turns a corner, branches a T and crosses an X of rails across chunk faces; a skirt turns round a foundation\'s outside corner', () => {
+  it('turns a corner, branches a T and crosses an X of rails across chunk faces', () => {
     // L: the corner at (−1, −1), arms along +x and +z (crossing the chunk faces at 0).
     const L = reader(railsOnSlab([[-1, -1], ...[0, 1, 2, 3].map((k) => [k, -1] as const), ...[0, 1, 2, 3].map((k) => [-1, k] as const)]));
     expect(L.caseId(-1, 1, -1)).toBe('banister-rail');
@@ -1028,33 +1027,30 @@ describe('run sections', () => {
     expect(X.caseId(0, 1, -1)).toBe('banister-rail');
     expect(runSectionOf(X.section(0, 1, -1)), show(X.section(0, 1, -1))).toBe(SEC.junction);
     for (const [x, z] of [[-1, -1], [1, -1], [0, -2], [0, 0]] as const) expect(runSectionOf(X.section(x, 1, z)), `${x},${z} ${show(X.section(x, 1, z))}`).toBe(SEC.body);
-    // A foundation block on ground: the skirt runs round its outside corner (the corner cell joins both runs).
-    const F = createWorldStore(grid);
-    ground(F, -12, 12, -12, 12, 3, 0);
-    for (let x = -4; x < 4; x++) for (let z = -4; z < 4; z++) for (let y = 0; y < 2; y++) put(F, x, y, z, MAT.stone, C.foundation);
-    const f = reader(F);
-    expect(f.caseId(3, 0, 3)).toBe('foundation-skirt');
-    expect(runSectionOf(f.section(3, 0, 3)), show(f.section(3, 0, 3))).toBe(SEC.corner);
-    expect(show(f.section(0, 0, 3))).toBe('body joined-joined x');
-    expect(show(f.section(3, 0, -1))).toBe('body joined-joined z');
   });
 
-  it('meets a run across an inside corner in a mitre: mouldings under a ceiling end "inner" where two walls meet', () => {
+  it('meets a run across an inside corner in a mitre: beams along two walls end "inner" against the corner\'s solid column', () => {
     const s = createWorldStore(grid);
     ground(s, -12, 12, -12, 12, 3, 0);
-    for (let k = -3; k < 6; k++) for (let y = 0; y < 4; y++) {
+    for (let k = -3; k < 6; k++) for (let y = 0; y < 8; y++) {
       put(s, k, y, -3, MAT.plaster, C.wall);
       put(s, -3, y, k, MAT.plaster, C.wall);
     }
-    for (let x = -3; x < 6; x++) for (let z = -3; z < 6; z++) put(s, x, 4, z, MAT.plank, C.floor);
+    // The inside corner filled one cell out (a column), and a beam one cell out from each wall at y = 5 stopping
+    // against it: each run's end there is the inside corner the other run starts beside.
+    for (let y = 0; y < 8; y++) put(s, -2, y, -2, MAT.plaster, C.wall);
+    for (let k = -1; k < 6; k++) {
+      put(s, k, 5, -2, MAT.timber, C.wall);
+      put(s, -2, 5, k, MAT.timber, C.wall);
+    }
     const r = reader(s);
-    for (const [x, z] of [[-2, -3], [-3, -2]] as const) {
-      expect(r.caseId(x, 3, z)).toBe('moulding');
-      const p = r.section(x, 3, z);
+    for (const [x, z] of [[-1, -2], [-2, -1]] as const) {
+      expect(r.caseId(x, 5, z)).toBe('beam');
+      const p = r.section(x, 5, z);
       expect(isTermination(p), show(p)).toBe(true);
       expect([runStartEndOf(p), runEndEndOf(p)], show(p)).toContain(END.inner);
     }
-    expect(runSectionOf(r.section(1, 3, -3))).toBe(SEC.body);
+    expect(runSectionOf(r.section(2, 5, -2))).toBe(SEC.body);
   });
 
   it('keeps the wall-beam-banister proof (a beam run, a rail run over single posts) and gives a chunk\'s sections from its 16³ and 8³ sections cell for cell', () => {
@@ -1090,8 +1086,8 @@ describe('run sections', () => {
           for (let id = 0; id < (E / edge) ** 3; id++) {
             const [lx, ly, lz] = sectionLocalOrigin(E, edge, id);
             cropNeighbourhood(whole.n, lx, ly, lz, sub);
-            evaluateCases(sub, KIT_RULES, 0, cases);
-            evaluateRuns(sub, KIT_RULES, cases, runs);
+            evaluateCases(sub, EDGE_RULES, 0, cases);
+            evaluateRuns(sub, EDGE_RULES, cases, runs);
             const ss = sub.side;
             for (let x = KR; x < KR + edge; x++) for (let z = KR; z < KR + edge; z++) for (let y = KR; y < KR + edge; y++) {
               const want = whole.runs[((lx + x) * fs + (lz + z)) * fs + (ly + y)]!;
@@ -1103,7 +1099,8 @@ describe('run sections', () => {
         }
       }
     }
-    expect(compared).toBeGreaterThan(1000);
+    // Only beams and banisters carry a case (and so a run section) in the world catalogue.
+    expect(compared).toBeGreaterThan(250);
   }, 60_000);
 
   it('keeps a cell joined only across its own axis on that axis: the end of another run meeting its side is a junction there, never a section along the other run', () => {
@@ -1112,12 +1109,12 @@ describe('run sections', () => {
     const n = createNeighbourhood(16, KR);
     const s = n.side;
     const cases = new Uint16Array(n.values.length).fill(NO_CASE);
-    const beam = DRAFT_CASE_CATALOGUE.cases.findIndex((c) => c.id === 'beam');
+    const beam = EDGE_CASE_CATALOGUE.cases.findIndex((c) => c.id === 'beam');
     const at = (x: number, y: number, z: number): number => ((x + KR) * s + (z + KR)) * s + (y + KR);
     for (let z = 3; z < 7; z++) cases[at(5, 5, z)] = (beam << 3) | 1;
     cases[at(5, 5, 7)] = beam << 3;
     const out = new Uint16Array(n.values.length);
-    resolveRunSections(n, cases, new RunTable(DRAFT_CASE_CATALOGUE.cases), KR, KR + 16, out);
+    resolveRunSections(n, cases, new RunTable(EDGE_CASE_CATALOGUE.cases), KR, KR + 16, out);
     expect(show(out[at(5, 5, 7)]!)).toBe('junction open-open x');
     // The run along z joins it: its last cell's end toward it is joined, its first one's free end open.
     expect(show(out[at(5, 5, 6)]!)).toBe('body joined-joined z');

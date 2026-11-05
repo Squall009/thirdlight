@@ -10,5 +10,11 @@ stood:
   (`docs/architecture/voxel-role-spec.md`) to the superseded catalogue and the
   old default kit's pieces. The rewritten draft gets a test pinned to the edge
   catalogue.
+- `cases-draft-catalogue.ts`: the 46-case catalogue (`cases-draft` v5) and,
+  with it, the `kits` rule set (`KIT_RULES`, in `kit-rules.ts`) and the
+  `reshape` base and `slab` shape its soffit alone used (in `kit-cases.ts`,
+  `case-forms.ts` and `base-surface.ts`, removed in place). Its beam and
+  banister cases and rules are the edge catalogue's own
+  (`kit-case-catalogue.ts`).
 
 Nothing here is built, type-checked or tested.

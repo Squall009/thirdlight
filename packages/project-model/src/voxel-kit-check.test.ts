@@ -7,12 +7,25 @@
  * one node, an embedded image's size) read from its bytes.
  */
 import { glbBytes, pngBytes } from '@thirdlight/shared';
-import { DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, DRAFT_CASE_CATALOGUE, EDGE_CASE_CATALOGUE, VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { CASE_ROLES, DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, EDGE_CASE_CATALOGUE, VOXEL_ROLE, VOXEL_SIZE_M, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import type { VoxelKit, VoxelKitMesh } from './voxel-kit';
 import { voxelKitCheck, voxelKitCheckState, voxelKitMeshFacts, voxelKitMeshKey, type VoxelKitAssets, type VoxelKitCheckRow, type VoxelKitMeshFacts } from './voxel-kit-check';
 
 const H = VOXEL_SIZE_M / 2;
+
+const testCase = (id: string, role: number, required: boolean, run: CaseDef['run'] = null): CaseDef => ({ id, roles: [role], run, required, base: 'keep', shape: 'box', note: '' });
+/**
+ * The world's edge catalogue with what the check also reads but the world's
+ * catalogue leaves out: a fallback case for two roles (wall, stair) and a
+ * case whose run climbs (y). Test data only.
+ */
+const CATALOGUE: CaseCatalogueDef = Object.freeze({
+  ...EDGE_CASE_CATALOGUE,
+  id: 'kit-check-test',
+  cases: [...EDGE_CASE_CATALOGUE.cases, testCase('wall-plain', VOXEL_ROLE.wall, true), testCase('stair-plain', VOXEL_ROLE.stair, true), testCase('run-up', VOXEL_ROLE.pillar, false, 'y')],
+  fallback: { ...Object.fromEntries(CASE_ROLES.map((r) => [r, null])), [VOXEL_ROLE.wall]: 'wall-plain', [VOXEL_ROLE.stair]: 'stair-plain' },
+});
 const D = (n: number): string => n.toString(16).padStart(64, '0');
 const mesh = (assetId: string, n = 1): VoxelKitMesh => ({ assetId, digest: D(n) });
 
@@ -49,7 +62,7 @@ const box = (lo = -H, hi = H): VoxelKitMeshFacts => facts(quad(lo, hi, lo, hi, h
 /** A kit with a body piece (high and low) for every case, its ends on one profile. */
 function fullKit(): VoxelKit {
   const cases: VoxelKit['cases'] = {};
-  for (const c of DRAFT_CASE_CATALOGUE.cases) cases[c.id] = { sections: { body: { variants: [{ high: mesh(`${c.id}-h`), low: mesh(`${c.id}-l`) }], ends: { start: 'flat', end: 'flat' } } } };
+  for (const c of CATALOGUE.cases) cases[c.id] = { sections: { body: { variants: [{ high: mesh(`${c.id}-h`), low: mesh(`${c.id}-l`) }], ends: { start: 'flat', end: 'flat' } } } };
   return { kitFormat: 1, voxelKitId: 'full', name: 'Full', version: 1, materialType: 'wood', materials: [11], cases, joinProfiles: { flat: { outline: [[0, 0], [16, 0], [16, 16]] } } };
 }
 
@@ -60,7 +73,7 @@ function assetsOf(kit: VoxelKit): Map<string, { kind: string; digests: string[];
 }
 
 function run(kit: VoxelKit, opts: { assets?: VoxelKitAssets; facts?: (m: VoxelKitMesh) => VoxelKitMeshFacts | null } = {}): VoxelKitCheckRow[] {
-  return voxelKitCheck(kit, DRAFT_CASE_CATALOGUE, opts.assets ?? assetsOf(kit), opts.facts ?? ((m) => (m.assetId.endsWith('-l') ? facts(quad(-H, H, -H, H, H, () => [0, 0.01])) : box()))).rows;
+  return voxelKitCheck(kit, CATALOGUE, opts.assets ?? assetsOf(kit), opts.facts ?? ((m) => (m.assetId.endsWith('-l') ? facts(quad(-H, H, -H, H, H, () => [0, 0.01])) : box()))).rows;
 }
 
 const bad = (rows: VoxelKitCheckRow[]): string[] => rows.filter((r) => r.state === 'warn' || r.state === 'err').map((r) => `${r.state} ${r.id}`);
@@ -70,7 +83,7 @@ describe('the voxel kit check', () => {
     const rows = run(fullKit());
     expect(bad(rows)).toEqual([]);
     expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining(['catalogue', 'required', 'optional', 'fallback:wall', 'pairs', 'assets', 'pivot', 'fit', 'joins', 'budget']));
-    expect(rows.find((r) => r.id === 'budget')!.title).toBe(`${DRAFT_CASE_CATALOGUE.cases.length} pieces: ${DRAFT_CASE_CATALOGUE.cases.length * 2} triangles high, ${DRAFT_CASE_CATALOGUE.cases.length * 2} low`);
+    expect(rows.find((r) => r.id === 'budget')!.title).toBe(`${CATALOGUE.cases.length} pieces: ${CATALOGUE.cases.length * 2} triangles high, ${CATALOGUE.cases.length * 2} low`);
     expect(rows.some((r) => r.id.startsWith('trim:'))).toBe(false);
   });
 
@@ -104,41 +117,41 @@ describe('the voxel kit check', () => {
     const full = fullKit();
     const only = (rows: VoxelKitCheckRow[]): string[] => bad(rows).sort();
     // An unknown case and an unknown section never draw.
-    expect(only(run(cases(full, (c) => { c['gazebo'] = c['wall-top']!; c['beam']!.sections!['middle'] = c['beam']!.sections!['body']!; })))).toEqual(['err catalogue']);
+    expect(only(run(cases(full, (c) => { c['gazebo'] = c['edge-out-top']!; c['beam']!.sections!['middle'] = c['beam']!.sections!['body']!; })))).toEqual(['err catalogue']);
     // A required case missing: covered by the role's fallback piece, or by the engine's stand-in.
-    const noTop = run(cases(full, (c) => { delete c['wall-top']; delete c['beam']; }));
-    expect(only(noTop)).toEqual(['warn required:beam', 'warn required:wall-top']);
-    expect(noTop.find((r) => r.id === 'required:wall-top')!.detail).toMatch(/wall-plain piece stands in/);
+    const noTop = run(cases(full, (c) => { delete c['edge-out-top']; delete c['beam']; }));
+    expect(only(noTop)).toEqual(['warn required:beam', 'warn required:edge-out-top']);
+    expect(noTop.find((r) => r.id === 'required:edge-out-top')!.detail).toMatch(/wall-plain piece stands in/);
     // An optional case missing is info only.
-    const noMould = run(cases(full, (c) => { delete c['moulding']; }));
+    const noMould = run(cases(full, (c) => { delete c['edge-in-top']; }));
     expect(only(noMould)).toEqual([]);
     expect(noMould.find((r) => r.id === 'optional')!.state).toBe('info');
     // No fallback piece for a role.
     expect(only(run(cases(full, (c) => { delete c['stair-plain']; })))).toEqual(['warn fallback:stair', 'warn required:stair-plain']);
     // A variant without a low is info; a low heavier than its high a warn.
-    const noLow = run(cases(full, (c) => { delete c['wall-top']!.sections!['body']!.variants[0]!.low; }));
+    const noLow = run(cases(full, (c) => { delete c['edge-out-top']!.sections!['body']!.variants[0]!.low; }));
     expect([only(noLow), noLow.find((r) => r.id === 'pairs')!.state]).toEqual([[], 'info']);
-    expect(only(run(full, { facts: (m) => (m.assetId === 'wall-top-l' ? facts([...quad(-H, H, -H, H, H, () => [0, 0]), ...quad(-H, H, -H, H, -H, () => [0, 0])]) : box()) }))).toEqual(['warn pairs-heavy']);
+    expect(only(run(full, { facts: (m) => (m.assetId === 'edge-out-top-l' ? facts([...quad(-H, H, -H, H, H, () => [0, 0]), ...quad(-H, H, -H, H, -H, () => [0, 0])]) : box()) }))).toEqual(['warn pairs-heavy']);
     // Assets: missing, not a model, unreadable, a node not in the file; a digest no version has.
     const assets = assetsOf(full);
     assets.delete('beam-h');
-    assets.set('roof-peak-h', { kind: 'texture', digests: [D(1)] });
-    assets.set('wall-end-h', { kind: 'model', digests: [D(2)] });
-    const noFile = (m: VoxelKitMesh): VoxelKitMeshFacts | null => (m.assetId === 'soffit-h' ? { ...box(), unreadable: 'not a GLB (version 2)' } : m.assetId === 'moulding-h' ? { ...box(), found: false } : box());
+    assets.set('roof-ridge-h', { kind: 'texture', digests: [D(1)] });
+    assets.set('edge-out-vertical-h', { kind: 'model', digests: [D(2)] });
+    const noFile = (m: VoxelKitMesh): VoxelKitMeshFacts | null => (m.assetId === 'roof-hip-h' ? { ...box(), unreadable: 'not a GLB (version 2)' } : m.assetId === 'roof-valley-h' ? { ...box(), found: false } : box());
     const broken = run(full, { assets, facts: noFile });
     expect(only(broken)).toEqual(['err assets', 'warn digests']);
-    expect(broken.find((r) => r.id === 'assets')!.detail).toMatch(/no such model: beam\/body \(beam-h\).*not a model: roof-peak.*unreadable: soffit.*no such node: moulding/);
+    expect(broken.find((r) => r.id === 'assets')!.detail).toMatch(/no such model: beam\/body \(beam-h\).*not a model: roof-ridge.*unreadable: roof-hip.*no such node: roof-valley/);
     // A mesh naming an older version of its model (v1 of two, v2 current): the pin holds only while nothing else
     // uses the model; one naming the current version is fine.
     const pinned = assetsOf(full);
-    pinned.set('wall-end-h', { kind: 'model', digests: [D(1), D(9)], current: D(9) });
-    pinned.set('wall-top-h', { kind: 'model', digests: [D(9), D(1)], current: D(1) });
+    pinned.set('edge-out-vertical-h', { kind: 'model', digests: [D(1), D(9)], current: D(9) });
+    pinned.set('edge-out-top-h', { kind: 'model', digests: [D(9), D(1)], current: D(1) });
     const older = run(full, { assets: pinned });
     expect(only(older)).toEqual(['warn pinned']);
-    expect(older.find((r) => r.id === 'pinned')!.detail).toMatch(/^wall-end\/body \(wall-end-h\): a build ships that version only while nothing else uses the model/);
+    expect(older.find((r) => r.id === 'pinned')!.detail).toMatch(/^edge-out-vertical\/body \(edge-out-vertical-h\): a build ships that version only while nothing else uses the model/);
     // Pivots: a piece beside its cell; one reaching into the neighbours.
-    expect(only(run(full, { facts: (m) => (m.assetId === 'wall-top-h' ? box(H + 0.1, H + 0.4) : box()) }))).toEqual(['err pivot']);
-    expect(only(run(full, { facts: (m) => (m.assetId === 'wall-top-h' ? facts(quad(-H, 0.8, -H, H, H, () => [0, 0])) : box()) }))).toEqual(['warn fit']);
+    expect(only(run(full, { facts: (m) => (m.assetId === 'edge-out-top-h' ? box(H + 0.1, H + 0.4) : box()) }))).toEqual(['err pivot']);
+    expect(only(run(full, { facts: (m) => (m.assetId === 'edge-out-top-h' ? facts(quad(-H, 0.8, -H, H, H, () => [0, 0])) : box()) }))).toEqual(['warn fit']);
     // Join profiles: a start section meeting the body on another outline; an end with no profile is not checked.
     const steps = cases(full, (c) => { c['beam']!.sections!['start'] = { variants: [{ high: mesh('beam-h'), low: mesh('beam-l') }], ends: { start: 'flat', end: 'round' } }; });
     steps.joinProfiles!['round'] = { outline: [[0, 0], [8, 0], [8, 8], [0, 8]] };
@@ -201,8 +214,8 @@ describe('the voxel kit check', () => {
       expect(t({ 's-h': other, 's-l': other })).toEqual(['warn trim:T8']);
     });
 
-    it('meets sections along their case run: up y for a run that climbs (a wall end), never across x', () => {
-      const endKit = (): VoxelKit => ({ ...trimKit(), cases: { 'wall-end': structuredClone(trimKit().cases['beam']!) } });
+    it('meets sections along their case run: up y for a run that climbs, never across x', () => {
+      const endKit = (): VoxelKit => ({ ...trimKit(), cases: { 'run-up': structuredClone(trimKit().cases['beam']!) } });
       const t = (over: Record<string, VoxelKitMeshFacts>): string[] => fired(run(endKit(), { facts: (m) => over[m.assetId] ?? good }).filter((r) => r.id.startsWith('trim:')));
       // Faces touching the x planes on other strips: no join there for a run up y.
       const other = facts(quad(-H, H, -F, F, H, onStrip(2912.5, F)));

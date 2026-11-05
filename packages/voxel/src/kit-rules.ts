@@ -17,7 +17,6 @@ import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './asse
 import { isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-mesher';
 import { caseFormTable, isDebrisCell } from './case-forms';
 import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
-import { DRAFT_CASE_CATALOGUE } from './cases-draft-catalogue';
 import { EDGE_REACH, extractEdges, type EdgeMasks } from './edge-cases';
 import { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
 import { CASE_REACH, CaseCatalogue, NO_CASE, type CaseCatalogueDef } from './kit-cases';
@@ -179,14 +178,3 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
  */
 export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 3);
 
-/**
- * The world rule set from kits on: the terrain rules (`terrain` v1) with
- * the case pass over the case catalogue and the run pass over its cases.
- * Its version names the pair it composes (terrain rules and catalogue
- * versions), a DRAFT until the owner approves the role spec; the spec's
- * kit rule set section lists what each version composed. Every consumer
- * reads a cell's case (its declared shape and base, case-forms.ts) where
- * it has one, so derived results differ from the terrain rules' wherever
- * a case's form differs from its class's.
- */
-export const KIT_RULES: AssemblyRuleSet = withCases(TERRAIN_RULES, DRAFT_CASE_CATALOGUE, 'kits', 6);

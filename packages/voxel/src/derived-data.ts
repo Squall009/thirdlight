@@ -14,7 +14,7 @@
  * | form / class  | render solid  | collision          | nav blocks / supports | light coverage   |
  * |---------------|---------------|--------------------|-----------------------|------------------|
  * | box (wall)    | yes           | full box           | yes / yes             | 255              |
- * | slab, panel, bar, post | no   | the shape's box    | yes / slab only       | the shape's share ({@link LIGHT_COVERAGE}) |
+ * | panel, bar, post | no         | the shape's box    | yes / no              | the shape's share ({@link LIGHT_COVERAGE}) |
  * | none          | no            | none               | no / no               | 0                |
  * | ground        | density ≥ 128 | the ground surface | density ≥ 128         | its density      |
  *
@@ -332,9 +332,9 @@ function navOf(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array): NavOut
 /**
  * Collision boxes: whole-box cells merged into vertical runs, runs merged
  * along z where equal, then those slabs merged along x where equal; every
- * other shape (a beam's bar, a rail's panel, a post, a soffit's slab) one
- * box a cell, its declared shape's. Ground collides against its surface,
- * liquid not at all. Boxes carry no material (a physics material comes from
+ * other shape (a beam's bar, a rail's panel, a post) one box a cell, its
+ * declared shape's. Ground collides against its surface, liquid not at
+ * all. Boxes carry no material (a physics material comes from
  * the shader data's cell, where a game needs one), so a material change
  * leaves them as they are.
  */

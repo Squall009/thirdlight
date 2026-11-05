@@ -24,7 +24,6 @@ import {
   fillLevel,
   fillNeighbourhood,
   jobRadius,
-  KIT_RULES,
   rulesDrawDebris,
   buildPieceTable,
   defaultKitSource,
@@ -32,6 +31,7 @@ import {
   PIECE_SLOT_TABLE,
   shapeDensity,
   SHAPE_FULL,
+  TERRAIN_RULES,
   VOXEL_ROLE,
   canonicalEditCommand,
   type DerivedData,
@@ -368,12 +368,12 @@ describe('construction shape is integrity', () => {
       for (let x = 8; x < 12; x++) for (let z = 20; z < 24; z++) putVoxel(s, x, 8, z, MAT.grass, C.terrain, groundShape);
       return s;
     };
-    for (const rules of [KIT_RULES, EDGE_RULES]) {
-      // The engine's default kit draws every material, so the pieces show what the derive places.
-      const table = buildPieceTable([], rules, defaultKitSource(rules.catalogue!)).table;
+    for (const rules of [TERRAIN_RULES, EDGE_RULES]) {
+      // The engine's default kit draws every material, so the pieces show what the derive places (no pieces without a catalogue).
+      const table = rules.catalogue === undefined ? null : buildPieceTable([], rules, defaultKitSource(rules.catalogue)).table;
       const intact = parts(deriveFromStore(world(15, 7), 0, 0, 0, rules, undefined, table));
       const damaged = parts(deriveFromStore(world(7, 7), 0, 0, 0, rules, undefined, table));
-      // The edge rules draw the damaged cell as debris (its base faces and pieces differ, nothing else); the kit rules as a block.
+      // The edge rules draw the damaged cell as debris (its base faces and pieces differ, nothing else); the terrain rules as a block.
       const drawn = rulesDrawDebris(rules) ? ['base', 'instances'] : [];
       for (const k of Object.keys(intact)) {
         if (drawn.includes(k)) expect(damaged[k], `${rules.id}: ${k}`).not.toEqual(intact[k]);

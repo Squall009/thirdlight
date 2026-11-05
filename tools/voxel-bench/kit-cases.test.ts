@@ -1,9 +1,11 @@
 /**
  * The case pass on real stores: the wall / beam / banister neighbours read
- * as the draft catalogue's cases, a turned and mirrored copy of a scene
- * gives the same cases placed by the matching transform, the cached
- * extraction equals the slow window path on random worlds, and the cost of
- * extracting a 16³ section of the town (Node, this thread).
+ * as the edge catalogue's window cases (beams and banisters; walls none), a
+ * turned and mirrored copy of a scene gives the same cases placed by the
+ * matching transform, the cached extraction equals the slow window path on
+ * random worlds (the edge catalogue, and a test catalogue with a fallback
+ * for every role so the fallback path runs too), and the cost of extracting
+ * a 16³ section of the town (Node, this thread).
  */
 import {
   applyFold,
@@ -20,7 +22,6 @@ import {
   createNeighbourhood,
   createWorldStore,
   cropNeighbourhood,
-  DRAFT_CASE_CATALOGUE,
   EDGE_CASE_CATALOGUE,
   evaluateAssembly,
   fillNeighbourhood,
@@ -34,6 +35,9 @@ import {
   SampleRing,
   valueRole,
   VOXEL_ROLE,
+  CELL,
+  type CaseCatalogueDef,
+  type CaseRule,
   type Neighbourhood,
   type PaletteStore,
   type VoxelRecord,
@@ -48,6 +52,19 @@ const grid = chunkGrid(32);
 const E = grid.edge;
 const PAD = jobRadius(PLACEHOLDER_RULES);
 const C = VOXEL_ROLE;
+
+/**
+ * The edge catalogue with a fallback for every detail role and two
+ * directional rules, so the extraction's fallback path (no face-cell
+ * shortcut) is compared with the window path on real worlds. Test data.
+ */
+const FALLBACK_TEST_CATALOGUE: CaseCatalogueDef = Object.freeze({
+  ...EDGE_CASE_CATALOGUE,
+  id: 'fallback-test',
+  cases: [...EDGE_CASE_CATALOGUE.cases, ...['plain', 'front', 'top-front'].map((id) => ({ id, roles: CASE_ROLES, run: null, required: false, base: 'keep' as const, shape: 'box' as const, note: '' }))],
+  rules: [...EDGE_CASE_CATALOGUE.rules, { case: 'top-front', priority: 50, cells: [[0, 1, 0, CELL.open], [0, 0, 1, CELL.open]] } as CaseRule, { case: 'front', priority: 1, cells: [[0, 0, 1, CELL.open]] } as CaseRule],
+  fallback: Object.fromEntries(CASE_ROLES.map((r) => [r, 'plain'])),
+});
 
 /** A chunk's neighbourhood (the job's pad) from a store. */
 function chunkNeighbourhood(store: PaletteStore, cx: number, cy: number, cz: number, n = createNeighbourhood(E, PAD)): Neighbourhood {
@@ -100,17 +117,14 @@ function cellsIn(store: PaletteStore, lo: number, hi: number): Array<[number, nu
   return out;
 }
 
-describe('the draft catalogue on the wall / beam / banister neighbours', () => {
-  const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
+describe('the edge catalogue on the wall / beam / banister neighbours', () => {
+  const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
 
-  it('reads the wall, beam, rail and posts as their cases, the beam and rail running along x, as the placeholder rules read them', () => {
+  it('reads the beam, rail and posts as their cases, the beam and rail running along x, as the placeholder rules read them; the wall has none', () => {
     const s = createWorldStore(grid);
     placeWallBeamBanister(s);
-    // The scene's wall is one cell thick: open in front and behind (wall-thin, catalogue v3).
-    expect(caseAt(cat, s, 0, 4, 0)?.id).toBe('wall-thin');
-    expect(caseAt(cat, s, 0, 7, 0)?.id).toBe('wall-top');
-    expect(caseAt(cat, s, -6, 3, 0)?.id).toBe('wall-end');
-    expect(caseAt(cat, s, 0, 2, 0)?.id).toBe('wall-thin');
+    // The wall's faces, top and end are plain faces and edges (the edge pass's): no window case.
+    for (const [x, y, z] of [[0, 4, 0], [0, 7, 0], [-6, 3, 0], [0, 2, 0]] as const) expect(caseAt(cat, s, x, y, z), `(${x}, ${y}, ${z})`).toBeNull();
     const beam = caseAt(cat, s, 0, 5, -1)!;
     expect(beam.id).toBe('beam');
     // Its run (+x in the case) stays along x in the world; the wall behind it (−z in the case) is at +z.
@@ -121,8 +135,8 @@ describe('the draft catalogue on the wall / beam / banister neighbours', () => {
     expect(Math.abs(applyFold(rail.fold, [1, 0, 0])[0])).toBe(1);
     expect(caseAt(cat, s, 0, 2, 7)?.id).toBe('banister-rail');
     expect(caseAt(cat, s, 0, 1, 7)?.id).toBe('banister-post');
-    expect(caseAt(cat, s, 0, 0, 4)?.id).toBe('wall-top');
-    expect(caseAt(cat, s, 0, 0, 5)?.id).toBe('wall-plain');
+    expect(caseAt(cat, s, 0, 0, 4)).toBeNull();
+    expect(caseAt(cat, s, 0, 0, 5)).toBeNull();
     expect(caseAt(cat, s, 0, -1, 0)).toBeNull();
     expect(caseAt(cat, s, 0, 9, 0)).toBeNull();
     // Every cell the placeholder rules read as a beam, rail or post is the matching case here, and no other cell is.
@@ -136,9 +150,7 @@ describe('the draft catalogue on the wall / beam / banister neighbours', () => {
     for (const [x, y, z, v] of cellsIn(s, -12, 12)) {
       if (v.role !== C.wall) continue;
       const want = feature(placeholderAt(s, x, y, z));
-      const got = caseAt(cat, s, x, y, z)!.id;
-      const mine = got === 'beam' || got.startsWith('banister') ? got : null;
-      expect(mine, `(${x}, ${y}, ${z})`).toBe(want);
+      expect(caseAt(cat, s, x, y, z)?.id ?? null, `(${x}, ${y}, ${z})`).toBe(want);
       if (want !== null) features++;
     }
     expect(features).toBe(12 + 8 + 4);
@@ -148,9 +160,9 @@ describe('the draft catalogue on the wall / beam / banister neighbours', () => {
     const s = createWorldStore(grid);
     placeWallBeamBanister(s);
     for (let x = -4; x < 4; x++) putVoxel(s, x, 3, 7, MAT.timber, C.wall);
-    expect(caseAt(cat, s, 1, 2, 7)?.id).toBe('wall-thin');
-    expect(caseAt(cat, s, 0, 1, 7)?.id).not.toMatch(/^banister/);
-    expect(caseAt(cat, s, 1, 3, 7)?.id).toBe('wall-top');
+    expect(caseAt(cat, s, 1, 2, 7)).toBeNull();
+    expect(caseAt(cat, s, 0, 1, 7)).toBeNull();
+    expect(caseAt(cat, s, 1, 3, 7)).toBeNull();
     for (let y = 0; y < 8; y++) for (const x of [-1, 0, 1]) putVoxel(s, x, y, 0, 0, C.air);
     expect(caseAt(cat, s, 0, 5, -1)?.id).not.toBe('beam');
     expect(caseAt(cat, s, 3, 5, -1)?.id).toBe('beam');
@@ -171,22 +183,23 @@ describe('the draft catalogue on the wall / beam / banister neighbours', () => {
       const memo = new Map<string, ReturnType<typeof chunkCases>>();
       for (const [x, y, z, v] of cells) {
         if (!CASE_ROLES.includes(v.role)) continue;
-        const a = caseAt(cat, base, x, y, z, baseMemo)!;
+        const a = caseAt(cat, base, x, y, z, baseMemo);
         const [tx, ty, tz] = applyFold(A, [x, y, z]);
-        const b = caseAt(cat, turned, tx, ty, tz, memo)!;
-        expect(b.id, `transform ${A}, (${x}, ${y}, ${z})`).toBe(a.id);
+        const b = caseAt(cat, turned, tx, ty, tz, memo);
+        expect(b?.id, `transform ${A}, (${x}, ${y}, ${z})`).toBe(a?.id);
+        compared++;
+        if (a === null || b === null) continue;
         // The rule's pattern placed by b's transform fits the turned world as a's fits the original: the same placement up to the case's own symmetry.
         const run = (f: number): string => applyFold(f, [1, 0, 0]).map(Math.abs).join(',') + '|' + applyFold(f, [0, 0, 1]).join(',');
         if (a.id === 'beam' || a.id === 'banister-rail') expect(run(b.fold)).toBe(run(composeFolds(A, a.fold)));
-        compared++;
       }
       expect(compared).toBe(152);
     }
   });
 });
 
-describe('extraction on random worlds', () => {
-  const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
+describe('extraction with a fallback on random worlds', () => {
+  const cat = new CaseCatalogue(FALLBACK_TEST_CATALOGUE);
 
   it('gives every detail-bearing cell a case of its role, the same as the window path, and no other cell one', () => {
     const seen = new Map<string, number>();
@@ -220,7 +233,7 @@ describe('extraction on random worlds', () => {
       }
     }
     console.log(`cases on random worlds: ${[...seen].sort((a, b) => b[1] - a[1]).map(([id, n]) => `${id} ${n}`).join(', ')}`);
-    expect(seen.size).toBeGreaterThan(20);
+    expect([...seen.keys()].sort()).toEqual(['banister-post', 'banister-rail', 'beam', 'front', 'plain', 'top-front']);
   }, 60_000);
 });
 
@@ -257,7 +270,7 @@ describe('extraction cost', () => {
     const town = createWorldStore(grid);
     const tw = townWorld({ footprint: 128 });
     loadArea(tw.grids[0]!, town, 0, 0, 128, 128);
-    const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
+    const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
     const SE = 16;
     const sub = createNeighbourhood(SE, PAD);
     const out = new Uint16Array(sub.values.length);

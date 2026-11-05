@@ -1,20 +1,20 @@
 /**
  * The case pass on the whole town and the slice ring: µs a 16³ section to
- * extract every construction cell's case with the draft catalogue (Node,
- * this thread; a cold pass with an empty window cache, then measured
- * passes), the detail-bearing cells, the case keys seen and how often each
- * case occurs; and the composed kit rule set against the terrain rules
- * alone, measured the way a derive job runs them: the evaluation (classes,
- * plus cases and run sections for the kit rules) and the whole section derive (evaluation
- * and meshes), interleaved section by section; and what the consumers
- * receive a chunk (derived bytes by part, collision boxes) under the kit
- * rules; or (`--pieces`) the kit pieces: the piece table's bytes and the
+ * extract every construction cell's window case with the world catalogue
+ * (beams and banisters; Node, this thread; a cold pass with an empty window
+ * cache, then measured passes), the detail-bearing cells, the case keys
+ * seen and how often each case occurs; and the world rule set against the
+ * terrain rules alone, measured the way a derive job runs them: the
+ * evaluation (classes, plus cases and run sections for the world rules) and
+ * the whole section derive (evaluation and meshes), interleaved section by
+ * section; and what the consumers receive a chunk (derived bytes by part,
+ * collision boxes) under the world rules; or (`--pieces`) the kit pieces: the piece table's bytes and the
  * instances a chunk and a level-1 node list without and with a test kit;
  * or (`--roofs`) the roof mesher: µs a 16³ section with plane cells (the
  * classification and the planes), and the roofs' triangles against the
- * same cells drawn as stair faces (their role read as wall), or (`--edges`) the edge catalogue's passes (beam and banister window cases
- * plus the edge pass) against the superseded catalogue's case pass, section
- * by section, and the edge pieces by case.
+ * same cells drawn as stair faces (their role read as wall), or
+ * (`--edges`) the edge catalogue's passes (beam and banister window cases
+ * plus the edge pass), section by section, and the edge pieces by case.
  *
  *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only | --pieces | --edges | --roofs] [--out DIR]
  *
@@ -40,7 +40,7 @@ import {
   derivedPartBytes,
   deriveFromStore,
   deriveMipNode,
-  DRAFT_CASE_CATALOGUE,
+  EDGE_CASE_CATALOGUE,
   EDGE_CASE_IDS,
   EDGE_RULES,
   edgePiecesOf,
@@ -52,7 +52,6 @@ import {
   INSTANCE_BYTES,
   isConstructionRole,
   KIT_PIECE_BASE,
-  KIT_RULES,
   MipTree,
   NO_CASE,
   NO_SECTION,
@@ -86,7 +85,7 @@ import { townWorld } from './town';
 const grid = chunkGrid(32);
 const E = grid.edge;
 const SECTION = 16;
-const PAD = jobRadius(KIT_RULES);
+const PAD = jobRadius(WORLD_RULES);
 
 const pct = (xs: readonly number[], p: number): number => {
   if (xs.length === 0) return NaN;
@@ -126,22 +125,22 @@ function sectionsOf(store: PaletteStore, chunks: ReadonlyArray<readonly [number,
 }
 
 interface Composed {
-  /** The evaluation (classes; with the kit rules, classes and cases), sections with detail-bearing cells and all. */
-  evaluate: { terrain: { cells: { p50: number; p95: number }; all: { p50: number; p95: number } }; kits: { cells: { p50: number; p95: number }; all: { p50: number; p95: number } } };
+  /** The evaluation (classes; with the world rules, classes and cases), sections with detail-bearing cells and all. */
+  evaluate: { terrain: { cells: { p50: number; p95: number }; all: { p50: number; p95: number } }; world: { cells: { p50: number; p95: number }; all: { p50: number; p95: number } } };
   /** The whole section derive (evaluation and meshes; deriveChunk), sections with a surface (ground, base or pieces) and all. */
-  derive: { terrain: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } }; kits: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } } };
+  derive: { terrain: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } }; world: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } } };
   surfaceSections: number;
-  /** The run pass alone (kit rules), sections with detail cells: what the run sections add to the evaluation. */
+  /** The run pass alone (world rules), sections with detail cells: what the run sections add to the evaluation. */
   runs: { p50: number; p95: number };
-  /** Cells of each run section (kit rules, one pass). */
+  /** Cells of each run section (world rules, one pass). */
   sectionCells: Record<string, number>;
   /** The evaluation and the terrain mesher's ground surface (the terrain mesher's measure), sections with ground triangles. */
-  ground: { terrain: { p50: number; p95: number }; kits: { p50: number; p95: number } };
+  ground: { terrain: { p50: number; p95: number }; world: { p50: number; p95: number } };
   groundSections: number;
 }
 
 /**
- * The terrain rules alone against the kit rules, section by section, the
+ * The terrain rules alone against the world rules, section by section, the
  * order alternating so neither runs on the other's warm caches every time.
  */
 function measureComposed(sections: readonly Neighbourhood[], rounds: number): Composed {
@@ -151,7 +150,7 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
   const runUs: number[] = [];
   const sectionCells: Record<string, number> = Object.fromEntries(Object.keys(RUN_SECTION).map((k) => [k, 0]));
   const sectionNames = Object.keys(RUN_SECTION);
-  const sets: Array<[string, AssemblyRuleSet]> = [['terrain', TERRAIN_RULES], ['kits', KIT_RULES]];
+  const sets: Array<[string, AssemblyRuleSet]> = [['terrain', TERRAIN_RULES], ['world', WORLD_RULES]];
   const ev = new Map(sets.map(([k]) => [k, { cells: [] as number[], all: [] as number[] }]));
   const dv = new Map(sets.map(([k]) => [k, { surface: [] as number[], all: [] as number[] }]));
   const gv = new Map(sets.map(([k]) => [k, [] as number[]]));
@@ -174,7 +173,7 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
         evaluateRuns(n, r, cases, runs, count);
         const evUs = (performance.now() - t0) * 1000;
         if (count > 0) detail = true;
-        if (count > 0 && name === 'kits') {
+        if (count > 0 && name === 'world') {
           runUs.push((performance.now() - tr) * 1000);
           if (round === 0) {
             const side = n.side;
@@ -203,21 +202,21 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
         if (surface) dv.get(name)!.surface.push(dUs);
       }
       if (round === 0 && surface) surfaceSections++;
-      if (round === 0 && gv.get('kits')!.length > groundSections) groundSections = gv.get('kits')!.length;
+      if (round === 0 && gv.get('world')!.length > groundSections) groundSections = gv.get('world')!.length;
     }
   }
   return {
-    evaluate: { terrain: { cells: q2(ev.get('terrain')!.cells), all: q2(ev.get('terrain')!.all) }, kits: { cells: q2(ev.get('kits')!.cells), all: q2(ev.get('kits')!.all) } },
-    derive: { terrain: { surface: q2(dv.get('terrain')!.surface), all: q2(dv.get('terrain')!.all) }, kits: { surface: q2(dv.get('kits')!.surface), all: q2(dv.get('kits')!.all) } },
+    evaluate: { terrain: { cells: q2(ev.get('terrain')!.cells), all: q2(ev.get('terrain')!.all) }, world: { cells: q2(ev.get('world')!.cells), all: q2(ev.get('world')!.all) } },
+    derive: { terrain: { surface: q2(dv.get('terrain')!.surface), all: q2(dv.get('terrain')!.all) }, world: { surface: q2(dv.get('world')!.surface), all: q2(dv.get('world')!.all) } },
     surfaceSections,
     runs: q2(runUs),
     sectionCells,
-    ground: { terrain: q2(gv.get('terrain')!), kits: q2(gv.get('kits')!) },
+    ground: { terrain: q2(gv.get('terrain')!), world: q2(gv.get('world')!) },
     groundSections,
   };
 }
 
-/** What the consumers receive a chunk (whole 32³ chunks, kit rules): bytes per part and collision boxes, over the chunks with construction (a base surface or pieces). */
+/** What the consumers receive a chunk (whole 32³ chunks, world rules): bytes per part and collision boxes, over the chunks with construction (a base surface or pieces). */
 interface Consumers {
   chunks: number;
   built: number;
@@ -233,7 +232,7 @@ function measureConsumers(store: PaletteStore, chunks: ReadonlyArray<readonly [n
   const full: number[] = [];
   const partial: number[] = [];
   for (const [cx, cy, cz] of chunks) {
-    const d = deriveFromStore(store, cx, cy, cz, KIT_RULES);
+    const d = deriveFromStore(store, cx, cy, cz, WORLD_RULES);
     if (d.base.indices.length === 0 && d.instances.count === 0) continue;
     const parts = derivedPartBytes(d);
     const b = derivedBytes(d);
@@ -334,7 +333,7 @@ function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Recor
       us.push((t1 - t) * 1000);
       classifyUs.push((tc - t) * 1000);
       const t2 = performance.now();
-      const d = deriveChunk(n, KIT_RULES);
+      const d = deriveChunk(n, WORLD_RULES);
       deriveUs.push((performance.now() - t2) * 1000);
       if (round > 0) continue;
       roofSections++;
@@ -342,7 +341,7 @@ function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Recor
       rampTris += ramps!.indices.length / 3;
       after += d.base.indices.length / 3;
       const asWall = { ...n, values: Uint32Array.from(n.values, (v) => (valueRole(v) === VOXEL_ROLE.roof ? valueOf({ material: valueMaterial(v), role: VOXEL_ROLE.wall, shape: valueShape(v), wetness: valueWetness(v) }) : v)) };
-      before += deriveChunk(asWall, KIT_RULES).base.indices.length / 3;
+      before += deriveChunk(asWall, WORLD_RULES).base.indices.length / 3;
     }
   }
   return { roofSections, planeCells, us: q2(us), classifyUs: q2(classifyUs), deriveUs: q2(deriveUs), rampTriangles: rampTris, baseTriangles: { stairFaces: before, planes: after } };
@@ -350,34 +349,25 @@ function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Recor
 
 /**
  * The edge catalogue's passes (window cases for beams and banisters, then
- * the edge pass) against the superseded catalogue's case pass, a section
- * at a time, the order alternating; sections with construction only.
+ * the edge pass), a section at a time; sections with construction only.
  */
 function measureEdges(sections: readonly Neighbourhood[], rounds: number): Record<string, unknown> {
   const cases = new Uint16Array(sections[0]!.values.length);
   const masks = createEdgeMasks(sections[0]!);
-  const old: number[] = [];
   const now: number[] = [];
   const edgesOnly: number[] = [];
   const byCase: Record<string, number> = Object.fromEntries(EDGE_CASE_IDS.map((id) => [id, 0]));
   let owners = 0;
   let built = 0;
   for (const n of sections) {
-    evaluateCases(n, KIT_RULES, 0, cases);
     evaluateCases(n, EDGE_RULES, 0, cases);
     evaluateEdges(n, EDGE_RULES, 0, masks);
   }
   for (let round = 0; round < rounds; round++) {
-    let k = 0;
     for (const n of sections) {
       let has = false;
       for (let i = 0; i < n.values.length && !has; i++) has = isConstructionRole(valueRole(n.values[i]!));
       if (!has) continue;
-      const runOld = (): number => {
-        const t = performance.now();
-        evaluateCases(n, KIT_RULES, 0, cases);
-        return (performance.now() - t) * 1000;
-      };
       const runNew = (): [number, number] => {
         const t = performance.now();
         evaluateCases(n, EDGE_RULES, 0, cases);
@@ -394,26 +384,18 @@ function measureEdges(sections: readonly Neighbourhood[], rounds: number): Recor
         }
         return [(t1 - t) * 1000, (t1 - te) * 1000];
       };
-      if ((k++ + round) % 2 === 0) {
-        old.push(runOld());
-        const [a, e] = runNew();
-        now.push(a);
-        edgesOnly.push(e);
-      } else {
-        const [a, e] = runNew();
-        now.push(a);
-        edgesOnly.push(e);
-        old.push(runOld());
-      }
+      const [a, e] = runNew();
+      now.push(a);
+      edgesOnly.push(e);
       if (round === 0) built++;
     }
   }
-  return { sectionsWithConstruction: built, oldCasePassUs: q2(old), edgeCataloguePassesUs: q2(now), edgePassAloneUs: q2(edgesOnly), owners, pieces: byCase, totalPieces: Object.values(byCase).reduce((a, b) => a + b, 0) };
+  return { sectionsWithConstruction: built, edgeCataloguePassesUs: q2(now), edgePassAloneUs: q2(edgesOnly), owners, pieces: byCase, totalPieces: Object.values(byCase).reduce((a, b) => a + b, 0) };
 }
 
 /** The case extraction alone (the extraction cost) and the keys and cases seen. */
 function measureExtraction(sections: readonly Neighbourhood[], rounds: number): { coldMs: number; roundMs: number[]; cells: number; withCellsCount: number; us: { all: { p50: number; p95: number }; withCells: { p50: number; p95: number } }; keys: number; cases: Map<string, number>; cat: CaseCatalogue } {
-  const cat = new CaseCatalogue(DRAFT_CASE_CATALOGUE);
+  const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
   const out = new Uint16Array(sections[0]!.values.length);
   const t0 = performance.now();
   for (const n of sections) cat.extract(n, PAD, PAD + SECTION, out);
@@ -465,7 +447,7 @@ function main(): void {
   const started = new Date().toISOString();
   const load0 = loadavg();
   const reports: Array<Record<string, unknown>> = [];
-  const md = [`# Case pass and the kit rule set (${started})`, ''];
+  const md = [`# Case pass and the world rule set (${started})`, ''];
   for (const world of worlds) {
     let store: PaletteStore;
     let chunks: Array<[number, number, number]>;
@@ -532,11 +514,11 @@ function main(): void {
       '',
       `- ${sections.length} sections of 16³, ${x.withCellsCount} with detail-bearing cells, ${x.cells} cells, ${x.keys} case keys seen.`,
       `- Case extraction alone, µs a section p50 / p95: with cells ${x.us.withCells.p50} / ${x.us.withCells.p95}, all ${x.us.all.p50} / ${x.us.all.p95} (${rounds} rounds: ${x.roundMs.map(Math.round).join(', ')} ms; cold pass ${Math.round(x.coldMs)} ms).`,
-      `- Evaluation µs p50 / p95, sections with detail cells: terrain rules ${c.evaluate.terrain.cells.p50} / ${c.evaluate.terrain.cells.p95}, kit rules (terrain + cases + run sections) ${c.evaluate.kits.cells.p50} / ${c.evaluate.kits.cells.p95}; all sections: ${c.evaluate.terrain.all.p50} / ${c.evaluate.terrain.all.p95} vs ${c.evaluate.kits.all.p50} / ${c.evaluate.kits.all.p95}.`,
-      `- Run sections alone (kit rules), µs a section with detail cells p50 / p95: ${c.runs.p50} / ${c.runs.p95}. Cells by section: ${Object.entries(c.sectionCells).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
-      `- Section derive (evaluation + meshes) µs p50 / p95, ${c.surfaceSections} sections with a surface: terrain rules ${c.derive.terrain.surface.p50} / ${c.derive.terrain.surface.p95}, kit rules ${c.derive.kits.surface.p50} / ${c.derive.kits.surface.p95}; all sections: ${c.derive.terrain.all.p50} / ${c.derive.terrain.all.p95} vs ${c.derive.kits.all.p50} / ${c.derive.kits.all.p95}.`,
-      `- Evaluation + ground mesh µs p50 / p95 (the terrain mesher's measure), ${c.groundSections} sections with ground: terrain rules ${c.ground.terrain.p50} / ${c.ground.terrain.p95}, kit rules ${c.ground.kits.p50} / ${c.ground.kits.p95}.`,
-      `- Consumers (whole 32³ chunks, kit rules), ${consumers.built} of ${consumers.chunks} chunks with construction: derived bytes ${consumers.total.bytes} (collision ${consumers.total.collision}, light ${consumers.total.light}, nav ${consumers.total.nav}, base ${consumers.total.base}); boxes full ${consumers.total.fullBoxes}, partial ${consumers.total.partialBoxes}; instances ${consumers.total.instances}; base triangles ${consumers.total.baseTriangles}. A chunk p50 / p95: bytes ${consumers.perChunk.bytes.p50} / ${consumers.perChunk.bytes.p95}, full boxes ${consumers.perChunk.fullBoxes.p50} / ${consumers.perChunk.fullBoxes.p95}, partial ${consumers.perChunk.partialBoxes.p50} / ${consumers.perChunk.partialBoxes.p95}.`,
+      `- Evaluation µs p50 / p95, sections with detail cells: terrain rules ${c.evaluate.terrain.cells.p50} / ${c.evaluate.terrain.cells.p95}, world rules (terrain + cases + run sections + edges) ${c.evaluate.world.cells.p50} / ${c.evaluate.world.cells.p95}; all sections: ${c.evaluate.terrain.all.p50} / ${c.evaluate.terrain.all.p95} vs ${c.evaluate.world.all.p50} / ${c.evaluate.world.all.p95}.`,
+      `- Run sections alone (world rules), µs a section with detail cells p50 / p95: ${c.runs.p50} / ${c.runs.p95}. Cells by section: ${Object.entries(c.sectionCells).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
+      `- Section derive (evaluation + meshes) µs p50 / p95, ${c.surfaceSections} sections with a surface: terrain rules ${c.derive.terrain.surface.p50} / ${c.derive.terrain.surface.p95}, world rules ${c.derive.world.surface.p50} / ${c.derive.world.surface.p95}; all sections: ${c.derive.terrain.all.p50} / ${c.derive.terrain.all.p95} vs ${c.derive.world.all.p50} / ${c.derive.world.all.p95}.`,
+      `- Evaluation + ground mesh µs p50 / p95 (the terrain mesher's measure), ${c.groundSections} sections with ground: terrain rules ${c.ground.terrain.p50} / ${c.ground.terrain.p95}, world rules ${c.ground.world.p50} / ${c.ground.world.p95}.`,
+      `- Consumers (whole 32³ chunks, world rules), ${consumers.built} of ${consumers.chunks} chunks with construction: derived bytes ${consumers.total.bytes} (collision ${consumers.total.collision}, light ${consumers.total.light}, nav ${consumers.total.nav}, base ${consumers.total.base}); boxes full ${consumers.total.fullBoxes}, partial ${consumers.total.partialBoxes}; instances ${consumers.total.instances}; base triangles ${consumers.total.baseTriangles}. A chunk p50 / p95: bytes ${consumers.perChunk.bytes.p50} / ${consumers.perChunk.bytes.p95}, full boxes ${consumers.perChunk.fullBoxes.p50} / ${consumers.perChunk.fullBoxes.p95}, partial ${consumers.perChunk.partialBoxes.p50} / ${consumers.perChunk.partialBoxes.p95}.`,
       `- Cases: ${[...x.cases].sort((a, b) => b[1] - a[1]).map(([id, n]) => `${id} ${n}`).join(', ')}; never seen: ${cat.cases.filter((k) => !x.cases.has(k.id)).map((k) => k.id).join(', ') || 'none'}.`,
       '',
     );
@@ -545,8 +527,8 @@ function main(): void {
     started,
     node: process.version,
     host: { cpus: `${cpus().length} × ${cpus()[0]?.model ?? '?'}`, loadavg: [load0, loadavg()], uptimeH: uptime() / 3600 },
-    catalogue: { id: DRAFT_CASE_CATALOGUE.id, version: DRAFT_CASE_CATALOGUE.version, draft: DRAFT_CASE_CATALOGUE.draft, cases: DRAFT_CASE_CATALOGUE.cases.length, rules: DRAFT_CASE_CATALOGUE.rules.length },
-    rules: { terrain: `${TERRAIN_RULES.id} v${TERRAIN_RULES.version}`, kits: `${KIT_RULES.id} v${KIT_RULES.version}` },
+    catalogue: { id: EDGE_CASE_CATALOGUE.id, version: EDGE_CASE_CATALOGUE.version, draft: EDGE_CASE_CATALOGUE.draft, cases: EDGE_CASE_CATALOGUE.cases.length, rules: EDGE_CASE_CATALOGUE.rules.length },
+    rules: { terrain: `${TERRAIN_RULES.id} v${TERRAIN_RULES.version}`, world: `${WORLD_RULES.id} v${WORLD_RULES.version}` },
     worlds: reports,
   };
   md.splice(2, 0, `Node ${process.version}, ${json.host.cpus}, load ${load0.map((l) => l.toFixed(1)).join(' / ')}, uptime ${(uptime() / 86400).toFixed(1)} d. Catalogue ${json.catalogue.id} v${json.catalogue.version}${json.catalogue.draft ? ' (DRAFT)' : ''}: ${json.catalogue.cases} cases, ${json.catalogue.rules} rules.`, '');

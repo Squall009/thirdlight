@@ -3,18 +3,15 @@
  * navigation, light coverage, base surface and piece follow its form (its
  * case's declared coarse shape and base, case-forms.ts), never a piece
  * mesh — checked cell by cell against the real derive on the town, the
- * hand scenes and random worlds, at chunk-tree levels 0, 1 and 2; a
- * balcony's soffits drawn, collided and lit as their raised slab; and a
+ * hand scenes and random worlds, at chunk-tree levels 0, 1 and 2; and a
  * chunk's 16³ and 8³ sections giving the whole chunk's consumers cell for
  * cell and the same base surface area in every face plane.
  */
 import {
   ASSEMBLY_CLASS,
   buildApron,
-  caseIndexOf,
   cellBit,
   classifyRoofs,
-  cellOutputs,
   chunkGrid,
   CLASS_MASK,
   classForm,
@@ -25,14 +22,14 @@ import {
   deriveFromStore,
   deriveMipNode,
   deriveSectionsWithApron,
-  DRAFT_CASE_CATALOGUE,
+  EDGE_CASE_CATALOGUE,
+  EDGE_RULES,
   evaluateAssembly,
   evaluateCases,
   evaluateForms,
   fillNeighbourhood,
   FORM_BASE,
   FORM_SHAPE,
-  FORM_SHAPE_BOX,
   formBaseOf,
   formBox,
   formCoverage,
@@ -43,7 +40,6 @@ import {
   INSTANCE_FLAG,
   jobRadius,
   joinSections,
-  KIT_RULES,
   LIGHT_COVERAGE,
   MipTree,
   NO_CASE,
@@ -68,22 +64,22 @@ import { townWorld } from './town';
 
 const grid = chunkGrid(32);
 const E = grid.edge;
-const KR = jobRadius(KIT_RULES);
+const KR = jobRadius(EDGE_RULES);
 const S = COLLISION_STEPS_PER_CELL;
 
 type ChunkSource = Parameters<typeof buildApron>[0] & Pick<PaletteStore, 'exportChunk'>;
 
-/** The job's classes and forms of a chunk (or a level's node) under the kit rules, the evaluation a derive runs. */
+/** The job's classes and forms of a chunk (or a level's node) under the world rules, the evaluation a derive runs. */
 function jobForms(src: ChunkSource, cx: number, cy: number, cz: number, level: number): { n: ReturnType<typeof createNeighbourhood>; classes: Uint8Array; cases: Uint16Array; forms: Uint8Array; roofs: Uint32Array } {
   const n = createNeighbourhood(E, KR);
   const dense = createDenseChunk(grid);
   fillNeighbourhood(n, grid, src.exportChunk(cx, cy, cz, dense) ? dense : null, buildApron(src, cx, cy, cz, KR));
   const classes = new Uint8Array(n.values.length);
-  evaluateAssembly(n, KIT_RULES, classes);
+  evaluateAssembly(n, EDGE_RULES, classes);
   const cases = new Uint16Array(n.values.length);
-  evaluateCases(n, KIT_RULES, level, cases);
+  evaluateCases(n, EDGE_RULES, level, cases);
   const forms = new Uint8Array(n.values.length);
-  evaluateForms(n, KIT_RULES, classes, cases, forms);
+  evaluateForms(n, EDGE_RULES, classes, cases, forms);
   const roofs = new Uint32Array(n.values.length);
   classifyRoofs(n, roofs);
   return { n, classes, cases, forms, roofs };
@@ -227,7 +223,7 @@ function areaByPlane(buf: SurfaceBuffer): Map<string, number> {
 
 describe('consumers from the case', () => {
   it('declares each shape once, in the case\'s own orientation; light is its share of the cell; classes without a case keep the placeholder shapes', () => {
-    expect(LIGHT_COVERAGE).toEqual({ none: 0, box: 255, slab: 128, panel: 64, bar: 100, post: 16 });
+    expect(LIGHT_COVERAGE).toEqual({ none: 0, box: 255, panel: 64, bar: 100, post: 16 });
     const box = [0, 0, 0, 0, 0, 0];
     // A beam, rail and post read from classes collide as the placeholder shapes did: run along x, along z, both.
     const cases: Array<[number, number[]]> = [
@@ -244,11 +240,9 @@ describe('consumers from the case', () => {
     }
     expect(formShapeOf(classForm(ASSEMBLY_CLASS.wall))).toBe(FORM_SHAPE.box);
     expect(formShapeOf(classForm(ASSEMBLY_CLASS.ground))).toBe(FORM_SHAPE.none);
-    // The draft catalogue: beams, banisters and soffits leave or reshape the base; every other built case keeps a whole cell; openings are gaps.
-    const forms = Object.fromEntries(DRAFT_CASE_CATALOGUE.cases.map((c) => [c.id, `${c.base}/${c.shape}`]));
-    expect(forms).toMatchObject({ beam: 'suppress/bar', 'banister-rail': 'suppress/panel', 'banister-post': 'suppress/post', soffit: 'reshape/slab', 'wall-plain': 'keep/box', moulding: 'keep/box', 'running-board': 'keep/box', 'opening-plain': 'keep/none' });
-    for (const c of DRAFT_CASE_CATALOGUE.cases) if (c.roles.every((r) => r === VOXEL_ROLE.opening)) expect(c.shape, c.id).toBe('none');
-    expect(FORM_SHAPE_BOX.slab).toEqual([0, 8, 0, 16, 16, 16]);
+    // The world catalogue: beams and banisters leave the base to their pieces; every other case (edges, roof edges, debris) keeps a whole cell.
+    const thin: Record<string, string> = { beam: 'suppress/bar', 'banister-rail': 'suppress/panel', 'banister-post': 'suppress/post' };
+    for (const c of EDGE_CASE_CATALOGUE.cases) expect(`${c.base}/${c.shape}`, c.id).toBe(thin[c.id] ?? 'keep/box');
   });
 
   it('gives every consumer the cell\'s form, never a piece: town, scenes and random worlds at levels 0 and 1 (cases) and 2 (classes)', () => {
@@ -265,13 +259,13 @@ describe('consumers from the case', () => {
     for (const [name, store, chunks] of stores) {
       const tree = new MipTree(store);
       for (const [cx, cy, cz] of chunks) {
-        const r = checkAgainstForms(deriveFromStore(store, cx, cy, cz, KIT_RULES), jobForms(store, cx, cy, cz, 0), `${name} chunk ${cx},${cy},${cz}`);
+        const r = checkAgainstForms(deriveFromStore(store, cx, cy, cz, EDGE_RULES), jobForms(store, cx, cy, cz, 0), `${name} chunk ${cx},${cy},${cz}`);
         withCase += r.withCase;
         for (const k of r.shapes) shapes.add(k);
         levels.add(0);
         for (const level of [1, 2]) {
           const node = { level, nx: cx >> level, ny: cy >> level, nz: cz >> level };
-          const d = deriveMipNode(tree, node, KIT_RULES);
+          const d = deriveMipNode(tree, node, EDGE_RULES);
           const job = jobForms(tree.level(level), node.nx, node.ny, node.nz, level);
           const rr = checkAgainstForms(d, job, `${name} level ${level} node ${node.nx},${node.ny},${node.nz}`);
           if (level === 2) expect(rr.withCase).toBe(0);
@@ -279,61 +273,12 @@ describe('consumers from the case', () => {
         }
       }
     }
-    expect(withCase).toBeGreaterThan(5000);
+    // Only beams and banisters carry a window case in the world catalogue (edges are the edge pass's): a few hundred cells here.
+    expect(withCase).toBeGreaterThan(300);
     expect([...levels].sort()).toEqual([0, 1]);
-    // Every declared shape occurs: whole cells, the soffit's slab, rails, beams and posts, and open space.
+    // Every declared shape occurs: whole cells, rails, beams and posts, and open space.
     expect([...shapes].sort()).toEqual(Object.values(FORM_SHAPE).sort());
   }, 120_000);
-
-  it('reads a balcony\'s open edges as soffits: the base draws the raised underside, collision is the slab, light half, standable on top, open below', () => {
-    const s = sceneStore((st) => placeBalcony(st));
-    const d = deriveFromStore(s, 0, 0, 0, KIT_RULES);
-    const job = jobForms(s, 0, 0, 0, 0);
-    const caseAt = (x: number, y: number, z: number): string => {
-      const i = ((x + KR) * job.n.side + (z + KR)) * job.n.side + (y + KR);
-      return DRAFT_CASE_CATALOGUE.cases[caseIndexOf(job.cases[i]!)]!.id;
-    };
-    expect(caseAt(1, 4, 3)).toBe('soffit');
-    expect(caseAt(3, 4, 2)).toBe('soffit');
-    expect(caseAt(1, 4, 1)).toBe('floor-plain');
-    const soffit = cellOutputs(d, 1, 4, 3);
-    expect(soffit).toMatchObject({ renderSolid: false, collision: 'partial', partialBox: [0, 8, 0, 16, 16, 16], navBlocks: true, light: LIGHT_COVERAGE.slab, piece: null });
-    // The side edge's slab, turned: still the upper half.
-    expect(cellOutputs(d, 3, 4, 2).partialBox).toEqual([0, 8, 0, 16, 16, 16]);
-    expect(cellOutputs(d, 1, 4, 1)).toMatchObject({ renderSolid: true, collision: 'full', light: 255 });
-    // On the balcony: standable over a soffit and over the plain floor; under the soffit the cell is free.
-    expect(cellOutputs(d, 1, 5, 3).standable).toBe(true);
-    expect(cellOutputs(d, 1, 5, 1).standable).toBe(true);
-    expect(cellOutputs(d, 1, 3, 3)).toMatchObject({ navBlocks: false, collision: 'none', light: 0 });
-    // The base surface: a downward face at y 4.5 under every soffit cell, none at y 4 there; the plain floor's underside at y 4.
-    const v = new DataView(d.base.vertices.buffer, d.base.vertices.byteOffset, d.base.vertices.byteLength);
-    const at = (k: number, a: number): number => v.getUint16(k * SURFACE_VERTEX_BYTES + 2 * a, true) / POSITION_STEPS_PER_CELL - 1;
-    /** The heights of the downward base faces over a point (x, z). */
-    const downAt = (px: number, pz: number): number[] => {
-      const ys: number[] = [];
-      for (let t = 0; t < d.base.indices.length; t += 3) {
-        const ks = [d.base.indices[t]!, d.base.indices[t + 1]!, d.base.indices[t + 2]!];
-        if (v.getInt8(ks[0]! * SURFACE_VERTEX_BYTES + 9) >= 0) continue;
-        const side = (a: number, b: number): number => (at(b, 0) - at(a, 0)) * (pz - at(a, 2)) - (at(b, 2) - at(a, 2)) * (px - at(a, 0));
-        const s1 = side(ks[0]!, ks[1]!), s2 = side(ks[1]!, ks[2]!), s3 = side(ks[2]!, ks[0]!);
-        if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) ys.push(at(ks[0]!, 1));
-      }
-      return ys;
-    };
-    // Over the soffit only its raised underside; over the plain floor its underside at y 4.
-    expect(downAt(1.31, 3.57)).toEqual([4.5]);
-    expect(downAt(1.31, 1.57)).toEqual([4]);
-    // Every base triangle faces out of a solid: a soffit's quads are wound like the rest (normals and winding agree).
-    for (let t = 0; t < d.base.indices.length; t += 3) {
-      const ks = [d.base.indices[t]!, d.base.indices[t + 1]!, d.base.indices[t + 2]!];
-      const p = ks.map((k) => [at(k, 0), at(k, 1), at(k, 2)]);
-      const e1 = p[1]!.map((c, a) => c - p[0]![a]!);
-      const e2 = p[2]!.map((c, a) => c - p[0]![a]!);
-      const cross = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
-      const nrm = [0, 1, 2].map((a) => v.getInt8(ks[0]! * SURFACE_VERTEX_BYTES + 8 + a));
-      expect(cross.reduce((sum, c, a) => sum + c * nrm[a]!, 0)).toBeGreaterThan(0);
-    }
-  });
 
   it('joins a chunk\'s 16³ and 8³ sections into the whole chunk\'s consumers cell for cell, and the same base area in every face plane', () => {
     const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
@@ -342,16 +287,13 @@ describe('consumers from the case', () => {
       ['town', townStore(), [[1, 0, 1], [2, 1, 2], [3, 0, 1]]],
       ['mixed', mixedWorld(5), [[-1, -1, -1], [0, 0, -1]]],
     ];
-    let reshaped = 0;
     for (const [name, store, chunks] of stores) {
       for (const [cx, cy, cz] of chunks) {
-        const whole = deriveFromStore(store, cx, cy, cz, KIT_RULES);
+        const whole = deriveFromStore(store, cx, cy, cz, EDGE_RULES);
         const wv = viewer(whole);
-        const job = jobForms(store, cx, cy, cz, 0);
-        for (let i = 0; i < job.forms.length; i++) if (formBaseOf(job.forms[i]!) === FORM_BASE.reshape) reshaped++;
         for (const edge of [16, 8]) {
           const ids = Array.from({ length: (E / edge) ** 3 }, (_, k) => k);
-          const sections = deriveSectionsWithApron(grid, KIT_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), edge, ids).map((r) => r.assembly!);
+          const sections = deriveSectionsWithApron(grid, EDGE_RULES, buildApron(store, cx, cy, cz, KR), (out) => store.exportChunk(cx, cy, cz, out), edge, ids).map((r) => r.assembly!);
           sections.forEach((d, id) => {
             const [ox, oy, oz] = sectionLocalOrigin(E, edge, id);
             const sv = viewer(d);
@@ -370,6 +312,5 @@ describe('consumers from the case', () => {
         }
       }
     }
-    expect(reshaped).toBeGreaterThan(10);
   }, 120_000);
 });

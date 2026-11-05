@@ -44,8 +44,8 @@ const EDGE_NOTES: Readonly<Record<(typeof EDGE_CASE_IDS)[number], readonly [requ
   'corner-in-bottom': [false, 'inner corner, the open cell above it'],
 };
 
-/** Beam and banister cases, inferred from the arrangement (also the source of the superseded draft's). */
-export const BEAM_BANISTER_CASES: readonly CaseDef[] = Object.freeze([
+/** Beam and banister cases, inferred from the arrangement. */
+const BEAM_BANISTER_CASES: readonly CaseDef[] = Object.freeze([
   { id: 'beam', roles: [R.wall, R.floor], run: 'x', required: true, base: 'suppress', shape: 'bar', note: 'one cell out from a wall body, open above and below', feature: 'beam' },
   { id: 'banister-rail', roles: [R.wall], run: 'x', required: true, base: 'suppress', shape: 'panel', note: 'a low thin run, open above: on a post, between posts or on a wider support', feature: 'banister' },
   { id: 'banister-post', roles: [R.wall, R.pillar], run: null, required: true, base: 'suppress', shape: 'post', note: 'thin both ways on a support, under a rail', feature: 'banister' },
@@ -53,12 +53,12 @@ export const BEAM_BANISTER_CASES: readonly CaseDef[] = Object.freeze([
 
 const rule = (id: string, priority: number, cells: readonly CaseRuleCell[]): CaseRule => ({ case: id, priority, cells });
 /** The four sides of the centre, level with it. */
-export const SIDES_OPEN: CaseRuleCell[] = [[1, 0, 0, O], [-1, 0, 0, O], [0, 0, 1, O], [0, 0, -1, O]];
+const SIDES_OPEN: CaseRuleCell[] = [[1, 0, 0, O], [-1, 0, 0, O], [0, 0, 1, O], [0, 0, -1, O]];
 /** A rail where rails meet: open above, on a support, no cell beside it diagonally (rails one cell thin). */
 const RAIL_MEET: CaseRuleCell[] = [[0, 1, 0, O], [0, -1, 0, S], [1, 0, 1, O], [1, 0, -1, O], [-1, 0, 1, O], [-1, 0, -1, O]];
 
 /** The beam and banister rules, read from the arrangement (in priority order). */
-export const BEAM_BANISTER_RULES: readonly CaseRule[] = Object.freeze([
+const BEAM_BANISTER_RULES: readonly CaseRule[] = Object.freeze([
   rule('beam', 90, [[0, 1, 0, O], [0, -1, 0, O], [0, 0, -1, B], [0, 1, -1, B], [0, -1, -1, B], [0, 0, 1, O]]),
   // A beam round a wall's inside corner (walls behind and to the left) and round its outside corner (the wall diagonally behind).
   rule('beam', 90, [[0, 1, 0, O], [0, -1, 0, O], [0, 0, -1, B], [0, 1, -1, B], [0, -1, -1, B], [-1, 0, 0, B], [-1, 1, 0, B], [-1, -1, 0, B], [1, 0, 0, B], [0, 0, 1, B], [1, 1, 0, O], [1, -1, 0, O], [0, 1, 1, O], [0, -1, 1, O]]),

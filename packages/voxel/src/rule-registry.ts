@@ -6,7 +6,7 @@
  * here rather than registering themselves.
  */
 import { PLACEHOLDER_RULES, type AssemblyRuleSet } from './assembly';
-import { EDGE_RULES, KIT_RULES } from './kit-rules';
+import { EDGE_RULES } from './kit-rules';
 import { TERRAIN_RULES } from './terrain-rules';
 
 /**
@@ -18,7 +18,7 @@ import { TERRAIN_RULES } from './terrain-rules';
  */
 export const WORLD_RULES: AssemblyRuleSet = EDGE_RULES;
 
-const RULE_SETS = new Map<string, AssemblyRuleSet>([PLACEHOLDER_RULES, TERRAIN_RULES, KIT_RULES, EDGE_RULES].map((r) => [r.id, r]));
+const RULE_SETS = new Map<string, AssemblyRuleSet>([PLACEHOLDER_RULES, TERRAIN_RULES, EDGE_RULES].map((r) => [r.id, r]));
 
 /** Registers a rule set (a later catalogue, or a test's); an id may hold one version at a time. */
 export function registerAssemblyRules(rules: AssemblyRuleSet): void {
