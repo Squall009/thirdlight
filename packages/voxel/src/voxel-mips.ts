@@ -21,7 +21,9 @@
  *   cell), while a post, a rail or a fence (a line of cells) leaves the
  *   level. Cells count, not their share of the parent: a body is drawn
  *   whole, so a level-1 wall made of a one-cell sheet holds level 2 as
- *   level 0's held level 1. The parent then takes the first body role among those cells;
+ *   level 0's held level 1. A sloped roof is then laid again column by
+ *   column as a one-cell 45° stair ({@link relayRoofs}). The parent then
+ *   takes the first body role among those cells;
  *   terrain, drawn from its fill, holds it with any fill. A parent with no
  *   solid role is liquid when its liquid cells fill it to at least one level
  *   (the shape is then the liquid's share), else air;
@@ -228,6 +230,187 @@ function sheetAt(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x:
   return false;
 }
 
+/** The 4 horizontal directions (+x, +z, −x, −z) as x and z steps. */
+const DIR_X = [1, 0, -1, 0] as const;
+const DIR_Z = [0, 1, 0, -1] as const;
+
+function roofAt(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x: number, y: number, z: number): boolean {
+  const e = grid.edge;
+  if (x < 0 || y < 0 || z < 0 || x >= 2 * e || y >= 2 * e || z >= 2 * e) return false;
+  const c = children[(x >= e ? 1 : 0) | (y >= e ? 2 : 0) | (z >= e ? 4 : 0)] ?? null;
+  if (c === null) return false;
+  const i = localIndex(grid, x % e, y % e, z % e);
+  return c.role[i] === VOXEL_ROLE.roof && c.material[i] !== MATERIAL_AIR;
+}
+
+/**
+ * The directions (bit k: {@link DIR_X}/{@link DIR_Z} k) child roof cell
+ * (x, y, z) of a parent node rises toward, as the roof mesher reads them: a
+ * roof cell one up and one across that way, or one down and one across the
+ * other way; with none, a diagonal one gives the two directions of a hip's
+ * eave corner. 0: no step of a sloped roof (flat or lone).
+ */
+function roofDirs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x: number, y: number, z: number): number {
+  let dirs = 0;
+  for (let k = 0; k < 4; k++) if (roofAt(grid, children, x + DIR_X[k]!, y + 1, z + DIR_Z[k]!) || roofAt(grid, children, x - DIR_X[k]!, y - 1, z - DIR_Z[k]!)) dirs |= 1 << k;
+  for (let k = 0; k < 4 && dirs === 0; k++) {
+    const j = (k + 1) & 3;
+    const dx = DIR_X[k]! + DIR_X[j]!, dz = DIR_Z[k]! + DIR_Z[j]!;
+    if (roofAt(grid, children, x + dx, y + 1, z + dz) || roofAt(grid, children, x - dx, y - 1, z - dz)) dirs = (1 << k) | (1 << j);
+  }
+  return dirs;
+}
+
+/** Per child column of a node (2·edge squared): its top roof cell (y; −1 none), material, wetness and roof. */
+let colTop = new Int16Array(0);
+let colMat = new Uint16Array(0);
+let colWet = new Uint8Array(0);
+let colRoof = new Int32Array(0);
+let colStack = new Int32Array(0);
+/** Per roof (a column-top component): its lowest top (the eave), and whether it is laid again. */
+const roofEave: number[] = [];
+const roofRelaid: boolean[] = [];
+
+/**
+ * Re-lays a sloped roof at the coarse level as a 45° stair one cell thick,
+ * column by column of the node. A 45° roof not aligned to the parent grid
+ * puts a slope column's two cells into two parents, so the cell-by-cell
+ * downsample gives a two-cell band whose mid-slope cells read as hips and
+ * ridges (planes and roof-edge pieces crossing the slopes), and drops the
+ * eave row (too few cells to hold a parent).
+ *
+ * The finer columns' top roof cells are grouped into roofs (columns side by
+ * side or corner to corner whose tops differ by at most one cell); a roof's
+ * eave height a is its lowest top, and each column's ring r its top − a (how
+ * many steps in from the eave). A parent column over a roof with a slope step
+ * ({@link roofDirs}), or one cut by the node's side, takes one roof cell at
+ * floor(a / 2) + ceil(r / 2), r the smallest ring among its finer columns:
+ * the parent's eave is the parent holding the finer eave on every side,
+ * whichever way the footprint meets the parent grid (an eave column holding
+ * one finer column or two has ring 0 both ways), and the smallest ring of a
+ * 2 × 2 is its outermost corner's, so a hip's, a gable's or an L's rings
+ * (each the smaller of an x and a z distance) halve into the coarse
+ * footprint's own rings: one step a parent, ridges, hips, valleys and eaves
+ * where the finer roof has them, odd or even, its planes within one finer
+ * cell of the finer ones at the eave. A roof cut by the node's top or bottom
+ * face may miss its eave inside the node (its lowest top is then higher, and
+ * the parent heights a step off at that face).
+ *
+ * The parent's roof cells over those finer runs are cleared first (a
+ * separate roof lower in the column stays); a cell another role holds (a
+ * wall through the roof, a chimney) keeps it. Flat and lone roof cells keep
+ * the cell-by-cell result. Returns whether it laid a cell.
+ */
+function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, out: DenseChunk): boolean {
+  const e = grid.edge;
+  const side = 2 * e;
+  const top = side - 1;
+  const columns = side * side;
+  if (colTop.length < columns) {
+    colTop = new Int16Array(columns);
+    colMat = new Uint16Array(columns);
+    colWet = new Uint8Array(columns);
+    colRoof = new Int32Array(columns);
+    colStack = new Int32Array(columns);
+  }
+  for (let bx = 0; bx < side; bx++) for (let bz = 0; bz < side; bz++) {
+    const c = bx * side + bz;
+    colRoof[c] = -1;
+    let y = top;
+    while (y >= 0 && !roofAt(grid, children, bx, y, bz)) y--;
+    colTop[c] = y;
+    if (y < 0) continue;
+    const ch = children[(bx >= e ? 1 : 0) | (y >= e ? 2 : 0) | (bz >= e ? 4 : 0)]!;
+    const i = localIndex(grid, bx % e, y % e, bz % e);
+    colMat[c] = ch.material[i]!;
+    colWet[c] = ch.wetness[i]!;
+  }
+  // Roofs: column tops joined side by side or corner to corner within a cell's height.
+  roofEave.length = 0;
+  roofRelaid.length = 0;
+  for (let c0 = 0; c0 < columns; c0++) {
+    if (colTop[c0]! < 0 || colRoof[c0]! >= 0) continue;
+    const id = roofEave.length;
+    let eave = colTop[c0]!;
+    let relaid = false;
+    let sp = 0;
+    colStack[sp++] = c0;
+    colRoof[c0] = id;
+    while (sp > 0) {
+      const c = colStack[--sp]!;
+      const bx = (c / side) | 0, bz = c - bx * side;
+      const y = colTop[c]!;
+      eave = Math.min(eave, y);
+      if (!relaid && (bx === 0 || bz === 0 || bx === top || bz === top || roofDirs(grid, children, bx, y, bz) !== 0)) relaid = true;
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        const nx = bx + dx, nz = bz + dz;
+        if (nx < 0 || nz < 0 || nx > top || nz > top) continue;
+        const n = nx * side + nz;
+        if (colTop[n]! < 0 || colRoof[n]! >= 0 || Math.abs(colTop[n]! - y) > 1) continue;
+        colRoof[n] = id;
+        colStack[sp++] = n;
+      }
+    }
+    roofEave.push(eave);
+    roofRelaid.push(relaid);
+  }
+  let placed = false;
+  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
+    let lowest = -1;
+    let roof = -1;
+    let lo: number = e;
+    let hi = -1;
+    for (let c = 0; c < 4; c++) {
+      const col = (2 * x + (c & 1)) * side + 2 * z + (c >> 1);
+      const y = colTop[col]!;
+      if (y < 0 || !roofRelaid[colRoof[col]!]) continue;
+      if (lowest < 0 || y < lowest) {
+        lowest = y;
+        roof = colRoof[col]!;
+      }
+      let low = y;
+      while (low > 0 && roofAt(grid, children, 2 * x + (c & 1), low - 1, 2 * z + (c >> 1))) low--;
+      lo = Math.min(lo, low >> 1);
+      hi = Math.max(hi, y >> 1);
+    }
+    if (roof < 0) continue;
+    const a = roofEave[roof]!;
+    const want = Math.min(e - 1, (a >> 1) + ((lowest - a + 1) >> 1));
+    for (let y = Math.min(lo, want); y <= Math.max(hi, want); y++) {
+      const i = localIndex(grid, x, y, z);
+      if (out.role[i] !== VOXEL_ROLE.roof) continue;
+      out.material[i] = MATERIAL_AIR;
+      out.role[i] = VOXEL_ROLE.air;
+      out.shape[i] = SHAPE_EMPTY;
+      out.wetness[i] = 0;
+    }
+    const i = localIndex(grid, x, want, z);
+    if (out.material[i] !== MATERIAL_AIR && !openRole(out.role[i]!)) continue;
+    // The material of most of the finer top cells of that roof (ties: the lower id).
+    let best = -1;
+    let bestCount = 0;
+    for (let c = 0; c < 4; c++) {
+      const col = (2 * x + (c & 1)) * side + 2 * z + (c >> 1);
+      if (colTop[col]! < 0 || colRoof[col] !== roof) continue;
+      let count = 0;
+      for (let d = 0; d < 4; d++) {
+        const other = (2 * x + (d & 1)) * side + 2 * z + (d >> 1);
+        if (colTop[other]! >= 0 && colRoof[other] === roof && colMat[other] === colMat[col]) count++;
+      }
+      if (best < 0 || count > bestCount || (count === bestCount && colMat[col]! < colMat[best]!)) {
+        best = col;
+        bestCount = count;
+      }
+    }
+    out.material[i] = colMat[best]!;
+    out.role[i] = VOXEL_ROLE.roof;
+    out.shape[i] = SHAPE_FULL;
+    out.wetness[i] = colWet[best]!;
+    placed = true;
+  }
+  return placed;
+}
+
 const solidRole = (r: number): boolean => OPEN_ROLE[r] !== 1;
 const liquidRole = (r: number): boolean => r === VOXEL_ROLE.liquid;
 
@@ -242,6 +425,7 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
   const h = e >> 1;
   const cells = new Int32Array(8);
   let any = false;
+  let roofs = false;
   const air = (pi: number): void => {
     out.material[pi] = MATERIAL_AIR;
     out.role[pi] = VOXEL_ROLE.air;
@@ -273,6 +457,7 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
         air(pi);
         continue;
       }
+      if (same && roles[c0] === VOXEL_ROLE.roof) roofs = true;
       if (same && fillLevel(roles[c0]!, shapes[c0]!) === SHAPE_FULL && SOLID_PRIORITY[roles[c0]!] === 1) {
         out.material[pi] = m0;
         out.role[pi] = roles[c0]!;
@@ -294,6 +479,7 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
           bodies++;
         }
       }
+      if (roleCells[VOXEL_ROLE.roof]! > 0) roofs = true;
       let solid = 0;
       for (const r of MIP_ROLE_PRIORITY) solid += roleFill[r]!;
       let held = bodies >= HALF_PARENT_CELLS;
@@ -346,6 +532,8 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
       any = true;
     }
   }
+  // Only a node with roof cells below it has a roof to lay again.
+  if (roofs && relayRoofs(grid, children, out)) any = true;
   return any;
 }
 

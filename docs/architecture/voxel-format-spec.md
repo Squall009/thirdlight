@@ -988,7 +988,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v18 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
+### 3.7 Derived data v19 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1623,7 +1623,17 @@ half a cell down, so the ridge mesh written for a cell's high side (the plane on
 where the planes meet in the middle. The 8-byte instance and its layout are v17's; instances differ on verges.
 Nothing stored, nothing to upgrade, no world regenerated.
 
-**Derived version history (v2 → v18).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+**Derived data 18 → 19 (46c R6b, D510/D501; default chosen, owner to confirm).** No stored format changes. A coarse
+level (mip node) lays a sloped roof again after the cell-by-cell downsample (`voxel-mips.ts` `relayRoofs`): the finer
+columns' top roof cells are grouped into roofs (tops side by side or corner to corner within one cell), a roof's eave
+is its lowest top, and a parent column over a roof with a slope step (or one cut by the node's side) holds one roof
+cell at floor(eave / 2) + ceil(ring / 2), ring the smallest (top − eave) of its finer columns. A 45° roof off the
+parent grid no longer downsamples two cells thick (whose mid-slope cells read as hips and ridges: planes and roof-edge
+pieces crossing its slopes, D510), its eave row is kept, and its planes lie within one of the level's cells of the
+finer roof (was 1.5, D501). Level 1 and 2 results differ from v18's round roofs; the layout is v18's. A roof cut by a
+node's top or bottom face may miss its eave there (heights a step off at that face).
+
+**Derived version history (v2 → v19).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |

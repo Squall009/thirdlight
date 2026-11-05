@@ -208,8 +208,8 @@ function over(r: Roof, x: number, z: number): boolean {
   return x >= r.x0 && x <= r.x0 + r.w && z >= r.z0 && z <= r.z0 + r.d;
 }
 
-/** The plane-cell words of a store's chunks (each chunk's neighbourhood with the world rules' apron), cached by chunk. */
-function wordReader(s: PaletteStore): (x: number, y: number, z: number) => number {
+/** The plane-cell words of a store's chunks (or a mip level's nodes; each with the world rules' apron), cached by chunk. */
+function wordReader(s: Pick<PaletteStore, 'grid' | 'voxelAt' | 'chunkForm' | 'exportChunk'>): (x: number, y: number, z: number) => number {
   const pad = jobRadius(WORLD_RULES);
   const cache = new Map<string, { side: number; words: Uint32Array }>();
   return (x, y, z) => {
@@ -288,6 +288,46 @@ function rayHit(m: Mesh, o: readonly number[], d: readonly number[]): number {
 }
 
 describe('the roof mesher', () => {
+  it('lays every roof at level 1 as the level-0 roof at half the resolution: a one-cell 45° stair, roof-edge pieces only on its eave, verge, ridge, hip and valley lines, whichever way it meets the level\'s grid', () => {
+    const v = voxel();
+    for (const [sx, sy, sz] of [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]] as const) {
+      for (const base of ROOFS) {
+        // Each roof alone: two roofs a cell or two apart at level 0 touch at level 1 and are read as one.
+        const r = { ...base, x0: base.x0 + sx, y0: base.y0 + sy, z0: base.z0 + sz };
+        const s = createWorldStore(grid);
+        placeRoof(s, r);
+        const l1 = new MipTree(s).level(1);
+        const read = wordReader(l1);
+        const tag = `${r.name} shifted ${sx},${sy},${sz}`;
+        const l0 = edgeCounts(roofWords(s, r));
+        const cells: Array<{ w: number; dirs: number }> = [];
+        for (let x = r.x0 >> 1; x <= (r.x0 + r.w - 1) >> 1; x++) for (let z = r.z0 >> 1; z <= (r.z0 + r.d - 1) >> 1; z++) {
+          let column = 0;
+          for (let y = 0; y < 32; y++) {
+            if (l1.voxelAt(x, y, z, v).role !== R.roof) continue;
+            column++;
+            const w = read(x, y, z);
+            cells.push({ w, dirs: w & ROOF_WORD.dirs });
+          }
+          // One cell thick: a column holds one roof cell (or none where the footprint only touches it).
+          expect(column, `${tag}: roof cells in column ${x},${z}`).toBeLessThanOrEqual(1);
+        }
+        expect(cells.filter((c) => c.w === 0).length, `${tag}: level-1 roof cells left to voxel faces`).toBe(0);
+        const l1Counts = edgeCounts(cells);
+        for (const [caseId, n] of Object.entries(l1Counts)) {
+          // A line of the roof is half as many cells long a level up (plus its two ends): no line the finer roof lacks.
+          expect(l0[caseId], `${tag}: ${caseId} at level 1 but not at level 0`).toBeGreaterThan(0);
+          expect(n, `${tag}: ${caseId} count, level 0 ${l0[caseId]}`).toBeLessThanOrEqual(Math.ceil(l0[caseId]! / 2) + 4);
+        }
+        // Cells rising three or four ways (where planes cross) only where the finer roof has them (the pyramid's apex),
+        // or at the two ends of a hip's ridge that is odd at level 1 (even at level 0).
+        const crossing = (list: ReadonlyArray<{ dirs: number }>): number => list.filter((c) => (c.dirs & 1) + ((c.dirs >> 1) & 1) + ((c.dirs >> 2) & 1) + ((c.dirs >> 3) & 1) >= 3).length;
+        const l0Crossing = crossing(roofWords(s, r).map((c) => ({ dirs: c.w & ROOF_WORD.dirs })));
+        expect(crossing(cells), tag).toBeLessThanOrEqual(l0Crossing + (r.hip ? 2 : 0));
+      }
+    }
+  });
+
   it('draws gable, hip, pyramid and L roofs as closed planes on the surface through the stair\'s outer corners', () => {
     const s = roofWorld();
     const m = rampMesh(s, ROOFS);
@@ -450,10 +490,10 @@ describe('the roof mesher', () => {
         }
         // A roof at least four of the level's cells across keeps sloped planes.
         if (Math.min(r.w, r.d) >= 4 << level) expect(slopes, `L${level} ${r.name}`).toBeGreaterThan(0);
-        // Level 1 within one and a half of its cells of the level-0 roof: a stair not aligned to the level's grid
-        // downsamples to a two-cell-thick stair whose planes sit on its top (recorded for the owner). At level 2 these
-        // roofs are two to four cells across; mesh-cases.test.ts holds the shell houses' silhouettes there.
-        if (level === 1) expect(worst, `L${level} ${r.name}`).toBeLessThanOrEqual(1.5 * 2 ** level);
+        // Level 1 within one of its cells of the level-0 roof (the coarse roof re-laid as a one-cell stair whose eave
+        // is the parent of the finer eave), level 2 within one and a half; at level 2 these roofs are two to four
+        // cells across, mesh-cases.test.ts holds the shell houses' silhouettes there.
+        expect(worst, `L${level} ${r.name}`).toBeLessThanOrEqual((level === 1 ? 1 : 1.5) * 2 ** level);
       }
     }
   });

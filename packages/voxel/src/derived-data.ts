@@ -134,8 +134,13 @@ import { utf8Encode } from '@thirdlight/shared';
  * verge mesh follows both slopes of a gable), and a centred ridge sits half
  * a cell lower (where the planes meet in a cell's middle). Instances differ
  * from v17's on verges; the layout is v17's.
+ * 19: a coarse level lays a sloped roof again as a one-cell 45° stair (the
+ * parent of the finer eave plus half the finer ring, voxel-mips.ts), so a
+ * roof off the parent grid is no two-cell band whose planes and roof edges
+ * cross its slopes. Level 1 and 2 results differ from v18's round roofs;
+ * the layout is v18's.
  */
-export const DERIVED_FORMAT_VERSION = 18;
+export const DERIVED_FORMAT_VERSION = 19;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
