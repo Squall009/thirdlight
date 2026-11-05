@@ -239,7 +239,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R2 | done (53c71768): `roof-mesher.ts`: 45° roof stairs → closed sloped prisms (ridge, hip, valley, pyramid apex; underside onto gable/eave walls), appended to the base, collide as ramps (`collision.ramps`); roof-edge words for R3; derived v15, `edges` v2. Town base tris 328 k → 303 k, roof mesher 188/403 µs a section; fast gate green 13 min; D500–D503 |
 | R3 | done (6dff42ce, cleanup R3c): `derive-pieces.ts`: instances only on edges, corners, roof edges, beams/banisters and debris (integrity < 15, exposed); `WORLD_RULES` = `edges` v3, placement bits, derived v16; no piece on a flat face (tested). Town L0 320 k → 131 k instances (p50 1,355 → 555 a chunk), L1 53 k → 73 k (D505); D504–D505 |
 | R3c | done (57709ea4): `cases-draft-catalogue.ts` archived; `KIT_RULES`, the `reshape` base and `slab` shape (soffit base quads) removed; window, form, run and kit-check tests ported to the edge catalogue or test catalogues. Derive bytes equal on 8,180 town/slice results (derived v16 kept). stream.test: damage 15 → 7 re-derives exactly the sections within R, one swap, debris drawn |
-| R3b | not started (adapter: edge instances, alias rotation, stagger, default kit) |
+| R3b | done: kit `alias` {case, rotation 0–23} (add-only, refused/canonical, kit check), 24 cube rotations; stagger 1/64–1/32 cell into the solid, ≤ 2°; `pieceU` on the edge's world axis (vertical up y); default kit generated (strip 16/4, cove 16/4, cap 9/4 tris; 525/122 all). Town: piece draws 1,307 (1,366), render() 7.6/8.2 ms (7.2); D506–D507, D481 superseded |
 | R4 | not started (grid-anchored 4 m UVs, band debug pattern, roof slope projection) |
 | R5 | not started (log + stone kits regenerated, kit check, test scene sampler) |
 | R6 | not started (prototype on staging + measurement vs 46c.11) |
@@ -990,6 +990,52 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   passed, voxel-world.e2e.ts 61.6 s (was 69.2 s at R3, no e2e change here; host load 2.5–3.6), village perf 0 missed
   both renderers.
 
+### R3b edge pieces drawn: aliases, stagger, vertical U, the default kit
+
+- **Built.** Kit format 1 gains an add-only optional **`alias: {case, rotation}`** a case (`voxel-kit.ts`: refused
+  beside sections, rotation off 0–23, dangling, self or chained; canonicalized field by field); the 24 rotations are
+  `cube-rotations.ts` (fixed numbering, determinant +1). `kitPieceList` gives an alias its own slots with its
+  target's weights (`meshCaseId`, `rotation`; table bytes unchanged); the kit check counts it and lists every alias
+  (`aliases` row, err when it names no meshes). Adapter: `voxel-piece-placement.ts` composes alias · stagger · centring
+  · tip · turns · scale; `pieceU` takes the edge's world axis from the whole rotation (`runAxisOf`; vertical edges
+  up y; `pieceRunAxis` in the voxel package). **Stagger** (`piece-placement.ts`, `PIECE_STAGGER`): edge/corner
+  instances move 1/64–1/32 cell into the solid along the bisector and twist ≤ 2° about it (held to asin(inward /
+  reach)), hashed from level-0 cell, level, kit seed, case/placement/yaw. **Default kit** rewritten as generated
+  meshes: an outer rounded strip (quadratic profile, 1/4 cell in, ≤ 1/16 proud), an inner cove, an outer corner cap
+  (Bézier triangle closing the three strips); vertical/bottom edges, inner top/vertical and the bottom corner are
+  aliases; inner corners none; chamfered roof boards, rubble and debris face.
+- **Game-ready report (default kit, no textures but the 256² debug texture, no files):** tris high / low a piece:
+  edge strip 16 / 4, cove 16 / 4, corner cap 9 / 4, each roof board 44 / 10, debris 132 / 30, debris-heavy 88 / 20,
+  debris-face 44 / 10; 11 meshes for 18 cases, 525 / 122 tris, 37.8 / 8.2 KB of vertex and index arrays. Levels: high at L0, low at
+  L1 (caps, chamfers and downward faces dropped), none from L2. Collision: none (voxels). No hidden faces but the
+  strip end caps where two strips meet unstaggered (they close a staggered step or a run end).
+- **Tests.** Adapter `voxel-kit-pieces.test.ts` (+3, real view and derive): an alias draws exactly the explicit
+  turned mesh (world vertices equal, one geometry for both cases, det +1, normals out); stagger the same twice,
+  unchanged by an edit elsewhere, inside 1/64–1/32 cell into the solid and 2°; a trim kit's U runs up y on vertical
+  edges and along x/z on top edges (offset per world cell); default meshes within budget, wound out, on their cell.
+  `voxel-kit.test.ts` alias round trip + 9 refusals; kit check default kit (aliases counted, err on a broken alias);
+  `kit-house.test.ts` vertex placement through aliases + a box house, gable house and damaged wall drawn through the
+  real chunk view (514 instances in 14 draws, one draw a piece kind, aliases on the strip's geometry, every rotation
+  within 2° of a cube rotation). e2e: the stone test kit's top edges draw its vertical board through an alias, the face
+  below none.
+- **Looked at** (staging slice, `?kits=default`, 1280 × 720, both renderers, 2026-11-05 01:15, shots
+  `~/.cache/thirdlight-phase46/work/r3b/shots`): box house rims, door and window jambs and lintels draw rounded strips
+  with a visible small stagger, coves at floor/wall and the inner vertical corner, the same on WebGPU and WebGL 2;
+  eaves a row of chamfered lips; damage holes show rubble and broken rims, the air hole plain strips. Seen wrong:
+  the verge is a staircase of square panels (D506). L1 pieces were drawn (17 low instances at 140 m) but too small
+  to judge: unverified. Stagger reads as slightly uneven rims near, not as jitter; whether it is enough is the owner's.
+- **Measured** (town, `measure.mjs` of 46c.11, default kit, 60 Hz cap, one round a renderer, 01:26–01:28, load
+  1.8–2.6, uptime 12.4 d): piece draws **1,307** (46c.11 1,366), draw calls 1,094 (1,135); instances drawn 88,077
+  (36,703 L0 / 51,374 L1; 46c.11 40,819: R3's edges, D505); `render()` CPU p50 / p95 **7.6 / 8.9 ms WebGPU, 8.2 / 9.5
+  WebGL 2** (7.1–7.4); GPU 2.55 / 3.53 ms; orbit 0 missed both; flight 0 / 1 missed; kit meshes 15 KB.
+- **Gate.** Fast gate (`voxel-world.e2e.ts`): lint, build green; vitest red on the descriptor size budget (the alias's
+  descriptor text; shortened, not the bound) and two watched timing/order tests that passed alone (D311/D435
+  see-through bounded time, D484 world-host out-of-order open); rerun: e2e red once, the WebGL 2 kit test's material
+  paint changed 177 px (> 300): the first e2e alias put the stone board on the wall's top edges, over the painted rows
+  (the scene keeps kit pieces clear of them). The alias moved to the free ends' top corners; rerun GREEN (village
+  perf 0 missed both renderers). voxel-world.e2e.ts about 65 s (its tests summed 59.5 s with the failing one at 5.4 s;
+  61.6 s at R3c), not measured as one run.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1341,6 +1387,16 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   although the world's catalogue names none: it is tested on test catalogues, and a later catalogue (an approved
   role spec) may need it. The `reshape` base and `slab` shape are removed, not kept dormant: an edges-only world has
   no case that reshapes a face; a later need adds them back as a versioned step.
+
+- 2026-11-05 (R3b, default chosen, owner to confirm): **stagger moves pieces into the solid, never out** (1/64–1/32
+  cell along the edge's bisector, twist ≤ 2° and never more than the move hides), so no gap opens between a piece
+  and its faces; the plan said "out of the faces". Roof-edge, debris and beam/banister pieces are not staggered.
+- 2026-11-05 (R3b, default chosen, owner to confirm): **the default kit's inner corners have no piece** (the coves
+  meet by themselves); outer corners take a cap that closes the three strips. Low detail drops strip caps, chamfers
+  and downward faces.
+- 2026-11-05 (R3b, default chosen, owner to confirm): **an alias's rotation is the renderer's only** (not in the piece
+  table bytes): a kit edit that changes only an alias's rotation redraws a drawn chunk when it is derived again, as a
+  mesh change does today. The 24 rotations' numbering is part of the kit format and fixed.
 
 ## 10. Open questions for the owner
 

@@ -17,8 +17,16 @@ import {
   chunkGrid,
   createWorldStore,
   DEFAULT_KIT_ID,
+  applyCubeRotation,
+  CUBE_ROTATION_X90,
+  CUBE_ROTATION_ZM90,
+  cubeRotationIndex,
   DEFAULT_KIT_PIECES,
+  defaultKitMesh,
   deriveWithApron,
+  PIECE_STAGGER,
+  PIECE_STAGGER_FRAMES,
+  pieceStagger,
   FloatingOrigin,
   INSTANCE_BYTES,
   jobRadius,
@@ -41,6 +49,7 @@ import {
 import { createGltfLoaderPort } from './gltf-loader';
 import { buildGlb } from './test-glb';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { pieceMatrix } from './voxel-piece-placement';
 import { defaultKitGeometry, VoxelKitMeshes, voxelKitDebugTexture, KIT_DEBUG_TEXTURE_SIDE, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
 import { VoxelWorldDraws } from './voxel-world-draws';
@@ -132,12 +141,7 @@ describe('kit pieces in the chunk view', () => {
     const coping = all.filter((m) => m.geometry.getAttribute('position').count === 3);
     expect(coping.reduce((n, m) => n + m.count, 0)).toBe(stone.length);
     expect(all.length).toBe(v.pieceDraws);
-    // A default piece the mirror maps onto itself draws its mirrored instances with the unmirrored ones.
-    const symmetric = (i: (typeof kitInstances)[number]): boolean => {
-      const id = about(i.material, i.piece)!;
-      return id.kit === DEFAULT_KIT_ID && meshes.defaultMesh(id.caseId, false, true) === meshes.defaultMesh(id.caseId, false, false);
-    };
-    const keys = new Set(kitInstances.map((i) => `${i.material === STONE ? 's' : 't'}:${i.piece}:${i.mirror && !symmetric(i)}`));
+    const keys = new Set(kitInstances.map((i) => `${i.material === STONE ? 's' : 't'}:${i.piece}:${i.mirror}`));
     expect(all.filter((m) => m.userData['voxelKitPiece'] === true).length).toBe(keys.size);
     // Each coping instance sits at its cell's centre, its +x turned onto the run: a quarter turn takes +x to +z.
     const m4 = new THREE.Matrix4();
@@ -279,28 +283,42 @@ describe('kit pieces in the chunk view', () => {
     meshes.dispose();
   });
 
-  it('builds the default kit\'s pieces from their boxes (triangles per level, UVs in cells) and a labelled debug texture', () => {
-    let pieces = 0;
+  it("builds the default kit's generated pieces: low triangle counts a level, wound out, on their cell; a labelled debug texture", () => {
+    // Game-ready budgets (triangles high / low) by kind of piece.
+    const budget = (id: string): [number, number] => (id.startsWith('edge-') ? [48, 16] : id.startsWith('corner-') ? [64, 24] : id.startsWith('roof-') ? [64, 24] : [160, 48]);
+    const report: string[] = [];
+    let own = 0;
     for (const [id, p] of Object.entries(DEFAULT_KIT_PIECES)) {
-      if (p === null) continue;
-      pieces++;
-      const high = defaultKitGeometry(p.boxes, false);
-      const low = defaultKitGeometry(p.boxes, true);
-      expect(high.index!.count / 3, id).toBe(12 * p.boxes.length);
-      expect(low.index!.count / 3, id).toBe(10 * p.boxes.length);
-      // Centred on the cell: every vertex within the cell and the little a box may stand proud of it.
-      high.computeBoundingBox();
-      const b = high.boundingBox!;
-      for (const c of [b.min.x, b.min.y, b.min.z]) expect(c).toBeGreaterThanOrEqual(-VOXEL_SIZE_M);
-      for (const c of [b.max.x, b.max.y, b.max.z]) expect(c).toBeLessThanOrEqual(VOXEL_SIZE_M);
-      const uv = high.getAttribute('uv');
-      for (let i = 0; i < uv.count; i++) {
-        expect(uv.getX(i)).toBeGreaterThanOrEqual(-0.2);
-        expect(uv.getX(i)).toBeLessThanOrEqual(1.4);
+      if (p === null || p.alias !== undefined) continue;
+      own++;
+      const [high, low] = [false, true].map((l) => defaultKitGeometry(defaultKitMesh(id, l)!));
+      const tris = [high!, low!].map((g) => g.index!.count / 3);
+      expect(tris[0], id).toBeLessThanOrEqual(budget(id)[0]);
+      expect(tris[1], id).toBeLessThanOrEqual(budget(id)[1]);
+      expect(tris[1], id).toBeLessThan(tris[0]!);
+      for (const g of [high!, low!]) {
+        // Every triangle's front faces the way its vertices' normals do (wound out).
+        const pos = g.getAttribute('position');
+        const nor = g.getAttribute('normal');
+        const ix = g.index!;
+        for (let t = 0; t < ix.count; t += 3) {
+          const [a, b, c] = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(pos, ix.getX(t + k)));
+          const face = new THREE.Vector3().subVectors(b!, a!).cross(new THREE.Vector3().subVectors(c!, a!));
+          const n = new THREE.Vector3();
+          for (let k = 0; k < 3; k++) n.add(new THREE.Vector3().fromBufferAttribute(nor, ix.getX(t + k)));
+          expect(face.dot(n), `${id} triangle ${t / 3}`).toBeGreaterThan(0);
+        }
+        // On its cell: within half a cell of its centre and the quarter cell a cove reaches into the open cell beside it.
+        g.computeBoundingBox();
+        for (const c of [...g.boundingBox!.min.toArray(), ...g.boundingBox!.max.toArray()]) expect(Math.abs(c), id).toBeLessThanOrEqual(VOXEL_SIZE_M * (0.5 + 1 / 4) + 1e-6);
       }
+      const bytes = [high!, low!].map((g) => Object.values(g.attributes).reduce((n, a) => n + (a as THREE.BufferAttribute).array.byteLength, 0) + g.index!.array.byteLength);
+      report.push(`${id} ${tris[0]}/${tris[1]} tris, ${bytes[0]}/${bytes[1]} B`);
     }
-    // Ten edge and corner pieces, five roof-edge pieces, three debris pieces (beams and banisters are the stand-ins').
-    expect(pieces).toBe(18);
+    // Three meshes for the ten edge and corner cases (an outer strip, a cove, an outer cap; the rest are aliases or
+    // none), five roof boards, three debris pieces.
+    expect(own).toBe(11);
+    console.log(`[default kit] high/low: ${report.join('; ')}; no textures (the 256² debug texture), no files`);
     const t = voxelKitDebugTexture();
     expect([t.image.width, t.image.height]).toEqual([KIT_DEBUG_TEXTURE_SIDE, KIT_DEBUG_TEXTURE_SIDE]);
     const px = t.image.data as Uint8Array;
@@ -309,6 +327,179 @@ describe('kit pieces in the chunk view', () => {
     for (let i = 0; i < px.length; i += 4) if (px[i]! < 60) dark++;
     expect(dark).toBeGreaterThan(4 * KIT_DEBUG_TEXTURE_SIDE);
     t.dispose();
+  });
+
+  it("an alias draws its target's mesh turned exactly as an explicit mesh of the turned case; determinant +1, normals out; the default kit's aliases share their target's geometry", () => {
+    const s = world();
+    // A thin board over a top edge (+y +z of the cell) and the same board turned under the bottom edge, as its own mesh.
+    const board = (): THREE.BufferGeometry => new THREE.BoxGeometry(VOXEL_SIZE_M, 0.06, 0.06).translate(0, VOXEL_SIZE_M / 2, VOXEL_SIZE_M / 2);
+    const turned = board();
+    const pos = turned.getAttribute('position');
+    const nor = turned.getAttribute('normal');
+    for (const a of [pos, nor]) for (let i = 0; i < a.count; i++) {
+      const v = applyCubeRotation(CUBE_ROTATION_X90, [a.getX(i), a.getY(i), a.getZ(i)]);
+      a.setXYZ(i, v[0], v[1], v[2]);
+    }
+    const top = { assetId: 'board', digest: DIGEST_A };
+    const bottom = { assetId: 'board-under', digest: DIGEST_B };
+    const variants = (m: typeof top): { sections: { body: { variants: { high: typeof top }[] } } } => ({ sections: { body: { variants: [{ high: m }] } } });
+    // Same kit id: the same seed, so the same variants and stagger.
+    const aliased: VoxelKitRecordLike = { voxelKitId: 'timber', materials: [TIMBER], cases: { 'edge-out-top': variants(top), 'edge-out-bottom': { alias: { case: 'edge-out-top', rotation: CUBE_ROTATION_X90 } } } };
+    const explicit: VoxelKitRecordLike = { voxelKitId: 'timber', materials: [TIMBER], cases: { 'edge-out-top': variants(top), 'edge-out-bottom': variants(bottom) } };
+    const placed = (kit: VoxelKitRecordLike): { verts: string[]; dets: number[]; normals: THREE.Vector3[]; geometries: Set<THREE.BufferGeometry> } => {
+      const meshes = new VoxelKitMeshes();
+      meshes.add(top, board());
+      meshes.add(bottom, turned.clone());
+      const table = worldPieceTable([kit]);
+      const v = view(meshes.set(table, [kit]));
+      draw(v, derive(s, table));
+      const verts: string[] = [];
+      const dets: number[] = [];
+      const normals: THREE.Vector3[] = [];
+      const geometries = new Set<THREE.BufferGeometry>();
+      const m4 = new THREE.Matrix4();
+      const n3 = new THREE.Matrix3();
+      for (const mesh of pieceMeshes(v).filter((x) => x.userData['voxelKitPiece'] === true && x.material !== meshes.material(0, true))) {
+        geometries.add(mesh.geometry);
+        const p = mesh.geometry.getAttribute('position');
+        const nn = mesh.geometry.getAttribute('normal');
+        for (let k = 0; k < mesh.count; k++) {
+          mesh.getMatrixAt(k, m4);
+          dets.push(m4.determinant());
+          n3.getNormalMatrix(m4);
+          const pts: string[] = [];
+          let below = false;
+          for (let i = 0; i < p.count; i++) {
+            const w = new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(m4);
+            pts.push(w.toArray().map((c) => c.toFixed(4)).join(','));
+            if (w.y < 8 * VOXEL_SIZE_M + 0.1) below = true;
+          }
+          // The timber wall's underside row (y 8): its pieces are the bottom edges.
+          if (below) for (let i = 0; i < nn.count; i++) normals.push(new THREE.Vector3().fromBufferAttribute(nn, i).applyMatrix3(n3).normalize());
+          verts.push(pts.sort().join(' '));
+        }
+      }
+      v.dispose();
+      meshes.dispose();
+      return { verts: verts.sort(), dets, normals, geometries };
+    };
+    const a = placed(aliased);
+    const e = placed(explicit);
+    expect(a.verts.length).toBeGreaterThan(20);
+    expect(a.verts).toEqual(e.verts);
+    // The alias draws with the top edge's geometry: one mesh for both cases.
+    expect(a.geometries.size).toBe(1);
+    expect(e.geometries.size).toBe(2);
+    for (const d of a.dets) expect(d).toBeCloseTo(1, 5);
+    // The flipped board's faces still face out: its normals, turned, point the way its own faces do (none inward).
+    expect(a.normals.length).toBeGreaterThan(0);
+    expect(a.normals.filter((n) => n.y > 0.9).length).toBeGreaterThan(0);
+    expect(a.normals.filter((n) => n.y < -0.9).length).toBeGreaterThan(0);
+    // The default kit: the vertical and bottom edges draw the top edge's strip; inner edges the floor cove; a bottom corner the top cap.
+    const meshes = new VoxelKitMeshes();
+    const set = meshes.world([]);
+    expect(meshes.defaultMesh('edge-out-vertical', false)).toBeNull();
+    const desc = (id: string): ReturnType<typeof set.describe> => {
+      for (let p = KIT_PIECE_BASE; p < KIT_PIECE_BASE + 64; p++) if (set.describe(1, p)?.caseId === id) return set.describe(1, p);
+      return null;
+    };
+    expect(desc('edge-out-vertical')).toMatchObject({ meshCaseId: 'edge-out-top', rotation: CUBE_ROTATION_ZM90 });
+    expect(desc('edge-out-bottom')).toMatchObject({ meshCaseId: 'edge-out-top', rotation: CUBE_ROTATION_X90 });
+    expect(desc('edge-in-top')).toMatchObject({ meshCaseId: 'edge-in-bottom', rotation: CUBE_ROTATION_X90 });
+    expect(desc('corner-out-bottom')).toMatchObject({ meshCaseId: 'corner-out-top', rotation: CUBE_ROTATION_X90 });
+    meshes.dispose();
+  });
+
+  it('staggers edge and corner pieces by their world cell: the same on every build, unchanged by an edit elsewhere, within 1/32 cell into the solid and 2° of twist', () => {
+    const s = world();
+    const table = worldPieceTable([]);
+    const matrices = (st: PaletteStore): Map<string, number[][]> => {
+      const meshes = new VoxelKitMeshes();
+      const v = view(meshes.world([]));
+      draw(v, derive(st, table));
+      const out = new Map<string, number[][]>();
+      for (const mesh of pieceMeshes(v)) {
+        const list: number[][] = [];
+        for (let k = 0; k < mesh.count; k++) list.push(mesh.getMatrixAt(k, new THREE.Matrix4()).toArray().map((c) => Math.round(c * 1e6)));
+        out.set(`${out.size}`, list);
+      }
+      v.dispose();
+      meshes.dispose();
+      return out;
+    };
+    const flat = (m: Map<string, number[][]>): string[] => [...m.values()].flat().map((x) => x.join()).sort();
+    const first = flat(matrices(s));
+    expect(flat(matrices(s))).toEqual(first);
+    // An edit beyond every piece's reach (a lone terrain cell in the far corner): no other instance moves.
+    const far = world();
+    far.setVoxel(28, 0, 28, { material: 0, role: 0, shape: 0, wetness: 0 });
+    const after = new Set(flat(matrices(far)));
+    const kept = first.filter((m) => after.has(m)).length;
+    expect(kept).toBeGreaterThan(first.length - 12);
+    // Bounds, from the placement itself: each staggered instance against the same instance unstaggered.
+    const frame = PIECE_STAGGER_FRAMES['edge-out-top']!;
+    const centre = new THREE.Vector3(0.25, 0.25, 0.25);
+    const anchor = new THREE.Vector3(...frame.anchor).multiplyScalar(VOXEL_SIZE_M);
+    let moved = 0;
+    for (let x = 0; x < 64; x++) {
+      for (const rot of [0, 1, 2, 3]) {
+        const a = pieceMatrix(new THREE.Matrix4(), rot, 0, centre, VOXEL_SIZE_M, [x, 7, -3], 0, { turnSign: -1, rotation: 0, stagger: { frame, seed: 1234, caseIndex: 0 } });
+        const b = pieceMatrix(new THREE.Matrix4(), rot, 0, centre, VOXEL_SIZE_M, [x, 7, -3], 0, { turnSign: -1, rotation: 0, stagger: null });
+        const d = anchor.clone().applyMatrix4(a).distanceTo(anchor.clone().applyMatrix4(b)) / VOXEL_SIZE_M;
+        expect(d).toBeLessThanOrEqual(PIECE_STAGGER.inwardMax + 1e-9);
+        expect(d).toBeGreaterThanOrEqual(PIECE_STAGGER.inwardMin - 1e-9);
+        const qa = new THREE.Quaternion().setFromRotationMatrix(a);
+        const qb = new THREE.Quaternion().setFromRotationMatrix(b);
+        expect(qa.angleTo(qb)).toBeLessThanOrEqual(PIECE_STAGGER.twistMax + 1e-9);
+        // Into the solid: the anchor moves against the bisector out of the faces (the turned frame's out).
+        const out = new THREE.Vector3(...frame.out).applyQuaternion(qb);
+        expect(anchor.clone().applyMatrix4(a).sub(anchor.clone().applyMatrix4(b)).dot(out)).toBeLessThan(0);
+        if (qa.angleTo(qb) > PIECE_STAGGER.twistMax / 4) moved++;
+      }
+    }
+    expect(moved).toBeGreaterThan(64);
+    expect(pieceStagger(1, 2, 3, 4, 0, 5, 0.5)).toEqual(pieceStagger(1, 2, 3, 4, 0, 5, 0.5));
+    expect(pieceStagger(1, 2, 3, 4, 0, 5, 0.5)).not.toEqual(pieceStagger(1, 2, 3, 5, 0, 5, 0.5));
+  });
+
+  it("a trim piece's U runs along its edge's world axis: up y on a vertical edge, along x or z on a horizontal one", () => {
+    const s = world();
+    const m = { assetId: 'post', digest: DIGEST_A };
+    const kit: VoxelKitRecordLike = { voxelKitId: 'stone', materials: [STONE], trimLayout: DRAFT_TRIM_LAYOUT.id, cases: { 'edge-out-vertical': { sections: { body: { variants: [{ high: m }] } } }, 'edge-out-top': { alias: { case: 'edge-out-vertical', rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) } } } };
+    const meshes = new VoxelKitMeshes();
+    // A post up the vertical edge (+x +z), its U along y.
+    const post = new THREE.BoxGeometry(0.06, VOXEL_SIZE_M, 0.06).translate(VOXEL_SIZE_M / 2, 0, VOXEL_SIZE_M / 2);
+    meshes.add(m, post);
+    const table = worldPieceTable([kit]);
+    const v = view(meshes.set(table, [kit]));
+    draw(v, derive(s, table));
+    const perM = DRAFT_TRIM_LAYOUT.pxPerMetre / DRAFT_TRIM_LAYOUT.size;
+    const trim = pieceMeshes(v).filter((x) => x.userData['voxelTrimGeometry'] === true);
+    expect(trim.length).toBe(2);
+    let vertical = 0;
+    let horizontal = 0;
+    const m4 = new THREE.Matrix4();
+    for (const mesh of trim) {
+      const u = mesh.geometry.getAttribute('pieceU') as THREE.InstancedBufferAttribute;
+      for (let k = 0; k < mesh.count; k++) {
+        mesh.getMatrixAt(k, m4);
+        const run = new THREE.Vector3(0, 1, 0).transformDirection(m4);
+        const c = new THREE.Vector3().setFromMatrixPosition(m4);
+        const axis = Math.abs(run.y) > 0.9 ? 1 : Math.abs(run.x) > 0.9 ? 0 : 2;
+        const sign = run.getComponent(axis) > 0 ? 1 : -1;
+        // The cell's low face on that axis (metres) gives U: its fraction of a sheet, the sign the direction.
+        const lowM = (Math.round(c.getComponent(axis) / VOXEL_SIZE_M - 0.5)) * VOXEL_SIZE_M;
+        const at = perM * (sign > 0 ? lowM : lowM + VOXEL_SIZE_M);
+        expect(u.getX(k)).toBeCloseTo(at - Math.floor(at), 5);
+        expect(u.getY(k)).toBe(sign);
+        if (axis === 1) vertical++;
+        else horizontal++;
+      }
+    }
+    expect(vertical).toBeGreaterThan(10);
+    expect(horizontal).toBeGreaterThan(10);
+    v.dispose();
+    meshes.dispose();
   });
 
   it("draws a kit on a trim layout with that layout's debug set: a hue a region, gutters magenta, other kits keep the cell texture", () => {

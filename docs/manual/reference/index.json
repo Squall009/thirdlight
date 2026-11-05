@@ -3157,6 +3157,7 @@
 "type.VertexPaintStroke": {"page":"types-t-w.md","section":"type-vertex-paint-stroke"},
 "type.VoxelEditCommand": {"page":"types-t-w.md","section":"type-voxel-edit-command"},
 "type.VoxelKit": {"page":"types-t-w.md","section":"type-voxel-kit"},
+"type.VoxelKitAlias": {"page":"types-t-w.md","section":"type-voxel-kit-alias"},
 "type.VoxelKitCase": {"page":"types-t-w.md","section":"type-voxel-kit-case"},
 "type.VoxelKitJoinProfile": {"page":"types-t-w.md","section":"type-voxel-kit-join-profile"},
 "type.VoxelKitJson": {"page":"types-t-w.md","section":"type-voxel-kit-json"},

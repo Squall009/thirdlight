@@ -52,7 +52,6 @@ import {
   INSTANCE_BYTES,
   defaultPieceFamily,
   INSTANCE_FLAG,
-  INSTANCE_PLACE,
   instancePlaceOf,
   mipCellMetres,
   PIECE_FAMILY,
@@ -74,7 +73,8 @@ import {
 import { cameraRelative } from './camera-relative';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
-import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU } from './voxel-trim-u';
+import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU, runAxisOf } from './voxel-trim-u';
+import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
@@ -285,12 +285,8 @@ export class VoxelChunkView {
   rebuilt: (() => void) | null = null;
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
-  private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly at = new THREE.Vector3();
   private readonly tip = new THREE.Quaternion();
-  private readonly xAxis = new THREE.Vector3(1, 0, 0);
-  private readonly shift = new THREE.Vector3();
-  private readonly scale = new THREE.Vector3();
   private readonly grid: ChunkGrid;
   private readonly origin: FloatingOrigin;
   private readonly shading: VoxelSurface;
@@ -511,7 +507,7 @@ export class VoxelChunkView {
     const list = m.instances;
     if (list.count === 0) return;
     // One instanced mesh a draw: a default family and detail, or a kit piece's resolved key.
-    const byMesh = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material; kit: boolean; low: boolean; turnSign: number; offsets: number[]; uPerMetre?: number }>();
+    const byMesh = new Map<string, PiecePlacement & { geometry: THREE.BufferGeometry; material: THREE.Material; kit: boolean; low: boolean; offsets: number[]; uPerMetre?: number; runAxis: 0 | 1 }>();
     for (let k = 0; k < list.count; k++) {
       const o = k * INSTANCE_BYTES;
       const piece = list.data[o + 4]! | (list.data[o + 5]! << 8);
@@ -528,7 +524,7 @@ export class VoxelChunkView {
           let mat = this.pieceMaterials.get(family);
           if (mat === undefined) this.pieceMaterials.set(family, (mat = cameraRelative(new MeshLambertNodeMaterial({ color: PIECE_COLOUR[family] ?? 0x888888 }))));
           // The stand-ins are symmetric under a half turn: their turn sign is the one they were always drawn with.
-          byMesh.set(key, { geometry: box, material: mat, kit: false, low, turnSign: 1, offsets: [] });
+          byMesh.set(key, { geometry: box, material: mat, kit: false, low, turnSign: 1, rotation: 0, stagger: null, runAxis: 0, offsets: [] });
         }
       } else {
         const r = this.kitSet?.resolve(m.materials[k]!, piece, list.data[o + 6]! | (list.data[o + 7]! << 8), low) ?? null;
@@ -539,14 +535,13 @@ export class VoxelChunkView {
         if (r === null) continue;
         key = r.key;
         // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
-        if (!byMesh.has(key)) byMesh.set(key, { geometry: r.geometry, material: r.material, kit: true, low, turnSign: -1, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
+        if (!byMesh.has(key)) byMesh.set(key, { geometry: r.geometry, material: r.material, kit: true, low, turnSign: -1, rotation: r.rotation, stagger: r.stagger, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
       }
       byMesh.get(key)?.offsets.push(o);
     }
     // A level-1 node's pieces are drawn at its cell's size: one piece a 1 m cell, its low mesh scaled with the cell.
     const cellM = m.cellMetres;
-    const s = cellM / VOXEL_SIZE_M;
-    this.scale.set(s, s, s);
+    const k0 = cellM / VOXEL_SIZE_M;
     for (const g of byMesh.values()) {
       const n = g.offsets.length;
       if (n === 0) continue;
@@ -559,21 +554,20 @@ export class VoxelChunkView {
         g.offsets.forEach((o, i) => {
           const local = [list.data[o]!, list.data[o + 1]!, list.data[o + 2]!];
           const mirror = ((list.data[o + 6]! | (list.data[o + 7]! << 8)) & PIECE_VARIANT_MIRROR) !== 0;
-          const [offset, factor] = pieceU(g.uPerMetre!, m.cell, local, cellM, list.data[o + 3]! & 3, mirror);
+          const rot = list.data[o + 3]!;
+          // The mesh's run through the alias's rotation, the tip and the turns: a vertical edge's U runs up y.
+          const q = pieceTurn(this.quat, rot, instancePlaceOf(rot), g.turnSign);
+          if (g.rotation !== 0) q.multiply(this.tip.setFromRotationMatrix(cubeRotationMatrix(g.rotation)));
+          const [axis, sign] = runAxisOf(q, g.runAxis, mirror);
+          const [offset, factor] = pieceU(g.uPerMetre!, m.cell, local, cellM, axis, sign);
           trim.u.setXY(i, offset, factor);
         });
       }
       g.offsets.forEach((o, i) => {
         const rot = list.data[o + 3]!;
-        const place = instancePlaceOf(rot);
-        // Quarter turns about +y turn the piece's run (its x) to the cell's run axis.
-        this.quat.setFromAxisAngle(this.up, (g.turnSign * (rot & 3) * Math.PI) / 2);
-        // A tipped piece takes its open side (+z) to the cell's top or bottom face first, then the turns.
-        if (place === INSTANCE_PLACE.faceUp || place === INSTANCE_PLACE.faceDown) this.quat.multiply(this.tip.setFromAxisAngle(this.xAxis, place === INSTANCE_PLACE.faceUp ? -Math.PI / 2 : Math.PI / 2));
         this.at.set((list.data[o]! + 0.5) * cellM, (list.data[o + 1]! + 0.5) * cellM, (list.data[o + 2]! + 0.5) * cellM);
-        // A centred piece runs along the cell's middle: half a cell in from the side it is written on.
-        if (place === INSTANCE_PLACE.centred) this.at.add(this.shift.set(0, 0, -0.5 * cellM).applyQuaternion(this.quat));
-        mesh.setMatrixAt(i, this.matrix.compose(this.at, this.quat, this.scale));
+        const cell0 = [m.cell[0]! + list.data[o]! * k0, m.cell[1]! + list.data[o + 1]! * k0, m.cell[2]! + list.data[o + 2]! * k0];
+        mesh.setMatrixAt(i, pieceMatrix(this.matrix, rot, instancePlaceOf(rot), this.at, cellM, cell0, m.level, g));
       });
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();

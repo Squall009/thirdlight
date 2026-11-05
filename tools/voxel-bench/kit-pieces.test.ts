@@ -12,8 +12,9 @@ import {
   buildApron,
   buildPieceTable,
   DEFAULT_KIT_ID,
+  CUBE_ROTATION_X90,
   DEFAULT_KIT_PIECES,
-  DEFAULT_KIT_UNITS,
+  defaultKitMesh,
   defaultKitSource,
   materialSwap,
   NO_KIT,
@@ -388,13 +389,17 @@ describe('the default kit', () => {
       const c = CAT.cases.find((x) => x.id === id)!;
       // A suppressed case is the engine's default pieces' (they carry its run sections); the kit dresses edges, roof edges and debris.
       expect(c.base, id).not.toBe('suppress');
-      expect(p.boxes.length).toBeGreaterThan(0);
-      for (const b of p.boxes) for (let a = 0; a < 3; a++) {
-        expect(b[a + 3]!, id).toBeGreaterThan(b[a]!);
-        expect(Math.min(b[a]!, b[a + 3]!)).toBeGreaterThanOrEqual(-2);
-        expect(Math.max(b[a]!, b[a + 3]!)).toBeLessThanOrEqual(DEFAULT_KIT_UNITS + 2);
-      }
+      // An own mesh with triangles, or an alias of a case with one (never of an alias, never a mirror).
+      const target = p.alias?.case ?? id;
+      expect(DEFAULT_KIT_PIECES[target]?.mesh, id).toBeDefined();
+      if (p.alias !== undefined) expect(p.alias.rotation, id).toBeGreaterThan(0);
+      for (const low of [false, true]) expect(defaultKitMesh(target, low)!.indices.length, id).toBeGreaterThan(0);
     }
+    // The table numbers an alias as a piece of its own case, drawn by its target's mesh turned.
+    const own = kitPieceList(defaultKitSource(CAT), CAT);
+    expect(own.problems).toEqual([]);
+    const bottom = own.pieces.find((x) => x.caseId === 'edge-out-bottom')!;
+    expect([bottom.meshCaseId, bottom.rotation]).toEqual(['edge-out-top', CUBE_ROTATION_X90]);
     const log = fullTestKit('log', [MAT.timber], 2);
     const t = worldPieceTable([log]);
     expect(t.kits.map((k) => k.id)).toEqual(['log', DEFAULT_KIT_ID]);

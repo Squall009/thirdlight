@@ -28,7 +28,7 @@
  * Pure value validation: no I/O.
  */
 import { canonicalJsonValue, isPlainObject, isPlainObjectStrict } from '@thirdlight/shared';
-import { MATERIAL_AIR, MATERIAL_ID_MAX } from '@thirdlight/voxel';
+import { CUBE_ROTATION_COUNT, MATERIAL_AIR, MATERIAL_ID_MAX } from '@thirdlight/voxel';
 import type { ModelErrorV2 } from './errors';
 import { DIGEST_RE } from './content-helpers';
 import { KIT_LIMITS } from './kits';
@@ -65,10 +65,22 @@ export interface VoxelKitSection {
   ends?: { start?: string; end?: string };
 }
 
-/** One case of the kit: its sections and the game's data for the case. */
+/**
+ * A case drawn by another case's meshes (many edge cases are one mesh on another side): `case` names a case of the
+ * same kit that has sections of its own, `rotation` one of the 24 cube rotations (voxel's `CUBE_ROTATIONS`, a fixed
+ * numbering; 0 the identity) the meshes are turned by in the case's own orientation. Never a mirror.
+ */
+export interface VoxelKitAlias {
+  case: string;
+  rotation: number;
+}
+
+/** One case of the kit: its sections or an alias, and the game's data for the case. */
 export interface VoxelKitCase {
   /** Section id → its pieces (absent: no pieces; the fallback draws the case). */
   sections?: Record<string, VoxelKitSection>;
+  /** Draw this case with another case's meshes turned (instead of sections of its own; added to kit format 1). */
+  alias?: VoxelKitAlias;
   /** The game's own data for this case (break, sound, physics …), never read by the engine. */
   gameData?: VoxelKitJson;
 }
@@ -113,7 +125,7 @@ export const VOXEL_KIT_LIMITS = Object.freeze({
 });
 
 const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'cases', 'joinProfiles', 'trimLayout', 'gameData'];
-const CASE_FIELDS = ['sections', 'gameData'];
+const CASE_FIELDS = ['sections', 'alias', 'gameData'];
 const SECTION_FIELDS = ['variants', 'ends'];
 const VARIANT_FIELDS = ['high', 'low', 'weight'];
 const MESH_FIELDS = ['assetId', 'digest', 'node'];
@@ -185,6 +197,24 @@ function section(v: unknown, path: string, profiles: ReadonlySet<string> | null,
   }
 }
 
+/** A case's alias: an own case of the same kit (with sections, not itself an alias), one of the cube rotations. */
+function alias(cid: string, c: Record<string, unknown>, cases: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
+  const a = c['alias'];
+  if (!isPlainObject(a)) return err(errors, 'field_type', path, 'an alias is {case, rotation}', a, 'object');
+  fields(a, ['case', 'rotation'], path, 'alias', errors);
+  if (c['sections'] !== undefined) err(errors, 'field_value', path, 'a case has sections of its own or an alias, not both', cid);
+  const r = a['rotation'];
+  if (typeof r !== 'number' || !Number.isInteger(r) || r < 0 || r >= CUBE_ROTATION_COUNT) err(errors, 'field_value', `${path}/rotation`, `rotation is a cube rotation, 0-${CUBE_ROTATION_COUNT - 1}`, r);
+  const to = a['case'];
+  id(to, `${path}/case`, 'an alias case', errors);
+  if (typeof to !== 'string') return;
+  if (to === cid) return err(errors, 'field_value', `${path}/case`, 'a case cannot be an alias of itself', to);
+  const target = cases[to];
+  // A dangling or chained alias is refused: the kit's own cases are the only place its meshes can be.
+  if (!isPlainObject(target)) return err(errors, 'reference_missing', `${path}/case`, `case "${to}" is not in the kit`, to);
+  if (target['sections'] === undefined) err(errors, 'reference_missing', `${path}/case`, `case "${to}" has no sections of its own (an alias names a case with meshes)`, to);
+}
+
 function profile(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a join profile is {outline}', v, 'object');
   fields(v, ['outline'], path, 'join profile', errors);
@@ -242,16 +272,17 @@ export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[
   if (v['trimLayout'] !== undefined) id(v['trimLayout'], `${path}/trimLayout`, 'trimLayout', errors);
   gameData(v['gameData'], `${path}/gameData`, errors);
   const cases = v['cases'];
-  if (!isPlainObject(cases)) return err(errors, 'field_type', `${path}/cases`, 'cases is {caseId: {sections?, gameData?}}', cases, 'object');
+  if (!isPlainObject(cases)) return err(errors, 'field_type', `${path}/cases`, 'cases is {caseId: {sections?, alias?, gameData?}}', cases, 'object');
   for (const [cid, c] of Object.entries(cases)) {
     const p = `${path}/cases/${cid}`;
     id(cid, p, 'a case id', errors);
     if (!isPlainObject(c)) {
-      err(errors, 'field_type', p, 'a case is {sections?, gameData?}', c, 'object');
+      err(errors, 'field_type', p, 'a case is {sections?, alias?, gameData?}', c, 'object');
       continue;
     }
     fields(c, CASE_FIELDS, p, 'case', errors);
     gameData(c['gameData'], `${p}/gameData`, errors);
+    if (c['alias'] !== undefined) alias(cid, c, cases, `${p}/alias`, errors);
     const secs = c['sections'];
     if (secs === undefined) continue;
     if (!isPlainObject(secs)) {
@@ -313,6 +344,7 @@ export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
       const secs = c.sections !== undefined && Object.keys(c.sections).length > 0 ? c.sections : undefined;
       return {
         ...(secs !== undefined ? { sections: byKey(secs, canonicalSection) } : {}),
+        ...(c.alias !== undefined ? { alias: { case: c.alias.case, rotation: c.alias.rotation } } : {}),
         ...(c.gameData !== undefined ? { gameData: canonicalJsonValue(c.gameData) as VoxelKitJson } : {}),
       };
     }),

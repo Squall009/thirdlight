@@ -1468,8 +1468,10 @@ pieces (`voxel-trim-layout.md`, DRAFT). Until then nothing builds on them as fin
   piece count, a kit-local piece per (case, run section) and its variants' u16 weight thresholds, then the
   (material, kit) pairs; every material no pair names draws the default kit (format 1 had no default slot). Hosts
   build it with `worldPieceTable(kits)`: the project's kits plus the engine's procedural **default kit**
-  (`default-kit.ts`, `@engine-default`: every catalogue case a piece of boxes in sixteenths or none, 29 pieces,
-  408 / 340 triangles high / low; DRAFT with the catalogue). Canonical (equal kits give equal bytes); a worker
+  (`default-kit.ts`, `@engine-default`: every catalogue case a generated mesh, an alias or none: rounded edge
+  strips, coves, outer corner caps, chamfered roof boards and rubble, 11 meshes for 18 cases, 525 / 122 triangles
+  high / low, R3b; DRAFT with the catalogue). An alias takes its own (case, section) slots and its target's weights,
+  so the table's layout is unchanged; its rotation is the renderer's only. Canonical (equal kits give equal bytes); a worker
   decodes it once and keeps it by hash; a newer format, damaged bytes or another rule set's table are refused.
   **Material → kit** by the kit's test binding (`materials`; a material two kits bind goes to the first by id, a
   kit-check row); 46d's material model replaces the binding.
@@ -1705,11 +1707,18 @@ section ids it holds are opaque here and the catalogue that names them is a draf
 - **Fields, in canonical order:** `kitFormat` (1), `voxelKitId`, `name`, `version` (the kit's own revision, a
   positive integer), `materialType` (an id: a kit belongs to a material type, never to one material),
   `materials?` (test binding: voxel material ids 1–4095, ascending, each once; 46d's material model replaces it
-  and the field is then left unread, never repurposed), `cases` (case id → `{sections?, gameData?}`; a section id →
+  and the field is then left unread, never repurposed), `cases` (case id → `{sections?, alias?, gameData?}`; a section id →
   `{variants: [{high, low?, weight?}, …] (one or more), ends?: {start?, end?}}`; a mesh is `{assetId, digest,
   node?}`, the digest the GLB version's SHA-256 source digest), `joinProfiles?` (profile id → `{outline: [[u, v],
   …]}`, a closed polygon of at least 3 points in whole sixteenths of a cell 0–16; a section end names one of the
   kit's own, a dangling one is refused), `trimLayout?` (an id; absent: no trim sheet), `gameData?`.
+- **Alias (add-only, R3b; owner note: default chosen, owner to confirm).** A case may hold `alias: {case,
+  rotation}` instead of `sections`: it draws with that case's meshes (a case of the same kit with sections of its
+  own; a dangling, self or chained alias and an alias beside sections are refused), turned first by cube rotation
+  `rotation` (0–23, `@thirdlight/voxel` `CUBE_ROTATIONS`: the signed permutation matrices of determinant +1,
+  permutations in lexicographic order, then row signs in binary order, + before −; 0 the identity; never a mirror).
+  The kit check counts an alias as the case's piece and lists every alias (`aliases` row). Kit format stays 1: the
+  field is optional and a kit without it reads as before.
 - **Canonical form.** Rebuilt field by field: maps by key, materials ascending, a weight of 1 and empty maps left
   out, game data with its object keys sorted and its values as given. Unknown fields at any level are refused.
 - **Game data** (per kit and per case) is any JSON nested at most 32 deep (finite numbers): break, sound and

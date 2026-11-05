@@ -1,13 +1,13 @@
 /**
  * The voxel kit check: a complete kit passes every rule, the engine's
- * default kit passes (no error: its cases without a piece of their own are
- * warnings naming what draws them), and each rule fires on a kit broken for
+ * default kit passes (no error: its aliases count as pieces, its cases
+ * without a piece are warnings naming what draws them), and each rule fires on a kit broken for
  * it and on no other; trim rows only for a kit that names a layout, each of
  * T1–T8 firing on its own fault; a real GLB's facts (triangles, bounds, UVs,
  * one node, an embedded image's size) read from its bytes.
  */
 import { glbBytes, pngBytes } from '@thirdlight/shared';
-import { CASE_ROLES, DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, EDGE_CASE_CATALOGUE, VOXEL_ROLE, VOXEL_SIZE_M, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
+import { CASE_ROLES, DEFAULT_KIT_PIECES, defaultKitMesh, EDGE_CASE_CATALOGUE, VOXEL_ROLE, VOXEL_SIZE_M, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import type { VoxelKit, VoxelKitMesh } from './voxel-kit';
 import { voxelKitCheck, voxelKitCheckState, voxelKitMeshFacts, voxelKitMeshKey, type VoxelKitAssets, type VoxelKitCheckRow, type VoxelKitMeshFacts } from './voxel-kit-check';
@@ -87,25 +87,41 @@ describe('the voxel kit check', () => {
     expect(rows.some((r) => r.id.startsWith('trim:'))).toBe(false);
   });
 
-  it('passes the engine default kit: no error; the beams and banisters it leaves to the stand-ins are warnings saying so', () => {
+  it('passes the engine default kit: no error; its aliases count as pieces and are listed; the beams and banisters it leaves to the stand-ins are warnings saying so', () => {
     const cases: VoxelKit['cases'] = {};
     const shapes = new Map<string, VoxelKitMeshFacts>();
-    const u = VOXEL_SIZE_M / DEFAULT_KIT_UNITS;
+    let own = 0;
     for (const [id, p] of Object.entries(DEFAULT_KIT_PIECES)) {
       if (p === null) continue;
-      cases[id] = { sections: { body: { variants: [{ high: mesh(`default-${id}`) }] } } };
-      // Each box's front face in metres, centred on the cell (default pieces are written from the cell's corner).
-      shapes.set(`default-${id}`, facts(p.boxes.flatMap(([x0, y0, z0, x1, y1, z1]) => [...quad(x0 * u - H, x1 * u - H, y0 * u - H, y1 * u - H, z1 * u - H, () => [0, 0]), ...quad(x0 * u - H, x1 * u - H, y0 * u - H, y1 * u - H, z0 * u - H, () => [0, 0])])));
+      if (p.alias !== undefined) {
+        cases[id] = { alias: { case: p.alias.case, rotation: p.alias.rotation } };
+        continue;
+      }
+      own++;
+      for (const low of [false, true]) {
+        const d = defaultKitMesh(id, low)!;
+        const at = (k: number): number[] => [d.positions[k * 3]!, d.positions[k * 3 + 1]!, d.positions[k * 3 + 2]!, d.uvs[k * 2]!, d.uvs[k * 2 + 1]!];
+        const tris: number[][][] = [];
+        for (let t = 0; t < d.indices.length; t += 3) tris.push([at(d.indices[t]!), at(d.indices[t + 1]!), at(d.indices[t + 2]!)]);
+        shapes.set(`default-${id}-${low ? 'l' : 'h'}`, facts(tris));
+      }
+      cases[id] = { sections: { body: { variants: [{ high: mesh(`default-${id}-h`), low: mesh(`default-${id}-l`) }] } } };
     }
     const kit: VoxelKit = { kitFormat: 1, voxelKitId: 'engine-default', name: 'Engine default', version: 1, materialType: 'any', cases };
     // Checked against the world's catalogue (the edge catalogue), the one it is written for.
     const report = voxelKitCheck(kit, EDGE_CASE_CATALOGUE, assetsOf(kit), (m) => shapes.get(m.assetId) ?? null);
-    expect(voxelKitCheckState(report)).not.toBe('err');
     const ids = bad(report.rows);
     expect(ids.sort()).toEqual(['warn required:banister-post', 'warn required:banister-rail', 'warn required:beam']);
     expect(report.rows.find((r) => r.id === 'required:beam')!.detail).toMatch(/engine's stand-in bar/);
     expect(report.rows.find((r) => r.id === 'catalogue')!.state).toBe('ok');
-    expect(report.totals.pieces).toBe(Object.values(DEFAULT_KIT_PIECES).filter((p) => p !== null).length);
+    // Aliased required cases (vertical and bottom edges, the bottom corner) are no warning; the alias row lists them.
+    const aliases = report.rows.find((r) => r.id === 'aliases')!;
+    expect(aliases.state).toBe('info');
+    expect(aliases.detail).toMatch(/edge-out-bottom = edge-out-top turned/);
+    expect(report.totals.pieces).toBe(own);
+    // An alias naming a case without meshes is an error row (the format refuses it; a kit read otherwise still says so).
+    const broken: VoxelKit = { ...kit, cases: { ...kit.cases, 'edge-out-vertical': { alias: { case: 'corner-in-top', rotation: 0 } } } };
+    expect(voxelKitCheck(broken, EDGE_CASE_CATALOGUE, assetsOf(kit), (m) => shapes.get(m.assetId) ?? null).rows.find((r) => r.id === 'aliases')!.state).toBe('err');
   });
 
   it('fires each rule on a kit broken for it, and only that rule', () => {

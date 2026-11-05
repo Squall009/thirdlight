@@ -1003,16 +1003,35 @@ interface VoxelKit {
 }
 ```
 
+<a id="type-voxel-kit-alias"></a>
+### VoxelKitAlias
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/**
+ * A case drawn by another case's meshes (many edge cases are one mesh on another side): `case` names a case of the
+ * same kit that has sections of its own, `rotation` one of the 24 cube rotations (voxel's `CUBE_ROTATIONS`, a fixed
+ * numbering; 0 the identity) the meshes are turned by in the case's own orientation. Never a mirror.
+ */
+interface VoxelKitAlias {
+  case: string;
+  rotation: number;
+}
+```
+
 <a id="type-voxel-kit-case"></a>
 ### VoxelKitCase
 
 Declared in `packages/project-model/src/voxel-kit.ts`.
 
 ```ts
-/** One case of the kit: its sections and the game's data for the case. */
+/** One case of the kit: its sections or an alias, and the game's data for the case. */
 interface VoxelKitCase {
   /** Section id → its pieces (absent: no pieces; the fallback draws the case). */
   sections?: Record<string, VoxelKitSection>;
+  /** Draw this case with another case's meshes turned (instead of sections of its own; added to kit format 1). */
+  alias?: VoxelKitAlias;
   /** The game's own data for this case (break, sound, physics …), never read by the engine. */
   gameData?: VoxelKitJson;
 }

@@ -176,11 +176,22 @@ interface Piece {
 
 const label = (p: Pick<Piece, 'caseId' | 'sectionId' | 'variant'> & { level?: string }): string => `${p.caseId}/${p.sectionId}${p.variant > 0 ? ` v${p.variant + 1}` : ''}${p.level !== undefined && p.level !== 'high' ? ` ${p.level}` : ''}`;
 
-/** The sections of a case the kit has pieces for, by known section id. */
+/** The sections of a case the kit has pieces for, by known section id: its own, or its alias's (drawn turned). */
 function sectionsOf(kit: VoxelKit, caseId: string): Map<string, VoxelKitSection> {
   const out = new Map<string, VoxelKitSection>();
-  for (const [sid, s] of Object.entries(kit.cases[caseId]?.sections ?? {})) if (SECTIONS.includes(sid) && s.variants.length > 0) out.set(sid, s);
+  const c = kit.cases[caseId];
+  const secs = c?.sections ?? (c?.alias !== undefined ? kit.cases[c.alias.case]?.sections : undefined);
+  for (const [sid, s] of Object.entries(secs ?? {})) if (SECTIONS.includes(sid) && s.variants.length > 0) out.set(sid, s);
   return out;
+}
+
+/** The kit's aliases: which cases draw another case's meshes turned (info), and any that name no meshes (err). */
+function aliasRows(kit: VoxelKit): VoxelKitCheckRow[] {
+  const all = Object.entries(kit.cases).flatMap(([cid, c]) => (c.alias === undefined ? [] : [{ cid, ...c.alias }]));
+  if (all.length === 0) return [];
+  const broken = all.filter((a) => kit.cases[a.case]?.sections === undefined || a.case === a.cid);
+  if (broken.length > 0) return [{ id: 'aliases', state: 'err', title: `${broken.length} aliases name no meshes`, detail: `${named(broken.map((a) => `${a.cid} → ${a.case}`))}: an alias names a case of this kit with sections of its own.` }];
+  return [{ id: 'aliases', state: 'info', title: `${all.length} cases drawn by another case's meshes`, detail: `${all.map((a) => `${a.cid} = ${a.case} turned (rotation ${a.rotation})`).join('; ')}.` }];
 }
 
 /** Pairs of sections whose ends meet in a run: [the section whose end meets, the one whose start it meets]. */
@@ -533,7 +544,7 @@ export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets
       });
     }
   }
-  const rows = [...caseRows(kit, catalogue), ...pairRows(kit, facts), ...meshRows(pieces, assets), ...joinRows(kit)];
+  const rows = [...caseRows(kit, catalogue), ...aliasRows(kit), ...pairRows(kit, facts), ...meshRows(pieces, assets), ...joinRows(kit)];
   const totals = {
     pieces: reports.length,
     highTriangles: reports.reduce((n, r) => n + (r.high ?? 0), 0),

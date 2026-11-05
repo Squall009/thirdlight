@@ -50,8 +50,9 @@
  *
  * Detail pieces come from the project's voxel kits and stand only where
  * faces meet: a test kit gives the stone wall's free ends' vertical edges a
- * board from a GLB imported into the project (the wall's flat faces get
- * none), every other material draws the engine's default kit. The page,
+ * board from a GLB imported into the project and their top corners the same
+ * board through an alias (the wall's flat faces get none), every other
+ * material draws the engine's default kit. The page,
  * Play, the Scene view and the export (its GLB from the shipped content) all
  * draw kit pieces; on the page, on both renderers, the banister grown into a
  * wall takes the rail's pieces away and puts the default edge pieces on the
@@ -76,7 +77,7 @@ import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, DEFAULT_KIT_ID, dependentChunks, editBounds, jobRadius, kitTestScene, LIGHT_COVERAGE, PIECE_FAMILY, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, cubeRotationIndex, DEFAULT_KIT_ID, dependentChunks, editBounds, jobRadius, kitTestScene, LIGHT_COVERAGE, PIECE_FAMILY, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -104,7 +105,8 @@ const STONE_KIT = 'stone-test';
 /**
  * A voxel kit for the stone material with one authored piece, an outside vertical edge's board (the free ends'
  * corners): a GLB (a 0.1 × 0.5 × 0.6 m box standing proud of the end face, 12 triangles, no texture) written into the
- * project and imported as every model is, named by its version's digest.
+ * project and imported as every model is, named by its version's digest. The free ends' top corners draw the same
+ * board through an alias (the vertical edge's mesh turned a quarter about z onto the top), clear of the painted rows.
  */
 async function addStoneKit(): Promise<void> {
   const box = new THREE.BoxGeometry(0.1, VOXEL_SIZE_M, 0.6).translate(VOXEL_SIZE_M / 2 + 0.02, 0, 0);
@@ -138,7 +140,7 @@ async function addStoneKit(): Promise<void> {
   const assetId = imported.change.added[0]!.assetId;
   const digest = createHash('sha256').update(glb).digest('hex');
   console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no low mesh (L1 draws the high), no texture`);
-  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], cases: { 'edge-out-vertical': { sections: { body: { variants: [{ high: { assetId, digest } }] } } } } } });
+  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], cases: { 'edge-out-vertical': { sections: { body: { variants: [{ high: { assetId, digest } }] } } }, 'corner-out-top': { alias: { case: 'edge-out-vertical', rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) } } } } });
 }
 test.afterAll(async () => {
   await be?.stop();
@@ -371,6 +373,11 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const freeEnd = await cellAt(page, [ox + 5, oy + 2, oz]);
     expect(freeEnd.kitPieces.map((p) => `${p.kit} ${p.caseId} ${p.turns}`).sort()).toEqual([`${STONE_KIT} edge-out-vertical 0`, `${STONE_KIT} edge-out-vertical 3`]);
     expect((await cellAt(page, [ox, oy + 3, oz])).kitPieces).toEqual([]);
+    // The free end's top corners, front and back, draw the board through the alias (its top edges: the kit has no
+    // piece, none drawn); the wall's top cell in the middle has its top edges only, nothing of the kit's on its faces.
+    const topEnd = (await cellAt(page, [ox + 5, oy + 7, oz])).kitPieces.map((p) => `${p.kit} ${p.caseId}`).sort();
+    expect(topEnd).toEqual([`${STONE_KIT} corner-out-top`, `${STONE_KIT} corner-out-top`, `${STONE_KIT} edge-out-vertical`, `${STONE_KIT} edge-out-vertical`]);
+    expect((await cellAt(page, [ox, oy + 6, oz])).kitPieces).toEqual([]);
     // The banister grown into a wall (its gaps and a row over the rail): the rail's default pieces go, the new wall's
     // top edges draw the default kit's edge pieces, the picture changes; dug back, the banister and its pieces are as before.
     const railCell: Cell = [ox - 3, oy + 2, oz + 7];

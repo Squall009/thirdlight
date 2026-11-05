@@ -12,13 +12,18 @@
  *   editor) and are parsed by the page's GLB loader port: never fetched by
  *   URL here. A mesh still loading draws nothing until it is there (the view
  *   builds the waiting chunks' pieces again); one that failed draws nothing.
- * - **The default kit's pieces** (default-kit.ts) are built here from their
- *   boxes.
+ * - **The default kit's pieces** (default-kit.ts) are generated in the voxel
+ *   package and made into geometries here once.
+ * - **An alias** (a case drawn by another case's mesh) resolves to that
+ *   case's mesh with its cube rotation, which the view applies in the
+ *   instance matrix before the case's turns: one mesh, one set of GPU
+ *   buffers, for every side it serves.
  *
  * Every mesh is in metres for a level-0 cell, centred on the cell, in its
  * case's orientation (exposed face +z, run along x, up +y). A mirrored case
  * draws a mirrored copy of the mesh (x negated, triangles turned so their
- * fronts stay fronts), so instance matrices never mirror. Pieces draw with
+ * fronts stay fronts), so instance matrices never mirror (an alias's
+ * rotation has determinant +1). Pieces draw with
  * a stand-in material a kit and a labelled debug UV texture (one cell of UV
  * space: a 1/16-cell checker, a tick and a number every quarter, U and V
  * marked), placed camera-relative in 64 bits like the voxel surface.
@@ -32,19 +37,23 @@ import { MeshLambertNodeMaterial } from 'three/webgpu';
 import { TRIM_LAYOUTS, voxelKitMeshKey, type TrimLayout } from '@thirdlight/project-model';
 import {
   DEFAULT_KIT_ID,
-  DEFAULT_KIT_PIECES,
   DEFAULT_KIT_UNITS,
   defaultKitSource,
   KIT_PIECE_BASE,
   kitPieceList,
   NO_KIT,
   PIECE_VARIANT_MASK,
+  PIECE_STAGGER_FRAMES,
   PIECE_VARIANT_MIRROR,
+  pieceRunAxis,
   VOXEL_SIZE_M,
   WORLD_RULES,
   worldPieceTable,
-  type DefaultKitBox,
+  defaultKitMesh,
+  type KitMeshData,
   type KitPiece,
+  type PieceAlias,
+  type PieceStaggerFrame,
   type PieceTable,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
@@ -67,7 +76,7 @@ export interface VoxelKitRecordLike {
   readonly materials?: readonly number[];
   /** The trim layout the kit's UVs follow: its pieces draw with that layout's debug set (absent or unknown: the cell debug texture). */
   readonly trimLayout?: string;
-  readonly cases: Readonly<Record<string, { readonly sections?: Readonly<Record<string, { readonly variants: readonly { readonly high: VoxelKitMeshRef; readonly low?: VoxelKitMeshRef; readonly weight?: number }[] }>> }>>;
+  readonly cases: Readonly<Record<string, { readonly sections?: Readonly<Record<string, { readonly variants: readonly { readonly high: VoxelKitMeshRef; readonly low?: VoxelKitMeshRef; readonly weight?: number }[] }>>; readonly alias?: PieceAlias }>>;
 }
 
 /** What draws one kit piece: its mesh and material, and a key equal for draws that can share an instanced mesh. */
@@ -77,6 +86,12 @@ export interface VoxelKitDraw {
   readonly material: THREE.Material;
   /** A trim kit's piece (voxel-trim-u.ts): sheet U a metre, the draw gives each instance its world-anchored U offset. */
   readonly uPerMetre?: number;
+  /** The cube rotation (cube-rotations.ts) the mesh is turned by first: an alias's, 0 for a case's own mesh. */
+  readonly rotation: number;
+  /** The axis the mesh runs along in its own space (0 x, 1 y): where a trim piece's U grows. */
+  readonly runAxis: 0 | 1;
+  /** The drawn case's stagger frame (null: not staggered) and what its hash reads: the kit's seed and the case's index. */
+  readonly stagger: { readonly frame: PieceStaggerFrame; readonly seed: number; readonly caseIndex: number } | null;
 }
 
 /** A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project. */
@@ -137,51 +152,14 @@ export function voxelKitDebugTexture(): THREE.DataTexture {
   return t;
 }
 
-/**
- * A default piece's mesh from its boxes (metres, centred on the cell). At
- * low detail each box loses its downward face (a level-1 piece is seen
- * from afar and above). UVs are in cells along the face's two axes (one
- * cell of the debug texture a cell), so runs of pieces meet with the same
- * texture across their ends.
- */
-export function defaultKitGeometry(boxes: readonly DefaultKitBox[], low: boolean): THREE.BufferGeometry {
-  const u = VOXEL_SIZE_M / DEFAULT_KIT_UNITS;
-  const half = VOXEL_SIZE_M / 2;
-  const parts = boxes.map((b) => {
-    const g = new THREE.BoxGeometry((b[3] - b[0]) * u, (b[4] - b[1]) * u, (b[5] - b[2]) * u);
-    if (low) {
-      // BoxGeometry's index holds 6 faces of 6 indices in the order +x, −x, +y, −y, +z, −z.
-      const src = g.index!.array;
-      const keep: number[] = [];
-      for (let f = 0; f < 6; f++) if (f !== 3) for (let k = 0; k < 6; k++) keep.push(src[f * 6 + k]!);
-      g.setIndex(keep);
-      g.clearGroups();
-    }
-    const m = new THREE.Matrix4().makeTranslation(((b[0] + b[3]) / 2) * u - half, ((b[1] + b[4]) / 2) * u - half, ((b[2] + b[5]) / 2) * u - half);
-    return { geometry: g, matrixWorld: m };
-  });
-  const out = mergeWorldGeometry(parts);
-  for (const p of parts) p.geometry.dispose();
-  const pos = out.getAttribute('position');
-  const nor = out.getAttribute('normal');
-  const uv = out.getAttribute('uv') as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    const [x, y, z] = [pos.getX(i) + half, pos.getY(i) + half, pos.getZ(i) + half].map((v) => v / VOXEL_SIZE_M) as [number, number, number];
-    const ax = Math.abs(nor.getX(i));
-    const ay = Math.abs(nor.getY(i));
-    const az = Math.abs(nor.getZ(i));
-    if (az >= ax && az >= ay) uv.setXY(i, x, y);
-    else if (ax >= ay) uv.setXY(i, z, y);
-    else uv.setXY(i, x, z);
-  }
-  return out;
-}
-
-/** Whether boxes are their own mirror image across the cell's x middle (the mirror a case transform applies). */
-function mirrorSymmetric(boxes: readonly DefaultKitBox[]): boolean {
-  const key = (b: readonly number[]): string => b.join(',');
-  const all = new Set(boxes.map(key));
-  return boxes.every((b) => all.has(key([DEFAULT_KIT_UNITS - b[3], b[1], b[2], DEFAULT_KIT_UNITS - b[0], b[4], b[5]])));
+/** A generated default piece's mesh (default-kit.ts) as a geometry. */
+export function defaultKitGeometry(d: KitMeshData): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(d.positions.slice(), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(d.normals.slice(), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(d.uvs.slice(), 2));
+  g.setIndex(new THREE.BufferAttribute(d.indices.slice(), 1));
+  return g;
 }
 
 /** A mesh mirrored across its x = 0 plane, its triangles turned so their fronts stay fronts. */
@@ -232,7 +210,7 @@ export class VoxelKitMeshes {
   private readonly materials = new Map<string, THREE.Material>();
   private readonly trimTextures = new Map<string, THREE.Texture>();
   /** Trim pieces' run-flagged copies, by the mesh they were made from. */
-  private readonly trimmed = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+  private readonly trimmed = new Map<THREE.BufferGeometry, THREE.BufferGeometry[]>();
   private readonly waiting = new Set<() => void>();
   private disposed = false;
 
@@ -296,16 +274,14 @@ export class VoxelKitMeshes {
     return (s.mirrored ??= mirrored(s.geometry));
   }
 
-  /** The default kit's mesh of a case (a piece the mirror maps onto itself has no mirrored copy: one draw serves both). */
-  defaultMesh(caseId: string, low: boolean, mirror: boolean): THREE.BufferGeometry | null {
-    const p = DEFAULT_KIT_PIECES[caseId];
-    if (p == null) return null;
-    if (mirror && mirrorSymmetric(p.boxes)) return this.defaultMesh(caseId, low, false);
+  /** The default kit's own mesh of a case (null: an alias or no piece), mirrored on request (no default case is mirrored today). */
+  defaultMesh(caseId: string, low: boolean, mirror = false): THREE.BufferGeometry | null {
     const key = `${caseId}:${low ? 1 : 0}:${mirror ? 1 : 0}`;
     let g = this.defaults.get(key);
     if (g === undefined) {
-      const plain = mirror ? this.defaultMesh(caseId, low, false)! : defaultKitGeometry(p.boxes, low);
-      g = mirror ? mirrored(plain) : plain;
+      const d = defaultKitMesh(caseId, low);
+      if (d === null) return null;
+      g = mirror ? mirrored(this.defaultMesh(caseId, low)!) : defaultKitGeometry(d);
       this.defaults.set(key, g);
     }
     return g;
@@ -331,11 +307,11 @@ export class VoxelKitMeshes {
     return m;
   }
 
-  /** A trim kit's mesh with its run faces flagged for the world-anchored U (made once a mesh). */
-  trimGeometry(g: THREE.BufferGeometry, layout: TrimLayout): THREE.BufferGeometry {
-    let t = this.trimmed.get(g);
-    if (t === undefined) this.trimmed.set(g, (t = trimRunGeometry(g, layout)));
-    return t;
+  /** A trim kit's mesh with its run faces flagged for the world-anchored U (made once a mesh and run axis). */
+  trimGeometry(g: THREE.BufferGeometry, layout: TrimLayout, runAxis: 0 | 1 = 0): THREE.BufferGeometry {
+    let byAxis = this.trimmed.get(g);
+    if (byAxis === undefined) this.trimmed.set(g, (byAxis = []));
+    return (byAxis[runAxis] ??= trimRunGeometry(g, layout, runAxis));
   }
 
   /** What a world's view draws its pieces with: `table` (its streamer's) and the kit records it was built from. */
@@ -367,7 +343,7 @@ export class VoxelKitMeshes {
       if (s.mirrored !== null) geometries.add(s.mirrored);
     }
     for (const g of this.defaults.values()) geometries.add(g);
-    for (const g of this.trimmed.values()) geometries.add(g);
+    for (const l of this.trimmed.values()) for (const g of l) if (g !== undefined) geometries.add(g);
     let meshes = 0;
     for (const g of geometries) {
       for (const a of Object.values(g.attributes)) meshes += (a as THREE.BufferAttribute).array.byteLength;
@@ -400,7 +376,7 @@ export class VoxelKitMeshes {
     this.materials.clear();
     for (const t of this.trimTextures.values()) t.dispose();
     this.trimTextures.clear();
-    for (const g of this.trimmed.values()) g.dispose();
+    for (const l of this.trimmed.values()) for (const g of l) g?.dispose();
     this.trimmed.clear();
     this.texture.dispose();
     this.waiting.clear();
@@ -426,12 +402,12 @@ export class VoxelKitSet {
     });
   }
 
-  /** What a kit piece of a cell of `material` is: its kit, case and run section (null: not a kit piece of this table). */
-  describe(material: number, piece: number): { readonly kit: string; readonly caseId: string; readonly section: string } | null {
+  /** What a kit piece of a cell of `material` is: its kit, case and run section, and the case whose mesh draws it (an alias's) turned by `rotation` (null: not a kit piece of this table). */
+  describe(material: number, piece: number): { readonly kit: string; readonly caseId: string; readonly section: string; readonly meshCaseId: string; readonly rotation: number } | null {
     const slot = this.table.materialKit[material] ?? NO_KIT;
     if (slot === NO_KIT) return null;
     const pc = this.lists[slot]?.[piece - KIT_PIECE_BASE];
-    return pc === undefined ? null : { kit: this.table.kits[slot]!.id, caseId: pc.caseId, section: pc.sectionId };
+    return pc === undefined ? null : { kit: this.table.kits[slot]!.id, caseId: pc.caseId, section: pc.sectionId, meshCaseId: pc.meshCaseId, rotation: pc.rotation };
   }
 
   /**
@@ -448,20 +424,20 @@ export class VoxelKitSet {
     const mirror = (variantWord & PIECE_VARIANT_MIRROR) !== 0;
     const variant = variantWord & PIECE_VARIANT_MASK;
     const key = `${slot}:${piece}:${variant}:${low ? 1 : 0}:${mirror ? 1 : 0}`;
+    const frame = PIECE_STAGGER_FRAMES[pc.caseId];
+    const placed = { rotation: pc.rotation, runAxis: pieceRunAxis(pc.meshCaseId), stagger: frame === undefined ? null : { frame, seed: kit.seed, caseIndex: pc.caseIndex } };
     if (kit.id === DEFAULT_KIT_ID) {
-      const g = this.meshes.defaultMesh(pc.caseId, low, mirror);
-      // A symmetric piece's mirrored instances share its unmirrored draw.
-      const same = mirror && g !== null && g === this.meshes.defaultMesh(pc.caseId, low, false);
-      return g === null ? null : { key: same ? `${slot}:${piece}:${variant}:${low ? 1 : 0}:0` : key, geometry: g, material: this.meshes.material(kit.seed, true) };
+      const g = this.meshes.defaultMesh(pc.meshCaseId, low, mirror);
+      return g === null ? null : { key, geometry: g, material: this.meshes.material(kit.seed, true), ...placed };
     }
-    const v = this.records.get(kit.id)?.cases[pc.caseId]?.sections?.[pc.sectionId]?.variants[variant];
+    const v = this.records.get(kit.id)?.cases[pc.meshCaseId]?.sections?.[pc.sectionId]?.variants[variant];
     if (v === undefined) return null;
     const g = this.meshes.mesh(low ? (v.low ?? v.high) : v.high, mirror);
     if (g === 'pending' || g === null) return g;
     const trimLayout = this.records.get(kit.id)?.trimLayout;
     const look = this.meshes.material(kit.seed, false, trimLayout);
     const layout = trimLayout === undefined ? undefined : TRIM_LAYOUTS.get(trimLayout);
-    if (layout === undefined) return { key, geometry: g, material: look };
-    return { key, geometry: this.meshes.trimGeometry(g, layout), material: look, uPerMetre: trimUPerMetre(layout) };
+    if (layout === undefined) return { key, geometry: g, material: look, ...placed };
+    return { key, geometry: this.meshes.trimGeometry(g, layout, placed.runAxis), material: look, uPerMetre: trimUPerMetre(layout), ...placed };
   }
 }

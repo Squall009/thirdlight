@@ -30,7 +30,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
 | [Types (CreateEntityArgs to ModelColliderKind)](types-c-m.md) | 92 sections |
 | [Types (ModelLodSettings to TerrainSplinesLayer)](types-m-t.md) | 101 sections |
-| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 57 sections |
+| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 58 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 20 sections |
 | [Script API types (from `BehaviorSignals`)](script-types-behavior-signals.md) | 22 sections |

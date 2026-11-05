@@ -268,7 +268,11 @@ them as `voxelKits`.
   by section id), each with one or more weighted `variants` of a `high` mesh
   and an optional `low` one. A mesh is a model asset and the SHA-256 of the
   GLB version it was made from (`{assetId, digest, node?}`), so it ships as
-  every model does. A case may hold only game data.
+  every model does. A case may hold only game data. A case may instead
+  name another case of the kit as its **`alias`** (`{case, rotation}`): it
+  draws with that case's meshes turned by one of the 24 cube rotations
+  (`rotation` 0–23, never a mirror), so one mesh serves a top, bottom and
+  vertical edge.
 - **`joinProfiles`**: the outline a section's end has, in whole sixteenths
   of a cell; a section's `ends` name them, so neighbouring sections can be
   checked to meet.
@@ -287,9 +291,13 @@ its material's kit's piece for the case of each of its edges and corners
 and the edge (an edit elsewhere never reshuffles it), turned to fit. Near the camera a piece's `high` mesh draws, one level out
 its `low` one (its `high` one where none is authored), farther out none:
 the cells draw as blocks. A material no kit binds draws the engine's
-**default kit**: plain procedural boxes (a strip along each edge, a cap on
-each corner, roof-edge boards, rubble for debris) with a labelled debug UV
-texture, and the engine's stand-in beams, rails and posts. Kit pieces draw with a stand-in material a
+**default kit**: procedural pieces made in code (a rounded strip along each
+outer edge, a cove in each inner edge, a rounded cap on each outer corner,
+chamfered roof-edge boards, chamfered rubble for debris) with a labelled
+debug UV texture, and the engine's stand-in beams, rails and posts. Edge and
+corner pieces are staggered a little (moved up to 1/32 of a cell into the
+solid and twisted up to 2°, by a hash of their cell), so a long rim does not
+read as a ruled line; the stagger is drawing only, collision never sees it. Kit pieces draw with a stand-in material a
 kit and that debug texture until materials arrive; a kit naming a trim layout
 draws with that layout's debug set instead (each region its own colour and
 id, a 3 cm checker, a tick every 0.125 m along U), so a face mapped to the

@@ -37,6 +37,8 @@ function full(): VoxelKit {
         },
       },
       'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D1 }, low: { assetId: 'log-kit-low', digest: D2 } }], ends: { start: 'beam' } } } },
+      // Drawn by another case's meshes turned (fields given out of order).
+      'beam-end': { gameData: { break: { hits: 2 } }, alias: { rotation: 5, case: 'beam-corner' } },
       // Data only: no pieces of its own (the fallback kit draws the case).
       'floor-edge': { gameData: 'creaky' },
     },
@@ -81,6 +83,7 @@ describe('voxel kit record', () => {
         materials: [3, 12, 4095],
         cases: {
           'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D1 }, low: { assetId: 'log-kit-low', digest: D2 } }], ends: { start: 'beam' } } } },
+          'beam-end': { alias: { case: 'beam-corner', rotation: 5 }, gameData: { break: { hits: 2 } } },
           'floor-edge': { gameData: 'creaky' },
           'wall-banister': {
             sections: {
@@ -165,6 +168,29 @@ describe('voxel kit record', () => {
     expect(at((k) => (k['joinProfiles']['beam']['outline'][1] = [17, 4]))).toEqual(['field_value /joinProfiles/beam/outline/1']);
     expect(at((k) => (k['joinProfiles']['beam']['outline'][1] = [4.5, 4]))).toEqual(['field_value /joinProfiles/beam/outline/1']);
     expect(at((k) => (k['trimLayout'] = 'Draft 1'))).toEqual(['id_invalid /trimLayout']);
+  });
+
+  it('refuses an alias that is not one: sections beside it, a rotation off the 24, a missing, self or chained target, unknown fields', () => {
+    const withCase = (c: unknown): VoxelKit => {
+      const k = full();
+      (k.cases as Record<string, unknown>)['beam-end'] = c;
+      return k;
+    };
+    const codes = (c: unknown): string[] => problems(withCase(c)).map((e) => `${e.code} ${e.path}`);
+    const section = { body: { variants: [{ high: { assetId: 'log-kit', digest: D1 } }] } };
+    expect(codes({ alias: { case: 'beam-corner', rotation: 23 } })).toEqual([]);
+    expect(codes({ alias: { case: 'beam-corner', rotation: 0 }, sections: section })).toEqual(['field_value /cases/beam-end/alias']);
+    for (const r of [24, -1, 1.5, '3']) expect(codes({ alias: { case: 'beam-corner', rotation: r } }), String(r)).toEqual(['field_value /cases/beam-end/alias/rotation']);
+    expect(codes({ alias: { case: 'no-such-case', rotation: 0 } })).toEqual(['reference_missing /cases/beam-end/alias/case']);
+    expect(codes({ alias: { case: 'beam-end', rotation: 0 } })).toEqual(['field_value /cases/beam-end/alias/case']);
+    // A case with data only, or itself an alias, has no meshes to lend.
+    expect(codes({ alias: { case: 'floor-edge', rotation: 0 } })).toEqual(['reference_missing /cases/beam-end/alias/case']);
+    expect(codes({ alias: { case: 'Bad Id', rotation: 0 } })[0]).toBe('id_invalid /cases/beam-end/alias/case');
+    expect(codes({ alias: { case: 'beam-corner', rotation: 0, mirror: true } })).toEqual(['field_unexpected /cases/beam-end/alias/mirror']);
+    expect(codes({ alias: 'beam-corner' })).toEqual(['field_type /cases/beam-end/alias']);
+    const chained = withCase({ alias: { case: 'beam-corner', rotation: 1 } });
+    (chained.cases as Record<string, unknown>)['beam-tip'] = { alias: { case: 'beam-end', rotation: 2 } };
+    expect(problems(chained).map((e) => `${e.code} ${e.path}`)).toEqual(['reference_missing /cases/beam-tip/alias/case']);
   });
 
   it('refuses game data that is not JSON or nests past the bound', () => {

@@ -85,12 +85,21 @@ export function defaultPieceSection(piece: number): number {
   return piece & 7;
 }
 
+/**
+ * A case drawn by another case's mesh (a kit's alias): `case` names the kit's case whose sections it draws,
+ * `rotation` which of the 24 cube rotations (cube-rotations.ts) turns that mesh first, in the case's own orientation.
+ */
+export interface PieceAlias {
+  readonly case: string;
+  readonly rotation: number;
+}
+
 /** What a piece table reads of a kit (project-model's voxel kit record fits it). */
 export interface PieceKitSource {
   readonly voxelKitId: string;
   /** The voxel material ids the kit applies to (its test binding). */
   readonly materials?: readonly number[];
-  readonly cases: Readonly<Record<string, { readonly sections?: Readonly<Record<string, { readonly variants: readonly { readonly weight?: number }[] }>> }>>;
+  readonly cases: Readonly<Record<string, { readonly sections?: Readonly<Record<string, { readonly variants: readonly { readonly weight?: number }[] }>>; readonly alias?: PieceAlias }>>;
 }
 
 /** One of a kit's own pieces: a case's section, with its variants' weights. */
@@ -101,6 +110,10 @@ export interface KitPiece {
   readonly section: number;
   /** Each variant's weight (absent in the kit: 1), in the kit's order. */
   readonly weights: readonly number[];
+  /** The kit case whose meshes draw it: its own, or its alias's. */
+  readonly meshCaseId: string;
+  /** The cube rotation its meshes are turned by first (0: an own case's). */
+  readonly rotation: number;
 }
 
 /**
@@ -115,13 +128,21 @@ export function kitPieceList(kit: PieceKitSource, catalogue: CaseCatalogueDef): 
   for (const id of Object.keys(kit.cases)) if (!known.has(id)) problems.push(`kit ${kit.voxelKitId}: case "${id}" is not in catalogue ${catalogue.id} v${catalogue.version}`);
   const pieces: KitPiece[] = [];
   catalogue.cases.forEach((c, caseIndex) => {
-    const secs = kit.cases[c.id]?.sections;
+    const own = kit.cases[c.id];
+    const alias = own?.sections === undefined ? own?.alias : undefined;
+    // An alias draws its target's sections turned; a target that is itself an alias draws nothing (the format refuses it).
+    const target = alias === undefined ? own : kit.cases[alias.case];
+    if (alias !== undefined && (target?.sections === undefined || alias.case === c.id)) {
+      problems.push(`kit ${kit.voxelKitId}: case "${c.id}" is an alias of "${alias.case}", which has no pieces of its own`);
+      return;
+    }
+    const secs = target?.sections;
     if (secs === undefined) return;
-    for (const sid of Object.keys(secs)) if (!RUN_SECTION_IDS.includes(sid)) problems.push(`kit ${kit.voxelKitId}: case "${c.id}" section "${sid}" is not a run section (${RUN_SECTION_IDS.join(', ')})`);
+    if (alias === undefined) for (const sid of Object.keys(secs)) if (!RUN_SECTION_IDS.includes(sid)) problems.push(`kit ${kit.voxelKitId}: case "${c.id}" section "${sid}" is not a run section (${RUN_SECTION_IDS.join(', ')})`);
     RUN_SECTION_IDS.forEach((sid, section) => {
       const s = secs[sid];
       if (s === undefined || s.variants.length === 0) return;
-      pieces.push({ caseId: c.id, caseIndex, sectionId: sid, section, weights: s.variants.map((v) => v.weight ?? 1) });
+      pieces.push({ caseId: c.id, caseIndex, sectionId: sid, section, weights: s.variants.map((v) => v.weight ?? 1), meshCaseId: alias?.case ?? c.id, rotation: alias?.rotation ?? 0 });
     });
   });
   if (pieces.length > NO_PIECE - KIT_PIECE_BASE) throw new RangeError(`kit ${kit.voxelKitId}: ${pieces.length} pieces past the u16 piece index`);

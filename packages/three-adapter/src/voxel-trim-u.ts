@@ -6,14 +6,15 @@
  * coordinate and the pattern repeats with the sheet, whichever chunk, turn or
  * mirror placed the cell.
  *
- * - **Which faces:** a triangle whose face is not end-on to the piece's x
- *   (|normal x| < 0.05, the kit check's run faces) and whose UVs are not in a
+ * - **Which faces:** a triangle whose face is not end-on to the piece's run
+ *   (x, or y for a vertical edge's own mesh: |normal along it| < 0.05, the
+ *   kit check's run faces) and whose UVs are not in a
  *   cap region. End faces and caps keep their authored UVs. The choice is
  *   made per triangle on the CPU (a vertex attribute `trimRun`, the mesh made
  *   non-indexed), because smooth normals shared by a run face and an end face
  *   would split the choice inside a triangle.
- * - **Which way:** U grows along the world's positive axis of the run (x or
- *   z), not along the piece's own +x: two cells of one run placed with
+ * - **Which way:** U grows along the world's positive axis of the run (x, z,
+ *   or y for vertical edges), not along the piece's own run direction: two cells of one run placed with
  *   different turns or mirrors (a thin wall's symmetric case) then still meet
  *   without a seam. The price is that text on a debug sheet reads mirrored on
  *   faces seen from the axis' negative side; a real trim texture has no
@@ -46,8 +47,8 @@ export function trimUPerMetre(layout: TrimLayout): number {
   return layout.pxPerMetre / layout.size;
 }
 
-/** A non-indexed copy of a trim piece's geometry with `trimRun` set on the triangles the run offset applies to. */
-export function trimRunGeometry(g: THREE.BufferGeometry, layout: TrimLayout): THREE.BufferGeometry {
+/** A non-indexed copy of a trim piece's geometry with `trimRun` set on the triangles the run offset applies to (the run along the mesh's `runAxis`). */
+export function trimRunGeometry(g: THREE.BufferGeometry, layout: TrimLayout, runAxis: 0 | 1 = 0): THREE.BufferGeometry {
   const out = g.index === null ? g.clone() : g.toNonIndexed();
   const pos = out.getAttribute('position') as THREE.BufferAttribute;
   const uvs = out.getAttribute('uv') as THREE.BufferAttribute | undefined;
@@ -61,7 +62,7 @@ export function trimRunGeometry(g: THREE.BufferGeometry, layout: TrimLayout): TH
     c.fromBufferAttribute(pos, t + 2).sub(a);
     const n = b.cross(c);
     const len = n.length();
-    if (len === 0 || uvs === undefined || Math.abs(n.x / len) >= END_ON) continue;
+    if (len === 0 || uvs === undefined || Math.abs(n.getComponent(runAxis) / len) >= END_ON) continue;
     const region = trimRegionAt(layout, uvs.getX(t), uvs.getY(t));
     if (region === null || region.kind === 'cap') continue;
     flag[t] = flag[t + 1] = flag[t + 2] = 1;
@@ -83,22 +84,26 @@ export function trimMaterial(map: THREE.Texture): THREE.Material {
   return cameraRelative(m);
 }
 
-/** Where the piece's +x points on the world after `turns` quarter turns (a turn takes +x to +z): axis 0 (x) or 2 (z), and its sign. */
-const TURN_X: readonly (readonly [0 | 2, 1 | -1])[] = [[0, 1], [2, 1], [0, -1], [2, -1]];
-
 /**
  * An instance's (offset, factor): cell `local` of a draw whose corner is
- * `corner` (level-0 cells) and whose cells are `cellMetres` across, drawn
- * with `turns` and mirrored or not. Authored U grows along the drawn mesh's
- * +x, or against it on a mirrored copy (x negated, UVs kept).
+ * `corner` (level-0 cells) and whose cells are `cellMetres` across, its
+ * mesh's run (where authored U grows) placed along world axis `axis` (0 x,
+ * 1 y, 2 z) with `sign`, read from the instance's whole rotation (an alias's
+ * turn, the tip, the case's turns) and the mirror: a vertical edge's U runs
+ * up the world's y.
  */
-export function pieceU(uPerMetre: number, corner: readonly number[], local: readonly number[], cellMetres: number, turns: number, mirror: boolean): [number, number] {
-  const [axis, s] = TURN_X[turns & 3]!;
-  const sign = mirror ? -s : s;
+export function pieceU(uPerMetre: number, corner: readonly number[], local: readonly number[], cellMetres: number, axis: number, sign: number): [number, number] {
   const k = cellMetres / VOXEL_SIZE_M;
   const low = (corner[axis]! + local[axis]! * k) * VOXEL_SIZE_M;
   const at = uPerMetre * (sign > 0 ? low : low + cellMetres);
   return [at - Math.floor(at), sign * k];
+}
+
+/** The world axis (0–2) and sign a mesh's run axis takes under a rotation (a quarter-turn quaternion: the axis is exact). */
+export function runAxisOf(q: THREE.Quaternion, runAxis: 0 | 1, mirror: boolean): [axis: number, sign: number] {
+  const v = new THREE.Vector3(runAxis === 0 ? (mirror ? -1 : 1) : 0, runAxis === 1 ? 1 : 0, 0).applyQuaternion(q);
+  const a = Math.abs(v.x) >= Math.abs(v.y) && Math.abs(v.x) >= Math.abs(v.z) ? 0 : Math.abs(v.y) >= Math.abs(v.z) ? 1 : 2;
+  return [a, v.getComponent(a) > 0 ? 1 : -1];
 }
 
 /**

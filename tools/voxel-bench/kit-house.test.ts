@@ -11,22 +11,35 @@
  * - **One owner an edge**: every exposed edge and corner of construction
  *   (found by brute force over the lattice) has exactly one piece, and no
  *   piece sits anywhere else.
- * - **Stand-ins out of the solid**: every default box, placed as the
- *   renderer places it (turns, tip, centring), lies in its own cell or in
- *   open air.
+ * - **Default pieces out of the solid**: every default piece's vertex,
+ *   placed as the renderer places it (alias rotation, turns, tip, centring),
+ *   lies in its own cell or in open air.
  * - **Roofs** take roof-edge pieces only; **damage** draws debris on the
  *   damaged cell and a debris face on each intact face toward it, nothing
  *   else changes for collision, light or navigation, and at air the
  *   neighbours' plain faces and the hole's edges are back.
  */
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { createVoxelSurface, VoxelChunkView, VoxelKitMeshes, voxelStandInLook } from '@thirdlight/three-adapter';
 import {
   applyFold,
   buildApron,
   chunkGrid,
   createWorldStore,
+  applyCubeRotation,
+  CUBE_ROTATIONS,
+  FloatingOrigin,
+  joinSectionsForDraw,
+  MATERIAL_BITS,
+  PIECE_STAGGER,
+  SHADER_BORDER_CELLS,
+  SHADER_READ_DEPTH_CELLS,
+  shaderGridSide,
+  WETNESS_MAX,
+  VOXEL_SIZE_M,
   DEFAULT_KIT_PIECES,
-  DEFAULT_KIT_UNITS,
+  defaultKitMesh,
   defaultKitSource,
   deriveFromStore,
   deriveSectionsWithApron,
@@ -168,6 +181,8 @@ function exposedSlots(s: PaletteStore, lo: Cell, hi: Cell): string[] {
       const diagonal = axis >= 0 && n === 2 && solid(s, ...cells[0]!) === solid(s, ...cells[3]!);
       const want = axis >= 0 ? n === 1 || n === 3 || diagonal : n === 1 || n === 7;
       if (!want || !cells.some((c) => built(...c)) || cells.some((c) => terrain(...c))) continue;
+      // The default kit leaves inner corners to the coves meeting there (no piece of its own: none drawn).
+      if (axis < 0 && n === 7 && DEFAULT_KIT_PIECES['corner-in-top'] === null) continue;
       const mid = [2 * x, 2 * y, 2 * z];
       if (axis >= 0) mid[axis]! += 1;
       const key = `${axis >= 0 ? 'e' : 'c'}${mid.join(',')}`;
@@ -231,27 +246,36 @@ describe('pieces on edges only', () => {
     }
   }, 60_000);
 
-  it('places every default stand-in box as the renderer does in its own cell or open air, never in a solid neighbour', () => {
+  it("places every default piece's vertices as the renderer does (alias rotation, tip, centring, turns) in its own cell or open air, never in a solid neighbour", () => {
     const s = createWorldStore(grid);
     boxHouse(s);
-    const U = DEFAULT_KIT_UNITS;
-    let boxes = 0;
+    // A piece's vertices in cells about its cell's centre, in its case's orientation (an alias: its target's turned).
+    const vertices = (caseId: string): [number, number, number][] => {
+      const p = DEFAULT_KIT_PIECES[caseId]!;
+      const d = defaultKitMesh(p.alias?.case ?? caseId, false)!;
+      const out: [number, number, number][] = [];
+      for (let i = 0; i < d.positions.length; i += 3) {
+        const v: [number, number, number] = [d.positions[i]! / VOXEL_SIZE_M, d.positions[i + 1]! / VOXEL_SIZE_M, d.positions[i + 2]! / VOXEL_SIZE_M];
+        out.push(p.alias === undefined ? v : applyCubeRotation(p.alias.rotation, v));
+      }
+      // A hair toward the piece's middle: a vertex on a face reads as the cell it faces, not the one behind it.
+      const mid = [0, 1, 2].map((a) => out.reduce((n, v) => n + v[a]!, 0) / out.length);
+      return out.map((v) => v.map((c, a) => c + (mid[a]! - c) * 0.02) as [number, number, number]);
+    };
+    let points = 0;
     for (const p of piecesIn(s, [3, 7, 3], [17, 16, 15])) {
-      for (const b of DEFAULT_KIT_PIECES[p.caseId]!.boxes) {
-        // The box's corners, a hair inside, about the cell's centre in cells; tip, centre, then the turns (+x to +z).
-        for (const corner of [0, 1].flatMap((i) => [0, 1].flatMap((j) => [0, 1].map((k) => [i ? b[3] - 0.1 : b[0] + 0.1, j ? b[4] - 0.1 : b[1] + 0.1, k ? b[5] - 0.1 : b[2] + 0.1])))) {
-          let q = corner.map((c) => c / U - 0.5) as [number, number, number];
-          if (p.place === INSTANCE_PLACE.faceUp) q = [q[0], q[2], -q[1]];
-          if (p.place === INSTANCE_PLACE.faceDown) q = [q[0], -q[2], q[1]];
-          if (p.place === INSTANCE_PLACE.centred) q = [q[0], q[1], q[2] - 0.5];
-          const w = applyFold(p.yaw, q).map((c, a) => Math.floor(p.cell[a]! + 0.5 + c)) as Cell;
-          if (w.every((c, a) => c === p.cell[a])) continue;
-          expect(solid(s, ...w), `${p.caseId} yaw ${p.yaw} at ${p.cell.join(',')} reaches into ${w.join(',')}`).toBe(false);
-        }
-        boxes++;
+      for (const v of vertices(p.caseId)) {
+        let q = v;
+        if (p.place === INSTANCE_PLACE.faceUp) q = [q[0], q[2], -q[1]];
+        if (p.place === INSTANCE_PLACE.faceDown) q = [q[0], -q[2], q[1]];
+        if (p.place === INSTANCE_PLACE.centred) q = [q[0], q[1], q[2] - 0.5];
+        const w = applyFold(p.yaw, q).map((c, a) => Math.floor(p.cell[a]! + 0.5 + c)) as Cell;
+        points++;
+        if (w.every((c, a) => c === p.cell[a])) continue;
+        expect(solid(s, ...w), `${p.caseId} yaw ${p.yaw} at ${p.cell.join(',')} reaches into ${w.join(',')}`).toBe(false);
       }
     }
-    expect(boxes).toBeGreaterThan(100);
+    expect(points).toBeGreaterThan(1000);
   });
 
   it('a gable roof takes ridge, eave and verge pieces on its plane cells and no edge piece round them', () => {
@@ -356,5 +380,65 @@ describe('damage drawn as debris', () => {
       return Uint8Array.from(keep);
     };
     expect(far(after)).toEqual(far(whole));
+  });
+});
+
+describe('the default kit drawn through the real chunk view', () => {
+  it('a box house, a gable house and a damaged wall: one instanced draw a (piece, level), instances by family, aliases on their target\'s geometry, every instance staggered within bounds', () => {
+    const s = createWorldStore(grid);
+    boxHouse(s);
+    // A gable house beside it (x 20…28, z 2…13) and a damaged wall (x 2…11, y 20…25, z 26: one cell at 12, one at 5).
+    for (let x = 20; x <= 28; x++) for (let y = 4; y < 8; y++) for (const z of [3, 12]) putVoxel(s, x, y, z, MAT.stone, R.wall);
+    for (let x = 19; x <= 29; x++) for (let z = 2; z <= 13; z++) putVoxel(s, x, 8 + Math.min(x - 19, 29 - x), z, MAT.roofTile, R.roof);
+    for (let x = 2; x < 12; x++) for (let y = 20; y < 26; y++) putVoxel(s, x, y, 26, MAT.stone, R.wall);
+    s.setVoxel(5, 22, 26, { material: MAT.stone, role: R.wall, shape: 12, wetness: 0 });
+    s.setVoxel(8, 23, 26, { material: MAT.stone, role: R.wall, shape: 5, wetness: 0 });
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
+    const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
+    const meshes = new VoxelKitMeshes();
+    const set = meshes.world([]);
+    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: set });
+    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
+    view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
+    const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
+    // Instances by case from the derive, and what the view drew of them: every kit instance, one draw a piece kind.
+    const byCase = new Map<string, number>();
+    for (const p of piecesOf(d, 0, 0, 0)) byCase.set(p.caseId, (byCase.get(p.caseId) ?? 0) + 1);
+    const total = [...byCase.values()].reduce((a, b) => a + b, 0);
+    expect(draws.reduce((n, m) => n + m.count, 0)).toBe(total);
+    expect(view.piecesDrawn.kit).toBe(total);
+    const kinds = [...byCase.keys()].filter((id) => DEFAULT_KIT_PIECES[id] !== null);
+    expect(draws.length).toBe(kinds.length);
+    const family = (id: string): string => (id.startsWith('edge-') || id.startsWith('corner-') ? 'edge' : id.startsWith('roof-') ? 'roof' : id.startsWith('debris') ? 'debris' : 'other');
+    const families = new Map<string, number>();
+    for (const [id, n] of byCase) families.set(family(id), (families.get(family(id)) ?? 0) + n);
+    for (const f of ['edge', 'roof', 'debris']) expect(families.get(f), f).toBeGreaterThan(0);
+    expect(byCase.get('debris')).toBe(1);
+    expect(byCase.get('debris-heavy')).toBe(1);
+    // Aliased cases draw with their target's geometry: the outer strip serves top, vertical and bottom edges.
+    const strip = meshes.defaultMesh('edge-out-top', false);
+    const onStrip = draws.filter((m) => m.geometry === strip);
+    expect(onStrip.length).toBe(['edge-out-top', 'edge-out-vertical', 'edge-out-bottom'].filter((id) => byCase.has(id)).length);
+    expect(onStrip.length).toBeGreaterThanOrEqual(2);
+    // Every staggered instance moved into its solid within bounds; a roof board sits exactly on its cell's grid.
+    const m4 = new THREE.Matrix4();
+    const CUBE_QUATS = CUBE_ROTATIONS.map((r) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(r[0], r[1], r[2], 0, r[3], r[4], r[5], 0, r[6], r[7], r[8], 0, 0, 0, 0, 1)));
+    let staggered = 0;
+    for (const mesh of draws) {
+      for (let k = 0; k < mesh.count; k++) {
+        mesh.getMatrixAt(k, m4);
+        expect(m4.determinant()).toBeCloseTo(1, 5);
+        const q = new THREE.Quaternion().setFromRotationMatrix(m4);
+        // Unstaggered, every instance's rotation is one of the cube's 24 (turns, tips, aliases): the nearest is within the twist.
+        const nearest = Math.min(...CUBE_QUATS.map((c) => q.angleTo(c)));
+        expect(nearest).toBeLessThanOrEqual(PIECE_STAGGER.twistMax + 1e-6);
+        if (nearest > 1e-6) staggered++;
+      }
+    }
+    expect(staggered).toBeGreaterThan(families.get('edge')! / 2);
+    console.log(`[default kit] house + gable + damaged wall: ${total} instances in ${draws.length} draws (${[...byCase].map(([id, n]) => `${id} ${n}`).join(', ')})`);
+    view.dispose();
+    meshes.dispose();
   });
 });
