@@ -676,7 +676,9 @@ def log_pieces():
 
 def stone_pieces():
     k = {}
-    P = 0.012  # how far an edge stands proud of its faces
+    # How far an edge stands proud of its faces: more than its stagger sinks it (up to 1/32 cell in, and a 2° twist
+    # over half a cell), so a staggered strip never sinks under its faces in places.
+    P = 0.035
 
     def edge(chip, low):
         # The block edge's profile from the top face round to the front face (z, y), fanned shut from the edge line.

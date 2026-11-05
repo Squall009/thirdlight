@@ -16,24 +16,24 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "edge-out-top_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "edge-out-top_body_v0_low"
        }
       },
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "edge-out-top_body_v1_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "edge-out-top_body_v1_low"
        }
       }
@@ -48,12 +48,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "edge-in-bottom_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "edge-in-bottom_body_v0_low"
        }
       }
@@ -68,12 +68,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "corner-out-top_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "corner-out-top_body_v0_low"
        }
       }
@@ -88,12 +88,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-ridge_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-ridge_body_v0_low"
        }
       }
@@ -108,12 +108,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-eave_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-eave_body_v0_low"
        }
       }
@@ -128,12 +128,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-gable_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-gable_body_v0_low"
        }
       }
@@ -148,12 +148,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-hip_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-hip_body_v0_low"
        }
       }
@@ -168,12 +168,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-valley_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "roof-valley_body_v0_low"
        }
       }
@@ -188,12 +188,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "debris_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "debris_body_v0_low"
        }
       }
@@ -208,12 +208,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "debris-heavy_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "debris-heavy_body_v0_low"
        }
       }
@@ -228,12 +228,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "debris-face_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "debris-face_body_v0_low"
        }
       }
@@ -248,12 +248,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_body_v0_low"
        }
       }
@@ -268,12 +268,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_start_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_start_v0_low"
        }
       }
@@ -287,12 +287,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_end_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_end_v0_low"
        }
       }
@@ -306,12 +306,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_single_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "beam_single_v0_low"
        }
       }
@@ -326,12 +326,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_body_v0_low"
        }
       }
@@ -346,12 +346,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_start_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_start_v0_low"
        }
       }
@@ -365,12 +365,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_end_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_end_v0_low"
        }
       }
@@ -384,12 +384,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_single_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-rail_single_v0_low"
        }
       }
@@ -404,12 +404,12 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-post_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "digest": "dfd08fa5d3ba5a089a711c41ace0408e2816f63ddaa33e2592ce3197c2b8f6d3",
         "node": "banister-post_body_v0_low"
        }
       }
