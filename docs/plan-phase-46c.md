@@ -983,6 +983,12 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   edit within the streamer's radius (≥ 4 here), each once, in one swap of its group; every swapped chunk's instances
   equal the in-thread derive with the table; the cell lists one piece replacing its base (debris) where it had none,
   and each of its four in-plane neighbours one more piece (its debris face).
+- **Gate.** Fast gate (`voxel-world.e2e.ts`) at 57709ea4: lint, build green; vitest red on `stream.test.ts` 'never
+  holds an edit …' in the run and its alone-rerun (D498 watch, second time: it asserted the swap order of two
+  independent digs, which follows worker completion; passed alone 3 × and in the file 2 ×). Fixed in the test
+  (a636b0b5, each swaps alone in either order; D498 closed). `tools/gate.sh rerun`: GREEN, vitest and all e2e
+  passed, voxel-world.e2e.ts 61.6 s (was 69.2 s at R3, no e2e change here; host load 2.5–3.6), village perf 0 missed
+  both renderers.
 
 ## 9. Decision log
 
