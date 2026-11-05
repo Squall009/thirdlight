@@ -1709,6 +1709,11 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   (their coarse cells become roof or air), while a body standing through the roof keeps its cells: walls under a
   roof are not seen from outside, so the coarse level shows the roof rather than the wall that won the cell by role.
 
+- 2026-11-05 (OWNER): **two detail states, not three.** Detail pieces only near (L0); from the middle ring (L1)
+  outward the edges are plain flat square voxels, as in the Enshrouded reference. The 46b.9 high → low → none
+  scheme is replaced: no low pieces, so a kit authors one mesh per piece; the `low` mesh leaves the kit format and
+  the kit check, and D505 (more pieces at L1) goes away. Roof planes stay at every level. Built in 46c.16.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).

@@ -568,17 +568,19 @@ is: an edit elsewhere never moves a piece. Roof-edge, debris, beam and banister 
 variant is hashed from the world cell, the kit and which of the cell's pieces it is, so the edges of one cell vary on
 their own and nothing reshuffles when you build elsewhere.
 
-## 11. Detail levels: high, low, none
+## 11. Detail levels: pieces near, plain voxels from the middle ring out
+
+Owner 2026-11-05: two states only, as in the reference — **detail pieces near, flat square voxel edges from the
+middle distance outward.** There is no "simple piece" stage, so a kit authors **one mesh per piece** (no low version).
 
 | Ring | Cells | Pieces | Surfaces |
 |---|---|---|---|
-| L0 (near) | 0.5 m | the kit's **high** pieces | voxel faces, roof planes |
-| L1 (middle) | 1 m | the kit's **low** pieces (the high where a variant has no low), on edges read from the 1 m cells, drawn at twice the size | voxel faces, roof planes |
-| L2 and coarser | 2 m and up | **none** | flat square voxels, roof planes |
+| L0 (near) | 0.5 m | the kit's pieces (edges, corners, roof edges, debris, beams, banisters) | voxel faces, roof planes |
+| L1 (middle) and coarser | 1 m and up | **none** | flat square voxels, roof planes |
 
-A low piece keeps the silhouette and drops what only shows near (end caps, chamfers, downward faces); it uses the same
-texture regions as its high, so a switch never jumps the texture. Damage shows at L0 only (§7). The far field (no draw
-cut-off, cheap stand-ins for km-distant terrain) is 46d's.
+Damage shows at L0 only (§7). The far field (no draw cut-off, cheap stand-ins for km-distant terrain) is 46d's.
+*As built today the code still draws low pieces at L1 (46b.9's high/low/none); 46c.16 switches it to this table and
+drops the `low` mesh from the kit format and the kit check.*
 
 ## 12. What a kit must provide, and what the engine does without it
 
@@ -670,7 +672,7 @@ GLB 85,260 B; no textures (the runtime debug set); kit check 0 errors.
    open cell). Is that right where a stone wall meets a timber floor (the floor's kit draws the inner edge)?
 4. **Stagger.** 1/64–1/32 cell into the solid and ≤ 2° twist on edges and corners only: enough, too much? Stagger
    roof edges too?
-5. **Middle ring pieces (D505).** All edges at L1, or only outer top and vertical edges?
+5. **Middle ring pieces (D505).** Settled by the owner 2026-11-05: no pieces from L1 out (§11).
 6. **Terrain contact.** No edge piece anywhere a building touches terrain (47b's fringe draws it). Confirm.
 7. **Roofs.** 45° only, 90° hips/valleys only, everything else voxel faces. Enough for now, or 1:2 roofs (D500) soon?
 8. **Roof collision as the drawn planes** (default chosen; plan-45 said "collide as ramps", the revision plan said
@@ -695,7 +697,7 @@ GLB 85,260 B; no textures (the runtime debug set); kit check 0 errors.
 - [ ] Damage display: two debris stages, debris faces, collision and light whole until air, near ring only (§7).
 - [ ] Beams and banisters kept as built (§8).
 - [ ] Aliases (24 rotations, never mirrored) and the engine-mirrored verge (§9); the stagger (§10).
-- [ ] High at L0, low at L1, none from L2; roof planes at every level (§11).
+- [ ] Pieces at L0 only; flat square voxels from L1 out; roof planes at every level (§11).
 - [ ] Required / optional cases and the engine's fallbacks (§12); the Blender conventions (§13).
 - [ ] What moved to 46d, 47a and 47b (§14).
 - [ ] Your answers to §16.
