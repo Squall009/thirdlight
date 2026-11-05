@@ -248,6 +248,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R7 | done (DRAFT, hard stop; the 2026-11-04 review replaced the old drafts in place, old text in git): role spec = 21 cases of `edges-draft` v1 with diagrams, aliases, stagger, levels, debris, roof mesher, kit duties, Blender rules, D500–D509 gaps, 13 questions; texture layout = 4 × 4 m grid tile for faces + detail sheet/own bakes for pieces, 8 questions; `role-spec-doc.test.ts` (5) back |
 | R8 | done (docs only): spec §3.7 *Kits: edges, roofs and debris* (edge pass, roof mesher, pieces, debris, alias, stagger, 4 m grid UVs, `relayRoofs`), one derived table v2 → v19 with owner notes, shape = integrity in §2.2, §3.8 at 19; trace R73–R77, R86, R87, R90, R107, R112; manual roofs/damage; archive README and the 46c full-gate note corrected. Spec 2,186 → 2,115 lines |
 | R9 | presented, awaiting owner approval (hard stop): 76 shots × 2 renderers (log, stone, default kit; houses near/L1/far, door, window, corner, damage 12/7/1/air, balcony, bands, town) in `acceptance/46c-r/final`, README + approve-46c-r.md, 35 questions. Town: 59.5 k instances, 3,081 draws, 0–1 missed. Seen wrong: L1 gable roofs in strips, far roofs stepped |
+| R9b | done (775c6000): D513/D514 fixed — the coarse roof takes the cells of walls it covers (gable ends, eave walls), so L1 gables are one pair of planes and far roofs no longer step; derived v20; D515 (L junction), D516 (ring-edge cut, the floating bit) opened. 26 pictures × 2 renderers re-shot and looked at, README updated. Fast gate GREEN (15 min). |
 
 ## 8. Results
 
@@ -1263,6 +1264,46 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 - **Derived v19** (one step for both: mips and the `half` flag; spec owner note). No stored format change; the slice
   world needs no regenerating. The staging project's log/stone kits must be imported again (`run.mjs kits`).
 
+### R9b fixes after the R9 pictures (L1 gables, far roofs, the floating roof bit)
+
+- **D513 (fixed 775c6000).** Cause: `relayRoofs` skipped any parent cell another body held ("a wall through the roof
+  keeps it"), and the gable's end walls under its verges (and the wall under the far eave) held their coarse cells by
+  role priority, so at L1 the end-wall columns stood through the roof as wall steps and the roof broke into strips
+  (two end walls a house: three strips, as seen). Hips and Ls have no end walls, so they looked right. The R2/R6b
+  tests had bare roofs or walls only under the verge at L0. Fix: a non-roof body cell of the parent whose finer
+  cells all lie under their column's top roof cell (`underRoof`) is cleared at and above the new roof cell; a body
+  standing through the roof (a chimney, a column without roof) keeps its cells. Test (`roof-mesher.test.ts`, new,
+  14 s): walled gable 10 × 9, hip 11 × 9 and L 14 × 14 houses as the village builds them (overhang, end walls), at
+  all 16 x/z offsets against the level-2 grid (heights cycling 0–3), levels 1 and 2: every column under the roof is
+  topped by exactly one roof cell, a plane cell, no wall above it, neighbours one 45° step apart, a gable level along
+  its ridge. Fails on the old code (gable at offset 0: a wall on top of column 4,4 at L1).
+- **D514 (fixed 775c6000).** The far town's stepped roofs: the town generator's gables have the same end walls; same
+  fix. L2 is drawn at last in the new views (the page with `levels=4,8` and the look-at focus 150 m past the houses,
+  so their level-2 node is drawn): planes, no steps, no pieces; at 2 m the three houses of a row (3.5 m apart) merge
+  into one block whose roofs meet in small pyramids and V notches (recorded for the owner, not a defect).
+- **The floating roof bit (D516, open).** Not the roofs: the streaming ring (192 m, chunk columns whole) cuts a house
+  at its edge and a roof overhang in the last drawn column floats over the ground. Evidence: it moves with the camera
+  (32 cells over, still at the new edge), is gone with the focus mid-town, with every node at level 0 the same edge
+  shows floating rails, and the town's voxels at levels 1–4 (world grid and all 11 rotated houses, Node) have no roof
+  component without a wall or the ground under it. The far field past the ring is 46d's (D463).
+- **D515 (open).** Found by the new test: an L whose arms are an odd and an even number of coarse cells wide meets a
+  sharp ridge with a flat two-cell one; one to three cells there stay voxel steps (the test allows them only within a
+  coarse cell of the square where the arms cross). Not seen in the pictures.
+- **The 400 per village run.** The picture script's own `dig` of an already empty box: the backend answers
+  `no_change` with HTTP 400 and the browser logs every 4xx. No product change.
+- **Role spec §15:** D505 figures (L1 listed 72.6 k → 32.5 k, drawn 22.8 k) and D508 (fixed in R6) brought up to date.
+- **Looked at** (staging slice village rebuilt, 81 commands, all undone; town; 1280 × 720, WebGPU and WebGL 2,
+  2026-11-05 06:10–06:30, build 775c6000's code): `*-gable-l1-close`, `*-gable/hip/ell-mid-l1` (all kits): gables one
+  pair of planes with eave and verge boards, hips and Ls unchanged; the new `*-row-l2`, `*-gable/hip/ell-l2-close`;
+  `*-town-far` (plane roofs; the ring-edge bit stays). WebGL 2 twins within 0.05 % of the pixels. Pictures replace R9's
+  in `acceptance/46c-r/final`; README §2/§6 updated. Unverified: motion across the L0/L1/L2 rings after the fix.
+- **Gate.** Fast gate (`voxel-world.e2e.ts`) on 775c6000: GREEN (gate-fast-20261105-063440, 15 min, peak
+  4.9 GB): lint clean, vitest 844 files + `stream.test.ts` 'refreshes chunks another writer changed…' timed out at 5 s
+  under load and passed alone (D454, watch), 36 e2e (`voxel-world.e2e.ts` tests sum 62.8 s, R6b 63.4 s; no e2e
+  change), village perf 0 missed both renderers (6.07 / 4.06 ms main thread). A first start stopped at the build: a
+  test comment named an audit id (history-comments), fixed before the commit was pushed.
+- **Derived v20** (spec owner note). No stored format change; no world regenerated, kits unchanged.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1663,6 +1704,10 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   cases: no kit authors anything new; a kit that wants a carved ridge end would need a case later.
 - 2026-11-05 (R6b, default chosen, owner to confirm): **a banister post runs up through its rail's cell** (kit
   authoring rule, kit check envelope), since the post case always has a rail above.
+
+- 2026-11-05 (R9b, default chosen, owner to confirm): **a coarse roof is laid over the bodies the finer roof covers**
+  (their coarse cells become roof or air), while a body standing through the roof keeps its cells: walls under a
+  roof are not seen from outside, so the coarse level shows the roof rather than the wall that won the cell by role.
 
 ## 10. Open questions for the owner
 
