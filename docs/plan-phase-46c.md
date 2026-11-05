@@ -1751,6 +1751,31 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
     today and scatter follows the new voxels. *Asked:* whether collision/light still keep a damaged cell whole until
     air, and whether the neighbour damage piece has one mesh per stage.
 
+- 2026-11-05 (OWNER, acc46c-r follow-ups F1–F5 and A9 revised, A10, A13, B0, B1):
+  - **Interior wall example (A3):** not a special case; the wall-top and every other detail placement follow the
+    established edge rules (a face mated to another voxel is not open, so it has no edge there).
+  - **A9 revised: three damage stages, configurable per kit.** Stage 1: the block is still drawn, with a crack overlay
+    (Minecraft-style; the game sets the integrity, the engine draws the overlay). Stage 2: the block is removed and the
+    adjacent faces carry many damage detail meshes. Stage 3: the block stays removed, with somewhat fewer damage detail
+    meshes. A kit sets how many of these stages it uses and their meshes (not every kit needs every stage).
+    Replaces the A9 entry above where they differ; F5 answered by this.
+  - **F1 approved: role order** roof > wall > pillar > stair > floor > foundation decides who places pieces where two
+    roles meet.
+  - **F2: (a)** — same role, two materials at a corner: no corner piece; the shader blend draws the seam.
+  - **F3: one roof-edge mesh serves both slopes.** Each roof-edge case (ridge, eave, verge, hip, valley) has one mesh,
+    long enough for the longer 1:2 run; the engine pitches it to the roof's slope and places it per cell with the kit
+    jitter, so pieces overlap on the shorter 45° run. One authoring step covers both slopes.
+  - **F4: a damaged block counts as solid until it is air** (collision, navigation), **except light:** a damaged cell
+    lets light through by its integrity, like the prop coverage fraction (lighting-occupancy coverage from the shape
+    field). Light consumes it in 46e; the occupancy value is set where the cell's coverage is derived.
+  - **A10: mirror** — one verge mesh, drawn mirrored on the second side.
+  - **A13 revised: kits are slot assignments.** Every case is a model slot (the case id is the slot's stable name);
+    the user or an AI agent assigns which model goes in which slot, with a rotation. A kit can give every slot its own
+    asset, or one mesh assigned to every slot. Authors make only what they need. Generalizes the alias field (C9).
+  - **B0: yes.**
+  - **B1: author base tiles at 4096² (1024 px/m) by default;** the resident mip level is chosen by the quality level
+    (performance settings) and the texture memory budget.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
