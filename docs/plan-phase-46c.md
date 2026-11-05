@@ -241,7 +241,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R3c | done (57709ea4): `cases-draft-catalogue.ts` archived; `KIT_RULES`, the `reshape` base and `slab` shape (soffit base quads) removed; window, form, run and kit-check tests ported to the edge catalogue or test catalogues. Derive bytes equal on 8,180 town/slice results (derived v16 kept). stream.test: damage 15 → 7 re-derives exactly the sections within R, one swap, debris drawn |
 | R3b | done: kit `alias` {case, rotation 0–23} (add-only, refused/canonical, kit check), 24 cube rotations; stagger 1/64–1/32 cell into the solid, ≤ 2°; `pieceU` on the edge's world axis (vertical up y); default kit generated (strip 16/4, cove 16/4, cap 9/4 tris; 525/122 all). Town: piece draws 1,307 (1,366), render() 7.6/8.2 ms (7.2); D506–D507, D481 superseded |
 | R4 | done: construction (bit 15 of the shader entry, derived v17) maps from the build grid in metres, 4 m repeat (terrain triplanar, 2 m), roofs up the slope; `?bands=1`; D503 fixed (nearest solid of the 8). Seen both renderers. Town orbit GPU 2.55 → 3.06 ms WebGPU, 3.53 → 4.15 WebGL 2, 0 missed. D506 left to R5 |
-| R5 | not started (log + stone kits regenerated, kit check, test scene sampler) |
+| R5 | done: D506 fixed (a verge rising toward its −x carries the mirror bit; centred ridge half a cell down; derived v18); log + stone kits regenerated for the edge model (Blender, aliases, high/low, 22/21 pieces, 757/350 and 490/414 tris), kit check 0 err, T1–T8 ok; kit test scene fixed sampler (every case labelled). Seen both renderers; D508–D509 |
 | R6 | not started (prototype on staging + measurement vs 46c.11) |
 | R7 | not started (role spec + trim drafts rewritten, still DRAFT) |
 | R8 | not started (spec, requirements, manual) |
@@ -1076,6 +1076,60 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   only by a mirror: add a mirror flag to the alias with flipped winding), or the verge word naming its rise. The
   board itself spans a cell along the slope and one cell up (the plane runs from the tread's top to one cell above).
 
+### R5 the verge fix and the two placeholder kits
+
+- **D506 fixed (4e40aef7).** `roofEdgesOf` gives the verge on the side before the rise (its plane rising toward the
+  case's −x) `mirror`; the derive sets the variant word's mirror bit (`PIECE_VARIANT_MIRROR`, as beams use), so a kit
+  authors one verge mesh rising toward +x and the renderer draws the other side mirrored (mirroring through an alias
+  mirrors the mesh axis the rotation carries onto the case's x: `mirrorAxisOf`; the trim U's run sign follows). A
+  `centred` piece moves half a cell in and half a cell down: the ridge mesh written for a cell's high side (the plane
+  one cell above the voxel's top) now sits where an odd roof's planes meet; before, the default ridge and eave boxes
+  were under the planes. Derived v17 → v18 (spec owner note), 8 B instance unchanged. Default kit: ridge, hip and
+  valley caps over the line the planes meet on, a verge board along the slope (16/4, 14/6, 16/4, 16/4 tris).
+  The kit check's envelope for roof-edge cases reaches a cell higher (the planes run up to a cell above the voxel).
+- **Tests.** `roof-mesher.test.ts`: the gable's four verge cells, two mirrored, one each side. `kit-house.test.ts`
+  (new, real chunk view): an odd gable, an even gable and a hip roof: every vertex of every drawn ridge, verge (plain
+  and mirrored) and hip instance within 16 cm of the analytic roof planes (worst 13.3 cm, the verge board's lower
+  edge), 22 + 22 verges, 23 ridges (centred and on a side), 24 hips; the unmirrored verge mesh fails the other side by
+  > 40 cm (the test would catch the old placement). Draw count test: a mirrored verge is its own draw (15 draws).
+- **Kits (7f37983d, 98ad763a).** `make_placeholder_kits.py` rewritten for the edge model, no piece for a flat face.
+  Log: a round log over outer top edges (2 variants), log ends crossing a course at vertical edges, crossing logs at
+  outer corners, a pole in inner edges, ridge log (only its arc over the planes), eave fascia log, barge log up the
+  verge (square-cut ends, meet end to end), hip and valley caps, split logs as debris (2 stages), splinters on the
+  face toward damage, beam and banister kept. Stone: a chamfered (v0) or chipped (v1) block edge standing 3.5 cm proud
+  (first cut 1.2 cm: the stagger sank it under its faces in places, seen on staging), a chamfer fillet in inner edges,
+  a corner block, ridge/hip/valley tile caps, a drip lip at eaves, a verge board, broken blocks, chips on the damaged
+  face, a dressed beam, square rails and post. Aliases: bottom edge and bottom corner = the top turned under (X90),
+  inner top/vertical = the floor cove turned (X90/ZM90), stone vertical edge = the top edge (ZM90); inner corners none.
+  UVs per the trim draft (U along the run from x on run faces, planar real-size elsewhere, caps by size).
+- **Game-ready report** (no textures: the runtime debug set only; collision none, the voxels and roof planes collide;
+  levels: high at L0, low at L1, none from L2; no normal bakes, a placeholder has no fine detail to bake):
+
+| Kit | Pieces (meshes) | Tris high / low a piece | All high / low | GLB | Record |
+|---|---|---|---|---|---|
+| log | 22 (13 cases + 4 aliases; beam/rail 4 sections each) | edge 16/6 (×2), log ends 44/14, corner 44/14, cove 12/6, ridge 38/14, eave 22/10, verge 28/12, hip 16/12, valley 16/12, debris 60/24, heavy 40/16, face 39/21, beam 24–48/12–24, rail 32–64/16–32, post 30/15 | 757 / 350 | 96,744 B | 11,757 B |
+| stone | 21 (13 cases + 5 aliases) | edge 20/16 (×2), cove 4/4, corner 6/6, ridge 16/12, eave 18/18, verge 14/14, hip 16/12, valley 16/12, debris 54/30, heavy 72/40, face 30/30, beam 16–32, rail 16–32, post 12 (flat: low = high) | 490 / 414 | 85,260 B | 11,513 B |
+
+  Every piece within the budgets (edge 48/16, corner and roof edge 64/24, debris 160/48), low ≤ high. Hidden faces:
+  the end faces where two strips of one edge meet unstaggered, and the log kit's crossing stubs where they run into
+  each other at a corner (D509).
+- **Kit test scene.** `kitTestScene` adds a fixed sampler beside the window grid (a column of 14-cell slots: a
+  block with a top and a bottom corner notch, a gable, a hip roof, an L hip roof, a wall with cells at integrity 12
+  and 5); each pass case is labelled at the first cell the real passes give it, so every one of the 21 cases is
+  labelled (`unreached` empty); `kit-test-scene.test.ts`: in a busy world each sampler label's cell owns a piece of
+  its case through a full kit; integration test: every catalogue case labelled. Manual and tool docs updated.
+- **Imported and looked at** (staging, `run.mjs kits`: both setVoxelKit ok, kit check problems 0; 1280 × 720, WebGPU
+  and WebGL 2, 2026-11-05 03:00–03:14, every edit undone; shots `~/.cache/thirdlight-phase46/acceptance/46c-r/r5`):
+  per kit a box house with door and window, a gable house, a hip house, a damaged wall (12, 5, one air) and the kit
+  test scene. Seen on both renderers: flat walls and floors plain; log edges as round logs with log ends at the
+  vertical corners, stone edges as continuous chamfered strips with a small stagger; both verges of each gable follow
+  their slope (D506 gone), ridge, eave, hip caps on the planes; debris and broken rims in the damaged cells; the
+  sampler's labels on their cases. Seen wrong: a light grey patch where the hip roofs' ridge meets the hips (D508);
+  the broken hole's cell below draws banister rails (D504, known). L1 pieces not judged: unverified.
+- **Gate.** Fast gate (`voxel-world.e2e.ts`) at 98ad763a: GREEN first run, 13 min: lint clean, vitest 844 files
+  green, 36 e2e passed (voxel-world.e2e.ts tests sum 63.6 s, R4 63.3 s; no e2e change), village perf 0 missed both
+  renderers. Earlier ad-hoc vitest runs at load 7 timed out three stream/kit-pieces tests that passed alone.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1452,6 +1506,19 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 - 2026-11-05 (R4, default chosen, owner to confirm): **the band texture is a page option** (`?bands=1`, a fourth
   texture unit only then), not a material: the main voxel e2e runs under it on both renderers (its pictures compare
   with each other, a reload's too); Play, the Scene view and the export never build it.
+
+- 2026-11-05 (R5, default chosen, owner to confirm): **a gable's two verges are one mesh, one drawn mirrored** (the
+  verge rising toward its own −x carries the variant's mirror bit), not two cases: the kit format and catalogue stay
+  as they are, a kit authors the verge rising toward +x. A kit that wants the two sides to differ (a carved barge
+  board) would need a second case; none asked for.
+- 2026-11-05 (R5, default chosen, owner to confirm): **a centred ridge sits half a cell lower** (the placement moves it
+  in and down), so one ridge mesh serves odd and even roofs.
+- 2026-11-05 (R5, default chosen, owner to confirm): **placeholder log kit: vertical edges are their own mesh** (log
+  ends crossing a course), not the top log turned up: a log wall's corner shows ends, not a vertical log. The stone
+  kit's vertical edge is its top edge turned (one mesh for all three outer edges).
+- 2026-11-05 (R5, default chosen, owner to confirm): **the kit test scene's pass cases come from a fixed sampler**
+  (notched block, gable, hip, L roof, damaged wall), each labelled once at the first cell that has it, in a column
+  past the window grid so the scene's box stays as wide as before.
 
 ## 10. Open questions for the owner
 
