@@ -32,7 +32,7 @@ import { caseIndexOf, NO_CASE, type CaseCatalogueDef } from './kit-cases';
 import { NO_SECTION, RUN_SECTION, runSectionOf } from './kit-runs';
 import { defaultPiece, NO_PIECE, PIECE_VARIANT_MIRROR, pieceVariant, tablePiece, type PieceTable } from './piece-table';
 import { damagedIntegrity, MATERIAL_ID_MAX } from './record';
-import { roofEdgesOf } from './roof-mesher';
+import { ROOF_EDGE_CASE_IDS, roofEdgesOf } from './roof-mesher';
 
 /**
  * The kit pieces a derive chooses from: the world's piece table (null: no
@@ -90,7 +90,7 @@ function passCases(cat: CaseCatalogueDef): PassCases {
     const of = (id: string): number => at.get(id) ?? -1;
     p = {
       edge: Int32Array.from(EDGE_CASE_IDS, of),
-      roof: new Map(['roof-ridge', 'roof-eave', 'roof-gable', 'roof-hip', 'roof-valley'].map((id) => [id, of(id)])),
+      roof: new Map(ROOF_EDGE_CASE_IDS.map((id) => [id, of(id)])),
       debris: of('debris'),
       debrisHeavy: of('debris-heavy'),
       debrisFace: of('debris-face'),

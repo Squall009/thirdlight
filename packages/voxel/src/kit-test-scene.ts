@@ -1,8 +1,17 @@
 /**
  * The kit test scene: every case of a rule set's catalogue built from
- * voxels, one exhibit a (case, role) pair, laid out in a labelled grid (a
- * row a role, a column a case), so a kit's pieces can be looked at case by
- * case in a real world through the real derive.
+ * voxels, laid out in a labelled box, so a kit's pieces can be looked at
+ * case by case in a real world through the real derive.
+ *
+ * **Two parts.** The window cases (beams, banisters: a case window decides
+ * them) get one exhibit a (case, role) pair in a grid (a row a role, a
+ * column a case). The cases the passes give (edges and corners, roof edges,
+ * debris) come from a **fixed sampler** in a column past the grid's last row: a stepped
+ * block (a block with a top and a bottom corner notch cut out: every outer and
+ * inner edge and corner), a gable roof, a hip roof, an L-plan hip roof (its
+ * valley) and a wall with two damaged cells. Each of those cases is
+ * labelled at the first cell (x, then z, then y) the real passes give it,
+ * read from a neighbourhood holding only that structure.
  *
  * **Exhibits come from the catalogue, not by hand.** For each (case, role)
  * the generator looks for a case window the matcher resolves to that case:
@@ -35,7 +44,11 @@ import { evaluateCases, evaluateRuns } from './kit-rules';
 import { NO_SECTION, runSectionOf } from './kit-runs';
 import { RUN_SECTION_IDS } from './piece-table';
 import { WORLD_GRID_ID } from './region-file';
-import { MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { damagedIntegrity, MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { isDebrisCell } from './case-forms';
+import { createEdgeMasks, EDGE_CASE_IDS, edgeCaseOf, PIECE_SLOTS } from './edge-cases';
+import { DEBRIS_LIGHT_MIN } from './kit-case-catalogue';
+import { classifyRoofs, roofEdgesOf } from './roof-mesher';
 
 /**
  * Cells between exhibit centres along x and z, and the height of the box.
@@ -75,11 +88,11 @@ export interface KitTestScene {
   /** The box the scene empties and builds in (inclusive, world cells). */
   readonly min: readonly [number, number, number];
   readonly max: readonly [number, number, number];
-  /** Row by row (roles in catalogue order), column by column (cases in catalogue order). */
+  /** The grid row by row (roles in order), column by column (cases in catalogue order), then the sampler's cases. */
   readonly labels: readonly KitTestLabel[];
   /** The edits that write it, in order: the box emptied, then one `set` a distinct voxel. */
   readonly commands: readonly VoxelEditCommand[];
-  /** (case, role) pairs no window was found for (none for a catalogue every case of which is reachable). */
+  /** (case, role) pairs neither a window nor the sampler reached (none for the world's catalogue). */
   readonly unreached: readonly { readonly caseId: string; readonly role: number }[];
 }
 
@@ -90,6 +103,93 @@ export interface KitTestSceneOptions {
   readonly material: number;
   /** The material of built cells a rule wants in "another material" (only a catalogue that reads materials has them; default: the next id). */
   readonly otherMaterial?: number;
+}
+
+/**
+ * Cells between the sampler's structures along z (each stands in cells 2 … 11 of its slot and from 2 up, air round
+ * it: two cells clear of whatever is round the box, the roof mesher's reach).
+ */
+export const KIT_TEST_SAMPLER_PITCH = 14;
+
+/** A sampler structure: its cells in its slot (x, y, z from the slot's corner) and their voxel values. */
+type SamplerCells = [number, number, number, number][];
+
+/** A roof over a footprint, 45° all round (hip) or along z only (gable): each cell's height its distance to the footprint's edge. */
+function samplerRoof(inside: (x: number, z: number) => boolean, hip: boolean, value: number): SamplerCells {
+  const out: SamplerCells = [];
+  for (let x = 0; x < KIT_TEST_SAMPLER_PITCH; x++) for (let z = 0; z < KIT_TEST_SAMPLER_PITCH; z++) {
+    if (!inside(x, z)) continue;
+    let d = Infinity;
+    for (let ox = -1; ox <= KIT_TEST_SAMPLER_PITCH; ox++) for (let oz = -1; oz <= KIT_TEST_SAMPLER_PITCH; oz++) {
+      if (inside(ox, oz) || (!hip && ox !== x)) continue;
+      d = Math.min(d, Math.max(Math.abs(ox - x), Math.abs(oz - z)) - 1);
+    }
+    out.push([x, 2 + d, z, value]);
+  }
+  return out;
+}
+
+/** The sampler's structures in slot order (see the file comment). */
+function samplerStructures(material: number): SamplerCells[] {
+  const wall = valueOf({ material, role: VOXEL_ROLE.wall, shape: SHAPE_FULL, wetness: 0 });
+  const roof = valueOf({ material, role: VOXEL_ROLE.roof, shape: SHAPE_FULL, wetness: 0 });
+  const steps: SamplerCells = [];
+  // Notches at the two ends, apart, so each keeps its inner corner (seven of eight cells round it solid).
+  for (let x = 2; x < 8; x++) for (let y = 2; y < 6; y++) for (let z = 2; z < 6; z++) {
+    const top = x >= 6 && y >= 4 && z >= 4;
+    const bottom = x < 4 && y < 4 && z < 4;
+    if (!top && !bottom) steps.push([x, y, z, wall]);
+  }
+  const damaged: SamplerCells = [];
+  for (let x = 2; x < 9; x++) for (let y = 2; y < 6; y++) {
+    const shape = x === 4 && y === 3 ? DEBRIS_LIGHT_MIN + 4 : x === 6 && y === 4 ? DEBRIS_LIGHT_MIN - 3 : SHAPE_FULL;
+    damaged.push([x, y, 6, valueOf({ material, role: VOXEL_ROLE.wall, shape, wetness: 0 })]);
+  }
+  const box = (x0: number, x1: number, z0: number, z1: number) => (x: number, z: number): boolean => x >= x0 && x <= x1 && z >= z0 && z <= z1;
+  const gable = box(2, 8, 2, 6);
+  const hip = box(2, 7, 2, 9);
+  const a = box(2, 11, 2, 6);
+  const b = box(7, 11, 2, 11);
+  return [steps, samplerRoof(gable, false, roof), samplerRoof(hip, true, roof), samplerRoof((x, z) => a(x, z) || b(x, z), true, roof), damaged];
+}
+
+/**
+ * The pass cases a sampler structure gives, each at the first cell that
+ * owns it (slot cells): the edge pass of `rules`, the roof mesher's edges,
+ * debris and debris faces, read from a neighbourhood holding only the
+ * structure, as the derive reads a world.
+ */
+function samplerCases(rules: AssemblyRuleSet, cells: SamplerCells): Map<string, [number, number, number, number]> {
+  const edge = KIT_TEST_SAMPLER_PITCH;
+  const pad = Math.max(jobRadius(rules), 2);
+  const n = createNeighbourhood(edge, pad);
+  const s = n.side;
+  const at = (x: number, y: number, z: number): number => ((pad + x) * s + (pad + z)) * s + (pad + y);
+  for (const [x, y, z, v] of cells) {
+    n.values[at(x, y, z)] = v;
+    n.shapes[at(x, y, z)] = valueDensity(v);
+  }
+  const masks = createEdgeMasks(n);
+  rules.resolveEdges?.(n, pad, pad + edge, 0, masks);
+  const roofs = new Uint32Array(n.values.length);
+  classifyRoofs(n, roofs);
+  const found = new Map<string, [number, number, number, number]>();
+  const take = (id: string, x: number, y: number, z: number, i: number): void => {
+    if (!found.has(id)) found.set(id, [x, y, z, valueRole(n.values[i]!)]);
+  };
+  const faces = [1, -1, s, -s, s * s, -s * s];
+  for (let x = 0; x < edge; x++) for (let z = 0; z < edge; z++) for (let y = 0; y < edge; y++) {
+    const i = at(x, y, z);
+    if (n.values[i] === 0) continue;
+    if (isDebrisCell(n, i)) {
+      take(damagedIntegrity(n.values[i]!) >= DEBRIS_LIGHT_MIN ? 'debris' : 'debris-heavy', x, y, z, i);
+      continue;
+    }
+    for (let k = 0; k < PIECE_SLOTS; k++) if (((masks.pieces[i]! >>> k) & 1) !== 0) take(EDGE_CASE_IDS[edgeCaseOf(k, ((masks.inner[i]! >>> k) & 1) !== 0)]!, x, y, z, i);
+    for (const e of roofEdgesOf(roofs[i]!)) take(e.caseId, x, y, z, i);
+    if (faces.some((f) => n.values[i + f] !== 0 && isDebrisCell(n, i + f))) take('debris-face', x, y, z, i);
+  }
+  return found;
 }
 
 const BUILT_FIRST = CASE_SYMBOL.built;
@@ -249,8 +349,8 @@ export function kitTestScene(rules: AssemblyRuleSet, opts: KitTestSceneOptions):
   const { material } = opts;
   const other = opts.otherMaterial ?? (material < MATERIAL_ID_MAX ? material + 1 : material - 1);
   for (const m of [material, other]) if (!Number.isInteger(m) || m < 1 || m > MATERIAL_ID_MAX) throw new RangeError(`material ${m} is not a voxel material id (1-${MATERIAL_ID_MAX})`);
-  const { exhibits, unreached } = kitTestExhibits(def);
-  const roles = [...new Set(def.cases.flatMap((c) => c.roles))].sort((a, b) => a - b);
+  const { exhibits, unreached: noWindow } = kitTestExhibits(def);
+  const roles = [...new Set(exhibits.map((e) => e.role))].sort((a, b) => a - b);
   const columns = new Map<number, number>();
   const p = KIT_TEST_SCENE_PITCH;
   const half = p >> 1;
@@ -274,8 +374,28 @@ export function kitTestScene(rules: AssemblyRuleSet, opts: KitTestSceneOptions):
       list.push(centre[0] + dx, centre[1] + dy, centre[2] + dz);
     }
   }
+  // The sampler's column past the grid's last row (narrow: the scene's box stays as wide as the grid): the pass
+  // cases, each labelled once, at the first cell that owns it.
+  const z0 = oz + roles.length * p;
+  const reached = new Set<string>();
+  const structures = samplerStructures(material);
+  structures.forEach((cells, slot) => {
+    const sx = ox;
+    const sz = z0 + slot * KIT_TEST_SAMPLER_PITCH;
+    for (const [id, [x, y, z, role]] of samplerCases(rules, cells)) {
+      if (reached.has(id) || !def.cases.some((c) => c.id === id)) continue;
+      reached.add(id);
+      labels.push({ cell: [sx + x, oy + y, sz + z], role, roleName: voxelRoleName(role), caseId: id, section: null });
+    }
+    for (const [x, y, z, v] of cells) {
+      let list = byValue.get(v);
+      if (list === undefined) byValue.set(v, (list = []));
+      list.push(sx + x, oy + y, sz + z);
+    }
+  });
+  const unreached = noWindow.filter((u) => !reached.has(u.caseId));
   const min: [number, number, number] = [ox, oy, oz];
-  const max: [number, number, number] = [ox + Math.max(1, cols) * p - 1, oy + p - 1, oz + Math.max(1, roles.length) * p - 1];
+  const max: [number, number, number] = [ox + Math.max(cols * p, KIT_TEST_SAMPLER_PITCH) - 1, oy + Math.max(p, KIT_TEST_SAMPLER_PITCH >> 1) - 1, z0 + structures.length * KIT_TEST_SAMPLER_PITCH - 1];
   const clear: FillEdit = { v: 2, grid: WORLD_GRID_ID, kind: 'fill', min, max, mode: 'dig' };
   const sets: SetEdit[] = [...byValue.entries()]
     .sort((a, b) => a[0] - b[0])

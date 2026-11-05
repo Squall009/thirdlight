@@ -270,7 +270,7 @@ export {
 export { assemblyRules, registerAssemblyRules, registeredAssemblyRules, WORLD_RULES } from './rule-registry';
 export { TERRAIN_FEATURE, TERRAIN_FEATURE_SHIFT, TERRAIN_RULES, TERRAIN_RULES_RADIUS, TERRAIN_THRESHOLDS, terrainFeatureOf, withTerrainFeatures } from './terrain-rules';
 export { CREASE_SPLIT_DEG, LATTICE_WINDOW, TERRAIN_MESHER_REACH, terrainSurface } from './terrain-mesher';
-export { appendSurface, classifyRoofs, isRoofPlaneCell, ROOF_DIR, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofSurface, type RoofEdge, type RoofEdgeCase } from './roof-mesher';
+export { appendSurface, classifyRoofs, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofSurface, type RoofEdge, type RoofEdgeCase } from './roof-mesher';
 export {
   cellBit,
   COLLISION_STEPS_PER_CELL,
@@ -377,7 +377,7 @@ export {
 } from './edge-cases';
 export { caseFormTable, classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_DEBRIS, FORM_NONE, isDebrisCell, rulesDrawDebris, FORM_SHAPE, FORM_SHAPE_BOX, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formFullFaces, formShapeOf, formSupports, LIGHT_COVERAGE, packForm } from './case-forms';
 export { EDGE_RULES, evaluateCases, evaluateEdges, evaluateRuns, levelHasCases, withCases, withEdges } from './kit-rules';
-export { KIT_TEST_SCENE_PITCH, kitTestExhibits, kitTestScene, voxelRoleName, type KitTestExhibit, type KitTestLabel, type KitTestScene, type KitTestSceneOptions } from './kit-test-scene';
+export { KIT_TEST_SAMPLER_PITCH, KIT_TEST_SCENE_PITCH, kitTestExhibits, kitTestScene, voxelRoleName, type KitTestExhibit, type KitTestLabel, type KitTestScene, type KitTestSceneOptions } from './kit-test-scene';
 export { NO_SECTION, packRunSection, resolveRunSections, RUN_AXIS, RUN_END, RUN_SECTION, runAxisOf, runEndEndOf, runSectionOf, runStartEndOf, RunTable, runU } from './kit-runs';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs, type CellPieceOutput } from './derived-cell';

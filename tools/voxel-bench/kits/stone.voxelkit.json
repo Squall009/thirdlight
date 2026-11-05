@@ -9,90 +9,258 @@
   15
  ],
  "cases": {
-  "wall-plain": {
+  "edge-out-top": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-plain_body_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "edge-out-top_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-plain_body_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "edge-out-top_body_v0_low"
        }
       },
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-plain_body_v1_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "edge-out-top_body_v1_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-plain_body_v1_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "edge-out-top_body_v1_low"
        }
       }
      ]
     }
    }
   },
-  "wall-thin": {
+  "edge-in-bottom": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-thin_body_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "edge-in-bottom_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-thin_body_v0_low"
-       }
-      },
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-thin_body_v1_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-thin_body_v1_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "edge-in-bottom_body_v0_low"
        }
       }
      ]
     }
    }
   },
-  "wall-top": {
+  "corner-out-top": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_body_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "corner-out-top_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_body_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "corner-out-top_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-ridge": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-ridge_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-ridge_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-eave": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-eave_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-eave_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-gable": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-gable_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-gable_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-hip": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-hip_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-hip_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-valley": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-valley_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "roof-valley_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "debris": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "debris_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "debris_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "debris-heavy": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "debris-heavy_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "debris-heavy_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "debris-face": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "debris-face_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "debris-face_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "beam": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-stone",
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_body_v0_low"
        }
       }
      ],
      "ends": {
-      "start": "stone-coping",
-      "end": "stone-coping"
+      "start": "stone-beam",
+      "end": "stone-beam"
      }
     },
     "start": {
@@ -100,18 +268,18 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_start_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_start_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_start_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_start_v0_low"
        }
       }
      ],
      "ends": {
-      "end": "stone-coping"
+      "end": "stone-beam"
      }
     },
     "end": {
@@ -119,18 +287,18 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_end_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_end_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_end_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_end_v0_low"
        }
       }
      ],
      "ends": {
-      "start": "stone-coping"
+      "start": "stone-beam"
      }
     },
     "single": {
@@ -138,79 +306,39 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_single_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_single_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-top_single_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "beam_single_v0_low"
        }
       }
      ]
     }
    }
   },
-  "wall-corner": {
+  "banister-rail": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-corner_body_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-corner_body_v0_low"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "wall-end": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-end_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-end_body_v0_low"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "moulding": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "moulding_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "moulding_body_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_body_v0_low"
        }
       }
      ],
      "ends": {
-      "start": "stone-cornice",
-      "end": "stone-cornice"
+      "start": "stone-rail",
+      "end": "stone-rail"
      }
     },
     "start": {
@@ -218,18 +346,18 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "moulding_start_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_start_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "moulding_start_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_start_v0_low"
        }
       }
      ],
      "ends": {
-      "end": "stone-cornice"
+      "end": "stone-rail"
      }
     },
     "end": {
@@ -237,201 +365,143 @@
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "moulding_end_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_end_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "moulding_end_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_end_v0_low"
        }
       }
      ],
      "ends": {
-      "start": "stone-cornice"
+      "start": "stone-rail"
      }
-    }
-   }
-  },
-  "wall-base": {
-   "sections": {
-    "body": {
+    },
+    "single": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-base_body_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_single_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "wall-base_body_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-rail_single_v0_low"
        }
       }
      ]
     }
    }
   },
-  "foundation-skirt": {
+  "banister-post": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "foundation-skirt_body_v0_high"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-post_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "foundation-skirt_body_v0_low"
+        "digest": "5c02136e4bba9afefbe4b9c93105383f1214c2c927e7427ec4f30eab7727abbe",
+        "node": "banister-post_body_v0_low"
        }
       }
      ]
     }
    }
   },
-  "opening-jamb": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-jamb_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-jamb_body_v0_low"
-       }
-      }
-     ]
-    }
+  "edge-out-vertical": {
+   "alias": {
+    "case": "edge-out-top",
+    "rotation": 9
    }
   },
-  "opening-head": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-head_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-head_body_v0_low"
-       }
-      }
-     ]
-    }
+  "edge-out-bottom": {
+   "alias": {
+    "case": "edge-out-top",
+    "rotation": 5
    }
   },
-  "opening-sill": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-sill_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-sill_body_v0_low"
-       }
-      }
-     ]
-    }
+  "corner-out-bottom": {
+   "alias": {
+    "case": "corner-out-top",
+    "rotation": 5
    }
   },
-  "opening-threshold": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-threshold_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-threshold_body_v0_low"
-       }
-      }
-     ]
-    }
+  "edge-in-top": {
+   "alias": {
+    "case": "edge-in-bottom",
+    "rotation": 5
    }
   },
-  "opening-single": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-single_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-stone",
-        "digest": "e769c4a211eae0688f5b292ac8466edcce938407e95e8d9fbf8bd51c27cd9e4a",
-        "node": "opening-single_body_v0_low"
-       }
-      }
-     ]
-    }
+  "edge-in-vertical": {
+   "alias": {
+    "case": "edge-in-bottom",
+    "rotation": 9
    }
   }
  },
  "joinProfiles": {
-  "stone-coping": {
+  "stone-beam": {
    "outline": [
     [
-     0,
-     16
+     5,
+     4
     ],
     [
-     16,
-     16
+     11,
+     4
     ],
     [
-     16,
-     15
+     12,
+     5
     ],
     [
-     0,
-     15
-    ]
-   ]
-  },
-  "stone-cornice": {
-   "outline": [
-    [
-     16,
+     12,
      11
     ],
     [
-     16,
-     16
-    ],
-    [
-     15,
-     16
-    ],
-    [
-     15,
+     11,
      12
+    ],
+    [
+     5,
+     12
+    ],
+    [
+     4,
+     11
+    ],
+    [
+     4,
+     5
+    ]
+   ]
+  },
+  "stone-rail": {
+   "outline": [
+    [
+     7,
+     3
+    ],
+    [
+     9,
+     3
+    ],
+    [
+     9,
+     14
+    ],
+    [
+     7,
+     14
     ]
    ]
   }

@@ -9,210 +9,252 @@
   14
  ],
  "cases": {
-  "wall-plain": {
+  "edge-out-top": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-plain_body_v0_high"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-out-top_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-plain_body_v0_low"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-out-top_body_v0_low"
+       }
+      },
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-out-top_body_v1_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-out-top_body_v1_low"
        }
       }
      ]
     }
    }
   },
-  "wall-thin": {
+  "edge-out-vertical": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-thin_body_v0_high"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-out-vertical_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-thin_body_v0_low"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-out-vertical_body_v0_low"
        }
       }
      ]
     }
    }
   },
-  "wall-top": {
+  "corner-out-top": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_body_v0_high"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "corner-out-top_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_body_v0_low"
-       },
-       "weight": 2
-      },
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_body_v1_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_body_v1_low"
-       }
-      }
-     ],
-     "ends": {
-      "start": "log-top",
-      "end": "log-top"
-     }
-    },
-    "start": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_start_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_start_v0_low"
-       },
-       "weight": 2
-      },
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_start_v1_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_start_v1_low"
-       }
-      }
-     ],
-     "ends": {
-      "end": "log-top"
-     }
-    },
-    "end": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_end_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_end_v0_low"
-       },
-       "weight": 2
-      },
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_end_v1_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_end_v1_low"
-       }
-      }
-     ],
-     "ends": {
-      "start": "log-top"
-     }
-    },
-    "single": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_single_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_single_v0_low"
-       },
-       "weight": 2
-      },
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_single_v1_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-top_single_v1_low"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "corner-out-top_body_v0_low"
        }
       }
      ]
     }
    }
   },
-  "wall-end": {
+  "edge-in-bottom": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-end_body_v0_high"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-in-bottom_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-end_body_v0_low"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "edge-in-bottom_body_v0_low"
        }
       }
      ]
     }
    }
   },
-  "wall-corner": {
+  "roof-ridge": {
    "sections": {
     "body": {
      "variants": [
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-corner_body_v0_high"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-ridge_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "wall-corner_body_v0_low"
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-ridge_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-eave": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-eave_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-eave_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-gable": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-gable_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-gable_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-hip": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-hip_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-hip_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "roof-valley": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-valley_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "roof-valley_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "debris": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "debris_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "debris_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "debris-heavy": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "debris-heavy_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "debris-heavy_body_v0_low"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "debris-face": {
+   "sections": {
+    "body": {
+     "variants": [
+      {
+       "high": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "debris-face_body_v0_high"
+       },
+       "low": {
+        "assetId": "voxel-kit-log",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
+        "node": "debris-face_body_v0_low"
        }
       }
      ]
@@ -226,12 +268,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_body_v0_low"
        }
       }
@@ -246,12 +288,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_start_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_start_v0_low"
        }
       }
@@ -265,12 +307,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_end_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_end_v0_low"
        }
       }
@@ -284,12 +326,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_single_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "beam_single_v0_low"
        }
       }
@@ -304,12 +346,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_body_v0_low"
        }
       }
@@ -324,12 +366,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_start_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_start_v0_low"
        }
       }
@@ -343,12 +385,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_end_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_end_v0_low"
        }
       }
@@ -362,12 +404,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_single_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-rail_single_v0_low"
        }
       }
@@ -382,12 +424,12 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-post_body_v0_high"
        },
        "low": {
         "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
+        "digest": "7f4cfed21a1d43214d62cb9a2e732ba45cba2ce3652617bd4971830f2fdf6324",
         "node": "banister-post_body_v0_low"
        }
       }
@@ -395,192 +437,32 @@
     }
    }
   },
-  "running-board": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "running-board_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "running-board_body_v0_low"
-       }
-      }
-     ],
-     "ends": {
-      "start": "log-board",
-      "end": "log-board"
-     }
-    },
-    "start": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "running-board_start_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "running-board_start_v0_low"
-       }
-      }
-     ],
-     "ends": {
-      "end": "log-board"
-     }
-    },
-    "end": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "running-board_end_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "running-board_end_v0_low"
-       }
-      }
-     ],
-     "ends": {
-      "start": "log-board"
-     }
-    }
+  "edge-out-bottom": {
+   "alias": {
+    "case": "edge-out-top",
+    "rotation": 5
    }
   },
-  "moulding": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "moulding_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "moulding_body_v0_low"
-       }
-      }
-     ],
-     "ends": {
-      "start": "log-moulding",
-      "end": "log-moulding"
-     }
-    },
-    "start": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "moulding_start_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "moulding_start_v0_low"
-       }
-      }
-     ],
-     "ends": {
-      "end": "log-moulding"
-     }
-    },
-    "end": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "moulding_end_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "moulding_end_v0_low"
-       }
-      }
-     ],
-     "ends": {
-      "start": "log-moulding"
-     }
-    }
+  "corner-out-bottom": {
+   "alias": {
+    "case": "corner-out-top",
+    "rotation": 5
    }
   },
-  "foundation-skirt": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "foundation-skirt_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "foundation-skirt_body_v0_low"
-       }
-      }
-     ]
-    }
+  "edge-in-top": {
+   "alias": {
+    "case": "edge-in-bottom",
+    "rotation": 5
    }
   },
-  "soffit": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "soffit_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "1dc0612fa2fe055b46d47312b890aae6ebf8d73cffc648e75175af9ccf251f5a",
-        "node": "soffit_body_v0_low"
-       }
-      }
-     ]
-    }
+  "edge-in-vertical": {
+   "alias": {
+    "case": "edge-in-bottom",
+    "rotation": 9
    }
   }
  },
  "joinProfiles": {
-  "log-top": {
-   "outline": [
-    [
-     2,
-     16
-    ],
-    [
-     8,
-     16
-    ],
-    [
-     14,
-     16
-    ],
-    [
-     8,
-     15
-    ]
-   ]
-  },
   "log-beam": {
    "outline": [
     [
@@ -626,42 +508,6 @@
     [
      7,
      14
-    ]
-   ]
-  },
-  "log-board": {
-   "outline": [
-    [
-     16,
-     6
-    ],
-    [
-     16,
-     10
-    ],
-    [
-     15,
-     10
-    ],
-    [
-     15,
-     6
-    ]
-   ]
-  },
-  "log-moulding": {
-   "outline": [
-    [
-     16,
-     12
-    ],
-    [
-     16,
-     16
-    ],
-    [
-     15,
-     16
     ]
    ]
   }

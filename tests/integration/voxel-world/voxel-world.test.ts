@@ -733,10 +733,14 @@ describe('voxel world routes', () => {
     const around: ChunkCoord[] = [];
     for (let cx = (want.min[0]! >> 5) - 1; cx <= (want.max[0]! >> 5) + 1; cx++) for (let cy = (want.min[1]! >> 5) - 1; cy <= (want.max[1]! >> 5) + 1; cy++) for (let cz = (want.min[2]! >> 5) - 1; cz <= (want.max[2]! >> 5) + 1; cz++) around.push({ cx, cy, cz });
     const store = await readChunks(around, SCENE_WORLD);
-    const got = scene.labels.map((l) => ({ cell: l.cell, ...caseAndSectionAt(store, ...l.cell) }));
-    expect(got).toEqual(scene.labels.map((l) => ({ cell: l.cell, caseId: l.caseId, section: l.section })));
-    // One exhibit a case a window rule names (beams and banisters); the edge, roof and debris cases come from passes.
-    expect(new Set(scene.labels.map((l) => l.caseId))).toEqual(new Set(WORLD_RULES.catalogue!.rules.map((x) => x.case)));
+    // The window cases (beams and banisters) read back as their case and section; the sampler's pass cases (edges,
+    // roof edges, debris) are the derive's pieces, not a window case, and are checked through the derive in vitest.
+    const windowCases = new Set(WORLD_RULES.catalogue!.rules.map((x) => x.case));
+    const windows = scene.labels.filter((l) => windowCases.has(l.caseId));
+    const got = windows.map((l) => ({ cell: l.cell, ...caseAndSectionAt(store, ...l.cell) }));
+    expect(got).toEqual(windows.map((l) => ({ cell: l.cell, caseId: l.caseId, section: l.section })));
+    // Every case of the catalogue is labelled: one exhibit a window case and role, one sampler cell a pass case.
+    expect(new Set(scene.labels.map((l) => l.caseId))).toEqual(new Set(WORLD_RULES.catalogue!.cases.map((c) => c.id)));
     expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args })).json.error as { code: string }).code).toBe('no_change');
     const undone = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: SCENE_WORLD } });
     expect(undone.json).toMatchObject({ ok: true, revision: 2, undoable: 0, cells: r.json.cells });

@@ -340,7 +340,11 @@ naming a trim layout and are marked "(draft layout)".
 **Kit test scene.** `writeKitTestScene {world, origin [x, y, z], material}`
 (the editor, MCP and scripts alike; one undo with `undoVoxels`) empties a
 box at `origin` and builds every case of the case list there from voxels,
-one row a role, one exhibit a case, all in `material`: pick a material your
+all in `material`: the beam and banister cases one exhibit a (case, role),
+one row a role; beside them a fixed sampler (a notched block for every edge
+and corner case, a gable, a hip and an L-plan roof for the roof edges, a
+wall with two damaged cells for debris), each case labelled at one cell
+that has it. Pick a material your
 kit binds to see each case drawn with its pieces, and a missing one drawn
 by its fallback. The answer lists each exhibit's cell, role, case and run
 section; the voxel world page labels them (`?kitScene=x,y,z,material`).

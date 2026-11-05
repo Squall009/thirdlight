@@ -92,6 +92,9 @@ const DZ = [0, 1, 0, -1] as const;
 /** The roof-edge cases a plane cell's word names, for kit pieces (the catalogue's ids). */
 export type RoofEdgeCase = 'roof-ridge' | 'roof-eave' | 'roof-gable' | 'roof-hip' | 'roof-valley';
 
+/** Every roof-edge case, in a fixed order. */
+export const ROOF_EDGE_CASE_IDS: readonly RoofEdgeCase[] = Object.freeze(['roof-ridge', 'roof-eave', 'roof-gable', 'roof-hip', 'roof-valley']);
+
 /**
  * One roof-edge piece of a plane cell. Yaw (quarter turns about +y, +x to
  * +z) places the case's own orientation: an eave open toward +z, its plane

@@ -15,7 +15,8 @@
  * - **Pivots and cell sizes.** A mesh is in metres, centred on its cell, in
  *   its case's orientation: one that does not touch its cell draws beside
  *   it (err); one reaching past half a cell around it overlaps the
- *   neighbours' pieces (warn).
+ *   neighbours' pieces (warn). A roof-edge piece's cell reaches a cell
+ *   higher (the roof planes run up to a cell above its voxel).
  * - **Join profiles** at section ends that meet (start → body → body →
  *   end; corners and junctions between bodies): outlines that differ draw
  *   a step (warn); an end with no profile is not checked (info).
@@ -34,7 +35,7 @@
  * are read from GLB bytes by {@link voxelKitMeshFacts}.
  */
 import { readGlb } from '@thirdlight/shared';
-import { RUN_SECTION_IDS, VOXEL_SIZE_M, VOXEL_ROLE, WORLD_RULES, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
+import { ROOF_EDGE_CASE_IDS, RUN_SECTION_IDS, VOXEL_SIZE_M, VOXEL_ROLE, WORLD_RULES, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
 import type { KitCheckState } from './kit-checks';
 import { readModelGeometry } from './model-collision';
 import type { VoxelKit, VoxelKitMesh, VoxelKitSection } from './voxel-kit';
@@ -95,6 +96,12 @@ const SECTIONS = RUN_SECTION_IDS;
 const HALF = VOXEL_SIZE_M / 2;
 /** How far past its cell a piece may reach before it overlaps the neighbours' pieces (half a cell). */
 const REACH = HALF;
+/**
+ * A roof-edge piece follows the roof mesher's planes, which run up to a cell above its voxel's top: its envelope
+ * reaches that much higher (up to 3 half cells over the centre, plus the reach).
+ */
+const ROOF_TOP = 3 * HALF;
+const ROOF_CASES: ReadonlySet<string> = new Set(ROOF_EDGE_CASE_IDS);
 const EPS = 1e-3;
 /** Pieces a row names before it counts the rest. */
 const NAMED = 6;
@@ -298,8 +305,9 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
     }
     const b = f.bounds;
     if (b === null) continue;
-    if ([0, 1, 2].some((k) => b.max[k]! < -HALF - EPS || b.min[k]! > HALF + EPS)) detached.push(what);
-    else if ([0, 1, 2].some((k) => b.min[k]! < -HALF - REACH - EPS || b.max[k]! > HALF + REACH + EPS)) over.push(`${what} ${b.min.map((v) => v.toFixed(2)).join(' ')} … ${b.max.map((v) => v.toFixed(2)).join(' ')}`);
+    const top = ROOF_CASES.has(p.caseId) ? ROOF_TOP : HALF;
+    if ([0, 1, 2].some((k) => b.max[k]! < -HALF - EPS || b.min[k]! > (k === 1 ? top : HALF) + EPS)) detached.push(what);
+    else if ([0, 1, 2].some((k) => b.min[k]! < -HALF - REACH - EPS || b.max[k]! > (k === 1 ? top : HALF) + REACH + EPS)) over.push(`${what} ${b.min.map((v) => v.toFixed(2)).join(' ')} … ${b.max.map((v) => v.toFixed(2)).join(' ')}`);
   }
   const rows: VoxelKitCheckRow[] = [];
   const bad = [...missing, ...notModel, ...unreadable, ...noNode];
