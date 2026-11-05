@@ -140,8 +140,12 @@ import { utf8Encode } from '@thirdlight/shared';
  * cross its slopes. An apex cell's ridge and hips carry the instance flag
  * `half` (they end at its middle). Level 1 and 2 results differ from
  * v18's round roofs, instances on apex cells; the layout is v18's.
+ * 20: the re-laid roof takes the coarse cells of the bodies it covers (a
+ * gable's end walls, the walls under its eaves), which held them by role
+ * priority and cut the roof into strips. Level 1 and 2 results differ from
+ * v19's under such roofs; the layout is v19's.
  */
-export const DERIVED_FORMAT_VERSION = 19;
+export const DERIVED_FORMAT_VERSION = 20;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

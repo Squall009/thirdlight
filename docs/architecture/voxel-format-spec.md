@@ -988,7 +988,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v19 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `kit-case-catalogue.ts`, `edge-cases.ts`, `case-forms.ts`, `piece-table.ts`, `piece-placement.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
+### 3.7 Derived data v20 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `kit-case-catalogue.ts`, `edge-cases.ts`, `case-forms.ts`, `piece-table.ts`, `piece-placement.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1529,7 +1529,8 @@ the material model and texture sets 46d's.
 - **Levels:** level 0 lists high pieces, level-1 nodes the same choice with `low` (the renderer draws a variant's
   low mesh, its high one where none is authored), none from level 2 (`levelHasCases`, `pieceDetailAt`); the roof
   mesher runs at every level. The mip downsample **lays sloped roofs again** (`voxel-mips.ts` `relayRoofs`, v19): one roof cell a parent column at floor(eave / 2) + ceil(ring / 2), so an off-grid 45° roof stays
-  a one-cell 45° stair (eaves at one height, ridges, hips and valleys where the finer roof has them), its planes
+  a one-cell 45° stair (eaves at one height, ridges, hips and valleys where the finer roof has them; v20: over the
+  bodies it covers, such as a gable's end walls, whose coarse cells it takes), its planes
   within one level cell of the finer roof, and level 1 lists no roof-edge piece level 0 lacks.
 - **Changes and paints (§2.2 feeds).** A new piece table derives again only what holds a material whose pieces
   changed (`pieceTableChanges`), in one swap group. Wetness never changes a piece; a material paint within one kit
@@ -1556,7 +1557,7 @@ the material model and texture sets 46d's.
   machinery (`kit-cases.ts`, `withCases`) stays, used for beams and banisters (a catalogue's role fallback may be
   `null`). D480, D481, D483 superseded.
 
-**Derived version history (v2 → v19).** Every step: nothing stored, nothing to upgrade, no world regenerated (the
+**Derived version history (v2 → v20).** Every step: nothing stored, nothing to upgrade, no world regenerated (the
 slice and town write construction at 15; the staging project's log and stone kits are imported again after v19,
 `run.mjs kits`); a worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version
 and radius). Every owner note is "default chosen, owner to confirm" unless it names the owner's decision.
@@ -1580,6 +1581,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 16 → 17 | 46c R4 | shader entry bit 15 = the cell's role is construction; role feeds the shader data | entry u16 unchanged | **owner 2026-11-04** (4 × 4 m tile on the build grid); the bit a default |
 | 17 → 18 | 46c R5 | a verge before the rise mirrored (D506); `centred` also half a cell down | still 8 B | default |
 | 18 → 19 | 46c R6b | coarse levels re-lay sloped roofs (`relayRoofs`, D510/D501); `half` flag on an apex's ridge and hips (D511) | still 8 B | default |
+| 19 → 20 | 46c R9b | the re-laid roof takes the coarse cells of bodies it covers (gable end walls, walls under eaves; D513/D514) | still 8 B | default |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1661,7 +1663,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 19 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 20 | refused | rebuilt, never upgraded |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 2 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 

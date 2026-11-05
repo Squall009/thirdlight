@@ -328,6 +328,71 @@ describe('the roof mesher', () => {
     }
   });
 
+  it('lays a walled house\'s gable, hip and L roof at levels 1 and 2 as one roof whichever way it meets the grid: every column under it topped by one plane cell, no wall through it, a gable level along its ridge', () => {
+    const v = voxel();
+    // As the village houses: one-cell walls h high, the roof one cell out over them, a gable's end walls filled up under its verges.
+    const houses = [
+      { kind: 'gable', w: 10, d: 9, h: 5 },
+      { kind: 'hip', w: 11, d: 9, h: 4 },
+      { kind: 'ell', w: 14, d: 14, h: 4 },
+    ] as const;
+    // Every x/z offset against the level-2 grid, the eave's height taking each offset mod 4 along the way.
+    for (const house of houses) for (let off = 0; off < 16; off++) {
+      const [sx, sz] = [off & 3, off >> 2];
+      const sy = (sx + sz) & 3;
+      const x0 = 8 + sx, z0 = 8 + sz, yb = 4 + sy;
+      const r = house.kind === 'ell' ? ell('ell', x0 - 1, yb + house.h, z0 - 1, house.w + 2, house.d + 2, 8) : rect(house.kind, x0 - 1, yb + house.h, z0 - 1, house.w + 2, house.d + 2, house.kind === 'hip');
+      const s = createWorldStore(grid);
+      placeRoof(s, r);
+      const foot = (x: number, z: number): boolean => r.inside(x - r.x0, z - r.z0) && r.inside(x - r.x0 - 1, z - r.z0 - 1) && r.inside(x - r.x0 + 1, z - r.z0 + 1) && r.inside(x - r.x0 - 1, z - r.z0 + 1) && r.inside(x - r.x0 + 1, z - r.z0 - 1);
+      for (let x = x0; x < x0 + house.w; x++) for (let z = z0; z < z0 + house.d; z++) {
+        if (!foot(x, z)) continue;
+        const ring = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => !foot(x + dx!, z + dz!));
+        if (ring) for (let y = yb; y < yb + house.h; y++) putVoxel(s, x, y, z, MAT.timber, R.wall);
+        const roofY = r.y0 + Math.round(edgeDistance(r, x - r.x0 + 0.5, z - r.z0 + 0.5) - 0.5);
+        if (house.kind === 'gable' && (x === x0 || x === x0 + house.w - 1)) for (let y = yb + house.h; y < roofY; y++) putVoxel(s, x, y, z, MAT.timber, R.wall);
+      }
+      const tree = new MipTree(s);
+      for (const level of [1, 2]) {
+        const k = 1 << level;
+        const lv = tree.level(level);
+        const read = wordReader(lv);
+        const tag = `${house.kind} shifted ${sx},${sy},${sz} L${level}`;
+        // Coarse columns wholly under the roof (its footprint one finer cell in from every side).
+        const tops = new Map<string, number>();
+        const stepped: string[] = [];
+        for (let x = Math.ceil((r.x0 + 1) / k); (x + 1) * k <= r.x0 + r.w - 1; x++) for (let z = Math.ceil((r.z0 + 1) / k); (z + 1) * k <= r.z0 + r.d - 1; z++) {
+          let under = true;
+          for (let a = 0; a < k && under; a++) for (let b = 0; b < k && under; b++) under = r.inside(x * k + a - r.x0, z * k + b - r.z0);
+          if (!under) continue;
+          let y = 31;
+          while (y > 0 && lv.voxelAt(x, y, z, v).material === 0) y--;
+          expect(v.role, `${tag}: the top of column ${x},${z} (y ${y})`).toBe(R.roof);
+          if (read(x, y, z) === 0) stepped.push(`${x},${y},${z}`);
+          let roofs = 0;
+          for (let q = 0; q <= y; q++) if (lv.voxelAt(x, q, z, v).role === R.roof) roofs++;
+          expect(roofs, `${tag}: roof cells in column ${x},${z}`).toBe(1);
+          tops.set(`${x},${z}`, y);
+        }
+        expect(tops.size, tag).toBeGreaterThan(0);
+        // Every top a plane cell; an L whose arms come out an odd and an even number of coarse cells wide meets a
+        // sharp ridge with a flat two-cell one, which the roof mesher has no case for: cells there, within a coarse
+        // cell of the square where the arms cross, keep their voxel faces.
+        const junction = (x: number, z: number): boolean => house.kind === 'ell' && (x + 2) * k > r.x0 + r.w - 8 && (z - 1) * k < r.z0 + 8;
+        expect(stepped.filter((c) => { const [x, , z] = c.split(',').map(Number) as [number, number, number]; return !junction(x, z); }), `${tag}: tops left to voxel faces`).toEqual([]);
+        for (const [key, y] of tops) {
+          const [x, z] = key.split(',').map(Number) as [number, number];
+          // Neighbours one 45° step apart at most, and a gable (ridge along x) one height along each row.
+          for (const [dx, dz] of [[1, 0], [0, 1]] as const) {
+            const n = tops.get(`${x + dx},${z + dz}`);
+            if (n === undefined) continue;
+            expect(Math.abs(n - y), `${tag}: step from ${key} to ${x + dx},${z + dz}`).toBeLessThanOrEqual(house.kind === 'gable' && dx === 1 ? 0 : 1);
+          }
+        }
+      }
+    }
+  }, 60_000);
+
   it('draws gable, hip, pyramid and L roofs as closed planes on the surface through the stair\'s outer corners', () => {
     const s = roofWorld();
     const m = rampMesh(s, ROOFS);

@@ -272,6 +272,26 @@ const roofEave: number[] = [];
 const roofRelaid: boolean[] = [];
 
 /**
+ * Whether every solid cell of parent cell (x, y, z) that is not roof lies
+ * under the top roof cell of its finer column ({@link colTop}): a body the
+ * roof covers, not one that stands through it (a chimney, a wall rising
+ * past the roof, or a body in a column without roof).
+ */
+function underRoof(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x: number, y: number, z: number): boolean {
+  const e = grid.edge;
+  const side = 2 * e;
+  for (let c = 0; c < 8; c++) {
+    const bx = 2 * x + (c & 1), by = 2 * y + ((c >> 1) & 1), bz = 2 * z + ((c >> 2) & 1);
+    const ch = children[(bx >= e ? 1 : 0) | (by >= e ? 2 : 0) | (bz >= e ? 4 : 0)] ?? null;
+    if (ch === null) continue;
+    const i = localIndex(grid, bx % e, by % e, bz % e);
+    if (ch.material[i] === MATERIAL_AIR || openRole(ch.role[i]!) || ch.role[i] === VOXEL_ROLE.roof) continue;
+    if (by >= colTop[bx * side + bz]!) return false;
+  }
+  return true;
+}
+
+/**
  * Re-lays a sloped roof at the coarse level as a 45° stair one cell thick,
  * column by column of the node. A 45° roof not aligned to the parent grid
  * puts a slope column's two cells into two parents, so the cell-by-cell
@@ -297,8 +317,10 @@ const roofRelaid: boolean[] = [];
  * the parent heights a step off at that face).
  *
  * The parent's roof cells over those finer runs are cleared first (a
- * separate roof lower in the column stays); a cell another role holds (a
- * wall through the roof, a chimney) keeps it. Flat and lone roof cells keep
+ * separate roof lower in the column stays), and so are cells of other
+ * bodies the finer roof covers ({@link underRoof}: a gable's end wall, the
+ * wall under an eave), at the new roof cell and above it; a cell a body
+ * standing through the roof holds (a chimney) keeps it. Flat and lone roof cells keep
  * the cell-by-cell result. Returns whether it laid a cell.
  */
 function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, out: DenseChunk): boolean {
@@ -378,7 +400,9 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
     const want = Math.min(e - 1, (a >> 1) + ((lowest - a + 1) >> 1));
     for (let y = Math.min(lo, want); y <= Math.max(hi, want); y++) {
       const i = localIndex(grid, x, y, z);
-      if (out.role[i] !== VOXEL_ROLE.roof) continue;
+      // Bodies the finer roof covers (a gable's end wall, the wall under an eave) hold a parent by priority, but
+      // the roof is laid over them: above the new roof cell they would stand through it, at it they would cut it.
+      if (out.role[i] !== VOXEL_ROLE.roof && !(y >= want && out.material[i] !== MATERIAL_AIR && !openRole(out.role[i]!) && underRoof(grid, children, x, y, z))) continue;
       out.material[i] = MATERIAL_AIR;
       out.role[i] = VOXEL_ROLE.air;
       out.shape[i] = SHAPE_EMPTY;

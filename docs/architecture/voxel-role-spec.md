@@ -652,10 +652,11 @@ GLB 85,260 B; no textures (the runtime debug set); kit check 0 errors.
 - **D504: a wall course under a window reads as a banister.** A one-cell wall row standing on a floor's edge under a
   window matches the kept banister-rail rule: it draws a rail, collides as a thin panel and gets no edge pieces. The
   beam/banister rules predate the edge model and need a sill rule.
-- **D505: more pieces at the middle ring.** Every edge of a 1 m cell takes a low piece (town L1 53 k → 73 k
-  instances); whether L1 keeps only outer edges is a draw-count question for the measurement (R6).
-- **D508: a grey patch at hip apexes.** Where a hip roof's ridge meets its hips a small light grey patch shows (a hole
-  in the planes or the ridge cap stopping short); not analysed yet.
+- **D505: more pieces at the middle ring.** Every edge of a 1 m cell takes a low piece; since the coarse roofs are
+  re-laid (R6b) the town's L1 lists 32.5 k instances (was 72.6 k) and draws 22.8 k (R9); whether L1 keeps only
+  outer edges is question 5 in §16.
+- **D508 (fixed in R6): a grey patch at hip apexes.** An even ridge's planes meet a cell above its voxels, where the
+  shader read air; it now takes the cell under its eight.
 - **D509: placeholder hidden faces.** The placeholder kits keep a few faces that never show (strip ends meeting
   unstaggered, the log kit's crossing stubs at corners). Real kits should close run ends with corner pieces only.
 
