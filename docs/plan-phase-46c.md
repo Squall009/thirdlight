@@ -1714,6 +1714,16 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   scheme is replaced: no low pieces, so a kit authors one mesh per piece; the `low` mesh leaves the kit format and
   the kit check, and D505 (more pieces at L1) goes away. Roof planes stay at every level. Built in 46c.16.
 
+- 2026-11-05 (OWNER): **ring distances are fully configurable per scene, at runtime, and scale with the quality
+  level.** Every ring (load/stream, collision, detail-piece ring, each LOD level) is authored per scene on its
+  `voxelWorld` component (today: `ring`, `collision`, `levels`, metres — authored only), can be changed at runtime by
+  scripts (`ctx.voxels`, applied without a reload, the streamer re-selects and swaps atomically), and is scaled by the
+  player's quality level (the engine's quality levels, `project-model/src/quality-levels.ts`): a scene sets its base
+  distances (an indoor scene with no terrain small, a multi-km outdoor scene large) and each quality level scales or
+  overrides them (the Iris Xe low tier far smaller than a high-end rig), with the stream memory budget per tier
+  (`VOXEL_STREAM_BUDGET_BYTES`) following the same level. No hard-coded ring distances anywhere; defaults only as
+  defaults. Built with 46c.16's LOD change (same selection code); the far field beyond the rings is 46d's.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
