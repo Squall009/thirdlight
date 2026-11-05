@@ -1724,6 +1724,33 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   (`VOXEL_STREAM_BUDGET_BYTES`) following the same level. No hard-coded ring distances anywhere; defaults only as
   defaults. Built with 46c.16's LOD change (same selection code); the far field beyond the rings is 46d's.
 
+- 2026-11-05 (OWNER, acc46c-r answers A0–A9; open follow-ups marked *asked*):
+  - **A1 / A12 — beams and banisters leave the voxel phases** (future planning, not 46–49). The edge, roof and damage
+    cases are the right start; more cases are added later when a game needs them. D504 (a wall row read as a banister)
+    goes with the beam/banister rule.
+  - **A3 — ownership revamped.** An *edge* piece belongs to the individual voxel it runs along. *Corners* (outer and
+    inner of the same block) are placed by the rule at the corner, not owned by one block. Where two roles meet, a
+    role order decides: wall over foundation (a wall standing on a foundation places the corner pieces, in the wall's
+    material); at the roof, overhang (eave/verge) pieces come from the roof's exterior material, while the wall places
+    its wall-top pieces inside and out, unless that side is mated to another voxel (an interior wall). *Asked:* the
+    full role order, and same-role cells of two materials.
+  - **A4 — stagger amount kept;** a **per-kit detail jitter setting** is added and applies to every detail placement
+    of that kit (edges, corners, roof edges, damage pieces).
+  - **A5 — pieces only in the near ring** this phase (see the two-detail-states entry).
+  - **A6 — building/terrain contact.** A building on its own grid places no detail pieces where it meets terrain.
+    Within one grid, where foundation and wall meet, corner pieces are placed in the wall's material. Building
+    footprints (foundation cells) count as occluded for terrain scatter: no terrain detail spawns under them
+    (a requirement for 47b's scatter rules).
+  - **A7 — 1:2 roofs come into this phase** (closes D500's scope question): the roof mesher supports flat, 45° and
+    1:2 (≈26.6°) roofs. *Asked:* separate pieces per slope, and mixed slopes on one roof.
+  - **A8 — confirmed:** roofs collide as the drawn planes; light and navigation keep the voxels.
+  - **A9 — damage revised.** Two stages stay (8–14, 1–7). A damaged wall/roof voxel is no longer drawn at all: it
+    leaves a hole in the mesh, but the hole is not open air, so it gets no edge pieces. The **neighbour faces toward
+    the damaged voxel** draw (as for any hole) and carry the damage detail meshes, from their own kit. The
+    `debris` / `debris-heavy` pieces drawn in the damaged cell's place go away. Terrain has no damage: it remeshes as
+    today and scatter follows the new voxels. *Asked:* whether collision/light still keep a damaged cell whole until
+    air, and whether the neighbour damage piece has one mesh per stage.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
