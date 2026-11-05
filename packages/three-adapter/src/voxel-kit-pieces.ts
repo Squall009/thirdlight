@@ -47,6 +47,7 @@ import {
   PIECE_VARIANT_MASK,
   PIECE_STAGGER_FRAMES,
   PIECE_VARIANT_MIRROR,
+  pieceHalfRun,
   pieceRunAxis,
   VOXEL_SIZE_M,
   WORLD_RULES,
@@ -94,6 +95,8 @@ export interface VoxelKitDraw {
   readonly runAxis: 0 | 1;
   /** The drawn case's stagger frame (null: not staggered) and what its hash reads: the kit's seed and the case's index. */
   readonly stagger: { readonly frame: PieceStaggerFrame; readonly seed: number; readonly caseIndex: number } | null;
+  /** How the drawn case's piece covers half its run on an instance flagged `half` (voxel `pieceHalfRun`). */
+  readonly halfRun: 'x' | 'diagonal' | null;
 }
 
 /** A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project. */
@@ -428,7 +431,7 @@ export class VoxelKitSet {
     const variant = variantWord & PIECE_VARIANT_MASK;
     const key = `${slot}:${piece}:${variant}:${low ? 1 : 0}:${mirror ? 1 : 0}`;
     const frame = PIECE_STAGGER_FRAMES[pc.caseId];
-    const placed = { rotation: pc.rotation, runAxis: pieceRunAxis(pc.meshCaseId), stagger: frame === undefined ? null : { frame, seed: kit.seed, caseIndex: pc.caseIndex } };
+    const placed = { rotation: pc.rotation, runAxis: pieceRunAxis(pc.meshCaseId), halfRun: pieceHalfRun(pc.caseId), stagger: frame === undefined ? null : { frame, seed: kit.seed, caseIndex: pc.caseIndex } };
     if (kit.id === DEFAULT_KIT_ID) {
       const g = this.meshes.defaultMesh(pc.meshCaseId, low, mirror, mirrorAxisOf(pc.rotation));
       return g === null ? null : { key, geometry: g, material: this.meshes.material(kit.seed, true), ...placed };

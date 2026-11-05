@@ -107,13 +107,19 @@ export const ROOF_EDGE_CASE_IDS: readonly RoofEdgeCase[] = Object.freeze(['roof-
  * x = 0, piece-table.ts `PIECE_VARIANT_MIRROR`), so one verge mesh follows
  * the slope on both sides. A ridge along the cell's middle is `centred`
  * (moved half a cell in from the side its yaw names and half a cell down:
- * the middle of a 45° cell is half a cell below its high side).
+ * the middle of a 45° cell is half a cell below its high side). On a cell
+ * rising three or four ways (the apex at a hip roof's ridge end, a
+ * pyramid's top) the ridge runs from the cell's middle on, toward the side
+ * the cell rises toward, and each hip from its low corner up to the middle:
+ * those are `half` (drawn over the half of their run on the case's +x side,
+ * piece-placement.ts `pieceHalfRun`; the ridge's yaw points that way).
  */
 export interface RoofEdge {
   readonly caseId: RoofEdgeCase;
   readonly yaw: number;
   readonly centred?: true;
   readonly mirror?: true;
+  readonly half?: true;
 }
 
 /** The roof-edge pieces a plane cell's word names. */
@@ -129,11 +135,18 @@ export function roofEdgesOf(word: number): RoofEdge[] {
     if (((word >>> (ROOF_WORD.vergeShift + k)) & 1) !== 0) out.push(((dirs >>> ((k + 1) & 3)) & 1) !== 0 ? { caseId: 'roof-gable', yaw, mirror: true } : { caseId: 'roof-gable', yaw });
     if (((word >>> (ROOF_WORD.ridgeShift + k)) & 1) !== 0) out.push({ caseId: 'roof-ridge', yaw });
   }
-  if ((word & ROOF_WORD.centreRidge) !== 0) out.push({ caseId: 'roof-ridge', yaw: (dirs & 0b0101) === 0b0101 ? 3 : 0, centred: true });
+  const apex = bits4(dirs) >= 3 && (word & ROOF_WORD.concave) === 0;
+  if ((word & ROOF_WORD.centreRidge) !== 0) {
+    const across = (dirs & 0b0101) === 0b0101 ? 0b0101 : 0b1010;
+    // An apex's ridge points (case +x) toward the one way it rises along the ridge: the ridge goes on that way.
+    const on = dirs & ~across & ROOF_WORD.dirs;
+    out.push(apex ? { caseId: 'roof-ridge', yaw: on === 1 ? 0 : on === 2 ? 1 : on === 4 ? 2 : 3, centred: true, half: true } : { caseId: 'roof-ridge', yaw: across === 0b0101 ? 3 : 0, centred: true });
+  }
   for (let a = 0; a < 4; a++) {
     const b = (a + 1) & 3;
     if (((dirs >>> a) & 1) === 0 || ((dirs >>> b) & 1) === 0) continue;
-    out.push({ caseId: (word & ROOF_WORD.concave) !== 0 ? 'roof-valley' : 'roof-hip', yaw: (a + 2) & 3 });
+    if ((word & ROOF_WORD.concave) !== 0) out.push({ caseId: 'roof-valley', yaw: (a + 2) & 3 });
+    else out.push(apex ? { caseId: 'roof-hip', yaw: (a + 2) & 3, half: true } : { caseId: 'roof-hip', yaw: (a + 2) & 3 });
   }
   return out;
 }

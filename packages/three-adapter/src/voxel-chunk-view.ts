@@ -91,8 +91,13 @@ export function voxelStandInLook(material: number): VoxelMaterialLook {
 const PIECE_SIZE: Record<number, readonly [number, number, number]> = {
   [PIECE_FAMILY.beam]: [VOXEL_SIZE_M, 0.3, 0.3],
   [PIECE_FAMILY.rail]: [VOXEL_SIZE_M, 0.12, 0.14],
-  [PIECE_FAMILY.post]: [0.12, VOXEL_SIZE_M, 0.12],
+  [PIECE_FAMILY.post]: [0.12, 1.5 * VOXEL_SIZE_M, 0.12],
 };
+/**
+ * Stand-in piece offsets (metres, up) by family: a post always stands under a rail (its case's rule), so it runs
+ * from its cell's floor up to the middle of the rail's cell above, where the rail stand-in lies.
+ */
+const PIECE_LIFT: Record<number, number> = { [PIECE_FAMILY.post]: 0.25 * VOXEL_SIZE_M };
 const PIECE_COLOUR: Record<number, number> = { [PIECE_FAMILY.beam]: 0x6b4423, [PIECE_FAMILY.rail]: 0x8a5a2b, [PIECE_FAMILY.post]: 0x7a4e25 };
 
 /** The detail a piece is drawn at: a chunk's pieces high, a level-1 node's low (coarser nodes list none). */
@@ -125,6 +130,8 @@ export function standInPieceGeometry(family: number, detail: VoxelPieceDetail): 
   const size = PIECE_SIZE[family];
   if (size === undefined) return null;
   const box = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  const lift = PIECE_LIFT[family];
+  if (lift !== undefined) box.translate(0, lift, 0);
   if (detail === 'high') return box;
   // BoxGeometry's index holds 6 faces of 6 indices in the order +x, −x, +y, −y, +z, −z.
   const axis = longAxis(size);
@@ -536,7 +543,7 @@ export class VoxelChunkView {
         if (r === null) continue;
         key = r.key;
         // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
-        if (!byMesh.has(key)) byMesh.set(key, { geometry: r.geometry, material: r.material, kit: true, low, turnSign: -1, rotation: r.rotation, stagger: r.stagger, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
+        if (!byMesh.has(key)) byMesh.set(key, { geometry: r.geometry, material: r.material, kit: true, low, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
       }
       byMesh.get(key)?.offsets.push(o);
     }

@@ -137,8 +137,9 @@ import { utf8Encode } from '@thirdlight/shared';
  * 19: a coarse level lays a sloped roof again as a one-cell 45° stair (the
  * parent of the finer eave plus half the finer ring, voxel-mips.ts), so a
  * roof off the parent grid is no two-cell band whose planes and roof edges
- * cross its slopes. Level 1 and 2 results differ from v18's round roofs;
- * the layout is v18's.
+ * cross its slopes. An apex cell's ridge and hips carry the instance flag
+ * `half` (they end at its middle). Level 1 and 2 results differ from
+ * v18's round roofs, instances on apex cells; the layout is v18's.
  */
 export const DERIVED_FORMAT_VERSION = 19;
 

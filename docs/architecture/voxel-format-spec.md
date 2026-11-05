@@ -1101,7 +1101,9 @@ chunk):
 
 **Detail instance (8 bytes, v12):**
 - u8 x, y, z: the cell inside the chunk;
-- u8: bits 0–1 quarter turns about +y, bits 4–7 flags (0x10 `replacesBase`, 0x20 `low`: drawn at low detail);
+- u8: bits 0–1 quarter turns about +y, bits 2–3 the placement (`INSTANCE_PLACE`), bits 4–7 flags (0x10
+  `replacesBase`, 0x20 `low`: drawn at low detail, 0x40 `half`: drawn over the half of its run on its case's +x side,
+  `pieceHalfRun`, v19);
 - u16 piece, **kit-local** (`piece-table.ts`): below `KIT_PIECE_BASE` (32) the engine's default piece, stand-in family
   << 3 | run section (families beam 1 (bar), rail 2 (panel), post 3 (post); sections single 0, start 1, body 2, end 3,
   corner 4, junction 5), the same in every kit; from 32 the own piece of the kit the cell's material names (*Kit
@@ -1631,7 +1633,11 @@ cell at floor(eave / 2) + ceil(ring / 2), ring the smallest (top − eave) of it
 parent grid no longer downsamples two cells thick (whose mid-slope cells read as hips and ridges: planes and roof-edge
 pieces crossing its slopes, D510), its eave row is kept, and its planes lie within one of the level's cells of the
 finer roof (was 1.5, D501). Level 1 and 2 results differ from v18's round roofs; the layout is v18's. A roof cut by a
-node's top or bottom face may miss its eave there (heights a step off at that face).
+node's top or bottom face may miss its eave there (heights a step off at that face). An apex cell (rising three or
+four ways: an odd hip roof's ridge end, a pyramid's top) gives its ridge and hips the instance flag `half` (0x40, a
+free bit of the rotation byte): the renderer draws the half of the piece's run on its case's +x side (a ridge from
+the cell's middle on toward the ridge, a hip from its low corner up to the middle), so neither runs past the apex
+(D511). Instances differ from v18's on apex cells; still 8 bytes.
 
 **Derived version history (v2 → v19).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).

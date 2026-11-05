@@ -91,6 +91,20 @@ describe.each(KITS)('placeholder kit %s', (id) => {
     }
   });
 
+  it('stands its banister posts up through the rail\'s cell to the top rail: the rail rests on the posts, not a cell over them', () => {
+    const rail = kit.cases['banister-rail']!.sections!['body']!.variants;
+    for (const v of kit.cases['banister-post']!.sections!['body']!.variants) {
+      for (const [m, r] of [[v.high, rail[0]!.high], [v.low!, rail[0]!.low!]] as const) {
+        const post = voxelKitMeshFacts(glb, m.node).bounds!;
+        const top = voxelKitMeshFacts(glb, r.node).bounds!;
+        // The rail's cell is one above the post's (0.5 m): the post's top lies within the rail's height there.
+        expect(post.min[1], m.node).toBeCloseTo(-0.25, 3);
+        expect(post.max[1], m.node).toBeGreaterThanOrEqual(0.5 + top.min[1]);
+        expect(post.max[1], m.node).toBeLessThanOrEqual(0.5 + top.max[1]);
+      }
+    }
+  });
+
   it("loads through the renderer's GLB loader port: every node ready, the same triangles as the project model reads", async () => {
     const meshes = new VoxelKitMeshes();
     try {

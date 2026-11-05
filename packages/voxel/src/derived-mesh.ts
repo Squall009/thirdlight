@@ -69,6 +69,12 @@ export const INSTANCE_FLAG = Object.freeze({
   replacesBase: 0x10,
   /** The piece is drawn at low detail (a level-1 node's). */
   low: 0x20,
+  /**
+   * The piece covers half its run (piece-placement.ts {@link pieceHalfRun}):
+   * a roof's ridge and hips end at the middle of an apex cell, where they
+   * meet.
+   */
+  half: 0x40,
 });
 
 /** How detailed a level's pieces are: level 0 high, level 1 low, coarser none (their cells drawn as bodies). */

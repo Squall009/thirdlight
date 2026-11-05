@@ -69,6 +69,18 @@ export function pieceRunAxis(caseId: string): 0 | 1 {
   return VERTICAL_RUN.has(caseId) ? 1 : 0;
 }
 
+/**
+ * How a piece flagged `half` (derived-mesh.ts INSTANCE_FLAG) is drawn, in its case's own orientation: the half of its
+ * run on the case's +x side. `x`: a piece running along x (ridge, eave, verge) keeps x from 0 to +½ cell, squeezed
+ * along x only (its profile kept). `diagonal`: a hip or valley, running from the cell's +x, +z corner at the voxel's
+ * top (+½ cell) up to the −x, −z corner a cell higher, keeps the low half: squeezed along that line to half about its
+ * low end, its profile across the line kept. null: the case has no half.
+ */
+export function pieceHalfRun(caseId: string): 'x' | 'diagonal' | null {
+  if (caseId === 'roof-hip' || caseId === 'roof-valley') return 'diagonal';
+  return caseId === 'roof-ridge' || caseId === 'roof-eave' || caseId === 'roof-gable' ? 'x' : null;
+}
+
 /** Salt that keeps the stagger's hash apart from the variant's (piece-table.ts pieceVariant). */
 const STAGGER_SALT = 0x27d4eb2f;
 

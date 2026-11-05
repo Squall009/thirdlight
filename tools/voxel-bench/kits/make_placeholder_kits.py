@@ -49,6 +49,10 @@ import os
 import sys
 
 HALF = 0.25  # half a cell, metres
+# A banister's top rail, metres over its cell's centre; a post stands under a rail (its case's rule) and runs up
+# through the rail's cell to this rail, so the rail rests on the posts instead of floating a cell over them.
+RAIL_TOP = 0.17
+POST_TOP = 2 * HALF + RAIL_TOP
 SHEET = 4096  # authored sheet side, px
 PX_M = 1024  # authored px a metre
 PERM = PX_M / SHEET  # sheet units a metre
@@ -655,15 +659,15 @@ def log_pieces():
     def rail(sides, which):
         # A pole on top (Ø 0.08 m) and one lower, the panel's thickness: wraps S25, end grain in C12.
         p = Piece()
-        for cy in (0.17, -0.1):
+        for cy in (RAIL_TOP, -0.1):
             p.add(ext_x(circle(0.04, sides, 0.0, cy), 'S25', -HALF, HALF, (0.0, cy), closed=True, smooth=True, cap0=which in ('start', 'single'), cap1=which in ('end', 'single')))
         return p
 
     k['banister-rail'] = {s: [(rail(8, s), rail(4, s))] for s in ('body', 'start', 'end', 'single')}
 
     def post(sides):
-        # A turned post the cell's height, Ø 0.14 m, its top capped.
-        return ext_y([(0.07 * math.sin(2 * math.pi * k / sides), 0.07 * math.cos(2 * math.pi * k / sides)) for k in range(sides)], 'F1', -HALF, HALF, (0.0, 0.0), smooth=True, top=True)
+        # A turned post, Ø 0.14 m, from its cell's floor up through the rail's cell to the top rail, its top capped.
+        return ext_y([(0.07 * math.sin(2 * math.pi * k / sides), 0.07 * math.cos(2 * math.pi * k / sides)) for k in range(sides)], 'F1', -HALF, POST_TOP, (0.0, 0.0), smooth=True, top=True)
 
     k['banister-post'] = {'body': [(post(10), post(5))]}
     return k
@@ -776,14 +780,15 @@ def stone_pieces():
     def rail(which):
         # A square stone rail on top and a lower one.
         p = Piece()
-        for cy in (0.17, -0.1):
+        for cy in (RAIL_TOP, -0.1):
             pts = [(-0.04, cy - 0.04), (0.04, cy - 0.04), (0.04, cy + 0.04), (-0.04, cy + 0.04)]
             p.add(ext_x(pts, 'S50', -HALF, HALF, (0.0, cy), closed=True, cap0=which in ('start', 'single'), cap1=which in ('end', 'single')))
         return p
 
     k['banister-rail'] = {s: [(rail(s), rail(s))] for s in ('body', 'start', 'end', 'single')}
     sq = [(-0.07, -0.07), (0.07, -0.07), (0.07, 0.07), (-0.07, 0.07)]
-    k['banister-post'] = {'body': [(ext_y(sq, 'F1', -HALF, HALF, (0.0, 0.0), top=True),) * 2]}
+    # A square post from its cell's floor up through the rail's cell to the top rail.
+    k['banister-post'] = {'body': [(ext_y(sq, 'F1', -HALF, POST_TOP, (0.0, 0.0), top=True),) * 2]}
     return k
 
 

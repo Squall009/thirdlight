@@ -102,6 +102,11 @@ const REACH = HALF;
  */
 const ROOF_TOP = 3 * HALF;
 const ROOF_CASES: ReadonlySet<string> = new Set(ROOF_EDGE_CASE_IDS);
+/**
+ * A banister post always stands under a rail (its case's rule): its piece runs up through the rail's cell to the
+ * rail, so its envelope reaches to that cell's top.
+ */
+const POST_TOP = 3 * HALF;
 const EPS = 1e-3;
 /** Pieces a row names before it counts the rest. */
 const NAMED = 6;
@@ -305,7 +310,7 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
     }
     const b = f.bounds;
     if (b === null) continue;
-    const top = ROOF_CASES.has(p.caseId) ? ROOF_TOP : HALF;
+    const top = ROOF_CASES.has(p.caseId) ? ROOF_TOP : p.caseId === 'banister-post' ? POST_TOP : HALF;
     if ([0, 1, 2].some((k) => b.max[k]! < -HALF - EPS || b.min[k]! > (k === 1 ? top : HALF) + EPS)) detached.push(what);
     else if ([0, 1, 2].some((k) => b.min[k]! < -HALF - REACH - EPS || b.max[k]! > (k === 1 ? top : HALF) + REACH + EPS)) over.push(`${what} ${b.min.map((v) => v.toFixed(2)).join(' ')} … ${b.max.map((v) => v.toFixed(2)).join(' ')}`);
   }

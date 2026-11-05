@@ -405,6 +405,8 @@ describe('the roof mesher', () => {
     // Pyramid (9 × 9): four hips a layer, the apex four.
     const p = roofWords(s, PYRAMID, read);
     expect(roofEdgesOf(at(p, 44, 34)).filter((e) => e.caseId === 'roof-hip')).toHaveLength(4);
+    // The apex's hips run from its corners to its middle only: half pieces.
+    expect(roofEdgesOf(at(p, 44, 34)).every((e) => e.half === true)).toBe(true);
     expect(edgeCounts(p)).toMatchObject({ 'roof-eave': 36, 'roof-hip': 20 });
     // L: hips at the outer corners, a valley from the inner corner.
     const l = edgeCounts(roofWords(s, ELL, read));

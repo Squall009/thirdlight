@@ -387,7 +387,7 @@ describe('damage drawn as debris', () => {
 });
 
 describe('the default kit drawn through the real chunk view', () => {
-  it('roof-edge pieces follow the planes on both sides of a gable and up a hip: verges mirrored on one side, ridges, hips and verges on the planes as drawn', () => {
+  it('roof-edge pieces follow the planes on both sides of a gable and up a hip: verges mirrored on one side, ridges, hips and verges on the planes as drawn, an odd hip\'s ridge and hips stopping at its apex', () => {
     const s = createWorldStore(grid);
     // Hand roofs, each cell's height b + the smallest distance to a low edge (45° everywhere); the top planes over
     // them in world cells are b + 1 + that distance measured to the roof's outer faces.
@@ -395,6 +395,8 @@ describe('the default kit drawn through the real chunk view', () => {
       { x0: 19, x1: 29, z0: 2, z1: 13, b: 8, hip: false },
       { x0: 2, x1: 13, z0: 2, z1: 12, b: 16, hip: false },
       { x0: 2, x1: 13, z0: 18, z1: 29, b: 4, hip: true },
+      // An odd hip (13 × 11): its ridge ends at the apex cells' middles, where the hips meet it.
+      { x0: 17, x1: 29, z0: 17, z1: 27, b: 4, hip: true },
     ];
     for (const r of roofs) for (let x = r.x0; x <= r.x1; x++) for (let z = r.z0; z <= r.z1; z++) {
       const d = Math.min(x - r.x0, r.x1 - x, ...(r.hip ? [z - r.z0, r.z1 - z] : []));
@@ -451,6 +453,51 @@ describe('the default kit drawn through the real chunk view', () => {
     expect(seen.get('roof-hip')).toBeGreaterThan(8);
     expect(seen.has('roof-ridge*') || seen.has('roof-hip*')).toBe(false);
     console.log(`[roof edges] ${[...seen].map(([id, n]) => `${id} ${n}`).join(', ')}; worst offset from the planes ${(worst * 100).toFixed(1)} cm`);
+    view.dispose();
+    meshes.dispose();
+  });
+
+  it('a banister on a slab: every post runs up to the rail over it, so the rail rests on the posts (stand-ins drawn by the chunk view)', () => {
+    const s = createWorldStore(grid);
+    // A plank slab (x 2…11, y 4, z 2…5), posts on its front row every other cell (y 5), a rail along them (y 6).
+    for (let x = 2; x <= 11; x++) for (let z = 2; z <= 5; z++) putVoxel(s, x, 4, z, MAT.plank, R.wall);
+    for (let x = 2; x <= 11; x += 2) putVoxel(s, x, 5, 5, MAT.timber, R.wall);
+    for (let x = 2; x <= 11; x++) putVoxel(s, x, 6, 5, MAT.timber, R.wall);
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
+    const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
+    const meshes = new VoxelKitMeshes();
+    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: meshes.world([]) });
+    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
+    view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
+    view.root.updateMatrixWorld(true);
+    // World boxes (cells) of the stand-in draws' instances: posts are the tall ones, rails the long ones.
+    const boxes = (pick: (size: THREE.Vector3) => boolean): THREE.Box3[] => {
+      const out: THREE.Box3[] = [];
+      const m4 = new THREE.Matrix4();
+      for (const g of view.root.children) for (const c of g.children) {
+        if (!(c instanceof THREE.InstancedMesh) || c.userData['voxelKitPiece'] !== false) continue;
+        c.geometry.computeBoundingBox();
+        if (!pick(c.geometry.boundingBox!.getSize(new THREE.Vector3()))) continue;
+        for (let i = 0; i < c.count; i++) {
+          c.getMatrixAt(i, m4);
+          const b = c.geometry.boundingBox!.clone().applyMatrix4(m4.premultiply(c.matrixWorld));
+          out.push(new THREE.Box3(b.min.divideScalar(VOXEL_SIZE_M), b.max.divideScalar(VOXEL_SIZE_M)));
+        }
+      }
+      return out;
+    };
+    const posts = boxes((v) => v.y > v.x && v.y > v.z);
+    const rails = boxes((v) => v.x > v.y || v.z > v.y);
+    expect(posts).toHaveLength(5);
+    expect(rails.length).toBeGreaterThanOrEqual(5);
+    for (const p of posts) {
+      // From the slab's top, up into the rail's cell, ending within the rail over it.
+      expect(p.min.y).toBeCloseTo(5, 3);
+      const over = rails.filter((r) => r.min.x < p.max.x && r.max.x > p.min.x && r.min.z < p.max.z && r.max.z > p.min.z);
+      expect(over.length, `rail over the post at ${p.min.x.toFixed(2)}`).toBeGreaterThan(0);
+      expect(over.some((r) => p.max.y >= r.min.y - 1e-6 && p.max.y <= r.max.y + 1e-6), `post top ${p.max.y.toFixed(3)} within the rail ${over.map((r) => `${r.min.y.toFixed(3)}…${r.max.y.toFixed(3)}`).join(', ')}`).toBe(true);
+    }
     view.dispose();
     meshes.dispose();
   });
