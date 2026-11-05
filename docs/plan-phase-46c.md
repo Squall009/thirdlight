@@ -243,6 +243,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R4 | done: construction (bit 15 of the shader entry, derived v17) maps from the build grid in metres, 4 m repeat (terrain triplanar, 2 m), roofs up the slope; `?bands=1`; D503 fixed (nearest solid of the 8). Seen both renderers. Town orbit GPU 2.55 → 3.06 ms WebGPU, 3.53 → 4.15 WebGL 2, 0 missed. D506 left to R5 |
 | R5 | done: D506 fixed (a verge rising toward its −x carries the mirror bit; centred ridge half a cell down; derived v18); log + stone kits regenerated for the edge model (Blender, aliases, high/low, 22/21 pieces, 757/350 and 490/414 tris), kit check 0 err, T1–T8 ok; kit test scene fixed sampler (every case labelled). Seen both renderers; D508–D509 |
 | R6 | done (50859b7c): D508 fixed (an even ridge lies a cell above its voxels; the shader takes the cell under its 8). Staging, both renderers: village (log/stone gable, hip, L, chimney, damage 12/7/1/air, balcony, stair) seen near, mid, L1, walked. Town b vs 46c.11: piece draws 4,133 → 3,203, render() 17–18 → 14.6–15.3 ms, orbit missed 31–65 → 0–2. D510–D512 open |
+| R6b | done: L1 roofs re-laid one cell thick (`relayRoofs`; town L1 instances 72.6 k → 32.5 k, no roof-edge lattice), odd hip apex ridge/hips drawn half (`half` flag), banister posts up to the rail (kits regenerated, stand-in), D512 = wrong R2 baseline. Derived v19. D501, D510, D511 fixed, D512 won't fix |
 | R7 | done (DRAFT, hard stop; the 2026-11-04 review replaced the old drafts in place, old text in git): role spec = 21 cases of `edges-draft` v1 with diagrams, aliases, stagger, levels, debris, roof mesher, kit duties, Blender rules, D500–D509 gaps, 13 questions; texture layout = 4 × 4 m grid tile for faces + detail sheet/own bakes for pieces, 8 questions; `role-spec-doc.test.ts` (5) back |
 | R8 | not started (spec, requirements, manual) |
 | R9 | not started (fast gate, acceptance, acc46c-r; owner hard stop) |
@@ -1216,6 +1217,51 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   `voxel-world.e2e.ts` tests sum 62.7 s (R5 63.6 s; no e2e change). Staging stopped; every edit undone (village 54
   commands a renderer, houses 17); no world format change, the slice world needs no regenerating.
 
+### R6b fixes before the owner presentation (L1 roofs, hip apex, banister posts, roof triangles)
+
+- **D510 / D501 (fixed 9f43bb5d).** Cause as recorded: a 45° roof off the parent grid put each slope column's two
+  cells into two parents, a two-cell band whose mid-slope cells the roof words read as hips and ridges. Fix
+  (`voxel-mips.ts` `relayRoofs`, after the cell-by-cell downsample): the finer columns' top roof cells are grouped
+  into roofs (tops side by side or corner to corner within one cell); a roof's eave a is its lowest top, a column's
+  ring r = top − a; a parent column over a roof with a slope step (or cut by the node's side) holds one roof cell at
+  floor(a/2) + ceil(min r / 2). Ring = min of x and z distances, so it halves separably: eaves at one height on every
+  side whichever way the footprint meets the grid, ridges/hips/valleys where the finer roof has them, odd or even.
+  Two simpler rules were tried and dropped: keeping the top cell (max) or the column-middle plane height (rounded)
+  give 1:2 steps or eaves a cell apart when a roof is aligned on one axis only. Test (`roof-mesher.test.ts`, new):
+  the five test roofs, each alone, at five offsets (0/1 in x, y, z): every level-1 column one roof cell, every one a
+  plane cell, no roof-edge case at L1 the L0 roof lacks, counts ≤ ⌈L0/2⌉ + 4, cells rising 3+ ways only where L0 has
+  them (+2 for a hip whose ridge is odd at L1); fails on the old downsample. L1 planes within one L1 cell of L0 (was
+  1.5; L2 ≤ 1.5). Town (`run.mjs cases --pieces`, Node): L1 instances (log+stone) 72,610 → 32,543 (D505). Limit:
+  a roof cut by a node's top/bottom face may miss its eave inside the node (a step at that face; not seen).
+- **D511 (fixed b1160ca4).** An apex cell (rising 3 or 4 ways) gives its centred ridge and its hips the instance flag `half` (0x40, a
+  free rotation-byte bit; the ridge's yaw points along the ridge): the renderer draws the half of the run on the
+  case's +x side (`pieceHalfRun`: x-run pieces squeezed along x onto 0…½, hips along their line about the low end),
+  so the ridge starts at the apex's middle and the hips end there; a pyramid's four hips meet at its middle (were two
+  doubled diagonals). Test (`kit-house.test.ts`): an odd 13 × 11 hip added to the default-kit roofs drawn through the
+  real chunk view, every roof-edge vertex within 16 cm of the planes (fails before: hip vertex 52 cm off).
+- **Banister rail poles.** Not placement: the post case's rule puts a post under a rail cell, and both the log and
+  stone kits and the engine's stand-in post stopped at the post cell's top, so the rail's poles (in the cell above)
+  floated 0.15–0.42 m over them. Kits: posts run from the cell floor through the rail's cell to the top rail
+  (`RAIL_TOP` 0.17 m, `POST_TOP` 0.67 m; Blender re-run, log 757/350 tris, GLB 96,708 B; stone 490/414, 85,272 B,
+  post 30/15 and 12/12 tris unchanged, no textures); kit check: a post's envelope reaches the rail cell's top; stand-in
+  post 0.75 m tall up to the rail stand-in's middle. Tests: `placeholder-kits.test.ts` (each kit's post top within
+  its top rail's height a cell up), `kit-house.test.ts` (a slab + posts + rail through the chunk view: every post
+  from the slab top to inside the rail over it); both fail on the old meshes.
+- **D512 (won't fix).** No regression: R2's own commit 53c71768 gives 367,934 base / 178,788 roof triangles on the
+  same `cases --roofs` run (now 361,642 / 178,788; plane cells 68,244 both), so R2's recorded 302,508 / 113,362 came
+  from an earlier cut. The planes cost 2.62 triangles a plane cell, 12 % over the stair faces (lattice splits for
+  crack-free joins, undersides): a perf-phase question.
+- **Looked at** (staging slice world, R6's village rebuilt (50 commands, all undone), kits imported again, 1280 ×
+  720, WebGPU and WebGL 2, 2026-11-05 05:10–05:20; script `~/.cache/thirdlight-phase46/work/r6b/proto.mjs`, shots
+  `~/.cache/thirdlight-phase46/acceptance/46c-r/proto-r6b/`): the L1 close view and both walks (fixedcam, retreat
+  frames) show the far roofs as plain slopes with eave/hip/ridge boards, no lattice and no spiky ridges (R6's frames
+  side by side); the odd stone hip's apex: ridge and hips meet at the apex, no X (both renderers); the even log hip
+  unchanged; balcony: posts run up to the top rail on both sides. Walks: 1,852 high pieces to 36 m, all 704 low from
+  108 m (R6: 840 low). Unverified: L2, the town's far roofs (not re-shot), a roof cut by a node's y face.
+- **Gate.** Fast gate (`voxel-world.e2e.ts`) on b1160ca4 + these docs: GREEN first run (gate-fast-20261105-052154, 13 min, peak 4.6 GB): lint clean, vitest 845 files, 36 e2e (`voxel-world.e2e.ts` tests sum 63.4 s, R6 62.7 s; no e2e change), village perf 0 missed both renderers (5.76 / 4.01 ms). Earlier ad-hoc vitest runs under load timed out stream/kit-pieces tests that passed alone.
+- **Derived v19** (one step for both: mips and the `half` flag; spec owner note). No stored format change; the slice
+  world needs no regenerating. The staging project's log/stone kits must be imported again (`run.mjs kits`).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1605,6 +1651,14 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 - 2026-11-05 (R5, default chosen, owner to confirm): **the kit test scene's pass cases come from a fixed sampler**
   (notched block, gable, hip, L roof, damaged wall), each labelled once at the first cell that has it, in a column
   past the window grid so the scene's box stays as wide as before.
+
+- 2026-11-05 (R6b, default chosen, owner to confirm): **coarse levels re-lay sloped roofs** from the finer roof's
+  eave and rings (one cell thick, eaves on one height), rather than dropping roof-edge pieces past level 0: the
+  planes were crossing too, so the roof's shape had to be fixed, and L1 keeps its low roof pieces.
+- 2026-11-05 (R6b, default chosen, owner to confirm): **half pieces by an instance flag**, not new ridge-end/hip-top
+  cases: no kit authors anything new; a kit that wants a carved ridge end would need a case later.
+- 2026-11-05 (R6b, default chosen, owner to confirm): **a banister post runs up through its rail's cell** (kit
+  authoring rule, kit check envelope), since the post case always has a rail above.
 
 ## 10. Open questions for the owner
 
