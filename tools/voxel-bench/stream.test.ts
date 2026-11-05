@@ -1778,7 +1778,9 @@ describe('streamer (workers, region files on disk)', () => {
     const ga = dig(-50, ya, -14, 3);
     const gb = dig(-14, yb, -50, 3);
     await s.settle();
-    expect(swaps.map((r) => [...r.groups])).toEqual([[ga], [gb]]);
+    // Each alone, in whichever order its workers finish (independent edits swap as they land; under load the second
+    // can land first).
+    expect(swaps.map((r) => [...r.groups]).sort((x, y) => x[0]! - y[0]!)).toEqual([[ga], [gb]].sort((x, y) => x[0]! - y[0]!));
     for (const r of swaps) expect(r.nodes.length).toBe(0);
     // The node is derived again all the same, in the edit lane, equal to a fresh derive of the dug world.
     expect(lanes.some((l) => l.level === 1 && l.lane === 'edit')).toBe(true);
