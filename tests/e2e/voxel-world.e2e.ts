@@ -26,7 +26,10 @@
  *
  * Surfaces are shaded from the chunks' shader data: a material paint and a
  * wetness paint of the wall (across a chunk face) change the picture with
- * no mesh rebuilt and no chunk derived again but for its shader data.
+ * no mesh rebuilt and no chunk derived again but for its shader data. The
+ * page runs with the band test texture (`?bands=1`): construction maps it
+ * from the build grid in metres, so the wall seen straight on shows its
+ * thick bands on the same screen rows either side of a chunk face.
  *
  * Play streams the same world, written 8 km out on x and z, with the
  * simulation: a project with a `voxelWorld` object, a player character
@@ -149,8 +152,8 @@ test.afterAll(async () => {
 const hook = <T>(page: Page, fn: string, ...args: unknown[]): Promise<T> =>
   page.evaluate(([f, a]) => (window as unknown as { __tlVoxelWorld: Record<string, (...x: unknown[]) => unknown> }).__tlVoxelWorld[f as string]!(...(a as unknown[])) as T, [fn, args] as const);
 
-async function open(page: Page, renderer: 'webgpu' | 'webgl2'): Promise<void> {
-  await page.goto(`${be.origin}/voxel-world.html?project=${be.projectId}&world=slice&at=${scene.join(',')}&renderer=${renderer}&hud=0#token=${be.token}`);
+async function open(page: Page, renderer: 'webgpu' | 'webgl2', query = ''): Promise<void> {
+  await page.goto(`${be.origin}/voxel-world.html?project=${be.projectId}&world=slice&at=${scene.join(',')}&renderer=${renderer}&hud=0${query}#token=${be.token}`);
   await page.waitForFunction(() => {
     const h = (window as unknown as { __tlVoxelWorld?: { ready?: boolean; failed?: string } }).__tlVoxelWorld;
     return h !== undefined && (h.ready === true || h.failed !== undefined);
@@ -349,7 +352,8 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 960, height: 540 });
     const errors = consoleErrors(page);
-    await open(page, renderer);
+    // Construction drawn with the band test texture (the pictures below compare with each other, a reload's too).
+    await open(page, renderer, '&bands=1');
     const state = await hook<{ drawn: number; triangles: number; pieces: number; counters: { damaged: number } }>(page, 'state');
     expect(state.drawn).toBeGreaterThan(20);
     expect(state.triangles).toBeGreaterThan(1000);
@@ -362,6 +366,33 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect((await hook<{ centre: Cell } | null>(page, 'sweep', [ox - 2.5, oy + 1.5, oz + 12], [0, 0, -1], 0.15, 20))!.centre[2]).toBeCloseTo(oz + 1.3, 1);
     // The probes' markers out of the pictures compared below.
     await hook(page, 'clearMarkers');
+
+    // Construction maps its texture from the build grid in metres: the wall's +z face, drawn by the chunks either side
+    // of the x chunk face and seen straight on, shows the band texture's thick lines (red at 0 m, blue at 2 m of the
+    // 4 m tile) on the same screen rows left and right of the face.
+    await hook(page, 'look', ox, oy + 5, oz + 1, 0, 0, 4);
+    await hook(page, 'settle');
+    const straight = await shot(page);
+    /** The thick bands down a pixel column: each run of red or blue rows, its colour and middle row. */
+    const thickBands = (x: number): Array<{ colour: string; mid: number }> => {
+      const out: Array<{ colour: string; from: number; to: number }> = [];
+      for (let y = 0; y < straight.height; y++) {
+        const [r, g, b] = straight.pixel(x, y);
+        const colour = r > 80 && r > 2 * g && r > 2 * b ? 'red' : b > 80 && b > 2 * r && b > 2 * g ? 'blue' : null;
+        if (colour === null) continue;
+        const last = out[out.length - 1];
+        if (last !== undefined && last.colour === colour && last.to === y - 1) last.to = y;
+        else out.push({ colour, from: y, to: y });
+      }
+      return out.map((b) => ({ colour: b.colour, mid: (b.from + b.to) / 2 }));
+    };
+    const leftBands = thickBands(Math.round(straight.width * 0.3));
+    const rightBands = thickBands(Math.round(straight.width * 0.7));
+    expect(leftBands.length, 'thick bands left of the chunk face').toBeGreaterThan(0);
+    expect(rightBands.map((b) => b.colour), 'the same bands right of it').toEqual(leftBands.map((b) => b.colour));
+    rightBands.forEach((b, k) => expect(Math.abs(b.mid - leftBands[k]!.mid), `band ${k} (${b.colour}) rows`).toBeLessThanOrEqual(1));
+    await hook(page, 'look', ox, oy + 3, oz + 2, -0.75, 0.42, 16);
+    await hook(page, 'settle');
 
     // Kit pieces: the stone wall's free end's vertical edges draw the test kit's GLB board (read from the backend,
     // parsed by the page's loader), its flat faces nothing; every other material the engine's default kit (edges,
@@ -488,7 +519,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
 
     if (renderer === 'webgl2') await be.restart();
     await page.reload();
-    await open(page, renderer);
+    await open(page, renderer, '&bands=1');
     expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).toBe(0);
     const again = await shot(page);
     // The same picture as before the reload, from the region files (the view and the world are the same).

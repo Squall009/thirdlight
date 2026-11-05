@@ -30,6 +30,14 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
   meshes and colliders are rebuilt round the change. Material and wetness
   only change how it looks: only the surface's shading data is rebuilt, no
   mesh or collider (rain over a whole valley is cheap).
+- **How a surface is textured.** Terrain is projected from three axes, one
+  repeat every 2 m. Walls, floors, roofs and the other building roles are
+  mapped from the build grid in metres, one repeat every 4 m both ways (a
+  full-size wall): a band of the texture sits at the same height on every
+  wall, floors line up across the world, and a roof's texture runs up its
+  slope, parallel to the eave. The voxel world page shows this with
+  `?bands=1` (lines every 0.5 m, a thick red one at 0 m and a blue one at
+  2 m of each 4 m tile, metres written beside them).
 - **Files.** A world is the project folder `voxels/<world>/`: a
   `world.json` naming its region files and revision, and its region files
   (256 m a side each; inside them, chunks of 16 m). A region the world does

@@ -279,7 +279,7 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
 | Field | Feeds | So a change of only this field … |
 |---|---|---|
 | shape | mesh, collision, nav, light occupancy | rebuilds every result within the rules' radius (§3.7 dependency) |
-| role | mesh, collision, nav, light occupancy | the same |
+| role | mesh, collision, nav, light occupancy, shader data (derived v17: the construction bit) | the same |
 | material | shader data | rebuilds the shader data of the chunks within the shader border (1 cell) of the changed cells, and nothing else |
 | wetness | shader data | the same |
 
@@ -988,7 +988,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v16 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
+### 3.7 Derived data v17 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `case-forms.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1073,7 +1073,8 @@ shape (v3, 45.10b: v2's material table and the material slots of vertices, insta
   2026-11-02: blending in the shader). It covers the chunk and a border of `SHADER_BORDER_CELLS` = 1 cell of its
   neighbours (side 34 at 32³), so a pixel at a chunk face blends with the next chunk's cells from its own grid and
   no seam shows. Cells in grid order `(x · 34 + z) · 34 + y`, grid cell g = chunk cell g − 1. Held as a palette of
-  u16 entries `material | wetness << 12` (air 0) and every cell's entry id packed at the palette's width (0, 1, 2,
+  u16 entries `material | wetness << 12 | construction << 15` (air 0; construction: the cell's role is a
+  construction role, derived v17) and every cell's entry id packed at the palette's width (0, 1, 2,
   4, 8 or 16 bits, 32 / width ids a u32 word, the last word padded with 0). A grid of one entry stores no ids. It
   reads the chunk and its border only, so a material or wetness change re-derives the shader data within the
   border of the change and nothing else (§2.2 feeds); `encodeShader` (side, width, count, palette, ids) is its
@@ -1122,18 +1123,32 @@ backend only.
   surface there blends to that entry wherever it is). A region is uploaded alone (`queue.writeTexture`; WebGL 2
   `texSubImage3D` through three's copy), no CPU copy of the texture is kept, and the texture grows by a quarter
   along its shortest axis by a GPU copy (edge at most 2,048 texels: 216 k regions).
-- **Per object:** the region's origin and the one-entry fallback (a vec4), and the chunk corner's cell modulo 1,024
-  (the texture phase): uniforms of the object, so a floating-origin shift never moves a texture.
+- **Per object:** the region's origin and the one-entry fallback (a vec4), the chunk corner's cell modulo 1,024
+  (the texture phase), and the corner in metres modulo 512·√2 m (the slope phase, for V up a roof plane): uniforms
+  of the object, so a floating-origin shift never moves a texture.
 - **Blend.** A pixel moves a quarter of a level-0 cell (`SHADER_READ_DEPTH_CELLS`, 0.125 m at every level) into
   the surface along its normal (a face between a solid and an air cell reads the solid cell), clamps to the grid and reads the 8 cell centres around it. Each corner's weight is,
   per axis, a ramp of the blend distance across the face between two cells (`clamp((f − ½) / d + ½)`, d the
   distance in cells; a setting, default 0.25 m, 0.05–0.5 m seen), air left out. The two heaviest materials are
   kept, looked up in a material table (colour, test pattern) and mixed by their weights; wetness, averaged the same
-  way, darkens the colour (× 1 − ½·w/7) and lowers the roughness (0.85 → 0.3). Projection: triplanar in world cells
-  for terrain and construction alike.
-- **Reads a pixel (counted in the program three builds, `voxel-surface.test.ts`):** 16: 8 grid texels + 2 material
-  table texels + 6 pattern samples (2 materials × 3 planes); three's BRDF table adds 1 for the standard material.
-  Texture units: 3 (grid, table, pattern array) + 1 (BRDF), leaving the light path's 3 within the lit programs' 16.
+  way, darkens the colour (× 1 − ½·w/7) and lowers the roughness (0.85 → 0.3). A pixel whose blend weights find
+  no solid cell (a roof plane runs up to a cell above each tread of its stair, through air) takes the solid of the
+  8 with the largest plain trilinear weight (D503); grey only with no solid among the 8.
+- **Projection (derived v17).** An entry's bit 15 (`SHADER_CONSTRUCTION_BIT`) says the cell's role is a
+  construction role. Terrain: triplanar in world metres, one repeat `TERRAIN_TILE_METRES` (2 m). Construction:
+  mapped from the build grid in metres (`voxel-surface-projection.ts` `gridUv`), one repeat
+  `CONSTRUCTION_TILE_METRES` (4 m: owner 2026-11-04, one full-size wall) both ways: on a wall U along it (to the
+  right seen from outside), V = world height; on a floor U = x, V = −z (a ceiling x, z); on a sloped face (a roof
+  plane) U level along the slope, V the distance up it (the slope phase), so a band is parallel to the eave. So a
+  band of a construction texture sits at the same height on every wall and floor, across chunk faces and levels.
+  The material table carries both repeats per material (defaults above; each must divide the 512 m phase). The
+  slice page's `?bands=1` draws construction with a band test texture (a line every 0.5 m, thick red at 0 m and
+  blue at 2 m of the tile, a tick every 1 m, the metre written above each whole-metre line).
+- **Reads a pixel (counted in the program three builds, WGSL and GLSL, `voxel-surface.test.ts`):** 18: 8 grid
+  texels + 4 material table texels (look and repeats, 2 materials) + 6 pattern samples (2 materials × 3 planes; a
+  construction material takes one plane); three's BRDF table adds 1 for the standard material; `?bands=1` adds 2
+  band samples and a texture unit. Texture units: 3 (grid, table, pattern array) + 1 (BRDF), leaving the light
+  path's 3 within the lit programs' 16.
   Every implicit-derivative sample sits in the program's top-level flow (WGSL refuses one in a branch that varies
   per pixel; tested).
 - **Alternatives measured (derive bench, Node, five worlds):** the packed palette form the result keeps is 2.6–6.1
@@ -1589,7 +1604,16 @@ neighbours' faces are the same faces and the hole's rim takes edge pieces. Resul
 with pieces; nothing to upgrade, no world regenerated (the slice and town write construction at 15).
 
 
-**Derived version history (v2 → v16).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
+**Derived data 16 → 17 (46c R4; the meaning is the owner's decision of 2026-11-04, "construction tiling textures
+are authored to a 4 × 4 m full wall, anchored to the build grid in metres"; the role bit and the feeds step are
+defaults chosen, owner to confirm).** No stored format changes. A shader data entry carries the construction bit of
+its cell's role (`material | wetness << 12 | construction << 15`; bit 15 was unused), so the surface shader maps
+construction from the build grid and terrain from three axes, and a material used as ground and as a wall takes
+each where it is (a material flag could not tell them apart). The role now also feeds the shader data (§2.2 feeds:
+a role change already rebuilt every other part, so no edit derives more than before). Shader data differs from
+v16's wherever a construction cell lies in a grid; nothing to upgrade, no world regenerated.
+
+**Derived version history (v2 → v17).** Every step: nothing stored, nothing to upgrade, no world regenerated; a
 worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version and radius).
 
 | Step | Item | What changed | Layout |
@@ -1819,7 +1843,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R88, R89 | — | — | later: 46d |
 | R90 | §3.7 per level (high, low, none) | 46b.9, 46c.6, 46c.7; `kit-pieces.test.ts` | served: authored high/low, then the voxel body; D483 open |
 | R91 | §3.7 surface vertex v2, shader data on the GPU | 45.6, 45.10b; `voxel-surface.test.ts`, `voxel-world.e2e.ts` | replaced (owner 2026-11-02): vertices carry no material; the shader blends from the shader data |
-| R92 | §3.7 shader data, surface shader | 45.10a, 45.10b; `derived.test.ts`, `stream.test.ts` | served: blending in the shader, triplanar in world space for terrain and construction; no paint layer (O16 closed) |
+| R92 | §3.7 shader data, surface shader | 45.10a, 45.10b; `derived.test.ts`, `stream.test.ts` | served: blending in the shader, triplanar in world space for terrain, construction from the build grid in metres (4 m repeat, 46c R4); no paint layer (O16 closed) |
 | R93–R96 | §3.7 prop channel | 45.6; `derived.test.ts` | served |
 | R97–R99 | — | — | later: 46e |
 | R100 | §3.7 nav | 45.6 | partly: the walk graph is 46e |

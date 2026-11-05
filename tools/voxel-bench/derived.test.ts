@@ -1670,7 +1670,7 @@ describe('mip nodes through the same derive', () => {
       let i = 0;
       for (let x = 0; x < side; x++) for (let z = 0; z < side; z++) for (let y = 0; y < side; y++, i++) {
         view.voxelAt(n.nx * E + x - SHADER_BORDER_CELLS, n.ny * E + y - SHADER_BORDER_CELLS, n.nz * E + z - SHADER_BORDER_CELLS, v);
-        const want = shaderEntry(v.material, v.wetness);
+        const want = shaderEntry(v.material, v.wetness, v.role);
         if (shaderEntryAt(d.shader, i) !== want) expect(shaderEntryAt(d.shader, i), `${mipNodeKey(n)} grid ${x},${y},${z}`).toBe(want);
         entries.add(want);
       }
@@ -1842,7 +1842,7 @@ describe('mesh format v2 and shader data', () => {
       expect(sh.side).toBe(E + 2 * SHADER_BORDER_CELLS);
       for (let gx = 0; gx < sh.side; gx++) for (let gz = 0; gz < sh.side; gz++) for (let gy = 0; gy < sh.side; gy++) {
         s.voxelAt(cx * E + gx - SHADER_BORDER_CELLS, cy * E + gy - SHADER_BORDER_CELLS, cz * E + gz - SHADER_BORDER_CELLS, v);
-        if (shaderEntryAt(sh, (gx * sh.side + gz) * sh.side + gy) !== shaderEntry(v.material, v.wetness)) throw new Error(`chunk ${cx},${cy},${cz} grid cell ${gx},${gy},${gz}`);
+        if (shaderEntryAt(sh, (gx * sh.side + gz) * sh.side + gy) !== shaderEntry(v.material, v.wetness, v.role)) throw new Error(`chunk ${cx},${cy},${cz} grid cell ${gx},${gy},${gz}`);
         checked++;
       }
     }

@@ -109,6 +109,8 @@ const workers = Number(params.get('workers') ?? defaultVoxelWorkers());
 /** Metres two neighbouring cells' materials blend over. */
 const blendM = Number(params.get('blend') ?? VOXEL_SIZE_M / 2);
 const shading = params.get('shading') === 'flat' ? 'flat' : 'blend';
+/** `bands=1`: construction drawn with the band test texture (bands at fixed heights in the 4 m tile). */
+const bands = params.get('bands') === '1';
 const gpuTime = params.get('gpuTime') === '1';
 /** `?sun=deg`: the sun's elevation in degrees (default the page's fixed light). */
 const sunElevationDeg = params.get('sun') === null ? null : Number(params.get('sun'));
@@ -221,7 +223,7 @@ async function main(): Promise<void> {
   const view = { yaw: -0.6, pitch: 0.45, distM: 22 };
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
-  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: blendM, shading });
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: blendM, shading, bands });
   // The project's kits and the default kit, one table for the derives and the draws; their meshes load beside the stream.
   const kitRoute = { api, projectId, headers };
   const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : params.get('kits') === 'default' ? [] : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));

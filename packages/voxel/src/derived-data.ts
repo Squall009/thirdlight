@@ -126,8 +126,12 @@ import { utf8Encode } from '@thirdlight/shared';
  * drawn with a debris-face piece, collision, light and navigation keep the
  * whole block. The variant hash also reads which of a cell's pieces it is.
  * Still 8 bytes an instance; the layout is v15's.
+ * 17: a shader data entry carries the construction bit of its cell's role
+ * (bit 15, above the wetness): the surface shader maps construction from
+ * the build grid in metres and terrain from three axes. Shader data differs
+ * from v16's wherever a construction cell is in a grid; the layout is v16's.
  */
-export const DERIVED_FORMAT_VERSION = 16;
+export const DERIVED_FORMAT_VERSION = 17;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

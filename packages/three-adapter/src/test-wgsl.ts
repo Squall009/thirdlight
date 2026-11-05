@@ -33,6 +33,15 @@ export function wgslRenderer(): WebGPURenderer {
   return buildOnly(renderer);
 }
 
+/** The same for three's WebGL 2 backend: its builds are GLSL (read with {@link fragmentWgslOf}, which takes either). */
+export function glslRenderer(): WebGPURenderer {
+  const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
+  const renderer = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true });
+  // WebGL 2 compares depth in hardware (its backend's answer; it is not initialised here).
+  (renderer as unknown as { hasCompatibility: () => boolean }).hasCompatibility = () => true;
+  return buildOnly(renderer);
+}
+
 /**
  * A renderer never initialised builds programs only: it has no bindings component (null), and a build
  * shares its bind groups only through one, so it is marked absent.

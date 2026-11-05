@@ -3,7 +3,9 @@
  * wetness from. Material and wetness feed only this output (record.ts,
  * FIELD_FEEDS), so a change of only those fields re-derives this and
  * leaves the mesh, collision, navigation and light as they are; meshes
- * carry no material at all (derived-mesh.ts).
+ * carry no material at all (derived-mesh.ts). The role feeds it too (one
+ * bit: construction or not, how the shader projects the texture), on top
+ * of the geometry it already rebuilds.
  *
  * The grid covers the chunk and a border of {@link SHADER_BORDER_CELLS}
  * around it (side = edge + 2 · border, 34 at 32³), so a pixel near a chunk
@@ -15,7 +17,7 @@
  *
  * Cells are in the grid's local order (x · side + z) · side + y, y fastest,
  * grid cell g at chunk cell g − border. Each holds an id into a small
- * palette of (material, wetness) entries, packed at the palette's width
+ * palette of (material, wetness, construction) entries, packed at the palette's width
  * (0, 1, 2, 4, 8 or 16 bits, 32 / width ids a word, cell i at word
  * i / (32 / width), least significant first). Air is entry value 0. A grid
  * of one entry stores no ids. The packed form is what the derived result
@@ -24,7 +26,7 @@
  */
 import type { Neighbourhood } from './assembly';
 import { packedWidth } from './packed-width';
-import { MATERIAL_BITS, valueMaterial, valueWetness } from './record';
+import { isConstructionRole, MATERIAL_BITS, valueMaterial, valueRole, valueWetness, WETNESS_BITS } from './record';
 
 /** Cells of neighbouring chunks the shader data holds around its chunk, on every side. */
 export const SHADER_BORDER_CELLS = 1;
@@ -38,20 +40,38 @@ export const SHADER_BORDER_CELLS = 1;
  */
 export const SHADER_READ_DEPTH_CELLS = 0.25;
 
+/**
+ * The entry bit set for a cell of a construction role: the surface shader
+ * maps construction from the build grid in metres (a band of a texture at
+ * the same height on every wall and floor) and terrain from three axes, so
+ * a material used both as ground and as a wall takes each where it is.
+ * Above the wetness: the u16 entry's last bit.
+ */
+export const SHADER_CONSTRUCTION_BIT = 1 << (MATERIAL_BITS + WETNESS_BITS);
+
+/**
+ * Metres one repeat of a construction tiling texture covers, both ways:
+ * one full-size wall (owner), anchored to the build grid's origin.
+ */
+export const CONSTRUCTION_TILE_METRES = 4;
+
+/** Metres one repeat of a terrain texture covers (projected from three axes). */
+export const TERRAIN_TILE_METRES = 2;
+
 /** Cells along a side of a chunk's shader grid. */
 export function shaderGridSide(edge: number): number {
   return edge + 2 * SHADER_BORDER_CELLS;
 }
 
-/** A shader palette entry: material in the low bits, wetness above it. */
-export function shaderEntry(material: number, wetness: number): number {
-  return material === 0 ? 0 : material | (wetness << MATERIAL_BITS);
+/** A shader palette entry: material in the low bits, wetness above it, then the construction bit of the cell's role. */
+export function shaderEntry(material: number, wetness: number, role: number): number {
+  return material === 0 ? 0 : material | (wetness << MATERIAL_BITS) | (isConstructionRole(role) ? SHADER_CONSTRUCTION_BIT : 0);
 }
 
 export interface ShaderOut {
   /** Cells along the grid's side (the chunk edge plus the border on both sides). */
   readonly side: number;
-  /** Entries: material | wetness << 12 ({@link shaderEntry}); air is 0. */
+  /** Entries: material | wetness << 12 | construction << 15 ({@link shaderEntry}); air is 0. */
   readonly palette: Uint16Array;
   /** Bits per cell id (0 when the palette has one entry). */
   readonly width: number;
@@ -86,7 +106,7 @@ export function shaderOfNeighbourhood(n: Neighbourhood): ShaderOut {
       const v = n.values[row + y]!;
       // Runs of one value along y are common (ground, air): the palette lookup is skipped for them.
       if (v !== prev) {
-        const e = shaderEntry(valueMaterial(v), valueWetness(v));
+        const e = shaderEntry(valueMaterial(v), valueWetness(v), valueRole(v));
         let id = seen.get(e);
         if (id === undefined) {
           id = entries.length;
@@ -120,7 +140,7 @@ export function shaderEntryAt(s: ShaderOut, i: number): number {
 /**
  * Every grid cell's entry, in grid order, into `out` (side³ long): the form
  * a renderer uploads (a u16 a cell; little-endian bytes are material low
- * byte, then material high bits | wetness << 4).
+ * byte, then material high bits | wetness << 4 | construction << 7).
  */
 export function shaderGridEntries(s: ShaderOut, out: Uint16Array): Uint16Array {
   const cells = s.side * s.side * s.side;

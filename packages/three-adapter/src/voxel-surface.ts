@@ -15,10 +15,20 @@
  * rebuilds no mesh, and the blend is a function of the cells alone, so it
  * looks the same on any mesh that covers the surface.
  *
- * Materials are projected in world space from three axes (triplanar),
- * terrain and construction alike, with the texture phase taken from the
- * chunk's integer cell (per object), so a floating-origin shift never moves
- * a texture.
+ * Terrain materials are projected in world space from three axes
+ * (triplanar); construction (a cell of a construction role: the entry's
+ * construction bit) is mapped from the build grid in metres
+ * (`voxel-surface-projection.ts`: U along the face, V up it, a roof plane's
+ * V up its slope), so a band of a texture sits at the same height on every
+ * wall and floor. Each material's table entry gives the metres one repeat
+ * covers for either (construction one 4 m full wall, terrain 2 m by
+ * default). The texture phase is taken from the chunk's integer cell (per
+ * object), so a floating-origin shift never moves a texture.
+ *
+ * A pixel whose blend finds no solid cell (a roof plane runs up to a cell
+ * above each step of its stair, through air cells) takes the nearest solid
+ * of the eight cells read instead, by plain trilinear weight: the roof's
+ * own cells, not a neutral grey.
  *
  * Coarser levels of the chunk tree draw through the same program: a node's
  * grid holds its own (coarser) cells, so each object passes its cell size
@@ -35,18 +45,24 @@
  * passes the entry instead.
  *
  * Texture units: the grid texture, the material table and the pattern
- * array, three of a lit program's sixteen (`texture-units.ts`). Reads a
- * pixel: eight grid texels, two table texels and six pattern samples.
+ * array, three of a lit program's sixteen (`texture-units.ts`); the band
+ * test texture a fourth when it is on. Reads a pixel: eight grid texels,
+ * four table texels (look and tiles of two materials) and six pattern
+ * samples (a construction material takes one projection, through the
+ * first of its three samples), two band samples more with the bands on.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
+import { CONSTRUCTION_TILE_METRES, SHADER_CONSTRUCTION_BIT, TERRAIN_TILE_METRES } from '@thirdlight/voxel';
+
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
+import { BAND_TEXELS, bandTexels, gridUv, type ProjectionOps } from './voxel-surface-projection';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, clamp, float, floor, int, ivec2, ivec3, max, min, mix, mod, normalLocal, positionLocal, property, select, texture, uniform, vec3, vec4 } = TSL;
+const { Fn, abs, clamp, float, floor, int, ivec2, ivec3, max, min, mix, mod, normalLocal, positionLocal, property, select, sqrt, texture, uniform, vec2, vec3, vec4 } = TSL;
 
 /** The object `userData` key holding a voxel surface's per-object values ({@link VoxelSurfaceObject}). */
 export const VOXEL_SURFACE_KEY = 'tlVoxelSurface';
@@ -56,6 +72,8 @@ export const VOXEL_GRID_MAX_EDGE = 2048;
 
 /** Entries the material table holds (material ids 0 … 4,095), 64 a row. */
 const TABLE_WIDTH = 64;
+/** Rows of one block of the table: looks in the first block, tiles in the second. */
+const TABLE_ROWS = 4096 / TABLE_WIDTH;
 /** Texels along a test pattern's side, and how many patterns there are. */
 const PATTERN_SIZE = 64;
 export const VOXEL_PATTERNS = 4;
@@ -82,6 +100,8 @@ export interface VoxelSurfaceObject {
   readonly slot: THREE.Vector4;
   /** The chunk corner's cell (level-0 cells), each axis modulo {@link PHASE_CELLS}: where its textures start. */
   readonly phase: THREE.Vector3;
+  /** The chunk corner in metres, each axis modulo {@link PHASE_CELLS} cells times √2: where a slope's V starts (`gridPhases`). */
+  readonly slopePhase: THREE.Vector3;
   /** Metres a cell of the object's grid (its level's cells; the layout's for level 0). */
   cellMetres: number;
 }
@@ -253,10 +273,18 @@ export class VoxelShaderGrids {
   onTexture: ((tex: THREE.Data3DTexture) => void) | null = null;
 }
 
-/** A material's look in the table: a colour (sRGB hex) and a test pattern (0 … {@link VOXEL_PATTERNS} − 1). */
+/**
+ * A material's look in the table: a colour (sRGB hex), a test pattern
+ * (0 … {@link VOXEL_PATTERNS} − 1), and the metres one repeat of its
+ * texture covers on construction and on terrain (defaults
+ * CONSTRUCTION_TILE_METRES and TERRAIN_TILE_METRES; each must divide the
+ * phase length, {@link PHASE_CELLS} cells, so the phase never moves it).
+ */
 export interface VoxelMaterialLook {
   readonly colour: number;
   readonly pattern: number;
+  readonly constructionTileMetres?: number;
+  readonly terrainTileMetres?: number;
 }
 
 /** The test patterns: flat, grain, planks, cobbles (luminance about 0.5, in every channel). */
@@ -293,9 +321,23 @@ function patternTexture(): THREE.DataArrayTexture {
   return fresh(tex);
 }
 
-/** The material table: a texel a material id, linear colour in rgb, pattern index in a. */
+/** The band test texture over one construction tile (`voxel-surface-projection.ts`). */
+function bandTexture(): THREE.DataTexture {
+  const tex = new THREE.DataTexture(bandTexels(CONSTRUCTION_TILE_METRES), BAND_TEXELS, BAND_TEXELS, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  return fresh(tex);
+}
+
+/**
+ * The material table: a texel a material id, linear colour in rgb, pattern
+ * index in a; a second block of rows below it the tiles (construction
+ * metres in r, terrain metres in g).
+ */
 function tableTexture(): THREE.DataTexture {
-  const rows = Math.ceil(4096 / TABLE_WIDTH);
+  const rows = 2 * TABLE_ROWS;
   const tex = new THREE.DataTexture(new Float32Array(TABLE_WIDTH * rows * 4), TABLE_WIDTH, rows, THREE.RGBAFormat, THREE.FloatType);
   tex.minFilter = THREE.NearestFilter;
   tex.magFilter = THREE.NearestFilter;
@@ -308,10 +350,10 @@ export interface VoxelSurfaceOptions {
   look(material: number): VoxelMaterialLook;
   /** Metres over which two neighbouring cells' materials blend (0 … one cell). */
   blendMetres: number;
-  /** Metres a test pattern's tile covers. */
-  patternMetres?: number;
   /** `flat`: one colour, no reads (to measure what the blend costs). */
   shading?: 'blend' | 'flat';
+  /** Draw construction with the band test texture (bands at fixed heights in the tile) instead of its pattern. */
+  bands?: boolean;
 }
 
 /** The surface material, its grids and the setting it reads each frame. */
@@ -332,12 +374,20 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   const tdata = table.image.data as Float32Array;
   const c = new THREE.Color();
   const ids = Math.min(4096, 2 ** layout.materialBits);
+  const phaseM = PHASE_CELLS * layout.cellMetres;
+  const tile = (m: number, what: string, metres: number): number => {
+    if (!(metres > 0) || Math.abs(phaseM / metres - Math.round(phaseM / metres)) > 1e-9) throw new RangeError(`voxel material ${m}: a ${what} tile of ${metres} m does not divide the ${phaseM} m phase`);
+    return metres;
+  };
+  if (SHADER_CONSTRUCTION_BIT !== 2 ** layout.materialBits * (layout.wetnessMax + 1)) throw new RangeError('voxel surface: the construction bit is not above the wetness');
   for (let m = 1; m < ids; m++) {
     const l = opts.look(m);
     c.setHex(l.colour);
     tdata.set([c.r, c.g, c.b, Math.max(0, Math.min(VOXEL_PATTERNS - 1, l.pattern))], m * 4);
+    tdata.set([tile(m, 'construction', l.constructionTileMetres ?? CONSTRUCTION_TILE_METRES), tile(m, 'terrain', l.terrainTileMetres ?? TERRAIN_TILE_METRES), 0, 0], (TABLE_ROWS * TABLE_WIDTH + m) * 4);
   }
   const patterns = patternTexture();
+  const bands = opts.bands === true ? bandTexture() : null;
   // Placed relative to the camera in 64 bits: a voxel world may lie kilometres from the origin.
   const material = cameraRelative(new THREE.MeshStandardNodeMaterial());
   material.metalness = 0;
@@ -353,12 +403,29 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   slotU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.slot ?? (slotU.value as THREE.Vector4).set(0, 0, 0, -1));
   const phaseU = uniform(new THREE.Vector3());
   phaseU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.phase ?? (phaseU.value as THREE.Vector3).set(0, 0, 0));
+  const slopePhaseU = uniform(new THREE.Vector3());
+  slopePhaseU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.slopePhase ?? (slopePhaseU.value as THREE.Vector3).set(0, 0, 0));
   const cellU = uniform(layout.cellMetres);
   cellU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.cellMetres ?? layout.cellMetres);
   const matMask = 2 ** layout.materialBits;
-  const decode = (entry: N): { mat: N; wet: N } => ({ mat: mod(entry, matMask), wet: floor(entry.div(matMask)) });
-  const look = (m: N): N => tableNode.load(ivec2(int(mod(m, TABLE_WIDTH)), int(floor(m.div(TABLE_WIDTH)))));
-  const patternM = opts.patternMetres ?? 2;
+  // A blended "material" is the key material + construction · 2^materialBits: the same id as ground and as wall blend apart.
+  const decode = (entry: N): { mat: N; wet: N } => ({
+    mat: mod(entry, matMask).add(select(entry.greaterThanEqual(SHADER_CONSTRUCTION_BIT), float(matMask), float(0))),
+    wet: mod(floor(entry.div(matMask)), layout.wetnessMax + 1),
+  });
+  const look = (m: N, block: number): N => tableNode.load(ivec2(int(mod(m, TABLE_WIDTH)), int(floor(m.div(TABLE_WIDTH))).add(block * TABLE_ROWS)));
+  const nodeOps: ProjectionOps<N, N> = {
+    num: (v) => float(v),
+    add: (a, b) => a.add(b),
+    sub: (a, b) => a.sub(b),
+    mul: (a, b) => a.mul(b),
+    div: (a, b) => a.div(b),
+    abs: (a) => abs(a),
+    max: (a, b) => max(a, b),
+    sqrt: (a) => sqrt(a),
+    less: (a, b) => a.lessThan(b),
+    pick: (c, a, b) => select(c, a, b),
+  };
   if (opts.shading === 'flat') {
     material.colorNode = vec4(0.55, 0.52, 0.47, 1);
     material.roughnessNode = float(0.85);
@@ -373,8 +440,10 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const c0 = floor(t);
       // The blend's metres in this grid's cells (at most one cell): the same width at every level.
       const blendCells = clamp(blendM.div(cellU), 1e-3, 1);
-      const w1 = clamp(t.sub(c0).sub(0.5).div(blendCells).add(0.5), 0, 1);
+      const f = t.sub(c0);
+      const w1 = clamp(f.sub(0.5).div(blendCells).add(0.5), 0, 1);
       const w0 = vec3(1).sub(w1);
+      const f0 = vec3(1).sub(f);
       const g0 = ivec3(c0).add(layout.border);
       const hi = int(layout.side - 1);
       const slot = slotU;
@@ -385,6 +454,10 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const v2 = float(0).toVar();
       const wetSum = float(0).toVar();
       const total = float(0).toVar();
+      // The nearest solid by plain trilinear weight, for a pixel whose blend weights find none.
+      const nm = float(-1).toVar();
+      const nw = float(0).toVar();
+      const nWet = float(0).toVar();
       for (let k = 0; k < 8; k++) {
         const dx = k & 1;
         const dy = (k >> 1) & 1;
@@ -397,9 +470,15 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         const lo = floor(texel.r.mul(255).add(0.5));
         const hiB = floor(texel.g.mul(255).add(0.5));
         const { mat, wet } = decode(lo.add(hiB.mul(256)));
-        const w = (dx ? w1.x : w0.x).mul(dy ? w1.y : w0.y).mul(dz ? w1.z : w0.z).mul(select(mat.greaterThan(0.5), float(1), float(0))).toVar();
+        const isSolid = select(mat.greaterThan(0.5), float(1), float(0));
+        const w = (dx ? w1.x : w0.x).mul(dy ? w1.y : w0.y).mul(dz ? w1.z : w0.z).mul(isSolid).toVar();
         wetSum.addAssign(w.mul(wet));
         total.addAssign(w);
+        const tw = (dx ? f.x : f0.x).mul(dy ? f.y : f0.y).mul(dz ? f.z : f0.z).mul(isSolid).add(isSolid.mul(1e-6)).toVar();
+        const nearer = tw.greaterThan(nw);
+        nm.assign(select(nearer, mat, nm));
+        nWet.assign(select(nearer, wet, nWet));
+        nw.assign(max(nw, tw));
         // The two heaviest materials: a newcomer heavier than the second takes its place; the first stays the heaviest.
         const same1 = mat.equal(m1);
         const same2 = mat.equal(m2);
@@ -417,30 +496,44 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         m2.assign(bm);
         v2.assign(bv);
       }
-      // A chunk of one solid entry passes it instead of a grid.
+      // A chunk of one solid entry passes it instead of a grid; a blend that found no solid takes the nearest solid.
       const solid = slot.w.greaterThanEqual(0);
       const se = decode(max(slot.w, 0));
-      const mA = select(solid, se.mat, m1);
-      const mB = select(solid, se.mat, max(m2, 0));
-      const share = select(solid, float(0), v2.div(max(v1.add(v2), 1e-6)));
-      const wetness = select(solid, se.wet, wetSum.div(max(total, 1e-6))).div(layout.wetnessMax);
-      // Triplanar projection in world level-0 cells (the object's phase plus the local position), the axes weighted by the normal.
-      const p = phaseU.add(positionLocal.div(layout.cellMetres)).div(patternM / layout.cellMetres);
+      const none = v1.lessThanEqual(0);
+      const mA = select(solid, se.mat, select(none, nm, m1));
+      const mB = select(solid, se.mat, select(none, nm, max(m2, 0)));
+      const share = select(solid.or(none), float(0), v2.div(max(v1.add(v2), 1e-6)));
+      const wetness = select(solid, se.wet, select(none, nWet, wetSum.div(max(total, 1e-6)))).div(layout.wetnessMax);
+      // World metres from the object's grid phase (plain, and the slope's) plus the local position.
+      const p = phaseU.mul(layout.cellMetres).add(positionLocal);
+      const ps = slopePhaseU.add(positionLocal);
+      const [gu, gv] = gridUv(nodeOps, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [n.x, n.y, n.z]);
+      const g = vec2(gu, gv);
+      // Triplanar weights by the normal (terrain); a construction material takes the grid projection alone.
       const bw = abs(n).pow(vec3(4));
       const bn = bw.div(bw.x.add(bw.y).add(bw.z));
       const albedo = (m: N): N => {
-        const l = look(m);
+        const id = mod(m, matMask);
+        const l = look(id, 0).toVar();
+        const tiles = look(id, 1).toVar();
+        const built = m.greaterThanEqual(matMask);
         const layer = int(floor(l.a.add(0.5)));
         const sample = (uv: N): N => texture(patterns, uv).depth(layer).r;
-        const pat = sample(p.zy).mul(bn.x).add(sample(p.xz).mul(bn.y)).add(sample(p.xy).mul(bn.z));
-        return l.rgb.mul(pat.sub(0.5).mul(1.2).add(1));
+        const pt = p.div(tiles.y);
+        const gt = g.div(tiles.x);
+        const pat = sample(select(built, gt, pt.zy)).mul(select(built, float(1), bn.x)).add(sample(pt.xz).mul(select(built, float(0), bn.y))).add(sample(pt.xy).mul(select(built, float(0), bn.z)));
+        const shaded = l.rgb.mul(pat.sub(0.5).mul(1.2).add(1)).toVar();
+        if (bands === null) return shaded;
+        // Into a variable first: the pick below is a branch, and a sample inside it would vary per pixel.
+        const band = texture(bands, gt).toVar();
+        return select(built, mix(l.rgb, band.rgb, band.a), shaded);
       };
       // Sampled in uniform control flow (WGSL refuses an implicit-derivative sample inside a branch that varies per pixel): into variables first, then picked.
       const a1 = albedo(mA).toVar();
       const a2 = albedo(mB).toVar();
       const blended = mix(a1, a2, share);
-      // Nothing solid around (should not happen on a surface): a neutral grey shows it.
-      const seen = solid.or(v1.greaterThan(0));
+      // Nothing solid among the eight cells (should not happen on a surface): a neutral grey shows it.
+      const seen = solid.or(nw.greaterThan(0));
       const colour = mix(vec3(0.5), blended.mul(float(1).sub(wetness.mul(0.5))), select(seen, float(1), float(0)));
       wetOut.assign(wetness);
       return vec4(colour, 1);
@@ -456,11 +549,12 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     setBlendMetres(m) {
       blendM.value = Math.max(0, m);
     },
-    objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), cellMetres }),
+    objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), cellMetres }),
     dispose() {
       grids.dispose();
       table.dispose();
       patterns.dispose();
+      bands?.dispose();
       material.dispose();
     },
   };

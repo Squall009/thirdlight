@@ -75,6 +75,7 @@ import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU, runAxisOf } from './voxel-trim-u';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
+import { gridPhases } from './voxel-surface-projection';
 import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
@@ -239,7 +240,7 @@ interface SeamDraw {
 const seamId = (level: number, nx: number, ny: number, nz: number, face: number): string => `${level},${nx},${ny},${nz},${face}`;
 
 /** Shader values for a seam whose coarse node is not drawn (it left first; its seam goes with the next batch): one entry, all air. */
-const NO_SURFACE: VoxelSurfaceObject = { slot: new THREE.Vector4(0, 0, 0, 0), phase: new THREE.Vector3(), cellMetres: VOXEL_SIZE_M };
+const NO_SURFACE: VoxelSurfaceObject = { slot: new THREE.Vector4(0, 0, 0, 0), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), cellMetres: VOXEL_SIZE_M };
 
 export interface VoxelChunkViewOptions {
   /** The storage chunks' grid (32³). */
@@ -421,8 +422,7 @@ export class VoxelChunkView {
     const cellM = mipCellMetres(level);
     const surface = this.shading.objectValues(cellM);
     const cell = this.at0(level, cx, cy, cz);
-    const wrap = (v: number): number => v - Math.floor(v / PHASE_CELLS) * PHASE_CELLS;
-    surface.phase.set(wrap(cell[0]), wrap(cell[1]), wrap(cell[2]));
+    gridPhases(cell, VOXEL_SIZE_M, PHASE_CELLS, surface.phase, surface.slopePhase);
     const geo = voxelSurfaceGeometry([d.ground, d.base], cellM);
     if (geo !== null) {
       const mesh = new THREE.Mesh(geo, this.shading.material);

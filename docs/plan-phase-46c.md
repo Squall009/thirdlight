@@ -240,7 +240,7 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 | R3 | done (6dff42ce, cleanup R3c): `derive-pieces.ts`: instances only on edges, corners, roof edges, beams/banisters and debris (integrity < 15, exposed); `WORLD_RULES` = `edges` v3, placement bits, derived v16; no piece on a flat face (tested). Town L0 320 k → 131 k instances (p50 1,355 → 555 a chunk), L1 53 k → 73 k (D505); D504–D505 |
 | R3c | done (57709ea4): `cases-draft-catalogue.ts` archived; `KIT_RULES`, the `reshape` base and `slab` shape (soffit base quads) removed; window, form, run and kit-check tests ported to the edge catalogue or test catalogues. Derive bytes equal on 8,180 town/slice results (derived v16 kept). stream.test: damage 15 → 7 re-derives exactly the sections within R, one swap, debris drawn |
 | R3b | done: kit `alias` {case, rotation 0–23} (add-only, refused/canonical, kit check), 24 cube rotations; stagger 1/64–1/32 cell into the solid, ≤ 2°; `pieceU` on the edge's world axis (vertical up y); default kit generated (strip 16/4, cove 16/4, cap 9/4 tris; 525/122 all). Town: piece draws 1,307 (1,366), render() 7.6/8.2 ms (7.2); D506–D507, D481 superseded |
-| R4 | not started (grid-anchored 4 m UVs, band debug pattern, roof slope projection) |
+| R4 | done: construction (bit 15 of the shader entry, derived v17) maps from the build grid in metres, 4 m repeat (terrain triplanar, 2 m), roofs up the slope; `?bands=1`; D503 fixed (nearest solid of the 8). Seen both renderers. Town orbit GPU 2.55 → 3.06 ms WebGPU, 3.53 → 4.15 WebGL 2, 0 missed. D506 left to R5 |
 | R5 | not started (log + stone kits regenerated, kit check, test scene sampler) |
 | R6 | not started (prototype on staging + measurement vs 46c.11) |
 | R7 | not started (role spec + trim drafts rewritten, still DRAFT) |
@@ -1036,6 +1036,46 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
   perf 0 missed both renderers). voxel-world.e2e.ts about 65 s (its tests summed 59.5 s with the failing one at 5.4 s;
   61.6 s at R3c), not measured as one run.
 
+### R4 grid-anchored 4 m UVs
+
+- **Built.** Shader data entries carry the construction bit of the cell's role (`SHADER_CONSTRUCTION_BIT`, bit 15,
+  `derived-shader.ts`; derived v16 → v17, spec owner note; the role feeds the shader data). The surface
+  (`voxel-surface.ts`) projects terrain triplanar and construction by `gridUv` (`voxel-surface-projection.ts`, one
+  definition over a scalar interface: shader nodes in the program, numbers in the test): U along the face to the
+  right seen from outside, V = world height on walls, x / −z on floors, up the slope on roof planes (a slope phase
+  modulo 512·√2 m per object, so V stays continuous where the 512 m phase wraps). The material table gains a second
+  block: per material the construction and terrain repeats (`CONSTRUCTION_TILE_METRES` 4, `TERRAIN_TILE_METRES` 2,
+  voxel package; a repeat not dividing 512 m is refused). `?bands=1` (slice page) draws construction with a 256²
+  band texture over the 4 m tile. D503: a pixel whose blend finds no solid takes the solid of the 8 with the
+  largest trilinear weight (the "grey" check now asks for no solid at all).
+- **Tests.** `voxel-surface.test.ts`: reads 18 (8 grid + 4 table + 6 samples), bands +2 samples +1 unit, samples in
+  top-level flow, WGSL and GLSL builds; tile refusal; `gridUv` on numbers through the view's phases: the same V at
+  1.7 m on walls of four facings, storeys, chunks past the phase wrap and 4 km out; floors equal from either chunk
+  at chunk faces and phase wraps; a 45° roof's V equal along the eave and the distance up it, continuous across the
+  wraps. `stream.test.ts`, `voxel-chunk-view.test.ts`, `derived.test.ts`: entries with the bit. e2e (main test, both
+  renderers, now under `?bands=1`): the wall straight on, its red/blue bands on the same rows (±1 px) either side
+  of the x chunk face.
+- **Looked at** (staging slice, 1280 × 720, both renderers, bands and plain, 2026-11-05 02:05–02:13, shots
+  `~/.cache/thirdlight-phase46/work/r4/shots`): two gable houses side by side (timber 4 high across a chunk face;
+  stone 8 high on a 3-cell foundation): bands and labels on the same rows on both; a floor across x = −32: bands run
+  on; both roof slopes straight on: bands parallel to the eave, digits read upright, no grey bands (plain shots
+  too). Seen wrong (known): the verge staircase (D506).
+- **Measured** (town, R3b's `measure.mjs`, default kit, 60 Hz cap, one round a renderer, 02:15–02:17, load 3.0–3.5,
+  uptime 12.4 d): orbit GPU **3.06 ms WebGPU, 4.15 WebGL 2** (R3b 2.55 / 3.53), worst 3.8 / 5.7; `render()` CPU p50
+  7.4 / 8.0 ms; orbit 0 missed both; flight GPU 3.69 / 2.78 ms, 1 / 2 missed of 1,618. Cause of the +0.5–0.6 ms: two
+  more table texels and the projection a material, the nearest-solid pick in the 8-cell loop. Not tuned.
+- **Gate.** Fast gate (`voxel-world.e2e.ts`): lint, build green; vitest two watched load timeouts that passed alone
+  (D418 scan-bounded-log, D454 stream refresh); e2e red: the band detector's 3× saturation was too strict for the
+  lit red (151, 53, 53), loosened to 2× and the bands compared by run middle (±1 px), not a product change; rerun
+  GREEN (village perf 0 missed both). voxel-world.e2e.ts tests sum 63.3 s (R3c 61.6 s).
+- **D506 (left to R5, learned):** the verge is per roof cell and yawed by its open side; the two verges of a gable
+  rise in opposite senses in piece space (side k+1 rises toward the piece's +x, side k+3 toward −x), so one mesh
+  cannot serve both by the 4 yaws, the rotation byte's placement bits are used up (upright, faceUp, faceDown,
+  centred), and a kit alias only rotates (det +1; the adapter has no mirrored instance, a mirror flips winding).
+  Options: a second case (`roof-gable` rising toward −x, `roof-gable-r` toward +x, a kit may alias one to the other
+  only by a mirror: add a mirror flag to the alias with flipped winding), or the verge word naming its rise. The
+  board itself spans a cell along the slope and one cell up (the plane runs from the tread's top to one cell above).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1397,6 +1437,21 @@ check frame and Problems (46c.8), `pieceU` (edge U), the trim debug texture.
 - 2026-11-05 (R3b, default chosen, owner to confirm): **an alias's rotation is the renderer's only** (not in the piece
   table bytes): a kit edit that changes only an alias's rotation redraws a drawn chunk when it is derived again, as a
   mesh change does today. The 24 rotations' numbering is part of the kit format and fixed.
+
+- 2026-11-05 (R4, default chosen, owner to confirm): **the projection follows the cell's role, not a material flag**:
+  a construction bit in the shader entry (bit 15, free), so a material used as ground and as a wall (stone) maps
+  each where it is; the plan's per-material flag could not tell them apart. The material table still carries the
+  repeats per material (construction 4 m, terrain 2 m by default), for 46d's texture sets. The role now feeds the
+  shader data (no edit derives more: a role change rebuilt everything else already).
+- 2026-11-05 (R4, default chosen, owner to confirm): **U runs to the right seen from outside, V up** (walls: world
+  height; floors x and −z, ceilings x and z; slopes level along the ridge and up the slope, exact distance, own
+  phase), so authored text and patterns are never mirrored on a face; the old triplanar's mirrored faces go.
+- 2026-11-05 (R4, default chosen, owner to confirm): **a pixel that blends no solid takes the nearest solid** of
+  the 8 cells read (plain trilinear weight), not a neutral grey: fixes the roof planes' and verges' bands (D503) for
+  any surface that runs through air cells; grey stays for a pixel with no solid among the 8.
+- 2026-11-05 (R4, default chosen, owner to confirm): **the band texture is a page option** (`?bands=1`, a fourth
+  texture unit only then), not a material: the main voxel e2e runs under it on both renderers (its pictures compare
+  with each other, a reload's too); Play, the Scene view and the export never build it.
 
 ## 10. Open questions for the owner
 

@@ -45,6 +45,7 @@ import {
   fieldsFeed,
   SHADER_BORDER_CELLS,
   sectionsOfChunk,
+  SHADER_CONSTRUCTION_BIT,
   shaderEntryAt,
   voxel,
   VOXEL_ROLE,
@@ -992,7 +993,7 @@ describe('streamer (workers, region files on disk)', () => {
       const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, WORLD_RULES));
       expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
     }
-    expect(s.derivedOf(-1, 1, -1)?.assembly?.shader.palette).toContain(41 | (5 << 12));
+    expect(s.derivedOf(-1, 1, -1)?.assembly?.shader.palette).toContain(41 | (5 << 12) | SHADER_CONSTRUCTION_BIT);
 
     // A material-only change of one cell on a chunk face (x 0, z 0: chunk 0,1,0 alone holds it) re-derives the
     // shader data of the four chunks whose border reaches it, three of them with no changed cell, and no mesh,
@@ -1019,7 +1020,7 @@ describe('streamer (workers, region files on disk)', () => {
     }
     // The neighbour across both faces holds the painted cell in its border (grid cell 32 + 1 on x and z).
     const nb = s.derivedOf(-1, 1, -1)!.assembly!.shader;
-    expect(shaderEntryAt(nb, ((33 * nb.side + 33) * nb.side) + (40 - 32 + 1))).toBe(42 | (5 << 12));
+    expect(shaderEntryAt(nb, ((33 * nb.side + 33) * nb.side) + (40 - 32 + 1))).toBe(42 | (5 << 12) | SHADER_CONSTRUCTION_BIT);
   });
 
   it('cancels loads the focus left before they landed, and adopts nothing from them', async () => {

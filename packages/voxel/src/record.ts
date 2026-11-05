@@ -304,12 +304,14 @@ export const ALL_DERIVED_PARTS = 31;
 /**
  * Which derived outputs each field drives (the feeds mask). Shape and role
  * decide geometry, so they drive the mesh, collision, navigation and light
- * occupancy; material and wetness only change how a surface is shaded, so a
+ * occupancy; the role also says how a surface is projected (construction
+ * from the build grid, terrain from three axes), so it drives the shader
+ * data too; material and wetness only change how a surface is shaded, so a
  * change of only those re-derives the shader data and nothing else.
  */
 export const FIELD_FEEDS: Readonly<Record<VoxelPlane, number>> = Object.freeze({
   material: DERIVED_PART.shader,
-  role: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light,
+  role: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.shader,
   shape: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light,
   wetness: DERIVED_PART.shader,
 });

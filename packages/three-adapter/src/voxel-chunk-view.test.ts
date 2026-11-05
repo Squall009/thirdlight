@@ -31,6 +31,7 @@ import {
   jobRadius,
   joinSectionsForDraw,
   MATERIAL_BITS,
+  SHADER_CONSTRUCTION_BIT,
   PIECE_FAMILY,
   PLACEHOLDER_RULES,
   SHADER_BORDER_CELLS,
@@ -244,7 +245,7 @@ describe('the voxel chunk view', () => {
     expect(surfaceOf(view.root.children[0]!)).toBe(mesh);
     expect(view.triangles).toBe(tris);
     expect(r.uploads.length).toBe(uploads + 1);
-    expect(r.uploads[uploads]!.entries.includes(5 | (3 << MATERIAL_BITS))).toBe(true);
+    expect(r.uploads[uploads]!.entries.includes(5 | (3 << MATERIAL_BITS) | SHADER_CONSTRUCTION_BIT)).toBe(true);
 
     // The focus 600 m away in x: the origin moves by whole chunks and every chunk is placed again, matrix included.
     const moved = origin.update(600, 0, 0);

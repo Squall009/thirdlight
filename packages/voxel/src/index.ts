@@ -323,7 +323,7 @@ export {
   type PieceTableKit,
 } from './piece-table';
 export { cropNeighbourhood, type ChunkPieces, deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
-export { encodeShader, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
+export { CONSTRUCTION_TILE_METRES, encodeShader, SHADER_BORDER_CELLS, SHADER_CONSTRUCTION_BIT, SHADER_READ_DEPTH_CELLS, TERRAIN_TILE_METRES, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export {
   applyFold,
   CASE_BASES,
