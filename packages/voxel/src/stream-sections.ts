@@ -37,6 +37,7 @@ import { chunkInWorld, chunkKey, sectionGrid, type CellGrid, type ChunkGrid, typ
 import type { SectionResult } from './derive-assembly';
 import { derivedBytes, encodeDerived, type DerivedData } from './derived-data';
 import { SHADER_BORDER_CELLS } from './derived-shader';
+import { EDGE_REACH } from './edge-cases';
 import type { DirtyTracker } from './dirty-tracker';
 import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
 import type { VoxelStoreCandidate } from './store';
@@ -465,7 +466,8 @@ export class SectionDerives {
    * (results already on their way are refused) and it is derived again. A
    * change that feeds only the shader data reaches no further than the
    * shader border and rebuilds only that; with {@link PIECES_AT_CELLS} the
-   * sections holding `box` derive whole besides. With a group, the sections
+   * sections within the edge pass's reach of `box` derive whole besides (a
+   * piece takes its kit from a cell beside its own where roles meet). With a group, the sections
    * join it and swap with it.
    */
   invalidate(box: CellBox, why: 'yes' | 'edit', parts: number, groupOrId: EditGroup | number | null): void {
@@ -477,7 +479,7 @@ export class SectionDerives {
       if (s !== undefined) g = this.stale(s, why, geometry ? ALL_DERIVED_PARTS : own, g);
     }
     if (geometry || (parts & PIECES_AT_CELLS) === 0) return;
-    for (const d of dependentChunks(this.sections, box, 0)) {
+    for (const d of dependentChunks(this.sections, box, EDGE_REACH)) {
       const s = this.bySection.get(chunkKey(this.sections, d.cx, d.cy, d.cz));
       if (s !== undefined) g = this.stale(s, why, ALL_DERIVED_PARTS, g);
     }
@@ -485,12 +487,33 @@ export class SectionDerives {
 
   /**
    * Every resident section of storage chunk (cx, cy, cz), and no other, is
-   * derived again in `groupId`'s swap: what a change of the inputs a section
-   * reads only at its own cells needs (a kit's pieces for its materials).
+   * derived again in `groupId`'s swap: what a change of a kit's pieces for
+   * the chunk's materials needs ({@link rederiveBeside} for the pieces its
+   * neighbours take from it).
    */
   rederiveChunk(cx: number, cy: number, cz: number, groupId: number): void {
     let g = this.group(groupId);
     for (const s of this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz)) ?? []) g = this.stale(s, 'edit', ALL_DERIVED_PARTS, g);
+  }
+
+  /**
+   * The resident sections of other storage chunks within the edge pass's
+   * reach of chunk (cx, cy, cz) are derived again in `groupId`'s swap, of
+   * the chunks `take` accepts: a piece there may take its kit from a cell
+   * of this chunk (where roles meet, the dressing cell is one beside the
+   * piece's own).
+   */
+  rederiveBeside(cx: number, cy: number, cz: number, groupId: number, take: (cx: number, cy: number, cz: number) => boolean): void {
+    let g = this.group(groupId);
+    const e = this.host.grid.edge;
+    const shift = e / this.sections.edge;
+    const box = { minX: cx * e, minY: cy * e, minZ: cz * e, maxX: cx * e + e - 1, maxY: cy * e + e - 1, maxZ: cz * e + e - 1 };
+    for (const d of dependentChunks(this.sections, box, EDGE_REACH)) {
+      const [ox, oy, oz] = [Math.floor(d.cx / shift), Math.floor(d.cy / shift), Math.floor(d.cz / shift)];
+      if ((ox === cx && oy === cy && oz === cz) || !take(ox, oy, oz)) continue;
+      const s = this.bySection.get(chunkKey(this.sections, d.cx, d.cy, d.cz));
+      if (s !== undefined) g = this.stale(s, 'edit', ALL_DERIVED_PARTS, g);
+    }
   }
 
   /** A section's inputs changed: its stamp moves (results on their way are refused), it is wanted again, in group `g` when given. */

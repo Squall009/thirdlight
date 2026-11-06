@@ -25,14 +25,20 @@
  * same world position bit for bit. Each sample edge belongs to exactly one
  * chunk (the one holding its lower sample), so no triangle is emitted twice.
  *
- * **Detail instances**: 8 bytes each: x, y, z (chunk-local cell, uint8),
+ * **Detail instances**: 12 bytes each: x, y, z (chunk-local cell, uint8),
  * a byte of rotation (bits 0–1: quarter turns about +y, bits 2–3 the
  * placement, {@link INSTANCE_PLACE}) and flags (bits 4–7,
- * {@link INSTANCE_FLAG}), the piece (uint16) and its variant word
- * (uint16): the stride stays a multiple of four, as a GPU instance buffer
- * needs. The piece is **kit-local** (piece-table.ts): the filled slot of
- * the kit its cell's material names; the material is its cell's, read from
- * the shader data like a surface's. The variant word holds which of the
+ * {@link INSTANCE_FLAG}), the piece (uint16), its variant word (uint16)
+ * and its dressing word (uint32): the stride stays a multiple of four, as a
+ * GPU instance buffer needs. The piece is **kit-local** (piece-table.ts):
+ * the filled slot of the kit its dressing cell's material names; the
+ * material is read from the shader data like a surface's. The dressing
+ * cell is the instance's own cell or a neighbour (edge-cases.ts
+ * `slotDressing`: where roles meet, the higher role's kit dresses the
+ * piece): bits 0–4 of the dressing word, {@link instanceDressingCell}. Bits
+ * 5–10 are the cell's faces the piece is cut at, so nothing of it passes
+ * into an opening beside them ({@link instanceFlushFaces}); the rest are
+ * written 0. The variant word holds which of the
  * slot's meshes it draws (bits 0–14) and the mirror of the case's transform
  * (bit 15). A piece that replaces its cell's base surface says so
  * (`replacesBase`: a debris piece drawn in a damaged cell's place); an edge
@@ -56,7 +62,33 @@ export const SURFACE_ISO = 128;
 export const SURFACE_VERTEX_BYTES = 12;
 
 /** Bytes per detail instance. */
-export const INSTANCE_BYTES = 8;
+export const INSTANCE_BYTES = 12;
+
+/** Byte offset of an instance's dressing word (uint32). */
+export const INSTANCE_DRESSING_OFFSET = 8;
+
+/** The dressing word's code for the instance's own cell (a neighbour's: its 3³ block index + 1, wrapping). */
+const DRESSING_OWN = 13;
+
+/**
+ * A dressing word (see the file comment) for the cell at 3³ block index
+ * `block` round the instance's cell (13: its own) and the faces `flush`
+ * (bit 2a: the −a face, 2a + 1: the +a face).
+ */
+export function dressingWord(block: number, flush: number): number {
+  return (((block + 27 - DRESSING_OWN) % 27) | ((flush & 63) << 5)) >>> 0;
+}
+
+/** The offset (x, y, z, each −1 … 1) from an instance's cell to its dressing cell, from its dressing word. */
+export function instanceDressingCell(word: number): [number, number, number] {
+  const b = ((word & 31) + DRESSING_OWN) % 27;
+  return [Math.floor(b / 9) - 1, (Math.floor(b / 3) % 3) - 1, (b % 3) - 1];
+}
+
+/** The faces of an instance's cell its piece is cut at (bit 2a: −a, 2a + 1: +a), from its dressing word. */
+export function instanceFlushFaces(word: number): number {
+  return (word >>> 5) & 63;
+}
 
 /** Instance flags (bits 4–7 of the rotation byte; 0x20 and 0x80 are written 0). */
 export const INSTANCE_FLAG = Object.freeze({
@@ -150,6 +182,8 @@ export interface CellPiece {
   flags: number;
   /** The variant word: variant | mirror bit (piece-table.ts). */
   variant: number;
+  /** The dressing word ({@link dressingWord}). */
+  dressing: number;
 }
 
 /**
@@ -162,7 +196,7 @@ export function detailInstances(n: Neighbourhood, piecesAt: (i: number, x: numbe
   const p = n.pad;
   const s = n.side;
   const out = new Bytes();
-  const cell: CellPiece = { piece: 0, turns: 0, place: 0, flags: 0, variant: 0 };
+  const cell: CellPiece = { piece: 0, turns: 0, place: 0, flags: 0, variant: 0, dressing: 0 };
   let count = 0;
   let cx = 0;
   let cy = 0;
@@ -176,6 +210,7 @@ export function detailInstances(n: Neighbourhood, piecesAt: (i: number, x: numbe
     d.setUint8(at + 3, (cell.turns & 3) | ((cell.place & 3) << INSTANCE_PLACE_SHIFT) | cell.flags);
     d.setUint16(at + 4, cell.piece, true);
     d.setUint16(at + 6, cell.variant, true);
+    d.setUint32(at + INSTANCE_DRESSING_OFFSET, cell.dressing, true);
     count++;
   };
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {

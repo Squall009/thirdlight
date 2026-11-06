@@ -305,6 +305,15 @@ export function verticalWorld(opts: WorldOptions = {}): TestWorld {
               any = true;
               continue;
             }
+            if (towerWall && window) {
+              // A window is an opening in the wall's material: its edge pieces are drawn flush to the reveal.
+              out.material[i] = MAT.stone;
+              out.role[i] = VOXEL_ROLE.opening;
+              out.shape[i] = SHAPE_FULL;
+              out.wetness[i] = 0;
+              any = true;
+              continue;
+            }
             writeDensityCell(out, i, -1, 0, false, 0);
             continue;
           }

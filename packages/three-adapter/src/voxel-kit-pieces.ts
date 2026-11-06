@@ -1,8 +1,8 @@
 /**
  * The meshes a voxel world's kit pieces draw with, as a chunk view asks for
  * them: an instance's piece is kit-local (piece-table.ts: a kit's filled
- * slot), so its mesh is found from the cell's material (read from the
- * chunk's shader data), the material's kit in the world's piece table, the
+ * slot), so its mesh is found from its dressing cell's material (its own
+ * cell or one beside it, derived-mesh.ts; read from the chunk's shader data), the material's kit in the world's piece table, the
  * kit's slot list (`kitPieceList`) and the instance's variant word (which of
  * the slot's meshes, and the mirror of its case transform).
  *
@@ -26,6 +26,10 @@
  * 1/16-cell checker, a tick and a number every quarter, U and V marked),
  * placed camera-relative in 64 bits like the voxel surface.
  *
+ * A piece cut **flush** toward an opening (its instance names faces of its
+ * cell) draws a copy of its mesh cut at those faces (voxel `cutFlush`), one
+ * copy a mesh, rotation and set of faces.
+ *
  * Meshes stay loaded until this is disposed: kits are a few dozen meshes, and a
  * world whose table changes keeps drawing its untouched chunks with the
  * meshes they were built with until they are derived again.
@@ -35,6 +39,7 @@ import { MeshLambertNodeMaterial } from 'three/webgpu';
 import { TRIM_LAYOUTS, voxelKitMeshKey, type TrimLayout } from '@thirdlight/project-model';
 import { crc32, utf8Encode } from '@thirdlight/shared';
 import {
+  cutFlush,
   kitPieceList,
   meshRunAxis,
   mirrorAxisOf,
@@ -48,6 +53,7 @@ import {
   type KitPiece,
   type PieceStaggerFrame,
   type PieceTable,
+  VOXEL_SIZE_M,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import { underHelperNode } from './pieces';
@@ -200,6 +206,8 @@ export class VoxelKitMeshes {
   private readonly trimTextures = new Map<string, THREE.Texture>();
   /** Trim pieces' run-flagged copies, by the mesh they were made from. */
   private readonly trimmed = new Map<THREE.BufferGeometry, THREE.BufferGeometry[]>();
+  /** Copies cut flush toward openings, by the mesh they were made from, then slot rotation and case faces. */
+  private readonly flushed = new Map<THREE.BufferGeometry, Map<number, THREE.BufferGeometry>>();
   private readonly waiting = new Set<() => void>();
   private disposed = false;
 
@@ -291,6 +299,25 @@ export class VoxelKitMeshes {
     return (byAxis[runAxis] ??= trimRunGeometry(g, layout, runAxis));
   }
 
+  /** `g` cut flush at the case faces `caseFaces` after its slot rotation `rotation` (voxel `cutFlush`; made once each). */
+  flushGeometry(g: THREE.BufferGeometry, rotation: number, caseFaces: number): THREE.BufferGeometry {
+    let byKey = this.flushed.get(g);
+    if (byKey === undefined) this.flushed.set(g, (byKey = new Map()));
+    const key = rotation * 64 + caseFaces;
+    let out = byKey.get(key);
+    if (out === undefined) {
+      out = g.clone();
+      const pos = out.getAttribute('position') as THREE.BufferAttribute;
+      const xyz = new Float32Array(pos.count * 3);
+      for (let v = 0; v < pos.count; v++) xyz.set([pos.getX(v), pos.getY(v), pos.getZ(v)], v * 3);
+      cutFlush(xyz, rotation, caseFaces, VOXEL_SIZE_M / 2);
+      out.setAttribute('position', new THREE.BufferAttribute(xyz, 3));
+      out.computeBoundingSphere();
+      byKey.set(key, out);
+    }
+    return out;
+  }
+
   /** What a world's view draws its pieces with: `table` (its streamer's) and the kit records it was built from. */
   set(table: PieceTable, kits: readonly VoxelKitRecordLike[]): VoxelKitSet {
     return new VoxelKitSet(this, table, kits);
@@ -320,6 +347,7 @@ export class VoxelKitMeshes {
       for (const m of s.mirrored) if (m !== undefined) geometries.add(m);
     }
     for (const l of this.trimmed.values()) for (const g of l) if (g !== undefined) geometries.add(g);
+    for (const l of this.flushed.values()) for (const g of l.values()) geometries.add(g);
     let meshes = 0;
     for (const g of geometries) {
       for (const a of Object.values(g.attributes)) meshes += (a as THREE.BufferAttribute).array.byteLength;
@@ -352,6 +380,8 @@ export class VoxelKitMeshes {
     this.trimTextures.clear();
     for (const l of this.trimmed.values()) for (const g of l) g?.dispose();
     this.trimmed.clear();
+    for (const l of this.flushed.values()) for (const g of l.values()) g.dispose();
+    this.flushed.clear();
     this.texture.dispose();
     this.waiting.clear();
   }

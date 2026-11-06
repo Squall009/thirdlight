@@ -282,6 +282,49 @@ describe('kit pieces in the chunk view', () => {
     meshes.dispose();
   });
 
+  it('draws the pieces beside an opening cut flush at its faces (nothing in the doorway), a dug hole\'s pieces whole', () => {
+    // A stone wall with a door three cells high at x 13; its vertical edges dressed by a box sticking 0.2 m past both faces.
+    const build = (role: number): { inDoor: number; cut: number } => {
+      const s = createWorldStore(grid);
+      const set = (x: number, y: number, z: number, material: number, r: number): void => s.setVoxel(x, y, z, { material, role: r, shape: material === 0 ? 0 : 15, wetness: 0 });
+      for (let x = 2; x < 30; x++) for (let z = 2; z < 30; z++) for (let y = 0; y < 4; y++) set(x, y, z, 1, VOXEL_ROLE.terrain);
+      for (let x = 8; x < 20; x++) for (let y = 4; y < 12; y++) set(x, y, 16, STONE, VOXEL_ROLE.wall);
+      for (let y = 4; y < 7; y++) set(13, y, 16, role === VOXEL_ROLE.air ? 0 : STONE, role);
+      const ref = { assetId: 'jamb', digest: DIGEST_A };
+      const kits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [STONE], slots: { 'edge-out-vertical': { meshes: [{ mesh: ref }] } } }];
+      const table = worldPieceTable(kits, SEED);
+      const meshes = new VoxelKitMeshes();
+      meshes.add(ref, new THREE.BoxGeometry(0.4, 0.5, 0.4).translate(0.25, 0, 0.25));
+      const v = view(meshes.set(table, kits));
+      draw(v, derive(s, table));
+      v.root.updateMatrixWorld(true);
+      // The door cell's box in metres, a hair inside its faces.
+      const lo = [13 * VOXEL_SIZE_M + 1e-4, 4 * VOXEL_SIZE_M + 1e-4, 16 * VOXEL_SIZE_M + 1e-4];
+      const hi = [14 * VOXEL_SIZE_M - 1e-4, 7 * VOXEL_SIZE_M - 1e-4, 17 * VOXEL_SIZE_M - 1e-4];
+      let inDoor = 0;
+      const m = new THREE.Matrix4();
+      const p = new THREE.Vector3();
+      for (const mesh of pieceMeshes(v)) {
+        const pos = mesh.geometry.getAttribute('position');
+        for (let i = 0; i < mesh.count; i++) {
+          mesh.getMatrixAt(i, m);
+          m.premultiply(mesh.matrixWorld);
+          for (let k = 0; k < pos.count; k++) {
+            p.fromBufferAttribute(pos, k).applyMatrix4(m);
+            if ([0, 1, 2].every((a) => p.getComponent(a) > lo[a]! && p.getComponent(a) < hi[a]!)) inDoor++;
+          }
+        }
+      }
+      return { inDoor, cut: meshes.bytes().meshes };
+    };
+    const open = build(VOXEL_ROLE.opening);
+    const hole = build(VOXEL_ROLE.air);
+    expect(open.inDoor).toBe(0);
+    // The same pieces round a dug hole stick into it (and no cut copy is made).
+    expect(hole.inDoor).toBeGreaterThan(0);
+    expect(open.cut).toBeGreaterThan(hole.cut);
+  });
+
   it('makes a labelled debug texture for kits without a trim layout', () => {
     const t = voxelKitDebugTexture();
     expect([t.image.width, t.image.height]).toEqual([KIT_DEBUG_TEXTURE_SIDE, KIT_DEBUG_TEXTURE_SIDE]);

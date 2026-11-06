@@ -5,7 +5,9 @@
  * owns pieces only where faces meet or where it is broken:
  *
  * - **edges and corners** (edge-cases.ts): one piece a lattice edge or
- *   corner the edge pass gave the cell, by its case and yaw;
+ *   corner the edge pass gave the cell, by its case and yaw, in the kit of
+ *   the cell that dresses it (`slotDressing`: where roles meet, the higher
+ *   role's), cut flush at faces toward an opening;
  * - **roof edges** (roof-mesher.ts): the ridge, eave, verge, hip and valley
  *   pieces of a roof plane cell (a verge rising toward its own −x
  *   mirrored, so one verge mesh follows both slopes of a gable);
@@ -14,7 +16,7 @@
  *   toward it draws a `debris-face` piece (its broken rim), owned by the
  *   intact cell. Edges round a debris cell take no piece.
  *
- * A piece is drawn only where the cell's material has a kit and the kit
+ * A piece is drawn only where its dressing cell's material has a kit and the kit
  * fills the case's slot: no kit, or an empty slot, draws nothing (the
  * edge stays a plain voxel edge). Every piece is its own instance (no
  * merged runs); its mesh pick is hashed from its world cell, the project's
@@ -23,8 +25,8 @@
  */
 import type { Neighbourhood } from './assembly';
 import { FORM_BASE, FORM_DEBRIS, FORM_SHAPE, formBaseOf, formShapeOf } from './case-forms';
-import { INSTANCE_FLAG, INSTANCE_PLACE, type CellPiece } from './derived-mesh';
-import { EDGE_CASE_IDS, edgeCaseOf, edgeYawOf, PIECE_SLOTS, type EdgeMasks } from './edge-cases';
+import { dressingWord, INSTANCE_FLAG, INSTANCE_PLACE, type CellPiece } from './derived-mesh';
+import { blockNeighbour, DRESSING_FLUSH_SHIFT, EDGE_CASE_IDS, edgeCaseOf, edgeYawOf, PIECE_SLOTS, SELF_BLOCK, slotDressing, type EdgeMasks } from './edge-cases';
 import { DEBRIS_LIGHT_MIN } from './kit-case-catalogue';
 import type { CaseCatalogueDef } from './kit-cases';
 import { NO_PIECE, PIECE_VARIANT_MIRROR, pieceVariant, tablePiece, type PieceTable } from './piece-table';
@@ -112,15 +114,19 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
   if (mat === 0) return;
   const cases = passCases(p.catalogue);
   const o = p.pieces.origin;
-  const put = (caseIndex: number, yaw: number, place: number, flags: number, mirror = false): void => {
+  // `dressing`: the slotDressing word (the cell whose kit draws it, the faces it is cut at); its own cell's by default.
+  const put = (caseIndex: number, yaw: number, place: number, flags: number, mirror = false, dressing = SELF_BLOCK): void => {
     if (caseIndex < 0) return;
-    const piece = tablePiece(table, mat, caseIndex);
+    const block = dressing & ((1 << DRESSING_FLUSH_SHIFT) - 1);
+    const m = block === SELF_BLOCK ? mat : p.n.values[blockNeighbour(p.n, i, block)]! & MATERIAL_ID_MAX;
+    const piece = tablePiece(table, m, caseIndex);
     if (piece === NO_PIECE) return;
     cell.piece = piece;
     cell.turns = yaw;
     cell.place = place;
     cell.flags = flags;
-    cell.variant = pieceVariant(table, mat, piece, p.level, o[0] + x, o[1] + y, o[2] + z, (caseIndex << 4) | (place << 2) | yaw) | (mirror ? PIECE_VARIANT_MIRROR : 0);
+    cell.variant = pieceVariant(table, m, piece, p.level, o[0] + x, o[1] + y, o[2] + z, (caseIndex << 4) | (place << 2) | yaw) | (mirror ? PIECE_VARIANT_MIRROR : 0);
+    cell.dressing = dressingWord(block, dressing >>> DRESSING_FLUSH_SHIFT);
     emit();
   };
   const forms = p.forms;
@@ -135,7 +141,8 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
     for (let k = 0; k < PIECE_SLOTS; k++) {
       if (((mask >>> k) & 1) === 0) continue;
       const isInner = ((inner >>> k) & 1) === 1;
-      put(cases.edge[edgeCaseOf(k, isInner)]!, edgeYawOf(k, isInner), INSTANCE_PLACE.upright, 0);
+      const dressing = slotDressing(p.n, i, k, isInner, table.materialKit);
+      if (dressing >= 0) put(cases.edge[edgeCaseOf(k, isInner)]!, edgeYawOf(k, isInner), INSTANCE_PLACE.upright, 0, false, dressing);
     }
   }
   const roof = p.roofs[i]!;

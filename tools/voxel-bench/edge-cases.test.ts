@@ -26,6 +26,11 @@ import {
   jobRadius,
   rulesDrawDebris,
   buildPieceTable,
+  INSTANCE_BYTES,
+  INSTANCE_DRESSING_OFFSET,
+  instanceDressingCell,
+  instanceFlushFaces,
+  kitPieceList,
   localIndex,
   PIECE_SLOT_TABLE,
   shapeDensity,
@@ -151,10 +156,11 @@ describe('the edge pass: the table', () => {
     expect(checked).toBe(3 * (16 + 15));
   });
 
-  it('every 8-cell pattern round a lattice corner gives exactly the case the table names', () => {
+  it('every 8-cell pattern round a lattice corner gives exactly the case the corner rule names (pure and mixed)', () => {
     const cellOf = (b: number): Cell => [b & 1 ? L : L - 1, b & 2 ? L : L - 1, b & 4 ? L : L - 1];
     const key = `c:${L},${L},${L}`;
     const seen = new Set<string>();
+    let mixed = 0;
     for (let p = 0; p < 256; p++) {
       const s = createWorldStore(grid);
       const solid = [0, 1, 2, 3, 4, 5, 6, 7].filter((b) => (p >> b) & 1);
@@ -168,11 +174,59 @@ describe('the edge pass: the table', () => {
         expected.push({ owner: cellOf(owner), caseId, yaw: yawQuadrant(d[0]!, d[2]!) });
         seen.add(caseId);
       };
-      if (solid.length === 1) corner(solid[0]!, false);
-      if (solid.length === 7) corner(7 - [0, 1, 2, 3, 4, 5, 6, 7].find((b) => !solid.includes(b))!, true);
+      // The rule, written out: pure corners as before; elsewhere a piece only where outer and inner edges meet, its
+      // anchor where the solid cells' directions from the point sum to, outer below five solid cells, inner from five.
+      const isSolid = (b: number): boolean => solid.includes(b);
+      let outerEdge = false;
+      let innerEdge = false;
+      for (let a = 0; a < 3; a++) for (const side of [0, 1]) {
+        const round = [0, 1, 2, 3, 4, 5, 6, 7].filter((b) => ((b >> a) & 1) === side && isSolid(b));
+        if (round.length === 3) innerEdge = true;
+        if (round.length === 1 || (round.length === 2 && [0, 1, 2].filter((k) => k !== a && ((round[0]! ^ round[1]!) >> k) & 1).length === 2)) outerEdge = true;
+      }
+      const sum = [0, 1, 2].map((a) => solid.reduce((t, b) => t + ((b >> a) & 1 ? 1 : -1), 0));
+      const pure = solid.length === 1 || solid.length === 7;
+      if ((pure || (outerEdge && innerEdge)) && sum.every((v) => v !== 0)) {
+        const at = (sum[0]! > 0 ? 1 : 0) | (sum[1]! > 0 ? 2 : 0) | (sum[2]! > 0 ? 4 : 0);
+        const inner = solid.length >= 5;
+        if (isSolid(at) && (!inner || !isSolid(at ^ 7))) {
+          corner(at, inner);
+          if (!pure) mixed++;
+        }
+      }
       expect(got, `pattern ${p}`).toEqual(expected);
     }
     expect([...seen].sort()).toEqual(['corner-in-bottom', 'corner-in-top', 'corner-out-bottom', 'corner-out-top']);
+    expect(mixed).toBeGreaterThan(20);
+  });
+
+  it('gives every corner pattern turned or mirrored the same corner piece turned or mirrored', () => {
+    const cellOf = (b: number): Cell => [b & 1 ? L : L - 1, b & 2 ? L : L - 1, b & 4 ? L : L - 1];
+    const key = `c:${L},${L},${L}`;
+    // A quarter turn about +y takes +x to +z ((x, z) → (−z, x) round the point); the mirror negates x.
+    const turnBit = (b: number): number => ((b & 4 ? 0 : 1) | (b & 2) | (b & 1 ? 4 : 0));
+    const mirrorBit = (b: number): number => b ^ 1;
+    const turnCell = (c: Cell): Cell => [2 * L - 1 - c[2], c[1], c[0]];
+    const mirrorCell = (c: Cell): Cell => [2 * L - 1 - c[0], c[1], c[2]];
+    const cornerOf = (bits: readonly number[]): { owner: Cell; caseId: EdgeCaseId; yaw: number } | null => {
+      const s = createWorldStore(grid);
+      for (const b of bits) putVoxel(s, ...cellOf(b), MAT.stone, C.wall);
+      const got = piecesOf(s, chunk0).filter((q) => q.at === key);
+      expect(got.length).toBeLessThanOrEqual(1);
+      return got[0] === undefined ? null : { owner: got[0].owner, caseId: got[0].caseId, yaw: got[0].yaw };
+    };
+    let pieces = 0;
+    for (let p = 1; p < 255; p++) {
+      const bits = [0, 1, 2, 3, 4, 5, 6, 7].filter((b) => (p >> b) & 1);
+      const base = cornerOf(bits);
+      if (base !== null) pieces++;
+      const turned = cornerOf(bits.map(turnBit));
+      expect(turned, `pattern ${p} turned`).toEqual(base === null ? null : { ...base, owner: turnCell(base.owner), yaw: (base.yaw + 1) % 4 });
+      const mirrored = cornerOf(bits.map(mirrorBit));
+      // Mirrored across x, a quadrant's yaw swaps (+x, +z) with (−x, +z) and (−x, −z) with (+x, −z).
+      expect(mirrored, `pattern ${p} mirrored`).toEqual(base === null ? null : { ...base, owner: mirrorCell(base.owner), yaw: base.yaw ^ 1 });
+    }
+    expect(pieces).toBeGreaterThan(40);
   });
 });
 
@@ -217,12 +271,24 @@ function solidRound(s: PaletteStore, at: string): boolean[] {
   return out;
 }
 
-/** No piece on a flat face: every edge piece has 1 or 3 of its 4 cells solid (or 2 diagonal), every corner 1 or 7 of 8. */
+/** Whether the 8 cells round a corner (solidRound's order) have an outer and an inner edge meeting there. */
+function mixedCorner(r: readonly boolean[]): boolean {
+  let outer = false;
+  let inner = false;
+  for (let a = 0; a < 3; a++) for (const side of [0, 1]) {
+    const round = [0, 1, 2, 3, 4, 5, 6, 7].filter((b) => ((b >> a) & 1) === side && r[b]);
+    if (round.length === 3) inner = true;
+    if (round.length === 1 || (round.length === 2 && [0, 1, 2].filter((k) => k !== a && ((round[0]! ^ round[1]!) >> k) & 1).length === 2)) outer = true;
+  }
+  return outer && inner;
+}
+
+/** No piece on a flat face: every edge piece has 1 or 3 of its 4 cells solid (or 2 diagonal), every corner 1 or 7 of 8 or is mixed. */
 function expectNoFlatPiece(s: PaletteStore, ps: readonly Placed[]): void {
   for (const p of ps) {
     const r = solidRound(s, p.at);
     const n = r.filter(Boolean).length;
-    if (r.length === 8) expect([1, 7], `${p.caseId} at ${p.at}`).toContain(n);
+    if (r.length === 8) expect(n === 1 || n === 7 || mixedCorner(r), `${p.caseId} at ${p.at}: ${r}`).toBe(true);
     else expect(n === 1 || n === 3 || (n === 2 && r[0] === r[3]), `${p.caseId} at ${p.at}: ${r}`).toBe(true);
   }
 }
@@ -338,6 +404,176 @@ describe('the edge pass: scenes', () => {
       // One piece a slot: no lattice edge carries two pieces of one owner.
       expect(new Set(ps.map((p) => `${p.owner}|${p.at}`)).size).toBe(ps.length);
     }
+  });
+});
+
+describe('the edge pass: mixed corners', () => {
+  it("gives every notch of a stair's sides an outer corner piece on the lower step, turned to the notch", () => {
+    // Steps rising toward +z: step k is a column of stair cells x 10…13, y 8 … 8 + k, z 12 + k.
+    const s = createWorldStore(grid);
+    const steps = 5;
+    for (let k = 0; k < steps; k++) for (let x = 10; x < 14; x++) for (let y = 8; y <= 8 + k; y++) putVoxel(s, x, y, 12 + k, MAT.stone, C.stair);
+    const ps = piecesOf(s, chunk0);
+    expectNoFlatPiece(s, ps);
+    for (let k = 0; k + 1 < steps; k++) {
+      // The notch between step k's tread and step k + 1's riser, on the +x and the −x side.
+      const plus = ps.filter((p) => p.at === `c:14,${9 + k},${13 + k}`);
+      expect(plus.map((p) => [p.owner, p.caseId, p.yaw]), `+x notch ${k}`).toEqual([[[13, 8 + k, 13 + k], 'corner-out-top', 3]]);
+      const minus = ps.filter((p) => p.at === `c:10,${9 + k},${13 + k}`);
+      expect(minus.map((p) => [p.owner, p.caseId, p.yaw]), `−x notch ${k}`).toEqual([[[10, 8 + k, 13 + k], 'corner-out-top', 2]]);
+    }
+  });
+
+  it('gives the inside top corner of an L of walls and the foot of a wall corner on a wider foundation a corner piece', () => {
+    const s = createWorldStore(grid);
+    for (let y = 9; y < 12; y++) {
+      for (let x = 10; x < 16; x++) putVoxel(s, x, y, 10, MAT.stone, C.wall);
+      for (let z = 11; z < 16; z++) putVoxel(s, 10, y, z, MAT.stone, C.wall);
+    }
+    for (let x = 9; x < 17; x++) for (let z = 9; z < 17; z++) putVoxel(s, x, 8, z, MAT.brick, C.foundation);
+    const ps = piecesOf(s, chunk0);
+    expectNoFlatPiece(s, ps);
+    // Inside top corner of the L (the point over the inner vertical edge): three solid cells round it, an outer corner.
+    expect(ps.filter((p) => p.at === 'c:11,12,11').map((p) => [p.owner, p.caseId, p.yaw])).toEqual([[[10, 11, 10], 'corner-out-top', 0]]);
+    // The wall's outside corner standing on the foundation: five solid cells (four below), an inner corner opening up and out.
+    expect(ps.filter((p) => p.at === 'c:10,9,10').map((p) => [p.owner, p.caseId, p.yaw])).toEqual([[[10, 8, 10], 'corner-in-bottom', 2]]);
+  });
+});
+
+/** A piece the derive places, in world terms: its anchor, case and yaw, the kit and role of the cell that dresses it, its flush faces. */
+interface Dressed {
+  readonly owner: Cell;
+  readonly caseId: string;
+  readonly yaw: number;
+  readonly kit: string;
+  readonly role: number;
+  readonly flush: number;
+}
+
+/** Every piece the derive of chunk (0, 0, 0) places with `kits` (one mesh a slot, every slot filled). */
+function dressedOf(s: PaletteStore, kits: ReadonlyArray<{ id: string; materials: number[] }>): Dressed[] {
+  const sources = kits.map((k) => fullTestKit(k.id, k.materials, 1, EDGE_RULES.catalogue!));
+  const { table } = buildPieceTable(sources, EDGE_RULES, 0);
+  const d = deriveFromStore(s, 0, 0, 0, EDGE_RULES, undefined, table);
+  const lists = new Map(sources.map((k) => [k.voxelKitId, kitPieceList(k, EDGE_RULES.catalogue!).pieces]));
+  const out: Dressed[] = [];
+  const v = { material: 0, role: 0, shape: 0, wetness: 0 };
+  const b = d.instances.data;
+  const view = new DataView(b.buffer, b.byteOffset);
+  for (let k = 0; k < d.instances.count; k++) {
+    const o = k * INSTANCE_BYTES;
+    const owner: Cell = [b[o]!, b[o + 1]!, b[o + 2]!];
+    const word = view.getUint32(o + INSTANCE_DRESSING_OFFSET, true);
+    const off = instanceDressingCell(word);
+    s.voxelAt(owner[0] + off[0], owner[1] + off[1], owner[2] + off[2], v);
+    const kit = sources.find((x) => x.materials!.includes(v.material))!.voxelKitId;
+    const caseId = lists.get(kit)![b[o + 4]! | (b[o + 5]! << 8)]!.caseId;
+    out.push({ owner, caseId, yaw: b[o + 3]! & 3, kit, role: v.role, flush: instanceFlushFaces(word) });
+  }
+  return out;
+}
+
+const KITS = [
+  { id: 'stone', materials: [MAT.stone, MAT.plaster] },
+  { id: 'brick', materials: [MAT.brick] },
+  { id: 'timber', materials: [MAT.timber] },
+  { id: 'tile', materials: [MAT.roofTile] },
+];
+
+describe('who dresses a piece', () => {
+  /** A ring of walls x, z 10…15 (y 9…11) on a foundation slab x, z 9…16 (y 8). */
+  const wallOnFoundation = (s: PaletteStore): void => {
+    for (let x = 9; x < 17; x++) for (let z = 9; z < 17; z++) putVoxel(s, x, 8, z, MAT.brick, C.foundation);
+    for (let x = 10; x < 16; x++) for (let z = 10; z < 16; z++) for (let y = 9; y < 12; y++) if (x === 10 || x === 15 || z === 10 || z === 15) putVoxel(s, x, y, z, MAT.stone, C.wall);
+  };
+
+  it("dresses where a wall stands on a foundation in the wall's kit, the foundation's own rim in its own", () => {
+    const s = createWorldStore(grid);
+    wallOnFoundation(s);
+    const ps = dressedOf(s, KITS);
+    const foot = ps.filter((p) => p.caseId === 'edge-in-bottom');
+    expect(foot.length).toBe(2 * 4 * 6 - 8);
+    for (const p of foot) expect([p.kit, p.role], `${p.owner}`).toEqual(['stone', C.wall]);
+    // The four corners at the wall's outside foot (mixed: the wall's vertical edge meets the two coves) and the inside ones.
+    const footCorners = ps.filter((p) => p.caseId.startsWith('corner-in') && p.owner[1] === 8);
+    expect(footCorners.length).toBe(8);
+    for (const p of footCorners) expect(p.kit, `${p.owner}`).toBe('stone');
+    const rim = ps.filter((p) => p.caseId === 'edge-out-top' && p.owner[1] === 8);
+    expect(rim.length).toBe(4 * 8);
+    for (const p of rim) expect(p.kit).toBe('brick');
+  });
+
+  it("dresses under a flat roof's overhang in the roof's kit (roof over wall)", () => {
+    const s = createWorldStore(grid);
+    wallOnFoundation(s);
+    for (let x = 9; x < 17; x++) for (let z = 9; z < 17; z++) putVoxel(s, x, 12, z, MAT.roofTile, C.roof);
+    const under = dressedOf(s, KITS).filter((p) => p.caseId === 'edge-in-top');
+    // Outside under the overhang and inside under the ceiling: both where roof meets wall.
+    expect(under.length).toBe(2 * 4 * 6 - 8);
+    for (const p of under) expect([p.kit, p.role], `${p.owner}`).toEqual(['tile', C.roof]);
+  });
+
+  it('leaves the seam bare where two walls of two kits meet, and dresses it where they share a kit', () => {
+    const build = (other: number): Dressed[] => {
+      const s = createWorldStore(grid);
+      for (let y = 9; y < 12; y++) {
+        for (let x = 10; x < 16; x++) putVoxel(s, x, y, 10, MAT.stone, C.wall);
+        for (let z = 11; z < 16; z++) putVoxel(s, 10, y, z, other, C.wall);
+      }
+      return dressedOf(s, KITS);
+    };
+    // The inside vertical edge where the two walls meet (anchor: the corner cell) and the corners at its ends.
+    const seam = (ps: Dressed[]): Dressed[] => ps.filter((p) => p.owner[0] === 10 && p.owner[2] === 10 && (p.caseId === 'edge-in-vertical' || p.caseId.startsWith('corner-')) && p.yaw === 0);
+    expect(seam(build(MAT.timber))).toEqual([]);
+    const shared = seam(build(MAT.plaster));
+    expect(shared.filter((p) => p.caseId === 'edge-in-vertical').length).toBe(3);
+    expect(shared.every((p) => p.kit === 'stone')).toBe(true);
+    // Each wall's own outer edges stay its own kit's.
+    expect(build(MAT.timber).filter((p) => p.caseId === 'edge-out-top' && p.owner[2] > 10).every((p) => p.kit === 'timber')).toBe(true);
+  });
+
+  it('gives a building no piece where it meets terrain, whatever its role', () => {
+    const s = createWorldStore(grid);
+    for (let x = 4; x < 28; x++) for (let z = 4; z < 28; z++) for (let y = 4; y < 8; y++) putVoxel(s, x, y, z, MAT.grass, C.terrain);
+    wallOnFoundation(s);
+    const ps = dressedOf(s, KITS);
+    // The foundation sits on the ground: nothing on its underside or its foot; its top rim and the wall still dressed.
+    expect(ps.filter((p) => p.owner[1] === 8 && (p.caseId === 'edge-out-bottom' || p.caseId === 'corner-out-bottom'))).toEqual([]);
+    // Without the ground those underside edges are dressed.
+    const air = createWorldStore(grid);
+    wallOnFoundation(air);
+    expect(dressedOf(air, KITS).filter((p) => p.owner[1] === 8 && p.caseId === 'edge-out-bottom').length).toBe(4 * 8);
+    expect(ps.some((p) => p.caseId === 'edge-out-top' && p.kit === 'brick')).toBe(true);
+  });
+
+  /** A wall x 10…19, y 9…13, z 12 on a floor, with a door x 14, y 10…11 (role `role`) and a window x 17, y 11 (same). */
+  const doorWall = (role: number): PaletteStore => {
+    const s = createWorldStore(grid);
+    for (let x = 8; x < 22; x++) for (let z = 8; z < 18; z++) putVoxel(s, x, 9, z, MAT.plank, C.floor);
+    for (let x = 10; x < 20; x++) for (let y = 10; y < 14; y++) putVoxel(s, x, y, 12, MAT.stone, C.wall);
+    for (const [x, y] of [[14, 10], [14, 11], [17, 11]] as const) putVoxel(s, x, y, 12, role === C.air ? 0 : MAT.stone, role);
+    return s;
+  };
+  const touchesHole = (p: Dressed): boolean => Math.abs(p.owner[2] - 12) <= 1 && [[14, 10], [14, 11], [17, 11]].some(([x, y]) => Math.abs(p.owner[0] - x!) <= 1 && Math.abs(p.owner[1] - y!) <= 1);
+
+  it('draws the jambs, lintel and sill of an opening flush toward it and puts no piece inside it; a dug hole is an ordinary edge', () => {
+    const open = dressedOf(doorWall(C.opening), KITS);
+    const hole = dressedOf(doorWall(C.air), KITS);
+    const at = (ps: Dressed[], x: number, y: number, caseId: string): Dressed[] => ps.filter((p) => p.owner[0] === x && p.owner[1] === y && p.owner[2] === 12 && p.caseId === caseId);
+    // The door's jambs: the cells beside it, their vertical edges toward it, cut at the face toward the door (+x / −x).
+    expect(at(open, 13, 10, 'edge-out-vertical').map((p) => p.flush)).toEqual([2, 2]);
+    expect(at(open, 15, 11, 'edge-out-vertical').map((p) => p.flush)).toEqual([1, 1]);
+    // Its lintel (cut at its underside), the window's sill (at its top).
+    expect(at(open, 14, 12, 'edge-out-bottom').map((p) => p.flush)).toEqual([4, 4]);
+    expect(at(open, 17, 10, 'edge-out-top').map((p) => p.flush)).toEqual([8, 8]);
+    // Nothing inside an opening: no cove (inner piece) round one.
+    expect(open.filter((p) => touchesHole(p) && p.caseId.includes('-in-') && p.flush === 0 && p.owner[2] === 12 && p.owner[1] >= 10).filter((p) => p.caseId !== 'edge-in-bottom')).toEqual([]);
+    expect(open.filter((p) => p.flush !== 0).every((p) => !p.caseId.includes('-in-'))).toBe(true);
+    // The same holes dug (air): the same jamb edges uncut, and coves inside the hole.
+    expect(at(hole, 13, 10, 'edge-out-vertical').map((p) => p.flush)).toEqual([0, 0]);
+    expect(hole.every((p) => p.flush === 0)).toBe(true);
+    expect(hole.filter((p) => touchesHole(p) && (p.caseId === 'edge-in-vertical' || p.caseId === 'edge-in-top')).length).toBeGreaterThan(0);
+    expect(open.filter((p) => touchesHole(p) && p.flush === 0 && (p.caseId === 'edge-in-vertical' || p.caseId === 'edge-in-top'))).toEqual([]);
   });
 });
 

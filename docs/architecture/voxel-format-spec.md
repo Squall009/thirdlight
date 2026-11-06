@@ -1109,7 +1109,7 @@ chunk):
 - **Ground and base producers:** the terrain mesher and the base surface, below in *Terrain rule set, mesher,
   base surface, levels, seams and LOD selection*.
 
-**Detail instance (8 bytes, v12; meanings to v22):**
+**Detail instance (12 bytes from v23; 8 bytes v12–v22):**
 - u8 x, y, z: the cell inside the chunk;
 - u8: bits 0–1 quarter turns about +y, bits 2–3 the placement (`INSTANCE_PLACE`), bits 4–7 flags (0x10
   `replacesBase`, 0x40 `half`: drawn over the half of its run on its case's +x side, `pieceHalfRun`, v19; 0x20 and
@@ -1117,8 +1117,13 @@ chunk):
 - u16 piece, **kit-local** (`piece-table.ts`, v22): the index of a filled slot of the kit the cell's material names,
   0-based in catalogue case order; no engine default piece, and a material no kit binds lists none;
 - u16 variant word: bits 0–14 which of the slot's meshes it draws (v22), bit 15 the mirror (a verge rising toward its
-  own −x, v18; mirror first, then the quarter turns). A piece's material is its cell's, in the shader data; the kit
-  is the one its material names. The stride stays a multiple of four, as a GPU instance buffer
+  own −x, v18; mirror first, then the quarter turns);
+- u32 dressing word (v23, `dressingWord`): bits 0–4 the cell whose material (so whose kit) draws the piece, as its 3³
+  block index round the instance's cell + 14 mod 27 (0: its own cell; edge-cases.ts `slotDressing`: where roles
+  meet, the higher of roof > wall > pillar > stair > floor > foundation; winners of two kits leave the slot bare),
+  bits 5–10 the cell's faces the piece is cut flush at toward an opening (bit 2a the −a face, 2a + 1 the +a face;
+  the renderer cuts the mesh 1/128 cell inside them, `cutFlush`), bits 11–31 written 0. The material is read from the
+  shader data (border included). The stride stays a multiple of four, as a GPU instance buffer
   needs. What the hosts draw for each is in *Kits: edges, roofs and debris* below.
 
 **Shader data on the GPU and the surface shader (45.10b; three-adapter `voxel-surface.ts`).** One renderer path:
@@ -1471,11 +1476,20 @@ the material model and texture sets 46d's.
 - **The edge pass** (`edge-cases.ts`, `extractEdges`, reach 1). Per construction cell a 20-bit mask (12 edges, then
   8 corners; `PIECE_SLOT_TABLE`) and inner flags (`EdgeMasks`). A lattice edge reads its 4 cells, a lattice corner
   its 8; "solid" = any built role or terrain (opening, air, liquid = open). 1 solid = outer, 3 (7) = inner, 2 side by
-  side = a flat face (no piece), 2 diagonal = two outer edges; mixed corners get none. Top / vertical / bottom by
-  gravity (no vertical flip), yaw 0–3 (`edgeCaseOf`, `edgeYawOf`). The owner is the one solid cell (outer) or the
-  cell diagonal to the open one (inner), so every piece has one owner and its material. No piece where a terrain
-  cell (any fill) or an excluded cell (a roof plane cell or a debris cell) touches the edge: construction ↔ terrain
-  contact is 47b's fringe.
+  side = a flat face (no piece), 2 diagonal = two outer edges. **Mixed corners** (v23, rules `edges` v5; outer and
+  inner edges meeting: a stair side's notch, an L's inside top corner, a wall's corner on a wider foundation) take one
+  of the four corner cases: the solid cells' directions from the point, summed, name the anchor's octant (none when
+  the sum is 0 on an axis); under five solid cells an outer corner of that (solid) cell, from five an inner corner on
+  it opening the other way (that octant open) — `MIXED_CORNER`, the same rule giving 1 and 7. Top / vertical / bottom
+  by gravity (no vertical flip), yaw 0–3 (`edgeCaseOf`, `edgeYawOf`). The **anchor** is the one solid cell (outer),
+  the cell diagonal to the open one (inner) or the cell the corner rule names, so every piece has one anchor. **Who
+  dresses it** (`slotDressing`, v23): an outer edge or a one-solid corner its anchor; elsewhere the solid cells
+  showing a face there compete by role (roof > wall > pillar > stair > floor > foundation, `PIECE_ROLE_ORDER`), and
+  winners of two kits leave the slot bare (the shader blend draws the seam); a dressing cell other than the anchor is
+  named in the instance. **Openings:** an `opening` cell is open; an outer piece with an opening round it is cut
+  flush at the anchor's faces toward it, an inner one (it would lie in the opening) is not placed; a dug hole (air)
+  is an ordinary edge. No piece where a terrain cell (any fill) or an excluded cell (a roof plane cell or a debris
+  cell) touches the edge: construction ↔ terrain contact is 47b's fringe.
 - **The roof mesher** (`roof-mesher.ts`, reach `ROOF_MESHER_REACH` 2; derived v15). A **plane cell** is an intact
   roof cell with nothing solid above that rises toward a horizontal direction (a roof cell one up and across, or one
   down and across the other way; an eave corner of a hip by the diagonal); flatter stairs (1:2, D500), damaged and
@@ -1507,7 +1521,7 @@ the material model and texture sets 46d's.
   What lowers integrity and when is game logic.
 - **Forms** (`case-forms.ts`, *Consumer tables* above): bases keep / suppress, shapes box / panel / bar / post /
   none; debris the box with its faces suppressed, every other cell its class's form (beam and rail cells: a body). Collision, light and navigation never read a piece mesh (R77).
-- **Instance meaning** (*Detail instance* above, 8 bytes): turn bits = the yaw; placement bits 2–3
+- **Instance meaning** (*Detail instance* above, 12 bytes): turn bits = the yaw; placement bits 2–3
   (`INSTANCE_PLACE`): upright, `faceUp` / `faceDown` (a debris face on a top or bottom face), `centred` (half a cell
   in and half a cell down: one ridge mesh serves odd and even roofs); flags `replacesBase`, `half`. The piece
   u16 is the kit's filled-slot index; the variant word's bits 0–14 the slot's mesh, picked by
@@ -1599,6 +1613,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 18 → 19 | 46c R6b | coarse levels re-lay sloped roofs (`relayRoofs`, D510/D501); `half` flag on an apex's ridge and hips (D511) | still 8 B | default |
 | 19 → 20 | 46c R9b | the re-laid roof takes the coarse cells of bodies it covers (gable end walls, walls under eaves; D513/D514) | still 8 B | default |
 | 20 → 21 | 46c.16a | two detail states: level 1 lists no pieces (the `low` flag gone, its bit written 0), its beam and rail cells drawn as bodies; no case past level 0 | still 8 B | **owner 2026-11-05** (pieces in the near ring only, no low meshes) |
+| 22 → 23 | 46c.16c | 12-byte instance: the dressing word (dressing cell, flush faces); mixed corners take a corner piece (`MIXED_CORNER`, rules `edges` v5); no piece inside an opening | 12 B | **owner 2026-11-05/06** (A3/F1 role order, F2 two materials bare, A11 mixed corners, B7 flush at openings) |
 | 21 → 22 | 46c.16b | kits are slots: piece u16 = a kit's filled-slot index (no default pieces), variant bits 0–14 = the slot's mesh, hashed with the project seed; no beam or banister case, beam and rail cells plain voxels | still 8 B | **owner 2026-11-05/06** (kits are slots, beams/banisters out, no default kit, per-project seed, per-kit jitter) |
 
 The owner notes of 3 → 9, as each step recorded them:
@@ -1681,7 +1696,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 22 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 23 | refused | rebuilt, never upgraded |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 3 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 

@@ -292,9 +292,9 @@ export {
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { INSTANCE_BYTES, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { dressingWord, INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, instanceDressingCell, instanceFlushFaces, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { applyCubeRotation, CUBE_ROTATION_COUNT, CUBE_ROTATION_X90, CUBE_ROTATION_ZM90, CUBE_ROTATIONS, cubeRotationIndex, mirrorAxisOf, type CubeRotation } from './cube-rotations';
-export { meshRunAxis, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, type PieceStaggerFrame } from './piece-placement';
+export { caseFlushFaces, cutFlush, meshRunAxis, PIECE_FLUSH_INSET, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, type PieceStaggerFrame } from './piece-placement';
 export {
   buildPieceTable,
   kitPieceList,
@@ -361,6 +361,11 @@ export {
   edgePiecesOf,
   edgeYawOf,
   extractEdges,
+  DRESSING_FLUSH_SHIFT,
+  MIXED_CORNER,
+  PIECE_ROLE_ORDER,
+  SELF_BLOCK,
+  slotDressing,
   PIECE_SLOT_TABLE,
   PIECE_SLOTS,
   type EdgeCaseId,

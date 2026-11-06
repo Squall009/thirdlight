@@ -89,7 +89,8 @@ export function houseVoxel(h: House, x: number, y: number, z: number, out: Voxel
       const nearCorner = along < 2 || along > (z === 0 || z === d - 1 ? w : d) - 3;
       const door = z === 0 && (x === mid - 1 || x === mid) && lev >= 1 && lev <= 4 && (s === 0 || (s === 1 && h.balcony));
       const window = !nearCorner && (lev === 2 || lev === 3) && along % 6 >= 3 && along % 6 <= 4 && !(z === 0 && Math.abs(x - mid) < 3);
-      if (door || window) return false;
+      // A door or window is an opening (its pieces drawn flush to the reveal), in the wall's material.
+      if (door || window) return set(out, h.wall, VOXEL_ROLE.opening);
       return set(out, h.wall, VOXEL_ROLE.wall);
     }
     // Stairs up the x = 1, 2 strip: one cell up per cell along z, facing +z; the floor above has a hole over them.

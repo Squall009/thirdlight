@@ -154,8 +154,14 @@ import { utf8Encode } from '@thirdlight/shared';
  * full light coverage), no engine default piece (the piece u16 is the
  * index of a kit's filled slot; no kit, no piece), and a piece's mesh pick
  * hashes the project's seed (piece-table.ts); the layout is v21's.
+ * 23: who dresses a piece: an instance is 12 bytes, its new dressing word
+ * naming the cell whose kit draws it (where roles meet, the higher role's;
+ * winners of two kits leave it bare) and the faces it is cut flush at
+ * toward an opening (derived-mesh.ts); mixed corners take a corner piece;
+ * no piece lies inside an opening. Instance lists differ from v22's; every
+ * other part is v22's.
  */
-export const DERIVED_FORMAT_VERSION = 22;
+export const DERIVED_FORMAT_VERSION = 23;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

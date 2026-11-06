@@ -16,7 +16,7 @@ import { buildApron } from './apron';
 import { chunkOf, localOf, type ChunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { cellBit, COLLISION_STEPS_PER_CELL, OCCUPANCY, type DerivedData } from './derived-data';
-import { INSTANCE_BYTES, INSTANCE_FLAG, instancePlaceOf, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
+import { INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, INSTANCE_FLAG, instanceDressingCell, instanceFlushFaces, instancePlaceOf, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
 import { PIECE_VARIANT_MASK, PIECE_VARIANT_MIRROR } from './piece-table';
 import type { VoxelStoreCandidate } from './store';
 
@@ -109,6 +109,10 @@ export interface CellPieceOutput {
   /** Which of its slot's meshes it draws. */
   readonly variant: number;
   readonly replacesBase: boolean;
+  /** The offset to the cell whose kit dresses it ([0, 0, 0]: its own). */
+  readonly dressedBy: readonly [number, number, number];
+  /** The cell's faces it is cut at (bit 2a: −a, 2a + 1: +a). */
+  readonly flush: number;
 }
 
 export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number): CellOutputs {
@@ -125,7 +129,17 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     const id = list.data[o + 4]! | (list.data[o + 5]! << 8);
     const flags = list.data[o + 3]!;
     const variant = list.data[o + 6]! | (list.data[o + 7]! << 8);
-    pieces.push({ piece: id, turns: flags & 3, place: instancePlaceOf(flags), mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0 });
+    const dressing = new DataView(list.data.buffer, list.data.byteOffset).getUint32(o + INSTANCE_DRESSING_OFFSET, true);
+    pieces.push({
+      piece: id,
+      turns: flags & 3,
+      place: instancePlaceOf(flags),
+      mirror: (variant & PIECE_VARIANT_MIRROR) !== 0,
+      variant: variant & PIECE_VARIANT_MASK,
+      replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0,
+      dressedBy: instanceDressingCell(dressing),
+      flush: instanceFlushFaces(dressing),
+    });
   }
   const piece = pieces[0] ?? null;
   const S = COLLISION_STEPS_PER_CELL;

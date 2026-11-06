@@ -2,17 +2,20 @@
  * The kit piece table a streamer's derives choose detail pieces from
  * (piece-table.ts), and what a change of it derives again.
  *
- * A cell's piece reads its own material only (the case and run section
- * come from roles and fills), so when the table changes, only what holds a
+ * A cell's piece reads the material of its own cell or of one beside it
+ * (the case comes from roles and fills; where roles meet, the dressing
+ * cell's kit draws it), so when the table changes, only what holds a
  * material whose pieces changed is derived again: every derive section of
- * each resident chunk holding one, and every node of the levels that draw
- * pieces holding one; nothing within the rules' reach of them.
+ * each resident chunk holding one, the sections of its neighbours with
+ * construction within the edge pass's reach, and every node of the levels that draw pieces holding one;
+ * nothing within the rules' wider reach.
  *
  * The same holds for an edit (the feeds mask: material and wetness are
  * shader data). Wetness never changes a piece. A material paint changes
  * pieces only where a cell moves to another kit's (the material it left
- * and the one it took bound to different kits): then the sections holding
- * the painted cells derive whole, and nothing past them. A paint within one
+ * and the one it took bound to different kits): then the sections within
+ * the edge pass's reach of the painted cells derive whole, and nothing past
+ * them. A paint within one
  * kit keeps every piece and variant, so it stays shader data. The one
  * exception is a case catalogue whose rules read the same-material bit:
  * there materials decide cases, so a material paint feeds geometry.
@@ -22,7 +25,7 @@ import { payloadHolds, type ChunkPayload } from './chunk-wire';
 import type { ChunkCoord } from './coords';
 import { catalogueReadsMaterial } from './kit-cases';
 import { pieceTableBindsKits, pieceTableChanges, pieceTableKitChanges, type PieceTable } from './piece-table';
-import { ALL_DERIVED_PARTS, DERIVED_PART, MATERIAL_ID_MAX } from './record';
+import { ALL_DERIVED_PARTS, DERIVED_PART, isConstructionRole, MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT } from './record';
 import { geometryParts, PIECES_AT_CELLS, type SectionDerives } from './stream-sections';
 import type { StreamMips } from './stream-mips';
 
@@ -84,7 +87,8 @@ export class StreamPieces {
    * Sets the table (a kit was added, changed or removed). What it derives
    * again swaps in together (the `swap` event naming the returned group; 0
    * when nothing changed or the streamer derives nothing). Returns the group
-   * and the storage chunks derived again.
+   * and the storage chunks derived again whole (those holding a changed
+   * material; their neighbours' sections beside them follow in the group).
    */
   set(table: PieceTable | null): { group: number; chunks: ChunkCoord[] } {
     if (table !== null) checkRules(table, this.host.rules);
@@ -95,11 +99,17 @@ export class StreamPieces {
     const holds = (p: ChunkPayload): boolean => payloadHolds(p, (v) => changed === null || changed.has(v & MATERIAL_ID_MAX));
     const group = d.newGroup();
     const chunks: ChunkCoord[] = [];
+    const built = new Set<string>();
     for (const c of this.host.resident()) {
-      if (!holds(c.payload())) continue;
+      const p = c.payload();
+      if (payloadHolds(p, (v) => isConstructionRole((v >>> ROLE_SHIFT) & ROLE_MASK))) built.add(`${c.cx},${c.cy},${c.cz}`);
+      if (!holds(p)) continue;
       chunks.push({ cx: c.cx, cy: c.cy, cz: c.cz });
       d.rederiveChunk(c.cx, c.cy, c.cz, group);
     }
+    // A piece takes its kit from a cell beside its own where roles meet: neighbours with construction (a piece's own cell is one) follow.
+    const taken = new Set(chunks.map((c) => `${c.cx},${c.cy},${c.cz}`));
+    for (const c of chunks) d.rederiveBeside(c.cx, c.cy, c.cz, group, (x, y, z) => !taken.has(`${x},${y},${z}`) && built.has(`${x},${y},${z}`));
     mips?.piecesChanged(holds, group);
     d.request(this.host.deriveMs, true);
     mips?.advanceEdits();

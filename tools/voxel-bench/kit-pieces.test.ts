@@ -3,7 +3,7 @@
  * rule set: the piece table built from kits as slots (material → kit by the
  * test binding, a kit-local piece a filled slot, an empty slot nothing), the
  * project's piece seed and each kit's jitter; the instance's piece, turns,
- * placement and variant word (the mesh pick; still 8 bytes, a cell owning
+ * placement, variant word (the mesh pick) and dressing word (12 bytes, a cell owning
  * one instance an edge, corner or roof edge); picks that stay put under
  * unrelated edits and whichever unit derives a cell, the same under one
  * seed and others under another; no kit, no pieces; and the pieces per level
@@ -186,7 +186,7 @@ describe('the piece table', () => {
 });
 
 describe('instances carry kit pieces', () => {
-  it('gives each edge its material\'s kit piece (kit-local index, turns, mesh pick), never a piece on a flat face, beams and banisters plain voxels; still 8 bytes an instance', () => {
+  it('gives each edge its material\'s kit piece (kit-local index, turns, mesh pick), never a piece on a flat face, beams and banisters plain voxels; 12 bytes an instance', () => {
     const s = createWorldStore(grid);
     placeWallBeamBanister(s);
     // Timber (the former beam, rail and posts) and stone (the wall) bound; the plank slab is not.
@@ -204,7 +204,7 @@ describe('instances carry kit pieces', () => {
         const i = cellOfKey(k);
         const [lx, lz, ly] = [Math.floor(i / (E * E)), Math.floor(i / E) % E, i % E];
         const mat = s.voxelAt(cx * E + lx, cy * E + ly, cz * E + lz, v).material;
-        expect(INSTANCE_BYTES).toBe(8);
+        expect(INSTANCE_BYTES).toBe(12);
         seen.kit++;
         expect([MAT.timber, MAT.stone]).toContain(mat);
         expect(inst.variant & PIECE_VARIANT_MASK).toBeLessThan(3);
@@ -292,7 +292,7 @@ describe('instances carry kit pieces', () => {
 });
 
 describe('material and wetness feed the shader data, kits bound', () => {
-  it('keeps every output but the shader data under a wetness paint and a material paint within one kit; a paint to another kit changes only the painted cells\' pieces', () => {
+  it('keeps every output but the shader data under a wetness paint and a material paint within one kit; a paint to another kit changes only the pieces of the painted cells and those beside them', () => {
     const s = townStore();
     // Timber and plank are one kit, the masonry another: a paint between kits moves cells' pieces, one within a kit none.
     const { table } = buildPieceTable([fullTestKit('wood', [MAT.timber, MAT.plank], 3), fullTestKit('masonry', [MAT.stone, MAT.brick, MAT.plaster, MAT.roofTile], 2)], RULES, 0);
@@ -348,7 +348,11 @@ describe('material and wetness feed the shader data, kits bound', () => {
       const listed = (m: Map<string, Inst>, i: number): string => JSON.stringify([...m].filter(([k]) => cellOfKey(k) === i));
       for (const i of new Set([...was.keys(), ...now.keys()].map(cellOfKey))) {
         const [lx, lz, ly] = [Math.floor(i / (E * E)), Math.floor(i / E) % E, i % E];
-        if (painted.has(`${cx * E + lx},${cy * E + ly},${cz * E + lz}`)) {
+        // A piece takes its kit from its own cell or one beside it (where roles meet): within one cell of a painted one.
+        const [wx, wy, wz] = [cx * E + lx, cy * E + ly, cz * E + lz];
+        let near = false;
+        for (let dx = -1; dx <= 1 && !near; dx++) for (let dy = -1; dy <= 1 && !near; dy++) for (let dz = -1; dz <= 1 && !near; dz++) near = painted.has(`${wx + dx},${wy + dy},${wz + dz}`);
+        if (near) {
           if (listed(was, i) !== listed(now, i)) moved++;
         } else expect(listed(now, i), `cell ${lx},${ly},${lz} of ${cx},${cy},${cz}`).toBe(listed(was, i));
       }

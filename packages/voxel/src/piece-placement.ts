@@ -136,3 +136,57 @@ export function pieceStagger(seed: number, x: number, y: number, z: number, leve
   const twist = ((h >>> 16) / 0xffff) * 2 * limit - limit;
   return { inward, twist };
 }
+
+/**
+ * How far inside its cell's face a piece cut flush toward an opening ends, in cells: the cut lies just behind the
+ * face (the reveal of a door or window), so it never shows or fights the face.
+ */
+export const PIECE_FLUSH_INSET = 1 / 128;
+
+/**
+ * An upright piece's flush faces (derived-mesh.ts `instanceFlushFaces`: bit 2a the cell's −a face, 2a + 1 its +a
+ * face, in the chunk's axes) in its case's own orientation, for its `yaw` (quarter turns, each taking the case's +x
+ * to +z).
+ */
+export function caseFlushFaces(faces: number, yaw: number): number {
+  let out = 0;
+  for (let b = 0; b < 6; b++) {
+    if (((faces >> b) & 1) === 0) continue;
+    const n = [0, 0, 0];
+    n[b >> 1] = b & 1 ? 1 : -1;
+    // Undo the turns: one inverse turn takes the chunk's (x, y, z) to (z, y, −x).
+    for (let k = 0; k < (yaw & 3); k++) [n[0], n[2]] = [n[2]!, -n[0]!];
+    const a = n[0] !== 0 ? 0 : n[1] !== 0 ? 1 : 2;
+    out |= 1 << (2 * a + (n[a]! > 0 ? 1 : 0));
+  }
+  return out;
+}
+
+/**
+ * Cuts a piece's mesh flush at its cell's faces `caseFaces` (in its case's orientation, {@link caseFlushFaces}):
+ * every vertex past such a face, after the slot's cube rotation `rotation`, is moved back onto a plane
+ * {@link PIECE_FLUSH_INSET} inside it. `positions` are xyz triples in metres of a level-0 cell centred on the cell
+ * (the kit mesh convention), changed in place; `half` is half a cell in those units.
+ */
+export function cutFlush(positions: Float32Array | number[], rotation: number, caseFaces: number, half: number): void {
+  const m = CUBE_ROTATIONS[rotation]!;
+  const limit = half * (1 - 2 * PIECE_FLUSH_INSET);
+  for (let v = 0; v + 2 < positions.length; v += 3) {
+    const p = [positions[v]!, positions[v + 1]!, positions[v + 2]!];
+    const c = [0, 1, 2].map((i) => m[3 * i]! * p[0]! + m[3 * i + 1]! * p[1]! + m[3 * i + 2]! * p[2]!);
+    let moved = false;
+    for (let a = 0; a < 3; a++) {
+      if ((caseFaces >> (2 * a + 1)) & 1 && c[a]! > limit) {
+        c[a] = limit;
+        moved = true;
+      }
+      if ((caseFaces >> (2 * a)) & 1 && c[a]! < -limit) {
+        c[a] = -limit;
+        moved = true;
+      }
+    }
+    if (!moved) continue;
+    // Back to the mesh's own axes: a cube rotation's inverse is its transpose.
+    for (let j = 0; j < 3; j++) positions[v + j] = m[j]! * c[0]! + m[3 + j]! * c[1]! + m[6 + j]! * c[2]!;
+  }
+}

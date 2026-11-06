@@ -14,17 +14,42 @@
  *
  * **Corners.** A lattice corner has 8 cells round it: one solid is an outer
  * corner (a box's corner), seven an inner corner, each top or bottom: four
- * corner cases. Any other count, and a corner where outer and inner edges
- * meet, gets no corner piece (the edge pieces overlap there).
+ * corner cases. A **mixed** corner, where outer and inner edges meet (the
+ * notch of a stair's side, the inside top corner of an L of walls, a wall's
+ * corner standing on a wider foundation), takes one of the same four corner
+ * cases, chosen by the shape at the point: the sum of the solid cells'
+ * directions from the point says where the solid lies, so fewer than five
+ * solid cells read as an outer corner of the cell that way, five or more as
+ * an inner corner opening the other way ({@link MIXED_CORNER}). Pure corners
+ * are the same rule's ends (one solid: that cell; seven: away from the open
+ * one), so a turned or mirrored pattern gives the same piece turned. Any
+ * other corner (two or more cells touching only at the point, a straight run
+ * of edges) gets no corner piece.
  *
- * **Who owns it.** An outer edge or corner belongs to its one solid cell, an
- * inner one to the cell diagonal to the open one, so every piece has one
- * cell, whose material names its kit, and a cell owns at most its own 12
- * edges and 8 corners: a bit mask a cell. A piece is placed only where its
- * owner is a construction cell and no cell round it is terrain (where a
- * building meets the ground, the terrain material's dressing draws the
- * contact) or a cell another surface draws (a sloped roof's plane cells,
- * passed in as `excluded`).
+ * **Where it sits.** An outer edge or corner sits on its one solid cell, an
+ * inner one on the cell diagonal to the open one (a mixed corner on the cell
+ * its direction names), so every piece has one anchor cell, and a cell
+ * anchors at most its own 12 edges and 8 corners: a bit mask a cell. A
+ * piece is placed only where its anchor is a construction cell and no cell
+ * round it is terrain (where a building meets the ground, the terrain
+ * material's dressing draws the contact) or a cell another surface draws (a
+ * sloped roof's plane cells, passed in as `excluded`).
+ *
+ * **Whose piece it is** ({@link slotDressing}): an outer edge or a pure
+ * outer corner is its own cell's. Where cells meet (an inner edge, an inner
+ * or mixed corner) the cells whose faces show at it compete by
+ * {@link PIECE_ROLE_ORDER} (roof > wall > pillar > stair > floor >
+ * foundation: a wall standing on a foundation dresses the corner at its
+ * foot in its own kit); when the winning role's cells there belong to two
+ * kits, nothing goes there (the material blend draws the seam).
+ *
+ * **Openings.** An `opening` cell (a door's or window's gap) is open, so the
+ * jambs, lintel and sill round it get the ordinary edge pieces, but drawn
+ * **flush**: the instance names the anchor's faces toward the opening and
+ * the renderer cuts the piece at those faces, so nothing stands in the
+ * doorway. A piece that would lie inside the opening (a cove where the
+ * opening's floor meets a jamb) is not placed. A dug or broken hole (air)
+ * is an ordinary edge.
  *
  * **Orientation.** Each case is written in its own orientation, its open
  * side toward +z (a vertical edge or a corner: toward +x and +z); the yaw
@@ -35,7 +60,7 @@
  */
 import { OPEN_ROLE, type Neighbourhood } from './assembly';
 import { SURFACE_ISO } from './derived-mesh';
-import { isConstructionRole, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
+import { isConstructionRole, MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
 
 /** How far (Chebyshev, cells) the edge pass reads from a cell. */
 export const EDGE_REACH = 1;
@@ -107,10 +132,64 @@ export const PIECE_SLOT_TABLE: readonly Slot[] = (() => {
 const blockIndex = (o: Offset): number => (o[0] + 1) * 9 + (o[1] + 1) * 3 + (o[2] + 1);
 const bitsOf = (os: readonly Offset[]): number => os.reduce((m, o) => m | (1 << blockIndex(o)), 0);
 
-/** Per slot: the face cells' bits, the other cells' bits and (corners) the far cell's bit. */
+/** Per slot: the face cells' bits and the other cells' bits. */
 const SLOT_FACES = Uint32Array.from(PIECE_SLOT_TABLE, (s) => bitsOf(s.faces));
 const SLOT_REST = Uint32Array.from(PIECE_SLOT_TABLE, (s) => bitsOf(s.rest));
-const SLOT_FAR = Uint32Array.from(PIECE_SLOT_TABLE, (s) => (s.axis < 0 ? 1 << blockIndex(s.side) : bitsOf(s.rest)));
+
+/**
+ * Per pattern of the 8 cells round a lattice corner (bit o set: the cell at
+ * octant o is solid; octant bit 0 +x, bit 1 +y, bit 2 +z of the point): 0
+ * for no corner piece, else 1 | inner << 1 | the anchor's octant << 2. The
+ * solid cells' directions from the point, summed, name the anchor's octant
+ * (no piece when the sum is 0 on an axis: the shape does not say which way
+ * the corner faces). Up to four solid cells are an outer corner of that
+ * cell (it must be solid); five or more an inner corner on it, opening to
+ * the opposite octant (which must be open). Besides one and seven solid
+ * cells, a corner gets a piece only where outer and inner edges meet.
+ */
+export const MIXED_CORNER: Uint8Array = (() => {
+  const t = new Uint8Array(256);
+  const pop = (x: number): number => (x & 1) + ((x >> 1) & 1) + ((x >> 2) & 1) + ((x >> 3) & 1) + ((x >> 4) & 1) + ((x >> 5) & 1) + ((x >> 6) & 1) + ((x >> 7) & 1);
+  for (let p = 1; p < 255; p++) {
+    const count = pop(p);
+    if (count !== 1 && count !== 7) {
+      // The six edge segments from the point: the 4 cells on one side of each axis.
+      let outer = false;
+      let inner = false;
+      for (let a = 0; a < 3; a++) for (let side = 0; side < 2; side++) {
+        const cells = [0, 1, 2, 3, 4, 5, 6, 7].filter((o) => ((o >> a) & 1) === side && ((p >> o) & 1) === 1);
+        if (cells.length === 3) inner = true;
+        else if (cells.length === 1 || (cells.length === 2 && pop((cells[0]! ^ cells[1]!) & 7) === 2)) outer = true;
+      }
+      if (!outer || !inner) continue;
+    }
+    const v = [0, 0, 0];
+    for (let o = 0; o < 8; o++) if ((p >> o) & 1) for (let a = 0; a < 3; a++) v[a]! += (o >> a) & 1 ? 1 : -1;
+    if (v[0] === 0 || v[1] === 0 || v[2] === 0) continue;
+    const s = (v[0]! > 0 ? 1 : 0) | (v[1]! > 0 ? 2 : 0) | (v[2]! > 0 ? 4 : 0);
+    const isInner = count >= 5;
+    if (((p >> s) & 1) === 0) continue;
+    if (isInner && ((p >> (s ^ 7)) & 1) === 1) continue;
+    t[p] = 1 | (isInner ? 2 : 0) | (s << 2);
+  }
+  return t;
+})();
+
+/** Per corner c (0–7) and octant o: the bit, in a cell's 3³ block, of the cell at octant o of the cell's corner c. */
+const CORNER_OCTANT_BITS = Uint32Array.from({ length: 64 }, (_, k) => {
+  const c = k >> 3;
+  const o = k & 7;
+  // The cell is at octant c ^ 7 of its corner c; a cell differing from it on axis a steps toward the corner there.
+  const d = [0, 1, 2].map((a) => (((o ^ c ^ 7) >> a) & 1 ? ((c >> a) & 1 ? 1 : -1) : 0)) as unknown as Offset;
+  return 1 << blockIndex(d);
+});
+
+/** The 8-cell pattern ({@link MIXED_CORNER}'s bits) round a cell's corner c from its 3³ block's solid bits. */
+function cornerPattern(c: number, solid: number): number {
+  let p = 0;
+  for (let o = 0; o < 8; o++) if ((solid & CORNER_OCTANT_BITS[c * 8 + o]!) !== 0) p |= 1 << o;
+  return p;
+}
 
 /** A horizontal direction's yaw: +z 0, −x 1, −z 2, +x 3 (each quarter turn takes +x to +z). */
 function yawOfDirection(dx: number, dz: number): number {
@@ -276,12 +355,12 @@ export function extractEdges(n: Neighbourhood, lo: number, hi: number, out: Edge
             q |= 1 << k;
           }
         } else {
-          const far = SLOT_FAR[k]!;
-          const others = (faces | rest) & ~far;
-          if ((solid & (faces | rest)) === 0) p |= 1 << k;
-          else if ((solid & others) === others && (solid & far) === 0) {
+          // Pure or mixed, the corner's shape names its anchor: this cell, or another cell round it places it.
+          const c = k - EDGE_SLOTS;
+          const t = MIXED_CORNER[cornerPattern(c, solid)]!;
+          if (t !== 0 && t >> 2 === (c ^ 7)) {
             p |= 1 << k;
-            q |= 1 << k;
+            if ((t & 2) !== 0) q |= 1 << k;
           }
         }
       }
@@ -291,6 +370,111 @@ export function extractEdges(n: Neighbourhood, lo: number, hi: number, out: Edge
     }
   }
   return count;
+}
+
+/**
+ * Who dresses a piece where roles meet, highest first: a roof over a wall, a
+ * wall over a pillar, a stair, a floor or the foundation it stands on.
+ */
+export const PIECE_ROLE_ORDER: readonly number[] = Object.freeze([VOXEL_ROLE.roof, VOXEL_ROLE.wall, VOXEL_ROLE.pillar, VOXEL_ROLE.stair, VOXEL_ROLE.floor, VOXEL_ROLE.foundation]);
+
+/** Per role: its rank in {@link PIECE_ROLE_ORDER} (higher wins), 0 for a role that dresses nothing. */
+const ROLE_RANK = (() => {
+  const t = new Uint8Array(ROLE_MASK + 1);
+  PIECE_ROLE_ORDER.forEach((r, k) => (t[r] = PIECE_ROLE_ORDER.length - k));
+  return t;
+})();
+
+/** The block index of a cell's own place in its 3³ block. */
+export const SELF_BLOCK = 13;
+
+/** Shift of the flush faces in a {@link slotDressing} word (below it: the dressing cell's block index). */
+export const DRESSING_FLUSH_SHIFT = 5;
+
+/** Per slot: its cells round it (the anchor first), as 3³ block indices; for a corner, by octant of the point. */
+const SLOT_BLOCKS: readonly (readonly number[])[] = PIECE_SLOT_TABLE.map((s, k) => {
+  if (s.axis >= 0) return [SELF_BLOCK, ...s.faces.map(blockIndex), ...s.rest.map(blockIndex)];
+  const c = k - EDGE_SLOTS;
+  return Array.from({ length: 8 }, (_, o) => 31 - Math.clz32(CORNER_OCTANT_BITS[c * 8 + o]!));
+});
+
+/** The neighbourhood index of the cell at 3³ block index `block` round padded cell `i`. */
+export function blockNeighbour(n: Neighbourhood, i: number, block: number): number {
+  return i + blockDeltas(n.side)[block]!;
+}
+
+const blockDelta = (b: number): Offset => [Math.floor(b / 9) - 1, (Math.floor(b / 3) % 3) - 1, (b % 3) - 1];
+
+/**
+ * How the piece on slot `slot` of padded cell `i` (an anchor the edge pass
+ * gave it, inner or not) is dressed, or −1 for none. The word holds the
+ * cell whose material (so whose kit) the piece is drawn in, as its 3³ block
+ * index round the anchor ({@link SELF_BLOCK}: its own), and above
+ * {@link DRESSING_FLUSH_SHIFT} the anchor's faces the piece is cut at (bit
+ * 2a for −a, 2a + 1 for +a). `kitOf` gives a material's kit (any number;
+ * only equality is read).
+ *
+ * - An outer edge, and an outer corner of one solid cell, is the anchor's.
+ * - Where cells meet (an inner edge, an inner or mixed corner), the solid
+ *   cells round it showing a face there (an open cell beside them round it)
+ *   compete: the highest role of {@link PIECE_ROLE_ORDER} wins; winners of
+ *   two kits leave it bare.
+ * - An `opening` round it: an inner piece (lying in the open cell) is not
+ *   placed; an outer one is cut at each anchor face beyond which an opening
+ *   lies round it.
+ */
+export function slotDressing(n: Neighbourhood, i: number, slot: number, inner: boolean, kitOf: ArrayLike<number>): number {
+  const deltas = blockDeltas(n.side);
+  const vals = n.values;
+  const shapes = n.shapes;
+  const blocks = SLOT_BLOCKS[slot]!;
+  const s = PIECE_SLOT_TABLE[slot]!;
+  const corner = s.axis < 0;
+  let solid = 0;
+  let openings = 0;
+  for (let k = 0; k < blocks.length; k++) {
+    const j = i + deltas[blocks[k]!]!;
+    const role = (vals[j]! >>> ROLE_SHIFT) & ROLE_MASK;
+    if (role === VOXEL_ROLE.opening) openings |= 1 << k;
+    else if (OPEN_ROLE[role] !== 1 && shapes[j]! >= SURFACE_ISO) solid |= 1 << k;
+  }
+  let word = SELF_BLOCK;
+  // Pure outer: the anchor alone is solid on a corner; an outer edge is its own cell's even beside a diagonal solid.
+  const own = corner ? solid === (1 << blocks.indexOf(SELF_BLOCK)) : !inner;
+  if (!own) {
+    if (openings !== 0 && inner) return -1;
+    let best = 0;
+    let kit = -1;
+    let pick = -1;
+    for (let k = 0; k < blocks.length; k++) {
+      if (((solid >> k) & 1) === 0) continue;
+      // Shows a face at the slot: an edge's two face cells of the open one; a corner's cells beside an open octant.
+      let shows: boolean;
+      if (corner) shows = ((~solid >> (k ^ 1)) & 1) === 1 || ((~solid >> (k ^ 2)) & 1) === 1 || ((~solid >> (k ^ 4)) & 1) === 1;
+      else shows = k === 1 || k === 2;
+      if (!shows) continue;
+      const v = vals[i + deltas[blocks[k]!]!]!;
+      const rank = ROLE_RANK[(v >>> ROLE_SHIFT) & ROLE_MASK]!;
+      const kv = kitOf[v & MATERIAL_ID_MAX] ?? -1;
+      if (rank > best) {
+        best = rank;
+        kit = kv;
+        pick = k;
+      } else if (rank === best && kv !== kit) kit = -2;
+    }
+    if (best === 0 || kit === -2) return -1;
+    word = blocks[pick]!;
+  }
+  if (openings === 0) return word;
+  if (inner) return -1;
+  // Cut at each anchor face the slot reaches across toward an opening.
+  let flush = 0;
+  for (let k = 0; k < blocks.length; k++) {
+    if (((openings >> k) & 1) === 0) continue;
+    const d = blockDelta(blocks[k]!);
+    for (let a = 0; a < 3; a++) if (d[a] !== 0) flush |= 1 << (2 * a + (d[a]! > 0 ? 1 : 0));
+  }
+  return word | (flush << DRESSING_FLUSH_SHIFT);
 }
 
 /** One piece the pass places, for tests and tools. */

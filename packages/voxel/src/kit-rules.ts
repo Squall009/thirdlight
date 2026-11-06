@@ -150,6 +150,8 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
  * Version 3 (catalogue `edges-draft` v1, two debris stages): none round a
  * damaged construction cell either, which the derive draws as debris.
  * Version 4 (catalogue v2): no beam or banister cases, so no window pass.
+ * Version 5: mixed corners (outer and inner edges meeting) take a corner
+ * piece, its anchor and inner/outer from the shape at the point.
  */
-export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 4);
+export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 5);
 

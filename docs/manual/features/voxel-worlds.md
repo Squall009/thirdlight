@@ -18,8 +18,10 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
   - **material** — 0 is air (the whole cell is then empty), 1 to 4,095 a
     material id: what the surface looks like;
   - **role** — what the cell is for: 0 air, 1 terrain, 2 liquid, 3 wall,
-    4 floor, 5 roof, 6 foundation, 7 stair, 8 pillar, 9 opening (the door
-    or window there is a kit piece). Edges, corners and roof edges are not
+    4 floor, 5 roof, 6 foundation, 7 stair, 8 pillar, 9 opening (a door's
+    or window's gap: open like air, but the edge pieces round it are cut
+    flush with its faces, so nothing stands in the doorway; a dug hole is
+    air and its edges are dressed as any other). Edges, corners and roof edges are not
     roles: they follow from how the cells are arranged. Beams and banisters
     are not part of voxel worlds: cells laid as one are plain voxels. What
     collides, blocks walking and lets light through is the cells, never the
@@ -282,7 +284,9 @@ voxel faces: no piece ever stands on a flat face. A piece goes only where
 faces meet, each its own instance a 0.5 m edge or corner: the engine reads
 the cells round every edge and corner of a built cell and gives it a
 **case** (an outer top, vertical or bottom edge, an inner one where a wall
-meets a floor or ceiling, an outer or inner corner), the ridge, eave,
+meets a floor or ceiling, an outer or inner corner; where outer and inner
+edges meet, as at a stair's side or a wall's foot on a wider foundation, the
+outer or inner corner the shape there asks for), the ridge, eave,
 verge, hip and valley of a sloped roof, and **debris**. Every case is a
 **slot** of a kit (the case id is the slot's name): a kit fills a slot with
 one or more 3D meshes, or leaves it empty, and **an empty slot draws
@@ -354,7 +358,11 @@ them as `voxelKits`.
 
 **How worlds draw them.** The voxel world page, Play, the Scene view and an
 exported game draw every world with the project's kits: a cell's pieces are
-its material's kit's meshes in the slot of each of its edges and corners,
+its material's kit's meshes in the slot of each of its edges and corners
+(where two roles meet, the higher one's kit dresses the edge — roof, wall,
+pillar, stair, floor, foundation in that order, so a wall on a foundation
+dresses its foot; where two kits of the same role meet, the edge stays
+plain and the material blend draws the seam),
 picked by the seed and the cell (an edit elsewhere never reshuffles them),
 turned to fit and jittered by the kit. Pieces draw only in the near ring
 (level 0); from the middle ring out the edges are plain square voxel faces.

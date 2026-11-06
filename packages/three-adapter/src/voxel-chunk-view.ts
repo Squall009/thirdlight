@@ -8,8 +8,9 @@
  * A chunk is one mesh holding its ground and its modular base surfaces (the
  * same material, so one draw), plus its kit pieces: one instanced mesh a
  * (kit piece, slot mesh, mirror). Only a chunk (level 0, the near ring)
- * lists pieces; coarser nodes draw their edges as plain voxel faces. A kit piece's kit is its cell's material's, read from the chunk's
- * shader data as the surface shader reads it; its mesh comes from the
+ * lists pieces; coarser nodes draw their edges as plain voxel faces. A kit piece's kit is its dressing cell's material's
+ * (its own cell or one beside it), read from the chunk's shader data as the surface shader reads it; a piece beside an
+ * opening draws a copy of its mesh cut flush at the faces its instance names. Its mesh comes from the
  * view's {@link VoxelKitSet} (the world's piece table and kits). A chunk
  * whose kit meshes are still loading draws its other pieces and builds the
  * waiting ones when they arrive. The surface buffers' packed vertices are unpacked to float
@@ -44,9 +45,13 @@
 import * as THREE from 'three';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
 import {
+  caseFlushFaces,
   chunkKey,
   chunkOrigin,
   INSTANCE_BYTES,
+  INSTANCE_DRESSING_OFFSET,
+  instanceDressingCell,
+  instanceFlushFaces,
   instancePlaceOf,
   mipCellMetres,
   PIECE_VARIANT_MIRROR,
@@ -452,9 +457,14 @@ export class VoxelChunkView {
         continue;
       }
       if (r === null) continue;
+      // A piece beside an opening draws its mesh cut at the faces its instance names, turned into its case's axes.
+      const flush = instanceFlushFaces(dressingAt(list.data, o));
+      const caseFaces = flush === 0 ? 0 : caseFlushFaces(flush, list.data[o + 3]! & 3);
+      const key = caseFaces === 0 ? r.key : `${r.key}|f${caseFaces}`;
+      const geometry = caseFaces === 0 || this.kitSet === null ? r.geometry : this.kitSet.meshes.flushGeometry(r.geometry, r.rotation, caseFaces);
       // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
-      if (!byMesh.has(r.key)) byMesh.set(r.key, { geometry: r.geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
-      byMesh.get(r.key)!.offsets.push(o);
+      if (!byMesh.has(key)) byMesh.set(key, { geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
+      byMesh.get(key)!.offsets.push(o);
     }
     // A piece is drawn at its draw's cell size (a chunk's: 0.5 m).
     const cellM = m.cellMetres;
@@ -589,6 +599,12 @@ export class VoxelChunkView {
   }
 }
 
+/** The dressing word of the instance at byte `o` of `data` (derived-mesh.ts). */
+function dressingAt(data: Uint8Array, o: number): number {
+  const at = o + INSTANCE_DRESSING_OFFSET;
+  return (data[at]! | (data[at + 1]! << 8) | (data[at + 2]! << 16) | (data[at + 3]! << 24)) >>> 0;
+}
+
 /**
  * A draw's instances copied (a batch's buffers may be reused once applied)
  * with each kit piece's cell material read now, while the draw's shader
@@ -599,7 +615,9 @@ function keptInstances(list: InstanceList, materialAt: (x: number, y: number, z:
   const materials = new Uint16Array(list.count);
   for (let k = 0; k < list.count; k++) {
     const o = k * INSTANCE_BYTES;
-    materials[k] = materialAt(data[o]!, data[o + 1]!, data[o + 2]!);
+    // The kit is the dressing cell's: the instance's own cell or one beside it (in the shader data's border).
+    const [dx, dy, dz] = instanceDressingCell(dressingAt(data, o));
+    materials[k] = materialAt(data[o]! + dx, data[o + 1]! + dy, data[o + 2]! + dz);
   }
   return { instances: { count: list.count, data }, materials };
 }

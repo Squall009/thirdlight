@@ -141,9 +141,30 @@ function slotKey(p: Piece): string {
 const isEdgePiece = (p: Piece): boolean => SLOT_OF.has(`${p.caseId}|${p.yaw}`) && p.place === INSTANCE_PLACE.upright && EDGE_CASE_IDS.includes(p.caseId as never);
 
 /**
+ * The corner rule, written out over the 8 cells round a lattice point (`at(o)`: octant o, bit 0 +x, 1 +y, 2 +z, is
+ * solid): whether outer and inner edges meet there (`mixed`), and whether a corner piece goes there (`piece`: one or
+ * seven solid, or mixed, with the solid cells' summed directions naming a solid anchor, an inner one's opposite open).
+ */
+function cornerRule(at: (o: number) => boolean): { mixed: boolean; piece: boolean } {
+  const solid = [0, 1, 2, 3, 4, 5, 6, 7].filter(at);
+  let outer = false;
+  let inner = false;
+  for (let a = 0; a < 3; a++) for (const side of [0, 1]) {
+    const round = solid.filter((b) => ((b >> a) & 1) === side);
+    if (round.length === 3) inner = true;
+    if (round.length === 1 || (round.length === 2 && [0, 1, 2].filter((k) => k !== a && ((round[0]! ^ round[1]!) >> k) & 1).length === 2)) outer = true;
+  }
+  const mixed = outer && inner && solid.length !== 1 && solid.length !== 7;
+  const sum = [0, 1, 2].map((a) => solid.reduce((t, b) => t + ((b >> a) & 1 ? 1 : -1), 0));
+  if (!(mixed || solid.length === 1 || solid.length === 7) || sum.some((x) => x === 0)) return { mixed, piece: false };
+  const o = (sum[0]! > 0 ? 1 : 0) | (sum[1]! > 0 ? 2 : 0) | (sum[2]! > 0 ? 4 : 0);
+  return { mixed, piece: at(o) && (solid.length < 5 || !at(o ^ 7)) };
+}
+
+/**
  * Fails unless every edge piece's 4 cells are 1 or 3 solid (or 2 diagonal:
- * two outer edges, one a cell) and every corner piece's 8 cells 1 or 7:
- * never a piece on a flat face (2 side by side).
+ * two outer edges, one a cell) and every corner piece's 8 cells 1 or 7 or
+ * a mixed corner: never a piece on a flat face (2 side by side).
  */
 function expectNoFlatFace(s: PaletteStore, pieces: readonly Piece[], what: string): number {
   let checked = 0;
@@ -152,7 +173,12 @@ function expectNoFlatFace(s: PaletteStore, pieces: readonly Piece[], what: strin
     const n = cells.filter((c) => solid(s, ...c)).length;
     // An edge's cells are the owner, its two face neighbours and the diagonal (cellsRound's order).
     const diagonal = n === 2 && solid(s, ...cells[0]!) && solid(s, ...cells[3]!);
-    const ok = cells.length === 4 ? n === 1 || n === 3 || diagonal : n === 1 || n === 7;
+    let ok = cells.length === 4 ? n === 1 || n === 3 || diagonal : n === 1 || n === 7;
+    if (cells.length === 8 && !ok) {
+      const side = PIECE_SLOT_TABLE[SLOT_OF.get(`${p.caseId}|${p.yaw}`)!.slot]!.side;
+      const point = p.cell.map((c, a) => c + (side[a]! > 0 ? 1 : 0));
+      ok = cornerRule((o) => solid(s, point[0]! - 1 + (o & 1), point[1]! - 1 + ((o >> 1) & 1), point[2]! - 1 + ((o >> 2) & 1))).mixed;
+    }
     expect(ok, `${what}: ${p.caseId} yaw ${p.yaw} at ${p.cell.join(',')}: ${n} of ${cells.length} solid`).toBe(true);
     checked++;
   }
@@ -161,7 +187,7 @@ function expectNoFlatFace(s: PaletteStore, pieces: readonly Piece[], what: strin
 
 /**
  * Every exposed lattice edge and corner of the construction in [lo, hi) by
- * brute force: 1 or 3 of its 4 cells solid (1 or 7 of 8), at least one a
+ * brute force: 1 or 3 of its 4 cells solid (a corner by the corner rule, {@link cornerRule}), at least one a
  * construction cell, none terrain; listed twice for two solid diagonally
  * round an edge (one outer edge each).
  */
@@ -182,7 +208,7 @@ function exposedSlots(s: PaletteStore, lo: Cell, hi: Cell): string[] {
       const n = cells.filter((c) => solid(s, ...c)).length;
       // Two solid diagonally round an edge (cells 0 and 3, or 1 and 2, in this order) are two outer edges: two pieces.
       const diagonal = axis >= 0 && n === 2 && solid(s, ...cells[0]!) === solid(s, ...cells[3]!);
-      const want = axis >= 0 ? n === 1 || n === 3 || diagonal : n === 1 || n === 7;
+      const want = axis >= 0 ? n === 1 || n === 3 || diagonal : cornerRule((o) => solid(s, x - 1 + (o & 1), y - 1 + ((o >> 1) & 1), z - 1 + ((o >> 2) & 1))).piece;
       if (!want || !cells.some((c) => built(...c)) || cells.some((c) => terrain(...c))) continue;
       const mid = [2 * x, 2 * y, 2 * z];
       if (axis >= 0) mid[axis]! += 1;
