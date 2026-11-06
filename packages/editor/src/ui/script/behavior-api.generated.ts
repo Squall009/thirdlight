@@ -4586,6 +4586,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load)."
     },
     {
+      "name": "voxel_piece_seed",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "The voxel world's piece seed: which of a kit slot's meshes each piece draws (`VOXEL_PIECE_SEED_KEY`; absent: 0)."
+    },
+    {
       "name": "see_through",
       "kind": "property",
       "detail": "number | undefined",
