@@ -1441,7 +1441,8 @@ live only inside a derive job; what 46c adds is derived data (versions 10–25, 
 history* below), one project setting (`voxel_piece_seed`) and one project content item, the voxel kit record (§3.9,
 **`kitFormat` 1, still a DRAFT**). The edge catalogue (`edges-draft` v3) and the kit format are **drafts**: they
 freeze as v1 only when the owner approves the role spec (`voxel-role-spec.md`) and the texture layout
-(`voxel-trim-layout.md`), both DRAFT, owner hard stop. Until then nothing builds on them as final.
+(`voxel-trim-layout.md`), both v1 candidates awaiting the owner's look at acc46c-r2 (owner hard stop). Until then
+nothing builds on them as final.
 
 **The model (owner 2026-11-04).** Walls, floors, stairs, pillars, foundations and flat roofs are plain voxel faces:
 the base surface draws every flat face and no piece ever stands on one. Detail pieces go only where faces meet: one

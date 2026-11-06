@@ -1,5 +1,5 @@
 /**
- * The role spec draft (docs/architecture/voxel-role-spec.md) against the
+ * The role spec v1 candidate (docs/architecture/voxel-role-spec.md) against the
  * edge catalogue it is written from, so the document the owner approves and
  * the cases the engine places cannot drift apart: the document has a
  * heading for exactly the catalogue's cases (every one a kit's optional
@@ -82,7 +82,7 @@ function caseSections(): Map<string, { text: string; count: number }> {
   return out;
 }
 
-describe('role spec draft against the edge catalogue', () => {
+describe('role spec v1 candidate against the edge catalogue', () => {
   if (process.env.ROLE_SPEC_PRINT) {
     it('prints every case block', () => {
       for (const c of cat.cases) console.log(`--- ${c.id}\n${expectedBlock(c)}\n--- end`);
@@ -92,7 +92,7 @@ describe('role spec draft against the edge catalogue', () => {
   it("is the world's catalogue, and the page names it, its version, its draft state and the numbers it states", () => {
     expect(WORLD_RULES.catalogue).toBe(cat);
     expect(cat.draft).toBe(true);
-    expect(doc).toContain('DRAFT — awaiting owner approval (46c hard stop); nothing builds on it as final');
+    expect(doc).toContain("v1 CANDIDATE — awaiting the owner's look at acc46c-r2; nothing builds on it as final");
     expect(doc).toContain(`\`${cat.id}\` v${cat.version}`);
     expect(doc).toContain(`${cat.cases.length} cases`);
     const d = DAMAGE_STAGES_DEFAULT;

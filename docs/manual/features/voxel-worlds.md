@@ -298,9 +298,9 @@ versions their meshes name.
 
 ## Voxel kits
 
-> **Draft:** the case list and the kit format may still change. Both wait
-> for the owner's approval of the role spec and the texture layout; worlds
-> draw with kits now.
+> **Candidate:** the case list and the kit format may still change. The
+> role spec and the texture layout are v1 candidates that freeze once the
+> owner has approved them; worlds draw with kits now.
 
 **What a kit is.** Cells store only a role (wall, floor, roof …), never
 "corner" or "window sill". Walls, floors, stairs and flat roofs are plain
@@ -466,7 +466,7 @@ These come later; worlds made now keep working when they arrive:
 
 - **The far field**: the world past the load ring, and tall ground far
   away (above).
-- **Kits**: the approved case list and texture layout (the drafts draw
+- **Kits**: the approved case list and texture layout (the candidates draw
   now), a kit page in the editor, and the guide to making a kit; the fringe
   where buildings meet the ground and ground scatter come with the terrain
   tools.

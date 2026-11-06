@@ -254,7 +254,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16d | done (7a0334ac): 1:2 roofs as planes (read 2 cells round, pad 3 kept; 45° words bit-identical, town 68,244 cells), one roof-edge mesh pitched (eave/verge turned, ridge/hip/valley squashed), underside parallel, walls under a roof (or 1 air cell under) cut to it, coarse 1:2 re-lay, √5 slope phase; derived 24, `edges` v6; D500 fixed, D518–D520. Seen both renderers; fast gate GREEN |
 | 46c.16e | done: three damage stages a kit (`damage`: 11–14 cracks drawn by the surface shader, edges kept; 6–10 / 1–5 holes, neighbour faces carry 6 / 3 damage pieces of their kit, no edges round); solid until air, light by integrity; debris cases gone; table 4, `edges` v7, catalogue v3, derived 25; kits log 304 / stone 170 tris. Seen both renderers; fast gate GREEN |
 | 46c.16f | done: projected decals mark voxel faces (every level) and kit pieces, tested 8 km out (variant keeps the 64-bit model-view); clipped decals cut from level-0 chunks via a per-scene link, re-cut on a dig (Play 3–5 ms a mark on a worker; old mark kept until then, never two); `voxelWorld.decalLayers`. Seen both renderers, Play + Scene view; e2e 67.8 → 63.5 s; D522 |
-| 46c.16g | not started |
+| 46c.16g | done: role spec + texture layout rewritten as v1 CANDIDATES (17 slots, ownership, rings, roofs, damage, decals; 25 defaults); kits unchanged, check 0 err/0 warn (log 304 tris 26.7 kB, stone 170 tris 20.0 kB). Town at the cap both renderers: 42.7 k instances, 1,412 piece draws, render() 8.7–9.3 ms, 0 missed, 126.5 MB (R9 59.5 k, 3,081, 14.3–14.8, 0–1, 121.3). D507 fixed, D523 watch |
 | 46c.17 | not started (after the v1 freeze) |
 | 46c.14b | done for the first build: full gate GREEN at 9107abbd (33 min, 8.0 GB), review 0H 6M 8L fixed (46c.14c), acc46c. The revision (R1–R9) is verified by fast gates; one closing full gate + review runs after the owner approves the revision. |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
@@ -1620,6 +1620,48 @@ the Scene view, Play and an export, WebGPU and WebGL 2 (commit e2731180).
 - **Gate:** gate-fast-20261106-083221 RED (vitest: descriptor size budget, the new field unreached by the test base,
   the script-field pin — all expected for an added field, updated); gate-rerun-20261106-084222 GREEN (4 min, 4.7 GB;
   e2e 36 passed; perf 0 missed both renderers, 5.8 / 4.09 ms main thread).
+
+### 46c.16g the specs as v1 candidates, kits checked, town measured
+
+**Docs.** `docs/architecture/voxel-role-spec.md` rewritten as the **v1 CANDIDATE** (freezes after the full gate,
+review and acc46c-r2): roles, no piece on a flat face, the 17 cases of `edges-draft` v3 as slots (facts blocks still
+generated, diagrams kept), the anchor and who dresses a piece (role order, two kits → none, terrain contact → none),
+mixed corners via the corner slots, flush at `opening` cells, roofs (flat/45°/1:2, one slope, parallel underside,
+wall tops closed up, one pitched roof-edge mesh, mirrored verge, half pieces at hip apexes), three damage stages a
+kit, slots (1..n meshes, rotation, weight, project seed, one texture set, no default kit), jitter, L0-only pieces and
+the rings per scene / quality level / runtime, decals for dirt and moss, Blender rules, out of scope / moved, open
+D-rows, a "What you are approving" list and **25 "Defaults to confirm"** (every 46c.16a–f default plus one slope a
+roof). `role-spec-doc.test.ts` now pins the candidate status line. `docs/architecture/voxel-trim-layout.md`
+rewritten as the **v1 CANDIDATE**: 4 × 4 m grid tile authored 4096² at 1024 px/m, resident mip by quality level and
+budget, terrain triplanar 2 m, roof planes along the slope, 0.5 m grid features a recommendation, height 0–1 with a
+per-material depth in metres (46d), decals for dirt/moss; detail pieces: one texture set a kit (rule), the layout per
+kit (recommendation with sizes for 0.5 m pieces), own bakes allowed, `detail-trim` v0 kept as the example; the kit
+check rows as the code has them (T8 gone, T4 along the slot's run). Manual kit note and format spec status line say
+"v1 candidates". D507 closed (fixed by the slot format, 61af2840: check and renderer read the same run axis).
+- **Kits** (unchanged since 46c.16e; `placeholder-kits.test.ts`): **log** 14 meshes in 15 of 17 slots, 304 tris
+  (404 over slot meshes), GLB 26,748 B, record 4,569 B; **stone** 13 meshes in 15 slots, 170 tris (264), GLB
+  19,956 B, record 4,834 B; no textures (debug set), no LODs (L0 only), collision from voxels; 0 err, 0 warn, T1–T7 ok.
+- **Town** (staging, R9's view and orbit, 1280 × 720 at the 60 Hz cap, 2 rounds, 09:03–09:08, load 1.6–2.9, uptime
+  13.7 d; scratch `~/.cache/thirdlight-phase46/work/46c.16g/`):
+
+  | | R9 (approve-46c-r) | 46c.16g WebGPU | 46c.16g WebGL 2 |
+  |---|---|---|---|
+  | instances | 59.5 k (L0 36.7 k + L1 22.8 k) | 42,653 (L0 only) | 42,653 |
+  | piece draws / draw calls | 3,081 / 2,172 | 1,412 / 1,277 | 1,412 / 1,277 |
+  | `render()` CPU p50 / p95 | 14.3–14.8 / 16.4–18.8 ms | 8.7–9.0 / 9.5–11.0 | 8.8–9.3 / 9.6–10.5 |
+  | frames missed of ~480 | 0–1 | 0, 0 | 0, 0 |
+  | GPU ms a frame | 1.97 (WebGPU) | 3.11–3.29 | 4.53–4.58 |
+  | stream total (derived; mips) | 121.3 MB (80.8; 31.7) | 126.5 (86.1; 31.9) | 126.5 |
+
+  Causes: L1 pieces gone (16a) and the default-kit/beam draws gone (16b) halve the draws and take ~5.5 ms off
+  `render()`; L0 instances +16 % from mixed corners in the corner slots (16c); derived +5.3 MB with the roofs' closed
+  wall tops (16d, triangles 824 k → 855 k) and the 12 B instance.
+- **Looked at** (`shots/`): `town-mid` (both renderers identical: L0 houses with eave and rim pieces, plane roofs),
+  `log-house-near` (45° gable: log ends, eave, verge and ridge pieces, foundation rim), `stone-house-near` (1:2 hip:
+  hip and eave pieces pitched, jambs flush at door and window). Village orbit 0 missed both renderers.
+- **Gate:** gate-fast-20261106-090852 GREEN (14 min, 4.7 GB; perf 0 missed both renderers, 5.88 / 4.1 ms main
+  thread); `edge-cases` and `stream` timed out at 5 s under load and passed alone, as in 46c.16e (D523, watch).
+  `voxel-world.e2e.ts` sum 63.5 → 68.0 s (no e2e change; load).
 
 ## 9. Decision log
 
