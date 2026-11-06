@@ -30,6 +30,7 @@ const FULL: VoxelWorldComponent = {
   },
   sectionEdge: 32,
   savedFields: ['material', 'shape', 'wetness'],
+  decalLayers: 5,
 };
 
 function errorsOf(v: unknown): string[] {
@@ -56,7 +57,7 @@ describe('the voxelWorld component', () => {
     expect(errorsOf('town')).toEqual(['field_type ']);
     expect(errorsOf({ world: 'Town' })).toEqual(['field_value /world']);
     expect(errorsOf({ world: 'a'.repeat(65) })).toEqual(['field_value /world']);
-    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, levels: { level0: 0, level1: '9', level2: 300 }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], climate: 1 })).toEqual([
+    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, levels: { level0: 0, level1: '9', level2: 300 }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], decalLayers: 256, climate: 1 })).toEqual([
       'field_unexpected /climate',
       'field_unexpected /ring/near',
       'field_value /ring/loadRadius',
@@ -69,7 +70,11 @@ describe('the voxelWorld component', () => {
       'field_value /sectionEdge',
       'field_value /savedFields/1',
       'field_value /savedFields/2',
+      'field_value /decalLayers',
     ]);
+    // A world in no decal layer takes no decal; a fraction is no mask.
+    expect(errorsOf({ world: 'w', decalLayers: 0 })).toEqual([]);
+    expect(errorsOf({ world: 'w', decalLayers: 1.5 })).toEqual(['field_value /decalLayers']);
     expect(errorsOf({ world: 'w', ring: 5, collision: [], levels: 64, savedFields: 'material' })).toEqual(['field_type /ring', 'field_type /collision', 'field_type /levels', 'field_type /savedFields']);
     // Per quality level: a level id, a scale in range, the same distance groups and ranges.
     expect(errorsOf({ world: 'w', quality: { Low: {}, medium: { scale: 5, ring: { loadRadius: -1 }, far: 1 }, high: 2 } })).toEqual([
@@ -84,6 +89,7 @@ describe('the voxelWorld component', () => {
 
   it('keeps every field through the scene validator and the canonical bytes, in order, adding nothing', () => {
     const shuffled = {
+      decalLayers: 5,
       savedFields: ['wetness', 'material', 'shape'],
       sectionEdge: 32,
       quality: { low: { levels: { level1: 30, level0: 20 }, collision: { height: 6, radius: 12 }, ring: { unloadHeight: 30, loadHeight: 20, unloadRadius: 50, loadRadius: 40 }, scale: 0.5 }, high: { scale: 3 } },

@@ -21,7 +21,7 @@ unique textures.
 | The mark | Use | Why |
 |---|---|---|
 | A wet patch, a scratch or crack in the normal only, a change of roughness or metalness | projected | Only a projected decal blends one channel into the surface before it is lit; mesh and clipped decals blend their own lit colour over it. |
-| A mark on terrain | projected | Terrain's levels of detail change its surface with distance, so a clipped mesh would float or sink; a projected decal follows the pixel. |
+| A mark on terrain | projected | Terrain's levels of detail change its surface with distance, so a clipped mesh would float or sink; a projected decal follows the pixel. A voxel world's ground and buildings take both kinds ([voxel worlds](voxel-worlds.md#decals)). |
 | Many static marks on blocks, walls, generated architecture and props: dirt, stains, signs, leaks | clipped | Clipped once at load (cached), merged into the static cells: one draw per cell per decal material, and no receiving shader changes. A pixel pays only where a mark is. |
 | A mark modelled with the asset (a sign on a crate, a painted stripe) | mesh | Its geometry ships in the model file and draws the same way as a clipped mark. |
 | Marks left during play (bullet holes, footprints, scorch) | spawned (projected) | A script spawns them from a prefab; the transient budget keeps the newest. |
@@ -106,7 +106,7 @@ There is no cap on decals in a project.
 ## Decal layers
 
 Every drawn object — box, model, instance set, block layer, terrain,
-generated architecture and spline — has **Decal layers** (`decalLayers`):
+generated architecture, spline and voxel world — has **Decal layers** (`decalLayers`):
 eight checkboxes in the Inspector, a bit mask in the data (bit n is layer
 n + 1). A decal marks an object when its **layers** and the object's decal
 layers share one. Unchecking every box keeps every projected decal off the
@@ -196,8 +196,9 @@ albedo, normal, roughness, metalness, occlusion and emission **before it is
 lit**, so the mark takes the surface's light, shadows, probes and room, and
 a wet patch can change roughness alone. It works the same on WebGPU and
 WebGL 2, and on every lit surface: block layers, terrain, props (models,
-boxes), instance copies, generated architecture, splines and static merged
-cells. Unlit materials and mesh decals take none.
+boxes), instance copies, generated architecture, splines, static merged
+cells and voxel worlds (their faces at every distance level and their kit
+pieces). Unlit materials and mesh decals take none.
 
 How a pixel takes it:
 
@@ -306,8 +307,10 @@ only, or a mark on terrain.
 
 - **What it is cut from:** placed models (their base pose), boxes, block
   layers' chunks, generated architecture and spline meshes, at full detail,
-  in one of the decal's layers. Not terrain (its levels of detail change the
-  surface with distance: a projected decal marks it), instance sets and
+  and a voxel world's full-detail chunks (ground and buildings within its
+  level-0 distance), in one of the decal's layers. Not terrain (its levels
+  of detail change the surface with distance: a projected decal marks it),
+  a voxel world's coarser levels or its kit pieces, instance sets and
   scatter copies, see-through materials or other decals.
 - **Fades:** faces turned past `normalFade` from the projector are left
   out, the rest fade over its last fifth; `edgeFade` fades the mark near the
@@ -324,7 +327,8 @@ only, or a mark on terrain.
   projected decal.
 - **Order:** the component's `sortOrder` is added to its material's.
 - **When it is made:** when the scene loads, and again when a surface under
-  it changes — a block chunk re-meshed, a generated object made again (a
+  it changes — a block chunk re-meshed, a voxel chunk changed by an edit or
+  streamed in, a generated object made again (a
   slider, a preset swapped by a script), a model reimported, a surface that
   moves through the box — or when the decal itself moves over them. Until
   the new mesh is in, the old one stays drawn. A decal and the surfaces it

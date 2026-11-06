@@ -33,12 +33,16 @@
  * - `sectionEdge`: the edge (cells) of the sections a chunk is derived in.
  * - `savedFields`: which fields of a runtime change a game save keeps
  *   (the overlay's saved-fields mask; the rest is dropped on quit).
+ * - `decalLayers`: the decal layers the world's surfaces and kit pieces are
+ *   in, as any drawn object's (absent: every layer). A draw setting only:
+ *   it never changes how the world streams.
  *
  * Pure data.
  */
 import { isPlainObject } from '@thirdlight/shared';
 import { levelVoxels, QUALITY_LEVEL_ID_RE, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, type QualityLevelConfig } from './quality-levels';
 import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
+import { validateDecalLayerMask } from './decals';
 import type { ModelErrorV2 } from './errors';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
 
@@ -101,9 +105,11 @@ export interface VoxelWorldComponent extends VoxelWorldRings {
   sectionEdge?: SectionEdge;
   /** The fields a game save keeps of a runtime change, in the voxel planes' order (absent: the voxel default). */
   savedFields?: VoxelPlane[];
+  /** The decal layers its draws are in (absent: every layer). */
+  decalLayers?: number;
 }
 
-export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields']);
+export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields', 'decalLayers']);
 export const VOXEL_WORLD_QUALITY_FIELDS = ['scale', 'ring', 'collision', 'levels'] as const;
 export const VOXEL_WORLD_RING_FIELDS = ['loadRadius', 'unloadRadius', 'loadHeight', 'unloadHeight'] as const;
 export const VOXEL_WORLD_COLLISION_FIELDS = ['radius', 'height'] as const;
@@ -236,7 +242,7 @@ function validateQuality(value: unknown, path: string, errors: ModelErrorV2[]): 
 }
 
 export function validateVoxelWorldComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields? }', value);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields?, decalLayers? }', value);
   for (const k of Object.keys(value)) if (!VOXEL_WORLD_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown voxelWorld field "${k}" (${VOXEL_WORLD_FIELDS.join(', ')})`, k);
   const world = value['world'];
   if (world === undefined) err(errors, 'field_missing', `${path}/world`, "voxelWorld needs its world's name");
@@ -255,6 +261,7 @@ export function validateVoxelWorldComponent(value: unknown, path: string, errors
       });
     }
   }
+  validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
 }
 
 /** Ring distance groups in canonical form, field by field (into `out`). */
@@ -293,5 +300,6 @@ export function canonicalVoxelWorld(c: VoxelWorldComponent): VoxelWorldComponent
   }
   if (c.sectionEdge !== undefined) out.sectionEdge = c.sectionEdge;
   if (c.savedFields !== undefined) out.savedFields = planesOf(planeMaskOf(c.savedFields));
+  if (c.decalLayers !== undefined) out.decalLayers = c.decalLayers;
   return out;
 }

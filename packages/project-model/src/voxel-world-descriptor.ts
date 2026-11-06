@@ -8,6 +8,7 @@
 import { COLLISION_RING_HYSTERESIS_CELLS, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { enm, ID, int, list, map, num, obj, str } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
+import { decalLayersField } from './decal-descriptor';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
 import { VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN } from './quality-levels';
 import { VOXEL_WORLD_DEFAULTS } from './voxel-world';
@@ -56,6 +57,7 @@ export const voxelWorld: ComponentDescriptor = {
     ])),
     int('sectionEdge', 'Section edge', 'Voxels along the edge of the sections a chunk is rebuilt in after an edit: smaller rebuilds less per edit, larger draws fewer pieces.', { values: SECTION_EDGES, default: D.sectionEdge }),
     list('savedFields', 'Saved fields', "The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again).", enm('field', 'Field', 'A voxel field.', VOXEL_PLANES), { unique: true, default: [...D.savedFields] }),
+    decalLayersField(false),
   ]),
   add: { kind: 'menu', value: { world: 'world' } },
   handles: [],

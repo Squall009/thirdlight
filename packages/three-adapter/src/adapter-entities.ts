@@ -16,6 +16,7 @@ import type { ArchitectureView } from './architecture-view';
 import { BATCH_KEY } from './batching';
 import type { BlockLayerView } from './block-layers';
 import type { ClippedDecals } from './clipped-decals';
+import type { VoxelWorldDecals } from './voxel-world-decals';
 import type { CoverModelLike } from './cover-models';
 import type { CoverView } from './cover-view';
 import type { ProjectedDecalLike } from './decal-projectors';
@@ -53,6 +54,8 @@ export interface AdapterEntitiesDeps {
   /** Ground cover (null: scatter is not drawn): a model's cover rules go to it. */
   readonly cover: CoverView | null;
   readonly clipped: ClippedDecals | null;
+  /** A `voxelWorld` object's decal layers go to its world's draws. */
+  readonly voxelDecals: VoxelWorldDecals;
   readonly effects: AdapterEffects;
   readonly materials: AdapterMaterials;
   lightmaps(): LightmapSet | null;
@@ -165,6 +168,7 @@ export class AdapterEntities {
     materials.decalPages?.set(e.id, c.decal?.material ?? null);
     materials.projectors?.set(e.id, graph.nodeFor(e.id)!, c.decal ?? null);
     this.deps.clipped?.set(e.id, c.decal ?? null, scope);
+    this.deps.voxelDecals.set(e.id, e.components);
     const node = graph.node(e.id);
     const mapping = materials.effective(e.id, c.materials);
     // With the object's values for its graph materials' public parameters.
@@ -232,6 +236,7 @@ export class AdapterEntities {
     materials.decalPages?.remove(id);
     materials.projectors?.remove(id);
     this.deps.clipped?.remove(id);
+    this.deps.voxelDecals.set(id, null);
     // Its light (a directional or ambient light hangs off the scene; one on the node goes with it).
     this.deps.lights.release(id);
     // What a host hangs on it leaves the node first (the host keeps it; it comes back when the entity does).

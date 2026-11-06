@@ -77,6 +77,7 @@ how a game changes levels). All its fields:
 | **Per quality level** (`quality`) | — | By quality level id: a `scale` of the distances above at that level, or distances of its own (`ring`, `collision`, `levels`; each one set replaces the scaled one). A level the scene does not name scales by its own **Voxel ring scale** (below). |
 | **Section edge** (`sectionEdge`) | 16 | Cells along the edge of the pieces a chunk is rebuilt in after a change (8, 16 or 32): smaller rebuilds less a change, larger draws fewer pieces. Leave it at 16 unless you measure. |
 | **Saved fields** (`savedFields`) | material, role, shape | Which fields of the game's changes a save keeps. Wetness is left out by default: weather sets it again. A script can change it for a run (`ctx.voxels.setSavedFields`). |
+| **Decal layers** (`decalLayers`) | every layer | The [decal layers](decals.md#decal-layers) the world's surfaces and kit pieces are in: a decal marks them when its layers share one. A draw setting: changing it reloads nothing. |
 
 Settings you leave empty follow the engine's defaults, so a later default
 reaches every world that did not set its own. The component is not allowed
@@ -261,6 +262,29 @@ of a 1 m ball at cell (0, 4, 0):
   once and applies nothing.
 - Edits made this way change the authored world; a running game's changes
   never reach the files.
+
+## Decals
+
+Dirt, moss, stains and cracks on a voxel world are [decals](decals.md) and
+whole-voxel material changes (paint a cell another material); voxels carry
+no paint layer of their own. Both decal kinds mark a world in the Scene
+view, in Play and in an exported game, on WebGPU and WebGL 2:
+
+- **Projected decals** mark every surface of the world inside their box —
+  terrain and construction faces at every distance level, and kit pieces —
+  blended into the surface's material before it is lit. Use them for marks
+  on terrain, for marks that must follow the surface whatever is dug or
+  built under them, and for marks on kit pieces.
+- **Clipped decals** are cut from the world's full-detail chunks (level 0,
+  the near ring) and drawn as their own mesh. A dig, a build or a paint
+  that changes a chunk under a mark cuts it again from the new surface
+  (about 2 ms a mark on this engine's test host; the old mark stays drawn
+  until the new one is in, never both); a chunk drawn coarser (past the
+  full-detail distance) has no clipped marks, they come back with level 0.
+  Kit pieces take no clipped marks (they are instanced).
+
+A world 8 km from the origin takes both as exactly as one at the origin.
+The voxel object's **Decal layers** choose which decals mark the world.
 
 ## Exports
 

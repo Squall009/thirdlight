@@ -22,6 +22,12 @@
  * one piece table numbers them all), given and replaced with
  * {@link VoxelWorldDraws.setKits}.
  *
+ * Decals: a world's draws are in the decal layers its `voxelWorld` object
+ * sets, and its chunks' surfaces reach the scene's clipped decals, both
+ * through the link the scene adapter keeps on its scene
+ * (voxel-world-decals.ts); projected decals need nothing more, they mark
+ * every lit draw of the scene their boxes reach.
+ *
  * Every drawn chunk's GPU bytes go back to the simulation (`report`), where
  * they count as the chunk's mesh part of the world's stream budget; the
  * nodes' and seams' bytes go with them as one sum, counted in its mip share,
@@ -40,6 +46,7 @@ import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import type { VoxelKitSet } from './voxel-kit-pieces';
+import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
 /** One edit's way to the screen, as this page saw it (ms). */
@@ -94,6 +101,8 @@ interface WorldDraw {
   /** The nodes' and seams' GPU bytes last reported, and the kits'. */
   coarse: number;
   kits: number;
+  /** Stops following the world's decal layers. */
+  unlink: () => void;
 }
 
 /** Edits kept for measurements. */
@@ -185,7 +194,15 @@ export class VoxelWorldDraws {
     view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);
-    this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0 }));
+    const decals = voxelWorldDecalsOf(scene);
+    view.setDecalLayers(decals?.layersOf(name));
+    view.setDecalSurfaces(decals?.surfaces ?? null);
+    const unlink = decals?.onLayers((world) => {
+      if (world !== name) return;
+      view.setDecalLayers(decals.layersOf(name));
+      this.opts.applied?.();
+    }) ?? ((): void => undefined);
+    this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0, unlink }));
     return w;
   }
 
@@ -193,6 +210,7 @@ export class VoxelWorldDraws {
     const w = this.worlds.get(name);
     if (w === undefined) return;
     this.worlds.delete(name);
+    w.unlink();
     w.view.root.removeFromParent();
     w.view.dispose();
     w.surface.dispose();

@@ -34,6 +34,14 @@
  * bits (camera-relative.ts), so a view whose origin is never moved (a game
  * view kilometres out) draws as exactly as one kept near its origin.
  *
+ * Decals: every draw takes projected decals in the world's decal layers
+ * ({@link VoxelChunkView.setDecalLayers}); a chunk's surface mesh (level 0
+ * only, the surface its edits change) is also a surface clipped decals are
+ * cut from, told to the scene's clipped decals as it comes and goes
+ * ({@link VoxelChunkView.setDecalSurfaces}). Kit pieces are instanced and
+ * coarser levels change the surface with distance, so they take projected
+ * decals only.
+ *
  * A swap's draws are replaced in the task that announces them (a batch,
  * {@link applyChunkDrawBatch}: everything one streamer task changed, a
  * change of the levels drawn with its seams included), so all of them
@@ -72,6 +80,8 @@ import {
   SHADER_BORDER_CELLS,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
+import { applyObjectDecalLayers, DECAL_LAYERS_KEY, DECAL_SURFACE_KEY } from './projected-decals';
+import type { SurfaceListener } from './render-graph';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU, runAxisOf } from './voxel-trim-u';
@@ -176,7 +186,12 @@ interface ChunkDraw {
   readonly cellMetres: number;
   /** Kit pieces whose meshes were still loading when its pieces were built. */
   waiting: boolean;
+  /** Its surface mesh when clipped decals may be cut from it (a level-0 chunk's), else null. */
+  readonly decalSurface: THREE.Mesh | null;
 }
+
+/** What the view tells of the surfaces clipped decals may be cut from (the scene's clipped decals). */
+export type VoxelDecalSurfaces = Pick<SurfaceListener, 'added' | 'removed' | 'moved'>;
 
 interface SeamDraw {
   readonly mesh: THREE.Mesh;
@@ -249,6 +264,9 @@ export class VoxelChunkView {
   shaderSets = 0;
   /** ms to upload one grid. */
   readonly uploadMs = new SampleRing();
+  /** The decal layers every draw is in (undefined: every layer), and who hears of the chunks' surfaces. */
+  private decalLayers: number | undefined = undefined;
+  private decalSurfaces: VoxelDecalSurfaces | null = null;
 
   constructor(opts: VoxelChunkViewOptions) {
     this.grid = opts.grid;
@@ -286,6 +304,40 @@ export class VoxelChunkView {
     }
     this.setCracks();
     this.buildWaiting();
+  }
+
+  /** Every draw (pieces and seams included) is in decal layers `mask` from now on (undefined: every layer). */
+  setDecalLayers(mask: number | undefined): void {
+    if (mask === this.decalLayers) return;
+    this.decalLayers = mask;
+    applyObjectDecalLayers(this.root, mask);
+    // A clipped decal reads its surfaces' layers when it cuts: each surface comes again, so the decals over it look again.
+    for (const m of this.surfaceMeshes()) {
+      this.decalSurfaces?.removed(m);
+      this.decalSurfaces?.added(m);
+    }
+  }
+
+  /** Tell `l` of every level-0 chunk's surface as it comes, goes and moves from now on (null: no one); the drawn ones come now. */
+  setDecalSurfaces(l: VoxelDecalSurfaces | null): void {
+    if (l === this.decalSurfaces) return;
+    for (const m of this.surfaceMeshes()) this.decalSurfaces?.removed(m);
+    this.decalSurfaces = l;
+    for (const m of this.surfaceMeshes()) this.tellAdded(m);
+  }
+
+  private *surfaceMeshes(): Iterable<THREE.Mesh> {
+    for (const d of this.levels[0]?.values() ?? []) if (d.decalSurface !== null) yield d.decalSurface;
+  }
+
+  /**
+   * Its world matrix first: the listener reads the mesh's place before the next frame's matrix update. Forced: a
+   * mesh that never moves itself is not marked for a world-matrix update, so three would leave it as it was.
+   */
+  private tellAdded(m: THREE.Mesh): void {
+    if (this.decalSurfaces === null) return;
+    m.updateWorldMatrix(true, false, true);
+    this.decalSurfaces.added(m);
   }
 
   /** The surface's crack layers from the kit set now (none: every material the engine's). */
@@ -367,6 +419,10 @@ export class VoxelChunkView {
   rebase(): void {
     for (const m of this.levels) if (m !== undefined) for (const d of m.values()) this.place(d.group, d.cell);
     for (const s of this.seams.values()) this.place(s.mesh, s.cell);
+    for (const m of this.surfaceMeshes()) {
+      m.updateWorldMatrix(true, false, true);
+      this.decalSurfaces?.moved(m);
+    }
   }
 
   /**
@@ -389,23 +445,30 @@ export class VoxelChunkView {
     const cell = this.at0(level, cx, cy, cz);
     gridPhases(cell, VOXEL_SIZE_M, PHASE_CELLS, surface.phase, surface.slopePhase, surface.slope5Phase);
     const geo = voxelSurfaceGeometry([d.ground, d.base], cellM);
+    let decalSurface: THREE.Mesh | null = null;
     if (geo !== null) {
       const mesh = new THREE.Mesh(geo, this.shading.material);
       mesh.matrixAutoUpdate = false;
       mesh.userData['voxelChunk'] = key;
       mesh.userData['voxelLevel'] = level;
       mesh.userData[VOXEL_SURFACE_KEY] = surface;
+      if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;
+      if (level === 0) {
+        mesh.userData[DECAL_SURFACE_KEY] = true;
+        decalSurface = mesh;
+      }
       group.add(mesh);
       if (level === 0) this.pickable.push(mesh);
       bytes += geometryBytes(geo);
       this.triangles += (geo.index?.count ?? 0) / 3;
     }
     const kept = keptInstances(d.instances, this.kitMaterialsOf(d));
-    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, cellMetres: cellM, waiting: false };
+    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, cellMetres: cellM, waiting: false, decalSurface };
     this.buildPieces(m);
     if (group.children.length === 0 && !m.waiting) return 0;
     this.place(group, cell);
     this.root.add(group);
+    if (decalSurface !== null) this.tellAdded(decalSurface);
     let map = this.levels[level];
     if (map === undefined) {
       for (let l = this.levels.length; l <= level; l++) this.levels[l] = new Map();
@@ -524,6 +587,7 @@ export class VoxelChunkView {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
       mesh.userData['voxelKitPiece'] = true;
+      if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;
       m.group.add(mesh);
       this.instances += n;
       this.pieceDraws++;
@@ -553,6 +617,7 @@ export class VoxelChunkView {
 
   private removeDraw(m: ChunkDraw): void {
     this.root.remove(m.group);
+    if (m.decalSurface !== null) this.decalSurfaces?.removed(m.decalSurface);
     if (m.region !== null) this.shading.grids.release(m.region);
     for (const child of m.group.children) {
       const i = this.pickable.indexOf(child);
@@ -586,6 +651,7 @@ export class VoxelChunkView {
     const mesh = new THREE.Mesh(geo, this.shading.material);
     mesh.name = `voxel-seam ${seamId(level, nx, ny, nz, face)}`;
     mesh.matrixAutoUpdate = false;
+    if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;
     const key = chunkKey(this.grid, nx, ny, nz);
     const map = (): Map<number, ChunkDraw> | undefined => this.levels[level];
     // The node's draw is replaced on its own (a new result, a shader change): the seam reads whichever is drawn.

@@ -45,6 +45,11 @@
  * voxel save: the pit is back (pixels, and the character falls in again),
  * the wetness is not (not a saved field by default).
  *
+ * Two decals mark the stone wall in Play (8 km out): a red projected one,
+ * blended into the wall's own material, and a blue clipped one, cut from
+ * the wall's chunk surface; each fills its spot on the screen (pixels where
+ * the camera sees the wall), and the play's diagnostics count both.
+ *
  * The same project exported (the debug console on) and served statically
  * with the backend stopped: the world's region files ship whole as content
  * files and stream from there, in the simulation's worker, with the voxel
@@ -595,6 +600,30 @@ async function publishScript(behaviorId: string, source: string, entityId: strin
 /** Where the character stands (metres): the slice's flat pad, beside the wall scene. */
 let standAt: [number, number, number] | null = null;
 
+/** The Play camera (metres, as `playProject` places it): over the pad, 35° down. */
+const PLAY_PITCH = (35 * Math.PI) / 180;
+const playCamera = (at: readonly number[]): { position: number[]; rotation: number[] } => ({ position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(PLAY_PITCH / 2), 0, 0, Math.cos(PLAY_PITCH / 2)] });
+/** The decal marks on the far world's stone wall (metres: its front face, above the banister). */
+const DECAL_SIDE = 1.2;
+const wallMarks = (): { projected: number[]; clipped: number[] } => {
+  const [ox, oy, oz] = farScene;
+  return { projected: [ox / 2 - 1.5, oy / 2 + 2.75, oz / 2 + 0.5], clipped: [ox / 2 + 1.5, oy / 2 + 2.75, oz / 2 + 0.5] };
+};
+
+/**
+ * Pixels of the frame in a mark's hue. Lit and tone-mapped, the red mark reads about (181, 70, 66) and the blue one
+ * (57, 107, 210); nothing else in the scene comes near: the stand-in stone is grey, the ground green, the sky black
+ * and the brick banister a brown-red at 1.65 × (132, 80, 75).
+ */
+function hueCount(img: ReturnType<typeof decodePng>, hue: 'red' | 'blue'): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (hue === 'red' ? r > 100 && r >= 2.2 * g && r >= 2.2 * b : b > 100 && b >= 1.6 * g && b >= 2.5 * r) n += 1;
+  }
+  return n;
+}
+
 /**
  * The play project: the slice world 8 km out as a `voxelWorld`, a camera looking at the pad, a character on it, and
  * a script that digs once the test asks (a debug command) after the pit's ground is resident; on further commands it
@@ -605,8 +634,14 @@ async function playProject(): Promise<[number, number, number]> {
   const [ox, oy, oz] = farScene;
   const at: [number, number, number] = [(ox + 9.5) / 2, oy / 2, (oz + 10.5) / 2];
   const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far' } } }))['createdId']);
-  const pitch = (35 * Math.PI) / 180;
-  await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: { position: [at[0], at[1] + 5, at[2] + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
+  await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: playCamera(at), components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
+  // A projected and a clipped decal on the wall's front face (facing +z: a decal projects along its −z), plain colours.
+  await playCmd('setMaterial', { material: { materialId: 'mark-red', name: 'Red mark', shader: 'decal', params: { color: '#e01010' }, textures: {} } });
+  await playCmd('setMaterial', { material: { materialId: 'mark-blue', name: 'Blue mark', shader: 'decal', params: { color: '#1030e0' }, textures: {} } });
+  const marks = wallMarks();
+  for (const [mode, material] of [['projected', 'mark-red'], ['clipped', 'mark-blue']] as const) {
+    await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: `Wall mark (${mode})`, transform: { position: marks[mode] }, components: { decal: { size: [DECAL_SIDE, DECAL_SIDE, 0.6], mode, material } } });
+  }
   const player = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [at[0], at[1] + 1.5, at[2]] } }))['createdId']);
   await playCmd('setComponent', { entityId: player, component: 'controller', value: {} });
   // One save slot for the game's own save document (the voxel save rides in it as text).
@@ -681,7 +716,20 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
     await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     const standing = (await observe()).player!;
+    // Both wall marks: the clipped one cut from the wall's chunk once it streamed in, the projected one in the wall's draws.
+    type DecalDiag = { renderer?: { clippedDecals?: { drawn: number; pending: number; triangles: number; workerMs: { mean: number; max: number } }; projectedDecals?: { drawn: number; receiverDraws: number } } };
+    const decalDiag = async (): Promise<DecalDiag['renderer']> => ((await projectApi(`play/${psid}/diagnostics`)).json as { diagnostics?: DecalDiag }).diagnostics?.renderer;
+    let lastDiag: unknown = null;
+    await expect.poll(async () => { const r = await decalDiag(); lastDiag = r; return [r?.clippedDecals?.drawn ?? 0, r?.clippedDecals?.pending ?? -1, r?.projectedDecals?.drawn ?? 0, (r?.projectedDecals?.receiverDraws ?? 0) > 0]; }, { timeout: 20_000, message: 'both wall marks are drawn' }).toEqual([1, 0, 1, true]).catch((e: unknown) => {
+      console.log(`[voxel-play] decals (failed): ${JSON.stringify(lastDiag)}`);
+      throw e;
+    });
     const before = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('before.png') }));
+    const clips = (await decalDiag())?.clippedDecals;
+    const marks = [hueCount(before, 'red'), hueCount(before, 'blue')];
+    console.log(`[voxel-play] ${renderer} wall marks: projected red ${marks[0]} px, clipped blue ${marks[1]} px; clipped ${clips?.triangles} triangles, cut on a worker ${clips?.workerMs.mean.toFixed(2)} ms (worst ${clips?.workerMs.max.toFixed(2)})`);
+    expect(marks[0], 'the projected mark on the wall').toBeGreaterThan(200);
+    expect(marks[1], 'the clipped mark on the wall').toBeGreaterThan(200);
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);

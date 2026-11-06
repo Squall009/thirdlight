@@ -18,6 +18,7 @@ import { createBrowserMeshWorker } from './block-mesh-pool';
 import type { BlockLayerView } from './block-layers';
 import type { CutawayFollower } from './block-cutaway-follow';
 import { CLIPPED_DECALS_KEY, ClippedDecals } from './clipped-decals';
+import { attachVoxelWorldDecals, VoxelWorldDecals } from './voxel-world-decals';
 import { materialParamsOf } from './entity-refs';
 import { createLevelViews } from './level-views';
 import type { LightmapSet } from './lightmaps';
@@ -73,6 +74,8 @@ export interface AdapterLevel {
   readonly archHost: AdapterArchitecture;
   readonly architecture: ArchitectureView;
   readonly clipped: ClippedDecals | null;
+  /** The scene's voxel worlds' decal layers and their surfaces' way to the clipped decals (voxel-world-decals.ts). */
+  readonly voxelDecals: VoxelWorldDecals;
   readonly blockView: BlockLayerView;
   readonly terrains: TerrainView;
   readonly ownTiles: TerrainTileStore | null;
@@ -152,6 +155,9 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
   graph.onSurfaces(clipped);
   // A measurement reads their diagnostics from the scene (as the projected decals').
   if (clipped !== null) scene.userData[CLIPPED_DECALS_KEY] = { diagnostics: () => clipped.diagnostics() };
+  // Voxel worlds draw under the scene outside the graph: their chunks reach the clipped decals through this link.
+  const voxelDecals = new VoxelWorldDecals(clipped);
+  attachVoxelWorldDecals(scene, voxelDecals);
   // Block layers and terrains (level-views.ts), streamed round the camera on a game page; cut-aways follow their subject.
   const { blockView, terrains, ownTiles, cutaways } = createLevelViews({
     blockInstance: template,
@@ -173,7 +179,7 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
   const blockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
   blockView.setTypes(blockTypes);
   return {
-    stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough, foliageBend, warmer, blockTypes, assetMaterials,
+    stream, scatter, splines, archHost, architecture, clipped, voxelDecals, blockView, terrains, ownTiles, cutaways, seeThrough, foliageBend, warmer, blockTypes, assetMaterials,
     diagnostics(out) {
       if (blockView.layerIds().length > 0) out.blocks = blockView.diagnostics();
       if (terrains.ids().length > 0) out.terrain = terrains.diagnostics();
