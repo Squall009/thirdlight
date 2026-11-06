@@ -843,10 +843,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
 
   // A kit slot filled through the command route (as MCP sends it): the view takes the new piece table, the chunks whose
   // pieces it changes derive again, and the slot's pieces (the stone walls' top edges) draw without a reload; set back, they go.
-  const kitCmd = async (kit: Record<string, unknown>): Promise<void> => {
-    const r = await be.command({ op: 'setVoxelKit', projectId: be.projectId, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-scene-view' }, args: { kit } });
-    expect(r['ok'], JSON.stringify(r)).toBe(true);
-  };
+  const kitCmd = async (kit: Record<string, unknown>): Promise<void> => void (await playCmd('setVoxelKit', { kit }));
   const pieces = async (): Promise<number> => (await voxels())?.worlds['slice']?.kitInstances ?? 0;
   const plain = await pieces();
   await kitCmd({ ...stoneKit, slots: { ...stoneKit.slots, 'edge-out-top': { meshes: [{ mesh: stoneMesh }] } } });
