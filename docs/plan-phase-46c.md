@@ -2385,6 +2385,23 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   the new table; the draws switch to the new kits when that world's swap of what they change arrives, so no chunk
   is drawn with the other table's pieces. Meshes stay loaded across kit changes.
 
+- 2026-11-06 (OWNER, acc46c-r2 answers, part 1):
+  - **S1, S2: the role spec and the texture layout are fine as they are, no more changes** — they freeze as v1 once the
+    three fixes below land (the specs are updated only to describe them).
+  - **Cracks like the base texture:** the crack overlay is mapped like the 4 × 4 m grid-anchored tile, so neighbouring
+    damaged cells show one continuous crack pattern across the surface, not one copy per cell (today: a 64² tile
+    repeated every 0.5 m cell). The per-cell stage still masks where it shows; a kit replaces the 4 × 4 m crack map.
+  - **D519 / O2: no blending across the wall–roof seam.** Walls and roofs come from two mesh processes; the roof
+    mesher's closing geometry over a wall (supported sides and floor) takes the wall's material, and the shader never
+    blends a roof plane with the body it sits on. Built before the freeze (the free normal.w byte carries the owner cell
+    offset; no material on vertices, an add-only derived step with an owner note).
+  - **O1: yes — detail kits can declare their own trim-sheet layout** (already decided in B3/B4; the optional, add-only
+    layout record in the kit gives a kit's own sheet world-anchored U and the trim checks). Voxel faces always use the
+    4 × 4 m tiling textures.
+  - **O3: yes** — buildings on their own grid meeting terrain wait for 47a's cross-grid contract.
+  - **Middle-distance door/window merge ("legs" at L1): left to the far-field / large-world rendering work (46d),**
+    where distance drawing changes anyway.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
