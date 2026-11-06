@@ -62,21 +62,45 @@ export function worldLevelRings(levels: WorldLevelsMetres | undefined, collision
   return { radii: [r0, r1], hysteresis: DEFAULT_LEVEL_RINGS.hysteresis };
 }
 
-/** The ring in cells, the near lane no wider than the load ring. */
+/**
+ * The ring in cells. The near lane (which loads the pool serves first) is the
+ * default ring's, no wider than the load ring: it is the work queue's split,
+ * not a distance a scene sets.
+ */
 export function worldStreamRing(r: WorldRingMetres): StreamRing {
   const cells = (m: number): number => m / VOXEL_SIZE_M;
   const loadRadius = cells(r.loadRadius);
   return { loadRadius, unloadRadius: cells(r.unloadRadius), loadHeight: cells(r.loadHeight), unloadHeight: cells(r.unloadHeight), nearRadius: Math.min(loadRadius, DEFAULT_STREAM_RING.nearRadius) };
 }
 
+/** A world's distances as a `voxelWorld` object resolves them (metres), and its memory budget (absent or null: the connection's, else the low tier's). */
+export interface WorldRingSettings {
+  readonly ring: WorldRingMetres;
+  readonly levels?: WorldLevelsMetres;
+  readonly collision?: { readonly radius: number };
+  readonly budgetBytes?: number | null;
+}
+
+/**
+ * New distances for a running world's streamer, without a reload: the load
+ * ring and the levels kept derived re-plan at the next update, the levels
+ * drawn are chosen again and change in one swap (stream-lod.ts), and the
+ * budget applies at the next update (evicting down to it if it shrank).
+ */
+export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSettings): void {
+  streamer.setRing(worldStreamRing(settings.ring));
+  streamer.mips?.lod.setRings(worldLevelRings(settings.levels, settings.collision?.radius));
+  if (settings.budgetBytes !== undefined && settings.budgetBytes !== null) streamer.budgetBytes = settings.budgetBytes;
+}
+
 /** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: the default pieces only). */
-export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null }, settings: { readonly ring: WorldRingMetres; readonly sectionEdge: SectionEdge; readonly levels?: WorldLevelsMetres; readonly collision?: { readonly radius: number } }): VoxelStreamer {
+export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
   return new VoxelStreamer({
     store: createWorldStore(conn.grid),
     source: conn.source,
     pool: conn.pool,
     ring: worldStreamRing(settings.ring),
-    budgetBytes: conn.budgetBytes ?? VOXEL_STREAM_BUDGET_BYTES.low,
+    budgetBytes: settings.budgetBytes ?? conn.budgetBytes ?? VOXEL_STREAM_BUDGET_BYTES.low,
     dependencyRadius: jobRadius(WORLD_RULES),
     derive: true,
     rules: WORLD_RULES,

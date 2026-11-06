@@ -919,11 +919,19 @@ inside), in x, z, y order.
   69 KB for a dense apron. v2 strips are 4 bytes a stored cell instead of 5.
 
 **Residency (R64, R7).**
-- **The ring** (`DEFAULT_STREAM_RING`, in cells):
+- **The ring** (`DEFAULT_STREAM_RING`, in cells; a default only, every world sets its own, 46c.16a):
   - load 384 horizontally and 192 above and below (192 m / 96 m);
   - unload past 448 / 256 (224 m / 128 m), which gives hysteresis;
-  - the near lane within 192 (96 m).
-- **One byte budget per tier** (`VOXEL_STREAM_BUDGET_BYTES`): low 256 MiB, medium 512 MiB, high 1 GiB. It counts:
+  - the near lane within 192 (96 m; a work-queue split, kept for any ring no wider than its load radius).
+- **Rings configurable (owner 2026-11-05; 46c.16a; no stored format change).** Every distance (load, collision,
+  level 0 = the detail-piece ring, level 1) is the `voxelWorld` component's (project schema 8, add-only optional
+  `quality` map per quality level id: `scale` or own distances, canonicalized field by field), scaled by the quality
+  level (`voxelRings`, else its tier's `VOXEL_RING_SCALES`: √(tier budget / medium budget), low 0.71, medium 1, high 1.41),
+  with the tier's stream budget; changed at runtime by scripts (`ctx.voxels.setRings`) and by the reported quality
+  level, applied without a reload: `VoxelStreamer.setRing` re-plans the load ring and the mip rings (`mipRingsFor`:
+  each kept level to the load radius), `StreamLod.setRings` chooses again (one swap), `CollisionRing.setBounds`.
+- **One byte budget per tier** (`VOXEL_STREAM_BUDGET_BYTES`): low 256 MiB, medium 512 MiB, high 1 GiB, the world's
+  at its quality level's tier (the host's, else low, until the page reports one). It counts:
   - the store's arrays;
   - the runtime overlay's arrays (§2.3; counted, never evicted);
   - 96 B of bookkeeping per resident chunk, air included;
@@ -1366,9 +1374,11 @@ transition strip with flaps.
   until the new one is complete. One swap builds at a time. A drawn node that loses its result leaves at once
   (`reason: 'lost'`).
 - **The `levels` setting:** `voxelWorld.levels { level0?, level1? }` in metres (1–100,000, unknown fields refused,
-  `level1` below `level0` taken as it); `worldLevelRings` turns it into cells and widens level 0 to the collision
-  radius + its 8 m hysteresis, so a chunk with a collider is always drawn at level 0.
-- **Mip rings:** `DEFAULT_MIP_RINGS` keeps levels 1 and 2 derived to the load ring (384 cells), results kept
+  `level1` below `level0` taken as it), scaled by the quality level (*Residency* above); `worldLevelRings` turns it
+  into cells and widens level 0 to the collision radius + its 8 m hysteresis, so a chunk with a collider is always
+  drawn at level 0. Level 0 is also the detail-piece ring (pieces are drawn at level 0 only).
+- **Mip rings:** `mipRingsFor(ring)` keeps levels 1 and 2 derived to the load ring (`DEFAULT_MIP_RINGS`: 384 cells
+  for the default ring; a ring change moves them), results kept
   `MIP_RING_HYSTERESIS_CELLS` (16) past it. A level-2 node is complete only where the chunks round it are
   resident, about 100 m out in the 192 m load ring, so by default level 2 is never drawn and level 1 stands in from
   128 m to where its nodes end (~160 m).

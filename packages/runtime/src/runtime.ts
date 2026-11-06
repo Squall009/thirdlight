@@ -1509,7 +1509,10 @@ export class RuntimeInstance implements Runtime {
 
   /** The page's frame statistics (`ctx.stats`; false: not stats). */
   setStats(stats: unknown): boolean {
-    return this.sim.stateName !== 'disposed' && this.engineStats.set(stats);
+    if (this.sim.stateName === 'disposed' || !this.engineStats.set(stats)) return false;
+    // The voxel worlds' distances and budgets follow the quality level the page draws at.
+    this.entities.voxels.setQuality(this.engineStats.now().quality);
+    return true;
   }
 
   /** The game's frame-rate cap (`ctx.display.frameRateCap`). */

@@ -70,13 +70,39 @@ how a game changes levels). All its fields:
 | **World** (`world`) | — | The folder's name, `voxels/<world>/` (lower-case letters, digits, `-` and `_`). |
 | **Load ring** (`ring`) | 192 m across, 96 m up and down; goes past 224 m / 128 m | Where chunks load round the focus, and how far past that a loaded chunk may be before it goes (so a camera at the edge does not load and drop the same chunks). An unload distance below its load distance is taken as the load distance. |
 | **Collision ring** (`collision`) | 48 m across, 24 m up and down | Where loaded chunks have colliders. Further out the world is only drawn. Never reaches past the load ring. |
-| **Detail levels** (`levels`) | full detail to 64 m, 1 m voxels to 128 m, 2 m voxels past it | How far the world is drawn at full detail (`level0`, 0.5 m voxels) and at 1 m voxels (`level1`); past that, 2 m voxels to the load ring. Full detail always reaches 8 m past the collision ring, so what a character touches is what is drawn. Where a coarser level is not built yet (the far edge of the load ring), the finer one stands in. A level-1 distance below the full-detail one is taken as it. |
+| **Detail levels** (`levels`) | full detail to 64 m, 1 m voxels to 128 m, 2 m voxels past it | How far the world is drawn at full detail (`level0`, 0.5 m voxels, with its kit pieces: this is also the detail-piece ring) and at 1 m voxels (`level1`); past that, 2 m voxels to the load ring. Full detail always reaches 8 m past the collision ring, so what a character touches is what is drawn. Where a coarser level is not built yet (the far edge of the load ring), the finer one stands in. A level-1 distance below the full-detail one is taken as it. |
+| **Per quality level** (`quality`) | — | By quality level id: a `scale` of the distances above at that level, or distances of its own (`ring`, `collision`, `levels`; each one set replaces the scaled one). A level the scene does not name scales by its own **Voxel ring scale** (below). |
 | **Section edge** (`sectionEdge`) | 16 | Cells along the edge of the pieces a chunk is rebuilt in after a change (8, 16 or 32): smaller rebuilds less a change, larger draws fewer pieces. Leave it at 16 unless you measure. |
 | **Saved fields** (`savedFields`) | material, role, shape | Which fields of the game's changes a save keeps. Wetness is left out by default: weather sets it again. A script can change it for a run (`ctx.voxels.setSavedFields`). |
 
 Settings you leave empty follow the engine's defaults, so a later default
 reaches every world that did not set its own. The component is not allowed
 on prefab objects (a world streams per scene). One object names one world.
+
+**Distances by quality level.** Every distance above (load, collision, the
+detail levels) is scaled by the quality level the player runs: the level's
+**Voxel ring scale** (`voxelRings` on a
+[quality level](../reference/content-blocks-environment.md)), else its
+lighting tier's — low 0.71, medium 1, high 1.41 (an integrated GPU such as
+the Iris Xe starts at medium, where the defaults were measured), so the area loaded grows as
+the tier's stream memory budget does (256 MiB, 512 MiB, 1 GiB, which the
+world takes at that level). A scene sets its base distances (an indoor
+scene small, a large outdoor one large) and, where it needs, its own scale
+or distances per level (`quality`). A world opens at its scene's own
+distances; once the game page reports its quality level (within half a
+second), the distances and the budget follow it, and again whenever the
+player changes the level, without a reload.
+
+**Changing distances while the game runs.** A script reads the distances in
+use with `ctx.voxels.rings()` and changes the scene's with
+`ctx.voxels.setRings({ ring?, collision?, levels? })` (metres; each field it
+gives replaces the scene's, the rest stay; `setRings(null)` goes back to the
+component's own). The quality level still applies on top, and a distance the
+scene sets for the running level wins over it. The change applies without a
+reload: the levels drawn change in one swap between two frames, chunks past
+a smaller load ring go (their colliders with them) and those inside a larger
+one load. A field out of range refuses the whole change (`reason:
+'invalid'`).
 
 - **Two objects naming the same world** in the loaded scenes share one
   world, with the settings of the first to arrive; the Console warns when
@@ -110,7 +136,8 @@ lighting comes later.
   of ground ahead of a moving camera read before it gets there. Loading,
   decoding and building meshes happen in background workers; drawing
   happens on the page.
-- **One memory budget a world** (256 MiB, the low-end machine's budget)
+- **One memory budget a world** (256 MiB, the low-end machine's budget, until
+  the page reports its quality level; then the level's tier's, above)
   holds everything the world keeps: its loaded cells, the game's changes,
   the meshes and shading data of every distance level, and the colliders at what the physics engine
   spends on them. Over budget, the farthest chunks go first, and loading
@@ -131,10 +158,11 @@ lighting comes later.
 A world is drawn in less detail the further it is from the camera and the
 player characters, so a large view costs a fraction of drawing every cell:
 
-- **Three rings.** Within 64 m (by default) the world is drawn at full
-  detail, from its 0.5 m cells. Out to 128 m it is drawn as if its cells were
-  1 m, past that as if they were 2 m, up to the load ring. Set the distances
-  with the component's **Detail levels** (`levels`). A ring is measured
+- **Three rings.** Within 64 m (by default, at the low tier) the world is
+  drawn at full detail, from its 0.5 m cells. Out to 128 m it is drawn as if
+  its cells were 1 m, past that as if they were 2 m, up to the load ring. Set
+  the distances with the component's **Detail levels** (`levels`); the quality
+  level scales them (above). A ring is measured
   across the ground from the camera's focus and from every player character,
   and full detail always reaches 8 m past the collision ring.
 - **What a game sees.** Far away the shapes are coarser: a slope or a cliff
@@ -142,9 +170,9 @@ player characters, so a large view costs a fraction of drawing every cell:
   one-cell wall, floor or roof is drawn as thick as the level's cell, so a
   house keeps its walls and roof and looks a little larger. A sloped roof
   stays one smooth slope at every distance, its eaves at one height. Kit
-  pieces (edges, roof edges, beams, rails, posts, debris) are drawn in full
-  near by, simpler in the 1 m ring and not at all further out, where walls
-  are flat square blocks; fences and lone posts thinner than the level's
+  pieces (edges, roof edges, beams, rails, posts, debris) are drawn only at
+  full detail; from the 1 m ring out the edges are plain square voxels and
+  beams and rails flat blocks; fences and lone posts thinner than the level's
   cell leave; damage shows near by only.
   The ground's colours are the same at every distance.
 - **Changing level.** A ring moves with the camera and switches with 8 m of

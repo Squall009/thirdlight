@@ -22,6 +22,14 @@
  * the running game's changes. Where the world's files changed since (a
  * re-exported world), the game says what wins; each such chunk is reported
  * in `mismatches`.
+ *
+ * Rings: where a world loads, collides and draws each detail level is its
+ * `voxelWorld` object's (metres), scaled by the quality level the player
+ * runs (the level's voxel ring scale, or the scene's own distances for that
+ * level). `setRings` changes the scene's distances while the game runs (an
+ * indoor part small, the open land large); the quality level still applies
+ * on top. The change is applied without a reload: the levels drawn change
+ * in one swap, chunks past the new load ring go and those inside it load.
  */
 import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type VoxelRecord } from '@thirdlight/voxel';
 
@@ -104,6 +112,30 @@ export interface VoxelChange {
   readonly shaderOnly: boolean;
 }
 
+/** A change to a world's distances in metres (each group and field optional; what is left out stays). */
+export interface VoxelRingChange {
+  /** Where chunks load (`loadRadius`, `loadHeight`) and how far past it they stay (`unloadRadius`, `unloadHeight`). */
+  readonly ring?: { readonly loadRadius?: number; readonly unloadRadius?: number; readonly loadHeight?: number; readonly unloadHeight?: number };
+  /** Where loaded chunks have colliders round a focus. */
+  readonly collision?: { readonly radius?: number; readonly height?: number };
+  /** Where level 0 (full detail, with the kit pieces) and level 1 are drawn; past level 1, level 2. */
+  readonly levels?: { readonly level0?: number; readonly level1?: number };
+}
+
+/** The distances a world streams with now (metres, after the quality level), the level they are for and its memory budget. */
+export interface VoxelRings {
+  readonly ring: { readonly loadRadius: number; readonly unloadRadius: number; readonly loadHeight: number; readonly unloadHeight: number };
+  readonly collision: { readonly radius: number; readonly height: number };
+  readonly levels: { readonly level0: number; readonly level1: number };
+  /** The quality level (null: the page has not reported one yet; the scene's own distances apply). */
+  readonly quality: string | null;
+  /** The stream memory budget in bytes (null: the host's). */
+  readonly budgetBytes: number | null;
+}
+
+/** A ring change's answer: the distances now in use, or why nothing changed. */
+export type VoxelRingsResult = { readonly ok: true; readonly rings: VoxelRings } | VoxelRefused;
+
 /** One voxel world of the loaded scenes. */
 export interface BehaviorVoxelWorld {
   /** The world's name (its `voxelWorld` component's `world`). */
@@ -154,6 +186,17 @@ export interface BehaviorVoxelWorld {
    * @graphNode skip a field list is a list of names, which a graph input cannot take yet
    */
   setSavedFields(fields: readonly VoxelField[]): boolean;
+  /**
+   * The distances the world streams with now (metres, the quality level applied).
+   * @graphNode skip the distances are an object, which a graph output cannot take yet
+   */
+  rings(): VoxelRings;
+  /**
+   * Change the world's distances while the game runs (merged into its scene's; null: back to the scene's own).
+   * Applied without a reload: the levels drawn change in one swap, chunks past a smaller load ring go.
+   * @graphNode skip the distances are an object, which a graph input cannot take yet
+   */
+  setRings(change: VoxelRingChange | null): VoxelRingsResult;
   /**
    * Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves`
    * at a later step with the save's bytes (and the same as text for a save document).

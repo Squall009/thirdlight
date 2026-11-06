@@ -40,6 +40,11 @@
  *   shadowed local light's shadow shares: lights largest on screen get the
  *   larger tiles, and a light the atlas has no room for draws unshadowed (a
  *   quality budget, never a count of lights).
+ * - `voxelRings`: how much every voxel world's ring distances are scaled at
+ *   the level (load, collision, the detail levels; a scene may scale or set
+ *   its own per level, `voxelWorld.quality`). Absent: the tier's
+ *   (`VOXEL_RING_SCALES`: the area loaded grows as the tier's stream budget
+ *   does). The voxel stream budget is the tier's (`VOXEL_STREAM_BUDGET_BYTES`).
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -47,6 +52,7 @@
  *
  * Pure: no I/O.
  */
+import { VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 import type { PostConfig } from './materials';
 import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
 
@@ -85,6 +91,10 @@ export const SURFACE_CACHE_MIB_MAX = 2048;
 /** The range of a level's GPU time a frame for live surface light (ms): above 8 a 60 Hz frame has little left to draw with. */
 export const SURFACE_LIGHT_MS_MIN = 0;
 export const SURFACE_LIGHT_MS_MAX = 8;
+
+/** The range of a ring scale (a level's `voxelRings`, a scene's per level): a quarter to four times the distances a scene sets. */
+export const VOXEL_RING_SCALE_MIN = 0.25;
+export const VOXEL_RING_SCALE_MAX = 4;
 
 /** A level's reflections: none, or screen-space rays with traced fallback at a quality. */
 export const REFLECTION_QUALITIES = ['off', 'medium', 'high'] as const;
@@ -207,6 +217,14 @@ export interface QualityLevelConfig {
   reflections?: ReflectionQuality;
   /** The shadow atlas's side in texels, one of `SHADOW_ATLAS_SIZES` (absent: the tier's). */
   shadowAtlas?: number;
+  /** 0.25–4: scales every voxel world's ring distances (absent: the tier's, `VOXEL_RING_SCALES`). */
+  voxelRings?: number;
+}
+
+/** What a level sets for the voxel worlds: the scale of their ring distances and their stream memory budget (bytes), both by its tier unless it sets the scale. */
+export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings'>): { readonly ringScale: number; readonly budgetBytes: number } {
+  const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
+  return { ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier], budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier] };
 }
 
 /**

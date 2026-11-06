@@ -1721,6 +1721,9 @@ export {
 export {
   DEFAULT_QUALITY_LEVELS,
   levelScalingIsEngineDefault,
+  levelVoxels,
+  VOXEL_RING_SCALE_MAX,
+  VOXEL_RING_SCALE_MIN,
   DEFAULT_SURFACE_CACHE_MIB,
   levelPost,
   MSAA_SAMPLE_COUNTS,

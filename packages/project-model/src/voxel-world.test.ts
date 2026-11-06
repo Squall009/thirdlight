@@ -10,7 +10,10 @@ import type { ModelErrorV2 } from './errors';
 import { validatePrefabDefinitions } from './content';
 import { serializeCanonical } from './normalize';
 import { validateSceneV4 } from './scene-v3';
+import { DEFAULT_QUALITY_LEVELS, levelVoxels, type QualityLevelConfig } from './quality-levels';
+import { validateQualityLevels } from './materials';
 import { canonicalVoxelWorld, resolveVoxelWorld, validateVoxelWorldComponent, VOXEL_WORLD_DEFAULTS, type VoxelWorldComponent } from './voxel-world';
+import { VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const CAMERA = { id: 'cam-main', components: { transform: T, virtualCamera: { rig: 'fixed' } } };
@@ -21,6 +24,10 @@ const FULL: VoxelWorldComponent = {
   ring: { loadRadius: 120, unloadRadius: 150, loadHeight: 60, unloadHeight: 80 },
   collision: { radius: 40, height: 20 },
   levels: { level0: 50, level1: 100 },
+  quality: {
+    high: { scale: 3 },
+    low: { scale: 0.5, ring: { loadRadius: 40, unloadRadius: 50, loadHeight: 20, unloadHeight: 30 }, collision: { radius: 12, height: 6 }, levels: { level0: 20, level1: 30 } },
+  },
   sectionEdge: 32,
   savedFields: ['material', 'shape', 'wetness'],
 };
@@ -64,10 +71,27 @@ describe('the voxelWorld component', () => {
       'field_value /savedFields/2',
     ]);
     expect(errorsOf({ world: 'w', ring: 5, collision: [], levels: 64, savedFields: 'material' })).toEqual(['field_type /ring', 'field_type /collision', 'field_type /levels', 'field_type /savedFields']);
+    // Per quality level: a level id, a scale in range, the same distance groups and ranges.
+    expect(errorsOf({ world: 'w', quality: { Low: {}, medium: { scale: 5, ring: { loadRadius: -1 }, far: 1 }, high: 2 } })).toEqual([
+      'field_value /quality/Low',
+      'field_unexpected /quality/medium/far',
+      'field_value /quality/medium/scale',
+      'field_value /quality/medium/ring/loadRadius',
+      'field_type /quality/high',
+    ]);
+    expect(errorsOf({ world: 'w', quality: [] })).toEqual(['field_type /quality']);
   });
 
   it('keeps every field through the scene validator and the canonical bytes, in order, adding nothing', () => {
-    const shuffled = { savedFields: ['wetness', 'material', 'shape'], sectionEdge: 32, levels: { level1: 100, level0: 50 }, collision: { height: 20, radius: 40 }, ring: { unloadHeight: 80, loadHeight: 60, unloadRadius: 150, loadRadius: 120 }, world: 'town_1' };
+    const shuffled = {
+      savedFields: ['wetness', 'material', 'shape'],
+      sectionEdge: 32,
+      quality: { low: { levels: { level1: 30, level0: 20 }, collision: { height: 6, radius: 12 }, ring: { unloadHeight: 30, loadHeight: 20, unloadRadius: 50, loadRadius: 40 }, scale: 0.5 }, high: { scale: 3 } },
+      levels: { level1: 100, level0: 50 },
+      collision: { height: 20, radius: 40 },
+      ring: { unloadHeight: 80, loadHeight: 60, unloadRadius: 150, loadRadius: 120 },
+      world: 'town_1',
+    };
     const doc = canonicalScene([{ id: 'world-000001', components: { transform: T, voxelWorld: shuffled } }]);
     const vw = componentsOf(doc, 'world-000001')['voxelWorld'];
     expect(JSON.stringify(vw)).toBe(JSON.stringify(FULL));
@@ -120,6 +144,51 @@ describe('the voxelWorld component', () => {
     expect(own.sectionEdge).toBe(8);
     expect(own.savedFields).toBe(PLANE_BIT.wetness);
     expect(resolveVoxelWorld({ world: 'w', savedFields: [] }).savedFields).toBe(0);
+    // No quality level known: the scene's own distances, no budget of its own.
+    expect([r.quality, r.budgetBytes]).toEqual([null, null]);
+  });
+
+  it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
+    const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
+    // The tiers' scales grow the area loaded as their budgets grow (medium 1: the defaults are the integrated GPU's).
+    for (const t of ['low', 'medium', 'high'] as const) expect(VOXEL_RING_SCALES[t] ** 2).toBeCloseTo(VOXEL_STREAM_BUDGET_BYTES[t] / VOXEL_STREAM_BUDGET_BYTES.medium, 9);
+    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium });
+    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high });
+    const base = resolveVoxelWorld({ world: 'w' });
+    const scaled = (k: number) => ({
+      ring: Object.fromEntries(Object.entries(base.ring).map(([f, v]) => [f, v * k])),
+      collision: Object.fromEntries(Object.entries(base.collision).map(([f, v]) => [f, v * k])),
+      levels: Object.fromEntries(Object.entries(base.levels).map(([f, v]) => [f, v * k])),
+    });
+    const at = (c: VoxelWorldComponent, l: QualityLevelConfig) => {
+      const r = resolveVoxelWorld(c, l);
+      return { ring: r.ring, collision: r.collision, levels: r.levels };
+    };
+    // The engine's levels: low √½, medium as the defaults, high √2 times every distance; the budget is the tier's.
+    expect(at({ world: 'w' }, low!)).toEqual(scaled(Math.SQRT1_2));
+    expect(at({ world: 'w' }, medium!)).toEqual(scaled(1));
+    expect(at({ world: 'w' }, high!)).toEqual(scaled(Math.SQRT2));
+    expect([resolveVoxelWorld({ world: 'w' }, high!).quality, resolveVoxelWorld({ world: 'w' }, high!).budgetBytes]).toEqual(['high', VOXEL_STREAM_BUDGET_BYTES.high]);
+    // A level's own voxel ring scale beats its tier's; the scene's scale for the level beats both.
+    const tiny: QualityLevelConfig = { id: 'tiny', lighting: 'high', voxelRings: 0.5 };
+    expect(at({ world: 'w' }, tiny)).toEqual(scaled(0.5));
+    expect(resolveVoxelWorld({ world: 'w' }, tiny).budgetBytes).toBe(VOXEL_STREAM_BUDGET_BYTES.high);
+    expect(at({ world: 'w', quality: { tiny: { scale: 3 } } }, tiny)).toEqual(scaled(3));
+    // The scene's own distances are what is scaled.
+    const big: QualityLevelConfig = { id: 'big', lighting: 'high', voxelRings: 2 };
+    expect(at({ world: 'w', ring: { loadRadius: 100 }, levels: { level0: 60 } }, big).ring.loadRadius).toBe(200);
+    expect(at({ world: 'w', ring: { loadRadius: 100 }, levels: { level0: 60 } }, big).levels.level0).toBe(120);
+    // A distance the scene sets for the level replaces the scaled one; the others stay scaled; the invariants hold.
+    const over = at({ world: 'w', quality: { big: { ring: { loadRadius: 500, unloadRadius: 10 }, levels: { level1: 1 } } } }, big);
+    expect(over.ring).toEqual({ ...scaled(2).ring, loadRadius: 500, unloadRadius: 500 });
+    expect(over.levels).toEqual({ level0: scaled(2).levels['level0'], level1: scaled(2).levels['level0'] });
+    expect(over.collision).toEqual(scaled(2).collision);
+    // Another level of the scene is not touched by the entry.
+    expect(at({ world: 'w', quality: { high: { scale: 4 } } }, medium!)).toEqual(scaled(1));
+    // A quality level's voxel ring scale is range-checked like its other fields.
+    const errs: ModelErrorV2[] = [];
+    validateQualityLevels([{ id: 'a', voxelRings: 0.1 }, { id: 'b', voxelRings: 1.5 }], '/q', errs);
+    expect(errs.map((e) => `${e.code} ${e.path}`)).toEqual(['field_value /q/0/voxelRings']);
   });
 });
 

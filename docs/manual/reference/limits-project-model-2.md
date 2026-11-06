@@ -130,6 +130,8 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-surface-cache-mib-min"></a>`SURFACE_CACHE_MIB_MIN` | `16` | The range of a level's surface-cache budget (MiB): below 16 the terrain rings alone fill it; above 2 GiB no integrated GPU has it to spare. |
 | <a id="limit-surface-light-ms-max"></a>`SURFACE_LIGHT_MS_MAX` | `8` |  |
 | <a id="limit-surface-light-ms-min"></a>`SURFACE_LIGHT_MS_MIN` | `0` | The range of a level's GPU time a frame for live surface light (ms): above 8 a 60 Hz frame has little left to draw with. |
+| <a id="limit-voxel-ring-scale-max"></a>`VOXEL_RING_SCALE_MAX` | `4` |  |
+| <a id="limit-voxel-ring-scale-min"></a>`VOXEL_RING_SCALE_MIN` | `0.25` | The range of a ring scale (a level's `voxelRings`, a scene's per level): a quarter to four times the distances a scene sets. |
 
 <a id="limits-project-model--render-settings"></a>
 ## `render-settings.ts`

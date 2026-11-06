@@ -288,7 +288,7 @@ export { FOLIAGE_BEND_DEFAULTS, FOLIAGE_BEND_LIMITS } from '@thirdlight/project-
 export { FOLIAGE_NEAR_METRES, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, scatterCellOfBlob, storedScatterRules, type ScatterCell, type ScatterRule } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainLayerData, type TerrainSimTile, type TerrainTileData } from './terrain-collision';
 export { RuntimeSurface, type BehaviorSurface, type SurfaceInfo } from './surface';
-export type { BehaviorVoxels, BehaviorVoxelWorld, VoxelBox, VoxelChange, VoxelEditResult, VoxelField, VoxelMismatch, VoxelMismatchChoice, VoxelPaint, VoxelRefusal, VoxelRefused, VoxelRegion, VoxelRestoreResult, VoxelSaveAnswer, VoxelValue, VoxelWaitAnswer, VoxelWrite } from './voxel-api';
+export type { BehaviorVoxels, BehaviorVoxelWorld, VoxelBox, VoxelChange, VoxelEditResult, VoxelField, VoxelMismatch, VoxelMismatchChoice, VoxelPaint, VoxelRefusal, VoxelRefused, VoxelRegion, VoxelRestoreResult, VoxelRingChange, VoxelRings, VoxelRingsResult, VoxelSaveAnswer, VoxelValue, VoxelWaitAnswer, VoxelWrite } from './voxel-api';
 export { VoxelWorldHost, type VoxelFoci, type VoxelHostEvents, type VoxelWorldConnection, type VoxelWorldPorts } from './voxel-world-host';
 export { RuntimeVoxels, type VoxelWorldsView } from './voxel-worlds';
 export { RuntimeArchitecture, type ArchitectureCollisionDiagnostics, type ArchitectureLayerRooms } from './architecture';
@@ -472,7 +472,7 @@ export { AMBIENT_OCCLUSION_DEFAULT, ambientOcclusionOf, renderScaleOf, ownRender
 // Occlusion culling's paths and which draws are worth testing (thresholds defined there once).
 export { OCCLUDEE_KINDS, occludeeClassOf, occludeeScreenShare, OCCLUDER_ROLES, occluderRoleOf, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, OCCLUSION_PATHS, occlusionPathAvailable, occlusionPathFrom, occlusionPathOf, type OccludeeClass, type OccludeeFacts, type OccludeeKind, type OccluderFacts, type OccluderRole, type OcclusionPath, type OcclusionPathChoice, type OcclusionRenderer } from './occlusion';
 export { LIGHTING_TIER_SETTINGS, levelLighting } from '@thirdlight/project-model';
-export { DEFAULT_QUALITY_LEVELS, qualityLevelOf, qualityLevelsOf } from '@thirdlight/project-model';
+export { DEFAULT_QUALITY_LEVELS, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/project-model';
 // The simulation's step rate when a project sets none (project-model's).
 export { DEFAULT_FIXED_STEP_HZ, fixedStepHzOf } from '@thirdlight/project-model';
 export { clampAlpha, previewFrameSeconds } from './frame-clock';

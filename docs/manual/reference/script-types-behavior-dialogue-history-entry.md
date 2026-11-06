@@ -1,8 +1,25 @@
-# Script API types (from `BehaviorModeTransition`)
+# Script API types (from `BehaviorDialogueHistoryEntry`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-dialogue-history-entry"></a>
+## `BehaviorDialogueHistoryEntry`
+
+```ts
+/** One line (or a chosen option) in the backlog. */
+export interface BehaviorDialogueHistoryEntry {
+  readonly dialogueId: string;
+  readonly nodeId: string;
+  readonly speaker: string;
+  /** The speaker's display name ('' for narration or a chosen option). */
+  readonly name: string;
+  readonly text: string;
+  /** A line, or the option the player picked. */
+  readonly choice: boolean;
+}
+```
 
 <a id="script-type-behavior-mode-transition"></a>
 ## `BehaviorModeTransition`
@@ -418,6 +435,45 @@ export interface VoxelPaint {
 ```ts
 /** A field of a voxel (what a save keeps of a change is chosen by field). */
 export type VoxelField = 'material' | 'role' | 'shape' | 'wetness';
+```
+
+<a id="script-type-voxel-rings"></a>
+## `VoxelRings`
+
+```ts
+/** The distances a world streams with now (metres, after the quality level), the level they are for and its memory budget. */
+export interface VoxelRings {
+  readonly ring: { readonly loadRadius: number; readonly unloadRadius: number; readonly loadHeight: number; readonly unloadHeight: number };
+  readonly collision: { readonly radius: number; readonly height: number };
+  readonly levels: { readonly level0: number; readonly level1: number };
+  /** The quality level (null: the page has not reported one yet; the scene's own distances apply). */
+  readonly quality: string | null;
+  /** The stream memory budget in bytes (null: the host's). */
+  readonly budgetBytes: number | null;
+}
+```
+
+<a id="script-type-voxel-ring-change"></a>
+## `VoxelRingChange`
+
+```ts
+/** A change to a world's distances in metres (each group and field optional; what is left out stays). */
+export interface VoxelRingChange {
+  /** Where chunks load (`loadRadius`, `loadHeight`) and how far past it they stay (`unloadRadius`, `unloadHeight`). */
+  readonly ring?: { readonly loadRadius?: number; readonly unloadRadius?: number; readonly loadHeight?: number; readonly unloadHeight?: number };
+  /** Where loaded chunks have colliders round a focus. */
+  readonly collision?: { readonly radius?: number; readonly height?: number };
+  /** Where level 0 (full detail, with the kit pieces) and level 1 are drawn; past level 1, level 2. */
+  readonly levels?: { readonly level0?: number; readonly level1?: number };
+}
+```
+
+<a id="script-type-voxel-rings-result"></a>
+## `VoxelRingsResult`
+
+```ts
+/** A ring change's answer: the distances now in use, or why nothing changed. */
+export type VoxelRingsResult = { readonly ok: true; readonly rings: VoxelRings } | VoxelRefused;
 ```
 
 <a id="script-type-voxel-mismatch-choice"></a>

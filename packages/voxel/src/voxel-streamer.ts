@@ -73,7 +73,7 @@ import type { SeamEvent } from './stream-seams';
 import type { LevelRings } from './lod-select';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
-import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
+import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, mipRingsFor, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
@@ -135,9 +135,10 @@ export interface VoxelStreamerOptions {
    */
   readonly sectionEdge?: SectionEdge;
   /**
-   * The chunk tree's levels kept derived, with `rules` (default
-   * {@link DEFAULT_MIP_RINGS}; empty: none). Nodes are built in workers
-   * from the resident chunks, never stored.
+   * The chunk tree's levels kept derived, with `rules` (default: each
+   * default level to the load ring, `mipRingsFor`, following the ring when
+   * it changes; empty: none). Nodes are built in workers from the resident
+   * chunks, never stored.
    */
   readonly mips?: readonly MipRing[];
   /**
@@ -289,7 +290,6 @@ export class VoxelStreamer {
   /** The runtime edits over the base store: what every read of the world sees first. */
   readonly overlay: VoxelOverlay;
   readonly tracker: DirtyTracker;
-  readonly ring: StreamRing;
   readonly radius: number;
   budgetBytes: number;
   readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0 };
@@ -344,9 +344,9 @@ export class VoxelStreamer {
     this.grid = opts.store.grid;
     this.gridId = opts.gridId ?? 0;
     this.tracker = opts.tracker ?? new DirtyTracker();
-    this.ring = opts.ring ?? DEFAULT_STREAM_RING;
-    checkRing(this.ring);
-    this.plan = new StreamReadPlan(this.grid, this.ring, opts.prefetchSeconds ?? STREAM_PREFETCH_SECONDS);
+    const ring = opts.ring ?? DEFAULT_STREAM_RING;
+    checkRing(ring);
+    this.plan = new StreamReadPlan(this.grid, ring, opts.prefetchSeconds ?? STREAM_PREFETCH_SECONDS);
     checkRadius(this.grid.edge, opts.dependencyRadius);
     if (opts.rules !== undefined && jobRadius(opts.rules) !== opts.dependencyRadius) throw new RangeError(`dependency radius ${opts.dependencyRadius} for rules ${opts.rules.id} (needs ${jobRadius(opts.rules)})`);
     this.radius = opts.dependencyRadius;
@@ -380,7 +380,7 @@ export class VoxelStreamer {
                 if (c !== undefined) return c.phase === 'reading' || c.phase === 'decoding';
                 return inLoadRing(this.grid, this.ring, this.focus, cx, cy, cz) && chunkDistance2(this.grid, this.focus, cx, cy, cz) < this.horizon;
               },
-              lane: (cx, cy, cz) => (inNearRing(this.grid, this.ring, this.focus, cx, cz) ? 'near' : 'far'),
+              lane: (cx, cy, cz) => laneOf(this.grid, this.ring, this.focus, cx, cz),
               distance2: (cx, cy, cz) => chunkDistance2(this.grid, this.focus, cx, cy, cz),
               setPart: (cx, cy, cz, part, bytes) => this.setPart(cx, cy, cz, part, bytes),
               emit: (e) => {
@@ -398,7 +398,8 @@ export class VoxelStreamer {
             opts.editDeriveMsPerUpdate ?? 8,
           )
         : null;
-    const rings = opts.mips ?? DEFAULT_MIP_RINGS;
+    const rings = opts.mips ?? mipRingsFor(ring);
+    const streamer = this;
     this.mips =
       this.derives !== null && opts.rules !== undefined && rings.length > 0
         ? new StreamMips(
@@ -414,7 +415,9 @@ export class VoxelStreamer {
               chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
               chunkSurfaces: (cx, cy, cz, axis, plane) => this.derives?.seamSurfaces(cx, cy, cz, axis, plane),
               chunkReady: (cx, cy, cz) => this.derives?.chunkReady(cx, cy, cz) ?? false,
-              ring: this.ring,
+              get ring() {
+                return streamer.ring;
+              },
               focus: () => this.focus,
               emit: (e) => this.emit(e),
               poke: () => this.poke(),
@@ -603,8 +606,23 @@ export class VoxelStreamer {
     };
   }
 
-  private laneOf(c: Chunk): JobLane {
-    return inNearRing(this.grid, this.ring, this.focus, c.cx, c.cz) ? 'near' : 'far';
+  /** The load ring (its unload bounds hold every resident chunk). */
+  get ring(): StreamRing {
+    return this.plan.ring;
+  }
+
+  /**
+   * A new load ring, applied without a reload: the next update plans again,
+   * so chunks past the new unload bounds go (their draws and bodies with
+   * them) and those now inside load; the levels kept derived follow the
+   * load ring unless the streamer was given its own (`mips`).
+   */
+  setRing(ring: StreamRing): void {
+    checkRing(ring);
+    this.plan.setRing(ring);
+    if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(ring));
+    this.mips?.lod.changed();
+    this.poke();
   }
 
   /** One planning step (see the file comment); cheap when the focus stays in its chunk. */
@@ -622,7 +640,7 @@ export class VoxelStreamer {
       for (const c of [...this.chunks.values()]) {
         c.d2 = chunkDistance2(g, this.focus, c.cx, c.cy, c.cz);
         if (this.plan.pastUnload(this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
-        else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, this.laneOf(c), c.d2);
+        else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, laneOf(g, this.ring, this.focus, c.cx, c.cz), c.d2);
       }
       this.mips?.focusMoved();
     } else if (this.heldOutside.size > 0) {
@@ -836,7 +854,7 @@ export class VoxelStreamer {
   private submitLoad(c: Chunk, id: number, stored: StoredChunk): void {
     const input: LoadInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, bytes: stored, hash: false };
     const transfer = 'stored' in stored ? [stored.stored.buffer as ArrayBuffer] : [];
-    void this.opts.pool.submit<LoadOutput>({ id, kind: 'load', lane: this.laneOf(c), distance: c.d2, input, transfer }).then((o) => {
+    void this.opts.pool.submit<LoadOutput>({ id, kind: 'load', lane: laneOf(this.grid, this.ring, this.focus, c.cx, c.cz), distance: c.d2, input, transfer }).then((o) => {
       if (o.status === 'done') {
         this.decompressUs.add(o.output.decompressUs);
         this.decodeUs.add(o.output.decodeUs);
@@ -1223,4 +1241,9 @@ function defaultSectionEdge(grid: ChunkGrid, rules: AssemblyRuleSet | undefined,
 
 function unionBox(a: CellBox, b: CellBox): CellBox {
   return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), minZ: Math.min(a.minZ, b.minZ), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY), maxZ: Math.max(a.maxZ, b.maxZ) };
+}
+
+/** The job lane of a chunk's load: near inside the ring's near radius, far past it. */
+function laneOf(grid: ChunkGrid, ring: StreamRing, focus: Focus, cx: number, cz: number): JobLane {
+  return inNearRing(grid, ring, focus, cx, cz) ? 'near' : 'far';
 }

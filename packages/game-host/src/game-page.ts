@@ -31,7 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { pageFlagOn, sha256HexAsync } from '@thirdlight/shared';
-import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument, type QualityLevelConfig } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
@@ -668,7 +668,7 @@ interface PageVoxelKits {
  * chunk drawn before its kit's meshes are there builds those pieces when
  * they arrive.
  */
-function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits) {
+function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[]) {
   let report: (world: string, bytes: number[], coarse: number, kits: number) => void = () => undefined;
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
@@ -694,7 +694,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
-      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records);
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, qualityLevels);
       report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       return p.ports;
     },
@@ -799,7 +799,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
     // The voxel worlds run with the simulation; the page draws the chunks each swap sends.
-    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase)) : null;
+    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase), qualityLevels) : null;
     if (voxels !== null) releases.push(() => (voxels.draws.dispose(), voxels.kitMeshes.dispose()));
     if (threadMode === 'worker') {
       const worker = voxels === null ? createBrowserSimWorker(o.workerUrl) : voxels.worker(createBrowserSimWorker(o.workerUrl));
@@ -823,7 +823,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest) } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), qualityLevels } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),

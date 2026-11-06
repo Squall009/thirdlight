@@ -24,7 +24,8 @@ import {
 } from '@thirdlight/runtime';
 import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
 import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
-import { chunkDrawBatchTransfer, chunkGrid, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
+import { chunkDrawBatchTransfer, chunkGrid, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
+import type { QualityLevelConfig } from '@thirdlight/project-model';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
@@ -241,6 +242,11 @@ async function harness(wrap: (ports: VoxelWorldPorts) => VoxelWorldPorts = (p) =
   const inStep = <R>(fn: (v: BehaviorVoxels) => R): Promise<R> => stepUntil(fn, 'the script step');
   const h: Harness = { rt, port, inStep, stepUntil, until, opened, closed, poolsClosed, changeLog, move: (id, p) => void moves.set(id, p) };
   return h;
+}
+
+/** The frame stats a page reports (`Runtime.setStats`), at a quality level. */
+function pageStats(quality: string): unknown {
+  return { fps: 60, frameMs: { avg: 16.7, worst: 17 }, cpuMs: { avg: 2, worst: 3 }, gpuMs: null, drawCalls: 0, triangles: 0, textureBytes: 0, textureBudgetBytes: 0, geometryBytes: 0, entities: 0, quality, windowMs: 500 };
 }
 
 /** The first collider hit straight down from high above (x, z metres): its height and body id. */
@@ -480,6 +486,107 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(h.rt.dispose().ok).toBe(true);
     // The world closed: the page is told to let go of its draws.
     expect(batches.at(-1)).toMatchObject({ world: 'a', closed: true, chunks: [] });
+  }, 120_000);
+
+  it("changes a world's rings while it runs: a script's setRings re-plans the load ring, the collision ring and the levels drawn (one swap, no reload), and the quality level the page reports scales them and sets the budget", async () => {
+    // The project's levels go to the runtime with the world ports (the game host's presentation); the page reports one with its stats.
+    const levels: QualityLevelConfig[] = [{ id: 'small', lighting: 'low', voxelRings: 0.5 }, { id: 'big', lighting: 'high', voxelRings: 2 }];
+    let stream: VoxelStreamer | null = null;
+    const levelEvents: Extract<StreamEvent, { type: 'levels' }>[] = [];
+    const h = await harness(
+      (ports) => presentVoxelWorlds(ports, () => {}, [], levels).ports,
+      (world, st) => {
+        if (world !== 'a') return;
+        stream = st;
+        st.on((e) => void (e.type === 'levels' && levelEvents.push(e)));
+      },
+      // Full detail only near the focus at first (level 0 to 9 m: a 1 m collision ring and its 8 m), level 1 past it
+      // to the 48 m load ring; the level `big` sets its own full-detail distance.
+      { world: { world: 'a', ring: { loadRadius: 48, loadHeight: 32 }, collision: { radius: 1, height: 16 }, levels: { level0: 4, level1: 96 }, quality: { big: { levels: { level0: 20 } } } }, movers: ['world-a'] },
+    );
+    const s = (): VoxelStreamer => stream!;
+    const cells = (m: number): number => m / VOXEL_SIZE_M;
+    // The focus in the middle of a level-1 node (32 m): the nodes beside it lie 16 m off and are whole inside the ring.
+    const F = 16;
+    h.move('world-a', [F, (groundY + 1) * VOXEL_SIZE_M, F]);
+    await h.until(() => stream !== null && s().isResident(1, Math.floor(groundY / grid.edge), 1), 'the world to open round the moved focus');
+    await s().settle();
+    const lod = s().mips!.lod;
+    await h.until(() => lod.drawn.countAt(1) > 0 && !lod.swapping, 'level 1 drawn past 9 m');
+    await h.until(() => groundBelow(h.port, F + 0.25, F + 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus');
+    const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
+    // The chunk 16 m to the −x side of the focus: inside the load ring, outside the 1 m collision ring.
+    const side = [-8.25, F + 0.25] as const;
+    expect(groundBelow(h.port, ...side)?.id.startsWith('voxel:a:') ?? false).toBe(false);
+    const resident = (): Array<[number, number, number]> => {
+      const out: Array<[number, number, number]> = [];
+      for (let cx = -5; cx < 5; cx++) for (let cz = -5; cz < 5; cz++) for (let cy = -5; cy < 10; cy++) if (s().isResident(cx, cy, cz)) out.push([cx, cy, cz]);
+      return out;
+    };
+    const far = (cx: number, cz: number): number => Math.hypot((cx + 0.5) * grid.edge * VOXEL_SIZE_M - F, (cz + 0.5) * grid.edge * VOXEL_SIZE_M - F);
+    const before = resident();
+    expect(before.some(([cx, , cz]) => far(cx, cz) > 20)).toBe(true);
+
+    // The levels: full detail to the load ring. One swap takes the level-1 nodes and brings the chunks under them.
+    const coarse = [...lod.drawn.nodes()].filter((n) => n.level === 1);
+    const swapsBefore = levelEvents.length;
+    const changed = await h.inStep((v) => v.setRings({ levels: { level0: 60, level1: 100 } }));
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) return;
+    expect(changed.rings.levels).toEqual({ level0: 60, level1: 100 });
+    expect(lod.levelRings.radii).toEqual([cells(60), cells(100)]);
+    await h.until(() => lod.drawn.countAt(1) === 0 && !lod.swapping, 'level 0 drawn over the ring');
+    const swaps = levelEvents.slice(swapsBefore).filter((e) => e.reason === 'swap');
+    // The nodes leave in the event that brings their chunks: no frame draws both, none draws neither.
+    const under = (n: { level: number; nx: number; ny: number; nz: number }, c: { nx: number; ny: number; nz: number }): boolean => c.nx >> n.level === n.nx && c.ny >> n.level === n.ny && c.nz >> n.level === n.nz;
+    for (const n of coarse) {
+      const leaving = swaps.find((e) => e.removed.some((r) => r.level === 1 && r.nx === n.nx && r.ny === n.ny && r.nz === n.nz));
+      expect(leaving, `node ${n.nx},${n.ny},${n.nz} leaves in a swap`).toBeDefined();
+      expect(leaving!.added.filter((a) => a.level === 0 && under(n, a)).length, `its chunks come with it`).toBeGreaterThan(0);
+    }
+    expect(swaps.some((e) => e.added.some((a) => a.level === 1))).toBe(false);
+    // A script's level-0 distance below the collision ring's keeps level 0 there (1 + 8 m).
+    const near = await h.inStep((v) => v.setRings({ levels: { level0: 2 } }));
+    expect(near.ok && near.rings.levels).toEqual({ level0: 2, level1: 100 });
+    expect(lod.levelRings.radii[0]).toBe(cells(9));
+
+    // The collision ring: 20 m; the chunk 16 m off gets its body.
+    const wider = await h.inStep((v) => v.setRings({ collision: { radius: 20 } }));
+    expect(wider.ok && wider.rings.collision).toEqual({ radius: 20, height: 16 });
+    await h.until(() => groundBelow(h.port, ...side)?.id.startsWith('voxel:a:') === true, 'a body in the chunk 16 m off');
+    expect(groundBelow(h.port, ...side)!.y).toBeGreaterThan(surfaceM - 30);
+
+    // The load ring: 16 m (unload 16 m); chunks past it go (their bodies with them), the ring re-planned without a reload.
+    const shrunk = await h.inStep((v) => v.setRings({ ring: { loadRadius: 16, unloadRadius: 16 } }));
+    expect(shrunk.ok && shrunk.rings.ring).toEqual({ loadRadius: 16, unloadRadius: 16, loadHeight: 32, unloadHeight: 32 + 32 });
+    expect(s().ring.loadRadius).toBe(cells(16));
+    await h.until(() => resident().every(([cx, , cz]) => far(cx, cz) <= 16), 'the chunks past 16 m to go');
+    expect(resident().length).toBeLessThan(before.length);
+    await h.until(() => groundBelow(h.port, ...side)?.id.startsWith('voxel:a:') !== true, 'the body 16 m off to go');
+
+    // A bad change is refused whole; nothing moves.
+    const bad = await h.inStep((v) => v.setRings({ ring: { loadRadius: -3 }, levels: { level0: 50 }, near: 1 } as never));
+    expect(bad).toMatchObject({ ok: false, reason: 'invalid' });
+    expect((await h.inStep((v) => v.rings())).levels.level0).toBe(2);
+
+    // The page reports its quality level: `small` halves every distance the scene (as the script changed it) sets, at the low tier's budget.
+    expect(h.rt.setStats!(pageStats('small'))).toBe(true);
+    const small = await h.inStep((v) => v.rings());
+    expect(small).toEqual({ ring: { loadRadius: 8, unloadRadius: 8, loadHeight: 16, unloadHeight: 32 }, collision: { radius: 10, height: 8 }, levels: { level0: 1, level1: 50 }, quality: 'small', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low });
+    expect([s().ring.loadRadius, s().budgetBytes]).toEqual([cells(8), VOXEL_STREAM_BUDGET_BYTES.low]);
+    // `big` (the high tier, scale 2): twice the distances, its own full-detail distance from the scene, the high tier's budget.
+    expect(h.rt.setStats!(pageStats('big'))).toBe(true);
+    const big = await h.inStep((v) => v.rings());
+    expect(big).toEqual({ ring: { loadRadius: 32, unloadRadius: 32, loadHeight: 64, unloadHeight: 128 }, collision: { radius: 40, height: 32 }, levels: { level0: 20, level1: 200 }, quality: 'big', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high });
+    expect([s().ring.loadRadius, s().budgetBytes]).toEqual([cells(32), VOXEL_STREAM_BUDGET_BYTES.high]);
+    // Level 0 at least the collision ring and its hysteresis (40 + 8 m).
+    expect(lod.levelRings.radii[0]).toBe(cells(48));
+    // Back to the scene's own distances (still at the level).
+    const reset = await h.inStep((v) => v.setRings(null));
+    expect(reset.ok && reset.rings.ring.loadRadius).toBe(96);
+    expect(reset.ok && reset.rings.levels).toEqual({ level0: 20, level1: 192 });
+    await s().settle();
+    expect(h.rt.dispose().ok).toBe(true);
   }, 120_000);
 
   it("keeps a reloaded world's draws when the connection it replaced finishes opening last (out-of-order opens in Play)", async () => {

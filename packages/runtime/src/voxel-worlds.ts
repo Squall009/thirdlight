@@ -8,15 +8,19 @@
  * looks (its target, else the camera), else the object's own position;
  * bodies are kept around the focus and every character.
  *
+ * The page reports the quality level it draws at (with its frame stats);
+ * every world's distances and memory budget follow it, without a reload.
+ * Until it does, a world streams at its scene's own distances.
+ *
  * Props whose model is marked `affectsLighting` are stamped into every
  * loaded world's lighting occupancy: their shape (collider, else model
  * bounds) where they are, again whenever their world transform changes
  * between steps, and out again when they leave.
  */
-import { resolveVoxelWorld, type EntityV3, type VoxelWorldComponent } from '@thirdlight/project-model';
+import { qualityLevelsOf, resolveVoxelWorld, type EntityV3, type QualityLevelConfig, type VoxelWorldComponent } from '@thirdlight/project-model';
 import type { PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
-import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRefused, VoxelRestoreResult, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
+import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
 import type { WorldTransform } from './world-transform';
 
@@ -50,6 +54,8 @@ interface HeldWorld {
 }
 
 const NO_WORLD: VoxelRefused = Object.freeze({ ok: false, reason: 'no_world', message: 'no loaded scene has a voxel world' });
+/** What `rings()` reads without a world: nothing streams. */
+const NO_RINGS: VoxelRings = Object.freeze({ ring: Object.freeze({ loadRadius: 0, unloadRadius: 0, loadHeight: 0, unloadHeight: 0 }), collision: Object.freeze({ radius: 0, height: 0 }), levels: Object.freeze({ level0: 0, level1: 0 }), quality: null, budgetBytes: null });
 
 export class RuntimeVoxels {
   /** Worlds by name, in load order. */
@@ -69,6 +75,8 @@ export class RuntimeVoxels {
   private editSeq = 0;
   private waitSeq = 0;
   private saveSeq = 0;
+  /** The quality level the page draws at (null: not reported yet). */
+  private level: QualityLevelConfig | null = null;
   readonly api: BehaviorVoxels;
 
   constructor(
@@ -115,6 +123,8 @@ export class RuntimeVoxels {
         return id;
       },
       restore: (...a: Parameters<BehaviorVoxelWorld['restore']>): VoxelRestoreResult => first()?.restore(...a) ?? NO_WORLD,
+      rings: () => first()?.rings() ?? NO_RINGS,
+      setRings: (...a: Parameters<BehaviorVoxelWorld['setRings']>) => first()?.setRings(...a) ?? NO_WORLD,
     });
   }
 
@@ -129,10 +139,10 @@ export class RuntimeVoxels {
       const held = this.worlds.get(c.world);
       if (held !== undefined) {
         held.objects.push(e.id);
-        if (JSON.stringify(resolveVoxelWorld(c)) !== JSON.stringify(held.host.settings)) this.view.warn(`voxel world "${c.world}" is already loaded with other settings; "${e.id}" joins it as it is`);
+        if (JSON.stringify(resolveVoxelWorld(c, this.level)) !== JSON.stringify(resolveVoxelWorld(held.host.component, this.level))) this.view.warn(`voxel world "${c.world}" is already loaded with other settings; "${e.id}" joins it as it is`);
         continue;
       }
-      const host = new VoxelWorldHost(resolveVoxelWorld(c), this.ports, this.physics, {
+      const host = new VoxelWorldHost(c, this.level, this.ports, this.physics, {
         changed: (ch) => this.pending.push(ch),
         answered: (wait, resident) => this.answers.push(Object.freeze({ wait, resident })),
         nextWait: () => ++this.waitSeq,
@@ -218,6 +228,19 @@ export class RuntimeVoxels {
       changes.push([id, p.shape]);
     }
     for (const held of this.worlds.values()) held.host.stampProps(changes);
+  }
+
+  /**
+   * The quality level the page draws at, by id (its frame stats name it):
+   * a change re-resolves every world's distances and budget, applied
+   * without a reload. An id the project's levels lack changes nothing.
+   */
+  setQuality(id: string): void {
+    if (this.level?.id === id) return;
+    const level = qualityLevelsOf(this.ports).find((l) => l.id === id);
+    if (level === undefined) return;
+    this.level = level;
+    for (const held of this.worlds.values()) held.host.setQuality(level);
   }
 
   /** Whether any world is loaded (bodies then wait for its collision: body-suspension.ts). */

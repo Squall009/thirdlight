@@ -106,7 +106,7 @@ function axisGap(p: number, lo: number, edge: number): number {
 }
 
 export class CollisionRing {
-  readonly bounds: CollisionRingBounds;
+  private current: CollisionRingBounds;
   private readonly grid: ChunkGrid;
   private readonly bodies: CollisionBodies;
   private readonly feed: CollisionRingFeed;
@@ -123,8 +123,18 @@ export class CollisionRing {
     this.grid = opts.grid;
     this.bodies = opts.bodies;
     this.feed = opts.feed;
-    this.bounds = opts.bounds ?? collisionRingBounds();
+    this.current = opts.bounds ?? collisionRingBounds();
     this.addMs = opts.addMsPerUpdate ?? COLLISION_ADD_MS_PER_UPDATE;
+  }
+
+  /** Where bodies are added and kept (cells). */
+  get bounds(): CollisionRingBounds {
+    return this.current;
+  }
+
+  /** New bounds, applied by the next {@link update}: bodies past the new keep bounds go, chunks inside the new add bounds get theirs. */
+  setBounds(bounds: CollisionRingBounds): void {
+    this.current = bounds;
   }
 
   /** The points bodies are kept around (cells): the camera, characters, anything that collides. */

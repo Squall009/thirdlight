@@ -132,7 +132,20 @@ Streams one of the project's voxel worlds (voxels/<world>/) round the camera whi
 | `collision.radius` | number | `48` | 1 – 100000, step 1, m | **Radius.** Metres across the ground. |
 | `collision.height` | number | `24` | 1 – 100000, step 1, m | **Height.** Metres above and below. |
 | `levels` | object |  |  | **Detail levels.** Where the world is drawn coarser, from full detail near the camera and characters to 2 m voxels far out (level 0 always covers the collision ring). (scripts read) |
-| `levels.level0` | number | `64` | 1 – 100000, step 1, m | **Full detail.** Metres across the ground within which the world is drawn at full detail (0.5 m voxels); at least the collision radius + 8 m. |
+| `levels.level0` | number | `64` | 1 – 100000, step 1, m | **Full detail.** Metres across the ground within which the world is drawn at full detail (0.5 m voxels) with its kit pieces; at least the collision radius + 8 m. |
 | `levels.level1` | number | `128` | 1 – 100000, step 1, m | **Level 1.** Metres across the ground within which 1 m voxels are drawn; past it, 2 m voxels to the load ring (below full detail: taken as it). |
+| `quality` | map key → object |  |  | **Per quality level.** The distances at a quality level, by the level's id: a scale of the distances above (absent: the level's voxel ring scale), or distances of its own (each one replaces the scaled one). (scripts read) |
+| `quality{}.scale` | number |  | 0.25 – 4, step 0.05, × | **Scale.** Every distance above times this at the level. |
+| `quality{}.ring` | object |  |  | **Load ring.** Where chunks load round the focus and how far past it they stay (the hysteresis). |
+| `quality{}.ring.loadRadius` | number |  | 1 – 100000, step 1, m | **Load radius.** Metres across the ground within which chunks load. |
+| `quality{}.ring.unloadRadius` | number |  | 1 – 100000, step 1, m | **Unload radius.** Metres across the ground past which loaded chunks go (below the load radius: taken as it; empty: the load radius + 32 m). |
+| `quality{}.ring.loadHeight` | number |  | 1 – 100000, step 1, m | **Load height.** Metres above and below within which chunks load. |
+| `quality{}.ring.unloadHeight` | number |  | 1 – 100000, step 1, m | **Unload height.** Metres above and below past which loaded chunks go (below the load height: taken as it; empty: the load height + 32 m). |
+| `quality{}.collision` | object |  |  | **Collision ring.** Where loaded chunks have colliders round a focus (never past the load ring). |
+| `quality{}.collision.radius` | number |  | 1 – 100000, step 1, m | **Radius.** Metres across the ground. |
+| `quality{}.collision.height` | number |  | 1 – 100000, step 1, m | **Height.** Metres above and below. |
+| `quality{}.levels` | object |  |  | **Detail levels.** Where the world is drawn coarser, from full detail near the camera and characters to 2 m voxels far out (level 0 always covers the collision ring). |
+| `quality{}.levels.level0` | number |  | 1 – 100000, step 1, m | **Full detail.** Metres across the ground within which the world is drawn at full detail (0.5 m voxels) with its kit pieces; at least the collision radius + 8 m. |
+| `quality{}.levels.level1` | number |  | 1 – 100000, step 1, m | **Level 1.** Metres across the ground within which 1 m voxels are drawn; past it, 2 m voxels to the load ring (below full detail: taken as it). |
 | `sectionEdge` | int (one of 8, 16, 32) | `16` | step 1 | **Section edge.** Voxels along the edge of the sections a chunk is rebuilt in after an edit: smaller rebuilds less per edit, larger draws fewer pieces. (scripts read) |
 | `savedFields` | list of enum: `material`, `role`, `shape`, `wetness`, distinct | `["material","role","shape"]` |  | **Saved fields.** The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again). (scripts read) |

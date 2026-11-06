@@ -28,9 +28,9 @@
  * replaces the overlay with a save's entries (never the base store), laid
  * over loaded chunks at once and over the others as they load.
  */
-import { COLLIDER_3D_LIMITS, decodeBase64, encodeBase64 } from '@thirdlight/project-model';
-import type { ResolvedVoxelWorld } from '@thirdlight/project-model';
+import { canonicalVoxelWorldRings, COLLIDER_3D_LIMITS, decodeBase64, encodeBase64, resolveVoxelWorld, validateVoxelWorldRings, type ModelErrorV2, type QualityLevelConfig, type ResolvedVoxelWorld, type VoxelWorldComponent, type VoxelWorldRings } from '@thirdlight/project-model';
 import {
+  applyWorldRings,
   canonicalEditCommand,
   chunkInWorld,
   chunkKey,
@@ -83,6 +83,9 @@ import {
   type VoxelRefused,
   type VoxelRegion,
   type VoxelRestoreResult,
+  type VoxelRingChange,
+  type VoxelRings,
+  type VoxelRingsResult,
   type VoxelSaveAnswer,
   type VoxelValue,
   type VoxelWrite,
@@ -115,6 +118,8 @@ export interface VoxelWorldConnection {
 export interface VoxelWorldPorts {
   /** Opens a world by its name (`voxels/<world>/`); a rejection leaves the world unloaded (logged). */
   open(world: string): Promise<VoxelWorldConnection>;
+  /** The project's quality levels (absent: the engine's): the level the page reports scales each world's distances and sets its budget. */
+  readonly qualityLevels?: readonly QualityLevelConfig[];
 }
 
 /** The step's view of where the world is looked at and what collides in it (world metres). */
@@ -200,7 +205,11 @@ export interface VoxelHostEvents {
 
 export class VoxelWorldHost {
   readonly name: string;
-  readonly settings: ResolvedVoxelWorld;
+  /** The distances and settings in use: the scene's (as a script changed them) at the quality level. */
+  settings: ResolvedVoxelWorld;
+  /** The scene's ring distances as a script set them (the object's own until `setRings`). */
+  private rings0: VoxelWorldRings;
+  private level: QualityLevelConfig | null;
   private conn: VoxelWorldConnection | null = null;
   private streamer: VoxelStreamer | null = null;
   private ring: CollisionRing | null = null;
@@ -228,12 +237,17 @@ export class VoxelWorldHost {
   readonly api: BehaviorVoxelWorld;
 
   constructor(
-    settings: ResolvedVoxelWorld,
+    /** The `voxelWorld` component of the object that brought the world. */
+    readonly component: VoxelWorldComponent,
+    level: QualityLevelConfig | null,
     ports: VoxelWorldPorts | null,
     private readonly physics: PhysicsPort3D | undefined,
     private readonly events: VoxelHostEvents,
     private readonly nextEdit: () => number,
   ) {
+    this.rings0 = component;
+    this.level = level;
+    const settings = resolveVoxelWorld(component, level);
     this.name = settings.world;
     this.settings = settings;
     this.savedFields = settings.savedFields;
@@ -249,6 +263,8 @@ export class VoxelWorldHost {
       setSavedFields: (fields: readonly VoxelField[]) => this.setSavedFields(fields),
       save: () => this.save(),
       restore: (save: Uint8Array | string, onMismatch: VoxelMismatchChoice) => this.restore(save, onMismatch),
+      rings: () => this.ringsInUse(),
+      setRings: (change: VoxelRingChange | null) => this.setRings(change),
     });
     if (ports === null) return;
     this.opening = true;
@@ -270,23 +286,68 @@ export class VoxelWorldHost {
     this.conn = conn;
     const s = this.settings;
     const streamer = worldStreamer(conn, s);
-    const cells = (m: number): number => m / VOXEL_SIZE_M;
-    const ring = streamer.ring;
-    const loadRadius = ring.loadRadius;
     this.streamer = streamer;
     const port = this.physics;
     if (port !== undefined && typeof port.addStaticColliders === 'function' && typeof port.removeStaticColliders === 'function') {
-      // Bodies never reach past the load ring, which holds the chunks they are made of.
-      const radius = Math.min(cells(s.collision.radius), loadRadius);
-      const height = Math.min(cells(s.collision.height), ring.loadHeight);
       this.bodies = new PortBodies(port, conn.grid, `voxel:${this.name}:`);
-      this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: streamer, bounds: collisionRingBounds({ radius, height }) });
+      this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: streamer, bounds: this.collisionBounds() });
     }
     const channel = new PropLightChannel(streamer, VOXEL_SIZE_M);
     channel.apply(this.props);
     this.channel = channel;
     streamer.on((e) => this.onStream(e));
     conn.present?.(streamer, s.sectionEdge);
+  }
+
+  /** The collision ring's bounds (cells): never past the load ring, which holds the chunks the bodies are made of. */
+  private collisionBounds(): ReturnType<typeof collisionRingBounds> {
+    const s = this.settings;
+    const cells = (m: number): number => m / VOXEL_SIZE_M;
+    return collisionRingBounds({ radius: Math.min(cells(s.collision.radius), cells(s.ring.loadRadius)), height: Math.min(cells(s.collision.height), cells(s.ring.loadHeight)) });
+  }
+
+  /** The quality level the page draws at (null: none known): the distances and budget follow it, without a reload. */
+  setQuality(level: QualityLevelConfig | null): void {
+    this.level = level;
+    this.applyRings();
+  }
+
+  /** Resolves the distances again and hands them to the running streamer and collision ring. */
+  private applyRings(): void {
+    this.settings = resolveVoxelWorld({ ...this.component, ...this.rings0 }, this.level);
+    if (this.streamer === null || this.disposed) return;
+    applyWorldRings(this.streamer, this.settings);
+    this.ring?.setBounds(this.collisionBounds());
+  }
+
+  private ringsInUse(): VoxelRings {
+    const s = this.settings;
+    return Object.freeze({ ring: s.ring, collision: s.collision, levels: s.levels, quality: s.quality, budgetBytes: s.budgetBytes });
+  }
+
+  /**
+   * A script's change of the scene's distances: each field it gives replaces
+   * the scene's (null: the object's own again), then the quality level
+   * applies. Refused whole when a field is unknown or out of range.
+   */
+  private setRings(change: VoxelRingChange | null): VoxelRingsResult {
+    if (change === null) {
+      this.rings0 = this.component;
+      this.applyRings();
+      return Object.freeze({ ok: true, rings: this.ringsInUse() });
+    }
+    const errors: ModelErrorV2[] = [];
+    if (typeof change !== 'object' || Array.isArray(change)) errors.push({ code: 'field_type', path: '', message: 'a ring change is { ring?, collision?, levels? } in metres' } as ModelErrorV2);
+    else {
+      for (const k of Object.keys(change)) if (k !== 'ring' && k !== 'collision' && k !== 'levels') errors.push({ code: 'field_unexpected', path: `/${k}`, message: `unknown ring group "${k}" (ring, collision, levels)` } as ModelErrorV2);
+      validateVoxelWorldRings(change as Record<string, unknown>, '', errors);
+    }
+    if (errors.length > 0) return this.refuse('invalid', errors.map((e) => `${e.path || '/'}: ${e.message}`).join('; '));
+    const next: VoxelWorldRings = {};
+    canonicalVoxelWorldRings({ ring: { ...this.rings0.ring, ...change.ring }, collision: { ...this.rings0.collision, ...change.collision }, levels: { ...this.rings0.levels, ...change.levels } }, next);
+    this.rings0 = next;
+    this.applyRings();
+    return Object.freeze({ ok: true, rings: this.ringsInUse() });
   }
 
   private onStream(e: StreamEvent): void {

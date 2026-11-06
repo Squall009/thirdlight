@@ -176,7 +176,7 @@ export class StreamMips {
   readonly seams: StreamSeams;
   /** Which level is drawn where (stream-lod.ts). */
   readonly lod: StreamLod;
-  private readonly rings: ReadonlyMap<number, number>;
+  private readonly rings = new Map<number, number>();
   /** Nodes by level (index 0 unused), by key within the level. */
   private readonly levels: Array<Map<number, Node>> = [];
   private readonly stores: PaletteStore[] = [];
@@ -194,15 +194,11 @@ export class StreamMips {
     rings: readonly MipRing[],
     levelRings: LevelRings,
   ) {
-    const levels = new Map<number, number>();
-    for (const r of rings) {
-      if (!Number.isInteger(r.level) || r.level < 1 || !(r.radius >= 0) || !Number.isFinite(r.radius) || levels.has(r.level)) throw new RangeError(`mip ring level ${r.level}, radius ${r.radius}`);
-      levels.set(r.level, r.radius);
-    }
+    const levels = mipRingMap(rings);
     if (levels.size === 0) throw new RangeError('mips need at least one level');
     // The apron must lie in the octants facing a node (half a node deep at most).
     if (2 * host.radius > host.grid.edge) throw new RangeError(`rules radius ${host.radius} past half a node of ${host.grid.edge}`);
-    this.rings = levels;
+    for (const [l, r] of levels) this.rings.set(l, r);
     this.maxLevel = Math.max(...levels.keys());
     this.stale = new MipStaleSet(this.maxLevel);
     for (let l = 0; l <= this.maxLevel; l++) {
@@ -228,7 +224,9 @@ export class StreamMips {
       {
         grid: host.grid,
         maxLevel: this.maxLevel,
-        ring: host.ring,
+        get ring() {
+          return host.ring;
+        },
         seams: this.seams,
         focus: () => host.focus(),
         ready: (l, nx, ny, nz) => (l === 0 ? host.isResident(nx, ny, nz) && host.chunkReady(nx, ny, nz) : this.drawnResult(l, nx, ny, nz) !== undefined),
@@ -356,6 +354,21 @@ export class StreamMips {
         else n.edited = true;
       }
     }
+  }
+
+  /**
+   * New radii for the levels kept derived (the same levels: the tree's depth
+   * is the streamer's): results past their new ring go, nodes now inside
+   * it are derived as they can be, and the levels drawn are chosen again.
+   */
+  setRings(rings: readonly MipRing[]): void {
+    const next = mipRingMap(rings);
+    if (next.size !== this.rings.size || [...next.keys()].some((l) => !this.rings.has(l))) throw new RangeError(`mip rings for levels ${[...next.keys()].join(', ')}, kept ${[...this.rings.keys()].join(', ')}`);
+    for (const [l, r] of next) this.rings.set(l, r);
+    this.focusMoved();
+    for (let l = 1; l <= this.maxLevel; l++) for (const n of this.levels[l]!.values()) if (!n.fresh && n.deriveJob === 0) this.wantDerive(n);
+    this.lod.changed();
+    this.host.poke();
   }
 
   /** The focus moved: results past their ring (and its hysteresis) are dropped, and the levels drawn may change. */
@@ -925,4 +938,14 @@ export class StreamMips {
     this.host.tracker.expireJob(id);
     return id;
   }
+}
+
+/** A level → radius map of mip rings; throws on a level below 1, a bad radius or a level twice. */
+function mipRingMap(rings: readonly MipRing[]): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const r of rings) {
+    if (!Number.isInteger(r.level) || r.level < 1 || !(r.radius >= 0) || !Number.isFinite(r.radius) || out.has(r.level)) throw new RangeError(`mip ring level ${r.level}, radius ${r.radius}`);
+    out.set(r.level, r.radius);
+  }
+  return out;
 }

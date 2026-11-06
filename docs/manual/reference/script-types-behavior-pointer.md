@@ -804,6 +804,17 @@ export interface BehaviorVoxelWorld {
    */
   setSavedFields(fields: readonly VoxelField[]): boolean;
   /**
+   * The distances the world streams with now (metres, the quality level applied).
+   * @graphNode skip the distances are an object, which a graph output cannot take yet
+   */
+  rings(): VoxelRings;
+  /**
+   * Change the world's distances while the game runs (merged into its scene's; null: back to the scene's own).
+   * Applied without a reload: the levels drawn change in one swap, chunks past a smaller load ring go.
+   * @graphNode skip the distances are an object, which a graph input cannot take yet
+   */
+  setRings(change: VoxelRingChange | null): VoxelRingsResult;
+  /**
    * Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves`
    * at a later step with the save's bytes (and the same as text for a save document).
    * @graphNode Save voxel changes
@@ -1367,22 +1378,5 @@ export interface BehaviorDialogueEvent {
   readonly value: string;
   /** chosen: the option's index among those shown; else -1. */
   readonly index: number;
-}
-```
-
-<a id="script-type-behavior-dialogue-history-entry"></a>
-## `BehaviorDialogueHistoryEntry`
-
-```ts
-/** One line (or a chosen option) in the backlog. */
-export interface BehaviorDialogueHistoryEntry {
-  readonly dialogueId: string;
-  readonly nodeId: string;
-  readonly speaker: string;
-  /** The speaker's display name ('' for narration or a chosen option). */
-  readonly name: string;
-  readonly text: string;
-  /** A line, or the option the player picked. */
-  readonly choice: boolean;
 }
 ```

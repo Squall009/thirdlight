@@ -153,17 +153,36 @@ export class StreamReadPlan<Held> {
   lead: Focus = { x: 0, y: 0, z: 0 };
   /** Stored chunks read and waiting for room in the pool, oldest first. */
   readonly held: Held[] = [];
-  private readonly motion: FocusMotion;
+  private motion: FocusMotion;
   private focusChunk = Number.NaN;
   private leadChunk = Number.NaN;
+  private current: StreamRing;
 
   constructor(
     private readonly grid: ChunkGrid,
-    private readonly ring: StreamRing,
+    ring: StreamRing,
     private readonly prefetchSeconds: number,
   ) {
-    // A step past the near radius, or faster than that a frame at 60 Hz, is a jump, not motion.
-    this.motion = new FocusMotion(ring.nearRadius, ring.nearRadius * 60);
+    this.current = ring;
+    this.motion = StreamReadPlan.motionFor(ring);
+  }
+
+  /** The load ring the plan reads for. */
+  get ring(): StreamRing {
+    return this.current;
+  }
+
+  /** A new load ring: the next update plans again (what it no longer holds unloads, what it now holds loads). */
+  setRing(ring: StreamRing): void {
+    this.current = ring;
+    this.motion = StreamReadPlan.motionFor(ring);
+    this.focusChunk = Number.NaN;
+    this.leadChunk = Number.NaN;
+  }
+
+  /** A step past the near radius, or faster than that a frame at 60 Hz, is a jump, not motion. */
+  private static motionFor(ring: StreamRing): FocusMotion {
+    return new FocusMotion(ring.nearRadius, ring.nearRadius * 60);
   }
 
   moved(focus: Focus, now: number): void {

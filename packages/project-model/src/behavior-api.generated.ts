@@ -411,6 +411,8 @@ export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] =
   {"path":"voxels.isResident","reason":"a region is a point, a box or a ball, which a graph input cannot take yet"},
   {"path":"voxels.whenResident","reason":"a region is a point, a box or a ball, which a graph input cannot take yet"},
   {"path":"voxels.setSavedFields","reason":"a field list is a list of names, which a graph input cannot take yet"},
+  {"path":"voxels.rings","reason":"the distances are an object, which a graph output cannot take yet"},
+  {"path":"voxels.setRings","reason":"the distances are an object, which a graph input cannot take yet"},
   {"path":"voxels.restore","reason":"a save is bytes, which a graph input cannot take"},
   {"path":"emit(control_move).entityId","reason":"the node drives the first player controller (scripts may name another)"},
   {"path":"emit(control_move).y","reason":"the node sets the move along one axis (scripts may pass y)"},

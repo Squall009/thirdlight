@@ -3223,6 +3223,19 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Which fields of the game's changes a save keeps (the world's `savedFields` until set; each run starts with them again). False when the list names something else."
     },
     {
+      "name": "rings",
+      "kind": "method",
+      "detail": "(): VoxelRings",
+      "returns": "VoxelRings",
+      "doc": "The distances the world streams with now (metres, the quality level applied)."
+    },
+    {
+      "name": "setRings",
+      "kind": "method",
+      "detail": "(change: VoxelRingChange | null): VoxelRingsResult",
+      "doc": "Change the world's distances while the game runs (merged into its scene's; null: back to the scene's own). Applied without a reload: the levels drawn change in one swap, chunks past a smaller load ring go."
+    },
+    {
       "name": "save",
       "kind": "method",
       "detail": "(): number",
@@ -3321,6 +3334,19 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(fields: readonly VoxelField[]): boolean",
       "doc": "Which fields of the game's changes a save keeps (the world's `savedFields` until set; each run starts with them again). False when the list names something else."
+    },
+    {
+      "name": "rings",
+      "kind": "method",
+      "detail": "(): VoxelRings",
+      "returns": "VoxelRings",
+      "doc": "The distances the world streams with now (metres, the quality level applied)."
+    },
+    {
+      "name": "setRings",
+      "kind": "method",
+      "detail": "(change: VoxelRingChange | null): VoxelRingsResult",
+      "doc": "Change the world's distances while the game runs (merged into its scene's; null: back to the scene's own). Applied without a reload: the levels drawn change in one swap, chunks past a smaller load ring go."
     },
     {
       "name": "save",
@@ -4922,6 +4948,84 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     },
     {
       "name": "y",
+      "kind": "property",
+      "detail": "number"
+    }
+  ],
+  "VoxelRings": [
+    {
+      "name": "ring",
+      "kind": "property",
+      "detail": "{ readonly loadRadius: number; readonly unloadRadius: number; readonly loadHeight: number; readonly unloadHeight: number; }",
+      "type": "VoxelRings.ring"
+    },
+    {
+      "name": "collision",
+      "kind": "property",
+      "detail": "{ readonly radius: number; readonly height: number; }",
+      "type": "VoxelRings.collision"
+    },
+    {
+      "name": "levels",
+      "kind": "property",
+      "detail": "{ readonly level0: number; readonly level1: number; }",
+      "type": "VoxelRings.levels"
+    },
+    {
+      "name": "quality",
+      "kind": "property",
+      "detail": "string | null",
+      "doc": "The quality level (null: the page has not reported one yet; the scene's own distances apply)."
+    },
+    {
+      "name": "budgetBytes",
+      "kind": "property",
+      "detail": "number | null",
+      "doc": "The stream memory budget in bytes (null: the host's)."
+    }
+  ],
+  "VoxelRings.collision": [
+    {
+      "name": "radius",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "height",
+      "kind": "property",
+      "detail": "number"
+    }
+  ],
+  "VoxelRings.levels": [
+    {
+      "name": "level0",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "level1",
+      "kind": "property",
+      "detail": "number"
+    }
+  ],
+  "VoxelRings.ring": [
+    {
+      "name": "loadRadius",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "unloadRadius",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "loadHeight",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "unloadHeight",
       "kind": "property",
       "detail": "number"
     }

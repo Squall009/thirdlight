@@ -248,7 +248,7 @@ freeze, 46c.17, 46c.18.
 | 46c.14 | done (docs only): spec §3.7 one "Kits and cases" section (case pass, catalogue v4 DRAFT, `kits` v5, runs, forms, piece table 2, instance, levels, paints, v9 → v13 owner notes in one table; no stored format change), §3.8/§4; requirements R73–R77, R86, R87, R90, R112; manual kits, kit check, `writeKitTestScene` (draft); D485 (kit draw count). Reference unchanged |
 | 46c.15 | presented, awaiting owner approval (hard stop): 50 shots × 2 renderers re-taken at b6ec7d2f (kit scenes, log/stone houses, two-thick jambs, wall-beam-banister, long walls, cross-kit paint, town L0/L1, default kit) in `acceptance/46c/final`, older shots in `older/`; README + approve-46c.md: 65 questions. Seen: D480–D482, stone plinth breaks at jamb cells |
 | 46c.16 | answers recorded 2026-11-06 (all 35); build items 46c.16a–g (§6c), then full gate + review, acc46c-r2 (hard stop), v1 freeze |
-| 46c.16a | not started |
+| 46c.16a | done: pieces at L0 only (derived 21; kit `low` mesh, check pairs, adapter low draws gone; kits regenerated, Blender 5.2.2: log 757 tris 58.4 kB, stone 490 tris 47.3 kB; town L1 7.7 k → 0 instances); every ring per scene + `quality` per level, `voxelRings` (tier √budget) with the tier budget, `ctx.voxels.setRings` and the reported level re-plan without reload |
 | 46c.16b | not started |
 | 46c.16c | not started |
 | 46c.16d | not started |
@@ -1327,6 +1327,61 @@ freeze, 46c.17, 46c.18.
   test comment named an audit id (history-comments), fixed before the commit was pushed.
 - **Derived v20** (spec owner note). No stored format change; no world regenerated, kits unchanged.
 
+### 46c.16a two detail states and configurable rings
+
+**Pieces at L0 only** (970a33fa; owner 2026-11-05). `levelDrawsPieces` (level 0) replaces `PIECE_DETAIL` /
+`pieceDetailAt`; level-1 nodes list no pieces and draw beam and rail cells as bodies (as level 2 did), no case past
+level 0 (`levelHasCases`), the `low` instance flag gone (bit 0x20 written 0): **derived 20 → 21** (spec owner note;
+no stored format change, no world to regenerate). Roof planes and the coarse re-lay unchanged at every level. Kit
+format 1 (DRAFT) loses a variant's `low` mesh (refused as an unknown field; `high` keeps its name until 46c.16b's
+slots), the kit check its `pairs`/`pairs-heavy` rows and low triangle totals (T7 now compares variants only), the
+adapter its low stand-ins and low draws (`piecesDrawn` is `{ kit }`; the slice page's `kitPieces`), the default kit
+its low meshes.
+- **Placeholder kits** regenerated with Blender 5.2.2 headless (4 GB scope, `make_placeholder_kits.py`, one mesh a
+  piece, node `<case>_<section>_v<k>`), game-ready report: **log** 22 pieces (13 cases with meshes + 4 aliases),
+  757 triangles, GLB 96,708 → **58,404 B**, record 11,757 → 7,478 B; **stone** 21 pieces (13 + 5 aliases), 490
+  triangles, GLB 85,272 → **47,320 B**, record 11,513 → 7,393 B; no textures (the runtime debug set), no LODs by
+  design (pieces draw at L0 only; L1+ is the voxel mip), collision from the voxels; kit check 0 err, T1–T8 ok.
+- **Town 256 m** (Node, real derive + `VoxelChunkView`, scratch `~/.cache/thirdlight-phase46/work/46c.16a/`, before
+  at ca22303b, same run order): L0 768 chunks 31,270 instances, piece draws 762 (default kit) / 1,685 (log + stone)
+  — unchanged; **L1 128 nodes 7,723 → 0 instances** (draws → 0). Staging numbers: see *Looked at* below.
+
+**Rings configurable** (owner 2026-11-05 "ring distances…"). Every ring is the scene's `voxelWorld`: `ring`,
+`collision`, `levels` (level 0 = the detail-piece ring, decision log) and a new optional **`quality`** map
+(level id → `scale` and/or own `ring`/`collision`/`levels`; project schema 8, add-only, canonicalized field by field
+— `canonicalVoxelWorldRings` shared with scripts' changes; inspector map "Per quality level"). A quality level's new
+optional **`voxelRings`** (0.25–4) scales every distance; absent, its tier's `VOXEL_RING_SCALES` (voxel
+`stream-ring.ts`, √(tier budget / medium budget): low 0.71, medium 1, high 1.41) — the world takes the tier's
+`VOXEL_STREAM_BUDGET_BYTES` with it (`levelVoxels`). `resolveVoxelWorld(c, level)`: scaled base, then the scene's
+own per-level distances, then the invariants (unload ≥ load, level 1 ≥ level 0); `quality`/`budgetBytes` in the
+result.
+- **Runtime:** `ctx.voxels.rings()` / `setRings(change | null)` (merged into the scene's distances, null back to the
+  component's; refused whole on a bad field), and the quality level the page reports with its frame stats
+  (`Runtime.setStats` → `RuntimeVoxels.setQuality`; the project's levels reach the runtime with the voxel ports,
+  `presentVoxelWorlds(…, qualityLevels)`, worker and single-thread). Both apply without a reload through
+  `applyWorldRings`: `VoxelStreamer.setRing` (the read plan re-plans: chunks past the new unload bounds go, the
+  kept mip levels follow the load ring via `mipRingsFor` and `StreamMips.setRings`), `StreamLod.setRings` (one
+  swap), `CollisionRing.setBounds`, the budget. No ring distance is hard-coded outside the voxel defaults: the mip
+  rings follow the load ring (were a fixed 384 cells); the near lane stays the work queue's split (96 m, no wider
+  than the load ring), not a scene distance. `VoxelStreamer` stays at 80 members (`laneOf` became a module function).
+- **Tests:** `world-host.test.ts` (+1, real runtime, region files, worker threads, Rapier; 1.9 s): a script's
+  `setRings` brings level 0 over the ring — every level-1 node leaves in the swap event that brings its chunks, none
+  added; the collision ring grows (a body 16 m off comes) and the load ring shrinks to 16 m (chunks past it go, the
+  body with them); a level-0 distance below the collision ring stays at collision + 8 m; a bad change refused whole;
+  reported levels `small` (`voxelRings` 0.5, low tier) and `big` (2, high tier, the scene's own level-0 distance) scale
+  every ring and set the budget on the running streamer; `setRings(null)` back to the component. `voxel-world.test.ts`
+  (+1, +2 refusal / canonical cases: scale chain, overrides, invariants, tier scales² = budget ratio to medium, `voxelRings`
+  range); kit, kit-check, derived, case-forms, kit-pieces, chunk-view and placeholder tests rewritten to one mesh a
+  piece. Descriptor size bound + 3.1 KB, script-access digest re-pinned (added optional field, schema 8). Reference
+  and behaviour API typings regenerated; `voxels.rings` / `setRings` are graph-node skips (an object of groups).
+- **Gates.** Pieces: gate-fast-20261106-015434 GREEN (13 min, 4.6 GB; `voxel-world.e2e.ts` sum 62.8 s, 63.4 s at R6b).
+  Rings: gate-fast-20261106-023340 RED on the visual-script catalogue's skip list (fixed); a fast gate with tier scales
+  anchored at low grew Play / export WebGPU 6.4 → 12.5 s and 6.6 → 11.7 s (Iris Xe at medium loading 2× the area),
+  so the scales were anchored at medium (decision log); gate-fast-20261106-025025 RED on `world-host.test.ts` "keeps a
+  reloaded world's draws" twice (D484, then a near lane of half the load ring; restored); gate-rerun-20261106-030448
+  GREEN (5 min, 4.7 GB, perf at the cap 0 missed both renderers, 6.22 / 4.51 ms main thread). `voxel-world.e2e.ts`
+  sum 72.2 s (load 5.4, uptime 13.4 d; the slice-page tests, which this item does not touch, slowed alike).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1848,6 +1903,26 @@ freeze, 46c.17, 46c.18.
   - **C12: one full gate and an independent review after the build items (§6c),** then the owner looks at new
     pictures (acc46c-r2) **before** the specs freeze as v1.
   - Mixed roof slopes on one roof: not answered; **default chosen, owner to confirm:** one slope per roof.
+
+- 2026-11-06 (46c.16a, default chosen, owner to confirm): **the detail-piece ring is level 0's ring.** With two
+  detail states pieces draw exactly where level 0 draws, so `levels.level0` sets both (and stays at least the
+  collision radius + 8 m). A ring of full-detail voxels without pieces inside level 0 is not offered; it would need a
+  per-chunk piece switch in the draws.
+- 2026-11-06 (46c.16a, default chosen, owner to confirm): **a tier scales the rings by √(its budget / the medium
+  budget)** (low 0.71, medium 1, high 1.41), so the area loaded grows as the stream budget does; a level's
+  `voxelRings` overrides the tier's, a scene's `quality[<level>]` (scale or its own distances) overrides both. Medium
+  keeps today's distances: they were measured on the Iris Xe, which the device rule starts at medium (integrated GPU,
+  WebGPU); its WebGL 2 page and phones run low. A first cut anchored at low (low 1, medium 1.41, high 2) grew the
+  WebGPU Play and export e2e tests by 6 and 5 s on this host (more chunks at 1.41×): the Iris Xe would have loaded
+  twice the area by default.
+- 2026-11-06 (46c.16a, default chosen, owner to confirm): **a script changes the scene's base distances; the
+  quality level applies on top**, and a distance the scene sets for the running level wins over the script's.
+  Until the page reports its level (with its first frame stats, ≤ 0.5 s) a world streams at the scene's own
+  distances and the low tier's budget (or the host's); the report then re-plans once, without a reload.
+- 2026-11-06 (46c.16a): **the Scene view and the slice page keep the scene's own distances** (no quality level
+  there); Play and exports follow the level the page draws at.
+- 2026-11-06 (46c.16a): **kit field `high` keeps its name** for the one mesh a variant holds until the slot format
+  (46c.16b) replaces variants; renaming it now would churn every record twice.
 
 ## 10. Open questions for the owner
 

@@ -56,15 +56,23 @@ export interface MipRing {
   readonly radius: number;
 }
 
+/** The coarser levels a streamer keeps derived by default: level 1 (1 m cells) and level 2 (2 m cells). */
+export const DEFAULT_MIP_LEVELS: readonly number[] = Object.freeze([1, 2]);
+
 /**
- * The default levels kept derived: level 1 (1 m cells) and level 2 (2 m
- * cells) to 192 m, the load ring. Level 1 reaches the load ring although it
- * is drawn only to 128 m: a level-2 node is complete only where the chunks
- * a level-1 node round it hold are resident, about 100 m out in a 192 m
- * ring, so past that level 1 stands in for it (lod-select.ts). Nodes exist
- * only over resident chunks, so no level reaches past the load ring.
+ * The levels kept derived for a load ring: each of {@link DEFAULT_MIP_LEVELS}
+ * to the load radius. Level 1 reaches the load ring although it is drawn
+ * only to its own ring: a level-2 node is complete only where the chunks a
+ * level-1 node round it hold are resident (about 100 m out in a 192 m ring),
+ * so past that level 1 stands in for it (lod-select.ts). Nodes exist only
+ * over resident chunks, so no level reaches past the load ring.
  */
-export const DEFAULT_MIP_RINGS: readonly MipRing[] = Object.freeze([Object.freeze({ level: 1, radius: 384 }), Object.freeze({ level: 2, radius: 384 })]);
+export function mipRingsFor(ring: Pick<StreamRing, 'loadRadius'>): MipRing[] {
+  return DEFAULT_MIP_LEVELS.map((level) => Object.freeze({ level, radius: ring.loadRadius }));
+}
+
+/** The levels kept derived for the default ring. */
+export const DEFAULT_MIP_RINGS: readonly MipRing[] = Object.freeze(mipRingsFor(DEFAULT_STREAM_RING));
 
 /**
  * Where the levels are drawn by default (cells, horizontal box distance from
@@ -88,6 +96,19 @@ const MIB = 1024 * 1024;
  * chunks, derived data and open region tables. Low is the Iris Xe floor.
  */
 export const VOXEL_STREAM_BUDGET_BYTES: Readonly<Record<StreamTier, number>> = Object.freeze({ low: 256 * MIB, medium: 512 * MIB, high: 1024 * MIB });
+
+/**
+ * How much a tier scales every ring distance a world sets (load, collision,
+ * the levels) by default: the square root of its budget over the medium
+ * tier's, so the area a tier loads grows as its budget does (low 0.71,
+ * medium 1, high 1.41). Medium is 1: the default distances were measured on
+ * the Iris Xe, an integrated GPU, which starts at the medium tier.
+ */
+export const VOXEL_RING_SCALES: Readonly<Record<StreamTier, number>> = Object.freeze({
+  low: Math.sqrt(VOXEL_STREAM_BUDGET_BYTES.low / VOXEL_STREAM_BUDGET_BYTES.medium),
+  medium: 1,
+  high: Math.sqrt(VOXEL_STREAM_BUDGET_BYTES.high / VOXEL_STREAM_BUDGET_BYTES.medium),
+});
 
 /**
  * Bookkeeping bytes per resident chunk, air ones included: its entry in the

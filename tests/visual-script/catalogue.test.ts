@@ -549,7 +549,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'voxels.paint',
       // A save is bytes and a field list a list of names: not graph inputs.
       'voxels.restore',
+      // A world's distances are an object of groups: not a graph input or output yet.
+      'voxels.rings',
       'voxels.set',
+      'voxels.setRings',
       'voxels.setSavedFields',
       'voxels.whenResident',
       'voxels.world',

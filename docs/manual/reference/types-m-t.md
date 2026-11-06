@@ -740,6 +740,8 @@ interface QualityLevelConfig {
   reflections?: ReflectionQuality;
   /** The shadow atlas's side in texels, one of `SHADOW_ATLAS_SIZES` (absent: the tier's). */
   shadowAtlas?: number;
+  /** 0.25–4: scales every voxel world's ring distances (absent: the tier's, `VOXEL_RING_SCALES`). */
+  voxelRings?: number;
 }
 ```
 
