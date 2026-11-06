@@ -328,10 +328,14 @@ across) or a 1:2 stair (two cells along at each level, then one up) are
 drawn as flat sloped planes over the steps, not as steps: gables, hips
 (the planes meeting at an outside corner) and valleys (an inside corner)
 all close; one roof keeps one slope. The roof is a slab half a metre thick
-with its underside parallel to its top; a wall under a roof (or one cell
-under it) is cut to that underside, so no step shows in the attic or under
-the eaves, and a gable's end wall follows the slope. A wall or chimney
-through a roof keeps its own faces. Characters stand and walk on the drawn
+with its underside parallel to its top. Walls under a roof keep their
+stepped tops (a gable shows its steps, with a small gap between each step
+and the slope) unless the roof's kit sets **wall-top fill**
+(`wallTopFill: true`): then a wall under a roof (or one cell under it) is
+cut to that underside, so no step shows in the attic or under the eaves,
+and a gable's end wall follows the slope. The roof shows its own material
+up to the wall and the wall its own up to the roof: the two never blend.
+A wall or chimney through a roof keeps its own faces. Characters stand and walk on the drawn
 slope; light and walking routes still use the stepped cells. A flat roof,
 or a stair of another slope, keeps its plain block faces. Pieces go along
 the roof's edges only: ridge, eave, verge (the sloped gable edge), hip and

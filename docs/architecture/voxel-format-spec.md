@@ -1095,8 +1095,16 @@ chunk):
 
 | Offset | Format | Field |
 |---|---|---|
-| 0 | `uint16x4` | position in 1/1024 cell from one cell below the chunk corner; w = 0 |
-| 8 | `snorm8x4` | normal; w = 0 |
+| 0 | `uint16x4` | position in 1/1024 cell from one cell below the chunk corner; w: crack strength (low byte, derived v25), owner offset x and z (high byte, 4 bits each; derived v27) |
+| 8 | `snorm8x4` | normal; w: 0, or owner offset y (7 bits) over a set bit 0 (derived v27) |
+
+- **Owner offset** (derived v27, owner 2026-11-06 D519: no blend across the wall–roof seam; `derived-mesh.ts`
+  `writeSurfaceExtras` / `surfaceOwnerOf`): a face that shows one cell's material alone carries, in quarter cells,
+  the offset from each vertex to that cell's centre (x, z −7 … 7, y −63 … 63); interpolated across a triangle it
+  puts every pixel within an eighth of a cell of the centre, so the shader reads that one cell (material, wetness)
+  and blends nothing. The roof mesher's polygons name theirs (a plane cell its top, underside and the sides above its
+  underside; a supported cell's floor and its sides below its underside the body under it); a body's faces with a
+  plane cell among the 26 round it name the cell a quarter cell behind them. Still no material on a vertex.
 
 - A vertex carries no material and no weight (owner 2026-11-02): the shader finds the materials around each pixel
   in the shader data, so a material or wetness change rebuilds no mesh and a blend is the same on any mesh that
@@ -1433,7 +1441,7 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-#### Kits: edges, roofs and damage (as built in 46c and its revision; derived v10 → v26)
+#### Kits: edges, roofs and damage (as built in 46c and its revision; derived v10 → v27)
 
 **Owner note.** Kits change **no stored world format**: the chunk codec, region file, manifest, edit command, undo
 record, save and overrides keep their v2 bytes (§3.8). Edge and corner pieces, roof words, forms and piece choices
@@ -1508,11 +1516,13 @@ the material model and texture sets 46d's.
   shallow, gap, eave / verge / ridge sides, centre ridge, a phase bit a direction); `roofSurface` emits a closed
   prism a plane cell, in quarter cells: the top through the stair's outer corners (45°: T to T + 1 across a cell;
   1:2: T to T + ½ on a pair's low cell, T + ½ to T + 1 on its high one), the underside the parallel plane one cell
-  lower (owner C4); a cell over a body, or over one air cell over a body (`supported`, `gap`), closes down onto the
+  lower (owner C4); where the roof's kit fills wall tops (`wallTopFill`, §3.9; v27, default off: the walls keep their
+  steps) a cell over a body, or over one air cell over a body (`supported`, `gap`), closes down onto the
   body's top instead, its floor on the body's top face, so the body reads as cut to the underside slope (a gable's
   end wall under its verge, an eave wall up to the slope inside the attic) and the edge pass dresses no edge round that
   air cell (`isRoofGapCell`); ridge, hip and apex take the lowest plane, a valley the highest; shared sides cancel,
-  single-direction rows merge along their level line inside a section, every edge is split at the job's corners and,
+  each polygon is one cell's and names it (the owner offset: the slab its plane cell, the closing floor and sides the
+  body; v27, the rows no longer merge), every edge is split at the job's corners and,
   on a section face, at every half-cell point (quarter points up where a 1:2 plane cell meets that face; closed
   across sections and chunks). The planes are appended to the **base surface** (same 12-byte vertex, same shader); plane
   cells draw no voxel faces and hide none of their neighbours' (a wall through a roof keeps its faces). **Collision:**
@@ -1560,10 +1570,10 @@ the material model and texture sets 46d's.
   `latticeHash4(cell, seed + level·φ + slot·c)` (slot = case index << 4 | placement << 2 | yaw, seed the project's
   `voxel_piece_seed`, replacing crc32(kitId)) among the meshes' weights, so a cell's edges vary on their own and an
   edit elsewhere never moves them; bit 15 (`PIECE_VARIANT_MIRROR`) the mirror (a verge rising toward its own −x).
-- **The piece table** (format 4, `PIECE_TABLE_FORMAT`; `piece-table.ts`): built on the main thread from the
+- **The piece table** (format 5, `PIECE_TABLE_FORMAT`; `piece-table.ts`): built on the main thread from the
   project's kits (§3.9), the catalogue and the project seed, carried by every derive job, never stored. Bytes: u16
   format, rule id (text), u16 rule version, u16 case count, u32 project seed, u16 kit count; per kit (by id) its id
-  (text), f32 jitter, its three damage stages (each u16 used, min, max, pieces a face; format 4), u16 piece count, case count × u16 (its piece, or `NO_PIECE` 0xffff: an empty slot), per piece a
+  (text), f32 jitter, u16 wall-top fill (0/1; format 5), its three damage stages (each u16 used, min, max, pieces a face; format 4), u16 piece count, case count × u16 (its piece, or `NO_PIECE` 0xffff: an empty slot), per piece a
   u16 count + u16 mesh weight thresholds; then u32 pair count and (u16 material, u16 kit) pairs. **Material → kit**
   by the kit's test binding (`materials`; 46d's material model replaces it); a material no kit binds (`NO_KIT`)
   draws no pieces. No default kit (`default-kit.ts` archived). A kit's hash is crc32 of its part xor-mixed with the
@@ -1654,6 +1664,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 24 → 25 | 46c.16e | three damage stages a kit (piece table 4, rules `edges` v7, catalogue `edges-draft` v3): stage 1 a cracked body with its edges, the crack strength in position w; stages 2–3 a hole drawing no piece of its own (`debris` cases and `replacesBase` gone) whose neighbour faces carry the stage's damage pieces with a scatter index (dressing bits 11–14); a damaged cell's light coverage its integrity's share | 12 B | **owner 2026-11-05/06** (A9 revised three stages a kit, G1 default split and crack overlay, F4 solid until air but light by integrity, C10 strokes whole) |
 | 23 → 24 | 46c.16d | 1:2 roofs drawn as planes (roof words read two cells round, quarter-cell geometry), their roof-edge pieces flagged `shallow` / `high` (0x20 / 0x80) and pitched by the renderer; a roof over a body or over one air cell over a body closes down onto the body (rules `edges` v6: no edge piece round that air cell); coarse levels re-lay 1:2 roofs at 1:2 | 12 B | **owner 2026-11-05/06** (A7 1:2 roofs, A8 ramps, F3 one mesh pitched, C4 parallel underside, wall tops cut, C7 coarse re-lay); one slope a roof a default |
 | 25 → 26 | 46c.16h | the roof follows the kit's damage stages: a roof cell drawn whole by its kit (cracked, or an integrity in no stage) stays a plane cell, its planes carrying the crack strength in position w; a cracked body under a roof still carries it (D521) | 12 B | **owner 2026-11-05/06** (G1 stage 1 drawn whole with the overlay, a kit leaving a stage out draws intact, C4 wall tops cut) |
+| 26 → 27 | 46c.16j | wall and roof apart (D519): the roof mesher's polygons and the faces of bodies next to a plane cell carry an owner offset (position w high byte, normal w) naming the one cell they show, unmerged across cells; the closing geometry names the wall; the shader reads that cell alone. A roof closes onto the walls only where its kit's `wallTopFill` (piece table 5) asks; else stepped wall tops | 12 B, add-only bits | **owner 2026-11-06** (acc46c-r2 D519/O2: no blend across the seam, the free normal.w byte; follow-up: wall-top fill a roof-kit setting, default off) |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1735,7 +1746,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 26 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 27 | refused | rebuilt, never upgraded |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 4 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
@@ -1764,7 +1775,13 @@ ids it holds are opaque here and the catalogue that names them is a draft. Nothi
   (one or more), gameData?}`; a mesh is `{assetId, digest, node?}`, the digest the GLB version's SHA-256 source
   digest; `rotation` a cube rotation 0–23, absent 0; `weight` absent 1), `jitter?` (0–4, absent 1; a 1 is left out
   canonically), `trimLayout?` (an id; absent: no trim sheet), `damage?` (46c.16e: `stage1?`, `stage2?`, `stage3?`
-  each `{min, max, pieces?}` or null, `crackTexture?` `{assetId, digest}` an image asset; see below), `gameData?`.
+  each `{min, max, pieces?}` or null, `crackTexture?` `{assetId, digest}` an image asset; see below), `wallTopFill?`
+  (46c.16j; a boolean, false left out canonically), `gameData?`.
+- **Wall-top fill (draft change, owner 2026-11-06 follow-up choices; 46c.16j).** On a roof's kit (the kit of the
+  roof cell's material): true closes the roof's slab down onto a body under it, or under one air cell under it (the
+  body's top cut to the roof's underside, §3.7 roof mesher); absent or false, and for a material without a kit, the
+  walls keep their stepped tops under the parallel underside. 47a's building object may override it per building.
+  An add-only field of the draft format 1.
 - **Damage (draft change, owner 2026-11-05/06 A9 revised, G1; 46c.16e).** A stage absent is the engine's
   (`DAMAGE_STAGES_DEFAULT`: 11–14 cracks, 6–10 a hole with 6 pieces a face, 1–5 with 3), null leaves it out; ranges
   are integrities 1–14, `min` ≤ `max`, no two stages sharing one; `pieces` (stages 2 and 3 only) 1–16. The checks are

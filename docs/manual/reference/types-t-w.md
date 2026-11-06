@@ -1000,6 +1000,8 @@ interface VoxelKit {
   trimLayout?: string;
   /** Its damage stages and crack texture (absent: the engine's). */
   damage?: VoxelKitDamage;
+  /** Its roofs fill the wall tops under them up to their underside (absent: false, the walls keep their steps). */
+  wallTopFill?: boolean;
   /** The game's own data for the whole kit, never read by the engine. */
   gameData?: VoxelKitJson;
 }

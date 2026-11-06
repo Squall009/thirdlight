@@ -12,7 +12,7 @@
  * The houses sit at odd and even cells, so a shell meets the coarse cells'
  * boundaries both ways.
  */
-import { chunkGrid, createWorldStore, deriveMipNode, MipTree, POSITION_STEPS_PER_CELL, TERRAIN_RULES, VOXEL_ROLE, type PaletteStore } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, deriveMipNode, MipTree, POSITION_STEPS_PER_CELL, TERRAIN_RULES, VOXEL_ROLE, type AssemblyRuleSet, type PaletteStore, type PieceTable } from '@thirdlight/voxel';
 import { weldBase, type BaseMesh } from './base-cases';
 import { MAT } from './world-kit';
 
@@ -96,15 +96,15 @@ export function shellBox(h: ShellHouse): { min: [number, number, number]; max: [
   return { min: [h.x0 - 1, h.y0, h.z0 - 1], max: [h.x0 + h.w + 1, h.y0 + h.walls + 3 + Math.max(h.w, h.d), h.z0 + h.d + 1] };
 }
 
-/** The base surfaces of every level-`level` node over the houses, welded; positions in level-0 cells. */
-export function shellMesh(store: PaletteStore, level: number, houses: readonly ShellHouse[] = SHELL_HOUSES): { mesh: BaseMesh; points: Float64Array } {
+/** The base surfaces of every level-`level` node over the houses (under `rules`, kits from `table`), welded; positions in level-0 cells. */
+export function shellMesh(store: PaletteStore, level: number, houses: readonly ShellHouse[] = SHELL_HOUSES, rules: AssemblyRuleSet = TERRAIN_RULES, table: PieceTable | null = null): { mesh: BaseMesh; points: Float64Array } {
   const tree = new MipTree(store);
   const span = E << level;
   const lo = [0, 1, 2].map((a) => Math.min(...houses.map((h) => shellBox(h).min[a]!)));
   const hi = [0, 1, 2].map((a) => Math.max(...houses.map((h) => shellBox(h).max[a]!)));
   const parts = [];
   for (let nx = Math.floor(lo[0]! / span); nx <= Math.floor(hi[0]! / span); nx++) for (let ny = Math.floor(lo[1]! / span); ny <= Math.floor(hi[1]! / span); ny++) for (let nz = Math.floor(lo[2]! / span); nz <= Math.floor(hi[2]! / span); nz++) {
-    parts.push({ buf: deriveMipNode(tree, { level, nx, ny, nz }, TERRAIN_RULES).base, cx: nx, cy: ny, cz: nz });
+    parts.push({ buf: deriveMipNode(tree, { level, nx, ny, nz }, rules, undefined, table).base, cx: nx, cy: ny, cz: nz });
   }
   const mesh = weldBase(parts);
   // weldBase's positions are in the level's steps from the level's origin: level-0 cells × 2^level.

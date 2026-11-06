@@ -334,10 +334,16 @@ terrain, as **flat sloped planes** with the roof material's tiling texture laid 
 - **The fallback is voxel faces.** Flat roofs, plans other than 90° hips and valleys, and
   the few cells where the two ridges of a 1:2 L cross (D518) keep their voxel faces, so a roof never disappears.
 - **The underside is always the parallel slope** one cell (0.5 m) below the top (owner C4), never voxel floors.
-- **Wall tops are closed up to it.** A wall (any body) directly under a plane cell, or under one air cell under it,
-  has its top cut to that underside: the roof closes down onto it, so no voxel step shows inside the attic or
-  outside under the eave and verge, and a gable's end wall follows the slope. A body two or more cells under the roof
-  (an attic partition, a room's ceiling) is left as it is. A wall or chimney through the roof keeps its own faces.
+- **Wall tops: stepped, or filled where the roof's kit asks** (owner 2026-11-06: an artistic choice, default off).
+  Without it the walls under a roof keep their stepped voxel tops under the parallel underside: a gable shows its
+  steps with a small triangle open between each step and the slope, an eave wall stopping a cell under the roof
+  leaves that cell open. With the roof kit's `wallTopFill` a wall (any body) directly under a plane cell, or under
+  one air cell under it, has its top cut to that underside: the roof closes down onto it, so no voxel step shows
+  inside the attic or outside under the eave and verge, and a gable's end wall follows the slope. A body two or more
+  cells under the roof (an attic partition, a room's ceiling) is left as it is. A wall or chimney through the roof
+  keeps its own faces. (47a's building object may override the fill per building.)
+- **Wall and roof never blend** (owner 2026-11-06, D519). The roof planes show the roof's material up to the seam,
+  the fill the wall's; walls and chimneys next to a roof show their own cells' materials, unblended.
 - **Ridges, hips and a pyramid's apex** take the lower of two planes, valleys the higher.
 - **Collision** follows the drawn planes at both slopes (a ramp; owner A8); light, occupancy and navigation keep the
   stair voxels.
@@ -682,7 +688,7 @@ empty; no textures (the runtime debug set), no LODs, collision from the voxels.
       flush pieces at `opening` cells (§3).
 - [ ] The 17 cases of `edges-draft` v3 as slots, and their orientation convention (§4–§7).
 - [ ] Roofs: flat, 45° and 1:2, one slope a roof, voxel faces as the fallback, the parallel underside, wall tops
-      closed up to it, collision as the planes; one roof-edge mesh pitched for both slopes, the mirrored verge, half
+      stepped or filled up to it by the roof kit's choice, no blend across the seam, collision as the planes; one roof-edge mesh pitched for both slopes, the mirrored verge, half
       pieces at hip apexes (§6).
 - [ ] Damage: three stages a kit (ranges, piece counts, crack texture), solid until air, light by integrity, near
       ring only (§7).

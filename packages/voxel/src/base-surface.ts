@@ -27,21 +27,30 @@
  * merge across materials looks the same as the faces it replaces. A cracked
  * cell's faces (damage stage 1) carry the crack overlay's strength in their
  * vertices (position w) and merge only with faces of the same strength.
+ *
+ * **Next to a roof.** The faces of a body with a roof's plane cell among
+ * the 26 round it (a wall under or beside a roof, a chimney through one)
+ * show their own cell's material alone: their vertices carry the owner
+ * offset a quarter cell in (derived-mesh.ts), which names the cell behind
+ * each pixel, so a wall never blends with the roof it carries, nor with
+ * any other cell there. They merge only with faces of the same kind.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, type Neighbourhood } from './assembly';
 import { FORM_BASE, FORM_SHAPE, formBaseOf, formShapeOf } from './case-forms';
-import { POSITION_STEPS_PER_CELL, SURFACE_ISO, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
+import { POSITION_STEPS_PER_CELL, SURFACE_ISO, SURFACE_OWNER_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, writeSurfaceExtras, type SurfaceBuffer } from './derived-mesh';
 
 const STEPS = POSITION_STEPS_PER_CELL;
 
 /** Per-thread working arrays, grown to the largest job seen. */
 let faces = new Uint8Array(0);
-/** Per cell: the crack overlay's strength on its faces (0 … 255). */
-let cracks = new Uint8Array(0);
-/** Per face cell of a layer: 0 none, else 1 + its crack strength (faces merge only with equal values). */
+/** Per cell: the crack overlay's strength on its faces (0 … 255), plus {@link OWN} when they show their cell alone. */
+let cracks = new Uint16Array(0);
+/** Per face cell of a layer: 0 none, else 1 + its crack value (faces merge only with equal values). */
 let mask = new Uint16Array(0);
-/** Rectangles: direction, layer, a0, b0, a1, b1 (in-plane cells, ends exclusive), crack strength. */
+/** Rectangles: direction, layer, a0, b0, a1, b1 (in-plane cells, ends exclusive), crack value. */
 const RECT = 7;
+/** A crack value's flag: the faces show their own cell's material alone (a body next to a roof's plane cell). */
+const OWN = 0x100;
 let rects = new Int32Array(RECT * 256);
 let rectCount = 0;
 /** Lattice points that are some rectangle's corner (stamped by call). */
@@ -52,7 +61,7 @@ let vertexOf = new Int32Array(0);
 let call = 0;
 let pos = new Int32Array(3 * 1024);
 let nrm = new Int8Array(3 * 1024);
-let crk = new Uint8Array(1024);
+let crk = new Uint16Array(1024);
 let tris = new Uint32Array(3 * 2048);
 let vertexCount = 0;
 let triLen = 0;
@@ -73,7 +82,7 @@ function addVertex(x: number, y: number, z: number, d: number, crack: number): n
     const q = new Int8Array(nrm.length * 2);
     q.set(nrm);
     nrm = q;
-    const c = new Uint8Array(crk.length * 2);
+    const c = new Uint16Array(crk.length * 2);
     c.set(crk);
     crk = c;
   }
@@ -124,14 +133,29 @@ function buildSurface(): SurfaceBuffer {
     view.setUint16(at, pos[3 * v]!, true);
     view.setUint16(at + 2, pos[3 * v + 1]!, true);
     view.setUint16(at + 4, pos[3 * v + 2]!, true);
-    view.setUint16(at + 6, crk[v]!, true);
     view.setInt8(at + 8, nrm[3 * v]!);
     view.setInt8(at + 9, nrm[3 * v + 1]!);
     view.setInt8(at + 10, nrm[3 * v + 2]!);
+    // A face showing its own cell names the cell a quarter cell in from it (against its normal).
+    const own = (crk[v]! & OWN) !== 0;
+    if (own) for (let a = 0; a < 3; a++) ownerScratch[a] = -Math.sign(nrm[3 * v + a]!) * (SURFACE_OWNER_STEPS_PER_CELL / 4);
+    writeSurfaceExtras(view, v, crk[v]! & 0xff, own ? ownerScratch : null);
   }
   const t = tris.subarray(0, triLen);
   const indices = vertexCount < 65536 ? new Uint16Array(t) : new Uint32Array(t);
   return { vertexCount, vertices, indices };
+}
+
+const ownerScratch = [0, 0, 0];
+
+/** Whether a neighbourhood cell has a roof's plane cell among the 26 round it. */
+function besideElsewhere(i: number, s: number): boolean {
+  if (drawnElsewhere === null) return false;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const row = i + (dx * s + dz) * s;
+    if (drawnElsewhere[row - 1] !== 0 || drawnElsewhere[row] !== 0 || drawnElsewhere[row + 1] !== 0) return true;
+  }
+  return false;
 }
 
 /** The crack overlay's strength (0 … 255) of a body cell's faces from its value (damage stage 1; piece-table.ts crackStrengthOf). */
@@ -184,7 +208,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
   // Each cell's exposed faces (bit d: direction d), cell (x, y, z) at (x · e + y) · e + z.
   if (faces.length < e * e * e) {
     faces = new Uint8Array(e * e * e);
-    cracks = new Uint8Array(e * e * e);
+    cracks = new Uint16Array(e * e * e);
   }
   let any = 0;
   for (let x = 0; x < e; x++) for (let y = 0; y < e; y++) for (let z = 0; z < e; z++) {
@@ -194,7 +218,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
       for (let d = 0; d < 6; d++) if (!hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, piecesAsBodies)) f |= 1 << d;
     }
     faces[(x * e + y) * e + z] = f;
-    cracks[(x * e + y) * e + z] = f !== 0 && crackOf !== null ? crackOf(n.values[i]!) : 0;
+    cracks[(x * e + y) * e + z] = f === 0 ? 0 : (crackOf !== null ? crackOf(n.values[i]!) : 0) | (besideElsewhere(i, s) ? OWN : 0);
     any |= f;
   }
   if (any === 0) return buildSurface();
@@ -309,7 +333,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
       extra[side] = added;
     }
     // Output vertices of the ring, shared by direction with the job's other rectangles.
-    // A cracked rectangle's vertices are its own (they carry its strength); they sit on the same points.
+    // A cracked or owned rectangle's vertices are its own (they carry its strength or owner); they sit on the same points.
     const crack = rects[o + 6]!;
     for (let j = 0; j < k; j++) {
       const key = pointOf(axis, u, v, plane, ring[2 * j]!, ring[2 * j + 1]!) * 6 + d;

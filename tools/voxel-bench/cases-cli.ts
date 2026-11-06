@@ -69,6 +69,7 @@ import {
   type Neighbourhood,
   type PaletteStore,
   WORLD_RULES,
+  worldPieceTable,
 } from '@thirdlight/voxel';
 import { benchDir } from './bench-dirs';
 import { loadArea } from './regions';
@@ -272,9 +273,12 @@ function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [numb
  * The roof mesher a section at a time: classification and planes (µs,
  * sections with a plane cell), the section's whole derive with them, and its
  * base triangles against the same voxels with every roof cell read as a
- * wall (the stair's faces, what the base surface drew before).
+ * wall (the stair's faces, what the base surface drew before). `--fill`:
+ * every building material's kit fills wall tops under its roofs (default:
+ * no kit, the walls keep their stepped tops).
  */
 function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Record<string, unknown> {
+  const table = process.argv.includes('--fill') ? worldPieceTable([{ voxelKitId: 'fill', materials: [...BUILDING_MATERIALS], slots: {}, wallTopFill: true }], 0) : null;
   const words = new Uint32Array(sections[0]!.values.length);
   const us: number[] = [];
   const classifyUs: number[] = [];
@@ -290,7 +294,7 @@ function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Recor
       for (let i = 0; i < n.values.length && !roofs; i++) roofs = valueRole(n.values[i]!) === VOXEL_ROLE.roof;
       if (!roofs) continue;
       const t = performance.now();
-      const cells = classifyRoofs(n, words);
+      const cells = classifyRoofs(n, words, table);
       const tc = performance.now();
       const ramps = cells === 0 ? null : roofSurface(n, words);
       const t1 = performance.now();
@@ -298,7 +302,7 @@ function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Recor
       us.push((t1 - t) * 1000);
       classifyUs.push((tc - t) * 1000);
       const t2 = performance.now();
-      const d = deriveChunk(n, WORLD_RULES);
+      const d = deriveChunk(n, WORLD_RULES, undefined, undefined, 0, { table, origin: [0, 0, 0] });
       deriveUs.push((performance.now() - t2) * 1000);
       if (round > 0) continue;
       roofSections++;
@@ -306,10 +310,10 @@ function measureRoofs(sections: readonly Neighbourhood[], rounds: number): Recor
       rampTris += ramps!.indices.length / 3;
       after += d.base.indices.length / 3;
       const asWall = { ...n, values: Uint32Array.from(n.values, (v) => (valueRole(v) === VOXEL_ROLE.roof ? valueOf({ material: valueMaterial(v), role: VOXEL_ROLE.wall, shape: valueShape(v), wetness: valueWetness(v) }) : v)) };
-      before += deriveChunk(asWall, WORLD_RULES).base.indices.length / 3;
+      before += deriveChunk(asWall, WORLD_RULES, undefined, undefined, 0, { table, origin: [0, 0, 0] }).base.indices.length / 3;
     }
   }
-  return { roofSections, planeCells, us: q2(us), classifyUs: q2(classifyUs), deriveUs: q2(deriveUs), rampTriangles: rampTris, baseTriangles: { stairFaces: before, planes: after } };
+  return { fill: table !== null, roofSections, planeCells, us: q2(us), classifyUs: q2(classifyUs), deriveUs: q2(deriveUs), rampTriangles: rampTris, baseTriangles: { stairFaces: before, planes: after } };
 }
 
 /**

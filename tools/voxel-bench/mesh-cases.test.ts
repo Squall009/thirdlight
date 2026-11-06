@@ -4,7 +4,7 @@
  * recorded goldens, and meshes broken on purpose (a hole torn, vertices
  * moved, a feature removed, a hole covered) fail them.
  */
-import { chunkGrid, CREASE_SPLIT_DEG, createWorldStore, deriveFromStore, deriveMipNode, groundHeightfield, GROUND_HEIGHTFIELD_TOLERANCE_M, mipCellMetres, MipTree, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, VOXEL_ROLE, type SurfaceBuffer } from '@thirdlight/voxel';
+import { chunkGrid, CREASE_SPLIT_DEG, createWorldStore, deriveFromStore, deriveMipNode, groundHeightfield, GROUND_HEIGHTFIELD_TOLERANCE_M, mipCellMetres, MipTree, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, TERRAIN_RULES, voxel, VOXEL_ROLE, WORLD_RULES, worldPieceTable, type SurfaceBuffer } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { chunkBase, coverage, exposedFaces, naiveOpenSegments, openSegments, tJunctions, unmatchedEdges, weldBase, type BaseMesh } from './base-cases';
 import { FEATURE_GROUND, featureCases, featuresStore } from './features';
@@ -316,11 +316,15 @@ describe('mip levels through the same mesher', () => {
 describe('one-cell shells at coarse levels (built bodies thickened, never opened)', () => {
   it('keeps a house of one-cell walls, floor and roof (gable, hip and flat, at odd and even cells) watertight and closed at levels 1 and 2, its silhouette kept and grown by at most the level\'s cell', { timeout: 60_000 }, () => {
     const s = shellStore();
-    const m0 = shellMesh(s, 0);
+    // Closed houses: the roof's kit fills the wall tops (without it a gable shows its steps, open under the slope at
+    // every level, each at its own cells: watertight, but a gable's silhouette has holes the size of its level's cells).
+    const fill = worldPieceTable([{ voxelKitId: 'roofing', materials: [MAT.roofTile], slots: {}, wallTopFill: true }], 0);
+    for (const level of [0, 1, 2]) expect(unbalancedEdges(shellMesh(s, level).mesh), `L${level} stepped`).toBe(0);
+    const m0 = shellMesh(s, 0, SHELL_HOUSES, WORLD_RULES, fill);
     const l0 = SHELL_HOUSES.map((h) => SHELL_VIEWS.map((axis) => silhouette(h, m0.points, m0.mesh, axis, 1)));
     for (const h of SHELL_HOUSES) expect(raysOut(h, m0.points, m0.mesh), `L0 ${h.name}`).toBe(0);
     for (const level of [1, 2]) {
-      const { mesh, points } = shellMesh(s, level);
+      const { mesh, points } = shellMesh(s, level, SHELL_HOUSES, WORLD_RULES, fill);
       const cell = 1 << level;
       expect(mesh.triangles.length, `L${level}`).toBeGreaterThan(0);
       expect(unbalancedEdges(mesh), `L${level}`).toBe(0);

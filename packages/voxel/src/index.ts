@@ -293,12 +293,13 @@ export {
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { dressingWord, INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, instanceDressingCell, instanceFlushFaces, instanceScatter, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { dressingWord, INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, instanceDressingCell, instanceFlushFaces, instanceScatter, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, POSITION_STEPS_PER_CELL, snorm8, surfaceCrackOf, SURFACE_ISO, SURFACE_OWNER_STEPS_PER_CELL, surfaceOwnerOf, SURFACE_VERTEX_BYTES, writeSurfaceExtras, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { applyCubeRotation, CUBE_ROTATION_COUNT, CUBE_ROTATION_X90, CUBE_ROTATION_ZM90, CUBE_ROTATIONS, cubeRotationIndex, mirrorAxisOf, type CubeRotation } from './cube-rotations';
 export { caseFlushFaces, cutFlush, DAMAGE_SCATTER_REACH, damageScatter, isDamagePieceCase, meshRunAxis, PIECE_FLUSH_INSET, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, roofPitch, type Affine34, type PieceStaggerFrame } from './piece-placement';
 export {
   buildPieceTable,
   cellDamageStages,
+  cellWallTopFill,
   crackStrengthOf,
   damageStageOf,
   kitPieceList,

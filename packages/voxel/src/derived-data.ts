@@ -190,8 +190,19 @@ import { utf8Encode } from '@thirdlight/shared';
  * roof still carries it (its top cut to the underside). Results differ
  * from v25's round damaged roof and wall-top cells only; the layout is
  * v25's.
+ * 27: wall and roof apart: every polygon of the roof mesher, and every face
+ * of a body with a plane cell among the 26 round it, names the one cell
+ * whose material it shows (the owner offset in position w's high byte and
+ * normal w, derived-mesh.ts; was 0), so the shader never blends a roof with
+ * the wall it sits on; the roof mesher's polygons no longer merge across
+ * cells. A roof closes down onto the walls under it only where its kit
+ * fills wall tops (`wallTopFill`, piece table 5; no kit: no), else the
+ * walls keep their stepped tops under the parallel underside and edges
+ * round the air cell under an eave are dressed as anywhere. Surfaces,
+ * collision ramps and instances differ from v26's round roofs; the layout
+ * is v26's.
  */
-export const DERIVED_FORMAT_VERSION = 26;
+export const DERIVED_FORMAT_VERSION = 27;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

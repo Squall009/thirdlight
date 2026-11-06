@@ -32,6 +32,13 @@
  * ridge and hip apex lie a whole cell above its top voxels) it takes the
  * cell under them in its nearest column.
  *
+ * **Owned faces.** A face whose vertices carry an owner offset (the voxel
+ * derive's: a roof plane, the closing geometry a roof sets on a wall, a
+ * wall's faces next to a roof; {@link VOXEL_OWNER_ATTRIBUTE}) shows its
+ * owner cell's material and wetness alone, read in one more texel: the
+ * pixel's position plus the interpolated offset lies in that cell. So a
+ * roof and the wall it sits on never blend across their seam.
+ *
  * Coarser levels of the chunk tree draw through the same program: a node's
  * grid holds its own (coarser) cells, so each object passes its cell size
  * and the grid is read in its cells, while the read depth, the blend
@@ -49,7 +56,7 @@
  * Texture units: the grid texture, the material table, the pattern array
  * and the crack array, four of a lit program's sixteen (`texture-units.ts`);
  * the band test texture a fifth when it is on. Reads a pixel: nine grid
- * texels, five table texels (look and tiles of two materials, the crack
+ * texels (ten with the owner cell's), five table texels (look and tiles of two materials, the crack
  * layer of the first), six pattern samples (a construction material takes
  * one projection, through the first of its three samples) and one crack
  * sample, two band samples more with the bands on.
@@ -64,7 +71,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { CONSTRUCTION_TILE_METRES, SHADER_CONSTRUCTION_BIT, TERRAIN_TILE_METRES } from '@thirdlight/voxel';
+import { CONSTRUCTION_TILE_METRES, SHADER_CONSTRUCTION_BIT, SURFACE_OWNER_STEPS_PER_CELL, TERRAIN_TILE_METRES } from '@thirdlight/voxel';
 import { crackArrayTexture } from './voxel-crack-texture';
 
 /**
@@ -72,6 +79,12 @@ import { crackArrayTexture } from './voxel-crack-texture';
  * non-zero only on a cracked cell's faces (voxel damage stage 1).
  */
 export const VOXEL_CRACK_ATTRIBUTE = 'voxelCrack';
+
+/**
+ * The surface geometry's attribute holding a vertex's owner offset (snorm8x4: x, y, z the offset in quarter cells
+ * of its buffer's cells times 1/127, w 1/127 when it has one; voxel `surfaceOwnerOf`), all 0 on a blended face.
+ */
+export const VOXEL_OWNER_ATTRIBUTE = 'voxelOwner';
 
 /** How much a crack darkens the face under it (0 … 1). */
 const CRACK_DARKEN = 0.7;
@@ -399,6 +412,10 @@ export interface VoxelSurface {
 const crackStrength = (): N =>
   Fn((builder: { hasGeometryAttribute(name: string): boolean }) => (builder.hasGeometryAttribute(VOXEL_CRACK_ATTRIBUTE) ? attribute(VOXEL_CRACK_ATTRIBUTE, 'float') : float(0)))();
 
+/** A vertex's owner offset (cells; w > 0: it has one), from the geometry's attribute (absent: none). */
+const ownerOffset = (): N =>
+  Fn((builder: { hasGeometryAttribute(name: string): boolean }) => (builder.hasGeometryAttribute(VOXEL_OWNER_ATTRIBUTE) ? attribute(VOXEL_OWNER_ATTRIBUTE, 'vec4').mul(127) : vec4(0)))();
+
 /** The surface material over a set of shader grids. */
 export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfaceOptions): VoxelSurface {
   const grids = new VoxelShaderGrids(layout);
@@ -545,14 +562,25 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         nWet.assign(select(takes, wet, nWet));
         nw.assign(select(takes, float(1e-6), nw));
       }
+      // An owned face: the cell its pixel's position plus the interpolated offset lies in, alone (no blend).
+      const ownerAt = ownerOffset().toVar();
+      const ownCell = ivec3(floor(positionLocal.div(cellU).add(ownerAt.xyz.div(SURFACE_OWNER_STEPS_PER_CELL)))).add(layout.border);
+      const lo3 = int(0);
+      const ox = clamp(ownCell.x, lo3, hi);
+      const oy = clamp(ownCell.y, lo3, hi);
+      const oz = clamp(ownCell.z, lo3, hi);
+      const ownTexel = gridNode.load(ivec3(o.x.add(oy), o.y.add(oz), o.z.add(ox))).toVar();
+      const ownEntry = decode(floor(ownTexel.r.mul(255).add(0.5)).add(floor(ownTexel.g.mul(255).add(0.5)).mul(256)));
+      const owner = { mat: ownEntry.mat.toVar(), wet: ownEntry.wet.toVar() };
+      const owned = ownerAt.w.greaterThan(0.5).and(owner.mat.greaterThan(0.5)).toVar();
       // A chunk of one solid entry passes it instead of a grid; a blend that found no solid takes the nearest solid.
       const solid = slot.w.greaterThanEqual(0);
       const se = decode(max(slot.w, 0));
       const none = v1.lessThanEqual(0);
-      const mA = select(solid, se.mat, select(none, nm, m1));
-      const mB = select(solid, se.mat, select(none, nm, max(m2, 0)));
-      const share = select(solid.or(none), float(0), v2.div(max(v1.add(v2), 1e-6)));
-      const wetness = select(solid, se.wet, select(none, nWet, wetSum.div(max(total, 1e-6)))).div(layout.wetnessMax);
+      const mA = select(solid, se.mat, select(owned, owner.mat, select(none, nm, m1)));
+      const mB = select(solid, se.mat, select(owned, owner.mat, select(none, nm, max(m2, 0))));
+      const share = select(solid.or(none).or(owned), float(0), v2.div(max(v1.add(v2), 1e-6)));
+      const wetness = select(solid, se.wet, select(owned, owner.wet, select(none, nWet, wetSum.div(max(total, 1e-6))))).div(layout.wetnessMax);
       // World metres from the object's grid phase (plain, and the slope's) plus the local position.
       const p = phaseU.mul(layout.cellMetres).add(positionLocal);
       const ps = slopePhaseU.add(positionLocal);
@@ -583,7 +611,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const a2 = albedo(mB).toVar();
       const blended = mix(a1, a2, share);
       // Nothing solid among the eight cells (should not happen on a surface): a neutral grey shows it.
-      const seen = solid.or(nw.greaterThan(0));
+      const seen = solid.or(owned).or(nw.greaterThan(0));
       // Cracks (a damaged block's faces, damage stage 1): one crack tile a cell face, on the grid's metres; a texel
       // shows once the face's strength reaches it (bright cracks first). Sampled outside any branch, as above.
       const crackLayer = int(floor(look(mod(mA, matMask), 1).z.add(0.5)));

@@ -12,7 +12,8 @@
  * side and T + 1 on its high side; at 1:2 the pair's low cell runs from T
  * to T + ½ and its high cell from T + ½ to T + 1. Its underside is the
  * parallel plane one cell lower. A supported cell (a body under it,
- * directly or across one air cell) closes down onto the body's top
+ * directly or across one air cell, where the roof's kit asks for the wall
+ * tops to be filled: roof-words.ts) closes down onto the body's top
  * instead: its sides reach down to it and its floor lies on the body's top
  * face, so the body's top reads as cut to the roof's underside and no step
  * shows under the roof. A cell rising in several directions takes the
@@ -21,18 +22,24 @@
  * cell is a closed prism (top, underside or floor, four sides); faces two
  * prisms share are left out, and where two meet on a side unequally only
  * the difference is drawn, so the roof is one closed skin and a ridge, hip
- * or valley is where two planes meet edge to edge. Single-direction cells in
- * a row along the slope's level line merge into one quad (inside a section;
- * never across a section face), and every edge takes the lattice points on
- * it where another polygon of the job has a corner (on a section face:
- * every lattice point), so polygons meet without T-junctions. Points are
+ * or valley is where two planes meet edge to edge. Every edge takes the
+ * lattice points on it where another polygon of the job has a corner (on a
+ * section face: every lattice point), so polygons meet without T-junctions. Points are
  * whole quarter cells (a 1:2 plane is half a cell up a cell's middle); a
  * cell's corners, edge middles and centre are points of the lattice.
+ *
+ * **Owners: wall and roof never blend.** Every polygon shows one cell's
+ * material alone, named by the owner offset its vertices carry
+ * (derived-mesh.ts): a plane cell's top, underside and sides above its
+ * underside its own cell, a supported cell's closing geometry (its floor,
+ * and its sides below its underside) the body under it. So a roof keeps its
+ * material up to the seam and the wall its own up to the roof, whatever the
+ * two are, and polygons join only within one cell.
  *
  * **Cracks.** A cracked plane cell (damage stage 1, roof-words.ts) stays in
  * its plane; its top and underside carry the crack overlay's strength in
  * their vertices' position w, as a cracked block's faces do
- * (base-surface.ts), and merge only with equal strengths.
+ * (base-surface.ts).
  *
  * Plane cells hide nothing: a wall beside, under or through a roof keeps
  * its faces (the planes stop at it; the wall's face closes the slab).
@@ -44,15 +51,12 @@
  * pieces off round plane cells, within its rule set's radius.
  */
 import type { Neighbourhood } from './assembly';
-import { POSITION_STEPS_PER_CELL, snorm8, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
+import { POSITION_STEPS_PER_CELL, snorm8, SURFACE_OWNER_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, writeSurfaceExtras, type SurfaceBuffer } from './derived-mesh';
 import { ROOF_DX, ROOF_DZ, roofAlong, roofPlaneAt, ROOF_WORD } from './roof-words';
 
 
 const DX = ROOF_DX;
 const DZ = ROOF_DZ;
-
-/** The word bits that say which plane a cell's top lies on (cells of a run along the level line share them). */
-const PLANE_BITS = ROOF_WORD.dirs | ROOF_WORD.concave | ROOF_WORD.shallow | (0xf << ROOF_WORD.phaseShift);
 
 /** Per job face (2 · axis + side): a 1:2 plane cell lies at it, so its edges split at quarter points up. */
 const faceShallow = [false, false, false, false, false, false];
@@ -106,13 +110,15 @@ function sideProfile(w: number, y: number, k: number, bot: number[], top: number
   }
 }
 
-/** A polygon: its ring (x, y, z quarter-cell triples, corners only) and which way it should face. */
+/** A polygon: its ring (x, y, z quarter-cell triples, corners only), which way it should face and the cell it shows. */
 interface Poly {
   ring: number[];
   /** Outward hint: 0 up, 1 down, 2 + k a side facing direction k (+x, +z, −x, −z). */
   face: number;
   /** The crack overlay's strength its vertices carry (0 … 255; absent: none). */
   crack?: number;
+  /** The job-local cell whose material it shows alone. */
+  owner: readonly number[];
 }
 
 /** One side of a prism on a vertical plane, sampled at 0, ½, 1 along the plane. */
@@ -123,6 +129,12 @@ interface Strip {
   top: [number, number, number];
   /** The cell is the job's own (only its pieces are drawn). */
   own: boolean;
+  /** The plane cell (job-local). */
+  cell: readonly number[];
+  /** A supported cell's underside line (quarter cells, at 0, ½, 1): below it the side closes onto `body`; null: unsupported. */
+  split: [number, number, number] | null;
+  /** The body a supported cell closes onto (job-local). */
+  body: readonly number[];
 }
 
 /** A resolved side piece on a plane: from b0 to b1 (half cells along the plane), its low and high lines (quarter cells) at both ends. */
@@ -134,6 +146,23 @@ interface Piece {
   hi0: number;
   hi1: number;
   sign: number;
+  /** The cell whose material it shows. */
+  owner: readonly number[];
+}
+
+/** A strip's piece from b0 to b1 along a band between two of its lines (quarter cells at both ends), the cell it shows. */
+function stripPiece(st: Strip, b: number, t0: number, t1: number, lo: readonly number[], hi: readonly number[], owner: readonly number[]): Piece {
+  return { b0: 2 * b + t0, b1: 2 * b + t1, lo0: lo[t0]!, lo1: lo[t1]!, hi0: hi[t0]!, hi1: hi[t1]!, sign: st.sign, owner };
+}
+
+/** An own strip's side drawn whole on a segment: a supported one as its closing part (the body's) and its slab part (its own). */
+function wholeStrip(st: Strip, b: number, t0: number, t1: number, out: Piece[]): void {
+  if (st.split === null) {
+    out.push(stripPiece(st, b, t0, t1, st.bot, st.top, st.cell));
+    return;
+  }
+  out.push(stripPiece(st, b, t0, t1, st.bot, st.split, st.body));
+  out.push(stripPiece(st, b, t0, t1, st.split, st.top, st.cell));
 }
 
 /**
@@ -142,24 +171,28 @@ interface Piece {
  * facing either way, read in the segment's middle (where no two lines meet)
  * and each band carried to the ends along the strip lines bounding it, so a
  * band may narrow to a point at one end (a gable wall's step under a
- * slope). Where bounding lines cross inside the segment every own strip is
+ * slope). A band is drawn by the job owning the strip it lies in and shows
+ * that strip's cell, or below a supported strip's underside the body under
+ * it. Where bounding lines cross inside the segment every own strip is
  * drawn whole: still closed, only less tidy.
  */
 function resolveSpan(strips: readonly Strip[], b: number, out: Piece[]): void {
   if (strips.length === 1) {
     // Nothing across: the side is drawn as it is (an eave's fascia, a verge, a side against a wall).
     const st = strips[0]!;
-    if (st.own) for (let t = 0; t < 2; t++) out.push({ b0: 2 * b + t, b1: 2 * b + t + 1, lo0: st.bot[t]!, lo1: st.bot[t + 1]!, hi0: st.top[t]!, hi1: st.top[t + 1]!, sign: st.sign });
+    if (st.own) for (let t = 0; t < 2; t++) wholeStrip(st, b, t, t + 1, out);
     return;
   }
   for (let seg = 0; seg < 2; seg++) {
     const t0 = seg;
     const t1 = seg + 1;
-    // Each strip's bottom and top lines with their signed step in coverage, ordered in the middle.
-    const ev: Array<{ m: number; y0: number; y1: number; step: number; strip: Strip }> = [];
+    // Each strip's bottom and top lines with their signed step in coverage, a supported own strip's underside (no
+    // step: where its band changes owner), ordered in the middle.
+    const ev: Array<{ m: number; y0: number; y1: number; step: number }> = [];
     for (const st of strips) {
-      ev.push({ m: st.bot[t0]! + st.bot[t1]!, y0: st.bot[t0]!, y1: st.bot[t1]!, step: st.sign, strip: st });
-      ev.push({ m: st.top[t0]! + st.top[t1]!, y0: st.top[t0]!, y1: st.top[t1]!, step: -st.sign, strip: st });
+      ev.push({ m: st.bot[t0]! + st.bot[t1]!, y0: st.bot[t0]!, y1: st.bot[t1]!, step: st.sign });
+      ev.push({ m: st.top[t0]! + st.top[t1]!, y0: st.top[t0]!, y1: st.top[t1]!, step: -st.sign });
+      if (st.own && st.split !== null) ev.push({ m: st.split[t0]! + st.split[t1]!, y0: st.split[t0]!, y1: st.split[t1]!, step: 0 });
     }
     ev.sort((p, q) => p.m - q.m);
     const start = out.length;
@@ -177,57 +210,59 @@ function resolveSpan(strips: readonly Strip[], b: number, out: Piece[]): void {
         open = null;
         continue;
       }
-      if (open !== null && open.sign === sign) {
+      const mid2 = (e.m + next.m) / 2;
+      const strip = strips.find((st) => st.sign === sign && st.bot[t0]! + st.bot[t1]! <= mid2 && st.top[t0]! + st.top[t1]! >= mid2);
+      if (strip === undefined || !strip.own) {
+        open = null;
+        continue;
+      }
+      const owner = strip.split !== null && strip.split[t0]! + strip.split[t1]! >= mid2 ? strip.body : strip.cell;
+      if (open !== null && open.sign === sign && open.owner === owner) {
         open.hi0 = next.y0;
         open.hi1 = next.y1;
         continue;
       }
-      const mid = (e.m + next.m) / 4;
-      const owner = strips.find((st) => st.sign === sign && st.bot[t0]! + st.bot[t1]! <= 2 * mid && st.top[t0]! + st.top[t1]! >= 2 * mid);
-      if (owner === undefined || !owner.own) {
-        open = null;
-        continue;
-      }
-      open = { b0: 2 * b + t0, b1: 2 * b + t1, lo0: e.y0, lo1: e.y1, hi0: next.y0, hi1: next.y1, sign };
+      open = { b0: 2 * b + t0, b1: 2 * b + t1, lo0: e.y0, lo1: e.y1, hi0: next.y0, hi1: next.y1, sign, owner };
       out.push(open);
     }
     if (crossed) {
       out.length = start;
-      for (const st of strips) if (st.own) out.push({ b0: 2 * b + t0, b1: 2 * b + t1, lo0: st.bot[t0]!, lo1: st.bot[t1]!, hi0: st.top[t0]!, hi1: st.top[t1]!, sign: st.sign });
+      for (const st of strips) if (st.own) wholeStrip(st, b, t0, t1, out);
     }
   }
 }
 
-/** Joins pieces of one plane end to end where their lines continue straight (an eave's fascia along a row). */
+/** Joins pieces of one plane end to end where their lines continue straight and they show one cell (a cell's two halves). */
 function mergePieces(pieces: Piece[]): Piece[] {
   pieces.sort((p, q) => p.b0 - q.b0 || p.lo0 - q.lo0);
   const open = new Map<number, Piece>();
   // A piece's end as a key: where it ends along the plane (half cells), its two heights there (quarter cells),
-  // facing and slopes (−2 … 2 quarter cells a half cell: 45° or 1:2, up or down).
-  const endKey = (b: number, lo: number, hi: number, sign: number, dlo: number, dhi: number): number => ((((b + 8) * 512 + lo + 16) * 512 + hi + 16) * 4 + sign + 1) * 25 + (dlo + 2) * 5 + (dhi + 2);
+  // facing and slopes (−2 … 2 quarter cells a half cell: 45° or 1:2, up or down), and the cell it shows.
+  const endKey = (b: number, lo: number, hi: number, sign: number, dlo: number, dhi: number, owner: readonly number[]): number =>
+    (((((b + 8) * 512 + lo + 16) * 512 + hi + 16) * 4 + sign + 1) * 25 + (dlo + 2) * 5 + (dhi + 2)) * 2 ** 18 + ((owner[0]! + 4) * 64 + owner[1]! + 8) * 64 + owner[2]! + 4;
   const out: Piece[] = [];
   for (const p of pieces) {
-    const key = endKey(p.b0, p.lo0, p.hi0, p.sign, p.lo1 - p.lo0, p.hi1 - p.hi0);
+    const key = endKey(p.b0, p.lo0, p.hi0, p.sign, p.lo1 - p.lo0, p.hi1 - p.hi0, p.owner);
     const q = open.get(key);
     if (q !== undefined && (q.lo1 - q.lo0) / (q.b1 - q.b0) === p.lo1 - p.lo0 && (q.hi1 - q.hi0) / (q.b1 - q.b0) === p.hi1 - p.hi0) {
       open.delete(key);
       q.b1 = p.b1;
       q.lo1 = p.lo1;
       q.hi1 = p.hi1;
-      open.set(endKey(q.b1, q.lo1, q.hi1, q.sign, p.lo1 - p.lo0, p.hi1 - p.hi0), q);
+      open.set(endKey(q.b1, q.lo1, q.hi1, q.sign, p.lo1 - p.lo0, p.hi1 - p.hi0, q.owner), q);
       continue;
     }
     out.push(p);
-    open.set(endKey(p.b1, p.lo1, p.hi1, p.sign, p.lo1 - p.lo0, p.hi1 - p.hi0), p);
+    open.set(endKey(p.b1, p.lo1, p.hi1, p.sign, p.lo1 - p.lo0, p.hi1 - p.hi0, p.owner), p);
   }
   return out;
 }
 
 /** A cell's top (or underside) polygons, unmerged; `corner` gives the point of sample (iu, iv) of 0, 1, 2 across the cell. */
-function cellFacets(w: number, corner: (iu: number, iv: number) => number[], face: number, out: Poly[], crack: number): void {
+function cellFacets(w: number, corner: (iu: number, iv: number) => number[], face: number, out: Poly[], crack: number, owner: readonly number[]): void {
   const dirs = w & ROOF_WORD.dirs;
   const ring = (pts: ReadonlyArray<readonly [number, number]>): void => {
-    out.push({ ring: pts.flatMap(([u, v]) => corner(u, v)), face, crack });
+    out.push({ ring: pts.flatMap(([u, v]) => corner(u, v)), face, crack, owner });
   };
   const n = bits4(dirs);
   if (n === 2 && (dirs === 0b0101 || dirs === 0b1010)) {
@@ -280,6 +315,9 @@ const STAMP_PAD_ACROSS = 4;
 const STAMP_PAD_UP = 12;
 
 const STEPS = POSITION_STEPS_PER_CELL;
+/** Owner offsets' steps a cell, and a quarter cell in them. */
+const OWNER_Q = SURFACE_OWNER_STEPS_PER_CELL;
+const TO_OWNER = OWNER_Q / Q;
 /** Quarter cells to position steps (positions count from one cell below the job's corner). */
 const QUARTER = STEPS / Q;
 
@@ -287,6 +325,8 @@ const QUARTER = STEPS / Q;
 let pos = new Int32Array(3 * 256);
 let nrm = new Int8Array(3 * 256);
 let crk = new Uint8Array(256);
+/** Per vertex: its owner offset (quarter cells, x, y, z from the vertex to its cell's centre). */
+let owners = new Int8Array(3 * 256);
 let tris = new Uint32Array(3 * 512);
 let vertexCount = 0;
 let triLen = 0;
@@ -295,11 +335,14 @@ const vertexOf = new Map<number, number>();
 /** Positions are whole sixteenths of a cell (corners, edge middles, a fan's inside point), so a vertex keys by sixteenths and normal. */
 const SIXTEENTH = STEPS / 16;
 
-/** Keys below this are a position and normal (sixteenths under 1,024 each way, 32 normals); a crack strength counts above. */
-const CRACK_KEY = 1024 * 1024 * 1024 * 32;
+/**
+ * Keys below this are a position and normal (sixteenths under 1,024 each way, 32 normals); the owner offset counts
+ * above (it names the cell, and a cell's faces of one normal carry one crack strength).
+ */
+const OWNER_KEY = 1024 * 1024 * 1024 * 32;
 
-function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, normal: number, crack: number): number {
-  const key = ((((x / SIXTEENTH) * 1024 + y / SIXTEENTH) * 1024 + z / SIXTEENTH) * 32 + normal) + crack * CRACK_KEY;
+function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, normal: number, crack: number, ox: number, oy: number, oz: number): number {
+  const key = ((((x / SIXTEENTH) * 1024 + y / SIXTEENTH) * 1024 + z / SIXTEENTH) * 32 + normal) + (((ox + 8) * 16 + oz + 8) * 128 + oy + 64) * OWNER_KEY;
   const known = vertexOf.get(key);
   if (known !== undefined) return known;
   if (3 * vertexCount + 3 > pos.length) {
@@ -312,9 +355,15 @@ function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: 
     const c = new Uint8Array(crk.length * 2);
     c.set(crk);
     crk = c;
+    const w = new Int8Array(owners.length * 2);
+    w.set(owners);
+    owners = w;
   }
   crk[vertexCount] = crack;
   const o = 3 * vertexCount;
+  owners[o] = ox;
+  owners[o + 1] = oy;
+  owners[o + 2] = oz;
   pos[o] = x;
   pos[o + 1] = y;
   pos[o + 2] = z;
@@ -443,7 +492,11 @@ function emit(poly: Poly, e: number): void {
   const ids: number[] = [];
   const normal = normalIndex(nx, ny, nz);
   const crack = poly.crack ?? 0;
-  for (let a = 0; a < m; a++) ids.push(addVertex(pts[3 * a]! * QUARTER + STEPS, pts[3 * a + 1]! * QUARTER + STEPS, pts[3 * a + 2]! * QUARTER + STEPS, nx, ny, nz, normal, crack));
+  // The owner's centre in quarter cells: each vertex carries the offset to it (a fan's inside point to the nearest quarter).
+  const oc = [OWNER_Q * poly.owner[0]! + OWNER_Q / 2, OWNER_Q * poly.owner[1]! + OWNER_Q / 2, OWNER_Q * poly.owner[2]! + OWNER_Q / 2];
+  const vertex = (x: number, y: number, z: number): number =>
+    addVertex(x * QUARTER + STEPS, y * QUARTER + STEPS, z * QUARTER + STEPS, nx, ny, nz, normal, crack, Math.round(oc[0]! - x * TO_OWNER), Math.round(oc[1]! - y * TO_OWNER), Math.round(oc[2]! - z * TO_OWNER));
+  for (let a = 0; a < m; a++) ids.push(vertex(pts[3 * a]!, pts[3 * a + 1]!, pts[3 * a + 2]!));
   let apex = -1;
   for (let c = 0; c < k && apex < 0; c++) if (extra[c] === 0 && extra[(c + k - 1) % k] === 0) apex = cornerAt[c]!;
   if (apex >= 0) {
@@ -454,7 +507,7 @@ function emit(poly: Poly, e: number): void {
   const c = [0, 0, 0];
   if (k === 3) for (let a = 0; a < 3; a++) c[a] = (2 * r[a]! + r[3 + a]! + r[6 + a]!) / 4;
   else for (let a = 0; a < 3; a++) c[a] = (r[a]! + r[6 + a]!) / 2;
-  const centre = addVertex(c[0]! * QUARTER + STEPS, c[1]! * QUARTER + STEPS, c[2]! * QUARTER + STEPS, nx, ny, nz, normal, crack);
+  const centre = vertex(c[0]!, c[1]!, c[2]!);
   for (let j = 0; j < m; j++) addTri(centre, ids[j]!, ids[(j + 1) % m]!);
 }
 
@@ -528,56 +581,34 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array, crackOf: ((v: 
       const key = ((alongX ? 0 : 1) * W + plane + 2) * W + b + 2;
       let list = strips.get(key);
       if (list === undefined) strips.set(key, (list = []));
-      list.push({ sign: k < 2 ? 1 : -1, bot: [bot[0]!, bot[1]!, bot[2]!], top: [top[0]!, top[1]!, top[2]!], own });
+      const split: [number, number, number] | null = (w & ROOF_WORD.supported) !== 0 ? [top[0]! - Q, top[1]! - Q, top[2]! - Q] : null;
+      list.push({ sign: k < 2 ? 1 : -1, bot: [bot[0]!, bot[1]!, bot[2]!], top: [top[0]!, top[1]!, top[2]!], own, cell: [x, y, z], split, body: [x, floorOf(w, y) / Q - 1, z] });
     }
   }
   if (!any) return { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) };
 
-  // Tops and undersides: single-direction cells merged along their level line, the rest per cell.
+  // Tops and undersides, a cell's own polygons (each shows its cell).
   const own = (x: number, y: number, z: number): number => (x >= 0 && y >= 0 && z >= 0 && x < e && y < e && z < e ? words[at(x, y, z)]! : 0);
   const crackAt = (x: number, y: number, z: number): number => (crackOf === null ? 0 : crackOf(n.values[at(x, y, z)]!));
-  const single = (w: number): number => {
-    const d = w & ROOF_WORD.dirs;
-    return d === 1 ? 0 : d === 2 ? 1 : d === 4 ? 2 : d === 8 ? 3 : -1;
-  };
   // A sample (iu, iv of 0, 1, 2 across the cell) of a cell's top or underside, in quarter cells.
   const corner = (x: number, y: number, z: number, w: number, under: boolean) => (iu: number, iv: number): number[] => [Q * x + 2 * iu, (under ? -Q : 0) + topAt(w, y, 2 * iu, 2 * iv), Q * z + 2 * iv];
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
     const w = own(x, y, z);
     if (w === 0) continue;
     const supported = (w & ROOF_WORD.supported) !== 0;
-    const d = single(w);
     const crack = crackAt(x, y, z);
-    if (d < 0) {
-      cellFacets(w, corner(x, y, z, w, false), 0, polys, crack);
-      if (!supported) cellFacets(w, corner(x, y, z, w, true), 1, polys, crack);
-    } else {
-      // A run along the slope's level line (z for a slope along x, x for one along z) starts at its first cell.
-      const runX = d === 1 || d === 3;
-      const next = (j: number): number => (runX ? own(x + j, y, z) : own(x, y, z + j));
-      // Cells of a run share one crack strength (a cracked cell's vertices carry its own).
-      const sameCrack = (j: number): boolean => (runX ? crackAt(x + j, y, z) : crackAt(x, y, z + j)) === crack;
-      const startX = runX ? x : z;
-      for (const under of [false, true]) {
-        if (under && supported) continue;
-        // Tops join where they are one plane; undersides only unsupported ones.
-        const mask = under ? PLANE_BITS | ROOF_WORD.supported : PLANE_BITS;
-        if ((next(-1) & mask) === (w & mask) && sameCrack(-1)) continue;
-        let len = 1;
-        while (startX + len < e && (next(len) & mask) === (w & mask) && sameCrack(len)) len++;
-        const c0 = corner(x, y, z, w, under);
-        const c1 = runX ? corner(x + len - 1, y, z, w, under) : corner(x, y, z + len - 1, w, under);
-        polys.push({ ring: runX ? [...c0(0, 0), ...c1(2, 0), ...c1(2, 2), ...c0(0, 2)] : [...c0(0, 0), ...c0(2, 0), ...c1(2, 2), ...c1(0, 2)], face: under ? 1 : 0, crack });
-      }
+    const cell = [x, y, z];
+    for (const under of [false, true]) {
+      if (under && supported) continue;
+      const c = corner(x, y, z, w, under);
+      // One plane across the cell: one quad.
+      if (bits4(w & ROOF_WORD.dirs) === 1) polys.push({ ring: [...c(0, 0), ...c(2, 0), ...c(2, 2), ...c(0, 2)], face: under ? 1 : 0, crack, owner: cell });
+      else cellFacets(w, c, under ? 1 : 0, polys, crack, cell);
     }
-    // A supported cell's floor lies on its body's top face (so the slab and the body each stay closed): one quad,
-    // merged along z with cells on the same floor.
-    const SUPPORT = ROOF_WORD.supported | ROOF_WORD.gap;
-    if (supported && (own(x, y, z - 1) & SUPPORT) !== (w & SUPPORT)) {
-      let len = 1;
-      while (z + len < e && (own(x, y, z + len) & SUPPORT) === (w & SUPPORT)) len++;
+    // A supported cell's floor lies on its body's top face (so the slab and the body each stay closed), and shows the body.
+    if (supported) {
       const f = floorOf(w, y);
-      polys.push({ ring: [Q * x, f, Q * z, Q * x + Q, f, Q * z, Q * x + Q, f, Q * (z + len), Q * x, f, Q * (z + len)], face: 1 });
+      polys.push({ ring: [Q * x, f, Q * z, Q * x + Q, f, Q * z, Q * x + Q, f, Q * z + Q, Q * x, f, Q * z + Q], face: 1, owner: [x, f / Q - 1, z] });
     }
   }
 
@@ -597,7 +628,7 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array, crackOf: ((v: 
     for (const q of mergePieces(pieces)) {
       // b along the plane in half cells, h in quarter cells.
       const pt = (b: number, h: number): number[] => (alongX ? [plane, h, 2 * b] : [2 * b, h, plane]);
-      polys.push({ ring: [...pt(q.b0, q.lo0), ...pt(q.b1, q.lo1), ...pt(q.b1, q.hi1), ...pt(q.b0, q.hi0)], face: 2 + (alongX ? (q.sign > 0 ? 0 : 2) : q.sign > 0 ? 1 : 3) });
+      polys.push({ ring: [...pt(q.b0, q.lo0), ...pt(q.b1, q.lo1), ...pt(q.b1, q.hi1), ...pt(q.b0, q.hi0)], face: 2 + (alongX ? (q.sign > 0 ? 0 : 2) : q.sign > 0 ? 1 : 3), owner: q.owner });
     }
   }
 
@@ -614,14 +645,19 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array, crackOf: ((v: 
     view.setUint16(o, pos[3 * v]!, true);
     view.setUint16(o + 2, pos[3 * v + 1]!, true);
     view.setUint16(o + 4, pos[3 * v + 2]!, true);
-    view.setUint16(o + 6, crk[v]!, true);
     view.setInt8(o + 8, nrm[3 * v]!);
     view.setInt8(o + 9, nrm[3 * v + 1]!);
     view.setInt8(o + 10, nrm[3 * v + 2]!);
+    ownScratch[0] = owners[3 * v]!;
+    ownScratch[1] = owners[3 * v + 1]!;
+    ownScratch[2] = owners[3 * v + 2]!;
+    writeSurfaceExtras(view, v, crk[v]!, ownScratch);
   }
   const t = tris.subarray(0, triLen);
   return { vertexCount, vertices, indices: vertexCount < 65536 ? new Uint16Array(t) : new Uint32Array(t) };
 }
+
+const ownScratch = [0, 0, 0];
 
 /** Two surfaces in one buffer (the base surface with the roof's planes after it). */
 export function appendSurface(a: SurfaceBuffer, b: SurfaceBuffer): SurfaceBuffer {

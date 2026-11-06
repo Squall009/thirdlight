@@ -22,6 +22,7 @@ function full(): VoxelKit {
   return {
     gameData: { sound: { step: 'wood-step' }, break: { hits: 3, debris: ['splinter', 'plank'] }, physics: null },
     trimLayout: 'detail-pieces-draft',
+    wallTopFill: true,
     // Its own damage stages (fields out of order): cracks as the engine's, a wider stage 2, no stage 3, its own crack texture.
     damage: { crackTexture: { digest: D2, assetId: 'cracks' }, stage3: null, stage2: { pieces: 4, max: 10, min: 4 }, stage1: { max: 14, min: 11 } },
     jitter: 1.5,
@@ -87,6 +88,7 @@ describe('voxel kit record', () => {
         jitter: 1.5,
         trimLayout: 'detail-pieces-draft',
         damage: { stage1: { min: 11, max: 14 }, stage2: { min: 4, max: 10, pieces: 4 }, stage3: null, crackTexture: { assetId: 'cracks', digest: D2 } },
+        wallTopFill: true,
         gameData: { break: { debris: ['splinter', 'plank'], hits: 3 }, physics: null, sound: { step: 'wood-step' } },
       }),
     );
@@ -94,6 +96,9 @@ describe('voxel kit record', () => {
     expect(problems(canon)).toEqual([]);
     // A jitter of 1 is the default: left out.
     expect(canonicalVoxelKit({ ...kit, jitter: 1 }).jitter).toBeUndefined();
+    // No wall-top fill is the default (the walls keep their stepped tops under a roof): left out; anything but true or false refused.
+    expect('wallTopFill' in canonicalVoxelKit({ ...kit, wallTopFill: false })).toBe(false);
+    for (const f of [1, 'yes', null]) expect(problems({ ...kit, wallTopFill: f })[0], String(f)).toMatchObject({ code: 'field_type', path: '/wallTopFill' });
     // The canonical form is a copy: changing it leaves the kit it came from as it was.
     (canon.slots['edge-out-top']!.gameData as { break: { hits: number } }).break.hits = 9;
     expect((kit.slots['edge-out-top']!.gameData as { break: { hits: number } }).break.hits).toBe(1);

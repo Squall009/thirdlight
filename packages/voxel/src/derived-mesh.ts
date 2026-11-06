@@ -10,14 +10,29 @@
  * attributes are WebGPU/WebGL 2 vertex formats, then indices.
  * - position `uint16x4`: chunk-local, in 1/{@link POSITION_STEPS_PER_CELL}
  *   cell steps from one cell below the chunk's corner (so the surface's
- *   boundary vertices at −0.5 fit); w is the crack overlay's strength
+ *   boundary vertices at −0.5 fit); w holds the crack overlay's strength
  *   (0 … 255: 0 none) of the face it belongs to, non-zero only on the faces
- *   of a cracked cell (damage stage 1, damage-stages.ts);
- * - normal `snorm8x4` (w 0).
+ *   of a cracked
+ *   cell (damage stage 1, damage-stages.ts) in its low byte; its high byte
+ *   is half of the vertex's **owner offset** (below);
+ * - normal `snorm8x4`, w the other half of the owner offset (0: none).
  * A vertex carries no material: the surface shader finds the materials
  * around each pixel in the chunk's shader data (derived-shader.ts) and
  * blends them there, so a material or wetness change never rebuilds a mesh
  * and blends look the same on every mesh detail level.
+ *
+ * **Owner offset** ({@link surfaceOwnerOf}): a face that must show one
+ * cell's material alone, never blended with the cells round it, names that
+ * cell. Its vertices carry the offset from the vertex to the cell's centre
+ * (quarter cells, x and z 4 bits each in position w's high byte, y 7 bits
+ * over a set bit 0 in normal w); interpolated across the triangle, the
+ * offset added to a pixel's position lands within an eighth of a cell of
+ * that centre, so every pixel of the face finds the same cell, whatever
+ * cells its triangle crosses. The roof mesher's faces name theirs (a roof
+ * plane its plane cell, the closing sides and floor over a wall the wall's
+ * cell: wall and roof never blend across their seam), and a body's faces
+ * next to a plane cell name the cell behind them (a quarter cell in). A
+ * vertex without one (normal w 0) is blended as described.
  * Indices are `uint16` below 65,536 vertices, else `uint32`; triangles are
  * counter-clockwise seen from outside.
  *
@@ -64,6 +79,48 @@ export const SURFACE_ISO = 128;
 
 /** Bytes a surface vertex takes: position `uint16x4` and normal `snorm8x4`. */
 export const SURFACE_VERTEX_BYTES = 12;
+
+/** Owner offsets count in quarter cells (every lattice point of the roof mesher's faces is a whole quarter). */
+export const SURFACE_OWNER_STEPS_PER_CELL = 4;
+
+/** The largest owner offset a vertex holds (quarter cells): across (x, z) and up (y). */
+const OWNER_ACROSS_MAX = 7;
+const OWNER_UP_MAX = 63;
+
+/**
+ * Writes vertex `v`'s crack strength and owner offset (quarter cells from
+ * the vertex to its owner cell's centre, null: none) into a surface buffer.
+ */
+export function writeSurfaceExtras(view: DataView, v: number, crack: number, owner: readonly number[] | null): void {
+  const o = v * SURFACE_VERTEX_BYTES;
+  if (owner === null) {
+    view.setUint16(o + 6, crack, true);
+    view.setInt8(o + 11, 0);
+    return;
+  }
+  const [dx, dy, dz] = owner as [number, number, number];
+  if (Math.abs(dx) > OWNER_ACROSS_MAX || Math.abs(dz) > OWNER_ACROSS_MAX || Math.abs(dy) > OWNER_UP_MAX) throw new RangeError(`surface owner offset ${dx}, ${dy}, ${dz} (quarter cells) out of reach`);
+  view.setUint16(o + 6, crack | ((dx & 15) << 8) | ((dz & 15) << 12), true);
+  view.setInt8(o + 11, (dy << 1) | 1);
+}
+
+/** The crack strength (0 … 255) of the vertex at byte `o` of a surface buffer's view. */
+export function surfaceCrackOf(view: DataView, o: number): number {
+  return view.getUint16(o + 6, true) & 0xff;
+}
+
+/**
+ * The owner offset (quarter cells, x, y, z from the vertex to the centre of
+ * the cell whose material the face shows alone) of the vertex at byte `o`,
+ * or null when the vertex has none (blended).
+ */
+export function surfaceOwnerOf(view: DataView, o: number): [number, number, number] | null {
+  const w = view.getInt8(o + 11);
+  if ((w & 1) === 0) return null;
+  const hi = view.getUint16(o + 6, true) >>> 8;
+  const four = (b: number): number => ((b & 15) ^ 8) - 8;
+  return [four(hi), w >> 1, four(hi >>> 4)];
+}
 
 /** Bytes per detail instance. */
 export const INSTANCE_BYTES = 12;

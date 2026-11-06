@@ -198,6 +198,7 @@ The detail pieces a material type (wood, stone, …) draws a voxel world's edges
 | `voxelKits[].slots` | JSON: `Record<string, VoxelKitSlot>` ([VoxelKitSlot](types-t-w.md#type-voxel-kit-slot)) |  |  | **Slots.** {caseId: {meshes: [{mesh, rotation?, weight?}, …], gameData?}}: a slot a case of the case catalogue, every one optional (left out: nothing drawn); a mesh is {assetId, digest (the GLB's SHA-256), node?}; rotation one of the 24 cube rotations 0-23 (absent 0); weight in (0, 1000], absent 1. Which mesh a piece draws follows the project's voxel detail seed. (required) |
 | `voxelKits[].jitter` | number | `1` | 0 – 4, step 0.05 | **Jitter.** How far every piece moves into the solid and twists, as a share of the engine's stagger (1: 1/64-1/32 cell in, up to 2°; 0: on the lattice; at most 4). |
 | `voxelKits[].trimLayout` | string, id, 1–64 chars |  |  | **Trim layout.** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). (format id) |
+| `voxelKits[].wallTopFill` | bool | `false` |  | **Wall-top fill.** A roof kit's: its roofs close their slab down onto the walls under them, cutting the wall tops to the roof's underside. Off: the walls keep their stepped tops under the parallel underside. |
 | `voxelKits[].gameData` | JSON |  |  | **Game data.** The game's own data for the kit (break, sound, physics defaults …): JSON nested at most 32 deep, shipped as it is, never read by the engine. |
 
 <a id="content-uiDocuments"></a>

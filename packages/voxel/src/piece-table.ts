@@ -31,6 +31,9 @@
  * - **Damage stages.** Each kit carries its integrity ranges for the three
  *   damage stages and the pieces a face toward a hole carries
  *   (damage-stages.ts); a material without a kit takes the engine's.
+ * - **Wall-top fill.** Whether a roof of the kit's materials closes its
+ *   slab down onto the walls under it (roof-words.ts support); a material
+ *   without a kit does not: the walls keep their stepped tops.
  *
  * The table is versioned ({@link PIECE_TABLE_FORMAT}) and names the rule set
  * whose catalogue numbered its cases; a derive refuses a table of another
@@ -45,8 +48,8 @@ import { DAMAGE_PIECES_MAX, DAMAGE_STAGES, resolveDamageStages, type DamageStage
 import { PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX } from './piece-placement';
 import { damagedIntegrity, MATERIAL_ID_MAX, SHAPE_FULL, swapFrom, swapTo } from './record';
 
-/** The table's byte layout version; a reader refuses any other (3: slots, the project's seed and each kit's jitter; 4: each kit's damage stages). */
-export const PIECE_TABLE_FORMAT = 4;
+/** The table's byte layout version; a reader refuses any other (3: slots, the project's seed and each kit's jitter; 4: each kit's damage stages; 5: each kit's wall-top fill). */
+export const PIECE_TABLE_FORMAT = 5;
 
 /** No piece (an empty slot), and no kit (a material). */
 export const NO_PIECE = 0xffff;
@@ -73,6 +76,8 @@ export interface PieceKitSource {
   readonly jitter?: number;
   /** Its damage stages (absent: the engine's, damage-stages.ts). */
   readonly damage?: DamageStagesSource;
+  /** Whether its roofs fill the wall tops under them up to their underside (absent: no). */
+  readonly wallTopFill?: boolean;
 }
 
 /** One of a kit's pieces: a filled slot, with each of its meshes' weight and rotation. */
@@ -111,6 +116,8 @@ export interface PieceTableKit {
   readonly jitter: number;
   /** Its damage stages, resolved. */
   readonly damage: DamageStages;
+  /** Its roofs fill the wall tops under them. */
+  readonly wallTopFill: boolean;
   /** A hash of the kit's part of the table bytes and the table's seed (what decides its materials' pieces). */
   readonly hash: number;
   /** Per case index: the kit-local piece of its slot, or {@link NO_PIECE} for an empty slot. */
@@ -230,6 +237,7 @@ export function buildPieceTable(kits: readonly PieceKitSource[], rules: Assembly
     for (const d of damage.problems) problems.push(`kit ${kit.voxelKitId}: ${d}; the engine's damage stages drawn`);
     w.text(kit.voxelKitId);
     w.f32(jitter);
+    w.u16(kit.wallTopFill === true ? 1 : 0);
     // Each stage: whether the kit uses it, its integrity range and its pieces a face.
     damage.stages.spans.forEach((sp, k) => {
       w.u16(sp === null ? 0 : 1);
@@ -304,6 +312,8 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
     const id = text();
     const jitter = f32();
     if (!(jitter >= 0 && jitter <= PIECE_JITTER_MAX)) throw new RangeError(`piece table: kit ${id} jitter ${jitter}`);
+    const fill = u16();
+    if (fill > 1) throw new RangeError(`piece table: kit ${id} wall-top fill ${fill}`);
     const spans: (DamageStageSpan | null)[] = [];
     for (let st = 1; st <= 3; st++) {
       const used = u16();
@@ -332,7 +342,7 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
     thresholdStart[pieces] = thresholds.length;
     // The seed decides every pick of the kit, so it is part of what a material's pieces depend on.
     const hash = (crc32(bytes.subarray(start, o)) ^ Math.imul(seed, 0x9e3779b1)) >>> 0 || 1;
-    kits.push({ id, jitter, damage: damage.stages, hash, slots, thresholdStart, thresholds: Uint16Array.from(thresholds) });
+    kits.push({ id, jitter, damage: damage.stages, wallTopFill: fill === 1, hash, slots, thresholdStart, thresholds: Uint16Array.from(thresholds) });
   }
   const materialKit = new Uint16Array(MATERIAL_ID_MAX + 1).fill(NO_KIT);
   const pairs = u32();
@@ -416,6 +426,13 @@ export function cellDamageStages(t: PieceTable | null, v: number): DamageStages 
   if (t === null) return DAMAGE_STAGES;
   const k = t.materialKit[v & MATERIAL_ID_MAX]!;
   return k === NO_KIT ? DAMAGE_STAGES : t.kits[k]!.damage;
+}
+
+/** Whether a roof cell of value `v` fills the wall tops under it: its material's kit says so (no kit, no table: no). */
+export function cellWallTopFill(t: PieceTable | null, v: number): boolean {
+  if (t === null) return false;
+  const k = t.materialKit[v & MATERIAL_ID_MAX]!;
+  return k !== NO_KIT && t.kits[k]!.wallTopFill;
 }
 
 /** The damage stage (damage-stages.ts DAMAGE_STAGE) a cell of value `v` is shown at: 0 for an intact one, any role but construction, air. */

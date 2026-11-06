@@ -12,7 +12,7 @@ import { CONSTRUCTION_TILE_METRES, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_RE
 
 import { fragmentWgslOf, glslRenderer, settle, wgslRenderer } from './test-wgsl';
 import { LIGHT_PATH_TEXTURE_UNITS, LIT_TEXTURE_UNITS } from './texture-units';
-import { createVoxelSurface, PHASE_CELLS, VOXEL_SURFACE_KEY, type VoxelGridRenderer } from './voxel-surface';
+import { createVoxelSurface, PHASE_CELLS, VOXEL_OWNER_ATTRIBUTE, VOXEL_SURFACE_KEY, type VoxelGridRenderer } from './voxel-surface';
 import { gridPhases, gridUv, type ProjectionOps } from './voxel-surface-projection';
 
 // The layout the voxel package derives for 32³ chunks.
@@ -25,6 +25,8 @@ function program(shading: 'blend' | 'flat', bands = false, glsl = false): string
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+  // As a chunk's geometry carries it (voxel-chunk-view.ts): the owner offset, snorm8x4.
+  geo.setAttribute(VOXEL_OWNER_ATTRIBUTE, new THREE.BufferAttribute(new Int8Array(12), 4, true));
   const mesh = new THREE.Mesh(geo, surface.material);
   mesh.userData[VOXEL_SURFACE_KEY] = surface.objectValues();
   scene.add(mesh);
@@ -37,7 +39,7 @@ const bindings = (wgsl: string): number => (wgsl.match(/:\s*texture_(?:2d|3d|cub
 const reads = (wgsl: string): number => (wgsl.match(/\btexture(?:Load|Sample\w*)\s*\(/g) ?? []).length;
 
 describe('the voxel surface program', () => {
-  it('reads nine grid texels (the eight round the pixel, the one under them for a pixel above its roof), five table texels, six pattern samples and one crack sample a pixel, and binds four textures (the bands: two samples and a texture more)', async () => {
+  it('reads ten grid texels (the eight round the pixel, the one under them for a pixel above its roof, an owned face\'s owner cell), five table texels, six pattern samples and one crack sample a pixel, and binds four textures (the bands: two samples and a texture more)', async () => {
     await settle();
     // Both programs also read three's BRDF table (the standard material's environment term): one read, one binding.
     const flat = program('flat');
@@ -46,11 +48,12 @@ describe('the voxel surface program', () => {
     const blend = program('blend');
     // The crack overlay (a cracked block's faces): the material's crack layer from the table, one crack read (the
     // crack texture is nearest-filtered, so three reads it with a load).
-    expect(reads(blend) - reads(flat)).toBe(21);
-    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(15);
+    // An owned face (a roof plane, a wall under or beside a roof) reads its owner cell: one grid texel more.
+    expect(reads(blend) - reads(flat)).toBe(22);
+    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(16);
     // The grid is a 3D texture read at whole 3D texel coordinates (no flip, no transform).
     expect(blend).toMatch(/:\s*texture_3d<f32>\s*;/);
-    expect((blend.match(/\btextureLoad\(\s*\w+,\s*vec3<i32>\(/g) ?? []).length).toBe(9);
+    expect((blend.match(/\btextureLoad\(\s*\w+,\s*vec3<i32>\(/g) ?? []).length).toBe(10);
     expect(bindings(blend) - bindings(flat)).toBe(4);
     // The engine's lit programs keep the light path's units free; the surface's leave room for them.
     expect(bindings(blend) + LIGHT_PATH_TEXTURE_UNITS).toBeLessThanOrEqual(LIT_TEXTURE_UNITS);
@@ -69,7 +72,7 @@ describe('the voxel surface program', () => {
     // nearest-filtered crack texture with texture()).
     for (const bandsOn of [false, true]) {
       const glsl = program('blend', bandsOn, true);
-      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(14);
+      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(15);
       expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (program('flat', false, true).match(/\btexture\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(bandsOn ? 9 : 7);
     }
   });

@@ -933,7 +933,7 @@ function runAllProbes(): void {
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
   probe('blockStamps[1]', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'room', name: 'Room', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]], edgePalette: [{ block: 'wall' }], edges: [[2, 0, 0, 0, 0]] }], '', block('blockStamps'), 'blockStamps:');
-  probe('voxelKits', contentErrors, contentDoc({ voxelKits: [{ kitFormat: 1, voxelKitId: 'log', name: 'Log', version: 1, materialType: 'wood', materials: [3], slots: { 'edge-out-top': { meshes: [{ mesh: { assetId: 'logs', digest: 'a'.repeat(64) }, rotation: 5 }] } }, jitter: 1.5, trimLayout: 'detail-draft', gameData: { hits: 2 } }] }), '/voxelKits', block('voxelKits'), 'voxelKits:');
+  probe('voxelKits', contentErrors, contentDoc({ voxelKits: [{ kitFormat: 1, voxelKitId: 'log', name: 'Log', version: 1, materialType: 'wood', materials: [3], slots: { 'edge-out-top': { meshes: [{ mesh: { assetId: 'logs', digest: 'a'.repeat(64) }, rotation: 5 }] } }, jitter: 1.5, trimLayout: 'detail-draft', wallTopFill: true, gameData: { hits: 2 } }] }), '/voxelKits', block('voxelKits'), 'voxelKits:');
   probe('kits', contentErrors, contentDoc({ kits: [{ kitId: 'town', name: 'Town', description: 'Plaster and timber', thumbnail: 'town-pic', trimMaterial: 'town-trim', presets: ['house'], blockTypes: ['wall'], pieces: { door: [{ assetId: 'doors', piece: 'Door_A', weight: 2 }] } }] }), '/kits', block('kits'), 'kits:');
   // UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
@@ -1074,8 +1074,9 @@ describe('descriptor registry', () => {
     // section edge and saved fields — and a model's lighting occupancy flag, about 3.4 KB; a voxel world's level
     // distances, about 0.7 KB; a project's voxel kits, about 2.7 KB; a voxel world's distances per quality level and a
     // quality level's voxel ring scale, about 3.1 KB; the voxel kits' slots and jitter in place of cases and join profiles,
-    // and the voxel detail seed setting, about 0.6 KB; a voxel world's decal layers, about 0.3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(368_800);
+    // and the voxel detail seed setting, about 0.6 KB; a voxel world's decal layers, about 0.3 KB; a voxel kit's
+    // wall-top fill, about 0.3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(369_100);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

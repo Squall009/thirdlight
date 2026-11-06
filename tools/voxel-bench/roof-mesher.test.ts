@@ -26,6 +26,12 @@ import {
   POSITION_STEPS_PER_CELL,
   ROOF_WORD,
   SHADER_READ_DEPTH_CELLS,
+  surfaceCrackOf,
+  surfaceOwnerOf,
+  shaderEntryAt,
+  SHADER_BORDER_CELLS,
+  MATERIAL_ID_MAX,
+  SURFACE_OWNER_STEPS_PER_CELL,
   roofEdgesOf,
   ruleRadiusMismatches,
   SURFACE_VERTEX_BYTES,
@@ -128,9 +134,9 @@ function chunksOf(lo: readonly number[], hi: readonly number[], edge = 32): Arra
   return out;
 }
 
-function joined(s: PaletteStore, cx: number, cy: number, cz: number, rules: AssemblyRuleSet = WORLD_RULES): CollisionSource & { base: SurfaceBuffer } {
+function joined(s: PaletteStore, cx: number, cy: number, cz: number, rules: AssemblyRuleSet = WORLD_RULES, table: PieceTable | null = null): CollisionSource & { base: SurfaceBuffer } {
   const apron = buildApron(s, cx, cy, cz, jobRadius(rules));
-  const sections = deriveSectionsWithApron(grid, rules, apron, (out) => s.exportChunk(cx, cy, cz, out), SECTION, SECTION_IDS).map((q) => q.assembly);
+  const sections = deriveSectionsWithApron(grid, rules, apron, (out) => s.exportChunk(cx, cy, cz, out), SECTION, SECTION_IDS, 0, table === null ? undefined : { table, chunk: [cx, cy, cz] }).map((q) => q.assembly);
   return joinSections(grid.edge, SECTION, sections);
 }
 
@@ -209,9 +215,9 @@ function roofChunks(roofs: readonly Roof[]): Array<[number, number, number]> {
 }
 
 /** The roofs' ramp meshes of every chunk round them, joined from sections (or whole chunks), welded. */
-function rampMesh(s: PaletteStore, roofs: readonly Roof[], part: 'ramps' | 'base' = 'ramps', whole = false): Mesh {
+function rampMesh(s: PaletteStore, roofs: readonly Roof[], part: 'ramps' | 'base' = 'ramps', whole = false, table: PieceTable | null = null): Mesh {
   return weld(roofChunks(roofs).map((c) => {
-    const d = whole ? deriveFromStore(s, ...c, WORLD_RULES) : joined(s, ...c);
+    const d = whole ? deriveFromStore(s, ...c, WORLD_RULES, undefined, table) : joined(s, ...c, WORLD_RULES, table);
     return { buf: part === 'ramps' ? d.collision.ramps : d.base, c };
   }));
 }
@@ -245,6 +251,9 @@ function wordReader(s: Pick<PaletteStore, 'grid' | 'voxelAt' | 'chunkForm' | 'ex
 function wordAt(s: PaletteStore, x: number, y: number, z: number): number {
   return wordReader(s)(x, y, z);
 }
+
+/** A roof kit asking for the wall tops under its roofs to be filled (the roof tiles' kit; no pieces). */
+const FILL = worldPieceTable([{ voxelKitId: 'roofing', materials: [MAT.roofTile], slots: {}, wallTopFill: true }], 0);
 
 const GABLE = rect('gable', 3, 4, 2, 10, 9, false);
 const HIP = rect('hip', 20, 4, 1, 13, 8, true);
@@ -589,15 +598,17 @@ describe('the roof mesher', () => {
     }
     // A 2 × 2 chimney through the roof's slope, two cells above its top (one cell across would read as a post).
     for (let y = r.y0 - 4; y < r.y0 + 8; y++) for (const [dx, dz] of [[5, 2], [6, 2], [5, 3], [6, 3]] as const) putVoxel(s, r.x0 + dx, y, r.z0 + dz, MAT.stone, R.wall);
-    const base = rampMesh(s, [r], 'base');
+    // The roof's kit fills the wall tops (without it the gable keeps its steps: 'the roof over its walls').
+    const base = rampMesh(s, [r], 'base', false, FILL);
     expect(unbalanced(base)).toBe(0);
     // The chimney keeps its faces above the roof: its top.
     const top = r.y0 + 8;
+    // Triangles centred over its 2 × 2 footprint at its top (how its top face is fanned depends on its sides' splits).
     const faces = (want: number[]): number => {
       let n = 0;
       for (let t = 0; t < base.tris.length; t += 3) {
         const c = [0, 1, 2].map((a) => (base.pos[3 * base.tris[t]! + a]! + base.pos[3 * base.tris[t + 1]! + a]! + base.pos[3 * base.tris[t + 2]! + a]!) / 3 / STEPS);
-        if (want.every((v, a) => Math.abs(c[a]! - v) <= 0.5)) n++;
+        if (want.every((v, a) => Math.abs(c[a]! - v) <= (a === 1 ? 0 : 1))) n++;
       }
       return n;
     };
@@ -840,9 +851,9 @@ describe('the roof over its walls', () => {
       const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
       const r = walledHouse(s, x0, yb, z0, w, d, h, hip, slope);
       const tag = r.name;
-      const base = rampMesh(s, [r], 'base');
+      const base = rampMesh(s, [r], 'base', false, FILL);
       expect(unbalanced(base), tag).toBe(0);
-      const read = wordReader(s);
+      const read = wordReader(s, FILL);
       // Every roof cell a plane cell; those over the eave walls (and a gable's end walls) carried by them.
       const words = roofWords(s, r, read);
       expect(words.filter((c) => c.w === 0).length, tag).toBe(0);
@@ -882,7 +893,8 @@ describe('the roof over its walls', () => {
       return { s, r: walledHouse(s, x0, yb, z0, w, d, h, false, 1) };
     };
     const intact = house();
-    const intactWords = roofWords(intact.s, intact.r);
+    // The roof's kit fills the wall tops: the engine's damage stages, the cut kept over a cracked wall.
+    const intactWords = roofWords(intact.s, intact.r, wordReader(intact.s, FILL));
     // A roof cell mid-slope over the attic, and the eave wall's top cell the attic ray below looks at (under the roof's gap).
     const rc = intactWords.find((c) => c.x === 10 && c.z === z0 + 2)!;
     const wall: [number, number, number] = [10, yb + h - 1, z0];
@@ -891,14 +903,14 @@ describe('the roof over its walls', () => {
     const slopedCracks = (s: PaletteStore, table: PieceTable | null): Array<{ x: number; z: number; w: number }> => {
       const out: Array<{ x: number; z: number; w: number }> = [];
       for (const c of roofChunks([intact.r])) {
-        const b = deriveFromStore(s, ...c, WORLD_RULES, undefined, table).base;
+        const b = deriveFromStore(s, ...c, WORLD_RULES, undefined, table ?? FILL).base;
         const view = new DataView(b.vertices.buffer, b.vertices.byteOffset, b.vertices.byteLength);
         for (let v = 0; v < b.vertexCount; v++) {
           const o = v * SURFACE_VERTEX_BYTES;
           const ny = view.getInt8(o + 9);
-          if (ny <= 0 || ny >= 127 || view.getUint16(o + 6, true) === 0) continue;
+          if (ny <= 0 || ny >= 127 || surfaceCrackOf(view, o) === 0) continue;
           const at = (a: number): number => ((c[a]! * 32 - 1) * STEPS + view.getUint16(o + 2 * a, true)) / STEPS;
-          out.push({ x: at(0), z: at(2), w: view.getUint16(o + 6, true) });
+          out.push({ x: at(0), z: at(2), w: surfaceCrackOf(view, o) });
         }
       }
       return out;
@@ -909,7 +921,7 @@ describe('the roof over its walls', () => {
     const cracked = house();
     crack(cracked.s, [rc.x, rc.y, rc.z], MAT.roofTile, R.roof, 12);
     crack(cracked.s, wall, MAT.timber, R.wall, 12);
-    expect(roofWords(cracked.s, cracked.r)).toEqual(intactWords);
+    expect(roofWords(cracked.s, cracked.r, wordReader(cracked.s, FILL))).toEqual(intactWords);
     const marks = slopedCracks(cracked.s, null);
     expect(marks.length).toBeGreaterThan(0);
     for (const m of marks) {
@@ -918,19 +930,19 @@ describe('the roof over its walls', () => {
     }
     expect(slopedCracks(intact.s, null)).toEqual([]);
     // The planes and voxel faces stay closed, and the attic still has no step over the cracked eave-wall cell.
-    const base = rampMesh(cracked.s, [cracked.r], 'base');
+    const base = rampMesh(cracked.s, [cracked.r], 'base', false, FILL);
     expect(unbalanced(base)).toBe(0);
     // The roof collides as before: the same closed ramps (split where the cracked cell's planes are its own).
-    const ramps = rampMesh(cracked.s, [cracked.r]);
+    const ramps = rampMesh(cracked.s, [cracked.r], 'ramps', false, FILL);
     expect(unbalanced(ramps)).toBe(0);
     const area = areaByNormal(ramps);
-    for (const [k, a] of areaByNormal(rampMesh(intact.s, [intact.r]))) expect(area.get(k) ?? 0, `ramps facing ${k}`).toBeCloseTo(a, 6);
+    for (const [k, a] of areaByNormal(rampMesh(intact.s, [intact.r], 'ramps', false, FILL))) expect(area.get(k) ?? 0, `ramps facing ${k}`).toBeCloseTo(a, 6);
     const [xc, zc] = [x0 + w / 2 + 0.25, z0 + d / 2];
     const under = roofTop(cracked.r, xc, z0 + 1) - 1;
     for (let y = yb + h + 0.05; y < under - 0.02; y += 0.1) expect(rayHit(base, [xc, y, zc], [0, 0, -1]), `eave wall at y ${y.toFixed(2)}`).toBeCloseTo(zc - (z0 + 1), 6);
 
     // A kit leaving stage 1 out draws 12 intact (no crack); a kit whose hole stage covers 12 takes the cell out of the planes.
-    const kit = (damage: PieceKitSource['damage']): PieceTable => worldPieceTable([{ ...fullTestKit('roofing', [MAT.roofTile, MAT.timber], 1), damage }], 0);
+    const kit = (damage: PieceKitSource['damage']): PieceTable => worldPieceTable([{ ...fullTestKit('roofing', [MAT.roofTile, MAT.timber], 1), damage, wallTopFill: true }], 0);
     const none = kit({ stage1: null });
     expect(roofWords(cracked.s, cracked.r, wordReader(cracked.s, none))).toEqual(intactWords);
     expect(slopedCracks(cracked.s, none)).toEqual([]);
@@ -942,5 +954,130 @@ describe('the roof over its walls', () => {
     const overWall = (words: typeof holed): number => words.find((c) => c.x === wall[0] && c.z === wall[2])!.w & ROOF_WORD.supported;
     expect(overWall(intactWords)).not.toBe(0);
     expect(overWall(holed)).toBe(0);
+  });
+  /**
+   * Points inside every triangle of a chunk's base surface (the bodies' faces and the roof's planes): the world
+   * point (cells), the triangle's unit normal and the material it shows. An owned triangle's point shows the cell
+   * its position plus the interpolated owner offset lies in (as the GPU interpolates it); a blended one's lists the
+   * cells its read may reach instead.
+   */
+  function shownMaterials(s: PaletteStore, r: Roof, table: PieceTable | null): Array<{ c: number[]; n: number[]; owner: number | null; owned: boolean; reach: Array<[number, number, number]> }> {
+    const out: Array<{ c: number[]; n: number[]; owner: number | null; owned: boolean; reach: Array<[number, number, number]> }> = [];
+    const side = 32 + 2 * SHADER_BORDER_CELLS;
+    for (const ch of roofChunks([r])) {
+      const d = deriveFromStore(s, ...ch, WORLD_RULES, undefined, table);
+      const view = new DataView(d.base.vertices.buffer, d.base.vertices.byteOffset, d.base.vertices.byteLength);
+      const local = (v: number): number[] => [0, 1, 2].map((a) => view.getUint16(v * SURFACE_VERTEX_BYTES + 2 * a, true) / STEPS - 1);
+      const entry = (cell: readonly number[]): number => {
+        const g = cell.map((q) => q + SHADER_BORDER_CELLS);
+        return g.every((q) => q >= 0 && q < side) ? shaderEntryAt(d.shader, (g[0]! * side + g[2]!) * side + g[1]!) & MATERIAL_ID_MAX : -1;
+      };
+      for (let t = 0; t < d.base.indices.length; t += 3) {
+        const vs = [0, 1, 2].map((k) => d.base.indices[t + k]!);
+        const p = vs.map(local);
+        const e1 = [0, 1, 2].map((a) => p[1]![a]! - p[0]![a]!);
+        const e2 = [0, 1, 2].map((a) => p[2]![a]! - p[0]![a]!);
+        const nn = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
+        const len = Math.hypot(...nn);
+        const n = nn.map((q) => q / len);
+        const c = [0, 1, 2].map((a) => (p[0]![a]! + p[1]![a]! + p[2]![a]!) / 3 + ch[a]! * 32);
+        const own = vs.map((v) => surfaceOwnerOf(view, v * SURFACE_VERTEX_BYTES));
+        if (own.every((o) => o === null)) {
+          // Blended: the eight cells round the read point (a quarter cell in), as the surface shader reads them.
+          const q = [0, 1, 2].map((a) => (p[0]![a]! + p[1]![a]! + p[2]![a]!) / 3 - n[a]! * SHADER_READ_DEPTH_CELLS - 0.5);
+          const reach: Array<[number, number, number]> = [];
+          for (let k = 0; k < 8; k++) reach.push([0, 1, 2].map((a) => Math.floor(q[a]!) + ((k >> a) & 1) + ch[a]! * 32) as [number, number, number]);
+          out.push({ c, n, owner: null, owned: false, reach });
+          continue;
+        }
+        expect(own.every((o) => o !== null), 'a triangle owned at every vertex or none').toBe(true);
+        for (const [a, b, g] of [[1 / 3, 1 / 3, 1 / 3], [0.6, 0.3, 0.1], [0.1, 0.6, 0.3], [0.2, 0.1, 0.7]] as const) {
+          const at = (x: number, k: number): number => p[k]![x]! + own[k]![x]! / SURFACE_OWNER_STEPS_PER_CELL;
+          const cell = [0, 1, 2].map((x) => Math.floor(a * at(x, 0) + b * at(x, 1) + g * at(x, 2)));
+          const pt = [0, 1, 2].map((x) => a * p[0]![x]! + b * p[1]![x]! + g * p[2]![x]! + ch[x]! * 32);
+          out.push({ c: pt, n, owner: entry(cell), owned: true, reach: [] });
+        }
+      }
+    }
+    return out;
+  }
+
+  it('shows a two-material house\'s walls and roof apart: the roof\'s material on its planes up to the seam, the wall\'s on the geometry the roof closes onto it, never blended', { timeout: 60_000 }, () => {
+    const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
+    for (const slope of [1, 0.5]) for (const hip of [false, true]) for (const fill of [true, false]) {
+      const s = createWorldStore(grid);
+      const r = walledHouse(s, x0, yb, z0, w, d, h, hip, slope);
+      const tag = `${r.name} fill ${fill}`;
+      const read = wordReader(s, fill ? FILL : null);
+      const tris = shownMaterials(s, r, fill ? FILL : null);
+      let roof = 0;
+      let wall = 0;
+      for (const t of tris) {
+        if (!t.owned) {
+          // A blended face never reads a plane cell: every face that could is owned.
+          for (const q of t.reach) expect(read(...q), `${tag}: a blended face at ${t.c.map((v) => v.toFixed(2))} reads plane cell ${q}`).toBe(0);
+          continue;
+        }
+        // Above the roof's underside, or sloped (a top or an underside): the roof's; below it (walls, the closing sides
+        // and floors): the wall's.
+        const sloped = Math.abs(t.n[1]!) > 0.1 && Math.abs(t.n[1]!) < 0.99;
+        const underside = roofTop(r, t.c[0]!, t.c[2]!) - 1;
+        const want = sloped || t.c[1]! > underside + 1e-6 ? MAT.roofTile : MAT.timber;
+        expect(t.owner, `${tag}: triangle at ${t.c.map((v) => v.toFixed(2))} normal ${t.n.map((v) => v.toFixed(2))}`).toBe(want);
+        if (want === MAT.roofTile) roof++;
+        else wall++;
+      }
+      expect(roof, tag).toBeGreaterThan(0);
+      expect(wall, tag).toBeGreaterThan(0);
+    }
+  });
+
+  it('fills the wall tops only where the roof\'s kit asks: no kit or a kit without it keeps the stepped tops under the parallel underside, closed, the gable open between each step and the slope', { timeout: 60_000 }, () => {
+    const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
+    for (const slope of [1, 0.5]) {
+      const s = createWorldStore(grid);
+      const r = walledHouse(s, x0, yb, z0, w, d, h, false, slope);
+      const plain = worldPieceTable([{ voxelKitId: 'roofing', materials: [MAT.roofTile], slots: {} }], 0);
+      // A fill on the walls' kit is not the roof's: it fills nothing.
+      const wallKit = worldPieceTable([{ voxelKitId: 'walls', materials: [MAT.timber], slots: {}, wallTopFill: true }], 0);
+      const filled = roofWords(s, r, wordReader(s, FILL));
+      expect(filled.some((c) => (c.w & ROOF_WORD.supported) !== 0), r.name).toBe(true);
+      for (const table of [null, plain, wallKit]) {
+        const words = roofWords(s, r, wordReader(s, table));
+        const tag = `${r.name} ${table === null ? 'no kit' : table === plain ? 'kit without fill' : 'fill on the walls\' kit'}`;
+        // The same plane cells, none carried.
+        expect(words.map((c) => c.w & ~(ROOF_WORD.supported | ROOF_WORD.gap)), tag).toEqual(filled.map((c) => c.w & ~(ROOF_WORD.supported | ROOF_WORD.gap)));
+        expect(words.filter((c) => (c.w & ROOF_WORD.supported) !== 0), tag).toEqual([]);
+        const base = rampMesh(s, [r], 'base', false, table);
+        expect(unbalanced(base), tag).toBe(0);
+        // Every face of the roof turned down lies on the plane one cell under the top, over the walls too.
+        let undersides = 0;
+        for (let t = 0; t < base.tris.length; t += 3) {
+          if (base.normals[t + 1]! > -0.3 || base.normals[t + 1]! < -0.99) continue;
+          undersides++;
+          for (let k = 0; k < 3; k++) {
+            const [x, y, z] = [0, 1, 2].map((a) => base.pos[3 * base.tris[t + k]! + a]! / STEPS) as [number, number, number];
+            expect(Math.abs(y - (roofTop(r, x, z) - 1)), `${tag} underside at ${x},${y},${z}`).toBeLessThanOrEqual(1 / 1024);
+          }
+        }
+        expect(undersides, tag).toBeGreaterThan(0);
+        // From outside the gable end: below each wall step's top the ray meets the wall's face; between the step
+        // and the slope's underside it passes on into the attic (the stepped top shows, nothing fills it).
+        let open = 0;
+        for (let z = z0 + 0.25; z < z0 + d; z += 0.5) {
+          const under = roofTop(r, x0, z) - 1;
+          for (let y = yb + 0.25; y < under - 0.05; y += 0.125) {
+            const hit = rayHit(base, [x0 - 3, y, z], [1, 0, 0]);
+            if (Math.abs(hit - 3) < 1e-6) continue;
+            open++;
+            expect(hit, `${tag} into the attic at y ${y}, z ${z}`).toBeGreaterThan(3 + 1);
+          }
+        }
+        expect(open, tag).toBeGreaterThan(0);
+      }
+      // With the fill the gable is closed up to the slope (as 'closes the slab down onto the walls under it' checks).
+      const closed = rampMesh(s, [r], 'base', false, FILL);
+      for (let z = z0 + 0.25; z < z0 + d; z += 0.5) for (let y = yb + 0.25; y < roofTop(r, x0, z) - 1.05; y += 0.25) expect(rayHit(closed, [x0 - 3, y, z], [1, 0, 0]), `${r.name} filled gable at y ${y}, z ${z}`).toBeCloseTo(3, 6);
+    }
   });
 });

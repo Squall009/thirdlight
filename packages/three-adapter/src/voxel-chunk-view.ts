@@ -67,6 +67,8 @@ import {
   mirrorAxisOf,
   POSITION_STEPS_PER_CELL,
   SampleRing,
+  surfaceCrackOf,
+  surfaceOwnerOf,
   SURFACE_VERTEX_BYTES,
   VOXEL_SIZE_M,
   type ChunkDrawBatch,
@@ -87,7 +89,7 @@ import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU, runAxisOf } from './voxel-trim-u';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
-import { PHASE_CELLS, VOXEL_CRACK_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
+import { PHASE_CELLS, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
 const SWATCHES = [0x8a8f96, 0x7d7f84, 0x7a5a3c, 0x5f8f3e, 0xc8b47c, 0x4a78b8, 0x9a958c, 0xb0a48c, 0xa9a39a, 0x8b5a33, 0xd8d0c0, 0x9c4a3a, 0xb08850, 0xa0523c, 0x6d6a5f, 0x8c7a6b];
@@ -106,7 +108,10 @@ interface PlacedSurface {
 
 /**
  * Surface buffers as one float geometry (null when they hold no triangle):
- * the buffers' vertices one after another, indices offset to match.
+ * the buffers' vertices one after another, indices offset to match. A
+ * vertex's owner offset ({@link VOXEL_OWNER_ATTRIBUTE}) stays in its
+ * buffer's cells: an owned face is drawn by an object of its own level
+ * (a seam's finer pieces carry none).
  * `cellMetres`: the buffers' cells (a coarser level's for a mip node);
  * positions count from one cell below the object's corner.
  */
@@ -127,6 +132,7 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
   const pos = new Float32Array(n * 3);
   const nor = new Float32Array(n * 3);
   const crack = new Float32Array(n);
+  const owner = new Int8Array(n * 4);
   const index = n < 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
   let v0 = 0;
   let i0 = 0;
@@ -140,7 +146,9 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
         pos[at + a] = view.getUint16(o + a * 2, true) * stepMetres + offset[a]!;
         nor[at + a] = Math.max(-1, view.getInt8(o + 8 + a) / 127);
       }
-      crack[v0 + i] = view.getUint16(o + 6, true) / 255;
+      crack[v0 + i] = surfaceCrackOf(view, o) / 255;
+      const own = surfaceOwnerOf(view, o);
+      if (own !== null) owner.set([own[0], own[1], own[2], 1], (v0 + i) * 4);
     }
     const src = b.indices;
     if (v0 === 0) index.set(src, i0);
@@ -152,6 +160,8 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute(VOXEL_CRACK_ATTRIBUTE, new THREE.BufferAttribute(crack, 1));
+  // snorm8x4 (four bytes a vertex): quarter cells and the owned flag, read back whole by the shader.
+  geo.setAttribute(VOXEL_OWNER_ATTRIBUTE, new THREE.BufferAttribute(owner, 4, true));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeBoundingSphere();
   return geo;

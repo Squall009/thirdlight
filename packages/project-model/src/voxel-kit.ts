@@ -22,6 +22,11 @@
  *   texture replacing the engine's (an image asset; its red channel is read,
  *   brighter cracks showing first). Absent: the engine's split; a stage set
  *   to null is not used by the kit.
+ * - **Wall-top fill** (`wallTopFill`, a roof kit's): whether a roof of the
+ *   kit's materials closes its slab down onto the walls under it, cutting
+ *   their tops to its underside (voxel roof-words.ts). Absent or false: the
+ *   walls keep their stepped tops under the roof's parallel underside (the
+ *   builder's choice per kit; a building may later override it).
  * - **One texture set a kit** (one trim sheet or one material for every
  *   piece): the kit check's rule, never a refusal here.
  * - **A kit belongs to a material type** (wood, stone), never to one
@@ -122,6 +127,8 @@ export interface VoxelKit {
   trimLayout?: string;
   /** Its damage stages and crack texture (absent: the engine's). */
   damage?: VoxelKitDamage;
+  /** Its roofs fill the wall tops under them up to their underside (absent: false, the walls keep their steps). */
+  wallTopFill?: boolean;
   /** The game's own data for the whole kit, never read by the engine. */
   gameData?: VoxelKitJson;
 }
@@ -137,7 +144,7 @@ export const VOXEL_KIT_LIMITS = Object.freeze({
   jitterMax: PIECE_JITTER_MAX,
 });
 
-const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'jitter', 'trimLayout', 'damage', 'gameData'];
+const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'jitter', 'trimLayout', 'damage', 'wallTopFill', 'gameData'];
 const DAMAGE_FIELDS = ['stage1', 'stage2', 'stage3', 'crackTexture'];
 const SPAN_FIELDS = ['min', 'max', 'pieces'];
 const IMAGE_FIELDS = ['assetId', 'digest'];
@@ -231,7 +238,7 @@ function slot(v: unknown, path: string, errors: ModelErrorV2[]): void {
 
 /** Validate one kit's shape (what its case, section and asset ids name is the kit check's, never refused here). */
 export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, damage?, gameData?}', v, 'object');
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, damage?, wallTopFill?, gameData?}', v, 'object');
   // The format first: a newer kit is refused whole, never read in part.
   const f = v['kitFormat'];
   if (f === undefined) return err(errors, 'field_missing', `${path}/kitFormat`, 'kitFormat is required', undefined, String(VOXEL_KIT_FORMAT));
@@ -261,6 +268,7 @@ export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[
   if (jitter !== undefined && (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > VOXEL_KIT_LIMITS.jitterMax)) err(errors, 'field_value', `${path}/jitter`, `jitter is a number 0-${VOXEL_KIT_LIMITS.jitterMax} (1: the engine's stagger)`, jitter);
   if (v['trimLayout'] !== undefined) id(v['trimLayout'], `${path}/trimLayout`, 'trimLayout', errors);
   damage(v['damage'], `${path}/damage`, errors);
+  if (v['wallTopFill'] !== undefined && typeof v['wallTopFill'] !== 'boolean') err(errors, 'field_type', `${path}/wallTopFill`, 'wallTopFill is true or false', v['wallTopFill'], 'boolean');
   gameData(v['gameData'], `${path}/gameData`, errors);
   const slots = v['slots'];
   if (!isPlainObject(slots)) return err(errors, slots === undefined ? 'field_missing' : 'field_type', `${path}/slots`, 'slots is {caseId: {meshes, gameData?}}', slots, 'object');
@@ -307,8 +315,8 @@ function byKey<T, U>(rec: Record<string, T>, f: (v: T) => U): Record<string, U> 
 
 /**
  * One kit in canonical form, rebuilt field by field: fields in order, maps by
- * key, materials ascending, rotations of 0, weights of 1 and a jitter of 1
- * left out, game data with its keys sorted (its values exactly as given).
+ * key, materials ascending, rotations of 0, weights of 1, a jitter of 1 and
+ * a wall-top fill of false left out, game data with its keys sorted (its values exactly as given).
  */
 export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
   return {
@@ -329,6 +337,7 @@ export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
     ...(k.jitter !== undefined && k.jitter !== PIECE_JITTER_DEFAULT ? { jitter: k.jitter } : {}),
     ...(k.trimLayout !== undefined ? { trimLayout: k.trimLayout } : {}),
     ...(k.damage !== undefined && Object.keys(canonicalDamage(k.damage)).length > 0 ? { damage: canonicalDamage(k.damage) } : {}),
+    ...(k.wallTopFill === true ? { wallTopFill: true } : {}),
     ...(k.gameData !== undefined ? { gameData: canonicalJsonValue(k.gameData) as VoxelKitJson } : {}),
   };
 }

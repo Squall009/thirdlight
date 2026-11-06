@@ -364,7 +364,8 @@ describe('material and wetness feed the shader data, kits bound', () => {
 });
 
 describe('kit pieces per level', () => {
-  it('lists the kit\'s pieces in chunks only: level-1 and level-2 nodes list none, with the kit bound or not (no piece mesh a level; their edges are plain voxel faces)', () => {
+  // The town's chunks and nodes derived three times: about 4.4 s alone (each roof polygon is one cell's, so roofs cost more to mesh).
+  it('lists the kit\'s pieces in chunks only: level-1 and level-2 nodes list none, with the kit bound or not (no piece mesh a level; their edges are plain voxel faces)', { timeout: 20_000 }, () => {
     const s = townStore();
     const tree = new MipTree(s);
     const { table } = buildPieceTable([fullTestKit('town', BUILDING_MATERIALS, 2)], RULES, 0);

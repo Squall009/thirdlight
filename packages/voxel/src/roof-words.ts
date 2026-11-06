@@ -47,13 +47,15 @@
  * never disappears. A cracked plane cell stays in its plane and the planes
  * carry its crack (roof-mesher.ts).
  *
- * **Support.** A plane cell over a body (any solid construction cell drawn
+ * **Support.** Where the roof cell's kit fills wall tops (its `wallTopFill`;
+ * no kit: no), a plane cell over a body (any solid construction cell drawn
  * as a voxel, intact or cracked), or over one air cell over a body, is **supported**:
  * the body's top is cut to the roof's underside, so the roof's slab closes
  * down onto the body (a gable's end wall up under its verge, an eave wall
  * up to the slope inside the attic) and no voxel step shows under the
- * roof, inside or out. The underside drawn anywhere else is the plane one
- * cell below the top.
+ * roof, inside or out. The underside drawn anywhere else, and everywhere
+ * without the fill, is the plane one cell below the top: the walls under it
+ * keep their stepped tops.
  *
  * **Roof edges** (what kit pieces dress): an eave on a low side open below
  * and in front, a verge (gable edge) on a side along the slope's level line
@@ -64,7 +66,7 @@
 import { OPEN_ROLE, type Neighbourhood } from './assembly';
 import { SURFACE_ISO } from './derived-mesh';
 import { DAMAGE_STAGE } from './damage-stages';
-import { damageStageOf, type PieceTable } from './piece-table';
+import { cellWallTopFill, damageStageOf, type PieceTable } from './piece-table';
 import { MATERIAL_AIR, ROLE_MASK, ROLE_SHIFT, valueMaterial, valueShape, VOXEL_ROLE } from './record';
 
 /** How far (Chebyshev, cells) whether a cell is a plane cell reads: a 1:2 stair's pair is told apart two cells along. */
@@ -512,12 +514,12 @@ export function isRoofPlaneCell(n: Neighbourhood, i: number, table: PieceTable |
 /**
  * Whether cell `i` may lie under a supported roof across one air cell
  * (reads one cell round it): an air cell between a body and an intact roof
- * cell. The roof's slab closes down through it onto the body, so the edge
+ * cell whose kit fills wall tops. The roof's slab closes down through it onto the body, so the edge
  * pass dresses no edge of it.
  */
 export function isRoofGapCell(n: Neighbourhood, i: number, table: PieceTable | null = null): boolean {
   useDamage(table, true);
-  return roofValue(n.values[i + 1]!) && air(n.values[i]!) && body(n.values[i - 1]!);
+  return roofValue(n.values[i + 1]!) && cellWallTopFill(damageTable, n.values[i + 1]!) && air(n.values[i]!) && body(n.values[i - 1]!);
 }
 
 /** The plane-cell word of cell `i` without its edge bits (reads {@link ROOF_PLANE_REACH} round it), 0 when it is none. */
@@ -528,7 +530,7 @@ function planeWord(n: Neighbourhood, i: number): number {
   probeCell = i;
   probeSide = n.side;
   const w = roofReading(neighbourhoodProbe);
-  if (w === 0) return 0;
+  if (w === 0 || !cellWallTopFill(damageTable, v[i]!)) return w;
   if (body(v[i - 1]!)) return w | ROOF_WORD.supported;
   if (air(v[i - 1]!) && body(v[i - 2]!)) return w | ROOF_WORD.supported | ROOF_WORD.gap;
   return w;
