@@ -250,7 +250,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16 | answers recorded 2026-11-06 (all 35); build items 46c.16a–g (§6c), then full gate + review, acc46c-r2 (hard stop), v1 freeze |
 | 46c.16a | done: pieces at L0 only (derived 21; kit `low` mesh, check pairs, adapter low draws gone; kits regenerated, Blender 5.2.2: log 757 tris 58.4 kB, stone 490 tris 47.3 kB; town L1 7.7 k → 0 instances); every ring per scene + `quality` per level, `voxelRings` (tier √budget) with the tier budget, `ctx.voxels.setRings` and the reported level re-plan without reload |
 | 46c.16b | done: kits are slots (case id = slot, 1..n meshes with a cube rotation, all optional, `jitter` 0–4), project setting `voxel_piece_seed` for picks and stagger, one texture set a kit (check error), no default kit (no kit = plain voxels), beams/banisters plain voxels; catalogue `edges-draft` v2 (18), `edges` v4, piece table 3, derived 22; kits log 391 / stone 286 tris |
-| 46c.16c | not started |
+| 46c.16c | done (5859c1cc): pieces dressed by role order (roof > wall > pillar > stair > floor > foundation; two kits of one role → bare), mixed corners from the corner slots (stair notches, L tops, wall feet), pieces cut flush at `opening` cells (none inside), instance 12 B, `edges` v5, derived 23; town/tower/staging openings. Seen both renderers; fast gate GREEN 13 min |
 | 46c.16d | not started |
 | 46c.16e | not started |
 | 46c.16f | not started |
@@ -1430,6 +1430,48 @@ families gone; a beam or rail class is the body for every consumer (`classForm`)
   its temp world, passed alone); gate-rerun-20261106-042638 GREEN (7 min, 4.8 GB; perf at the cap 0 missed both
   renderers, 5.78 / 4.03 ms main thread). `voxel-world.e2e.ts` sum 72.2 → **64.0 s**.
 
+### 46c.16c ownership, mixed corners, openings
+
+**Who dresses a piece** (owner A3, F1, F2, A6). `edge-cases.ts` keeps the geometric anchor of every piece (the one
+solid cell; an inner piece's cell diagonal to the open one) and adds `slotDressing`: an outer edge and a one-solid
+corner are the anchor's; elsewhere the solid cells showing a face at the slot compete by `PIECE_ROLE_ORDER` (roof >
+wall > pillar > stair > floor > foundation) and winners of two kits leave the slot bare. The winner rides in a new
+**dressing word** (u32) of the instance, which grows **8 → 12 B** (`INSTANCE_DRESSING_OFFSET`, bits 0–4 the dressing
+cell round the anchor, bits 5–10 flush faces); the adapter reads the kit from that cell's material in the shader data.
+Within one grid terrain still blocks every piece it touches (C1); a building on its own grid needs the cross-grid
+contract (47a, decision log). **Mixed corners** (A11): `MIXED_CORNER` (256 patterns): where outer and inner edges
+meet, the solid cells' directions summed name the anchor; < 5 solid an outer corner slot, ≥ 5 an inner one, no
+piece where the sum is 0 on an axis; 1 and 7 solid give the old pure corners. **Openings** (B7): an outer piece with
+an `opening` round it names the anchor faces toward it; the renderer draws a copy of its mesh cut 1/128 cell inside
+those faces (`cutFlush`, one copy a mesh, rotation and faces, same path on WebGPU and WebGL 2); an inner piece that
+would lie in the opening is not placed; air holes are ordinary edges. Kit changes and cross-kit paints also re-derive
+the sections within one cell (neighbour chunks only when they hold construction). Rules `edges` 4 → **5**, derived
+22 → **23** (spec owner note), catalogue `edges-draft` v2 unchanged (ids stable), piece table 3 unchanged.
+- **Worlds:** the town's doors and windows and the slice tower's windows write `opening` (wall material); staging's
+  slice and town worlds regenerated (old ones moved to `work/46c.16c/old-worlds`).
+- **Tests** (vitest): every 8-cell corner pattern against a written-out rule (> 20 mixed), every pattern turned and
+  mirrored gives the piece turned / mirrored; stair notches (outer corner on the lower step, yaw 3 / 2), L-wall top,
+  wall foot on a wider foundation; through the real derive with four kits: wall-foot coves and corners in the wall's
+  kit, the foundation rim its own; under a flat roof's overhang the roof's; two walls of two kits bare, of one kit
+  dressed; terrain contact none; door/window jambs, lintel, sill flagged flush (+x / −x / −y / +y), no inner piece
+  round an opening, the same holes dug uncut with coves. Adapter (real loader path, `meshes.add`): a box sticking
+  0.2 m past both faces drawn beside a door has no vertex in the doorway; beside an air hole it does. kit-house,
+  kit-pieces (12 B, paints change pieces within one cell of the painted ones), derived (rules v5) updated.
+- **Cost:** `cutFlush` 0.04 ms a 300-vertex mesh, once per (mesh, rotation, faces); one more draw a (mesh, faces) in a
+  chunk with an opening. Village (2 houses, 4 openings, stairs; staging, 1280 × 720 at the 60 Hz cap): WebGPU 1,074
+  instances, 145 piece draws, render() 1.8 / 2.7 ms p50 / p95, GPU 7.9 ms a frame, 0 of 479 missed; WebGL 2 render()
+  1.8 / 2.1 ms, GPU 4.1 ms, 0 of 480 missed. Instances +4 B each (town ~31 k → +124 kB).
+- **Looked at** (staging, both renderers, 05:15–05:28; shots `~/.cache/thirdlight-phase46/work/46c.16c/shots/`):
+  `log-door-close`, `log-window-close` (no log stub inside the door or window: the ends stop at the reveal; compare
+  `acceptance/46c-r/final/log-door-webgpu.png`), `log-house-near`, `log-foundation-corner` (log wall on a stone
+  foundation: the foot coves are the log kit's, the probe `cellAt` gives `log` with `dressedBy` [0, 1, 0]),
+  `stone-foundation-corner`, `stone-door-close`, `stone-L-house`, `stairs-side`, `stairs-side-close` (a corner cap
+  at every notch and nosing). Both renderers alike. The log kit leaves its inner corner slots empty, so the log
+  wall's foot corners show none (by design of that kit).
+- **Gate:** gate-fast-20261106-051028 GREEN (13 min, 5.1 GB; perf at the cap 0 missed both renderers, 5.9 / 4.13 ms
+  main thread); vitest `scan-bounded-log` (D418) and `m3-builds` (D517, watch) failed under load, passed alone.
+  `voxel-world.e2e.ts` sum 64.0 → 63.3 s (no e2e change: the vitest and adapter tests cover it).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1985,6 +2027,30 @@ families gone; a beam or rail class is the body for every consumer (`classForm`)
   still shows as a hole** with its neighbours' faces, as the debris form did; 46c.16e redoes damage per kit.
 - 2026-11-06 (46c.16b): the placeholder rules keep classifying beams and rails (counts, tests), but every consumer
   draws them as plain voxels; the case window machinery stays generic (a catalogue with rules still gets cases).
+
+- 2026-11-06 (46c.16c, default chosen, owner to confirm): **"two materials" means two kits.** A kit draws its pieces
+  in its one texture set, so two materials of one kit draw the same piece; comparing kits also keeps a paint within
+  one kit shader data only (the 46c.6b rule). Two kits of the winning role at a slot: no piece.
+- 2026-11-06 (46c.16c, default chosen, owner to confirm): **F2 applies to inner edges too**, not only corners: where
+  two walls of two kits meet in an inside corner, the vertical cove stays bare (the blend draws the seam).
+- 2026-11-06 (46c.16c, default chosen, owner to confirm): **who competes**: an outer edge and a one-solid corner are
+  their cell's; elsewhere only the cells showing a face at the slot (an inner edge's two cells beside the open one;
+  a corner's cells beside an open octant) — a buried cell's role never decides.
+- 2026-11-06 (46c.16c, default chosen, owner to confirm): **mixed corner shape**: the summed directions of the solid
+  cells name the anchor; fewer than five solid cells an outer corner, five or more an inner one; none when the sum is
+  0 on an axis (the shape does not say which way it faces). A stair notch and an L's inside top corner come out
+  outer (3 solid), a wall corner on a wider foundation inner (5).
+- 2026-11-06 (46c.16c, default chosen, owner to confirm): **flush = cut on the CPU**: a copy of the mesh cut 1/128
+  cell inside the anchor faces toward the opening (no shader change; one copy a mesh, rotation and faces), stagger
+  kept (it only moves into the solid); an **inner piece that would lie inside an opening is not placed** (a cove in a
+  doorway cannot be drawn flush).
+- 2026-11-06 (46c.16c, default chosen, owner to confirm): **the instance grows to 12 bytes** for the dressing word
+  rather than packing the dressing cell and faces into the variant word (that would cap meshes a slot).
+- 2026-11-06 (46c.16c): **a building on its own grid** places no pieces at terrain — needs the cross-grid
+  dependency contract (spec §3.6 gap M7) so a structure grid's edge pass sees the world grid's terrain as blocking:
+  a 47a requirement. Within one grid terrain already blocks (C1).
+- 2026-11-06 (46c.16c): **47b requirement (A6):** building footprints (foundation cells) mask terrain scatter: no
+  terrain detail spawns under them. No scatter code in 46c.
 
 ## 10. Open questions for the owner
 

@@ -109,13 +109,20 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
       const d = streamer.derivedOf(chunkOf(sections, x), chunkOf(sections, y), chunkOf(sections, z))?.assembly ?? null;
       const outputs = d === null ? null : cellOutputs(d, localOf(sections, x), localOf(sections, y), localOf(sections, z));
       const p = outputs?.piece ?? null;
+      // A piece's kit is its dressing cell's (its own, or the one beside it whose role dresses it).
+      const dressedMaterial = (q: { readonly dressedBy: readonly [number, number, number] }): number => {
+        if (q.dressedBy.every((d) => d === 0)) return v.material;
+        const m = { material: 0, role: 0, shape: 0, wetness: 0 };
+        streamer.voxelAt(x + q.dressedBy[0], y + q.dressedBy[1], z + q.dressedBy[2], m);
+        return m.material;
+      };
       return {
         voxel: { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness },
         resolved: className(resolvedClassAt(streamer.overlay, WORLD_RULES, x, y, z)),
         outputs,
-        kitPiece: p === null ? null : (ctx.kitPiece?.(v.material, p.piece, p.variant) ?? null),
+        kitPiece: p === null ? null : (ctx.kitPiece?.(dressedMaterial(p), p.piece, p.variant) ?? null),
         // Every kit piece the cell owns (an edge cell owns one an edge or corner), with its turns and placement.
-        kitPieces: (outputs?.pieces ?? []).map((q) => ({ ...(ctx.kitPiece?.(v.material, q.piece, q.variant) ?? { kit: null, caseId: null, mesh: null, rotation: null }), turns: q.turns, place: q.place })),
+        kitPieces: (outputs?.pieces ?? []).map((q) => ({ ...(ctx.kitPiece?.(dressedMaterial(q), q.piece, q.variant) ?? { kit: null, caseId: null, mesh: null, rotation: null }), turns: q.turns, place: q.place, dressedBy: q.dressedBy, flush: q.flush })),
       };
     },
     windowHashes,
