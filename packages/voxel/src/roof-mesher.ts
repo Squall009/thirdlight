@@ -29,6 +29,11 @@
  * whole quarter cells (a 1:2 plane is half a cell up a cell's middle); a
  * cell's corners, edge middles and centre are points of the lattice.
  *
+ * **Cracks.** A cracked plane cell (damage stage 1, roof-words.ts) stays in
+ * its plane; its top and underside carry the crack overlay's strength in
+ * their vertices' position w, as a cracked block's faces do
+ * (base-surface.ts), and merge only with equal strengths.
+ *
  * Plane cells hide nothing: a wall beside, under or through a roof keeps
  * its faces (the planes stop at it; the wall's face closes the slab).
  * Their own voxel faces, collision boxes and kit pieces are left out.
@@ -106,6 +111,8 @@ interface Poly {
   ring: number[];
   /** Outward hint: 0 up, 1 down, 2 + k a side facing direction k (+x, +z, −x, −z). */
   face: number;
+  /** The crack overlay's strength its vertices carry (0 … 255; absent: none). */
+  crack?: number;
 }
 
 /** One side of a prism on a vertical plane, sampled at 0, ½, 1 along the plane. */
@@ -217,10 +224,10 @@ function mergePieces(pieces: Piece[]): Piece[] {
 }
 
 /** A cell's top (or underside) polygons, unmerged; `corner` gives the point of sample (iu, iv) of 0, 1, 2 across the cell. */
-function cellFacets(w: number, corner: (iu: number, iv: number) => number[], face: number, out: Poly[]): void {
+function cellFacets(w: number, corner: (iu: number, iv: number) => number[], face: number, out: Poly[], crack: number): void {
   const dirs = w & ROOF_WORD.dirs;
   const ring = (pts: ReadonlyArray<readonly [number, number]>): void => {
-    out.push({ ring: pts.flatMap(([u, v]) => corner(u, v)), face });
+    out.push({ ring: pts.flatMap(([u, v]) => corner(u, v)), face, crack });
   };
   const n = bits4(dirs);
   if (n === 2 && (dirs === 0b0101 || dirs === 0b1010)) {
@@ -279,6 +286,7 @@ const QUARTER = STEPS / Q;
 /** The output vertex arrays, grown as needed. */
 let pos = new Int32Array(3 * 256);
 let nrm = new Int8Array(3 * 256);
+let crk = new Uint8Array(256);
 let tris = new Uint32Array(3 * 512);
 let vertexCount = 0;
 let triLen = 0;
@@ -287,8 +295,11 @@ const vertexOf = new Map<number, number>();
 /** Positions are whole sixteenths of a cell (corners, edge middles, a fan's inside point), so a vertex keys by sixteenths and normal. */
 const SIXTEENTH = STEPS / 16;
 
-function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, normal: number): number {
-  const key = (((x / SIXTEENTH) * 1024 + y / SIXTEENTH) * 1024 + z / SIXTEENTH) * 32 + normal;
+/** Keys below this are a position and normal (sixteenths under 1,024 each way, 32 normals); a crack strength counts above. */
+const CRACK_KEY = 1024 * 1024 * 1024 * 32;
+
+function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, normal: number, crack: number): number {
+  const key = ((((x / SIXTEENTH) * 1024 + y / SIXTEENTH) * 1024 + z / SIXTEENTH) * 32 + normal) + crack * CRACK_KEY;
   const known = vertexOf.get(key);
   if (known !== undefined) return known;
   if (3 * vertexCount + 3 > pos.length) {
@@ -298,7 +309,11 @@ function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: 
     const q = new Int8Array(nrm.length * 2);
     q.set(nrm);
     nrm = q;
+    const c = new Uint8Array(crk.length * 2);
+    c.set(crk);
+    crk = c;
   }
+  crk[vertexCount] = crack;
   const o = 3 * vertexCount;
   pos[o] = x;
   pos[o + 1] = y;
@@ -427,7 +442,8 @@ function emit(poly: Poly, e: number): void {
   const m = pts.length / 3;
   const ids: number[] = [];
   const normal = normalIndex(nx, ny, nz);
-  for (let a = 0; a < m; a++) ids.push(addVertex(pts[3 * a]! * QUARTER + STEPS, pts[3 * a + 1]! * QUARTER + STEPS, pts[3 * a + 2]! * QUARTER + STEPS, nx, ny, nz, normal));
+  const crack = poly.crack ?? 0;
+  for (let a = 0; a < m; a++) ids.push(addVertex(pts[3 * a]! * QUARTER + STEPS, pts[3 * a + 1]! * QUARTER + STEPS, pts[3 * a + 2]! * QUARTER + STEPS, nx, ny, nz, normal, crack));
   let apex = -1;
   for (let c = 0; c < k && apex < 0; c++) if (extra[c] === 0 && extra[(c + k - 1) % k] === 0) apex = cornerAt[c]!;
   if (apex >= 0) {
@@ -438,7 +454,7 @@ function emit(poly: Poly, e: number): void {
   const c = [0, 0, 0];
   if (k === 3) for (let a = 0; a < 3; a++) c[a] = (2 * r[a]! + r[3 + a]! + r[6 + a]!) / 4;
   else for (let a = 0; a < 3; a++) c[a] = (r[a]! + r[6 + a]!) / 2;
-  const centre = addVertex(c[0]! * QUARTER + STEPS, c[1]! * QUARTER + STEPS, c[2]! * QUARTER + STEPS, nx, ny, nz, normal);
+  const centre = addVertex(c[0]! * QUARTER + STEPS, c[1]! * QUARTER + STEPS, c[2]! * QUARTER + STEPS, nx, ny, nz, normal, crack);
   for (let j = 0; j < m; j++) addTri(centre, ids[j]!, ids[(j + 1) % m]!);
 }
 
@@ -446,9 +462,10 @@ function emit(poly: Poly, e: number): void {
  * The roof planes of a job's chunk (or section) from its neighbourhood and
  * the plane-cell words {@link classifyRoofs} wrote, in the derive's surface
  * layout (positions from one cell below the job's corner): drawn with the
- * base surface, and the roof's collision.
+ * base surface, and the roof's collision. `crackOf` gives a cell value's
+ * crack strength (null: no cracks drawn).
  */
-export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer {
+export function roofSurface(n: Neighbourhood, words: Uint32Array, crackOf: ((v: number) => number) | null = null): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -518,6 +535,7 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
 
   // Tops and undersides: single-direction cells merged along their level line, the rest per cell.
   const own = (x: number, y: number, z: number): number => (x >= 0 && y >= 0 && z >= 0 && x < e && y < e && z < e ? words[at(x, y, z)]! : 0);
+  const crackAt = (x: number, y: number, z: number): number => (crackOf === null ? 0 : crackOf(n.values[at(x, y, z)]!));
   const single = (w: number): number => {
     const d = w & ROOF_WORD.dirs;
     return d === 1 ? 0 : d === 2 ? 1 : d === 4 ? 2 : d === 8 ? 3 : -1;
@@ -529,23 +547,27 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
     if (w === 0) continue;
     const supported = (w & ROOF_WORD.supported) !== 0;
     const d = single(w);
+    const crack = crackAt(x, y, z);
     if (d < 0) {
-      cellFacets(w, corner(x, y, z, w, false), 0, polys);
-      if (!supported) cellFacets(w, corner(x, y, z, w, true), 1, polys);
+      cellFacets(w, corner(x, y, z, w, false), 0, polys, crack);
+      if (!supported) cellFacets(w, corner(x, y, z, w, true), 1, polys, crack);
     } else {
       // A run along the slope's level line (z for a slope along x, x for one along z) starts at its first cell.
       const runX = d === 1 || d === 3;
       const next = (j: number): number => (runX ? own(x + j, y, z) : own(x, y, z + j));
+      // Cells of a run share one crack strength (a cracked cell's vertices carry its own).
+      const sameCrack = (j: number): boolean => (runX ? crackAt(x + j, y, z) : crackAt(x, y, z + j)) === crack;
+      const startX = runX ? x : z;
       for (const under of [false, true]) {
         if (under && supported) continue;
         // Tops join where they are one plane; undersides only unsupported ones.
         const mask = under ? PLANE_BITS | ROOF_WORD.supported : PLANE_BITS;
-        if ((next(-1) & mask) === (w & mask)) continue;
+        if ((next(-1) & mask) === (w & mask) && sameCrack(-1)) continue;
         let len = 1;
-        while ((runX ? x : z) + len < e && (next(len) & mask) === (w & mask)) len++;
+        while (startX + len < e && (next(len) & mask) === (w & mask) && sameCrack(len)) len++;
         const c0 = corner(x, y, z, w, under);
         const c1 = runX ? corner(x + len - 1, y, z, w, under) : corner(x, y, z + len - 1, w, under);
-        polys.push({ ring: runX ? [...c0(0, 0), ...c1(2, 0), ...c1(2, 2), ...c0(0, 2)] : [...c0(0, 0), ...c0(2, 0), ...c1(2, 2), ...c1(0, 2)], face: under ? 1 : 0 });
+        polys.push({ ring: runX ? [...c0(0, 0), ...c1(2, 0), ...c1(2, 2), ...c0(0, 2)] : [...c0(0, 0), ...c0(2, 0), ...c1(2, 2), ...c1(0, 2)], face: under ? 1 : 0, crack });
       }
     }
     // A supported cell's floor lies on its body's top face (so the slab and the body each stay closed): one quad,
@@ -592,6 +614,7 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
     view.setUint16(o, pos[3 * v]!, true);
     view.setUint16(o + 2, pos[3 * v + 1]!, true);
     view.setUint16(o + 4, pos[3 * v + 2]!, true);
+    view.setUint16(o + 6, crk[v]!, true);
     view.setInt8(o + 8, nrm[3 * v]!);
     view.setInt8(o + 9, nrm[3 * v + 1]!);
     view.setInt8(o + 10, nrm[3 * v + 2]!);

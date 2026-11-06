@@ -324,13 +324,14 @@ edge pieces like a floor. A sloped roof is built from **roof cells laid as a 45�
 cells stay the data for light, occupancy and navigation. The **roof mesher** draws them, as the terrain mesher draws
 terrain, as **flat sloped planes** with the roof material's tiling texture laid up the slope (texture layout §2):
 
-- **Which cells.** A *plane cell* is an intact roof cell with nothing solid above it that rises in at least one of
+- **Which cells.** A *plane cell* is a roof cell drawn whole (intact, cracked, or at an integrity its kit leaves out
+  of every stage) with nothing solid above it that rises in at least one of
   the four horizontal directions. A cell is read at 45° first; it is read at 1:2 where it has no 45° reading, where
   the 45° reading was the flatter stair, or where a cell two along says 1:2 (each 1:2 cell is the low or the high
   cell of its pair: its phase). Roof cells are read two cells round.
 - **One slope a roof** (default, owner to confirm): a cell's directions are all 45° or all 1:2; hips and valleys
   join equal slopes only, and a cell that would mix them keeps its voxel faces.
-- **The fallback is voxel faces.** Flat roofs, damaged roof cells (§7), plans other than 90° hips and valleys, and
+- **The fallback is voxel faces.** Flat roofs, plans other than 90° hips and valleys, and
   the few cells where the two ridges of a 1:2 L cross (D518) keep their voxel faces, so a roof never disappears.
 - **The underside is always the parallel slope** one cell (0.5 m) below the top (owner C4), never voxel floors.
 - **Wall tops are closed up to it.** A wall (any body) directly under a plane cell, or under one air cell under it,
@@ -462,7 +463,8 @@ for stages 2 and 3, a stage set to null is not used, an integrity in no stage dr
 - **Integrity 15:** intact.
 - **stage 1 (integrity 11–14): cracks.** The block is still drawn and keeps its edge pieces; its faces carry the crack
   overlay (the surface shader, both renderers; one engine crack texture, which a kit may replace with its own image),
-  stronger the lower the integrity within the stage.
+  stronger the lower the integrity within the stage. A cracked roof cell stays in its roof plane (the planes carry the
+  crack), and a cracked wall under a roof keeps its top closed up to the underside.
 - **stage 2 (integrity 6–10, 6 pieces a face): a hole.** The block is not drawn. The hole is no open air, so no edge
   piece goes round it; each intact neighbour face toward it is drawn and carries that many pieces of the neighbour's
   own kit's `damage-stage-2` slot, spread over the face.
@@ -651,8 +653,9 @@ empty; no textures (the runtime debug set), no LODs, collision from the voxels.
 - **46d (rendering and materials):** the material model and texture arrays, a material's height depth, wetness
   beyond darkening, the near-ring tessellation spike (its first item) and relief on faces near the camera, kit
   instancing across chunks, the far field.
-- **47a:** structure objects and rotated grids (a building on its own grid placing no pieces at terrain needs the
-  cross-grid contract), door and window props in openings.
+- **47a:** structure objects and rotated grids, door and window props in openings. **Owner requirement not met yet
+  (A6):** a building on its own grid places no pieces where it meets terrain; that needs the cross-grid contract
+  (spec §3.6 gap M7), so in 46c only buildings on the world's grid follow it.
 - **47b (terrain tools and dressing):** the ground-contact fringe where a building meets terrain, all ground scatter
   (the terrain material's rules: material id + the climate field), and building footprints masking scatter (owner
   A6). The kit slot panel (drag and drop) is 47; slots are assigned through the kit command now.
@@ -663,7 +666,6 @@ empty; no textures (the runtime debug set), no LODs, collision from the voxels.
 - **D519:** a wall cut up to a roof's underside reads the roof's material where wall and roof differ (the shader
   picks materials by position); 46d's material model.
 - **D520:** a flat roof laid one cell above a wall's top with an air gap loses the wall's top-edge pieces there.
-- **D521:** a cracked roof cell (stage 1) leaves the roof planes and draws as a cracked stair voxel.
 - **D515:** an L hip roof with arms of odd and even coarse width keeps one to three voxel steps at level 1 or 2.
 - **D516:** at the load ring's edge whole chunk columns come and go, so a house the edge cuts can show a floating
   overhang.
@@ -720,8 +722,10 @@ Every "default chosen, owner to confirm" of the build items 46c.16a–f (plan 46
 19. The hole's kit decides the stage, the face's kit the damage pieces (16e).
 20. Default damage counts 6 (stage 2) and 3 (stage 3) pieces a face, at most 16, one fragment a slot spread by the
     engine (16e).
-21. Crack strength rides in the face's vertices: cracks on voxel faces only, not on edge pieces or roof planes (16e).
+21. Crack strength rides in the face's vertices: cracks on voxel faces and roof planes (a cracked roof cell stays in its plane), not on edge pieces (16e, 16h).
 22. One generated engine crack texture (64² a 0.5 m face), replaceable by a kit's image (16e).
 23. Light coverage = integrity / 15 for every damaged construction cell, buried or not (16e).
 24. Clipped decals are cut from level-0 chunks only; kit pieces take projected decals only (16f).
 25. `decalLayers` is one mask on the `voxelWorld` object for faces and pieces (16f).
+26. The Scene view and the slice page keep the scene's own distances (no quality level there); Play and exports
+    follow the level the page draws at (16a).

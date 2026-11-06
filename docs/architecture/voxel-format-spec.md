@@ -1433,11 +1433,11 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-#### Kits: edges, roofs and damage (as built in 46c and its revision; derived v10 → v25)
+#### Kits: edges, roofs and damage (as built in 46c and its revision; derived v10 → v26)
 
 **Owner note.** Kits change **no stored world format**: the chunk codec, region file, manifest, edit command, undo
 record, save and overrides keep their v2 bytes (§3.8). Edge and corner pieces, roof words, forms and piece choices
-live only inside a derive job; what 46c adds is derived data (versions 10–25, never stored, *Derived version
+live only inside a derive job; what 46c adds is derived data (versions 10–26, never stored, *Derived version
 history* below), one project setting (`voxel_piece_seed`) and one project content item, the voxel kit record (§3.9,
 **`kitFormat` 1, still a DRAFT**). The edge catalogue (`edges-draft` v3) and the kit format are **drafts**: they
 freeze as v1 only when the owner approves the role spec (`voxel-role-spec.md`) and the texture layout
@@ -1497,13 +1497,13 @@ the material model and texture sets 46d's.
   is an ordinary edge. No piece where a terrain cell (any fill) or an excluded cell (a roof plane cell or a hole)
   touches the edge: construction ↔ terrain contact is 47b's fringe.
 - **The roof mesher** (`roof-mesher.ts` the planes, `roof-words.ts` which cells; reach `ROOF_MESHER_REACH` 3,
-  inside the pad of 3; derived v15, 1:2 and support v24). A **plane cell** is an intact roof cell with nothing solid
-  above, laid as a **45°** stair (a roof cell one up and across, or one down and across the other way; an eave corner
+  inside the pad of 3; derived v15, 1:2 and support v24). A **plane cell** is a roof cell its kit draws whole (intact,
+  cracked or at an integrity in no stage; v26) with nothing solid above, laid as a **45°** stair (a roof cell one up and across, or one down and across the other way; an eave corner
   of a hip by the diagonal) or a **1:2** stair (two cells along at a level, then one up; owner A7, v24): each
   direction of a cell is fitted, two cells along each way (`ROOF_PLANE_REACH` 2), to the 1:2 stair of the pair's low
   or high cell (its **phase**), a cell read at 45° first exactly as before and at 1:2 where a cell two along says so;
-  one slope a roof (hips and valleys between equal slopes; default, owner to confirm). Flat, damaged and lone roof
-  cells keep their voxel faces (the fallback), and so do the few cells where a 1:2 L's two ridges cross.
+  one slope a roof (hips and valleys between equal slopes; default, owner to confirm). Flat and lone roof cells keep
+  their voxel faces (the fallback; a hole-stage roof cell is a hole), and so do the few cells where a 1:2 L's two ridges cross.
   `classifyRoofs` gives each a u32 **roof word** (`ROOF_WORD`: rising directions, concave (valley), supported,
   shallow, gap, eave / verge / ridge sides, centre ridge, a phase bit a direction); `roofSurface` emits a closed
   prism a plane cell, in quarter cells: the top through the stair's outer corners (45°: T to T + 1 across a cell;
@@ -1653,6 +1653,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 21 → 22 | 46c.16b | kits are slots: piece u16 = a kit's filled-slot index (no default pieces), variant bits 0–14 = the slot's mesh, hashed with the project seed; no beam or banister case, beam and rail cells plain voxels | still 8 B | **owner 2026-11-05/06** (kits are slots, beams/banisters out, no default kit, per-project seed, per-kit jitter) |
 | 24 → 25 | 46c.16e | three damage stages a kit (piece table 4, rules `edges` v7, catalogue `edges-draft` v3): stage 1 a cracked body with its edges, the crack strength in position w; stages 2–3 a hole drawing no piece of its own (`debris` cases and `replacesBase` gone) whose neighbour faces carry the stage's damage pieces with a scatter index (dressing bits 11–14); a damaged cell's light coverage its integrity's share | 12 B | **owner 2026-11-05/06** (A9 revised three stages a kit, G1 default split and crack overlay, F4 solid until air but light by integrity, C10 strokes whole) |
 | 23 → 24 | 46c.16d | 1:2 roofs drawn as planes (roof words read two cells round, quarter-cell geometry), their roof-edge pieces flagged `shallow` / `high` (0x20 / 0x80) and pitched by the renderer; a roof over a body or over one air cell over a body closes down onto the body (rules `edges` v6: no edge piece round that air cell); coarse levels re-lay 1:2 roofs at 1:2 | 12 B | **owner 2026-11-05/06** (A7 1:2 roofs, A8 ramps, F3 one mesh pitched, C4 parallel underside, wall tops cut, C7 coarse re-lay); one slope a roof a default |
+| 25 → 26 | 46c.16h | the roof follows the kit's damage stages: a roof cell drawn whole by its kit (cracked, or an integrity in no stage) stays a plane cell, its planes carrying the crack strength in position w; a cracked body under a roof still carries it (D521) | 12 B | **owner 2026-11-05/06** (G1 stage 1 drawn whole with the overlay, a kit leaving a stage out draws intact, C4 wall tops cut) |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1734,11 +1735,11 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 25 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 26 | refused | rebuilt, never upgraded |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 4 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
-**Derived data 3 → 9 (46b) and 9 → 25 (46c and its revision):** the steps and their owner notes are in §3.7, *Derived version history* (one table). Kits, edges, roofs and damage changed no stored format.
+**Derived data 3 → 9 (46b) and 9 → 26 (46c and its revision):** the steps and their owner notes are in §3.7, *Derived version history* (one table). Kits, edges, roofs and damage changed no stored format.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules

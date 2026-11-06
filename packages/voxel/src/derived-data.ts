@@ -184,8 +184,14 @@ import { utf8Encode } from '@thirdlight/shared';
  * light coverage is its integrity's share (was 255). Collision and
  * navigation are v24's. Results differ from v24's round damaged cells
  * only; the layout is v24's.
+ * 26: the roof follows the kit's damage stages: a roof cell its kit draws
+ * whole (cracked, or an integrity in no stage) stays a plane cell and its
+ * planes carry the crack strength in position w; a cracked body under a
+ * roof still carries it (its top cut to the underside). Results differ
+ * from v25's round damaged roof and wall-top cells only; the layout is
+ * v25's.
  */
-export const DERIVED_FORMAT_VERSION = 25;
+export const DERIVED_FORMAT_VERSION = 26;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -635,9 +641,9 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   const pieced = levelDrawsPieces(level);
   let roofs = roofScratches.get(classes.length);
   if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
-  const ramps = classifyRoofs(n, roofs) === 0 ? emptySurface() : roofSurface(n, roofs);
   // Cracks (damage stage 1) show where pieces do: a coarser node's construction is intact.
   const crackOf = pieced && rulesDrawDamage(rules) ? (v: number): number => crackStrengthOf(table, v) : null;
+  const ramps = classifyRoofs(n, roofs, table, rulesDrawDamage(rules)) === 0 ? emptySurface() : roofSurface(n, roofs, crackOf);
   const base = appendSurface(baseSurface(n, classes, forms, !pieced, roofs, crackOf), ramps);
   let edges = edgeScratches.get(classes.length);
   if (edges === undefined) edgeScratches.set(classes.length, (edges = createEdgeMasks(n)));

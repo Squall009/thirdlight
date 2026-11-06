@@ -43,10 +43,16 @@ import {
   extractEdges,
   VOXEL_SIZE_M,
   voxel,
+  crackStrengthOf,
+  valueOf,
+  worldPieceTable,
+  type PieceKitSource,
+  type PieceTable,
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
 import { putVoxel } from './scenes';
+import { fullTestKit } from './test-kits';
 import { MAT } from './world-kit';
 
 const STEPS = POSITION_STEPS_PER_CELL;
@@ -216,7 +222,7 @@ function over(r: Roof, x: number, z: number): boolean {
 }
 
 /** The plane-cell words of a store's chunks (or a mip level's nodes; each with the world rules' apron), cached by chunk. */
-function wordReader(s: Pick<PaletteStore, 'grid' | 'voxelAt' | 'chunkForm' | 'exportChunk'>): (x: number, y: number, z: number) => number {
+function wordReader(s: Pick<PaletteStore, 'grid' | 'voxelAt' | 'chunkForm' | 'exportChunk'>, table: PieceTable | null = null): (x: number, y: number, z: number) => number {
   const pad = jobRadius(WORLD_RULES);
   const cache = new Map<string, { side: number; words: Uint32Array }>();
   return (x, y, z) => {
@@ -228,7 +234,7 @@ function wordReader(s: Pick<PaletteStore, 'grid' | 'voxelAt' | 'chunkForm' | 'ex
       const dense = createDenseChunk(grid);
       fillNeighbourhood(n, grid, s.exportChunk(cx, cy, cz, dense) ? dense : null, buildApron(s, cx, cy, cz, pad));
       const words = new Uint32Array(n.values.length);
-      classifyRoofs(n, words);
+      classifyRoofs(n, words, table);
       cache.set(key, (job = { side: n.side, words }));
     }
     return job.words[((x - cx * 32 + pad) * job.side + (z - cz * 32 + pad)) * job.side + (y - cy * 32 + pad)]!;
@@ -867,5 +873,74 @@ describe('the roof over its walls', () => {
       }
       expect(undersides, tag).toBeGreaterThan(0);
     }
+  });
+
+  it('follows the kit\'s damage stages: a cracked roof cell stays in its plane and carries the crack, a cracked wall under the roof keeps its top cut to the underside, a kit without the stage keeps the cell intact, a hole stage leaves the planes', () => {
+    const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
+    const house = (): { s: PaletteStore; r: Roof } => {
+      const s = createWorldStore(grid);
+      return { s, r: walledHouse(s, x0, yb, z0, w, d, h, false, 1) };
+    };
+    const intact = house();
+    const intactWords = roofWords(intact.s, intact.r);
+    // A roof cell mid-slope over the attic, and the eave wall's top cell the attic ray below looks at (under the roof's gap).
+    const rc = intactWords.find((c) => c.x === 10 && c.z === z0 + 2)!;
+    const wall: [number, number, number] = [10, yb + h - 1, z0];
+    const crack = (s: PaletteStore, c: readonly [number, number, number], material: number, role: number, shape: number): void => s.setVoxel(c[0], c[1], c[2], { material, role, shape, wetness: 0 });
+    /** Base vertices facing up a slope (a roof's top) carrying a crack strength, in world cells. */
+    const slopedCracks = (s: PaletteStore, table: PieceTable | null): Array<{ x: number; z: number; w: number }> => {
+      const out: Array<{ x: number; z: number; w: number }> = [];
+      for (const c of roofChunks([intact.r])) {
+        const b = deriveFromStore(s, ...c, WORLD_RULES, undefined, table).base;
+        const view = new DataView(b.vertices.buffer, b.vertices.byteOffset, b.vertices.byteLength);
+        for (let v = 0; v < b.vertexCount; v++) {
+          const o = v * SURFACE_VERTEX_BYTES;
+          const ny = view.getInt8(o + 9);
+          if (ny <= 0 || ny >= 127 || view.getUint16(o + 6, true) === 0) continue;
+          const at = (a: number): number => ((c[a]! * 32 - 1) * STEPS + view.getUint16(o + 2 * a, true)) / STEPS;
+          out.push({ x: at(0), z: at(2), w: view.getUint16(o + 6, true) });
+        }
+      }
+      return out;
+    };
+    const stage1 = (shape: number): number => crackStrengthOf(null, valueOf({ material: MAT.roofTile, role: R.roof, shape, wetness: 0 }));
+
+    // Stage 1 (the engine's 11–14): both cells crack, every roof word stays the intact house's.
+    const cracked = house();
+    crack(cracked.s, [rc.x, rc.y, rc.z], MAT.roofTile, R.roof, 12);
+    crack(cracked.s, wall, MAT.timber, R.wall, 12);
+    expect(roofWords(cracked.s, cracked.r)).toEqual(intactWords);
+    const marks = slopedCracks(cracked.s, null);
+    expect(marks.length).toBeGreaterThan(0);
+    for (const m of marks) {
+      expect(m.w).toBe(stage1(12));
+      expect(m.x >= rc.x && m.x <= rc.x + 1 && m.z >= rc.z && m.z <= rc.z + 1, `crack at ${m.x},${m.z}`).toBe(true);
+    }
+    expect(slopedCracks(intact.s, null)).toEqual([]);
+    // The planes and voxel faces stay closed, and the attic still has no step over the cracked eave-wall cell.
+    const base = rampMesh(cracked.s, [cracked.r], 'base');
+    expect(unbalanced(base)).toBe(0);
+    // The roof collides as before: the same closed ramps (split where the cracked cell's planes are its own).
+    const ramps = rampMesh(cracked.s, [cracked.r]);
+    expect(unbalanced(ramps)).toBe(0);
+    const area = areaByNormal(ramps);
+    for (const [k, a] of areaByNormal(rampMesh(intact.s, [intact.r]))) expect(area.get(k) ?? 0, `ramps facing ${k}`).toBeCloseTo(a, 6);
+    const [xc, zc] = [x0 + w / 2 + 0.25, z0 + d / 2];
+    const under = roofTop(cracked.r, xc, z0 + 1) - 1;
+    for (let y = yb + h + 0.05; y < under - 0.02; y += 0.1) expect(rayHit(base, [xc, y, zc], [0, 0, -1]), `eave wall at y ${y.toFixed(2)}`).toBeCloseTo(zc - (z0 + 1), 6);
+
+    // A kit leaving stage 1 out draws 12 intact (no crack); a kit whose hole stage covers 12 takes the cell out of the planes.
+    const kit = (damage: PieceKitSource['damage']): PieceTable => worldPieceTable([{ ...fullTestKit('roofing', [MAT.roofTile, MAT.timber], 1), damage }], 0);
+    const none = kit({ stage1: null });
+    expect(roofWords(cracked.s, cracked.r, wordReader(cracked.s, none))).toEqual(intactWords);
+    expect(slopedCracks(cracked.s, none)).toEqual([]);
+    const holes = kit({ stage1: null, stage2: { min: 1, max: 14 }, stage3: null });
+    const holed = roofWords(cracked.s, cracked.r, wordReader(cracked.s, holes));
+    expect(holed.find((c) => c.x === rc.x && c.z === rc.z)!.w).toBe(0);
+    expect(holed.filter((c) => c.w === 0).length).toBe(1);
+    // The roof over the holed eave wall is no longer carried by it there.
+    const overWall = (words: typeof holed): number => words.find((c) => c.x === wall[0] && c.z === wall[2])!.w & ROOF_WORD.supported;
+    expect(overWall(intactWords)).not.toBe(0);
+    expect(overWall(holed)).toBe(0);
   });
 });

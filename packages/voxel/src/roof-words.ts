@@ -4,8 +4,10 @@
  * edges). roof-mesher.ts draws the planes from these words; derive-pieces.ts
  * places the roof-edge pieces they name.
  *
- * **Slopes.** A sloped roof is laid as a stair of intact (shape 15) roof
- * cells with nothing solid above them, at one of two slopes:
+ * **Slopes.** A sloped roof is laid as a stair of roof cells drawn whole
+ * (intact, or cracked: damage stage 1 of their kit, or an integrity the kit
+ * leaves out of every stage) with nothing solid above them, at one of two
+ * slopes:
  * - **45°** (steep): each cell one up and one across from the next. A cell
  *   rises toward a direction d when a roof cell sits one up and one across
  *   in d, or one down and one across against d; with none such, a diagonal
@@ -39,11 +41,14 @@
  * concave, the highest of them) when both stairs go on upward from it (at
  * 1:2, two cells along each way), else a hip (the lowest).
  *
- * Damaged roof cells and every cell read neither way keep their voxel faces
- * (the mandatory fallback), so a roof never disappears.
+ * A roof cell at a hole stage (2 or 3 of its kit) is not drawn: it is a hole
+ * in the roof, and the cells round it read the roof without it. Every cell
+ * read neither way keeps its voxel faces (the mandatory fallback), so a roof
+ * never disappears. A cracked plane cell stays in its plane and the planes
+ * carry its crack (roof-mesher.ts).
  *
  * **Support.** A plane cell over a body (any solid construction cell drawn
- * as a voxel, intact), or over one air cell over a body, is **supported**:
+ * as a voxel, intact or cracked), or over one air cell over a body, is **supported**:
  * the body's top is cut to the roof's underside, so the roof's slab closes
  * down onto the body (a gable's end wall up under its verge, an eave wall
  * up to the slope inside the attic) and no voxel step shows under the
@@ -58,7 +63,9 @@
  */
 import { OPEN_ROLE, type Neighbourhood } from './assembly';
 import { SURFACE_ISO } from './derived-mesh';
-import { MATERIAL_AIR, ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, valueMaterial, valueShape, VOXEL_ROLE } from './record';
+import { DAMAGE_STAGE } from './damage-stages';
+import { damageStageOf, type PieceTable } from './piece-table';
+import { MATERIAL_AIR, ROLE_MASK, ROLE_SHIFT, valueMaterial, valueShape, VOXEL_ROLE } from './record';
 
 /** How far (Chebyshev, cells) whether a cell is a plane cell reads: a 1:2 stair's pair is told apart two cells along. */
 export const ROOF_PLANE_REACH = 2;
@@ -446,19 +453,33 @@ export function roofReading(r: RoofProbe): number {
   return w;
 }
 
+/**
+ * How damage is shown to the predicates below (one job at a time a thread):
+ * the job's piece table (each kit's stages; null: the engine's) and whether
+ * its rule set draws damage at all (one that does not draws a damaged cell
+ * whole).
+ */
+let damageTable: PieceTable | null = null;
+let damageDrawn = true;
+
+/** Whether a construction cell of value `v` is drawn whole: intact, cracked, or at an integrity its kit shows in no stage (not a hole). */
+function drawnWhole(v: number): boolean {
+  return valueShape(v) !== 0 && (!damageDrawn || damageStageOf(damageTable, v) < DAMAGE_STAGE.many);
+}
+
 /** Cell predicates over a neighbourhood. */
 function roofValue(v: number): boolean {
-  return ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.roof && valueShape(v) === SHAPE_FULL;
+  return ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.roof && drawnWhole(v);
 }
 
 function solid(n: Neighbourhood, i: number): boolean {
   return OPEN_ROLE[(n.values[i]! >>> ROLE_SHIFT) & ROLE_MASK] !== 1 && n.shapes[i]! >= SURFACE_ISO;
 }
 
-/** A body a roof can rest on: an intact solid construction cell (terrain is drawn by its own mesher, a damaged cell is a hole). */
+/** A body a roof can rest on: a solid construction cell drawn whole (terrain is drawn by its own mesher, a hole is not drawn). */
 function body(v: number): boolean {
   const role = (v >>> ROLE_SHIFT) & ROLE_MASK;
-  return valueMaterial(v) !== MATERIAL_AIR && OPEN_ROLE[role] !== 1 && role !== VOXEL_ROLE.terrain && valueShape(v) === SHAPE_FULL;
+  return valueMaterial(v) !== MATERIAL_AIR && OPEN_ROLE[role] !== 1 && role !== VOXEL_ROLE.terrain && drawnWhole(v);
 }
 
 /** Plain air (not an opening, not liquid). */
@@ -472,8 +493,19 @@ let probeCell = 0;
 let probeSide = 0;
 const neighbourhoodProbe: RoofProbe = (dx, dy, dz) => roofValue(probeValues[probeCell + (dx * probeSide + dz) * probeSide + dy]!);
 
-/** Whether cell `i` is a plane cell (reads {@link ROOF_PLANE_REACH} round it): the edge pass leaves pieces off round these. */
-export function isRoofPlaneCell(n: Neighbourhood, i: number): boolean {
+/** Sets how the predicates read damage: `table`'s kits' stages (null: the engine's), or none drawn. */
+function useDamage(table: PieceTable | null, drawn: boolean): void {
+  damageTable = table;
+  damageDrawn = drawn;
+}
+
+/**
+ * Whether cell `i` is a plane cell (reads {@link ROOF_PLANE_REACH} round it):
+ * the edge pass leaves pieces off round these. Damage by `table`'s stages,
+ * as {@link classifyRoofs}.
+ */
+export function isRoofPlaneCell(n: Neighbourhood, i: number, table: PieceTable | null = null): boolean {
+  useDamage(table, true);
   return planeWord(n, i) !== 0;
 }
 
@@ -483,7 +515,8 @@ export function isRoofPlaneCell(n: Neighbourhood, i: number): boolean {
  * cell. The roof's slab closes down through it onto the body, so the edge
  * pass dresses no edge of it.
  */
-export function isRoofGapCell(n: Neighbourhood, i: number): boolean {
+export function isRoofGapCell(n: Neighbourhood, i: number, table: PieceTable | null = null): boolean {
+  useDamage(table, true);
   return roofValue(n.values[i + 1]!) && air(n.values[i]!) && body(n.values[i - 1]!);
 }
 
@@ -514,14 +547,18 @@ function offsets(s: number): Int32Array {
  * into `out` (neighbourhood indexing; 0: none; cells further out are left as
  * they are), the job's own cells
  * with their roof edges. The pad must be at least {@link ROOF_MESHER_REACH}.
- * Returns the job's own plane cells.
+ * A damaged roof cell is a plane cell while its kit's stages (`table`; null:
+ * the engine's) draw it whole; under a rule set that draws no damage
+ * (`damageDrawn` false) every damaged cell is drawn whole. Returns the job's
+ * own plane cells.
  */
-export function classifyRoofs(n: Neighbourhood, out: Uint32Array): number {
+export function classifyRoofs(n: Neighbourhood, out: Uint32Array, table: PieceTable | null = null, damageDrawnHere = true): number {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
   if (p < ROOF_MESHER_REACH) throw new RangeError(`roof mesher: pad ${p}, it reads ${ROOF_MESHER_REACH} cells past the job`);
   if (out.length !== n.values.length) throw new RangeError('roof words: wrong length');
+  useDamage(table, damageDrawnHere);
   const off = offsets(s);
   const lo = p - 1;
   const hi = p + e + 1;

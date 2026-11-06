@@ -132,7 +132,7 @@ function edgeExclusions(n: Neighbourhood, lo: number, hi: number, table: PieceTa
       const i = row + y;
       // Most cells are air or plain bodies: only a roof cell can be a plane cell, only an air cell a roof's gap.
       const role = (v[i]! >>> ROLE_SHIFT) & ROLE_MASK;
-      out[i] = role === VOXEL_ROLE.air ? (isRoofGapCell(n, i) ? 1 : 0) : isHoleCell(n, i, table) || (role === VOXEL_ROLE.roof && isRoofPlaneCell(n, i)) ? 1 : 0;
+      out[i] = role === VOXEL_ROLE.air ? (isRoofGapCell(n, i, table) ? 1 : 0) : isHoleCell(n, i, table) || (role === VOXEL_ROLE.roof && isRoofPlaneCell(n, i, table)) ? 1 : 0;
     }
   }
   return out;
