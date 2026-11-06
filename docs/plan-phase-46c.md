@@ -230,6 +230,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16g | Placeholder kits regenerated, role spec + texture layout rewritten as v1 candidates, proto scene re-shot both renderers, town measured. |
 | 46c.16h | Review r2 fixes after the closing full gate: roofs follow the kit's damage stages (M1, D521), the Scene view follows kit and seed edits (M2), voxel decals checked in the export (M3), the trim page's defaults and the per-kit layout question (M4), Lows. |
 | 46c.16i | acc46c-r2 presented, awaiting owner (hard stop): pictures of the 46c.16a–h build, both renderers, README + approve page; then the v1 freeze. |
+| 46c.16j | done (09a4cd17): D519 fixed — roof polygons and bodies next to a roof name the one cell they show (owner offset in normal w / position w; derived 27), closing geometry the wall's, no blend; kit `wallTopFill` (piece table 5) default off: stepped wall tops. Flat roof's rim dressed. Seen both renderers; fast gate GREEN, e2e 65.5 → 66.5 s. D525 (roof tris ~x2) |
 
 ## 7. Progress
 
@@ -1717,6 +1718,41 @@ fixed to `playCmd`, not the product; the export marks passed); gate-rerun-202611
 renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 → 10.2 s, export 7.1 → 8.0 s; the file
 68.0 → ~65.5 s (summed over the two reruns; load).
 
+### 46c.16j wall and roof apart, wall-top fill a roof-kit setting
+
+- **Owner offset** (`derived-mesh.ts` `writeSurfaceExtras`/`surfaceOwnerOf`; derived 27, spec §2 surface vertex): a
+  face that shows one cell alone carries, per vertex, the offset (quarter cells) to that cell's centre: x, z in
+  position w's high byte, y over bit 0 in normal w. Interpolated it lands every pixel within ⅛ cell of the centre,
+  so a polygon spanning cells still shows one. The roof mesher names a plane cell for its top, underside and sides
+  above its underside, the body for a supported cell's floor and sides below the underside (`resolveSpan` splits a
+  band at the underside line); its polygons are one cell's (no row merges). The base surface tags every face of a
+  body with a plane cell among its 26 neighbours (offset a quarter cell in: the cell behind each pixel). The adapter
+  decodes it to a `voxelOwner` snorm8x4 attribute; the shader reads that cell (one texel more, 10 grid reads) and
+  takes its material and wetness alone. Both renderers (one TSL program).
+- **Wall-top fill**: kit field `wallTopFill?: boolean` (kit format 1 draft, canonical false left out; descriptor,
+  MCP docs), carried by the piece table (format 5); `roof-words.ts` sets `supported`/`gap` and `isRoofGapCell` only
+  when the roof cell's kit says so. No kit: off. 47a's building object may override it per building (plan note).
+  **What shows when off:** each gable wall keeps its voxel steps under the parallel underside, a triangle of ½ cell²
+  open above each step (into the attic; the roof's dark underside behind it from outside); an eave wall one cell
+  under the roof leaves that cell open; the wall tops' faces are drawn, bodies and roof each closed (tested).
+- **Tests**: `roof-mesher.test.ts` +2: the two-material walled house (timber walls, roof tiles; 45°/1:2, gable/hip,
+  fill on/off) through the real derive: every point of an owned triangle shows, via its interpolated offset, the
+  roof's material when sloped or above the underside and the wall's below it; every blended face's eight read cells
+  hold no plane cell. Fill only from the roof's kit (no kit, a kit without it, a fill on the walls' kit: no support,
+  the same plane cells, closed, the gable open between step and slope; with it closed). Existing roof tests run with
+  a filling kit; the chimney-top probe now looks for a triangle at its top inside its 2 × 2 footprint (it asked for a
+  centroid within ½ cell of the footprint's middle, which depends on how the top is fanned). `mesh-cases` one-cell
+  shells: stepped houses watertight at L0–L2; the silhouette check runs with the fill (closed houses; off, L2 keeps
+  0.893 of a gable's silhouette: its coarse steps open). `voxel-surface.test.ts` 10 grid reads; kit record round trip.
+- **Measured** (town 512², 1,070 roof sections, `run.mjs cases --roofs [--fill]`, 2 rounds, 16:18, load 4.0): with
+  fill roof mesher p50/p95 345 / 1,131 µs (46c.16d 238 / 577), ramps 409,086 (206,148), base 674,174 (417,396);
+  fill off 274 / 945 µs, ramps 351,052, base 616,140 (D525). Fast gate perf at the cap: 0 missed both renderers.
+- **Looked at** (staging, 1280 × 720, WebGPU and WebGL 2 alike, ~16:30; `~/.cache/thirdlight-phase46/work/46c.16j/`):
+  `twomat-g45/g12-{near,gable-end,gable-close,attic,attic-gable,eave-under}-{on,off}` (stone walls, timber roof of
+  the log kit): on, the grey wall runs straight up to the slope inside and out, the roof brown to the seam, no
+  stepped material line; off, the stepped gable under the slope. `flat-{near,rim}-off`: a flat stone roof keeps its
+  voxel faces, its rim dressed by the kit's edge and corner pieces. Unverified: coarse levels of a two-material house.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -2415,6 +2451,14 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
     has performance numbers;** do not change it before.
   - **B3 (no mirror on slot meshes): owner asked why** — answered in the next entry.
 
+- 2026-11-06 (46c.16j, default chosen, owner to confirm): **an owned face shows its cell alone**: no blend at all,
+  so two roof materials meet in a hard line on the cell boundary, and a wall within one cell of a roof (or a chimney
+  through one) no longer blends with other wall materials there; wetness on those faces is the cell's own (it steps
+  per cell on roofs).
+- 2026-11-06 (46c.16j, default chosen, owner to confirm): **the fill is read from the roof cell's kit only** (a fill
+  on the wall's kit does nothing); off leaves the builder's gaps open (gable triangles, a one-cell eave slot).
+- 2026-11-06 (46c.16j): **roof polygons are one cell's** (an owner offset is exact only for one cell), so roofs cost
+  about twice the triangles (D525); merging rows back is a 46d candidate.
 - 2026-11-06 (OWNER, follow-up choices): **wall-top fill = a setting on the roof's kit, default OFF** (the stepped wall
   shows unless the builder asks for the fill; 47a's building object may override it per building). **Mirror: yes,
   optional per slot mesh** (handed pieces: carvings, stair sides; the engine flips winding and normal maps as it does
