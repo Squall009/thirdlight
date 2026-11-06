@@ -173,7 +173,7 @@ player characters, so a large view costs a fraction of drawing every cell:
   one-cell wall, floor or roof is drawn as thick as the level's cell, so a
   house keeps its walls and roof and looks a little larger. A sloped roof
   stays one smooth slope at every distance, its eaves at one height. Kit
-  pieces (edges, corners, roof edges, debris) are drawn only at full
+  pieces (edges, corners, roof edges, damage) are drawn only at full
   detail; from the 1 m ring out the edges are plain square voxels; fences
   and lone posts thinner than the level's cell leave; damage shows near by
   only.
@@ -287,7 +287,8 @@ the cells round every edge and corner of a built cell and gives it a
 meets a floor or ceiling, an outer or inner corner; where outer and inner
 edges meet, as at a stair's side or a wall's foot on a wider foundation, the
 outer or inner corner the shape there asks for), the ridge, eave,
-verge, hip and valley of a sloped roof, and **debris**. Every case is a
+verge, hip and valley of a sloped roof, and **damage** (the faces round a
+damaged hole). Every case is a
 **slot** of a kit (the case id is the slot's name): a kit fills a slot with
 one or more 3D meshes, or leaves it empty, and **an empty slot draws
 nothing** (that edge stays a plain voxel edge). So a kit can start empty:
@@ -315,13 +316,24 @@ engine tilts the same piece onto the shallower slope. One verge piece
 serves both sides of a gable (the other side is drawn mirrored).
 
 **Damage:** a built cell's shape is its integrity (15
-intact, lower damaged, air broken). A damaged cell with an open face is
-drawn by the kit's `debris` piece (`debris-heavy` below integrity 8; an
-empty slot draws nothing there, the cell shows as a hole), the intact faces
-opening toward it by `debris-face` pieces; it still collides,
-blocks light and is walked on as a whole block until it is air. How much
-damage a cell takes and when is the game's to decide
-([scripting it](../guides/voxel-scripts.md#change-set-dig-paint)).
+intact, lower damaged, air broken), shown in three stages its kit sets (the
+default split below; a material without a kit uses it too):
+
+| Stage | Integrity | Drawn |
+|---|---|---|
+| 1, cracks | 11–14 | the block with its edge pieces; its faces show a crack overlay, stronger as the integrity drops |
+| 2 | 6–10 | not drawn: a hole with no edge pieces round it; each intact neighbour face toward it carries 6 pieces of its own kit's `damage-stage-2` slot, spread over the face |
+| 3 | 1–5 | the same hole with 3 pieces of `damage-stage-3` a face |
+
+A damaged cell with every face against solid stays a plain block. Whatever
+its stage, it collides and is walked on as a whole block until it is air;
+light passes it by its integrity (a cell at 5 lets two thirds through).
+Damage shows in the nearest ring only (1 m cells and coarser are intact),
+and terrain has none (its shape is its fill). How much damage a cell takes
+and when is the game's to decide
+([scripting it](../guides/voxel-scripts.md#change-set-dig-paint)); a smooth
+build stroke always places whole blocks, so damage is only ever written on
+purpose.
 
 A voxel kit is one project item (its own file under `assets/voxel-kits/`,
 a `voxelkit` in the project index) holding the detail pieces a material
@@ -346,10 +358,20 @@ them as `voxelKits`.
   a scene draws the same on every load; change the seed for another
   arrangement of the same meshes.
 - **`jitter`** (0–4, absent 1): how far every piece of the kit (edges,
-  corners, roof edges, debris) is moved into the solid and twisted, as a
+  corners, roof edges, damage) is moved into the solid and twisted, as a
   share of the engine's stagger (1: 1/64–1/32 of a cell in, up to 2°; 0: on
   the lattice), so a long rim does not read as a ruled line. Always into
   the solid, never out: no gap opens between a piece and its faces.
+- **`damage`** (absent: the engine's stages): `stage1`, `stage2`,
+  `stage3`, each `{min, max}` (an integrity range within 1–14, stages never
+  sharing one; stages 2 and 3 also `pieces`, 1–16 a face) or `null` to
+  leave that stage out (an integrity in no stage draws intact), and
+  `crackTexture` (`{assetId, digest}`: an image asset whose red channel
+  replaces the engine's crack pattern: 0 no crack, bright cracks show at
+  the first crack stage, dimmer ones join as the integrity drops; one image
+  is laid on each 0.5 m face). For example
+  `{"stage1": null, "stage2": {"min": 1, "max": 14, "pieces": 4}, "stage3": null}`
+  makes every damaged block a hole with four pieces a face.
 - **One texture set a kit**: every piece of a kit uses the same one
   material (one trim sheet or one material); a kit whose pieces use two is
   a kit-check error. Timber on stone is two kits.
@@ -407,7 +429,7 @@ kits naming a trim layout and are marked "(draft layout)".
 box at `origin` and builds every case of the case list there from voxels,
 all in `material`: a fixed sampler (a notched block for every edge and
 corner case, a gable, a hip and an L-plan roof for the roof edges, a wall
-with two damaged cells for debris), each case labelled at one cell that
+with a cell at each damage stage), each case labelled at one cell that
 has it. Pick a material your kit binds to see each slot drawn with its
 meshes, and an empty one drawn as plain voxel edges. The answer lists each
 label's cell, role and case; the voxel world page labels them

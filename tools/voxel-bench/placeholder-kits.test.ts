@@ -1,7 +1,7 @@
 /**
  * The committed placeholder kits (log, stone; `kits/make_placeholder_kits.py`
  * through Blender), made for the edge catalogue's slots: pieces only on
- * edges, corners, roof edges and debris, one mesh filling several slots with
+ * edges, corners, roof edges and the faces toward a damage hole, one mesh filling several slots with
  * a rotation, one texture set (one material) a kit. Their records name the
  * GLBs beside them by the bytes' digest, every piece's node reads with the
  * project model's GLB reader and with the renderer's loader port (three's
@@ -69,14 +69,15 @@ describe.each(KITS)('placeholder kit %s', (id) => {
     expect(report.rows.some((x) => x.id === 'digests')).toBe(false);
     // No warning at all: an empty slot (the inner corners) is no warning.
     expect(report.rows.filter((r) => r.state === 'warn').map((r) => r.id)).toEqual([]);
-    // Every slot named is the catalogue's: no piece for a flat face, every slot an edge, corner, roof edge or debris case.
+    // Every slot named is the catalogue's: no piece for a flat face, every slot an edge, corner, roof edge or damage case.
     const cat = new Set(WORLD_RULES.catalogue!.cases.map((c) => c.id));
     for (const cid of Object.keys(kit.slots)) {
       expect(cat.has(cid), cid).toBe(true);
-      expect(cid, cid).toMatch(/^(edge-|corner-|roof-|debris)/);
+      expect(cid, cid).toMatch(/^(edge-|corner-|roof-|damage-stage-)/);
     }
-    // Game-ready budgets (triangles a piece; drawn in the near ring only, so no lower-detail mesh).
-    const budget = (cid: string): number => (cid.startsWith('edge-') ? 48 : cid.startsWith('corner-') || cid.startsWith('roof-') ? 64 : cid.startsWith('debris') ? 160 : 64);
+    // Game-ready budgets (triangles a piece; drawn in the near ring only, so no lower-detail mesh). A damage piece is
+    // one fragment drawn several times a face toward a hole: 32.
+    const budget = (cid: string): number => (cid.startsWith('edge-') ? 48 : cid.startsWith('corner-') || cid.startsWith('roof-') ? 64 : cid.startsWith('damage-') ? 32 : 64);
     for (const p of report.pieces) expect(p.triangles!, p.caseId).toBeLessThanOrEqual(budget(p.caseId));
     // No mesh in the file is left over from a lower level (every node a record names, and only those).
     expect(new Set(meshesOf(kit).map((m) => m.node)).size).toBe(glbNodeNames(glb).length);

@@ -735,7 +735,7 @@ describe('voxel world routes', () => {
     for (let cx = (want.min[0]! >> 5) - 1; cx <= (want.max[0]! >> 5) + 1; cx++) for (let cy = (want.min[1]! >> 5) - 1; cy <= (want.max[1]! >> 5) + 1; cy++) for (let cz = (want.min[2]! >> 5) - 1; cz <= (want.max[2]! >> 5) + 1; cz++) around.push({ cx, cy, cz });
     const store = await readChunks(around, SCENE_WORLD);
     // The catalogue has no window rules: no labelled cell reads back a window case; the sampler's cases (edges, roof
-    // edges, debris) are the derive's pieces, checked through the derive in vitest.
+    // edges, damage) are the derive's pieces, checked through the derive in vitest.
     expect(WORLD_RULES.catalogue!.rules).toEqual([]);
     for (const l of scene.labels) expect({ cell: l.cell, ...caseAt(store, ...l.cell) }).toEqual({ cell: l.cell, caseId: null });
     // Every case of the catalogue (every slot) is labelled: one sampler cell each.

@@ -1,7 +1,7 @@
 /**
  * The kit test scene through the real derive with the world's catalogue:
  * the edge catalogue has no window rules, so no exhibit grid, and every case
- * (edges, corners, roof edges, debris: every slot) gets a label from the
+ * (edges, corners, roof edges, damage: every slot) gets a label from the
  * fixed sampler, so no case is unreached. Written into a busy world, a kit
  * filling every slot draws, at every label, that slot's piece.
  */
@@ -25,7 +25,7 @@ describe('the kit test scene', () => {
     expect(unreached.map((u) => `${u.caseId}/${u.role}`)).toEqual(CAT.cases.flatMap((c) => [...new Set(c.roles)].map((r) => `${c.id}/${r}`)));
     const scene = kitTestScene(RULES, { origin: ORIGIN, material: MAT.timber });
     expect(scene.unreached).toEqual([]);
-    expect(CAT.cases.length).toBe(18);
+    expect(CAT.cases.length).toBe(17);
     // Each case labelled once.
     expect(scene.labels.map((l) => l.caseId).sort()).toEqual(CAT.cases.map((c) => c.id).sort());
     // The same catalogue gives the same scene.

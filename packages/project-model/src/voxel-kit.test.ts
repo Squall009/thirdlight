@@ -22,6 +22,8 @@ function full(): VoxelKit {
   return {
     gameData: { sound: { step: 'wood-step' }, break: { hits: 3, debris: ['splinter', 'plank'] }, physics: null },
     trimLayout: 'detail-pieces-draft',
+    // Its own damage stages (fields out of order): cracks as the engine's, a wider stage 2, no stage 3, its own crack texture.
+    damage: { crackTexture: { digest: D2, assetId: 'cracks' }, stage3: null, stage2: { pieces: 4, max: 10, min: 4 }, stage1: { max: 14, min: 11 } },
     jitter: 1.5,
     slots: {
       'edge-out-top': {
@@ -84,6 +86,7 @@ describe('voxel kit record', () => {
         },
         jitter: 1.5,
         trimLayout: 'detail-pieces-draft',
+        damage: { stage1: { min: 11, max: 14 }, stage2: { min: 4, max: 10, pieces: 4 }, stage3: null, crackTexture: { assetId: 'cracks', digest: D2 } },
         gameData: { break: { debris: ['splinter', 'plank'], hits: 3 }, physics: null, sound: { step: 'wood-step' } },
       }),
     );
@@ -164,6 +167,20 @@ describe('voxel kit record', () => {
     for (const j of [-0.1, VOXEL_KIT_LIMITS.jitterMax + 0.5, Number.NaN, '1']) expect(at((k) => (k['jitter'] = j)), String(j)).toEqual(['field_value /jitter']);
     for (const j of [0, VOXEL_KIT_LIMITS.jitterMax]) expect(at((k) => (k['jitter'] = j))).toEqual([]);
     expect(at((k) => (k['trimLayout'] = 'Draft 1'))).toEqual(['id_invalid /trimLayout']);
+    // Damage stages: ranges within 1-14 and in order, no two stages sharing an integrity, pieces only for stages 2-3.
+    expect(at((k) => (k['damage']['stage1'] = { min: 12, max: 15 }))).toEqual(['field_value /damage']);
+    expect(at((k) => (k['damage']['stage1'] = { min: 13, max: 12 }))).toEqual(['field_value /damage']);
+    expect(at((k) => (k['damage']['stage1'] = { min: 9, max: 14 }))).toEqual(['field_value /damage']);
+    expect(at((k) => (k['damage']['stage1'] = { min: 11, max: 14, pieces: 2 }))).toEqual(['field_value /damage']);
+    for (const p of [0, 17, 2.5]) expect(at((k) => (k['damage']['stage2']['pieces'] = p)), String(p)).toEqual(['field_value /damage']);
+    expect(at((k) => (k['damage']['stage3'] = { min: 1, max: 3 }))).toEqual([]);
+    expect(at((k) => (k['damage']['stage2']['count'] = 2))).toEqual(['field_unexpected /damage/stage2/count']);
+    expect(at((k) => (k['damage']['stage4'] = null))).toEqual(['field_unexpected /damage/stage4']);
+    expect(at((k) => (k['damage']['stage2'] = 6))).toEqual(['field_type /damage/stage2']);
+    expect(at((k) => (k['damage']['crackTexture']['digest'] = 'x'))).toEqual(['digest_invalid /damage/crackTexture/digest']);
+    expect(at((k) => (k['damage'] = {}))).toEqual([]);
+    // An empty damage object is the engine's stages: left out of the canonical form.
+    expect(canonicalVoxelKit({ ...full(), damage: {} }).damage).toBeUndefined();
   });
 
   it('refuses game data that is not JSON or nests past the bound', () => {
@@ -209,5 +226,12 @@ describe('the models a build ships for kit meshes', () => {
     expect(refs([], [kit('a', D(2)), kit('b', D(1))])).toEqual([{ assetId: 'crate', version: 2 }]);
     // A digest no version has: the current one.
     expect(refs([], [kit('log', D(9))])).toEqual([{ assetId: 'crate', version: null }]);
+  });
+
+  it('ships a kit\'s crack texture the same way (the version its digest names)', () => {
+    const cracks = { assetId: 'cracks', kind: 'texture', currentVersion: 2, versions: [{ version: 1, sourceDigest: D(5) }, { version: 2, sourceDigest: D(6) }] };
+    const withCracks: VoxelKit = { ...kit('log', D(1)), damage: { crackTexture: { assetId: 'cracks', digest: D(5) } } };
+    const got = collectAssetRefsV3({ schemaVersion: 3, sceneId: 'main', revision: 1, entities: [] } as never, { assets: [crate, cracks], behaviors: [], prefabs: [], voxelKits: [withCracks] } as never, []);
+    expect(got).toEqual([{ assetId: 'cracks', version: 1 }, { assetId: 'crate', version: 1 }]);
   });
 });

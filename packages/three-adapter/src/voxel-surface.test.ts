@@ -37,19 +37,21 @@ const bindings = (wgsl: string): number => (wgsl.match(/:\s*texture_(?:2d|3d|cub
 const reads = (wgsl: string): number => (wgsl.match(/\btexture(?:Load|Sample\w*)\s*\(/g) ?? []).length;
 
 describe('the voxel surface program', () => {
-  it('reads nine grid texels (the eight round the pixel, the one under them for a pixel above its roof), four table texels and six pattern samples a pixel, and binds three textures (the bands: two samples and a texture more)', async () => {
+  it('reads nine grid texels (the eight round the pixel, the one under them for a pixel above its roof), five table texels, six pattern samples and one crack sample a pixel, and binds four textures (the bands: two samples and a texture more)', async () => {
     await settle();
     // Both programs also read three's BRDF table (the standard material's environment term): one read, one binding.
     const flat = program('flat');
     expect(reads(flat)).toBe(1);
     expect(bindings(flat)).toBe(1);
     const blend = program('blend');
-    expect(reads(blend) - reads(flat)).toBe(19);
-    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(13);
+    // The crack overlay (a cracked block's faces): the material's crack layer from the table, one crack read (the
+    // crack texture is nearest-filtered, so three reads it with a load).
+    expect(reads(blend) - reads(flat)).toBe(21);
+    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(15);
     // The grid is a 3D texture read at whole 3D texel coordinates (no flip, no transform).
     expect(blend).toMatch(/:\s*texture_3d<f32>\s*;/);
     expect((blend.match(/\btextureLoad\(\s*\w+,\s*vec3<i32>\(/g) ?? []).length).toBe(9);
-    expect(bindings(blend) - bindings(flat)).toBe(3);
+    expect(bindings(blend) - bindings(flat)).toBe(4);
     // The engine's lit programs keep the light path's units free; the surface's leave room for them.
     expect(bindings(blend) + LIGHT_PATH_TEXTURE_UNITS).toBeLessThanOrEqual(LIT_TEXTURE_UNITS);
     // Every pattern sample (implicit derivatives) is in the program's top-level flow, outside any branch: WGSL's
@@ -63,11 +65,12 @@ describe('the voxel surface program', () => {
     expect(bindings(banded) + LIGHT_PATH_TEXTURE_UNITS).toBeLessThanOrEqual(LIT_TEXTURE_UNITS);
     const bandBody = banded.slice(banded.indexOf('@fragment'));
     for (const line of bandBody.split('\n').filter((l) => /\btextureSample\(/.test(l))) expect(line.startsWith('\t') && !line.startsWith('\t\t'), line).toBe(true);
-    // WebGL 2 builds the same program: the same fetches and samples (texelFetch / texture in GLSL).
+    // WebGL 2 builds the same program: the same fetches and samples (texelFetch / texture in GLSL; GLSL samples the
+    // nearest-filtered crack texture with texture()).
     for (const bandsOn of [false, true]) {
       const glsl = program('blend', bandsOn, true);
-      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(13);
-      expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (program('flat', false, true).match(/\btexture\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(bandsOn ? 8 : 6);
+      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(14);
+      expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (program('flat', false, true).match(/\btexture\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(bandsOn ? 9 : 7);
     }
   });
 

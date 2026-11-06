@@ -46,17 +46,35 @@
  * A chunk whose grid holds one solid entry needs no region: the object
  * passes the entry instead.
  *
- * Texture units: the grid texture, the material table and the pattern
- * array, three of a lit program's sixteen (`texture-units.ts`); the band
- * test texture a fourth when it is on. Reads a pixel: eight grid texels,
- * four table texels (look and tiles of two materials) and six pattern
- * samples (a construction material takes one projection, through the
- * first of its three samples), two band samples more with the bands on.
+ * Texture units: the grid texture, the material table, the pattern array
+ * and the crack array, four of a lit program's sixteen (`texture-units.ts`);
+ * the band test texture a fifth when it is on. Reads a pixel: nine grid
+ * texels, five table texels (look and tiles of two materials, the crack
+ * layer of the first), six pattern samples (a construction material takes
+ * one projection, through the first of its three samples) and one crack
+ * sample, two band samples more with the bands on.
+ *
+ * **Cracks.** A cracked block's faces (voxel damage stage 1) carry the
+ * overlay's strength in a vertex attribute ({@link VOXEL_CRACK_ATTRIBUTE});
+ * the crack texture (voxel-crack-texture.ts: the engine's, or the
+ * material's kit's own) is laid one tile a cell face on the build grid's
+ * metres, and a texel at or above 1 − strength darkens the face there, so
+ * the cracks grow as the integrity drops.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import { CONSTRUCTION_TILE_METRES, SHADER_CONSTRUCTION_BIT, TERRAIN_TILE_METRES } from '@thirdlight/voxel';
+import { crackArrayTexture } from './voxel-crack-texture';
+
+/**
+ * The surface geometry's attribute holding a face's crack overlay strength (0 … 1: the derive's position w / 255),
+ * non-zero only on a cracked cell's faces (voxel damage stage 1).
+ */
+export const VOXEL_CRACK_ATTRIBUTE = 'voxelCrack';
+
+/** How much a crack darkens the face under it (0 … 1). */
+const CRACK_DARKEN = 0.7;
 
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
@@ -64,7 +82,7 @@ import { texelTexture, texelTexture3D } from './texel-texture-node';
 import { BAND_TEXELS, bandTexels, gridUv, type ProjectionOps } from './voxel-surface-projection';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, clamp, float, floor, int, ivec2, ivec3, max, min, mix, mod, normalLocal, positionLocal, property, select, sqrt, texture, uniform, vec2, vec3, vec4 } = TSL;
+const { Fn, abs, attribute, clamp, float, floor, int, ivec2, ivec3, max, min, mix, mod, normalLocal, positionLocal, property, select, sqrt, texture, uniform, vec2, vec3, vec4 } = TSL;
 
 /** The object `userData` key holding a voxel surface's per-object values ({@link VoxelSurfaceObject}). */
 export const VOXEL_SURFACE_KEY = 'tlVoxelSurface';
@@ -338,7 +356,8 @@ function bandTexture(): THREE.DataTexture {
 /**
  * The material table: a texel a material id, linear colour in rgb, pattern
  * index in a; a second block of rows below it the tiles (construction
- * metres in r, terrain metres in g).
+ * metres in r, terrain metres in g) and its crack layer in b (0: the
+ * engine's; voxel-crack-texture.ts).
  */
 function tableTexture(): THREE.DataTexture {
   const rows = 2 * TABLE_ROWS;
@@ -366,10 +385,19 @@ export interface VoxelSurface {
   readonly grids: VoxelShaderGrids;
   /** Metres the blend runs over (a uniform: changing it needs no new program). */
   setBlendMetres(m: number): void;
+  /**
+   * The crack textures the kits replace the engine's with ({@link CRACK_TEXELS}² bytes each, layer k + 1 of the
+   * array) and each material's layer (0: the engine's): what a cracked face of that material draws.
+   */
+  setCracks(layers: readonly Uint8Array[], materialLayer: (material: number) => number): void;
   /** The values an object passes (made once per surface object; `slot.w` −1 until it is given a grid or an entry), its grid's cells `cellMetres` (default the layout's). */
   objectValues(cellMetres?: number): VoxelSurfaceObject;
   dispose(): void;
 }
+
+/** A face's crack strength: the geometry's attribute (absent on a geometry without one: no cracks). */
+const crackStrength = (): N =>
+  Fn((builder: { hasGeometryAttribute(name: string): boolean }) => (builder.hasGeometryAttribute(VOXEL_CRACK_ATTRIBUTE) ? attribute(VOXEL_CRACK_ATTRIBUTE, 'float') : float(0)))();
 
 /** The surface material over a set of shader grids. */
 export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfaceOptions): VoxelSurface {
@@ -392,6 +420,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   }
   const patterns = patternTexture();
   const bands = opts.bands === true ? bandTexture() : null;
+  let cracks = crackArrayTexture([]);
+  const cracksNode = texture(cracks);
   // Placed relative to the camera in 64 bits: a voxel world may lie kilometres from the origin.
   const material = cameraRelative(new THREE.MeshStandardNodeMaterial());
   material.metalness = 0;
@@ -554,7 +584,13 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const blended = mix(a1, a2, share);
       // Nothing solid among the eight cells (should not happen on a surface): a neutral grey shows it.
       const seen = solid.or(nw.greaterThan(0));
-      const colour = mix(vec3(0.5), blended.mul(float(1).sub(wetness.mul(0.5))), select(seen, float(1), float(0)));
+      // Cracks (a damaged block's faces, damage stage 1): one crack tile a cell face, on the grid's metres; a texel
+      // shows once the face's strength reaches it (bright cracks first). Sampled outside any branch, as above.
+      const crackLayer = int(floor(look(mod(mA, matMask), 1).z.add(0.5)));
+      const crackTexel = cracksNode.sample(g.div(layout.cellMetres)).depth(crackLayer).r.toVar();
+      const strength = crackStrength();
+      const cracked = select(strength.greaterThan(0.002).and(crackTexel.greaterThan(0.002)).and(crackTexel.greaterThanEqual(float(1).sub(strength))), float(CRACK_DARKEN), float(0));
+      const colour = mix(vec3(0.5), blended.mul(float(1).sub(wetness.mul(0.5))).mul(float(1).sub(cracked)), select(seen, float(1), float(0)));
       wetOut.assign(wetness);
       return vec4(colour, 1);
     });
@@ -569,11 +605,20 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     setBlendMetres(m) {
       blendM.value = Math.max(0, m);
     },
+    setCracks(layers, materialLayer) {
+      const old = cracks;
+      cracks = crackArrayTexture(layers);
+      (cracksNode as unknown as { value: THREE.Texture }).value = cracks;
+      old.dispose();
+      for (let m = 1; m < ids; m++) tdata[(TABLE_ROWS * TABLE_WIDTH + m) * 4 + 2] = Math.max(0, Math.min(layers.length, materialLayer(m)));
+      fresh(table);
+    },
     objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), slope5Phase: new THREE.Vector3(), cellMetres }),
     dispose() {
       grids.dispose();
       table.dispose();
       patterns.dispose();
+      cracks.dispose();
       bands?.dispose();
       material.dispose();
     },

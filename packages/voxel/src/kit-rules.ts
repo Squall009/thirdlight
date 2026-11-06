@@ -15,7 +15,8 @@
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
 import { isRoofGapCell, isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-words';
-import { caseFormTable, isDebrisCell } from './case-forms';
+import { caseFormTable, isHoleCell } from './case-forms';
+import type { PieceTable } from './piece-table';
 import { levelDrawsPieces } from './derived-mesh';
 import { EDGE_REACH, extractEdges, type EdgeMasks } from './edge-cases';
 import { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
@@ -97,13 +98,13 @@ export function withEdges(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
     // The edge pass resolves the job's own cells only (no consumer reads an edge past the job), so its reads may
     // run into the consumers' margin: a roof's plane cells round an edge read two cells round them.
     radius: Math.max(cased.radius, EDGE_REACH + ROOF_PLANE_REACH - CONSUMER_REACH),
-    resolveEdges(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks): number {
+    resolveEdges(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks, table: PieceTable | null = null): number {
       if (!levelHasCases(level)) {
         clearBox(n, lo, hi, out.pieces, 0);
         clearBox(n, lo, hi, out.inner, 0);
         return 0;
       }
-      return extractEdges(n, lo, hi, out, edgeExclusions(n, lo, hi));
+      return extractEdges(n, lo, hi, out, edgeExclusions(n, lo, hi, table));
     },
   });
 }
@@ -116,10 +117,11 @@ const exclusionScratch = new Map<number, Uint8Array>();
  * plane cells ({@link isRoofPlaneCell}: the roof's own edges are the roof
  * mesher's), the air cells a supported roof closes down through onto a body
  * ({@link isRoofGapCell}: the body's face runs on up to the roof there) and
- * debris cells ({@link isDebrisCell}: the faces opening toward them are
- * dressed by debris pieces, not edges).
+ * holes ({@link isHoleCell}: a damaged cell not drawn is no open air, and the
+ * faces opening toward it carry damage pieces, not edges). A cracked cell
+ * (damage stage 1) is a body and keeps its edges.
  */
-function edgeExclusions(n: Neighbourhood, lo: number, hi: number): Uint8Array {
+function edgeExclusions(n: Neighbourhood, lo: number, hi: number, table: PieceTable | null): Uint8Array {
   let out = exclusionScratch.get(n.values.length);
   if (out === undefined) exclusionScratch.set(n.values.length, (out = new Uint8Array(n.values.length)));
   const s = n.side;
@@ -130,7 +132,7 @@ function edgeExclusions(n: Neighbourhood, lo: number, hi: number): Uint8Array {
       const i = row + y;
       // Most cells are air or plain bodies: only a roof cell can be a plane cell, only an air cell a roof's gap.
       const role = (v[i]! >>> ROLE_SHIFT) & ROLE_MASK;
-      out[i] = role === VOXEL_ROLE.air ? (isRoofGapCell(n, i) ? 1 : 0) : isDebrisCell(n, i) || (role === VOXEL_ROLE.roof && isRoofPlaneCell(n, i)) ? 1 : 0;
+      out[i] = role === VOXEL_ROLE.air ? (isRoofGapCell(n, i) ? 1 : 0) : isHoleCell(n, i, table) || (role === VOXEL_ROLE.roof && isRoofPlaneCell(n, i)) ? 1 : 0;
     }
   }
   return out;
@@ -141,7 +143,7 @@ function edgeExclusions(n: Neighbourhood, lo: number, hi: number): Uint8Array {
  * rule set's edge pass, or none anywhere for a set without one. Returns the
  * cells owning a piece.
  */
-export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: number, out: EdgeMasks): number {
+export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: number, out: EdgeMasks, table: PieceTable | null = null): number {
   if (out.pieces.length !== n.values.length || out.inner.length !== n.values.length) throw new RangeError('edge pieces: wrong length');
   const lo = n.pad;
   const hi = n.pad + n.edge;
@@ -150,7 +152,7 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
     clearBox(n, lo, hi, out.inner, 0);
     return 0;
   }
-  return rules.resolveEdges(n, lo, hi, level, out);
+  return rules.resolveEdges(n, lo, hi, level, out, table);
 }
 
 /**
@@ -165,6 +167,9 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
  * piece, its anchor and inner/outer from the shape at the point.
  * Version 6: 1:2 roofs are plane cells too, and no edge piece round the air
  * cell a supported roof closes down through onto a wall.
+ * Version 7 (catalogue v3, three damage stages a kit): only a hole (stages
+ * 2 and 3) takes no edge piece round it; a cracked cell (stage 1) keeps its
+ * edges.
  */
-export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 6);
+export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 7);
 

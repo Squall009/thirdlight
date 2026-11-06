@@ -27,7 +27,6 @@ import {
   EDGE_RULES,
   encodeDerived,
   INSTANCE_BYTES,
-  INSTANCE_FLAG,
   jobRadius,
   kitPieceList,
   MipTree,
@@ -103,7 +102,7 @@ describe('the piece table', () => {
       slots: {
         'edge-out-top': one,
         'edge-out-bottom': { meshes: [{ rotation: CUBE_ROTATION_X90 }, { rotation: 0, weight: 3 }] },
-        debris: one,
+        'damage-stage-2': one,
         // Not cases of the catalogue: beams and banisters are no slots.
         beam: one,
         gazebo: one,
@@ -112,15 +111,15 @@ describe('the piece table', () => {
     const rival: PieceKitSource = { voxelKitId: 'zz-rival', materials: [MAT.timber, MAT.stone], slots: { 'corner-out-top': one } };
     const list = kitPieceList(kit, CAT);
     // Catalogue case order; unknown slots are problems, never pieces.
-    expect(list.pieces.map((p) => p.caseId)).toEqual(['edge-out-top', 'edge-out-bottom', 'debris']);
+    expect(list.pieces.map((p) => p.caseId)).toEqual(['edge-out-top', 'edge-out-bottom', 'damage-stage-2']);
     expect(list.pieces[1]).toMatchObject({ weights: [1, 3], rotations: [CUBE_ROTATION_X90, 0] });
     expect(list.problems.join('\n')).toMatch(/slot "beam"[\s\S]*slot "gazebo"/);
     const { table, problems } = buildPieceTable([rival, kit], RULES, 99);
     expect(problems.some((p) => p.includes(`material ${MAT.timber}`) && p.includes('log draws it'))).toBe(true);
     const p = (c: string, m: number = MAT.timber): number => tablePiece(table, m, caseIndex(c));
-    expect([p('edge-out-top'), p('edge-out-bottom'), p('debris')]).toEqual([0, 1, 2]);
-    // An empty slot draws nothing: no stand-in (the heavy debris stage takes no light-stage piece), no fallback.
-    for (const c of ['debris-heavy', 'edge-in-top', 'corner-out-top', 'roof-ridge']) expect(p(c), c).toBe(NO_PIECE);
+    expect([p('edge-out-top'), p('edge-out-bottom'), p('damage-stage-2')]).toEqual([0, 1, 2]);
+    // An empty slot draws nothing: no stand-in (stage 3 takes no stage-2 piece), no fallback.
+    for (const c of ['damage-stage-3', 'edge-in-top', 'corner-out-top', 'roof-ridge']) expect(p(c), c).toBe(NO_PIECE);
     // The rival kit kept stone; plank is bound by no kit.
     expect(p('corner-out-top', MAT.stone)).toBe(0);
     expect(p('edge-out-top', MAT.plank)).toBe(NO_PIECE);
@@ -209,8 +208,8 @@ describe('instances carry kit pieces', () => {
         expect([MAT.timber, MAT.stone]).toContain(mat);
         expect(inst.variant & PIECE_VARIANT_MASK).toBeLessThan(3);
         seen.variants.add(inst.variant & PIECE_VARIANT_MASK);
-        // No damage here: nothing replaces a cell's base (beams and rails are plain voxels, drawn by the base surface).
-        expect(inst.flags & INSTANCE_FLAG.replacesBase).toBe(0);
+        // Bit 4 of the rotation byte is written 0 (no piece replaces a cell's base: beams and rails are plain voxels).
+        expect(inst.flags & 0x10).toBe(0);
         // An edge piece's cell shows: one of its six neighbours is open.
         const open = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => s.voxelAt(cx * E + lx + dx!, cy * E + ly + dy!, cz * E + lz + dz!, v).material === 0);
         expect(open, `edge piece at ${lx},${ly},${lz}`).toBe(true);
@@ -223,7 +222,7 @@ describe('instances carry kit pieces', () => {
     const beamCell = (0 * E + 31) * E + 5;
     const beam = [...instancesOf(deriveFromStore(s, 0, 0, -1, RULES, undefined, table))].filter(([k]) => cellOfKey(k) === beamCell);
     expect(beam.length).toBeGreaterThan(1);
-    expect(beam.every(([, x]) => (x.flags & INSTANCE_FLAG.replacesBase) === 0)).toBe(true);
+    expect(beam.every(([, x]) => (x.flags & 0x10) === 0)).toBe(true);
   });
 
   it('keeps every surviving piece\'s mesh pick after a dig elsewhere, gives a cell the same pieces and picks whichever unit derives it, the same under one seed and others under another', () => {
@@ -268,7 +267,7 @@ describe('instances carry kit pieces', () => {
     }
     expect(joined).toEqual(before);
     // Dig a 3³ hole into an edge piece's cell of the chunk: only cells within the job's reach can change at all.
-    const [hole] = [...before].filter(([, x]) => (x.flags & INSTANCE_FLAG.replacesBase) === 0).map(([k]) => cellOfKey(k));
+    const [hole] = [...before].map(([k]) => cellOfKey(k));
     const [hx, hz, hy] = [Math.floor(hole! / (E * E)), Math.floor(hole! / E) % E, hole! % E];
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) putVoxel(s, cx * E + hx + dx, cy * E + hy + dy, cz * E + hz + dz, 0, 0);
     const after = instancesOf(deriveFromStore(s, cx, cy, cz, RULES, undefined, table));

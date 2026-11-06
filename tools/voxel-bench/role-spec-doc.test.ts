@@ -18,7 +18,8 @@ import {
   CONSTRUCTION_ROLES,
   CUBE_ROTATION_X90,
   CUBE_ROTATION_ZM90,
-  DEBRIS_LIGHT_MIN,
+  DAMAGE_PIECE_SLOTS,
+  DAMAGE_STAGES_DEFAULT,
   EDGE_CASE_CATALOGUE,
   EDGE_CASE_IDS,
   PIECE_JITTER_DEFAULT,
@@ -39,8 +40,7 @@ const ROLE_NAME = new Map<number, string>(Object.entries(VOXEL_ROLE).map(([k, v]
 function placedBy(c: CaseDef): string {
   if ((EDGE_CASE_IDS as readonly string[]).includes(c.id)) return c.id.startsWith('corner-') ? 'the edge pass, one piece a lattice corner, yaw 0–3' : 'the edge pass, one piece a 0.5 m lattice edge, yaw 0–3';
   if ((ROOF_EDGE_CASE_IDS as readonly string[]).includes(c.id)) return 'the roof mesher, on roof plane cells';
-  if (c.id === 'debris' || c.id === 'debris-heavy') return 'the debris rule, on an exposed damaged construction cell, in place of its faces';
-  if (c.id === 'debris-face') return 'the debris rule, on an intact face opening toward a damaged cell';
+  if (c.id === DAMAGE_PIECE_SLOTS[2] || c.id === DAMAGE_PIECE_SLOTS[3]) return `the damage rule, several a face, on an intact face opening toward a hole at stage ${c.id === DAMAGE_PIECE_SLOTS[2] ? 2 : 3}`;
   throw new Error(`no pass places ${c.id}`);
 }
 
@@ -95,7 +95,10 @@ describe('role spec draft against the edge catalogue', () => {
     expect(doc).toContain('DRAFT — awaiting owner approval (46c hard stop); nothing builds on it as final');
     expect(doc).toContain(`\`${cat.id}\` v${cat.version}`);
     expect(doc).toContain(`${cat.cases.length} cases`);
-    expect(doc).toContain(`integrity ${DEBRIS_LIGHT_MIN}–14`);
+    const d = DAMAGE_STAGES_DEFAULT;
+    expect(doc).toContain(`stage 1 (integrity ${d.stage1.min}–${d.stage1.max})`);
+    expect(doc).toContain(`stage 2 (integrity ${d.stage2.min}–${d.stage2.max}, ${d.stage2.pieces} pieces a face)`);
+    expect(doc).toContain(`stage 3 (integrity ${d.stage3.min}–${d.stage3.max}, ${d.stage3.pieces} pieces a face)`);
     expect(doc).toContain(`1/${1 / PIECE_STAGGER.inwardMin}–1/${1 / PIECE_STAGGER.inwardMax} cell`);
     expect(doc).toContain(`${Math.round((PIECE_STAGGER.twistMax * 180) / Math.PI)}°`);
     expect(doc).toContain(`jitter 0–${PIECE_JITTER_MAX} (default ${PIECE_JITTER_DEFAULT})`);

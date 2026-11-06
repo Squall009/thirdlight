@@ -6,10 +6,10 @@
  * **Two parts.** The window cases (a case window decides them; the edge
  * catalogue has none) get one exhibit a (case, role) pair in a grid (a row
  * a role, a column a case). The cases the passes give (edges and corners, roof edges,
- * debris) come from a **fixed sampler** in a column past the grid's last row: a stepped
+ * damage) come from a **fixed sampler** in a column past the grid's last row: a stepped
  * block (a block with a top and a bottom corner notch cut out: every outer and
  * inner edge and corner), a gable roof, a hip roof, an L-plan hip roof (its
- * valley) and a wall with two damaged cells. Each of those cases is
+ * valley) and a wall with a cell at each damage stage. Each of those cases is
  * labelled at the first cell (x, then z, then y) the real passes give it,
  * read from a neighbourhood holding only that structure.
  *
@@ -42,10 +42,11 @@ import type { SetEdit, VoxelEditCommand, FillEdit } from './edit-command';
 import { CASE_REACH, CASE_SYMBOL, CASE_WINDOW, CASE_WINDOW_CELLS, CaseCatalogue, caseIndexOf, NO_CASE, type CaseCatalogueDef, type CaseRule } from './kit-cases';
 import { evaluateCases } from './kit-rules';
 import { WORLD_GRID_ID } from './region-file';
-import { damagedIntegrity, MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
-import { isDebrisCell } from './case-forms';
+import { MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { isHoleCell } from './case-forms';
+import { DAMAGE_PIECE_SLOTS, DAMAGE_STAGE, DAMAGE_STAGES_DEFAULT } from './damage-stages';
+import { damageStageOf } from './piece-table';
 import { createEdgeMasks, EDGE_CASE_IDS, edgeCaseOf, PIECE_SLOTS } from './edge-cases';
-import { DEBRIS_LIGHT_MIN } from './kit-case-catalogue';
 import { classifyRoofs, roofEdgesOf } from './roof-words';
 
 /**
@@ -138,7 +139,8 @@ function samplerStructures(material: number): SamplerCells[] {
   }
   const damaged: SamplerCells = [];
   for (let x = 2; x < 9; x++) for (let y = 2; y < 6; y++) {
-    const shape = x === 4 && y === 3 ? DEBRIS_LIGHT_MIN + 4 : x === 6 && y === 4 ? DEBRIS_LIGHT_MIN - 3 : SHAPE_FULL;
+    // One cell at each damage stage of the engine's split: cracks, a hole with many pieces round it, one with fewer.
+    const shape = x === 3 && y === 3 ? DAMAGE_STAGES_DEFAULT.stage1.max : x === 5 && y === 4 ? DAMAGE_STAGES_DEFAULT.stage2.max : x === 7 && y === 3 ? DAMAGE_STAGES_DEFAULT.stage3.min : SHAPE_FULL;
     damaged.push([x, y, 6, valueOf({ material, role: VOXEL_ROLE.wall, shape, wetness: 0 })]);
   }
   const box = (x0: number, x1: number, z0: number, z1: number) => (x: number, z: number): boolean => x >= x0 && x <= x1 && z >= z0 && z <= z1;
@@ -152,7 +154,7 @@ function samplerStructures(material: number): SamplerCells[] {
 /**
  * The pass cases a sampler structure gives, each at the first cell that
  * owns it (slot cells): the edge pass of `rules`, the roof mesher's edges,
- * debris and debris faces, read from a neighbourhood holding only the
+ * the damage pieces round holes, read from a neighbourhood holding only the
  * structure, as the derive reads a world.
  */
 function samplerCases(rules: AssemblyRuleSet, cells: SamplerCells): Map<string, [number, number, number, number]> {
@@ -166,7 +168,7 @@ function samplerCases(rules: AssemblyRuleSet, cells: SamplerCells): Map<string, 
     n.shapes[at(x, y, z)] = valueDensity(v);
   }
   const masks = createEdgeMasks(n);
-  rules.resolveEdges?.(n, pad, pad + edge, 0, masks);
+  rules.resolveEdges?.(n, pad, pad + edge, 0, masks, null);
   const roofs = new Uint32Array(n.values.length);
   classifyRoofs(n, roofs);
   const found = new Map<string, [number, number, number, number]>();
@@ -177,13 +179,14 @@ function samplerCases(rules: AssemblyRuleSet, cells: SamplerCells): Map<string, 
   for (let x = 0; x < edge; x++) for (let z = 0; z < edge; z++) for (let y = 0; y < edge; y++) {
     const i = at(x, y, z);
     if (n.values[i] === 0) continue;
-    if (isDebrisCell(n, i)) {
-      take(damagedIntegrity(n.values[i]!) >= DEBRIS_LIGHT_MIN ? 'debris' : 'debris-heavy', x, y, z, i);
-      continue;
-    }
+    if (isHoleCell(n, i, null)) continue;
     for (let k = 0; k < PIECE_SLOTS; k++) if (((masks.pieces[i]! >>> k) & 1) !== 0) take(EDGE_CASE_IDS[edgeCaseOf(k, ((masks.inner[i]! >>> k) & 1) !== 0)]!, x, y, z, i);
     for (const e of roofEdgesOf(roofs[i]!)) take(e.caseId, x, y, z, i);
-    if (faces.some((f) => n.values[i + f] !== 0 && isDebrisCell(n, i + f))) take('debris-face', x, y, z, i);
+    for (const f of faces) {
+      if (n.values[i + f] === 0 || !isHoleCell(n, i + f, null)) continue;
+      const stage = damageStageOf(null, n.values[i + f]!);
+      if (stage === DAMAGE_STAGE.many || stage === DAMAGE_STAGE.few) take(DAMAGE_PIECE_SLOTS[stage], x, y, z, i);
+    }
   }
   return found;
 }
@@ -274,7 +277,7 @@ export function kitTestExhibits(def: CaseCatalogueDef): { exhibits: KitTestExhib
   const cat = new CaseCatalogue(def);
   const exhibits: KitTestExhibit[] = [];
   const unreached: { caseId: string; role: number }[] = [];
-  // A case no rule names (an edge, roof-edge or debris case, from its own pass) and no role falls back to has no window.
+  // A case no rule names (an edge, roof-edge or damage case, from its own pass) and no role falls back to has no window.
   const windowed = new Set([...def.rules.map((r) => r.case), ...Object.values(def.fallback).filter((f): f is string => f !== null)]);
   cat.cases.forEach((c, k) => {
     for (const role of new Set(c.roles)) {

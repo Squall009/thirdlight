@@ -1,8 +1,22 @@
-# Types (ModelLodSettings to TerrainSplinesLayer)
+# Types (ModelColliderKind to TerrainSplinesLayer)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-model-collider-kind"></a>
+### ModelColliderKind
+
+Declared in `packages/project-model/src/model-collision.ts`.
+
+```ts
+/**
+ * What a conversion makes: a box around the render geometry; a hull or
+ * mesh of the collision node (else the geometry); its XY outline as a
+ * polygon prism; or a compound of the collision node's convex parts.
+ */
+type ModelColliderKind = 'box' | 'convex' | 'mesh' | 'polygon' | 'compound';
+```
 
 <a id="type-model-lod-settings"></a>
 ### ModelLodSettings

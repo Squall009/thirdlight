@@ -13,7 +13,7 @@
  *
  * | form / class  | render solid  | collision          | nav blocks / supports | light coverage   |
  * |---------------|---------------|--------------------|-----------------------|------------------|
- * | box (wall)    | yes           | full box           | yes / yes             | 255              |
+ * | box (wall)    | yes           | full box           | yes / yes             | 255 (damaged: its integrity's share) |
  * | panel, bar, post | no         | the shape's box    | yes / no              | the shape's share ({@link LIGHT_COVERAGE}) |
  * | none          | no            | none               | no / no               | 0                |
  * | ground        | density ≥ 128 | the ground surface | density ≥ 128         | its density      |
@@ -49,11 +49,14 @@
  * current one.
  */
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
-import { classForm, evaluateForms, FORM_BODY, FORM_SHAPE, FORM_STEPS, formBox, formCoverage, formShapeOf, formSupports } from './case-forms';
+import { classForm, evaluateForms, rulesDrawDamage, FORM_BODY, FORM_SHAPE, FORM_STEPS, formBox, formCoverage, formShapeOf, formSupports } from './case-forms';
 import { BRICK_EDGE } from './brick-layout';
 import { baseSurface } from './base-surface';
 import { detailInstances, levelDrawsPieces, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { cellPieces, NO_PIECES, type DerivePieces, type PieceInputs } from './derive-pieces';
+import { integrityCoverage } from './damage-stages';
+import { crackStrengthOf } from './piece-table';
+import { damagedIntegrity } from './record';
 export type { DerivePieces } from './derive-pieces';
 import { createEdgeMasks, type EdgeMasks } from './edge-cases';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
@@ -170,8 +173,19 @@ import { utf8Encode } from '@thirdlight/shared';
  * underside), and edges round that air cell carry no piece. Surfaces,
  * collision ramps and instances differ from v23's round roofs; the layout
  * is v23's.
+ * 25: three damage stages a kit (damage-stages.ts, the piece table's): a
+ * cracked cell (stage 1, default integrity 11–14) is a body with its edge
+ * pieces whose faces carry the crack overlay's strength in their vertices
+ * (position w, was 0) and merge only with faces of equal strength; a hole
+ * (stages 2 and 3) is drawn by no piece of its own (the `debris` pieces
+ * and the `replacesBase` flag are gone) and its intact neighbours' faces
+ * toward it carry several damage pieces of the stage's slot, each with a
+ * scatter index (dressing word bits 11–14); a damaged construction cell's
+ * light coverage is its integrity's share (was 255). Collision and
+ * navigation are v24's. Results differ from v24's round damaged cells
+ * only; the layout is v24's.
  */
-export const DERIVED_FORMAT_VERSION = 24;
+export const DERIVED_FORMAT_VERSION = 25;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -274,9 +288,16 @@ function navBlocks(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: 
   return formShapeOf(forms[i]!) !== FORM_SHAPE.none || solidGround(n, classes, i);
 }
 
-/** Light coverage of a cell: its shape's share, or ground's density. */
+/**
+ * Light coverage of a cell: its shape's share, or ground's density; a
+ * damaged construction cell lets light through by its integrity (stays a
+ * whole block for every other consumer until it is air).
+ */
 function coverage(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number): number {
-  return (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground ? n.shapes[i]! : formCoverage(forms[i]!);
+  if ((classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground) return n.shapes[i]!;
+  const c = formCoverage(forms[i]!);
+  const integrity = c === 0 ? 0 : damagedIntegrity(n.values[i]!);
+  return integrity === 0 ? c : Math.min(c, integrityCoverage(integrity));
 }
 
 /** A per-cell bit set over a chunk (local index (x·E + z)·E + y). */
@@ -500,6 +521,13 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
     const row = (x * s + z) * s;
     for (let y = lo; y < hi; y++) if (classes[row + y] !== k0 || n.shapes[row + y] !== s0) return null;
   }
+  // A damaged cell in a body region is still a body to every consumer but light: the general path gives its coverage.
+  if (k === ASSEMBLY_CLASS.wall) {
+    for (let x = p; x < p + e; x++) for (let z = p; z < p + e; z++) {
+      const row = (x * s + z) * s;
+      for (let y = p; y < p + e; y++) if (damagedIntegrity(n.values[row + y]!) !== 0) return null;
+    }
+  }
   const cells = e * e * e;
   // A uniform region holds no case of another form than its class's (deriveChunk checks a body region's cases).
   const form = classForm(k0);
@@ -601,17 +629,19 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   }
   // Cases and forms stay in this job, read by the consumers beside the classes.
   evaluateCases(n, rules, level, cases);
-  evaluateForms(n, rules, classes, cases, forms);
+  evaluateForms(n, rules, classes, cases, forms, table);
   const t1 = performance.now();
   const ground = terrainSurface(n, classes);
   const pieced = levelDrawsPieces(level);
   let roofs = roofScratches.get(classes.length);
   if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
   const ramps = classifyRoofs(n, roofs) === 0 ? emptySurface() : roofSurface(n, roofs);
-  const base = appendSurface(baseSurface(n, classes, forms, !pieced, roofs), ramps);
+  // Cracks (damage stage 1) show where pieces do: a coarser node's construction is intact.
+  const crackOf = pieced && rulesDrawDamage(rules) ? (v: number): number => crackStrengthOf(table, v) : null;
+  const base = appendSurface(baseSurface(n, classes, forms, !pieced, roofs, crackOf), ramps);
   let edges = edgeScratches.get(classes.length);
   if (edges === undefined) edgeScratches.set(classes.length, (edges = createEdgeMasks(n)));
-  if (pieced) evaluateEdges(n, rules, level, edges);
+  if (pieced) evaluateEdges(n, rules, level, edges, table);
   const inputs: PieceInputs = { n, forms, pieces, level, roofs, edges, catalogue: rules.catalogue };
   const instances = pieced ? detailInstances(n, (i, x, y, z, cell, emit) => cellPieces(inputs, i, x, y, z, cell, emit)) : { count: 0, data: new Uint8Array(0) };
   const t2 = performance.now();

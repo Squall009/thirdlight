@@ -1,4 +1,4 @@
-# Types (CreateEntityArgs to ModelColliderKind)
+# Types (CreateEntityArgs to ModelArgs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -96,6 +96,21 @@ Declared in `packages/project-model/src/input.ts`.
 ```ts
 /** The cursor while a map is active — free (visible, moves) or locked (hidden, held in the view; the movement still counts). */
 type CursorMode = 'free' | 'locked';
+```
+
+<a id="type-damage-stage-span"></a>
+### DamageStageSpan
+
+Declared in `packages/voxel/src/damage-stages.ts`.
+
+```ts
+/** One stage's integrity range (both ends included, 1 … 14) and, for stages 2 and 3, the pieces each neighbour face carries. */
+interface DamageStageSpan {
+  readonly min: number;
+  readonly max: number;
+  /** Stages 2 and 3: damage pieces a face toward the hole (1 … {@link DAMAGE_PIECES_MAX}; absent: the default). */
+  readonly pieces?: number;
+}
 ```
 
 <a id="type-decal-cell-ref"></a>
@@ -1615,18 +1630,4 @@ interface ModelArgs {
   /** One named piece of a multi-piece GLB (absent = the whole file). */
   piece?: string;
 }
-```
-
-<a id="type-model-collider-kind"></a>
-### ModelColliderKind
-
-Declared in `packages/project-model/src/model-collision.ts`.
-
-```ts
-/**
- * What a conversion makes: a box around the render geometry; a hull or
- * mesh of the collision node (else the geometry); its XY outline as a
- * polygon prism; or a compound of the collision node's convex parts.
- */
-type ModelColliderKind = 'box' | 'convex' | 'mesh' | 'polygon' | 'compound';
 ```

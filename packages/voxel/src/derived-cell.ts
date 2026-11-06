@@ -16,7 +16,7 @@ import { buildApron } from './apron';
 import { chunkOf, localOf, type ChunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { cellBit, COLLISION_STEPS_PER_CELL, OCCUPANCY, type DerivedData } from './derived-data';
-import { INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, INSTANCE_FLAG, instanceDressingCell, instanceFlushFaces, instancePlaceOf, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
+import { INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, instanceDressingCell, instanceFlushFaces, instancePlaceOf, instanceScatter, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
 import { PIECE_VARIANT_MASK, PIECE_VARIANT_MIRROR } from './piece-table';
 import type { VoxelStoreCandidate } from './store';
 
@@ -24,15 +24,16 @@ import type { VoxelStoreCandidate } from './store';
 export interface CellOutputs {
   /** Render occupancy: solid for rendering and culling. */
   readonly renderSolid: boolean;
-  /** Base surface quads emitted for this cell (exposed faces of a wall cell; 0 under a piece that replaces it). */
+  /** Base surface faces drawn for this cell (exposed faces of a body; 0 for a hole). */
   readonly baseFaces: number;
+  /** The crack overlay's strength on those faces (0 … 255; 0: none, damage stage 1 only). */
+  readonly crack: number;
   /**
    * The detail piece in this cell, if any: its kit-local index (the kit's
-   * filled slot), quarter turns, the mirror and mesh pick, whether it
-   * replaces the base.
+   * filled slot), quarter turns, the mirror and mesh pick.
    */
   readonly piece: CellPieceOutput | null;
-  /** Every detail piece the cell owns (its edges, corners, roof edges, debris), in instance order; `piece` is the first. */
+  /** Every detail piece the cell owns (its edges, corners, roof edges, damage pieces), in instance order; `piece` is the first. */
   readonly pieces: readonly CellPieceOutput[];
   /** `full`: inside a full-cell box; `partial`: a partial shape inside the cell; `none`: neither (ground collides as its surface). */
   readonly collision: 'full' | 'partial' | 'none';
@@ -65,9 +66,9 @@ function sortedIndex(list: Uint16Array, v: number): number {
  * base triangle facing that way, in the face's plane, covering a point
  * inside the face (triangles may span many merged faces).
  */
-function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): number {
+function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): { faces: number; crack: number } {
   const b = d.base;
-  if (b.vertexCount === 0) return 0;
+  if (b.vertexCount === 0) return { faces: 0, crack: 0 };
   const stride = SURFACE_VERTEX_BYTES;
   const view = new DataView(b.vertices.buffer, b.vertices.byteOffset, b.vertices.byteLength);
   const steps = POSITION_STEPS_PER_CELL;
@@ -75,6 +76,7 @@ function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): number
   const at = (v: number, a: number): number => view.getUint16(v * stride + 2 * a, true) / steps - 1;
   const cell = [lx, ly, lz];
   let found = 0;
+  let crack = 0;
   for (let t = 0; t < b.indices.length; t += 3) {
     const i0 = b.indices[t]!, i1 = b.indices[t + 1]!, i2 = b.indices[t + 2]!;
     let axis = 0;
@@ -90,11 +92,14 @@ function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): number
     const pw = cell[w]! + 0.5772;
     const side = (p: number, q: number): number => (at(q, u) - at(p, u)) * (pw - at(p, w)) - (at(q, w) - at(p, w)) * (pu - at(p, u));
     const s1 = side(i0, i1), s2 = side(i1, i2), s3 = side(i2, i0);
-    if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) found |= bit;
+    if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) {
+      found |= bit;
+      crack = Math.max(crack, view.getUint16(i0 * stride + 6, true));
+    }
   }
   let n = 0;
   for (let f = found; f !== 0; f &= f - 1) n++;
-  return n;
+  return { faces: n, crack };
 }
 
 /** What every consumer of a derived chunk receives for its local cell (lx, ly, lz). */
@@ -108,7 +113,8 @@ export interface CellPieceOutput {
   readonly mirror: boolean;
   /** Which of its slot's meshes it draws. */
   readonly variant: number;
-  readonly replacesBase: boolean;
+  /** A damage piece's scatter index (which of the pieces on its face; 0 for any other). */
+  readonly scatter: number;
   /** The offset to the cell whose kit dresses it ([0, 0, 0]: its own). */
   readonly dressedBy: readonly [number, number, number];
   /** The cell's faces it is cut at (bit 2a: −a, 2a + 1: +a). */
@@ -136,7 +142,7 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
       place: instancePlaceOf(flags),
       mirror: (variant & PIECE_VARIANT_MIRROR) !== 0,
       variant: variant & PIECE_VARIANT_MASK,
-      replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0,
+      scatter: instanceScatter(dressing),
       dressedBy: instanceDressingCell(dressing),
       flush: instanceFlushFaces(dressing),
     });
@@ -173,9 +179,11 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     const p = sortedIndex(light.partialCells, i);
     cover = p < 0 ? 0 : light.partialCover[p]!;
   }
+  const base = baseFacesOf(d, lx, ly, lz);
   return {
     renderSolid,
-    baseFaces: baseFacesOf(d, lx, ly, lz),
+    baseFaces: base.faces,
+    crack: base.crack,
     piece,
     pieces,
     collision,

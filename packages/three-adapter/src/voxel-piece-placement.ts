@@ -4,7 +4,7 @@
  * into the drawn case's orientation, then staggered there (moved into the solid along the edge's bisector and
  * twisted about it through the edge's middle, by the instance's hash:
  * piece-placement.ts, scaled by the kit's jitter), shifted to the cell's middle line (half a cell in
- * and half a cell down) for a centred piece, pitched onto a 1:2 roof's plane for a shallow one, squeezed onto half its run for a `half` one, tipped onto the cell's top or bottom face for a tipped one, turned
+ * and half a cell down) for a centred piece, pitched onto a 1:2 roof's plane for a shallow one, squeezed onto half its run for a `half` one, spread over its face and spun for a damage piece, tipped onto the cell's top or bottom face for a tipped one, turned
  * by the case's quarter turns about +y, scaled to the level's cell and put
  * at the cell's centre. Every step but the stagger is exact (quarter turns,
  * half cells); the stagger is the only thing that differs between two
@@ -12,7 +12,7 @@
  * voxels, not pieces).
  */
 import * as THREE from 'three';
-import { CUBE_ROTATIONS, INSTANCE_FLAG, INSTANCE_PLACE, pieceStagger, roofPitch, VOXEL_SIZE_M, type PieceStaggerFrame } from '@thirdlight/voxel';
+import { CUBE_ROTATIONS, damageScatter, INSTANCE_FLAG, INSTANCE_PLACE, pieceStagger, roofPitch, VOXEL_SIZE_M, type PieceStaggerFrame } from '@thirdlight/voxel';
 
 /** How a draw's instances are placed beyond their instance bytes. */
 export interface PiecePlacement {
@@ -28,6 +28,10 @@ export interface PiecePlacement {
   readonly caseId?: string;
   /** Whether the draw's mesh is mirrored (a verge rising toward its own −x pitches the other way). */
   readonly mirror?: boolean;
+  /** A damage piece's draw: how many pieces its kit puts on a face, spread over it by each instance's scatter index (voxel `damageScatter`; absent: not scattered). */
+  readonly scatterCount?: number;
+  /** The table's piece seed (what the scatter hashes; the stagger carries its own). */
+  readonly seed?: number;
 }
 
 /** The 1:2 pitch of a case, placement, phase and mirror (voxel `roofPitch`), in level-0 metres (made once each). */
@@ -90,9 +94,10 @@ export function pieceTurn(out: THREE.Quaternion, rotationByte: number, place: nu
 /**
  * Writes the matrix of an instance into `out`: its rotation byte and placement, its cell's centre `centre`
  * (metres, the draw's space), `cellMetres` its level's cell, `cell0` its cell in level-0 cells and `level`
- * (the stagger's hash), placed as `p` says.
+ * (the stagger's hash), `scatter` a damage piece's index on its face (derived-mesh `instanceScatter`), placed as
+ * `p` says.
  */
-export function pieceMatrix(out: THREE.Matrix4, rotationByte: number, place: number, centre: THREE.Vector3, cellMetres: number, cell0: readonly number[], level: number, p: PiecePlacement): THREE.Matrix4 {
+export function pieceMatrix(out: THREE.Matrix4, rotationByte: number, place: number, centre: THREE.Vector3, cellMetres: number, cell0: readonly number[], level: number, p: PiecePlacement, scatter = 0): THREE.Matrix4 {
   pieceTurn(quat, rotationByte, place, p.turnSign);
   const s = cellMetres / VOXEL_SIZE_M;
   out.compose(at.copy(centre), quat, scale.set(s, s, s));
@@ -113,6 +118,14 @@ export function pieceMatrix(out: THREE.Matrix4, rotationByte: number, place: num
   const half = (rotationByte & INSTANCE_FLAG.half) !== 0 ? p.halfRun : null;
   if (half !== undefined && half !== null) {
     local.multiply(HALF_RUN[half]);
+    any = true;
+  }
+  if (p.scatterCount !== undefined && p.scatterCount > 0) {
+    // A damage piece on the face toward the hole (+z in its case's orientation): moved over the face and spun about its normal.
+    const slot = ((p.stagger?.caseIndex ?? 0) << 4) | (place << 2) | (rotationByte & 3);
+    const sc = damageScatter(p.seed ?? p.stagger?.seed ?? 0, cell0[0]!, cell0[1]!, cell0[2]!, level, slot, scatter, p.scatterCount);
+    local.multiply(step.makeTranslation(sc.u * VOXEL_SIZE_M, sc.v * VOXEL_SIZE_M, 0));
+    local.multiply(step.makeRotationZ(sc.spin));
     any = true;
   }
   if (p.stagger !== null) {

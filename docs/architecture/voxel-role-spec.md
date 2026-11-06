@@ -3,7 +3,7 @@
 Status: **DRAFT — awaiting owner approval (46c hard stop); nothing builds on it as final.** No kit pipeline, Blender
 template, spec sheet, manual guide or art-factory request treats this case list as fixed until the owner approves it.
 The owner's 2026-11-04 review of the first draft (46 cases, pieces over flat walls) replaced it with this edge model;
-the earlier text is in git history. This page is written from the engine's edge catalogue `edges-draft` v2 (18 cases;
+the earlier text is in git history. This page is written from the engine's edge catalogue `edges-draft` v3 (17 cases;
 `packages/voxel/src/kit-case-catalogue.ts`), and a test (`tools/voxel-bench/role-spec-doc.test.ts`) fails when this
 page and the catalogue disagree on a case or its facts. Sources: [plan 46c](../plan-phase-46c.md) §6b and the decision
 log (OWNER 2026-11-04 entries, R1–R5 results); [plan 45](../plan-phase-45.md) §1, §7 (owner 2026-11-02: the ten stored
@@ -11,7 +11,7 @@ roles); the [format spec](voxel-format-spec.md) §2.2 (the voxel value) and §3.
 [voxel-trim-layout.md](voxel-trim-layout.md).
 
 **How to read this page.** §1–§3 say what is stored and the one rule (flat faces get no piece). §4 explains the
-diagrams. §5–§7 list the 18 cases: edges and corners, roof edges, damage; each case is a kit **slot** and has the
+diagrams. §5–§7 list the 17 cases: edges and corners, roof edges, damage; each case is a kit **slot** and has the
 same block of facts (generated from the engine) followed by a small diagram; §8 says where beams and banisters went.
 §9–§13 are for kit artists: one mesh for several slots, stagger and jitter, detail levels, how a kit fills its slots,
 Blender conventions. §14 says what moved to other
@@ -73,7 +73,7 @@ pieces go and the building is flat square voxels (§11).
   gets no piece (the shader's material blend draws it).
 - **Where no piece goes:** round a terrain cell with any fill (where a building meets the ground, the terrain
   material's dressing draws the contact, 47b); round a roof plane cell (the roof mesher draws that surface, §6); round
-  a debris cell (§7); on a buried cell.
+  a damage hole (§7); on a buried cell.
 
 ## 4. Reading the diagrams
 
@@ -403,66 +403,57 @@ correct.
    . . . . . v .
 ```
 
-## 7. Damage: integrity and debris (3 cases)
+## 7. Damage: integrity and three stages (2 cases)
 
 The engine has no "damage" value: a construction cell's shape is its integrity (owner 2026-11-04). What lowers it and
-when is **game logic**; the engine only shows the state.
+when is **game logic**; the engine only shows the state, by the **damage stage** of the cell's kit (owner 2026-11-05,
+G1). The default split, which a kit may change (its `damage` field: each stage's range, the pieces a face for stages
+2 and 3, a stage set to null is not used, an integrity in no stage draws intact):
 
-- **Integrity 15:** intact. **8–14:** the `debris` slot. **1–7:** the `debris-heavy` slot (a kit may put the same mesh
-  in both; an empty slot draws nothing, so the cell shows as a hole rimmed by its neighbours' faces). **Air:** broken:
-  no debris; the faces and edge pieces round the hole draw as for any hole.
-- **Only exposed damage shows.** A damaged cell with every face against solid stays a plain block (nothing hidden
-  inside a mass).
-- **The damaged cell's faces are left to its debris piece**; every intact face that opens toward it draws its face
-  plus a `debris-face` piece (a broken rim), owned by the intact cell (its material's kit). Edges round a debris cell
-  take no edge piece.
-- **Collision, light, occupancy and navigation keep the cell whole until it is air** (owner).
+- **Integrity 15:** intact.
+- **stage 1 (integrity 11–14): cracks.** The block is still drawn and keeps its edge pieces; its faces carry the crack
+  overlay (the surface shader, both renderers; one engine crack texture, a kit may name its own image), stronger the
+  lower the integrity within the stage.
+- **stage 2 (integrity 6–10, 6 pieces a face): a hole.** The block is not drawn. The hole is no open air, so no edge
+  piece goes round it; each intact neighbour's face toward it is drawn and carries that many pieces of the
+  neighbour's own kit's `damage-stage-2` slot, spread over the face.
+- **stage 3 (integrity 1–5, 3 pieces a face): the same hole, fewer pieces** (`damage-stage-3`).
+- **Air:** broken: the faces and edge pieces round the hole draw as for any hole.
+- **Only exposed damage shows.** A damaged cell with every face against solid stays a plain block.
+- **Collision and navigation keep the cell whole until it is air** (owner F4); **light** lets a damaged cell through
+  by its integrity (its light coverage is integrity / 15, as a prop's coverage fraction; 46e reads it).
 - **Near only.** A level-1 cell made of damaged cells counts as intact, so damage shows in the nearest ring only.
+  Terrain has no damage (its shape is its fill).
 
-#### `debris` · slot
+#### `damage-stage-2` · slot
 
-- **Placed by:** the debris rule, on an exposed damaged construction cell, in place of its faces
+- **Placed by:** the damage rule, several a face, on an intact face opening toward a hole at stage 2
 - **Roles:** every construction role
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
 - **Stagger:** into the solid, scaled by the kit's jitter
-- **Catalogue note:** a damaged cell, integrity 8–14: drawn by this piece in place of its faces
+- **Catalogue note:** an intact face opening toward a hole at damage stage 2: many pieces scattered over it
 
 ```text
- a wall seen from the front; integrity 12 at x
+ a wall seen from the front; integrity 8 at x (stage 2)
    # # # # #
-   # # f # #      x  drawn by the debris piece (integrity 8–14), its own faces left out
-   # f x f #      f  intact faces toward it: face + debris-face piece
+   # # f # #      x  not drawn (a hole, no edge pieces round it)
+   # f x f #      f  intact faces toward it: face + 6 damage-stage-2 pieces spread over it
    # # f # #
 ```
 
-#### `debris-heavy` · slot
+#### `damage-stage-3` · slot
 
-- **Placed by:** the debris rule, on an exposed damaged construction cell, in place of its faces
+- **Placed by:** the damage rule, several a face, on an intact face opening toward a hole at stage 3
 - **Roles:** every construction role
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
 - **Stagger:** into the solid, scaled by the kit's jitter
-- **Catalogue note:** a badly damaged cell, integrity below 8: drawn by this piece in place of its faces
+- **Catalogue note:** an intact face opening toward a hole at damage stage 3: fewer pieces scattered over it
 
 ```text
- the same wall; integrity 5 at x
+ the same wall; integrity 3 at x (stage 3)
    # # f # #
-   # f x f #      x  drawn by the debris-heavy slot (integrity below 8); nothing if the kit leaves it empty
+   # f x f #      x  not drawn; f: face + 3 damage-stage-3 pieces (nothing if the kit leaves the slot empty)
    # # f # #
-```
-
-#### `debris-face` · slot
-
-- **Placed by:** the debris rule, on an intact face opening toward a damaged cell
-- **Roles:** every construction role
-- **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Stagger:** into the solid, scaled by the kit's jitter
-- **Catalogue note:** an intact face opening toward a damaged cell: its broken edge
-
-```text
- cut through the wall at the damaged cell (front +z →)
-   #  #  #
-   #  f| x       the intact cell's face toward x carries a debris-face piece (placed by yaw, or tipped
-   #  #  #       face-up / face-down for faces above or below the damage)
 ```
 
 ## 8. Beams and banisters: not in the voxel phases
@@ -500,7 +491,7 @@ second side mirrored by itself (§6) and the kit authors one verge rising toward
 
 Every piece (edges, corners, roof edges and damage) is moved by a small amount hashed from its cell, so a row of edge
 pieces reads hand-built, not machine-straight: **1/64–1/32 cell** (0.8–1.6 cm) **into the solid**, along the bisector
-of its two faces (a roof edge into the roof, a debris piece into its cell), and twisted at most **2°** about it (never
+of its two faces (a roof edge into the roof, a damage piece into the cell it dresses), and twisted at most **2°** about it (never
 more than the move hides). It never moves out of the faces, so no gap opens between a piece and its faces. Each kit
 scales this by its own **jitter**: jitter 0–4 (default 1); 0 draws its pieces exactly on the lattice, 2 moves and
 twists them twice as far. The hash reads the world cell, the level, the project's **piece seed** (the
@@ -518,7 +509,7 @@ middle distance outward.** There is no "simple piece" stage, so a kit authors **
 
 | Ring | Cells | Pieces | Surfaces |
 |---|---|---|---|
-| L0 (near) | 0.5 m | the kit's pieces (edges, corners, roof edges, debris) | voxel faces, roof planes |
+| L0 (near) | 0.5 m | the kit's pieces (edges, corners, roof edges, damage) | voxel faces, roof planes |
 | L1 (middle) and coarser | 1 m and up | **none** | flat square voxels, roof planes |
 
 Damage shows at L0 only (§7). The far field (no draw cut-off, cheap stand-ins for km-distant terrain) is 46d's.
@@ -533,7 +524,7 @@ the kit's `jitter` (§10), its trim layout and opaque game data beside them.
 
 - **Every slot is optional.** There is no required / optional split: a kit fills the slots it wants and the kit
   check reports how many it fills (info, never a warning). **An empty slot draws nothing**: the place shows its plain
-  square voxel edge (a debris cell: a hole, §7). No other slot, kit or engine piece stands in.
+  square voxel edge (a damage stage's slot: the hole's faces stay plain, §7). No other slot, kit or engine piece stands in.
 - **No engine default kit.** A material no kit binds draws plain voxel faces and edges, with no pieces at all.
 - **Per slot:** one or more meshes (drawn at L0 only), each with a cube rotation and a weight, and opaque game data
   (break, sound, … passed through to the game; the engine never reads it).
@@ -606,7 +597,7 @@ meshes filling 16 of 18 slots, 391 triangles, GLB 33,144 B; **stone** 12 meshes 
 
 ## 16. Open questions for the owner
 
-1. **The case list.** Are these 18 cases the right start (10 edge/corner, 5 roof, 3 damage)? Any to add now (a
+1. **The case list.** Are these 17 cases the right start (10 edge/corner, 5 roof, 2 damage)? Any to add now (a
    mixed-corner piece, a piece where two materials meet on an edge)?
 2. **Required vs optional.** Settled by the owner: every slot is optional; an empty slot draws nothing (§12).
 3. **Ownership by material.** An edge takes the kit of one cell (outer: the solid one; inner: the one opposite the
@@ -618,8 +609,8 @@ meshes filling 16 of 18 slots, 391 triangles, GLB 33,144 B; **stone** 12 meshes 
 7. **Roofs.** Answered (A7, F3, C4): flat, 45° and 1:2; one roof-edge mesh pitched; the underside parallel, walls
    under a roof cut to it. Open: one slope a roof (no mixed slopes; default chosen, owner to confirm).
 8. **Roof collision as the drawn planes:** confirmed (A8), at both slopes.
-9. **Damage stages.** Two stages (8–14, 1–7) and near ring only. Enough? Should the edges round a damaged cell keep
-   their pieces?
+9. **Damage stages.** Answered (A9 revised, G1, F4): three stages a kit (cracks 11–14, a hole with many pieces 6–10,
+   fewer 1–5), near ring only. Open: the default piece counts (6 and 3 a face) and the crack look.
 10. **Verge mirroring.** One verge mesh drawn mirrored on the second side, or a second case so a kit can carve the two
     sides differently?
 11. **Mixed corners** (outer and inner edges meeting at one point) get no corner piece. Acceptable?
@@ -632,9 +623,9 @@ meshes filling 16 of 18 slots, 391 triangles, GLB 33,144 B; **stone** 12 meshes 
 - [ ] Roles are stored, pieces are read from the arrangement; construction shape = integrity (§1).
 - [ ] Flat faces get no piece; pieces only on exposed lattice edges and corners, roof edges and damage (§2–§3),
       with the solid/open, owner and no-piece rules of §3.
-- [ ] The 18 cases of `edges-draft` v2 and their orientation convention (§4–§7).
+- [ ] The 17 cases of `edges-draft` v3 and their orientation convention (§4–§7).
 - [ ] The roof mesher's 45° rule, its fallback to voxel faces, and roof collision as planes (§6).
-- [ ] Damage display: two debris stages, debris faces, collision and light whole until air, near ring only (§7).
+- [ ] Damage display: three stages a kit (cracks, a hole with many pieces, fewer), collision and navigation whole until air, light by integrity, near ring only (§7).
 - [ ] Beams and banisters out of the voxel phases (§8).
 - [ ] Slot meshes with a cube rotation (24, never mirrored) and the engine-mirrored verge (§9); the stagger and
       per-kit jitter on every piece (§10).

@@ -37,7 +37,6 @@ import {
   formShapeOf,
   formSupports,
   INSTANCE_BYTES,
-  INSTANCE_FLAG,
   jobRadius,
   levelDrawsPieces,
   joinSections,
@@ -115,7 +114,7 @@ function viewer(d: DerivedData): (x: number, y: number, z: number) => CellView {
   for (let k = 0; k < d.instances.count; k++) {
     const o = k * INSTANCE_BYTES;
     const data = d.instances.data;
-    pieces.set((data[o]! * e + data[o + 2]!) * e + data[o + 1]!, `${data[o + 4]! | (data[o + 5]! << 8)}:${(data[o + 3]! & INSTANCE_FLAG.replacesBase) !== 0}`);
+    pieces.set((data[o]! * e + data[o + 2]!) * e + data[o + 1]!, `${data[o + 4]! | (data[o + 5]! << 8)}`);
   }
   const partialLight = new Map<number, number>();
   d.light.partialCells.forEach((c, k) => partialLight.set(c, d.light.partialCover[k]!));
@@ -225,7 +224,7 @@ describe('consumers from the case', () => {
     for (const cls of [ASSEMBLY_CLASS.beam | RUN_X, ASSEMBLY_CLASS.beam | RUN_Z, ASSEMBLY_CLASS.rail | RUN_X, ASSEMBLY_CLASS.rail | RUN_Z, ASSEMBLY_CLASS.rail | RUN_X | RUN_Z]) expect(classForm(cls), `class ${cls}`).toBe(FORM_BODY);
     expect(formShapeOf(classForm(ASSEMBLY_CLASS.wall))).toBe(FORM_SHAPE.box);
     expect(formShapeOf(classForm(ASSEMBLY_CLASS.ground))).toBe(FORM_SHAPE.none);
-    // The world catalogue: every case (edges, roof edges, debris) keeps a whole cell.
+    // The world catalogue: every case (edges, roof edges, damage) keeps a whole cell.
     for (const c of EDGE_CASE_CATALOGUE.cases) expect(`${c.base}/${c.shape}`, c.id).toBe('keep/box');
   });
 

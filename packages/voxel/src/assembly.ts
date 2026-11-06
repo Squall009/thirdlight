@@ -26,6 +26,7 @@ import type { DenseChunk } from './dense-chunk';
 import { denseValue } from './cell-delta';
 import type { EdgeMasks } from './edge-cases';
 import type { CaseCatalogueDef } from './kit-cases';
+import type { PieceTable } from './piece-table';
 import { valueDensity, valueRole, VOXEL_ROLE } from './record';
 
 /** Resolved classes (the low 4 bits of a resolved cell byte). */
@@ -106,9 +107,10 @@ export interface AssemblyRuleSet {
    * Optional: the edge and corner pieces (edge-cases.ts masks) every cell of
    * the box [lo, hi) owns, for a node of chunk-tree level `level`. Reads
    * only cells within `radius`. Returns the cells owning a piece. A set
-   * without it places no edge piece.
+   * without it places no edge piece. `table` decides which damaged cells
+   * are holes (their kits' damage stages; null or absent: the engine's).
    */
-  resolveEdges?(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks): number;
+  resolveEdges?(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks, table?: PieceTable | null): number;
 }
 
 /** What a derived result records about the rules it came from. */

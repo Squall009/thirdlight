@@ -484,7 +484,7 @@ export const TOOL_DETAILS = {
     'They are in tl_content_query target="game" (timelines); tl_game_observe reports timeline {screen {fade, opacity, letterbox}, playing, events}. ' +
     'Voxel worlds (a project\'s folders voxels/<world>/): editVoxels {world, command} applies one stroke (the voxel edit command format: ' +
     'brush, fill, stamp, set or dig; tl_docs "op.editVoxels" and type.VoxelEditCommand) and undoVoxels {world} takes back the world\'s newest edit' +
-    'writeKitTestScene {world, origin [x, y, z], material} empties a box from origin and builds every case of the kit case catalogue in it from voxels (beams and banisters a row a role, a column a case; the edge, roof-edge and debris cases in a fixed sampler beside them: a notched block, gable, hip and L roofs, a damaged wall; ' +
+    'writeKitTestScene {world, origin [x, y, z], material} empties a box from origin and builds every case of the kit case catalogue in it from voxels (beams and banisters a row a role, a column a case; the edge, roof-edge and damage cases in a fixed sampler beside them: a notched block, gable, hip and L roofs, a wall with a cell at each damage stage; ' +
     'one change, one undoVoxels), all built cells in material (a kit\'s bound material draws its pieces); its answer adds scene {min, max, labels [{cell, roleName, caseId, section}]}. ' +
     'They change the world\'s files, not the project: no expectedRevision (a world keeps its own revision), and the project\'s undo does not take them back. ' +
     'The answer names the world\'s revision, cells changed, the chunks [cx, cy, cz] to read again, the cell box the edit can have touched, the derived parts made stale, ' +

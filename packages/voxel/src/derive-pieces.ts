@@ -11,10 +11,13 @@
  * - **roof edges** (roof-mesher.ts): the ridge, eave, verge, hip and valley
  *   pieces of a roof plane cell (a verge rising toward its own −x
  *   mirrored, so one verge mesh follows both slopes of a gable);
- * - **debris**: a debris cell (case-forms.ts `isDebrisCell`) draws the piece
- *   of its stage in place of its faces, and every intact body face opening
- *   toward it draws a `debris-face` piece (its broken rim), owned by the
- *   intact cell. Edges round a debris cell take no piece.
+ * - **damage** (damage-stages.ts): a hole (case-forms.ts `isHoleCell`, a
+ *   damaged cell at stage 2 or 3) draws nothing itself; every intact body
+ *   face opening toward it carries that stage's damage pieces from its own
+ *   kit (the `damage-stage-2` or `-3` slot, as many as its kit's stage
+ *   says), each with its scatter index, so the renderer spreads them over
+ *   the face. Edges round a hole take no piece; a cracked cell (stage 1)
+ *   is an ordinary body with its edges.
  *
  * A piece is drawn only where its dressing cell's material has a kit and the kit
  * fills the case's slot: no kit, or an empty slot, draws nothing (the
@@ -24,13 +27,13 @@
  * vary on their own and an edit elsewhere never moves them.
  */
 import type { Neighbourhood } from './assembly';
-import { FORM_BASE, FORM_DEBRIS, FORM_SHAPE, formBaseOf, formShapeOf } from './case-forms';
+import { FORM_BASE, FORM_HOLE, FORM_SHAPE, formBaseOf, formShapeOf } from './case-forms';
+import { DAMAGE_PIECE_SLOTS } from './damage-stages';
 import { dressingWord, INSTANCE_FLAG, INSTANCE_PLACE, type CellPiece } from './derived-mesh';
 import { blockNeighbour, DRESSING_FLUSH_SHIFT, EDGE_CASE_IDS, edgeCaseOf, edgeYawOf, PIECE_SLOTS, SELF_BLOCK, slotDressing, type EdgeMasks } from './edge-cases';
-import { DEBRIS_LIGHT_MIN } from './kit-case-catalogue';
 import type { CaseCatalogueDef } from './kit-cases';
-import { NO_PIECE, PIECE_VARIANT_MIRROR, pieceVariant, tablePiece, type PieceTable } from './piece-table';
-import { damagedIntegrity, MATERIAL_ID_MAX } from './record';
+import { cellDamageStages, damageStageOf, NO_PIECE, PIECE_VARIANT_MIRROR, pieceVariant, tablePiece, type PieceTable } from './piece-table';
+import { MATERIAL_ID_MAX } from './record';
 import { ROOF_EDGE_CASE_IDS, roofEdgesOf } from './roof-words';
 
 /**
@@ -66,9 +69,8 @@ interface PassCases {
   /** By edge case index ({@link EDGE_CASE_IDS}). */
   readonly edge: Int32Array;
   readonly roof: ReadonlyMap<string, number>;
-  readonly debris: number;
-  readonly debrisHeavy: number;
-  readonly debrisFace: number;
+  /** By damage stage (index 2 and 3; −1 elsewhere). */
+  readonly damage: Int32Array;
 }
 
 const passCaseCache = new WeakMap<CaseCatalogueDef, PassCases>();
@@ -81,16 +83,14 @@ function passCases(cat: CaseCatalogueDef): PassCases {
     p = {
       edge: Int32Array.from(EDGE_CASE_IDS, of),
       roof: new Map(ROOF_EDGE_CASE_IDS.map((id) => [id, of(id)])),
-      debris: of('debris'),
-      debrisHeavy: of('debris-heavy'),
-      debrisFace: of('debris-face'),
+      damage: Int32Array.of(-1, -1, of(DAMAGE_PIECE_SLOTS[2]), of(DAMAGE_PIECE_SLOTS[3])),
     };
     passCaseCache.set(cat, p);
   }
   return p;
 }
 
-/** The six face directions: neighbourhood offset factors (x, y, z) and the debris-face piece's yaw and placement there. */
+/** The six face directions: neighbourhood offset factors (x, y, z) and a damage piece's yaw and placement there. */
 const FACE_DIRS: readonly (readonly [number, number, number, number, number])[] = [
   [0, 0, 1, 0, INSTANCE_PLACE.upright],
   [-1, 0, 0, 1, INSTANCE_PLACE.upright],
@@ -103,8 +103,8 @@ const FACE_DIRS: readonly (readonly [number, number, number, number, number])[] 
 /**
  * Every piece padded cell `i` (local x, y, z) owns, each written into
  * `cell` and listed by `emit` (see the file comment for which and in what
- * order: its debris, its edges and corners in slot order, its roof edges,
- * its debris faces).
+ * order: its edges and corners in slot order, its roof edges, its damage
+ * pieces face by face).
  */
 export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: number, cell: CellPiece, emit: () => void): void {
   const table = p.pieces.table;
@@ -115,7 +115,7 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
   const cases = passCases(p.catalogue);
   const o = p.pieces.origin;
   // `dressing`: the slotDressing word (the cell whose kit draws it, the faces it is cut at); its own cell's by default.
-  const put = (caseIndex: number, yaw: number, place: number, flags: number, mirror = false, dressing = SELF_BLOCK): void => {
+  const put = (caseIndex: number, yaw: number, place: number, flags: number, mirror = false, dressing = SELF_BLOCK, scatter = 0): void => {
     if (caseIndex < 0) return;
     const block = dressing & ((1 << DRESSING_FLUSH_SHIFT) - 1);
     const m = block === SELF_BLOCK ? mat : p.n.values[blockNeighbour(p.n, i, block)]! & MATERIAL_ID_MAX;
@@ -125,16 +125,13 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
     cell.turns = yaw;
     cell.place = place;
     cell.flags = flags;
-    cell.variant = pieceVariant(table, m, piece, p.level, o[0] + x, o[1] + y, o[2] + z, (caseIndex << 4) | (place << 2) | yaw) | (mirror ? PIECE_VARIANT_MIRROR : 0);
-    cell.dressing = dressingWord(block, dressing >>> DRESSING_FLUSH_SHIFT);
+    cell.variant = pieceVariant(table, m, piece, p.level, o[0] + x, o[1] + y, o[2] + z, ((caseIndex << 4) | (place << 2) | yaw) + (scatter << 20)) | (mirror ? PIECE_VARIANT_MIRROR : 0);
+    cell.dressing = dressingWord(block, dressing >>> DRESSING_FLUSH_SHIFT, scatter);
     emit();
   };
   const forms = p.forms;
   const form = forms[i]!;
-  if (form === FORM_DEBRIS) {
-    put(damagedIntegrity(v) >= DEBRIS_LIGHT_MIN ? cases.debris : cases.debrisHeavy, 0, INSTANCE_PLACE.upright, INSTANCE_FLAG.replacesBase);
-    return;
-  }
+  if (form === FORM_HOLE) return;
   const mask = p.edges.pieces[i]!;
   if (mask !== 0) {
     const inner = p.edges.inner[i]!;
@@ -153,9 +150,16 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
     }
     return;
   }
-  if (cases.debrisFace < 0 || formBaseOf(form) !== FORM_BASE.keep || formShapeOf(form) !== FORM_SHAPE.box) return;
+  if (formBaseOf(form) !== FORM_BASE.keep || formShapeOf(form) !== FORM_SHAPE.box) return;
   const s = p.n.side;
   for (const [dx, dy, dz, yaw, place] of FACE_DIRS) {
-    if (forms[i + (dx * s + dz) * s + dy] === FORM_DEBRIS) put(cases.debrisFace, yaw, place, 0);
+    const j = i + (dx * s + dz) * s + dy;
+    if (forms[j] !== FORM_HOLE) continue;
+    // The hole's stage is its own kit's; how many pieces the face carries is the face's kit's.
+    const stage = damageStageOf(table, p.n.values[j]!);
+    const caseIndex = cases.damage[stage] ?? -1;
+    if (caseIndex < 0) continue;
+    const count = cellDamageStages(table, v).pieces[stage]!;
+    for (let k = 0; k < count; k++) put(caseIndex, yaw, place, 0, false, SELF_BLOCK, k);
   }
 }

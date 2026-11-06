@@ -14,7 +14,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "corner-out-top_v0"
      },
      "rotation": 5
@@ -26,41 +26,44 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "corner-out-top_v0"
      }
     }
    ]
   },
-  "debris": {
+  "damage-stage-2": {
    "meshes": [
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
-      "node": "debris_v0"
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
+      "node": "damage-stage-2_v0"
+     }
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-log",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
+      "node": "damage-stage-2_v1"
      }
     }
    ]
   },
-  "debris-face": {
+  "damage-stage-3": {
    "meshes": [
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
-      "node": "debris-face_v0"
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
+      "node": "damage-stage-3_v0"
      }
-    }
-   ]
-  },
-  "debris-heavy": {
-   "meshes": [
+    },
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
-      "node": "debris-heavy_v0"
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
+      "node": "damage-stage-3_v1"
      }
     }
    ]
@@ -70,7 +73,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-in-bottom_v0"
      }
     }
@@ -81,7 +84,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-in-bottom_v0"
      },
      "rotation": 5
@@ -93,7 +96,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-in-bottom_v0"
      },
      "rotation": 9
@@ -105,7 +108,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-out-top_v0"
      },
      "rotation": 5
@@ -113,7 +116,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-out-top_v1"
      },
      "rotation": 5
@@ -125,14 +128,14 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-out-top_v0"
      }
     },
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-out-top_v1"
      }
     }
@@ -143,7 +146,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "edge-out-vertical_v0"
      }
     }
@@ -154,7 +157,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "roof-eave_v0"
      }
     }
@@ -165,7 +168,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "roof-gable_v0"
      }
     }
@@ -176,7 +179,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "roof-hip_v0"
      }
     }
@@ -187,7 +190,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "roof-ridge_v0"
      }
     }
@@ -198,7 +201,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-log",
-      "digest": "e2cfacba0d191ddab0c290eef0618c07f6cc2b41d27c86926d3628749d7da4dd",
+      "digest": "46e72402105269d734504d7ed7d02c579925c0a3d626a734655e6823ebc4f9e3",
       "node": "roof-valley_v0"
      }
     }

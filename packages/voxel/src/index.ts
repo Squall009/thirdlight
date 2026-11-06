@@ -293,11 +293,14 @@ export {
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { dressingWord, INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, instanceDressingCell, instanceFlushFaces, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { dressingWord, INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, instanceDressingCell, instanceFlushFaces, instanceScatter, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { applyCubeRotation, CUBE_ROTATION_COUNT, CUBE_ROTATION_X90, CUBE_ROTATION_ZM90, CUBE_ROTATIONS, cubeRotationIndex, mirrorAxisOf, type CubeRotation } from './cube-rotations';
-export { caseFlushFaces, cutFlush, meshRunAxis, PIECE_FLUSH_INSET, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, roofPitch, type Affine34, type PieceStaggerFrame } from './piece-placement';
+export { caseFlushFaces, cutFlush, DAMAGE_SCATTER_REACH, damageScatter, isDamagePieceCase, meshRunAxis, PIECE_FLUSH_INSET, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, roofPitch, type Affine34, type PieceStaggerFrame } from './piece-placement';
 export {
   buildPieceTable,
+  cellDamageStages,
+  crackStrengthOf,
+  damageStageOf,
   kitPieceList,
   NO_KIT,
   NO_PIECE,
@@ -351,7 +354,8 @@ export {
   type CaseRuleCell,
   type CaseShape,
 } from './kit-cases';
-export { DEBRIS_LIGHT_MIN, EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
+export { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
+export { DAMAGE_PIECE_SLOTS, DAMAGE_PIECES_MAX, DAMAGE_STAGE, DAMAGE_STAGES, DAMAGE_STAGES_DEFAULT, integrityCoverage, resolveDamageStages, type DamageStages, type DamageStageSpan, type DamageStagesSource } from './damage-stages';
 export {
   CORNER_SLOTS,
   createEdgeMasks,
@@ -373,7 +377,7 @@ export {
   type EdgeMasks,
   type EdgePiece,
 } from './edge-cases';
-export { caseFormTable, classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_DEBRIS, FORM_NONE, isDebrisCell, rulesDrawDebris, FORM_SHAPE, FORM_SHAPE_BOX, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formFullFaces, formShapeOf, formSupports, LIGHT_COVERAGE, packForm } from './case-forms';
+export { caseFormTable, classForm, evaluateForms, FORM_BASE, FORM_BODY, FORM_HOLE, FORM_NONE, isHoleCell, rulesDrawDamage, FORM_SHAPE, FORM_SHAPE_BOX, FORM_STEPS, formBaseOf, formBox, formCoverage, formFoldOf, formFullFaces, formShapeOf, formSupports, LIGHT_COVERAGE, packForm } from './case-forms';
 export { EDGE_RULES, evaluateCases, evaluateEdges, levelHasCases, withCases, withEdges } from './kit-rules';
 export { KIT_TEST_SAMPLER_PITCH, KIT_TEST_SCENE_PITCH, kitTestExhibits, kitTestScene, voxelRoleName, type KitTestExhibit, type KitTestLabel, type KitTestScene, type KitTestSceneOptions } from './kit-test-scene';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';

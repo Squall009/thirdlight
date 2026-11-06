@@ -36,7 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { VoxelKitMeshes, voxelKitMeshRefs, VoxelWorldDraws, type GlbLoaderPort, type VoxelGridRenderer, type VoxelKitRecordLike } from '@thirdlight/three-adapter';
+import { VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, type GlbLoaderPort, type VoxelGridRenderer, type VoxelKitRecordLike } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -674,7 +674,7 @@ interface PageVoxelKits {
 function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[]) {
   let report: (world: string, bytes: number[], coarse: number, kits: number) => void = () => undefined;
   const kitMeshes = new VoxelKitMeshes();
-  if (voxelKitMeshRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
+  if (voxelKitMeshRefs(kits.records).length + voxelKitImageRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
   const draws = new VoxelWorldDraws({
     kits: kitMeshes.world(kits.records, kits.seed),
     scene: () => adapter()?.threeScene?.() ?? null,

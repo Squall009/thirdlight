@@ -10,7 +10,9 @@ node a mesh: <case>_v<k>, all at the file's origin) and its kit record
 Why it is built this way:
 - Pieces only where voxel faces meet (the edge catalogue's slots): outer and
   inner edges, outer corners, roof edges (ridge, eave, verge, hip, valley),
-  debris and the broken face toward it. Walls, floors and flat roofs are
+  and the damage pieces on a face toward a hole (damage stages 2 and 3: small
+  fragments the engine spreads over the face, several a face, more of the
+  smaller stage-2 ones). Walls, floors and flat roofs are
   plain voxel faces: no slot here dresses a flat face. Slots left out draw
   nothing (every slot is optional).
 - One mesh fills several slots, each with one of the 24 cube rotations: the
@@ -483,29 +485,6 @@ def line_cap(l0, l1, lateral, dy, rise, rid='F1', cap_rid='C12a'):
     return loft(a, b, segs, rid, caps=[[2, 3, 4, 5, 0, 1]], cap_rid=cap_rid)
 
 
-def chunk(cx, cz, sx, sy, sz, yaw, rid='F1', y0=-HALF, chamfer=0.02):
-    """A block of rubble on the cell's floor (its underside on the floor is not made), turned by `yaw` about +y, its
-    top edges chamfered."""
-    cs, sn = math.cos(yaw), math.sin(yaw)
-    at = lambda x, y, z: (cx + cs * x - sn * z, y, cz + sn * x + cs * z)
-    hx, hz = sx / 2, sz / 2
-    y1 = y0 + sy
-    c = min(chamfer, sx / 3, sy / 3, sz / 3)
-    p = Piece()
-    corners = [(-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz)]
-    for k in range(4):
-        (ax, az), (bx, bz) = corners[k], corners[(k + 1) % 4]
-        out = norm((at(ax + bx, 0, az + bz)[0] - cx, 0.0, at(ax + bx, 0, az + bz)[2] - cz))
-        p.add(poly([at(ax, y0, az), at(bx, y0, bz), at(bx, y1 - c, bz), at(ax, y1 - c, az)], out, rid))
-        if c > 0:
-            ia = (ax - math.copysign(c, ax), az - math.copysign(c, az))
-            ib = (bx - math.copysign(c, bx), bz - math.copysign(c, bz))
-            p.add(poly([at(ax, y1 - c, az), at(bx, y1 - c, bz), at(ib[0], y1, ib[1]), at(ia[0], y1, ia[1])], add3(out, (0.0, 1.0, 0.0)), rid))
-    top = [(x - math.copysign(c, x), z - math.copysign(c, z)) for x, z in corners]
-    p.add(poly([at(x, y1, z) for x, z in top], (0.0, 1.0, 0.0), rid))
-    return p
-
-
 def arc_angles(r, inset):
     """Where a circle of radius r centred `inset` in from both faces of an outer edge meets the front and the top face."""
     return -math.acos(inset / r), math.pi - math.asin(inset / r)
@@ -541,7 +520,7 @@ def hip_caps():
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The log kit (wood): round logs over the outer edges, log ends at vertical edges and crossing at corners, a pole in
-# inner edges, ridge, eave and barge logs on roofs, split logs as debris. Flat faces get nothing.
+# inner edges, ridge, eave and barge logs on roofs, splinters and broken log ends as damage pieces. Flat faces get nothing.
 
 def log_pieces():
     k = {}
@@ -622,36 +601,21 @@ def log_pieces():
     k['roof-hip'] = [hip]
     k['roof-valley'] = [valley]
 
-    def split_log(cx, cz, length, r, yaw, sides, y0=-HALF):
-        d = (math.cos(yaw) * length / 2, 0.0, math.sin(yaw) * length / 2)
-        c = (cx, y0 + r, cz)
-        return tube(sub(c, d), add3(c, d), r, sides, 'F1', 'C25a')
+    # Damage pieces: one fragment out of the middle of the face toward the hole (+z); the engine spreads several over
+    # the face and spins each, so a piece is one splinter, never a cluster.
+    def splinter(r, ln, sides):
+        return stub_z(0.0, 0.0, r, sides, HALF - 0.01, HALF + ln)
 
-    # Logs of 0.17 m: their six-sided ends are the 0.25 m cap cell's size.
-    def debris(sides):
-        return split_log(-0.05, -0.06, 0.34, 0.085, 0.3, sides).add(split_log(0.08, 0.1, 0.28, 0.085, 1.9, sides)).add(split_log(0.0, 0.02, 0.22, 0.085, -0.6, sides, y0=-HALF + 0.15))
-
-    def debris_heavy(sides):
-        return split_log(-0.06, 0.0, 0.4, 0.085, 0.15, sides).add(split_log(0.09, -0.05, 0.3, 0.085, 1.4, sides))
-
-    k['debris'] = [debris(6)]
-    k['debris-heavy'] = [debris_heavy(6)]
-
-    def splinters(sides):
-        # Broken log ends out of the face toward the damage (+z), splintered short.
-        p = Piece()
-        for cx, cy, ln in ((-0.12, 0.1, 0.07), (0.05, -0.08, 0.1), (0.15, 0.13, 0.05)):
-            p.add(stub_z(cx, cy, 0.05, sides, HALF, HALF + ln))
-        return p
-
-    k['debris-face'] = [splinters(5)]
+    # Stage 2 (many a face): thin splinters, two lengths. Stage 3 (fewer): stout broken log ends.
+    k['damage-stage-2'] = [splinter(0.018, 0.07, 4), splinter(0.022, 0.045, 4)]
+    k['damage-stage-3'] = [splinter(0.045, 0.09, 6), splinter(0.04, 0.06, 6)]
 
     return k
 
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The stone kit (dressed stone): a chamfered or chipped block edge proud of both faces, a chamfer fillet in inner
-# edges, a block at outer corners, ridge and hip tiles, a drip lip at eaves, a verge board, broken blocks as debris.
+# edges, a block at outer corners, ridge and hip tiles, a drip lip at eaves, a verge board, chips and broken stones as damage pieces.
 
 def stone_pieces():
     k = {}
@@ -718,26 +682,14 @@ def stone_pieces():
     k['roof-hip'] = [hip]
     k['roof-valley'] = [valley]
 
-    def debris():
-        return chunk(-0.08, -0.05, 0.2, 0.12, 0.16, 0.25).add(chunk(0.1, 0.08, 0.16, 0.1, 0.14, -0.4)).add(chunk(0.02, 0.1, 0.12, 0.08, 0.1, 0.9, y0=-HALF + 0.12))
+    # Damage pieces: one broken stone out of the middle of the face toward the hole (+z), its back sunk 1 cm into the
+    # face; the engine spreads several over the face and spins each.
+    def chip(w, h, d):
+        return box(-w / 2, w / 2, -h / 2, h / 2, HALF - 0.01, HALF + d, {'+z': 'S12', '+x': 'S12', '-x': 'S12', '+y': 'S12', '-y': 'S12'})
 
-    def debris_heavy():
-        p = chunk(-0.05, -0.04, 0.3, 0.06, 0.24, 0.1)
-        for cx, cz, s, yaw in ((0.14, 0.12, 0.08, 0.7), (-0.14, 0.15, 0.07, -0.3), (0.12, -0.14, 0.09, 1.2)):
-            p.add(chunk(cx, cz, s, s * 0.7, s, yaw))
-        return p
-
-    k['debris'] = [debris()]
-    k['debris-heavy'] = [debris_heavy()]
-
-    def chips():
-        # Broken stone at the rim of the face toward the damage (+z): a few chips standing out of it.
-        p = Piece()
-        for x0, y0, w, h, d in ((-0.2, 0.12, 0.1, 0.08, 0.03), (0.05, -0.2, 0.12, 0.07, 0.025), (0.14, 0.05, 0.07, 0.1, 0.035)):
-            p.add(box(x0, x0 + w, y0, y0 + h, HALF, HALF + d, {'+z': 'S12', '+x': 'S12', '-x': 'S12', '+y': 'S12', '-y': 'S12'}))
-        return p
-
-    k['debris-face'] = [chips()]
+    # Stage 2 (many a face): small chips, two shapes. Stage 3 (fewer): bigger broken blocks.
+    k['damage-stage-2'] = [chip(0.06, 0.04, 0.025), chip(0.045, 0.05, 0.035)]
+    k['damage-stage-3'] = [chip(0.11, 0.08, 0.05), chip(0.09, 0.1, 0.04)]
 
     return k
 

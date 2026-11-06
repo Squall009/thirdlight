@@ -2,15 +2,17 @@
  * The edge case catalogue: **DRAFT — not the role spec's v1.** Walls,
  * floors, stairs, pillars, foundations and flat roofs are plain voxel faces
  * and get no case of their own; a detail piece goes only where faces meet.
- * Its 18 cases come from three passes:
+ * Its 17 cases come from three passes:
  *
  * - **edges and corners** (edge-cases.ts): per 0.5 m lattice edge and lattice
  *   corner, from the 4 or 8 cells round it, 10 cases with a yaw;
  * - **roof edges**: ridge, eave, gable edge (verge), hip and valley of a
  *   sloped roof's planes, written by the roof mesher;
- * - **debris**: a construction cell whose integrity (its shape) is below
- *   intact, by its stage (`debris`, `debris-heavy`), and the intact faces
- *   opening toward it (`debris-face`).
+ * - **damage** (damage-stages.ts): a construction cell shown as a hole
+ *   (damage stage 2 or 3 of its kit) dresses each intact face opening toward
+ *   it with several pieces of that stage's slot (`damage-stage-2`,
+ *   `damage-stage-3`), from the face's own kit. A cracked cell (stage 1) is
+ *   drawn by the surface shader's overlay and takes no piece of its own.
  *
  * Every case is a kit's slot: its id is the slot's stable name, and a kit
  * fills it with meshes or leaves it empty (nothing drawn). Every case is
@@ -22,7 +24,8 @@
  */
 import { EDGE_CASE_IDS } from './edge-cases';
 import { CASE_ROLES, type CaseCatalogueDef, type CaseDef } from './kit-cases';
-import { CONSTRUCTION_ROLES, SHAPE_FULL, VOXEL_ROLE } from './record';
+import { DAMAGE_PIECE_SLOTS } from './damage-stages';
+import { CONSTRUCTION_ROLES, VOXEL_ROLE } from './record';
 
 const R = VOXEL_ROLE;
 
@@ -43,9 +46,6 @@ const EDGE_NOTES: Readonly<Record<(typeof EDGE_CASE_IDS)[number], string>> = {
   'corner-in-bottom': 'inner corner, the open cell above it',
 };
 
-/** The lowest integrity (shape) of the light debris stage: below it a damaged cell is drawn by `debris-heavy`. */
-export const DEBRIS_LIGHT_MIN = 8;
-
 const cases: CaseDef[] = [
   ...EDGE_CASE_IDS.map((id) => kept(id, CONSTRUCTION_ROLES, EDGE_NOTES[id])),
   kept('roof-ridge', [R.roof], 'the top line of two roof planes meeting'),
@@ -53,9 +53,8 @@ const cases: CaseDef[] = [
   kept('roof-gable', [R.roof], 'the sloped end of a roof plane at a gable: the verge'),
   kept('roof-hip', [R.roof], 'an outside corner line of two roof planes'),
   kept('roof-valley', [R.roof], 'an inside corner line of two roof planes'),
-  kept('debris', CONSTRUCTION_ROLES, `a damaged cell, integrity ${DEBRIS_LIGHT_MIN}–${SHAPE_FULL - 1}: drawn by this piece in place of its faces`),
-  kept('debris-heavy', CONSTRUCTION_ROLES, `a badly damaged cell, integrity below ${DEBRIS_LIGHT_MIN}: drawn by this piece in place of its faces`),
-  kept('debris-face', CONSTRUCTION_ROLES, 'an intact face opening toward a damaged cell: its broken edge'),
+  kept(DAMAGE_PIECE_SLOTS[2], CONSTRUCTION_ROLES, 'an intact face opening toward a hole at damage stage 2: many pieces scattered over it'),
+  kept(DAMAGE_PIECE_SLOTS[3], CONSTRUCTION_ROLES, 'an intact face opening toward a hole at damage stage 3: fewer pieces scattered over it'),
 ];
 
 /** No role has a fallback case: a cell no window rule matches carries none. */
@@ -64,7 +63,7 @@ const NO_FALLBACK = Object.freeze(Object.fromEntries(CASE_ROLES.map((r) => [r, n
 /** The edge catalogue (see the file comment: DRAFT — not v1). */
 export const EDGE_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'edges-draft',
-  version: 2,
+  version: 3,
   draft: true,
   cases,
   rules: [],

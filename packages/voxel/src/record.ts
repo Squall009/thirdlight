@@ -160,7 +160,7 @@ export function isConstructionRole(role: number): boolean {
 /**
  * A value's integrity when it is a damaged construction cell (1 … one below
  * {@link SHAPE_FULL}), else 0: an intact block, air (shape 0 reads as
- * empty) or any other role. What a renderer draws as debris.
+ * empty) or any other role. Its kit's damage stage decides how it is drawn (damage-stages.ts).
  */
 export function damagedIntegrity(v: number): number {
   const shape = valueShape(v);

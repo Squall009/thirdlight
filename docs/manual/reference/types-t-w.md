@@ -998,8 +998,42 @@ interface VoxelKit {
   jitter?: number;
   /** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). */
   trimLayout?: string;
+  /** Its damage stages and crack texture (absent: the engine's). */
+  damage?: VoxelKitDamage;
   /** The game's own data for the whole kit, never read by the engine. */
   gameData?: VoxelKitJson;
+}
+```
+
+<a id="type-voxel-kit-damage"></a>
+### VoxelKitDamage
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** A kit's damage stages (voxel damage-stages.ts; absent fields: the engine's). */
+interface VoxelKitDamage {
+  /** Cracks: the integrity range (1-14) whose block is drawn with the crack overlay (null: the kit has no crack stage). */
+  stage1?: DamageStageSpan | null;
+  /** A hole whose neighbour faces carry many pieces of the `damage-stage-2` slot (`pieces` a face). */
+  stage2?: DamageStageSpan | null;
+  /** A hole whose neighbour faces carry fewer pieces of the `damage-stage-3` slot. */
+  stage3?: DamageStageSpan | null;
+  /** The crack overlay's texture (its red channel), replacing the engine's. */
+  crackTexture?: VoxelKitImage;
+}
+```
+
+<a id="type-voxel-kit-image"></a>
+### VoxelKitImage
+
+Declared in `packages/project-model/src/voxel-kit.ts`.
+
+```ts
+/** An image asset version: the asset and the SHA-256 of the image bytes it was made from. */
+interface VoxelKitImage {
+  assetId: string;
+  digest: string;
 }
 ```
 

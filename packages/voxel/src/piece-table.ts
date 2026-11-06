@@ -28,6 +28,9 @@
  *   its pieces move into the solid and twist. It is drawing only, but it is
  *   in the table so a change re-derives the kit's cells and their draws are
  *   built again with it.
+ * - **Damage stages.** Each kit carries its integrity ranges for the three
+ *   damage stages and the pieces a face toward a hole carries
+ *   (damage-stages.ts); a material without a kit takes the engine's.
  *
  * The table is versioned ({@link PIECE_TABLE_FORMAT}) and names the rule set
  * whose catalogue numbered its cases; a derive refuses a table of another
@@ -38,11 +41,12 @@ import { crc32, latticeHash4, utf8Decode, utf8Encode } from '@thirdlight/shared'
 import type { AssemblyRuleSet } from './assembly';
 import { CUBE_ROTATION_COUNT } from './cube-rotations';
 import type { CaseCatalogueDef } from './kit-cases';
+import { DAMAGE_PIECES_MAX, DAMAGE_STAGES, resolveDamageStages, type DamageStages, type DamageStageSpan, type DamageStagesSource } from './damage-stages';
 import { PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX } from './piece-placement';
-import { MATERIAL_ID_MAX, swapFrom, swapTo } from './record';
+import { damagedIntegrity, MATERIAL_ID_MAX, SHAPE_FULL, swapFrom, swapTo } from './record';
 
-/** The table's byte layout version; a reader refuses any other (3: slots, the project's seed and each kit's jitter). */
-export const PIECE_TABLE_FORMAT = 3;
+/** The table's byte layout version; a reader refuses any other (3: slots, the project's seed and each kit's jitter; 4: each kit's damage stages). */
+export const PIECE_TABLE_FORMAT = 4;
 
 /** No piece (an empty slot), and no kit (a material). */
 export const NO_PIECE = 0xffff;
@@ -67,6 +71,8 @@ export interface PieceKitSource {
   readonly slots: Readonly<Record<string, { readonly meshes: readonly PieceSlotMeshSource[] }>>;
   /** How far its pieces move into the solid and twist, a scale of the engine's stagger (absent: {@link PIECE_JITTER_DEFAULT}). */
   readonly jitter?: number;
+  /** Its damage stages (absent: the engine's, damage-stages.ts). */
+  readonly damage?: DamageStagesSource;
 }
 
 /** One of a kit's pieces: a filled slot, with each of its meshes' weight and rotation. */
@@ -103,6 +109,8 @@ export interface PieceTableKit {
   readonly id: string;
   /** Its jitter (a scale of the engine's stagger, piece-placement.ts). */
   readonly jitter: number;
+  /** Its damage stages, resolved. */
+  readonly damage: DamageStages;
   /** A hash of the kit's part of the table bytes and the table's seed (what decides its materials' pieces). */
   readonly hash: number;
   /** Per case index: the kit-local piece of its slot, or {@link NO_PIECE} for an empty slot. */
@@ -218,8 +226,17 @@ export function buildPieceTable(kits: readonly PieceKitSource[], rules: Assembly
       jitter = PIECE_JITTER_DEFAULT;
     }
     const byCase = new Map(pieces.map((pc, k) => [pc.caseIndex, k]));
+    const damage = resolveDamageStages(kit.damage);
+    for (const d of damage.problems) problems.push(`kit ${kit.voxelKitId}: ${d}; the engine's damage stages drawn`);
     w.text(kit.voxelKitId);
     w.f32(jitter);
+    // Each stage: whether the kit uses it, its integrity range and its pieces a face.
+    damage.stages.spans.forEach((sp, k) => {
+      w.u16(sp === null ? 0 : 1);
+      w.u16(sp?.min ?? 0);
+      w.u16(sp?.max ?? 0);
+      w.u16(damage.stages.pieces[k + 1]!);
+    });
     w.u16(pieces.length);
     for (let c = 0; c < catalogue.cases.length; c++) w.u16(byCase.get(c) ?? NO_PIECE);
     for (const pc of pieces) {
@@ -287,6 +304,17 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
     const id = text();
     const jitter = f32();
     if (!(jitter >= 0 && jitter <= PIECE_JITTER_MAX)) throw new RangeError(`piece table: kit ${id} jitter ${jitter}`);
+    const spans: (DamageStageSpan | null)[] = [];
+    for (let st = 1; st <= 3; st++) {
+      const used = u16();
+      const min = u16();
+      const max = u16();
+      const n = u16();
+      if (used > 1 || (used === 1 && (min < 1 || max >= SHAPE_FULL || min > max || n > DAMAGE_PIECES_MAX || (st === 1) !== (n === 0)))) throw new RangeError(`piece table: kit ${id} damage stage ${st}`);
+      spans.push(used === 0 ? null : n === 0 ? { min, max } : { min, max, pieces: n });
+    }
+    const damage = resolveDamageStages({ stage1: spans[0]!, stage2: spans[1]!, stage3: spans[2]! });
+    if (damage.problems.length > 0) throw new RangeError(`piece table: kit ${id} damage stages: ${damage.problems.join('; ')}`);
     const pieces = u16();
     const slots = new Uint16Array(caseCount);
     for (let i = 0; i < caseCount; i++) {
@@ -304,7 +332,7 @@ export function readPieceTable(bytes: Uint8Array): PieceTable {
     thresholdStart[pieces] = thresholds.length;
     // The seed decides every pick of the kit, so it is part of what a material's pieces depend on.
     const hash = (crc32(bytes.subarray(start, o)) ^ Math.imul(seed, 0x9e3779b1)) >>> 0 || 1;
-    kits.push({ id, jitter, hash, slots, thresholdStart, thresholds: Uint16Array.from(thresholds) });
+    kits.push({ id, jitter, damage: damage.stages, hash, slots, thresholdStart, thresholds: Uint16Array.from(thresholds) });
   }
   const materialKit = new Uint16Array(MATERIAL_ID_MAX + 1).fill(NO_KIT);
   const pairs = u32();
@@ -381,6 +409,25 @@ export function pieceVariant(t: PieceTable, material: number, piece: number, lev
   let v = 0;
   while (start + v < end && h >= kit.thresholds[start + v]!) v++;
   return v;
+}
+
+/** The damage stages a cell of value `v` is shown by: its material's kit's, or the engine's (no kit, no table). */
+export function cellDamageStages(t: PieceTable | null, v: number): DamageStages {
+  if (t === null) return DAMAGE_STAGES;
+  const k = t.materialKit[v & MATERIAL_ID_MAX]!;
+  return k === NO_KIT ? DAMAGE_STAGES : t.kits[k]!.damage;
+}
+
+/** The damage stage (damage-stages.ts DAMAGE_STAGE) a cell of value `v` is shown at: 0 for an intact one, any role but construction, air. */
+export function damageStageOf(t: PieceTable | null, v: number): number {
+  const i = damagedIntegrity(v);
+  return i === 0 ? 0 : cellDamageStages(t, v).stage[i]!;
+}
+
+/** The crack overlay's strength (0 … 255) of a cell of value `v`: non-zero only in stage 1. */
+export function crackStrengthOf(t: PieceTable | null, v: number): number {
+  const i = damagedIntegrity(v);
+  return i === 0 ? 0 : cellDamageStages(t, v).crack[i]!;
 }
 
 /** Tables a thread keeps decoded, by hash: the last few (a table changes only when a kit or the seed does). */

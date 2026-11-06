@@ -14,7 +14,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "corner-out-top_v0"
      },
      "rotation": 5
@@ -26,41 +26,44 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "corner-out-top_v0"
      }
     }
    ]
   },
-  "debris": {
+  "damage-stage-2": {
    "meshes": [
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
-      "node": "debris_v0"
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
+      "node": "damage-stage-2_v0"
+     }
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
+      "node": "damage-stage-2_v1"
      }
     }
    ]
   },
-  "debris-face": {
+  "damage-stage-3": {
    "meshes": [
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
-      "node": "debris-face_v0"
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
+      "node": "damage-stage-3_v0"
      }
-    }
-   ]
-  },
-  "debris-heavy": {
-   "meshes": [
+    },
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
-      "node": "debris-heavy_v0"
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
+      "node": "damage-stage-3_v1"
      }
     }
    ]
@@ -70,7 +73,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-in-bottom_v0"
      }
     }
@@ -81,7 +84,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-in-bottom_v0"
      },
      "rotation": 5
@@ -93,7 +96,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-in-bottom_v0"
      },
      "rotation": 9
@@ -105,7 +108,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-out-top_v0"
      },
      "rotation": 5
@@ -113,7 +116,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-out-top_v1"
      },
      "rotation": 5
@@ -125,14 +128,14 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-out-top_v0"
      }
     },
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-out-top_v1"
      }
     }
@@ -143,7 +146,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-out-top_v0"
      },
      "rotation": 9
@@ -151,7 +154,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "edge-out-top_v1"
      },
      "rotation": 9
@@ -163,7 +166,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "roof-eave_v0"
      }
     }
@@ -174,7 +177,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "roof-gable_v0"
      }
     }
@@ -185,7 +188,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "roof-hip_v0"
      }
     }
@@ -196,7 +199,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "roof-ridge_v0"
      }
     }
@@ -207,7 +210,7 @@
     {
      "mesh": {
       "assetId": "voxel-kit-stone",
-      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "digest": "da7c4aea13fc2a9f12cf5ad6bc83a9cfa4b1583394dd55aec5b7c6125f4a3599",
       "node": "roof-valley_v0"
      }
     }

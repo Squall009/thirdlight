@@ -37,7 +37,7 @@
  * are read from GLB bytes by {@link voxelKitMeshFacts}.
  */
 import { crc32, readGlb } from '@thirdlight/shared';
-import { applyCubeRotation, meshRunAxis, ROOF_EDGE_CASE_IDS, VOXEL_SIZE_M, WORLD_RULES, type CaseCatalogueDef } from '@thirdlight/voxel';
+import { applyCubeRotation, meshRunAxis, resolveDamageStages, ROOF_EDGE_CASE_IDS, VOXEL_SIZE_M, WORLD_RULES, type CaseCatalogueDef, type DamageStageSpan } from '@thirdlight/voxel';
 import type { KitCheckState } from './kit-checks';
 import { readModelGeometry } from './model-collision';
 import type { VoxelKit, VoxelKitMesh } from './voxel-kit';
@@ -226,7 +226,18 @@ function slotRows(kit: VoxelKit, cat: CaseCatalogueDef): VoxelKitCheckRow[] {
   rows.push(unknown.length > 0 ? { id: 'catalogue', state: 'err', title: `${unknown.length} slots the catalogue does not have`, detail: `${named(unknown)}: never drawn (catalogue ${cat.id} v${cat.version}).` } : { id: 'catalogue', state: 'ok', title: 'Every slot is a case of the catalogue', detail: `Catalogue ${cat.id} v${cat.version}.` });
   const empty = cat.cases.length - filled.length;
   rows.push({ id: 'slots', state: 'info', title: `${filled.length} of ${cat.cases.length} slots filled`, detail: filled.length === 0 ? 'No slot has a mesh: every edge draws as a plain voxel edge.' : `${named(filled)}${empty > 0 ? `; the other ${empty} draw nothing (plain voxel edges)` : ''}.` });
+  rows.push(damageRow(kit));
   return rows;
+}
+
+/** The kit's damage stages as drawn (info): which integrities crack, which are holes and how many pieces a face carries. */
+function damageRow(kit: VoxelKit): VoxelKitCheckRow {
+  const { stages } = resolveDamageStages(kit.damage);
+  const [s1, s2, s3] = stages.spans;
+  const span = (s: DamageStageSpan | null | undefined): string => (s === null || s === undefined ? 'not used' : `integrity ${s.min}-${s.max}`);
+  const parts = [`stage 1 cracks: ${span(s1)}`, `stage 2 hole: ${span(s2)}${s2 ? `, ${stages.pieces[2]} pieces a face` : ''}`, `stage 3 hole: ${span(s3)}${s3 ? `, ${stages.pieces[3]} pieces a face` : ''}`];
+  const crack = kit.damage?.crackTexture !== undefined ? `the kit's crack texture ${kit.damage.crackTexture.assetId}` : "the engine's crack texture";
+  return { id: 'damage', state: 'info', title: kit.damage === undefined ? "The engine's damage stages" : 'The kit sets its damage stages', detail: `${parts.join('; ')}; ${crack}. An integrity in no stage draws intact.` };
 }
 
 /** One texture set for the whole kit (one trim sheet or one material), for batching. */

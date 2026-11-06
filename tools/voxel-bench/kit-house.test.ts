@@ -10,10 +10,12 @@
  * - **One owner an edge**: every exposed edge and corner of construction
  *   (found by brute force over the lattice) has exactly one piece, and no
  *   piece sits anywhere else.
- * - **Roofs** take roof-edge pieces only; **damage** draws debris on the
- *   damaged cell and a debris face on each intact face toward it, nothing
- *   else changes for collision, light or navigation, and at air the
- *   neighbours' plain faces and the hole's edges are back.
+ * - **Roofs** take roof-edge pieces only; **damage** by stage: a cracked
+ *   cell keeps its faces (with the crack strength) and edges, a hole draws
+ *   nothing and its neighbours' faces toward it carry the stage's damage
+ *   pieces (per-kit ranges and counts), collision and navigation stay whole
+ *   and light follows the integrity, and at air the neighbours' plain faces
+ *   and the hole's edges are back.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -45,8 +47,17 @@ import {
   edgeCaseOf,
   edgeYawOf,
   encodeDerived,
+  cellOutputs,
+  crackStrengthOf,
+  DAMAGE_SCATTER_REACH,
+  deriveMipNode,
   INSTANCE_BYTES,
-  INSTANCE_FLAG,
+  INSTANCE_DRESSING_OFFSET,
+  instanceScatter,
+  integrityCoverage,
+  MipTree,
+  valueOf,
+  type PieceKitSource,
   INSTANCE_PLACE,
   instancePlaceOf,
   jobRadius,
@@ -89,6 +100,8 @@ interface Piece {
   readonly flags: number;
   /** The variant's mirror bit (a verge rising toward its own −x). */
   readonly mirror: boolean;
+  /** A damage piece's scatter index on its face (0 for any other). */
+  readonly scatter: number;
 }
 
 /** The kit pieces of derived chunk (cx, cy, cz). */
@@ -98,7 +111,7 @@ function piecesOf(d: DerivedData, cx: number, cy: number, cz: number): Piece[] {
   for (let k = 0; k < d.instances.count; k++) {
     const o = k * INSTANCE_BYTES;
     const piece = b[o + 4]! | (b[o + 5]! << 8);
-    out.push({ cell: [cx * E + b[o]!, cy * E + b[o + 1]!, cz * E + b[o + 2]!], caseId: OWN[piece]!.caseId, yaw: b[o + 3]! & 3, place: instancePlaceOf(b[o + 3]!), flags: b[o + 3]! & 0xf0, mirror: (b[o + 7]! & 0x80) !== 0 });
+    out.push({ cell: [cx * E + b[o]!, cy * E + b[o + 1]!, cz * E + b[o + 2]!], caseId: OWN[piece]!.caseId, yaw: b[o + 3]! & 3, place: instancePlaceOf(b[o + 3]!), flags: b[o + 3]! & 0xf0, mirror: (b[o + 7]! & 0x80) !== 0, scatter: instanceScatter(new DataView(b.buffer, b.byteOffset).getUint32(o + INSTANCE_DRESSING_OFFSET, true)) });
   }
   return out;
 }
@@ -297,67 +310,151 @@ describe('pieces on edges only', () => {
   });
 });
 
-describe('damage drawn as debris', () => {
+describe('damage drawn by stage', () => {
   /** A wall 10 long, 6 high, 1 thick (x 2…11, y 2…7, z 8), its cell (6, 4, 8) at `shape` (0: dug to air). */
-  function damagedWall(shape: number): PaletteStore {
+  function damagedWall(shape: number, material: number = MAT.stone): PaletteStore {
     const s = createWorldStore(grid);
-    for (let x = 2; x < 12; x++) for (let y = 2; y < 8; y++) putVoxel(s, x, y, 8, MAT.stone, R.wall);
+    for (let x = 2; x < 12; x++) for (let y = 2; y < 8; y++) putVoxel(s, x, y, 8, material, R.wall);
     if (shape === 0) putVoxel(s, 6, 4, 8, 0, R.air);
-    else s.setVoxel(6, 4, 8, { material: MAT.stone, role: R.wall, shape, wetness: 0 });
+    else s.setVoxel(6, 4, 8, { material, role: R.wall, shape, wetness: 0 });
     return s;
   }
   const D: Cell = [6, 4, 8];
+  const at = (c: Cell): string => c.join(',');
+  /** The four in-plane neighbours' faces toward D (the two in front and behind are air), by cell, yaw and placement. */
+  const FACES = [`5,4,8|3|${INSTANCE_PLACE.upright}`, `7,4,8|1|${INSTANCE_PLACE.upright}`, `6,3,8|0|${INSTANCE_PLACE.faceUp}`, `6,5,8|0|${INSTANCE_PLACE.faceDown}`].sort();
+  /** Every piece but damage pieces, by cell, case and yaw. */
+  const rest = (list: Piece[]): string[] => list.filter((p) => !p.caseId.startsWith('damage-')).map((p) => `${at(p.cell)}|${p.caseId}|${p.yaw}`).sort();
+  /** Every output a consumer but the drawing and light reads (collision, navigation, occupancy …). */
+  const gameplay = (d: DerivedData, like: DerivedData): Uint8Array => encodeDerived({ ...d, base: like.base, instances: like.instances, light: like.light });
+  const intact = deriveFromStore(damagedWall(SHAPE_FULL), 0, 0, 0, RULES, undefined, TABLE);
 
-  it('a damaged wall cell: one debris piece of its stage on it, a debris face on each intact face toward it, its edges undressed; collision, light, navigation and occupancy as intact', () => {
-    const intact = deriveFromStore(damagedWall(SHAPE_FULL), 0, 0, 0, RULES, undefined, TABLE);
-    for (const [shape, stage] of [[12, 'debris'], [7, 'debris-heavy'], [1, 'debris-heavy']] as const) {
+  it('stage 1 (integrity 11–14): the block is drawn with its edge pieces and its faces carry the crack overlay, stronger as integrity drops; no damage piece', () => {
+    let last = 0;
+    for (const shape of [14, 13, 12, 11]) {
       const d = deriveFromStore(damagedWall(shape), 0, 0, 0, RULES, undefined, TABLE);
+      const cell = cellOutputs(d, ...D);
+      expect(cell.baseFaces, `shape ${shape}`).toBe(2);
+      expect(cell.crack, `shape ${shape}`).toBe(crackStrengthOf(null, valueOf({ material: MAT.stone, role: R.wall, shape, wetness: 0 })));
+      expect(cell.crack, `shape ${shape}`).toBeGreaterThan(last);
+      last = cell.crack;
+      // Only the cracked cell's faces carry a strength: the wall's other faces none.
+      expect(cellOutputs(d, 5, 4, 8).crack).toBe(0);
       const pieces = piecesOf(d, 0, 0, 0);
-      const on = pieces.filter((p) => p.cell.join(',') === D.join(','));
-      expect(on.map((p) => p.caseId), `shape ${shape}`).toEqual([stage]);
-      expect(on[0]!.flags & INSTANCE_FLAG.replacesBase).not.toBe(0);
-      // The wall's four neighbours in its plane face the hole (the two in front and behind are air).
-      const faces = pieces.filter((p) => p.caseId === 'debris-face');
-      expect(faces.map((p) => `${p.cell.join(',')}|${p.yaw}|${p.place}`).sort(), `shape ${shape}`).toEqual(
-        [`5,4,8|3|${INSTANCE_PLACE.upright}`, `7,4,8|1|${INSTANCE_PLACE.upright}`, `6,3,8|0|${INSTANCE_PLACE.faceUp}`, `6,5,8|0|${INSTANCE_PLACE.faceDown}`].sort(),
-      );
-      // Every other piece is the intact wall's (its rim): no edge round the damaged cell, none new.
-      const rest = (list: Piece[]): string[] => list.filter((p) => !p.caseId.startsWith('debris')).map((p) => `${p.cell.join(',')}|${p.caseId}|${p.yaw}`).sort();
+      expect(pieces.filter((p) => p.caseId.startsWith('damage-'))).toEqual([]);
       expect(rest(pieces)).toEqual(rest(piecesOf(intact, 0, 0, 0)));
-      // The block stays whole for every consumer but the drawing.
-      expect(encodeDerived({ ...d, base: intact.base, instances: intact.instances })).toEqual(encodeDerived(intact));
-      expect(d.base).not.toEqual(intact.base);
+      expect(gameplay(d, intact)).toEqual(encodeDerived(intact));
+      // Light follows the integrity (46e's tracer reads it); the intact neighbour stays covered.
+      expect(cell.light, `shape ${shape}`).toBe(integrityCoverage(shape));
+      expect(cellOutputs(d, 5, 4, 8).light).toBe(255);
+    }
+    expect(last).toBe(255);
+  });
+
+  it('a cracked cell at the wall\'s corner keeps its edge pieces: the same rim as intact', () => {
+    const s = damagedWall(SHAPE_FULL);
+    s.setVoxel(2, 7, 8, { material: MAT.stone, role: R.wall, shape: 12, wetness: 0 });
+    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    expect(rest(piecesOf(d, 0, 0, 0))).toEqual(rest(piecesOf(intact, 0, 0, 0)));
+    expect(piecesOf(d, 0, 0, 0).filter((p) => at(p.cell) === '2,7,8').length).toBeGreaterThan(0);
+    expect(cellOutputs(d, 2, 7, 8).crack).toBeGreaterThan(0);
+  });
+
+  it('stages 2 (6–10) and 3 (1–5): the block is not drawn, no edge piece round the hole, each neighbour face toward it carries its kit\'s stage slot, many then fewer pieces, each its own scatter index; collision and navigation whole', () => {
+    for (const [shape, slot, count] of [[10, 'damage-stage-2', 6], [6, 'damage-stage-2', 6], [5, 'damage-stage-3', 3], [1, 'damage-stage-3', 3]] as const) {
+      const d = deriveFromStore(damagedWall(shape), 0, 0, 0, RULES, undefined, TABLE);
+      const cell = cellOutputs(d, ...D);
+      expect(cell.baseFaces, `shape ${shape}`).toBe(0);
+      expect(cell.pieces, `shape ${shape}`).toEqual([]);
+      const pieces = piecesOf(d, 0, 0, 0);
+      const dmg = pieces.filter((p) => p.caseId.startsWith('damage-'));
+      expect(new Set(dmg.map((p) => p.caseId)), `shape ${shape}`).toEqual(new Set([slot]));
+      // Each face: `count` pieces with scatter 0 … count − 1.
+      const byFace = new Map<string, number[]>();
+      for (const p of dmg) byFace.set(`${at(p.cell)}|${p.yaw}|${p.place}`, [...(byFace.get(`${at(p.cell)}|${p.yaw}|${p.place}`) ?? []), p.scatter]);
+      expect([...byFace.keys()].sort(), `shape ${shape}`).toEqual(FACES);
+      for (const list of byFace.values()) expect(list.sort((a, b) => a - b)).toEqual(Array.from({ length: count }, (_, k) => k));
+      // No edge round the hole (it is no open air): the rim is the intact wall's.
+      expect(rest(pieces), `shape ${shape}`).toEqual(rest(piecesOf(intact, 0, 0, 0)));
+      // The neighbours' faces toward the hole are drawn.
+      for (const c of [[5, 4, 8], [7, 4, 8], [6, 3, 8], [6, 5, 8]] as Cell[]) expect(cellOutputs(d, ...c).baseFaces, at(c)).toBe(3);
+      expect(gameplay(d, intact), `shape ${shape}`).toEqual(encodeDerived(intact));
+      expect(cell.collision).toBe('full');
+      expect(cell.navBlocks).toBe(true);
+      expect(cell.light, `shape ${shape}`).toBe(integrityCoverage(shape));
     }
   });
 
-  it('broken to air: the debris goes, the neighbours\' faces toward the hole are the ones the debris showed, and the hole\'s edges take pieces', () => {
-    const debris = deriveFromStore(damagedWall(7), 0, 0, 0, RULES, undefined, TABLE);
+  it('a kit sets its own ranges, counts and fewer stages: the hole\'s kit decides the stage, the face\'s kit how many pieces', () => {
+    const own = (id: string, materials: number[], damage: PieceKitSource['damage']): PieceKitSource => ({ ...fullTestKit(id, materials, 1), damage });
+    // Kit "two": no crack stage, one hole stage over 1–14 with two pieces a face, no stage 3.
+    const two = own('two', [MAT.stone], { stage1: null, stage2: { min: 1, max: 14, pieces: 2 }, stage3: null });
+    // Kit "late": stages 1 and 2 only (stage 3 left out): integrity 1–5 draws intact.
+    const late = own('late', [MAT.timber], { stage3: null });
+    const table = worldPieceTable([two, late], 0);
+    const count = (d: DerivedData): number => piecesOf(d, 0, 0, 0).filter((p) => p.caseId.startsWith('damage-')).length;
+    for (const shape of [13, 7, 2]) {
+      const d = deriveFromStore(damagedWall(shape), 0, 0, 0, RULES, undefined, table);
+      expect([cellOutputs(d, ...D).baseFaces, cellOutputs(d, ...D).crack, count(d)], `two, shape ${shape}`).toEqual([0, 0, 4 * 2]);
+    }
+    const timber = (shape: number): DerivedData => deriveFromStore(damagedWall(shape, MAT.timber), 0, 0, 0, RULES, undefined, table);
+    expect([cellOutputs(timber(12), ...D).crack > 0, count(timber(12))]).toEqual([true, 0]);
+    expect(count(timber(8))).toBe(4 * 6);
+    const left = timber(3);
+    expect([cellOutputs(left, ...D).baseFaces, cellOutputs(left, ...D).crack, count(left)]).toEqual([2, 0, 0]);
+    // A timber hole in a stone wall: timber's stages say 8 is stage 2; the stone faces carry stone's ("two") count.
+    const mixed = damagedWall(SHAPE_FULL);
+    mixed.setVoxel(6, 4, 8, { material: MAT.timber, role: R.wall, shape: 8, wetness: 0 });
+    expect(count(deriveFromStore(mixed, 0, 0, 0, RULES, undefined, table))).toBe(4 * 2);
+    // The stages ride in the table's bytes: another range is another table.
+    expect(worldPieceTable([two, own('late', [MAT.timber], { stage3: { min: 1, max: 4 } })], 0).hash).not.toBe(table.hash);
+  });
+
+  it('broken to air: no damage pieces, the neighbours\' faces toward the hole are the ones the hole showed, and the hole\'s edges take pieces', () => {
+    const hole = deriveFromStore(damagedWall(7), 0, 0, 0, RULES, undefined, TABLE);
     const air = deriveFromStore(damagedWall(0), 0, 0, 0, RULES, undefined, TABLE);
     const pieces = piecesOf(air, 0, 0, 0);
-    expect(pieces.filter((p) => p.caseId.startsWith('debris'))).toEqual([]);
-    // The base surface is the same: a debris cell draws none of its faces and hides none of its neighbours'.
-    expect(air.base).toEqual(debris.base);
+    expect(pieces.filter((p) => p.caseId.startsWith('damage-'))).toEqual([]);
+    // The base surface is the same: a hole draws none of its faces and hides none of its neighbours'.
+    expect(air.base).toEqual(hole.base);
     // The hole's rim: its four inner edges along z (one cell deep) on each face, as an opening has.
-    const rim = pieces.filter((p) => cellsRound(p).some((c) => c.join(',') === D.join(',')));
+    const rim = pieces.filter((p) => cellsRound(p).some((c) => at(c) === at(D)));
     expect(rim.length).toBeGreaterThanOrEqual(8);
     expectNoFlatFace(damagedWall(0), pieces, 'hole');
   });
 
-  it('a damaged cell buried in a mass stays a body: no debris, no faces or pieces inside the mass', () => {
+  it('a damaged cell buried in a mass stays a body: no hole, no faces or pieces inside the mass; only its light follows its integrity', () => {
     const mass = (shape: number): PaletteStore => {
       const s = createWorldStore(grid);
       for (let x = 2; x < 9; x++) for (let y = 2; y < 9; y++) for (let z = 2; z < 9; z++) putVoxel(s, x, y, z, MAT.stone, R.wall);
       s.setVoxel(5, 5, 5, { material: MAT.stone, role: R.wall, shape, wetness: 0 });
       return s;
     };
-    expect(encodeDerived(deriveFromStore(mass(7), 0, 0, 0, RULES, undefined, TABLE))).toEqual(encodeDerived(deriveFromStore(mass(SHAPE_FULL), 0, 0, 0, RULES, undefined, TABLE)));
+    const whole = deriveFromStore(mass(SHAPE_FULL), 0, 0, 0, RULES, undefined, TABLE);
+    for (const shape of [12, 7]) {
+      const d = deriveFromStore(mass(shape), 0, 0, 0, RULES, undefined, TABLE);
+      expect(encodeDerived({ ...d, light: whole.light })).toEqual(encodeDerived(whole));
+      expect(cellOutputs(d, 5, 5, 5).light).toBe(integrityCoverage(shape));
+    }
+  });
+
+  it('shows at level 0 only: the level-1 and level-2 nodes over a damaged wall are the intact wall\'s', () => {
+    for (const shape of [12, 8, 3]) {
+      const damaged = new MipTree(damagedWall(shape));
+      const whole = new MipTree(damagedWall(SHAPE_FULL));
+      for (const level of [1, 2]) {
+        const node = { level, nx: 0, ny: 0, nz: 0 };
+        expect(encodeDerived(deriveMipNode(damaged, node, RULES, undefined, TABLE)), `shape ${shape} level ${level}`).toEqual(encodeDerived(deriveMipNode(whole, node, RULES, undefined, TABLE)));
+      }
+    }
   });
 
   it('gives the same pieces from a chunk\'s 16³ sections joined as from the whole chunk, damage and all, and keeps them under an edit outside the reach', () => {
     const s = damagedWall(7);
+    s.setVoxel(9, 6, 8, { material: MAT.stone, role: R.wall, shape: 12, wetness: 0 });
     boxHouse(s);
     const whole = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
-    const key = (p: Piece): string => `${p.cell.join(',')}|${p.caseId}|${p.yaw}|${p.place}`;
+    const key = (p: Piece): string => `${at(p.cell)}|${p.caseId}|${p.yaw}|${p.place}|${p.scatter}`;
     const chunkPieces = piecesOf(whole, 0, 0, 0).map(key).sort();
     const pad = jobRadius(RULES);
     const sections = deriveSectionsWithApron(grid, RULES, buildApron(s, 0, 0, 0, pad), (out) => s.exportChunk(0, 0, 0, out), 16, [0, 1, 2, 3, 4, 5, 6, 7], 0, { table: TABLE, chunk: [0, 0, 0] });
@@ -477,15 +574,16 @@ describe('kit pieces drawn through the real chunk view', () => {
     await roofPiecesFollowThePlanes(0.5);
   });
 
-  it('a box house, a gable house and a damaged wall: one instanced draw a (piece, level), instances by family, one mesh filling three slots on one geometry, every instance staggered within bounds', () => {
+  it('a box house, a gable house and a damaged wall: one instanced draw a (piece, level), instances by family, one mesh filling three slots on one geometry, every instance staggered within bounds, damage pieces spread over their faces', () => {
     const s = createWorldStore(grid);
     boxHouse(s);
-    // A gable house beside it (x 20…28, z 2…13) and a damaged wall (x 2…11, y 20…25, z 26: one cell at 12, one at 5).
+    // A gable house beside it (x 20…28, z 2…13) and a damaged wall (x 2…11, y 20…25, z 26: a crack at 12, holes at 8 and 3).
     for (let x = 20; x <= 28; x++) for (let y = 4; y < 8; y++) for (const z of [3, 12]) putVoxel(s, x, y, z, MAT.stone, R.wall);
     for (let x = 19; x <= 29; x++) for (let z = 2; z <= 13; z++) putVoxel(s, x, 8 + Math.min(x - 19, 29 - x), z, MAT.roofTile, R.roof);
     for (let x = 2; x < 12; x++) for (let y = 20; y < 26; y++) putVoxel(s, x, y, 26, MAT.stone, R.wall);
-    s.setVoxel(5, 22, 26, { material: MAT.stone, role: R.wall, shape: 12, wetness: 0 });
-    s.setVoxel(8, 23, 26, { material: MAT.stone, role: R.wall, shape: 5, wetness: 0 });
+    s.setVoxel(9, 21, 26, { material: MAT.stone, role: R.wall, shape: 12, wetness: 0 });
+    s.setVoxel(5, 22, 26, { material: MAT.stone, role: R.wall, shape: 8, wetness: 0 });
+    s.setVoxel(8, 24, 26, { material: MAT.stone, role: R.wall, shape: 3, wetness: 0 });
     // A kit of boxes, one a slot, but one strip filling the three outer edge slots turned (top, vertical, bottom).
     const D = 'a'.repeat(64);
     const strip = { assetId: 'strip', digest: D };
@@ -514,12 +612,13 @@ describe('kit pieces drawn through the real chunk view', () => {
     const kinds = new Set(pieces.map((p) => `${p.caseId}${p.mirror ? '*' : ''}`));
     expect(kinds.has('roof-gable*')).toBe(true);
     expect(draws.length).toBe(kinds.size);
-    const family = (id: string): string => (id.startsWith('edge-') || id.startsWith('corner-') ? 'edge' : id.startsWith('roof-') ? 'roof' : id.startsWith('debris') ? 'debris' : 'other');
+    const family = (id: string): string => (id.startsWith('edge-') || id.startsWith('corner-') ? 'edge' : id.startsWith('roof-') ? 'roof' : id.startsWith('damage-') ? 'damage' : 'other');
     const families = new Map<string, number>();
     for (const [id, n] of byCase) families.set(family(id), (families.get(family(id)) ?? 0) + n);
-    for (const f of ['edge', 'roof', 'debris']) expect(families.get(f), f).toBeGreaterThan(0);
-    expect(byCase.get('debris')).toBe(1);
-    expect(byCase.get('debris-heavy')).toBe(1);
+    for (const f of ['edge', 'roof', 'damage']) expect(families.get(f), f).toBeGreaterThan(0);
+    // Each hole's four in-plane neighbour faces: 6 pieces at stage 2, 3 at stage 3 (the crack at 12 none).
+    expect(byCase.get('damage-stage-2')).toBe(4 * 6);
+    expect(byCase.get('damage-stage-3')).toBe(4 * 3);
     // The three outer edge slots draw with the one strip geometry, turned.
     const stripGeometry = meshes.mesh(strip, false);
     const onStrip = draws.filter((m) => m.geometry === stripGeometry);
@@ -529,7 +628,25 @@ describe('kit pieces drawn through the real chunk view', () => {
     const m4 = new THREE.Matrix4();
     const CUBE_QUATS = CUBE_ROTATIONS.map((r) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(r[0], r[1], r[2], 0, r[3], r[4], r[5], 0, r[6], r[7], r[8], 0, 0, 0, 0, 1)));
     let staggered = 0;
+    const damageGeometries = new Set(['damage-stage-2', 'damage-stage-3'].map((id) => meshes.mesh({ assetId: id, digest: D }, false)));
     for (const mesh of draws) {
+      if (damageGeometries.has(mesh.geometry as THREE.BufferGeometry)) {
+        // Spread over the face toward the hole and spun about its normal: every piece its own place, within the face.
+        const at = new Set<string>();
+        const p = new THREE.Vector3();
+        for (let k = 0; k < mesh.count; k++) {
+          mesh.getMatrixAt(k, m4);
+          expect(m4.determinant()).toBeCloseTo(1, 5);
+          p.setFromMatrixPosition(m4);
+          at.add(p.toArray().map((x) => x.toFixed(4)).join(','));
+          const cell = p.clone().divideScalar(VOXEL_SIZE_M).floor();
+          const centre = cell.clone().addScalar(0.5).multiplyScalar(VOXEL_SIZE_M);
+          // On the intact cell's side: within the face's reach (0.3 cell each way) plus the stagger, of its centre.
+          expect(p.distanceTo(centre) / VOXEL_SIZE_M).toBeLessThanOrEqual(DAMAGE_SCATTER_REACH * Math.SQRT2 + PIECE_STAGGER.inwardMax * 4 + 1e-6);
+        }
+        expect(at.size).toBe(mesh.count);
+        continue;
+      }
       for (let k = 0; k < mesh.count; k++) {
         mesh.getMatrixAt(k, m4);
         expect(m4.determinant()).toBeCloseTo(1, 5);

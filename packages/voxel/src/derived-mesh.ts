@@ -1,7 +1,7 @@
 /**
  * Mesh output buffers of a derived chunk (formats, DRAFT) and the
  * detail-instance list of the kit pieces its edges, corners, roof edges and
- * damaged cells carry. The ground surface is the terrain mesher's
+ * faces toward a hole carry. The ground surface is the terrain mesher's
  * (terrain-mesher.ts), the modular bodies' faces the base surface's
  * (base-surface.ts: coplanar faces merged), both in the surface layout
  * below.
@@ -10,7 +10,9 @@
  * attributes are WebGPU/WebGL 2 vertex formats, then indices.
  * - position `uint16x4`: chunk-local, in 1/{@link POSITION_STEPS_PER_CELL}
  *   cell steps from one cell below the chunk's corner (so the surface's
- *   boundary vertices at −0.5 fit); w is 0, reserved;
+ *   boundary vertices at −0.5 fit); w is the crack overlay's strength
+ *   (0 … 255: 0 none) of the face it belongs to, non-zero only on the faces
+ *   of a cracked cell (damage stage 1, damage-stages.ts);
  * - normal `snorm8x4` (w 0).
  * A vertex carries no material: the surface shader finds the materials
  * around each pixel in the chunk's shader data (derived-shader.ts) and
@@ -37,13 +39,14 @@
  * `slotDressing`: where roles meet, the higher role's kit dresses the
  * piece): bits 0–4 of the dressing word, {@link instanceDressingCell}. Bits
  * 5–10 are the cell's faces the piece is cut at, so nothing of it passes
- * into an opening beside them ({@link instanceFlushFaces}); the rest are
- * written 0. The variant word holds which of the
- * slot's meshes it draws (bits 0–14) and the mirror of the case's transform
- * (bit 15). A piece that replaces its cell's base surface says so
- * (`replacesBase`: a debris piece drawn in a damaged cell's place); an edge
- * piece adds to the faces it sits between. A cell may own several
- * instances: one each edge, corner, roof edge or debris piece it carries.
+ * into an opening beside them ({@link instanceFlushFaces}); bits 11–14 a
+ * damage piece's scatter index (which of the pieces on its face it is,
+ * {@link instanceScatter}); the rest are written 0. The variant word holds
+ * which of the slot's meshes it draws (bits 0–14) and the mirror of the
+ * case's transform (bit 15). Every piece adds to the faces it sits on or
+ * between (none replaces a cell's base surface). A cell may own several
+ * instances: one each edge, corner or roof edge it carries, and its damage
+ * pieces on each face toward a hole.
  *
  * **Pieces per level** ({@link levelDrawsPieces}): only a chunk (level 0, the
  * near ring) lists pieces. Coarser nodes list none: their edges are plain
@@ -51,6 +54,7 @@
  * authors one mesh a piece.
  */
 import type { Neighbourhood } from './assembly';
+import { DAMAGE_PIECES_MAX } from './damage-stages';
 
 /** Position steps per cell (1/1024 cell ≈ 0.5 mm). */
 export const POSITION_STEPS_PER_CELL = 1024;
@@ -75,8 +79,16 @@ const DRESSING_OWN = 13;
  * `block` round the instance's cell (13: its own) and the faces `flush`
  * (bit 2a: the −a face, 2a + 1: the +a face).
  */
-export function dressingWord(block: number, flush: number): number {
-  return (((block + 27 - DRESSING_OWN) % 27) | ((flush & 63) << 5)) >>> 0;
+export function dressingWord(block: number, flush: number, scatter = 0): number {
+  return (((block + 27 - DRESSING_OWN) % 27) | ((flush & 63) << 5) | ((scatter & (DAMAGE_PIECES_MAX - 1)) << DRESSING_SCATTER_SHIFT)) >>> 0;
+}
+
+/** Where a damage piece's scatter index starts in the dressing word. */
+const DRESSING_SCATTER_SHIFT = 11;
+
+/** Which of the damage pieces on its face an instance is (0 … DAMAGE_PIECES_MAX − 1; 0 for any other piece), from its dressing word. */
+export function instanceScatter(word: number): number {
+  return (word >>> DRESSING_SCATTER_SHIFT) & (DAMAGE_PIECES_MAX - 1);
 }
 
 /** The offset (x, y, z, each −1 … 1) from an instance's cell to its dressing cell, from its dressing word. */
@@ -90,10 +102,8 @@ export function instanceFlushFaces(word: number): number {
   return (word >>> 5) & 63;
 }
 
-/** Instance flags (bits 4–7 of the rotation byte). */
+/** Instance flags (bits 5–7 of the rotation byte; bit 4 is written 0). */
 export const INSTANCE_FLAG = Object.freeze({
-  /** The piece replaces its cell's base surface (none is emitted under it). */
-  replacesBase: 0x10,
   /**
    * A roof-edge piece on a 1:2 roof: the renderer pitches the case's one
    * mesh (authored for 45°) onto the shallower plane (piece-placement.ts
@@ -186,7 +196,7 @@ export interface CellPiece {
   turns: number;
   /** {@link INSTANCE_PLACE}. */
   place: number;
-  /** {@link INSTANCE_FLAG} bits the piece sets (`replacesBase`). */
+  /** {@link INSTANCE_FLAG} bits the piece sets. */
   flags: number;
   /** The variant word: variant | mirror bit (piece-table.ts). */
   variant: number;

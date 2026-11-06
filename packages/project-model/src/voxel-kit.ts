@@ -16,6 +16,12 @@
  *   scene always draws the same.
  * - **Jitter** scales how far every piece of the kit moves into the solid
  *   and twists (voxel piece-placement.ts; absent: 1, the engine's stagger).
+ * - **Damage** (voxel damage-stages.ts): the kit's integrity ranges for the
+ *   three damage stages (cracks; a hole with many pieces; a hole with
+ *   fewer), the pieces a face toward a hole carries, and an optional crack
+ *   texture replacing the engine's (an image asset; its red channel is read,
+ *   brighter cracks showing first). Absent: the engine's split; a stage set
+ *   to null is not used by the kit.
  * - **One texture set a kit** (one trim sheet or one material for every
  *   piece): the kit check's rule, never a refusal here.
  * - **A kit belongs to a material type** (wood, stone), never to one
@@ -42,7 +48,7 @@
  * Pure value validation: no I/O.
  */
 import { canonicalJsonValue, isPlainObject, isPlainObjectStrict } from '@thirdlight/shared';
-import { CUBE_ROTATION_COUNT, MATERIAL_AIR, MATERIAL_ID_MAX, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX } from '@thirdlight/voxel';
+import { CUBE_ROTATION_COUNT, MATERIAL_AIR, MATERIAL_ID_MAX, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, resolveDamageStages, type DamageStageSpan } from '@thirdlight/voxel';
 import type { ModelErrorV2 } from './errors';
 import { DIGEST_RE } from './content-helpers';
 import { KIT_LIMITS } from './kits';
@@ -80,6 +86,24 @@ export interface VoxelKitSlot {
   gameData?: VoxelKitJson;
 }
 
+/** An image asset version: the asset and the SHA-256 of the image bytes it was made from. */
+export interface VoxelKitImage {
+  assetId: string;
+  digest: string;
+}
+
+/** A kit's damage stages (voxel damage-stages.ts; absent fields: the engine's). */
+export interface VoxelKitDamage {
+  /** Cracks: the integrity range (1-14) whose block is drawn with the crack overlay (null: the kit has no crack stage). */
+  stage1?: DamageStageSpan | null;
+  /** A hole whose neighbour faces carry many pieces of the `damage-stage-2` slot (`pieces` a face). */
+  stage2?: DamageStageSpan | null;
+  /** A hole whose neighbour faces carry fewer pieces of the `damage-stage-3` slot. */
+  stage3?: DamageStageSpan | null;
+  /** The crack overlay's texture (its red channel), replacing the engine's. */
+  crackTexture?: VoxelKitImage;
+}
+
 export interface VoxelKit {
   kitFormat: typeof VOXEL_KIT_FORMAT;
   voxelKitId: string;
@@ -96,6 +120,8 @@ export interface VoxelKit {
   jitter?: number;
   /** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). */
   trimLayout?: string;
+  /** Its damage stages and crack texture (absent: the engine's). */
+  damage?: VoxelKitDamage;
   /** The game's own data for the whole kit, never read by the engine. */
   gameData?: VoxelKitJson;
 }
@@ -111,7 +137,10 @@ export const VOXEL_KIT_LIMITS = Object.freeze({
   jitterMax: PIECE_JITTER_MAX,
 });
 
-const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'jitter', 'trimLayout', 'gameData'];
+const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'jitter', 'trimLayout', 'damage', 'gameData'];
+const DAMAGE_FIELDS = ['stage1', 'stage2', 'stage3', 'crackTexture'];
+const SPAN_FIELDS = ['min', 'max', 'pieces'];
+const IMAGE_FIELDS = ['assetId', 'digest'];
 const SLOT_FIELDS = ['meshes', 'gameData'];
 const SLOT_MESH_FIELDS = ['mesh', 'rotation', 'weight'];
 const MESH_FIELDS = ['assetId', 'digest', 'node'];
@@ -154,6 +183,34 @@ function mesh(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (v['node'] !== undefined && (typeof v['node'] !== 'string' || !NODE_RE.test(v['node']))) err(errors, 'field_value', `${path}/node`, 'node is a node name (1-128 characters)', v['node']);
 }
 
+function damage(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (v === undefined) return;
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'damage is {stage1?, stage2?, stage3?, crackTexture?}', v, 'object');
+  fields(v, DAMAGE_FIELDS, path, 'damage', errors);
+  let shaped = true;
+  for (const k of ['stage1', 'stage2', 'stage3']) {
+    const s = v[k];
+    if (s === undefined || s === null) continue;
+    if (!isPlainObject(s)) {
+      shaped = false;
+      err(errors, 'field_type', `${path}/${k}`, 'a damage stage is {min, max, pieces?} (null: not used)', s, 'object');
+      continue;
+    }
+    const before = errors.length;
+    fields(s, SPAN_FIELDS, `${path}/${k}`, 'damage stage', errors);
+    if (errors.length > before) shaped = false;
+  }
+  // The voxel package's own reading decides what a stage may be (ranges, overlap, pieces), so the two never disagree.
+  if (shaped) for (const p of resolveDamageStages(v as never).problems) err(errors, 'field_value', path, p, v);
+  const t = v['crackTexture'];
+  if (t !== undefined) {
+    if (!isPlainObject(t)) return err(errors, 'field_type', `${path}/crackTexture`, 'crackTexture is {assetId, digest}', t, 'object');
+    fields(t, IMAGE_FIELDS, `${path}/crackTexture`, 'crack texture', errors);
+    id(t['assetId'], `${path}/crackTexture/assetId`, 'assetId', errors);
+    if (typeof t['digest'] !== 'string' || !DIGEST_RE.test(t['digest'])) err(errors, 'digest_invalid', `${path}/crackTexture/digest`, 'digest is the image\'s SHA-256 (64 lowercase hex)', t['digest'], '64 lowercase hex');
+  }
+}
+
 function slot(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a slot is {meshes, gameData?}', v, 'object');
   fields(v, SLOT_FIELDS, path, 'slot', errors);
@@ -174,7 +231,7 @@ function slot(v: unknown, path: string, errors: ModelErrorV2[]): void {
 
 /** Validate one kit's shape (what its case, section and asset ids name is the kit check's, never refused here). */
 export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, gameData?}', v, 'object');
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, damage?, gameData?}', v, 'object');
   // The format first: a newer kit is refused whole, never read in part.
   const f = v['kitFormat'];
   if (f === undefined) return err(errors, 'field_missing', `${path}/kitFormat`, 'kitFormat is required', undefined, String(VOXEL_KIT_FORMAT));
@@ -203,6 +260,7 @@ export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[
   const jitter = v['jitter'];
   if (jitter !== undefined && (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > VOXEL_KIT_LIMITS.jitterMax)) err(errors, 'field_value', `${path}/jitter`, `jitter is a number 0-${VOXEL_KIT_LIMITS.jitterMax} (1: the engine's stagger)`, jitter);
   if (v['trimLayout'] !== undefined) id(v['trimLayout'], `${path}/trimLayout`, 'trimLayout', errors);
+  damage(v['damage'], `${path}/damage`, errors);
   gameData(v['gameData'], `${path}/gameData`, errors);
   const slots = v['slots'];
   if (!isPlainObject(slots)) return err(errors, slots === undefined ? 'field_missing' : 'field_type', `${path}/slots`, 'slots is {caseId: {meshes, gameData?}}', slots, 'object');
@@ -228,6 +286,19 @@ export function validateVoxelKits(value: unknown, path: string, errors: ModelErr
 
 function canonicalMesh(m: VoxelKitMesh): VoxelKitMesh {
   return { assetId: m.assetId, digest: m.digest, ...(m.node !== undefined ? { node: m.node } : {}) };
+}
+
+function canonicalSpan(s: DamageStageSpan | null): DamageStageSpan | null {
+  return s === null ? null : { min: s.min, max: s.max, ...(s.pieces !== undefined ? { pieces: s.pieces } : {}) };
+}
+
+function canonicalDamage(d: VoxelKitDamage): VoxelKitDamage {
+  return {
+    ...(d.stage1 !== undefined ? { stage1: canonicalSpan(d.stage1) } : {}),
+    ...(d.stage2 !== undefined ? { stage2: canonicalSpan(d.stage2) } : {}),
+    ...(d.stage3 !== undefined ? { stage3: canonicalSpan(d.stage3) } : {}),
+    ...(d.crackTexture !== undefined ? { crackTexture: { assetId: d.crackTexture.assetId, digest: d.crackTexture.digest } } : {}),
+  };
 }
 
 function byKey<T, U>(rec: Record<string, T>, f: (v: T) => U): Record<string, U> {
@@ -257,12 +328,18 @@ export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
     })),
     ...(k.jitter !== undefined && k.jitter !== PIECE_JITTER_DEFAULT ? { jitter: k.jitter } : {}),
     ...(k.trimLayout !== undefined ? { trimLayout: k.trimLayout } : {}),
+    ...(k.damage !== undefined && Object.keys(canonicalDamage(k.damage)).length > 0 ? { damage: canonicalDamage(k.damage) } : {}),
     ...(k.gameData !== undefined ? { gameData: canonicalJsonValue(k.gameData) as VoxelKitJson } : {}),
   };
 }
 
 export function canonicalVoxelKits(list: readonly VoxelKit[]): VoxelKit[] {
   return [...list].sort((a, b) => cmp(a.voxelKitId, b.voxelKitId)).map(canonicalVoxelKit);
+}
+
+/** The image assets a kit draws with (its crack texture), as the content closure ships them. */
+export function voxelKitImages(k: VoxelKit): VoxelKitImage[] {
+  return k.damage?.crackTexture !== undefined ? [k.damage.crackTexture] : [];
 }
 
 /** Every mesh a kit's slots draw with, in slot and mesh order (a mesh in several slots once each time). */

@@ -40,6 +40,7 @@ import { TRIM_LAYOUTS, voxelKitMeshKey, type TrimLayout } from '@thirdlight/proj
 import { crc32, utf8Encode } from '@thirdlight/shared';
 import {
   cutFlush,
+  DAMAGE_PIECE_SLOTS,
   kitPieceList,
   meshRunAxis,
   mirrorAxisOf,
@@ -50,12 +51,14 @@ import {
   pieceHalfRun,
   WORLD_RULES,
   worldPieceTable,
+  type DamageStagesSource,
   type KitPiece,
   type PieceStaggerFrame,
   type PieceTable,
   VOXEL_SIZE_M,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
+import { browserCrackDecoder, type CrackImageDecoder } from './voxel-crack-texture';
 import { underHelperNode } from './pieces';
 import { mergeLayout, mergeWorldGeometry } from './static-merge';
 import type { GlbLoaderPort } from './visual';
@@ -78,6 +81,14 @@ export interface VoxelKitRecordLike {
   /** Slot (case id) → its meshes, each with its cube rotation and weight. */
   readonly slots: Readonly<Record<string, { readonly meshes: readonly { readonly mesh: VoxelKitMeshRef; readonly rotation?: number; readonly weight?: number }[] }>>;
   readonly jitter?: number;
+  /** Its damage stages (voxel damage-stages.ts) and crack texture (an image whose red channel the crack overlay reads; absent: the engine's). */
+  readonly damage?: DamageStagesSource & { readonly crackTexture?: VoxelKitImageRef };
+}
+
+/** An image a kit names (its crack texture): an asset version by its source digest. */
+export interface VoxelKitImageRef {
+  readonly assetId: string;
+  readonly digest: string;
 }
 
 /** What draws one kit piece: its mesh and material, and a key equal for draws that can share an instanced mesh. */
@@ -98,10 +109,25 @@ export interface VoxelKitDraw {
   /** The drawn case (a 1:2 roof's edge piece is pitched by it, voxel `roofPitch`) and whether its mesh is mirrored. */
   readonly caseId: string;
   readonly mirror: boolean;
+  /** A damage piece: how many its kit spreads over a face toward a hole, and the seed the spread hashes. */
+  readonly scatterCount?: number;
+  readonly seed?: number;
 }
 
 /** A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project. */
 export type VoxelKitBytes = (ref: VoxelKitMeshRef) => Promise<{ readonly bytes: Uint8Array; readonly version: number } | null>;
+
+/** An image's key: its asset and digest. */
+function imageKey(m: VoxelKitImageRef): string {
+  return `${m.assetId}@${m.digest}`;
+}
+
+/** Every image a kit names (its crack texture; each once). */
+export function voxelKitImageRefs(kits: readonly VoxelKitRecordLike[]): VoxelKitImageRef[] {
+  const out = new Map<string, VoxelKitImageRef>();
+  for (const k of kits) if (k.damage?.crackTexture !== undefined) out.set(imageKey(k.damage.crackTexture), k.damage.crackTexture);
+  return [...out.values()];
+}
 
 /** Every mesh a kit names (each once). */
 export function voxelKitMeshRefs(kits: readonly VoxelKitRecordLike[]): VoxelKitMeshRef[] {
@@ -212,6 +238,8 @@ export class VoxelKitMeshes {
   /** Copies cut flush toward openings, by the mesh they were made from, then slot rotation and case faces. */
   private readonly flushed = new Map<THREE.BufferGeometry, Map<number, THREE.BufferGeometry>>();
   private readonly waiting = new Set<() => void>();
+  /** Kits' crack textures by asset and digest: their layer bytes once decoded, null when they failed. */
+  private readonly cracks = new Map<string, Uint8Array | null | 'loading'>();
   private disposed = false;
 
   /** Calls `f` whenever meshes finished loading (views build the pieces that waited for them); returns its removal. */
@@ -221,12 +249,27 @@ export class VoxelKitMeshes {
   }
 
   /** Loads every mesh of `kits` not loaded yet: bytes from `read`, parsed by `loader`. Resolves when all have loaded or failed. */
-  async load(kits: readonly VoxelKitRecordLike[], read: VoxelKitBytes, loader: GlbLoaderPort): Promise<{ readonly loaded: number; readonly failed: readonly string[] }> {
+  async load(kits: readonly VoxelKitRecordLike[], read: VoxelKitBytes, loader: GlbLoaderPort, decode: CrackImageDecoder = browserCrackDecoder): Promise<{ readonly loaded: number; readonly failed: readonly string[] }> {
     const todo = voxelKitMeshRefs(kits).filter((m) => !this.meshes.has(voxelKitMeshKey(m)));
     for (const m of todo) this.meshes.set(voxelKitMeshKey(m), { state: 'loading' });
+    const images = voxelKitImageRefs(kits).filter((m) => !this.cracks.has(imageKey(m)));
+    for (const m of images) this.cracks.set(imageKey(m), 'loading');
     const failed: string[] = [];
-    await Promise.all(
-      todo.map(async (m) => {
+    const crackLoads = images.map(async (m) => {
+      let layer: Uint8Array | null = null;
+      try {
+        const got = await read(m);
+        layer = got === null ? null : await decode(got.bytes);
+      } catch {
+        layer = null;
+      }
+      if (this.disposed) return;
+      this.cracks.set(imageKey(m), layer);
+      if (layer === null) failed.push(`${imageKey(m)}: crack texture not drawn (the engine's draws)`);
+    });
+    await Promise.all([
+      ...crackLoads,
+      ...todo.map(async (m) => {
         const key = voxelKitMeshKey(m);
         let next: MeshState;
         try {
@@ -248,9 +291,21 @@ export class VoxelKitMeshes {
         this.meshes.set(key, next);
         if (next.state === 'failed') failed.push(`${key}: ${next.reason}`);
       }),
-    );
-    if (todo.length > 0 && !this.disposed) for (const f of [...this.waiting]) f();
-    return { loaded: todo.length - failed.length, failed };
+    ]);
+    if (todo.length + images.length > 0 && !this.disposed) for (const f of [...this.waiting]) f();
+    return { loaded: todo.length + images.length - failed.length, failed };
+  }
+
+  /** Adds a decoded crack texture directly (a host that decoded it itself, tests): {@link CRACK_TEXELS}² bytes. */
+  addCrack(ref: VoxelKitImageRef, layer: Uint8Array): void {
+    this.cracks.set(imageKey(ref), layer);
+    for (const f of [...this.waiting]) f();
+  }
+
+  /** A kit's crack layer bytes, null while loading, failed or never asked for (the engine's draws). */
+  crack(ref: VoxelKitImageRef): Uint8Array | null {
+    const c = this.cracks.get(imageKey(ref));
+    return c === undefined || c === 'loading' ? null : c;
   }
 
   /** Adds a parsed mesh directly (a host that parsed it itself, tests). */
@@ -390,6 +445,11 @@ export class VoxelKitMeshes {
   }
 }
 
+/** The damage stage whose pieces a slot holds (2, 3), or 0 for any other slot. */
+function damageStageOfSlot(caseId: string): number {
+  return caseId === DAMAGE_PIECE_SLOTS[2] ? 2 : caseId === DAMAGE_PIECE_SLOTS[3] ? 3 : 0;
+}
+
 /** One table's kit pieces: how an instance's kit-local piece is drawn. */
 export class VoxelKitSet {
   private readonly records = new Map<string, VoxelKitRecordLike>();
@@ -406,6 +466,22 @@ export class VoxelKitSet {
       const r = this.records.get(k.id);
       return r === undefined ? null : kitPieceList(r, cat).pieces;
     });
+  }
+
+  /**
+   * The crack textures this table's kits draw with: each kit's own (loaded) one a layer from 1, and each material's
+   * layer (0: the engine's, a material without a kit or a kit without its own texture).
+   */
+  crackLayers(): { readonly layers: readonly Uint8Array[]; readonly materialLayer: (material: number) => number } {
+    const layers: Uint8Array[] = [];
+    const ofKit = this.table.kits.map((k) => {
+      const ref = this.records.get(k.id)?.damage?.crackTexture;
+      const bytes = ref === undefined ? null : this.meshes.crack(ref);
+      if (bytes === null) return 0;
+      layers.push(bytes);
+      return layers.length;
+    });
+    return { layers, materialLayer: (m) => (this.table.materialKit[m] === undefined || this.table.materialKit[m] === NO_KIT ? 0 : ofKit[this.table.materialKit[m]!]!) };
   }
 
   /** What a kit piece of a cell of `material` is: its kit and slot (case id), and the rotation of its `variant`'s mesh (null: not a kit piece of this table). */
@@ -435,7 +511,16 @@ export class VoxelKitSet {
     const rotation = pc.rotations[variant] ?? 0;
     const key = `${slot}:${piece}:${variant}:${mirror ? 1 : 0}`;
     const frame = PIECE_STAGGER_FRAMES[pc.caseId];
-    const placed = { rotation, runAxis: meshRunAxis(pc.caseId, rotation), halfRun: pieceHalfRun(pc.caseId), caseId: pc.caseId, mirror, stagger: frame === undefined ? null : { frame, seed: this.table.seed, caseIndex: pc.caseIndex, jitter: kit.jitter } };
+    const scatter = damageStageOfSlot(pc.caseId);
+    const placed = {
+      rotation,
+      runAxis: meshRunAxis(pc.caseId, rotation),
+      halfRun: pieceHalfRun(pc.caseId),
+      caseId: pc.caseId,
+      mirror,
+      stagger: frame === undefined ? null : { frame, seed: this.table.seed, caseIndex: pc.caseIndex, jitter: kit.jitter },
+      ...(scatter === 0 ? {} : { scatterCount: kit.damage.pieces[scatter]!, seed: this.table.seed }),
+    };
     const g = this.meshes.mesh(entry.mesh, mirror, mirrorAxisOf(rotation));
     if (g === 'pending' || g === null) return g;
     const look = this.meshes.material(kit.id, record?.trimLayout);

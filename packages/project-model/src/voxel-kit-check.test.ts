@@ -78,7 +78,7 @@ describe('the voxel kit check', () => {
   it('passes a kit with every slot filled (one mesh a piece, one texture set)', () => {
     const rows = run(fullKit());
     expect(bad(rows)).toEqual([]);
-    expect(rows.map((r) => r.id)).toEqual(['catalogue', 'slots', 'assets', 'pivot', 'fit', 'texture-set', 'budget']);
+    expect(rows.map((r) => r.id)).toEqual(['catalogue', 'slots', 'damage', 'assets', 'pivot', 'fit', 'texture-set', 'budget']);
     expect(rows.find((r) => r.id === 'slots')!.title).toBe(`${CATALOGUE.cases.length} of ${CATALOGUE.cases.length} slots filled`);
     expect(rows.find((r) => r.id === 'budget')!.title).toBe(`${CATALOGUE.cases.length} slot meshes: ${CATALOGUE.cases.length * 2} triangles`);
     expect(rows.some((r) => r.id.startsWith('trim:'))).toBe(false);
@@ -92,7 +92,7 @@ describe('the voxel kit check', () => {
     const one = slotsOf(empty, (c) => (c['edge-out-top'] = { meshes: [{ mesh: mesh('top') }] }));
     const oneRows = run(one);
     expect(bad(oneRows)).toEqual([]);
-    expect(oneRows.find((r) => r.id === 'slots')!.detail).toMatch(/^edge-out-top; the other 17 draw nothing/);
+    expect(oneRows.find((r) => r.id === 'slots')!.detail).toMatch(/^edge-out-top; the other 16 draw nothing/);
     // One mesh filling every slot, each turned its own way: still no warning.
     const shared = slotsOf(empty, (c) => {
       for (const cs of CATALOGUE.cases) c[cs.id] = { meshes: [{ mesh: mesh('one'), rotation: cs.id.includes('vertical') ? CUBE_ROTATION_ZM90 : 0 }] };
@@ -109,13 +109,13 @@ describe('the voxel kit check', () => {
     expect(unknown.find((r) => r.id === 'catalogue')!.detail).toMatch(/^beam, gazebo: never drawn/);
     // Assets: missing, not a model, unreadable, a node not in the file; a digest no version has.
     const assets = assetsOf(full);
-    assets.delete('debris-h');
+    assets.delete('damage-stage-2-h');
     assets.set('roof-ridge-h', { kind: 'texture', digests: [D(1)] });
     assets.set('edge-out-vertical-h', { kind: 'model', digests: [D(2)] });
     const noFile = (m: VoxelKitMesh): VoxelKitMeshFacts | null => (m.assetId === 'roof-hip-h' ? { ...box(), unreadable: 'not a GLB (version 2)' } : m.assetId === 'roof-valley-h' ? { ...box(), found: false } : box());
     const broken = run(full, { assets, facts: noFile });
     expect(only(broken)).toEqual(['err assets', 'warn digests']);
-    expect(broken.find((r) => r.id === 'assets')!.detail).toMatch(/no such model: debris \(debris-h\).*not a model: roof-ridge.*unreadable: roof-hip.*no such node: roof-valley.*Their slots draw nothing/);
+    expect(broken.find((r) => r.id === 'assets')!.detail).toMatch(/no such model: damage-stage-2 \(damage-stage-2-h\).*not a model: roof-ridge.*unreadable: roof-hip.*no such node: roof-valley.*Their slots draw nothing/);
     // A mesh naming an older version of its model (v1 of two, v2 current): the pin holds only while nothing else
     // uses the model; one naming the current version is fine.
     const pinned = assetsOf(full);
@@ -147,9 +147,9 @@ describe('the voxel kit check', () => {
   it('allows one texture set a kit: two materials, or one material name over two sheets, is an error', () => {
     const full = fullKit();
     const set = (name: string): VoxelKitMeshFacts => ({ ...box(), textureSets: [name] });
-    const two = run(full, { facts: (m) => (m.assetId === 'debris-h' ? set('stone [0badf00d]') : set('wood [12345678]')) });
+    const two = run(full, { facts: (m) => (m.assetId === 'damage-stage-3-h' ? set('stone [0badf00d]') : set('wood [12345678]')) });
     expect(bad(two)).toEqual(['err texture-set']);
-    expect(two.find((r) => r.id === 'texture-set')!.detail).toMatch(/^wood \[12345678\]: edge-out-top, .*; stone \[0badf00d\]: debris\. .*make two kits/);
+    expect(two.find((r) => r.id === 'texture-set')!.detail).toMatch(/^wood \[12345678\]: edge-out-top, .*; stone \[0badf00d\]: damage-stage-3\. .*make two kits/);
     // A mesh using two materials itself.
     expect(bad(run(full, { facts: (m) => (m.assetId === 'roof-eave-h' ? { ...box(), textureSets: ['a', 'b'] } : { ...box(), textureSets: ['a'] }) }))).toEqual(['err texture-set']);
     // Every mesh on the same set (across files: the same name and images): fine.

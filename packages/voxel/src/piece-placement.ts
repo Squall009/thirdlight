@@ -24,6 +24,7 @@
  */
 import { latticeHash4 } from '@thirdlight/shared';
 import { CUBE_ROTATIONS } from './cube-rotations';
+import { DAMAGE_PIECE_SLOTS } from './damage-stages';
 
 /** The stagger's bounds, in cells of the piece's level and radians. */
 export const PIECE_STAGGER = Object.freeze({
@@ -64,8 +65,8 @@ const H = 0.5;
  * the cove moves into the walls it lies against. A roof edge moves into the roof: an eave down its plane's normal
  * (the plane rising toward −z: normal (0, 1, 1)/√2), a verge into the plane (rising toward +x: normal (−1, 1, 0)/√2)
  * and in from the gable (−z), a ridge straight down, a hip or valley along the two planes' mean normal (planes
- * rising toward −x and −z). A debris piece drawn in its cell's place sinks into the cell; a debris face, written for
- * the face toward the damaged cell (+z), into the intact cell it dresses.
+ * rising toward −x and −z). A damage piece, written for the face toward the hole (+z), moves into the intact cell
+ * it dresses.
  */
 export const PIECE_STAGGER_FRAMES: Readonly<Record<string, PieceStaggerFrame>> = Object.freeze({
   'edge-out-top': frame([0, 0.5, 0.5], [0, S2, S2], 0.5),
@@ -83,10 +84,38 @@ export const PIECE_STAGGER_FRAMES: Readonly<Record<string, PieceStaggerFrame>> =
   'roof-gable': frame([0, 1, H], [-0.5, 0.5, S2], 0.5 * Math.SQRT2),
   'roof-hip': frame([0, 1, 0], [1 / Math.sqrt(6), 2 / Math.sqrt(6), 1 / Math.sqrt(6)], 0.5 * Math.sqrt(3)),
   'roof-valley': frame([0, 1, 0], [1 / Math.sqrt(6), 2 / Math.sqrt(6), 1 / Math.sqrt(6)], 0.5 * Math.sqrt(3)),
-  debris: frame([0, 0, 0], [0, 1, 0], 0.5),
-  'debris-heavy': frame([0, 0, 0], [0, 1, 0], 0.5),
-  'debris-face': frame([0, 0, H], [0, 0, 1], 0.5),
+  [DAMAGE_PIECE_SLOTS[2]]: frame([0, 0, H], [0, 0, 1], 0.5),
+  [DAMAGE_PIECE_SLOTS[3]]: frame([0, 0, H], [0, 0, 1], 0.5),
 });
+
+/** Whether a case's pieces are damage pieces, several a face, each placed by its scatter index ({@link damageScatter}). */
+export function isDamagePieceCase(caseId: string): boolean {
+  return caseId === DAMAGE_PIECE_SLOTS[2] || caseId === DAMAGE_PIECE_SLOTS[3];
+}
+
+/** How far from its face's centre a damage piece may lie, in cells along each of the face's two axes (it stays on the face). */
+export const DAMAGE_SCATTER_REACH = 0.3;
+
+/** Salt that keeps the scatter's hash apart from the stagger's and the mesh pick's. */
+const SCATTER_SALT = 0x165667b1;
+
+/**
+ * Where the `k`-th damage piece of a face lies on it, in its case's own orientation (the face toward the hole at
+ * +z): its offset from the face's centre (x, y in cells, each within ±{@link DAMAGE_SCATTER_REACH}) and its spin
+ * about the face's normal (radians), hashed from the project's piece seed, the cell (level-0 cells), level, the
+ * instance's slot (case << 4 | placement << 2 | yaw: which face) and `k`. The pieces of one face spread over a
+ * jittered grid of about √n by √n, so many pieces cover the face rather than pile up; the same on every load.
+ */
+export function damageScatter(seed: number, x: number, y: number, z: number, level: number, slot: number, k: number, count: number): { u: number; v: number; spin: number } {
+  const h = latticeHash4(x, y, z, (seed ^ SCATTER_SALT) + Math.imul(level, 0x9e3779b9) + Math.imul(slot, 0x85ebca6b) + Math.imul(k + 1, 0xc2b2ae35)) >>> 0;
+  const side = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const cell = (2 * DAMAGE_SCATTER_REACH) / side;
+  const gx = k % side;
+  const gy = Math.floor(k / side) % side;
+  const u = -DAMAGE_SCATTER_REACH + (gx + (h & 0xff) / 0xff) * cell;
+  const v = -DAMAGE_SCATTER_REACH + (gy + ((h >>> 8) & 0xff) / 0xff) * cell;
+  return { u, v, spin: ((h >>> 16) / 0xffff) * 2 * Math.PI };
+}
 
 /** The vertical edge cases: their run is along y in their own orientation (every other case runs along x). */
 const VERTICAL_RUN = new Set(['edge-out-vertical', 'edge-in-vertical']);

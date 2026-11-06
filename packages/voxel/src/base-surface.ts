@@ -24,7 +24,9 @@
  * (one triangle a point less two); otherwise a fan from its centre.
  *
  * Vertices carry no material (the shader blends by world position), so a
- * merge across materials looks the same as the faces it replaces.
+ * merge across materials looks the same as the faces it replaces. A cracked
+ * cell's faces (damage stage 1) carry the crack overlay's strength in their
+ * vertices (position w) and merge only with faces of the same strength.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, type Neighbourhood } from './assembly';
 import { FORM_BASE, FORM_SHAPE, formBaseOf, formShapeOf } from './case-forms';
@@ -34,9 +36,13 @@ const STEPS = POSITION_STEPS_PER_CELL;
 
 /** Per-thread working arrays, grown to the largest job seen. */
 let faces = new Uint8Array(0);
-let mask = new Uint8Array(0);
-/** Rectangles: direction, layer, a0, b0, a1, b1 (in-plane cells, ends exclusive). */
-let rects = new Int32Array(6 * 256);
+/** Per cell: the crack overlay's strength on its faces (0 … 255). */
+let cracks = new Uint8Array(0);
+/** Per face cell of a layer: 0 none, else 1 + its crack strength (faces merge only with equal values). */
+let mask = new Uint16Array(0);
+/** Rectangles: direction, layer, a0, b0, a1, b1 (in-plane cells, ends exclusive), crack strength. */
+const RECT = 7;
+let rects = new Int32Array(RECT * 256);
 let rectCount = 0;
 /** Lattice points that are some rectangle's corner (stamped by call). */
 let cornerStamp = new Uint32Array(0);
@@ -46,6 +52,7 @@ let vertexOf = new Int32Array(0);
 let call = 0;
 let pos = new Int32Array(3 * 1024);
 let nrm = new Int8Array(3 * 1024);
+let crk = new Uint8Array(1024);
 let tris = new Uint32Array(3 * 2048);
 let vertexCount = 0;
 let triLen = 0;
@@ -58,7 +65,7 @@ const extra = new Int32Array(4);
 const AXIS = [0, 0, 1, 1, 2, 2] as const;
 const SIGN = [-1, 1, -1, 1, -1, 1] as const;
 
-function addVertex(x: number, y: number, z: number, d: number): number {
+function addVertex(x: number, y: number, z: number, d: number, crack: number): number {
   if (3 * vertexCount + 3 > pos.length) {
     const p = new Int32Array(pos.length * 2);
     p.set(pos);
@@ -66,7 +73,11 @@ function addVertex(x: number, y: number, z: number, d: number): number {
     const q = new Int8Array(nrm.length * 2);
     q.set(nrm);
     nrm = q;
+    const c = new Uint8Array(crk.length * 2);
+    c.set(crk);
+    crk = c;
   }
+  crk[vertexCount] = crack;
   const o = 3 * vertexCount;
   pos[o] = x;
   pos[o + 1] = y;
@@ -89,13 +100,14 @@ function addTri(a: number, b: number, c: number): void {
   tris[triLen++] = c;
 }
 
-function addRect(d: number, layer: number, a0: number, b0: number, a1: number, b1: number): void {
-  if (6 * rectCount + 6 > rects.length) {
+function addRect(d: number, layer: number, a0: number, b0: number, a1: number, b1: number, crack: number): void {
+  if (RECT * rectCount + RECT > rects.length) {
     const r = new Int32Array(rects.length * 2);
     r.set(rects);
     rects = r;
   }
-  const o = 6 * rectCount++;
+  const o = RECT * rectCount++;
+  rects[o + 6] = crack;
   rects[o] = d;
   rects[o + 1] = layer;
   rects[o + 2] = a0;
@@ -112,6 +124,7 @@ function buildSurface(): SurfaceBuffer {
     view.setUint16(at, pos[3 * v]!, true);
     view.setUint16(at + 2, pos[3 * v + 1]!, true);
     view.setUint16(at + 4, pos[3 * v + 2]!, true);
+    view.setUint16(at + 6, crk[v]!, true);
     view.setInt8(at + 8, nrm[3 * v]!);
     view.setInt8(at + 9, nrm[3 * v + 1]!);
     view.setInt8(at + 10, nrm[3 * v + 2]!);
@@ -120,6 +133,9 @@ function buildSurface(): SurfaceBuffer {
   const indices = vertexCount < 65536 ? new Uint16Array(t) : new Uint32Array(t);
   return { vertexCount, vertices, indices };
 }
+
+/** The crack overlay's strength (0 … 255) of a body cell's faces from its value (damage stage 1; piece-table.ts crackStrengthOf). */
+export type CrackOf = (value: number) => number;
 
 /** Per neighbourhood cell: non-zero for a cell another surface draws (a roof's plane cell): no faces of its own, and it hides none. */
 let drawnElsewhere: Uint32Array | null = null;
@@ -148,16 +164,16 @@ function hides(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: numb
  * faces out and keeps its neighbours' faces toward it, so the bodies'
  * surface stays closed on its own.
  */
-export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false, elsewhere: Uint32Array | null = null): SurfaceBuffer {
+export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false, elsewhere: Uint32Array | null = null, crackOf: CrackOf | null = null): SurfaceBuffer {
   drawnElsewhere = elsewhere;
   try {
-    return bodySurface(n, classes, forms, piecesAsBodies);
+    return bodySurface(n, classes, forms, piecesAsBodies, crackOf);
   } finally {
     drawnElsewhere = null;
   }
 }
 
-function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies: boolean): SurfaceBuffer {
+function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies: boolean, crackOf: CrackOf | null): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -166,7 +182,10 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
   triLen = 0;
   rectCount = 0;
   // Each cell's exposed faces (bit d: direction d), cell (x, y, z) at (x · e + y) · e + z.
-  if (faces.length < e * e * e) faces = new Uint8Array(e * e * e);
+  if (faces.length < e * e * e) {
+    faces = new Uint8Array(e * e * e);
+    cracks = new Uint8Array(e * e * e);
+  }
   let any = 0;
   for (let x = 0; x < e; x++) for (let y = 0; y < e; y++) for (let z = 0; z < e; z++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
@@ -175,12 +194,13 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
       for (let d = 0; d < 6; d++) if (!hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, piecesAsBodies)) f |= 1 << d;
     }
     faces[(x * e + y) * e + z] = f;
+    cracks[(x * e + y) * e + z] = f !== 0 && crackOf !== null ? crackOf(n.values[i]!) : 0;
     any |= f;
   }
   if (any === 0) return buildSurface();
 
   // Rectangles a direction and layer: the face plane's axes u, v (u × v outward), cells a along u, b along v.
-  if (mask.length < e * e) mask = new Uint8Array(e * e);
+  if (mask.length < e * e) mask = new Uint16Array(e * e);
   const cell = [0, 0, 0];
   for (let d = 0; d < 6; d++) {
     if ((any & (1 << d)) === 0) continue;
@@ -194,23 +214,25 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
       for (let b = 0; b < e; b++) for (let a = 0; a < e; a++) {
         cell[u] = a;
         cell[v] = b;
-        const on = faces[(cell[0]! * e + cell[1]!) * e + cell[2]!]! & bit;
-        mask[b * e + a] = on;
+        const c = (cell[0]! * e + cell[1]!) * e + cell[2]!;
+        const on = faces[c]! & bit;
+        mask[b * e + a] = on === 0 ? 0 : 1 + cracks[c]!;
         set |= on;
       }
       if (set === 0) continue;
       for (let b = 0; b < e; b++) for (let a = 0; a < e; a++) {
-        if (mask[b * e + a] === 0) continue;
+        const val = mask[b * e + a]!;
+        if (val === 0) continue;
         let w = 1;
-        while (a + w < e && mask[b * e + a + w] !== 0) w++;
+        while (a + w < e && mask[b * e + a + w] === val) w++;
         let h = 1;
         grow: while (b + h < e) {
           const row = (b + h) * e + a;
-          for (let k = 0; k < w; k++) if (mask[row + k] === 0) break grow;
+          for (let k = 0; k < w; k++) if (mask[row + k] !== val) break grow;
           h++;
         }
         for (let r = b; r < b + h; r++) mask.fill(0, r * e + a, r * e + a + w);
-        addRect(d, layer, a, b, a + w, b + h);
+        addRect(d, layer, a, b, a + w, b + h, val - 1);
       }
     }
   }
@@ -235,7 +257,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
     return (lattice[0]! * m + lattice[1]!) * m + lattice[2]!;
   };
   for (let r = 0; r < rectCount; r++) {
-    const o = 6 * r;
+    const o = RECT * r;
     const d = rects[o]!;
     const axis = AXIS[d]!;
     const u = (axis + (SIGN[d]! > 0 ? 1 : 2)) % 3;
@@ -248,7 +270,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
     cornerStamp[pointOf(axis, u, v, plane, a0, b1)] = now;
   }
   for (let r = 0; r < rectCount; r++) {
-    const o = 6 * r;
+    const o = RECT * r;
     const d = rects[o]!;
     const axis = AXIS[d]!;
     const u = (axis + (SIGN[d]! > 0 ? 1 : 2)) % 3;
@@ -287,11 +309,17 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
       extra[side] = added;
     }
     // Output vertices of the ring, shared by direction with the job's other rectangles.
+    // A cracked rectangle's vertices are its own (they carry its strength); they sit on the same points.
+    const crack = rects[o + 6]!;
     for (let j = 0; j < k; j++) {
       const key = pointOf(axis, u, v, plane, ring[2 * j]!, ring[2 * j + 1]!) * 6 + d;
+      if (crack !== 0) {
+        ring[2 * j] = addVertex((lattice[0]! + 1) * STEPS, (lattice[1]! + 1) * STEPS, (lattice[2]! + 1) * STEPS, d, crack);
+        continue;
+      }
       if (vertexStamp[key] !== now) {
         vertexStamp[key] = now;
-        vertexOf[key] = addVertex((lattice[0]! + 1) * STEPS, (lattice[1]! + 1) * STEPS, (lattice[2]! + 1) * STEPS, d);
+        vertexOf[key] = addVertex((lattice[0]! + 1) * STEPS, (lattice[1]! + 1) * STEPS, (lattice[2]! + 1) * STEPS, d, 0);
       }
       ring[2 * j] = vertexOf[key]!;
     }
@@ -305,7 +333,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
       lattice[axis] = (plane + 1) * STEPS;
       lattice[u] = ((a0 + a1) * STEPS) / 2 + STEPS;
       lattice[v] = ((b0 + b1) * STEPS) / 2 + STEPS;
-      const c = addVertex(lattice[0]!, lattice[1]!, lattice[2]!, d);
+      const c = addVertex(lattice[0]!, lattice[1]!, lattice[2]!, d, crack);
       for (let j = 0; j < k; j++) addTri(c, ring[2 * j]!, ring[2 * ((j + 1) % k)]!);
     }
   }

@@ -12,9 +12,9 @@ import { TERRAIN_RULES } from './terrain-rules';
 /**
  * The rule set every streamed world derives with (the slice page, Play and
  * the Scene view): the construction classes with the terrain features the
- * terrain mesher places creases by, the beam and banister window cases and
- * the edge pass, so kits draw pieces on edges, corners, roof edges, beams,
- * banisters and debris only, never on a flat face.
+ * terrain mesher places creases by and the edge pass, so kits draw pieces
+ * on edges, corners, roof edges and the faces toward a damage hole only,
+ * never on a flat face.
  */
 export const WORLD_RULES: AssemblyRuleSet = EDGE_RULES;
 

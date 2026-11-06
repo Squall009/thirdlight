@@ -52,6 +52,7 @@ import {
   INSTANCE_DRESSING_OFFSET,
   instanceDressingCell,
   instanceFlushFaces,
+  instanceScatter,
   instancePlaceOf,
   mipCellMetres,
   PIECE_VARIANT_MIRROR,
@@ -76,7 +77,7 @@ import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU, runAxisOf } from './voxel-trim-u';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
-import { PHASE_CELLS, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
+import { PHASE_CELLS, VOXEL_CRACK_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
 const SWATCHES = [0x8a8f96, 0x7d7f84, 0x7a5a3c, 0x5f8f3e, 0xc8b47c, 0x4a78b8, 0x9a958c, 0xb0a48c, 0xa9a39a, 0x8b5a33, 0xd8d0c0, 0x9c4a3a, 0xb08850, 0xa0523c, 0x6d6a5f, 0x8c7a6b];
@@ -115,6 +116,7 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
   if (n === 0 || indexCount === 0) return null;
   const pos = new Float32Array(n * 3);
   const nor = new Float32Array(n * 3);
+  const crack = new Float32Array(n);
   const index = n < 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
   let v0 = 0;
   let i0 = 0;
@@ -128,6 +130,7 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
         pos[at + a] = view.getUint16(o + a * 2, true) * stepMetres + offset[a]!;
         nor[at + a] = Math.max(-1, view.getInt8(o + 8 + a) / 127);
       }
+      crack[v0 + i] = view.getUint16(o + 6, true) / 255;
     }
     const src = b.indices;
     if (v0 === 0) index.set(src, i0);
@@ -138,6 +141,7 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute(VOXEL_CRACK_ATTRIBUTE, new THREE.BufferAttribute(crack, 1));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeBoundingSphere();
   return geo;
@@ -223,6 +227,8 @@ export class VoxelChunkView {
   /** Instanced piece meshes drawn (each one draw call). */
   pieceDraws = 0;
   private kitSet: VoxelKitSet | null;
+  /** Kits' own crack layers the surface has now. */
+  private crackLayers = 0;
   private kitLoaded: (() => void) | null = null;
   /** Told when kit meshes arrived (or the kits changed) and the pieces that waited were built: the draws' bytes changed, for the stream budget. */
   rebuilt: (() => void) | null = null;
@@ -264,17 +270,36 @@ export class VoxelChunkView {
    * its streamer derives again what the change touches, and those draws come
    * with the new pieces). Drawn chunks keep the pieces they were built with,
    * but those that waited for meshes are built again now, and whenever the
-   * set's meshes finish loading.
+   * set's meshes finish loading. The surface's crack textures follow the
+   * set's kits (a kit's own once it has loaded, else the engine's).
    */
   setKits(set: VoxelKitSet | null): void {
     this.kitLoaded?.();
     this.kitLoaded = null;
     this.kitSet = set;
     if (set !== null) {
-      const off = set.meshes.onLoaded(() => this.buildWaiting());
+      const off = set.meshes.onLoaded(() => {
+        this.setCracks();
+        this.buildWaiting();
+      });
       this.kitLoaded = off;
     }
+    this.setCracks();
     this.buildWaiting();
+  }
+
+  /** The surface's crack layers from the kit set now (none: every material the engine's). */
+  private setCracks(): void {
+    const c = this.kitSet?.crackLayers() ?? null;
+    if (c === null) {
+      if (this.crackLayers !== 0) this.shading.setCracks([], () => 0);
+      this.crackLayers = 0;
+      return;
+    }
+    // A kit's own crack textures are rare: the array is rebuilt only when some kit has one (or had one).
+    if (c.layers.length === 0 && this.crackLayers === 0) return;
+    this.shading.setCracks(c.layers, c.materialLayer);
+    this.crackLayers = c.layers.length;
   }
 
   /** Builds again the pieces of every drawn chunk and node that waited for kit meshes, then tells {@link rebuilt}. */
@@ -463,7 +488,7 @@ export class VoxelChunkView {
       const key = caseFaces === 0 ? r.key : `${r.key}|f${caseFaces}`;
       const geometry = caseFaces === 0 || this.kitSet === null ? r.geometry : this.kitSet.meshes.flushGeometry(r.geometry, r.rotation, caseFaces);
       // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
-      if (!byMesh.has(key)) byMesh.set(key, { geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, caseId: r.caseId, mirror: r.mirror, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
+      if (!byMesh.has(key)) byMesh.set(key, { geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, caseId: r.caseId, mirror: r.mirror, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }), ...(r.scatterCount === undefined ? {} : { scatterCount: r.scatterCount, seed: r.seed }) });
       byMesh.get(key)!.offsets.push(o);
     }
     // A piece is drawn at its draw's cell size (a chunk's: 0.5 m).
@@ -494,7 +519,7 @@ export class VoxelChunkView {
         const rot = list.data[o + 3]!;
         this.at.set((list.data[o]! + 0.5) * cellM, (list.data[o + 1]! + 0.5) * cellM, (list.data[o + 2]! + 0.5) * cellM);
         const cell0 = [m.cell[0]! + list.data[o]! * k0, m.cell[1]! + list.data[o + 1]! * k0, m.cell[2]! + list.data[o + 2]! * k0];
-        mesh.setMatrixAt(i, pieceMatrix(this.matrix, rot, instancePlaceOf(rot), this.at, cellM, cell0, m.level, g));
+        mesh.setMatrixAt(i, pieceMatrix(this.matrix, rot, instancePlaceOf(rot), this.at, cellM, cell0, m.level, g, instanceScatter(dressingAt(list.data, o))));
       });
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();

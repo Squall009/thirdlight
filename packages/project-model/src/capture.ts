@@ -31,7 +31,7 @@ import { effectAssetRefs, type EffectDef } from './effects';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
 import type { ContentCatalogV3, SceneV3 } from './types-v3';
-import { voxelKitMeshes, type VoxelKit } from './voxel-kit';
+import { voxelKitImages, voxelKitMeshes, type VoxelKit } from './voxel-kit';
 
 function tag(errors: readonly ModelErrorV2[], document: 'scene' | 'content'): ModelErrorV2[] {
   return errors.map((e) => ({ ...e, document }));
@@ -182,7 +182,7 @@ export function collectAssetRefsV3(
     for (const g of bake.probes?.grids ?? []) setRef(g.asset);
     for (const id of bake.surface?.files ?? []) setRef(id);
   }
-  // The models voxel kits draw their pieces with. A build ships one version of an asset, so a kit mesh's pin (the
+  // The models voxel kits draw their pieces with (and the images, a crack texture, they draw damage with). A build ships one version of an asset, so a kit mesh's pin (the
   // version its digest names) holds only for a model nothing else uses: it never moves a scene's, a prefab's or a
   // bake's reference off the version they ship, and the first mesh naming a model decides for every later one. A
   // digest no version has ships the current one. A mesh naming an asset the project lacks ships nothing: the kit
@@ -190,7 +190,7 @@ export function collectAssetRefsV3(
   const records = new Map(content.assets.map((a) => [a.assetId, a]));
   const kitPins = new Map<string, number | null>();
   for (const kit of (content as { voxelKits?: VoxelKit[] }).voxelKits ?? []) {
-    for (const m of voxelKitMeshes(kit)) {
+    for (const m of [...voxelKitMeshes(kit), ...voxelKitImages(kit)]) {
       const record = records.get(m.assetId);
       if (record !== undefined && !refs.has(m.assetId) && !kitPins.has(m.assetId)) kitPins.set(m.assetId, record.versions.find((v) => v.sourceDigest === m.digest)?.version ?? null);
     }

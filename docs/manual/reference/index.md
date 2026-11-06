@@ -28,9 +28,9 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 92 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
-| [Types (CreateEntityArgs to ModelColliderKind)](types-c-m.md) | 92 sections |
-| [Types (ModelLodSettings to TerrainSplinesLayer)](types-m-t.md) | 101 sections |
-| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 55 sections |
+| [Types (CreateEntityArgs to ModelArgs)](types-c-m.md) | 92 sections |
+| [Types (ModelColliderKind to TerrainSplinesLayer)](types-m-t.md) | 102 sections |
+| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 57 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 19 sections |
 | [Script API types (from `BehaviorRandom`)](script-types-behavior-random.md) | 23 sections |

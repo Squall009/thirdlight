@@ -47,7 +47,8 @@ import { buildGlb } from './test-glb';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { pieceMatrix } from './voxel-piece-placement';
 import { VoxelKitMeshes, voxelKitDebugTexture, KIT_DEBUG_TEXTURE_SIDE, type VoxelKitRecordLike } from './voxel-kit-pieces';
-import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
+import { createVoxelSurface, VOXEL_CRACK_ATTRIBUTE, type VoxelGridRenderer } from './voxel-surface';
+import { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels } from './voxel-crack-texture';
 import { VoxelWorldDraws } from './voxel-world-draws';
 import { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 import { DRAFT_TRIM_LAYOUT } from '@thirdlight/project-model';
@@ -544,5 +545,80 @@ describe('kit pieces in the chunk view', () => {
     expect(meshes.material('b', 'detail-trim')).toBe(trim);
     expect((meshes.material('a', 'unknown-layout') as THREE.MeshLambertMaterial).map).toBe(meshes.texture);
     meshes.dispose();
+  });
+});
+
+describe('damage in the chunk view', () => {
+  it("a cracked cell's faces carry its crack strength in the surface geometry (only its own faces); a hole's neighbour faces draw its stage's pieces spread over them", () => {
+    const s = world();
+    // The stone wall at x 8…19, y 4…11, z 16: a crack at (12, 6), a stage-2 hole at (15, 7).
+    s.setVoxel(12, 6, 16, { material: STONE, role: VOXEL_ROLE.wall, shape: 12, wetness: 0 });
+    s.setVoxel(15, 7, 16, { material: STONE, role: VOXEL_ROLE.wall, shape: 8, wetness: 0 });
+    const kit: VoxelKitRecordLike = { voxelKitId: 'stone', materials: [STONE], slots: { 'damage-stage-2': { meshes: [{ mesh: { assetId: 'chip', digest: DIGEST_A } }] } } };
+    const table = worldPieceTable([kit], SEED);
+    const meshes = new VoxelKitMeshes();
+    meshes.add({ assetId: 'chip', digest: DIGEST_A }, new THREE.BoxGeometry(0.05, 0.05, 0.05));
+    const v = view(meshes.set(table, [kit]));
+    draw(v, derive(s, table));
+    const surface = v.root.children.flatMap((g) => g.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.InstancedMesh)));
+    const geo = surface[0]!.geometry;
+    const crack = geo.getAttribute(VOXEL_CRACK_ATTRIBUTE) as THREE.BufferAttribute;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    expect(crack.count).toBe(pos.count);
+    const cracked: THREE.Vector3[] = [];
+    for (let i = 0; i < crack.count; i++) if (crack.getX(i) > 0) cracked.push(new THREE.Vector3().fromBufferAttribute(pos, i));
+    // The cell's two exposed faces (front and back), their corners: within the cell's box, strength 191/255.
+    expect(cracked.length).toBeGreaterThanOrEqual(8);
+    const box = new THREE.Box3(new THREE.Vector3(12, 6, 16).multiplyScalar(VOXEL_SIZE_M), new THREE.Vector3(13, 7, 17).multiplyScalar(VOXEL_SIZE_M)).expandByScalar(1e-4);
+    for (const p of cracked) expect(box.containsPoint(p), p.toArray().join(',')).toBe(true);
+    for (let i = 0; i < crack.count; i++) if (crack.getX(i) > 0) expect(crack.getX(i)).toBeCloseTo(191 / 255, 6);
+    // The hole: 4 faces × the default 6 pieces, each placed apart on its face.
+    const chips = pieceMeshes(v);
+    expect(chips.map((m) => m.count)).toEqual([24]);
+    const m4 = new THREE.Matrix4();
+    const at = new Set<string>();
+    for (let k = 0; k < 24; k++) at.add(new THREE.Vector3().setFromMatrixPosition((chips[0]!.getMatrixAt(k, m4), m4)).toArray().map((x) => x.toFixed(4)).join(','));
+    expect(at.size).toBe(24);
+    v.dispose();
+    meshes.dispose();
+  });
+
+  it("the engine's crack texture: cracks reach the face's rim, brighter (earlier) generations fewer texels; a kit's image read by its red channel; layers a kit with its own", async () => {
+    const t = engineCrackTexels();
+    expect(t.length).toBe(CRACK_TEXELS * CRACK_TEXELS);
+    expect(engineCrackTexels()).toEqual(t);
+    const count = (min: number): number => t.filter((x) => x >= min).length;
+    // Strength 1/4 (integrity 14) shows the main cracks only; full strength every crack, still well under the face.
+    expect(count(192)).toBeGreaterThan(CRACK_TEXELS);
+    expect(count(1)).toBeGreaterThan(count(192));
+    expect(count(1)).toBeLessThan(CRACK_TEXELS * CRACK_TEXELS * 0.25);
+    const rim = [...Array(CRACK_TEXELS).keys()].some((i) => t[i]! >= 192 || t[(CRACK_TEXELS - 1) * CRACK_TEXELS + i]! >= 192 || t[i * CRACK_TEXELS]! >= 192 || t[i * CRACK_TEXELS + CRACK_TEXELS - 1]! >= 192);
+    expect(rim).toBe(true);
+    // A 2 × 2 image: red channel, resampled to the layer.
+    const px = Uint8Array.of(10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 255);
+    const layer = crackTexelsFromPixels(px, 2, 2);
+    expect([layer[0], layer[CRACK_TEXELS - 1], layer[CRACK_TEXELS * (CRACK_TEXELS - 1)], layer[CRACK_TEXELS * CRACK_TEXELS - 1]]).toEqual([10, 20, 30, 40]);
+    // Kits: one with its own texture (loaded through the bytes port and a decoder), one without; a material of none.
+    const own: VoxelKitRecordLike = { voxelKitId: 'own', materials: [STONE], slots: {}, damage: { crackTexture: { assetId: 'cracks', digest: DIGEST_A } } };
+    const plain: VoxelKitRecordLike = { voxelKitId: 'plain', materials: [TIMBER], slots: {} };
+    const meshes = new VoxelKitMeshes();
+    const read = async (ref: { assetId: string }): Promise<{ bytes: Uint8Array; version: number } | null> => (ref.assetId === 'cracks' ? { bytes: Uint8Array.of(1, 2, 3), version: 1 } : null);
+    const loaded = await meshes.load([own, plain], read, createGltfLoaderPort(), async (bytes) => (bytes.length === 3 ? layer : null));
+    expect(loaded.failed).toEqual([]);
+    const set = meshes.set(worldPieceTable([own, plain], SEED), [own, plain]);
+    const c = set.crackLayers();
+    expect(c.layers).toEqual([layer]);
+    expect([c.materialLayer(STONE), c.materialLayer(TIMBER), c.materialLayer(77)]).toEqual([1, 0, 0]);
+    // A view given the set puts them in its surface (a crack array of two layers).
+    const v = view(set);
+    expect(v.kits).toBe(set);
+    v.dispose();
+    // An image the page cannot decode: the engine's crack draws, the failure named.
+    const other = new VoxelKitMeshes();
+    const bad = await other.load([own], read, createGltfLoaderPort(), async () => null);
+    expect(bad.failed.join()).toMatch(/cracks.*crack texture not drawn/);
+    expect(other.set(worldPieceTable([own], SEED), [own]).crackLayers().layers).toEqual([]);
+    meshes.dispose();
+    other.dispose();
   });
 });
