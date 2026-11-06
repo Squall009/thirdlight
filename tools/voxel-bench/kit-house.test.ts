@@ -255,7 +255,7 @@ describe('pieces on edges only', () => {
     // A piece's vertices in cells about its cell's centre, in its case's orientation (an alias: its target's turned).
     const vertices = (caseId: string): [number, number, number][] => {
       const p = DEFAULT_KIT_PIECES[caseId]!;
-      const d = defaultKitMesh(p.alias?.case ?? caseId, false)!;
+      const d = defaultKitMesh(p.alias?.case ?? caseId)!;
       const out: [number, number, number][] = [];
       for (let i = 0; i < d.positions.length; i += 3) {
         const v: [number, number, number] = [d.positions[i]! / VOXEL_SIZE_M, d.positions[i + 1]! / VOXEL_SIZE_M, d.positions[i + 2]! / VOXEL_SIZE_M];
@@ -422,7 +422,7 @@ describe('the default kit drawn through the real chunk view', () => {
     const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
     // Each roof case's own mesh, plain and mirrored: which draw is which.
     const kinds: { caseId: RoofEdgeCaseId; mirror: boolean; g: THREE.BufferGeometry }[] = [];
-    for (const caseId of ['roof-ridge', 'roof-gable', 'roof-hip'] as const) for (const mirror of [false, true]) kinds.push({ caseId, mirror, g: meshes.defaultMesh(caseId, false, mirror)! });
+    for (const caseId of ['roof-ridge', 'roof-gable', 'roof-hip'] as const) for (const mirror of [false, true]) kinds.push({ caseId, mirror, g: meshes.defaultMesh(caseId, mirror)! });
     // Every slope-following mesh lies on its case's planes in its own orientation; the mirrored verge does not (it rises toward −x).
     for (const k of kinds) if (!k.mirror) expect(roofCaseOffset(k.caseId, k.g.getAttribute('position').array), k.caseId).toBeLessThan(ROOF_EDGE_NEAR_M);
     expect(roofCaseOffset('roof-gable', kinds.find((k) => k.caseId === 'roof-gable' && k.mirror)!.g.getAttribute('position').array)).toBeGreaterThan(0.4);
@@ -538,7 +538,7 @@ describe('the default kit drawn through the real chunk view', () => {
     expect(byCase.get('debris')).toBe(1);
     expect(byCase.get('debris-heavy')).toBe(1);
     // Aliased cases draw with their target's geometry: the outer strip serves top, vertical and bottom edges.
-    const strip = meshes.defaultMesh('edge-out-top', false);
+    const strip = meshes.defaultMesh('edge-out-top');
     const onStrip = draws.filter((m) => m.geometry === strip);
     expect(onStrip.length).toBe(['edge-out-top', 'edge-out-vertical', 'edge-out-bottom'].filter((id) => byCase.has(id)).length);
     expect(onStrip.length).toBeGreaterThanOrEqual(2);

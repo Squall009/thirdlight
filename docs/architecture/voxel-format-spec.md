@@ -1101,11 +1101,11 @@ chunk):
 - **Ground and base producers:** the terrain mesher and the base surface, below in *Terrain rule set, mesher,
   base surface, levels, seams and LOD selection*.
 
-**Detail instance (8 bytes, v12; meanings to v19):**
+**Detail instance (8 bytes, v12; meanings to v21):**
 - u8 x, y, z: the cell inside the chunk;
 - u8: bits 0–1 quarter turns about +y, bits 2–3 the placement (`INSTANCE_PLACE`), bits 4–7 flags (0x10
-  `replacesBase`, 0x20 `low`: drawn at low detail, 0x40 `half`: drawn over the half of its run on its case's +x side,
-  `pieceHalfRun`, v19);
+  `replacesBase`, 0x40 `half`: drawn over the half of its run on its case's +x side, `pieceHalfRun`, v19; 0x20 and
+  0x80 written 0: 0x20 was `low`, drawn at low detail, until v21);
 - u16 piece, **kit-local** (`piece-table.ts`): below `KIT_PIECE_BASE` (32) the engine's default piece, stand-in family
   << 3 | run section (families beam 1 (bar), rail 2 (panel), post 3 (post); sections single 0, start 1, body 2, end 3,
   corner 4, junction 5), the same in every kit; from 32 the own piece of the kit the cell's material names (*Kit
@@ -1388,12 +1388,13 @@ takes level 0 only. Measured on staging (1280 × 720, 60 Hz cap): triangles draw
 0.80 M; render() CPU slice 1.4–1.5, town 3.0–3.2 ms. Miss, cause not traced: WebGPU GPU time +1.6–1.7 ms in oblique
 views with the levels (equal from above and on WebGL 2).
 
-**Pieces per level (46b.9, derived 9; `pieceDetailAt`).** A chunk (level 0) lists its pieces at high detail; a
-level-1 node lists the pieces its own cells resolve to with `low` set; level 2 and coarser list none, and the base
-surface draws the cells the rules call beams and rails as bodies (the cell meshed from its mip shape, so the
-outline stays and the surface under a removed piece is present). Collision, navigation and light read the class,
-not the level. The renderer takes a piece's mesh by family and detail (three-adapter `VoxelPieceMeshes`: a kit's
-authored high and low meshes, stand-in boxes without one, the low box without its two ends); 46c's kits fill it.
+**Pieces per level (46b.9, derived 9; two detail states since derived 21, owner 2026-11-05; `levelDrawsPieces`).**
+Only a chunk (level 0, the near ring) lists pieces. Level 1 and coarser list none: their edges are plain square
+voxel faces, and the base surface draws the cells the rules call beams and rails as bodies (the cell meshed from its
+mip shape, so the outline stays and the surface under a removed piece is present). Collision, navigation and light
+read the class, not the level. The renderer takes a piece's mesh by family (three-adapter `VoxelPieceMeshes`: a
+kit's authored mesh, a stand-in box without one). (Derived 9–20 listed level-1 pieces with a `low` flag drawn by a
+kit's low mesh.)
 
 **Collision stays at level 0, ground as heightfield patches (`ground-heightfield.ts`, `groundHeightfieldPatches`;
 `derived-collision.ts`, `collisionGeometry`).** Only level-0 chunks inside the collision ring have bodies; a node,
@@ -1434,7 +1435,8 @@ the base surface draws every flat face and no piece ever stands on one. Detail p
 instance a 0.5 m lattice edge or lattice corner, with a small hashed stagger, one mesh serving several cases turned.
 Sloped roofs have their own mesher (planes over the 45° stair of roof voxels) with pieces only along its ridge,
 eave, verge, hip and valley. A construction cell's shape is its **integrity** (§2.2): a damaged cell draws as
-debris. Far away the cells draw as flat square voxels (pieces high at level 0, low at level 1, none from level 2).
+debris. From the middle ring out the cells draw as flat square voxels (two detail states: pieces at level 0 only,
+owner 2026-11-05).
 Beams and banisters stay as first built. Ground-contact fringe and scatter are the terrain material's (47b); relief,
 the material model and texture sets 46d's.
 
@@ -1498,7 +1500,7 @@ the material model and texture sets 46d's.
   suppressed, every other cell its class's form. Collision, light and navigation never read a piece mesh (R77).
 - **Instance meaning** (*Detail instance* above, 8 bytes): turn bits = the yaw; placement bits 2–3
   (`INSTANCE_PLACE`): upright, `faceUp` / `faceDown` (a debris face on a top or bottom face), `centred` (half a cell
-  in and half a cell down: one ridge mesh serves odd and even roofs); flags `replacesBase`, `low`, `half`. The piece
+  in and half a cell down: one ridge mesh serves odd and even roofs); flags `replacesBase`, `half`. The piece
   u16 is kit-local: below `KIT_PIECE_BASE` (32) the engine's stand-in (family << 3 | run section), from 32 the kit's
   own piece; the variant word's bits 0–14 a hash of the world cell at its level, the level, the kit's seed and which
   of the cell's pieces it is (case, placement, yaw), placed by the variants' weights, so a cell's edges vary on their own
@@ -1526,12 +1528,12 @@ the material model and texture sets 46d's.
 - **Grid-anchored UVs** (derived v17): the base surface and roof planes are mapped from the build grid in metres by
   the shader data entry's construction bit (*Projection* above: 4 m construction repeat, owner 2026-11-04; terrain
   triplanar 2 m; roofs up the slope), never from a trim sheet (R112).
-- **Levels:** level 0 lists high pieces, level-1 nodes the same choice with `low` (the renderer draws a variant's
-  low mesh, its high one where none is authored), none from level 2 (`levelHasCases`, `pieceDetailAt`); the roof
+- **Levels (two detail states, owner 2026-11-05, derived 21):** level 0 lists pieces, level 1 and coarser none
+  (`levelHasCases`, `levelDrawsPieces`): from the middle ring out the edges are plain voxel faces. The roof
   mesher runs at every level. The mip downsample **lays sloped roofs again** (`voxel-mips.ts` `relayRoofs`, v19): one roof cell a parent column at floor(eave / 2) + ceil(ring / 2), so an off-grid 45° roof stays
   a one-cell 45° stair (eaves at one height, ridges, hips and valleys where the finer roof has them; v20: over the
   bodies it covers, such as a gable's end walls, whose coarse cells it takes), its planes
-  within one level cell of the finer roof, and level 1 lists no roof-edge piece level 0 lacks.
+  within one level cell of the finer roof.
 - **Changes and paints (§2.2 feeds).** A new piece table derives again only what holds a material whose pieces
   changed (`pieceTableChanges`), in one swap group. Wetness never changes a piece; a material paint within one kit
   keeps every piece and variant (shader data only); a paint moving cells to another kit's pieces also derives whole
@@ -1539,7 +1541,7 @@ the material model and texture sets 46d's.
   are per material type), for the owner. A damage edit (integrity) is a shape change: it re-derives the sections
   within R. Level-1+ nodes still derive whole on any edit (D479).
 - **Kit check and test scene.** `voxelKitCheck` (project-model; rows ok/warn/err/info: catalogue, required and
-  optional cases with what draws them instead, aliases, high/low pairs, assets and digests, pivot and fit (a roof-edge
+  optional cases with what draws them instead, aliases, assets and digests, pivot and fit (a roof-edge
   piece's envelope a cell higher, a post's up to its rail), join profiles, budgets reported never capped, trim T1–T10
   only for kits naming a trim layout, "(draft layout)") → Problems (`voxel_kit_check`) and MCP `tl_diagnostics`.
   `writeKitTestScene {world, origin, material}` builds the beam/banister window exhibits and a fixed sampler (a block
@@ -1582,6 +1584,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 17 → 18 | 46c R5 | a verge before the rise mirrored (D506); `centred` also half a cell down | still 8 B | default |
 | 18 → 19 | 46c R6b | coarse levels re-lay sloped roofs (`relayRoofs`, D510/D501); `half` flag on an apex's ridge and hips (D511) | still 8 B | default |
 | 19 → 20 | 46c R9b | the re-laid roof takes the coarse cells of bodies it covers (gable end walls, walls under eaves; D513/D514) | still 8 B | default |
+| 20 → 21 | 46c.16a | two detail states: level 1 lists no pieces (the `low` flag gone, its bit written 0), its beam and rail cells drawn as bodies; no case past level 0 | still 8 B | **owner 2026-11-05** (pieces in the near ring only, no low meshes) |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1689,10 +1692,14 @@ section ids it holds are opaque here and the catalogue that names them is a draf
   positive integer), `materialType` (an id: a kit belongs to a material type, never to one material),
   `materials?` (test binding: voxel material ids 1–4095, ascending, each once; 46d's material model replaces it
   and the field is then left unread, never repurposed), `cases` (case id → `{sections?, alias?, gameData?}`; a section id →
-  `{variants: [{high, low?, weight?}, …] (one or more), ends?: {start?, end?}}`; a mesh is `{assetId, digest,
+  `{variants: [{high, weight?}, …] (one or more), ends?: {start?, end?}}`; a mesh is `{assetId, digest,
   node?}`, the digest the GLB version's SHA-256 source digest), `joinProfiles?` (profile id → `{outline: [[u, v],
   …]}`, a closed polygon of at least 3 points in whole sixteenths of a cell 0–16; a section end names one of the
   kit's own, a dangling one is refused), `trimLayout?` (an id; absent: no trim sheet), `gameData?`.
+- **One mesh a piece (draft change, owner 2026-11-05; 46c.16a).** Pieces are drawn in the near ring only (level 0),
+  so a variant holds one mesh, `high` (the field keeps its first draft's name until the slot format of 46c.16b);
+  the draft's `low` mesh left the format and is refused as an unknown field. Format 1 stays a draft, so the step
+  changes it in place (no version step); the placeholder kits were regenerated without it.
 - **Alias (add-only, R3b; owner note: default chosen, owner to confirm).** A case may hold `alias: {case,
   rotation}` instead of `sections`: it draws with that case's meshes (a case of the same kit with sections of its
   own; a dangling, self or chained alias and an alias beside sections are refused), turned first by cube rotation
@@ -1798,7 +1805,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R86 | §3.7 run sections (beams/banisters), edge pieces | 45.6, 46c.4, 46c R3 | served: beam/banister runs from sections; edges one instance a lattice edge, no merged runs; D485 (draws) open |
 | R87 | §3.9 `trimLayout` (optional), alias, kit check T1–T10 | 46c.8, 46c R3b, R5, R7 | served (draft): trim optional per kit, U along an edge's world axis; the texture layout is a DRAFT (hard stop); D507 open |
 | R88, R89 | — | — | later: 46d |
-| R90 | §3.7 levels (high, low, none; `relayRoofs`) | 46b.9, 46c.6, 46c R6b; `kit-pieces.test.ts`, `roof-mesher.test.ts` | served: high at L0, low at L1, flat voxels from L2; coarse roofs re-laid; D479, D505 open |
+| R90 | §3.7 levels (pieces at L0 only; `relayRoofs`) | 46b.9, 46c.6, 46c R6b, 46c.16a; `kit-pieces.test.ts`, `roof-mesher.test.ts` | served as revised (owner 2026-11-05: two detail states): pieces at L0, flat voxels from L1, no low meshes; coarse roofs re-laid; D479 open |
 | R91 | §3.7 surface vertex v2, shader data on the GPU | 45.6, 45.10b; `voxel-surface.test.ts`, `voxel-world.e2e.ts` | replaced (owner 2026-11-02): vertices carry no material; the shader blends from the shader data |
 | R92 | §3.7 shader data, surface shader | 45.10a, 45.10b; `derived.test.ts`, `stream.test.ts` | served: blending in the shader, triplanar in world space for terrain, construction from the build grid in metres (4 m repeat, 46c R4); no paint layer (O16 closed) |
 | R93–R96 | §3.7 prop channel | 45.6; `derived.test.ts` | served |
@@ -1811,7 +1818,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R106 | — | — | later: 48a |
 | R107 | §3.6 sections, atomic swap; §3.7 seams (an edit's swap waits for its seams) | 45.10c, 46a.12, 46b.7b; `stream.test.ts`, `voxel-world.e2e.ts`, plan **45.10c** (blast benchmark) | partly: local 1–4 m blasts the next frame, 8 m 2–3 frames (46a.12); the mesher misses its 0.1–0.2 ms budget (207–307 µs a 16³ section with the rules; the edge passes 204 / 345 µs and the roof mesher 193 / 418 µs p50 / p95 in 46c R6, D497, D502); a damage (integrity) edit re-derives the sections within R in one swap; an edit in the level-1 ring swaps whole with its drawn nodes, 1–4 frames locally (1–4 m), 2–5 at 8 m (46b.11c) (requirements §5) |
 | R108 | §3.7 terrain rule set, terrain mesher | 46b.1–46b.5, 46b.10; `mesh-cases.test.ts` (the `features` hard-case world, goldens), `derived.test.ts` (conformance), `collision.test.ts` | served: rules with radius 2 and conformance, the hard cases closed with every probe kept; D463 (tall far terrain) open |
-| R109 | §3.7 terrain, levels, seams and LOD selection | 46b.6a–46b.9; `mesh-cases.test.ts`, `derived.test.ts`, `stream.test.ts`, `lod-select.test.ts`, `level-materials.test.ts`, `voxel-chunk-view.test.ts`, `voxel-world.e2e.ts` | served with limits: rings, seams, one blend, pieces high → low → none; D462 (a cave saddle) and D463 (level 2 not drawn, tall far terrain) open |
+| R109 | §3.7 terrain, levels, seams and LOD selection | 46b.6a–46b.9; `mesh-cases.test.ts`, `derived.test.ts`, `stream.test.ts`, `lod-select.test.ts`, `level-materials.test.ts`, `voxel-chunk-view.test.ts`, `voxel-world.e2e.ts` | served with limits: rings, seams, one blend, pieces at level 0 only (46c.16a); D462 (a cave saddle) and D463 (level 2 not drawn, tall far terrain) open |
 | R110 | — | — | later: 46e |
 | R112 | §3.7 projection (4 m grid tile), §3.9 `trimLayout` | 46c R4, R7 | served: faces and roofs grid-mapped (construction 4 m, terrain 2 m), trim only for pieces that opt in; texture layout DRAFT |
 
@@ -1878,7 +1885,7 @@ every remaining default below is accepted** (the world layout and scale, the edi
 29. Light coverage as bits + a partial list (bricks if 46e's tracer needs O(1) access); placeholder coverages (45.6).
 30. Collision input as boxes in 1/16 cell + the ground trimesh; nav input as blocking bits + standable cells (45.6).
 31. ~~Mesh buffers: 20-byte vertices with material slots~~ → owner 2026-11-02 (45.10b): 12-byte vertices (position, normal), no material; u16/u32 indices, two surfaces, 8-byte instances with `replacesBase` and a reserved u16.
-32. Voxel mips: a node has the chunk's form; fill the share of solid, role by priority (bodies by cells: half the parent or two sheet cells, 46b.9), the surface's material (46b.8c); stale ancestors rebuilt lowest first (45.6); a node derives through the chunk derive and records its level (46b.6a); pieces high at level 0, low at level 1, none coarser (46b.9).
+32. Voxel mips: a node has the chunk's form; fill the share of solid, role by priority (bodies by cells: half the parent or two sheet cells, 46b.9), the surface's material (46b.8c); stale ancestors rebuilt lowest first (45.6); a node derives through the chunk derive and records its level (46b.6a); pieces at level 0 only, none coarser (46b.9, two detail states 46c.16a).
 33. Prop lighting channel: a coverage byte a cell, rebuilt from the prop list, never saved (45.6).
 
 **Format gaps closed (45.7d)**

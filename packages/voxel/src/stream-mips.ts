@@ -54,7 +54,7 @@ import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, type ChunkCoord, type ChunkGrid } from './coords';
 import { derivedBytes, type DerivedData } from './derived-data';
-import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
+import { levelDrawsPieces } from './derived-mesh';
 import type { PieceTable } from './piece-table';
 import type { DirtyTracker } from './dirty-tracker';
 import { createWorldStore, type PaletteStore } from './palette-store';
@@ -345,7 +345,7 @@ export class StreamMips {
    */
   piecesChanged(holds: (p: ChunkPayload) => boolean, group: number): void {
     for (let l = 1; l <= this.maxLevel; l++) {
-      if (pieceDetailAt(l) === PIECE_DETAIL.none || !this.rings.has(l)) continue;
+      if (!levelDrawsPieces(l) || !this.rings.has(l)) continue;
       for (const n of this.levels[l]!.values()) {
         if (!(n.fresh || n.deriveJob !== 0) || !holds(this.stores[l]!.chunkPayload(n.nx, n.ny, n.nz, true))) continue;
         n.deriveStamp = ++this.stampSeq;
@@ -787,7 +787,7 @@ export class StreamMips {
     const payload = store.chunkPayload(n.nx, n.ny, n.nz, true);
     const id = this.jobId(n);
     const stamp = n.deriveStamp;
-    const pieces = pieceDetailAt(n.level) === PIECE_DETAIL.none ? null : host.pieceTable();
+    const pieces = levelDrawsPieces(n.level) ? host.pieceTable() : null;
     n.deriveJob = id;
     this.jobs.set(id, n);
     const input: DeriveInput = { edge: host.grid.edge, chunk: { grid: host.gridId, cx: n.nx, cy: n.ny, cz: n.nz }, payload, radius: host.radius, apron, rules: rulesRef(host.rules), level: n.level, ...(pieces === null ? {} : { pieces: pieces.bytes }) };

@@ -8,15 +8,14 @@
  * u16 a cell beside the class byte). Cases live only inside the derive job,
  * like classes: nothing stores them, and the world formats do not change.
  *
- * **Levels.** Kits draw high pieces in chunks and low pieces in level-1
- * nodes, which pick their piece by case like a chunk does, so the case pass
- * runs at both. Coarser nodes draw no pieces (their cells are bodies of the
- * base surface), so it is skipped there and no cell gets a case.
+ * **Levels.** Kits draw pieces in chunks (level 0) only. Coarser nodes draw
+ * no pieces (their cells are bodies of the base surface), so the case pass
+ * is skipped there and no cell gets a case.
  */
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-mesher';
 import { caseFormTable, isDebrisCell } from './case-forms';
-import { PIECE_DETAIL, pieceDetailAt } from './derived-mesh';
+import { levelDrawsPieces } from './derived-mesh';
 import { EDGE_REACH, extractEdges, type EdgeMasks } from './edge-cases';
 import { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
 import { CASE_REACH, CaseCatalogue, NO_CASE, type CaseCatalogueDef } from './kit-cases';
@@ -25,7 +24,7 @@ import { TERRAIN_RULES } from './terrain-rules';
 
 /** True when a node of chunk-tree level `level` draws pieces, so its cells need cases. */
 export function levelHasCases(level: number): boolean {
-  return pieceDetailAt(level) !== PIECE_DETAIL.none;
+  return levelDrawsPieces(level);
 }
 
 /** Sets every cell of the box [lo, hi) (padded coordinates, all three axes) to `none` ({@link NO_CASE} by default). */

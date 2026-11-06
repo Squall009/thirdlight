@@ -7,7 +7,7 @@
  *
  * - **Edges:** a rounded strip along the edge (a quadratic profile from one
  *   face to the other, 1/4 cell in on each face and at most 1/16 proud, so
- *   it covers the voxel's square edge), its two ends closed at high detail.
+ *   it covers the voxel's square edge), its two ends closed.
  *   Inner edges take a cove in the open cell (a fillet between the two
  *   faces). One mesh each: the vertical and bottom edges are **aliases**,
  *   the top edge's mesh turned onto their side (one of the 24 cube
@@ -24,9 +24,8 @@
  * - **Debris:** chamfered rubble chunks on a damaged cell (two stages) and a
  *   chamfered broken rim on an intact face toward it.
  *
- * Flat faces stay plain voxel faces: no piece here covers one. Low detail
- * (a level-1 node's pieces, seen from afar) drops what only shows near: the
- * strips' end caps, the boards' and chunks' chamfers and downward faces.
+ * Flat faces stay plain voxel faces: no piece here covers one. Pieces are
+ * drawn in the near ring only (level 0), so each has one mesh.
  *
  * **Every catalogue case has an answer here** ({@link DEFAULT_KIT_PIECES}):
  * a mesh, an alias, or `null` where the cell is drawn without one of this
@@ -62,10 +61,10 @@ export interface KitMeshData {
   readonly indices: Uint16Array;
 }
 
-/** A default piece: its own mesh at each detail, or another case's mesh turned (an alias); and why it looks like that. */
+/** A default piece: its own mesh, or another case's mesh turned (an alias); and why it looks like that. */
 export interface DefaultKitPiece {
   readonly note: string;
-  readonly mesh?: (low: boolean) => KitMeshData;
+  readonly mesh?: () => KitMeshData;
   readonly alias?: PieceAlias;
 }
 
@@ -145,8 +144,8 @@ const EDGE_BULGE = 3;
  */
 const COVE_REACH = 4;
 const COVE_CONTROL = 1;
-/** Profile segments at high and low detail. */
-const SEGMENTS = { high: 4, low: 2 };
+/** Profile segments of a strip. */
+const SEGMENTS = 4;
 
 /** A quadratic Bézier's point and tangent at t. */
 function bezier2(a: readonly [number, number], c: readonly [number, number], b: readonly [number, number], t: number): { p: [number, number]; d: [number, number] } {
@@ -160,11 +159,11 @@ function bezier2(a: readonly [number, number], c: readonly [number, number], b: 
 /**
  * A strip along x through the cell at edge (y0, z0) (16ths) whose profile in (y, z) offsets from the edge is the
  * Bézier a → c → b, normals out toward (+y, +z) of the profile's frame `fy`, `fz` (±1: which way the open side is).
- * At high detail both ends are closed by a fan from the edge line.
+ * Both ends are closed by a fan from the edge line.
  */
-function strip(a: readonly [number, number], c: readonly [number, number], b: readonly [number, number], edge: readonly [number, number], f: readonly [number, number], low: boolean): KitMeshData {
+function strip(a: readonly [number, number], c: readonly [number, number], b: readonly [number, number], edge: readonly [number, number], f: readonly [number, number]): KitMeshData {
   const m = new MeshBuilder();
-  const n = low ? SEGMENTS.low : SEGMENTS.high;
+  const n = SEGMENTS;
   const pts: { y: number; z: number; ny: number; nz: number; v: number }[] = [];
   let arc = 0;
   let prev: [number, number] | null = null;
@@ -184,32 +183,30 @@ function strip(a: readonly [number, number], c: readonly [number, number], b: re
     m.tri(ids[0]![k]!, ids[1]![k]!, ids[1]![k + 1]!, out);
     m.tri(ids[0]![k]!, ids[1]![k + 1]!, ids[0]![k + 1]!, out);
   }
-  if (!low) {
-    for (const x of [0, 1]) {
-      const normal: V3 = [x === 0 ? -1 : 1, 0, 0];
-      const hub: V3 = [x, edge[0] / U, edge[1] / U];
-      for (let k = 0; k < n; k++) m.flat([hub, [x, pts[k]!.y, pts[k]!.z], [x, pts[k + 1]!.y, pts[k + 1]!.z]], normal);
-    }
+  for (const x of [0, 1]) {
+    const normal: V3 = [x === 0 ? -1 : 1, 0, 0];
+    const hub: V3 = [x, edge[0] / U, edge[1] / U];
+    for (let k = 0; k < n; k++) m.flat([hub, [x, pts[k]!.y, pts[k]!.z], [x, pts[k + 1]!.y, pts[k + 1]!.z]], normal);
   }
   return m.done();
 }
 
 /** The outer top edge: a rounded strip over the edge at (y 16, z 16), from the top face to the front face. */
-function outerEdge(low: boolean): KitMeshData {
+function outerEdge(): KitMeshData {
   // Offsets from the edge, (into −y …, into −z …): starts on the top face 1/4 cell back, ends on the front face 1/4 down.
-  return strip([0, -EDGE_REACH], [EDGE_BULGE, EDGE_BULGE], [-EDGE_REACH, 0], [U, U], [1, 1], low);
+  return strip([0, -EDGE_REACH], [EDGE_BULGE, EDGE_BULGE], [-EDGE_REACH, 0], [U, U], [1, 1]);
 }
 
 /** The inner bottom edge's cove in the open cell above and in front (floor meets wall), at (y 16, z 16). */
-function innerEdge(low: boolean): KitMeshData {
-  return strip([0, COVE_REACH], [COVE_CONTROL, COVE_CONTROL], [COVE_REACH, 0], [U, U], [1, 1], low);
+function innerEdge(): KitMeshData {
+  return strip([0, COVE_REACH], [COVE_CONTROL, COVE_CONTROL], [COVE_REACH, 0], [U, U], [1, 1]);
 }
 
 /**
  * The outer top corner's cap at (16, 16, 16): a quadratic Bézier triangle whose three rims are the end profiles of
  * the strips meeting there, so it closes them; normals from its derivatives.
  */
-function outerCorner(low: boolean): KitMeshData {
+function outerCorner(): KitMeshData {
   const m = new MeshBuilder();
   const w = EDGE_REACH;
   const o = EDGE_BULGE;
@@ -235,7 +232,7 @@ function outerCorner(low: boolean): KitMeshData {
     if (dot(nr, [1, 1, 1]) < 0) nr = mul(nr, -1);
     return unit(nr);
   };
-  const n = low ? SEGMENTS.low : SEGMENTS.high - 1;
+  const n = SEGMENTS - 1;
   const id = (i: number, j: number): number => {
     const u = i / n;
     const v = j / n;
@@ -260,21 +257,19 @@ function outerCorner(low: boolean): KitMeshData {
 const CHAMFER = 1;
 
 /**
- * Boxes (16ths from the cell's corner) as one mesh: at high detail each with its edges and corners chamfered
- * (6 faces, 12 bevels, 8 corner triangles: 44 triangles), at low detail plain and without its downward face
- * (10 triangles).
+ * Boxes (16ths from the cell's corner) as one mesh, each with its edges and corners chamfered (6 faces, 12 bevels,
+ * 8 corner triangles: 44 triangles).
  */
-function boxes(list: readonly DefaultKitBox[], low: boolean): KitMeshData {
+function boxes(list: readonly DefaultKitBox[]): KitMeshData {
   const m = new MeshBuilder();
   for (const b of list) {
     const lo: V3 = [b[0] / U, b[1] / U, b[2] / U];
     const hi: V3 = [b[3] / U, b[4] / U, b[5] / U];
-    const c = low ? 0 : Math.min(CHAMFER / U, ...[0, 1, 2].map((a) => (hi[a]! - lo[a]!) / 3));
+    const c = Math.min(CHAMFER / U, ...[0, 1, 2].map((a) => (hi[a]! - lo[a]!) / 3));
     // A box point: on side s (−1, +1) of each axis, pulled in by the chamfer on the axes named in `inset`.
     const pt = (s: V3, inset: readonly number[]): V3 => [0, 1, 2].map((a) => (s[a]! > 0 ? hi[a]! : lo[a]!) - (inset.includes(a) ? s[a]! * c : 0)) as V3;
     for (let a = 0; a < 3; a++) {
       for (const sa of [-1, 1]) {
-        if (low && a === 1 && sa < 0) continue;
         const [b1, b2] = [(a + 1) % 3, (a + 2) % 3];
         const quad: V3[] = [];
         for (const [s1, s2] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
@@ -326,10 +321,10 @@ function boxes(list: readonly DefaultKitBox[], low: boolean): KitMeshData {
 
 /**
  * A member between two end sections `a` and `b` (corresponding points, 16ths from the cell's corner): the faces
- * `segs` (point i to j, wound toward `out`) at every detail, the lips `lips` and the end caps `caps` (polygons of
- * point indices, convex, the first end's facing `−along`, the second's `+along`) at high detail only.
+ * `segs` and the lips `lips` (point i to j, wound toward `out`) and the end caps `caps` (polygons of point indices,
+ * convex, the first end's facing `−along`, the second's `+along`).
  */
-function loft(a: readonly V3[], b: readonly V3[], along: V3, segs: readonly (readonly [number, number, V3])[], lips: readonly (readonly [number, number, V3])[], caps: readonly (readonly number[])[], low: boolean): KitMeshData {
+function loft(a: readonly V3[], b: readonly V3[], along: V3, segs: readonly (readonly [number, number, V3])[], lips: readonly (readonly [number, number, V3])[], caps: readonly (readonly number[])[]): KitMeshData {
   const m = new MeshBuilder();
   const c = (p: V3): V3 => mul(p, 1 / U);
   const face = (pts: V3[], out: V3): void => {
@@ -338,12 +333,10 @@ function loft(a: readonly V3[], b: readonly V3[], along: V3, segs: readonly (rea
     if (dot(nr, out) < 0) nr = mul(nr, -1);
     m.flat(pts, nr);
   };
-  for (const [i, j, out] of low ? segs : [...segs, ...lips]) face([c(a[i]!), c(b[i]!), c(b[j]!), c(a[j]!)], out);
-  if (!low) {
-    for (const poly of caps) {
-      face(poly.map((k) => c(a[k]!)), mul(along, -1));
-      face(poly.map((k) => c(b[k]!)), along);
-    }
+  for (const [i, j, out] of [...segs, ...lips]) face([c(a[i]!), c(b[i]!), c(b[j]!), c(a[j]!)], out);
+  for (const poly of caps) {
+    face(poly.map((k) => c(a[k]!)), mul(along, -1));
+    face(poly.map((k) => c(b[k]!)), along);
   }
   return m.done();
 }
@@ -358,7 +351,7 @@ const ROOF_CAP_RISE = 0.75;
  * planes are below (convex: a ridge or a hip) or above (concave: a valley) the line at that offset. The cap covers
  * both planes near the line, standing {@link ROOF_CAP_RISE} above them, with a lip down to each plane.
  */
-function lineCap(line: (t: number) => V3, lateral: V3, dy: number, low: boolean): KitMeshData {
+function lineCap(line: (t: number) => V3, lateral: V3, dy: number): KitMeshData {
   const r = ROOF_CAP_RISE;
   const section = (t: number): V3[] => {
     const l = line(t);
@@ -371,13 +364,13 @@ function lineCap(line: (t: number) => V3, lateral: V3, dy: number, low: boolean)
   const b = section(1);
   const along = unit(sub(line(1), line(0)));
   const up: V3 = [0, 1, 0];
-  return loft(a, b, along, [[1, 2, up], [2, 3, up]], [[0, 1, lateral], [3, 4, mul(lateral, -1)]], [[0, 1, 2, 5], [5, 2, 3, 4]], low);
+  return loft(a, b, along, [[1, 2, up], [2, 3, up]], [[0, 1, lateral], [3, 4, mul(lateral, -1)]], [[0, 1, 2, 5], [5, 2, 3, 4]]);
 }
 
 /** The ridge cap: along x on the cell's +z side, where the plane rising toward +z (y 32 there) meets the other slope. */
-function ridgeCap(low: boolean): KitMeshData {
+function ridgeCap(): KitMeshData {
   const w = ROOF_CAP_REACH;
-  return lineCap((t) => [16 * t, 32, 16], [0, 0, w], -w, low);
+  return lineCap((t) => [16 * t, 32, 16], [0, 0, w], -w);
 }
 
 /**
@@ -386,7 +379,7 @@ function ridgeCap(low: boolean): KitMeshData {
  * 1.25 out of the face. Its ends are cut square to the slope, so the boards of a gable's cells meet end to end; the
  * other verge of the gable is this one mirrored (roof-mesher.ts `roofEdgesOf`).
  */
-function vergeBoard(low: boolean): KitMeshData {
+function vergeBoard(): KitMeshData {
   const n: V3 = unit([-1, 1, 0]);
   const at = (x: number, s: number, t: number): V3 => add([x, 16 + x, 16 + s], mul(n, t));
   const section = (x: number): V3[] => [at(x, 0, 0), at(x, 0, ROOF_CAP_RISE), at(x, 1.25, ROOF_CAP_RISE), at(x, 1.25, -3), at(x, 0, -3)];
@@ -394,18 +387,18 @@ function vergeBoard(low: boolean): KitMeshData {
   const a = section(0).map((p) => add(p, mul([1, 1, 0], -dot(sub(p, [0, 16, 16]), [0.5, 0.5, 0]))));
   const b = section(16).map((p) => add(p, mul([1, 1, 0], -dot(sub(p, [16, 32, 16]), [0.5, 0.5, 0]))));
   const along = unit([1, 1, 0]);
-  return loft(a, b, along, [[1, 2, n], [2, 3, [0, 0, 1]], [3, 4, mul(n, -1)]], [[0, 1, [0, 0, -1]]], [[0, 1, 2, 3, 4]], low);
+  return loft(a, b, along, [[1, 2, n], [2, 3, [0, 0, 1]], [3, 4, mul(n, -1)]], [[0, 1, [0, 0, -1]]], [[0, 1, 2, 3, 4]]);
 }
 
 /** A hip (convex) or valley (concave) cap: from the cell's low corner (16, 16, 16) up to its high corner (0, 32, 0). */
-function diagonalCap(concave: boolean, low: boolean): KitMeshData {
+function diagonalCap(concave: boolean): KitMeshData {
   const w = ROOF_CAP_REACH / Math.SQRT2;
   // Off the line by (w, 0, −w): one plane's distance up the slope changes by w, so its height by ∓w.
-  return lineCap((t) => [16 - 16 * t, 16 + 16 * t, 16 - 16 * t], [w, 0, -w], concave ? w : -w, low);
+  return lineCap((t) => [16 - 16 * t, 16 + 16 * t, 16 - 16 * t], [w, 0, -w], concave ? w : -w);
 }
 
-const own = (note: string, mesh: (low: boolean) => KitMeshData): DefaultKitPiece => Object.freeze({ note, mesh });
-const box = (note: string, ...list: DefaultKitBox[]): DefaultKitPiece => own(note, (low) => boxes(list, low));
+const own = (note: string, mesh: () => KitMeshData): DefaultKitPiece => Object.freeze({ note, mesh });
+const box = (note: string, ...list: DefaultKitBox[]): DefaultKitPiece => own(note, () => boxes(list));
 const alias = (note: string, of: string, rotation: number): DefaultKitPiece => Object.freeze({ note, alias: Object.freeze({ case: of, rotation }) });
 
 /**
@@ -426,8 +419,8 @@ export const DEFAULT_KIT_PIECES: Readonly<Record<string, DefaultKitPiece | null>
   'roof-ridge': own('a ridge cap over the line the two planes meet on', ridgeCap),
   'roof-eave': box('an eave lip under the plane\'s low edge', [0, -1, 14, 16, 3, 17]),
   'roof-gable': own('a verge board up the gable edge, along the slope (rising toward +x; the other side mirrored)', vergeBoard),
-  'roof-hip': own('a hip cap up the line the two planes meet on', (low) => diagonalCap(false, low)),
-  'roof-valley': own('a valley board up the crease the two planes meet in', (low) => diagonalCap(true, low)),
+  'roof-hip': own('a hip cap up the line the two planes meet on', () => diagonalCap(false)),
+  'roof-valley': own('a valley board up the crease the two planes meet in', () => diagonalCap(true)),
   debris: box('a few chunks of rubble', [2, 0, 3, 9, 6, 10], [8, 0, 6, 14, 4, 13], [4, 5, 5, 10, 9, 11]),
   'debris-heavy': box('a low heap of rubble', [1, 0, 1, 12, 3, 9], [6, 0, 8, 15, 2, 15]),
   'debris-face': box('a broken rim on the face opening to the damage', [3, 3, 16, 13, 13, 17]),
@@ -436,9 +429,9 @@ export const DEFAULT_KIT_PIECES: Readonly<Record<string, DefaultKitPiece | null>
   'banister-post': null,
 });
 
-/** A default case's own mesh at a detail (null: the case is an alias or has no piece). */
-export function defaultKitMesh(caseId: string, low: boolean): KitMeshData | null {
-  return DEFAULT_KIT_PIECES[caseId]?.mesh?.(low) ?? null;
+/** A default case's own mesh (null: the case is an alias or has no piece). */
+export function defaultKitMesh(caseId: string): KitMeshData | null {
+  return DEFAULT_KIT_PIECES[caseId]?.mesh?.() ?? null;
 }
 
 /**

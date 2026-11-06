@@ -6,8 +6,8 @@
  * (`kitPieceList`: case and run section) and the instance's variant word
  * (variant, and the mirror of its case transform).
  *
- * - **A game kit's pieces** are its authored GLBs (a mesh per variant and
- *   level; at low detail the high mesh where no low one is authored). Their
+ * - **A game kit's pieces** are its authored GLBs (a mesh per variant;
+ *   pieces are drawn in the near ring only, so there is one). Their
  *   bytes come from the host (a build's content files, the backend for the
  *   editor) and are parsed by the page's GLB loader port: never fetched by
  *   URL here. A mesh still loading draws nothing until it is there (the view
@@ -79,7 +79,7 @@ export interface VoxelKitRecordLike {
   readonly materials?: readonly number[];
   /** The trim layout the kit's UVs follow: its pieces draw with that layout's debug set (absent or unknown: the cell debug texture). */
   readonly trimLayout?: string;
-  readonly cases: Readonly<Record<string, { readonly sections?: Readonly<Record<string, { readonly variants: readonly { readonly high: VoxelKitMeshRef; readonly low?: VoxelKitMeshRef; readonly weight?: number }[] }>>; readonly alias?: PieceAlias }>>;
+  readonly cases: Readonly<Record<string, { readonly sections?: Readonly<Record<string, { readonly variants: readonly { readonly high: VoxelKitMeshRef; readonly weight?: number }[] }>>; readonly alias?: PieceAlias }>>;
 }
 
 /** What draws one kit piece: its mesh and material, and a key equal for draws that can share an instanced mesh. */
@@ -105,7 +105,7 @@ export type VoxelKitBytes = (ref: VoxelKitMeshRef) => Promise<{ readonly bytes: 
 /** Every mesh a kit names (each once). */
 export function voxelKitMeshRefs(kits: readonly VoxelKitRecordLike[]): VoxelKitMeshRef[] {
   const out = new Map<string, VoxelKitMeshRef>();
-  for (const k of kits) for (const c of Object.values(k.cases)) for (const s of Object.values(c.sections ?? {})) for (const v of s.variants) for (const m of v.low === undefined ? [v.high] : [v.high, v.low]) out.set(voxelKitMeshKey(m), m);
+  for (const k of kits) for (const c of Object.values(k.cases)) for (const s of Object.values(c.sections ?? {})) for (const v of s.variants) out.set(voxelKitMeshKey(v.high), v.high);
   return [...out.values()];
 }
 
@@ -281,13 +281,13 @@ export class VoxelKitMeshes {
   }
 
   /** The default kit's own mesh of a case (null: an alias or no piece), mirrored across `axis` on request (the verge rising toward −x). */
-  defaultMesh(caseId: string, low: boolean, mirror = false, axis = 0): THREE.BufferGeometry | null {
-    const key = `${caseId}:${low ? 1 : 0}:${mirror ? 1 + axis : 0}`;
+  defaultMesh(caseId: string, mirror = false, axis = 0): THREE.BufferGeometry | null {
+    const key = `${caseId}:${mirror ? 1 + axis : 0}`;
     let g = this.defaults.get(key);
     if (g === undefined) {
-      const d = defaultKitMesh(caseId, low);
+      const d = defaultKitMesh(caseId);
       if (d === null) return null;
-      g = mirror ? mirrored(this.defaultMesh(caseId, low)!, axis) : defaultKitGeometry(d);
+      g = mirror ? mirrored(this.defaultMesh(caseId)!, axis) : defaultKitGeometry(d);
       this.defaults.set(key, g);
     }
     return g;
@@ -421,7 +421,7 @@ export class VoxelKitSet {
    * `material` with `variantWord`: null when nothing draws it (no kit, an
    * unknown piece, a mesh that failed), 'pending' while its mesh loads.
    */
-  resolve(material: number, piece: number, variantWord: number, low: boolean): VoxelKitDraw | 'pending' | null {
+  resolve(material: number, piece: number, variantWord: number): VoxelKitDraw | 'pending' | null {
     const slot = this.table.materialKit[material] ?? NO_KIT;
     if (slot === NO_KIT) return null;
     const kit = this.table.kits[slot]!;
@@ -429,16 +429,16 @@ export class VoxelKitSet {
     if (pc === undefined) return null;
     const mirror = (variantWord & PIECE_VARIANT_MIRROR) !== 0;
     const variant = variantWord & PIECE_VARIANT_MASK;
-    const key = `${slot}:${piece}:${variant}:${low ? 1 : 0}:${mirror ? 1 : 0}`;
+    const key = `${slot}:${piece}:${variant}:${mirror ? 1 : 0}`;
     const frame = PIECE_STAGGER_FRAMES[pc.caseId];
     const placed = { rotation: pc.rotation, runAxis: pieceRunAxis(pc.meshCaseId), halfRun: pieceHalfRun(pc.caseId), stagger: frame === undefined ? null : { frame, seed: kit.seed, caseIndex: pc.caseIndex } };
     if (kit.id === DEFAULT_KIT_ID) {
-      const g = this.meshes.defaultMesh(pc.meshCaseId, low, mirror, mirrorAxisOf(pc.rotation));
+      const g = this.meshes.defaultMesh(pc.meshCaseId, mirror, mirrorAxisOf(pc.rotation));
       return g === null ? null : { key, geometry: g, material: this.meshes.material(kit.seed, true), ...placed };
     }
     const v = this.records.get(kit.id)?.cases[pc.meshCaseId]?.sections?.[pc.sectionId]?.variants[variant];
     if (v === undefined) return null;
-    const g = this.meshes.mesh(low ? (v.low ?? v.high) : v.high, mirror, mirrorAxisOf(pc.rotation));
+    const g = this.meshes.mesh(v.high, mirror, mirrorAxisOf(pc.rotation));
     if (g === 'pending' || g === null) return g;
     const trimLayout = this.records.get(kit.id)?.trimLayout;
     const look = this.meshes.material(kit.seed, false, trimLayout);

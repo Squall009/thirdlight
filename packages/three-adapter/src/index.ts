@@ -403,7 +403,7 @@ export { applyModelOccluders, isOccluderStandin, OCCLUDER_EARLY_RENDER_ORDER, OC
 export { markHostDrawing, markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
 // Voxel surfaces: the shader that blends materials from the shader data, and the grids' GPU home.
 export { createVoxelSurface, PHASE_CELLS, VOXEL_GRID_MAX_EDGE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelSurfaceObject, type VoxelSurfaceOptions } from './voxel-surface';
-export { applyChunkDrawBatch, standInPieceGeometry, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelBatchApplied, type VoxelChunkDraw, type VoxelChunkViewOptions, type VoxelPieceDetail, type VoxelPieceMeshes, type VoxelSeamPiece } from './voxel-chunk-view';
+export { applyChunkDrawBatch, standInPieceGeometry, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelBatchApplied, type VoxelChunkDraw, type VoxelChunkViewOptions, type VoxelPieceMeshes, type VoxelSeamPiece } from './voxel-chunk-view';
 export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 export { PIECE_U_ATTRIBUTE, TRIM_RUN_ATTRIBUTE, trimUPerMetre } from './voxel-trim-u';
 export { defaultKitGeometry, KIT_DEBUG_TEXTURE_SIDE, voxelKitDebugTexture, voxelKitMeshRefs, VoxelKitMeshes, VoxelKitSet, type VoxelKitBytes, type VoxelKitDraw, type VoxelKitMeshRef, type VoxelKitRecordLike } from './voxel-kit-pieces';

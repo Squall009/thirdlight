@@ -292,7 +292,7 @@ export {
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { INSTANCE_BYTES, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, PIECE_DETAIL, PIECE_FAMILY, PIECE_SECTION, pieceDetailAt, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { INSTANCE_BYTES, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { DEFAULT_KIT_ID, DEFAULT_KIT_PIECES, DEFAULT_KIT_UNITS, defaultKitMesh, defaultKitSource, type DefaultKitBox, type DefaultKitPiece, type KitMeshData } from './default-kit';
 export { applyCubeRotation, CUBE_ROTATION_COUNT, CUBE_ROTATION_X90, CUBE_ROTATION_ZM90, CUBE_ROTATIONS, cubeRotationIndex, mirrorAxisOf, type CubeRotation } from './cube-rotations';
 export { PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, type PieceStaggerFrame } from './piece-placement';

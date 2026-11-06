@@ -23,6 +23,13 @@ import { ROOF_EDGE_NEAR_M, roofCaseOffset } from './roof-edge-surface';
 const DIR = join(import.meta.dirname, 'kits');
 const KITS = ['log', 'stone'] as const;
 
+/** The names of a GLB's mesh nodes (the pieces it holds). */
+function glbNodeNames(glb: Uint8Array): string[] {
+  const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
+  const json = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + view.getUint32(12, true)))) as { nodes?: { name?: string; mesh?: number }[] };
+  return (json.nodes ?? []).filter((n) => n.mesh !== undefined).map((n) => n.name ?? '');
+}
+
 function load(id: (typeof KITS)[number]): { kit: VoxelKit; glb: Uint8Array; file: string } {
   const kit = JSON.parse(readFileSync(join(DIR, `${id}.voxelkit.json`), 'utf8')) as VoxelKit;
   const file = join(DIR, `voxel-kit-${id}.glb`);
@@ -43,7 +50,7 @@ describe.each(KITS)('placeholder kit %s', (id) => {
     for (const m of meshesOf(kit)) expect([m.assetId, m.digest]).toEqual([`voxel-kit-${id}`, digest]);
   });
 
-  it('passes the kit check with no error (trim T1–T8 ok, every case the catalogue knows, aliases resolved) with every piece read from the GLB, high and low, each within its budget', () => {
+  it('passes the kit check with no error (trim T1–T8 ok, every case the catalogue knows, aliases resolved) with every piece read from the GLB (one mesh a piece), each within its budget', () => {
     const facts = new Map<string, VoxelKitMeshFacts>();
     const factsOf = (m: VoxelKitMesh): VoxelKitMeshFacts => {
       const k = voxelKitMeshKey(m);
@@ -58,35 +65,33 @@ describe.each(KITS)('placeholder kit %s', (id) => {
       const row = report.rows.find((r) => r.id === `trim:${t}`)!;
       expect(row.state, `${t}: ${row.detail}`).toBe('ok');
     }
-    for (const r of ['assets', 'pivot', 'fit', 'pairs']) expect(report.rows.find((x) => x.id === r)?.state, r).toBe('ok');
-    expect(report.rows.some((x) => x.id === 'digests' || x.id === 'pairs-heavy')).toBe(false);
+    for (const r of ['assets', 'pivot', 'fit']) expect(report.rows.find((x) => x.id === r)?.state, r).toBe('ok');
+    expect(report.rows.some((x) => x.id === 'digests')).toBe(false);
     // Every required case of the edge catalogue has a piece or an alias (no "required" warning), every case named is the catalogue's.
     const cat = new Set(WORLD_RULES.catalogue!.cases.map((c) => c.id));
     for (const cid of Object.keys(kit.cases)) expect(cat.has(cid), cid).toBe(true);
     expect(report.rows.filter((r) => r.id.startsWith('required:')).map((r) => `${r.id} ${r.state}`).filter((r) => !r.endsWith(' ok'))).toEqual([]);
     // No piece for a flat face: every case is an edge, corner, roof edge, debris, beam or banister case.
     for (const cid of Object.keys(kit.cases)) expect(cid, cid).toMatch(/^(edge-|corner-|roof-|debris|beam$|banister-)/);
-    // Game-ready budgets (triangles high / low a piece).
-    const budget = (cid: string): [number, number] => (cid.startsWith('edge-') ? [48, 16] : cid.startsWith('corner-') || cid.startsWith('roof-') ? [64, 24] : cid.startsWith('debris') ? [160, 48] : [64, 32]);
-    for (const p of report.pieces) {
-      expect(p.high!, `${p.caseId} high`).toBeLessThanOrEqual(budget(p.caseId)[0]);
-      expect(p.low!, `${p.caseId} low`).toBeLessThanOrEqual(budget(p.caseId)[1]);
-      expect(p.low!, `${p.caseId} low`).toBeLessThanOrEqual(p.high!);
-    }
+    // Game-ready budgets (triangles a piece; drawn in the near ring only, so no lower-detail mesh).
+    const budget = (cid: string): number => (cid.startsWith('edge-') ? 48 : cid.startsWith('corner-') || cid.startsWith('roof-') ? 64 : cid.startsWith('debris') ? 160 : 64);
+    for (const p of report.pieces) expect(p.triangles!, p.caseId).toBeLessThanOrEqual(budget(p.caseId));
+    // No mesh in the file is left over from a lower level (every node a record names, and only those).
+    expect(new Set(meshesOf(kit).map((m) => m.node)).size).toBe(glbNodeNames(glb).length);
     for (const m of meshesOf(kit)) {
       const f = factsOf(m);
       expect(f.found && f.unreadable === null && f.triangles > 0, m.node).toBe(true);
       expect(f.textures.count).toBe(0);
     }
     const aliases = Object.entries(kit.cases).filter(([, c]) => c.alias !== undefined).map(([cid, c]) => `${cid} = ${c.alias!.case} turned (${c.alias!.rotation})`);
-    const lines = report.pieces.map((p) => `  ${p.caseId.padEnd(18)} ${p.sectionId.padEnd(7)} v${p.variant}  high ${String(p.high).padStart(3)}  low ${String(p.low).padStart(3)}`);
-    console.log(`[placeholder kit] ${id}: ${statSync(file).size} B GLB, record ${readFileSync(join(DIR, `${id}.voxelkit.json`)).length} B, ${report.totals.pieces} pieces, triangles high ${report.totals.highTriangles} / low ${report.totals.lowTriangles}, textures ${report.totals.textures}\n${lines.join('\n')}\n  aliases: ${aliases.join('; ')}\n  warn/info: ${report.rows.filter((r) => r.state === 'warn' || r.state === 'info').map((r) => `${r.id} (${r.state}) ${r.title}`).join('; ')}`);
+    const lines = report.pieces.map((p) => `  ${p.caseId.padEnd(18)} ${p.sectionId.padEnd(7)} v${p.variant}  ${String(p.triangles).padStart(3)} tris`);
+    console.log(`[placeholder kit] ${id}: ${statSync(file).size} B GLB, record ${readFileSync(join(DIR, `${id}.voxelkit.json`)).length} B, ${report.totals.pieces} pieces, triangles ${report.totals.triangles}, textures ${report.totals.textures}\n${lines.join('\n')}\n  aliases: ${aliases.join('; ')}\n  warn/info: ${report.rows.filter((r) => r.state === 'warn' || r.state === 'info').map((r) => `${r.id} (${r.state}) ${r.title}`).join('; ')}`);
   });
 
   it('draws its slope-following roof pieces on the roof planes: the ridge, the verge (rising toward +x; the other side mirrored), the hip and the valley', () => {
     for (const cid of ['roof-ridge', 'roof-gable', 'roof-hip', 'roof-valley'] as const) {
       for (const v of kit.cases[cid]!.sections!['body']!.variants) {
-        for (const m of [v.high, v.low!]) expect(roofCaseOffset(cid, voxelKitMeshFacts(glb, m.node).positions), `${cid} ${m.node}`).toBeLessThan(ROOF_EDGE_NEAR_M);
+        expect(roofCaseOffset(cid, voxelKitMeshFacts(glb, v.high.node).positions), `${cid} ${v.high.node}`).toBeLessThan(ROOF_EDGE_NEAR_M);
       }
     }
   });
@@ -94,14 +99,12 @@ describe.each(KITS)('placeholder kit %s', (id) => {
   it('stands its banister posts up through the rail\'s cell to the top rail: the rail rests on the posts, not a cell over them', () => {
     const rail = kit.cases['banister-rail']!.sections!['body']!.variants;
     for (const v of kit.cases['banister-post']!.sections!['body']!.variants) {
-      for (const [m, r] of [[v.high, rail[0]!.high], [v.low!, rail[0]!.low!]] as const) {
-        const post = voxelKitMeshFacts(glb, m.node).bounds!;
-        const top = voxelKitMeshFacts(glb, r.node).bounds!;
-        // The rail's cell is one above the post's (0.5 m): the post's top lies within the rail's height there.
-        expect(post.min[1], m.node).toBeCloseTo(-0.25, 3);
-        expect(post.max[1], m.node).toBeGreaterThanOrEqual(0.5 + top.min[1]);
-        expect(post.max[1], m.node).toBeLessThanOrEqual(0.5 + top.max[1]);
-      }
+      const post = voxelKitMeshFacts(glb, v.high.node).bounds!;
+      const top = voxelKitMeshFacts(glb, rail[0]!.high.node).bounds!;
+      // The rail's cell is one above the post's (0.5 m): the post's top lies within the rail's height there.
+      expect(post.min[1], v.high.node).toBeCloseTo(-0.25, 3);
+      expect(post.max[1], v.high.node).toBeGreaterThanOrEqual(0.5 + top.min[1]);
+      expect(post.max[1], v.high.node).toBeLessThanOrEqual(0.5 + top.max[1]);
     }
   });
 

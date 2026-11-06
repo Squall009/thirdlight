@@ -181,7 +181,7 @@ What a level style is built from, as one item: a trim sheet material, the archit
 <a id="content-voxelKits"></a>
 ## voxelKits — Voxel kits
 
-The detail pieces a material type (wood, stone, …) draws a voxel world's cases with: per case and run section the authored high and low meshes with weighted variants, the outlines section ends meet by, and the game's own data. Shipped whole with the build; the engine never reads the game data.
+The detail pieces a material type (wood, stone, …) draws a voxel world's cases with: per case and run section the authored mesh of each weighted variant (drawn in the near ring only), the outlines section ends meet by, and the game's own data. Shipped whole with the build; the engine never reads the game data.
 
 - In every project: no
 - Written by: [`setVoxelKit`](ops-detail.md#op-setVoxelKit), [`deleteVoxelKit`](ops-detail.md#op-deleteVoxelKit)

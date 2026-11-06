@@ -163,13 +163,14 @@ describe('kit pieces in the chunk view', () => {
     // The wall runs along x: its top-edge pieces are unturned (its +z edge) or half turned (its −z edge), but for the
     // top edges of its two end faces (a quarter turn each way).
     expect(stone.filter((i) => i.turns % 2 === 1).map((i) => `${i.cell.join(',')}|${i.turns}`).sort()).toEqual(['19,11,16|3', '8,11,16|1']);
-    // A level-1 node of the same cells draws the same kit's piece at low detail (no low mesh: the high one).
+    // A level-1 node of the same cells draws no piece: from level 1 out the edges are plain voxel faces.
+    const before = [v.instances, v.pieceDraws, v.piecesDrawn.kit];
     draw(v, derive(s, table, 1), 1);
-    expect(v.piecesDrawn.low).toBeGreaterThan(0);
+    expect([v.instances, v.pieceDraws, v.piecesDrawn.kit]).toEqual(before);
     // Removing the chunk and node frees every instanced mesh and its count.
     v.remove(0, 0, 0);
     v.remove(0, 0, 0, 1);
-    expect([v.instances, v.pieceDraws, v.piecesDrawn.kit, v.piecesDrawn.high, v.piecesDrawn.low]).toEqual([0, 0, 0, 0, 0]);
+    expect([v.instances, v.pieceDraws, v.piecesDrawn.kit]).toEqual([0, 0, 0]);
     v.dispose();
     meshes.dispose();
   });
@@ -283,47 +284,43 @@ describe('kit pieces in the chunk view', () => {
     meshes.dispose();
   });
 
-  it("builds the default kit's generated pieces: low triangle counts a level, wound out, on their cell; a labelled debug texture", () => {
-    // Game-ready budgets (triangles high / low) by kind of piece.
-    const budget = (id: string): [number, number] => (id.startsWith('edge-') ? [48, 16] : id.startsWith('corner-') ? [64, 24] : id.startsWith('roof-') ? [64, 24] : [160, 48]);
+  it("builds the default kit's generated pieces: low triangle counts, wound out, on their cell; a labelled debug texture", () => {
+    // Game-ready budgets (triangles) by kind of piece: one mesh a piece, drawn in the near ring only.
+    const budget = (id: string): number => (id.startsWith('edge-') ? 48 : id.startsWith('corner-') ? 64 : id.startsWith('roof-') ? 64 : 160);
     const report: string[] = [];
     let own = 0;
     for (const [id, p] of Object.entries(DEFAULT_KIT_PIECES)) {
       if (p === null || p.alias !== undefined) continue;
       own++;
-      const [high, low] = [false, true].map((l) => defaultKitGeometry(defaultKitMesh(id, l)!));
-      const tris = [high!, low!].map((g) => g.index!.count / 3);
-      expect(tris[0], id).toBeLessThanOrEqual(budget(id)[0]);
-      expect(tris[1], id).toBeLessThanOrEqual(budget(id)[1]);
-      expect(tris[1], id).toBeLessThan(tris[0]!);
-      for (const g of [high!, low!]) {
-        // Every triangle's front faces the way its vertices' normals do (wound out).
-        const pos = g.getAttribute('position');
-        const nor = g.getAttribute('normal');
-        const ix = g.index!;
-        for (let t = 0; t < ix.count; t += 3) {
-          const [a, b, c] = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(pos, ix.getX(t + k)));
-          const face = new THREE.Vector3().subVectors(b!, a!).cross(new THREE.Vector3().subVectors(c!, a!));
-          const n = new THREE.Vector3();
-          for (let k = 0; k < 3; k++) n.add(new THREE.Vector3().fromBufferAttribute(nor, ix.getX(t + k)));
-          expect(face.dot(n), `${id} triangle ${t / 3}`).toBeGreaterThan(0);
-        }
-        // On its cell: within half a cell of its centre and the quarter cell a cove reaches into the open cell beside it;
-        // a roof-edge piece follows the plane, which runs up to a cell above its voxel's top (1.5 cells over the centre).
-        g.computeBoundingBox();
-        const b = g.boundingBox!;
-        const reach = VOXEL_SIZE_M * (0.5 + 1 / 4) + 1e-6;
-        for (const c of [b.min.x, b.min.z, b.max.x, b.max.z]) expect(Math.abs(c), id).toBeLessThanOrEqual(reach);
-        expect(b.min.y, id).toBeGreaterThanOrEqual(-reach);
-        expect(b.max.y, id).toBeLessThanOrEqual(id.startsWith('roof-') ? VOXEL_SIZE_M * (1.5 + 1 / 4) : reach);
+      const g = defaultKitGeometry(defaultKitMesh(id)!);
+      const tris = g.index!.count / 3;
+      expect(tris, id).toBeLessThanOrEqual(budget(id));
+      // Every triangle's front faces the way its vertices' normals do (wound out).
+      const pos = g.getAttribute('position');
+      const nor = g.getAttribute('normal');
+      const ix = g.index!;
+      for (let t = 0; t < ix.count; t += 3) {
+        const [a, b, c] = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(pos, ix.getX(t + k)));
+        const face = new THREE.Vector3().subVectors(b!, a!).cross(new THREE.Vector3().subVectors(c!, a!));
+        const n = new THREE.Vector3();
+        for (let k = 0; k < 3; k++) n.add(new THREE.Vector3().fromBufferAttribute(nor, ix.getX(t + k)));
+        expect(face.dot(n), `${id} triangle ${t / 3}`).toBeGreaterThan(0);
       }
-      const bytes = [high!, low!].map((g) => Object.values(g.attributes).reduce((n, a) => n + (a as THREE.BufferAttribute).array.byteLength, 0) + g.index!.array.byteLength);
-      report.push(`${id} ${tris[0]}/${tris[1]} tris, ${bytes[0]}/${bytes[1]} B`);
+      // On its cell: within half a cell of its centre and the quarter cell a cove reaches into the open cell beside it;
+      // a roof-edge piece follows the plane, which runs up to a cell above its voxel's top (1.5 cells over the centre).
+      g.computeBoundingBox();
+      const box = g.boundingBox!;
+      const reach = VOXEL_SIZE_M * (0.5 + 1 / 4) + 1e-6;
+      for (const c of [box.min.x, box.min.z, box.max.x, box.max.z]) expect(Math.abs(c), id).toBeLessThanOrEqual(reach);
+      expect(box.min.y, id).toBeGreaterThanOrEqual(-reach);
+      expect(box.max.y, id).toBeLessThanOrEqual(id.startsWith('roof-') ? VOXEL_SIZE_M * (1.5 + 1 / 4) : reach);
+      const bytes = Object.values(g.attributes).reduce((n, x) => n + (x as THREE.BufferAttribute).array.byteLength, 0) + g.index!.array.byteLength;
+      report.push(`${id} ${tris} tris, ${bytes} B`);
     }
     // Three meshes for the ten edge and corner cases (an outer strip, a cove, an outer cap; the rest are aliases or
     // none), five roof boards, three debris pieces.
     expect(own).toBe(11);
-    console.log(`[default kit] high/low: ${report.join('; ')}; no textures (the 256² debug texture), no files`);
+    console.log(`[default kit] ${report.join('; ')}; no textures (the 256² debug texture), no files`);
     const t = voxelKitDebugTexture();
     expect([t.image.width, t.image.height]).toEqual([KIT_DEBUG_TEXTURE_SIDE, KIT_DEBUG_TEXTURE_SIDE]);
     const px = t.image.data as Uint8Array;
@@ -403,7 +400,7 @@ describe('kit pieces in the chunk view', () => {
     // The default kit: the vertical and bottom edges draw the top edge's strip; inner edges the floor cove; a bottom corner the top cap.
     const meshes = new VoxelKitMeshes();
     const set = meshes.world([]);
-    expect(meshes.defaultMesh('edge-out-vertical', false)).toBeNull();
+    expect(meshes.defaultMesh('edge-out-vertical')).toBeNull();
     const desc = (id: string): ReturnType<typeof set.describe> => {
       for (let p = KIT_PIECE_BASE; p < KIT_PIECE_BASE + 64; p++) if (set.describe(1, p)?.caseId === id) return set.describe(1, p);
       return null;

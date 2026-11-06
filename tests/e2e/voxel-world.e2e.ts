@@ -142,7 +142,7 @@ async function addStoneKit(): Promise<void> {
   const imported = (await playCmd('importAssets', { folder: 'assets/kits' })) as { change: { added: { assetId: string }[] } };
   const assetId = imported.change.added[0]!.assetId;
   const digest = createHash('sha256').update(glb).digest('hex');
-  console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no low mesh (L1 draws the high), no texture`);
+  console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no texture`);
   await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], cases: { 'edge-out-vertical': { sections: { body: { variants: [{ high: { assetId, digest } }] } } }, 'corner-out-top': { alias: { case: 'edge-out-vertical', rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) } } } } });
 }
 test.afterAll(async () => {
@@ -397,10 +397,10 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // Kit pieces: the stone wall's free end's vertical edges draw the test kit's GLB board (read from the backend,
     // parsed by the page's loader), its flat faces nothing; every other material the engine's default kit (edges,
     // corners). A cell in the middle of the wall owns no piece.
-    const kitState = await hook<{ piecesByDetail: { kit: number }; kits: { ids: string[]; meshes: Record<string, string> } }>(page, 'state');
+    const kitState = await hook<{ kitPieces: number; kits: { ids: string[]; meshes: Record<string, string> } }>(page, 'state');
     expect(kitState.kits.ids).toEqual([STONE_KIT, DEFAULT_KIT_ID]);
     expect(Object.values(kitState.kits.meshes)).toEqual(['ready']);
-    expect(kitState.piecesByDetail.kit).toBeGreaterThan(5);
+    expect(kitState.kitPieces).toBeGreaterThan(5);
     const freeEnd = await cellAt(page, [ox + 5, oy + 2, oz]);
     expect(freeEnd.kitPieces.map((p) => `${p.kit} ${p.caseId} ${p.turns}`).sort()).toEqual([`${STONE_KIT} edge-out-vertical 0`, `${STONE_KIT} edge-out-vertical 3`]);
     expect((await cellAt(page, [ox, oy + 3, oz])).kitPieces).toEqual([]);

@@ -30,8 +30,7 @@ export interface CellOutputs {
   /**
    * The detail piece in this cell, if any: its kit-local index, a default
    * piece's stand-in family and run section (0 and −1 for a kit's own),
-   * quarter turns, the mirror and variant, whether it replaces the base,
-   * whether drawn at low detail.
+   * quarter turns, the mirror and variant, whether it replaces the base.
    */
   readonly piece: CellPieceOutput | null;
   /** Every detail piece the cell owns (its edges, corners, roof edges, debris), in instance order; `piece` is the first. */
@@ -111,7 +110,6 @@ export interface CellPieceOutput {
   readonly mirror: boolean;
   readonly variant: number;
   readonly replacesBase: boolean;
-  readonly low: boolean;
 }
 
 export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number): CellOutputs {
@@ -128,7 +126,7 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     const id = list.data[o + 4]! | (list.data[o + 5]! << 8);
     const flags = list.data[o + 3]!;
     const variant = list.data[o + 6]! | (list.data[o + 7]! << 8);
-    pieces.push({ piece: id, family: defaultPieceFamily(id), section: id < KIT_PIECE_BASE ? defaultPieceSection(id) : -1, turns: flags & 3, place: instancePlaceOf(flags), mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0, low: (flags & INSTANCE_FLAG.low) !== 0 });
+    pieces.push({ piece: id, family: defaultPieceFamily(id), section: id < KIT_PIECE_BASE ? defaultPieceSection(id) : -1, turns: flags & 3, place: instancePlaceOf(flags), mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0 });
   }
   const piece = pieces[0] ?? null;
   const S = COLLISION_STEPS_PER_CELL;

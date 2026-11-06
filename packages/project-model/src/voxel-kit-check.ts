@@ -10,8 +10,8 @@
  *   the catalogue does not know never draw (err).
  * - **A fallback per role**: the role's fallback case has a piece, or the
  *   row says what a missing case of the role falls to.
- * - **High and low.** A variant without a low mesh is drawn high at low
- *   detail (info); a low mesh heavier than its high is a warn.
+ * - **One mesh a piece.** Pieces are drawn in the near ring only, so a
+ *   variant has one mesh (no level pairs to check).
  * - **Pivots and cell sizes.** A mesh is in metres, centred on its cell, in
  *   its case's orientation: one that does not touch its cell draws beside
  *   it (err); one reaching past half a cell around it overlaps the
@@ -20,8 +20,8 @@
  * - **Join profiles** at section ends that meet (start → body → body →
  *   end; corners and junctions between bodies): outlines that differ draw
  *   a step (warn); an end with no profile is not checked (info).
- * - **Budgets** are reported, never capped: triangles per piece and level,
- *   textures per piece, totals per kit.
+ * - **Budgets** are reported, never capped: triangles and textures per
+ *   piece, totals per kit.
  * - **Assets.** A mesh whose model the project lacks, or whose file cannot
  *   be read, draws nothing of its own (err); a digest no version has ships
  *   the current version (warn), and one naming an older version holds only
@@ -75,10 +75,9 @@ export interface VoxelKitPieceReport {
   caseId: string;
   sectionId: string;
   variant: number;
-  /** Triangles of the high and low meshes (null: absent or not read). */
-  high: number | null;
-  low: number | null;
-  /** Embedded textures of the high mesh's file. */
+  /** Triangles of the mesh (null: not read). */
+  triangles: number | null;
+  /** Embedded textures of the mesh's file. */
   textures: { count: number; bytes: number; sizes: [number, number][] };
 }
 
@@ -87,7 +86,7 @@ export interface VoxelKitCheckReport {
   name: string;
   rows: VoxelKitCheckRow[];
   pieces: VoxelKitPieceReport[];
-  totals: { pieces: number; highTriangles: number; lowTriangles: number; textures: number; textureBytes: number };
+  totals: { pieces: number; triangles: number; textures: number; textureBytes: number };
 }
 
 /** Run sections a kit names pieces for. */
@@ -181,12 +180,11 @@ interface Piece {
   caseId: string;
   sectionId: string;
   variant: number;
-  level: 'high' | 'low';
   mesh: VoxelKitMesh;
   facts: VoxelKitMeshFacts | null;
 }
 
-const label = (p: Pick<Piece, 'caseId' | 'sectionId' | 'variant'> & { level?: string }): string => `${p.caseId}/${p.sectionId}${p.variant > 0 ? ` v${p.variant + 1}` : ''}${p.level !== undefined && p.level !== 'high' ? ` ${p.level}` : ''}`;
+const label = (p: Pick<Piece, 'caseId' | 'sectionId' | 'variant'>): string => `${p.caseId}/${p.sectionId}${p.variant > 0 ? ` v${p.variant + 1}` : ''}`;
 
 /** The sections of a case the kit has pieces for, by known section id: its own, or its alias's (drawn turned). */
 function sectionsOf(kit: VoxelKit, caseId: string): Map<string, VoxelKitSection> {
@@ -327,30 +325,6 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
   else rows.push({ id: 'pivot', state: 'ok', title: 'Every piece sits on its cell', detail: `Centred on the cell, ±${HALF} m.` });
   if (over.length > 0) rows.push({ id: 'fit', state: 'warn', title: `${over.length} pieces reach past half a cell around theirs`, detail: `${named(over)}: they overlap the neighbours' pieces (allowed: ±${HALF + REACH} m).` });
   else rows.push({ id: 'fit', state: 'ok', title: 'Every piece fits its cell envelope', detail: `Within ±${HALF + REACH} m of the cell's centre.` });
-  return rows;
-}
-
-function pairRows(kit: VoxelKit, facts: (m: VoxelKitMesh) => VoxelKitMeshFacts | null): VoxelKitCheckRow[] {
-  const noLow: string[] = [];
-  const heavy: string[] = [];
-  let variants = 0;
-  for (const [cid, c] of Object.entries(kit.cases)) {
-    for (const [sid, s] of Object.entries(c.sections ?? {})) {
-      s.variants.forEach((v, k) => {
-        variants++;
-        const p = { caseId: cid, sectionId: sid, variant: k };
-        if (v.low === undefined) noLow.push(label(p));
-        else {
-          const h = facts(v.high)?.triangles;
-          const l = facts(v.low)?.triangles;
-          if (h !== undefined && l !== undefined && l > h) heavy.push(`${label(p)} (${l} > ${h})`);
-        }
-      });
-    }
-  }
-  const rows: VoxelKitCheckRow[] = [];
-  rows.push(noLow.length > 0 ? { id: 'pairs', state: 'info', title: `${noLow.length} of ${variants} variants have no low mesh`, detail: `${named(noLow)}: drawn high at low detail too.` } : { id: 'pairs', state: 'ok', title: 'Every variant has high and low', detail: `${variants} variants.` });
-  if (heavy.length > 0) rows.push({ id: 'pairs-heavy', state: 'warn', title: `${heavy.length} low meshes have more triangles than their high`, detail: `${named(heavy)}.` });
   return rows;
 }
 
@@ -508,11 +482,11 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[], cat: CaseCatalogueDef
   rule('T4', list((t) => (t.density > 0 || t.start > 0 ? `${t.density} run faces off 0.25 U a metre, ${t.start} not starting at U 0` : null)), 'err', 'U follows the run at 0.25 a metre from 0', 'U off the run density');
   rule('T5', list((t) => (t.profiled.length > 0 ? t.profiled.join(', ') : null)), 'warn', 'profiled strips on faces of their height', 'profiled strips on faces of another height');
   rule('T6', list((t) => (t.caps.length > 0 ? t.caps.join(', ') : null)), 'warn', 'end faces in the right cap cell', 'caps of the wrong size or cell');
-  // T7: every variant and level of a section uses the same regions.
+  // T7: every variant of a section uses the same regions.
   const bySection = new Map<string, Set<string>[]>();
   for (const [p, t] of per) if (t !== null) bySection.set(`${p.caseId}/${p.sectionId}`, [...(bySection.get(`${p.caseId}/${p.sectionId}`) ?? []), new Set(t.regions.keys())]);
   const t7 = [...bySection].filter(([, sets]) => sets.some((s) => [...s].sort().join() !== [...sets[0]!].sort().join())).map(([k, sets]) => `${k}: ${sets.map((s) => [...s].sort().join('+') || 'none').join(' | ')}`);
-  rule('T7', t7, 'warn', 'high, low and variants use the same regions', 'variants or levels use different regions');
+  rule('T7', t7, 'warn', 'variants use the same regions', 'variants use different regions');
   // T8: faces meeting at a section join use the same regions on both sides.
   const t8: string[] = [];
   for (const cid of Object.keys(kit.cases)) {
@@ -521,8 +495,8 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[], cat: CaseCatalogueDef
     if (axis !== 'x' && axis !== 'y') continue;
     const secs = sectionsOf(kit, cid);
     for (const [a, b] of meetingPairs(new Set(secs.keys()))) {
-      const ta = [...per].find(([p]) => p.caseId === cid && p.sectionId === a && p.level === 'high' && p.variant === 0)?.[1];
-      const tb = [...per].find(([p]) => p.caseId === cid && p.sectionId === b && p.level === 'high' && p.variant === 0)?.[1];
+      const ta = [...per].find(([p]) => p.caseId === cid && p.sectionId === a && p.variant === 0)?.[1];
+      const tb = [...per].find(([p]) => p.caseId === cid && p.sectionId === b && p.variant === 0)?.[1];
       if (ta == null || tb == null) continue;
       const ea = [...ta.ends[axis].end].sort().join('+');
       const sb = [...tb.ends[axis].start].sort().join('+');
@@ -549,29 +523,25 @@ export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets
     for (const [sid, s] of Object.entries(c.sections ?? {})) {
       s.variants.forEach((v, k) => {
         const hf = facts(v.high);
-        pieces.push({ caseId: cid, sectionId: sid, variant: k, level: 'high', mesh: v.high, facts: hf });
-        const lf = v.low !== undefined ? facts(v.low) : null;
-        if (v.low !== undefined) pieces.push({ caseId: cid, sectionId: sid, variant: k, level: 'low', mesh: v.low, facts: lf });
-        const tris = (f: VoxelKitMeshFacts | null): number | null => (f !== null && f.unreadable === null && f.found ? f.triangles : null);
-        reports.push({ caseId: cid, sectionId: sid, variant: k, high: tris(hf), low: tris(lf), textures: hf?.textures ?? { count: 0, bytes: 0, sizes: [] } });
+        pieces.push({ caseId: cid, sectionId: sid, variant: k, mesh: v.high, facts: hf });
+        reports.push({ caseId: cid, sectionId: sid, variant: k, triangles: hf !== null && hf.unreadable === null && hf.found ? hf.triangles : null, textures: hf?.textures ?? { count: 0, bytes: 0, sizes: [] } });
       });
     }
   }
-  const rows = [...caseRows(kit, catalogue), ...aliasRows(kit), ...pairRows(kit, facts), ...meshRows(pieces, assets), ...joinRows(kit)];
+  const rows = [...caseRows(kit, catalogue), ...aliasRows(kit), ...meshRows(pieces, assets), ...joinRows(kit)];
   const totals = {
     pieces: reports.length,
-    highTriangles: reports.reduce((n, r) => n + (r.high ?? 0), 0),
-    lowTriangles: reports.reduce((n, r) => n + (r.low ?? 0), 0),
+    triangles: reports.reduce((n, r) => n + (r.triangles ?? 0), 0),
     textures: reports.reduce((n, r) => n + r.textures.count, 0),
     textureBytes: reports.reduce((n, r) => n + r.textures.bytes, 0),
   };
-  const highs = reports.flatMap((r) => (r.high !== null ? [r.high] : [])).sort((a, b) => a - b);
+  const tris = reports.flatMap((r) => (r.triangles !== null ? [r.triangles] : [])).sort((a, b) => a - b);
   const sizes = [...new Set(reports.flatMap((r) => r.textures.sizes.map(([w, h]) => `${w}×${h}`)))];
   rows.push({
     id: 'budget',
     state: 'info',
-    title: `${totals.pieces} pieces: ${totals.highTriangles} triangles high, ${totals.lowTriangles} low`,
-    detail: `High a piece: ${highs.length > 0 ? `min ${highs[0]}, median ${highs[highs.length >> 1]}, max ${highs[highs.length - 1]}` : 'none read'}. Textures: ${totals.textures} (${totals.textureBytes} bytes${sizes.length > 0 ? `; ${sizes.join(', ')}` : ''}). Reported, never capped.`,
+    title: `${totals.pieces} pieces: ${totals.triangles} triangles`,
+    detail: `A piece: ${tris.length > 0 ? `min ${tris[0]}, median ${tris[tris.length >> 1]}, max ${tris[tris.length - 1]}` : 'none read'}. Textures: ${totals.textures} (${totals.textureBytes} bytes${sizes.length > 0 ? `; ${sizes.join(', ')}` : ''}). Reported, never capped.`,
   });
   rows.push(...trimRows(kit, pieces, catalogue));
   return { voxelKitId: kit.voxelKitId, name: kit.name, rows, pieces: reports, totals };

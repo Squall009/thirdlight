@@ -573,7 +573,7 @@ async function main(): Promise<void> {
         seamTriangles: meshes.seamTriangles,
         lod: mips === null ? null : { ...mips.lod.counters, radii: mips.lod.levelRings.radii, swapMs: { p50: q(mips.lod.swapMs, 0.5), p95: q(mips.lod.swapMs, 0.95), n: mips.lod.swapMs.count } },
         triangles: meshes.triangles,
-        pieces: meshes.instances, piecesByDetail: { ...meshes.piecesDrawn }, pieceDraws: meshes.pieceDraws, drawCalls: (renderer.info as unknown as { render: { drawCalls: number } }).render.drawCalls,
+        pieces: meshes.instances, kitPieces: meshes.piecesDrawn.kit, pieceDraws: meshes.pieceDraws, drawCalls: (renderer.info as unknown as { render: { drawCalls: number } }).render.drawCalls,
         kits: { ids: kits.table?.kits.map((k) => k.id) ?? [], meshes: kits.meshes.states() },
         streamBytes: m.bytes,
         heapMB: Number((heap / 1e6).toFixed(1)),

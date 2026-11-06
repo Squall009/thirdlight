@@ -16,25 +16,15 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-out-top_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-out-top_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "edge-out-top_body_v0"
        }
       },
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-out-top_body_v1_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-out-top_body_v1_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "edge-out-top_body_v1"
        }
       }
      ]
@@ -48,13 +38,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-out-vertical_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-out-vertical_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "edge-out-vertical_body_v0"
        }
       }
      ]
@@ -68,13 +53,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "corner-out-top_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "corner-out-top_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "corner-out-top_body_v0"
        }
       }
      ]
@@ -88,13 +68,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-in-bottom_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "edge-in-bottom_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "edge-in-bottom_body_v0"
        }
       }
      ]
@@ -108,13 +83,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-ridge_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-ridge_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "roof-ridge_body_v0"
        }
       }
      ]
@@ -128,13 +98,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-eave_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-eave_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "roof-eave_body_v0"
        }
       }
      ]
@@ -148,13 +113,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-gable_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-gable_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "roof-gable_body_v0"
        }
       }
      ]
@@ -168,13 +128,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-hip_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-hip_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "roof-hip_body_v0"
        }
       }
      ]
@@ -188,13 +143,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-valley_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "roof-valley_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "roof-valley_body_v0"
        }
       }
      ]
@@ -208,13 +158,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "debris_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "debris_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "debris_body_v0"
        }
       }
      ]
@@ -228,13 +173,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "debris-heavy_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "debris-heavy_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "debris-heavy_body_v0"
        }
       }
      ]
@@ -248,13 +188,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "debris-face_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "debris-face_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "debris-face_body_v0"
        }
       }
      ]
@@ -268,13 +203,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "beam_body_v0"
        }
       }
      ],
@@ -288,13 +218,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_start_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_start_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "beam_start_v0"
        }
       }
      ],
@@ -307,13 +232,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_end_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_end_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "beam_end_v0"
        }
       }
      ],
@@ -326,13 +246,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_single_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "beam_single_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "beam_single_v0"
        }
       }
      ]
@@ -346,13 +261,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "banister-rail_body_v0"
        }
       }
      ],
@@ -366,13 +276,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_start_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_start_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "banister-rail_start_v0"
        }
       }
      ],
@@ -385,13 +290,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_end_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_end_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "banister-rail_end_v0"
        }
       }
      ],
@@ -404,13 +304,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_single_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-rail_single_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "banister-rail_single_v0"
        }
       }
      ]
@@ -424,13 +319,8 @@
       {
        "high": {
         "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-post_body_v0_high"
-       },
-       "low": {
-        "assetId": "voxel-kit-log",
-        "digest": "e6ae59e4b22639f138062cfca08428f7388f867e4a7116c80b50fc6fedcc3fe6",
-        "node": "banister-post_body_v0_low"
+        "digest": "f7c912f7bb00eddded876ed1c23dc69202c5bc3f4a496ca1bfa737434e05b309",
+        "node": "banister-post_body_v0"
        }
       }
      ]

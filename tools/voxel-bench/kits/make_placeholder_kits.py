@@ -1,7 +1,7 @@
 """
 The two placeholder voxel kits, log (wood) and stone: engine-owned test data
 the kit pipeline is measured with, never game art. Writes one GLB a kit (a
-node a piece: <case>_<section>_v<k>_<high|low>, all at the file's origin)
+node a piece: <case>_<section>_v<k>, all at the file's origin)
 and its kit record (kitFormat 1) beside it.
 
     blender --background --python tools/voxel-bench/kits/make_placeholder_kits.py [-- --out DIR]
@@ -31,9 +31,9 @@ Why it is built this way:
   along the run, U is the distance along the run, 0.25 a metre from the
   cell's -x face (the kit check's T4); other faces map their own plane at
   real size in their region; end faces in the cap cell `a` of their size.
-- High and low of a piece use the same regions (a round member's low is the
-  same profile with fewer sides; a flat piece's low drops chamfers or is its
-  high), so a level switch never jumps the texture.
+- One mesh a piece: pieces are drawn in the near ring only (level 0); from
+  level 1 out the edges are plain voxel faces, so no lower-detail mesh is
+  made.
 - Normals: smooth round members, flat cut faces; no normal bakes (a
   placeholder: the shape carries no fine detail to bake). No textures.
 - Collision, navigation and light never read these meshes: they come from
@@ -467,11 +467,11 @@ def tube(p0, p1, r, sides, rid, cap_rid, caps=True, start=0.0, ring_axes=None):
     return loft(a, b, segs, rid, caps=[list(range(sides))] if caps else (), cap_rid=cap_rid, radial=(p0, p1))
 
 
-def line_cap(l0, l1, lateral, dy, rise, low, rid='F1', cap_rid='C12a'):
+def line_cap(l0, l1, lateral, dy, rise, rid='F1', cap_rid='C12a'):
     """
     A cap where two 45° roof planes meet along the line l0 → l1: it covers both planes `lateral` either side of the
     line (the planes `dy` below a convex line, above a concave one, at that offset), standing `rise` above them, with
-    a lip down to each plane and its ends closed. Low detail: the two top faces and the ends.
+    a lip down to each plane and its ends closed.
     """
     def section(l):
         pa = add3(l, (lateral[0], dy, lateral[2]))
@@ -480,19 +480,19 @@ def line_cap(l0, l1, lateral, dy, rise, low, rid='F1', cap_rid='C12a'):
         return [pa, add3(pa, up), add3(l, up), add3(pb, up), pb, l]
     a, b = section(l0), section(l1)
     up = (0.0, 1.0, 0.0)
-    segs = [(1, 2, up), (2, 3, up)] + ([] if low else [(0, 1, lateral), (3, 4, neg(lateral))])
+    segs = [(1, 2, up), (2, 3, up), (0, 1, lateral), (3, 4, neg(lateral))]
     # Each end one face, fanned from the lifted line point (every corner is in sight of it).
     return loft(a, b, segs, rid, caps=[[2, 3, 4, 5, 0, 1]], cap_rid=cap_rid)
 
 
-def chunk(cx, cz, sx, sy, sz, yaw, low, rid='F1', y0=-HALF, chamfer=0.02):
-    """A block of rubble on the cell's floor (its underside on the floor is not made), turned by `yaw` about +y; high
-    detail chamfers its top edges."""
+def chunk(cx, cz, sx, sy, sz, yaw, rid='F1', y0=-HALF, chamfer=0.02):
+    """A block of rubble on the cell's floor (its underside on the floor is not made), turned by `yaw` about +y, its
+    top edges chamfered."""
     cs, sn = math.cos(yaw), math.sin(yaw)
     at = lambda x, y, z: (cx + cs * x - sn * z, y, cz + sn * x + cs * z)
     hx, hz = sx / 2, sz / 2
     y1 = y0 + sy
-    c = 0.0 if low else min(chamfer, sx / 3, sy / 3, sz / 3)
+    c = min(chamfer, sx / 3, sy / 3, sz / 3)
     p = Piece()
     corners = [(-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz)]
     for k in range(4):
@@ -535,10 +535,10 @@ def square_to_slope(p, x):
     return add3(p, scale3(SLOPE, -dot(sub(p, anchor), SLOPE)))
 
 
-def hip_caps(low):
+def hip_caps():
     # 7 cm each side of the line: its ends are the 0.25 m cap cell's size (over 0.125 m across).
     w = 0.07
-    return line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), -w, 0.025, low), line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), w, 0.02, low)
+    return line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), -w, 0.025), line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), w, 0.02)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -554,7 +554,7 @@ def log_pieces():
         return ext_x(arc(r, sides, cz, cy, a0, a1), 'F1', -HALF, HALF, (cz, cy), smooth=True)
 
     # Two variants of the edge log (a little thinner, set a little deeper), weights 1 : 1.
-    k['edge-out-top'] = {'body': [(edge_log(0.09, 0.05, 8), edge_log(0.09, 0.05, 3)), (edge_log(0.08, 0.042, 8), edge_log(0.08, 0.042, 3))]}
+    k['edge-out-top'] = {'body': [edge_log(0.09, 0.05, 8), edge_log(0.08, 0.042, 8)]}
 
     def stub_x(cz, cy, r, sides, x0, x1):
         # A log end out of +x past the cell (its side faces from the face plane out), end grain capped.
@@ -572,20 +572,20 @@ def log_pieces():
         # of the side), as a notched log corner stacks them.
         return stub_z(0.16, -0.125, 0.1, sides, HALF, HALF + 0.12).add(stub_x(0.16, 0.125, 0.1, sides, HALF, HALF + 0.12))
 
-    k['edge-out-vertical'] = {'body': [(log_ends(8), log_ends(3))]}
+    k['edge-out-vertical'] = {'body': [log_ends(8)]}
 
     def corner(sides):
         # The top logs of both sides run on past the corner and cross there (a notched corner's last course).
         return stub_x(HALF - 0.05, HALF - 0.05, 0.09, sides, HALF, HALF + 0.12).add(stub_z(HALF - 0.05, HALF - 0.05, 0.09, sides, HALF, HALF + 0.12))
 
-    k['corner-out-top'] = {'body': [(corner(8), corner(3))]}
+    k['corner-out-top'] = {'body': [corner(8)]}
 
     def cove(sides):
         # A pole in the inner edge, touching both faces (the open quadrant y > 0.25, z > 0.25).
         r = 0.05
         return ext_x(arc(r, sides, HALF + r, HALF + r, -math.pi / 2, math.pi), 'S25', -HALF, HALF, (HALF + r, HALF + r), smooth=True)
 
-    k['edge-in-bottom'] = {'body': [(cove(6), cove(3))]}
+    k['edge-in-bottom'] = {'body': [cove(6)]}
 
     def ridge(sides):
         # The ridge log on both planes, its part under them not made: the arc from one plane round the top to the other.
@@ -597,7 +597,7 @@ def log_pieces():
             p.add(poly([(x, y, z) for z, y in pts], out, 'C25a'))
         return p
 
-    k['roof-ridge'] = {'body': [(ridge(10), ridge(4))]}
+    k['roof-ridge'] = {'body': [ridge(10)]}
 
     def eave(sides):
         # A fascia log under the plane's low edge, its front half out of the slab's side face.
@@ -608,7 +608,7 @@ def log_pieces():
             p.add(poly([(x, y, z) for z, y in pts], out, 'C25a'))
         return p
 
-    k['roof-eave'] = {'body': [(eave(6), eave(3))]}
+    k['roof-eave'] = {'body': [eave(6)]}
 
     def barge(sides):
         # The barge log up the gable edge: along the slope, tangent to the gable face, ends cut square to the slope
@@ -619,26 +619,25 @@ def log_pieces():
         p1 = add3(verge_point(HALF, 0.0, -0.02), off)
         return tube(p0, p1, r, sides, 'F1', 'C25a', ring_axes=(VERGE_N, (0.0, 0.0, 1.0)))
 
-    k['roof-gable'] = {'body': [(barge(8), barge(4))]}
-    hip_hi, hip_lo = hip_caps(False)[0], hip_caps(True)[0]
-    val_hi, val_lo = hip_caps(False)[1], hip_caps(True)[1]
-    k['roof-hip'] = {'body': [(hip_hi, hip_lo)]}
-    k['roof-valley'] = {'body': [(val_hi, val_lo)]}
+    k['roof-gable'] = {'body': [barge(8)]}
+    hip, valley = hip_caps()
+    k['roof-hip'] = {'body': [hip]}
+    k['roof-valley'] = {'body': [valley]}
 
     def split_log(cx, cz, length, r, yaw, sides, y0=-HALF):
         d = (math.cos(yaw) * length / 2, 0.0, math.sin(yaw) * length / 2)
         c = (cx, y0 + r, cz)
         return tube(sub(c, d), add3(c, d), r, sides, 'F1', 'C25a')
 
-    # Logs of 0.17 m: their ends (three or six sided) are the 0.25 m cap cell's size at either detail.
+    # Logs of 0.17 m: their six-sided ends are the 0.25 m cap cell's size.
     def debris(sides):
         return split_log(-0.05, -0.06, 0.34, 0.085, 0.3, sides).add(split_log(0.08, 0.1, 0.28, 0.085, 1.9, sides)).add(split_log(0.0, 0.02, 0.22, 0.085, -0.6, sides, y0=-HALF + 0.15))
 
     def debris_heavy(sides):
         return split_log(-0.06, 0.0, 0.4, 0.085, 0.15, sides).add(split_log(0.09, -0.05, 0.3, 0.085, 1.4, sides))
 
-    k['debris'] = {'body': [(debris(6), debris(3))]}
-    k['debris-heavy'] = {'body': [(debris_heavy(6), debris_heavy(3))]}
+    k['debris'] = {'body': [debris(6)]}
+    k['debris-heavy'] = {'body': [debris_heavy(6)]}
 
     def splinters(sides):
         # Broken log ends out of the face toward the damage (+z), splintered short.
@@ -647,14 +646,14 @@ def log_pieces():
             p.add(stub_z(cx, cy, 0.05, sides, HALF, HALF + ln))
         return p
 
-    k['debris-face'] = {'body': [(splinters(5), splinters(3))]}
+    k['debris-face'] = {'body': [splinters(5)]}
 
     def beam(sides, which):
         x0 = -HALF - (0.08 if which in ('start', 'single') else 0.0)
         x1 = HALF + (0.08 if which in ('end', 'single') else 0.0)
         return ext_x(circle(0.16, sides), 'F1', x0, x1, (0.0, 0.0), closed=True, smooth=True, cap0=which in ('start', 'single'), cap1=which in ('end', 'single'))
 
-    k['beam'] = {s: [(beam(12, s), beam(6, s))] for s in ('body', 'start', 'end', 'single')}
+    k['beam'] = {s: [beam(12, s)] for s in ('body', 'start', 'end', 'single')}
 
     def rail(sides, which):
         # A pole on top (Ø 0.08 m) and one lower, the panel's thickness: wraps S25, end grain in C12.
@@ -663,20 +662,19 @@ def log_pieces():
             p.add(ext_x(circle(0.04, sides, 0.0, cy), 'S25', -HALF, HALF, (0.0, cy), closed=True, smooth=True, cap0=which in ('start', 'single'), cap1=which in ('end', 'single')))
         return p
 
-    k['banister-rail'] = {s: [(rail(8, s), rail(4, s))] for s in ('body', 'start', 'end', 'single')}
+    k['banister-rail'] = {s: [rail(8, s)] for s in ('body', 'start', 'end', 'single')}
 
     def post(sides):
         # A turned post, Ø 0.14 m, from its cell's floor up through the rail's cell to the top rail, its top capped.
         return ext_y([(0.07 * math.sin(2 * math.pi * k / sides), 0.07 * math.cos(2 * math.pi * k / sides)) for k in range(sides)], 'F1', -HALF, POST_TOP, (0.0, 0.0), smooth=True, top=True)
 
-    k['banister-post'] = {'body': [(post(10), post(5))]}
+    k['banister-post'] = {'body': [post(10)]}
     return k
 
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The stone kit (dressed stone): a chamfered or chipped block edge proud of both faces, a chamfer fillet in inner
 # edges, a block at outer corners, ridge and hip tiles, a drip lip at eaves, a verge board, broken blocks as debris.
-# Cut stone is flat faces: a piece's low leaves out its chamfers and caps only where that keeps its regions.
 
 def stone_pieces():
     k = {}
@@ -684,22 +682,19 @@ def stone_pieces():
     # over half a cell), so a staggered strip never sinks under its faces in places.
     P = 0.035
 
-    def edge(chip, low):
+    def edge(chip):
         # The block edge's profile from the top face round to the front face (z, y), fanned shut from the edge line.
         back = HALF - 0.12
-        if low:
-            pts = [(back, HALF), (back, HALF + P), (HALF + P, HALF + P), (HALF + P, back), (HALF, back)]
-        else:
-            pts = [(back, HALF), (back, HALF + P), (HALF + P - chip, HALF + P), (HALF + P, HALF + P - chip), (HALF + P, back), (HALF, back)]
+        pts = [(back, HALF), (back, HALF + P), (HALF + P - chip, HALF + P), (HALF + P, HALF + P - chip), (HALF + P, back), (HALF, back)]
         p = ext_x(pts, 'S50', -HALF, HALF, (HALF, HALF))
         for x, out in ((-HALF, (-1.0, 0.0, 0.0)), (HALF, (1.0, 0.0, 0.0))):
             p.add(poly([(x, HALF, HALF)] + [(x, y, z) for z, y in pts], out, 'C12a'))
         return p
 
     # Two variants: a fine chamfer and a deeper chipped one.
-    k['edge-out-top'] = {'body': [(edge(0.03, False), edge(0.03, True)), (edge(0.055, False), edge(0.055, True))]}
+    k['edge-out-top'] = {'body': [edge(0.03), edge(0.055)]}
 
-    def cove(low):
+    def cove():
         # A chamfer fillet filling the inner edge (the open quadrant y > 0.25, z > 0.25), ends closed.
         f = 0.05
         p = poly([(-HALF, HALF + f, HALF), (HALF, HALF + f, HALF), (HALF, HALF, HALF + f), (-HALF, HALF, HALF + f)], (0.0, 1.0, 1.0), 'S12')
@@ -707,9 +702,9 @@ def stone_pieces():
             p.add(poly([(x, HALF, HALF), (x, HALF + f, HALF), (x, HALF, HALF + f)], out, 'C12a'))
         return p
 
-    k['edge-in-bottom'] = {'body': [(cove(False), cove(True))]}
+    k['edge-in-bottom'] = {'body': [cove()]}
 
-    def corner(low):
+    def corner():
         # A corner block standing a little prouder than the edges meeting there, its three outer faces.
         a, b = HALF - 0.12, HALF + P + 0.004
         p = Piece()
@@ -718,22 +713,22 @@ def stone_pieces():
         p.add(poly([(a, a, b), (b, a, b), (b, b, b), (a, b, b)], (0.0, 0.0, 1.0), 'S25'))
         return p
 
-    k['corner-out-top'] = {'body': [(corner(False), corner(True))]}
+    k['corner-out-top'] = {'body': [corner()]}
 
-    def ridge(low):
+    def ridge():
         w = 0.07
-        return line_cap((-HALF, RIDGE_Y, HALF), (HALF, RIDGE_Y, HALF), (0.0, 0.0, w), -w, 0.03, low)
+        return line_cap((-HALF, RIDGE_Y, HALF), (HALF, RIDGE_Y, HALF), (0.0, 0.0, w), -w, 0.03)
 
-    k['roof-ridge'] = {'body': [(ridge(False), ridge(True))]}
+    k['roof-ridge'] = {'body': [ridge()]}
 
-    def eave(low):
+    def eave():
         # A drip lip under the plane's low edge: its top level with the edge, its front 4 cm out, 10 cm deep.
         pts = [(HALF, HALF), (HALF, HALF + 0.02), (HALF + 0.04, HALF + 0.02), (HALF + 0.04, HALF - 0.08), (HALF, HALF - 0.08)]
         return ext_x(pts, 'S25', -HALF, HALF, (HALF + 0.02, HALF - 0.03), cap0=True, cap1=True)
 
-    k['roof-eave'] = {'body': [(eave(False), eave(False))]}
+    k['roof-eave'] = {'body': [eave()]}
 
-    def verge(low):
+    def verge():
         # A verge board up the gable edge along the slope, 3 cm out of the face, 10 cm under the plane's edge and 2 cm
         # over it, its ends cut square to the slope.
         sec = lambda x: [square_to_slope(verge_point(x, s, t), x) for s, t in ((0.0, 0.0), (0.0, 0.02), (0.03, 0.02), (0.03, -0.1), (0.0, -0.1))]
@@ -741,31 +736,31 @@ def stone_pieces():
         segs = [(1, 2, VERGE_N), (2, 3, (0.0, 0.0, 1.0)), (3, 4, neg(VERGE_N)), (0, 1, (0.0, 0.0, -1.0))]
         return loft(a, b, segs, 'F1', caps=[[0, 1, 2, 3, 4]], cap_rid='C12a')
 
-    k['roof-gable'] = {'body': [(verge(False), verge(False))]}
-    hips = hip_caps(False), hip_caps(True)
-    k['roof-hip'] = {'body': [(hips[0][0], hips[1][0])]}
-    k['roof-valley'] = {'body': [(hips[0][1], hips[1][1])]}
+    k['roof-gable'] = {'body': [verge()]}
+    hip, valley = hip_caps()
+    k['roof-hip'] = {'body': [hip]}
+    k['roof-valley'] = {'body': [valley]}
 
-    def debris(low):
-        return chunk(-0.08, -0.05, 0.2, 0.12, 0.16, 0.25, low).add(chunk(0.1, 0.08, 0.16, 0.1, 0.14, -0.4, low)).add(chunk(0.02, 0.1, 0.12, 0.08, 0.1, 0.9, low, y0=-HALF + 0.12))
+    def debris():
+        return chunk(-0.08, -0.05, 0.2, 0.12, 0.16, 0.25).add(chunk(0.1, 0.08, 0.16, 0.1, 0.14, -0.4)).add(chunk(0.02, 0.1, 0.12, 0.08, 0.1, 0.9, y0=-HALF + 0.12))
 
-    def debris_heavy(low):
-        p = chunk(-0.05, -0.04, 0.3, 0.06, 0.24, 0.1, low)
+    def debris_heavy():
+        p = chunk(-0.05, -0.04, 0.3, 0.06, 0.24, 0.1)
         for cx, cz, s, yaw in ((0.14, 0.12, 0.08, 0.7), (-0.14, 0.15, 0.07, -0.3), (0.12, -0.14, 0.09, 1.2)):
-            p.add(chunk(cx, cz, s, s * 0.7, s, yaw, low))
+            p.add(chunk(cx, cz, s, s * 0.7, s, yaw))
         return p
 
-    k['debris'] = {'body': [(debris(False), debris(True))]}
-    k['debris-heavy'] = {'body': [(debris_heavy(False), debris_heavy(True))]}
+    k['debris'] = {'body': [debris()]}
+    k['debris-heavy'] = {'body': [debris_heavy()]}
 
-    def chips(low):
+    def chips():
         # Broken stone at the rim of the face toward the damage (+z): a few chips standing out of it.
         p = Piece()
         for x0, y0, w, h, d in ((-0.2, 0.12, 0.1, 0.08, 0.03), (0.05, -0.2, 0.12, 0.07, 0.025), (0.14, 0.05, 0.07, 0.1, 0.035)):
             p.add(box(x0, x0 + w, y0, y0 + h, HALF, HALF + d, {'+z': 'S12', '+x': 'S12', '-x': 'S12', '+y': 'S12', '-y': 'S12'}))
         return p
 
-    k['debris-face'] = {'body': [(chips(False), chips(False))]}
+    k['debris-face'] = {'body': [chips()]}
 
     def beam(which):
         # A dressed stone beam 0.24 m square, chamfered (its wrap one field band, its ends the 0.25 m cap cell).
@@ -775,7 +770,7 @@ def stone_pieces():
         x1 = HALF + (0.05 if which in ('end', 'single') else 0.0)
         return ext_x(pts, 'F1', x0, x1, (0.0, 0.0), closed=True, cap0=which in ('start', 'single'), cap1=which in ('end', 'single'))
 
-    k['beam'] = {s: [(beam(s), beam(s))] for s in ('body', 'start', 'end', 'single')}
+    k['beam'] = {s: [beam(s)] for s in ('body', 'start', 'end', 'single')}
 
     def rail(which):
         # A square stone rail on top and a lower one.
@@ -785,10 +780,10 @@ def stone_pieces():
             p.add(ext_x(pts, 'S50', -HALF, HALF, (0.0, cy), closed=True, cap0=which in ('start', 'single'), cap1=which in ('end', 'single')))
         return p
 
-    k['banister-rail'] = {s: [(rail(s), rail(s))] for s in ('body', 'start', 'end', 'single')}
+    k['banister-rail'] = {s: [rail(s)] for s in ('body', 'start', 'end', 'single')}
     sq = [(-0.07, -0.07), (0.07, -0.07), (0.07, 0.07), (-0.07, 0.07)]
     # A square post from its cell's floor up through the rail's cell to the top rail.
-    k['banister-post'] = {'body': [(ext_y(sq, 'F1', -HALF, POST_TOP, (0.0, 0.0), top=True),) * 2]}
+    k['banister-post'] = {'body': [ext_y(sq, 'F1', -HALF, POST_TOP, (0.0, 0.0), top=True)]}
     return k
 
 
@@ -828,9 +823,9 @@ KITS = {
 }
 
 
-def node_name(case, section, k, level):
+def node_name(case, section, k):
     # Letters, digits, - and _ only: three's loader strips '.', ':' and '/' from node names, the project model reads them raw.
-    return f'{case}_{section}_v{k}_{level}'
+    return f'{case}_{section}_v{k}'
 
 
 def build(kit_id):
@@ -845,8 +840,7 @@ def kit_record(kit_id, spec, pieces, asset_id, digest):
         for section, variants in sections.items():
             vs = []
             for k, _ in enumerate(variants):
-                v = {'high': {'assetId': asset_id, 'digest': digest, 'node': node_name(case, section, k, 'high')},
-                     'low': {'assetId': asset_id, 'digest': digest, 'node': node_name(case, section, k, 'low')}}
+                v = {'high': {'assetId': asset_id, 'digest': digest, 'node': node_name(case, section, k)}}
                 w = spec['weights'].get(case)
                 if w is not None and w[k] != 1:
                     v['weight'] = w[k]
@@ -872,8 +866,8 @@ def stats(pieces):
     rows = []
     for case, sections in pieces.items():
         for section, variants in sections.items():
-            for k, (hi, lo) in enumerate(variants):
-                rows.append((case, section, k, len(hi.tris), len(lo.tris)))
+            for k, piece in enumerate(variants):
+                rows.append((case, section, k, len(piece.tris)))
     return rows
 
 
@@ -909,18 +903,12 @@ def write_blender(kit_id, pieces, path):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     mat = bpy.data.materials.new(f'{kit_id}-standin')
-    meshes = {}
     for case, sections in pieces.items():
         for section, variants in sections.items():
-            for k, pair in enumerate(variants):
-                for level, piece in zip(('high', 'low'), pair):
-                    name = node_name(case, section, k, level)
-                    # A low that is its high shares the mesh: one mesh in the file, two nodes.
-                    me = meshes.get(id(piece))
-                    if me is None:
-                        me = meshes[id(piece)] = blender_mesh(bpy, name, piece, mat)
-                    ob = bpy.data.objects.new(name, me)
-                    scene.collection.objects.link(ob)
+            for k, piece in enumerate(variants):
+                name = node_name(case, section, k)
+                ob = bpy.data.objects.new(name, blender_mesh(bpy, name, piece, mat))
+                scene.collection.objects.link(ob)
     bpy.ops.export_scene.gltf(
         filepath=path, export_format='GLB', export_yup=True, export_texcoords=True, export_normals=True,
         export_tangents=False, export_materials='PLACEHOLDER', export_cameras=False, export_lights=False,
@@ -937,11 +925,9 @@ def main():
     for kit_id in KITS:
         spec, pieces = build(kit_id)
         rows = stats(pieces)
-        hi = sum(r[3] for r in rows)
-        lo = sum(r[4] for r in rows)
-        print(f'[{kit_id}] {len(rows)} pieces, {hi} triangles high, {lo} low')
+        print(f'[{kit_id}] {len(rows)} pieces, {sum(r[3] for r in rows)} triangles')
         for r in rows:
-            print(f'  {r[0]:18} {r[1]:7} v{r[2]}  high {r[3]:4}  low {r[4]:4}')
+            print(f'  {r[0]:18} {r[1]:7} v{r[2]}  {r[3]:4} tris')
         if dry:
             continue
         glb = os.path.join(out, f'voxel-kit-{kit_id}.glb')

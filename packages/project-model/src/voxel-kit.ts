@@ -1,8 +1,12 @@
 /**
  * Voxel kits (`content.voxelKits`): the detail pieces a material type draws
- * its voxel cases with — per case and run section the authored high and low
- * meshes with weighted variants, the outlines section ends meet by, and the
- * game's own data per kit and per case.
+ * its voxel cases with — per case and run section the authored mesh of
+ * each weighted variant, the outlines section ends meet by, and the game's
+ * own data per kit and per case.
+ *
+ * - **One mesh a piece.** Pieces are drawn in the near ring (level 0) only;
+ *   from level 1 out the edges are plain voxel faces, so a variant has no
+ *   lower-detail mesh (a stored `low` is an unknown field, refused).
  *
  * - **A kit belongs to a material type** (wood, stone), never to one
  *   material: every material of the type shares its instanced pieces.
@@ -49,10 +53,9 @@ export interface VoxelKitMesh {
   node?: string;
 }
 
-/** One variant of a section: its high mesh (near), its low mesh (the next detail level; absent: none authored). */
+/** One variant of a section: its mesh, drawn in the near ring (`high`: the field's name since the first draft). */
 export interface VoxelKitVariant {
   high: VoxelKitMesh;
-  low?: VoxelKitMesh;
   /** Relative weight among the section's variants (absent: 1). */
   weight?: number;
 }
@@ -127,7 +130,7 @@ export const VOXEL_KIT_LIMITS = Object.freeze({
 const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'cases', 'joinProfiles', 'trimLayout', 'gameData'];
 const CASE_FIELDS = ['sections', 'alias', 'gameData'];
 const SECTION_FIELDS = ['variants', 'ends'];
-const VARIANT_FIELDS = ['high', 'low', 'weight'];
+const VARIANT_FIELDS = ['high', 'weight'];
 const MESH_FIELDS = ['assetId', 'digest', 'node'];
 /** A model node name (as a block kit piece's). */
 const NODE_RE = /^[^\u0000-\u001f]{1,128}$/;
@@ -176,10 +179,9 @@ function section(v: unknown, path: string, profiles: ReadonlySet<string> | null,
   else {
     variants.forEach((x, i) => {
       const p = `${path}/variants/${i}`;
-      if (!isPlainObject(x)) return err(errors, 'field_type', p, 'a variant is {high, low?, weight?}', x, 'object');
+      if (!isPlainObject(x)) return err(errors, 'field_type', p, 'a variant is {high, weight?}', x, 'object');
       fields(x, VARIANT_FIELDS, p, 'variant', errors);
       mesh(x['high'], `${p}/high`, errors);
-      if (x['low'] !== undefined) mesh(x['low'], `${p}/low`, errors);
       const w = x['weight'];
       if (w !== undefined && (typeof w !== 'number' || !Number.isFinite(w) || w <= 0 || w > VOXEL_KIT_LIMITS.weightMax)) err(errors, 'field_value', `${p}/weight`, `weight is a number in (0, ${VOXEL_KIT_LIMITS.weightMax}]`, w);
     });
@@ -317,7 +319,7 @@ function canonicalSection(s: VoxelKitSection): VoxelKitSection {
   const start = s.ends?.start;
   const end = s.ends?.end;
   return {
-    variants: s.variants.map((x) => ({ high: canonicalMesh(x.high), ...(x.low !== undefined ? { low: canonicalMesh(x.low) } : {}), ...(x.weight !== undefined && x.weight !== 1 ? { weight: x.weight } : {}) })),
+    variants: s.variants.map((x) => ({ high: canonicalMesh(x.high), ...(x.weight !== undefined && x.weight !== 1 ? { weight: x.weight } : {}) })),
     ...(start !== undefined || end !== undefined ? { ends: { ...(start !== undefined ? { start } : {}), ...(end !== undefined ? { end } : {}) } } : {}),
   };
 }
@@ -358,15 +360,12 @@ export function canonicalVoxelKits(list: readonly VoxelKit[]): VoxelKit[] {
   return [...list].sort((a, b) => cmp(a.voxelKitId, b.voxelKitId)).map(canonicalVoxelKit);
 }
 
-/** Every mesh a kit's pieces draw with, high and low, in case, section and variant order. */
+/** Every mesh a kit's pieces draw with, in case, section and variant order. */
 export function voxelKitMeshes(k: VoxelKit): VoxelKitMesh[] {
   const out: VoxelKitMesh[] = [];
   for (const c of Object.values(k.cases)) {
     for (const s of Object.values(c.sections ?? {})) {
-      for (const x of s.variants) {
-        out.push(x.high);
-        if (x.low !== undefined) out.push(x.low);
-      }
+      for (const x of s.variants) out.push(x.high);
     }
   }
   return out;

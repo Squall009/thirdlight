@@ -42,12 +42,12 @@
  * piece adds to the faces it sits between. A cell may own several
  * instances: one each edge, corner, roof edge or debris piece it carries.
  *
- * **Pieces per level** ({@link pieceDetailAt}): a chunk (level 0) lists its
- * pieces at high detail, a level-1 node at low detail (`low` set: the
- * renderer draws the piece variant's low mesh, or its high one where the kit
- * authored no low), and coarser nodes list none: there the cells the rules read as
- * beams and rails are drawn by the base surface as the bodies their mip
- * cells are, so a distant balcony or fence keeps its outline as blocks.
+ * **Pieces per level** ({@link levelDrawsPieces}): only a chunk (level 0, the
+ * near ring) lists pieces. Coarser nodes list none: their edges are plain
+ * square voxel faces, and the cells the rules read as beams and rails are
+ * drawn by the base surface as the bodies their mip cells are, so a distant
+ * balcony or fence keeps its outline as blocks. Two detail states, not a
+ * piece mesh per level: a kit authors one mesh a piece.
  */
 import type { Neighbourhood } from './assembly';
 
@@ -63,12 +63,10 @@ export const SURFACE_VERTEX_BYTES = 12;
 /** Bytes per detail instance. */
 export const INSTANCE_BYTES = 8;
 
-/** Instance flags (bits 4–7 of the rotation byte). */
+/** Instance flags (bits 4–7 of the rotation byte; 0x20 and 0x80 are written 0). */
 export const INSTANCE_FLAG = Object.freeze({
   /** The piece replaces its cell's base surface (none is emitted under it). */
   replacesBase: 0x10,
-  /** The piece is drawn at low detail (a level-1 node's). */
-  low: 0x20,
   /**
    * The piece covers half its run (piece-placement.ts {@link pieceHalfRun}):
    * a roof's ridge and hips end at the middle of an apex cell, where they
@@ -77,12 +75,9 @@ export const INSTANCE_FLAG = Object.freeze({
   half: 0x40,
 });
 
-/** How detailed a level's pieces are: level 0 high, level 1 low, coarser none (their cells drawn as bodies). */
-export const PIECE_DETAIL = Object.freeze({ high: 0, low: 1, none: 2 });
-
-/** The detail of chunk-tree level `level`'s pieces ({@link PIECE_DETAIL}). */
-export function pieceDetailAt(level: number): number {
-  return level === 0 ? PIECE_DETAIL.high : level === 1 ? PIECE_DETAIL.low : PIECE_DETAIL.none;
+/** Whether chunk-tree level `level` draws detail pieces: level 0 only (coarser levels draw those cells as bodies). */
+export function levelDrawsPieces(level: number): boolean {
+  return level === 0;
 }
 
 /** The default pieces' stand-in families (a default piece = family << 3 | run section, piece-table.ts). */
@@ -172,12 +167,8 @@ export interface CellPiece {
  * Detail instances: every piece `piecesAt` gives each cell of the derive
  * unit (padded index, then the cell's local x, y, z), in cell order and then
  * in the order given; a cell may own several (its edges, its corners).
- * `detail` ({@link PIECE_DETAIL}): none lists nothing, low flags every
- * piece.
  */
-export function detailInstances(n: Neighbourhood, piecesAt: (i: number, x: number, y: number, z: number, cell: CellPiece, emit: () => void) => void, detail: number = PIECE_DETAIL.high): InstanceList {
-  if (detail === PIECE_DETAIL.none) return { count: 0, data: new Uint8Array(0) };
-  const low = detail === PIECE_DETAIL.low ? INSTANCE_FLAG.low : 0;
+export function detailInstances(n: Neighbourhood, piecesAt: (i: number, x: number, y: number, z: number, cell: CellPiece, emit: () => void) => void): InstanceList {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -193,7 +184,7 @@ export function detailInstances(n: Neighbourhood, piecesAt: (i: number, x: numbe
     d.setUint8(at, cx);
     d.setUint8(at + 1, cy);
     d.setUint8(at + 2, cz);
-    d.setUint8(at + 3, (cell.turns & 3) | ((cell.place & 3) << INSTANCE_PLACE_SHIFT) | cell.flags | low);
+    d.setUint8(at + 3, (cell.turns & 3) | ((cell.place & 3) << INSTANCE_PLACE_SHIFT) | cell.flags);
     d.setUint16(at + 4, cell.piece, true);
     d.setUint16(at + 6, cell.variant, true);
     count++;

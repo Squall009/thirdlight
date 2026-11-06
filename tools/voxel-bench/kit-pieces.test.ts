@@ -5,8 +5,7 @@
  * the instance's piece, turns, placement and variant word (still 8 bytes, a
  * cell owning one instance an edge, corner or roof edge), variants that stay
  * put under unrelated edits and whichever unit derives a cell, and the
- * pieces per level (high in chunks, low in level-1 nodes, none coarser)
- * with no suppressed cell left without a piece.
+ * pieces per level (in chunks only, none in coarser nodes).
  */
 import {
   buildApron,
@@ -347,37 +346,25 @@ describe('material and wetness feed the shader data, kits bound', () => {
 });
 
 describe('kit pieces per level', () => {
-  it('lists the kit\'s pieces high in chunks and low in level-1 nodes and none from level 2; every cell a piece replaces keeps one at levels 0 and 1 (no roofless houses at level 1)', () => {
+  it('lists the kit\'s pieces in chunks only: level-1 and level-2 nodes list none, with the kit bound or not (no piece mesh a level; their edges are plain voxel faces)', () => {
     const s = townStore();
     const tree = new MipTree(s);
     const { table } = buildPieceTable([fullTestKit('town', BUILDING_MATERIALS, 2)], RULES);
-    const count = { l0: 0, l1: 0, l1kit: 0, replaced: [0, 0] };
-    const replacing = (m: Map<string, Inst>): number[] => [...m].filter(([, x]) => (x.flags & INSTANCE_FLAG.replacesBase) !== 0).map(([k]) => cellOfKey(k)).sort((a, b) => a - b);
+    let l0kit = 0;
     for (const [cx, cy, cz] of TOWN_CHUNKS) {
       const withKit = instancesOf(deriveFromStore(s, cx, cy, cz, RULES, undefined, table));
-      const plain = instancesOf(deriveFromStore(s, cx, cy, cz, RULES));
-      expect(replacing(withKit)).toEqual(replacing(plain));
-      count.replaced[0]! += replacing(withKit).length;
-      for (const x of withKit.values()) expect(x.flags & INSTANCE_FLAG.low).toBe(0);
-      count.l0 += withKit.size;
+      for (const x of withKit.values()) if (x.piece >= KIT_PIECE_BASE) l0kit++;
     }
+    expect(l0kit).toBeGreaterThan(0);
     for (const [nx, ny, nz] of [[0, 0, 0], [1, 0, 0], [0, 0, 1], [1, 0, 1]] as const) {
-      const node = { level: 1, nx, ny, nz };
-      const withKit = instancesOf(deriveMipNode(tree, node, RULES, undefined, table));
-      const plain = instancesOf(deriveMipNode(tree, node, RULES));
-      expect(replacing(withKit)).toEqual(replacing(plain));
-      count.replaced[1]! += replacing(withKit).length;
-      for (const x of withKit.values()) {
-        expect(x.flags & INSTANCE_FLAG.low).not.toBe(0);
-        if (x.piece >= KIT_PIECE_BASE) count.l1kit++;
+      for (const node of [{ level: 1, nx, ny, nz }, { level: 2, nx: nx >> 1, ny: ny >> 1, nz: nz >> 1 }]) {
+        const withKit = deriveMipNode(tree, node, RULES, undefined, table);
+        const plain = deriveMipNode(tree, node, RULES);
+        expect(withKit.instances.count, `level ${node.level}`).toBe(0);
+        // The kit changes nothing a coarse node draws: its bytes are the plain ones.
+        expect(encodeDerived(withKit)).toEqual(encodeDerived(plain));
       }
-      count.l1 += withKit.size;
-      expect(deriveMipNode(tree, { level: 2, nx: nx >> 1, ny: ny >> 1, nz: nz >> 1 }, RULES, undefined, table).instances.count).toBe(0);
     }
-    expect(count.l0).toBeGreaterThan(count.l1);
-    expect(count.l1kit).toBeGreaterThan(0);
-    expect(count.replaced[0]).toBeGreaterThan(0);
-    expect(count.replaced[1]).toBeGreaterThan(0);
   });
 });
 
@@ -393,7 +380,7 @@ describe('the default kit', () => {
       const target = p.alias?.case ?? id;
       expect(DEFAULT_KIT_PIECES[target]?.mesh, id).toBeDefined();
       if (p.alias !== undefined) expect(p.alias.rotation, id).toBeGreaterThan(0);
-      for (const low of [false, true]) expect(defaultKitMesh(target, low)!.indices.length, id).toBeGreaterThan(0);
+      expect(defaultKitMesh(target)!.indices.length, id).toBeGreaterThan(0);
     }
     // The table numbers an alias as a piece of its own case, drawn by its target's mesh turned.
     const own = kitPieceList(defaultKitSource(CAT), CAT);

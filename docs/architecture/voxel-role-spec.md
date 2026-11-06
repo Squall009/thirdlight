@@ -579,8 +579,8 @@ middle distance outward.** There is no "simple piece" stage, so a kit authors **
 | L1 (middle) and coarser | 1 m and up | **none** | flat square voxels, roof planes |
 
 Damage shows at L0 only (§7). The far field (no draw cut-off, cheap stand-ins for km-distant terrain) is 46d's.
-*As built today the code still draws low pieces at L1 (46b.9's high/low/none); 46c.16 switches it to this table and
-drops the `low` mesh from the kit format and the kit check.*
+*Built so in 46c.16a (derived 21): level 1 and coarser list no pieces; the `low` mesh left the kit format, the kit
+check and the placeholder kits.*
 
 ## 12. What a kit must provide, and what the engine does without it
 
@@ -592,15 +592,15 @@ A kit belongs to a material type and draws the pieces of every cell whose materi
   engine's stand-in shapes).
 - **Optional (9):** the inner edges and corners, `roof-valley`, `debris`, `debris-heavy`, `debris-face`. Missing one
   is **info**: the faces show as they are; `debris-heavy` falls back to the kit's `debris`.
-- **Per piece:** a high mesh, a low mesh (missing: the high draws at L1, info), optional variants with weights,
+- **Per piece:** one mesh (drawn at L0 only), optional variants with weights,
   opaque game data (break, sound, … passed through to the game; the engine never reads it).
 - **Engine fallbacks:** a material no kit binds draws the **engine default kit** (procedural, in code: rounded
-  strips, coves, corner caps, roof boards, rubble; 11 meshes for 18 cases, 525 / 122 triangles high / low in all).
+  strips, coves, corner caps, roof boards, rubble; 11 meshes for 18 cases, 525 triangles in all).
   A case missing in a bound kit draws nothing (no other kit's piece stands in), except beams and banisters, which
   draw the engine's stand-ins.
 - **Collision, navigation and light never read a piece.** They come from the voxels (and the roof planes).
-- **Budgets** (placeholder defaults, reported by the kit check, never capped): edge ≤ 48 / 16 triangles high / low,
-  corner ≤ 64 / 24, roof edge ≤ 64 / 24, debris ≤ 160 / 48.
+- **Budgets** (placeholder defaults, reported by the kit check, never capped): edge ≤ 48 triangles, corner ≤ 64,
+  roof edge ≤ 64, debris ≤ 160 (one mesh a piece).
 
 ## 13. Building a piece in Blender
 
@@ -627,11 +627,11 @@ These match what the engine draws, the kit check tests and `tools/voxel-bench/ki
   name it `body`); beams and banisters have run sections. The kit record lists each case's sections and variants,
   or its alias.
 - **Normals and maps.** Smooth round members, flat cut faces; fine detail as baked normals (texture layout §4).
-  Report triangles per level, texture sizes and file size with every kit (the kit check's budget row).
+  Report triangles, texture sizes and file size with every kit (the kit check's budget row).
 
 The two placeholder kits made to this draft (engine test data, not game art; R5): **log** 22 pieces (13 cases with
-meshes + 4 aliases), 757 / 350 triangles high / low, GLB 96,744 B; **stone** 21 pieces (13 + 5 aliases), 490 / 414,
-GLB 85,260 B; no textures (the runtime debug set); kit check 0 errors.
+meshes + 4 aliases), 757 triangles, GLB 58,404 B; **stone** 21 pieces (13 + 5 aliases), 490 triangles, GLB 47,320 B
+(46c.16a: one mesh a piece, the low meshes gone); no textures (the runtime debug set); kit check 0 errors.
 
 ## 14. What is not here (moved by the 2026-11-04 review)
 

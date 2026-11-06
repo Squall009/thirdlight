@@ -30,13 +30,13 @@ function full(): VoxelKit {
           body: {
             ends: { end: 'round', start: 'round' },
             variants: [
-              { weight: 3, low: { digest: D2, assetId: 'log-kit-low', node: 'Rail_Body_L1' }, high: { node: 'Rail_Body_A', digest: D1, assetId: 'log-kit' } },
+              { weight: 3, high: { node: 'Rail_Body_A', digest: D1, assetId: 'log-kit' } },
               { weight: 1, high: { assetId: 'log-kit', digest: D1, node: 'Rail_Body_B' } },
             ],
           },
         },
       },
-      'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D1 }, low: { assetId: 'log-kit-low', digest: D2 } }], ends: { start: 'beam' } } } },
+      'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D2 } }], ends: { start: 'beam' } } } },
       // Drawn by another case's meshes turned (fields given out of order).
       'beam-end': { gameData: { break: { hits: 2 } }, alias: { rotation: 5, case: 'beam-corner' } },
       // Data only: no pieces of its own (the fallback kit draws the case).
@@ -82,14 +82,14 @@ describe('voxel kit record', () => {
         materialType: 'wood',
         materials: [3, 12, 4095],
         cases: {
-          'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D1 }, low: { assetId: 'log-kit-low', digest: D2 } }], ends: { start: 'beam' } } } },
+          'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D2 } }], ends: { start: 'beam' } } } },
           'beam-end': { alias: { case: 'beam-corner', rotation: 5 }, gameData: { break: { hits: 2 } } },
           'floor-edge': { gameData: 'creaky' },
           'wall-banister': {
             sections: {
               body: {
                 variants: [
-                  { high: { assetId: 'log-kit', digest: D1, node: 'Rail_Body_A' }, low: { assetId: 'log-kit-low', digest: D2, node: 'Rail_Body_L1' }, weight: 3 },
+                  { high: { assetId: 'log-kit', digest: D1, node: 'Rail_Body_A' }, weight: 3 },
                   { high: { assetId: 'log-kit', digest: D1, node: 'Rail_Body_B' } },
                 ],
                 ends: { start: 'round', end: 'round' },
@@ -140,6 +140,8 @@ describe('voxel kit record', () => {
     expect(at((k) => (k['cases']['beam-corner']['collision'] = 'box'))).toEqual(['field_unexpected /cases/beam-corner/collision']);
     expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['mirror'] = true))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/mirror']);
     expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['mid'] = {}))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/variants/0/mid']);
+    // One mesh a piece (pieces are drawn in the near ring only): a lower-detail mesh is no field of the format.
+    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['low'] = { assetId: 'log-kit', digest: D1 }))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/variants/0/low']);
     expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['high']['url'] = 'x'))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/variants/0/high/url']);
     expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['ends']['middle'] = 'beam'))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/ends/middle']);
     expect(at((k) => (k['joinProfiles']['beam']['holes'] = []))).toEqual(['field_unexpected /joinProfiles/beam/holes']);

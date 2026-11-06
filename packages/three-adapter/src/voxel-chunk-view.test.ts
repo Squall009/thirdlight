@@ -179,7 +179,7 @@ describe('the voxel chunk view', () => {
     expect(view.regions).toBe(grids);
   });
 
-  it('draws a chunk\'s pieces at high detail and a level-1 node\'s at low, from a kit\'s meshes when given (never disposed by the view), stand-ins otherwise', () => {
+  it('draws a chunk\'s pieces and none for a level-1 node, from a kit\'s meshes when given (never disposed by the view), stand-ins otherwise', () => {
     const s = world();
     const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
     const origin = new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } });
@@ -187,8 +187,8 @@ describe('the voxel chunk view', () => {
     const kit = new Map<string, THREE.BufferGeometry>();
     const disposed: string[] = [];
     const pieces: VoxelPieceMeshes = {
-      geometry(family, detail) {
-        const key = `${family}:${detail}`;
+      geometry(family) {
+        const key = `${family}`;
         asked.push(key);
         let g = kit.get(key);
         if (g === undefined) {
@@ -207,24 +207,22 @@ describe('the voxel chunk view', () => {
     view.set(cx!, cy!, cz!, { ...d0, solid: shaderSolidEntry(d0.shader) });
     view.set(cx!, cy!, cz!, { ...d1, solid: shaderSolidEntry(d1.shader) }, 1);
     const meshes = (name: string): THREE.InstancedMesh[] => view.root.children.find((c) => c.name === name)!.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh);
-    const high = meshes(`voxel-chunk ${cx},${cy},${cz}`);
-    const low = meshes(`voxel-node 1:${cx},${cy},${cz}`);
-    expect(high.every((m) => [...kit].some(([k, g]) => g === m.geometry && k.endsWith(':high')))).toBe(true);
-    expect(low.every((m) => [...kit].some(([k, g]) => g === m.geometry && k.endsWith(':low')))).toBe(true);
-    expect(high.reduce((n, m) => n + m.count, 0)).toBe(d0.instances.count);
-    expect(view.piecesDrawn).toEqual({ high: d0.instances.count, low: d1.instances.count, kit: 0 });
-    // Each family and detail is asked for once; the kit's meshes are its own.
+    const near = meshes(`voxel-chunk ${cx},${cy},${cz}`);
+    expect(d1.instances.count).toBe(0);
+    expect(meshes(`voxel-node 1:${cx},${cy},${cz}`)).toEqual([]);
+    expect(near.length).toBeGreaterThan(0);
+    expect(near.every((m) => [...kit.values()].includes(m.geometry))).toBe(true);
+    expect(near.reduce((n, m) => n + m.count, 0)).toBe(d0.instances.count);
+    expect([view.instances, view.piecesDrawn.kit]).toEqual([d0.instances.count, 0]);
+    // Each family is asked for once; the kit's meshes are its own.
     expect(new Set(asked).size).toBe(asked.length);
     view.remove(cx!, cy!, cz!, 1);
-    expect(view.piecesDrawn).toEqual({ high: d0.instances.count, low: 0, kit: 0 });
+    expect(view.instances).toBe(d0.instances.count);
     view.dispose();
     expect(disposed).toEqual([]);
-    // The stand-ins: the low mesh is the high box without its two ends along its long axis.
-    for (const family of [PIECE_FAMILY.beam, PIECE_FAMILY.rail, PIECE_FAMILY.post]) {
-      expect(standInPieceGeometry(family, 'high')!.index!.count / 3).toBe(12);
-      expect(standInPieceGeometry(family, 'low')!.index!.count / 3).toBe(8);
-    }
-    expect(standInPieceGeometry(99, 'high')).toBeNull();
+    // The stand-ins: a box of the family's size.
+    for (const family of [PIECE_FAMILY.beam, PIECE_FAMILY.rail, PIECE_FAMILY.post]) expect(standInPieceGeometry(family)!.index!.count / 3).toBe(12);
+    expect(standInPieceGeometry(99)).toBeNull();
   });
 
   it('uploads only the grid for a shader change, re-places every chunk after a re-base, and frees everything on remove', () => {

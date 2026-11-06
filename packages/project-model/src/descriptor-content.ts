@@ -602,7 +602,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
   {
     key: 'voxelKits',
     label: 'Voxel kits',
-    tooltip: 'The detail pieces a material type (wood, stone, …) draws a voxel world\'s cases with: per case and run section the authored high and low meshes with weighted variants, the outlines section ends meet by, and the game\'s own data. Shipped whole with the build; the engine never reads the game data.',
+    tooltip: 'The detail pieces a material type (wood, stone, …) draws a voxel world\'s cases with: per case and run section the authored mesh of each weighted variant (drawn in the near ring only), the outlines section ends meet by, and the game\'s own data. Shipped whole with the build; the engine never reads the game data.',
     required: false,
     value: list('voxelKits', 'Voxel kits', 'The project\'s voxel kits (each its own file).', obj('*', 'Voxel kit', 'A voxel kit.', [
       int('kitFormat', 'Format', `The kit record's format (${VOXEL_KIT_FORMAT}); a newer one is refused.`, { required: true, min: VOXEL_KIT_FORMAT, max: VOXEL_KIT_FORMAT, default: VOXEL_KIT_FORMAT, readOnly: true }),

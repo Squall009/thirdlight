@@ -293,8 +293,9 @@ them as `voxelKits`.
 - **`kitFormat`** is 1. A kit of a newer format is refused whole, as is any
   field this engine does not know; fields are only ever added.
 - **`cases`**: per case id, its run `sections` (body, corner, termination …
-  by section id), each with one or more weighted `variants` of a `high` mesh
-  and an optional `low` one. A mesh is a model asset and the SHA-256 of the
+  by section id), each with one or more weighted `variants`, each one
+  mesh (`high`; pieces draw only near the camera, so there is no
+  lower-detail mesh). A mesh is a model asset and the SHA-256 of the
   GLB version it was made from (`{assetId, digest, node?}`), so it ships as
   every model does. A case may hold only game data. A case may instead
   name another case of the kit as its **`alias`** (`{case, rotation}`): it
@@ -316,9 +317,9 @@ them as `voxelKits`.
 exported game draw every world with the project's kits: a cell's piece is
 its material's kit's piece for the case of each of its edges and corners
 (and a beam's or banister's run section), its variant picked from the cell
-and the edge (an edit elsewhere never reshuffles it), turned to fit. Near the camera a piece's `high` mesh draws, one level out
-its `low` one (its `high` one where none is authored), farther out none:
-the cells draw as blocks. A material no kit binds draws the engine's
+and the edge (an edit elsewhere never reshuffles it), turned to fit. Pieces draw only in the near ring (level 0); from the
+middle ring out the edges are plain square voxel faces and beams and rails
+draw as blocks. A material no kit binds draws the engine's
 **default kit**: procedural pieces made in code (a rounded strip along each
 outer edge, a cove in each inner edge, a rounded cap on each outer corner,
 chamfered roof-edge boards, chamfered rubble for debris) with a labelled
@@ -348,7 +349,7 @@ MCP's `tl_diagnostics`) as `voxel_kit_check` lines, one a rule:
   and T4;
 - **warning** — something draws, just not from the kit: a required case
   the kit leaves to another case's piece, the plain faces or the engine's
-  stand-in (the line names which), a low mesh heavier than its high one, a mesh past half a cell
+  stand-in (the line names which), a mesh past half a cell
   round its cell, section ends whose outlines differ, a mesh made from a
   model version the project no longer has;
 - triangle counts and texture sizes are reported, never capped.

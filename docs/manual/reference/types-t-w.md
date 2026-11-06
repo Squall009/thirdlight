@@ -1097,10 +1097,9 @@ interface VoxelKitSection {
 Declared in `packages/project-model/src/voxel-kit.ts`.
 
 ```ts
-/** One variant of a section: its high mesh (near), its low mesh (the next detail level; absent: none authored). */
+/** One variant of a section: its mesh, drawn in the near ring (`high`: the field's name since the first draft). */
 interface VoxelKitVariant {
   high: VoxelKitMesh;
-  low?: VoxelKitMesh;
   /** Relative weight among the section's variants (absent: 1). */
   weight?: number;
 }

@@ -39,6 +39,7 @@ import {
   defaultPieceFamily,
   INSTANCE_FLAG,
   jobRadius,
+  levelDrawsPieces,
   joinSections,
   LIGHT_COVERAGE,
   MipTree,
@@ -163,7 +164,7 @@ function checkAgainstForms(d: DerivedData, job: ReturnType<typeof jobForms>, at:
   const { n, classes, forms, cases, roofs } = job;
   const s = n.side;
   const p = n.pad;
-  const piecesDrawn = d.level < 2;
+  const piecesDrawn = levelDrawsPieces(d.level);
   let withCase = 0;
   const shapes = new Set<number>();
   for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) for (let y = 0; y < E; y++) {
@@ -245,7 +246,7 @@ describe('consumers from the case', () => {
     for (const c of EDGE_CASE_CATALOGUE.cases) expect(`${c.base}/${c.shape}`, c.id).toBe(thin[c.id] ?? 'keep/box');
   });
 
-  it('gives every consumer the cell\'s form, never a piece: town, scenes and random worlds at levels 0 and 1 (cases) and 2 (classes)', () => {
+  it('gives every consumer the cell\'s form, never a piece: town, scenes and random worlds at level 0 (cases) and levels 1 and 2 (classes)', () => {
     const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
       ['scene', sceneStore((s) => placeWallBeamBanister(s)), [[-1, 0, -1], [0, 0, 0], [-1, 0, 0], [-1, -1, -1]]],
       ['balcony', sceneStore((s) => placeBalcony(s)), [[-1, 0, 0], [0, 0, 0]]],
@@ -255,27 +256,24 @@ describe('consumers from the case', () => {
     ];
     let withCase = 0;
     const shapes = new Set<number>();
-    const levels = new Set<number>();
     for (const [name, store, chunks] of stores) {
       const tree = new MipTree(store);
       for (const [cx, cy, cz] of chunks) {
         const r = checkAgainstForms(deriveFromStore(store, cx, cy, cz, EDGE_RULES), jobForms(store, cx, cy, cz, 0), `${name} chunk ${cx},${cy},${cz}`);
         withCase += r.withCase;
         for (const k of r.shapes) shapes.add(k);
-        levels.add(0);
         for (const level of [1, 2]) {
           const node = { level, nx: cx >> level, ny: cy >> level, nz: cz >> level };
           const d = deriveMipNode(tree, node, EDGE_RULES);
           const job = jobForms(tree.level(level), node.nx, node.ny, node.nz, level);
           const rr = checkAgainstForms(d, job, `${name} level ${level} node ${node.nx},${node.ny},${node.nz}`);
-          if (level === 2) expect(rr.withCase).toBe(0);
-          else if (rr.withCase > 0) levels.add(1);
+          // No pieces past level 0, so no cases there either.
+          expect(rr.withCase).toBe(0);
         }
       }
     }
     // Only beams and banisters carry a window case in the world catalogue (edges are the edge pass's): a few hundred cells here.
     expect(withCase).toBeGreaterThan(300);
-    expect([...levels].sort()).toEqual([0, 1]);
     // Every declared shape occurs: whole cells, rails, beams and posts, and open space.
     expect([...shapes].sort()).toEqual(Object.values(FORM_SHAPE).sort());
   }, 120_000);

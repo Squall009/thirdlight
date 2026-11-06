@@ -49,9 +49,8 @@ import {
   MipStaleSet,
   NAV_CLEARANCE_CONTINUES,
   OCCUPANCY,
-  PIECE_DETAIL,
+  levelDrawsPieces,
   PIECE_FAMILY,
-  pieceDetailAt,
   PLACEHOLDER_RULES,
   RULE_CONFORMANCE_EXTRA_PAD,
   CASE_REACH,
@@ -244,7 +243,7 @@ describe('assembly evaluation and per-consumer outputs', () => {
     expect(consumersAt(s, 0, 5, -1)).toMatchObject({ light: 255, collision: 'full', instance: null });
   });
 
-  it('lists detail pieces per level: high in a chunk, low in a level-1 node, none coarser, where the base surface draws their cells as the bodies they are', () => {
+  it('lists detail pieces only in a chunk (level 0); from level 1 none, where the base surface draws their cells as the bodies they are', () => {
     const s = wallBeamBanister();
     // The same cells derived as a chunk (level 0) and as nodes of levels 1 and 2: only the level differs.
     const at = (x: number, y: number, z: number, level: number): DerivedData => {
@@ -253,19 +252,16 @@ describe('assembly evaluation and per-consumer outputs', () => {
     };
     // Beam, rail and post, with the faces each exposes once drawn as a body (its run neighbours and supports hide the rest).
     const pieces: Array<[number, number, number, number, number]> = [[0, 5, -1, PIECE_FAMILY.beam, 3], [1, 2, 7, PIECE_FAMILY.rail, 4], [0, 1, 7, PIECE_FAMILY.post, 4]];
-    expect(pieceDetailAt(0)).toBe(PIECE_DETAIL.high);
-    expect(pieceDetailAt(1)).toBe(PIECE_DETAIL.low);
-    expect(pieceDetailAt(2)).toBe(PIECE_DETAIL.none);
-    expect(pieceDetailAt(5)).toBe(PIECE_DETAIL.none);
+    expect([0, 1, 2, 5].map(levelDrawsPieces)).toEqual([true, false, false, false]);
     for (const [x, y, z, family, faces] of pieces) {
       const outs = [0, 1, 2].map((level) => cellOutputs(at(x, y, z, level), local(x), local(y), local(z)));
       const name = `piece ${family} at ${x},${y},${z}`;
-      expect(outs[0]!.piece, name).toMatchObject({ family, replacesBase: true, low: false });
-      expect(outs[1]!.piece, name).toMatchObject({ family, replacesBase: true, low: true });
+      expect(outs[0]!.piece, name).toMatchObject({ family, replacesBase: true });
+      expect(outs[1]!.piece, name).toBeNull();
       expect(outs[2]!.piece, name).toBeNull();
-      // Under a drawn piece no base face; where the piece is removed the base surface draws the cell.
+      // Under a drawn piece no base face; where the piece is removed (level 1 on) the base surface draws the cell.
       expect(outs[0]!.baseFaces, name).toBe(0);
-      expect(outs[1]!.baseFaces, name).toBe(0);
+      expect(outs[1]!.baseFaces, name).toBe(faces);
       expect(outs[2]!.baseFaces, name).toBe(faces);
       // Every other consumer reads the class, not the level.
       for (const o of outs.slice(1)) expect({ ...o, piece: null, pieces: [], baseFaces: 0 }, name).toEqual({ ...outs[0]!, piece: null, pieces: [], baseFaces: 0 });
@@ -273,12 +269,12 @@ describe('assembly evaluation and per-consumer outputs', () => {
     for (const [cx, cy, cz] of [[0, 0, -1], [0, 0, 0], [-1, 0, 0]] as const) {
       const [d0, d1, d2] = [0, 1, 2].map((level) => at(cx * E, cy * E, cz * E, level)) as [DerivedData, DerivedData, DerivedData];
       expect(d0.instances.count).toBeGreaterThan(0);
-      expect(d1.instances.count).toBe(d0.instances.count);
+      expect(d1.instances.count).toBe(0);
       expect(d2.instances.count).toBe(0);
-      // Level 1 only adds the low flag; its walls' faces are level 0's, and level 2's base holds more faces than level 0's.
-      expect(d1.instances.data.filter((_, k) => k % INSTANCE_BYTES !== 3)).toEqual(d0.instances.data.filter((_, k) => k % INSTANCE_BYTES !== 3));
-      expect([...d1.instances.data.filter((_, k) => k % INSTANCE_BYTES === 3)].every((f) => (f & INSTANCE_FLAG.low) !== 0)).toBe(true);
-      expect(d1.base).toEqual(d0.base);
+      // Without pieces level 1 draws as level 2 does (the same cells here): the bodies in the base surface.
+      expect(d1.base).toEqual(d2.base);
+      expect(d1.base.indices.length).toBeGreaterThan(d0.base.indices.length);
+      expect(d1.collision).toEqual(d0.collision);
       expect(d2.collision).toEqual(d0.collision);
     }
   });
@@ -735,9 +731,9 @@ describe('the world rule set\'s case pass', () => {
     }
   });
 
-  it('gives cases at levels 0 and 1 (high and low pieces) and none past them; beams and rails get the beam and banister cases', () => {
-    expect([0, 1, 2, 3].map(levelHasCases)).toEqual([true, true, false, false]);
-    expect([0, 1, 2, 3].map((l) => pieceDetailAt(l) !== PIECE_DETAIL.none)).toEqual([true, true, false, false]);
+  it('gives cases at level 0 (where pieces are drawn) and none past it; beams and rails get the beam and banister cases', () => {
+    expect([0, 1, 2, 3].map(levelHasCases)).toEqual([true, false, false, false]);
+    expect([0, 1, 2, 3].map(levelDrawsPieces)).toEqual([true, false, false, false]);
     const s = wallBeamBanister();
     const feature = (c: number): string | undefined => EDGE_CASE_CATALOGUE.cases[caseIndexOf(c)]!.feature;
     let beams = 0;
@@ -747,12 +743,13 @@ describe('the world rule set\'s case pass', () => {
       const l1 = kitJob(s, cx, cy, cz, 1);
       const l2 = kitJob(s, cx, cy, cz, 2);
       expect(l0.count).toBeGreaterThan(0);
-      // The same cells give the same cases at level 1 (a level-1 node's cells are read like a chunk's); none at level 2.
-      expect(l1.cases).toEqual(l0.cases);
+      // Level 1 and coarser draw no pieces: no cell gets a case there.
+      expect(l1.count).toBe(0);
       expect(l2.count).toBe(0);
       const side = l0.n.side;
       for (let x = KR - 1; x < KR + E + 1; x++) for (let z = KR - 1; z < KR + E + 1; z++) for (let y = KR - 1; y < KR + E + 1; y++) {
         const i = (x * side + z) * side + y;
+        expect(l1.cases[i]).toBe(NO_CASE);
         expect(l2.cases[i]).toBe(NO_CASE);
         const k = l0.classes[i]! & CLASS_MASK;
         if (k === ASSEMBLY_CLASS.beam) {

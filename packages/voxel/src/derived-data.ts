@@ -52,7 +52,7 @@ import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, type AssemblyRu
 import { classForm, evaluateForms, FORM_BODY, FORM_SHAPE, FORM_STEPS, formBox, formCoverage, formShapeOf, formSupports } from './case-forms';
 import { BRICK_EDGE } from './brick-layout';
 import { baseSurface } from './base-surface';
-import { detailInstances, PIECE_DETAIL, pieceDetailAt, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { detailInstances, levelDrawsPieces, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { cellPieces, NO_PIECES, type DerivePieces, type PieceInputs } from './derive-pieces';
 export type { DerivePieces } from './derive-pieces';
 import { createEdgeMasks, type EdgeMasks } from './edge-cases';
@@ -144,8 +144,13 @@ import { utf8Encode } from '@thirdlight/shared';
  * gable's end walls, the walls under its eaves), which held them by role
  * priority and cut the roof into strips. Level 1 and 2 results differ from
  * v19's under such roofs; the layout is v19's.
+ * 21: two detail states: only level 0 lists pieces. A level-1 node lists
+ * none (the `low` instance flag is gone, its bit written 0) and draws the
+ * cells the rules read as beams and rails as bodies, as coarser nodes do,
+ * and its cells get no case. Level-1 results differ from v20's wherever
+ * they listed pieces; the layout is v20's.
  */
-export const DERIVED_FORMAT_VERSION = 20;
+export const DERIVED_FORMAT_VERSION = 21;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -580,16 +585,16 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   evaluateForms(n, rules, classes, cases, forms);
   const t1 = performance.now();
   const ground = terrainSurface(n, classes);
-  const detail = pieceDetailAt(level);
+  const pieced = levelDrawsPieces(level);
   let roofs = roofScratches.get(classes.length);
   if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
   const ramps = classifyRoofs(n, roofs) === 0 ? emptySurface() : roofSurface(n, roofs);
-  const base = appendSurface(baseSurface(n, classes, forms, detail === PIECE_DETAIL.none, roofs), ramps);
+  const base = appendSurface(baseSurface(n, classes, forms, !pieced, roofs), ramps);
   let edges = edgeScratches.get(classes.length);
   if (edges === undefined) edgeScratches.set(classes.length, (edges = createEdgeMasks(n)));
-  if (detail !== PIECE_DETAIL.none) evaluateEdges(n, rules, level, edges);
+  if (pieced) evaluateEdges(n, rules, level, edges);
   const inputs: PieceInputs = { n, classes, forms, cases, runs, pieces, level, roofs, edges, catalogue: rules.catalogue };
-  const instances = detailInstances(n, (i, x, y, z, cell, emit) => cellPieces(inputs, i, x, y, z, cell, emit), detail);
+  const instances = pieced ? detailInstances(n, (i, x, y, z, cell, emit) => cellPieces(inputs, i, x, y, z, cell, emit)) : { count: 0, data: new Uint8Array(0) };
   const t2 = performance.now();
   const collision = collisionOf(n, forms, roofs, ramps);
   const out: DerivedData = {

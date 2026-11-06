@@ -12,7 +12,8 @@ sheet for terrain or construction voxels); the [role spec draft](voxel-role-spec
 `voxel-trim-u.ts` (`pieceU`, edge U). Open questions are in §7, the checklist in §8.
 
 **Owner 2026-11-05:** pieces are drawn near only; from the middle ring out the edges are plain square voxels. There are
-no low pieces, so every "high / low" mention below now means the one piece mesh; 46c.16 removes them when this freezes.
+no low pieces (removed from the kit format, the check and the placeholder kits in 46c.16a), so every "high / low"
+mention below now means the one piece mesh; the rewrite of this draft (46c.16g) removes them.
 
 ## 1. Two kinds of surface, two layouts
 
@@ -117,8 +118,7 @@ ends) is not checked along y, though the renderer maps it up y.
 A kit without `trimLayout`: a piece samples the **cell's material tiling set** (the same 4 × 4 m tile its wall uses)
 along the edge on UV0, and may carry its own sculpt bakes (normal, local AO) on a unique **UV1**, blended over the
 material normal in the piece's tangent frame. Best for sculpted, irregular pieces (a rough stone quoin, carved
-rubble) where the shape carries detail no strip can. The bake is local (no occlusion from neighbours) and the low mesh
-gets its own bake. **Not built:** the renderer draws path-B pieces with the stand-in material today, and the kit
+rubble) where the shape carries detail no strip can. The bake is local (no occlusion from neighbours). **Not built:** the renderer draws path-B pieces with the stand-in material today, and the kit
 check has no UV1 rows yet (UV1 present, in 0–1, non-overlapping).
 
 **Debris** is the likely path-B case: rubble and broken rims are irregular and few (one cell each), so own bakes on a

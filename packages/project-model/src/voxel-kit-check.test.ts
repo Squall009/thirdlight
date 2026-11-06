@@ -59,31 +59,32 @@ const onStrip = (top: number, yTop: number, scaleV = 1, uOff = 0) => (x: number,
 /** A box mesh's facts centred on the cell (UVs on the field). */
 const box = (lo = -H, hi = H): VoxelKitMeshFacts => facts(quad(lo, hi, lo, hi, hi, (x, y) => [0.25 * (x + H), (32 + (hi - y) * 1024) / 4096]));
 
-/** A kit with a body piece (high and low) for every case, its ends on one profile. */
+/** A kit with a body piece for every case, its ends on one profile. */
 function fullKit(): VoxelKit {
   const cases: VoxelKit['cases'] = {};
-  for (const c of CATALOGUE.cases) cases[c.id] = { sections: { body: { variants: [{ high: mesh(`${c.id}-h`), low: mesh(`${c.id}-l`) }], ends: { start: 'flat', end: 'flat' } } } };
+  for (const c of CATALOGUE.cases) cases[c.id] = { sections: { body: { variants: [{ high: mesh(`${c.id}-h`) }], ends: { start: 'flat', end: 'flat' } } } };
   return { kitFormat: 1, voxelKitId: 'full', name: 'Full', version: 1, materialType: 'wood', materials: [11], cases, joinProfiles: { flat: { outline: [[0, 0], [16, 0], [16, 16]] } } };
 }
 
 function assetsOf(kit: VoxelKit): Map<string, { kind: string; digests: string[]; current?: string }> {
   const out = new Map<string, { kind: string; digests: string[]; current?: string }>();
-  for (const c of Object.values(kit.cases)) for (const s of Object.values(c.sections ?? {})) for (const v of s.variants) for (const m of [v.high, v.low]) if (m !== undefined) out.set(m.assetId, { kind: 'model', digests: [m.digest] });
+  for (const c of Object.values(kit.cases)) for (const s of Object.values(c.sections ?? {})) for (const v of s.variants) out.set(v.high.assetId, { kind: 'model', digests: [v.high.digest] });
   return out;
 }
 
 function run(kit: VoxelKit, opts: { assets?: VoxelKitAssets; facts?: (m: VoxelKitMesh) => VoxelKitMeshFacts | null } = {}): VoxelKitCheckRow[] {
-  return voxelKitCheck(kit, CATALOGUE, opts.assets ?? assetsOf(kit), opts.facts ?? ((m) => (m.assetId.endsWith('-l') ? facts(quad(-H, H, -H, H, H, () => [0, 0.01])) : box()))).rows;
+  return voxelKitCheck(kit, CATALOGUE, opts.assets ?? assetsOf(kit), opts.facts ?? (() => box())).rows;
 }
 
 const bad = (rows: VoxelKitCheckRow[]): string[] => rows.filter((r) => r.state === 'warn' || r.state === 'err').map((r) => `${r.state} ${r.id}`);
 
 describe('the voxel kit check', () => {
-  it('passes a kit with every case, high and low, on one join profile', () => {
+  it('passes a kit with every case (one mesh a piece) on one join profile', () => {
     const rows = run(fullKit());
     expect(bad(rows)).toEqual([]);
-    expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining(['catalogue', 'required', 'optional', 'fallback:wall', 'pairs', 'assets', 'pivot', 'fit', 'joins', 'budget']));
-    expect(rows.find((r) => r.id === 'budget')!.title).toBe(`${CATALOGUE.cases.length} pieces: ${CATALOGUE.cases.length * 2} triangles high, ${CATALOGUE.cases.length * 2} low`);
+    expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining(['catalogue', 'required', 'optional', 'fallback:wall', 'assets', 'pivot', 'fit', 'joins', 'budget']));
+    expect(rows.find((r) => r.id === 'budget')!.title).toBe(`${CATALOGUE.cases.length} pieces: ${CATALOGUE.cases.length * 2} triangles`);
+    expect(rows.some((r) => r.id.startsWith('pairs'))).toBe(false);
     expect(rows.some((r) => r.id.startsWith('trim:'))).toBe(false);
   });
 
@@ -98,14 +99,12 @@ describe('the voxel kit check', () => {
         continue;
       }
       own++;
-      for (const low of [false, true]) {
-        const d = defaultKitMesh(id, low)!;
-        const at = (k: number): number[] => [d.positions[k * 3]!, d.positions[k * 3 + 1]!, d.positions[k * 3 + 2]!, d.uvs[k * 2]!, d.uvs[k * 2 + 1]!];
-        const tris: number[][][] = [];
-        for (let t = 0; t < d.indices.length; t += 3) tris.push([at(d.indices[t]!), at(d.indices[t + 1]!), at(d.indices[t + 2]!)]);
-        shapes.set(`default-${id}-${low ? 'l' : 'h'}`, facts(tris));
-      }
-      cases[id] = { sections: { body: { variants: [{ high: mesh(`default-${id}-h`), low: mesh(`default-${id}-l`) }] } } };
+      const d = defaultKitMesh(id)!;
+      const at = (k: number): number[] => [d.positions[k * 3]!, d.positions[k * 3 + 1]!, d.positions[k * 3 + 2]!, d.uvs[k * 2]!, d.uvs[k * 2 + 1]!];
+      const tris: number[][][] = [];
+      for (let t = 0; t < d.indices.length; t += 3) tris.push([at(d.indices[t]!), at(d.indices[t + 1]!), at(d.indices[t + 2]!)]);
+      shapes.set(`default-${id}-h`, facts(tris));
+      cases[id] = { sections: { body: { variants: [{ high: mesh(`default-${id}-h`) }] } } };
     }
     const kit: VoxelKit = { kitFormat: 1, voxelKitId: 'engine-default', name: 'Engine default', version: 1, materialType: 'any', cases };
     // Checked against the world's catalogue (the edge catalogue), the one it is written for.
@@ -144,10 +143,6 @@ describe('the voxel kit check', () => {
     expect(noMould.find((r) => r.id === 'optional')!.state).toBe('info');
     // No fallback piece for a role.
     expect(only(run(cases(full, (c) => { delete c['stair-plain']; })))).toEqual(['warn fallback:stair', 'warn required:stair-plain']);
-    // A variant without a low is info; a low heavier than its high a warn.
-    const noLow = run(cases(full, (c) => { delete c['edge-out-top']!.sections!['body']!.variants[0]!.low; }));
-    expect([only(noLow), noLow.find((r) => r.id === 'pairs')!.state]).toEqual([[], 'info']);
-    expect(only(run(full, { facts: (m) => (m.assetId === 'edge-out-top-l' ? facts([...quad(-H, H, -H, H, H, () => [0, 0]), ...quad(-H, H, -H, H, -H, () => [0, 0])]) : box()) }))).toEqual(['warn pairs-heavy']);
     // Assets: missing, not a model, unreadable, a node not in the file; a digest no version has.
     const assets = assetsOf(full);
     assets.delete('beam-h');
@@ -169,7 +164,7 @@ describe('the voxel kit check', () => {
     expect(only(run(full, { facts: (m) => (m.assetId === 'edge-out-top-h' ? box(H + 0.1, H + 0.4) : box()) }))).toEqual(['err pivot']);
     expect(only(run(full, { facts: (m) => (m.assetId === 'edge-out-top-h' ? facts(quad(-H, 0.8, -H, H, H, () => [0, 0])) : box()) }))).toEqual(['warn fit']);
     // Join profiles: a start section meeting the body on another outline; an end with no profile is not checked.
-    const steps = cases(full, (c) => { c['beam']!.sections!['start'] = { variants: [{ high: mesh('beam-h'), low: mesh('beam-l') }], ends: { start: 'flat', end: 'round' } }; });
+    const steps = cases(full, (c) => { c['beam']!.sections!['start'] = { variants: [{ high: mesh('beam-h') }], ends: { start: 'flat', end: 'round' } }; });
     steps.joinProfiles!['round'] = { outline: [[0, 0], [8, 0], [8, 8], [0, 8]] };
     expect(only(run(steps))).toEqual(['warn joins']);
     const same = structuredClone(steps);
@@ -180,12 +175,12 @@ describe('the voxel kit check', () => {
   });
 
   describe('trim conformance (draft layout), only for a kit that names one', () => {
-    /** A beam kit on the draft layout: body and start sections, a 0.125 m face on the profiled 0.125 m strip, its low the same. */
+    /** A beam kit on the draft layout: body and start sections, a 0.125 m face on the profiled 0.125 m strip. */
     const trimKit = (): VoxelKit => ({
       ...fullKit(),
       voxelKitId: 'trim',
       trimLayout: 'detail-trim',
-      cases: { beam: { sections: { body: { variants: [{ high: mesh('b-h'), low: mesh('b-l') }] }, start: { variants: [{ high: mesh('s-h'), low: mesh('s-l') }] } } } },
+      cases: { beam: { sections: { body: { variants: [{ high: mesh('b-h') }] }, start: { variants: [{ high: mesh('s-h') }] } } } },
     });
     /** The profiled 0.125 m strip's top, half a texel in, and a face that fills the strip to half a texel. */
     const S12P = 3104.5;
@@ -199,7 +194,7 @@ describe('the voxel kit check', () => {
       expect(fired(rows)).toEqual([]);
       expect(rows.map((r) => r.id)).toEqual(['trim:T1', 'trim:T2', 'trim:T3', 'trim:T4', 'trim:T5', 'trim:T6', 'trim:T7', 'trim:T8', 'trim:T9', 'trim:T10']);
       expect(rows.every((r) => r.draft === true && /draft layout/.test(r.title))).toBe(true);
-      expect(rows.find((r) => r.id === 'trim:T10')!.detail).toMatch(/S12p: 4 meshes, 0\.248 m²/);
+      expect(rows.find((r) => r.id === 'trim:T10')!.detail).toMatch(/S12p: 2 meshes, 0\.124 m²/);
       expect(run({ ...trimKit(), trimLayout: 'other' }).filter((r) => r.id.startsWith('trim:')).map((r) => `${r.state} ${r.id}`)).toEqual(['err trim:layout']);
     });
 
@@ -214,20 +209,22 @@ describe('the voxel kit check', () => {
       // T4: the section starting at U 0.1.
       expect(t({ 'b-h': facts(quad(-H, H, -F, F, H, onStrip(S12P, F, 1, 0.1))) })).toEqual(['err trim:T4']);
       // T5: a 0.0625 m face on the profiled 0.125 m strip.
-      expect(t({ 'b-h': facts(quad(-H, H, -0.03125, 0.03125, H, onStrip(S12P, 0.03125))), 'b-l': facts(quad(-H, H, -0.03125, 0.03125, H, onStrip(S12P, 0.03125))) })).toEqual(['warn trim:T5']);
+      expect(t({ 'b-h': facts(quad(-H, H, -0.03125, 0.03125, H, onStrip(S12P, 0.03125))) })).toEqual(['warn trim:T5']);
       // T6: an end face on cap cell b of its size.
       const cap = (x0: number) => facts([...quad(-H, H, -F, F, H, onStrip(S12P, F)), ...quad(-0.1, 0.1, -0.1, 0.1, 0, (x, y) => [(x0 + 1 + (x + 0.1) * 1024) / 4096, (3297 + (0.1 - y) * 1024) / 4096])]);
-      expect(t({ 'b-h': cap(2656), 'b-l': cap(2656) })).toEqual(['warn trim:T6']);
-      expect(t({ 'b-h': cap(2336), 'b-l': cap(2336) })).toEqual([]);
+      expect(t({ 'b-h': cap(2656) })).toEqual(['warn trim:T6']);
+      expect(t({ 'b-h': cap(2336) })).toEqual([]);
       // Both ends of a member closed in one mesh: each end face is measured on its own, not the box round both.
       const capUv = (x: number, y: number): [number, number] => [(2337 + (x + 0.1) * 1024) / 4096, (3297 + (0.1 - y) * 1024) / 4096];
       const ends = facts([...quad(-H, H, -F, F, H, onStrip(S12P, F)), ...quad(-0.1, 0.1, -0.1, 0.1, 0, capUv), ...quad(-0.1, 0.1, -0.1, 0.1, 0.3, capUv)]);
-      expect(t({ 'b-h': ends, 'b-l': ends })).toEqual([]);
-      // T7: the low on the plain strip.
-      expect(t({ 'b-l': facts(quad(-H, H, -F, F, H, onStrip(2912.5, F))) })).toEqual(['warn trim:T7']);
-      // T8: the start section's end face on another strip than the body's start (both its levels, so T7 holds).
-      const other = facts(quad(-H, H, -F, F, H, onStrip(2912.5, F)));
-      expect(t({ 's-h': other, 's-l': other })).toEqual(['warn trim:T8']);
+      expect(t({ 'b-h': ends })).toEqual([]);
+      // T7: a second variant of the body on the plain strip.
+      const twoVariants = trimKit();
+      twoVariants.cases['beam']!.sections!['body']!.variants.push({ high: mesh('b2-h') });
+      const plain = facts(quad(-H, H, -F, F, H, onStrip(2912.5, F)));
+      expect(fired(run(twoVariants, { facts: (m) => (m.assetId === 'b2-h' ? plain : good) }).filter((r) => r.id.startsWith('trim:')))).toEqual(['warn trim:T7']);
+      // T8: the start section's end face on another strip than the body's start.
+      expect(t({ 's-h': plain })).toEqual(['warn trim:T8']);
     });
 
     it('meets sections along their case run: up y for a run that climbs, never across x', () => {
@@ -235,12 +232,12 @@ describe('the voxel kit check', () => {
       const t = (over: Record<string, VoxelKitMeshFacts>): string[] => fired(run(endKit(), { facts: (m) => over[m.assetId] ?? good }).filter((r) => r.id.startsWith('trim:')));
       // Faces touching the x planes on other strips: no join there for a run up y.
       const other = facts(quad(-H, H, -F, F, H, onStrip(2912.5, F)));
-      expect(t({ 's-h': other, 's-l': other })).toEqual([]);
+      expect(t({ 's-h': other })).toEqual([]);
       // Faces touching the y planes (the field, the cell's height) on other regions do meet.
       const tall = (top: number): VoxelKitMeshFacts => facts(quad(-0.06, 0.06, -H, H, H, onStrip(top, H)));
-      expect(t({ 'b-h': tall(32.5), 'b-l': tall(32.5), 's-h': tall(32.5), 's-l': tall(32.5) })).toEqual([]);
+      expect(t({ 'b-h': tall(32.5), 's-h': tall(32.5) })).toEqual([]);
       const topped = facts([...quad(-0.06, 0.06, -H, H, H, onStrip(32.5, H)), ...quad(0.1, 0.2, H - 0.06, H, H, onStrip(2912.5, H))]);
-      expect(t({ 'b-h': tall(32.5), 'b-l': tall(32.5), 's-h': topped, 's-l': topped })).toEqual(['warn trim:T8']);
+      expect(t({ 'b-h': tall(32.5), 's-h': topped })).toEqual(['warn trim:T8']);
     });
   });
 
