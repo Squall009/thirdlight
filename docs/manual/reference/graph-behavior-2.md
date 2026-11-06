@@ -938,6 +938,7 @@ Fields:
 - Settings occlusion culling (`api.settings.occlusion_culling`): Whether what solid objects hide is left out of the view (0 off, 1 auto: none for now, 2 on; absent: auto).
 - Settings streaming budget mb (`api.settings.streaming_budget_mb`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - Settings architecture ship meshes (`api.settings.architecture_ship_meshes`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
+- Settings voxel piece seed (`api.settings.voxel_piece_seed`): The voxel world's piece seed: which of a kit slot's meshes each piece draws (`VOXEL_PIECE_SEED_KEY`; absent: 0).
 - Settings see through (`api.settings.see_through`): See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits).
 - Settings see through radius (`api.settings.see_through_radius`): The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`).
 - Settings see through softness (`api.settings.see_through_softness`): The share of the see-through radius its edge softens over (absent: `SEE_THROUGH_DEFAULTS.softness`).
@@ -1134,6 +1135,16 @@ Outputs:
 ### Settings architecture ship meshes (`api.settings.architecture_ship_meshes`)
 
 Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
+
+Outputs:
+
+- `value` (number)
+- `found` (boolean)
+
+<a id="node-behavior--api-settings-voxel-piece-seed"></a>
+### Settings voxel piece seed (`api.settings.voxel_piece_seed`)
+
+The voxel world's piece seed: which of a kit slot's meshes each piece draws (`VOXEL_PIECE_SEED_KEY`; absent: 0).
 
 Outputs:
 
