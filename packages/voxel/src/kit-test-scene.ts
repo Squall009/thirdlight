@@ -3,9 +3,9 @@
  * voxels, laid out in a labelled box, so a kit's pieces can be looked at
  * case by case in a real world through the real derive.
  *
- * **Two parts.** The window cases (beams, banisters: a case window decides
- * them) get one exhibit a (case, role) pair in a grid (a row a role, a
- * column a case). The cases the passes give (edges and corners, roof edges,
+ * **Two parts.** The window cases (a case window decides them; the edge
+ * catalogue has none) get one exhibit a (case, role) pair in a grid (a row
+ * a role, a column a case). The cases the passes give (edges and corners, roof edges,
  * debris) come from a **fixed sampler** in a column past the grid's last row: a stepped
  * block (a block with a top and a bottom corner notch cut out: every outer and
  * inner edge and corner), a gable roof, a hip roof, an L-plan hip roof (its
@@ -25,11 +25,11 @@
  * was given: a catalogue that grows or changes gets its scene with it.
  *
  * **Isolation.** Exhibits stand {@link KIT_TEST_SCENE_PITCH} cells apart
- * inside a box the scene first empties, so no exhibit's centre, nor the
- * run section beside it, reads another exhibit or the world around the box.
- * Each label's case and run section are what the real case and run passes
- * give the centre; the generator checks the case before it hands the scene
- * out, so a label never names a case its cell does not get.
+ * inside a box the scene first empties, so no exhibit's centre reads
+ * another exhibit or the world around the box. Each label's case is what
+ * the real case pass gives the centre; the generator checks the case before
+ * it hands the scene out, so a label never names a case its cell does not
+ * get.
  *
  * Pure: the scene is a list of ordinary edit commands (one box emptied, then
  * one `set` a distinct voxel), applied as one change by the voxel world's
@@ -40,9 +40,7 @@ import { mulberry32 } from '@thirdlight/shared';
 import { createNeighbourhood, jobRadius, type AssemblyRuleSet } from './assembly';
 import type { SetEdit, VoxelEditCommand, FillEdit } from './edit-command';
 import { CASE_REACH, CASE_SYMBOL, CASE_WINDOW, CASE_WINDOW_CELLS, CaseCatalogue, caseIndexOf, NO_CASE, type CaseCatalogueDef, type CaseRule } from './kit-cases';
-import { evaluateCases, evaluateRuns } from './kit-rules';
-import { NO_SECTION, runSectionOf } from './kit-runs';
-import { RUN_SECTION_IDS } from './piece-table';
+import { evaluateCases } from './kit-rules';
 import { WORLD_GRID_ID } from './region-file';
 import { damagedIntegrity, MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
 import { isDebrisCell } from './case-forms';
@@ -52,9 +50,9 @@ import { classifyRoofs, roofEdgesOf } from './roof-mesher';
 
 /**
  * Cells between exhibit centres along x and z, and the height of the box.
- * A centre's run section reads its neighbours' cases (one cell) and theirs
- * read two more, so nothing farther than three cells from a centre decides
- * its label: a 7-cell slot with the centre in its middle holds all of it.
+ * A centre's case reads two cells round it; a cell more keeps every exhibit
+ * clear of the next one's window: a 7-cell slot with the centre in its
+ * middle holds all of it.
  */
 export const KIT_TEST_SCENE_PITCH = 2 * (CASE_REACH + 1) + 1;
 
@@ -80,8 +78,6 @@ export interface KitTestLabel {
   readonly role: number;
   readonly roleName: string;
   readonly caseId: string;
-  /** The run section the run pass gives the centre (a {@link RUN_SECTION_IDS} id), or null when the case has none there. */
-  readonly section: string | null;
 }
 
 export interface KitTestScene {
@@ -314,11 +310,11 @@ function exhibitValues(e: KitTestExhibit, material: number, other: number): [num
 }
 
 /**
- * The case and run section the real case and run passes give an exhibit's
- * centre, with nothing but air around it (what the scene's emptied box
- * gives it): read from a neighbourhood holding only the exhibit.
+ * The case the real case pass gives an exhibit's centre, with nothing but
+ * air around it (what the scene's emptied box gives it): read from a
+ * neighbourhood holding only the exhibit.
  */
-function centreResult(rules: AssemblyRuleSet, cat: CaseCatalogueDef, values: readonly [number, number, number, number][]): { caseId: string | null; section: string | null } {
+function centreCase(rules: AssemblyRuleSet, cat: CaseCatalogueDef, values: readonly [number, number, number, number][]): string | null {
   const edge = KIT_TEST_SCENE_PITCH;
   const pad = jobRadius(rules);
   const n = createNeighbourhood(edge, pad);
@@ -330,12 +326,9 @@ function centreResult(rules: AssemblyRuleSet, cat: CaseCatalogueDef, values: rea
     n.shapes[at(dx, dy, dz)] = v === 0 ? 0 : shapeDensity(SHAPE_FULL);
   }
   const cases = new Uint16Array(n.values.length);
-  const count = evaluateCases(n, rules, 0, cases);
-  const sections = new Uint16Array(n.values.length);
-  evaluateRuns(n, rules, cases, sections, count);
+  evaluateCases(n, rules, 0, cases);
   const c = cases[at(0, 0, 0)]!;
-  const sec = sections[at(0, 0, 0)]!;
-  return { caseId: c === NO_CASE ? null : (cat.cases[caseIndexOf(c)]?.id ?? null), section: sec === NO_SECTION ? null : (RUN_SECTION_IDS[runSectionOf(sec)] ?? null) };
+  return c === NO_CASE ? null : (cat.cases[caseIndexOf(c)]?.id ?? null);
 }
 
 /**
@@ -365,9 +358,9 @@ export function kitTestScene(rules: AssemblyRuleSet, opts: KitTestSceneOptions):
     cols = Math.max(cols, col + 1);
     const centre: [number, number, number] = [ox + col * p + half, oy + half, oz + row * p + half];
     const values = exhibitValues(e, material, other);
-    const got = centreResult(rules, def, values);
-    if (got.caseId !== e.caseId) throw new Error(`kit test scene: the ${voxelRoleName(e.role)} exhibit of ${e.caseId} derives as ${got.caseId ?? 'no case'}`);
-    labels.push({ cell: centre, role: e.role, roleName: voxelRoleName(e.role), caseId: e.caseId, section: got.section });
+    const got = centreCase(rules, def, values);
+    if (got !== e.caseId) throw new Error(`kit test scene: the ${voxelRoleName(e.role)} exhibit of ${e.caseId} derives as ${got ?? 'no case'}`);
+    labels.push({ cell: centre, role: e.role, roleName: voxelRoleName(e.role), caseId: e.caseId });
     for (const [dx, dy, dz, v] of values) {
       let list = byValue.get(v);
       if (list === undefined) byValue.set(v, (list = []));
@@ -385,7 +378,7 @@ export function kitTestScene(rules: AssemblyRuleSet, opts: KitTestSceneOptions):
     for (const [id, [x, y, z, role]] of samplerCases(rules, cells)) {
       if (reached.has(id) || !def.cases.some((c) => c.id === id)) continue;
       reached.add(id);
-      labels.push({ cell: [sx + x, oy + y, sz + z], role, roleName: voxelRoleName(role), caseId: id, section: null });
+      labels.push({ cell: [sx + x, oy + y, sz + z], role, roleName: voxelRoleName(role), caseId: id });
     }
     for (const [x, y, z, v] of cells) {
       let list = byValue.get(v);

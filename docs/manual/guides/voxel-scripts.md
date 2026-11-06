@@ -5,7 +5,7 @@
 ground to load, reacts to changes, and keeps the player's changes in the
 game's save. The calls:
 [`ctx.voxels`](../reference/script-api.md#ctx-voxels) and its types
-[`BehaviorVoxels`](../reference/script-types-behavior-signals.md#script-type-behavior-voxels),
+[`BehaviorVoxels`](../reference/script-types-behavior-random.md#script-type-behavior-voxels),
 [`BehaviorVoxelWorld`](../reference/script-types-behavior-pointer.md#script-type-behavior-voxel-world).
 
 `ctx.voxels` reaches the worlds of the loaded scenes (a scene names a world

@@ -63,7 +63,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client';
 import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
-import { caseAndSectionAt } from '../../../tools/voxel-bench/case-probe';
+import { caseAt } from '../../../tools/voxel-bench/case-probe';
 import { flatGround, placeWallBeamBanister } from '../../../tools/voxel-bench/scenes';
 
 const ORIGIN = 'http://127.0.0.1:8501';
@@ -117,10 +117,10 @@ function logKit(assetId: string, digest: string): VoxelKit {
     version: 1,
     materialType: 'wood',
     materials: [3],
-    joinProfiles: { square: { outline: [[4, 4], [12, 4], [12, 12], [4, 12]] } },
-    cases: {
-      'wall-banister': { gameData: { break: { hits: 1 } } },
-      beam: { sections: { body: { variants: [{ high: { assetId, digest, node: 'Beam_Body' }, weight: 1 }], ends: { start: 'square', end: 'square' } } } },
+    slots: {
+      // One mesh filling two slots, the second turned under; the default weight given.
+      'edge-out-top': { meshes: [{ mesh: { assetId, digest, node: 'Beam_Body' }, weight: 1 }] },
+      'edge-out-bottom': { meshes: [{ mesh: { assetId, digest, node: 'Beam_Body' }, rotation: 5 }], gameData: { break: { hits: 1 } } },
     },
     gameData: { sound: { hit: 'wood-knock' }, physics: { density: 0.6 }, tags: ['flammable', 2, null] },
   };
@@ -606,18 +606,19 @@ describe('voxel world routes', () => {
     KIT_MODEL.assetId = model.assetId;
     const kit = logKit(model.assetId, digest);
 
-    // Created over HTTP; read back in canonical form (cases by id, the default weight left out, game data as given).
+    // Created over HTTP; read back in canonical form (slots by id, the default weight left out, game data as given).
     const made = await send('setVoxelKit', { kit });
     expect(made.status, JSON.stringify(made.json)).toBe(200);
     expect(made.json['change']).toMatchObject({ type: 'setVoxelKit', voxelKitId: 'log', previous: null });
     const stored = (await kits())[0]!;
-    expect(Object.keys(stored)).toEqual(['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'cases', 'joinProfiles', 'gameData']);
-    expect(Object.keys(stored['cases'] as object)).toEqual(['beam', 'wall-banister']);
+    expect(Object.keys(stored)).toEqual(['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'gameData']);
+    expect(Object.keys(stored['slots'] as object)).toEqual(['edge-out-bottom', 'edge-out-top']);
+    expect((stored['slots'] as Record<string, { meshes: Record<string, unknown>[] }>)['edge-out-top']!.meshes[0]).toEqual({ mesh: { assetId: model.assetId, digest, node: 'Beam_Body' } });
     expect(stored['gameData']).toEqual(kit.gameData);
     // Its own file in the game folder (the resource kind's folder), holding the record.
     const file = join(dir, 'assets', 'voxel-kits', 'log.voxelkit.json');
     expect(JSON.stringify(JSON.parse(readFileSync(file, 'utf8')))).toContain('"voxelKitId":"log"');
-    console.log(`[voxel kit] ${Object.keys(stored['cases'] as object).length} cases: file ${statSync(file).size} bytes, record ${JSON.stringify(stored).length} bytes compact`);
+    console.log(`[voxel kit] ${Object.keys(stored['slots'] as object).length} slots: file ${statSync(file).size} bytes, record ${JSON.stringify(stored).length} bytes compact`);
     // A newer format and an unknown field are refused and change nothing.
     for (const bad of [{ ...kit, kitFormat: 2 }, { ...kit, pieces: {} }]) {
       const r = await send('setVoxelKit', { kit: bad });
@@ -666,17 +667,17 @@ describe('voxel world routes', () => {
     const captured = backend._test.service.readCapturedV3(PROJECT);
     if (!captured.ok) throw new Error(captured.error.code);
     const digest = (captured.read.content as { assets: Array<{ assetId: string; versions: Array<{ sourceDigest: string }> }> }).assets.find((a) => a.assetId === KIT_MODEL.assetId)!.versions[0]!.sourceDigest;
-    // A kit whose one beam piece is the imported triangle (on its cell, a readable model): no error or warning but the cases it lacks.
-    const one = (high: VoxelKitMesh) => ({ sections: { body: { variants: [{ high }] } } });
+    // A kit with a slot the catalogue lacks, a mesh of no model and one naming a node and a version the model lacks.
+    const one = (mesh: VoxelKitMesh) => ({ meshes: [{ mesh }] });
     const broken: VoxelKit = {
       kitFormat: 1,
       voxelKitId: 'broken',
       name: 'Broken',
       version: 1,
       materialType: 'stone',
-      cases: {
+      slots: {
         gazebo: one({ assetId: KIT_MODEL.assetId, digest }),
-        beam: one({ assetId: KIT_MODEL.assetId, digest: 'f'.repeat(64), node: 'No_Such_Node' }),
+        'edge-out-vertical': one({ assetId: KIT_MODEL.assetId, digest: 'f'.repeat(64), node: 'No_Such_Node' }),
         'edge-out-top': one({ assetId: 'no-such-model', digest }),
       },
     };
@@ -687,10 +688,11 @@ describe('voxel world routes', () => {
       await new Promise((r) => setTimeout(r, 20));
       lines = (await problems()).slice(before).filter((l) => l.includes('(broken)'));
     }
-    expect(lines.find((l) => l.includes('error: Names cases or sections the catalogue does not have'))).toMatch(/case gazebo/);
-    expect(lines.find((l) => l.includes('meshes cannot be drawn'))).toMatch(/^Voxel kit "Broken" \(broken\) error: .*no such model: edge-out-top\/body \(no-such-model\).*no such node: beam\/body/);
+    expect(lines.find((l) => l.includes('error: 1 slots the catalogue does not have'))).toMatch(/gazebo: never drawn/);
+    expect(lines.find((l) => l.includes('meshes cannot be drawn'))).toMatch(/^Voxel kit "Broken" \(broken\) error: .*no such model: edge-out-top \(no-such-model\).*no such node: edge-out-vertical/);
     expect(lines.find((l) => l.includes('name a file version the model does not have'))).toMatch(/warning/);
-    expect(lines.find((l) => l.includes('required rows'))).toMatch(/warning: \d+ required rows: Required case edge-out-vertical has no piece/);
+    // Every slot is optional: the 15 empty ones are no problem.
+    expect(lines.some((l) => /required|empty|slots filled/.test(l))).toBe(false);
     // MCP reads the same log.
     const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'voxel-kit-check-mcp' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -703,18 +705,17 @@ describe('voxel world routes', () => {
     } finally {
       await mcp.close();
     }
-    // Mended (the beam on the file's own digest and node, the unknown and missing pieces gone): only the cases it lacks remain warnings.
-    const mended: VoxelKit = { ...broken, version: 2, cases: { beam: one({ assetId: KIT_MODEL.assetId, digest, node: 'Beam_Body' }) } };
+    // Mended (one slot on the file's own digest and node, the unknown and missing pieces gone): no problem left.
+    const mended: VoxelKit = { ...broken, version: 2, slots: { 'edge-out-top': one({ assetId: KIT_MODEL.assetId, digest, node: 'Beam_Body' }) } };
     const mark = (await problems()).length;
     expect((await send('setVoxelKit', { kit: mended })).status).toBe(200);
     await new Promise((r) => setTimeout(r, 200));
     const after = (await problems()).slice(mark).filter((l) => l.includes('(broken)'));
-    expect(after.filter((l) => / error/.test(l.split(':')[0]!))).toEqual([]);
-    expect(after.some((l) => l.includes('required rows'))).toBe(true);
+    expect(after).toEqual([]);
     expect((await send('deleteVoxelKit', { voxelKitId: 'broken' })).status).toBe(200);
   }, 60_000);
 
-  it('writes the kit test scene into a world as one command: every labelled cell derives as its case and section from the files, the same scene again is no_change, one undo takes it back', async () => {
+  it('writes the kit test scene into a world as one command: every slot labelled, no labelled cell derives a window case from the files, the same scene again is no_change, one undo takes it back', async () => {
     const dir = backend._test.service.projectDir(PROJECT)!;
     writeVoxelWorld(join(dir, 'voxels', SCENE_WORLD), { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, sceneStore());
     const args = { world: SCENE_WORLD, origin: [-40, -5, -30], material: 11 };
@@ -723,23 +724,21 @@ describe('voxel world routes', () => {
     expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args: { ...args, kit: 'log' } })).json.error as { code: string }).code).toBe('invalid_request');
     const r = await command({ op: 'writeKitTestScene', projectId: PROJECT, requestId: rid(300), args });
     expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
-    const scene = r.json.scene as { min: number[]; max: number[]; labels: Array<{ cell: [number, number, number]; roleName: string; caseId: string; section: string | null }> };
+    const scene = r.json.scene as { min: number[]; max: number[]; labels: Array<{ cell: [number, number, number]; roleName: string; caseId: string }> };
     const want = kitTestScene(WORLD_RULES, { origin: args.origin as [number, number, number], material: 11 });
     expect(scene).toEqual(JSON.parse(JSON.stringify({ min: want.min, max: want.max, labels: want.labels })));
     expect(r.json).toMatchObject({ ok: true, op: 'writeKitTestScene', revision: 1, undoable: 1, box: { minX: -40, minY: -5, minZ: -30, maxX: want.max[0], maxY: want.max[1], maxZ: want.max[2] } });
-    // The world read back through the range route, as a browser reads it: each label's cell gets its case and section.
+    // The world read back through the range route, as a browser reads it.
     const chunks = (r.json.chunks as Array<[number, number, number]>).map(([cx, cy, cz]) => ({ cx, cy, cz }));
     expect(new Set(chunks.map((c) => `${c.cx},${c.cy},${c.cz}`)).size).toBe(chunks.length);
     const around: ChunkCoord[] = [];
     for (let cx = (want.min[0]! >> 5) - 1; cx <= (want.max[0]! >> 5) + 1; cx++) for (let cy = (want.min[1]! >> 5) - 1; cy <= (want.max[1]! >> 5) + 1; cy++) for (let cz = (want.min[2]! >> 5) - 1; cz <= (want.max[2]! >> 5) + 1; cz++) around.push({ cx, cy, cz });
     const store = await readChunks(around, SCENE_WORLD);
-    // The window cases (beams and banisters) read back as their case and section; the sampler's pass cases (edges,
-    // roof edges, debris) are the derive's pieces, not a window case, and are checked through the derive in vitest.
-    const windowCases = new Set(WORLD_RULES.catalogue!.rules.map((x) => x.case));
-    const windows = scene.labels.filter((l) => windowCases.has(l.caseId));
-    const got = windows.map((l) => ({ cell: l.cell, ...caseAndSectionAt(store, ...l.cell) }));
-    expect(got).toEqual(windows.map((l) => ({ cell: l.cell, caseId: l.caseId, section: l.section })));
-    // Every case of the catalogue is labelled: one exhibit a window case and role, one sampler cell a pass case.
+    // The catalogue has no window rules: no labelled cell reads back a window case; the sampler's cases (edges, roof
+    // edges, debris) are the derive's pieces, checked through the derive in vitest.
+    expect(WORLD_RULES.catalogue!.rules).toEqual([]);
+    for (const l of scene.labels) expect({ cell: l.cell, ...caseAt(store, ...l.cell) }).toEqual({ cell: l.cell, caseId: null });
+    // Every case of the catalogue (every slot) is labelled: one sampler cell each.
     expect(new Set(scene.labels.map((l) => l.caseId))).toEqual(new Set(WORLD_RULES.catalogue!.cases.map((c) => c.id)));
     expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args })).json.error as { code: string }).code).toBe('no_change');
     const undone = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: SCENE_WORLD } });
@@ -781,7 +780,7 @@ describe('voxel world routes', () => {
     const shippedKits = (content as unknown as { voxelKits?: Array<Record<string, unknown>> }).voxelKits;
     expect(shippedKits?.map((k) => k['voxelKitId'])).toEqual(['log']);
     expect(shippedKits![0]!['gameData']).toEqual(logKit(KIT_MODEL.assetId, 'x').gameData);
-    const kitMesh = (shippedKits![0]!['cases'] as Record<string, { sections: Record<string, { variants: Array<{ high: { digest: string } }> }> }>)['beam']!.sections['body']!.variants[0]!.high;
+    const kitMesh = (shippedKits![0]!['slots'] as Record<string, { meshes: Array<{ mesh: { digest: string } }> }>)['edge-out-top']!.meshes[0]!.mesh;
     expect(readFileSync(join(out, 'content', 'sha256', kitMesh.digest)).equals(pieceGlb())).toBe(true);
     expect(((content as unknown as { dependencies?: Array<{ assetId: string }> }).dependencies ?? []).map((e) => e.assetId)).toContain(KIT_MODEL.assetId);
     await kitMeshAfterReimport(KIT_MODEL.assetId, kitMesh.digest, send, exportNow);

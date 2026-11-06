@@ -1,20 +1,20 @@
 # Role spec — DRAFT — v1 candidate (edge model)
 
-Status: **DRAFT — awaiting owner approval (46c hard stop); nothing builds on it as final.** No kit pipeline,
-Blender template, spec sheet, manual guide or art-factory request treats this case list as fixed until the owner
-approves it. The owner's 2026-11-04 review of the first draft (46 cases, pieces over flat walls) replaced it with this
-edge model; the earlier text is in git history. This page is written from the engine's edge catalogue
-`edges-draft` v1 (21 cases; `packages/voxel/src/kit-case-catalogue.ts`), and a test
-(`tools/voxel-bench/role-spec-doc.test.ts`) fails when this page and the catalogue disagree on a case, its marking or
-its facts. Sources: [plan 46c](../plan-phase-46c.md) §6b and the decision log (OWNER 2026-11-04 entries, R1–R5
-results); [plan 45](../plan-phase-45.md) §1, §7 (owner 2026-11-02: the ten stored roles); the
-[format spec](voxel-format-spec.md) §2.2 (the voxel value) and §3.7. The texture layout is its own draft:
+Status: **DRAFT — awaiting owner approval (46c hard stop); nothing builds on it as final.** No kit pipeline, Blender
+template, spec sheet, manual guide or art-factory request treats this case list as fixed until the owner approves it.
+The owner's 2026-11-04 review of the first draft (46 cases, pieces over flat walls) replaced it with this edge model;
+the earlier text is in git history. This page is written from the engine's edge catalogue `edges-draft` v2 (18 cases;
+`packages/voxel/src/kit-case-catalogue.ts`), and a test (`tools/voxel-bench/role-spec-doc.test.ts`) fails when this
+page and the catalogue disagree on a case or its facts. Sources: [plan 46c](../plan-phase-46c.md) §6b and the decision
+log (OWNER 2026-11-04 entries, R1–R5 results); [plan 45](../plan-phase-45.md) §1, §7 (owner 2026-11-02: the ten stored
+roles); the [format spec](voxel-format-spec.md) §2.2 (the voxel value) and §3.7. The texture layout is its own draft:
 [voxel-trim-layout.md](voxel-trim-layout.md).
 
 **How to read this page.** §1–§3 say what is stored and the one rule (flat faces get no piece). §4 explains the
-diagrams. §5–§8 list the 21 cases: edges and corners, roof edges, damage, beams and banisters; each case has the same
-block of facts (generated from the engine) followed by a small diagram. §9–§13 are for kit artists: one mesh for
-several cases, stagger, detail levels, what a kit must provide, Blender conventions. §14 says what moved to other
+diagrams. §5–§7 list the 18 cases: edges and corners, roof edges, damage; each case is a kit **slot** and has the
+same block of facts (generated from the engine) followed by a small diagram; §8 says where beams and banisters went.
+§9–§13 are for kit artists: one mesh for several slots, stagger and jitter, detail levels, how a kit fills its slots,
+Blender conventions. §14 says what moved to other
 phases, §15 lists known gaps, §16 the questions only you can answer, §17 what approving this page means.
 
 ## 1. Roles are stored; everything else is read from the arrangement
@@ -41,7 +41,7 @@ values are damage stages (§7), air is broken. Every engine reader (collision, l
 level-of-detail downsample) treats a construction cell of any integrity as a whole block until it is air. Terrain and
 liquid keep shape as a fill. A construction cell painted with a smooth brush is written whole (integrity 15).
 
-**Nobody paints a piece.** No role names an edge, a corner, a ridge, a beam or a banister. The engine reads them from
+**Nobody paints a piece.** No role names an edge, a corner or a ridge. The engine reads them from
 the cells round each place, so building or digging one cell changes the pieces near it and nowhere else, in the editor
 and in a running game alike. Nothing stores a case.
 
@@ -53,8 +53,7 @@ texture (texture layout §2). No piece is ever placed on a flat face. Detail pie
 - on a **lattice edge** (the 0.5 m line where four cells meet) that the cells round it make exposed;
 - on a **lattice corner** (the point where eight cells meet) the same way;
 - on the edges of a **roof's planes** (ridge, eave, verge, hip, valley);
-- on a **damaged** cell and on the faces opening toward it;
-- on the **beam and banister** cells (kept as built).
+- on a **damaged** cell and on the faces opening toward it.
 
 Each piece is its own instance a 0.5 m edge or a corner: no merged run geometry, no hand-made lengths. Far away the
 pieces go and the building is flat square voxels (§11).
@@ -74,7 +73,7 @@ pieces go and the building is flat square voxels (§11).
   gets no piece (the shader's material blend draws it).
 - **Where no piece goes:** round a terrain cell with any fill (where a building meets the ground, the terrain
   material's dressing draws the contact, 47b); round a roof plane cell (the roof mesher draws that surface, §6); round
-  a debris cell (§7); round a beam or banister cell (they are thin; no faces meet there); on a buried cell.
+  a debris cell (§7); on a buried cell.
 
 ## 4. Reading the diagrams
 
@@ -91,7 +90,7 @@ corner opens toward **+x and +z**; up is **+y**; an edge runs along **x**. The e
 | `O` | the cell that owns the piece (its material's kit draws it) |
 | `R` | a roof cell; `r` a roof plane cell the roof mesher draws |
 | `x` | a damaged cell (integrity below 15); `f` an intact face toward it |
-| `W` | a wall cell under or beside the roof; `P` a banister post |
+| `W` | a wall cell under or beside the roof |
 | `G` `E` `g` `h` `v` | roof-edge pieces: ridge, eave, verge (gable edge), hip, valley |
 <!-- /legend -->
 
@@ -104,13 +103,12 @@ A **corner** is two plans, the layer above the corner and the layer below.
 Placed by the edge pass, which reads one cell round each cell. One case a slot; a cell owns at most its 12 edges and
 8 corners. Pieces span the full 0.5 m of their edge; a corner piece sits over the lattice point where its edges end.
 
-#### `edge-out-top` · REQUIRED
+#### `edge-out-top` · slot
 
 - **Placed by:** the edge pass, one piece a 0.5 m lattice edge, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a rounded strip over the top edge, from the top face to the front face
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** outer edge, the solid cell below it: a wall top, a stair nosing, a floor edge
 
 A wall's top edge, a floor slab's edge, a stair's nosing.
@@ -123,13 +121,12 @@ A wall's top edge, a floor slab's edge, a stair's nosing.
    below   O  |  .      O = # (the one solid cell, below the edge)
 ```
 
-#### `edge-out-vertical` · REQUIRED
+#### `edge-out-vertical` · slot
 
 - **Placed by:** the edge pass, one piece a 0.5 m lattice edge, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** alias of `edge-out-top`, rotation 9 (ZM90, a quarter turn about −z): the top edge's strip turned up the outside corner
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** outer vertical edge: an outside wall corner, a jamb
 
 An outside wall corner, a door or window jamb's edge.
@@ -142,13 +139,12 @@ An outside wall corner, a door or window jamb's edge.
    front   .  |  .
 ```
 
-#### `edge-out-bottom` · REQUIRED
+#### `edge-out-bottom` · slot
 
 - **Placed by:** the edge pass, one piece a 0.5 m lattice edge, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** alias of `edge-out-top`, rotation 5 (X90, a quarter turn about +x): the top edge's strip turned under the underside edge
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** outer edge, the solid cell above it: a lintel underside, an overhang
 
 A lintel's underside edge, an overhang, a floor's underside edge.
@@ -161,13 +157,12 @@ A lintel's underside edge, an overhang, a floor's underside edge.
    below   .  |  .
 ```
 
-#### `edge-in-top` · OPTIONAL
+#### `edge-in-top` · slot
 
 - **Placed by:** the edge pass, one piece a 0.5 m lattice edge, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** alias of `edge-in-bottom`, rotation 5 (X90, a quarter turn about +x): the floor cove turned up under the ceiling
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** inner edge, the open cell below it: wall meets ceiling
 
 Where a wall meets the ceiling over it.
@@ -180,13 +175,12 @@ Where a wall meets the ceiling over it.
    below   #  |  .      the wall behind; the room in front
 ```
 
-#### `edge-in-vertical` · OPTIONAL
+#### `edge-in-vertical` · slot
 
 - **Placed by:** the edge pass, one piece a 0.5 m lattice edge, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** alias of `edge-in-bottom`, rotation 9 (ZM90, a quarter turn about −z): the floor cove turned up the inside corner
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** inner vertical edge: an inside wall corner
 
 An inside wall corner.
@@ -199,13 +193,12 @@ An inside wall corner.
    front   #  |  .      the open cell; O diagonally opposite it
 ```
 
-#### `edge-in-bottom` · OPTIONAL
+#### `edge-in-bottom` · slot
 
 - **Placed by:** the edge pass, one piece a 0.5 m lattice edge, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a cove where the wall meets the floor, in the open cell
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** inner edge, the open cell above it: wall meets floor, a riser foot
 
 Where a wall meets the floor in front of it; a stair riser's foot.
@@ -218,13 +211,12 @@ Where a wall meets the floor in front of it; a stair riser's foot.
    below   O  |  #      the floor (O owns it: diagonally opposite the open cell)
 ```
 
-#### `corner-out-top` · REQUIRED
+#### `corner-out-top` · slot
 
 - **Placed by:** the edge pass, one piece a lattice corner, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a rounded cap closing the three strips at a top corner
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** outer corner, the solid cell below it: a box top corner
 
 A box's top corner: where a top edge meets a vertical edge and another top edge.
@@ -236,13 +228,12 @@ A box's top corner: where a top edge meets a vertical edge and another top edge.
  front .  .                 front .  .       one solid of 8: O, below and behind the corner *
 ```
 
-#### `corner-out-bottom` · REQUIRED
+#### `corner-out-bottom` · slot
 
 - **Placed by:** the edge pass, one piece a lattice corner, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** alias of `corner-out-top`, rotation 5 (X90, a quarter turn about +x): the top corner's cap turned under
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** outer corner, the solid cell above it: a box bottom corner
 
 A box's bottom corner (an overhang's corner, a lintel's end underneath).
@@ -254,13 +245,12 @@ A box's bottom corner (an overhang's corner, a lintel's end underneath).
  front .  .                 front .  .       one solid of 8: O, above and behind
 ```
 
-#### `corner-in-top` · OPTIONAL
+#### `corner-in-top` · slot
 
 - **Placed by:** the edge pass, one piece a lattice corner, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** none: nothing is added (the faces show as they are)
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** inner corner, the open cell below it
 
 Where two walls and the ceiling meet in a room's corner (seven of eight solid, the open cell below).
@@ -272,13 +262,12 @@ Where two walls and the ceiling meet in a room's corner (seven of eight solid, t
  front #  #                 front #  .       the open cell below in front; O diagonally opposite
 ```
 
-#### `corner-in-bottom` · OPTIONAL
+#### `corner-in-bottom` · slot
 
 - **Placed by:** the edge pass, one piece a lattice corner, yaw 0–3
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** none: nothing is added (the faces show as they are)
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** inner corner, the open cell above it
 
 Where two walls and the floor meet in a room's corner (the open cell above).
@@ -310,8 +299,8 @@ draws terrain, as **flat sloped planes** with the roof material's tiling texture
   navigation keep the stair voxels.
 - **Every level.** The mesher runs at every distance ring (planes read better than stairs far away); the roof-edge
   pieces, like all pieces, only near (§11).
-- **No edge pieces round plane cells**: the roof's own edges below take their place. Roof-edge pieces are not
-  staggered.
+- **No edge pieces round plane cells**: the roof's own edges below take their place. Roof-edge pieces are staggered
+  like every piece (§10).
 
 ```text
  cut across a gable roof (x →, up ↑), the planes drawn through the stair's outer corners
@@ -323,13 +312,12 @@ draws terrain, as **flat sloped planes** with the roof material's tiling texture
        W              W   W  the walls carrying the roof
 ```
 
-#### `roof-ridge` · REQUIRED
+#### `roof-ridge` · slot
 
 - **Placed by:** the roof mesher, on roof plane cells
 - **Roles:** roof
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a ridge cap over the line the two planes meet on
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** the top line of two roof planes meeting
 
 ```text
@@ -339,13 +327,12 @@ draws terrain, as **flat sloped planes** with the roof material's tiling texture
     r/     \r
 ```
 
-#### `roof-eave` · REQUIRED
+#### `roof-eave` · slot
 
 - **Placed by:** the roof mesher, on roof plane cells
 - **Roles:** roof
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: an eave lip under the plane's low edge
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** the lowest edge of a roof plane
 
 ```text
@@ -355,13 +342,12 @@ draws terrain, as **flat sloped planes** with the roof material's tiling texture
          E        the lowest edge of the plane: open below and in front (+z)
 ```
 
-#### `roof-gable` · REQUIRED
+#### `roof-gable` · slot
 
 - **Placed by:** the roof mesher, on roof plane cells
 - **Roles:** roof
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a verge board up the gable edge, along the slope (rising toward +x; the other side mirrored)
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** the sloped end of a roof plane at a gable: the verge
 
 The verge: the sloped edge of a plane at a gable end. One mesh serves both slopes of a gable: author it rising
@@ -376,13 +362,12 @@ correct.
          / WWWW \
 ```
 
-#### `roof-hip` · REQUIRED
+#### `roof-hip` · slot
 
 - **Placed by:** the roof mesher, on roof plane cells
 - **Roles:** roof
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a hip cap up the line the two planes meet on
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** an outside corner line of two roof planes
 
 ```text
@@ -394,13 +379,12 @@ correct.
    h . . . . . h
 ```
 
-#### `roof-valley` · OPTIONAL
+#### `roof-valley` · slot
 
 - **Placed by:** the roof mesher, on roof plane cells
 - **Roles:** roof
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a valley board up the crease the two planes meet in
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** an inside corner line of two roof planes
 
 ```text
@@ -417,8 +401,9 @@ correct.
 The engine has no "damage" value: a construction cell's shape is its integrity (owner 2026-11-04). What lowers it and
 when is **game logic**; the engine only shows the state.
 
-- **Integrity 15:** intact. **8–14:** the `debris` piece. **1–7:** the `debris-heavy` piece (a kit with one debris
-  piece dresses both). **Air:** broken: no debris; the faces and edge pieces round the hole draw as for any hole.
+- **Integrity 15:** intact. **8–14:** the `debris` slot. **1–7:** the `debris-heavy` slot (a kit may put the same mesh
+  in both; an empty slot draws nothing, so the cell shows as a hole rimmed by its neighbours' faces). **Air:** broken:
+  no debris; the faces and edge pieces round the hole draw as for any hole.
 - **Only exposed damage shows.** A damaged cell with every face against solid stays a plain block (nothing hidden
   inside a mass).
 - **The damaged cell's faces are left to its debris piece**; every intact face that opens toward it draws its face
@@ -427,13 +412,12 @@ when is **game logic**; the engine only shows the state.
 - **Collision, light, occupancy and navigation keep the cell whole until it is air** (owner).
 - **Near only.** A level-1 cell made of damaged cells counts as intact, so damage shows in the nearest ring only.
 
-#### `debris` · OPTIONAL
+#### `debris` · slot
 
 - **Placed by:** the debris rule, on an exposed damaged construction cell, in place of its faces
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a few chunks of rubble
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** a damaged cell, integrity 8–14: drawn by this piece in place of its faces
 
 ```text
@@ -444,29 +428,27 @@ when is **game logic**; the engine only shows the state.
    # # f # #
 ```
 
-#### `debris-heavy` · OPTIONAL
+#### `debris-heavy` · slot
 
 - **Placed by:** the debris rule, on an exposed damaged construction cell, in place of its faces
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
-- **Base:** keep · **Coarse shape** (collision, navigation, light): box · **Stand-in:** `debris`
-- **Engine default kit:** own mesh: a low heap of rubble
+- **Base:** keep · **Coarse shape** (collision, navigation, light): box
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** a badly damaged cell, integrity below 8: drawn by this piece in place of its faces
 
 ```text
  the same wall; integrity 5 at x
    # # f # #
-   # f x f #      x  drawn by debris-heavy (integrity below 8), or by the kit's debris piece if it has no heavy one
+   # f x f #      x  drawn by the debris-heavy slot (integrity below 8); nothing if the kit leaves it empty
    # # f # #
 ```
 
-#### `debris-face` · OPTIONAL
+#### `debris-face` · slot
 
 - **Placed by:** the debris rule, on an intact face opening toward a damaged cell
 - **Roles:** every construction role
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
 - **Base:** keep · **Coarse shape** (collision, navigation, light): box
-- **Engine default kit:** own mesh: a broken rim on the face opening to the damage
+- **Stagger:** into the solid, scaled by the kit's jitter
 - **Catalogue note:** an intact face opening toward a damaged cell: its broken edge
 
 ```text
@@ -476,97 +458,51 @@ when is **game logic**; the engine only shows the state.
    #  #  #       face-up / face-down for faces above or below the damage)
 ```
 
-## 8. Beams and banisters (3 cases, kept as built)
+## 8. Beams and banisters: not in the voxel phases
 
-Beams and banisters are not stored roles: the case window (the cells within two of a cell) reads them from the
-arrangement, as built before the edge model and kept unchanged (owner: "stay as planned until the system is solid").
-They are the only cases with run sections (single, start, body, end, corner, junction) and the only ones that replace
-their cell's faces: a beam or banister cell draws only its piece, and collides and lights as its thin declared shape
-(an open rail is open for every consumer). No edge piece goes on an edge such a cell touches.
+Beams and banisters, which an earlier draft read from the arrangement with window rules and run sections, are out of
+the voxel phases (owner 2026-11-06). Their cells are plain voxels with edge pieces like any other construction cell;
+the catalogue has no window rules and no per-role fallback case.
 
-#### `beam` · REQUIRED
+## 9. One mesh, many slots (rotations and the verge mirror)
 
-- **Placed by:** the case window's rules (3), read from the arrangement
-- **Roles:** wall, floor · **Inferred feature:** beam
-- **Sections:** a run along its own x: single, start, body, end, corner, junction
-- **Base:** suppress · **Coarse shape** (collision, navigation, light): bar
-- **Engine default kit:** none: the engine's stand-in bar with its run sections (every kit's last fallback)
-- **Catalogue note:** one cell out from a wall body, open above and below
+Many cases are the same shape turned. A slot lists one or more **meshes**, each with an optional **rotation** (one
+of the 24 cube rotations, 0–23; rotation numbers are fixed, `cube-rotations.ts`) that turns it into the slot's own
+orientation, and an optional weight. Any mesh may fill any number of slots: one mesh may fill every slot. A rotation
+never mirrors, so normals and winding stay right. Two do most of the work: rotation 5 (X90, a quarter turn about
++x) turns a top edge under into a bottom edge; rotation 9 (ZM90, a quarter turn about −z) turns a horizontal edge up
+into a vertical one.
 
-```text
- cut across a beam (front +z →)
-   #  .        the wall body behind; open above, below and in front
-   #  O        O = the beam cell (a wall or floor cell one out from the wall)
-   #  .
-```
+| Slot | Log placeholder | Stone placeholder |
+|---|---|---|
+| `edge-out-top` | own (round log, 2 meshes) | own (chamfered / chipped block edge, 2 meshes) |
+| `edge-out-vertical` | own (log ends crossing a course) | edge-out-top's 2 meshes, rotation 9 |
+| `edge-out-bottom` | edge-out-top's 2 meshes, rotation 5 | edge-out-top's 2 meshes, rotation 5 |
+| `edge-in-bottom` | own (a pole in the corner) | own (fillet) |
+| `edge-in-top` | edge-in-bottom's mesh, rotation 5 | edge-in-bottom's mesh, rotation 5 |
+| `edge-in-vertical` | edge-in-bottom's mesh, rotation 9 | edge-in-bottom's mesh, rotation 9 |
+| `corner-out-top` | own (crossing logs) | own (corner block) |
+| `corner-out-bottom` | corner-out-top's mesh, rotation 5 | corner-out-top's mesh, rotation 5 |
+| `corner-in-top`, `corner-in-bottom` | empty | empty |
 
-#### `banister-rail` · REQUIRED
-
-- **Placed by:** the case window's rules (6), read from the arrangement
-- **Roles:** wall · **Inferred feature:** banister
-- **Sections:** a run along its own x: single, start, body, end, corner, junction
-- **Base:** suppress · **Coarse shape** (collision, navigation, light): panel
-- **Engine default kit:** none: the engine's stand-in panel with its run sections (every kit's last fallback)
-- **Catalogue note:** a low thin run, open above: on a post, between posts or on a wider support
-
-```text
- cut along a balcony edge (x →)
-   .  .  .  .  .
-   P  O  O  O  P    O  rail cells: a low one-cell-thin wall run, open above
-   #  .  .  .  #    P  posts (banister-post) or a wider support under the rail
-```
-
-#### `banister-post` · REQUIRED
-
-- **Placed by:** the case window's rules (1), read from the arrangement
-- **Roles:** wall, pillar · **Inferred feature:** banister
-- **Sections:** none: one piece a place (the kit names it `body` or `single`)
-- **Base:** suppress · **Coarse shape** (collision, navigation, light): post
-- **Engine default kit:** none: the engine's stand-in post (every kit's last fallback)
-- **Catalogue note:** thin both ways on a support, under a rail
-
-```text
- cut across a post
-   .
-   O      O  a thin cell open on its four sides, on a support, under a rail
-   #
-```
-
-## 9. One mesh, many cases (aliases and the verge mirror)
-
-Many cases are the same shape turned. A kit may say a case is drawn by **another case's mesh turned** by one of the 24
-cube rotations (`alias: {case, rotation}` in the kit record; rotation numbers are fixed, `cube-rotations.ts`). A
-rotation never mirrors, so normals and winding stay right. An alias may not have sections of its own, may not name
-itself or another alias, and must name a case the kit has meshes for (the kit check reports every alias). Rotation 5
-(X90) turns a top edge under into a bottom edge; rotation 9 (ZM90) turns a horizontal edge up into a vertical one.
-
-| Case | Engine default kit | Log placeholder | Stone placeholder |
-|---|---|---|---|
-| `edge-out-top` | own (rounded strip) | own (round log, 2 variants) | own (chamfered / chipped block edge, 2 variants) |
-| `edge-out-vertical` | = edge-out-top, 9 | own (log ends crossing a course) | = edge-out-top, 9 |
-| `edge-out-bottom` | = edge-out-top, 5 | = edge-out-top, 5 | = edge-out-top, 5 |
-| `edge-in-bottom` | own (cove) | own (a pole in the corner) | own (fillet) |
-| `edge-in-top` | = edge-in-bottom, 5 | = edge-in-bottom, 5 | = edge-in-bottom, 5 |
-| `edge-in-vertical` | = edge-in-bottom, 9 | = edge-in-bottom, 9 | = edge-in-bottom, 9 |
-| `corner-out-top` | own (cap) | own (crossing logs) | own (corner block) |
-| `corner-out-bottom` | = corner-out-top, 5 | = corner-out-top, 5 | = corner-out-top, 5 |
-| `corner-in-top`, `corner-in-bottom` | none | none | none |
-
-So a kit can cover all ten edge and corner cases with **three meshes** (an outer edge, an inner edge, an outer
+So a kit can fill all ten edge and corner slots with **three meshes** (an outer edge, an inner edge, an outer
 corner). The **verge** is different: its two sides are mirror images, which no rotation gives, so the engine draws the
 second side mirrored by itself (§6) and the kit authors one verge rising toward +x.
 
 ## 10. Stagger
 
-Each edge and corner piece is moved by a small amount hashed from its cell, so a row of edge pieces reads hand-built,
-not machine-straight: **1/64–1/32 cell** (0.8–1.6 cm) **into the solid**, along the bisector of its two faces, and
-twisted at most **2°** about it (never more than the move hides). It never moves out of the faces, so no gap opens
-between a piece and its faces. The hash reads the world cell, the level, the kit and which of the cell's pieces it
-is: an edit elsewhere never moves a piece. Roof-edge, debris, beam and banister pieces are not staggered.
+Every piece (edges, corners, roof edges and damage) is moved by a small amount hashed from its cell, so a row of edge
+pieces reads hand-built, not machine-straight: **1/64–1/32 cell** (0.8–1.6 cm) **into the solid**, along the bisector
+of its two faces (a roof edge into the roof, a debris piece into its cell), and twisted at most **2°** about it (never
+more than the move hides). It never moves out of the faces, so no gap opens between a piece and its faces. Each kit
+scales this by its own **jitter**: jitter 0–4 (default 1); 0 draws its pieces exactly on the lattice, 2 moves and
+twists them twice as far. The hash reads the world cell, the level, the project's **piece seed** (the
+`voxel_piece_seed` project setting) and the piece's slot: an edit elsewhere never moves a piece, and a new seed
+reshuffles the whole world at once.
 
-**Variants** work the same way: a case may have several weighted variants (two log diameters, two block chips); the
-variant is hashed from the world cell, the kit and which of the cell's pieces it is, so the edges of one cell vary on
-their own and nothing reshuffles when you build elsewhere.
+**Several meshes in a slot** work the same way: a slot may list several weighted meshes (two log diameters, two block
+chips); which one draws is hashed from the world cell, the piece seed and which of the cell's pieces it is, so the
+edges of one cell vary on their own and nothing reshuffles when you build elsewhere.
 
 ## 11. Detail levels: pieces near, plain voxels from the middle ring out
 
@@ -575,32 +511,29 @@ middle distance outward.** There is no "simple piece" stage, so a kit authors **
 
 | Ring | Cells | Pieces | Surfaces |
 |---|---|---|---|
-| L0 (near) | 0.5 m | the kit's pieces (edges, corners, roof edges, debris, beams, banisters) | voxel faces, roof planes |
+| L0 (near) | 0.5 m | the kit's pieces (edges, corners, roof edges, debris) | voxel faces, roof planes |
 | L1 (middle) and coarser | 1 m and up | **none** | flat square voxels, roof planes |
 
 Damage shows at L0 only (§7). The far field (no draw cut-off, cheap stand-ins for km-distant terrain) is 46d's.
 *Built so in 46c.16a (derived 21): level 1 and coarser list no pieces; the `low` mesh left the kit format, the kit
 check and the placeholder kits.*
 
-## 12. What a kit must provide, and what the engine does without it
+## 12. How a kit fills its slots, and what the engine does without it
 
-A kit belongs to a material type and draws the pieces of every cell whose material it binds.
+A kit belongs to a material type and draws the pieces of every cell whose material it binds. Its record (kit format
+1, a DRAFT) maps case ids to **slots**: `slots: {<case id>: {meshes: [{mesh, rotation?, weight?}], gameData?}}`, with
+the kit's `jitter` (§10), its trim layout and opaque game data beside them.
 
-- **Required (12):** `edge-out-top`, `edge-out-vertical`, `edge-out-bottom`, `corner-out-top`, `corner-out-bottom`,
-  `roof-ridge`, `roof-eave`, `roof-gable`, `roof-hip`, `beam`, `banister-rail`, `banister-post`. An alias counts.
-  Missing one is a kit-check **warning**; the place shows its plain square voxel edge (beams and banisters: the
-  engine's stand-in shapes).
-- **Optional (9):** the inner edges and corners, `roof-valley`, `debris`, `debris-heavy`, `debris-face`. Missing one
-  is **info**: the faces show as they are; `debris-heavy` falls back to the kit's `debris`.
-- **Per piece:** one mesh (drawn at L0 only), optional variants with weights,
-  opaque game data (break, sound, … passed through to the game; the engine never reads it).
-- **Engine fallbacks:** a material no kit binds draws the **engine default kit** (procedural, in code: rounded
-  strips, coves, corner caps, roof boards, rubble; 11 meshes for 18 cases, 525 triangles in all).
-  A case missing in a bound kit draws nothing (no other kit's piece stands in), except beams and banisters, which
-  draw the engine's stand-ins.
+- **Every slot is optional.** There is no required / optional split: a kit fills the slots it wants and the kit
+  check reports how many it fills (info, never a warning). **An empty slot draws nothing**: the place shows its plain
+  square voxel edge (a debris cell: a hole, §7). No other slot, kit or engine piece stands in.
+- **No engine default kit.** A material no kit binds draws plain voxel faces and edges, with no pieces at all.
+- **Per slot:** one or more meshes (drawn at L0 only), each with a cube rotation and a weight, and opaque game data
+  (break, sound, … passed through to the game; the engine never reads it).
+- **One texture set a kit** (one trim sheet or one material for every mesh, so the kit batches); two are a kit-check
+  error.
 - **Collision, navigation and light never read a piece.** They come from the voxels (and the roof planes).
-- **Budgets** (placeholder defaults, reported by the kit check, never capped): edge ≤ 48 triangles, corner ≤ 64,
-  roof edge ≤ 64, debris ≤ 160 (one mesh a piece).
+- **Budgets** are reported by the kit check (triangles and textures per mesh and in all), never capped.
 
 ## 13. Building a piece in Blender
 
@@ -621,23 +554,23 @@ These match what the engine draws, the kit check tests and `tools/voxel-bench/ki
 - **Roof pieces** follow the roof mesher's planes: the verge rising toward +x, the ridge written for the cell's high
   side (the engine centres it on odd roofs), the eave open toward +z with its plane rising toward −z, the hip and
   valley running from the cell's +x +z corner (low) up to its −x −z corner.
-- **Names.** One GLB a kit, one node a piece, all at the file's origin: `<case>_<section>_v<k>_<high|low>`, e.g.
-  `edge-out-top_body_v0_high`, `edge-out-top_body_v1_low`, `beam_end_v0_high`; letters, digits, `-` and `_` only
-  (three's loader strips `.`, `:` and `/`). Edge, corner, roof and debris cases have one section (the placeholders
-  name it `body`); beams and banisters have run sections. The kit record lists each case's sections and variants,
-  or its alias.
+- **Names.** One GLB a kit, one node a mesh, all at the file's origin; a slot names its meshes by asset and node, so
+  names are free. The placeholders use `<case>_v<k>`, e.g. `edge-out-top_v0`, `edge-out-top_v1`; letters, digits,
+  `-` and `_` only (three's loader strips `.`, `:` and `/`).
 - **Normals and maps.** Smooth round members, flat cut faces; fine detail as baked normals (texture layout §4).
   Report triangles, texture sizes and file size with every kit (the kit check's budget row).
 
-The two placeholder kits made to this draft (engine test data, not game art; R5): **log** 22 pieces (13 cases with
-meshes + 4 aliases), 757 triangles, GLB 58,404 B; **stone** 21 pieces (13 + 5 aliases), 490 triangles, GLB 47,320 B
-(46c.16a: one mesh a piece, the low meshes gone); no textures (the runtime debug set); kit check 0 errors.
+The two placeholder kits made to this draft (engine test data, not game art; R5), in the slot format: **log** 13
+meshes filling 16 of 18 slots, 391 triangles, GLB 33,144 B; **stone** 12 meshes filling 16 slots, 286 triangles, GLB
+27,812 B; the inner corners left empty; no textures (the runtime debug set).
 
 ## 14. What is not here (moved by the 2026-11-04 review)
 
 - **Retired:** pieces over flat faces (wall bodies, copings, plinths, mouldings, running boards, soffits, foundation
-  skirts, opening frames, wall-thin), the per-role fallback cases, merged run sections for anything but beams and
-  banisters. An opening's frame is now its walls' edges (jambs: vertical edges; lintel: bottom edges; sill: top edges).
+  skirts, opening frames, wall-thin), the per-role fallback cases, merged run sections, the required / optional split,
+  stand-ins, aliases (now a slot mesh with a rotation) and the engine default kit. Beams and banisters are out of the
+  voxel phases (§8). An opening's frame is now its walls' edges (jambs: vertical edges; lintel: bottom edges; sill:
+  top edges).
 - **47b (terrain tools and dressing):** the ground-contact fringe where a building meets terrain, and all ground
   scatter: the terrain material's runtime scatter rules (material id + the climate field).
 - **46d (rendering and materials):** the material model and texture arrays, relief (tessellation / parallax) on faces
@@ -651,9 +584,8 @@ meshes + 4 aliases), 757 triangles, GLB 58,404 B; **stone** 21 pieces (13 + 5 al
   to look one cell further.
 - **D501: far roofs sit a little high.** At the middle and far rings a roof not aligned to the coarser grid sits up to
   1.5 coarse cells above the near roof's planes, and small roofs lose their slope at L2.
-- **D504: a wall course under a window reads as a banister.** A one-cell wall row standing on a floor's edge under a
-  window matches the kept banister-rail rule: it draws a rail, collides as a thin panel and gets no edge pieces. The
-  beam/banister rules predate the edge model and need a sill rule.
+- **D504 (gone with the window rules):** a wall course under a window no longer reads as a banister; it is plain
+  voxels with edge pieces.
 - **D505: more pieces at the middle ring.** Every edge of a 1 m cell takes a low piece; since the coarse roofs are
   re-laid (R6b) the town's L1 lists 32.5 k instances (was 72.6 k) and draws 22.8 k (R9); whether L1 keeps only
   outer edges is question 5 in §16.
@@ -664,14 +596,13 @@ meshes + 4 aliases), 757 triangles, GLB 58,404 B; **stone** 21 pieces (13 + 5 al
 
 ## 16. Open questions for the owner
 
-1. **The case list.** Are these 21 cases the right start (10 edge/corner, 5 roof, 3 damage, 3 beam/banister)? Any
-   to add now (a mixed-corner piece, a piece where two materials meet on an edge)?
-2. **Required vs optional.** Outer edges and corners, ridge, eave, verge and hip required; inner edges and corners,
-   valley and debris optional. Right?
+1. **The case list.** Are these 18 cases the right start (10 edge/corner, 5 roof, 3 damage)? Any to add now (a
+   mixed-corner piece, a piece where two materials meet on an edge)?
+2. **Required vs optional.** Settled by the owner: every slot is optional; an empty slot draws nothing (§12).
 3. **Ownership by material.** An edge takes the kit of one cell (outer: the solid one; inner: the one opposite the
    open cell). Is that right where a stone wall meets a timber floor (the floor's kit draws the inner edge)?
-4. **Stagger.** 1/64–1/32 cell into the solid and ≤ 2° twist on edges and corners only: enough, too much? Stagger
-   roof edges too?
+4. **Stagger.** 1/64–1/32 cell into the solid and ≤ 2° twist on every piece, scaled by the kit's jitter: enough, too
+   much?
 5. **Middle ring pieces (D505).** Settled by the owner 2026-11-05: no pieces from L1 out (§11).
 6. **Terrain contact.** No edge piece anywhere a building touches terrain (47b's fringe draws it). Confirm.
 7. **Roofs.** 45° only, 90° hips/valleys only, everything else voxel faces. Enough for now, or 1:2 roofs (D500) soon?
@@ -682,22 +613,22 @@ meshes + 4 aliases), 757 triangles, GLB 58,404 B; **stone** 21 pieces (13 + 5 al
 10. **Verge mirroring.** One verge mesh drawn mirrored on the second side, or a second case so a kit can carve the two
     sides differently?
 11. **Mixed corners** (outer and inner edges meeting at one point) get no corner piece. Acceptable?
-12. **Beams and banisters** keep their 10 window rules and run sections unchanged until the system is solid; D504
-    (a sill read as a rail) needs a rule change. Fix now or with the beam/banister review?
+12. **Beams and banisters.** Settled by the owner: out of the voxel phases (§8).
 13. **Case ids as the contract.** Once approved, kits name cases by these ids (kit format 1 stays a draft until then;
     old ids give "unknown case" errors). Agree?
 
 ## 17. What you are approving
 
 - [ ] Roles are stored, pieces are read from the arrangement; construction shape = integrity (§1).
-- [ ] Flat faces get no piece; pieces only on exposed lattice edges and corners, roof edges, damage, beams and
-      banisters (§2–§3), with the solid/open, owner and no-piece rules of §3.
-- [ ] The 21 cases of `edges-draft` v1 and their orientation convention (§4–§8).
+- [ ] Flat faces get no piece; pieces only on exposed lattice edges and corners, roof edges and damage (§2–§3),
+      with the solid/open, owner and no-piece rules of §3.
+- [ ] The 18 cases of `edges-draft` v2 and their orientation convention (§4–§7).
 - [ ] The roof mesher's 45° rule, its fallback to voxel faces, and roof collision as planes (§6).
 - [ ] Damage display: two debris stages, debris faces, collision and light whole until air, near ring only (§7).
-- [ ] Beams and banisters kept as built (§8).
-- [ ] Aliases (24 rotations, never mirrored) and the engine-mirrored verge (§9); the stagger (§10).
+- [ ] Beams and banisters out of the voxel phases (§8).
+- [ ] Slot meshes with a cube rotation (24, never mirrored) and the engine-mirrored verge (§9); the stagger and
+      per-kit jitter on every piece (§10).
 - [ ] Pieces at L0 only; flat square voxels from L1 out; roof planes at every level (§11).
-- [ ] Required / optional cases and the engine's fallbacks (§12); the Blender conventions (§13).
+- [ ] Every slot optional, an empty slot draws nothing, no engine default kit (§12); the Blender conventions (§13).
 - [ ] What moved to 46d, 47a and 47b (§14).
 - [ ] Your answers to §16.

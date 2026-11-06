@@ -26,7 +26,6 @@ import {
   jobRadius,
   rulesDrawDebris,
   buildPieceTable,
-  defaultKitSource,
   localIndex,
   PIECE_SLOT_TABLE,
   shapeDensity,
@@ -40,6 +39,7 @@ import {
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { dabDetailRoles, putVoxel, randomAssemblyWorld } from './scenes';
+import { fullTestKit } from './test-kits';
 import { MAT } from './world-kit';
 
 const grid = chunkGrid(32);
@@ -369,8 +369,8 @@ describe('construction shape is integrity', () => {
       return s;
     };
     for (const rules of [TERRAIN_RULES, EDGE_RULES]) {
-      // The engine's default kit draws every material, so the pieces show what the derive places (no pieces without a catalogue).
-      const table = rules.catalogue === undefined ? null : buildPieceTable([], rules, defaultKitSource(rules.catalogue)).table;
+      // A kit filling every slot of the stone, so the pieces show what the derive places (no pieces without a catalogue).
+      const table = rules.catalogue === undefined ? null : buildPieceTable([fullTestKit('stone', [MAT.stone], 1, rules.catalogue)], rules, 0).table;
       const intact = parts(deriveFromStore(world(15, 7), 0, 0, 0, rules, undefined, table));
       const damaged = parts(deriveFromStore(world(7, 7), 0, 0, 0, rules, undefined, table));
       // The edge rules draw the damaged cell as debris (its base faces and pieces differ, nothing else); the terrain rules as a block.

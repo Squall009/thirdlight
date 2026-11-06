@@ -43,7 +43,7 @@ const kits = (s: State): VoxelKit[] => (s.content as { voxelKits?: VoxelKit[] })
 const MODEL = 'asset-2b11d4a76c9f0e35';
 const DIGEST = 'c'.repeat(64);
 
-// Cases out of order and a weight of 1: canonical form sorts the cases and leaves the weight out.
+// Slots out of order and a weight of 1: canonical form sorts the slots and leaves the weight out.
 const KIT: VoxelKit = {
   kitFormat: 1,
   voxelKitId: 'log',
@@ -51,9 +51,9 @@ const KIT: VoxelKit = {
   version: 1,
   materialType: 'wood',
   materials: [7, 2],
-  cases: {
-    'wall-banister': { sections: { body: { variants: [{ high: { assetId: MODEL, digest: DIGEST, node: 'Rail' }, weight: 1 }] } }, gameData: { hits: 2 } },
-    beam: { sections: { body: { variants: [{ high: { assetId: MODEL, digest: DIGEST, node: 'Beam' } }] } } },
+  slots: {
+    'edge-out-top': { meshes: [{ mesh: { assetId: MODEL, digest: DIGEST, node: 'Edge' }, weight: 1 }], gameData: { hits: 2 } },
+    'corner-out-top': { meshes: [{ mesh: { assetId: MODEL, digest: DIGEST, node: 'Corner' } }] },
   },
 };
 
@@ -71,9 +71,9 @@ describe('voxel kit commands', () => {
           version: 1,
           materialType: 'wood',
           materials: [2, 7],
-          cases: {
-            beam: { sections: { body: { variants: [{ high: { assetId: MODEL, digest: DIGEST, node: 'Beam' } }] } } },
-            'wall-banister': { sections: { body: { variants: [{ high: { assetId: MODEL, digest: DIGEST, node: 'Rail' } }] } }, gameData: { hits: 2 } },
+          slots: {
+            'corner-out-top': { meshes: [{ mesh: { assetId: MODEL, digest: DIGEST, node: 'Corner' } }] },
+            'edge-out-top': { meshes: [{ mesh: { assetId: MODEL, digest: DIGEST, node: 'Edge' } }], gameData: { hits: 2 } },
           },
         },
       ]),
@@ -100,7 +100,7 @@ describe('voxel kit commands', () => {
     const s = fresh();
     expect(refused(s, 'setVoxelKit', { kit: { ...KIT, kitFormat: 2 } })).toMatchObject({ code: 'kit_format_unsupported', path: '/args/kit/kitFormat' });
     expect(refused(s, 'setVoxelKit', { kit: { ...KIT, pieces: {} } })).toMatchObject({ code: 'field_unexpected', path: '/args/kit/pieces' });
-    expect(refused(s, 'setVoxelKit', { kit: { ...KIT, cases: { beam: { sections: { body: { variants: [] } } } } } }).path).toBe('/args/kit/cases/beam/sections/body/variants');
+    expect(refused(s, 'setVoxelKit', { kit: { ...KIT, slots: { 'edge-out-top': { meshes: [] } } } }).path).toBe('/args/kit/slots/edge-out-top/meshes');
     expect(refused(s, 'setVoxelKit', { kit: KIT, extra: 1 }).code).toBe('field_unexpected');
     expect(refused(s, 'setVoxelKit', {}).code).toBe('field_missing');
     expect(refused(s, 'deleteVoxelKit', { voxelKitId: 7 }).code).toBe('field_type');

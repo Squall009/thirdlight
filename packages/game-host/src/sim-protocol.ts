@@ -96,7 +96,7 @@ export interface SimInitMessage {
    * `kits`, the build's voxel kits their derives choose pieces from (the
    * page draws them from the same kits); absent: they stream nothing.
    */
-  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[]; readonly kits?: readonly import('@thirdlight/voxel').PieceKitSource[]; readonly qualityLevels?: readonly import('@thirdlight/runtime').QualityLevelConfig[] };
+  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[]; readonly kits?: readonly import('@thirdlight/voxel').PieceKitSource[]; readonly pieceSeed?: number; readonly qualityLevels?: readonly import('@thirdlight/runtime').QualityLevelConfig[] };
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */

@@ -1,18 +1,28 @@
 /**
  * Voxel kits (`content.voxelKits`): the detail pieces a material type draws
- * its voxel cases with — per case and run section the authored mesh of
- * each weighted variant, the outlines section ends meet by, and the game's
- * own data per kit and per case.
+ * its voxel edges, corners, roof edges and damage with, as **slots**: every
+ * case of the case catalogue is a slot (the case id is its stable name),
+ * and the kit assigns each slot it fills one or more meshes, each with a
+ * cube rotation. One mesh may fill every slot, or every slot its own.
  *
+ * - **Every slot is optional.** A slot the kit leaves out draws nothing:
+ *   that edge stays a plain voxel edge. An author checks the textures on
+ *   plain voxels first and adds pieces one slot at a time.
  * - **One mesh a piece.** Pieces are drawn in the near ring (level 0) only;
- *   from level 1 out the edges are plain voxel faces, so a variant has no
- *   lower-detail mesh (a stored `low` is an unknown field, refused).
- *
+ *   from level 1 out the edges are plain voxel faces, so a mesh has no
+ *   lower-detail one.
+ * - **A slot's meshes** are picked per piece from the project's piece seed
+ *   and the piece's world position (voxel piece-table.ts), weighted, so a
+ *   scene always draws the same.
+ * - **Jitter** scales how far every piece of the kit moves into the solid
+ *   and twists (voxel piece-placement.ts; absent: 1, the engine's stagger).
+ * - **One texture set a kit** (one trim sheet or one material for every
+ *   piece): the kit check's rule, never a refusal here.
  * - **A kit belongs to a material type** (wood, stone), never to one
  *   material: every material of the type shares its instanced pieces.
- * - **Case and section ids are opaque here.** The case catalogue names them;
- *   a kit naming one the catalogue lacks is a kit-check problem, never a
- *   refusal, so the catalogue may grow without invalidating stored kits.
+ * - **Slot ids are opaque here.** The case catalogue names them; a kit
+ *   naming one the catalogue lacks is a kit-check problem, never a refusal,
+ *   so the catalogue may grow without invalidating stored kits.
  * - **`materials` is a test binding** (the voxel material ids the kit
  *   applies to) until the material model names each material's kit; then it
  *   is left unread, never repurposed.
@@ -23,16 +33,16 @@
  *   GLB the piece was made from), so it ships through the content closure as
  *   every model does and a re-import that changes the bytes is visible.
  *
- * The record is versioned (`kitFormat`): fields are only ever added, a newer
- * format is refused rather than read in part, and unknown fields are refused.
- * The canonicalizer rebuilds the record field by field, so a field added here
+ * The record is versioned (`kitFormat`, still a DRAFT): a newer format is
+ * refused rather than read in part, and unknown fields are refused. The
+ * canonicalizer rebuilds the record field by field, so a field added here
  * must be added to {@link canonicalVoxelKit} too (a round-trip test lists every
  * field).
  *
  * Pure value validation: no I/O.
  */
 import { canonicalJsonValue, isPlainObject, isPlainObjectStrict } from '@thirdlight/shared';
-import { CUBE_ROTATION_COUNT, MATERIAL_AIR, MATERIAL_ID_MAX } from '@thirdlight/voxel';
+import { CUBE_ROTATION_COUNT, MATERIAL_AIR, MATERIAL_ID_MAX, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX } from '@thirdlight/voxel';
 import type { ModelErrorV2 } from './errors';
 import { DIGEST_RE } from './content-helpers';
 import { KIT_LIMITS } from './kits';
@@ -53,45 +63,21 @@ export interface VoxelKitMesh {
   node?: string;
 }
 
-/** One variant of a section: its mesh, drawn in the near ring (`high`: the field's name since the first draft). */
-export interface VoxelKitVariant {
-  high: VoxelKitMesh;
-  /** Relative weight among the section's variants (absent: 1). */
+/** One mesh a slot holds: the mesh, the cube rotation that turns it into the slot's case orientation, its weight among the slot's meshes. */
+export interface VoxelKitSlotMesh {
+  mesh: VoxelKitMesh;
+  /** One of the 24 cube rotations (voxel `CUBE_ROTATIONS`, a fixed numbering; absent: 0, the identity). */
+  rotation?: number;
+  /** Relative weight among the slot's meshes (absent: 1). */
   weight?: number;
 }
 
-/** A run section's pieces and the join profiles its two ends have. */
-export interface VoxelKitSection {
-  /** One or several weighted variants (an empty section is not stored). */
-  variants: VoxelKitVariant[];
-  /** The join profile ids at the section's start and end (absent: the end is not checked against its neighbour). */
-  ends?: { start?: string; end?: string };
-}
-
-/**
- * A case drawn by another case's meshes (many edge cases are one mesh on another side): `case` names a case of the
- * same kit that has sections of its own, `rotation` one of the 24 cube rotations (voxel's `CUBE_ROTATIONS`, a fixed
- * numbering; 0 the identity) the meshes are turned by in the case's own orientation. Never a mirror.
- */
-export interface VoxelKitAlias {
-  case: string;
-  rotation: number;
-}
-
-/** One case of the kit: its sections or an alias, and the game's data for the case. */
-export interface VoxelKitCase {
-  /** Section id → its pieces (absent: no pieces; the fallback draws the case). */
-  sections?: Record<string, VoxelKitSection>;
-  /** Draw this case with another case's meshes turned (instead of sections of its own; added to kit format 1). */
-  alias?: VoxelKitAlias;
-  /** The game's own data for this case (break, sound, physics …), never read by the engine. */
+/** One filled slot: its meshes, and the game's data for it. */
+export interface VoxelKitSlot {
+  /** One or more meshes (an empty slot is not stored: leave the slot out). */
+  meshes: VoxelKitSlotMesh[];
+  /** The game's own data for this slot (break, sound, physics …), never read by the engine. */
   gameData?: VoxelKitJson;
-}
-
-/** A section end's outline: a closed polygon in the end plane, in sixteenths of a cell. */
-export interface VoxelKitJoinProfile {
-  /** [u, v] points, each 0–{@link VOXEL_KIT_LIMITS.profileUnits}. */
-  outline: [number, number][];
 }
 
 export interface VoxelKit {
@@ -104,10 +90,10 @@ export interface VoxelKit {
   materialType: string;
   /** Test binding: the voxel material ids this kit applies to (ascending, each once; absent: none). */
   materials?: number[];
-  /** Case id → its pieces and data (an empty kit is valid: the fallback kit draws every case). */
-  cases: Record<string, VoxelKitCase>;
-  /** Profile id → the outline section ends named by it meet with (absent: none). */
-  joinProfiles?: Record<string, VoxelKitJoinProfile>;
+  /** Slot (case id) → its meshes (an empty kit is valid: every edge stays a plain voxel edge). */
+  slots: Record<string, VoxelKitSlot>;
+  /** How far every piece moves into the solid and twists, a scale of the engine's stagger (0–{@link VOXEL_KIT_LIMITS.jitterMax}; absent: 1). */
+  jitter?: number;
   /** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). */
   trimLayout?: string;
   /** The game's own data for the whole kit, never read by the engine. */
@@ -115,22 +101,19 @@ export interface VoxelKit {
 }
 
 export const VOXEL_KIT_LIMITS = Object.freeze({
-  /** Sixteenths of a cell along each axis of a join profile's end plane. */
-  profileUnits: 16,
-  /** A join profile is a polygon: at least a triangle. */
-  profilePointsMin: 3,
   /** Nesting depth of game data (JSON parsers stop far deeper; this keeps a walk over it bounded). */
   gameDataDepth: 32,
   /** The largest voxel material id the test binding may name (the voxel value's 12 bits; 0 is air). */
   materialIdMax: MATERIAL_ID_MAX,
-  /** A variant's weight range, a block kit piece's. */
+  /** A slot mesh's weight range, a block kit piece's. */
   weightMax: KIT_LIMITS.weightMax,
+  /** The largest jitter (voxel `PIECE_JITTER_MAX`). */
+  jitterMax: PIECE_JITTER_MAX,
 });
 
-const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'cases', 'joinProfiles', 'trimLayout', 'gameData'];
-const CASE_FIELDS = ['sections', 'alias', 'gameData'];
-const SECTION_FIELDS = ['variants', 'ends'];
-const VARIANT_FIELDS = ['high', 'weight'];
+const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'jitter', 'trimLayout', 'gameData'];
+const SLOT_FIELDS = ['meshes', 'gameData'];
+const SLOT_MESH_FIELDS = ['mesh', 'rotation', 'weight'];
 const MESH_FIELDS = ['assetId', 'digest', 'node'];
 /** A model node name (as a block kit piece's). */
 const NODE_RE = /^[^\u0000-\u001f]{1,128}$/;
@@ -171,67 +154,27 @@ function mesh(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (v['node'] !== undefined && (typeof v['node'] !== 'string' || !NODE_RE.test(v['node']))) err(errors, 'field_value', `${path}/node`, 'node is a node name (1-128 characters)', v['node']);
 }
 
-function section(v: unknown, path: string, profiles: ReadonlySet<string> | null, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a section is {variants, ends?}', v, 'object');
-  fields(v, SECTION_FIELDS, path, 'section', errors);
-  const variants = v['variants'];
-  if (!Array.isArray(variants) || variants.length < 1) err(errors, 'field_value', `${path}/variants`, 'a section holds one or more variants (an empty section is not stored)', Array.isArray(variants) ? variants.length : variants);
-  else {
-    variants.forEach((x, i) => {
-      const p = `${path}/variants/${i}`;
-      if (!isPlainObject(x)) return err(errors, 'field_type', p, 'a variant is {high, weight?}', x, 'object');
-      fields(x, VARIANT_FIELDS, p, 'variant', errors);
-      mesh(x['high'], `${p}/high`, errors);
-      const w = x['weight'];
-      if (w !== undefined && (typeof w !== 'number' || !Number.isFinite(w) || w <= 0 || w > VOXEL_KIT_LIMITS.weightMax)) err(errors, 'field_value', `${p}/weight`, `weight is a number in (0, ${VOXEL_KIT_LIMITS.weightMax}]`, w);
-    });
-  }
-  const ends = v['ends'];
-  if (ends === undefined) return;
-  if (!isPlainObject(ends)) return err(errors, 'field_type', `${path}/ends`, 'ends is {start?, end?} (join profile ids)', ends, 'object');
-  fields(ends, ['start', 'end'], `${path}/ends`, 'ends', errors);
-  for (const k of ['start', 'end']) {
-    const ref = ends[k];
-    if (ref === undefined) continue;
-    id(ref, `${path}/ends/${k}`, 'a join profile id', errors);
-    // A dangling profile is refused: the kit's own table is the only place it can be.
-    if (typeof ref === 'string' && profiles !== null && !profiles.has(ref)) err(errors, 'reference_missing', `${path}/ends/${k}`, `join profile "${ref}" is not in the kit's joinProfiles`, ref);
-  }
-}
-
-/** A case's alias: an own case of the same kit (with sections, not itself an alias), one of the cube rotations. */
-function alias(cid: string, c: Record<string, unknown>, cases: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
-  const a = c['alias'];
-  if (!isPlainObject(a)) return err(errors, 'field_type', path, 'an alias is {case, rotation}', a, 'object');
-  fields(a, ['case', 'rotation'], path, 'alias', errors);
-  if (c['sections'] !== undefined) err(errors, 'field_value', path, 'a case has sections of its own or an alias, not both', cid);
-  const r = a['rotation'];
-  if (typeof r !== 'number' || !Number.isInteger(r) || r < 0 || r >= CUBE_ROTATION_COUNT) err(errors, 'field_value', `${path}/rotation`, `rotation is a cube rotation, 0-${CUBE_ROTATION_COUNT - 1}`, r);
-  const to = a['case'];
-  id(to, `${path}/case`, 'an alias case', errors);
-  if (typeof to !== 'string') return;
-  if (to === cid) return err(errors, 'field_value', `${path}/case`, 'a case cannot be an alias of itself', to);
-  const target = cases[to];
-  // A dangling or chained alias is refused: the kit's own cases are the only place its meshes can be.
-  if (!isPlainObject(target)) return err(errors, 'reference_missing', `${path}/case`, `case "${to}" is not in the kit`, to);
-  if (target['sections'] === undefined) err(errors, 'reference_missing', `${path}/case`, `case "${to}" has no sections of its own (an alias names a case with meshes)`, to);
-}
-
-function profile(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a join profile is {outline}', v, 'object');
-  fields(v, ['outline'], path, 'join profile', errors);
-  const o = v['outline'];
-  const n = VOXEL_KIT_LIMITS.profileUnits;
-  if (!Array.isArray(o) || o.length < VOXEL_KIT_LIMITS.profilePointsMin) return err(errors, 'field_value', `${path}/outline`, `an outline is at least ${VOXEL_KIT_LIMITS.profilePointsMin} [u, v] points`, Array.isArray(o) ? o.length : o);
-  o.forEach((pt, i) => {
-    const ok = Array.isArray(pt) && pt.length === 2 && pt.every((c) => typeof c === 'number' && Number.isInteger(c) && c >= 0 && c <= n);
-    if (!ok) err(errors, 'field_value', `${path}/outline/${i}`, `a point is [u, v], whole sixteenths of a cell 0-${n}`, pt);
+function slot(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a slot is {meshes, gameData?}', v, 'object');
+  fields(v, SLOT_FIELDS, path, 'slot', errors);
+  gameData(v['gameData'], `${path}/gameData`, errors);
+  const meshes = v['meshes'];
+  if (!Array.isArray(meshes) || meshes.length < 1) return err(errors, 'field_value', `${path}/meshes`, 'a slot holds one or more meshes (an empty slot is not stored: leave it out)', Array.isArray(meshes) ? meshes.length : meshes);
+  meshes.forEach((x, i) => {
+    const p = `${path}/meshes/${i}`;
+    if (!isPlainObject(x)) return err(errors, 'field_type', p, 'a slot mesh is {mesh, rotation?, weight?}', x, 'object');
+    fields(x, SLOT_MESH_FIELDS, p, 'slot mesh', errors);
+    mesh(x['mesh'], `${p}/mesh`, errors);
+    const r = x['rotation'];
+    if (r !== undefined && (typeof r !== 'number' || !Number.isInteger(r) || r < 0 || r >= CUBE_ROTATION_COUNT)) err(errors, 'field_value', `${p}/rotation`, `rotation is a cube rotation, 0-${CUBE_ROTATION_COUNT - 1}`, r);
+    const w = x['weight'];
+    if (w !== undefined && (typeof w !== 'number' || !Number.isFinite(w) || w <= 0 || w > VOXEL_KIT_LIMITS.weightMax)) err(errors, 'field_value', `${p}/weight`, `weight is a number in (0, ${VOXEL_KIT_LIMITS.weightMax}]`, w);
   });
 }
 
 /** Validate one kit's shape (what its case, section and asset ids name is the kit check's, never refused here). */
 export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, cases, materials?, joinProfiles?, trimLayout?, gameData?}', v, 'object');
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, gameData?}', v, 'object');
   // The format first: a newer kit is refused whole, never read in part.
   const f = v['kitFormat'];
   if (f === undefined) return err(errors, 'field_missing', `${path}/kitFormat`, 'kitFormat is required', undefined, String(VOXEL_KIT_FORMAT));
@@ -257,44 +200,16 @@ export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[
       });
     }
   }
-  const profiles = v['joinProfiles'];
-  let profileIds: Set<string> | null = new Set();
-  if (profiles !== undefined) {
-    if (!isPlainObject(profiles)) {
-      err(errors, 'field_type', `${path}/joinProfiles`, 'joinProfiles is {profileId: {outline}}', profiles, 'object');
-      profileIds = null;
-    } else {
-      for (const [pid, p] of Object.entries(profiles)) {
-        id(pid, `${path}/joinProfiles/${pid}`, 'a join profile id', errors);
-        profile(p, `${path}/joinProfiles/${pid}`, errors);
-        profileIds.add(pid);
-      }
-    }
-  }
+  const jitter = v['jitter'];
+  if (jitter !== undefined && (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > VOXEL_KIT_LIMITS.jitterMax)) err(errors, 'field_value', `${path}/jitter`, `jitter is a number 0-${VOXEL_KIT_LIMITS.jitterMax} (1: the engine's stagger)`, jitter);
   if (v['trimLayout'] !== undefined) id(v['trimLayout'], `${path}/trimLayout`, 'trimLayout', errors);
   gameData(v['gameData'], `${path}/gameData`, errors);
-  const cases = v['cases'];
-  if (!isPlainObject(cases)) return err(errors, 'field_type', `${path}/cases`, 'cases is {caseId: {sections?, alias?, gameData?}}', cases, 'object');
-  for (const [cid, c] of Object.entries(cases)) {
-    const p = `${path}/cases/${cid}`;
-    id(cid, p, 'a case id', errors);
-    if (!isPlainObject(c)) {
-      err(errors, 'field_type', p, 'a case is {sections?, alias?, gameData?}', c, 'object');
-      continue;
-    }
-    fields(c, CASE_FIELDS, p, 'case', errors);
-    gameData(c['gameData'], `${p}/gameData`, errors);
-    if (c['alias'] !== undefined) alias(cid, c, cases, `${p}/alias`, errors);
-    const secs = c['sections'];
-    if (secs === undefined) continue;
-    if (!isPlainObject(secs)) {
-      err(errors, 'field_type', `${p}/sections`, 'sections is {sectionId: {variants, ends?}}', secs, 'object');
-      continue;
-    }
-    for (const [sid, s] of Object.entries(secs)) {
-      id(sid, `${p}/sections/${sid}`, 'a section id', errors);
-      section(s, `${p}/sections/${sid}`, profileIds, errors);
-    }
+  const slots = v['slots'];
+  if (!isPlainObject(slots)) return err(errors, slots === undefined ? 'field_missing' : 'field_type', `${path}/slots`, 'slots is {caseId: {meshes, gameData?}}', slots, 'object');
+  for (const [cid, c] of Object.entries(slots)) {
+    const p = `${path}/slots/${cid}`;
+    id(cid, p, 'a slot (case) id', errors);
+    slot(c, p, errors);
   }
 }
 
@@ -315,26 +230,16 @@ function canonicalMesh(m: VoxelKitMesh): VoxelKitMesh {
   return { assetId: m.assetId, digest: m.digest, ...(m.node !== undefined ? { node: m.node } : {}) };
 }
 
-function canonicalSection(s: VoxelKitSection): VoxelKitSection {
-  const start = s.ends?.start;
-  const end = s.ends?.end;
-  return {
-    variants: s.variants.map((x) => ({ high: canonicalMesh(x.high), ...(x.weight !== undefined && x.weight !== 1 ? { weight: x.weight } : {}) })),
-    ...(start !== undefined || end !== undefined ? { ends: { ...(start !== undefined ? { start } : {}), ...(end !== undefined ? { end } : {}) } } : {}),
-  };
-}
-
 function byKey<T, U>(rec: Record<string, T>, f: (v: T) => U): Record<string, U> {
   return Object.fromEntries(Object.keys(rec).sort(cmp).map((k) => [k, f(rec[k]!)]));
 }
 
 /**
  * One kit in canonical form, rebuilt field by field: fields in order, maps by
- * key, materials ascending, weights of 1 and empty maps left out, game data
- * with its keys sorted (its values exactly as given).
+ * key, materials ascending, rotations of 0, weights of 1 and a jitter of 1
+ * left out, game data with its keys sorted (its values exactly as given).
  */
 export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
-  const profiles = k.joinProfiles !== undefined ? Object.keys(k.joinProfiles) : [];
   return {
     kitFormat: k.kitFormat,
     voxelKitId: k.voxelKitId,
@@ -342,15 +247,15 @@ export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
     version: k.version,
     materialType: k.materialType,
     ...(k.materials !== undefined && k.materials.length > 0 ? { materials: [...k.materials].sort((a, b) => a - b) } : {}),
-    cases: byKey(k.cases, (c) => {
-      const secs = c.sections !== undefined && Object.keys(c.sections).length > 0 ? c.sections : undefined;
-      return {
-        ...(secs !== undefined ? { sections: byKey(secs, canonicalSection) } : {}),
-        ...(c.alias !== undefined ? { alias: { case: c.alias.case, rotation: c.alias.rotation } } : {}),
-        ...(c.gameData !== undefined ? { gameData: canonicalJsonValue(c.gameData) as VoxelKitJson } : {}),
-      };
-    }),
-    ...(profiles.length > 0 ? { joinProfiles: byKey(k.joinProfiles!, (p) => ({ outline: p.outline.map(([u, v]) => [u, v] as [number, number]) })) } : {}),
+    slots: byKey(k.slots, (c) => ({
+      meshes: c.meshes.map((x) => ({
+        mesh: canonicalMesh(x.mesh),
+        ...(x.rotation !== undefined && x.rotation !== 0 ? { rotation: x.rotation } : {}),
+        ...(x.weight !== undefined && x.weight !== 1 ? { weight: x.weight } : {}),
+      })),
+      ...(c.gameData !== undefined ? { gameData: canonicalJsonValue(c.gameData) as VoxelKitJson } : {}),
+    })),
+    ...(k.jitter !== undefined && k.jitter !== PIECE_JITTER_DEFAULT ? { jitter: k.jitter } : {}),
     ...(k.trimLayout !== undefined ? { trimLayout: k.trimLayout } : {}),
     ...(k.gameData !== undefined ? { gameData: canonicalJsonValue(k.gameData) as VoxelKitJson } : {}),
   };
@@ -360,13 +265,7 @@ export function canonicalVoxelKits(list: readonly VoxelKit[]): VoxelKit[] {
   return [...list].sort((a, b) => cmp(a.voxelKitId, b.voxelKitId)).map(canonicalVoxelKit);
 }
 
-/** Every mesh a kit's pieces draw with, in case, section and variant order. */
+/** Every mesh a kit's slots draw with, in slot and mesh order (a mesh in several slots once each time). */
 export function voxelKitMeshes(k: VoxelKit): VoxelKitMesh[] {
-  const out: VoxelKitMesh[] = [];
-  for (const c of Object.values(k.cases)) {
-    for (const s of Object.values(c.sections ?? {})) {
-      for (const x of s.variants) out.push(x.high);
-    }
-  }
-  return out;
+  return Object.values(k.slots).flatMap((c) => c.meshes.map((x) => x.mesh));
 }

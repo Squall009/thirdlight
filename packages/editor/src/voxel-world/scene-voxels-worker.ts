@@ -85,8 +85,8 @@ async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
     world.pool.close();
     return;
   }
-  // The project's kits (with the default kit): the table the page draws the pieces from too.
-  const streamer = worldStreamer({ grid: world.grid, source: world.source, pool: world.pool, pieces: worldPieceTable(m.kits) }, m);
+  // The project's kits and piece seed: the table the page draws the pieces from too.
+  const streamer = worldStreamer({ grid: world.grid, source: world.source, pool: world.pool, pieces: worldPieceTable(m.kits, m.pieceSeed) }, m);
   w.world = world;
   w.streamer = streamer;
   streamer.on((e) => {

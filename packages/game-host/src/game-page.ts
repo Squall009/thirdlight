@@ -31,7 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { pageFlagOn, sha256HexAsync } from '@thirdlight/shared';
-import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument, type QualityLevelConfig } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, voxelPieceSeedOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument, type QualityLevelConfig } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
@@ -481,7 +481,7 @@ function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog,
     );
 }
 
-/** The build's voxel kits (none: every world draws the engine's default kit). */
+/** The build's voxel kits (none: every world draws plain voxel edges). */
 function voxelKitsOf(manifest: GamePageManifest): VoxelKitRecordLike[] {
   return (manifest as { voxelKits?: VoxelKitRecordLike[] }).voxelKits ?? [];
 }
@@ -490,6 +490,7 @@ function voxelKitsOf(manifest: GamePageManifest): VoxelKitRecordLike[] {
 function pageVoxelKitsOf(manifest: GamePageManifest, reader: VerifiedAssetReader, catalog: RuntimeCatalog, decoderBase: string): PageVoxelKits {
   return {
     records: voxelKitsOf(manifest),
+    seed: voxelPieceSeedOf(manifest.settings),
     bytes: async (assetId) => {
       const row = await catalog.lookup(assetId);
       if (row === undefined || row.kind !== 'model') return null;
@@ -654,6 +655,8 @@ const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
 /** The build's voxel kits (the catalog's `voxelKits` block) and where their GLBs' verified bytes come from. */
 interface PageVoxelKits {
   readonly records: readonly VoxelKitRecordLike[];
+  /** The project's piece seed (its settings): which of a slot's meshes each piece draws. */
+  readonly seed: number;
   /** A kit mesh's model, at the version the build ships (the one its digest names). */
   bytes(assetId: string): Promise<{ bytes: Uint8Array; version: number } | null>;
   loader(): GlbLoaderPort;
@@ -673,7 +676,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
   const draws = new VoxelWorldDraws({
-    kits: kitMeshes.world(kits.records),
+    kits: kitMeshes.world(kits.records, kits.seed),
     scene: () => adapter()?.threeScene?.() ?? null,
     // The grids upload through the renderer once it can draw.
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
@@ -694,7 +697,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
-      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, qualityLevels);
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels);
       report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       return p.ports;
     },
@@ -823,7 +826,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), qualityLevels } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),

@@ -311,6 +311,8 @@ describe('gameplay settings resolution', () => {
       'streaming_budget_mb',
       // Exports ship generated architecture's meshes too (0 no, 1 yes).
       'architecture_ship_meshes',
+      // The voxel world's piece seed (absent: 0).
+      'voxel_piece_seed',
       // See-through (0 off, 1 on; absent: off) and its shape.
       'see_through',
       'see_through_radius',

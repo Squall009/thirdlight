@@ -1,11 +1,12 @@
 /**
  * The case pass on the whole town and the slice ring: µs a 16³ section to
  * extract every construction cell's window case with the world catalogue
- * (beams and banisters; Node, this thread; a cold pass with an empty window
- * cache, then measured passes), the detail-bearing cells, the case keys
+ * (none since the edge catalogue has no window rules; Node, this thread; a
+ * cold pass with an empty window cache, then measured passes), the
+ * detail-bearing cells, the case keys
  * seen and how often each case occurs; and the world rule set against the
  * terrain rules alone, measured the way a derive job runs them: the
- * evaluation (classes, plus cases and run sections for the world rules) and
+ * evaluation (classes, plus cases for the world rules) and
  * the whole section derive (evaluation and meshes), interleaved section by
  * section; and what the consumers receive a chunk (derived bytes by part,
  * collision boxes) under the world rules; or (`--pieces`) the kit pieces: the piece table's bytes and the
@@ -13,8 +14,8 @@
  * or (`--roofs`) the roof mesher: µs a 16³ section with plane cells (the
  * classification and the planes), and the roofs' triangles against the
  * same cells drawn as stair faces (their role read as wall), or
- * (`--edges`) the edge catalogue's passes (beam and banister window cases
- * plus the edge pass), section by section, and the edge pieces by case.
+ * (`--edges`) the edge catalogue's passes (window cases, none now, plus the
+ * edge pass), section by section, and the edge pieces by case.
  *
  *   node tools/voxel-bench/run.mjs cases [--worlds town,slice] [--rounds 3] [--consumers-only | --pieces | --edges | --roofs] [--out DIR]
  *
@@ -47,17 +48,11 @@ import {
   evaluateAssembly,
   evaluateCases,
   evaluateEdges,
-  evaluateRuns,
   fillNeighbourhood,
-  INSTANCE_BYTES,
   isConstructionRole,
-  KIT_PIECE_BASE,
   MipTree,
   NO_CASE,
-  NO_SECTION,
   PLACEHOLDER_RULES,
-  RUN_SECTION,
-  runSectionOf,
   jobRadius,
   classifyRoofs,
   roofSurface,
@@ -74,7 +69,6 @@ import {
   type Neighbourhood,
   type PaletteStore,
   WORLD_RULES,
-  worldPieceTable,
 } from '@thirdlight/voxel';
 import { benchDir } from './bench-dirs';
 import { loadArea } from './regions';
@@ -130,10 +124,6 @@ interface Composed {
   /** The whole section derive (evaluation and meshes; deriveChunk), sections with a surface (ground, base or pieces) and all. */
   derive: { terrain: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } }; world: { surface: { p50: number; p95: number }; all: { p50: number; p95: number } } };
   surfaceSections: number;
-  /** The run pass alone (world rules), sections with detail cells: what the run sections add to the evaluation. */
-  runs: { p50: number; p95: number };
-  /** Cells of each run section (world rules, one pass). */
-  sectionCells: Record<string, number>;
   /** The evaluation and the terrain mesher's ground surface (the terrain mesher's measure), sections with ground triangles. */
   ground: { terrain: { p50: number; p95: number }; world: { p50: number; p95: number } };
   groundSections: number;
@@ -146,10 +136,6 @@ interface Composed {
 function measureComposed(sections: readonly Neighbourhood[], rounds: number): Composed {
   const classes = new Uint8Array(sections[0]!.values.length);
   const cases = new Uint16Array(sections[0]!.values.length);
-  const runs = new Uint16Array(sections[0]!.values.length);
-  const runUs: number[] = [];
-  const sectionCells: Record<string, number> = Object.fromEntries(Object.keys(RUN_SECTION).map((k) => [k, 0]));
-  const sectionNames = Object.keys(RUN_SECTION);
   const sets: Array<[string, AssemblyRuleSet]> = [['terrain', TERRAIN_RULES], ['world', WORLD_RULES]];
   const ev = new Map(sets.map(([k]) => [k, { cells: [] as number[], all: [] as number[] }]));
   const dv = new Map(sets.map(([k]) => [k, { surface: [] as number[], all: [] as number[] }]));
@@ -169,20 +155,8 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
         const t0 = performance.now();
         evaluateAssembly(n, r, classes);
         const count = evaluateCases(n, r, 0, cases);
-        const tr = performance.now();
-        evaluateRuns(n, r, cases, runs, count);
         const evUs = (performance.now() - t0) * 1000;
         if (count > 0) detail = true;
-        if (count > 0 && name === 'world') {
-          runUs.push((performance.now() - tr) * 1000);
-          if (round === 0) {
-            const side = n.side;
-            for (let x = PAD; x < PAD + SECTION; x++) for (let z = PAD; z < PAD + SECTION; z++) for (let y = PAD; y < PAD + SECTION; y++) {
-              const p = runs[(x * side + z) * side + y]!;
-              if (p !== NO_SECTION) sectionCells[sectionNames[runSectionOf(p)]!]!++;
-            }
-          }
-        }
         const tg = performance.now();
         const g = terrainSurface(n, classes);
         const gUs = (performance.now() - tg) * 1000;
@@ -209,8 +183,6 @@ function measureComposed(sections: readonly Neighbourhood[], rounds: number): Co
     evaluate: { terrain: { cells: q2(ev.get('terrain')!.cells), all: q2(ev.get('terrain')!.all) }, world: { cells: q2(ev.get('world')!.cells), all: q2(ev.get('world')!.all) } },
     derive: { terrain: { surface: q2(dv.get('terrain')!.surface), all: q2(dv.get('terrain')!.all) }, world: { surface: q2(dv.get('world')!.surface), all: q2(dv.get('world')!.all) } },
     surfaceSections,
-    runs: q2(runUs),
-    sectionCells,
     ground: { terrain: q2(gv.get('terrain')!), world: q2(gv.get('world')!) },
     groundSections,
   };
@@ -257,7 +229,6 @@ function measureConsumers(store: PaletteStore, chunks: ReadonlyArray<readonly [n
 interface PieceCounts {
   units: number;
   total: number;
-  kitOwn: number;
   perUnit: { p50: number; p95: number; max: number };
   deriveMs: number;
 }
@@ -265,40 +236,34 @@ interface PieceCounts {
 /**
  * Kit pieces (piece table, the world's rule set): the table's bytes for one
  * and for six full test kits, and the instances each 32³ chunk (level 0) and
- * level-1 node lists without a kit, with one full test kit and with the
- * engine's default kit (what a world without game kits draws), and the whole
- * derive's ms for each.
+ * level-1 node lists without a kit and with one full test kit, and the
+ * whole derive's ms for each.
  */
 function measurePieces(store: PaletteStore, chunks: ReadonlyArray<readonly [number, number, number]>): Record<string, unknown> {
-  const one = buildPieceTable([fullTestKit('town', BUILDING_MATERIALS, 2)], WORLD_RULES).table;
-  const six = buildPieceTable(BUILDING_MATERIALS.map((m, k) => fullTestKit(`kit-${k}`, [m], 4)), WORLD_RULES).table;
-  const engine = worldPieceTable([]);
+  const one = buildPieceTable([fullTestKit('town', BUILDING_MATERIALS, 2)], WORLD_RULES, 0).table;
+  const six = buildPieceTable(BUILDING_MATERIALS.map((m, k) => fullTestKit(`kit-${k}`, [m], 4)), WORLD_RULES, 0).table;
   const tree = new MipTree(store);
   const nodes = [...new Set(chunks.map(([x, y, z]) => `${x >> 1},${y >> 1},${z >> 1}`))].map((k) => k.split(',').map(Number) as [number, number, number]);
   const count = (units: ReadonlyArray<readonly [number, number, number]>, derive: (u: readonly [number, number, number]) => DerivedData): PieceCounts => {
     const per: number[] = [];
-    let own = 0;
     const t0 = performance.now();
     for (const u of units) {
       const d = derive(u);
       if (d.instances.count === 0) continue;
       per.push(d.instances.count);
-      for (let i = 0; i < d.instances.count; i++) if ((d.instances.data[i * INSTANCE_BYTES + 4]! | (d.instances.data[i * INSTANCE_BYTES + 5]! << 8)) >= KIT_PIECE_BASE) own++;
     }
     const ms = performance.now() - t0;
-    return { units: per.length, total: per.reduce((a, b) => a + b, 0), kitOwn: own, perUnit: { ...q2(per), max: Math.max(0, ...per) }, deriveMs: Math.round(ms) };
+    return { units: per.length, total: per.reduce((a, b) => a + b, 0), perUnit: { ...q2(per), max: Math.max(0, ...per) }, deriveMs: Math.round(ms) };
   };
   return {
     tableBytes: { oneKit: one.bytes.length, sixKits: six.bytes.length, noKit: 0 },
     level0: {
       noKit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, WORLD_RULES)),
       kit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, WORLD_RULES, undefined, one)),
-      defaultKit: count(chunks, ([x, y, z]) => deriveFromStore(store, x, y, z, WORLD_RULES, undefined, engine)),
     },
     level1: {
       noKit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, WORLD_RULES)),
       kit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, WORLD_RULES, undefined, one)),
-      defaultKit: count(nodes, ([x, y, z]) => deriveMipNode(tree, { level: 1, nx: x, ny: y, nz: z }, WORLD_RULES, undefined, engine)),
     },
   };
 }
@@ -515,7 +480,6 @@ function main(): void {
       `- ${sections.length} sections of 16³, ${x.withCellsCount} with detail-bearing cells, ${x.cells} cells, ${x.keys} case keys seen.`,
       `- Case extraction alone, µs a section p50 / p95: with cells ${x.us.withCells.p50} / ${x.us.withCells.p95}, all ${x.us.all.p50} / ${x.us.all.p95} (${rounds} rounds: ${x.roundMs.map(Math.round).join(', ')} ms; cold pass ${Math.round(x.coldMs)} ms).`,
       `- Evaluation µs p50 / p95, sections with detail cells: terrain rules ${c.evaluate.terrain.cells.p50} / ${c.evaluate.terrain.cells.p95}, world rules (terrain + cases + run sections + edges) ${c.evaluate.world.cells.p50} / ${c.evaluate.world.cells.p95}; all sections: ${c.evaluate.terrain.all.p50} / ${c.evaluate.terrain.all.p95} vs ${c.evaluate.world.all.p50} / ${c.evaluate.world.all.p95}.`,
-      `- Run sections alone (world rules), µs a section with detail cells p50 / p95: ${c.runs.p50} / ${c.runs.p95}. Cells by section: ${Object.entries(c.sectionCells).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
       `- Section derive (evaluation + meshes) µs p50 / p95, ${c.surfaceSections} sections with a surface: terrain rules ${c.derive.terrain.surface.p50} / ${c.derive.terrain.surface.p95}, world rules ${c.derive.world.surface.p50} / ${c.derive.world.surface.p95}; all sections: ${c.derive.terrain.all.p50} / ${c.derive.terrain.all.p95} vs ${c.derive.world.all.p50} / ${c.derive.world.all.p95}.`,
       `- Evaluation + ground mesh µs p50 / p95 (the terrain mesher's measure), ${c.groundSections} sections with ground: terrain rules ${c.ground.terrain.p50} / ${c.ground.terrain.p95}, world rules ${c.ground.world.p50} / ${c.ground.world.p95}.`,
       `- Consumers (whole 32³ chunks, world rules), ${consumers.built} of ${consumers.chunks} chunks with construction: derived bytes ${consumers.total.bytes} (collision ${consumers.total.collision}, light ${consumers.total.light}, nav ${consumers.total.nav}, base ${consumers.total.base}); boxes full ${consumers.total.fullBoxes}, partial ${consumers.total.partialBoxes}; instances ${consumers.total.instances}; base triangles ${consumers.total.baseTriangles}. A chunk p50 / p95: bytes ${consumers.perChunk.bytes.p50} / ${consumers.perChunk.bytes.p95}, full boxes ${consumers.perChunk.fullBoxes.p50} / ${consumers.perChunk.fullBoxes.p95}, partial ${consumers.perChunk.partialBoxes.p50} / ${consumers.perChunk.partialBoxes.p95}.`,

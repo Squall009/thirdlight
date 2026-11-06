@@ -1,6 +1,7 @@
 /**
- * The editor's side of a project's voxel kits: the kit records read through
- * the command route (`queryGameConfig`'s `voxelKits`), and each kit mesh's
+ * The editor's side of a project's voxel kits: the kit records and the
+ * project's piece seed read through the command route (`queryGameConfig`'s
+ * `voxelKits` and `settings`), and each kit mesh's
  * GLB read from the backend at the version its digest names (the current
  * one when no version has those bytes, as a build ships it). The voxel world
  * page and the Scene view draw kit pieces from these, through the same
@@ -8,6 +9,7 @@
  */
 import { VoxelKitMeshes, type VoxelKitBytes, type VoxelKitRecordLike, type VoxelKitSet } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
+import { voxelPieceSeedOf } from '@thirdlight/project-model/voxel-world';
 import { worldPieceTable, type PieceTable } from '@thirdlight/voxel';
 
 /** The project route (`/api/v1/projects/<id>`) and the headers it needs. */
@@ -17,11 +19,18 @@ export interface KitRoute {
   readonly headers: Readonly<Record<string, string>>;
 }
 
-/** The project's voxel kits now. */
-export async function readVoxelKits(r: KitRoute): Promise<VoxelKitRecordLike[]> {
+/** A project's voxel kits and its piece seed (project settings: which of a slot's meshes each piece draws). */
+export interface ProjectVoxelKits {
+  readonly kits: readonly VoxelKitRecordLike[];
+  readonly seed: number;
+}
+
+/** The project's voxel kits and piece seed now. */
+export async function readVoxelKits(r: KitRoute): Promise<ProjectVoxelKits> {
   const res = await fetch(`${r.api}/commands`, { method: 'POST', headers: { ...r.headers, 'content-type': 'application/json' }, body: JSON.stringify({ op: 'queryGameConfig', projectId: r.projectId, args: { omit: ['dialogues'] } }) });
   if (!res.ok) throw new Error(`queryGameConfig: HTTP ${res.status}`);
-  return ((await res.json()) as { voxelKits?: VoxelKitRecordLike[] }).voxelKits ?? [];
+  const body = (await res.json()) as { voxelKits?: VoxelKitRecordLike[]; settings?: unknown };
+  return { kits: body.voxelKits ?? [], seed: voxelPieceSeedOf(body.settings) };
 }
 
 /** Reads a kit mesh's GLB from the backend: the asset's version whose source digest the mesh names, else its current one (as a build ships it). */
@@ -41,7 +50,7 @@ export function backendKitBytes(r: KitRoute): VoxelKitBytes {
 
 /** A page's kit pieces: the table its streamer derives with, the set its view draws from, and the meshes loading. */
 export interface PageKitPieces {
-  /** Null: no table (the engine's default stand-in pieces only). */
+  /** Null: no table (no pieces). */
   readonly table: PieceTable | null;
   readonly set: VoxelKitSet | null;
   readonly meshes: VoxelKitMeshes;
@@ -49,11 +58,11 @@ export interface PageKitPieces {
   readonly loaded: Promise<string>;
 }
 
-/** The project's kits (null: none, not even the default kit) with their meshes loading from the backend. */
-export function pageKitPieces(r: KitRoute, kits: readonly VoxelKitRecordLike[] | null): PageKitPieces {
+/** The project's kits and seed (null: no table at all) with their meshes loading from the backend. */
+export function pageKitPieces(r: KitRoute, project: ProjectVoxelKits | null): PageKitPieces {
   const meshes = new VoxelKitMeshes();
-  if (kits === null) return { table: null, set: null, meshes, loaded: Promise.resolve('') };
-  const table = worldPieceTable(kits);
-  const loaded = meshes.load(kits, backendKitBytes(r), createGltfLoaderPort()).then((l) => (l.failed.length === 0 ? '' : `kit meshes not drawn: ${l.failed.join('; ')}`));
-  return { table, set: meshes.set(table, kits), meshes, loaded };
+  if (project === null) return { table: null, set: null, meshes, loaded: Promise.resolve('') };
+  const table = worldPieceTable(project.kits, project.seed);
+  const loaded = meshes.load(project.kits, backendKitBytes(r), createGltfLoaderPort()).then((l) => (l.failed.length === 0 ? '' : `kit meshes not drawn: ${l.failed.join('; ')}`));
+  return { table, set: meshes.set(table, project.kits), meshes, loaded };
 }

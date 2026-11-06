@@ -1,8 +1,27 @@
-# Script API types (from `BehaviorSignals`)
+# Script API types (from `BehaviorRandom`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-random"></a>
+## `BehaviorRandom`
+
+```ts
+/**
+ * `ctx.random` — the instance's main seeded stream, plus named sub-streams.
+ */
+export interface BehaviorRandom extends BehaviorRandomStream {
+  /**
+   * An independent named stream of this object (the same name gives the same stream):
+   * draws from one never shift the numbers of another, so adding a draw for loot does
+   * not change the numbers used for movement. Names: 1–64 characters of letters, digits,
+   * `_ . : -`; at most 64 streams per object.
+   * @graphLabel name stream
+   */
+  stream(name: string): BehaviorRandomStream;
+}
+```
 
 <a id="script-type-behavior-signals"></a>
 ## `BehaviorSignals`

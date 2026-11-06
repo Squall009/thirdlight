@@ -19,10 +19,11 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
     material id: what the surface looks like;
   - **role** — what the cell is for: 0 air, 1 terrain, 2 liquid, 3 wall,
     4 floor, 5 roof, 6 foundation, 7 stair, 8 pillar, 9 opening (the door
-    or window there is a kit piece). Beams, banisters, posts and mouldings
-    are not roles: they follow from how the cells are arranged, and so does
-    the shape collision, walking and light use there (an open banister lets
-    a ball through between its posts), never the look of a kit's piece;
+    or window there is a kit piece). Edges, corners and roof edges are not
+    roles: they follow from how the cells are arranged. Beams and banisters
+    are not part of voxel worlds: cells laid as one are plain voxels. What
+    collides, blocks walking and lets light through is the cells, never the
+    look of a kit's piece;
   - **shape** — 0 to 15. For terrain and liquid, how full the cell is (15
     full), so ground can slope and round off instead of stepping. For the
     building roles (wall, floor, roof, foundation, stair, pillar) it is the
@@ -170,10 +171,10 @@ player characters, so a large view costs a fraction of drawing every cell:
   one-cell wall, floor or roof is drawn as thick as the level's cell, so a
   house keeps its walls and roof and looks a little larger. A sloped roof
   stays one smooth slope at every distance, its eaves at one height. Kit
-  pieces (edges, roof edges, beams, rails, posts, debris) are drawn only at
-  full detail; from the 1 m ring out the edges are plain square voxels and
-  beams and rails flat blocks; fences and lone posts thinner than the level's
-  cell leave; damage shows near by only.
+  pieces (edges, corners, roof edges, debris) are drawn only at full
+  detail; from the 1 m ring out the edges are plain square voxels; fences
+  and lone posts thinner than the level's cell leave; damage shows near by
+  only.
   The ground's colours are the same at every distance.
 - **Changing level.** A ring moves with the camera and switches with 8 m of
   slack, so standing still at its edge does not flip it. A switch happens
@@ -276,19 +277,22 @@ versions their meshes name.
 > draw with kits now.
 
 **What a kit is.** Cells store only a role (wall, floor, roof …), never
-"beam" or "corner" or "window sill". Walls, floors, stairs and flat roofs
-are plain voxel faces: no piece ever stands on a flat face. A piece goes
-only where faces meet, each its own instance a 0.5 m edge or corner: the
-engine reads the cells round every edge and corner of a built cell and
-gives it a **case** (an outer top, vertical or bottom edge, an inner one
-where a wall meets a floor or ceiling, an outer or inner corner), the
-ridge, eave, verge, hip and valley of a sloped roof, a beam or a banister
-(read from how the cells are arranged, its runs built from start, body,
-end, corner and junction sections), and **debris**. A kit is the set of 3D
-pieces a material type draws those cases with; one mesh can serve many
-edges turned. What collides, what blocks walking and how much light passes
-come from the cells, never from a kit's pieces, so every kit of a material
-type plays the same.
+"corner" or "window sill". Walls, floors, stairs and flat roofs are plain
+voxel faces: no piece ever stands on a flat face. A piece goes only where
+faces meet, each its own instance a 0.5 m edge or corner: the engine reads
+the cells round every edge and corner of a built cell and gives it a
+**case** (an outer top, vertical or bottom edge, an inner one where a wall
+meets a floor or ceiling, an outer or inner corner), the ridge, eave,
+verge, hip and valley of a sloped roof, and **debris**. Every case is a
+**slot** of a kit (the case id is the slot's name): a kit fills a slot with
+one or more 3D meshes, or leaves it empty, and **an empty slot draws
+nothing** (that edge stays a plain voxel edge). So a kit can start empty:
+check the textures on plain voxels first, then add pieces one slot at a
+time. One mesh can fill many slots, each turned its own way. A material
+**without a kit draws plain voxel faces**: there is no engine default kit.
+What collides, what blocks walking and how much light passes come from the
+cells, never from a kit's pieces, so every kit of a material type plays the
+same.
 
 **Roofs.** Roof cells laid as a 45° stair (each row one cell up and one
 across) are drawn as flat sloped planes over the steps, not as steps:
@@ -303,8 +307,9 @@ drawn mirrored).
 
 **Damage:** a built cell's shape is its integrity (15
 intact, lower damaged, air broken). A damaged cell with an open face is
-drawn by the kit's `debris` piece (`debris-heavy` below integrity 8), the
-intact faces opening toward it by `debris-face` pieces; it still collides,
+drawn by the kit's `debris` piece (`debris-heavy` below integrity 8; an
+empty slot draws nothing there, the cell shows as a hole), the intact faces
+opening toward it by `debris-face` pieces; it still collides,
 blocks light and is walked on as a whole block until it is air. How much
 damage a cell takes and when is the game's to decide
 ([scripting it](../guides/voxel-scripts.md#change-set-dig-paint)).
@@ -320,20 +325,26 @@ them as `voxelKits`.
 
 - **`kitFormat`** is 1. A kit of a newer format is refused whole, as is any
   field this engine does not know; fields are only ever added.
-- **`cases`**: per case id, its run `sections` (body, corner, termination …
-  by section id), each with one or more weighted `variants`, each one
-  mesh (`high`; pieces draw only near the camera, so there is no
-  lower-detail mesh). A mesh is a model asset and the SHA-256 of the
-  GLB version it was made from (`{assetId, digest, node?}`), so it ships as
-  every model does. A case may hold only game data. A case may instead
-  name another case of the kit as its **`alias`** (`{case, rotation}`): it
-  draws with that case's meshes turned by one of the 24 cube rotations
-  (`rotation` 0–23, never a mirror), so one mesh serves a top, bottom and
-  vertical edge.
-- **`joinProfiles`**: the outline a section's end has, in whole sixteenths
-  of a cell; a section's `ends` name them, so neighbouring sections can be
-  checked to meet.
-- **`gameData`** on the kit and on each case: any JSON (break, sound,
+- **`slots`**: per slot (case id), its `meshes`, one or more, each a
+  `mesh` (`{assetId, digest, node?}`: a model asset and the SHA-256 of the
+  GLB version it was made from, so it ships as every model does; pieces
+  draw only near the camera, so there is no lower-detail mesh), a
+  `rotation` (one of the 24 cube rotations, 0–23, absent 0: how the mesh is
+  turned into the slot's case) and a `weight` (absent 1). A slot left out
+  is empty; a slot holds no empty list. Which of a slot's meshes a piece
+  draws follows the project's **voxel detail seed** (the project setting
+  `voxel_piece_seed`, 0 unless set) and the piece's place in the world, so
+  a scene draws the same on every load; change the seed for another
+  arrangement of the same meshes.
+- **`jitter`** (0–4, absent 1): how far every piece of the kit (edges,
+  corners, roof edges, debris) is moved into the solid and twisted, as a
+  share of the engine's stagger (1: 1/64–1/32 of a cell in, up to 2°; 0: on
+  the lattice), so a long rim does not read as a ruled line. Always into
+  the solid, never out: no gap opens between a piece and its faces.
+- **One texture set a kit**: every piece of a kit uses the same one
+  material (one trim sheet or one material); a kit whose pieces use two is
+  a kit-check error. Timber on stone is two kits.
+- **`gameData`** on the kit and on each slot: any JSON (break, sound,
   physics defaults). The engine keeps it, ships it and never reads it; a
   game's scripts read it.
 - **`materials`** binds the kit to materials, for now: the voxel material
@@ -342,26 +353,20 @@ them as `voxelKits`.
   trim layout the pieces' UVs follow; absent, the kit uses no trim sheet.
 
 **How worlds draw them.** The voxel world page, Play, the Scene view and an
-exported game draw every world with the project's kits: a cell's piece is
-its material's kit's piece for the case of each of its edges and corners
-(and a beam's or banister's run section), its variant picked from the cell
-and the edge (an edit elsewhere never reshuffles it), turned to fit. Pieces draw only in the near ring (level 0); from the
-middle ring out the edges are plain square voxel faces and beams and rails
-draw as blocks. A material no kit binds draws the engine's
-**default kit**: procedural pieces made in code (a rounded strip along each
-outer edge, a cove in each inner edge, a rounded cap on each outer corner,
-chamfered roof-edge boards, chamfered rubble for debris) with a labelled
-debug UV texture, and the engine's stand-in beams, rails and posts. Edge and
-corner pieces are staggered a little (moved up to 1/32 of a cell into the
-solid and twisted up to 2°, by a hash of their cell), so a long rim does not
-read as a ruled line; the stagger is drawing only, collision never sees it. Kit pieces draw with a stand-in material a
-kit and that debug texture until materials arrive; a kit naming a trim layout
-draws with that layout's debug set instead (each region its own colour and
-id, a 3 cm checker, a tick every 0.125 m along U), so a face mapped to the
-wrong region or stretched shows at once. A kit mesh still loading
-draws when it arrives; one that fails draws nothing (the page's status names
-it). In the Scene view a kit edited while a world is open shows once the
-world is opened again (another scene, or a reload).
+exported game draw every world with the project's kits: a cell's pieces are
+its material's kit's meshes in the slot of each of its edges and corners,
+picked by the seed and the cell (an edit elsewhere never reshuffles them),
+turned to fit and jittered by the kit. Pieces draw only in the near ring
+(level 0); from the middle ring out the edges are plain square voxel faces.
+The stagger is drawing only, collision never sees it. Kit pieces draw with
+a stand-in material a kit and a labelled debug UV texture until materials
+arrive; a kit naming a trim layout draws with that layout's debug set
+instead (each region its own colour and id, a 3 cm checker, a tick every
+0.125 m along U), so a face mapped to the wrong region or stretched shows
+at once. A kit mesh still loading draws when it arrives; one that fails
+draws nothing (the page's status names it). In the Scene view a kit edited
+while a world is open shows once the world is opened again (another scene,
+or a reload).
 
 Painting cells another material of the same kit (oak to pine of a wood
 kit) only changes the shading; painting them a material of another kit (a
@@ -371,31 +376,29 @@ log wall to stone) also rebuilds the pieces of the painted cells.
 or a model it names changes; problems show in the editor's **Problems** (and
 MCP's `tl_diagnostics`) as `voxel_kit_check` lines, one a rule:
 
-- **error** — something draws wrong or not at all: a case or section id
-  the case list does not have, a mesh whose model is missing, unreadable or
-  has no such node, a piece whose pivot is off its cell, trim rules T1, T2
-  and T4;
-- **warning** — something draws, just not from the kit: a required case
-  the kit leaves to another case's piece, the plain faces or the engine's
-  stand-in (the line names which), a mesh past half a cell
-  round its cell, section ends whose outlines differ, a mesh made from a
-  model version the project no longer has;
-- triangle counts and texture sizes are reported, never capped.
+- **error** — something draws wrong or not at all: a slot the case list
+  does not have, a mesh whose model is missing, unreadable or has no such
+  node, a piece whose pivot is off its cell (turned by its slot rotation),
+  pieces using more than one texture set, trim rules T1, T2 and T4;
+- **warning** — a mesh past half a cell round its cell, a mesh made from a
+  model version the project no longer has; never an empty slot (every slot
+  is optional);
+- how many slots are filled, triangle counts and texture sizes are
+  reported, never capped.
 
-A kit passes when it has no error. Trim rules (T1–T10) run only for kits
-naming a trim layout and are marked "(draft layout)".
+A kit passes when it has no error. Trim rules (T1–T7, T9, T10) run only for
+kits naming a trim layout and are marked "(draft layout)".
 
 **Kit test scene.** `writeKitTestScene {world, origin [x, y, z], material}`
 (the editor, MCP and scripts alike; one undo with `undoVoxels`) empties a
 box at `origin` and builds every case of the case list there from voxels,
-all in `material`: the beam and banister cases one exhibit a (case, role),
-one row a role; beside them a fixed sampler (a notched block for every edge
-and corner case, a gable, a hip and an L-plan roof for the roof edges, a
-wall with two damaged cells for debris), each case labelled at one cell
-that has it. Pick a material your
-kit binds to see each case drawn with its pieces, and a missing one drawn
-by its stand-in or not at all. The answer lists each exhibit's cell, role, case and run
-section; the voxel world page labels them (`?kitScene=x,y,z,material`).
+all in `material`: a fixed sampler (a notched block for every edge and
+corner case, a gable, a hip and an L-plan roof for the roof edges, a wall
+with two damaged cells for debris), each case labelled at one cell that
+has it. Pick a material your kit binds to see each slot drawn with its
+meshes, and an empty one drawn as plain voxel edges. The answer lists each
+label's cell, role and case; the voxel world page labels them
+(`?kitScene=x,y,z,material`).
 Writing the same scene again changes nothing (`no_change`).
 
 ## Not built yet

@@ -46,17 +46,16 @@
  * reads (to measure what the blend costs), `?gpuTime=1` records GPU
  * timestamps where the device has them, `?sun=` sets the sun's elevation in degrees.
  *
- * Detail pieces are the project's voxel kits (read through the command
- * route, their GLBs from the backend), with the engine's default kit for
- * every material no kit binds, through the one piece table the streamer
- * derives with; `?kits=0` derives without a table (the engine's default
- * stand-in pieces only, to compare), `?kits=default` with the default kit
- * alone (the project's kits left out).
+ * Detail pieces are the project's voxel kits with its piece seed (read
+ * through the command route, their GLBs from the backend), through the one
+ * piece table the streamer derives with; a material no kit binds draws
+ * plain voxel edges. `?kits=0` derives without a table (no pieces at all,
+ * to compare).
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
  * the catalogue built from voxels, `writeKitTestScene`: the same command MCP
  * sends; a scene already there is left as it is) and labels each exhibit
- * with its role, case and run section.
+ * with its role and case.
  */
 import * as THREE from 'three';
 import {
@@ -224,9 +223,9 @@ async function main(): Promise<void> {
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: blendM, shading, bands });
-  // The project's kits and the default kit, one table for the derives and the draws; their meshes load beside the stream.
+  // The project's kits and seed, one table for the derives and the draws; their meshes load beside the stream.
   const kitRoute = { api, projectId, headers };
-  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : params.get('kits') === 'default' ? [] : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
+  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set });
   const gpu = createGpuTiming();
@@ -543,7 +542,7 @@ async function main(): Promise<void> {
     ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, levelLog, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
     swaps: () => swaps.slice(),
-    ...assemblyProbes({ streamer, grid, origin, collision, scene, files, kitPiece: (material, piece) => meshes.kits?.describe(material, piece) ?? null }),
+    ...assemblyProbes({ streamer, grid, origin, collision, scene, files, kitPiece: (material, piece, variant) => meshes.kits?.describe(material, piece, variant) ?? null }),
     /** A dab at the cell under a screen point. */
     pickAndEdit,
     async settle(): Promise<void> {

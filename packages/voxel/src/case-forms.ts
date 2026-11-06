@@ -26,7 +26,7 @@
  * Packed in a byte a cell, inside the derive job only: bits 0–2 the shape,
  * 3–5 the transform (kit-cases.ts fold), 6–7 the base.
  */
-import { ASSEMBLY_CLASS, CLASS_MASK, CONSUMER_REACH, OPEN_ROLE, RUN_X, RUN_Z, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { ASSEMBLY_CLASS, CLASS_MASK, CONSUMER_REACH, OPEN_ROLE, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { damagedIntegrity, valueRole } from './record';
 import { SURFACE_ISO } from './derived-mesh';
 import { applyFold, CASE_BASES, CASE_SHAPES, caseFoldOf, caseIndexOf, FOLD_TRANSFORMS, NO_CASE, type CaseBase, type CaseDef, type CaseShape } from './kit-cases';
@@ -155,20 +155,12 @@ export function caseFormTable(cases: readonly CaseDef[]): Uint8Array {
 /**
  * The form a class byte gives a cell without a case (a rule set without the
  * case pass, a level that resolves none, a cell no catalogue role covers):
- * a wall body is the box; a beam a bar along its run; a rail a panel along
- * its run, a post (thin both ways) a post — both replaced by pieces; open
- * space, liquid and ground none.
+ * a wall, beam or rail cell is the body (a plain voxel: no piece stands in
+ * for a thin feature); open space, liquid and ground none.
  */
 export function classForm(resolved: number): number {
   const k = resolved & CLASS_MASK;
-  if (k === ASSEMBLY_CLASS.wall) return FORM_BODY;
-  if (k !== ASSEMBLY_CLASS.beam && k !== ASSEMBLY_CLASS.rail) return FORM_NONE;
-  const x = (resolved & RUN_X) !== 0;
-  const z = (resolved & RUN_Z) !== 0;
-  // A quarter turn takes the shape's own run (x) onto z.
-  const turn = !x && z ? 1 : 0;
-  if (k === ASSEMBLY_CLASS.beam) return packForm(FORM_SHAPE.bar, turn, FORM_BASE.suppress);
-  return packForm(x && z ? FORM_SHAPE.post : FORM_SHAPE.panel, turn, FORM_BASE.suppress);
+  return k === ASSEMBLY_CLASS.wall || k === ASSEMBLY_CLASS.beam || k === ASSEMBLY_CLASS.rail ? FORM_BODY : FORM_NONE;
 }
 
 /** Whether a rule set draws damaged construction cells as debris: the sets with the edge pass. */

@@ -7,8 +7,8 @@
  * mirror placed the cell.
  *
  * - **Which faces:** a triangle whose face is not end-on to the piece's run
- *   (x, or y for a vertical edge's own mesh: |normal along it| < 0.05, the
- *   kit check's run faces) and whose UVs are not in a
+ *   (the mesh axis its slot rotation turns onto the case's run:
+ *   |normal along it| < 0.05, the kit check's run faces) and whose UVs are not in a
  *   cap region. End faces and caps keep their authored UVs. The choice is
  *   made per triangle on the CPU (a vertex attribute `trimRun`, the mesh made
  *   non-indexed), because smooth normals shared by a run face and an end face
@@ -48,7 +48,7 @@ export function trimUPerMetre(layout: TrimLayout): number {
 }
 
 /** A non-indexed copy of a trim piece's geometry with `trimRun` set on the triangles the run offset applies to (the run along the mesh's `runAxis`). */
-export function trimRunGeometry(g: THREE.BufferGeometry, layout: TrimLayout, runAxis: 0 | 1 = 0): THREE.BufferGeometry {
+export function trimRunGeometry(g: THREE.BufferGeometry, layout: TrimLayout, runAxis: 0 | 1 | 2 = 0): THREE.BufferGeometry {
   const out = g.index === null ? g.clone() : g.toNonIndexed();
   const pos = out.getAttribute('position') as THREE.BufferAttribute;
   const uvs = out.getAttribute('uv') as THREE.BufferAttribute | undefined;
@@ -88,8 +88,8 @@ export function trimMaterial(map: THREE.Texture): THREE.Material {
  * An instance's (offset, factor): cell `local` of a draw whose corner is
  * `corner` (level-0 cells) and whose cells are `cellMetres` across, its
  * mesh's run (where authored U grows) placed along world axis `axis` (0 x,
- * 1 y, 2 z) with `sign`, read from the instance's whole rotation (an alias's
- * turn, the tip, the case's turns) and the mirror: a vertical edge's U runs
+ * 1 y, 2 z) with `sign`, read from the instance's whole rotation (its slot
+ * rotation, the tip, the case's turns) and the mirror: a vertical edge's U runs
  * up the world's y.
  */
 export function pieceU(uPerMetre: number, corner: readonly number[], local: readonly number[], cellMetres: number, axis: number, sign: number): [number, number] {
@@ -100,10 +100,10 @@ export function pieceU(uPerMetre: number, corner: readonly number[], local: read
 }
 
 /** The world axis (0–2) and sign a mesh's run axis takes under a rotation (a quarter-turn quaternion: the axis is exact). */
-export function runAxisOf(q: THREE.Quaternion, runAxis: 0 | 1, mirror: boolean, mirrorAxis = 0): [axis: number, sign: number] {
+export function runAxisOf(q: THREE.Quaternion, runAxis: 0 | 1 | 2, mirror: boolean, mirrorAxis = 0): [axis: number, sign: number] {
   // A mirrored mesh has its `mirrorAxis` negated: the run flips only when it lies along that axis.
   const flip = mirror && mirrorAxis === runAxis ? -1 : 1;
-  const v = new THREE.Vector3(runAxis === 0 ? flip : 0, runAxis === 1 ? flip : 0, 0).applyQuaternion(q);
+  const v = new THREE.Vector3(runAxis === 0 ? flip : 0, runAxis === 1 ? flip : 0, runAxis === 2 ? flip : 0).applyQuaternion(q);
   const a = Math.abs(v.x) >= Math.abs(v.y) && Math.abs(v.x) >= Math.abs(v.z) ? 0 : Math.abs(v.y) >= Math.abs(v.z) ? 1 : 2;
   return [a, v.getComponent(a) > 0 ? 1 : -1];
 }

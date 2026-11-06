@@ -49,8 +49,8 @@ export interface ProbeContext {
   readonly scene: THREE.Scene;
   /** Region files by name → tag, as the page knows them now. */
   readonly files: ReadonlyMap<string, string | null>;
-  /** What a kit piece of a cell of `material` is (its kit, case and run section), or null. */
-  readonly kitPiece?: (material: number, piece: number) => { readonly kit: string; readonly caseId: string; readonly section: string } | null;
+  /** What a kit piece of a cell of `material` is (its kit, slot, slot mesh and rotation), or null. */
+  readonly kitPiece?: (material: number, piece: number, variant: number) => { readonly kit: string; readonly caseId: string; readonly mesh: number; readonly rotation: number } | null;
 }
 
 export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: never[]) => unknown> {
@@ -113,9 +113,9 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
         voxel: { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness },
         resolved: className(resolvedClassAt(streamer.overlay, WORLD_RULES, x, y, z)),
         outputs,
-        kitPiece: p === null || p.family !== 0 ? null : (ctx.kitPiece?.(v.material, p.piece) ?? null),
+        kitPiece: p === null ? null : (ctx.kitPiece?.(v.material, p.piece, p.variant) ?? null),
         // Every kit piece the cell owns (an edge cell owns one an edge or corner), with its turns and placement.
-        kitPieces: (outputs?.pieces ?? []).filter((q) => q.family === 0).map((q) => ({ ...(ctx.kitPiece?.(v.material, q.piece) ?? { kit: null, caseId: null, section: null }), turns: q.turns, place: q.place })),
+        kitPieces: (outputs?.pieces ?? []).map((q) => ({ ...(ctx.kitPiece?.(v.material, q.piece, q.variant) ?? { kit: null, caseId: null, mesh: null, rotation: null }), turns: q.turns, place: q.place })),
       };
     },
     windowHashes,

@@ -54,7 +54,6 @@ import {
   worldStreamer,
   buildFaceSeam,
   buildPieceTable,
-  KIT_PIECE_BASE,
   payloadHolds,
   type PieceTable,
   faceLevels,
@@ -600,11 +599,11 @@ describe('streamer (workers, region files on disk)', () => {
         const [cx, cy, cz] = k.split(',').map(Number) as [number, number, number];
         const whole = deriveFromStore(truth, cx, cy, cz, WORLD_RULES, undefined, table);
         expect(instanceList(s.joinedChunk(cx, cy, cz)!.instances), k).toEqual(instanceList(whole.instances));
-        for (let i = 0; i < whole.instances.count; i++) if ((whole.instances.data[i * 8 + 4]! | (whole.instances.data[i * 8 + 5]! << 8)) >= KIT_PIECE_BASE) own++;
+        own += whole.instances.count;
       }
       return own;
     };
-    const log = buildPieceTable([fullTestKit('log', [LOG], 2)], WORLD_RULES).table;
+    const log = buildPieceTable([fullTestKit('log', [LOG], 2)], WORLD_RULES, 0).table;
     const r1 = s.pieces.set(log);
     expect(r1.chunks.map((c) => `${c.cx},${c.cy},${c.cz}`).sort()).toEqual(holding(LOG));
     expect(r1.chunks.length).toBeGreaterThan(0);
@@ -620,13 +619,13 @@ describe('streamer (workers, region files on disk)', () => {
     expect(ev.pieces.n).toBeLessThanOrEqual(ev.all.n);
     // Adding the stone kit touches the stone wall's chunks only; the same table again touches nothing.
     derivedChunks.length = 0;
-    const both = buildPieceTable([fullTestKit('log', [LOG], 2), fullTestKit('stone', [STONE], 1)], WORLD_RULES).table;
+    const both = buildPieceTable([fullTestKit('log', [LOG], 2), fullTestKit('stone', [STONE], 1)], WORLD_RULES, 0).table;
     expect(s.pieces.set(both).chunks.map((c) => `${c.cx},${c.cy},${c.cz}`).sort()).toEqual(holding(STONE));
     await s.settle();
     expect([...new Set(derivedChunks)].sort()).toEqual(holding(STONE));
     expect(drawsLike(both, holding(STONE))).toBeGreaterThan(10);
     derivedChunks.length = 0;
-    expect(s.pieces.set(buildPieceTable([fullTestKit('stone', [STONE], 1), fullTestKit('log', [LOG], 2)], WORLD_RULES).table)).toEqual({ group: 0, chunks: [] });
+    expect(s.pieces.set(buildPieceTable([fullTestKit('stone', [STONE], 1), fullTestKit('log', [LOG], 2)], WORLD_RULES, 0).table)).toEqual({ group: 0, chunks: [] });
     await s.settle();
     expect(derivedChunks).toHaveLength(0);
     // Paints with the kits bound (the feeds mask: material and wetness are shader data). Sections derived whole, and shader-only.
@@ -652,7 +651,7 @@ describe('streamer (workers, region files on disk)', () => {
     expect(shaded.length).toBeGreaterThan(0);
     // A second timber (94) bound to the log kit, held by no chunk: nothing to derive. Log to it is a paint within the kit: shader data only.
     const LOG2 = 94;
-    const kits2 = buildPieceTable([fullTestKit('log', [LOG, LOG2], 2), fullTestKit('stone', [STONE], 1)], WORLD_RULES).table;
+    const kits2 = buildPieceTable([fullTestKit('log', [LOG, LOG2], 2), fullTestKit('stone', [STONE], 1)], WORLD_RULES, 0).table;
     expect(s.pieces.set(kits2).chunks).toEqual([]);
     await paintLog(LOG2, 4, kits2);
     expect(whole).toEqual([]);

@@ -47,7 +47,7 @@ const FLOOR_SAME = CASE_SYMBOL.built + 3;
 
 const { open: O, opening: OP, solid: S } = CELL;
 const rule = (c: string, priority: number, cells: readonly CaseRuleCell[]): CaseRule => ({ case: c, priority, cells });
-const testCase = (id: string, roles: readonly number[]): CaseDef => ({ id, roles, run: 'x', required: false, base: 'keep', shape: 'box', note: '' });
+const testCase = (id: string, roles: readonly number[]): CaseDef => ({ id, roles, base: 'keep', shape: 'box', note: '' });
 
 /**
  * A window test catalogue: the edge catalogue with rules that read one side
@@ -59,7 +59,7 @@ const WINDOW_TEST_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'window-test',
   version: 1,
   draft: true,
-  cases: [...EDGE_CASE_CATALOGUE.cases, { ...testCase('plain', CASE_ROLES), run: null }, testCase('front', CASE_ROLES), testCase('top-front', CASE_ROLES), testCase('under', [R.floor, R.roof]), testCase('jamb', [R.wall]), testCase('corner', [R.wall, R.floor])],
+  cases: [...EDGE_CASE_CATALOGUE.cases, testCase('plain', CASE_ROLES), testCase('front', CASE_ROLES), testCase('top-front', CASE_ROLES), testCase('under', [R.floor, R.roof]), testCase('jamb', [R.wall]), testCase('corner', [R.wall, R.floor])],
   rules: [
     ...EDGE_CASE_CATALOGUE.rules,
     rule('jamb', 65, [[1, 0, 0, OP], [0, 0, 1, O]]),
@@ -170,7 +170,7 @@ function tiny(rules: CaseCatalogueDef['rules'], extraCases: string[] = []): Case
     id: 'tiny',
     version: 1,
     draft: true,
-    cases: [{ id: 'plain', roles: CASE_ROLES, run: null, required: true, base: 'keep', shape: 'box', note: '' }, ...['a', 'b', ...extraCases].map((id) => ({ id, roles: [R.wall], run: 'x' as const, required: false, base: 'keep' as const, shape: 'box' as const, note: '' }))],
+    cases: [{ id: 'plain', roles: CASE_ROLES, base: 'keep', shape: 'box', note: '' }, ...['a', 'b', ...extraCases].map((id) => ({ id, roles: [R.wall], base: 'keep' as const, shape: 'box' as const, note: '' }))],
     rules,
     fallback,
   });
@@ -234,49 +234,34 @@ describe('rules', () => {
     bad({ fallback: { ...good.fallback, [R.wall]: 'under' } }, /does not list role/);
     bad({ fallback: { ...good.fallback, [R.wall]: 'nope' } }, /is not a case/);
     bad({ cases: [...good.cases, good.cases[0]!] }, /listed twice/);
-    bad({ cases: [...good.cases, { id: 'Bad Id', roles: [R.wall], run: null, required: false, base: 'keep', shape: 'box', note: '' }] }, /id syntax/);
-    bad({ cases: [...good.cases, { id: 'ground', roles: [R.terrain], run: null, required: false, base: 'keep', shape: 'box', note: '' }] }, /detail roles/);
+    bad({ cases: [...good.cases, { id: 'Bad Id', roles: [R.wall], base: 'keep', shape: 'box', note: '' }] }, /id syntax/);
+    bad({ cases: [...good.cases, { id: 'ground', roles: [R.terrain], base: 'keep', shape: 'box', note: '' }] }, /detail roles/);
     // A case's base and declared shape must go together (a kept base is the whole cell, a suppressed one a partial shape).
-    const formOf = (base: string, shape: string): CaseCatalogueDef['cases'][number] => ({ id: 'odd', roles: [R.wall], run: null, required: false, base, shape, note: '' }) as unknown as CaseCatalogueDef['cases'][number];
+    const formOf = (base: string, shape: string): CaseCatalogueDef['cases'][number] => ({ id: 'odd', roles: [R.wall], base, shape, note: '' }) as unknown as CaseCatalogueDef['cases'][number];
     bad({ cases: [...good.cases, formOf('keep', 'bar')] }, /kept base needs the box/);
     bad({ cases: [...good.cases, formOf('reshape', 'slab')] }, /base "reshape"/);
     bad({ cases: [...good.cases, formOf('suppress', 'box')] }, /suppressed base with the whole box/);
     bad({ cases: [...good.cases, formOf('hide', 'box')] }, /base "hide"/);
     bad({ cases: [...good.cases, formOf('keep', 'sphere')] }, /shape "sphere"/);
     bad({ rules: [...good.rules, { case: 'nope', priority: 1, cells: [] }] }, /unknown case/);
-    bad({ rules: [...good.rules, { case: 'beam', priority: 1, cells: [[3, 0, 0, CELL.air]] }] }, /outside the case window/);
-    bad({ rules: [...good.rules, { case: 'beam', priority: 1, cells: [[1, 1, 1, CELL.air], [1, 1, 1, CELL.air]] }] }, /listed twice/);
-    bad({ rules: [...good.rules, { case: 'beam', priority: 1, cells: [[1, 1, 1, 0]] }] }, /accepts no symbol/);
-    bad({ rules: [...good.rules, { case: 'beam', priority: 1, roles: [R.roof], cells: [] }] }, /roles outside/);
+    bad({ rules: [...good.rules, { case: 'jamb', priority: 1, cells: [[3, 0, 0, CELL.air]] }] }, /outside the case window/);
+    bad({ rules: [...good.rules, { case: 'jamb', priority: 1, cells: [[1, 1, 1, CELL.air], [1, 1, 1, CELL.air]] }] }, /listed twice/);
+    bad({ rules: [...good.rules, { case: 'jamb', priority: 1, cells: [[1, 1, 1, 0]] }] }, /accepts no symbol/);
+    bad({ rules: [...good.rules, { case: 'jamb', priority: 1, roles: [R.roof], cells: [] }] }, /roles outside/);
   });
 });
 
 describe('the edge catalogue (window part)', () => {
   const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
 
-  it('is a 21-case draft whose window rules name only beams and banisters, with no fallback for any role', () => {
-    expect([cat.id, cat.version, cat.draft]).toEqual(['edges-draft', 1, true]);
-    expect(cat.cases).toHaveLength(21);
-    // The heavy debris stage draws the light stage's piece in a kit without its own.
-    expect(cat.cases.find((c) => c.id === 'debris-heavy')!.standIn).toBe('debris');
+  it('is an 18-case draft with no window rules and no fallback for any role: no cell gets a window case', () => {
+    expect([cat.id, cat.version, cat.draft]).toEqual(['edges-draft', 2, true]);
+    expect(cat.cases).toHaveLength(18);
     expect(cat.cases.map((c) => c.id).slice(0, EDGE_CASE_IDS.length)).toEqual([...EDGE_CASE_IDS]);
-    expect(new Set(cat.rules.map((r) => r.case))).toEqual(new Set(['beam', 'banister-rail', 'banister-post']));
+    expect(cat.cases.map((c) => c.id).filter((id) => /beam|banister/.test(id))).toEqual([]);
+    expect(cat.rules).toEqual([]);
     for (const role of CASE_ROLES) expect(cat.fallbackOf(role)).toBe(-1);
     expect(cat.readsMaterial).toBe(false);
-  });
-
-  it('reaches beam, rail and post from their rules, and gives every other window no case', () => {
-    const rnd = mulberry32(23);
-    const reached = new Set<string>();
-    for (const r of cat.rules) {
-      const role = cat.cases[cat.indexOf(r.case)]!.roles[0]!;
-      for (let n = 0; n < 2000 && !reached.has(r.case); n++) {
-        const win = Uint8Array.from({ length: CASE_WINDOW_CELLS }, () => (rnd() < 0.3 ? Math.floor(rnd() * SYMBOLS) : CASE_SYMBOL.open));
-        for (const [x, y, z, mask] of r.cells) win[caseWindowIndex(x, y, z)] = pick(rnd, mask);
-        if (cat.matchWindow(role, win).caseId === r.case) reached.add(r.case);
-      }
-    }
-    expect([...reached].sort()).toEqual(['banister-post', 'banister-rail', 'beam']);
     // A wall face, open in front and solid all round otherwise: no case (no piece on a flat face).
     const face = windowOf(WALL_SAME, [[0, 0, 1, CASE_SYMBOL.open]]);
     expect(cat.matchWindow(R.wall, face)).toMatchObject({ caseIndex: -1, caseId: null, rule: -1 });

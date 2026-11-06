@@ -35,9 +35,6 @@ import {
   groundHeightfieldPatches,
   jobRadius,
   joinSections,
-  LIGHT_COVERAGE,
-  PIECE_FAMILY,
-  PIECE_SECTION,
   WORLD_RULES,
   resolvedClassAt,
   RUN_X,
@@ -94,7 +91,7 @@ function growBanister(s: PaletteStore): void {
 }
 
 describe('per-cell outputs of one assembly evaluation', () => {
-  it('give a wall, a beam, a rail and a post different render, collision, nav and light results, and follow the neighbours', () => {
+  it('give the placeholder rules\' beam, rail and post cells what a wall cell gets: plain voxels for render, collision, nav and light', () => {
     const s = scene();
     expect(resolvedClassAt(s, WORLD_RULES, -4, 4, 0)).toBe(ASSEMBLY_CLASS.wall);
     expect(resolvedClassAt(s, WORLD_RULES, -4, 5, -1)).toBe(ASSEMBLY_CLASS.beam | RUN_X);
@@ -103,29 +100,21 @@ describe('per-cell outputs of one assembly evaluation', () => {
 
     const wall = outputsAt(s, -4, 5, 0);
     expect(wall).toMatchObject({ renderSolid: true, piece: null, collision: 'full', navBlocks: true, light: 255 });
-    // The wall's back face (towards the beam's side) is drawn only where no beam stands in front of it; its top row has an open top.
-    expect(outputsAt(s, -4, 7, 0).baseFaces).toBeGreaterThanOrEqual(2);
-    const beam = outputsAt(s, -4, 5, -1);
-    expect(beam).toMatchObject({ renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, light: LIGHT_COVERAGE.bar });
-    expect(beam.piece).toMatchObject({ family: PIECE_FAMILY.beam, section: PIECE_SECTION.body, replacesBase: true });
-    const rail = outputsAt(s, -3, 2, 7);
-    expect(rail).toMatchObject({ renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, light: LIGHT_COVERAGE.panel, standable: false });
-    expect(rail.piece?.family).toBe(PIECE_FAMILY.rail);
-    // A rail is a thin slab along its run: full length in x, 4/16 of a cell across z.
-    expect(rail.partialBox).toEqual([0, 0, 6, 16, 16, 10]);
-    const post = outputsAt(s, -4, 1, 7);
-    expect(post.piece?.family).toBe(PIECE_FAMILY.post);
-    expect(post.partialBox).toEqual([6, 0, 6, 10, 16, 10]);
+    // Beams and banisters left the voxel world: their cells are whole voxels for every consumer, no piece in their place.
+    const plain = { renderSolid: true, piece: null, collision: 'full', navBlocks: true, light: 255 };
+    expect(outputsAt(s, -4, 5, -1)).toMatchObject(plain);
+    expect(outputsAt(s, -4, 5, -1).baseFaces).toBeGreaterThan(0);
+    expect(outputsAt(s, -3, 2, 7)).toMatchObject(plain);
+    expect(outputsAt(s, -4, 1, 7)).toMatchObject(plain);
     // The gap between two posts is open for everything.
     expect(outputsAt(s, -3, 1, 7)).toMatchObject({ renderSolid: false, collision: 'none', navBlocks: false, light: 0, piece: null });
-    // Standing: on the wall's top yes, on the rail's top no (nav reads the rail as not a support).
+    // Standing: on the wall's top, and on the rail's top (a whole voxel supports like any other).
     expect(outputsAt(s, -4, 8, 0).standable).toBe(true);
-    expect(outputsAt(s, -3, 3, 7).standable).toBe(false);
+    expect(outputsAt(s, -3, 3, 7).standable).toBe(true);
 
     growBanister(s);
     expect(resolvedClassAt(s, WORLD_RULES, -3, 2, 7)).toBe(ASSEMBLY_CLASS.wall);
     expect(outputsAt(s, -3, 2, 7)).toMatchObject({ renderSolid: true, piece: null, collision: 'full', light: 255 });
-    // No longer replaced by a piece: the run's front and back faces are base surface again.
     expect(outputsAt(s, -3, 2, 7).baseFaces).toBe(2);
     expect(outputsAt(s, -3, 4, 7).standable).toBe(true);
   });
@@ -163,27 +152,27 @@ describe('collision through the engine physics backend', () => {
     return { physics, rebuild };
   }
 
-  it('rests capsules on the ground, the wall top, the beam and the rail; a sphere passes between the posts and stops at the wall', async () => {
+  it('rests capsules on the ground, the wall top, the former beam and rail (whole voxels); a sphere passes between the posts and stops at the wall', async () => {
     const s = scene();
     const { physics, rebuild } = await world(s);
     expect(physics.count).toBe(8);
-    // Feet in cells: the ground's surface is at y 0, the wall's top at 8, the beam's top at 5 + 13/16, the rail's at 3.
+    // Feet in cells: the ground's surface is at y 0, the wall's top at 8, the beam cell's top at 6, the rail's at 3.
     const ground = physics.dropCapsule([10.5, 4, 10.5], 0.2, 0.2);
     expect(ground.grounded).toBe(true);
     expect(ground.feet[1]).toBeCloseTo(0, 0);
     expect(physics.dropCapsule([-4.5, 12, 0.5], 0.2, 0.2).feet[1]).toBeCloseTo(8, 1);
-    expect(physics.dropCapsule([-4.5, 10, -0.5], 0.1, 0.1).feet[1]).toBeCloseTo(5 + 13 / 16, 1);
+    expect(physics.dropCapsule([-4.5, 10, -0.5], 0.1, 0.1).feet[1]).toBeCloseTo(6, 1);
     const onRail = physics.dropCapsule([-2.5, 6, 7.5], 0.1, 0.1);
     expect(onRail.grounded).toBe(true);
     expect(onRail.feet[1]).toBeCloseTo(3, 1);
 
     // A ball rolled toward the wall at post height: between two posts and under the rail it reaches the wall (z 1 + radius);
-    // in line with a post it stops at the post's bar (z 7 + 10/16 + radius).
+    // in line with a post it stops at the post's cell, a whole voxel (z 8 + radius).
     const r = 0.3;
     const gap = physics.castSphere([-2.5, 1.5, 12], [0, 0, -1], 0.15, 20);
     expect(gap?.centre[2]).toBeCloseTo(1 + r, 1);
     const atPost = physics.castSphere([-3.5, 1.5, 12], [0, 0, -1], 0.15, 20);
-    expect(atPost?.centre[2]).toBeCloseTo(7 + 10 / 16 + r, 1);
+    expect(atPost?.centre[2]).toBeCloseTo(8 + r, 1);
 
     // Grown upward the run is a wall: the ball stops at its face (z 8), and the capsule rests on its new top (y 4).
     growBanister(s);

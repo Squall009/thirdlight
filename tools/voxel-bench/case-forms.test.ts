@@ -29,6 +29,7 @@ import {
   evaluateForms,
   fillNeighbourhood,
   FORM_BASE,
+  FORM_BODY,
   FORM_SHAPE,
   formBaseOf,
   formBox,
@@ -36,7 +37,6 @@ import {
   formShapeOf,
   formSupports,
   INSTANCE_BYTES,
-  defaultPieceFamily,
   INSTANCE_FLAG,
   jobRadius,
   levelDrawsPieces,
@@ -45,7 +45,6 @@ import {
   MipTree,
   NO_CASE,
   OCCUPANCY,
-  PIECE_FAMILY,
   POSITION_STEPS_PER_CELL,
   RUN_X,
   RUN_Z,
@@ -116,7 +115,7 @@ function viewer(d: DerivedData): (x: number, y: number, z: number) => CellView {
   for (let k = 0; k < d.instances.count; k++) {
     const o = k * INSTANCE_BYTES;
     const data = d.instances.data;
-    pieces.set((data[o]! * e + data[o + 2]!) * e + data[o + 1]!, `${defaultPieceFamily(data[o + 4]! | (data[o + 5]! << 8))}:${(data[o + 3]! & INSTANCE_FLAG.replacesBase) !== 0}`);
+    pieces.set((data[o]! * e + data[o + 2]!) * e + data[o + 1]!, `${data[o + 4]! | (data[o + 5]! << 8)}:${(data[o + 3]! & INSTANCE_FLAG.replacesBase) !== 0}`);
   }
   const partialLight = new Map<number, number>();
   d.light.partialCells.forEach((c, k) => partialLight.set(c, d.light.partialCover[k]!));
@@ -135,26 +134,24 @@ function viewer(d: DerivedData): (x: number, y: number, z: number) => CellView {
   };
 }
 
-const FAMILY_OF_SHAPE: Record<number, number> = { [FORM_SHAPE.bar]: PIECE_FAMILY.beam, [FORM_SHAPE.panel]: PIECE_FAMILY.rail, [FORM_SHAPE.post]: PIECE_FAMILY.post };
-
 /**
  * What a cell's form (and, for ground, its density) says each consumer
- * receives. A roof's plane cell (`plane`) collides as the roof's ramp and
- * takes no piece; light, navigation and occupancy read its voxel.
+ * receives, derived without a kit (no piece anywhere). A roof's plane cell
+ * (`plane`) collides as the roof's ramp; light, navigation and occupancy
+ * read its voxel.
  */
-function expected(n: ReturnType<typeof createNeighbourhood>, classes: Uint8Array, forms: Uint8Array, i: number, piecesDrawn: boolean, plane = false): Omit<CellView, 'standable'> {
+function expected(n: ReturnType<typeof createNeighbourhood>, classes: Uint8Array, forms: Uint8Array, i: number, plane = false): Omit<CellView, 'standable'> {
   const f = forms[i]!;
   const ground = (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground;
   const solidGround = ground && n.shapes[i]! >= SURFACE_ISO;
   const shape = formShapeOf(f);
   const box = [0, 0, 0, 0, 0, 0];
-  const family = FAMILY_OF_SHAPE[shape];
   return {
     light: ground ? n.shapes[i]! : formCoverage(f),
     blocks: shape !== FORM_SHAPE.none || solidGround,
     solid: shape === FORM_SHAPE.box || solidGround,
     collision: plane ? 'none' : shape === FORM_SHAPE.box ? 'full' : formBox(f, box) ? box.join(',') : 'none',
-    piece: !plane && piecesDrawn && formBaseOf(f) === FORM_BASE.suppress && family !== undefined ? `${family}:true` : null,
+    piece: null,
   };
 }
 
@@ -164,13 +161,12 @@ function checkAgainstForms(d: DerivedData, job: ReturnType<typeof jobForms>, at:
   const { n, classes, forms, cases, roofs } = job;
   const s = n.side;
   const p = n.pad;
-  const piecesDrawn = levelDrawsPieces(d.level);
   let withCase = 0;
   const shapes = new Set<number>();
   for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) for (let y = 0; y < E; y++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     const got = view(x, y, z);
-    const want = expected(n, classes, forms, i, piecesDrawn, roofs[i] !== 0);
+    const want = expected(n, classes, forms, i, roofs[i] !== 0);
     const { standable, ...rest } = got;
     if (JSON.stringify(rest) !== JSON.stringify(want)) expect(rest, `${at} cell ${x},${y},${z} form ${forms[i]}`).toEqual(want);
     // Standable: free, on a cell whose form covers its top (or ground).
@@ -223,27 +219,14 @@ function areaByPlane(buf: SurfaceBuffer): Map<string, number> {
 }
 
 describe('consumers from the case', () => {
-  it('declares each shape once, in the case\'s own orientation; light is its share of the cell; classes without a case keep the placeholder shapes', () => {
+  it('declares each shape once, in the case\'s own orientation; light is its share of the cell; a beam, rail or post class is a plain voxel (the body)', () => {
     expect(LIGHT_COVERAGE).toEqual({ none: 0, box: 255, panel: 64, bar: 100, post: 16 });
-    const box = [0, 0, 0, 0, 0, 0];
-    // A beam, rail and post read from classes collide as the placeholder shapes did: run along x, along z, both.
-    const cases: Array<[number, number[]]> = [
-      [ASSEMBLY_CLASS.beam | RUN_X, [0, 3, 3, 16, 13, 13]],
-      [ASSEMBLY_CLASS.beam | RUN_Z, [3, 3, 0, 13, 13, 16]],
-      [ASSEMBLY_CLASS.rail | RUN_X, [0, 0, 6, 16, 16, 10]],
-      [ASSEMBLY_CLASS.rail | RUN_Z, [6, 0, 0, 10, 16, 16]],
-      [ASSEMBLY_CLASS.rail | RUN_X | RUN_Z, [6, 0, 6, 10, 16, 10]],
-    ];
-    for (const [cls, want] of cases) {
-      const f = classForm(cls);
-      expect(formBaseOf(f), `class ${cls}`).toBe(FORM_BASE.suppress);
-      expect(formBox(f, box) && box, `class ${cls}`).toEqual(want);
-    }
+    // Beams and banisters left the voxel world: the placeholder classes keep their names, every consumer draws them as the body.
+    for (const cls of [ASSEMBLY_CLASS.beam | RUN_X, ASSEMBLY_CLASS.beam | RUN_Z, ASSEMBLY_CLASS.rail | RUN_X, ASSEMBLY_CLASS.rail | RUN_Z, ASSEMBLY_CLASS.rail | RUN_X | RUN_Z]) expect(classForm(cls), `class ${cls}`).toBe(FORM_BODY);
     expect(formShapeOf(classForm(ASSEMBLY_CLASS.wall))).toBe(FORM_SHAPE.box);
     expect(formShapeOf(classForm(ASSEMBLY_CLASS.ground))).toBe(FORM_SHAPE.none);
-    // The world catalogue: beams and banisters leave the base to their pieces; every other case (edges, roof edges, debris) keeps a whole cell.
-    const thin: Record<string, string> = { beam: 'suppress/bar', 'banister-rail': 'suppress/panel', 'banister-post': 'suppress/post' };
-    for (const c of EDGE_CASE_CATALOGUE.cases) expect(`${c.base}/${c.shape}`, c.id).toBe(thin[c.id] ?? 'keep/box');
+    // The world catalogue: every case (edges, roof edges, debris) keeps a whole cell.
+    for (const c of EDGE_CASE_CATALOGUE.cases) expect(`${c.base}/${c.shape}`, c.id).toBe('keep/box');
   });
 
   it('gives every consumer the cell\'s form, never a piece: town, scenes and random worlds at level 0 (cases) and levels 1 and 2 (classes)', () => {
@@ -272,10 +255,10 @@ describe('consumers from the case', () => {
         }
       }
     }
-    // Only beams and banisters carry a window case in the world catalogue (edges are the edge pass's): a few hundred cells here.
-    expect(withCase).toBeGreaterThan(300);
-    // Every declared shape occurs: whole cells, rails, beams and posts, and open space.
-    expect([...shapes].sort()).toEqual(Object.values(FORM_SHAPE).sort());
+    // The world catalogue has no window rules (edges are the edge pass's): no cell carries a window case.
+    expect(withCase).toBe(0);
+    // Whole cells and open space only: no thin shape stands in for a beam or banister.
+    expect([...shapes].sort()).toEqual([FORM_SHAPE.none, FORM_SHAPE.box].sort());
   }, 120_000);
 
   it('joins a chunk\'s 16³ and 8³ sections into the whole chunk\'s consumers cell for cell, and the same base area in every face plane', () => {

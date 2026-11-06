@@ -22,8 +22,8 @@
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
 import type { VoxelsChangedPayload } from '@thirdlight/protocol';
-import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer, type VoxelKitRecordLike } from '@thirdlight/three-adapter';
-import { pageKitPieces, readVoxelKits, type KitRoute } from '../voxel-world/kit-pieces';
+import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { pageKitPieces, readVoxelKits, type KitRoute, type ProjectVoxelKits } from '../voxel-world/kit-pieces';
 import type * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
 import type { SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
@@ -32,7 +32,7 @@ import type { SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-
 export interface SceneVoxelsSource {
   url(world: string): string;
   readonly headers: Readonly<Record<string, string>>;
-  /** Where the project's voxel kits and their models are read (absent: the default kit only). */
+  /** Where the project's voxel kits and their models are read (absent: no kits, no pieces). */
   readonly kits?: KitRoute;
 }
 
@@ -59,7 +59,7 @@ export class SceneVoxels {
   private focusSent: [number, number, number] | null = null;
   private stampMark = '';
   /** The project's kits once read (null until the first world opens), and their meshes. */
-  private kits: Promise<readonly VoxelKitRecordLike[]> | null = null;
+  private kits: Promise<ProjectVoxelKits> | null = null;
   private kitMeshes: VoxelKitMeshes | null = null;
 
   constructor(private readonly host: SceneVoxelsHost) {
@@ -67,12 +67,13 @@ export class SceneVoxels {
   }
 
   /** Reads the project's kits once and gives the draws their pieces; resolves to the kits the worker derives with. */
-  private projectKits(): Promise<readonly VoxelKitRecordLike[]> {
+  private projectKits(): Promise<ProjectVoxelKits> {
     if (this.kits !== null) return this.kits;
     const route = this.host.source?.kits;
-    const read = (route === undefined ? Promise.resolve([]) : readVoxelKits(route)).catch((e: unknown) => {
+    const none: ProjectVoxelKits = { kits: [], seed: 0 };
+    const read = (route === undefined ? Promise.resolve(none) : readVoxelKits(route)).catch((e: unknown) => {
       for (const name of this.open.keys()) this.problems.set(name, `voxel kits: ${e instanceof Error ? e.message : String(e)}`);
-      return [];
+      return none;
     });
     this.kits = read;
     void read.then((kits) => {
@@ -89,7 +90,7 @@ export class SceneVoxels {
         });
       } else {
         this.kitMeshes = new VoxelKitMeshes();
-        this.draws.setKits(this.kitMeshes.world(kits));
+        this.draws.setKits(this.kitMeshes.world(kits.kits, kits.seed));
       }
     });
     return this.kits;
@@ -157,7 +158,7 @@ export class SceneVoxels {
       void this.projectKits().then((kits) => {
         // Closed (or opened again with other settings) while the kits were read.
         if (this.open.get(name) !== key) return;
-        this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: s.levels, collision: s.collision, sectionEdge: s.sectionEdge, kits });
+        this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: s.levels, collision: s.collision, sectionEdge: s.sectionEdge, kits: kits.kits, pieceSeed: kits.seed });
         if (this.focusSent !== null) this.post({ t: 'focus', x: this.focusSent[0], y: this.focusSent[1], z: this.focusSent[2] });
       });
     }

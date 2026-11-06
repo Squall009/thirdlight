@@ -7,8 +7,8 @@ import type { WorldChange } from './range-world';
 
 /** Page → worker. */
 export type SceneVoxelsIn =
-  /** Stream `world` (its route `url`, read with `headers`; derive workers from `workerUrl`) with a `voxelWorld` object's ring, levels and sections (its collision radius bounds level 0), its pieces from the project's `kits`. */
-  | { readonly t: 'open'; readonly world: string; readonly url: string; readonly headers: Readonly<Record<string, string>>; readonly workerUrl: string; readonly ring: WorldRingMetres; readonly levels: WorldLevelsMetres; readonly collision: { readonly radius: number }; readonly sectionEdge: SectionEdge; readonly kits: readonly PieceKitSource[] }
+  /** Stream `world` (its route `url`, read with `headers`; derive workers from `workerUrl`) with a `voxelWorld` object's ring, levels and sections (its collision radius bounds level 0), its pieces from the project's `kits` and piece seed. */
+  | { readonly t: 'open'; readonly world: string; readonly url: string; readonly headers: Readonly<Record<string, string>>; readonly workerUrl: string; readonly ring: WorldRingMetres; readonly levels: WorldLevelsMetres; readonly collision: { readonly radius: number }; readonly sectionEdge: SectionEdge; readonly kits: readonly PieceKitSource[]; readonly pieceSeed: number }
   | { readonly t: 'close'; readonly world: string }
   /** Where the view looks (metres): every world streams around it. */
   | { readonly t: 'focus'; readonly x: number; readonly y: number; readonly z: number }

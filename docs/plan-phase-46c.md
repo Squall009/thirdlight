@@ -249,7 +249,7 @@ freeze, 46c.17, 46c.18.
 | 46c.15 | presented, awaiting owner approval (hard stop): 50 shots × 2 renderers re-taken at b6ec7d2f (kit scenes, log/stone houses, two-thick jambs, wall-beam-banister, long walls, cross-kit paint, town L0/L1, default kit) in `acceptance/46c/final`, older shots in `older/`; README + approve-46c.md: 65 questions. Seen: D480–D482, stone plinth breaks at jamb cells |
 | 46c.16 | answers recorded 2026-11-06 (all 35); build items 46c.16a–g (§6c), then full gate + review, acc46c-r2 (hard stop), v1 freeze |
 | 46c.16a | done: pieces at L0 only (derived 21; kit `low` mesh, check pairs, adapter low draws gone; kits regenerated, Blender 5.2.2: log 757 tris 58.4 kB, stone 490 tris 47.3 kB; town L1 7.7 k → 0 instances); every ring per scene + `quality` per level, `voxelRings` (tier √budget) with the tier budget, `ctx.voxels.setRings` and the reported level re-plan without reload |
-| 46c.16b | not started |
+| 46c.16b | done: kits are slots (case id = slot, 1..n meshes with a cube rotation, all optional, `jitter` 0–4), project setting `voxel_piece_seed` for picks and stagger, one texture set a kit (check error), no default kit (no kit = plain voxels), beams/banisters plain voxels; catalogue `edges-draft` v2 (18), `edges` v4, piece table 3, derived 22; kits log 391 / stone 286 tris |
 | 46c.16c | not started |
 | 46c.16d | not started |
 | 46c.16e | not started |
@@ -1391,6 +1391,37 @@ result.
   GREEN (5 min, 4.7 GB, perf at the cap 0 missed both renderers, 6.22 / 4.51 ms main thread). `voxel-world.e2e.ts`
   sum 72.2 s (load 5.4, uptime 13.4 d; the slice-page tests, which this item does not touch, slowed alike).
 
+### 46c.16b kits as slots
+
+**Slots** (owner A13, G2, B5, B7, C3, C11, A1/A12). Kit format 1 (DRAFT) replaces `cases`/`sections`/`variants`/`high`/
+`alias`/`joinProfiles` by `slots {caseId: {meshes: [{mesh, rotation?, weight?}], gameData?}}` and adds `jitter`
+(0–4, default 1 = `PIECE_STAGGER`); old drafts are refused as unknown fields (staging's kits regenerated). Every slot
+optional, an empty slot draws nothing, no stand-in or role fallback (debris-heavy no longer takes debris's piece). The
+piece table (format 2 → **3**) holds the project seed (setting `voxel_piece_seed`, project-model `voxel-world.ts`,
+0–2³²−1, default 0), each kit's jitter and a piece a filled slot (0-based, `KIT_PIECE_BASE` gone); a seed change
+re-derives every bound material, a jitter or slot change only the kit's. Mesh picks and stagger hash the seed (was
+`crc32(kitId)`). Every case has a stagger frame (roof edges into the roof, debris into its cell, debris faces into the
+intact cell). Kit check: `slots` info row (no empty-slot warnings), `texture-set` error (material name + image CRCs of
+the drawn primitives), envelope turned by the slot rotation, T4/T7 along the slot's run through the rotation, T8 and the
+required/fallback/alias/join rows gone. **Default kit** (`default-kit.ts`) and **run sections** (`kit-runs.ts`) archived
+to `archive/removed-phase-46c/`; `?kits=default` removed. **Beams/banisters**: cases and window rules gone (catalogue
+`edges-draft` v1 → **v2**, 18 cases, no window rules: the window pass is skipped), `thinPieceAt` and the stand-in
+families gone; a beam or rail class is the body for every consumer (`classForm`). Rule set `edges` 3 → **4**, derived
+21 → **22** (spec owner note).
+- **Placeholder kits** regenerated, Blender 5.2.2 headless (4 GB scope), node `<case>_v<k>`, one material a kit: **log**
+  13 meshes filling 16 of 18 slots (inner corners empty), 391 triangles, GLB 58,404 → **33,144 B**; **stone** 12 meshes,
+  16 slots, 286 triangles, 47,320 → **27,812 B**; no textures (debug set), no LODs (L0 only), collision from voxels;
+  kit check 0 err, 0 warn, T1–T7 ok. (Fewer triangles than 16a: the beam/rail/post meshes are gone.)
+- **Tests** (vitest, real derive/loader): slot format round trip, unknown fields and versions refused (voxel-kit,
+  voxel-kit-ops, integration over HTTP + MCP); picks the same under one seed, ~¾ re-picked under another, stable under
+  edits and section cuts (kit-pieces); jitter into the solid for every case, 0 = none, bounds × jitter
+  (voxel-kit-pieces); no kit / empty slot → no instance, bytes equal to no table; one-texture-set check; beams/rails
+  plain voxels for collision, light, nav and drawing (collision, derived, case-forms, e2e). Rewritten for the removals:
+  kit-house (a full test kit; roofs drawn with the log kit's GLB), kit-test-scene, role-spec-doc (role spec updated
+  enough to stay consistent; 16g rewrites it). One test changed meaning: derived.test "reaches the rule radius" no
+  longer sees a consumer change in the chunk above (the rail→wall class flip shows in no output now); it keeps the
+  dependency bound and the window check.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -1932,6 +1963,20 @@ result.
   there); Play and exports follow the level the page draws at.
 - 2026-11-06 (46c.16a): **kit field `high` keeps its name** for the one mesh a variant holds until the slot format
   (46c.16b) replaces variants; renaming it now would churn every record twice.
+
+- 2026-11-06 (46c.16b, default chosen, owner to confirm): **jitter is one number a kit**, a scale of the engine's
+  stagger (0–4, 1 = 1/64–1/32 cell in, ≤ 2°), not separate move/twist values; 0 puts pieces on the lattice.
+- 2026-11-06 (46c.16b, default chosen, owner to confirm): **the project seed is a project setting** `voxel_piece_seed`
+  (Engine group, 0 unless set), so no existing project changes look; another seed rearranges the same meshes.
+- 2026-11-06 (46c.16b, default chosen, owner to confirm): **a slot mesh has a rotation, no mirror of its own**; the
+  engine's mirror (the second verge of a gable) stays. A mesh's trim U runs along the mesh axis its rotation turns onto
+  the slot's run.
+- 2026-11-06 (46c.16b, default chosen, owner to confirm): **"one texture set"** = every drawn primitive of every piece
+  names the same material (same name and the same embedded images by CRC-32); a kit check error otherwise.
+- 2026-11-06 (46c.16b, default chosen, owner to confirm): **a damaged cell whose kit has no debris piece (or no kit)
+  still shows as a hole** with its neighbours' faces, as the debris form did; 46c.16e redoes damage per kit.
+- 2026-11-06 (46c.16b): the placeholder rules keep classifying beams and rails (counts, tests), but every consumer
+  draws them as plain voxels; the case window machinery stays generic (a catalogue with rules still gets cases).
 
 ## 10. Open questions for the owner
 

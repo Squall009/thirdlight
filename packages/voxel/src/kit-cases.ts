@@ -205,9 +205,6 @@ export function foldWindow(win: Uint8Array, t: number, out = new Uint8Array(CASE
   return out;
 }
 
-/** Inferred architectural features: cases of the stored roles, never roles themselves. */
-export type InferredFeature = 'beam' | 'banister';
-
 /**
  * The coarse shapes a case declares for its consumers (collision,
  * navigation, light; case-forms.ts gives each one's box), never read from a
@@ -240,24 +237,12 @@ export interface CaseDef {
   readonly id: string;
   /** The centre roles the case can be (a rule naming it applies to these or fewer). */
   readonly roles: readonly number[];
-  /** The inferred feature it draws, if any. */
-  readonly feature?: InferredFeature;
-  /** Whether a complete kit must provide pieces for it (an optional case without them draws its role's fallback). */
-  readonly required: boolean;
-  /** The axis a run of the case follows in its own orientation (its sections join along it), or null. */
-  readonly run: 'x' | 'y' | null;
   /** What the base surface does in the cell. */
   readonly base: CaseBase;
   /** The coarse shape collision, navigation and light read (in the case's own orientation). */
   readonly shape: CaseShape;
   /** One line: what the case is. */
   readonly note: string;
-  /**
-   * Another case of the catalogue (of the same base and shape) whose piece a
-   * kit without one of this case's draws instead: a later stage of the same
-   * thing, so a kit with one debris piece still dresses every stage.
-   */
-  readonly standIn?: string;
 }
 
 /** A rule cell: an offset in the window and the symbols it accepts. */
@@ -372,13 +357,6 @@ export class CaseCatalogue {
       const form = caseFormProblem(c);
       if (form !== null) fail(`case ${c.id}: ${form}`);
       this.caseIndex.set(c.id, this.caseIndex.size);
-    }
-    for (const c of def.cases) {
-      if (c.standIn === undefined) continue;
-      const k = this.caseIndex.get(c.standIn);
-      if (k === undefined || k === this.caseIndex.get(c.id)) fail(`case ${c.id}: stand-in ${c.standIn} is not another case`);
-      const o = def.cases[k!]!;
-      if (o.base !== c.base || o.shape !== c.shape) fail(`case ${c.id}: stand-in ${c.standIn} fills another shape`);
     }
     for (const role of CASE_ROLES) {
       const id = def.fallback[role];

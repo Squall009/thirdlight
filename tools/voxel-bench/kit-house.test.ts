@@ -1,9 +1,8 @@
 /**
  * Detail pieces stand only where faces meet, through the real derive with
- * the world's rule set and the engine's default kit (every material no kit
- * binds draws it; it has a piece for every edge, corner, roof-edge and
- * debris case): on a closed box house with a door and a window, a long
- * wall, a floor slab, a gable roof, the town and random worlds.
+ * the world's rule set and a kit filling every slot, bound to every
+ * material: on a closed box house with a door and a window, a long wall, a
+ * floor slab, a gable roof, the town and random worlds.
  *
  * - **No piece on a flat face**: every edge piece's 4 cells round its edge
  *   are 1 or 3 solid, every corner piece's 8 cells 1 or 7, read straight from
@@ -11,9 +10,6 @@
  * - **One owner an edge**: every exposed edge and corner of construction
  *   (found by brute force over the lattice) has exactly one piece, and no
  *   piece sits anywhere else.
- * - **Default pieces out of the solid**: every default piece's vertex,
- *   placed as the renderer places it (alias rotation, turns, tip, centring),
- *   lies in its own cell or in open air.
  * - **Roofs** take roof-edge pieces only; **damage** draws debris on the
  *   damaged cell and a debris face on each intact face toward it, nothing
  *   else changes for collision, light or navigation, and at air the
@@ -22,12 +18,16 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { createVoxelSurface, VoxelChunkView, VoxelKitMeshes, voxelStandInLook } from '@thirdlight/three-adapter';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
+import type { VoxelKitRecordLike } from '@thirdlight/three-adapter';
 import {
-  applyFold,
   buildApron,
   chunkGrid,
   createWorldStore,
-  applyCubeRotation,
+  CUBE_ROTATION_X90,
+  CUBE_ROTATION_ZM90,
   CUBE_ROTATIONS,
   FloatingOrigin,
   joinSectionsForDraw,
@@ -38,9 +38,6 @@ import {
   shaderGridSide,
   WETNESS_MAX,
   VOXEL_SIZE_M,
-  DEFAULT_KIT_PIECES,
-  defaultKitMesh,
-  defaultKitSource,
   deriveFromStore,
   deriveSectionsWithApron,
   EDGE_CASE_IDS,
@@ -53,7 +50,6 @@ import {
   INSTANCE_PLACE,
   instancePlaceOf,
   jobRadius,
-  KIT_PIECE_BASE,
   kitPieceList,
   PIECE_SLOT_TABLE,
   PIECE_SLOTS,
@@ -67,6 +63,7 @@ import {
 import { loadArea } from './regions';
 import { dabDetailRoles, putVoxel, randomAssemblyWorld } from './scenes';
 import { townWorld } from './town';
+import { fullTestKit } from './test-kits';
 import { MAT } from './world-kit';
 import { ROOF_EDGE_NEAR_M, roofCaseOffset, type RoofEdgeCaseId } from './roof-edge-surface';
 
@@ -75,8 +72,12 @@ const E = grid.edge;
 const R = VOXEL_ROLE;
 const RULES = WORLD_RULES;
 const CAT = RULES.catalogue!;
-const TABLE = worldPieceTable([]);
-const OWN = kitPieceList(defaultKitSource(CAT), CAT).pieces;
+/** Every material a test world here uses: the kit binds them all. */
+const ALL_MATERIALS = Array.from({ length: 255 }, (_, k) => k + 1);
+/** A kit filling every slot, bound to every material: every case the derive gives draws its piece. */
+const FULL = fullTestKit('all', ALL_MATERIALS, 1);
+const TABLE = worldPieceTable([FULL], 0);
+const OWN = kitPieceList(FULL, CAT).pieces;
 type Cell = [number, number, number];
 
 /** One instance read back: its world cell, case, yaw, placement and flags. */
@@ -90,15 +91,14 @@ interface Piece {
   readonly mirror: boolean;
 }
 
-/** The kit pieces of derived chunk (cx, cy, cz) (default stand-ins of beams and banisters left out). */
+/** The kit pieces of derived chunk (cx, cy, cz). */
 function piecesOf(d: DerivedData, cx: number, cy: number, cz: number): Piece[] {
   const out: Piece[] = [];
   const b = d.instances.data;
   for (let k = 0; k < d.instances.count; k++) {
     const o = k * INSTANCE_BYTES;
     const piece = b[o + 4]! | (b[o + 5]! << 8);
-    if (piece < KIT_PIECE_BASE) continue;
-    out.push({ cell: [cx * E + b[o]!, cy * E + b[o + 1]!, cz * E + b[o + 2]!], caseId: OWN[piece - KIT_PIECE_BASE]!.caseId, yaw: b[o + 3]! & 3, place: instancePlaceOf(b[o + 3]!), flags: b[o + 3]! & 0xf0, mirror: (b[o + 7]! & 0x80) !== 0 });
+    out.push({ cell: [cx * E + b[o]!, cy * E + b[o + 1]!, cz * E + b[o + 2]!], caseId: OWN[piece]!.caseId, yaw: b[o + 3]! & 3, place: instancePlaceOf(b[o + 3]!), flags: b[o + 3]! & 0xf0, mirror: (b[o + 7]! & 0x80) !== 0 });
   }
   return out;
 }
@@ -184,8 +184,6 @@ function exposedSlots(s: PaletteStore, lo: Cell, hi: Cell): string[] {
       const diagonal = axis >= 0 && n === 2 && solid(s, ...cells[0]!) === solid(s, ...cells[3]!);
       const want = axis >= 0 ? n === 1 || n === 3 || diagonal : n === 1 || n === 7;
       if (!want || !cells.some((c) => built(...c)) || cells.some((c) => terrain(...c))) continue;
-      // The default kit leaves inner corners to the coves meeting there (no piece of its own: none drawn).
-      if (axis < 0 && n === 7 && DEFAULT_KIT_PIECES['corner-in-top'] === null) continue;
       const mid = [2 * x, 2 * y, 2 * z];
       if (axis >= 0) mid[axis]! += 1;
       const key = `${axis >= 0 ? 'e' : 'c'}${mid.join(',')}`;
@@ -248,38 +246,6 @@ describe('pieces on edges only', () => {
       expect([...keys.values()].every((n) => n <= 2), what).toBe(true);
     }
   }, 60_000);
-
-  it("places every default piece's vertices as the renderer does (alias rotation, tip, centring, turns) in its own cell or open air, never in a solid neighbour", () => {
-    const s = createWorldStore(grid);
-    boxHouse(s);
-    // A piece's vertices in cells about its cell's centre, in its case's orientation (an alias: its target's turned).
-    const vertices = (caseId: string): [number, number, number][] => {
-      const p = DEFAULT_KIT_PIECES[caseId]!;
-      const d = defaultKitMesh(p.alias?.case ?? caseId)!;
-      const out: [number, number, number][] = [];
-      for (let i = 0; i < d.positions.length; i += 3) {
-        const v: [number, number, number] = [d.positions[i]! / VOXEL_SIZE_M, d.positions[i + 1]! / VOXEL_SIZE_M, d.positions[i + 2]! / VOXEL_SIZE_M];
-        out.push(p.alias === undefined ? v : applyCubeRotation(p.alias.rotation, v));
-      }
-      // A hair toward the piece's middle: a vertex on a face reads as the cell it faces, not the one behind it.
-      const mid = [0, 1, 2].map((a) => out.reduce((n, v) => n + v[a]!, 0) / out.length);
-      return out.map((v) => v.map((c, a) => c + (mid[a]! - c) * 0.02) as [number, number, number]);
-    };
-    let points = 0;
-    for (const p of piecesIn(s, [3, 7, 3], [17, 16, 15])) {
-      for (const v of vertices(p.caseId)) {
-        let q = v;
-        if (p.place === INSTANCE_PLACE.faceUp) q = [q[0], q[2], -q[1]];
-        if (p.place === INSTANCE_PLACE.faceDown) q = [q[0], -q[2], q[1]];
-        if (p.place === INSTANCE_PLACE.centred) q = [q[0], q[1] - 0.5, q[2] - 0.5];
-        const w = applyFold(p.yaw, q).map((c, a) => Math.floor(p.cell[a]! + 0.5 + c)) as Cell;
-        points++;
-        if (w.every((c, a) => c === p.cell[a])) continue;
-        expect(solid(s, ...w), `${p.caseId} yaw ${p.yaw} at ${p.cell.join(',')} reaches into ${w.join(',')}`).toBe(false);
-      }
-    }
-    expect(points).toBeGreaterThan(1000);
-  });
 
   it('a gable roof takes ridge, eave and verge pieces on its plane cells and no edge piece round them', () => {
     const s = createWorldStore(grid);
@@ -386,8 +352,16 @@ describe('damage drawn as debris', () => {
   });
 });
 
-describe('the default kit drawn through the real chunk view', () => {
-  it('roof-edge pieces follow the planes on both sides of a gable and up a hip: verges mirrored on one side, ridges, hips and verges on the planes as drawn, an odd hip\'s ridge and hips stopping at its apex', () => {
+/** A chunk view (stand-in surface and renderer) drawing `kits`' pieces from `meshes`. */
+function kitView(meshes: VoxelKitMeshes, kits: readonly VoxelKitRecordLike[]): { view: VoxelChunkView; table: ReturnType<typeof worldPieceTable> } {
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
+  const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
+  const table = worldPieceTable(kits, 0);
+  return { view: new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: meshes.set(table, kits) }), table };
+}
+
+describe('kit pieces drawn through the real chunk view', () => {
+  it('roof-edge pieces follow the planes on both sides of a gable and up a hip: verges mirrored on one side, ridges, hips and verges on the planes as drawn (jittered into the roof), an odd hip\'s ridge and hips stopping at its apex', async () => {
     const s = createWorldStore(grid);
     // Hand roofs, each cell's height b + the smallest distance to a low edge (45° everywhere); the top planes over
     // them in world cells are b + 1 + that distance measured to the roof's outer faces.
@@ -404,25 +378,31 @@ describe('the default kit drawn through the real chunk view', () => {
     }
     const top = (x: number, z: number): number => {
       for (const r of roofs) {
-        if (x < r.x0 - 0.2 || x > r.x1 + 1.2 || z < r.z0 - 0.2 || z > r.z1 + 1.2) continue;
+        // Which roof a vertex is over: the log kit's barge log stands proud of the gable face by its radius and more.
+        if (x < r.x0 - 0.4 || x > r.x1 + 1.4 || z < r.z0 - 0.4 || z > r.z1 + 1.4) continue;
         const cx = Math.max(r.x0, Math.min(r.x1 + 1, x));
         const cz = Math.max(r.z0, Math.min(r.z1 + 1, z));
         return r.b + 1 + Math.min(cx - r.x0, r.x1 + 1 - cx, ...(r.hip ? [cz - r.z0, r.z1 + 1 - cz] : []));
       }
       throw new Error(`no roof at ${x}, ${z}`);
     };
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
-    const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
+    // The log placeholder kit's roof slots (its GLB through the renderer's loader port), bound to the roof tiles, its
+    // jitter as authored: the pieces move into the roof, never off its planes past the bound.
+    const log = JSON.parse(readFileSync(join(import.meta.dirname, 'kits', 'log.voxelkit.json'), 'utf8')) as VoxelKitRecordLike;
+    // Without its trim layout: the draws then hold the slot meshes' own geometries (a trim kit's are run-flagged copies).
+    const kit: VoxelKitRecordLike = { voxelKitId: log.voxelKitId, materials: [MAT.roofTile], slots: Object.fromEntries(Object.entries(log.slots).filter(([id]) => id.startsWith('roof-'))) };
     const meshes = new VoxelKitMeshes();
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: meshes.world([]) });
-    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    const glb = new Uint8Array(readFileSync(join(import.meta.dirname, 'kits', 'voxel-kit-log.glb')));
+    expect((await meshes.load([kit], async () => ({ bytes: glb, version: 1 }), createGltfLoaderPort())).failed).toEqual([]);
+    const { view, table } = kitView(meshes, [kit]);
+    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, table);
     const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
     view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
     view.root.updateMatrixWorld(true);
     const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
-    // Each roof case's own mesh, plain and mirrored: which draw is which.
+    // Each roof slot's mesh, plain and mirrored: which draw is which.
     const kinds: { caseId: RoofEdgeCaseId; mirror: boolean; g: THREE.BufferGeometry }[] = [];
-    for (const caseId of ['roof-ridge', 'roof-gable', 'roof-hip'] as const) for (const mirror of [false, true]) kinds.push({ caseId, mirror, g: meshes.defaultMesh(caseId, mirror)! });
+    for (const caseId of ['roof-ridge', 'roof-gable', 'roof-hip'] as const) for (const mirror of [false, true]) kinds.push({ caseId, mirror, g: meshes.mesh(kit.slots[caseId]!.meshes[0]!.mesh, mirror) as THREE.BufferGeometry });
     // Every slope-following mesh lies on its case's planes in its own orientation; the mirrored verge does not (it rises toward −x).
     for (const k of kinds) if (!k.mirror) expect(roofCaseOffset(k.caseId, k.g.getAttribute('position').array), k.caseId).toBeLessThan(ROOF_EDGE_NEAR_M);
     expect(roofCaseOffset('roof-gable', kinds.find((k) => k.caseId === 'roof-gable' && k.mirror)!.g.getAttribute('position').array)).toBeGreaterThan(0.4);
@@ -457,52 +437,7 @@ describe('the default kit drawn through the real chunk view', () => {
     meshes.dispose();
   });
 
-  it('a banister on a slab: every post runs up to the rail over it, so the rail rests on the posts (stand-ins drawn by the chunk view)', () => {
-    const s = createWorldStore(grid);
-    // A plank slab (x 2…11, y 4, z 2…5), posts on its front row every other cell (y 5), a rail along them (y 6).
-    for (let x = 2; x <= 11; x++) for (let z = 2; z <= 5; z++) putVoxel(s, x, 4, z, MAT.plank, R.wall);
-    for (let x = 2; x <= 11; x += 2) putVoxel(s, x, 5, 5, MAT.timber, R.wall);
-    for (let x = 2; x <= 11; x++) putVoxel(s, x, 6, 5, MAT.timber, R.wall);
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
-    const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
-    const meshes = new VoxelKitMeshes();
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: meshes.world([]) });
-    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
-    const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
-    view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
-    view.root.updateMatrixWorld(true);
-    // World boxes (cells) of the stand-in draws' instances: posts are the tall ones, rails the long ones.
-    const boxes = (pick: (size: THREE.Vector3) => boolean): THREE.Box3[] => {
-      const out: THREE.Box3[] = [];
-      const m4 = new THREE.Matrix4();
-      for (const g of view.root.children) for (const c of g.children) {
-        if (!(c instanceof THREE.InstancedMesh) || c.userData['voxelKitPiece'] !== false) continue;
-        c.geometry.computeBoundingBox();
-        if (!pick(c.geometry.boundingBox!.getSize(new THREE.Vector3()))) continue;
-        for (let i = 0; i < c.count; i++) {
-          c.getMatrixAt(i, m4);
-          const b = c.geometry.boundingBox!.clone().applyMatrix4(m4.premultiply(c.matrixWorld));
-          out.push(new THREE.Box3(b.min.divideScalar(VOXEL_SIZE_M), b.max.divideScalar(VOXEL_SIZE_M)));
-        }
-      }
-      return out;
-    };
-    const posts = boxes((v) => v.y > v.x && v.y > v.z);
-    const rails = boxes((v) => v.x > v.y || v.z > v.y);
-    expect(posts).toHaveLength(5);
-    expect(rails.length).toBeGreaterThanOrEqual(5);
-    for (const p of posts) {
-      // From the slab's top, up into the rail's cell, ending within the rail over it.
-      expect(p.min.y).toBeCloseTo(5, 3);
-      const over = rails.filter((r) => r.min.x < p.max.x && r.max.x > p.min.x && r.min.z < p.max.z && r.max.z > p.min.z);
-      expect(over.length, `rail over the post at ${p.min.x.toFixed(2)}`).toBeGreaterThan(0);
-      expect(over.some((r) => p.max.y >= r.min.y - 1e-6 && p.max.y <= r.max.y + 1e-6), `post top ${p.max.y.toFixed(3)} within the rail ${over.map((r) => `${r.min.y.toFixed(3)}…${r.max.y.toFixed(3)}`).join(', ')}`).toBe(true);
-    }
-    view.dispose();
-    meshes.dispose();
-  });
-
-  it('a box house, a gable house and a damaged wall: one instanced draw a (piece, level), instances by family, aliases on their target\'s geometry, every instance staggered within bounds', () => {
+  it('a box house, a gable house and a damaged wall: one instanced draw a (piece, level), instances by family, one mesh filling three slots on one geometry, every instance staggered within bounds', () => {
     const s = createWorldStore(grid);
     boxHouse(s);
     // A gable house beside it (x 20…28, z 2…13) and a damaged wall (x 2…11, y 20…25, z 26: one cell at 12, one at 5).
@@ -511,12 +446,20 @@ describe('the default kit drawn through the real chunk view', () => {
     for (let x = 2; x < 12; x++) for (let y = 20; y < 26; y++) putVoxel(s, x, y, 26, MAT.stone, R.wall);
     s.setVoxel(5, 22, 26, { material: MAT.stone, role: R.wall, shape: 12, wetness: 0 });
     s.setVoxel(8, 23, 26, { material: MAT.stone, role: R.wall, shape: 5, wetness: 0 });
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
-    const renderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
+    // A kit of boxes, one a slot, but one strip filling the three outer edge slots turned (top, vertical, bottom).
+    const D = 'a'.repeat(64);
+    const strip = { assetId: 'strip', digest: D };
+    const turned: Record<string, number> = { 'edge-out-top': 0, 'edge-out-vertical': CUBE_ROTATION_ZM90, 'edge-out-bottom': CUBE_ROTATION_X90 };
+    const kit: VoxelKitRecordLike = {
+      voxelKitId: 'boxes',
+      materials: ALL_MATERIALS,
+      slots: Object.fromEntries(CAT.cases.map((c) => [c.id, { meshes: [{ mesh: turned[c.id] !== undefined ? strip : { assetId: c.id, digest: D }, rotation: turned[c.id] ?? 0 }] }])),
+    };
     const meshes = new VoxelKitMeshes();
-    const set = meshes.world([]);
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: set });
-    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, TABLE);
+    meshes.add(strip, new THREE.BoxGeometry(VOXEL_SIZE_M, 0.06, 0.06).translate(0, VOXEL_SIZE_M / 2, VOXEL_SIZE_M / 2));
+    for (const c of CAT.cases) meshes.add({ assetId: c.id, digest: D }, new THREE.BoxGeometry(0.1, 0.1, 0.1));
+    const { view, table } = kitView(meshes, [kit]);
+    const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, table);
     const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
     view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
     const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
@@ -528,7 +471,7 @@ describe('the default kit drawn through the real chunk view', () => {
     expect(draws.reduce((n, m) => n + m.count, 0)).toBe(total);
     expect(view.piecesDrawn.kit).toBe(total);
     // One draw a piece kind, a mirrored one (the gable's second verge) its own.
-    const kinds = new Set(pieces.filter((p) => DEFAULT_KIT_PIECES[p.caseId] !== null).map((p) => `${p.caseId}${p.mirror ? '*' : ''}`));
+    const kinds = new Set(pieces.map((p) => `${p.caseId}${p.mirror ? '*' : ''}`));
     expect(kinds.has('roof-gable*')).toBe(true);
     expect(draws.length).toBe(kinds.size);
     const family = (id: string): string => (id.startsWith('edge-') || id.startsWith('corner-') ? 'edge' : id.startsWith('roof-') ? 'roof' : id.startsWith('debris') ? 'debris' : 'other');
@@ -537,9 +480,9 @@ describe('the default kit drawn through the real chunk view', () => {
     for (const f of ['edge', 'roof', 'debris']) expect(families.get(f), f).toBeGreaterThan(0);
     expect(byCase.get('debris')).toBe(1);
     expect(byCase.get('debris-heavy')).toBe(1);
-    // Aliased cases draw with their target's geometry: the outer strip serves top, vertical and bottom edges.
-    const strip = meshes.defaultMesh('edge-out-top');
-    const onStrip = draws.filter((m) => m.geometry === strip);
+    // The three outer edge slots draw with the one strip geometry, turned.
+    const stripGeometry = meshes.mesh(strip, false);
+    const onStrip = draws.filter((m) => m.geometry === stripGeometry);
     expect(onStrip.length).toBe(['edge-out-top', 'edge-out-vertical', 'edge-out-bottom'].filter((id) => byCase.has(id)).length);
     expect(onStrip.length).toBeGreaterThanOrEqual(2);
     // Every staggered instance moved into its solid within bounds; a roof board sits exactly on its cell's grid.
@@ -551,14 +494,14 @@ describe('the default kit drawn through the real chunk view', () => {
         mesh.getMatrixAt(k, m4);
         expect(m4.determinant()).toBeCloseTo(1, 5);
         const q = new THREE.Quaternion().setFromRotationMatrix(m4);
-        // Unstaggered, every instance's rotation is one of the cube's 24 (turns, tips, aliases): the nearest is within the twist.
+        // Unstaggered, every instance's rotation is one of the cube's 24 (turns, tips, slot rotations): the nearest is within the twist.
         const nearest = Math.min(...CUBE_QUATS.map((c) => q.angleTo(c)));
         expect(nearest).toBeLessThanOrEqual(PIECE_STAGGER.twistMax + 1e-6);
         if (nearest > 1e-6) staggered++;
       }
     }
     expect(staggered).toBeGreaterThan(families.get('edge')! / 2);
-    console.log(`[default kit] house + gable + damaged wall: ${total} instances in ${draws.length} draws (${[...byCase].map(([id, n]) => `${id} ${n}`).join(', ')})`);
+    console.log(`[box kit] house + gable + damaged wall: ${total} instances in ${draws.length} draws (${[...byCase].map(([id, n]) => `${id} ${n}`).join(', ')})`);
     view.dispose();
     meshes.dispose();
   });

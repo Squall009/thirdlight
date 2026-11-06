@@ -1,44 +1,46 @@
 /**
- * The voxel kit check: one kit against the case catalogue it dresses, its
- * meshes' files and, for a kit that opts in, the trim layout — as rows
- * (ok / warn / err / info) the backend's Problems and the kit report show.
+ * The voxel kit check: one kit against the case catalogue whose cases are
+ * its slots, its meshes' files and, for a kit that opts in, the trim layout
+ * — as rows (ok / warn / err / info) the backend's Problems and the kit
+ * report show.
  *
- * - **Cases.** Every required case of the catalogue has a piece, or the row
- *   says what draws it instead (warn): the kit's fallback piece of the
- *   role (when it fills the same coarse shape), the base surface, or the
- *   engine's stand-in. Optional cases missing are info. Cases and sections
- *   the catalogue does not know never draw (err).
- * - **A fallback per role**: the role's fallback case has a piece, or the
- *   row says what a missing case of the role falls to.
- * - **One mesh a piece.** Pieces are drawn in the near ring only, so a
- *   variant has one mesh (no level pairs to check).
- * - **Pivots and cell sizes.** A mesh is in metres, centred on its cell, in
- *   its case's orientation: one that does not touch its cell draws beside
- *   it (err); one reaching past half a cell around it overlaps the
- *   neighbours' pieces (warn). A roof-edge piece's cell reaches a cell
- *   higher (the roof planes run up to a cell above its voxel).
- * - **Join profiles** at section ends that meet (start → body → body →
- *   end; corners and junctions between bodies): outlines that differ draw
- *   a step (warn); an end with no profile is not checked (info).
+ * - **Slots.** Every slot is optional: an empty slot draws nothing by
+ *   design (an author checks textures on plain voxels first and adds
+ *   pieces one slot at a time), so empty slots are never a warning; the
+ *   row says how many are filled (info). A slot the catalogue does not have
+ *   never draws (err).
+ * - **One texture set a kit.** Every piece uses the same one material (a
+ *   trim sheet or one material: the same material name and the same
+ *   images), for batching; a kit whose pieces use two is an error (a game
+ *   that wants timber on stone makes two kits). No per-slot override.
+ * - **One mesh a piece.** Pieces are drawn in the near ring only, so a slot
+ *   mesh has one mesh (no level pairs to check).
+ * - **Pivots and cell sizes.** A mesh is in metres, centred on its cell;
+ *   turned by its slot rotation it is in the slot's case orientation. One
+ *   that does not touch its cell draws beside it (err); one reaching past
+ *   half a cell around it overlaps the neighbours' pieces (warn). A
+ *   roof-edge piece's cell reaches a cell higher (the roof planes run up to
+ *   a cell above its voxel).
  * - **Budgets** are reported, never capped: triangles and textures per
  *   piece, totals per kit.
  * - **Assets.** A mesh whose model the project lacks, or whose file cannot
- *   be read, draws nothing of its own (err); a digest no version has ships
- *   the current version (warn), and one naming an older version holds only
- *   while nothing else uses the model (warn). Never refusals (the kit record validator
- *   accepts them, so deleting an asset is never refused for a kit).
- * - **Trim conformance** (T1–T10) only for a kit that names a trim layout,
- *   labelled draft: the layout is a draft the owner has not approved
- *   (voxel-trim-layout.ts).
+ *   be read, draws nothing (err); a digest no version has ships the current
+ *   version (warn), and one naming an older version holds only while
+ *   nothing else uses the model (warn). Never refusals (the kit record
+ *   validator accepts them, so deleting an asset is never refused for a
+ *   kit).
+ * - **Trim conformance** (T1–T7, T9, T10) only for a kit that names a trim
+ *   layout, labelled draft: the layout is a draft the owner has not
+ *   approved (voxel-trim-layout.ts).
  *
  * Pure: the kit, the catalogue and each mesh's facts in, rows out; facts
  * are read from GLB bytes by {@link voxelKitMeshFacts}.
  */
-import { readGlb } from '@thirdlight/shared';
-import { ROOF_EDGE_CASE_IDS, RUN_SECTION_IDS, VOXEL_SIZE_M, VOXEL_ROLE, WORLD_RULES, type CaseCatalogueDef, type CaseDef } from '@thirdlight/voxel';
+import { crc32, readGlb } from '@thirdlight/shared';
+import { applyCubeRotation, meshRunAxis, ROOF_EDGE_CASE_IDS, VOXEL_SIZE_M, WORLD_RULES, type CaseCatalogueDef } from '@thirdlight/voxel';
 import type { KitCheckState } from './kit-checks';
 import { readModelGeometry } from './model-collision';
-import type { VoxelKit, VoxelKitMesh, VoxelKitSection } from './voxel-kit';
+import type { VoxelKit, VoxelKitMesh } from './voxel-kit';
 import { TRIM_LAYOUTS, trimRegionAt, type TrimLayout, type TrimRegion } from './voxel-trim-layout';
 
 export interface VoxelKitCheckRow {
@@ -66,15 +68,21 @@ export interface VoxelKitMeshFacts {
   uv: Float32Array | null;
   /** Embedded images: count, bytes, and each one's size where its header could be read. */
   textures: { count: number; bytes: number; sizes: [number, number][] };
+  /**
+   * The texture sets the drawn primitives use, each once: a material's name (`(unnamed)`, `(none)` for a primitive
+   * with no material) and the CRC-32 of each image it samples, so two files embedding the same sheet agree.
+   */
+  textureSets: string[];
 }
 
 /** The project's model assets as the check reads them: kind, every version's source digest and the current version's. */
 export type VoxelKitAssets = ReadonlyMap<string, { readonly kind: string; readonly digests: readonly string[]; readonly current?: string }>;
 
 export interface VoxelKitPieceReport {
+  /** The slot (case id). */
   caseId: string;
-  sectionId: string;
-  variant: number;
+  /** Which of the slot's meshes. */
+  mesh: number;
   /** Triangles of the mesh (null: not read). */
   triangles: number | null;
   /** Embedded textures of the mesh's file. */
@@ -89,8 +97,6 @@ export interface VoxelKitCheckReport {
   totals: { pieces: number; triangles: number; textures: number; textureBytes: number };
 }
 
-/** Run sections a kit names pieces for. */
-const SECTIONS = RUN_SECTION_IDS;
 /** A cell's half side, metres: meshes are centred on the cell. */
 const HALF = VOXEL_SIZE_M / 2;
 /** How far past its cell a piece may reach before it overlaps the neighbours' pieces (half a cell). */
@@ -101,17 +107,9 @@ const REACH = HALF;
  */
 const ROOF_TOP = 3 * HALF;
 const ROOF_CASES: ReadonlySet<string> = new Set(ROOF_EDGE_CASE_IDS);
-/**
- * A banister post always stands under a rail (its case's rule): its piece runs up through the rail's cell to the
- * rail, so its envelope reaches to that cell's top.
- */
-const POST_TOP = 3 * HALF;
 const EPS = 1e-3;
 /** Pieces a row names before it counts the rest. */
 const NAMED = 6;
-
-const ROLE_NAMES = new Map<number, string>(Object.entries(VOXEL_ROLE).map(([k, v]) => [v, k]));
-const roleName = (r: number): string => ROLE_NAMES.get(r) ?? `role ${r}`;
 
 function named(list: readonly string[]): string {
   return list.length <= NAMED ? list.join(', ') : `${list.slice(0, NAMED).join(', ')} and ${list.length - NAMED} more`;
@@ -123,7 +121,7 @@ function worst(states: readonly KitCheckState[]): KitCheckState {
 
 /** Reads a mesh's facts from its GLB (one node of it when `node` is given). `imageSize` reads an embedded image's header. Never throws. */
 export function voxelKitMeshFacts(bytes: Uint8Array, node?: string, imageSize?: (bytes: Uint8Array, mime: string) => [number, number] | null): VoxelKitMeshFacts {
-  const empty: VoxelKitMeshFacts = { unreadable: null, found: false, triangles: 0, bounds: null, positions: new Float32Array(0), uv: null, textures: { count: 0, bytes: 0, sizes: [] } };
+  const empty: VoxelKitMeshFacts = { unreadable: null, found: false, triangles: 0, bounds: null, positions: new Float32Array(0), uv: null, textures: { count: 0, bytes: 0, sizes: [] }, textureSets: [] };
   const read = readModelGeometry(bytes, { surface: true });
   if (!read.ok) return { ...empty, unreadable: read.message };
   const prims = read.geometry.primitives.filter((p) => !p.collision && !p.occluder && (node === undefined || p.node.split('/').includes(node)));
@@ -154,7 +152,9 @@ export function voxelKitMeshFacts(bytes: Uint8Array, node?: string, imageSize?: 
   }
   const textures = { count: 0, bytes: 0, sizes: [] as [number, number][] };
   const glb = readGlb(bytes);
+  const sets = new Set<string>();
   if (typeof glb !== 'string') {
+    for (const name of new Set(prims.map((p) => p.material ?? null))) sets.add(textureSetOf(glb.json, glb.bin, name));
     const views = Array.isArray(glb.json['bufferViews']) ? (glb.json['bufferViews'] as Record<string, unknown>[]) : [];
     for (const img of Array.isArray(glb.json['images']) ? (glb.json['images'] as Record<string, unknown>[]) : []) {
       textures.count++;
@@ -168,7 +168,36 @@ export function voxelKitMeshFacts(bytes: Uint8Array, node?: string, imageSize?: 
       }
     }
   }
-  return { unreadable: null, found: prims.length > 0, triangles: tris, bounds: tris > 0 ? { min, max } : null, positions, uv: tris > 0 ? uv : null, textures };
+  return { unreadable: null, found: prims.length > 0, triangles: tris, bounds: tris > 0 ? { min, max } : null, positions, uv: tris > 0 ? uv : null, textures, textureSets: [...sets].sort() };
+}
+
+/** The glTF texture slots a material samples. */
+const TEXTURE_REFS = ['baseColorTexture', 'metallicRoughnessTexture'] as const;
+const MATERIAL_TEXTURES = ['normalTexture', 'occlusionTexture', 'emissiveTexture'] as const;
+
+/** A material's texture set (by its name; null: a primitive without a named material): its name and the CRC-32 of each image it samples. */
+function textureSetOf(json: Record<string, unknown>, bin: Uint8Array | null, name: string | null): string {
+  const materials = Array.isArray(json['materials']) ? (json['materials'] as Record<string, unknown>[]) : [];
+  const mat = name === null ? undefined : materials.find((m) => m['name'] === name);
+  if (mat === undefined) return name === null ? '(none)' : name;
+  const textures = Array.isArray(json['textures']) ? (json['textures'] as Record<string, unknown>[]) : [];
+  const images = Array.isArray(json['images']) ? (json['images'] as Record<string, unknown>[]) : [];
+  const views = Array.isArray(json['bufferViews']) ? (json['bufferViews'] as Record<string, unknown>[]) : [];
+  const pbr = (mat['pbrMetallicRoughness'] ?? {}) as Record<string, unknown>;
+  const refs = [...TEXTURE_REFS.map((k) => pbr[k]), ...MATERIAL_TEXTURES.map((k) => mat[k])];
+  const crcs: string[] = [];
+  for (const r of refs) {
+    const t = typeof (r as { index?: unknown } | undefined)?.index === 'number' ? textures[(r as { index: number }).index] : undefined;
+    const img = typeof t?.['source'] === 'number' ? images[t['source']] : undefined;
+    if (img === undefined) continue;
+    const bv = typeof img['bufferView'] === 'number' ? views[img['bufferView']] : undefined;
+    if (bv !== undefined && bin !== null) {
+      const off = typeof bv['byteOffset'] === 'number' ? bv['byteOffset'] : 0;
+      const len = typeof bv['byteLength'] === 'number' ? bv['byteLength'] : 0;
+      crcs.push((crc32(bin.subarray(off, off + len)) >>> 0).toString(16).padStart(8, '0'));
+    } else crcs.push(typeof img['uri'] === 'string' ? img['uri'] : '?');
+  }
+  return crcs.length === 0 ? name! : `${name!} [${crcs.join(' ')}]`;
 }
 
 /** The key a mesh's facts are kept by: its file version and node. */
@@ -178,100 +207,46 @@ export function voxelKitMeshKey(m: VoxelKitMesh): string {
 
 interface Piece {
   caseId: string;
-  sectionId: string;
-  variant: number;
+  /** Which of the slot's meshes. */
+  index: number;
   mesh: VoxelKitMesh;
+  /** Its cube rotation into the slot's case orientation. */
+  rotation: number;
   facts: VoxelKitMeshFacts | null;
 }
 
-const label = (p: Pick<Piece, 'caseId' | 'sectionId' | 'variant'>): string => `${p.caseId}/${p.sectionId}${p.variant > 0 ? ` v${p.variant + 1}` : ''}`;
+const label = (p: Pick<Piece, 'caseId' | 'index'>): string => `${p.caseId}${p.index > 0 ? ` mesh ${p.index + 1}` : ''}`;
 
-/** The sections of a case the kit has pieces for, by known section id: its own, or its alias's (drawn turned). */
-function sectionsOf(kit: VoxelKit, caseId: string): Map<string, VoxelKitSection> {
-  const out = new Map<string, VoxelKitSection>();
-  const c = kit.cases[caseId];
-  const secs = c?.sections ?? (c?.alias !== undefined ? kit.cases[c.alias.case]?.sections : undefined);
-  for (const [sid, s] of Object.entries(secs ?? {})) if (SECTIONS.includes(sid) && s.variants.length > 0) out.set(sid, s);
-  return out;
-}
-
-/** The kit's aliases: which cases draw another case's meshes turned (info), and any that name no meshes (err). */
-function aliasRows(kit: VoxelKit): VoxelKitCheckRow[] {
-  const all = Object.entries(kit.cases).flatMap(([cid, c]) => (c.alias === undefined ? [] : [{ cid, ...c.alias }]));
-  if (all.length === 0) return [];
-  const broken = all.filter((a) => kit.cases[a.case]?.sections === undefined || a.case === a.cid);
-  if (broken.length > 0) return [{ id: 'aliases', state: 'err', title: `${broken.length} aliases name no meshes`, detail: `${named(broken.map((a) => `${a.cid} → ${a.case}`))}: an alias names a case of this kit with sections of its own.` }];
-  return [{ id: 'aliases', state: 'info', title: `${all.length} cases drawn by another case's meshes`, detail: `${all.map((a) => `${a.cid} = ${a.case} turned (rotation ${a.rotation})`).join('; ')}.` }];
-}
-
-/** Pairs of sections whose ends meet in a run: [the section whose end meets, the one whose start it meets]. */
-function meetingPairs(have: ReadonlySet<string>): [string, string][] {
-  const out: [string, string][] = [];
-  const body = have.has('body');
-  if (body) out.push(['body', 'body']);
-  if (have.has('start')) out.push(['start', body ? 'body' : have.has('end') ? 'end' : 'start']);
-  if (have.has('end') && body) out.push(['body', 'end']);
-  for (const s of ['corner', 'junction']) if (have.has(s) && body) out.push(['body', s], [s, 'body']);
-  return out.filter(([a, b]) => a !== b || a === 'body');
-}
-
-function caseRows(kit: VoxelKit, cat: CaseCatalogueDef): VoxelKitCheckRow[] {
+/** The slots: unknown ones (err), how many the kit fills (info; an empty slot draws nothing by design, never a warning). */
+function slotRows(kit: VoxelKit, cat: CaseCatalogueDef): VoxelKitCheckRow[] {
+  const known = new Set(cat.cases.map((c) => c.id));
+  const unknown = Object.keys(kit.slots).filter((id) => !known.has(id));
+  const filled = cat.cases.filter((c) => (kit.slots[c.id]?.meshes.length ?? 0) > 0).map((c) => c.id);
   const rows: VoxelKitCheckRow[] = [];
-  const known = new Map(cat.cases.map((c) => [c.id, c]));
-  const unknown: string[] = [];
-  for (const [cid, c] of Object.entries(kit.cases)) {
-    if (!known.has(cid)) unknown.push(`case ${cid}`);
-    else for (const sid of Object.keys(c.sections ?? {})) if (!SECTIONS.includes(sid)) unknown.push(`${cid} section ${sid}`);
-  }
-  rows.push(unknown.length > 0 ? { id: 'catalogue', state: 'err', title: 'Names cases or sections the catalogue does not have', detail: `${named(unknown)}: never drawn (catalogue ${cat.id} v${cat.version}; sections are ${SECTIONS.join(', ')}).` } : { id: 'catalogue', state: 'ok', title: 'Every case and section is in the catalogue', detail: `Catalogue ${cat.id} v${cat.version}.` });
-  const has = (id: string): boolean => sectionsOf(kit, id).size > 0;
-  const instead = (c: CaseDef): string => {
-    const standIn = c.standIn === undefined ? undefined : known.get(c.standIn);
-    if (standIn !== undefined && has(standIn.id)) return `the kit's ${standIn.id} piece stands in`;
-    const fb = known.get(cat.fallback[c.roles[0]!] ?? '');
-    if (fb !== undefined && fb.id !== c.id && fb.base === c.base && fb.shape === c.shape && has(fb.id)) return `the kit's ${fb.id} piece stands in`;
-    if (c.base !== 'suppress') return 'the base surface draws it with no piece';
-    return `the engine's stand-in ${c.shape} draws it`;
-  };
-  const required = cat.cases.filter((c) => c.required);
-  const missing = required.filter((c) => !has(c.id));
-  for (const c of missing) rows.push({ id: `required:${c.id}`, state: 'warn', title: `Required case ${c.id} has no piece`, detail: `${c.note}: ${instead(c)}.` });
-  if (missing.length === 0) rows.push({ id: 'required', state: 'ok', title: 'Every required case has a piece', detail: `${required.length} required cases.` });
-  const optional = cat.cases.filter((c) => !c.required && !has(c.id));
-  rows.push(optional.length > 0 ? { id: 'optional', state: 'info', title: `${optional.length} optional cases have no piece`, detail: optional.map((c) => `${c.id} (${instead(c)})`).join('; ') + '.' } : { id: 'optional', state: 'ok', title: 'Every optional case has a piece', detail: `${cat.cases.length - required.length} optional cases.` });
-  for (const [role, fid] of Object.entries(cat.fallback)) {
-    if (fid === null) continue;
-    const fb = known.get(fid);
-    if (fb === undefined) continue;
-    const name = roleName(Number(role));
-    rows.push(has(fid) ? { id: `fallback:${name}`, state: 'ok', title: `${name}: fallback ${fid} has a piece`, detail: `A ${name} case the kit lacks that fills the same shape draws the kit's ${fid} piece.` } : { id: `fallback:${name}`, state: 'warn', title: `${name}: no fallback piece (${fid})`, detail: `A ${name} case the kit lacks draws ${fb.base === 'suppress' ? 'the engine\'s stand-in' : 'the base surface with no piece'} instead of the kit's own.` });
-  }
+  rows.push(unknown.length > 0 ? { id: 'catalogue', state: 'err', title: `${unknown.length} slots the catalogue does not have`, detail: `${named(unknown)}: never drawn (catalogue ${cat.id} v${cat.version}).` } : { id: 'catalogue', state: 'ok', title: 'Every slot is a case of the catalogue', detail: `Catalogue ${cat.id} v${cat.version}.` });
+  const empty = cat.cases.length - filled.length;
+  rows.push({ id: 'slots', state: 'info', title: `${filled.length} of ${cat.cases.length} slots filled`, detail: filled.length === 0 ? 'No slot has a mesh: every edge draws as a plain voxel edge.' : `${named(filled)}${empty > 0 ? `; the other ${empty} draw nothing (plain voxel edges)` : ''}.` });
   return rows;
 }
 
-function joinRows(kit: VoxelKit): VoxelKitCheckRow[] {
-  const steps: string[] = [];
-  const unchecked: string[] = [];
-  let pairs = 0;
-  const outline = (id: string | undefined): string | null => (id === undefined ? null : JSON.stringify(kit.joinProfiles?.[id]?.outline ?? null));
-  for (const cid of Object.keys(kit.cases)) {
-    const secs = sectionsOf(kit, cid);
-    for (const [a, b] of meetingPairs(new Set(secs.keys()))) {
-      const ea = secs.get(a)!.ends?.end;
-      const sb = secs.get(b)!.ends?.start;
-      if (ea === undefined || sb === undefined) {
-        unchecked.push(`${cid} ${a}→${b}`);
-        continue;
-      }
-      pairs++;
-      if (ea !== sb && outline(ea) !== outline(sb)) steps.push(`${cid} ${a} end (${ea}) → ${b} start (${sb})`);
-    }
+/** One texture set for the whole kit (one trim sheet or one material), for batching. */
+function textureSetRows(pieces: readonly Piece[]): VoxelKitCheckRow[] {
+  const bySet = new Map<string, string[]>();
+  for (const p of pieces) {
+    const f = p.facts;
+    if (f === null || f.unreadable !== null || !f.found) continue;
+    for (const t of f.textureSets) bySet.set(t, [...(bySet.get(t) ?? []), label(p)]);
   }
-  const rows: VoxelKitCheckRow[] = [];
-  if (steps.length > 0) rows.push({ id: 'joins', state: 'warn', title: `${steps.length} section joins have different profiles`, detail: `${named(steps)}: the run steps where they meet. Give both ends the same outline.` });
-  else rows.push({ id: 'joins', state: 'ok', title: 'Section ends meet by the same profile', detail: `${pairs} joins checked.` });
-  if (unchecked.length > 0) rows.push({ id: 'joins-unchecked', state: 'info', title: `${unchecked.length} joins not checked`, detail: `${named(unchecked)}: an end names no join profile.` });
-  return rows;
+  if (bySet.size <= 1) return [{ id: 'texture-set', state: 'ok', title: 'One texture set for every piece', detail: bySet.size === 0 ? 'No mesh read.' : `${[...bySet.keys()][0]!}.` }];
+  return [{ id: 'texture-set', state: 'err', title: `Pieces use ${bySet.size} texture sets`, detail: `${[...bySet].map(([t, ps]) => `${t}: ${named(ps)}`).join('; ')}. A kit draws every piece with one trim sheet or one material (make two kits for mixed detail).` }];
+}
+
+/** A mesh's box turned by a cube rotation (exact: a rotation of an axis-aligned box is one). */
+function rotatedBounds(b: { min: [number, number, number]; max: [number, number, number] }, rotation: number): { min: [number, number, number]; max: [number, number, number] } {
+  if (rotation === 0) return b;
+  const a = applyCubeRotation(rotation, b.min);
+  const c = applyCubeRotation(rotation, b.max);
+  return { min: [Math.min(a[0], c[0]), Math.min(a[1], c[1]), Math.min(a[2], c[2])], max: [Math.max(a[0], c[0]), Math.max(a[1], c[1]), Math.max(a[2], c[2])] };
 }
 
 function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitCheckRow[] {
@@ -306,9 +281,9 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
       noNode.push(p.mesh.node !== undefined ? `${what} node ${p.mesh.node}` : what);
       continue;
     }
-    const b = f.bounds;
-    if (b === null) continue;
-    const top = ROOF_CASES.has(p.caseId) ? ROOF_TOP : p.caseId === 'banister-post' ? POST_TOP : HALF;
+    if (f.bounds === null) continue;
+    const b = rotatedBounds(f.bounds, p.rotation);
+    const top = ROOF_CASES.has(p.caseId) ? ROOF_TOP : HALF;
     if ([0, 1, 2].some((k) => b.max[k]! < -HALF - EPS || b.min[k]! > (k === 1 ? top : HALF) + EPS)) detached.push(what);
     else if ([0, 1, 2].some((k) => b.min[k]! < -HALF - REACH - EPS || b.max[k]! > (k === 1 ? top : HALF) + REACH + EPS)) over.push(`${what} ${b.min.map((v) => v.toFixed(2)).join(' ')} … ${b.max.map((v) => v.toFixed(2)).join(' ')}`);
   }
@@ -316,12 +291,12 @@ function meshRows(pieces: readonly Piece[], assets: VoxelKitAssets): VoxelKitChe
   const bad = [...missing, ...notModel, ...unreadable, ...noNode];
   if (bad.length > 0) {
     const parts = [missing.length > 0 ? `no such model: ${named(missing)}` : '', notModel.length > 0 ? `not a model: ${named(notModel)}` : '', unreadable.length > 0 ? `unreadable: ${named(unreadable)}` : '', noNode.length > 0 ? `no such node: ${named(noNode)}` : ''].filter((x) => x !== '');
-    rows.push({ id: 'assets', state: 'err', title: `${bad.length} meshes cannot be drawn`, detail: `${parts.join('; ')}. The fallback draws those cases instead.` });
+    rows.push({ id: 'assets', state: 'err', title: `${bad.length} meshes cannot be drawn`, detail: `${parts.join('; ')}. Their slots draw nothing.` });
   } else rows.push({ id: 'assets', state: 'ok', title: 'Every mesh is a readable model', detail: `${pieces.length} meshes.` });
   if (stale.length > 0) rows.push({ id: 'digests', state: 'warn', title: `${stale.length} meshes name a file version the model does not have`, detail: `${named(stale)}: the model's current version ships instead of the one the piece was made from.` });
   // A build ships one version of a model: the pin holds only while the kit alone uses it (capture.ts).
   if (older.length > 0) rows.push({ id: 'pinned', state: 'warn', title: `${older.length} meshes name an older version of their model`, detail: `${named(older)}: a build ships that version only while nothing else uses the model (a scene, a prefab, a loadable asset, another mesh naming another version); otherwise the current version draws. Point the piece at the current version, or keep the kit's model to the kit.` });
-  if (detached.length > 0) rows.push({ id: 'pivot', state: 'err', title: `${detached.length} pieces do not touch their cell`, detail: `${named(detached)}: a piece is in metres centred on its cell (±${HALF} m); these draw beside it. Move the geometry to the cell's centre.` });
+  if (detached.length > 0) rows.push({ id: 'pivot', state: 'err', title: `${detached.length} pieces do not touch their cell`, detail: `${named(detached)}: a piece is in metres centred on its cell (±${HALF} m), turned by its slot rotation; these draw beside it. Move the geometry to the cell's centre.` });
   else rows.push({ id: 'pivot', state: 'ok', title: 'Every piece sits on its cell', detail: `Centred on the cell, ±${HALF} m.` });
   if (over.length > 0) rows.push({ id: 'fit', state: 'warn', title: `${over.length} pieces reach past half a cell around theirs`, detail: `${named(over)}: they overlap the neighbours' pieces (allowed: ±${HALF + REACH} m).` });
   else rows.push({ id: 'fit', state: 'ok', title: 'Every piece fits its cell envelope', detail: `Within ±${HALF + REACH} m of the cell's centre.` });
@@ -345,13 +320,13 @@ function gradient(pos: Float32Array, t: number, s0: number, s1: number, s2: numb
   return [a * e1[0]! + b * e2[0]!, a * e1[1]! + b * e2[1]!, a * e1[2]! + b * e2[2]!];
 }
 
-function normalX(pos: Float32Array, t: number): number {
+function normalAlong(pos: Float32Array, t: number, axis: number): number {
   const o = t * 9;
   const e1 = [pos[o + 3]! - pos[o]!, pos[o + 4]! - pos[o + 1]!, pos[o + 5]! - pos[o + 2]!];
   const e2 = [pos[o + 6]! - pos[o]!, pos[o + 7]! - pos[o + 1]!, pos[o + 8]! - pos[o + 2]!];
   const n = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
   const len = Math.hypot(n[0]!, n[1]!, n[2]!);
-  return len === 0 ? 1 : Math.abs(n[0]!) / len;
+  return len === 0 ? 1 : Math.abs(n[axis]!) / len;
 }
 
 /** One mesh's triangles against a layout: each triangle's region (null: none) and what the rules found. */
@@ -364,8 +339,6 @@ interface TrimFacts {
   start: number;
   profiled: string[];
   caps: string[];
-  /** Per run axis, the regions of the triangles touching the section's start (−) and end (+) planes. */
-  ends: Record<'x' | 'y', { start: Set<string>; end: Set<string> }>;
 }
 
 /** The largest side of each end face among triangles `tris`: triangles sharing a corner make one face. */
@@ -396,9 +369,10 @@ function capFaceExtents(pos: Float32Array, tris: readonly number[]): number[] {
   return [...boxes.values()].map((b) => Math.max(b[3]! - b[0]!, b[4]! - b[1]!, b[5]! - b[2]!));
 }
 
-function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout): TrimFacts | null {
+/** A mesh's facts against a layout, its run along mesh axis `run` (where U grows: the slot's run through its rotation). */
+function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout, run: number): TrimFacts | null {
   if (f.uv === null) return null;
-  const out: TrimFacts = { regions: new Map(), straddle: 0, gutter: 0, texel: 0, density: 0, start: 0, profiled: [], caps: [], ends: { x: { start: new Set(), end: new Set() }, y: { start: new Set(), end: new Set() } } };
+  const out: TrimFacts = { regions: new Map(), straddle: 0, gutter: 0, texel: 0, density: 0, start: 0, profiled: [], caps: [] };
   const perM = layout.pxPerMetre / layout.size;
   const spans = new Map<string, [number, number]>();
   const capTris = new Map<string, number[]>();
@@ -420,10 +394,10 @@ function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout): TrimFacts | null {
     out.regions.set(r.id, (out.regions.get(r.id) ?? 0) + (Math.abs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0)) / 2) / (perM * perM));
     const gv = gradient(f.positions, t, v0, v1, v2);
     if (gv !== null && Math.abs(Math.hypot(...gv) / perM - 1) > 0.02) out.texel++;
-    if (r.kind !== 'cap' && normalX(f.positions, t) < 0.05) {
+    if (r.kind !== 'cap' && normalAlong(f.positions, t, run) < 0.05) {
       const gu = gradient(f.positions, t, u0, u1, u2);
-      if (gu !== null && Math.abs(gu[0] / perM - 1) > 0.02) out.density++;
-      for (let k = 0; k < 3; k++) if (Math.abs(uv[t * 6 + k * 2]! - perM * (f.positions[t * 9 + k * 3]! + HALF)) > 0.002) {
+      if (gu !== null && Math.abs(gu[run]! / perM - 1) > 0.02) out.density++;
+      for (let k = 0; k < 3; k++) if (Math.abs(uv[t * 6 + k * 2]! - perM * (f.positions[t * 9 + k * 3 + run]! + HALF)) > 0.002) {
         out.start++;
         break;
       }
@@ -435,13 +409,6 @@ function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout): TrimFacts | null {
     }
     spans.set(r.id, span);
     if (r.kind === 'cap') capTris.set(r.id, [...(capTris.get(r.id) ?? []), t]);
-    for (let k = 0; k < 3; k++) {
-      for (const [axis, a] of [['x', 0], ['y', 1]] as const) {
-        const c = f.positions[t * 9 + k * 3 + a]!;
-        if (c <= -HALF + EPS) out.ends[axis].start.add(r.id);
-        if (c >= HALF - EPS) out.ends[axis].end.add(r.id);
-      }
-    }
   }
   for (const r of layout.regions) {
     const span = spans.get(r.id);
@@ -458,13 +425,13 @@ function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout): TrimFacts | null {
   return out;
 }
 
-function trimRows(kit: VoxelKit, pieces: readonly Piece[], cat: CaseCatalogueDef): VoxelKitCheckRow[] {
+function trimRows(kit: VoxelKit, pieces: readonly Piece[]): VoxelKitCheckRow[] {
   if (kit.trimLayout === undefined) return [];
   const layout = TRIM_LAYOUTS.get(kit.trimLayout);
   const d = (id: string, state: KitCheckState, title: string, detail: string): VoxelKitCheckRow => ({ id: `trim:${id}`, state, title: `${id} (draft layout): ${title}`, detail, draft: true });
   if (layout === undefined) return [d('layout', 'err', `unknown trim layout ${kit.trimLayout}`, `The layouts are ${[...TRIM_LAYOUTS.keys()].join(', ')} (a DRAFT the owner has not approved).`)];
   const per = new Map<Piece, TrimFacts | null>();
-  for (const p of pieces) if (p.facts !== null && p.facts.unreadable === null && p.facts.found) per.set(p, trimFacts(p.facts, layout));
+  for (const p of pieces) if (p.facts !== null && p.facts.unreadable === null && p.facts.found) per.set(p, trimFacts(p.facts, layout, meshRunAxis(p.caseId, p.rotation)));
   const list = (pick: (t: TrimFacts, p: Piece) => string | null): string[] => [...per].flatMap(([p, t]) => {
     if (t === null) return [];
     const s = pick(t, p);
@@ -482,28 +449,11 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[], cat: CaseCatalogueDef
   rule('T4', list((t) => (t.density > 0 || t.start > 0 ? `${t.density} run faces off 0.25 U a metre, ${t.start} not starting at U 0` : null)), 'err', 'U follows the run at 0.25 a metre from 0', 'U off the run density');
   rule('T5', list((t) => (t.profiled.length > 0 ? t.profiled.join(', ') : null)), 'warn', 'profiled strips on faces of their height', 'profiled strips on faces of another height');
   rule('T6', list((t) => (t.caps.length > 0 ? t.caps.join(', ') : null)), 'warn', 'end faces in the right cap cell', 'caps of the wrong size or cell');
-  // T7: every variant of a section uses the same regions.
-  const bySection = new Map<string, Set<string>[]>();
-  for (const [p, t] of per) if (t !== null) bySection.set(`${p.caseId}/${p.sectionId}`, [...(bySection.get(`${p.caseId}/${p.sectionId}`) ?? []), new Set(t.regions.keys())]);
-  const t7 = [...bySection].filter(([, sets]) => sets.some((s) => [...s].sort().join() !== [...sets[0]!].sort().join())).map(([k, sets]) => `${k}: ${sets.map((s) => [...s].sort().join('+') || 'none').join(' | ')}`);
-  rule('T7', t7, 'warn', 'variants use the same regions', 'variants use different regions');
-  // T8: faces meeting at a section join use the same regions on both sides.
-  const t8: string[] = [];
-  for (const cid of Object.keys(kit.cases)) {
-    // Sections meet along their case's run (x, or y up a corner or a post); a case without a run never joins.
-    const axis = cat.cases.find((c) => c.id === cid)?.run;
-    if (axis !== 'x' && axis !== 'y') continue;
-    const secs = sectionsOf(kit, cid);
-    for (const [a, b] of meetingPairs(new Set(secs.keys()))) {
-      const ta = [...per].find(([p]) => p.caseId === cid && p.sectionId === a && p.variant === 0)?.[1];
-      const tb = [...per].find(([p]) => p.caseId === cid && p.sectionId === b && p.variant === 0)?.[1];
-      if (ta == null || tb == null) continue;
-      const ea = [...ta.ends[axis].end].sort().join('+');
-      const sb = [...tb.ends[axis].start].sort().join('+');
-      if (ea !== sb) t8.push(`${cid} ${a} end ${ea || 'none'} → ${b} start ${sb || 'none'}`);
-    }
-  }
-  rule('T8', t8, 'warn', 'joined faces use the same regions on both sides', 'joined faces change region');
+  // T7: every mesh of a slot uses the same regions (a pick never changes the look of the trim).
+  const bySlot = new Map<string, Set<string>[]>();
+  for (const [p, t] of per) if (t !== null) bySlot.set(p.caseId, [...(bySlot.get(p.caseId) ?? []), new Set(t.regions.keys())]);
+  const t7 = [...bySlot].filter(([, sets]) => sets.some((s) => [...s].sort().join() !== [...sets[0]!].sort().join())).map(([k, sets]) => `${k}: ${sets.map((s) => [...s].sort().join('+') || 'none').join(' | ')}`);
+  rule('T7', t7, 'warn', 'the meshes of a slot use the same regions', 'the meshes of a slot use different regions');
   rows.push(d('T9', 'info', 'the texture set is not checked', 'The kit format names no texture set for its layout yet: size, maps, gutters and normal convention are checked when it does.'));
   const used = new Map<string, { pieces: number; area: number }>();
   for (const t of per.values()) if (t !== null) for (const [id, a] of t.regions) used.set(id, { pieces: (used.get(id)?.pieces ?? 0) + 1, area: (used.get(id)?.area ?? 0) + a });
@@ -519,16 +469,14 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[], cat: CaseCatalogueDef
 export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets: VoxelKitAssets, facts: (m: VoxelKitMesh) => VoxelKitMeshFacts | null): VoxelKitCheckReport {
   const pieces: Piece[] = [];
   const reports: VoxelKitPieceReport[] = [];
-  for (const [cid, c] of Object.entries(kit.cases)) {
-    for (const [sid, s] of Object.entries(c.sections ?? {})) {
-      s.variants.forEach((v, k) => {
-        const hf = facts(v.high);
-        pieces.push({ caseId: cid, sectionId: sid, variant: k, mesh: v.high, facts: hf });
-        reports.push({ caseId: cid, sectionId: sid, variant: k, triangles: hf !== null && hf.unreadable === null && hf.found ? hf.triangles : null, textures: hf?.textures ?? { count: 0, bytes: 0, sizes: [] } });
-      });
-    }
+  for (const [cid, c] of Object.entries(kit.slots)) {
+    c.meshes.forEach((m, k) => {
+      const f = facts(m.mesh);
+      pieces.push({ caseId: cid, index: k, mesh: m.mesh, rotation: m.rotation ?? 0, facts: f });
+      reports.push({ caseId: cid, mesh: k, triangles: f !== null && f.unreadable === null && f.found ? f.triangles : null, textures: f?.textures ?? { count: 0, bytes: 0, sizes: [] } });
+    });
   }
-  const rows = [...caseRows(kit, catalogue), ...aliasRows(kit), ...meshRows(pieces, assets), ...joinRows(kit)];
+  const rows = [...slotRows(kit, catalogue), ...meshRows(pieces, assets), ...textureSetRows(pieces)];
   const totals = {
     pieces: reports.length,
     triangles: reports.reduce((n, r) => n + (r.triangles ?? 0), 0),
@@ -540,10 +488,10 @@ export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets
   rows.push({
     id: 'budget',
     state: 'info',
-    title: `${totals.pieces} pieces: ${totals.triangles} triangles`,
-    detail: `A piece: ${tris.length > 0 ? `min ${tris[0]}, median ${tris[tris.length >> 1]}, max ${tris[tris.length - 1]}` : 'none read'}. Textures: ${totals.textures} (${totals.textureBytes} bytes${sizes.length > 0 ? `; ${sizes.join(', ')}` : ''}). Reported, never capped.`,
+    title: `${totals.pieces} slot meshes: ${totals.triangles} triangles`,
+    detail: `A mesh: ${tris.length > 0 ? `min ${tris[0]}, median ${tris[tris.length >> 1]}, max ${tris[tris.length - 1]}` : 'none read'}. Textures: ${totals.textures} (${totals.textureBytes} bytes${sizes.length > 0 ? `; ${sizes.join(', ')}` : ''}). Reported, never capped.`,
   });
-  rows.push(...trimRows(kit, pieces, catalogue));
+  rows.push(...trimRows(kit, pieces));
   return { voxelKitId: kit.voxelKitId, name: kit.name, rows, pieces: reports, totals };
 }
 

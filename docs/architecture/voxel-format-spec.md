@@ -996,7 +996,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v20 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `kit-case-catalogue.ts`, `edge-cases.ts`, `case-forms.ts`, `piece-table.ts`, `piece-placement.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
+### 3.7 Derived data v22 — never committed, never saved (`assembly.ts`, `terrain-rules.ts`, `kit-rules.ts`, `kit-case-catalogue.ts`, `edge-cases.ts`, `case-forms.ts`, `piece-table.ts`, `piece-placement.ts`, `derived-data.ts`, `derive-pieces.ts`, `derived-mesh.ts`, `terrain-mesher.ts`, `roof-mesher.ts`, `base-surface.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `mip-derive.ts`, `lod-seam.ts`, `lod-select.ts`, `stream-mips.ts`, `stream-seams.ts`, `stream-lod.ts`, `ground-heightfield.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`, `voxel-surface-projection.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -1018,8 +1018,9 @@ hash results; they are never stored.
   and no world format changes for them. `evaluateCases` runs it (a set without one gives no cell a case).
 - **Placeholder rules v2** (`placeholder`, version 2, R = 2) read only the role (§2.2): beams, rails and posts are
   read from the built roles (wall, floor, foundation, stair, pillar), roof is a wall, an opening is open and empty,
-  everything else built is a wall. Version 1 read the draft category (construction, roof). The case catalogue is
-  46c's; corners, stairs, openings, soffits and mouldings are not covered.
+  everything else built is a wall. Version 1 read the draft category (construction, roof). Since derived 22 every
+  consumer draws a beam or rail class as a plain voxel (beams and banisters left the voxel phases, owner
+  2026-11-05/06); the classes stay only as the placeholder's output.
 - **Radius conformance (every rule set).** A rule set's `radius` is its own claim, and a rule reading further would
   read past the job's apron (air, or another row's cells) with no error. `ruleRadiusMismatches(store, rules,
   chunks)` evaluates each chunk with the job's pad (R + 1) and with 3 cells more and lists every cell the
@@ -1031,22 +1032,22 @@ hash results; they are never stored.
 **Consumer tables (v11, `case-forms.ts`).** One evaluation feeds every consumer. Each cell the consumers read gets a
 **form** in the job (a byte, never stored): its case's declared coarse **shape** and **base** where it has a case
 (the catalogue declares them per case, R77: never read from a piece mesh, so a kit cannot change gameplay shapes and
-every kit of a material type collides the same), else the form its class stands for (wall → box; beam → bar; rail →
-panel; post → post; empty, liquid → none). Shapes are one box in 1/16 cell in the case's own orientation (front +z,
+every kit of a material type collides the same), else the form its class stands for (wall, beam, rail → box, a plain
+voxel since derived 22; empty, liquid → none). Shapes are one box in 1/16 cell in the case's own orientation (front +z,
 run x, up +y), turned by the case's transform: `box` 0–16³; `panel` a thin upright sheet along the run (z 6–10);
 `bar` a horizontal member along the run (y, z 3–13); `post` a thin upright bar (x, z 6–10); `none`. Bases: `keep`
 (the base surface draws the cell: shape box, or none) and `suppress` (nothing drawn, the cell hides no neighbour's
 face: a piece replaces it; a level without pieces draws it as a body). A catalogue pairing them otherwise is refused
-(`caseFormProblem`). The edge catalogue: beam suppress/bar, banister-rail suppress/panel, banister-post
-suppress/post, every other case keep/box. (The superseded draft's `slab` shape and `reshape` base, used only by its
+(`caseFormProblem`). Every case of the edge catalogue (v2) is keep/box; no case uses `panel`, `bar` or `post` since
+the beam and banister cases left it (derived 22). (The superseded draft's `slab` shape and `reshape` base, used only by its
 soffit, went with it in the 46c revision R3c; no derived byte of the world's rule set changed.)
 
 | Form | Render solid | Collision | Nav blocks / stands on | Light coverage |
 |---|---|---|---|---|
 | box (walls, floors, roofs …) | yes | full box (merged) | yes / yes | 255 |
-| panel (banister rail) | no (piece) | its box | yes / no | 64 |
-| bar (beam) | no (piece) | its box | yes / no | 100 |
-| post (banister post) | no (piece) | its box | yes / no | 16 |
+| panel (no case since 22) | no (piece) | its box | yes / no | 64 |
+| bar (no case since 22) | no (piece) | its box | yes / no | 100 |
+| post (no case since 22) | no (piece) | its box | yes / no | 16 |
 | none (air, liquid, openings) | no | none (liquid: 49) | no / no | 0 |
 | ground (terrain, by class) | density ≥ 128 | the ground surface: heightfield patches where it is a lattice, else triangles (level 0 only) | density ≥ 128 | its density |
 
@@ -1055,7 +1056,7 @@ its whole top face. A uniform body region (one class and shape over the chunk an
 only when every cell's form is the box once its case is resolved (a margin cell's case may read open cells past the
 region).
 
-**Outputs per chunk.** A result records `v` (derived format version 19, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 22, `DERIVED_FORMAT_VERSION`), its rules {id, version, radius} and its
 edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
 shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
@@ -1076,8 +1077,7 @@ shape (v3, 45.10b: v2's material table and the material slots of vertices, insta
   - the standable cells (free, on a supporting cell) as u16 cells, plus a u8 clearance each: free cells upward up to
     4 (2 m), with bit 0x80 meaning the free run continues into the chunk above.
 - **surface buffers:** two per chunk, the projected ground and the modular base (the voxel faces plus the roof
-  mesher's planes, v15). The base surface is not emitted under a detail piece that replaces it (a suppressed base:
-  beams, banisters, debris).
+  mesher's planes, v15). The base surface is not emitted under a suppressed base (debris).
 - **detail instances:** see below.
 - **shader data** (`derived-shader.ts`): the material and wetness grid the surface shader blends from (owner
   2026-11-02: blending in the shader). It covers the chunk and a border of `SHADER_BORDER_CELLS` = 1 cell of its
@@ -1109,19 +1109,16 @@ chunk):
 - **Ground and base producers:** the terrain mesher and the base surface, below in *Terrain rule set, mesher,
   base surface, levels, seams and LOD selection*.
 
-**Detail instance (8 bytes, v12; meanings to v21):**
+**Detail instance (8 bytes, v12; meanings to v22):**
 - u8 x, y, z: the cell inside the chunk;
 - u8: bits 0–1 quarter turns about +y, bits 2–3 the placement (`INSTANCE_PLACE`), bits 4–7 flags (0x10
   `replacesBase`, 0x40 `half`: drawn over the half of its run on its case's +x side, `pieceHalfRun`, v19; 0x20 and
   0x80 written 0: 0x20 was `low`, drawn at low detail, until v21);
-- u16 piece, **kit-local** (`piece-table.ts`): below `KIT_PIECE_BASE` (32) the engine's default piece, stand-in family
-  << 3 | run section (families beam 1 (bar), rail 2 (panel), post 3 (post); sections single 0, start 1, body 2, end 3,
-  corner 4, junction 5), the same in every kit; from 32 the own piece of the kit the cell's material names (*Kit
-  pieces* below), in the kit's piece order. A cell without a case (rule sets without a case pass) takes its default
-  piece's section from its class's run neighbours;
-- u16 variant word: bits 0–14 the variant of a kit's own piece (0 for a default piece), bit 15 the mirror (a beam's
-  or banister's case transform, mirror first, then the quarter turns; a verge rising toward its own −x, v18). A piece's material is its cell's, in the
-  shader data; the kit is the one its material names. The stride stays a multiple of four, as a GPU instance buffer
+- u16 piece, **kit-local** (`piece-table.ts`, v22): the index of a filled slot of the kit the cell's material names,
+  0-based in catalogue case order; no engine default piece, and a material no kit binds lists none;
+- u16 variant word: bits 0–14 which of the slot's meshes it draws (v22), bit 15 the mirror (a verge rising toward its
+  own −x, v18; mirror first, then the quarter turns). A piece's material is its cell's, in the shader data; the kit
+  is the one its material names. The stride stays a multiple of four, as a GPU instance buffer
   needs. What the hosts draw for each is in *Kits: edges, roofs and debris* below.
 
 **Shader data on the GPU and the surface shader (45.10b; three-adapter `voxel-surface.ts`).** One renderer path:
@@ -1400,10 +1397,9 @@ views with the levels (equal from above and on WebGL 2).
 
 **Pieces per level (46b.9, derived 9; two detail states since derived 21, owner 2026-11-05; `levelDrawsPieces`).**
 Only a chunk (level 0, the near ring) lists pieces. Level 1 and coarser list none: their edges are plain square
-voxel faces, and the base surface draws the cells the rules call beams and rails as bodies (the cell meshed from its
-mip shape, so the outline stays and the surface under a removed piece is present). Collision, navigation and light
-read the class, not the level. The renderer takes a piece's mesh by family (three-adapter `VoxelPieceMeshes`: a
-kit's authored mesh, a stand-in box without one). (Derived 9–20 listed level-1 pieces with a `low` flag drawn by a
+voxel faces, and the base surface draws the cells the rules call beams and rails as bodies (at every level since
+derived 22). Collision, navigation and light read the class, not the level. The renderer draws a piece with its
+kit slot's mesh (three-adapter `VoxelPieceMeshes`); an empty slot draws nothing. (Derived 9–20 listed level-1 pieces with a `low` flag drawn by a
 kit's low mesh.)
 
 **Collision stays at level 0, ground as heightfield patches (`ground-heightfield.ts`, `groundHeightfieldPatches`;
@@ -1430,13 +1426,13 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-#### Kits: edges, roofs and debris (as built in 46c and its revision; derived v10 → v19)
+#### Kits: edges, roofs and debris (as built in 46c and its revision; derived v10 → v22)
 
 **Owner note.** Kits change **no stored world format**: the chunk codec, region file, manifest, edit command, undo
-record, save and overrides keep their v2 bytes (§3.8). Edge and corner pieces, roof words, case windows, run
-sections, forms and piece choices live only inside a derive job; what 46c adds is derived data (versions 10–19,
-never stored, *Derived version history* below) and one project content item, the voxel kit record (§3.9,
-**`kitFormat` 1, still a DRAFT**). The edge catalogue (`edges-draft` v1) and the kit format are **drafts**: they
+record, save and overrides keep their v2 bytes (§3.8). Edge and corner pieces, roof words, forms and piece choices
+live only inside a derive job; what 46c adds is derived data (versions 10–22, never stored, *Derived version
+history* below), one project setting (`voxel_piece_seed`) and one project content item, the voxel kit record (§3.9,
+**`kitFormat` 1, still a DRAFT**). The edge catalogue (`edges-draft` v2) and the kit format are **drafts**: they
 freeze as v1 only when the owner approves the role spec (`voxel-role-spec.md`) and the texture layout
 (`voxel-trim-layout.md`), both DRAFT, owner hard stop. Until then nothing builds on them as final.
 
@@ -1447,26 +1443,30 @@ Sloped roofs have their own mesher (planes over the 45° stair of roof voxels) w
 eave, verge, hip and valley. A construction cell's shape is its **integrity** (§2.2): a damaged cell draws as
 debris. From the middle ring out the cells draw as flat square voxels (two detail states: pieces at level 0 only,
 owner 2026-11-05).
-Beams and banisters stay as first built. Ground-contact fringe and scatter are the terrain material's (47b); relief,
+**Kits are slots (owner 2026-11-05/06):** every catalogue case is a slot of every kit, each optional (an empty slot
+draws nothing, no warning, no fallback), holding 1..n meshes picked per piece by the project seed and position; one
+texture set a kit; every piece jittered into the solid by the kit's `jitter`; no engine default kit (no kit: plain
+voxel faces). Beams and banisters left the voxel phases (A1/A12): their cells are plain voxels. Ground-contact fringe and scatter are the terrain material's (47b); relief,
 the material model and texture sets 46d's.
 
 - **The rule set** (`kit-rules.ts`): `WORLD_RULES` = `EDGE_RULES` = `withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE,
-  'edges', 3)`: in **one** `AssemblyRuleSet` (R75) the terrain rules' classes, the case window (beam and banister
-  only), the run pass, the forms, the **edge pass** (`resolveEdges`) and the roof words; radius max(terrain 2,
+  'edges', 4)`: in **one** `AssemblyRuleSet` (R75) the terrain rules' classes, the forms, the **edge pass** (`resolveEdges`) and the roof words; radius max(terrain 2,
   `CASE_REACH` 2, `EDGE_REACH` 1 + `ROOF_PLANE_REACH` 1) = 2, so the job pad stays 3 and aprons and invalidation are
   unchanged. `ruleRadiusMismatches` compares each cell's class, case, edge pieces and roof word (`part` `class`,
   `case`, `edge`, `roof`) on random worlds at chunk edges 16 and 32. Versions: `edges` v1 the edge pass beside the old
-  set (R1), v2 no edge piece round a roof plane cell (R2), v3 the world's set, pieces from edges (R3).
-- **The edge catalogue** (`kit-case-catalogue.ts`, `EDGE_CASE_CATALOGUE`, id `edges-draft` v1, `draft: true`, 21
-  cases, no role fallback; the role spec draft lists it case by case, `role-spec-doc.test.ts` pins doc = catalogue):
+  set (R1), v2 no edge piece round a roof plane cell (R2), v3 the world's set, pieces from edges (R3), v4 catalogue
+  v2: no window pass (a catalogue without rules or fallbacks skips it), no run pass (46c.16b).
+- **The edge catalogue** (`kit-case-catalogue.ts`, `EDGE_CASE_CATALOGUE`, id `edges-draft` v2, `draft: true`, 18
+  cases, every one a kit slot, no window rules, no fallbacks; a case is id, roles, base, shape, note (v1's `required`,
+  `run`, `feature` and `standIn` are gone); the role spec draft lists it case by case, `role-spec-doc.test.ts` pins
+  doc = catalogue):
 
-  | Cases | From | Required |
-  |---|---|---|
-  | `edge-out-top`, `edge-out-vertical`, `edge-out-bottom`; `corner-out-top`, `corner-out-bottom` | the edge pass: 1 of 4 (corner: 1 of 8) cells solid | yes |
-  | `edge-in-top`, `edge-in-vertical`, `edge-in-bottom`; `corner-in-top`, `corner-in-bottom` | the edge pass: 3 of 4 (corner: 7 of 8) solid | no |
-  | `roof-ridge`, `roof-eave`, `roof-gable` (verge), `roof-hip`; `roof-valley` | the roof words | yes; valley no |
-  | `debris` (integrity 8–14, `DEBRIS_LIGHT_MIN` 8), `debris-heavy` (1–7, `standIn: 'debris'`), `debris-face` | integrity (`isDebrisCell`) | no |
-  | `beam`, `banister-rail`, `banister-post` (run sections, base suppressed) | the case window (10 rules) | yes |
+  | Cases | From |
+  |---|---|
+  | `edge-out-top`, `edge-out-vertical`, `edge-out-bottom`; `corner-out-top`, `corner-out-bottom` | the edge pass: 1 of 4 (corner: 1 of 8) cells solid |
+  | `edge-in-top`, `edge-in-vertical`, `edge-in-bottom`; `corner-in-top`, `corner-in-bottom` | the edge pass: 3 of 4 (corner: 7 of 8) solid |
+  | `roof-ridge`, `roof-eave`, `roof-gable` (verge), `roof-hip`, `roof-valley` | the roof words |
+  | `debris` (integrity 8–14, `DEBRIS_LIGHT_MIN` 8), `debris-heavy` (1–7), `debris-face` | integrity (`isDebrisCell`) |
 
 - **The edge pass** (`edge-cases.ts`, `extractEdges`, reach 1). Per construction cell a 20-bit mask (12 edges, then
   8 corners; `PIECE_SLOT_TABLE`) and inner flags (`EdgeMasks`). A lattice edge reads its 4 cells, a lattice corner
@@ -1494,46 +1494,46 @@ the material model and texture sets 46d's.
   cell's +x +z corner; a verge on the side before the rise carries the variant word's mirror bit (v18), an apex cell's
   ridge and hips the `half` flag (v19). Only 90° hips and valleys at 45°.
 - **Pieces** (`derive-pieces.ts`, `cellPieces`; derived v16). A cell may own several instances, in cell order then:
-  (a) its beam or banister piece (alone; its faces are left to it), (b) its debris piece, (c) its edge and corner
-  pieces in slot order (one dropped where a cell round the edge is a beam or banister), (d) its roof-edge pieces,
-  (e) a `debris-face` on each intact body face opening toward a debris cell. No case keeps a piece on a kept face;
-  every piece is its own instance (no merged run geometry). Runs (`kit-runs.ts`: single/start/body/end/corner/
-  junction, ends joined/open/butt/inner, world axis; U world-anchored `runU`) are read for beams and banisters only.
+  (a) its debris piece, (b) its edge and corner pieces in slot order, (c) its roof-edge pieces, (d) a `debris-face`
+  on each intact body face opening toward a debris cell; only where its material's kit fills the case's slot. Every
+  piece is its own instance (no merged run geometry). Run sections (`kit-runs.ts`, `runU`, `resolveRuns`) were
+  removed in 46c.16b (`archive/removed-phase-46c/`).
 - **Debris from integrity** (owner 2026-11-04: damage uses the shape field). A construction cell of integrity 1–14
   with at least one face open (`isDebrisCell`, reach 1; buried damage stays a body) is `FORM_DEBRIS`: the whole box
   for collision, light, navigation and occupancy, its faces left to its `debris` (8–14) or `debris-heavy` (1–7)
-  piece, hiding none of its neighbours' faces; no edge piece goes round it. At air the neighbours' faces are the same
+  piece, hiding none of its neighbours' faces; no edge piece goes round it. With no kit or an empty debris slot the
+  faces stay suppressed and the cell shows as a hole (46c.16e redoes damage). At air the neighbours' faces are the same
   faces and the hole's rim takes edge pieces. Damage shows at level 0 only (a construction mip parent is intact).
   What lowers integrity and when is game logic.
 - **Forms** (`case-forms.ts`, *Consumer tables* above): bases keep / suppress, shapes box / panel / bar / post /
-  none; beam suppress/bar, banister-rail suppress/panel, banister-post suppress/post, debris the box with its faces
-  suppressed, every other cell its class's form. Collision, light and navigation never read a piece mesh (R77).
+  none; debris the box with its faces suppressed, every other cell its class's form (beam and rail cells: a body). Collision, light and navigation never read a piece mesh (R77).
 - **Instance meaning** (*Detail instance* above, 8 bytes): turn bits = the yaw; placement bits 2–3
   (`INSTANCE_PLACE`): upright, `faceUp` / `faceDown` (a debris face on a top or bottom face), `centred` (half a cell
   in and half a cell down: one ridge mesh serves odd and even roofs); flags `replacesBase`, `half`. The piece
-  u16 is kit-local: below `KIT_PIECE_BASE` (32) the engine's stand-in (family << 3 | run section), from 32 the kit's
-  own piece; the variant word's bits 0–14 a hash of the world cell at its level, the level, the kit's seed and which
-  of the cell's pieces it is (case, placement, yaw), placed by the variants' weights, so a cell's edges vary on their own
-  and an edit elsewhere never moves them; bit 15 (`PIECE_VARIANT_MIRROR`) the mirror (a beam's fold, a verge
-  rising toward its own −x).
-- **The piece table** (format 2, `PIECE_TABLE_FORMAT`; `piece-table.ts`): built on the main thread from the
-  project's kits (§3.9) and the catalogue, carried by every derive job, never stored: the rules' id and version, the
-  case count, the **default kit's** slot, per kit its id, seed, own piece count, a kit-local piece per (case, run
-  section) and its variants' weight thresholds, then the (material, kit) pairs. **Material → kit** by the kit's test
-  binding (`materials`; 46d's material model replaces it). A missing case draws its `standIn` case's piece, else
-  nothing (no role falls back; the default kit only for unbound materials). Hosts build it with
-  `worldPieceTable(kits)`: the project's kits plus the engine's procedural **default kit** (`default-kit.ts`,
-  `@engine-default`: an outer rounded strip, an inner cove, an outer corner cap, ridge / hip / valley caps, eave and
-  verge boards, rubble and a broken rim; vertical and bottom edges are aliases; inner corners none). An **alias**
-  (§3.9) takes its own slots and its target's weights, so the table's layout is unchanged; its rotation is the
-  renderer's only. Canonical; a worker decodes it once and keeps it by hash; another format or rule set is refused.
+  u16 is the kit's filled-slot index; the variant word's bits 0–14 the slot's mesh, picked by
+  `latticeHash4(cell, seed + level·φ + slot·c)` (slot = case index << 4 | placement << 2 | yaw, seed the project's
+  `voxel_piece_seed`, replacing crc32(kitId)) among the meshes' weights, so a cell's edges vary on their own and an
+  edit elsewhere never moves them; bit 15 (`PIECE_VARIANT_MIRROR`) the mirror (a verge rising toward its own −x).
+- **The piece table** (format 3, `PIECE_TABLE_FORMAT`; `piece-table.ts`): built on the main thread from the
+  project's kits (§3.9), the catalogue and the project seed, carried by every derive job, never stored. Bytes: u16
+  format, rule id (text), u16 rule version, u16 case count, u32 project seed, u16 kit count; per kit (by id) its id
+  (text), f32 jitter, u16 piece count, case count × u16 (its piece, or `NO_PIECE` 0xffff: an empty slot), per piece a
+  u16 count + u16 mesh weight thresholds; then u32 pair count and (u16 material, u16 kit) pairs. **Material → kit**
+  by the kit's test binding (`materials`; 46d's material model replaces it); a material no kit binds (`NO_KIT`)
+  draws no pieces. No default kit (`default-kit.ts` archived). A kit's hash is crc32 of its part xor-mixed with the
+  seed, so a seed change re-derives every bound material. Hosts build it with `worldPieceTable(kits, seed)`; slot
+  rotations are the renderer's only. Canonical; a worker decodes it once and keeps it by hash; another format or rule
+  set is refused.
 - **Drawing** (three-adapter `voxel-kit-pieces.ts`, `voxel-piece-placement.ts`): GLBs from bytes the host hands the
   loader port (never a URL); **one instanced draw a (kit piece, variant, mirror, level) a chunk**; placement composes
-  alias rotation · stagger · centring · tip · turns · scale. **Stagger** (`piece-placement.ts`, `PIECE_STAGGER`):
-  edge and corner pieces move 1/64–1/32 cell into the solid along the edge's bisector and twist ≤ 2° about it,
-  hashed per cell, level and kit seed: drawing only (roof-edge, debris and beam/banister pieces are not staggered).
-  `half` pieces draw the half of their run on the case's +x side (`pieceHalfRun`). A trim kit's U (`voxel-trim-u.ts`
-  `pieceU`) runs along the edge's world axis (vertical edges up y, `pieceRunAxis`); pieces draw with a stand-in
+  slot rotation · stagger · centring · tip · turns · scale. **Stagger** (`piece-placement.ts`, `PIECE_STAGGER`, owner
+  2026-11-05/06: every piece jittered into the solid): every piece moves 1/64–1/32 cell into the solid and twists
+  ≤ 2°, times the kit's `jitter` (0–4, `PIECE_JITTER_MAX`; default 1, `PIECE_JITTER_DEFAULT`), hashed per cell,
+  level and the project seed (salted); `PIECE_STAGGER_FRAMES` gives every case its frame (edges and corners along
+  the bisector, roof edges into the roof, debris sinking into its cell, a debris face into the intact cell). Drawing
+  only. `half` pieces draw the half of their run on the case's +x side (`pieceHalfRun`). A trim kit's U
+  (`voxel-trim-u.ts` `pieceU`) runs along the edge's world axis (vertical edges up y, `pieceRunAxis`), along the mesh
+  axis its slot rotation turns onto the run (`meshRunAxis`); pieces draw with a stand-in
   material and a 256² debug UV texture (a trim kit its layout's 1024² debug set) until 46d's materials.
 - **Grid-anchored UVs** (derived v17): the base surface and roof planes are mapped from the build grid in metres by
   the shader data entry's construction bit (*Projection* above: 4 m construction repeat, owner 2026-11-04; terrain
@@ -1548,13 +1548,16 @@ the material model and texture sets 46d's.
   changed (`pieceTableChanges`), in one swap group. Wetness never changes a piece; a material paint within one kit
   keeps every piece and variant (shader data only); a paint moving cells to another kit's pieces also derives whole
   the sections holding the painted cells: **the one exception to "material → shader data only"**, by design (kits
-  are per material type), for the owner. A damage edit (integrity) is a shape change: it re-derives the sections
+  are per material type), for the owner. A `voxel_piece_seed` change re-derives every kit-bound material. A damage edit (integrity) is a shape change: it re-derives the sections
   within R. Level-1+ nodes still derive whole on any edit (D479).
-- **Kit check and test scene.** `voxelKitCheck` (project-model; rows ok/warn/err/info: catalogue, required and
-  optional cases with what draws them instead, aliases, assets and digests, pivot and fit (a roof-edge
-  piece's envelope a cell higher, a post's up to its rail), join profiles, budgets reported never capped, trim T1–T10
-  only for kits naming a trim layout, "(draft layout)") → Problems (`voxel_kit_check`) and MCP `tl_diagnostics`.
-  `writeKitTestScene {world, origin, material}` builds the beam/banister window exhibits and a fixed sampler (a block
+- **Kit check and test scene.** `voxelKitCheck` (project-model; rows ok/warn/err/info: catalogue (an unknown slot
+  an error), slots (info: n of 18 filled; an empty slot never warns, owner G2), assets, digests and pinned versions,
+  pivot and fit (bounds turned by the slot rotation; a roof-edge piece's envelope a cell higher), texture set (an
+  error when the pieces use more than one material / texture set: material name + CRC-32 of its images, owner B5),
+  budgets reported never capped, trim T1–T7, T9, T10 only for kits naming a trim layout (T4/T7 per slot mesh along
+  its run axis; T8 joins removed), "(draft layout)") → Problems (`voxel_kit_check`) and MCP `tl_diagnostics`.
+  `writeKitTestScene {world, origin, material}` builds a fixed sampler (window exhibits only for a catalogue with
+  window rules, none in v2: a block
   notched top and bottom, a gable, a hip, an L-plan roof, a wall at integrity 12 and 5) in an emptied box, one undo;
   every catalogue case is labelled at the first cell the passes give it.
 - **Measured** (R6, staging, Iris Xe at the 60 Hz cap, plan 46c §8). Town with the log + stone kits: 88.1 k instances
@@ -1566,11 +1569,12 @@ the material model and texture sets 46d's.
 - **Superseded** (owner 2026-11-04; history in git and plan 46c §8): the 46-case window catalogue `cases-draft` v0–v5
   with pieces on flat faces and its rule set `kits` v1–v6 (`KIT_RULES`) went to `archive/removed-phase-46c/` in R3c,
   with the `reshape` base and `slab` shape its soffit alone used; the case window, fold, priority and fallback
-  machinery (`kit-cases.ts`, `withCases`) stays, used for beams and banisters (a catalogue's role fallback may be
-  `null`). D480, D481, D483 superseded.
+  machinery (`kit-cases.ts`, `withCases`) stays, unused by the edge catalogue since v2. In 46c.16b (owner
+  2026-11-05/06) the beam and banister cases, run sections (`kit-runs.ts`), stand-in families and the default kit
+  (`default-kit.ts`) went to `archive/removed-phase-46c/`. D480, D481, D483 superseded.
 
-**Derived version history (v2 → v20).** Every step: nothing stored, nothing to upgrade, no world regenerated (the
-slice and town write construction at 15; the staging project's log and stone kits are imported again after v19,
+**Derived version history (v2 → v22).** Every step: nothing stored, nothing to upgrade, no world regenerated (the
+slice and town write construction at 15; the staging project's log and stone kits are imported again after v19 and v22,
 `run.mjs kits`); a worker refuses a result of another version (`DERIVED_FORMAT_VERSION` + the rules' id, version
 and radius). Every owner note is "default chosen, owner to confirm" unless it names the owner's decision.
 
@@ -1595,6 +1599,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 18 → 19 | 46c R6b | coarse levels re-lay sloped roofs (`relayRoofs`, D510/D501); `half` flag on an apex's ridge and hips (D511) | still 8 B | default |
 | 19 → 20 | 46c R9b | the re-laid roof takes the coarse cells of bodies it covers (gable end walls, walls under eaves; D513/D514) | still 8 B | default |
 | 20 → 21 | 46c.16a | two detail states: level 1 lists no pieces (the `low` flag gone, its bit written 0), its beam and rail cells drawn as bodies; no case past level 0 | still 8 B | **owner 2026-11-05** (pieces in the near ring only, no low meshes) |
+| 21 → 22 | 46c.16b | kits are slots: piece u16 = a kit's filled-slot index (no default pieces), variant bits 0–14 = the slot's mesh, hashed with the project seed; no beam or banister case, beam and rail cells plain voxels | still 8 B | **owner 2026-11-05/06** (kits are slots, beams/banisters out, no default kit, per-project seed, per-kit jitter) |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1676,11 +1681,11 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 20 | refused | rebuilt, never upgraded |
-| Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 2 | refused | rebuilt from the kits, never stored |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 22 | refused | rebuilt, never upgraded |
+| Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 3 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 
-**Derived data 3 → 9 (46b) and 9 → 19 (46c and its revision):** the steps and their owner notes are in §3.7, *Derived version history* (one table). Kits, edges, roofs and debris changed no stored format.
+**Derived data 3 → 9 (46b) and 9 → 22 (46c and its revision):** the steps and their owner notes are in §3.7, *Derived version history* (one table). Kits, edges, roofs and debris changed no stored format.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
@@ -1690,8 +1695,8 @@ undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2,
 ### 3.9 Voxel kit record, format 1 — DRAFT, not v1 (`project-model` `voxel-kit.ts`; 46c)
 
 **Owner note:** added in 46c as an add-only step beside the approved formats; it changes none of them. It is a
-draft until the owner approves the role spec and the texture layout (detail pieces' trim, 46c hard stop): the case and
-section ids it holds are opaque here and the catalogue that names them is a draft. Nothing builds on it as final.
+draft until the owner approves the role spec and the texture layout (detail pieces' trim, 46c hard stop): the slot
+ids it holds are opaque here and the catalogue that names them is a draft. Nothing builds on it as final.
 
 - **Where it lives.** A kit is a project content item (`content.voxelKits`, resource kind `voxelkit`, one file a
   kit under `assets/voxel-kits/`), made by `setVoxelKit {kit}` and removed by `deleteVoxelKit {voxelKitId}`, one
@@ -1701,34 +1706,34 @@ section ids it holds are opaque here and the catalogue that names them is a draf
 - **Fields, in canonical order:** `kitFormat` (1), `voxelKitId`, `name`, `version` (the kit's own revision, a
   positive integer), `materialType` (an id: a kit belongs to a material type, never to one material),
   `materials?` (test binding: voxel material ids 1–4095, ascending, each once; 46d's material model replaces it
-  and the field is then left unread, never repurposed), `cases` (case id → `{sections?, alias?, gameData?}`; a section id →
-  `{variants: [{high, weight?}, …] (one or more), ends?: {start?, end?}}`; a mesh is `{assetId, digest,
-  node?}`, the digest the GLB version's SHA-256 source digest), `joinProfiles?` (profile id → `{outline: [[u, v],
-  …]}`, a closed polygon of at least 3 points in whole sixteenths of a cell 0–16; a section end names one of the
-  kit's own, a dangling one is refused), `trimLayout?` (an id; absent: no trim sheet), `gameData?`.
-- **One mesh a piece (draft change, owner 2026-11-05; 46c.16a).** Pieces are drawn in the near ring only (level 0),
-  so a variant holds one mesh, `high` (the field keeps its first draft's name until the slot format of 46c.16b);
-  the draft's `low` mesh left the format and is refused as an unknown field. Format 1 stays a draft, so the step
-  changes it in place (no version step); the placeholder kits were regenerated without it.
-- **Alias (add-only, R3b; owner note: default chosen, owner to confirm).** A case may hold `alias: {case,
-  rotation}` instead of `sections`: it draws with that case's meshes (a case of the same kit with sections of its
-  own; a dangling, self or chained alias and an alias beside sections are refused), turned first by cube rotation
-  `rotation` (0–23, `@thirdlight/voxel` `CUBE_ROTATIONS`: the signed permutation matrices of determinant +1,
-  permutations in lexicographic order, then row signs in binary order, + before −; 0 the identity; never a mirror).
-  The kit check counts an alias as the case's piece and lists every alias (`aliases` row). Kit format stays 1: the
-  field is optional and a kit without it reads as before.
+  and the field is then left unread, never repurposed), `slots` (case id → `{meshes: [{mesh, rotation?, weight?}, …]
+  (one or more), gameData?}`; a mesh is `{assetId, digest, node?}`, the digest the GLB version's SHA-256 source
+  digest; `rotation` a cube rotation 0–23, absent 0; `weight` absent 1), `jitter?` (0–4, absent 1; a 1 is left out
+  canonically), `trimLayout?` (an id; absent: no trim sheet), `gameData?`.
+- **Slots (draft change, owner 2026-11-05/06; 46c.16a–b).** Every catalogue case is a slot; every slot is optional
+  (left out: nothing drawn, no warning); a slot's meshes are picked per piece by the project seed and position,
+  weighted; one mesh may fill many slots by rotation; one texture set a kit (a kit-check error, never a refusal); no
+  engine default kit. Pieces are drawn at level 0 only, so a mesh has no `low` form. Removed from the draft:
+  `cases`, `sections`, `variants`, `high`, `alias`, `joinProfiles`, `ends`; unknown fields are refused, so a stored
+  kit of the old draft is refused (staging regenerates its kits). Format 1 stays a draft, so the step changes it in
+  place (no version step). Placeholder kits (Blender 5.2.2): log 13 meshes in 16 slots, 391 tris, GLB 33,144 B;
+  stone 12 meshes in 16 slots, 286 tris, 27,812 B.
+- **Slot rotation** (superseded the R3b `alias`, owner 2026-11-05/06). A mesh's `rotation` (`@thirdlight/voxel`
+  `CUBE_ROTATIONS`: the signed permutation matrices of determinant +1, permutations in lexicographic order, then row
+  signs in binary order, + before −; 0 the identity; never a mirror) turns it before the case's placement, so one
+  mesh serves several slots; its trim U runs along the mesh axis the rotation turns onto the slot's run
+  (`meshRunAxis`).
 - **Canonical form.** Rebuilt field by field: maps by key, materials ascending, a weight of 1 and empty maps left
   out, game data with its object keys sorted and its values as given. Unknown fields at any level are refused.
-- **Game data** (per kit and per case) is any JSON nested at most 32 deep (finite numbers): break, sound and
+- **Game data** (per kit and per slot) is any JSON nested at most 32 deep (finite numbers): break, sound and
   physics defaults are the game's; the engine validates, keeps and ships it and never reads a member.
-- **What is not refused.** A case or section id the catalogue lacks, a mesh naming an asset the project lacks or a
+- **What is not refused.** A slot id the catalogue lacks, a mesh naming an asset the project lacks or a
   digest no version has: these are kit-check rows (46c.8), never refusals, so a catalogue change or an asset
   re-import never invalidates a stored kit. A build ships, for each mesh, the asset version whose source digest the
-  mesh names (the current one when none has it); a mesh naming an absent asset ships nothing and the fallback kit
-  draws its case.
+  mesh names (the current one when none has it); a mesh naming an absent asset ships and draws nothing.
 - **Size.** No count caps: a kit's file is held to the content file byte cap (1 MiB) like every resource.
-  Measured (the backend test's kit: 2 cases, 1 section, 1 variant, 1 join profile, game data): 535 bytes compact,
-  1,043 bytes as its file on disk (indented, with the resource file's header).
+  Measured before the slot format (the backend test's kit: 2 cases, 1 section, 1 variant, 1 join profile, game data):
+  535 bytes compact, 1,043 bytes on disk; not re-measured for slots.
 - **Versions.** A newer `kitFormat` is refused whole (`kit_format_unsupported`), never read in part; a later
   format adds fields only.
 
@@ -1804,7 +1809,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R70 | package rule | 45.1b; `stream.test.ts` (worker bundle passes the export scan) | served (default, owner to confirm) |
 | R71 | — | — | later: deferred scatter |
 | R72 | §3.7 | 45.6 (worker = main thread, deterministic) | served |
-| R73, R74 | §3.7 terrain mesher, base surface, roof mesher, *Kits: edges, roofs and debris* | 45.6, 46b.3b–46b.5, 46c R1–R6b | served (draft catalogue `edges-draft` v1): every flat face from the voxels, roofs as planes, pieces only on edges, corners, roof edges, beams/banisters and debris; D482, D500, D504 open |
+| R73, R74 | §3.7 terrain mesher, base surface, roof mesher, *Kits: edges, roofs and debris* | 45.6, 46b.3b–46b.5, 46c R1–R6b | served (draft catalogue `edges-draft` v2, 18 slots): every flat face from the voxels, roofs as planes, pieces only on edges, corners, roof edges and debris; D482, D500, D504 open |
 | R75–R77 | §3.7 rule set `edges` v3, consumer tables (forms) | 45.6, 46c.5, 46c R1–R3; `derived.test.ts`, `case-forms.test.ts`, `collision.test.ts`, `kit-house.test.ts`; slice proof 45.7 (§6) | served: one evaluation (classes, cases, edges, roof words, forms); consumers from forms and voxels, roofs collide as ramps; D497, D502 (pass costs) open |
 | R78, R80 | — | — | superseded by R77 |
 | R79 | §1 replacement 3 | 45.6 | replaced (owner accepted 2026-11-02) |
@@ -1812,8 +1817,8 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R82 | §3.7 occupancy, chunk-tree flags | 45.6, 45.7d; `derived.test.ts` | served (chunk, brick and tree-node flags) |
 | R83 | §3.7 dependency | 45.6 | superseded by Q-c |
 | R84, R85 | §3.7 mips | 45.6; `derived.test.ts` | served (no paint layer, O16 closed) |
-| R86 | §3.7 run sections (beams/banisters), edge pieces | 45.6, 46c.4, 46c R3 | served: beam/banister runs from sections; edges one instance a lattice edge, no merged runs; D485 (draws) open |
-| R87 | §3.9 `trimLayout` (optional), alias, kit check T1–T10 | 46c.8, 46c R3b, R5, R7 | served (draft): trim optional per kit, U along an edge's world axis; the texture layout is a DRAFT (hard stop); D507 open |
+| R86 | §3.7 edge pieces | 45.6, 46c.4, 46c R3, 46c.16b | served: edges one instance a lattice edge, no merged runs; beams/banisters moved out of the voxel phases by the owner (2026-11-05/06), run sections removed; D485 (draws) open |
+| R87 | §3.9 `trimLayout` (optional), slot rotation, kit check T1–T7, T9, T10 | 46c.8, 46c R3b, R5, R7, 46c.16b | served (draft): trim optional per kit, U along an edge's world axis (the mesh axis its slot rotation turns onto it); the texture layout is a DRAFT (hard stop); D507 open |
 | R88, R89 | — | — | later: 46d |
 | R90 | §3.7 levels (pieces at L0 only; `relayRoofs`) | 46b.9, 46c.6, 46c R6b, 46c.16a; `kit-pieces.test.ts`, `roof-mesher.test.ts` | served as revised (owner 2026-11-05: two detail states): pieces at L0, flat voxels from L1, no low meshes; coarse roofs re-laid; D479 open |
 | R91 | §3.7 surface vertex v2, shader data on the GPU | 45.6, 45.10b; `voxel-surface.test.ts`, `voxel-world.e2e.ts` | replaced (owner 2026-11-02): vertices carry no material; the shader blends from the shader data |

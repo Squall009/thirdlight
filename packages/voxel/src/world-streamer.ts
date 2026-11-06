@@ -7,9 +7,9 @@
  * files. What each place adds (bodies, edits, draws) hangs on the result.
  *
  * Every such place draws the project's voxel kits the same way: the piece
- * table of its kits with the engine's default kit for every material no kit
- * binds ({@link worldPieceTable}), built where the streamer runs and again
- * where the pieces are drawn (the same kits give the same bytes).
+ * table of its kits and its piece seed ({@link worldPieceTable}; a material
+ * no kit binds draws no pieces), built where the streamer runs and again
+ * where the pieces are drawn (the same kits and seed give the same bytes).
  */
 import type { ChunkSource } from './region-source';
 import { VOXEL_SIZE_M, type ChunkGrid, type SectionEdge } from './coords';
@@ -22,16 +22,16 @@ import { WORLD_RULES } from './rule-registry';
 import { VoxelStreamer } from './voxel-streamer';
 import type { WorkerPool } from './worker-pool';
 import { buildPieceTable, type PieceKitSource, type PieceTable } from './piece-table';
-import { defaultKitSource } from './default-kit';
 
 /**
- * The piece table a world streamed with the world rules draws `kits` with:
- * the kits by their test binding, the default kit for every other material.
- * Problems (a material two kits bind, an unknown case) are the kit check's
- * to report; the table draws regardless.
+ * The piece table a world streamed with the world rules draws `kits` with,
+ * the project's piece `seed` deciding every mesh pick: the kits by their
+ * test binding; every other material draws no pieces. Problems (a material
+ * two kits bind, an unknown slot) are the kit check's to report; the table
+ * draws regardless.
  */
-export function worldPieceTable(kits: readonly PieceKitSource[]): PieceTable {
-  return buildPieceTable(kits, WORLD_RULES, defaultKitSource(WORLD_RULES.catalogue!)).table;
+export function worldPieceTable(kits: readonly PieceKitSource[], seed: number): PieceTable {
+  return buildPieceTable(kits, WORLD_RULES, seed).table;
 }
 
 /** A world's ring in metres (a `voxelWorld` object's, resolved). */

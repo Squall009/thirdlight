@@ -906,7 +906,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'walker' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400, import_extract_textures: 1, block_chunk_storage: 1, stats_overlay: 2, frame_rate_cap: 30, lod_bias: 1.5, lod_hysteresis: 0.2, ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1, occlusion_culling: 0, streaming_budget_mb: 512, architecture_ship_meshes: 1, see_through: 1, see_through_radius: 0.3, see_through_softness: 0.5, see_through_max_fade: 0.6, see_through_depth_margin_m: 0.5, see_through_fade_s: 0.4, see_through_padding_m: 0.6 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400, import_extract_textures: 1, block_chunk_storage: 1, stats_overlay: 2, frame_rate_cap: 30, lod_bias: 1.5, lod_hysteresis: 0.2, ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1, occlusion_culling: 0, streaming_budget_mb: 512, architecture_ship_meshes: 1, voxel_piece_seed: 1234567, see_through: 1, see_through_radius: 0.3, see_through_softness: 0.5, see_through_max_fade: 0.6, see_through_depth_margin_m: 0.5, see_through_fade_s: 0.4, see_through_padding_m: 0.6 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, extractTextures: true, textures: { '0': 'tex-albedo' }, clipsFor: MODEL_ASSET['assetId'], labels: ['level-3', 'voice'], address: 'anims/walk', occluder: 'occ' };
@@ -933,7 +933,7 @@ function runAllProbes(): void {
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
   probe('blockStamps[1]', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'room', name: 'Room', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]], edgePalette: [{ block: 'wall' }], edges: [[2, 0, 0, 0, 0]] }], '', block('blockStamps'), 'blockStamps:');
-  probe('voxelKits', contentErrors, contentDoc({ voxelKits: [{ kitFormat: 1, voxelKitId: 'log', name: 'Log', version: 1, materialType: 'wood', materials: [3], cases: { beam: { sections: { body: { variants: [{ high: { assetId: 'logs', digest: 'a'.repeat(64) } }] } } } }, joinProfiles: { square: { outline: [[0, 0], [16, 0], [16, 16]] } }, trimLayout: 'detail-draft', gameData: { hits: 2 } }] }), '/voxelKits', block('voxelKits'), 'voxelKits:');
+  probe('voxelKits', contentErrors, contentDoc({ voxelKits: [{ kitFormat: 1, voxelKitId: 'log', name: 'Log', version: 1, materialType: 'wood', materials: [3], slots: { 'edge-out-top': { meshes: [{ mesh: { assetId: 'logs', digest: 'a'.repeat(64) }, rotation: 5 }] } }, jitter: 1.5, trimLayout: 'detail-draft', gameData: { hits: 2 } }] }), '/voxelKits', block('voxelKits'), 'voxelKits:');
   probe('kits', contentErrors, contentDoc({ kits: [{ kitId: 'town', name: 'Town', description: 'Plaster and timber', thumbnail: 'town-pic', trimMaterial: 'town-trim', presets: ['house'], blockTypes: ['wall'], pieces: { door: [{ assetId: 'doors', piece: 'Door_A', weight: 2 }] } }] }), '/kits', block('kits'), 'kits:');
   // UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
@@ -1073,8 +1073,9 @@ describe('descriptor registry', () => {
     // a virtual camera's auto-exposure fields, about 2.1 KB; a scene's voxel world — its world, load and collision rings,
     // section edge and saved fields — and a model's lighting occupancy flag, about 3.4 KB; a voxel world's level
     // distances, about 0.7 KB; a project's voxel kits, about 2.7 KB; a voxel world's distances per quality level and a
-    // quality level's voxel ring scale, about 3.1 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(367_900);
+    // quality level's voxel ring scale, about 3.1 KB; the voxel kits' slots and jitter in place of cases and join profiles,
+    // and the voxel detail seed setting, about 0.6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(368_500);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

@@ -376,13 +376,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-voxel-kit-limits"></a>`VOXEL_KIT_LIMITS` | `{"profileUnits":16,"profilePointsMin":3,"gameDataDepth":32,"materialIdMax":4095,"weightMax":1000}` |  |
+| <a id="limit-voxel-kit-limits"></a>`VOXEL_KIT_LIMITS` | `{"gameDataDepth":32,"materialIdMax":4095,"weightMax":1000,"jitterMax":4}` |  |
 
 <a id="limits-project-model--voxel-world"></a>
 ## `voxel-world.ts`
 
 | Constant | Value | What it is |
 |---|---|---|
+| <a id="limit-voxel-piece-seed-max"></a>`VOXEL_PIECE_SEED_MAX` | `4294967295` | The largest voxel piece seed (a voxel piece table holds a u32). |
 | <a id="limit-voxel-world-defaults"></a>`VOXEL_WORLD_DEFAULTS` | `{"ring":{"loadRadius":192,"unloadRadius":224,"loadHeight":96,"unloadHeight":128},"collision":{"radius":48,"height":24},"levels":{"level0":64,"level1":128},"sectionEdge":16,"savedFields":["material","role","shape"]}` | The voxel format's defaults in metres, as a world without its own settings streams. |
 
 <a id="limits-project-model--wind"></a>

@@ -30,10 +30,10 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
 | [Types (CreateEntityArgs to ModelColliderKind)](types-c-m.md) | 92 sections |
 | [Types (ModelLodSettings to TerrainSplinesLayer)](types-m-t.md) | 101 sections |
-| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 58 sections |
+| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 55 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
-| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 20 sections |
-| [Script API types (from `BehaviorSignals`)](script-types-behavior-signals.md) | 22 sections |
+| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 19 sections |
+| [Script API types (from `BehaviorRandom`)](script-types-behavior-random.md) | 23 sections |
 | [Script API types (from `BehaviorSockets`)](script-types-behavior-sockets.md) | 44 sections |
 | [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 66 sections |
 | [Script API types (from `BehaviorDialogueHistoryEntry`)](script-types-behavior-dialogue-history-entry.md) | 55 sections |

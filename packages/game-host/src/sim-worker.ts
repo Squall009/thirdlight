@@ -185,7 +185,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       relay.setUiHit((x, y) => hitUiTargets(uiTargets, x, y)?.key ?? null);
       relay.setEffectSink((effect) => post({ t: 'relay.effect', effect }));
       // Each swap's chunk draws go to the page in one message, their buffers handed over.
-      if (m.voxels !== undefined && deps.voxelPorts !== undefined) voxels = presentVoxelWorlds(deps.voxelPorts(m.voxels.root, m.voxels.worlds ?? []), (batch) => post({ t: 'voxels', batch }, chunkDrawBatchTransfer(batch)), m.voxels.kits ?? [], m.voxels.qualityLevels);
+      if (m.voxels !== undefined && deps.voxelPorts !== undefined) voxels = presentVoxelWorlds(deps.voxelPorts(m.voxels.root, m.voxels.worlds ?? []), (batch) => post({ t: 'voxels', batch }, chunkDrawBatchTransfer(batch)), m.voxels.kits ?? [], m.voxels.pieceSeed ?? 0, m.voxels.qualityLevels);
       const composed = composeGameRuntime({
         snapshot: m.snapshot,
         settings: m.settings,

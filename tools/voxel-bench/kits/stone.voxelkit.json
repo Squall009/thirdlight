@@ -8,396 +8,209 @@
   10,
   15
  ],
- "cases": {
-  "edge-out-top": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "edge-out-top_body_v0"
-       }
-      },
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "edge-out-top_body_v1"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "edge-in-bottom": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "edge-in-bottom_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "corner-out-top": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "corner-out-top_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "roof-ridge": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "roof-ridge_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "roof-eave": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "roof-eave_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "roof-gable": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "roof-gable_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "roof-hip": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "roof-hip_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "roof-valley": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "roof-valley_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "debris": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "debris_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "debris-heavy": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "debris-heavy_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "debris-face": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "debris-face_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "beam": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "beam_body_v0"
-       }
-      }
-     ],
-     "ends": {
-      "start": "stone-beam",
-      "end": "stone-beam"
-     }
-    },
-    "start": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "beam_start_v0"
-       }
-      }
-     ],
-     "ends": {
-      "end": "stone-beam"
-     }
-    },
-    "end": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "beam_end_v0"
-       }
-      }
-     ],
-     "ends": {
-      "start": "stone-beam"
-     }
-    },
-    "single": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "beam_single_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "banister-rail": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "banister-rail_body_v0"
-       }
-      }
-     ],
-     "ends": {
-      "start": "stone-rail",
-      "end": "stone-rail"
-     }
-    },
-    "start": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "banister-rail_start_v0"
-       }
-      }
-     ],
-     "ends": {
-      "end": "stone-rail"
-     }
-    },
-    "end": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "banister-rail_end_v0"
-       }
-      }
-     ],
-     "ends": {
-      "start": "stone-rail"
-     }
-    },
-    "single": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "banister-rail_single_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "banister-post": {
-   "sections": {
-    "body": {
-     "variants": [
-      {
-       "high": {
-        "assetId": "voxel-kit-stone",
-        "digest": "952dc53d85a9a7ed90246e76564098e48236a01904aaa5501c77ed63d6f9189b",
-        "node": "banister-post_body_v0"
-       }
-      }
-     ]
-    }
-   }
-  },
-  "edge-out-vertical": {
-   "alias": {
-    "case": "edge-out-top",
-    "rotation": 9
-   }
-  },
-  "edge-out-bottom": {
-   "alias": {
-    "case": "edge-out-top",
-    "rotation": 5
-   }
-  },
+ "slots": {
   "corner-out-bottom": {
-   "alias": {
-    "case": "corner-out-top",
-    "rotation": 5
-   }
-  },
-  "edge-in-top": {
-   "alias": {
-    "case": "edge-in-bottom",
-    "rotation": 5
-   }
-  },
-  "edge-in-vertical": {
-   "alias": {
-    "case": "edge-in-bottom",
-    "rotation": 9
-   }
-  }
- },
- "joinProfiles": {
-  "stone-beam": {
-   "outline": [
-    [
-     5,
-     4
-    ],
-    [
-     11,
-     4
-    ],
-    [
-     12,
-     5
-    ],
-    [
-     12,
-     11
-    ],
-    [
-     11,
-     12
-    ],
-    [
-     5,
-     12
-    ],
-    [
-     4,
-     11
-    ],
-    [
-     4,
-     5
-    ]
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "corner-out-top_v0"
+     },
+     "rotation": 5
+    }
    ]
   },
-  "stone-rail": {
-   "outline": [
-    [
-     7,
-     3
-    ],
-    [
-     9,
-     3
-    ],
-    [
-     9,
-     14
-    ],
-    [
-     7,
-     14
-    ]
+  "corner-out-top": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "corner-out-top_v0"
+     }
+    }
+   ]
+  },
+  "debris": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "debris_v0"
+     }
+    }
+   ]
+  },
+  "debris-face": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "debris-face_v0"
+     }
+    }
+   ]
+  },
+  "debris-heavy": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "debris-heavy_v0"
+     }
+    }
+   ]
+  },
+  "edge-in-bottom": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-in-bottom_v0"
+     }
+    }
+   ]
+  },
+  "edge-in-top": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-in-bottom_v0"
+     },
+     "rotation": 5
+    }
+   ]
+  },
+  "edge-in-vertical": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-in-bottom_v0"
+     },
+     "rotation": 9
+    }
+   ]
+  },
+  "edge-out-bottom": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-out-top_v0"
+     },
+     "rotation": 5
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-out-top_v1"
+     },
+     "rotation": 5
+    }
+   ]
+  },
+  "edge-out-top": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-out-top_v0"
+     }
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-out-top_v1"
+     }
+    }
+   ]
+  },
+  "edge-out-vertical": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-out-top_v0"
+     },
+     "rotation": 9
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "edge-out-top_v1"
+     },
+     "rotation": 9
+    }
+   ]
+  },
+  "roof-eave": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "roof-eave_v0"
+     }
+    }
+   ]
+  },
+  "roof-gable": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "roof-gable_v0"
+     }
+    }
+   ]
+  },
+  "roof-hip": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "roof-hip_v0"
+     }
+    }
+   ]
+  },
+  "roof-ridge": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "roof-ridge_v0"
+     }
+    }
+   ]
+  },
+  "roof-valley": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-stone",
+      "digest": "26f84cb68f2daca9a875a4d9dfb749b52aa2fc48221923a3bd90fe853b97260a",
+      "node": "roof-valley_v0"
+     }
+    }
    ]
   }
  },

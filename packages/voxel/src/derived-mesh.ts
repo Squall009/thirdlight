@@ -1,11 +1,10 @@
 /**
  * Mesh output buffers of a derived chunk (formats, DRAFT) and the
- * detail-instance list for the features the assembly evaluation resolved
- * (beams, rails, posts). The ground surface is the terrain mesher's
+ * detail-instance list of the kit pieces its edges, corners, roof edges and
+ * damaged cells carry. The ground surface is the terrain mesher's
  * (terrain-mesher.ts), the modular bodies' faces the base surface's
  * (base-surface.ts: coplanar faces merged), both in the surface layout
- * below. The placeholder pieces are there to fill and measure the formats;
- * the case pass replaces them, writing the same layouts.
+ * below.
  *
  * **Surface buffer** (one per surface kind): interleaved vertices whose
  * attributes are WebGPU/WebGL 2 vertex formats, then indices.
@@ -31,23 +30,19 @@
  * placement, {@link INSTANCE_PLACE}) and flags (bits 4–7,
  * {@link INSTANCE_FLAG}), the piece (uint16) and its variant word
  * (uint16): the stride stays a multiple of four, as a GPU instance buffer
- * needs. The piece is **kit-local** (piece-table.ts): below
- * `KIT_PIECE_BASE` the engine's default piece (stand-in family << 3 | run
- * section), from there the own piece of the kit its cell's material names;
- * the material is its cell's, read from the shader data like a surface's.
- * The variant word holds the variant (bits 0–14) and the mirror of the
- * case's transform (bit 15). A piece that replaces its cell's base surface
- * says so (`replacesBase`): the base surface is then not emitted there, so
- * an open rail is open, not a rail drawn over a solid block; an edge
+ * needs. The piece is **kit-local** (piece-table.ts): the filled slot of
+ * the kit its cell's material names; the material is its cell's, read from
+ * the shader data like a surface's. The variant word holds which of the
+ * slot's meshes it draws (bits 0–14) and the mirror of the case's transform
+ * (bit 15). A piece that replaces its cell's base surface says so
+ * (`replacesBase`: a debris piece drawn in a damaged cell's place); an edge
  * piece adds to the faces it sits between. A cell may own several
  * instances: one each edge, corner, roof edge or debris piece it carries.
  *
  * **Pieces per level** ({@link levelDrawsPieces}): only a chunk (level 0, the
  * near ring) lists pieces. Coarser nodes list none: their edges are plain
- * square voxel faces, and the cells the rules read as beams and rails are
- * drawn by the base surface as the bodies their mip cells are, so a distant
- * balcony or fence keeps its outline as blocks. Two detail states, not a
- * piece mesh per level: a kit authors one mesh a piece.
+ * square voxel faces. Two detail states, not a piece mesh per level: a kit
+ * authors one mesh a piece.
  */
 import type { Neighbourhood } from './assembly';
 
@@ -75,16 +70,10 @@ export const INSTANCE_FLAG = Object.freeze({
   half: 0x40,
 });
 
-/** Whether chunk-tree level `level` draws detail pieces: level 0 only (coarser levels draw those cells as bodies). */
+/** Whether chunk-tree level `level` draws detail pieces: level 0 only (coarser levels draw plain voxel edges). */
 export function levelDrawsPieces(level: number): boolean {
   return level === 0;
 }
-
-/** The default pieces' stand-in families (a default piece = family << 3 | run section, piece-table.ts). */
-export const PIECE_FAMILY = Object.freeze({ beam: 1, rail: 2, post: 3 });
-
-/** Run sections: a merge-compatible piece is a body with ends, or a single. */
-export const PIECE_SECTION = Object.freeze({ single: 0, start: 1, body: 2, end: 3 });
 
 export interface SurfaceBuffer {
   readonly vertexCount: number;

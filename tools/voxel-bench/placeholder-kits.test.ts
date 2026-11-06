@@ -1,14 +1,14 @@
 /**
  * The committed placeholder kits (log, stone; `kits/make_placeholder_kits.py`
- * through Blender), made for the edge catalogue: pieces only on edges,
- * corners, roof edges, debris, beams and banisters, one mesh serving several
- * cases through aliases. Their records name the GLBs beside them by the
- * bytes' digest, every piece's node reads with the project model's GLB
- * reader and with the renderer's loader port (three's GLTFLoader) to the
- * same triangles, the kit check finds no error (the draft trim layout's
- * conformance rows T1–T8 all passing), every piece keeps the game-ready
- * budgets, and the roof-edge pieces that follow a slope lie on the roof
- * planes of their case. Prints each kit's asset table.
+ * through Blender), made for the edge catalogue's slots: pieces only on
+ * edges, corners, roof edges and debris, one mesh filling several slots with
+ * a rotation, one texture set (one material) a kit. Their records name the
+ * GLBs beside them by the bytes' digest, every piece's node reads with the
+ * project model's GLB reader and with the renderer's loader port (three's
+ * GLTFLoader) to the same triangles, the kit check finds no error (the
+ * draft trim layout's conformance rows T1–T7 all passing), every piece keeps
+ * the game-ready budgets, and the roof-edge pieces that follow a slope lie
+ * on the roof planes of their case. Prints each kit's asset table.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
@@ -50,7 +50,7 @@ describe.each(KITS)('placeholder kit %s', (id) => {
     for (const m of meshesOf(kit)) expect([m.assetId, m.digest]).toEqual([`voxel-kit-${id}`, digest]);
   });
 
-  it('passes the kit check with no error (trim T1–T8 ok, every case the catalogue knows, aliases resolved) with every piece read from the GLB (one mesh a piece), each within its budget', () => {
+  it('passes the kit check with no error (trim T1–T7 ok, every slot the catalogue knows, one texture set) with every piece read from the GLB (one mesh a piece), each within its budget', () => {
     const facts = new Map<string, VoxelKitMeshFacts>();
     const factsOf = (m: VoxelKitMesh): VoxelKitMeshFacts => {
       const k = voxelKitMeshKey(m);
@@ -61,18 +61,20 @@ describe.each(KITS)('placeholder kit %s', (id) => {
     const report = worldVoxelKitCheck(kit, new Map([[`voxel-kit-${id}`, { kind: 'model', digests: [digest] }]]), factsOf);
     const errors = report.rows.filter((r) => r.state === 'err');
     expect(errors, JSON.stringify(errors, null, 1)).toEqual([]);
-    for (const t of ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']) {
+    for (const t of ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']) {
       const row = report.rows.find((r) => r.id === `trim:${t}`)!;
       expect(row.state, `${t}: ${row.detail}`).toBe('ok');
     }
-    for (const r of ['assets', 'pivot', 'fit']) expect(report.rows.find((x) => x.id === r)?.state, r).toBe('ok');
+    for (const r of ['catalogue', 'assets', 'pivot', 'fit', 'texture-set']) expect(report.rows.find((x) => x.id === r)?.state, r).toBe('ok');
     expect(report.rows.some((x) => x.id === 'digests')).toBe(false);
-    // Every required case of the edge catalogue has a piece or an alias (no "required" warning), every case named is the catalogue's.
+    // No warning at all: an empty slot (the inner corners) is no warning.
+    expect(report.rows.filter((r) => r.state === 'warn').map((r) => r.id)).toEqual([]);
+    // Every slot named is the catalogue's: no piece for a flat face, every slot an edge, corner, roof edge or debris case.
     const cat = new Set(WORLD_RULES.catalogue!.cases.map((c) => c.id));
-    for (const cid of Object.keys(kit.cases)) expect(cat.has(cid), cid).toBe(true);
-    expect(report.rows.filter((r) => r.id.startsWith('required:')).map((r) => `${r.id} ${r.state}`).filter((r) => !r.endsWith(' ok'))).toEqual([]);
-    // No piece for a flat face: every case is an edge, corner, roof edge, debris, beam or banister case.
-    for (const cid of Object.keys(kit.cases)) expect(cid, cid).toMatch(/^(edge-|corner-|roof-|debris|beam$|banister-)/);
+    for (const cid of Object.keys(kit.slots)) {
+      expect(cat.has(cid), cid).toBe(true);
+      expect(cid, cid).toMatch(/^(edge-|corner-|roof-|debris)/);
+    }
     // Game-ready budgets (triangles a piece; drawn in the near ring only, so no lower-detail mesh).
     const budget = (cid: string): number => (cid.startsWith('edge-') ? 48 : cid.startsWith('corner-') || cid.startsWith('roof-') ? 64 : cid.startsWith('debris') ? 160 : 64);
     for (const p of report.pieces) expect(p.triangles!, p.caseId).toBeLessThanOrEqual(budget(p.caseId));
@@ -83,28 +85,20 @@ describe.each(KITS)('placeholder kit %s', (id) => {
       expect(f.found && f.unreadable === null && f.triangles > 0, m.node).toBe(true);
       expect(f.textures.count).toBe(0);
     }
-    const aliases = Object.entries(kit.cases).filter(([, c]) => c.alias !== undefined).map(([cid, c]) => `${cid} = ${c.alias!.case} turned (${c.alias!.rotation})`);
-    const lines = report.pieces.map((p) => `  ${p.caseId.padEnd(18)} ${p.sectionId.padEnd(7)} v${p.variant}  ${String(p.triangles).padStart(3)} tris`);
-    console.log(`[placeholder kit] ${id}: ${statSync(file).size} B GLB, record ${readFileSync(join(DIR, `${id}.voxelkit.json`)).length} B, ${report.totals.pieces} pieces, triangles ${report.totals.triangles}, textures ${report.totals.textures}\n${lines.join('\n')}\n  aliases: ${aliases.join('; ')}\n  warn/info: ${report.rows.filter((r) => r.state === 'warn' || r.state === 'info').map((r) => `${r.id} (${r.state}) ${r.title}`).join('; ')}`);
+    // One mesh filling more than one slot (a rotation turns it there): fewer distinct meshes than slot meshes.
+    const nodes = new Set(meshesOf(kit).map((m) => m.node));
+    expect(nodes.size).toBeLessThan(meshesOf(kit).length);
+    const turned = Object.entries(kit.slots).flatMap(([cid, c]) => c.meshes.filter((m) => (m.rotation ?? 0) !== 0).map((m) => `${cid} = ${m.mesh.node} turned (${m.rotation})`));
+    const lines = report.pieces.map((p) => `  ${p.caseId.padEnd(18)} mesh ${p.mesh}  ${String(p.triangles).padStart(3)} tris`);
+    console.log(`[placeholder kit] ${id}: ${statSync(file).size} B GLB, record ${readFileSync(join(DIR, `${id}.voxelkit.json`)).length} B, ${nodes.size} meshes in ${Object.keys(kit.slots).length} slots, triangles ${[...nodes].reduce((n, node) => n + factsOf({ assetId: `voxel-kit-${id}`, digest, node: node! }).triangles, 0)}, textures ${report.totals.textures}\n${lines.join('\n')}\n  turned: ${turned.join('; ')}\n  warn/info: ${report.rows.filter((r) => r.state === 'warn' || r.state === 'info').map((r) => `${r.id} (${r.state}) ${r.title}`).join('; ')}`);
   });
 
   it('draws its slope-following roof pieces on the roof planes: the ridge, the verge (rising toward +x; the other side mirrored), the hip and the valley', () => {
     for (const cid of ['roof-ridge', 'roof-gable', 'roof-hip', 'roof-valley'] as const) {
-      for (const v of kit.cases[cid]!.sections!['body']!.variants) {
-        expect(roofCaseOffset(cid, voxelKitMeshFacts(glb, v.high.node).positions), `${cid} ${v.high.node}`).toBeLessThan(ROOF_EDGE_NEAR_M);
+      for (const m of kit.slots[cid]!.meshes) {
+        expect(m.rotation ?? 0, cid).toBe(0);
+        expect(roofCaseOffset(cid, voxelKitMeshFacts(glb, m.mesh.node).positions), `${cid} ${m.mesh.node}`).toBeLessThan(ROOF_EDGE_NEAR_M);
       }
-    }
-  });
-
-  it('stands its banister posts up through the rail\'s cell to the top rail: the rail rests on the posts, not a cell over them', () => {
-    const rail = kit.cases['banister-rail']!.sections!['body']!.variants;
-    for (const v of kit.cases['banister-post']!.sections!['body']!.variants) {
-      const post = voxelKitMeshFacts(glb, v.high.node).bounds!;
-      const top = voxelKitMeshFacts(glb, rail[0]!.high.node).bounds!;
-      // The rail's cell is one above the post's (0.5 m): the post's top lies within the rail's height there.
-      expect(post.min[1], v.high.node).toBeCloseTo(-0.25, 3);
-      expect(post.max[1], v.high.node).toBeGreaterThanOrEqual(0.5 + top.min[1]);
-      expect(post.max[1], v.high.node).toBeLessThanOrEqual(0.5 + top.max[1]);
     }
   });
 

@@ -18,6 +18,7 @@ import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT } from './content-limits';
 import { limitsError, sortedKeys } from './content-helpers';
 import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB } from './texture-streaming';
 import { STREAMING_BUDGET_DEFAULT_MB, STREAMING_BUDGET_MAX_MB, STREAMING_BUDGET_MIN_MB } from './world-streaming';
+import { VOXEL_PIECE_SEED_KEY, VOXEL_PIECE_SEED_MAX } from './voxel-world';
 import { INSTANCE_CHUNK_METERS, LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX, MAX_INSTANCE_CHUNK_SIZE } from './model-lod';
 import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 import { FRAME_RATE_CAPS } from './frame-rate-cap';
@@ -196,6 +197,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // meshes at load (small downloads; what any project gets unless it asks); 1, the export also ships the meshes
   // the same generator made, for a game that would rather download than generate.
   { key: 'architecture_ship_meshes', type: 'number', default: 0, values: [0, 1], valueLabels: ['Generate at load', 'Ship generated meshes'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Generated architecture', tooltip: 'Exports ship generated architecture as its parameters and the game generates the meshes when a scene loads (small, fast on a worker), or also ship the meshes the same generator made (larger download, nothing to generate).' },
+  // The voxel world's piece seed (voxel piece-table.ts): which of a kit slot's meshes each detail piece draws, and its
+  // jitter, hash it with the piece's world position, so every scene of a project draws the same on every load; 0
+  // (unset) is a seed like any other, so no project changes look when it is added.
+  { key: VOXEL_PIECE_SEED_KEY, type: 'number', default: 0, min: 0, max: VOXEL_PIECE_SEED_MAX, integer: true, unit: '', optional: true, group: 'Engine', label: 'Voxel detail seed', tooltip: 'Which of a voxel kit slot\'s meshes each edge, corner and roof-edge piece draws, and how it is jittered, follow this number and the piece\'s place in the world: every scene draws the same on every load. Change it for another arrangement of the same kit meshes.' },
   // See-through (see-through.ts, where the defaults' reasons are): off unless a game turns it on, so no project
   // changes look on an engine update; the shape's numbers apply whenever it is on, here or from a script.
   { key: SEE_THROUGH_SETTING_KEYS.enabled, type: 'number', default: SEE_THROUGH_DEFAULTS.enabled ? 1 : 0, values: [0, 1], valueLabels: ['Off', 'On'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'See-through', tooltip: 'What stands between the camera and a subject (the camera\'s target, or the objects a script names with ctx.camera.setSeeThrough) thins to a dither in a soft circle round it, so rooms and paths behind walls stay readable. Only what stands between the camera and the subject fades (and only above half the subject\'s height over its feet): walls behind or beside it and floors never do. Each virtual camera chooses it with its Occlusion; On makes it the choice of the cameras that make none (and builds the mask at load). Objects opt out with their See-through field. Scripts turn it on and off while the game runs; a page URL flag ?seethrough=on|off overrides it.' },

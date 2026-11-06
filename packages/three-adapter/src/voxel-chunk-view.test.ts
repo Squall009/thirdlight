@@ -1,13 +1,13 @@
 /**
  * The voxel chunk view against the voxel package's real derive and join: a
  * chunk drawn from its 16³ sections joined is one surface mesh holding the
- * whole-chunk derive's triangles, its stand-in pieces, and a shader grid
+ * whole-chunk derive's triangles and a shader grid
  * uploaded with the whole-chunk derive's entries (or its one solid entry
  * passed, no region); a shader-only change uploads the grid again and
  * builds no mesh; a floating-origin re-base moves every chunk to its new
  * 32-bit position; a chunk 8 km out, its origin never moved (Play), draws
  * with a model-view made in 64 bits, its vertices as exact as near the
- * origin, the surface and the pieces alike; a batch from the draw batcher replaces a swap's chunks in the task
+ * origin, the surface and its kit pieces alike; a batch from the draw batcher replaces a swap's chunks in the task
  * that announces them and counts their bytes against the stream budget. With mip levels: a node of level L is one
  * object at its corner with its derive scaled to the level's cells and its grid read in them; a seam is one
  * object at its coarse node's corner shaded from whichever draw that node has; a change of the levels drawn (the
@@ -28,11 +28,12 @@ import {
   deriveSectionsWithApron,
   deriveWithApron,
   FloatingOrigin,
+  WORLD_RULES,
+  worldPieceTable,
   jobRadius,
   joinSectionsForDraw,
   MATERIAL_BITS,
   SHADER_CONSTRUCTION_BIT,
-  PIECE_FAMILY,
   PLACEHOLDER_RULES,
   SHADER_BORDER_CELLS,
   SHADER_READ_DEPTH_CELLS,
@@ -50,8 +51,9 @@ import {
   type StreamEvent,
 } from '@thirdlight/voxel';
 
-import { applyChunkDrawBatch, standInPieceGeometry, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelPieceMeshes } from './voxel-chunk-view';
+import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry } from './voxel-chunk-view';
 import { cameraRelativeModelView } from './camera-relative';
+import { VoxelKitMeshes, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { observerOf, wgslOf, wgslRenderer } from './test-wgsl';
 import { createVoxelSurface, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelSurfaceObject } from './voxel-surface';
 
@@ -127,7 +129,7 @@ function setup(): { view: VoxelChunkView; r: ReturnType<typeof recorder>; origin
 const surfaceOf = (g: THREE.Object3D): THREE.Mesh => g.children.find((c) => !(c instanceof THREE.InstancedMesh)) as THREE.Mesh;
 
 describe('the voxel chunk view', () => {
-  it('draws a chunk joined from 16³ sections as one surface mesh with the whole-chunk derive\'s triangles, pieces and shader grid', () => {
+  it('draws a chunk joined from 16³ sections as one surface mesh with the whole-chunk derive\'s triangles and shader grid (no kit: no pieces)', () => {
     const s = world();
     const { view, r } = setup();
     let grids = 0;
@@ -146,7 +148,7 @@ describe('the voxel chunk view', () => {
         continue;
       }
       expect(bytes, at).toBeGreaterThan(0);
-      // One surface mesh (ground and base in one draw) plus one instanced mesh a piece family.
+      // One surface mesh (ground and base in one draw); no kit, so no piece.
       const surfaces = g!.children.filter((c) => !(c instanceof THREE.InstancedMesh));
       expect(surfaces.length, at).toBe(wholeTris > 0 ? 1 : 0);
       if (wholeTris > 0) expect(triangles((surfaces[0] as THREE.Mesh).geometry), at).toEqual(triangles(voxelSurfaceGeometry([whole.ground, whole.base])));
@@ -174,55 +176,10 @@ describe('the voxel chunk view', () => {
     }
     expect(view.count).toBeGreaterThanOrEqual(4);
     expect(grids).toBeGreaterThan(0);
-    expect(pieces).toBeGreaterThan(0);
+    // The placeholder rules' beams and rails are plain voxels: the base surface draws them, no piece stands in.
+    expect(pieces).toBe(0);
     expect(grids + solids).toBe(view.count);
     expect(view.regions).toBe(grids);
-  });
-
-  it('draws a chunk\'s pieces and none for a level-1 node, from a kit\'s meshes when given (never disposed by the view), stand-ins otherwise', () => {
-    const s = world();
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
-    const origin = new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } });
-    const asked: string[] = [];
-    const kit = new Map<string, THREE.BufferGeometry>();
-    const disposed: string[] = [];
-    const pieces: VoxelPieceMeshes = {
-      geometry(family) {
-        const key = `${family}`;
-        asked.push(key);
-        let g = kit.get(key);
-        if (g === undefined) {
-          kit.set(key, (g = new THREE.BoxGeometry(0.1, 0.1, 0.1)));
-          g.addEventListener('dispose', () => disposed.push(key));
-        }
-        return g;
-      },
-    };
-    const view = new VoxelChunkView({ grid, origin, surface, renderer: recorder(), pieces });
-    // The same cells as a chunk (level 0) and as a level-1 node: only the level differs.
-    const at = (cx: number, cy: number, cz: number, level: number): DerivedData => deriveWithApron(grid, PLACEHOLDER_RULES, buildApron(s, cx, cy, cz, R), (out) => s.exportChunk(cx, cy, cz, out), undefined, level);
-    const [cx, cy, cz] = [[-1, -1, -1], [0, -1, -1], [-1, 0, -1], [0, 0, -1], [-1, -1, 0], [0, -1, 0], [-1, 0, 0], [0, 0, 0]].find(([x, y, z]) => at(x!, y!, z!, 0).instances.count > 0)!;
-    const [d0, d1] = [at(cx!, cy!, cz!, 0), at(cx!, cy!, cz!, 1)];
-    expect(d0.instances.count).toBeGreaterThan(0);
-    view.set(cx!, cy!, cz!, { ...d0, solid: shaderSolidEntry(d0.shader) });
-    view.set(cx!, cy!, cz!, { ...d1, solid: shaderSolidEntry(d1.shader) }, 1);
-    const meshes = (name: string): THREE.InstancedMesh[] => view.root.children.find((c) => c.name === name)!.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh);
-    const near = meshes(`voxel-chunk ${cx},${cy},${cz}`);
-    expect(d1.instances.count).toBe(0);
-    expect(meshes(`voxel-node 1:${cx},${cy},${cz}`)).toEqual([]);
-    expect(near.length).toBeGreaterThan(0);
-    expect(near.every((m) => [...kit.values()].includes(m.geometry))).toBe(true);
-    expect(near.reduce((n, m) => n + m.count, 0)).toBe(d0.instances.count);
-    expect([view.instances, view.piecesDrawn.kit]).toEqual([d0.instances.count, 0]);
-    // Each family is asked for once; the kit's meshes are its own.
-    expect(new Set(asked).size).toBe(asked.length);
-    view.remove(cx!, cy!, cz!, 1);
-    expect(view.instances).toBe(d0.instances.count);
-    view.dispose();
-    expect(disposed).toEqual([]);
-    // The stand-ins: a box of the family's size.
-    for (const family of [PIECE_FAMILY.beam, PIECE_FAMILY.rail, PIECE_FAMILY.post]) expect(standInPieceGeometry(family)!.index!.count / 3).toBe(12);
-    expect(standInPieceGeometry(99)).toBeNull();
   });
 
   it('uploads only the grid for a shader change, re-places every chunk after a re-base, and frees everything on remove', () => {
@@ -433,9 +390,18 @@ describe('the voxel chunk view', () => {
   it('draws a chunk 8 km out (origin never moved) with a model-view made in 64 bits: vertices as exact as near the origin', () => {
     const s = world();
     const { view } = setup();
-    // A chunk with ground, wall and beam, drawn 512 chunks (8,192 m) out on x and z.
+    // A kit for the walls' materials: one box in their top-edge slot, so the chunk draws a kit piece too.
+    const mesh = { assetId: 'box', digest: 'a'.repeat(64) };
+    const kits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [3, 4], slots: { 'edge-out-top': { meshes: [{ mesh }] } } }];
+    const kitMeshes = new VoxelKitMeshes();
+    kitMeshes.add(mesh, new THREE.BoxGeometry(0.5, 0.06, 0.06));
+    const table = worldPieceTable(kits, 0);
+    view.setKits(kitMeshes.set(table, kits));
+    // A chunk with ground and walls, drawn 512 chunks (8,192 m) out on x and z.
     const far = 512;
-    view.set(far, 0, far, joined(s, 0, 0, -1, view.cells));
+    const d = deriveWithApron(grid, WORLD_RULES, buildApron(s, 0, 0, -1, jobRadius(WORLD_RULES)), (out) => s.exportChunk(0, 0, -1, out), undefined, 0, { table, chunk: [0, 0, -1] });
+    const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
+    view.set(far, 0, far, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
     const scene = new THREE.Scene();
     scene.add(view.root);
     const g = view.root.children[0]!;

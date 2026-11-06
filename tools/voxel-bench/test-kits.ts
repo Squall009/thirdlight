@@ -1,26 +1,23 @@
 /**
  * Engine-owned test kits for the piece table (piece-table.ts): plain kit
- * sources with the fields a table reads (cases, sections, variant weights,
- * the material binding), no meshes. Shared by the kit-piece tests and the
- * `cases --pieces` measurement.
+ * sources with the fields a table reads (slots, their meshes' weights and
+ * rotations, the material binding), no meshes. Shared by the kit-piece tests
+ * and the `cases --pieces` measurement.
  */
-import { RUN_SECTION_IDS, WORLD_RULES, type CaseCatalogueDef, type PieceKitSource } from '@thirdlight/voxel';
+import { WORLD_RULES, type CaseCatalogueDef, type PieceKitSource } from '@thirdlight/voxel';
 import { MAT } from './world-kit';
 
 /** The town's and the scenes' construction materials. */
 export const BUILDING_MATERIALS: readonly number[] = Object.freeze([MAT.stone, MAT.timber, MAT.plaster, MAT.roofTile, MAT.plank, MAT.brick]);
 
-/** `n` variants weighted 1, 2, … n. */
+/** `n` slot meshes weighted 1, 2, … n. */
 export function weightedVariants(n: number): { weight: number }[] {
   return Array.from({ length: n }, (_, k) => ({ weight: k + 1 }));
 }
 
-/** A kit with a piece for every section of every case of `catalogue` (the world's) but `enclosed` (nothing shows there), `variants` variants each. */
+/** A kit with every slot of `catalogue` (the world's) filled, `variants` meshes each. */
 export function fullTestKit(id: string, materials: readonly number[], variants = 2, catalogue: CaseCatalogueDef = WORLD_RULES.catalogue!): PieceKitSource {
-  const cases: Record<string, { sections: Record<string, { variants: { weight: number }[] }> }> = {};
-  for (const c of catalogue.cases) {
-    if (c.id === 'enclosed') continue;
-    cases[c.id] = { sections: Object.fromEntries(RUN_SECTION_IDS.map((s) => [s, { variants: weightedVariants(variants) }])) };
-  }
-  return { voxelKitId: id, materials: [...materials], cases };
+  const slots: Record<string, { meshes: { weight: number }[] }> = {};
+  for (const c of catalogue.cases) slots[c.id] = { meshes: weightedVariants(variants) };
+  return { voxelKitId: id, materials: [...materials], slots };
 }

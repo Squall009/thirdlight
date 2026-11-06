@@ -8,9 +8,8 @@
  * Read from the derived outputs themselves, not from the assembly classes
  * (which live only inside the derive job), so it reports what the
  * renderer, physics, navigation and lighting actually receive. Tests and
- * the slice's acceptance hooks use it to show that the different resolved
- * cases (wall, beam, banister rail and post) come out differently for
- * every consumer from one evaluation.
+ * the slice's acceptance hooks use it to show what each consumer receives
+ * for one cell from one evaluation.
  */
 import { createNeighbourhood, evaluateAssembly, fillNeighbourhood, jobRadius, type AssemblyRuleSet } from './assembly';
 import { buildApron } from './apron';
@@ -18,7 +17,7 @@ import { chunkOf, localOf, type ChunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { cellBit, COLLISION_STEPS_PER_CELL, OCCUPANCY, type DerivedData } from './derived-data';
 import { INSTANCE_BYTES, INSTANCE_FLAG, instancePlaceOf, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
-import { defaultPieceFamily, defaultPieceSection, KIT_PIECE_BASE, PIECE_VARIANT_MASK, PIECE_VARIANT_MIRROR } from './piece-table';
+import { PIECE_VARIANT_MASK, PIECE_VARIANT_MIRROR } from './piece-table';
 import type { VoxelStoreCandidate } from './store';
 
 /** A cell's view through every consumer of a derived chunk. */
@@ -28,9 +27,9 @@ export interface CellOutputs {
   /** Base surface quads emitted for this cell (exposed faces of a wall cell; 0 under a piece that replaces it). */
   readonly baseFaces: number;
   /**
-   * The detail piece in this cell, if any: its kit-local index, a default
-   * piece's stand-in family and run section (0 and −1 for a kit's own),
-   * quarter turns, the mirror and variant, whether it replaces the base.
+   * The detail piece in this cell, if any: its kit-local index (the kit's
+   * filled slot), quarter turns, the mirror and mesh pick, whether it
+   * replaces the base.
    */
   readonly piece: CellPieceOutput | null;
   /** Every detail piece the cell owns (its edges, corners, roof edges, debris), in instance order; `piece` is the first. */
@@ -101,13 +100,13 @@ function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): number
 /** What every consumer of a derived chunk receives for its local cell (lx, ly, lz). */
 /** One detail piece of a cell, decoded from its instance. */
 export interface CellPieceOutput {
+  /** The kit-local piece: which filled slot of the cell's kit. */
   readonly piece: number;
-  readonly family: number;
-  readonly section: number;
   readonly turns: number;
   /** The placement (derived-mesh.ts INSTANCE_PLACE). */
   readonly place: number;
   readonly mirror: boolean;
+  /** Which of its slot's meshes it draws. */
   readonly variant: number;
   readonly replacesBase: boolean;
 }
@@ -126,7 +125,7 @@ export function cellOutputs(d: DerivedData, lx: number, ly: number, lz: number):
     const id = list.data[o + 4]! | (list.data[o + 5]! << 8);
     const flags = list.data[o + 3]!;
     const variant = list.data[o + 6]! | (list.data[o + 7]! << 8);
-    pieces.push({ piece: id, family: defaultPieceFamily(id), section: id < KIT_PIECE_BASE ? defaultPieceSection(id) : -1, turns: flags & 3, place: instancePlaceOf(flags), mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0 });
+    pieces.push({ piece: id, turns: flags & 3, place: instancePlaceOf(flags), mirror: (variant & PIECE_VARIANT_MIRROR) !== 0, variant: variant & PIECE_VARIANT_MASK, replacesBase: (flags & INSTANCE_FLAG.replacesBase) !== 0 });
   }
   const piece = pieces[0] ?? null;
   const S = COLLISION_STEPS_PER_CELL;

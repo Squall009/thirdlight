@@ -42,6 +42,18 @@ import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_SAVED_FIELDS, DEFA
 import type { ModelErrorV2 } from './errors';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
 
+/** The project settings key of the voxel piece seed: which of a kit slot's meshes each piece draws, and its jitter. */
+export const VOXEL_PIECE_SEED_KEY = 'voxel_piece_seed';
+
+/** The largest voxel piece seed (a voxel piece table holds a u32). */
+export const VOXEL_PIECE_SEED_MAX = 0xffffffff;
+
+/** The project's voxel piece seed (its settings' `voxel_piece_seed`; absent or out of range: 0). */
+export function voxelPieceSeedOf(settings: unknown): number {
+  const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)[VOXEL_PIECE_SEED_KEY] : undefined;
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= VOXEL_PIECE_SEED_MAX ? v : 0;
+}
+
 export interface VoxelWorldRing {
   /** Metres across the ground within which chunks load. */
   loadRadius?: number;

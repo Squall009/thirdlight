@@ -1,8 +1,8 @@
 /**
  * A project's voxel world in the real page against the real backend, on
  * WebGPU and on WebGL 2: the voxel world page streams the world's region
- * files by range, derives and draws them (ground, walls, and the beam,
- * rail and post pieces the assembly rules resolve), sends a brush dab as a
+ * files by range, derives and draws them (ground, walls, and the kit pieces
+ * on the stone's edges), sends a brush dab as a
  * command, and shows the change once the backend has written it (pixels
  * read with png.ts); a reload, and a restarted backend, show the same
  * world from the region files.
@@ -14,8 +14,8 @@
  * The assembly proof drives the same page with plain set/dig commands (a
  * game's runtime build, no structure data): the banister grown upward
  * becomes a wall and back, a wall cell taken from behind the beam across a
- * chunk face turns the beam in the next chunk, and every consumer (render,
- * collision, navigation, light) follows; the chunks derived again are
+ * chunk face turns the beam in the next chunk (beams and banisters are plain
+ * voxels for every consumer: render, collision, navigation, light); the chunks derived again are
  * exactly those within the rules' reach of the edit, none is stale against
  * a fresh derive, the result survives a reload from the files, and the
  * banister rebuilt cell by cell derives (and saves) as the generator wrote
@@ -80,7 +80,7 @@ import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, cubeRotationIndex, DEFAULT_KIT_ID, dependentChunks, editBounds, jobRadius, kitTestScene, LIGHT_COVERAGE, PIECE_FAMILY, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -143,7 +143,7 @@ async function addStoneKit(): Promise<void> {
   const assetId = imported.change.added[0]!.assetId;
   const digest = createHash('sha256').update(glb).digest('hex');
   console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no texture`);
-  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], cases: { 'edge-out-vertical': { sections: { body: { variants: [{ high: { assetId, digest } }] } } }, 'corner-out-top': { alias: { case: 'edge-out-vertical', rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) } } } } });
+  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], slots: { 'edge-out-vertical': { meshes: [{ mesh: { assetId, digest } }] }, 'corner-out-top': { meshes: [{ mesh: { assetId, digest }, rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) }] } } } });
 }
 test.afterAll(async () => {
   await be?.stop();
@@ -168,11 +168,11 @@ async function open(page: Page, renderer: 'webgpu' | 'webgl2', query = ''): Prom
 interface CellReport {
   voxel: { material: number; role: number };
   resolved: string;
-  outputs: { renderSolid: boolean; baseFaces: number; piece: { family: number; section: number; replacesBase: boolean } | null; collision: string; navBlocks: boolean; standable: boolean; light: number } | null;
+  outputs: { renderSolid: boolean; baseFaces: number; piece: { piece: number; replacesBase: boolean } | null; collision: string; navBlocks: boolean; standable: boolean; light: number } | null;
   /** A kit piece's kit, case and run section (null: none, or an engine default piece). */
-  kitPiece: { kit: string; caseId: string; section: string } | null;
+  kitPiece: { kit: string; caseId: string; mesh: number; rotation: number } | null;
   /** Every kit piece the cell owns (one an edge or corner), its turns and placement. */
-  kitPieces: { kit: string | null; caseId: string | null; section: string | null; turns: number; place: number }[];
+  kitPieces: { kit: string | null; caseId: string | null; mesh: number | null; rotation: number | null; turns: number; place: number }[];
 }
 interface EditAnswer {
   ok: boolean;
@@ -238,11 +238,14 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   await noneStale();
   expect((await hook<{ collision: { bodies: number } }>(page, 'state')).collision.bodies).toBeGreaterThan(20);
 
-  // As the generator wrote it: an open banister (rail on posts), a beam one out from the wall, the wall.
-  expect(await cellAt(page, rail)).toMatchObject({ resolved: 'rail', outputs: { renderSolid: false, baseFaces: 0, collision: 'partial', navBlocks: true, standable: false, light: LIGHT_COVERAGE.panel } });
+  // As the generator wrote it: a banister (rail on posts), a beam one out from the wall, the wall; the rail, posts and
+  // beam are plain voxels for every consumer (beams and banisters are not part of the voxel world), no piece in their place.
+  const plain = { renderSolid: true, collision: 'full', navBlocks: true, light: 255 };
+  expect(await cellAt(page, rail)).toMatchObject({ resolved: 'rail', outputs: { ...plain, standable: false } });
+  expect((await cellAt(page, rail)).outputs?.baseFaces).toBeGreaterThan(0);
   expect((await cellAt(page, post)).resolved).toBe('post');
   expect(await cellAt(page, gap)).toMatchObject({ resolved: 'empty', outputs: { collision: 'none', navBlocks: false, light: 0 } });
-  expect(await cellAt(page, beam)).toMatchObject({ resolved: 'beam', outputs: { renderSolid: false, collision: 'partial', light: LIGHT_COVERAGE.bar } });
+  expect(await cellAt(page, beam)).toMatchObject({ resolved: 'beam', outputs: plain });
   expect(await cellAt(page, behindBeam[0]!)).toMatchObject({ resolved: 'wall', outputs: { renderSolid: true, collision: 'full', light: 255 } });
   // Physics: a ball rolled at post height passes between two posts and under the rail to the wall; a capsule rests on the rail,
   // another on the ground of the pad.
@@ -279,13 +282,11 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   const cutAnswer = await send(cut);
   expect(cutAnswer.rederived).toContain(sectionName(beam));
   expect(sectionName(beam)).not.toBe(sectionName(behindBeam[0]!));
-  // A whole wall for every consumer; its piece, if any, is no beam: a default-kit trim added to the kept body (the
-  // stub's exposed edges), never one replacing it.
+  // A whole wall for every consumer; its piece, if any, a kit's edge piece added to the kept body (never one replacing it).
   const stub = await cellAt(page, beam);
   expect(stub).toMatchObject({ resolved: 'wall', outputs: { collision: 'full', light: 255 } });
   expect(stub.outputs?.piece?.replacesBase ?? false).toBe(false);
-  expect(stub.outputs?.piece === null || stub.kitPiece?.kit === DEFAULT_KIT_ID).toBe(true);
-  expect((await cellAt(page, [ox - 5, oy + 5, oz - 1])).outputs?.piece?.section).not.toBe(2);
+  expect(stub.outputs?.piece === null || stub.kitPiece?.kit === STONE_KIT).toBe(true);
   await send({ v: 2, grid: 0, kind: 'set', cells: behindBeam.flat(), voxel: { material: MAT.stone, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } });
   expect((await cellAt(page, beam)).resolved).toBe('beam');
   expect(await hashes()).toEqual(h1);
@@ -357,7 +358,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const state = await hook<{ drawn: number; triangles: number; pieces: number; counters: { damaged: number } }>(page, 'state');
     expect(state.drawn).toBeGreaterThan(20);
     expect(state.triangles).toBeGreaterThan(1000);
-    // The beam and the banister's rail and posts are drawn as pieces, not as wall.
+    // The stone wall's kit pieces (its free end's vertical edges and top corners).
     expect(state.pieces).toBeGreaterThan(5);
     expect(state.counters.damaged).toBe(0);
     // Collision on this renderer's page too: a capsule rests on the wall's top, a ball passes between the posts to the wall.
@@ -395,49 +396,48 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await hook(page, 'settle');
 
     // Kit pieces: the stone wall's free end's vertical edges draw the test kit's GLB board (read from the backend,
-    // parsed by the page's loader), its flat faces nothing; every other material the engine's default kit (edges,
-    // corners). A cell in the middle of the wall owns no piece.
+    // parsed by the page's loader), its flat faces nothing; a material without a kit (timber) none: plain voxel edges.
+    // A cell in the middle of the wall owns no piece.
     const kitState = await hook<{ kitPieces: number; kits: { ids: string[]; meshes: Record<string, string> } }>(page, 'state');
-    expect(kitState.kits.ids).toEqual([STONE_KIT, DEFAULT_KIT_ID]);
+    expect(kitState.kits.ids).toEqual([STONE_KIT]);
     expect(Object.values(kitState.kits.meshes)).toEqual(['ready']);
     expect(kitState.kitPieces).toBeGreaterThan(5);
     const freeEnd = await cellAt(page, [ox + 5, oy + 2, oz]);
     expect(freeEnd.kitPieces.map((p) => `${p.kit} ${p.caseId} ${p.turns}`).sort()).toEqual([`${STONE_KIT} edge-out-vertical 0`, `${STONE_KIT} edge-out-vertical 3`]);
     expect((await cellAt(page, [ox, oy + 3, oz])).kitPieces).toEqual([]);
-    // The free end's top corners, front and back, draw the board through the alias (its top edges: the kit has no
-    // piece, none drawn); the wall's top cell in the middle has its top edges only, nothing of the kit's on its faces.
+    // The free end's top corners, front and back, draw the board turned by their slot's rotation (its top edges: an
+    // empty slot, none drawn); the wall's top cell in the middle has its top edges only, an empty slot: nothing.
     const topEnd = (await cellAt(page, [ox + 5, oy + 7, oz])).kitPieces.map((p) => `${p.kit} ${p.caseId}`).sort();
     expect(topEnd).toEqual([`${STONE_KIT} corner-out-top`, `${STONE_KIT} corner-out-top`, `${STONE_KIT} edge-out-vertical`, `${STONE_KIT} edge-out-vertical`]);
     expect((await cellAt(page, [ox, oy + 6, oz])).kitPieces).toEqual([]);
-    // The banister grown into a wall (its gaps and a row over the rail): the rail's default pieces go, the new wall's
-    // top edges draw the default kit's edge pieces, the picture changes; dug back, the banister and its pieces are as before.
+    // The banister grown into a wall (its gaps and a row over the rail): timber has no kit, so no piece before or after,
+    // the picture changes with the voxels; dug back, the banister is as before.
     const railCell: Cell = [ox - 3, oy + 2, oz + 7];
-    expect((await cellAt(page, railCell)).outputs?.piece?.family).toBe(PIECE_FAMILY.rail);
+    expect((await cellAt(page, railCell)).outputs?.piece ?? null).toBeNull();
     const grown: number[] = [];
     for (let x = -4; x < 4; x++) grown.push(...((x & 1) !== 0 ? [ox + x, oy + 1, oz + 7] : []), ox + x, oy + 3, oz + 7);
     const banisterShot = await shot(page);
     expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'set', cells: grown, voxel: { material: MAT.timber, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } })).ok).toBe(true);
-    expect((await cellAt(page, railCell)).outputs?.piece).toBeNull();
-    expect((await cellAt(page, [ox - 3, oy + 3, oz + 7])).kitPiece).toMatchObject({ kit: DEFAULT_KIT_ID, caseId: 'edge-out-top' });
+    expect((await cellAt(page, railCell)).outputs?.piece ?? null).toBeNull();
+    expect((await cellAt(page, [ox - 3, oy + 3, oz + 7])).kitPieces).toEqual([]);
     expect(changedPixels(banisterShot, await shot(page)), 'banister → wall').toBeGreaterThan(300);
     expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'dig', cells: grown })).ok).toBe(true);
-    expect((await cellAt(page, railCell)).outputs?.piece?.family).toBe(PIECE_FAMILY.rail);
+    expect((await cellAt(page, railCell)).resolved).toBe('rail');
 
-    // The kit test scene (writeKitTestScene, the page's ?kitScene): written beside the scene in timber (the default
-    // kit's material), its exhibits (the window cases: beams and banisters) labelled on the screen, each drawn with its
-    // case's piece (the engine's stand-ins); one undo takes it away.
+    // The kit test scene (writeKitTestScene, the page's ?kitScene): written beside the scene in stone (the test kit's
+    // material), every slot's sampler cell labelled on the screen; the filled slot (vertical edges) draws the kit's
+    // board there, an empty slot (top edges) nothing; one undo takes it away.
     if (renderer === 'webgpu') {
       const at: Cell = [ox - 52, oy, oz + 16];
-      const labels = kitTestScene(WORLD_RULES, { origin: at, material: MAT.timber }).labels;
-      expect((await hook<EditAnswer>(page, 'writeKitScene', at, MAT.timber)).ok).toBe(true);
-      const top = labels.find((l) => l.caseId === 'banister-rail')!;
+      const labels = kitTestScene(WORLD_RULES, { origin: at, material: MAT.stone }).labels;
+      expect((await hook<EditAnswer>(page, 'writeKitScene', at, MAT.stone)).ok).toBe(true);
+      const top = labels.find((l) => l.caseId === 'edge-out-vertical')!;
       await hook(page, 'look', ...top.cell, -0.6, 0.45, 8);
       await hook(page, 'settle');
       await page.waitForFunction(() => ((window as unknown as { __tlVoxelWorld: { labelsShown(): number } }).__tlVoxelWorld.labelsShown()) > 3);
-      for (const [id, family] of [['beam', PIECE_FAMILY.beam], ['banister-rail', PIECE_FAMILY.rail], ['banister-post', PIECE_FAMILY.post]] as const) {
-        const l = labels.find((x) => x.caseId === id)!;
-        expect((await cellAt(page, [...l.cell] as Cell)).outputs?.piece?.family, id).toBe(family);
-      }
+      expect((await cellAt(page, [...top.cell] as Cell)).kitPieces.map((p) => `${p.kit} ${p.caseId}`)).toContain(`${STONE_KIT} edge-out-vertical`);
+      const edgeTop = labels.find((l) => l.caseId === 'edge-out-top')!;
+      expect((await cellAt(page, [...edgeTop.cell] as Cell)).kitPieces.map((p) => p.caseId)).not.toContain('edge-out-top');
       expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
       expect((await cellAt(page, [...top.cell] as Cell)).outputs?.piece ?? null).toBeNull();
       await hook(page, 'clearKitScene');

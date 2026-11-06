@@ -26,7 +26,7 @@ export interface KitSceneLabels {
 export function createKitSceneLabels(labels: readonly KitTestLabel[], parent: HTMLElement): KitSceneLabels {
   const tags = labels.map((l) => {
     const el = document.createElement('div');
-    el.textContent = `${l.roleName} · ${l.caseId}${l.section !== null ? ` · ${l.section}` : ''}`;
+    el.textContent = `${l.roleName} · ${l.caseId}`;
     el.style.cssText = 'position:fixed;left:0;top:0;transform:translate(-50%,-100%);padding:1px 4px;background:rgba(20,20,30,.75);color:#fff;font:11px/1.3 system-ui,sans-serif;white-space:nowrap;pointer-events:none;border-radius:3px;display:none';
     parent.append(el);
     return { el, cell: l.cell };

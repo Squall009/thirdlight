@@ -656,6 +656,8 @@ export interface GameplaySettings {
   streaming_budget_mb?: number;
   /** Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load). */
   architecture_ship_meshes?: number;
+  /** The voxel world's piece seed: which of a kit slot's meshes each piece draws (`VOXEL_PIECE_SEED_KEY`; absent: 0). */
+  voxel_piece_seed?: number;
   /** See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits). */
   see_through?: number;
   /** The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`). */

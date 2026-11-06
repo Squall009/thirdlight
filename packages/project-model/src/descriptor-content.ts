@@ -603,7 +603,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
   {
     key: 'voxelKits',
     label: 'Voxel kits',
-    tooltip: 'The detail pieces a material type (wood, stone, …) draws a voxel world\'s cases with: per case and run section the authored mesh of each weighted variant (drawn in the near ring only), the outlines section ends meet by, and the game\'s own data. Shipped whole with the build; the engine never reads the game data.',
+    tooltip: 'The detail pieces a material type (wood, stone, …) draws a voxel world\'s edges, corners, roof edges and damage with, as slots: every case is a slot, filled with one or more weighted meshes each with a cube rotation (drawn in the near ring only), or left empty (plain voxel edges). One texture set a kit, a jitter for every piece, and the game\'s own data. Shipped whole with the build; the engine never reads the game data.',
     required: false,
     value: list('voxelKits', 'Voxel kits', 'The project\'s voxel kits (each its own file).', obj('*', 'Voxel kit', 'A voxel kit.', [
       int('kitFormat', 'Format', `The kit record's format (${VOXEL_KIT_FORMAT}); a newer one is refused.`, { required: true, min: VOXEL_KIT_FORMAT, max: VOXEL_KIT_FORMAT, default: VOXEL_KIT_FORMAT, readOnly: true }),
@@ -612,8 +612,8 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       int('version', 'Version', 'The kit\'s own revision (a positive integer its author moves).', { required: true, min: 1, default: 1 }),
       str('materialType', 'Material type', 'The material type the kit dresses (wood, stone, …): every material of the type shares its pieces.', { ...ID, required: true }),
       list('materials', 'Materials', `Test binding: the voxel material ids (1-${VOXEL_KIT_LIMITS.materialIdMax}) the kit applies to, until materials name their kit.`, int('*', 'Material', 'A voxel material id.', { min: 1, max: VOXEL_KIT_LIMITS.materialIdMax }), { unique: true }),
-      json('cases', 'Cases', `{caseId: {sections?: {sectionId: {variants: [{high, low?, weight?}, …], ends?: {start?, end?}}}, alias?: {case, rotation 0-23}, gameData?}}; a mesh is {assetId, digest (the GLB's SHA-256), node?}; weight in (0, ${VOXEL_KIT_LIMITS.weightMax}], absent 1. Case and section ids are the case catalogue's.`, { required: true, shape: 'Record<string, VoxelKitCase>' }),
-      json('joinProfiles', 'Join profiles', `{profileId: {outline: [[u, v], …]}}: a section end's closed outline, at least ${VOXEL_KIT_LIMITS.profilePointsMin} points in whole sixteenths of a cell (0-${VOXEL_KIT_LIMITS.profileUnits}).`, { shape: 'Record<string, VoxelKitJoinProfile>' }),
+      json('slots', 'Slots', `{caseId: {meshes: [{mesh, rotation?, weight?}, …], gameData?}}: a slot a case of the case catalogue, every one optional (left out: nothing drawn); a mesh is {assetId, digest (the GLB's SHA-256), node?}; rotation one of the 24 cube rotations 0-23 (absent 0); weight in (0, ${VOXEL_KIT_LIMITS.weightMax}], absent 1. Which mesh a piece draws follows the project's voxel detail seed.`, { required: true, shape: 'Record<string, VoxelKitSlot>' }),
+      num('jitter', 'Jitter', `How far every piece moves into the solid and twists, as a share of the engine's stagger (1: 1/64-1/32 cell in, up to 2°; 0: on the lattice; at most ${VOXEL_KIT_LIMITS.jitterMax}).`, { min: 0, max: VOXEL_KIT_LIMITS.jitterMax, step: 0.05, default: 1 }),
       str('trimLayout', 'Trim layout', 'The trim layout the pieces\' UVs follow (absent: the kit uses no trim sheet).', ID),
       json('gameData', 'Game data', `The game's own data for the kit (break, sound, physics defaults …): JSON nested at most ${VOXEL_KIT_LIMITS.gameDataDepth} deep, shipped as it is, never read by the engine.`),
     ]), { default: [] }),

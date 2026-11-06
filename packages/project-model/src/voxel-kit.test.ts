@@ -1,7 +1,8 @@
 /**
- * The voxel kit record: its canonical form keeps every field (a field the
- * canonicalizer forgot would be dropped silently), in one order however it
- * was built; a newer format, unknown fields and bad values are refused; the
+ * The voxel kit record (slots): its canonical form keeps every field (a
+ * field the canonicalizer forgot would be dropped silently), in one order
+ * however it was built; a newer format, unknown fields and bad values are
+ * refused; the
  * content block holds kits as a list of records, and a build's catalog block
  * takes them as they are, game data untouched.
  */
@@ -16,31 +17,23 @@ import { canonicalVoxelKit, canonicalVoxelKits, validateVoxelKit, validateVoxelK
 const D1 = 'a'.repeat(64);
 const D2 = 'b'.repeat(64);
 
-/** Every field set, maps and lists out of order, a weight of 1 (the default) and of 3. */
+/** Every field set, maps and lists out of order, a weight of 1 and a rotation of 0 (the defaults), a weight of 3. */
 function full(): VoxelKit {
   return {
     gameData: { sound: { step: 'wood-step' }, break: { hits: 3, debris: ['splinter', 'plank'] }, physics: null },
     trimLayout: 'detail-pieces-draft',
-    joinProfiles: { round: { outline: [[8, 0], [16, 8], [8, 16], [0, 8]] }, beam: { outline: [[4, 4], [12, 4], [12, 12], [4, 12]] } },
-    cases: {
-      'wall-banister': {
+    jitter: 1.5,
+    slots: {
+      'edge-out-top': {
         gameData: { break: { hits: 1 } },
-        sections: {
-          termination: { variants: [{ high: { assetId: 'log-kit', digest: D1, node: 'Rail_End' } }] },
-          body: {
-            ends: { end: 'round', start: 'round' },
-            variants: [
-              { weight: 3, high: { node: 'Rail_Body_A', digest: D1, assetId: 'log-kit' } },
-              { weight: 1, high: { assetId: 'log-kit', digest: D1, node: 'Rail_Body_B' } },
-            ],
-          },
-        },
+        meshes: [
+          { weight: 3, mesh: { node: 'Edge_A', digest: D1, assetId: 'log-kit' } },
+          { rotation: 0, weight: 1, mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_B' } },
+        ],
       },
-      'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D2 } }], ends: { start: 'beam' } } } },
-      // Drawn by another case's meshes turned (fields given out of order).
-      'beam-end': { gameData: { break: { hits: 2 } }, alias: { rotation: 5, case: 'beam-corner' } },
-      // Data only: no pieces of its own (the fallback kit draws the case).
-      'floor-edge': { gameData: 'creaky' },
+      // One mesh filling another slot, turned (fields given out of order).
+      'edge-out-bottom': { meshes: [{ rotation: 5, mesh: { digest: D1, assetId: 'log-kit', node: 'Edge_A' } }] },
+      'corner-out-top': { meshes: [{ mesh: { assetId: 'log-kit', digest: D2 } }] },
     },
     materials: [12, 3, 4095],
     materialType: 'wood',
@@ -65,14 +58,14 @@ function leaves(v: unknown, at = ''): string[] {
 }
 
 describe('voxel kit record', () => {
-  it('keeps every field through the canonical form (the weight of 1 aside), in one order however it was built, and is idempotent', () => {
+  it('keeps every field through the canonical form (the default weight and rotation aside), in one order however it was built, and is idempotent', () => {
     const kit = full();
     expect(problems(kit)).toEqual([]);
     const canon = canonicalVoxelKit(kit);
     const dropped = leaves(kit).filter((p) => !leaves(canon).includes(p));
-    // The only leaf left out is the default weight; materials are sorted, so their values move but stay.
-    expect(dropped).toEqual(['/cases/wall-banister/sections/body/variants/1/weight']);
-    expect(leaves(canon).length).toBe(leaves(kit).length - 1);
+    // The only leaves left out are the defaults; materials are sorted, so their values move but stay.
+    expect(dropped).toEqual(['/slots/edge-out-top/meshes/1/rotation', '/slots/edge-out-top/meshes/1/weight']);
+    expect(leaves(canon).length).toBe(leaves(kit).length - 2);
     expect(JSON.stringify(canon)).toBe(
       JSON.stringify({
         kitFormat: 1,
@@ -81,43 +74,40 @@ describe('voxel kit record', () => {
         version: 7,
         materialType: 'wood',
         materials: [3, 12, 4095],
-        cases: {
-          'beam-corner': { sections: { corner: { variants: [{ high: { assetId: 'log-kit', digest: D2 } }], ends: { start: 'beam' } } } },
-          'beam-end': { alias: { case: 'beam-corner', rotation: 5 }, gameData: { break: { hits: 2 } } },
-          'floor-edge': { gameData: 'creaky' },
-          'wall-banister': {
-            sections: {
-              body: {
-                variants: [
-                  { high: { assetId: 'log-kit', digest: D1, node: 'Rail_Body_A' }, weight: 3 },
-                  { high: { assetId: 'log-kit', digest: D1, node: 'Rail_Body_B' } },
-                ],
-                ends: { start: 'round', end: 'round' },
-              },
-              termination: { variants: [{ high: { assetId: 'log-kit', digest: D1, node: 'Rail_End' } }] },
-            },
+        slots: {
+          'corner-out-top': { meshes: [{ mesh: { assetId: 'log-kit', digest: D2 } }] },
+          'edge-out-bottom': { meshes: [{ mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_A' }, rotation: 5 }] },
+          'edge-out-top': {
+            meshes: [{ mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_A' }, weight: 3 }, { mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_B' } }],
             gameData: { break: { hits: 1 } },
           },
         },
-        joinProfiles: { beam: { outline: [[4, 4], [12, 4], [12, 12], [4, 12]] }, round: { outline: [[8, 0], [16, 8], [8, 16], [0, 8]] } },
+        jitter: 1.5,
         trimLayout: 'detail-pieces-draft',
         gameData: { break: { debris: ['splinter', 'plank'], hits: 3 }, physics: null, sound: { step: 'wood-step' } },
       }),
     );
     expect(JSON.stringify(canonicalVoxelKit(canon))).toBe(JSON.stringify(canon));
     expect(problems(canon)).toEqual([]);
+    // A jitter of 1 is the default: left out.
+    expect(canonicalVoxelKit({ ...kit, jitter: 1 }).jitter).toBeUndefined();
     // The canonical form is a copy: changing it leaves the kit it came from as it was.
-    (canon.cases['wall-banister']!.gameData as { break: { hits: number } }).break.hits = 9;
-    expect((kit.cases['wall-banister']!.gameData as { break: { hits: number } }).break.hits).toBe(1);
+    (canon.slots['edge-out-top']!.gameData as { break: { hits: number } }).break.hits = 9;
+    expect((kit.slots['edge-out-top']!.gameData as { break: { hits: number } }).break.hits).toBe(1);
+  });
+
+  it('an empty kit (no slot filled) is valid: every edge stays a plain voxel edge', () => {
+    const { slots: _, ...rest } = full();
+    expect(problems({ ...rest, slots: {} })).toEqual([]);
   });
 
   it('game data passes through as given: values, list order and nesting kept, only object keys sorted', () => {
     const data = { z: [3, 1, 2, { b: true, a: 'x' }], a: -0.5, m: { deep: { er: [null, 'é', 1e21] } } };
-    const kit = { ...full(), gameData: data, cases: { c: { gameData: [data, 'two'] } } };
+    const kit = { ...full(), gameData: data, slots: { c: { meshes: [{ mesh: { assetId: 'log-kit', digest: D1 } }], gameData: [data, 'two'] } } };
     const canon = canonicalVoxelKit(kit);
     expect(canon.gameData).toEqual(data);
     expect(Object.keys(canon.gameData as object)).toEqual(['a', 'm', 'z']);
-    expect(canon.cases['c']!.gameData).toEqual([data, 'two']);
+    expect(canon.slots['c']!.gameData).toEqual([data, 'two']);
   });
 
   it('refuses a newer format whole, and a missing or wrong one', () => {
@@ -130,21 +120,23 @@ describe('voxel kit record', () => {
     for (const f of [0, '1', 1.5, null]) expect(problems({ ...full(), kitFormat: f })[0], String(f)).toMatchObject({ code: 'field_value', path: '/kitFormat' });
   });
 
-  it('refuses unknown fields at every level', () => {
+  it('refuses unknown fields at every level, the draft fields slots replaced among them', () => {
     const at = (mutate: (k: Record<string, any>) => void): string[] => {
       const k = JSON.parse(JSON.stringify(full())) as Record<string, any>;
       mutate(k);
       return problems(k).map((e) => `${e.code} ${e.path}`);
     };
     expect(at((k) => (k['pieces'] = {}))).toEqual(['field_unexpected /pieces']);
-    expect(at((k) => (k['cases']['beam-corner']['collision'] = 'box'))).toEqual(['field_unexpected /cases/beam-corner/collision']);
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['mirror'] = true))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/mirror']);
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['mid'] = {}))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/variants/0/mid']);
+    // Cases with run sections and join profiles were the slots' draft: no field of the format now.
+    expect(at((k) => (k['cases'] = {}))).toEqual(['field_unexpected /cases']);
+    expect(at((k) => (k['joinProfiles'] = {}))).toEqual(['field_unexpected /joinProfiles']);
+    expect(at((k) => (k['slots']['corner-out-top']['sections'] = {}))).toEqual(['field_unexpected /slots/corner-out-top/sections']);
+    expect(at((k) => (k['slots']['corner-out-top']['alias'] = { case: 'edge-out-top', rotation: 1 }))).toEqual(['field_unexpected /slots/corner-out-top/alias']);
+    expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['mirror'] = true))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/mirror']);
     // One mesh a piece (pieces are drawn in the near ring only): a lower-detail mesh is no field of the format.
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['low'] = { assetId: 'log-kit', digest: D1 }))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/variants/0/low']);
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['high']['url'] = 'x'))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/variants/0/high/url']);
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['ends']['middle'] = 'beam'))).toEqual(['field_unexpected /cases/beam-corner/sections/corner/ends/middle']);
-    expect(at((k) => (k['joinProfiles']['beam']['holes'] = []))).toEqual(['field_unexpected /joinProfiles/beam/holes']);
+    expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['low'] = { assetId: 'log-kit', digest: D1 }))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/low']);
+    expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['high'] = { assetId: 'log-kit', digest: D1 }))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/high']);
+    expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['mesh']['url'] = 'x'))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/mesh/url']);
   });
 
   it('refuses bad values with the path of each', () => {
@@ -153,46 +145,25 @@ describe('voxel kit record', () => {
       mutate(k);
       return problems(k).map((e) => `${e.code} ${e.path}`);
     };
+    const m0 = (k: Record<string, any>): Record<string, any> => k['slots']['corner-out-top']['meshes'][0];
     expect(at((k) => (k['voxelKitId'] = 'Log Kit'))).toEqual(['id_invalid /voxelKitId']);
     expect(at((k) => (k['name'] = ''))).toEqual(['field_value /name']);
     for (const v of [0, 1.5, '2']) expect(at((k) => (k['version'] = v))).toEqual(['field_value /version']);
     expect(at((k) => delete k['materialType'])).toEqual(['id_invalid /materialType']);
     expect(at((k) => (k['materials'] = [0, MATERIAL_ID_MAX + 1, 2.5, 3, 3]))).toEqual(['field_value /materials/0', 'field_value /materials/1', 'field_value /materials/2', 'id_duplicate /materials/4']);
-    expect(at((k) => delete k['cases'])).toEqual(['field_type /cases']);
-    expect(at((k) => (k['cases']['Bad Case'] = {}))).toEqual(['id_invalid /cases/Bad Case']);
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'] = []))).toEqual(['field_value /cases/beam-corner/sections/corner/variants']);
-    expect(at((k) => delete k['cases']['beam-corner']['sections']['corner']['variants'][0]['high'])).toEqual(['field_type /cases/beam-corner/sections/corner/variants/0/high']);
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['high']['digest'] = 'A'.repeat(64)))).toEqual(['digest_invalid /cases/beam-corner/sections/corner/variants/0/high/digest']);
-    for (const w of [0, -1, VOXEL_KIT_LIMITS.weightMax + 1, Number.NaN]) expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['variants'][0]['weight'] = w))).toEqual(['field_value /cases/beam-corner/sections/corner/variants/0/weight']);
-    // A section end names a profile the kit has.
-    expect(at((k) => (k['cases']['beam-corner']['sections']['corner']['ends']['end'] = 'square'))).toEqual(['reference_missing /cases/beam-corner/sections/corner/ends/end']);
-    expect(at((k) => (k['joinProfiles']['beam']['outline'] = [[0, 0], [16, 16]]))).toEqual(['field_value /joinProfiles/beam/outline']);
-    expect(at((k) => (k['joinProfiles']['beam']['outline'][1] = [17, 4]))).toEqual(['field_value /joinProfiles/beam/outline/1']);
-    expect(at((k) => (k['joinProfiles']['beam']['outline'][1] = [4.5, 4]))).toEqual(['field_value /joinProfiles/beam/outline/1']);
+    expect(at((k) => delete k['slots'])).toEqual(['field_missing /slots']);
+    expect(at((k) => (k['slots'] = []))).toEqual(['field_type /slots']);
+    expect(at((k) => (k['slots']['Bad Case'] = { meshes: [{ mesh: { assetId: 'log-kit', digest: D1 } }] }))).toEqual(['id_invalid /slots/Bad Case']);
+    // An empty slot is not stored: it is left out.
+    expect(at((k) => (k['slots']['corner-out-top']['meshes'] = []))).toEqual(['field_value /slots/corner-out-top/meshes']);
+    expect(at((k) => delete m0(k)['mesh'])).toEqual(['field_type /slots/corner-out-top/meshes/0/mesh']);
+    expect(at((k) => (m0(k)['mesh']['digest'] = 'A'.repeat(64)))).toEqual(['digest_invalid /slots/corner-out-top/meshes/0/mesh/digest']);
+    for (const w of [0, -1, VOXEL_KIT_LIMITS.weightMax + 1, Number.NaN]) expect(at((k) => (m0(k)['weight'] = w))).toEqual(['field_value /slots/corner-out-top/meshes/0/weight']);
+    for (const r of [24, -1, 1.5, '3']) expect(at((k) => (m0(k)['rotation'] = r)), String(r)).toEqual(['field_value /slots/corner-out-top/meshes/0/rotation']);
+    expect(at((k) => (m0(k)['rotation'] = 23))).toEqual([]);
+    for (const j of [-0.1, VOXEL_KIT_LIMITS.jitterMax + 0.5, Number.NaN, '1']) expect(at((k) => (k['jitter'] = j)), String(j)).toEqual(['field_value /jitter']);
+    for (const j of [0, VOXEL_KIT_LIMITS.jitterMax]) expect(at((k) => (k['jitter'] = j))).toEqual([]);
     expect(at((k) => (k['trimLayout'] = 'Draft 1'))).toEqual(['id_invalid /trimLayout']);
-  });
-
-  it('refuses an alias that is not one: sections beside it, a rotation off the 24, a missing, self or chained target, unknown fields', () => {
-    const withCase = (c: unknown): VoxelKit => {
-      const k = full();
-      (k.cases as Record<string, unknown>)['beam-end'] = c;
-      return k;
-    };
-    const codes = (c: unknown): string[] => problems(withCase(c)).map((e) => `${e.code} ${e.path}`);
-    const section = { body: { variants: [{ high: { assetId: 'log-kit', digest: D1 } }] } };
-    expect(codes({ alias: { case: 'beam-corner', rotation: 23 } })).toEqual([]);
-    expect(codes({ alias: { case: 'beam-corner', rotation: 0 }, sections: section })).toEqual(['field_value /cases/beam-end/alias']);
-    for (const r of [24, -1, 1.5, '3']) expect(codes({ alias: { case: 'beam-corner', rotation: r } }), String(r)).toEqual(['field_value /cases/beam-end/alias/rotation']);
-    expect(codes({ alias: { case: 'no-such-case', rotation: 0 } })).toEqual(['reference_missing /cases/beam-end/alias/case']);
-    expect(codes({ alias: { case: 'beam-end', rotation: 0 } })).toEqual(['field_value /cases/beam-end/alias/case']);
-    // A case with data only, or itself an alias, has no meshes to lend.
-    expect(codes({ alias: { case: 'floor-edge', rotation: 0 } })).toEqual(['reference_missing /cases/beam-end/alias/case']);
-    expect(codes({ alias: { case: 'Bad Id', rotation: 0 } })[0]).toBe('id_invalid /cases/beam-end/alias/case');
-    expect(codes({ alias: { case: 'beam-corner', rotation: 0, mirror: true } })).toEqual(['field_unexpected /cases/beam-end/alias/mirror']);
-    expect(codes({ alias: 'beam-corner' })).toEqual(['field_type /cases/beam-end/alias']);
-    const chained = withCase({ alias: { case: 'beam-corner', rotation: 1 } });
-    (chained.cases as Record<string, unknown>)['beam-tip'] = { alias: { case: 'beam-end', rotation: 2 } };
-    expect(problems(chained).map((e) => `${e.code} ${e.path}`)).toEqual(['reference_missing /cases/beam-tip/alias/case']);
   });
 
   it('refuses game data that is not JSON or nests past the bound', () => {
@@ -203,7 +174,7 @@ describe('voxel kit record', () => {
     expect(problems({ ...full(), gameData: edge })).toEqual([]);
     for (const bad of [deep, Number.POSITIVE_INFINITY, { f: () => 1 }, new Date(0), { u: undefined }]) {
       expect(problems({ ...full(), gameData: bad }).map((e) => e.path)).toEqual(['/gameData']);
-      expect(problems({ ...full(), cases: { c: { gameData: bad } } }).map((e) => e.path)).toEqual(['/cases/c/gameData']);
+      expect(problems({ ...full(), slots: { c: { meshes: [{ mesh: { assetId: 'log-kit', digest: D1 } }], gameData: bad } } }).map((e) => e.path)).toEqual(['/slots/c/gameData']);
     }
   });
 
@@ -225,7 +196,7 @@ describe('voxel kit record', () => {
 
 describe('the models a build ships for kit meshes', () => {
   const D = (n: number): string => n.toString(16).padStart(64, '0');
-  const kit = (id: string, digest: string): VoxelKit => ({ kitFormat: VOXEL_KIT_FORMAT, voxelKitId: id, name: id, version: 1, materialType: 'wood', cases: { beam: { sections: { body: { variants: [{ high: { assetId: 'crate', digest } }] } } } } });
+  const kit = (id: string, digest: string): VoxelKit => ({ kitFormat: VOXEL_KIT_FORMAT, voxelKitId: id, name: id, version: 1, materialType: 'wood', slots: { 'edge-out-top': { meshes: [{ mesh: { assetId: 'crate', digest } }] } } });
   // Two versions kept (a reimport keeps an older one only while something names it): v1 the mesh's, v2 current.
   const crate = { assetId: 'crate', kind: 'model', currentVersion: 2, versions: [{ version: 1, sourceDigest: D(1) }, { version: 2, sourceDigest: D(2) }] };
   const refs = (entities: unknown[], kits: VoxelKit[]): ReturnType<typeof collectAssetRefsV3> => collectAssetRefsV3({ schemaVersion: 3, sceneId: 'main', revision: 1, entities } as never, { assets: [crate], behaviors: [], prefabs: [], voxelKits: kits } as never, []);

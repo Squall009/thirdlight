@@ -19,7 +19,6 @@ import { levelDrawsPieces } from './derived-mesh';
 import { EDGE_REACH, extractEdges, type EdgeMasks } from './edge-cases';
 import { EDGE_CASE_CATALOGUE } from './kit-case-catalogue';
 import { CASE_REACH, CaseCatalogue, NO_CASE, type CaseCatalogueDef } from './kit-cases';
-import { NO_SECTION, resolveRunSections, RunTable } from './kit-runs';
 import { TERRAIN_RULES } from './terrain-rules';
 
 /** True when a node of chunk-tree level `level` draws pieces, so its cells need cases. */
@@ -46,7 +45,8 @@ function clearBox(n: Neighbourhood, lo: number, hi: number, out: Uint16Array | U
  */
 export function withCases(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id: string, version: number): AssemblyRuleSet {
   let compiled: CaseCatalogue | null = null;
-  let runs: RunTable | null = null;
+  // A catalogue without rules or fallbacks gives no cell a case: the window pass is skipped.
+  const windowed = catalogue.rules.length > 0 || Object.values(catalogue.fallback).some((f) => f !== null);
   return Object.freeze({
     id,
     version,
@@ -57,16 +57,12 @@ export function withCases(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
       base.resolve(n, lo, hi, out);
     },
     resolveCases(n: Neighbourhood, lo: number, hi: number, level: number, out: Uint16Array): number {
-      if (!levelHasCases(level)) {
+      if (!windowed || !levelHasCases(level)) {
         clearBox(n, lo, hi, out);
         return 0;
       }
       compiled ??= new CaseCatalogue(catalogue);
       return compiled.extract(n, lo, hi, out);
-    },
-    resolveRuns(n: Neighbourhood, cases: Uint16Array, lo: number, hi: number, out: Uint16Array): number {
-      runs ??= new RunTable(catalogue.cases);
-      return resolveRunSections(n, cases, runs, lo, hi, out);
     },
   });
 }
@@ -89,29 +85,9 @@ export function evaluateCases(n: Neighbourhood, rules: AssemblyRuleSet, level: n
 }
 
 /**
- * The run sections (kit-runs.ts) of a derive job's own cells into `out`,
- * from the cases {@link evaluateCases} gave (they reach one cell round the
- * chunk, as far as a section reads): the rule set's run pass, or no section
- * anywhere for a set without one. `caseCells` is what evaluateCases
- * returned: with no case anywhere the pass only clears the box (most
- * sections of a world hold no construction). Returns the cells given a
- * section.
- */
-export function evaluateRuns(n: Neighbourhood, rules: AssemblyRuleSet, cases: Uint16Array, out: Uint16Array, caseCells = Infinity): number {
-  if (out.length !== n.values.length) throw new RangeError('run sections: wrong length');
-  const lo = n.pad;
-  const hi = n.pad + n.edge;
-  if (rules.resolveRuns === undefined || caseCells === 0) {
-    clearBox(n, lo, hi, out, NO_SECTION);
-    return 0;
-  }
-  return rules.resolveRuns(n, cases, lo, hi, out);
-}
-
-/**
  * A rule set with the case pass and the edge pass added ({@link withCases}
- * plus edge-cases.ts): the window cases (beams and banisters) and every
- * cell's edge and corner pieces. Its radius covers both passes.
+ * plus edge-cases.ts): the window cases, if its catalogue has rules, and
+ * every cell's edge and corner pieces. Its radius covers both passes.
  */
 export function withEdges(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id: string, version: number): AssemblyRuleSet {
   const cased = withCases(base, catalogue, id, version);
@@ -168,12 +144,12 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
 
 /**
  * The edge rule set (DRAFT, with the edge catalogue), the world's: the
- * terrain rules, the beam and banister window cases and the edge pass; a
- * derive with it draws pieces only on edges, corners, roof edges, beams,
- * banisters and damaged cells (derived-pieces.ts). Version 2: no edge piece
- * round a cell the roof's planes may draw. Version 3 (catalogue
- * `edges-draft` v1, two debris stages): none round a damaged construction
- * cell either, which the derive draws as debris.
+ * terrain rules and the edge pass; a derive with it draws pieces only on
+ * edges, corners, roof edges and damaged cells (derived-pieces.ts).
+ * Version 2: no edge piece round a cell the roof's planes may draw.
+ * Version 3 (catalogue `edges-draft` v1, two debris stages): none round a
+ * damaged construction cell either, which the derive draws as debris.
+ * Version 4 (catalogue v2): no beam or banister cases, so no window pass.
  */
-export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 3);
+export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 4);
 

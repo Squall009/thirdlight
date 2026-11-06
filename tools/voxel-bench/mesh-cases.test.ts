@@ -485,8 +485,11 @@ describe('the base surface (built cells: coplanar faces merged)', () => {
     // A neighbour's long edge over the vertices of the triangles beside it: drop a vertex shared along a straight edge.
     const P = mesh.positions;
     const T = [...mesh.triangles];
-    const t0 = T.findIndex((_, i) => i % 3 === 0 && mesh.dirs[i / 3] === 1);
-    const torn: BaseMesh = { positions: P, triangles: T.filter((_, i) => Math.floor(i / 3) !== t0 / 3), dirs: mesh.dirs.filter((_, i) => i !== t0 / 3) };
+    // A +x triangle whose loss uncovers a face (one of a quad split along a face's centre may leave it read as covered).
+    const tornWithout = (t: number): BaseMesh => ({ positions: P, triangles: T.filter((_, i) => Math.floor(i / 3) !== t), dirs: mesh.dirs.filter((_, i) => i !== t) });
+    const t0 = mesh.dirs.findIndex((d, t) => d === 1 && coverage(tornWithout(t), faces).uncovered > 0);
+    expect(t0).toBeGreaterThanOrEqual(0);
+    const torn = tornWithout(t0);
     expect(coverage(torn, faces).uncovered).toBeGreaterThan(0);
     expect(openSegments(torn)).not.toEqual(naiveOpenSegments(faces));
     // Two unit faces in a row drawn as one quad whose long edge passes a neighbour's vertex.

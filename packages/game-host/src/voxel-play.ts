@@ -27,8 +27,8 @@ export interface VoxelPresentation {
   drawn(world: string, bytes: readonly number[], coarse: number, kits: number): void;
 }
 
-/** Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from `kits`; `qualityLevels` the project's (absent: the engine's). */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], qualityLevels?: readonly QualityLevelConfig[]): VoxelPresentation {
+/** Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from `kits` with the project's piece `seed`; `qualityLevels` the project's (absent: the engine's). */
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[]): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   let table: PieceTable | null = null;
   const levels = qualityLevels ?? ports.qualityLevels;
@@ -46,7 +46,7 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           source: conn.source,
           pool: conn.pool,
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),
-          pieces: (table ??= worldPieceTable(kits)),
+          pieces: (table ??= worldPieceTable(kits, seed)),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);
             mine = new ChunkDrawBatcher(world, stream, sectionEdge, send);

@@ -86,7 +86,7 @@ export function createVoxelKitProblemChecker(deps: {
       let f = kept.get(key);
       if (f === undefined) {
         const read = deps.service.readBlob(projectId, { assetId: m.assetId, version });
-        f = read.ok ? voxelKitMeshFacts(read.bytes, m.node, imageSize) : { unreadable: read.error.message, found: false, triangles: 0, bounds: null, positions: new Float32Array(0), uv: null, textures: { count: 0, bytes: 0, sizes: [] } };
+        f = read.ok ? voxelKitMeshFacts(read.bytes, m.node, imageSize) : { unreadable: read.error.message, found: false, triangles: 0, bounds: null, positions: new Float32Array(0), uv: null, textures: { count: 0, bytes: 0, sizes: [] }, textureSets: [] };
       }
       used.set(key, f);
       return f;

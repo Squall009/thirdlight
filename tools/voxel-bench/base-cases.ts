@@ -60,6 +60,12 @@ export function chunkBase(store: PaletteStore, cx: number, cy: number, cz: numbe
   return joinSections(E, sectionEdge, results.map((r) => bodiesOnly(r.assembly))).base;
 }
 
+/** Whether a class byte is a body the base surface draws: a wall, and a beam or rail (plain voxels like a wall). */
+function isBody(resolved: number): boolean {
+  const k = resolved & CLASS_MASK;
+  return k === ASSEMBLY_CLASS.wall || k === ASSEMBLY_CLASS.beam || k === ASSEMBLY_CLASS.rail;
+}
+
 /** The exposed faces of a chunk's built cells (the naive producer's quads): world cell and direction (0 −x, 1 +x, 2 −y, 3 +y, 4 −z, 5 +z). */
 export function exposedFaces(store: PaletteStore, cx: number, cy: number, cz: number): Array<[number, number, number, number]> {
   const { n, classes } = terrainJob(store, cx, cy, cz);
@@ -71,11 +77,11 @@ export function exposedFaces(store: PaletteStore, cx: number, cy: number, cz: nu
   const out: Array<[number, number, number, number]> = [];
   for (let x = 0; x < E; x++) for (let y = 0; y < E; y++) for (let z = 0; z < E; z++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
-    if ((classes[i]! & CLASS_MASK) !== ASSEMBLY_CLASS.wall || roofs[i] !== 0) continue;
+    if (!isBody(classes[i]!) || roofs[i] !== 0) continue;
     for (let d = 0; d < 6; d++) {
       const j = i + (d & 1 ? 1 : -1) * stride[d >> 1]!;
       const k = classes[j]! & CLASS_MASK;
-      if ((k === ASSEMBLY_CLASS.wall && roofs[j] === 0) || (k === ASSEMBLY_CLASS.ground && n.shapes[j]! >= SURFACE_ISO)) continue;
+      if ((isBody(classes[j]!) && roofs[j] === 0) || (k === ASSEMBLY_CLASS.ground && n.shapes[j]! >= SURFACE_ISO)) continue;
       out.push([cx * E + x, cy * E + y, cz * E + z, d]);
     }
   }

@@ -463,6 +463,8 @@ export interface GameplaySettings {
   streaming_budget_mb?: number;
   /** Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load). */
   architecture_ship_meshes?: number;
+  /** The voxel world's piece seed: which of a kit slot's meshes each piece draws (`VOXEL_PIECE_SEED_KEY`; absent: 0). */
+  voxel_piece_seed?: number;
   /** See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits). */
   see_through?: number;
   /** The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`). */
@@ -1052,24 +1054,5 @@ export interface BehaviorTimers {
    * @graphLabel name timer
    */
   cancel(name: string): boolean;
-}
-```
-
-<a id="script-type-behavior-random"></a>
-## `BehaviorRandom`
-
-```ts
-/**
- * `ctx.random` — the instance's main seeded stream, plus named sub-streams.
- */
-export interface BehaviorRandom extends BehaviorRandomStream {
-  /**
-   * An independent named stream of this object (the same name gives the same stream):
-   * draws from one never shift the numbers of another, so adding a draw for loot does
-   * not change the numbers used for movement. Names: 1–64 characters of letters, digits,
-   * `_ . : -`; at most 64 streams per object.
-   * @graphLabel name stream
-   */
-  stream(name: string): BehaviorRandomStream;
 }
 ```

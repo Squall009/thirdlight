@@ -1,10 +1,9 @@
 /**
  * One detail piece instance's matrix, as the chunk view draws it: the mesh
- * (metres, centred on its cell, in the mesh's case orientation) is first
- * turned by its alias's cube rotation into the drawn case's orientation,
- * then staggered there (moved into the solid along the edge's bisector and
+ * (metres, centred on its cell) is first turned by its slot's cube rotation
+ * into the drawn case's orientation, then staggered there (moved into the solid along the edge's bisector and
  * twisted about it through the edge's middle, by the instance's hash:
- * piece-placement.ts), shifted to the cell's middle line (half a cell in
+ * piece-placement.ts, scaled by the kit's jitter), shifted to the cell's middle line (half a cell in
  * and half a cell down) for a centred piece, squeezed onto half its run for a `half` one, tipped onto the cell's top or bottom face for a tipped one, turned
  * by the case's quarter turns about +y, scaled to the level's cell and put
  * at the cell's centre. Every step but the stagger is exact (quarter turns,
@@ -19,10 +18,10 @@ import { CUBE_ROTATIONS, INSTANCE_FLAG, INSTANCE_PLACE, pieceStagger, VOXEL_SIZE
 export interface PiecePlacement {
   /** The sign of the case's quarter turn about +y in three (kit pieces −1: a turn takes +x to +z). */
   readonly turnSign: number;
-  /** The alias's cube rotation (0: none). */
+  /** The slot mesh's cube rotation (0: none). */
   readonly rotation: number;
-  /** The drawn case's stagger frame and hash inputs (null: not staggered). */
-  readonly stagger: { readonly frame: PieceStaggerFrame; readonly seed: number; readonly caseIndex: number } | null;
+  /** The drawn case's stagger frame, hash inputs and the kit's jitter (null: not staggered). */
+  readonly stagger: { readonly frame: PieceStaggerFrame; readonly seed: number; readonly caseIndex: number; readonly jitter: number } | null;
   /** How the drawn case's piece covers half its run when the instance is flagged `half` (voxel `pieceHalfRun`; absent: never). */
   readonly halfRun?: 'x' | 'diagonal' | null;
 }
@@ -63,7 +62,7 @@ export function cubeRotationMatrix(i: number): THREE.Matrix4 {
   return ROTATIONS[i]!;
 }
 
-/** The quaternion of the case's tip and turns (no alias, no stagger): what a trim piece's run direction reads. */
+/** The quaternion of the case's tip and turns (no slot rotation, no stagger): what a trim piece's run direction reads. */
 export function pieceTurn(out: THREE.Quaternion, rotationByte: number, place: number, turnSign: number): THREE.Quaternion {
   out.setFromAxisAngle(up, (turnSign * (rotationByte & 3) * Math.PI) / 2);
   if (place === INSTANCE_PLACE.faceUp || place === INSTANCE_PLACE.faceDown) out.multiply(tip.setFromAxisAngle(xAxis, place === INSTANCE_PLACE.faceUp ? -Math.PI / 2 : Math.PI / 2));
@@ -79,7 +78,7 @@ export function pieceMatrix(out: THREE.Matrix4, rotationByte: number, place: num
   pieceTurn(quat, rotationByte, place, p.turnSign);
   const s = cellMetres / VOXEL_SIZE_M;
   out.compose(at.copy(centre), quat, scale.set(s, s, s));
-  // The steps in the case's own orientation, level-0 metres: centred shift · stagger · alias.
+  // The steps in the case's own orientation, level-0 metres: centred shift · stagger · slot rotation.
   let any = false;
   local.identity();
   if (place === INSTANCE_PLACE.centred) {
@@ -94,7 +93,7 @@ export function pieceMatrix(out: THREE.Matrix4, rotationByte: number, place: num
   if (p.stagger !== null) {
     const f = p.stagger.frame;
     const slot = (p.stagger.caseIndex << 4) | (place << 2) | (rotationByte & 3);
-    const st = pieceStagger(p.stagger.seed, cell0[0]!, cell0[1]!, cell0[2]!, level, slot, f.reach);
+    const st = pieceStagger(p.stagger.seed, cell0[0]!, cell0[1]!, cell0[2]!, level, slot, f.reach, p.stagger.jitter);
     axis.set(f.out[0], f.out[1], f.out[2]);
     anchor.set(f.anchor[0], f.anchor[1], f.anchor[2]).multiplyScalar(VOXEL_SIZE_M);
     // Twist about the bisector through the edge's middle, after moving into the solid along it.

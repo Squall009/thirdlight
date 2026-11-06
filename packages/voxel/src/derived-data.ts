@@ -57,7 +57,7 @@ import { cellPieces, NO_PIECES, type DerivePieces, type PieceInputs } from './de
 export type { DerivePieces } from './derive-pieces';
 import { createEdgeMasks, type EdgeMasks } from './edge-cases';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
-import { evaluateCases, evaluateEdges, evaluateRuns } from './kit-rules';
+import { evaluateCases, evaluateEdges } from './kit-rules';
 import { appendSurface, classifyRoofs, roofSurface } from './roof-mesher';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
@@ -149,8 +149,13 @@ import { utf8Encode } from '@thirdlight/shared';
  * cells the rules read as beams and rails as bodies, as coarser nodes do,
  * and its cells get no case. Level-1 results differ from v20's wherever
  * they listed pieces; the layout is v20's.
+ * 22: kits are slots: no beam or banister case, a beam or rail cell is a
+ * plain voxel for every consumer (the body: faces, a whole collision box,
+ * full light coverage), no engine default piece (the piece u16 is the
+ * index of a kit's filled slot; no kit, no piece), and a piece's mesh pick
+ * hashes the project's seed (piece-table.ts); the layout is v21's.
  */
-export const DERIVED_FORMAT_VERSION = 21;
+export const DERIVED_FORMAT_VERSION = 22;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -512,9 +517,8 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
   };
 }
 
-/** Per thread, by neighbourhood size: the cells' cases and run sections (a u16 each a cell beside the class byte) and forms (a byte) of the derive running. */
+/** Per thread, by neighbourhood size: the cells' cases (a u16 a cell beside the class byte) and forms (a byte) of the derive running. */
 const caseScratches = new Map<number, Uint16Array>();
-const runScratches = new Map<number, Uint16Array>();
 const formScratches = new Map<number, Uint8Array>();
 const roofScratches = new Map<number, Uint32Array>();
 const edgeScratches = new Map<number, EdgeMasks>();
@@ -579,9 +583,8 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     if (times !== undefined) times.evaluateUs += (performance.now() - t0) * 1000;
     return uniform;
   }
-  // Cases, run sections and forms stay in this job, read by the consumers beside the classes.
-  const runs = u16Scratch(runScratches, classes.length);
-  evaluateRuns(n, rules, cases, runs, evaluateCases(n, rules, level, cases));
+  // Cases and forms stay in this job, read by the consumers beside the classes.
+  evaluateCases(n, rules, level, cases);
   evaluateForms(n, rules, classes, cases, forms);
   const t1 = performance.now();
   const ground = terrainSurface(n, classes);
@@ -593,7 +596,7 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   let edges = edgeScratches.get(classes.length);
   if (edges === undefined) edgeScratches.set(classes.length, (edges = createEdgeMasks(n)));
   if (pieced) evaluateEdges(n, rules, level, edges);
-  const inputs: PieceInputs = { n, classes, forms, cases, runs, pieces, level, roofs, edges, catalogue: rules.catalogue };
+  const inputs: PieceInputs = { n, forms, pieces, level, roofs, edges, catalogue: rules.catalogue };
   const instances = pieced ? detailInstances(n, (i, x, y, z, cell, emit) => cellPieces(inputs, i, x, y, z, cell, emit)) : { count: 0, data: new Uint8Array(0) };
   const t2 = performance.now();
   const collision = collisionOf(n, forms, roofs, ramps);

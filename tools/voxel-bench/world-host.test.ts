@@ -404,7 +404,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     // As a worker posts them: each batch structured-cloned with its buffers transferred.
     let presentation: ReturnType<typeof presentVoxelWorlds> | null = null;
     const h = await harness(
-      (ports) => (presentation = presentVoxelWorlds(ports, (b) => batches.push(structuredClone(b, { transfer: chunkDrawBatchTransfer(b) })), [])).ports,
+      (ports) => (presentation = presentVoxelWorlds(ports, (b) => batches.push(structuredClone(b, { transfer: chunkDrawBatchTransfer(b) })), [], 0)).ports,
       (_w, s) => (stream = s),
     );
     const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
@@ -494,7 +494,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     let stream: VoxelStreamer | null = null;
     const levelEvents: Extract<StreamEvent, { type: 'levels' }>[] = [];
     const h = await harness(
-      (ports) => presentVoxelWorlds(ports, () => {}, [], levels).ports,
+      (ports) => presentVoxelWorlds(ports, () => {}, [], 0, levels).ports,
       (world, st) => {
         if (world !== 'a') return;
         stream = st;
@@ -603,7 +603,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
         return conn;
       },
     });
-    const h = await harness((ports) => presentVoxelWorlds(slowFirst(ports), (b) => batches.push(b), []).ports);
+    const h = await harness((ports) => presentVoxelWorlds(slowFirst(ports), (b) => batches.push(b), [], 0).ports);
     // The scene reloads while its world is still opening: the first host is disposed, a second one opens and draws.
     await h.until(() => opens === 1, 'the first open');
     h.once = (ctx) => (ctx as { scenes: { reload(id: string): void } }).scenes.reload('scene-main');

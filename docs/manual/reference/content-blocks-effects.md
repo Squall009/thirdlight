@@ -181,7 +181,7 @@ What a level style is built from, as one item: a trim sheet material, the archit
 <a id="content-voxelKits"></a>
 ## voxelKits — Voxel kits
 
-The detail pieces a material type (wood, stone, …) draws a voxel world's cases with: per case and run section the authored mesh of each weighted variant (drawn in the near ring only), the outlines section ends meet by, and the game's own data. Shipped whole with the build; the engine never reads the game data.
+The detail pieces a material type (wood, stone, …) draws a voxel world's edges, corners, roof edges and damage with, as slots: every case is a slot, filled with one or more weighted meshes each with a cube rotation (drawn in the near ring only), or left empty (plain voxel edges). One texture set a kit, a jitter for every piece, and the game's own data. Shipped whole with the build; the engine never reads the game data.
 
 - In every project: no
 - Written by: [`setVoxelKit`](ops-detail.md#op-setVoxelKit), [`deleteVoxelKit`](ops-detail.md#op-deleteVoxelKit)
@@ -195,8 +195,8 @@ The detail pieces a material type (wood, stone, …) draws a voxel world's cases
 | `voxelKits[].version` | int | `1` | ≥ 1, step 1 | **Version.** The kit's own revision (a positive integer its author moves). (required) |
 | `voxelKits[].materialType` | string, id, 1–64 chars |  |  | **Material type.** The material type the kit dresses (wood, stone, …): every material of the type shares its pieces. (required; format id) |
 | `voxelKits[].materials` | list of int, distinct |  |  | **Materials.** Test binding: the voxel material ids (1-4095) the kit applies to, until materials name their kit. |
-| `voxelKits[].cases` | JSON: `Record<string, VoxelKitCase>` ([VoxelKitCase](types-t-w.md#type-voxel-kit-case)) |  |  | **Cases.** {caseId: {sections?: {sectionId: {variants: [{high, low?, weight?}, …], ends?: {start?, end?}}}, alias?: {case, rotation 0-23}, gameData?}}; a mesh is {assetId, digest (the GLB's SHA-256), node?}; weight in (0, 1000], absent 1. Case and section ids are the case catalogue's. (required) |
-| `voxelKits[].joinProfiles` | JSON: `Record<string, VoxelKitJoinProfile>` ([VoxelKitJoinProfile](types-t-w.md#type-voxel-kit-join-profile)) |  |  | **Join profiles.** {profileId: {outline: [[u, v], …]}}: a section end's closed outline, at least 3 points in whole sixteenths of a cell (0-16). |
+| `voxelKits[].slots` | JSON: `Record<string, VoxelKitSlot>` ([VoxelKitSlot](types-t-w.md#type-voxel-kit-slot)) |  |  | **Slots.** {caseId: {meshes: [{mesh, rotation?, weight?}, …], gameData?}}: a slot a case of the case catalogue, every one optional (left out: nothing drawn); a mesh is {assetId, digest (the GLB's SHA-256), node?}; rotation one of the 24 cube rotations 0-23 (absent 0); weight in (0, 1000], absent 1. Which mesh a piece draws follows the project's voxel detail seed. (required) |
+| `voxelKits[].jitter` | number | `1` | 0 – 4, step 0.05 | **Jitter.** How far every piece moves into the solid and twists, as a share of the engine's stagger (1: 1/64-1/32 cell in, up to 2°; 0: on the lattice; at most 4). |
 | `voxelKits[].trimLayout` | string, id, 1–64 chars |  |  | **Trim layout.** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). (format id) |
 | `voxelKits[].gameData` | JSON |  |  | **Game data.** The game's own data for the kit (break, sound, physics defaults …): JSON nested at most 32 deep, shipped as it is, never read by the engine. |
 

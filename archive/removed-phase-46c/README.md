@@ -13,6 +13,19 @@ stood:
   banister cases and rules are the edge catalogue's own
   (`kit-case-catalogue.ts`).
 
+Removed when kits became slots (46c.16b; the owner's acc46c-r answers,
+`docs/plan-phase-46c.md` §9, 2026-11-05/06):
+
+- `kit-runs.ts`: run sections (single, start, body, end, corner, junction)
+  and the world-anchored run U they gave beams and banisters. The owner moved
+  beams and banisters out of the voxel phases: their cases and window rules
+  left the edge catalogue (`edges-draft` v2), a beam or rail cell is a plain
+  voxel, and a kit's slot holds whole meshes, not run sections.
+- `default-kit.ts`: the engine's generated default kit (`@engine-default`),
+  which drew every material no kit bound. The owner chose no engine default
+  kit: a material without a kit draws plain voxel faces, and a sample kit
+  lives in the authoring package, never bound by default.
+
 Not here (moved back or never moved):
 
 - `role-spec-doc.test.ts` was moved here in R3 (6dff42ce; it pinned the
