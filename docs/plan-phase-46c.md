@@ -226,6 +226,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16e | Damage: three stages per kit (default 11–14 crack overlay, engine texture replaceable per kit; 6–10 cell not drawn, many neighbour-face pieces; 1–5 fewer); no edge pieces round the hole; collision/navigation whole until air; light coverage from integrity (46e reads it). |
 | 46c.16f | Decals on voxel faces and pieces: projected decals tested (editor, Play, export), clipped decals reach voxel chunks. |
 | 46c.16g | Placeholder kits regenerated, role spec + texture layout rewritten as v1 candidates, proto scene re-shot both renderers, town measured. |
+| 46c.16h | Review r2 fixes after the closing full gate: roofs follow the kit's damage stages (M1, D521), the Scene view follows kit and seed edits (M2), voxel decals checked in the export (M3), the trim page's defaults and the per-kit layout question (M4), Lows. |
 
 ## 7. Progress
 
@@ -247,7 +248,7 @@ freeze, 46c.17, 46c.18.
 | 46c.13 | draft v0 (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-trim-layout.md`: 4096² sheet authored 1024 px/m (tiers 256/512/1024), 32 px gutters, field 1 m + strips 0.5/0.25/0.125 m plain/profiled + caps 3 sizes × 4, U from world run distance (4 m repeat), path B (own bakes) beside it, kit-check rows T1–T10, log/stone examples, 10 owner questions |
 | 46c.14 | done (docs only): spec §3.7 one "Kits and cases" section (case pass, catalogue v4 DRAFT, `kits` v5, runs, forms, piece table 2, instance, levels, paints, v9 → v13 owner notes in one table; no stored format change), §3.8/§4; requirements R73–R77, R86, R87, R90, R112; manual kits, kit check, `writeKitTestScene` (draft); D485 (kit draw count). Reference unchanged |
 | 46c.15 | presented, awaiting owner approval (hard stop): 50 shots × 2 renderers re-taken at b6ec7d2f (kit scenes, log/stone houses, two-thick jambs, wall-beam-banister, long walls, cross-kit paint, town L0/L1, default kit) in `acceptance/46c/final`, older shots in `older/`; README + approve-46c.md: 65 questions. Seen: D480–D482, stone plinth breaks at jamb cells |
-| 46c.16 | answers recorded 2026-11-06 (all 35); build items 46c.16a–g (§6c), then full gate + review, acc46c-r2 (hard stop), v1 freeze |
+| 46c.16 | answers recorded 2026-11-06 (all 35); build items 46c.16a–g (§6c); closing full gate GREEN 34 min, 8.0 GB, 393 e2e (46c.14b); review r2 fixed in 46c.16h; then acc46c-r2 (hard stop), v1 freeze |
 | 46c.16a | done: pieces at L0 only (derived 21; kit `low` mesh, check pairs, adapter low draws gone; kits regenerated, Blender 5.2.2: log 757 tris 58.4 kB, stone 490 tris 47.3 kB; town L1 7.7 k → 0 instances); every ring per scene + `quality` per level, `voxelRings` (tier √budget) with the tier budget, `ctx.voxels.setRings` and the reported level re-plan without reload |
 | 46c.16b | done: kits are slots (case id = slot, 1..n meshes with a cube rotation, all optional, `jitter` 0–4), project setting `voxel_piece_seed` for picks and stagger, one texture set a kit (check error), no default kit (no kit = plain voxels), beams/banisters plain voxels; catalogue `edges-draft` v2 (18), `edges` v4, piece table 3, derived 22; kits log 391 / stone 286 tris |
 | 46c.16c | done (5859c1cc): pieces dressed by role order (roof > wall > pillar > stair > floor > foundation; two kits of one role → bare), mixed corners from the corner slots (stair notches, L tops, wall feet), pieces cut flush at `opening` cells (none inside), instance 12 B, `edges` v5, derived 23; town/tower/staging openings. Seen both renderers; fast gate GREEN 13 min |
@@ -255,8 +256,9 @@ freeze, 46c.17, 46c.18.
 | 46c.16e | done: three damage stages a kit (`damage`: 11–14 cracks drawn by the surface shader, edges kept; 6–10 / 1–5 holes, neighbour faces carry 6 / 3 damage pieces of their kit, no edges round); solid until air, light by integrity; debris cases gone; table 4, `edges` v7, catalogue v3, derived 25; kits log 304 / stone 170 tris. Seen both renderers; fast gate GREEN |
 | 46c.16f | done: projected decals mark voxel faces (every level) and kit pieces, tested 8 km out (variant keeps the 64-bit model-view); clipped decals cut from level-0 chunks via a per-scene link, re-cut on a dig (Play 3–5 ms a mark on a worker; old mark kept until then, never two); `voxelWorld.decalLayers`. Seen both renderers, Play + Scene view; e2e 67.8 → 63.5 s; D522 |
 | 46c.16g | done: role spec + texture layout rewritten as v1 CANDIDATES (17 slots, ownership, rings, roofs, damage, decals; 25 defaults); kits unchanged, check 0 err/0 warn (log 304 tris 26.7 kB, stone 170 tris 20.0 kB). Town at the cap both renderers: 42.7 k instances, 1,412 piece draws, render() 8.7–9.3 ms, 0 missed, 126.5 MB (R9 59.5 k, 3,081, 14.3–14.8, 0–1, 121.3). D507 fixed, D523 watch |
+| 46c.16h | done (e76d362e, 5c50afd8): review r2 M1–M4 fixed — roofs follow the kit's damage stages (D521; derived 26), Scene view follows kit/seed edits live, export e2e reads both voxel decals, trim page §8 defaults + O1; M5 a shot-list note; L1/L4/L7 fixed, rest noted, D524. Cracked roof seen both renderers. Fast gate GREEN after D418 + one test fix; e2e 68.0 → ~65.5 s |
 | 46c.17 | not started (after the v1 freeze) |
-| 46c.14b | done for the first build: full gate GREEN at 9107abbd (33 min, 8.0 GB), review 0H 6M 8L fixed (46c.14c), acc46c. The revision (R1–R9) is verified by fast gates; one closing full gate + review runs after the owner approves the revision. |
+| 46c.14b | done: first build's full gate GREEN at 9107abbd (33 min, 8.0 GB), review fixed (46c.14c). Closing gate-full-20261106-092942 at 9e50b65e GREEN: 34 min (33), 8.0 GB, 393 e2e; edge-cases failed once, passed alone (D523). Its first run OOM-killed at 8G with no vitest worker cap; restarted with TL_VITEST_WORKERS=4. Review r2: 0H 5M 8L (46c.16h) |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
 | 46c.18 | not started (after approval) |
 | R1 | done: `edge-cases.ts` edge pass (12 edges + 8 corners a cell, 10 cases × yaw 4, reach 1) + `edges-draft` v0 (20 cases; window rules beam/banister only) as `edges` v1 (registered, conformance incl. edges); construction shape = integrity in every reader, derived v13 → v14. Town µs a section p50/p95: old case pass 123/318, new passes 144/290 (edge pass 52/111) |
@@ -1663,6 +1665,54 @@ check rows as the code has them (T8 gone, T4 along the slot's run). Manual kit n
   thread); `edge-cases` and `stream` timed out at 5 s under load and passed alone, as in 46c.16e (D523, watch).
   `voxel-world.e2e.ts` sum 63.5 → 68.0 s (no e2e change; load).
 
+### 46c.16h review r2 fixes
+
+**M1 roofs follow the kit's damage stages** (e76d362e; D521 fixed). `roof-words.ts` reads a cell's stage from the
+job's piece table (`classifyRoofs(n, out, table, damageDrawn)`; `isRoofPlaneCell`/`isRoofGapCell` take the table): a
+roof cell drawn whole (intact, cracked, or at an integrity its kit leaves out of every stage) is a plane cell, a
+hole-stage one is not; a body is any solid construction cell drawn whole, so a cracked wall under a roof still
+carries it (its top cut to the underside, no attic step). The roof mesher carries each plane cell's crack strength
+on its top and underside (position w, runs merge only at equal strength; the vertex key includes it); derived
+**25 → 26** (spec note). Test (`roof-mesher.test.ts`, real derive, whole chunks and sections): a walled 45° gable
+with one cracked roof cell mid-slope and its cracked eave-wall cell: words equal the intact house's,
+crack strength only on that cell's sloped vertices, base and ramps closed, ramp area by normal equal, no attic step
+over the cracked wall; a kit leaving stage 1 out draws 12 intact (no crack); a kit whose hole stage covers 12 takes
+the roof cell out (one cell, its neighbours stay planes) and the roof over the holed wall is no longer carried. It
+fails on the old code.
+- **Looked at** (staging slice, log kit, 45° gable house, 1280 × 720, WebGPU and WebGL 2 identical, 10:38–10:43,
+  load 2.3–4.0; script and shots `~/.cache/thirdlight-phase46/work/46c.16h/shots/`): `roof-intact|roof-cracked`
+  (three roof cells at 14 / 12 / 11 stay in the plane, cracks growing left to right), `roof-cracked-close`,
+  `attic-intact|attic-cracked` (the cracked eave-wall cell inside: same picture but the crack, the wall face still
+  up to the underside). The crack tile is 0.5 m on the grid's metres, so a 45° cell's 0.71 m of slope shows it in
+  two rows. Unverified: a cracked cell on a 1:2 roof on a page (vitest only).
+
+**M2 Scene view follows kit and seed edits** (5c50afd8). The feed's applied `setVoxelKit` (deleteVoxelKit records
+the same change) and `setSettings` call `onVoxelKitsChanged`; `SceneVoxels.kitsChanged` re-reads kits and seed and,
+if they differ, posts `{t: 'kits'}` to each opened world; the worker sets `streamer.pieces` (`StreamPieces.set`:
+only chunks whose pieces change derive again, one swap group) and answers the group; the page switches its draws to
+the new kits when that group's swap arrives (decision log). Meshes load into the view's one `VoxelKitMeshes` (kept
+across changes). The class-member ratchet held (`Viewport.voxelsChanged` takes `'kits'`). E2E (Scene view test):
+a slot filled through the command route draws (more kit instances, pixels change) without a reload; the kit set back,
+the count returns and the picture matches.
+
+**M3 decals in the export:** the export test reads both wall marks with the backend stopped: projected red 4,962 px,
+clipped blue 4,847 px (`png.ts` hue counts, 1280 × 720).
+
+**M4:** trim page §3 states the per-kit layout gap plainly, §8 lists nine defaults to confirm and O1 (a kit-declared
+layout: an add-only layout record, not built before the answer; plan §10). Role spec: default 26 (Scene view and
+slice page keep the scene's distances) and A6's other-grid half marked as an owner requirement not met yet (47a).
+
+**Lows:** L1 scaled ring distances clamped to `STREAMING_RADIUS_LIMITS` (tested); the hysteresis half is D524. L4
+stale comments fixed (game-host `voxel-play.ts`, `world-streamer.ts`, `voxel-streamer.ts`, `stream-pieces.ts`, the
+Scene view's header, `kit-house.test.ts`, the e2e header). L7 ring-scale self-check removed. L2, L3, L6, L8, M5 as
+notes (decision log, §10).
+
+**Gate:** gate-fast-20261106-102440 RED (vitest D418 `scan-bounded-log` timed out under load, passed alone; e2e not
+reached); gate-rerun-20261106-103456 RED (the new kit step sent `setVoxelKit` without its expected revision: test
+fixed to `playCmd`, not the product; the export marks passed); gate-rerun-20261106-103921 GREEN (perf 0 missed both
+renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 → 10.2 s, export 7.1 → 8.0 s; the file
+68.0 → ~65.5 s (summed over the two reruns; load).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -2300,9 +2350,46 @@ check rows as the code has them (T8 gone, T4 along the slot's run). Manual kit n
   clipped decal with nothing under it does (its empty wait, at most 2 s, sooner once the level's other surfaces are
   in), and is cut when the chunk arrives; the start never waits for voxel chunks themselves.
 
+- 2026-11-06 (46c review r2, independent, range ca22303b..9e50b65e plus R1–R9b; fixes 46c.16h): **0 H, 5 M, 8 L**;
+  holds: L0-only pieces, rings per scene/level/runtime, slots and seed, role order, flush cuts, re-derive reach, crack
+  texture through the content closure, no file past 2,000 lines, no ratchet growth, no widened bounds.
+  - M1 roof words ignored the kit's damage stages (a cracked roof cell left the planes, a cracked wall under a roof
+    lost its cut, a stage left out still broke the roof): **fixed** (D521).
+  - M2 Scene view read kits and `voxel_piece_seed` once: **fixed** (kit/settings edits re-derive live).
+  - M3 voxel decals in an export untested: **fixed** (export e2e reads both marks, backend stopped).
+  - M4 trim page without defaults, a kit's own layout unnameable: **fixed** (§8 defaults; O1 asked); role spec gains
+    the Scene-view distances default and A6's other-grid half marked unmet (47a).
+  - M5 D519 hidden by one-material shots: **no code**; a two-material gable house goes on the acc46c-r2 shot list.
+  - L1 scaled rings unchecked: **fixed** (clamped to the limits); a load past an explicit unload dropping the
+    hysteresis: deferred, D524.
+  - L2 F3 inversion (meshes authored for the 45° run, the longer per cell): say it plainly on acc46c-r2 (note).
+  - L3 town GPU 1.97 → 3.11–3.29 ms not in the causes: not explained here (R6 measured 2.9–3.0, so R9's view may
+    have differed); re-measure both in one view for acc46c-r2 (note).
+  - L4 stale "default kit" and "46e" text: **fixed**.
+  - L5 format spec over 2,000 lines: deferred to D496 (split §3.7 before 46d adds to it).
+  - L6 kit records of the old shape (variants, `low`) refused without migration: say so on acc46c-r2 (`kitFormat` 1
+    is a draft; staging kits were regenerated).
+  - L7 self-confirming ring-scale check: **removed**; the status-line pin kept (it fails if the page claims v1 while
+    the catalogue is a draft); D509 open.
+  - L8 `rings`/`setRings` hidden from visual scripts (`@graphNode skip`): a 47 note.
+
+- 2026-11-06 (46c.16h, default chosen, owner to confirm): **a roof cell drawn whole stays a plane cell**: whole =
+  intact, cracked (stage 1 of its kit) or at an integrity its kit leaves out of every stage; the planes carry its
+  crack strength (top and underside; a plane's sides are not cracked). A hole-stage body under a roof no longer
+  carries it, read from its value (a buried hole-stage cell, which draws as a body, then leaves the roof unsupported
+  over it: hidden geometry either way). Under a rule set that draws no damage every damaged cell is whole.
+- 2026-11-06 (46c.16h, default chosen, owner to confirm): **the Scene view takes new kits when their swap arrives**:
+  on setVoxelKit/deleteVoxelKit/setSettings it re-reads the kits and seed, and only if they differ hands each world
+  the new table; the draws switch to the new kits when that world's swap of what they change arrives, so no chunk
+  is drawn with the other table's pieces. Meshes stay loaded across kit changes.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
 - Whether the case reach of 2 cells is enough for soffits and mouldings under deep eaves, or the apron may grow.
 - Where kits live: project content items (schema, add-only) or files beside the world; and the binding's move to 46d.
 - Who makes the Texture Designer graphs and Kit Designer after approval: art-factory's own sessions from a request doc.
+- **O1 (trim layout §8):** may a kit declare its own layout (sheet size, px a metre, regions) in its record, so a
+  per-kit sheet gets world-anchored U and the trim checks? Proposed add-only; not built before the answer.
+- **acc46c-r2 shot list (lead):** add a two-material gable house (stone walls, timber roof) so D519's stepped
+  material line under the roof is judged before the freeze (review r2 M5); a cracked roof cell (stage 1) at 45° and 1:2.
