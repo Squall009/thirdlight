@@ -23,12 +23,13 @@
  *
  * **Owner offset** ({@link surfaceOwnerOf}): a face that must show one
  * cell's material alone, never blended with the cells round it, names that
- * cell. Its vertices carry the offset from the vertex to the cell's centre
- * (quarter cells, x and z 4 bits each in position w's high byte, y 7 bits
- * over a set bit 0 in normal w); interpolated across the triangle, the
- * offset added to a pixel's position lands within an eighth of a cell of
- * that centre, so every pixel of the face finds the same cell, whatever
- * cells its triangle crosses. The roof mesher's faces name theirs (a roof
+ * cell, or (a merged face) the row of cells it covers. Its vertices carry
+ * the offset from the vertex to a point a quarter cell inside the cell
+ * across the row, and nothing along it (quarter cells, x and z 4 bits each
+ * in position w's high byte, y 7 bits over a set bit 0 in normal w);
+ * interpolated across the triangle, the offset added to a pixel's position
+ * lands in the row's cell under the pixel, whatever cells its triangle
+ * crosses. The roof mesher's faces name theirs (a roof
  * plane its plane cell, the closing sides and floor over a wall the wall's
  * cell: wall and roof never blend across their seam), and a body's faces
  * next to a plane cell name the cell behind them (a quarter cell in). A

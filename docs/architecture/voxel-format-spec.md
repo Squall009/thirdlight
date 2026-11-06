@@ -1100,11 +1100,14 @@ chunk):
 
 - **Owner offset** (derived v27, owner 2026-11-06 D519: no blend across the wall–roof seam; `derived-mesh.ts`
   `writeSurfaceExtras` / `surfaceOwnerOf`): a face that shows one cell's material alone carries, in quarter cells,
-  the offset from each vertex to that cell's centre (x, z −7 … 7, y −63 … 63); interpolated across a triangle it
-  puts every pixel within an eighth of a cell of the centre, so the shader reads that one cell (material, wetness)
-  and blends nothing. The roof mesher's polygons name theirs (a plane cell its top, underside and the sides above its
-  underside; a supported cell's floor and its sides below its underside the body under it); a body's faces with a
-  plane cell among the 26 round it name the cell a quarter cell behind them. Still no material on a vertex.
+  the offset from each vertex to a point a quarter cell inside that cell (x, z −7 … 7, y −63 … 63); interpolated
+  across a triangle it lands every pixel in that cell, so the shader reads it alone (material, wetness) and blends
+  nothing. A merged face (derived v28: a roof row, D525) names its row: the offset is 0 along the row, so each pixel
+  lands in the row's cell it lies over (pixels exactly on the row's end edges may read the cell past it). The roof
+  mesher's polygons name theirs (a plane cell its top, underside and the sides above its underside; a supported
+  cell's floor and its sides below its underside the body under it); a body's face whose shader read reaches a plane
+  cell (its layer and the one in front, 3 × 3; v27: any face of a body with one among the 26) names the cell a quarter
+  cell behind it. Merges never depend on a material. Still no material on a vertex.
 
 - A vertex carries no material and no weight (owner 2026-11-02): the shader finds the materials around each pixel
   in the shader data, so a material or wetness change rebuilds no mesh and a blend is the same on any mesh that
@@ -1441,7 +1444,7 @@ error 2.7 → 0.4 cm (1:20), terrace lips within 1/30 cell of the true edge, slo
 22–27 % of the level below (slice 1.05 M → 262 k → 66 k; town 1.62 M → 386 k → 106 k with houses kept). Mesher µs a
 section: see the limits above.
 
-#### Kits: edges, roofs and damage (as built in 46c and its revision; derived v10 → v27)
+#### Kits: edges, roofs and damage (as built in 46c and its revision; derived v10 → v28)
 
 **Owner note.** Kits change **no stored world format**: the chunk codec, region file, manifest, edit command, undo
 record, save and overrides keep their v2 bytes (§3.8). Edge and corner pieces, roof words, forms and piece choices
@@ -1665,6 +1668,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 23 → 24 | 46c.16d | 1:2 roofs drawn as planes (roof words read two cells round, quarter-cell geometry), their roof-edge pieces flagged `shallow` / `high` (0x20 / 0x80) and pitched by the renderer; a roof over a body or over one air cell over a body closes down onto the body (rules `edges` v6: no edge piece round that air cell); coarse levels re-lay 1:2 roofs at 1:2 | 12 B | **owner 2026-11-05/06** (A7 1:2 roofs, A8 ramps, F3 one mesh pitched, C4 parallel underside, wall tops cut, C7 coarse re-lay); one slope a roof a default |
 | 25 → 26 | 46c.16h | the roof follows the kit's damage stages: a roof cell drawn whole by its kit (cracked, or an integrity in no stage) stays a plane cell, its planes carrying the crack strength in position w; a cracked body under a roof still carries it (D521) | 12 B | **owner 2026-11-05/06** (G1 stage 1 drawn whole with the overlay, a kit leaving a stage out draws intact, C4 wall tops cut) |
 | 26 → 27 | 46c.16j | wall and roof apart (D519): the roof mesher's polygons and the faces of bodies next to a plane cell carry an owner offset (position w high byte, normal w) naming the one cell they show, unmerged across cells; the closing geometry names the wall; the shader reads that cell alone. A roof closes onto the walls only where its kit's `wallTopFill` (piece table 5) asks; else stepped wall tops | 12 B, add-only bits | **owner 2026-11-06** (acc46c-r2 D519/O2: no blend across the seam, the free normal.w byte; follow-up: wall-top fill a roof-kit setting, default off) |
+| 27 → 28 | 46c.16k | roof polygons merge across cells again (D525: rows along the level line, supported floors, side pieces; by geometry and crack, never material), a merged polygon's owner offsets 0 along its row; a body's face owned only where its read reaches a plane cell | layout unchanged | **owner 2026-11-06** (performance first; D519 kept: wall and roof never blend) |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1746,7 +1750,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 27 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 28 | refused | rebuilt, never upgraded |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 4 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 

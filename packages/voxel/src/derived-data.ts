@@ -201,8 +201,16 @@ import { utf8Encode } from '@thirdlight/shared';
  * round the air cell under an eave are dressed as anywhere. Surfaces,
  * collision ramps and instances differ from v26's round roofs; the layout
  * is v26's.
+ *
+ * v28: roof polygons merge across cells again (rows along a slope's level
+ * line, supported floors, side pieces along their plane: as v26 did, by
+ * geometry and crack strength, never by material); a merged polygon's
+ * owner offsets follow the pixel along its row, so each pixel still shows
+ * the cell it lies over. A body's face is owned only where its shader read
+ * reaches a plane cell. Surfaces and ramps differ from v27's; the layout
+ * is v27's.
  */
-export const DERIVED_FORMAT_VERSION = 27;
+export const DERIVED_FORMAT_VERSION = 28;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

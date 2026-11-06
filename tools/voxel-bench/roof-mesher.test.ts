@@ -52,6 +52,7 @@ import {
   crackStrengthOf,
   valueOf,
   worldPieceTable,
+  SHAPE_FULL,
   type PieceKitSource,
   type PieceTable,
 } from '@thirdlight/voxel';
@@ -1032,7 +1033,53 @@ describe('the roof over its walls', () => {
     }
   });
 
-  it('fills the wall tops only where the roof\'s kit asks: no kit or a kit without it keeps the stepped tops under the parallel underside, closed, the gable open between each step and the slope', { timeout: 60_000 }, () => {
+  it('merges roof rows across cells whatever their materials and wetness: the same mesh and collision as one material, fewer polygons than cells, and every pixel still shows the cell it lies over', { timeout: 60_000 }, () => {
+    const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
+    for (const slope of [1, 0.5]) for (const hip of [false, true]) {
+      const plain = createWorldStore(grid);
+      const r = walledHouse(plain, x0, yb, z0, w, d, h, hip, slope);
+      const striped = createWorldStore(grid);
+      walledHouse(striped, x0, yb, z0, w, d, h, hip, slope);
+      // Every roof cell differs from its four neighbours in material, and wetness changes every other pair.
+      const roofMat = (x: number, z: number): number => (((x + z) & 1) !== 0 ? MAT.plank : MAT.roofTile);
+      let cells = 0;
+      for (let x = 0; x < r.w; x++) for (let z = 0; z < r.d; z++) {
+        if (!r.inside(x, z)) continue;
+        cells++;
+        putVoxel(striped, r.x0 + x, r.y0 + columnHeight(r, x, z), r.z0 + z, roofMat(r.x0 + x, r.z0 + z), R.roof, SHAPE_FULL, ((x >> 1) & 1) * 3);
+      }
+      const tag = `${r.name}`;
+      // One kit dresses both roof materials (a kit is the derive's business, a material within it is not).
+      const fill = worldPieceTable([{ voxelKitId: 'roofing', materials: [MAT.roofTile, MAT.plank], slots: {}, wallTopFill: true }], 0);
+      // Material and wetness feed the shader data alone: the mesh and collision are byte for byte the one-material house's.
+      for (const ch of roofChunks([r])) {
+        const a = deriveFromStore(plain, ...ch, WORLD_RULES, undefined, fill);
+        const b = deriveFromStore(striped, ...ch, WORLD_RULES, undefined, fill);
+        expect(Buffer.from(b.base.vertices).equals(Buffer.from(a.base.vertices)), `${tag} base vertices`).toBe(true);
+        expect([...b.base.indices], `${tag} base indices`).toEqual([...a.base.indices]);
+        expect([...b.collision.ramps.indices], `${tag} ramps`).toEqual([...a.collision.ramps.indices]);
+      }
+      // Rows merged: fewer sloped top triangles than plane cells (one cell alone draws two or more).
+      const ramps = rampMesh(plain, [r], 'ramps', true, fill);
+      let tops = 0;
+      for (let t = 0; t < ramps.tris.length; t += 3) if (ramps.normals[t + 1]! > 0.3 && ramps.normals[t + 1]! < 0.99) tops++;
+      expect(tops, tag).toBeGreaterThan(0);
+      expect(tops, tag).toBeLessThan(cells);
+      // Each sample of a sloped triangle shows the roof cell of the column it lies over (points on a cell line skipped).
+      let seen = 0;
+      for (const t of shownMaterials(striped, r, fill)) {
+        const sloped = Math.abs(t.n[1]!) > 0.1 && Math.abs(t.n[1]!) < 0.99;
+        if (!t.owned || !sloped) continue;
+        const [px, , pz] = t.c as [number, number, number];
+        if (Math.abs(px - Math.round(px)) < 1e-6 || Math.abs(pz - Math.round(pz)) < 1e-6) continue;
+        expect(t.owner, `${tag}: sloped point at ${t.c.map((v) => v.toFixed(2))}`).toBe(roofMat(Math.floor(px), Math.floor(pz)));
+        seen++;
+      }
+      expect(seen, tag).toBeGreaterThan(tops);
+    }
+  });
+
+  it('fills the wall tops only where the roof\'s kit asks:no kit or a kit without it keeps the stepped tops under the parallel underside, closed, the gable open between each step and the slope', { timeout: 60_000 }, () => {
     const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
     for (const slope of [1, 0.5]) {
       const s = createWorldStore(grid);

@@ -28,12 +28,13 @@
  * cell's faces (damage stage 1) carry the crack overlay's strength in their
  * vertices (position w) and merge only with faces of the same strength.
  *
- * **Next to a roof.** The faces of a body with a roof's plane cell among
- * the 26 round it (a wall under or beside a roof, a chimney through one)
- * show their own cell's material alone: their vertices carry the owner
- * offset a quarter cell in (derived-mesh.ts), which names the cell behind
- * each pixel, so a wall never blends with the roof it carries, nor with
- * any other cell there. They merge only with faces of the same kind.
+ * **Next to a roof.** A body's face whose shader read could reach a roof's
+ * plane cell (the cells of its own layer and the one in front of it, three
+ * by three across: a wall under or beside a roof, a chimney through one)
+ * shows its own cell's material alone: its vertices carry the owner offset
+ * a quarter cell in (derived-mesh.ts), which names the cell behind each
+ * pixel, so a wall never blends with the roof it carries. Its other faces
+ * blend as any body's. Owned faces merge only with faces of the same kind.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, type Neighbourhood } from './assembly';
 import { FORM_BASE, FORM_SHAPE, formBaseOf, formShapeOf } from './case-forms';
@@ -43,14 +44,17 @@ const STEPS = POSITION_STEPS_PER_CELL;
 
 /** Per-thread working arrays, grown to the largest job seen. */
 let faces = new Uint8Array(0);
-/** Per cell: the crack overlay's strength on its faces (0 … 255), plus {@link OWN} when they show their cell alone. */
+/** Per cell: the crack overlay's strength on its faces (0 … 255). */
 let cracks = new Uint16Array(0);
+/** Per cell: the directions (bit d) whose face shows its cell alone. */
+let owned = new Uint8Array(0);
 /** Per face cell of a layer: 0 none, else 1 + its crack value (faces merge only with equal values). */
 let mask = new Uint16Array(0);
 /** Rectangles: direction, layer, a0, b0, a1, b1 (in-plane cells, ends exclusive), crack value. */
 const RECT = 7;
 /** A crack value's flag: the faces show their own cell's material alone (a body next to a roof's plane cell). */
 const OWN = 0x100;
+
 let rects = new Int32Array(RECT * 256);
 let rectCount = 0;
 /** Lattice points that are some rectangle's corner (stamped by call). */
@@ -148,9 +152,26 @@ function buildSurface(): SurfaceBuffer {
 
 const ownerScratch = [0, 0, 0];
 
+/** Whether face `d` of neighbourhood cell `i` could read a roof's plane cell: its own layer and the one in front, 3 × 3 across. */
+function ownsFace(i: number, d: number, stride: readonly number[]): boolean {
+  const a = AXIS[d]!;
+  const su = stride[(a + 1) % 3]!;
+  const sv = stride[(a + 2) % 3]!;
+  for (let t = 0; t < 2; t++) {
+    const layer = i + t * SIGN[d]! * stride[a]!;
+    for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) if (drawnElsewhere![layer + du * su + dv * sv] !== 0) return true;
+  }
+  return false;
+}
+
 /** Whether a neighbourhood cell has a roof's plane cell among the 26 round it. */
 function besideElsewhere(i: number, s: number): boolean {
   if (drawnElsewhere === null) return false;
+  // Outside the plane cells' box grown by one: none can be near.
+  const x = Math.floor(i / (s * s));
+  const z = Math.floor(i / s) % s;
+  const y = i % s;
+  if (x < nearBox[0]! || x > nearBox[3]! || y < nearBox[1]! || y > nearBox[4]! || z < nearBox[2]! || z > nearBox[5]!) return false;
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
     const row = i + (dx * s + dz) * s;
     if (drawnElsewhere[row - 1] !== 0 || drawnElsewhere[row] !== 0 || drawnElsewhere[row + 1] !== 0) return true;
@@ -163,6 +184,39 @@ export type CrackOf = (value: number) => number;
 
 /** Per neighbourhood cell: non-zero for a cell another surface draws (a roof's plane cell): no faces of its own, and it hides none. */
 let drawnElsewhere: Uint32Array | null = null;
+/** The box (x0, y0, z0, x1, y1, z1, neighbourhood cells, inclusive) of the cells next to a plane cell. */
+const nearBox = [0, 0, 0, 0, 0, 0];
+
+/**
+ * The plane cells among the cells the base surface reads (one round the job) as their box grown by one, into
+ * {@link nearBox}; false when there are none (nothing is drawn elsewhere).
+ */
+function findPlaneCells(n: Neighbourhood, words: Uint32Array): boolean {
+  const s = n.side;
+  const lo = n.pad - 1;
+  const hi = n.pad + n.edge;
+  let x0 = s, y0 = s, z0 = s, x1 = -1, y1 = -1, z1 = -1;
+  for (let x = lo; x <= hi; x++) for (let z = lo; z <= hi; z++) {
+    const row = (x * s + z) * s;
+    for (let y = lo; y <= hi; y++) {
+      if (words[row + y] === 0) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
+  }
+  if (x1 < 0) return false;
+  nearBox[0] = x0 - 1;
+  nearBox[1] = y0 - 1;
+  nearBox[2] = z0 - 1;
+  nearBox[3] = x1 + 1;
+  nearBox[4] = y1 + 1;
+  nearBox[5] = z1 + 1;
+  return true;
+}
 
 /** Whether a cell's form is a body the base surface draws whole (a suppressed one only at a level without pieces). */
 function isBody(form: number, piecesAsBodies: boolean): boolean {
@@ -189,7 +243,8 @@ function hides(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: numb
  * surface stays closed on its own.
  */
 export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false, elsewhere: Uint32Array | null = null, crackOf: CrackOf | null = null): SurfaceBuffer {
-  drawnElsewhere = elsewhere;
+  // A job with no plane cell round it takes the plain path.
+  drawnElsewhere = elsewhere !== null && findPlaneCells(n, elsewhere) ? elsewhere : null;
   try {
     return bodySurface(n, classes, forms, piecesAsBodies, crackOf);
   } finally {
@@ -209,6 +264,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
   if (faces.length < e * e * e) {
     faces = new Uint8Array(e * e * e);
     cracks = new Uint16Array(e * e * e);
+    owned = new Uint8Array(e * e * e);
   }
   let any = 0;
   for (let x = 0; x < e; x++) for (let y = 0; y < e; y++) for (let z = 0; z < e; z++) {
@@ -217,8 +273,12 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
     if (isBody(forms[i]!, piecesAsBodies) && (drawnElsewhere === null || drawnElsewhere[i] === 0)) {
       for (let d = 0; d < 6; d++) if (!hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, piecesAsBodies)) f |= 1 << d;
     }
-    faces[(x * e + y) * e + z] = f;
-    cracks[(x * e + y) * e + z] = f === 0 ? 0 : (crackOf !== null ? crackOf(n.values[i]!) : 0) | (besideElsewhere(i, s) ? OWN : 0);
+    const c = (x * e + y) * e + z;
+    faces[c] = f;
+    cracks[c] = f === 0 || crackOf === null ? 0 : crackOf(n.values[i]!);
+    let own = 0;
+    if (f !== 0 && besideElsewhere(i, s)) for (let d = 0; d < 6; d++) if ((f & (1 << d)) !== 0 && ownsFace(i, d, stride)) own |= 1 << d;
+    owned[c] = own;
     any |= f;
   }
   if (any === 0) return buildSurface();
@@ -240,7 +300,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
         cell[v] = b;
         const c = (cell[0]! * e + cell[1]!) * e + cell[2]!;
         const on = faces[c]! & bit;
-        mask[b * e + a] = on === 0 ? 0 : 1 + cracks[c]!;
+        mask[b * e + a] = on === 0 ? 0 : 1 + (cracks[c]! | ((owned[c]! & bit) !== 0 ? OWN : 0));
         set |= on;
       }
       if (set === 0) continue;
