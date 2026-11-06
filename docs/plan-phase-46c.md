@@ -253,7 +253,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16c | done (5859c1cc): pieces dressed by role order (roof > wall > pillar > stair > floor > foundation; two kits of one role → bare), mixed corners from the corner slots (stair notches, L tops, wall feet), pieces cut flush at `opening` cells (none inside), instance 12 B, `edges` v5, derived 23; town/tower/staging openings. Seen both renderers; fast gate GREEN 13 min |
 | 46c.16d | done (7a0334ac): 1:2 roofs as planes (read 2 cells round, pad 3 kept; 45° words bit-identical, town 68,244 cells), one roof-edge mesh pitched (eave/verge turned, ridge/hip/valley squashed), underside parallel, walls under a roof (or 1 air cell under) cut to it, coarse 1:2 re-lay, √5 slope phase; derived 24, `edges` v6; D500 fixed, D518–D520. Seen both renderers; fast gate GREEN |
 | 46c.16e | done: three damage stages a kit (`damage`: 11–14 cracks drawn by the surface shader, edges kept; 6–10 / 1–5 holes, neighbour faces carry 6 / 3 damage pieces of their kit, no edges round); solid until air, light by integrity; debris cases gone; table 4, `edges` v7, catalogue v3, derived 25; kits log 304 / stone 170 tris. Seen both renderers; fast gate GREEN |
-| 46c.16f | not started |
+| 46c.16f | done: projected decals mark voxel faces (every level) and kit pieces, tested 8 km out (variant keeps the 64-bit model-view); clipped decals cut from level-0 chunks via a per-scene link, re-cut on a dig (Play 3–5 ms a mark on a worker; old mark kept until then, never two); `voxelWorld.decalLayers`. Seen both renderers, Play + Scene view; e2e 67.8 → 63.5 s; D522 |
 | 46c.16g | not started |
 | 46c.17 | not started (after the v1 freeze) |
 | 46c.14b | done for the first build: full gate GREEN at 9107abbd (33 min, 8.0 GB), review 0H 6M 8L fixed (46c.14c), acc46c. The revision (R1–R9) is verified by fast gates; one closing full gate + review runs after the owner approves the revision. |
@@ -1581,6 +1581,46 @@ face's kit how many pieces.
   4.9 GB; D416 `v4-limits` failed once, passed alone; perf 0 missed both renderers, 6.06 / 3.94 ms main thread),
   `voxel-world.e2e.ts` sum 67.8 s.
 
+### 46c.16f decals on voxel surfaces
+
+**Owner B3 correction** (dirt/moss = decals + whole-voxel material swaps): both decal kinds now mark voxel worlds in
+the Scene view, Play and an export, WebGPU and WebGL 2 (commit e2731180).
+- **Projected** decals already reached the voxel surface (`MeshStandardNodeMaterial`) and kit pieces
+  (`MeshLambertNodeMaterial`) through the renderer hook; now tested: a chunk and its pieces 8 km out are hit by a box,
+  their decal variant blends (`tlDecalAlbedo`) and still places vertices with the 64-bit model-view (the variant copies
+  the material's `contextNode`). The decal's world position is `cameraWorldMatrix × positionView`, 32-bit: sub-mm
+  8 km out. Every level (L0 chunks, L1+ nodes, seams) and the pieces take them.
+- **Decal layers:** `voxelWorld.decalLayers` (schema 8, add-only, canonical, Inspector, MCP doc; a draw setting, not in
+  the resolved stream settings so an edit reopens nothing). The adapter keeps a per-scene link
+  (`voxel-world-decals.ts`): `AdapterEntities` records each `voxelWorld` object's mask, `VoxelWorldDraws` applies it to
+  its view (`setDecalLayers`: chunks, nodes, seams, pieces, pieces built later) and follows changes.
+- **Clipped** decals: the same link hands the draws the scene's `ClippedDecals`; the chunk view tells it of every
+  level-0 chunk surface (`DECAL_SURFACE_KEY`) as it comes, goes (swap, unload, level change) and moves (re-base). Found
+  in Play: three 0.187's `updateWorldMatrix` skips a still mesh (`matrixAutoUpdate` off, no needs-update flag), so the
+  first surfaces were boxed at the identity and nothing was cut; the view forces the update (vitest now 64 m out).
+- **Swaps:** a dig under a mark swaps the chunk (removed + added in one task); the decal is cut again from the new
+  surface while the old mark stays drawn, then replaced: one mesh under the decal's node (tested). A chunk drawn at
+  level 1 is no surface (the mark goes, it comes back from memory with level 0). Re-cut cost: Node page clip 1.5–2.0 ms
+  (test chunk, 6 → 18 tris); browser, on the generator's workers: 1.9–7.5 ms a mark (e2e), 2.7–4.5 ms (staging house,
+  102 → 121–148 tris for two marks).
+- **Floating origin (D446):** projected exact; a clipped mark's mesh uses three's 32-bit model-view: ≤ ~0.5 mm at 8 km
+  under its 1 mm lift, nothing seen in the 8 km Play shots; D522 for worlds tens of km out.
+- **Tests:** `voxel-decals.test.ts` (3: projected 8 km + layers; clipped cut, dig re-cut, never two, level 1 no
+  surface, memory hit, layers, dispose; the link); `voxel-world.test.ts` (field), descriptor/script pins.
+  `voxel-world.e2e.ts` Play (both renderers, 8 km out): a red projected and a blue clipped mark on the wall,
+  542–584 px each by `png.ts` hue counts, diagnostics drawn/pending. Sum **67.8 → 63.5 s** (one test extended).
+- **Looked at** (staging `voxel-slice`, stone house on grass, 1280 × 720, both renderers, load 0.9–1.6; scratch
+  `~/.cache/thirdlight-phase46/work/46c.16f/shots/`, earlier takes in `shots-v1..v3/`): `play-before|dug-<renderer>`
+  (moss projected and dirt clipped on the wall, dirt projected and moss clipped on the ground; after a cell dug behind
+  each wall mark both marks wrap into the hole's reveals, and a 2 × 2 × 2 pit at each ground mark's edge),
+  `scene-view-before|dug-a|b-<renderer>` (the editor's Scene view, orbited round the marks: all four drawn). Both
+  renderers alike. **Unverified:** whether the pit floors are marked (hidden by the near rim from the Play camera, too
+  small in the Scene view shots); an exported game with a voxel decal (the export e2e streams the same project, its
+  decals unchecked there).
+- **Gate:** gate-fast-20261106-083221 RED (vitest: descriptor size budget, the new field unreached by the test base,
+  the script-field pin — all expected for an added field, updated); gate-rerun-20261106-084222 GREEN (4 min, 4.7 GB;
+  e2e 36 passed; perf 0 missed both renderers, 5.8 / 4.09 ms main thread).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -2206,6 +2246,17 @@ face's kit how many pieces.
   coverage; collision, navigation and occupancy keep the box until air (F4).
 - 2026-11-06 (46c.16e): **exposure stays one cell**: a damaged cell whose only open face is toward another hole is
   still buried (a body), as before; a game breaking through shows the next cell's stage once its face opens to air.
+
+- 2026-11-06 (46c.16f, default chosen, owner to confirm): **clipped decals are cut from level-0 chunks only.** Coarser
+  levels change the surface with distance (as terrain does), so a clipped mark is drawn within the full-detail ring
+  and comes back (from memory) when the chunk does; projected marks show at every level. Kit pieces take projected
+  marks only (instanced draws are no clip receivers anywhere in the engine).
+- 2026-11-06 (46c.16f, default chosen, owner to confirm): **`decalLayers` on the `voxelWorld` object**, one mask for the
+  world's faces and pieces (no per-material or per-role mask); with two objects naming a world the first one's wins,
+  as its stream settings do.
+- 2026-11-06 (46c.16f): a clipped mark over a voxel chunk not streamed in yet holds the game's first frame only as any
+  clipped decal with nothing under it does (its empty wait, at most 2 s, sooner once the level's other surfaces are
+  in), and is cut when the chunk arrives; the start never waits for voxel chunks themselves.
 
 ## 10. Open questions for the owner
 

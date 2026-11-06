@@ -278,12 +278,12 @@ view, in Play and in an exported game, on WebGPU and WebGL 2:
 - **Clipped decals** are cut from the world's full-detail chunks (level 0,
   the near ring) and drawn as their own mesh. A dig, a build or a paint
   that changes a chunk under a mark cuts it again from the new surface
-  (about 2 ms a mark on this engine's test host; the old mark stays drawn
+  (a few milliseconds a mark on a worker, 3–5 ms on this engine's test host; the old mark stays drawn
   until the new one is in, never both); a chunk drawn coarser (past the
   full-detail distance) has no clipped marks, they come back with level 0.
   Kit pieces take no clipped marks (they are instanced).
 
-A world 8 km from the origin takes both as exactly as one at the origin.
+A world 8 km from the origin takes both: projected marks as exactly as at the origin, clipped marks within half a millimetre.
 The voxel object's **Decal layers** choose which decals mark the world.
 
 ## Exports
