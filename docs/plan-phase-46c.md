@@ -251,7 +251,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16a | done: pieces at L0 only (derived 21; kit `low` mesh, check pairs, adapter low draws gone; kits regenerated, Blender 5.2.2: log 757 tris 58.4 kB, stone 490 tris 47.3 kB; town L1 7.7 k → 0 instances); every ring per scene + `quality` per level, `voxelRings` (tier √budget) with the tier budget, `ctx.voxels.setRings` and the reported level re-plan without reload |
 | 46c.16b | done: kits are slots (case id = slot, 1..n meshes with a cube rotation, all optional, `jitter` 0–4), project setting `voxel_piece_seed` for picks and stagger, one texture set a kit (check error), no default kit (no kit = plain voxels), beams/banisters plain voxels; catalogue `edges-draft` v2 (18), `edges` v4, piece table 3, derived 22; kits log 391 / stone 286 tris |
 | 46c.16c | done (5859c1cc): pieces dressed by role order (roof > wall > pillar > stair > floor > foundation; two kits of one role → bare), mixed corners from the corner slots (stair notches, L tops, wall feet), pieces cut flush at `opening` cells (none inside), instance 12 B, `edges` v5, derived 23; town/tower/staging openings. Seen both renderers; fast gate GREEN 13 min |
-| 46c.16d | not started |
+| 46c.16d | done (7a0334ac): 1:2 roofs as planes (read 2 cells round, pad 3 kept; 45° words bit-identical, town 68,244 cells), one roof-edge mesh pitched (eave/verge turned, ridge/hip/valley squashed), underside parallel, walls under a roof (or 1 air cell under) cut to it, coarse 1:2 re-lay, √5 slope phase; derived 24, `edges` v6; D500 fixed, D518–D520. Seen both renderers; fast gate GREEN |
 | 46c.16e | not started |
 | 46c.16f | not started |
 | 46c.16g | not started |
@@ -1471,6 +1471,57 @@ the sections within one cell (neighbour chunks only when they hold construction)
 - **Gate:** gate-fast-20261106-051028 GREEN (13 min, 5.1 GB; perf at the cap 0 missed both renderers, 5.9 / 4.13 ms
   main thread); vitest `scan-bounded-log` (D418) and `m3-builds` (D517, watch) failed under load, passed alone.
   `voxel-world.e2e.ts` sum 64.0 → 63.3 s (no e2e change: the vitest and adapter tests cover it).
+
+### 46c.16d roofs: flat, 45° and 1:2, one mesh pitched, the underside parallel
+
+**Which cells** (owner A7; `roof-words.ts`, split out of `roof-mesher.ts`). A roof cell is read two cells round
+(`ROOF_PLANE_REACH` 2, the mesher 3 past the job, inside the pad of 3: the edge pass, run for the job's own cells,
+reads into the consumers' margin, so the rule radius, apron and invalidation are unchanged). A cell is read at 45°
+first, exactly as before (old and new words compared on the whole town: 68,244 plane cells, 0 differences); it is
+read at 1:2 where there is no 45° reading, the 45° reading was the flatter stair, or a cell two along says 1:2. Each
+direction is fitted to the 1:2 stair of the pair's low or high cell (its phase; a cell two along a step steeper rules
+a phase out; two agreeing cells needed); a 1:2 hip's corner cells read along the diagonal, the phases then from the
+cells behind; a 1:2 plane lying over another of the cell's everywhere is dropped (an even gable's ridge pair).
+One slope a roof (decision log). Flat roofs keep their voxel faces.
+- **Planes** (`roof-mesher.ts`, now in quarter cells): 45° T → T + 1 across a cell, 1:2 T → T + ½ (low cell) and
+  T + ½ → T + 1 (high cell); ridges at T + ¼ / T + ¾ on odd 1:2 gables. On a section face quarter points up are split
+  only where a 1:2 plane cell meets it (both jobs see the same cells), so 45° roofs split as before.
+- **Underside (C4) and walls cut to it:** the underside is the parallel plane one cell down everywhere. A plane cell
+  over a body, or over one air cell over a body (`supported`, `gap`), closes down onto the body's top: the village's
+  eave walls stop a cell under the roof over them, which left a one-cell step inside the attic, now closed; a gable's
+  end walls follow the slope. Each part keeps a floor on the body's top face (hidden), so bodies and planes stay
+  closed meshes on their own. The edge pass leaves no piece round that air cell (`isRoofGapCell`, D520).
+- **Pieces (F3, C8):** roof-edge pieces of a 1:2 roof carry the instance flags `shallow` 0x20 and `high` 0x80; the
+  renderer pitches the slot's one 45° mesh (`roofPitch`): eave about its line, verge about the gable's normal
+  through its middle (rigid; overlaps ~0.13 cell each end on 1:2), ridge/hip/valley squashed to half height about
+  their line, each moved to its phase's height; `half` apex pieces as before. No kit format change.
+- **Coarse levels (C7):** `relayRoofs` re-lays a 1:2 roof (most columns read 1:2) at 1:2: a column's distance in is
+  2·ring + phase, a parent's half the smallest (up), its rise half that, so the coarse eave is a pair.
+- **UVs (B6):** the 4 × 4 m tile follows a 1:2 slope too: a third per-object phase modulo 512·√5 m, taken by
+  normals whose vertical part is over 1.5 × the horizontal (`voxel-surface-projection.ts`).
+- **Tests:** `roof-mesher.test.ts` (+7, 1:2 gables 9/8/7/6 deep, hip, pyramid, L, large hip): every cell a 1:2 plane
+  cell (the L's ridge crossing: ≤ 4 cells left, D518), planes within 1/1024 cell of the 1:2 surface, ramps closed,
+  sections joined = whole chunk, conformance at 16³/32³ (world, edge, terrain rules), sphere and capsule on the 1:2
+  planes within 2 cm, levels 1/2 closed with 1:2 planes within 1.5 / 2 level cells, edge pieces flagged shallow with
+  their phases; walled 45° and 1:2 gable and hip houses: closed, no step inside the attic (rays from the attic meet
+  the eave wall's inner face up to the underside), gable walls reach the slab, every face turned down over the attic
+  on the parallel plane (fails on the old seated undersides). `kit-house.test.ts`: the log kit's 45° roof meshes
+  pitched onto 1:2 roofs through the real chunk view stay within 16 cm of the planes (worst 12.4 cm; unpitched they miss by 28 cm and more).
+  `voxel-surface.test.ts`: 1:2 V up the slope and across phase wraps. 45° tests unchanged and green.
+- **Measured** (`run.mjs cases --roofs`, town 512², 1,070 sections with roofs, 6 GB scope, 2 rounds, 2026-11-06 06:48,
+  load 1.5, uptime 13.6 d): roof mesher 238 / 577 µs p50 / p95 a section (R6 193 / 418; classify 42 / 80 was 34 / 44:
+  the reach-2 reading and quarter-cell splits), base triangles 361,642 → 417,396, ramps 178,788 → 206,148 (4,740 town
+  cells now close down across an air cell onto their walls). D502 (over budget) stays. Village at the 60 Hz cap
+  (staging, 4 houses): WebGPU 0 of 479 missed, render() 0.8 / 1.0 ms, GPU 4.6 ms a frame; WebGL 2 0 of 479, GPU 2.8 ms.
+- **Looked at** (staging slice, 45° and 1:2 gable (log kit) and hip (stone kit) houses, 1280 × 720, WebGPU and
+  WebGL 2 (identical), 06:40–06:46; script and shots `~/.cache/thirdlight-phase46/work/46c.16d/`): `g45/g12/h45/h12-near`
+  (1:2 planes with eave, verge, ridge and hip pieces pitched on them), `*-l1` (all four at level 1–2 in `h12-l1`, 0
+  pieces: smooth planes, hips), `*-attic` (camera in the roof space: the eave wall's face runs up into the sloped
+  ceiling, no step, both slopes), `g45/g12-gable-end` and `*-eave-under` (soffit meets the wall, the end wall's top
+  follows the verge). Unverified: walking across the L0/L1 ring, a 1:2 L on staging.
+- **Gate:** gate-fast-20261106-063026 GREEN (13 min, 4.7 GB; perf 0 missed both renderers, 5.79 / 4.06 ms main
+  thread). `voxel-world.e2e.ts` sum 63.3 → 68.2 s (no e2e change; load drift). D515 and D516 unchanged (45° coarse
+  words and the ring are untouched).
 
 ## 9. Decision log
 

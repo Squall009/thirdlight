@@ -299,15 +299,20 @@ cells, never from a kit's pieces, so every kit of a material type plays the
 same.
 
 **Roofs.** Roof cells laid as a 45° stair (each row one cell up and one
-across) are drawn as flat sloped planes over the steps, not as steps:
-gables, hips (the planes meeting at an outside corner) and valleys (an
-inside corner) all close; a wall or chimney through a roof keeps its own
-faces. Characters stand and walk on the drawn slope; light and walking
-routes still use the stepped cells. A roof that is not a 45° stair (steeper,
-flatter, a single cell) keeps its plain block faces. Pieces go along the
-roof's edges only: ridge, eave, verge (the sloped gable edge), hip and
-valley; one verge piece serves both sides of a gable (the other side is
-drawn mirrored).
+across) or a 1:2 stair (two cells along at each level, then one up) are
+drawn as flat sloped planes over the steps, not as steps: gables, hips
+(the planes meeting at an outside corner) and valleys (an inside corner)
+all close; one roof keeps one slope. The roof is a slab half a metre thick
+with its underside parallel to its top; a wall under a roof (or one cell
+under it) is cut to that underside, so no step shows in the attic or under
+the eaves, and a gable's end wall follows the slope. A wall or chimney
+through a roof keeps its own faces. Characters stand and walk on the drawn
+slope; light and walking routes still use the stepped cells. A flat roof,
+or a stair of another slope, keeps its plain block faces. Pieces go along
+the roof's edges only: ridge, eave, verge (the sloped gable edge), hip and
+valley. A kit makes each of them once, for a 45° roof: on a 1:2 roof the
+engine tilts the same piece onto the shallower slope. One verge piece
+serves both sides of a gable (the other side is drawn mirrored).
 
 **Damage:** a built cell's shape is its integrity (15
 intact, lower damaged, air broken). A damaged cell with an open face is

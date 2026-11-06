@@ -281,24 +281,31 @@ Where two walls and the floor meet in a room's corner (the open cell above).
 
 ## 6. Roofs: the roof mesher and its roof edges (5 cases)
 
-A sloped roof is built from **roof cells laid as a 45° stair** (the build menu's 2 m and 4 m stair-step roofs). The
-stair cells stay the data for light, occupancy and navigation. The **roof mesher** draws them, like the terrain mesher
-draws terrain, as **flat sloped planes** with the roof material's tiling texture, mapped up the slope:
+A sloped roof is built from **roof cells laid as a 45° stair or a 1:2 stair** (two cells along, then one up; the
+build menu's 2 m and 4 m stair-step roofs). The stair cells stay the data for light, occupancy and navigation. The
+**roof mesher** draws them, like the terrain mesher draws terrain, as **flat sloped planes** with the roof material's
+tiling texture, mapped up the slope (its 4 × 4 m tile follows the slope at both pitches):
 
-- **Which cells (the 45° rule).** A *plane cell* is an intact roof cell with nothing solid above it that rises in at
-  least one of the four horizontal directions: a roof cell one up and one across, or one down and one across the other
-  way. A cell rising one way with a roof cell beside it on its low side at the same level is a flatter stair than 45°
-  and is left out (D500). Damaged roof cells are left out (a hole, §7). **Every cell left out keeps its voxel faces**
-  (the fallback), so a roof never disappears.
-- **The surface.** The top runs through the stair's outer corners; the underside one cell lower, or on the voxel's
-  floor where a wall carries it (so a gable or eave wall's steps are filled under the verge). Ridges, hips and a
-  pyramid's apex take the lower of two planes, valleys the higher. Planes stop at a non-roof neighbour: a wall or
-  chimney through the roof keeps its faces.
-- **Only 90° hips and valleys in plan, 45° slopes.** Other slopes and plans keep voxel faces.
-- **Collision** follows the drawn planes (a ramp, default chosen 2026-11-04, owner to confirm); light, occupancy and
-  navigation keep the stair voxels.
-- **Every level.** The mesher runs at every distance ring (planes read better than stairs far away); the roof-edge
-  pieces, like all pieces, only near (§11).
+- **Which cells.** A *plane cell* is an intact roof cell with nothing solid above it that rises in at least one of the
+  four horizontal directions: at **45°** a roof cell one up and one across, or one down and one across the other way;
+  at **1:2** the cells two along each way fit a stair of two cells a level, the cell being its pair's low or high cell
+  (its phase). **One slope a roof**: hips and valleys join equal slopes only (default chosen, owner to confirm).
+  Flat roofs and damaged roof cells are left out (a hole, §7), and so are the few cells where the two ridges of a 1:2
+  L cross (D518). **Every cell left out keeps its voxel faces** (the fallback), so a roof never disappears.
+- **The surface.** The top runs through the stair's outer corners; the underside is always the parallel plane one
+  cell (0.5 m) lower. A wall (any body) directly under a roof cell, or one air cell under it, has its top cut to that
+  underside: the roof closes down onto it, so no voxel step shows inside the attic or outside under the verge and
+  eave, and a gable's end wall follows the slope. Ridges, hips and a pyramid's apex take the lower of two planes,
+  valleys the higher. Planes stop at a non-roof neighbour: a wall or chimney through the roof keeps its faces.
+- **Only 90° hips and valleys in plan.** Other plans keep voxel faces.
+- **Collision** follows the drawn planes at both slopes (a ramp; owner A8); light, occupancy and navigation keep the
+  stair voxels.
+- **Every level.** The mesher runs at every distance ring (planes read better than stairs far away; a coarse level
+  lays a 45° roof again at 45° and a 1:2 roof at 1:2); the roof-edge pieces, like all pieces, only near (§11).
+- **One mesh a roof-edge slot serves both slopes** (owner F3): author it for 45° as below; on a 1:2 roof the engine
+  pitches it onto the plane, placed per cell with the kit's jitter: an eave or a verge turned rigidly (a verge then
+  overlaps its neighbours a little on the shorter 1:2 run), a ridge, hip or valley squashed to half its height so
+  both its sides lie on the shallower planes.
 - **No edge pieces round plane cells**: the roof's own edges below take their place. Roof-edge pieces are staggered
   like every piece (§10).
 
@@ -579,9 +586,12 @@ meshes filling 16 of 18 slots, 391 triangles, GLB 33,144 B; **stone** 12 meshes 
 
 ## 15. Known gaps (for the owner)
 
-- **D500: shallow roofs.** A 1:2 roof (two cells along, one up) is not left to voxel faces as a whole: every other
-  cell gets a plane, so it shows planes and steps alternating. Only 45° roofs are in scope; fixing it needs the passes
-  to look one cell further.
+- **D500 (fixed in 46c.16d): shallow roofs.** 1:2 roofs are planes like 45° ones (§6).
+- **D518: where a 1:2 L's ridges cross** up to four cells keep their voxel faces (each arm flattens the other's
+  stair), and at a coarse level where the arms are four cells wide a cell or two read 45°.
+- **D519: a cut wall top takes the roof's material.** The surface shader picks materials by position from the cells,
+  so the part of a wall cut up to the roof's underside, which lies in the roof cell's space, reads the roof's material
+  where wall and roof differ: the material line still steps (the geometry does not). 46d's material model.
 - **D501: far roofs sit a little high.** At the middle and far rings a roof not aligned to the coarser grid sits up to
   1.5 coarse cells above the near roof's planes, and small roofs lose their slope at L2.
 - **D504 (gone with the window rules):** a wall course under a window no longer reads as a banister; it is plain
@@ -605,9 +615,9 @@ meshes filling 16 of 18 slots, 391 triangles, GLB 33,144 B; **stone** 12 meshes 
    much?
 5. **Middle ring pieces (D505).** Settled by the owner 2026-11-05: no pieces from L1 out (§11).
 6. **Terrain contact.** No edge piece anywhere a building touches terrain (47b's fringe draws it). Confirm.
-7. **Roofs.** 45° only, 90° hips/valleys only, everything else voxel faces. Enough for now, or 1:2 roofs (D500) soon?
-8. **Roof collision as the drawn planes** (default chosen; plan-45 said "collide as ramps", the revision plan said
-   "stays voxel"). Confirm the planes.
+7. **Roofs.** Answered (A7, F3, C4): flat, 45° and 1:2; one roof-edge mesh pitched; the underside parallel, walls
+   under a roof cut to it. Open: one slope a roof (no mixed slopes; default chosen, owner to confirm).
+8. **Roof collision as the drawn planes:** confirmed (A8), at both slopes.
 9. **Damage stages.** Two stages (8–14, 1–7) and near ring only. Enough? Should the edges round a damaged cell keep
    their pieces?
 10. **Verge mirroring.** One verge mesh drawn mirrored on the second side, or a second case so a kit can carve the two
