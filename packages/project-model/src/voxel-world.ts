@@ -179,7 +179,8 @@ function baseRings(c: VoxelWorldRings): { ring: Required<VoxelWorldRing>; collis
  * its load distance is taken as the load distance (no hysteresis), since an
  * unload ring inside the load ring would drop chunks the ring just loaded.
  * Likewise a level-1 distance below the level-0 one is taken as it (no
- * level-1 band).
+ * level-1 band). A scaled distance stays within the limits an authored one
+ * has ({@link STREAMING_RADIUS_LIMITS}).
  */
 export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelConfig | null): ResolvedVoxelWorld {
   const D = VOXEL_WORLD_DEFAULTS;
@@ -189,7 +190,9 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
   const k = own?.scale ?? at?.ringScale ?? 1;
   const pick = (group: keyof VoxelWorldRings, field: string): number => {
     const set = (own?.[group] as Readonly<Record<string, number | undefined>> | undefined)?.[field];
-    return set ?? (b[group] as Readonly<Record<string, number>>)[field]! * k;
+    if (set !== undefined) return set;
+    const scaled = (b[group] as Readonly<Record<string, number>>)[field]! * k;
+    return Math.min(STREAMING_RADIUS_LIMITS.max, Math.max(STREAMING_RADIUS_LIMITS.min, scaled));
   };
   const loadRadius = pick('ring', 'loadRadius');
   const loadHeight = pick('ring', 'loadHeight');

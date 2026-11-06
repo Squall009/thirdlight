@@ -11,8 +11,8 @@
  * simulation hands it straight to the page's draws. The page answers with
  * the drawn chunks' GPU bytes (`drawn`), counted in the world's budget.
  *
- * Every world derives its detail pieces from the build's voxel kits (with
- * the engine's default kit for the materials no kit binds): one piece table
+ * Every world derives its detail pieces from the build's voxel kits (a
+ * material no kit binds draws plain voxel faces): one piece table
  * for all of them, the one the page draws the pieces from. The project's
  * quality levels go with the ports: the level the page reports scales
  * every world's distances and sets its budget.

@@ -344,7 +344,7 @@ describe('damage drawn by stage', () => {
       expect(pieces.filter((p) => p.caseId.startsWith('damage-'))).toEqual([]);
       expect(rest(pieces)).toEqual(rest(piecesOf(intact, 0, 0, 0)));
       expect(gameplay(d, intact)).toEqual(encodeDerived(intact));
-      // Light follows the integrity (46e's tracer reads it); the intact neighbour stays covered.
+      // Light follows the integrity (the light tracer reads it); the intact neighbour stays covered.
       expect(cell.light, `shape ${shape}`).toBe(integrityCoverage(shape));
       expect(cellOutputs(d, 5, 4, 8).light).toBe(255);
     }

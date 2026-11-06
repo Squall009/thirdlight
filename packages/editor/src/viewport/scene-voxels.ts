@@ -13,16 +13,19 @@
  * feed's `voxelsChanged` and is handed to the worker, which reads the
  * chunks it names again; the view shows it without a reload.
  *
- * Detail pieces are the project's voxel kits, read once when the first
- * world opens (through the command route; their GLBs from the backend), with
- * the engine's default kit for the materials no kit binds: the worker
- * derives with the piece table of those kits, the draws use the same. A kit
- * edited while the view is open shows once the view reads its kits again
- * (a page reload or a renderer change).
+ * Detail pieces are the project's voxel kits, read when the first world
+ * opens (through the command route; their GLBs from the backend); a
+ * material no kit binds draws plain voxel faces. The worker derives with the
+ * piece table of those kits, the draws use the same. A kit set or deleted,
+ * or a settings change (the piece seed), by any client, reads them again:
+ * the worker sets the new table, which derives again only the chunks whose
+ * pieces it changes, and the draws take the new kits when that swap
+ * arrives, so a chunk is never drawn with the other table's pieces. Meshes
+ * stay loaded across kit changes (a mesh already read is not read again).
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
 import type { VoxelsChangedPayload } from '@thirdlight/protocol';
-import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer, type VoxelKitSet } from '@thirdlight/three-adapter';
 import { pageKitPieces, readVoxelKits, type KitRoute, type ProjectVoxelKits } from '../voxel-world/kit-pieces';
 import type * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
@@ -61,6 +64,15 @@ export class SceneVoxels {
   /** The project's kits once read (null until the first world opens), and their meshes. */
   private kits: Promise<ProjectVoxelKits> | null = null;
   private kitMeshes: VoxelKitMeshes | null = null;
+  /** The kits drawn now (as read; null: none yet): a re-read finding the same changes nothing. */
+  private kitsKey: string | null = null;
+  /** The worlds the worker was told to open (kit changes go to these). */
+  private readonly posted = new Set<string>();
+  /**
+   * New kits waiting for the worlds to swap in what they change (by world:
+   * the swap group, −1 until the worker names it); drawn once none waits.
+   */
+  private pending: { set: VoxelKitSet | null; groups: Map<string, number> } | null = null;
 
   constructor(private readonly host: SceneVoxelsHost) {
     this.draws = this.makeDraws();
@@ -77,23 +89,77 @@ export class SceneVoxels {
     });
     this.kits = read;
     void read.then((kits) => {
-      // The renderer was replaced or the view disposed while the kits were read: those draws are gone, make nothing.
+      // The renderer was replaced, the view disposed or the kits read again meanwhile: those draws are gone, make nothing.
       if (this.kits !== read) return;
-      if (route !== undefined) {
-        const p = pageKitPieces(route, kits);
-        this.kitMeshes = p.meshes;
-        this.draws.setKits(p.set);
-        void p.loaded.then((why) => {
-          if (why === '') return;
-          for (const name of this.open.keys()) this.problems.set(name, why);
-          this.host.requestRender();
-        });
-      } else {
-        this.kitMeshes = new VoxelKitMeshes();
-        this.draws.setKits(this.kitMeshes.world(kits.kits, kits.seed));
-      }
+      this.kitsKey = JSON.stringify(kits);
+      this.draws.setKits(this.kitSet(kits));
     });
     return this.kits;
+  }
+
+  /** The kits the worker derives a world with now (read again until no newer read started meanwhile). */
+  private async currentKits(): Promise<ProjectVoxelKits> {
+    for (;;) {
+      const p = this.projectKits();
+      const kits = await p;
+      if (p === this.kits) return kits;
+    }
+  }
+
+  /** What the draws draw `kits` with: their meshes loading into the view's own (kept across kit changes). */
+  private kitSet(kits: ProjectVoxelKits): VoxelKitSet | null {
+    const route = this.host.source?.kits;
+    this.kitMeshes ??= new VoxelKitMeshes();
+    if (route === undefined) return this.kitMeshes.world(kits.kits, kits.seed);
+    const p = pageKitPieces(route, kits, this.kitMeshes);
+    void p.loaded.then((why) => {
+      if (why === '') return;
+      for (const name of this.open.keys()) this.problems.set(name, why);
+      this.host.requestRender();
+    });
+    return p.set;
+  }
+
+  /**
+   * The project's voxel kits or settings changed (setVoxelKit,
+   * deleteVoxelKit, setSettings): read them again and, if they differ from
+   * those drawn, hand every open world the new table; the draws take the
+   * new kits once each world's swap of what they change has arrived.
+   */
+  kitsChanged(): void {
+    const route = this.host.source?.kits;
+    // Not read yet: the first world to open reads the kits as they are then.
+    if (this.kits === null || route === undefined) return;
+    const before = this.kits;
+    const read = readVoxelKits(route).catch((e: unknown) => {
+      for (const name of this.open.keys()) this.problems.set(name, `voxel kits: ${e instanceof Error ? e.message : String(e)}`);
+      this.host.requestRender();
+      return before;
+    });
+    this.kits = read;
+    void read.then((kits) => {
+      if (this.kits !== read) return;
+      const key = JSON.stringify(kits);
+      if (key === this.kitsKey) return;
+      this.kitsKey = key;
+      const groups = new Map<string, number>();
+      this.pending = { set: this.kitSet(kits), groups };
+      for (const name of this.posted) {
+        groups.set(name, -1);
+        this.post({ t: 'kits', world: name, kits: kits.kits, pieceSeed: kits.seed });
+      }
+      this.drawPending();
+    });
+  }
+
+  /** A world no longer waits for the pending kits (its swap arrived, it derives nothing again, or it closed): draws them once none waits. */
+  private drawPending(world?: string): void {
+    const p = this.pending;
+    if (p === null) return;
+    if (world !== undefined) p.groups.delete(world);
+    if (p.groups.size > 0) return;
+    this.pending = null;
+    this.draws.setKits(p.set);
   }
 
   private makeDraws(): VoxelWorldDraws {
@@ -116,8 +182,17 @@ export class SceneVoxels {
     const w = new Worker(new URL(WORKER_SCRIPT, document.baseURI).href, { type: 'module', name: 'thirdlight-voxel-view' });
     w.onmessage = (e: MessageEvent<SceneVoxelsOut>) => {
       const m = e.data;
-      if (m.t === 'batch') this.draws.receive(m.batch);
-      else if (m.t === 'state') {
+      if (m.t === 'batch') {
+        // The swap of what new kits change: those chunks come derived with the new table, drawn with the new kits.
+        const g = this.pending?.groups.get(m.batch.world);
+        if (g !== undefined && g > 0 && m.batch.swaps.some((s) => s.groups.includes(g))) this.drawPending(m.batch.world);
+        this.draws.receive(m.batch);
+      } else if (m.t === 'kits') {
+        const p = this.pending;
+        if (p === null || !p.groups.has(m.world)) return;
+        if (m.group === 0) this.drawPending(m.world);
+        else p.groups.set(m.world, m.group);
+      } else if (m.t === 'state') {
         this.states.set(m.world, m);
         this.problems.delete(m.world);
         this.host.requestRender();
@@ -149,15 +224,18 @@ export class SceneVoxels {
       this.states.delete(name);
       this.problems.delete(name);
       this.post({ t: 'close', world: name });
+      this.posted.delete(name);
+      this.drawPending(name);
     }
     for (const [name, key] of wanted) {
       if (this.open.has(name)) continue;
       const s = settings.get(name)!;
       this.start();
       this.open.set(name, key);
-      void this.projectKits().then((kits) => {
+      void this.currentKits().then((kits) => {
         // Closed (or opened again with other settings) while the kits were read.
         if (this.open.get(name) !== key) return;
+        this.posted.add(name);
         this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: s.levels, collision: s.collision, sectionEdge: s.sectionEdge, kits: kits.kits, pieceSeed: kits.seed });
         if (this.focusSent !== null) this.post({ t: 'focus', x: this.focusSent[0], y: this.focusSent[1], z: this.focusSent[2] });
       });
@@ -188,9 +266,12 @@ export class SceneVoxels {
     this.kitMeshes?.dispose();
     this.kitMeshes = null;
     this.kits = null;
+    this.kitsKey = null;
+    this.pending = null;
     const names = [...this.open.keys()];
     for (const name of names) this.post({ t: 'close', world: name });
     this.open.clear();
+    this.posted.clear();
     this.states.clear();
     this.focusSent = null;
   }
@@ -213,6 +294,8 @@ export class SceneVoxels {
     this.kitMeshes?.dispose();
     this.kitMeshes = null;
     this.kits = null;
+    this.pending = null;
     this.open.clear();
+    this.posted.clear();
   }
 }

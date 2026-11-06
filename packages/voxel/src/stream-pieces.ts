@@ -62,7 +62,7 @@ export class StreamPieces {
     this.casesReadMaterial = cat !== undefined && catalogueReadsMaterial(cat);
   }
 
-  /** The table the derives choose pieces from (null: no kit, the default pieces). */
+  /** The table the derives choose pieces from (null: no kit, no pieces). */
   get table(): PieceTable | null {
     return this.current;
   }

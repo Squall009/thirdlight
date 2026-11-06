@@ -53,18 +53,18 @@
  * The same project exported (the debug console on) and served statically
  * with the backend stopped: the world's region files ship whole as content
  * files and stream from there, in the simulation's worker, with the voxel
- * workers it starts; the world draws, the character stands on it, and a
- * dig typed into the debug console opens the pit (pixels) and drops it in.
+ * workers it starts; the world draws with both wall marks (pixels), the
+ * character stands on it, and a dig typed into the debug console opens the
+ * pit (pixels) and drops it in.
  *
  * Detail pieces come from the project's voxel kits and stand only where
  * faces meet: a test kit gives the stone wall's free ends' vertical edges a
  * board from a GLB imported into the project and their top corners the same
- * board through an alias (the wall's flat faces get none), every other
- * material draws the engine's default kit. The page,
- * Play, the Scene view and the export (its GLB from the shipped content) all
- * draw kit pieces; on the page, on both renderers, the banister grown into a
- * wall takes the rail's pieces away and puts the default edge pieces on the
- * new top, and the picture changes.
+ * board through a rotated slot mesh (the wall's flat faces get none); every
+ * other material draws plain voxel faces. The page, Play, the Scene view
+ * and the export (its GLB from the shipped content) all draw kit pieces; in
+ * the Scene view a slot filled through the command route draws without a
+ * reload, and goes again when the kit is set back.
  *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
@@ -105,10 +105,13 @@ test.beforeAll(async () => {
 /**
  * The test kit's id: end boards up the stone wall's free ends from a GLB (clear of the rows the tests paint and
  * dig, so their pictures compare the surface). It binds stone and the two materials the wall is painted with below
- * (brick, plank), so those paints stay within one kit (shader data only); every other material draws the engine's
- * default kit.
+ * (brick, plank), so those paints stay within one kit (shader data only); every other material draws plain voxel
+ * faces.
  */
 const STONE_KIT = 'stone-test';
+/** The test kit's record as set up, and its one mesh (the Scene view test fills another slot with it and sets the kit back). */
+let stoneKit: { slots: Record<string, unknown> } & Record<string, unknown>;
+let stoneMesh: { assetId: string; digest: string };
 
 /**
  * A voxel kit for the stone material with one authored piece, an outside vertical edge's board (the free ends'
@@ -148,7 +151,9 @@ async function addStoneKit(): Promise<void> {
   const assetId = imported.change.added[0]!.assetId;
   const digest = createHash('sha256').update(glb).digest('hex');
   console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no texture`);
-  await playCmd('setVoxelKit', { kit: { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], slots: { 'edge-out-vertical': { meshes: [{ mesh: { assetId, digest } }] }, 'corner-out-top': { meshes: [{ mesh: { assetId, digest }, rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) }] } } } });
+  stoneMesh = { assetId, digest };
+  stoneKit = { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], slots: { 'edge-out-vertical': { meshes: [{ mesh: { assetId, digest } }] }, 'corner-out-top': { meshes: [{ mesh: { assetId, digest }, rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) }] } } };
+  await playCmd('setVoxelKit', { kit: stoneKit });
 }
 test.afterAll(async () => {
   await be?.stop();
@@ -800,7 +805,7 @@ async function sceneViewStill(page: Page, name: string): Promise<ReturnType<type
 
 interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number; kitInstances: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
 
-test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit sent through the command route shows without a reload", async ({ page }) => {
+test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit and a kit slot filled through the command route show without a reload", async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1280, height: 720 });
   const errors = consoleErrors(page);
@@ -836,6 +841,23 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   expect(changedPixels(world, dug)).toBeGreaterThan(500);
   expect(await page.evaluate(() => (window as unknown as { __notReloaded?: boolean }).__notReloaded)).toBe(true);
 
+  // A kit slot filled through the command route (as MCP sends it): the view takes the new piece table, the chunks whose
+  // pieces it changes derive again, and the slot's pieces (the stone walls' top edges) draw without a reload; set back, they go.
+  const kitCmd = async (kit: Record<string, unknown>): Promise<void> => {
+    const r = await be.command({ op: 'setVoxelKit', projectId: be.projectId, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-scene-view' }, args: { kit } });
+    expect(r['ok'], JSON.stringify(r)).toBe(true);
+  };
+  const pieces = async (): Promise<number> => (await voxels())?.worlds['slice']?.kitInstances ?? 0;
+  const plain = await pieces();
+  await kitCmd({ ...stoneKit, slots: { ...stoneKit.slots, 'edge-out-top': { meshes: [{ mesh: stoneMesh }] } } });
+  await expect.poll(pieces, { timeout: 30_000, message: 'the filled slot draws in the Scene view' }).toBeGreaterThan(plain);
+  const slotted = await sceneViewStill(page, 'scene-view-kit-slot');
+  expect(changedPixels(dug, slotted)).toBeGreaterThan(100);
+  await kitCmd(stoneKit);
+  await expect.poll(pieces, { timeout: 30_000, message: 'the emptied slot draws nothing again' }).toBe(plain);
+  expect(changedPixels(dug, await sceneViewStill(page, 'scene-view-kit-back'))).toBeLessThan(50);
+  expect(await page.evaluate(() => (window as unknown as { __notReloaded?: boolean }).__notReloaded)).toBe(true);
+
   // The renderer's CPU ms a frame while the view orbits (60 frames), with the world and, once its object goes, without.
   const orbit = async (): Promise<string | null> => {
     const box = (await view.boundingBox())!;
@@ -861,7 +883,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
 // ---- The export plays the world with no backend ------------------------------------------------------------------
 // This test halts the file's one backend (an export is checked with the backend stopped): it stays the file's last test.
 
-test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it, stands the character on it, and a console dig opens the pit', async ({ page }) => {
+test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it and its wall marks, stands the character on it, and a console dig opens the pit', async ({ page }) => {
   test.setTimeout(180_000);
   const at = await playProject();
   // The debug console takes the dig (the test's way to drive the script, as Play's debug command).
@@ -915,6 +937,14 @@ test('Export: the Play project exported and served statically with the backend s
     const threading = await game.evaluate(() => (window as unknown as { __thirdlightThreading?: { mode: string } }).__thirdlightThreading?.mode ?? null);
     console.log(`[voxel-export] cold fill (page load → drawn chunks steady): ${fillMs} ms, ${chunks} chunks; pit resident at ${residentMs} ms; simulation ${String(threading)}`);
     const standing = (await observe())!.player!;
+    // Both wall marks in the export too: the decal materials from the build, the clipped one cut from the wall's chunk.
+    let marks = [0, 0];
+    await expect.poll(async () => {
+      const img = decodePng(await canvas.screenshot());
+      marks = [hueCount(img, 'red'), hueCount(img, 'blue')];
+      return marks.every((m) => m > 200);
+    }, { timeout: 20_000, message: 'both wall marks are drawn in the export' }).toBe(true);
+    console.log(`[voxel-export] wall marks: projected red ${marks[0]} px, clipped blue ${marks[1]} px`);
     const before = decodePng(await canvas.screenshot({ path: test.info().outputPath('export-before.png') }));
     await canvas.click();
     await game.keyboard.press('Backquote');

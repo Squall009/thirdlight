@@ -148,8 +148,8 @@ export interface VoxelStreamerOptions {
   readonly levels?: LevelRings;
   /**
    * The world's kit piece table (piece-table.ts, built for `rules`): what
-   * the derives choose detail pieces from. Absent: no kit, the default
-   * pieces (`pieces.set` changes it).
+   * the derives choose detail pieces from. Absent: no kit, no pieces
+   * (`pieces.set` changes it).
    */
   readonly pieces?: PieceTable | null;
 }

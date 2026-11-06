@@ -127,6 +127,8 @@ export interface ClientCallbacks {
   onLightingBakeRequest?: (relayId: string, sceneId: string) => void;
   /** A voxel world edit or undo was applied (by any client): the views drawing the world read its chunks again. */
   onVoxelsChanged?: (change: VoxelsChangedPayload) => void;
+  /** A voxel kit was set or deleted, or the project settings changed (the piece seed is one): the views drawing kit pieces read them again. */
+  onVoxelKitsChanged?: () => void;
 }
 
 /** A session-scoped `sessionId` (`sess-` + 32 hex), client-generated. */
@@ -735,6 +737,7 @@ export class SessionClientCore extends SessionProjectState {
       // Props' block footprints written with the change: read those chunks too.
       for (const f of (change as { footprints?: readonly FootprintChunks[] }).footprints ?? []) void this.refreshBlockChunks(f.entityId, f.chunks).then(() => this.cb.onSceneChanged());
       if (blockLayerListTouched(change, this.blockLayers)) void this.refreshBlockLayers().then(() => this.cb.onSceneChanged());
+      if (change.type === 'setVoxelKit' || change.type === 'setSettings') this.cb.onVoxelKitsChanged?.();
       this.ensureSceneRecords();
       this.save = 'saved';
       this.cb.onSceneChanged();

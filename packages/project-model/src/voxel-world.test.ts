@@ -13,7 +13,8 @@ import { validateSceneV4 } from './scene-v3';
 import { DEFAULT_QUALITY_LEVELS, levelVoxels, type QualityLevelConfig } from './quality-levels';
 import { validateQualityLevels } from './materials';
 import { canonicalVoxelWorld, resolveVoxelWorld, validateVoxelWorldComponent, VOXEL_WORLD_DEFAULTS, type VoxelWorldComponent } from './voxel-world';
-import { VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
+import { STREAMING_RADIUS_LIMITS } from './world-streaming';
+import { VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const CAMERA = { id: 'cam-main', components: { transform: T, virtualCamera: { rig: 'fixed' } } };
@@ -156,8 +157,7 @@ describe('the voxelWorld component', () => {
 
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
-    // The tiers' scales grow the area loaded as their budgets grow (medium 1: the defaults are the integrated GPU's).
-    for (const t of ['low', 'medium', 'high'] as const) expect(VOXEL_RING_SCALES[t] ** 2).toBeCloseTo(VOXEL_STREAM_BUDGET_BYTES[t] / VOXEL_STREAM_BUDGET_BYTES.medium, 9);
+    // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
     expect(levelVoxels(medium!)).toEqual({ ringScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium });
     expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high });
     const base = resolveVoxelWorld({ world: 'w' });
@@ -184,6 +184,11 @@ describe('the voxelWorld component', () => {
     const big: QualityLevelConfig = { id: 'big', lighting: 'high', voxelRings: 2 };
     expect(at({ world: 'w', ring: { loadRadius: 100 }, levels: { level0: 60 } }, big).ring.loadRadius).toBe(200);
     expect(at({ world: 'w', ring: { loadRadius: 100 }, levels: { level0: 60 } }, big).levels.level0).toBe(120);
+    // A scaled distance stays within an authored one's limits (1 … 100,000 m).
+    const far = at({ world: 'w', ring: { loadRadius: 80_000, unloadRadius: 90_000 } }, big).ring;
+    expect([far.loadRadius, far.unloadRadius]).toEqual([STREAMING_RADIUS_LIMITS.max, STREAMING_RADIUS_LIMITS.max]);
+    const quarter: QualityLevelConfig = { id: 'quarter', lighting: 'low', voxelRings: 0.25 };
+    expect(at({ world: 'w', collision: { radius: 2 } }, quarter).collision.radius).toBe(STREAMING_RADIUS_LIMITS.min);
     // A distance the scene sets for the level replaces the scaled one; the others stay scaled; the invariants hold.
     const over = at({ world: 'w', quality: { big: { ring: { loadRadius: 500, unloadRadius: 10 }, levels: { level1: 1 } } } }, big);
     expect(over.ring).toEqual({ ...scaled(2).ring, loadRadius: 500, unloadRadius: 500 });

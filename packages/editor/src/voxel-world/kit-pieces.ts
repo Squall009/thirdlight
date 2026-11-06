@@ -58,9 +58,13 @@ export interface PageKitPieces {
   readonly loaded: Promise<string>;
 }
 
-/** The project's kits and seed (null: no table at all) with their meshes loading from the backend. */
-export function pageKitPieces(r: KitRoute, project: ProjectVoxelKits | null): PageKitPieces {
-  const meshes = new VoxelKitMeshes();
+/**
+ * The project's kits and seed (null: no table at all) with their meshes
+ * loading from the backend into `meshes` (a page's own, kept across kit
+ * changes: meshes already loaded are not read again, and draws built from
+ * the old kits keep theirs).
+ */
+export function pageKitPieces(r: KitRoute, project: ProjectVoxelKits | null, meshes: VoxelKitMeshes = new VoxelKitMeshes()): PageKitPieces {
   if (project === null) return { table: null, set: null, meshes, loaded: Promise.resolve('') };
   const table = worldPieceTable(project.kits, project.seed);
   const loaded = meshes.load(project.kits, backendKitBytes(r), createGltfLoaderPort()).then((l) => (l.failed.length === 0 ? '' : `kit meshes not drawn: ${l.failed.join('; ')}`));

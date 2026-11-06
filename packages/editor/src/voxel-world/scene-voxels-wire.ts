@@ -10,6 +10,8 @@ export type SceneVoxelsIn =
   /** Stream `world` (its route `url`, read with `headers`; derive workers from `workerUrl`) with a `voxelWorld` object's ring, levels and sections (its collision radius bounds level 0), its pieces from the project's `kits` and piece seed. */
   | { readonly t: 'open'; readonly world: string; readonly url: string; readonly headers: Readonly<Record<string, string>>; readonly workerUrl: string; readonly ring: WorldRingMetres; readonly levels: WorldLevelsMetres; readonly collision: { readonly radius: number }; readonly sectionEdge: SectionEdge; readonly kits: readonly PieceKitSource[]; readonly pieceSeed: number }
   | { readonly t: 'close'; readonly world: string }
+  /** The project's kits or piece seed changed: `world` derives again what the new piece table changes. */
+  | { readonly t: 'kits'; readonly world: string; readonly kits: readonly PieceKitSource[]; readonly pieceSeed: number }
   /** Where the view looks (metres): every world streams around it. */
   | { readonly t: 'focus'; readonly x: number; readonly y: number; readonly z: number }
   /** A change the backend applied to `world` (the editor feed's `voxelsChanged`). */
@@ -20,6 +22,8 @@ export type SceneVoxelsIn =
 /** Worker → page. */
 export type SceneVoxelsOut =
   | { readonly t: 'batch'; readonly batch: ChunkDrawBatch }
+  /** `world` took the new kits: what they change swaps in with the swap group `group` (0: nothing to derive again). */
+  | { readonly t: 'kits'; readonly world: string; readonly group: number }
   /** The world could not be opened or read again (it is not drawn, or drawn as it was). */
   | { readonly t: 'problem'; readonly world: string; readonly message: string }
   /** What a world holds (after it settles; tests and the status read it). */

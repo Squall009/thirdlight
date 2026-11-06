@@ -93,7 +93,7 @@ export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSett
   if (settings.budgetBytes !== undefined && settings.budgetBytes !== null) streamer.budgetBytes = settings.budgetBytes;
 }
 
-/** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: the default pieces only). */
+/** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: no kit, plain voxel faces). */
 export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
   return new VoxelStreamer({
     store: createWorldStore(conn.grid),

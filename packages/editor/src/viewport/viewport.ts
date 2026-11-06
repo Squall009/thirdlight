@@ -1078,8 +1078,12 @@ export class Viewport {
     this.adapter.dispose();
   }
 
-  /** A voxel world edit or undo applied by any client (the editor feed): the world's changed chunks are read again. */
-  voxelsChanged(c: VoxelsChangedPayload): void {
-    this.voxels.changed(c);
+  /**
+   * A voxel world edit or undo applied by any client (the editor feed): the world's changed chunks are read again.
+   * `'kits'`: the project's voxel kits or settings changed: the worlds draw the new kit pieces, re-deriving what they change.
+   */
+  voxelsChanged(c: VoxelsChangedPayload | 'kits'): void {
+    if (c === 'kits') this.voxels.kitsChanged();
+    else this.voxels.changed(c);
   }
 }

@@ -11,6 +11,8 @@
  * the editor feed's `voxelsChanged` comes here, and the chunks it names are
  * read again and swap in together. A revision missed (the feed is best
  * effort) or files changed behind the backend: the world is read again whole.
+ * A kit or piece seed change sets the streamer's piece table, which derives
+ * again only the chunks whose pieces it changes, swapping in as one group.
  *
  * Streaming runs while there is work (the streamer's `settle`) and waits
  * for the next focus move or change once everything around the focus is
@@ -28,6 +30,8 @@ interface Streamed {
   readonly resident: Map<number, ChunkCoord>;
   /** Changes that arrived while the world opened. */
   readonly early: WorldChange[];
+  /** Kits that arrived while the world opened (it opens with these). */
+  kits: Extract<SceneVoxelsIn, { t: 'kits' }> | null;
   closed: boolean;
   /** Wakes the streaming loop (a focus move, a change). */
   kick: (() => void) | null;
@@ -72,7 +76,7 @@ async function change(w: Streamed, c: WorldChange): Promise<void> {
 }
 
 async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
-  const w: Streamed = { name: m.world, world: null, streamer: null, batcher: null, resident: new Map(), early: [], closed: false, kick: null };
+  const w: Streamed = { name: m.world, world: null, streamer: null, batcher: null, resident: new Map(), early: [], kits: null, closed: false, kick: null };
   worlds.set(m.world, w);
   let world: RangeWorld;
   try {
@@ -86,7 +90,8 @@ async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
     return;
   }
   // The project's kits and piece seed: the table the page draws the pieces from too.
-  const streamer = worldStreamer({ grid: world.grid, source: world.source, pool: world.pool, pieces: worldPieceTable(m.kits, m.pieceSeed) }, m);
+  const kits = w.kits ?? m;
+  const streamer = worldStreamer({ grid: world.grid, source: world.source, pool: world.pool, pieces: worldPieceTable(kits.kits, kits.pieceSeed) }, m);
   w.world = world;
   w.streamer = streamer;
   streamer.on((e) => {
@@ -139,5 +144,18 @@ scope.onmessage = (e) => {
     case 'drawn':
       worlds.get(m.world)?.batcher?.drawn(m.bytes, m.coarse, m.kits);
       break;
+    case 'kits': {
+      const w = worlds.get(m.world);
+      if (w === undefined) break;
+      if (w.streamer === null) {
+        w.kits = m;
+        post({ t: 'kits', world: m.world, group: 0 });
+        break;
+      }
+      const { group } = w.streamer.pieces.set(worldPieceTable(m.kits, m.pieceSeed));
+      post({ t: 'kits', world: m.world, group });
+      kick(w);
+      break;
+    }
   }
 };
