@@ -2402,6 +2402,17 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   - **Middle-distance door/window merge ("legs" at L1): left to the far-field / large-world rendering work (46d),**
     where distance drawing changes anyway.
 
+- 2026-11-06 (OWNER, acc46c-r2 answers, part 2 — the 35 defaults): **all confirmed except:**
+  - **D519: fix it** — a clear separation between wall and roof (closing geometry takes the wall's material; no blend
+    across the seam).
+  - **A1–A4: flat roofs must stay possible** beside 45° and 1:2 (they are: roof cells side by side keep voxel faces and
+    roof-edge pieces); a flat roof goes into the proto/acceptance worlds, which build none today.
+  - **A4: filling wall tops up to the roof underside is an artistic choice per building, not a rule** (how it is set:
+    see the next entry).
+  - **A5: the detail-piece ring = the level-0 ring stays until the voxel phases are done and the far-rendering phase
+    has performance numbers;** do not change it before.
+  - **B3 (no mirror on slot meshes): owner asked why** — answered in the next entry.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
