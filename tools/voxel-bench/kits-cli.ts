@@ -66,11 +66,11 @@ for (const id of KITS) {
   if (!(record.versions ?? []).some((v) => v.sourceDigest === digest)) throw new Error(`${asset.assetId} has no version of these bytes (${digest})`);
   // The record names the asset by the id the file was committed with; the project's import may name it otherwise.
   const text = readFileSync(join(KIT_DIR, `${id}.voxelkit.json`), 'utf8').replaceAll(`"voxel-kit-${id}"`, JSON.stringify(asset.assetId));
-  const kit = JSON.parse(text) as { cases: Record<string, unknown> };
+  const kit = JSON.parse(text) as { slots: Record<string, unknown> };
   if (!text.includes(digest)) throw new Error(`${id}.voxelkit.json does not name voxel-kit-${id}.glb's digest ${digest}: run the generator again`);
   const set = await command('setVoxelKit', { kit }, true);
   if (set.ok !== true && set.error?.code !== 'no_change') throw new Error(`setVoxelKit ${id}: ${JSON.stringify(set.error)}`);
-  console.log(`[kits] ${id}: asset ${asset.assetId} (${glb.length} B, sha256 ${digest.slice(0, 12)}…), ${Object.keys(kit.cases).length} cases, setVoxelKit ${set.ok === true ? 'ok' : set.error?.code}`);
+  console.log(`[kits] ${id}: asset ${asset.assetId} (${glb.length} B, sha256 ${digest.slice(0, 12)}…), ${Object.keys(kit.slots).length} slots, setVoxelKit ${set.ok === true ? 'ok' : set.error?.code}`);
 }
 // The backend checks kits after a kit or asset change (debounced): give it a moment, then print its rows.
 await new Promise((ok) => setTimeout(ok, 1500));

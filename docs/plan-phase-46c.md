@@ -1421,6 +1421,14 @@ families gone; a beam or rail class is the body for every consumer (`classForm`)
   enough to stay consistent; 16g rewrites it). One test changed meaning: derived.test "reaches the rule radius" no
   longer sees a consumer change in the chunk above (the rail→wall class flip shows in no output now); it keeps the
   dependency bound and the window check.
+- **Looked at** (staging, slice page, 1280 × 720 at the 60 Hz cap, WebGPU and WebGL 2, shots
+  `~/.cache/thirdlight-phase46/work/46c.16b/shots/`): a log, a stone and a no-kit (material 12) gable house near
+  (`*-gable-l0-near`): log ends, coves, barge, ridge and eave logs; stone edge strips, verge and eave boards (16 of 18
+  slots each); the no-kit house plain voxel faces, no piece. Level 1 (`*-gable-l1-mid`): 0 pieces. Both renderers alike.
+  Staging's kit records rewritten to the slot format by hand (staging stopped), then `run.mjs kits` (0 kit-check rows).
+- **Gates.** gate-fast-20261106-041420 RED (generated behavior typings: the new setting; stream.test.ts one ENOENT in
+  its temp world, passed alone); gate-rerun-20261106-042638 GREEN (7 min, 4.8 GB; perf at the cap 0 missed both
+  renderers, 5.78 / 4.03 ms main thread). `voxel-world.e2e.ts` sum 72.2 → **64.0 s**.
 
 ## 9. Decision log
 
