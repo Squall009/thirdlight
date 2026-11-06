@@ -227,6 +227,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16f | Decals on voxel faces and pieces: projected decals tested (editor, Play, export), clipped decals reach voxel chunks. |
 | 46c.16g | Placeholder kits regenerated, role spec + texture layout rewritten as v1 candidates, proto scene re-shot both renderers, town measured. |
 | 46c.16h | Review r2 fixes after the closing full gate: roofs follow the kit's damage stages (M1, D521), the Scene view follows kit and seed edits (M2), voxel decals checked in the export (M3), the trim page's defaults and the per-kit layout question (M4), Lows. |
+| 46c.16i | acc46c-r2 presented, awaiting owner (hard stop): pictures of the 46c.16a–h build, both renderers, README + approve page; then the v1 freeze. |
 
 ## 7. Progress
 
@@ -257,6 +258,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16f | done: projected decals mark voxel faces (every level) and kit pieces, tested 8 km out (variant keeps the 64-bit model-view); clipped decals cut from level-0 chunks via a per-scene link, re-cut on a dig (Play 3–5 ms a mark on a worker; old mark kept until then, never two); `voxelWorld.decalLayers`. Seen both renderers, Play + Scene view; e2e 67.8 → 63.5 s; D522 |
 | 46c.16g | done: role spec + texture layout rewritten as v1 CANDIDATES (17 slots, ownership, rings, roofs, damage, decals; 25 defaults); kits unchanged, check 0 err/0 warn (log 304 tris 26.7 kB, stone 170 tris 20.0 kB). Town at the cap both renderers: 42.7 k instances, 1,412 piece draws, render() 8.7–9.3 ms, 0 missed, 126.5 MB (R9 59.5 k, 3,081, 14.3–14.8, 0–1, 121.3). D507 fixed, D523 watch |
 | 46c.16h | done (e76d362e, 5c50afd8): review r2 M1–M4 fixed — roofs follow the kit's damage stages (D521; derived 26), Scene view follows kit/seed edits live, export e2e reads both voxel decals, trim page §8 defaults + O1; M5 a shot-list note; L1/L4/L7 fixed, rest noted, D524. Cracked roof seen both renderers. Fast gate GREEN after D418 + one test fix; e2e 68.0 → ~65.5 s |
+| 46c.16i | acc46c-r2 presented, awaiting owner (hard stop): 78 shots × 2 renderers in `acceptance/46c-r2/final` (both kits, 45°/1:2 gable/hip, L, L0/L1, no kit, openings, attic, damage, cracked roofs, two materials, decals, town). Town 42.7 k instances, 1,412 draws, render() 8.8–9.2 ms, 0 missed. Seen: D519, D515, D516; no new D-row. 2 + 35 + 3 questions |
 | 46c.17 | not started (after the v1 freeze) |
 | 46c.14b | done: first build's full gate GREEN at 9107abbd (33 min, 8.0 GB), review fixed (46c.14c). Closing gate-full-20261106-092942 at 9e50b65e GREEN: 34 min (33), 8.0 GB, 393 e2e; edge-cases failed once, passed alone (D523). Its first run OOM-killed at 8G with no vitest worker cap; restarted with TL_VITEST_WORKERS=4. Review r2: 0H 5M 8L (46c.16h) |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
