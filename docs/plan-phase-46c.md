@@ -225,6 +225,8 @@ freeze, 46c.17, 46c.18.
 | 46c.16d | Roofs: flat, 45° and 1:2 in the roof mesher; one roof-edge mesh pitched to the slope with jitter, overlapping on the shorter run; underside always the parallel slope; wall tops under a roof cut to it. |
 | 46c.16e | Damage: three stages per kit (default 11–14 crack overlay, engine texture replaceable per kit; 6–10 cell not drawn, many neighbour-face pieces; 1–5 fewer); no edge pieces round the hole; collision/navigation whole until air; light coverage from integrity (46e reads it). |
 | 46c.16f | Decals on voxel faces and pieces: projected decals tested (editor, Play, export), clipped decals reach voxel chunks. |
+| 46c.16j | D519: wall/roof seam separated (closing geometry takes the wall's material, no blend across); wall-top fill a roof-kit setting, default off; flat roof in the proto world. |
+| 46c.16k | Crack overlay as a 4 × 4 m grid-anchored map (kit-replaceable); optional mirror per slot mesh; kits declare their own sheet layout (optional record). |
 | 46c.16g | Placeholder kits regenerated, role spec + texture layout rewritten as v1 candidates, proto scene re-shot both renderers, town measured. |
 | 46c.16h | Review r2 fixes after the closing full gate: roofs follow the kit's damage stages (M1, D521), the Scene view follows kit and seed edits (M2), voxel decals checked in the export (M3), the trim page's defaults and the per-kit layout question (M4), Lows. |
 | 46c.16i | acc46c-r2 presented, awaiting owner (hard stop): pictures of the 46c.16a–h build, both renderers, README + approve page; then the v1 freeze. |
@@ -2412,6 +2414,12 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   - **A5: the detail-piece ring = the level-0 ring stays until the voxel phases are done and the far-rendering phase
     has performance numbers;** do not change it before.
   - **B3 (no mirror on slot meshes): owner asked why** — answered in the next entry.
+
+- 2026-11-06 (OWNER, follow-up choices): **wall-top fill = a setting on the roof's kit, default OFF** (the stepped wall
+  shows unless the builder asks for the fill; 47a's building object may override it per building). **Mirror: yes,
+  optional per slot mesh** (handed pieces: carvings, stair sides; the engine flips winding and normal maps as it does
+  for the verge). Remaining items before the v1 freeze: 46c.16j (D519 seam + wall-top fill setting), 46c.16k (4 m
+  crack map, per-mesh mirror, kit-declared sheet layout), then pictures incl. a flat roof, then the freeze.
 
 ## 10. Open questions for the owner
 
