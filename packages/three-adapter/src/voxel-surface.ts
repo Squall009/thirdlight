@@ -64,9 +64,11 @@
  * **Cracks.** A cracked block's faces (voxel damage stage 1) carry the
  * overlay's strength in a vertex attribute ({@link VOXEL_CRACK_ATTRIBUTE});
  * the crack texture (voxel-crack-texture.ts: the engine's, or the
- * material's kit's own) is laid one tile a cell face on the build grid's
- * metres, and a texel at or above 1 − strength darkens the face there, so
- * the cracks grow as the integrity drops.
+ * material's kit's own) is one map a construction tile, laid on the build
+ * grid exactly as the material's texture (its tile's metres, the same
+ * phase), so cracked cells side by side show one pattern; a texel at or
+ * above 1 − strength darkens the face there, so the cracks grow as the
+ * integrity drops.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -92,7 +94,7 @@ const CRACK_DARKEN = 0.7;
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
-import { BAND_TEXELS, bandTexels, gridUv, type ProjectionOps } from './voxel-surface-projection';
+import { BAND_TEXELS, bandTexels, gridUv, tileUv, type ProjectionOps } from './voxel-surface-projection';
 
 const TSL: N = TSLTyped;
 const { Fn, abs, attribute, clamp, float, floor, int, ivec2, ivec3, max, min, mix, mod, normalLocal, positionLocal, property, select, sqrt, texture, uniform, vec2, vec3, vec4 } = TSL;
@@ -586,7 +588,6 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const ps = slopePhaseU.add(positionLocal);
       const ps5 = slope5PhaseU.add(positionLocal);
       const [gu, gv] = gridUv(nodeOps, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [ps5.x, ps5.y, ps5.z], [n.x, n.y, n.z]);
-      const g = vec2(gu, gv);
       // Triplanar weights by the normal (terrain); a construction material takes the grid projection alone.
       const bw = abs(n).pow(vec3(4));
       const bn = bw.div(bw.x.add(bw.y).add(bw.z));
@@ -598,7 +599,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         const layer = int(floor(l.a.add(0.5)));
         const sample = (uv: N): N => texture(patterns, uv).depth(layer).r;
         const pt = p.div(tiles.y);
-        const gt = g.div(tiles.x);
+        const gt = vec2(...tileUv(nodeOps, [gu, gv], tiles.x));
         const pat = sample(select(built, gt, pt.zy)).mul(select(built, float(1), bn.x)).add(sample(pt.xz).mul(select(built, float(0), bn.y))).add(sample(pt.xy).mul(select(built, float(0), bn.z)));
         const shaded = l.rgb.mul(pat.sub(0.5).mul(1.2).add(1)).toVar();
         if (bands === null) return shaded;
@@ -612,10 +613,12 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const blended = mix(a1, a2, share);
       // Nothing solid among the eight cells (should not happen on a surface): a neutral grey shows it.
       const seen = solid.or(owned).or(nw.greaterThan(0));
-      // Cracks (a damaged block's faces, damage stage 1): one crack tile a cell face, on the grid's metres; a texel
-      // shows once the face's strength reaches it (bright cracks first). Sampled outside any branch, as above.
-      const crackLayer = int(floor(look(mod(mA, matMask), 1).z.add(0.5)));
-      const crackTexel = cracksNode.sample(g.div(layout.cellMetres)).depth(crackLayer).r.toVar();
+      // Cracks (a damaged block's faces, damage stage 1): one crack map a construction tile, laid on the grid exactly as
+      // the material's texture (the same metres and phase), so neighbouring cracked cells show one continuous pattern;
+      // a texel shows once the face's strength reaches it (bright cracks first). Sampled outside any branch, as above.
+      const crackLook = look(mod(mA, matMask), 1).toVar();
+      const crackLayer = int(floor(crackLook.z.add(0.5)));
+      const crackTexel = cracksNode.sample(vec2(...tileUv(nodeOps, [gu, gv], crackLook.x))).depth(crackLayer).r.toVar();
       const strength = crackStrength();
       const cracked = select(strength.greaterThan(0.002).and(crackTexel.greaterThan(0.002)).and(crackTexel.greaterThanEqual(float(1).sub(strength))), float(CRACK_DARKEN), float(0));
       const colour = mix(vec3(0.5), blended.mul(float(1).sub(wetness.mul(0.5))).mul(float(1).sub(cracked)), select(seen, float(1), float(0)));

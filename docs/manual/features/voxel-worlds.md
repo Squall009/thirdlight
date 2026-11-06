@@ -397,7 +397,9 @@ them as `voxelKits`.
   `crackTexture` (`{assetId, digest}`: an image asset whose red channel
   replaces the engine's crack pattern: 0 no crack, bright cracks show at
   the first crack stage, dimmer ones join as the integrity drops; one image
-  is laid on each 0.5 m face). For example
+  covers a 4 × 4 m construction tile, laid on the build grid like the
+  material's own texture, so cracked blocks side by side show one pattern).
+  For example
   `{"stage1": null, "stage2": {"min": 1, "max": 14, "pieces": 4}, "stage3": null}`
   makes every damaged block a hole with four pieces a face.
 - **One texture set a kit**: every piece of a kit uses the same one

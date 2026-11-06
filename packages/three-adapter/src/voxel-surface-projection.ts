@@ -70,6 +70,15 @@ export function gridUv<F, B>(o: ProjectionOps<F, B>, p: Vec<F>, ps: Vec<F>, ps5:
   return [u, v];
 }
 
+/**
+ * A construction tile's texture coordinate of (U, V) metres, for a tile of
+ * `tileMetres`: the material's texture and its crack map both read it, so
+ * the two lie on the grid with one phase.
+ */
+export function tileUv<F, B>(o: ProjectionOps<F, B>, uv: readonly [F, F], tileMetres: F): [F, F] {
+  return [o.div(uv[0], tileMetres), o.div(uv[1], tileMetres)];
+}
+
 /** `v` modulo `m`, in [0, m). */
 function wrapTo(v: number, m: number): number {
   return v - Math.floor(v / m) * m;

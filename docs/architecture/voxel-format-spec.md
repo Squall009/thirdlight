@@ -1551,8 +1551,9 @@ the material model and texture sets 46d's.
   `DAMAGE_STAGES_DEFAULT`: **stage 1, 11–14** the block drawn with its edge pieces, its faces carrying the crack
   overlay's strength (0–255, higher as the integrity drops within the stage) in their vertices' position w (they
   merge only with faces of the same strength; the shader darkens the crack texture's texels at or above
-  1 − strength: the engine's generated texture or the kit's `crackTexture`, one tile a 0.5 m face on the grid's
-  metres); **stage 2, 6–10** and **stage 3, 1–5** a hole: a construction cell at either with a face open
+  1 − strength: the engine's generated map or the kit's `crackTexture`, one map a construction tile (4 × 4 m),
+  laid on the grid as the material's texture, so neighbouring cracked cells show one pattern; 46c.16k, owner
+  2026-11-06); **stage 2, 6–10** and **stage 3, 1–5** a hole: a construction cell at either with a face open
   (`isHoleCell`, reach 1; buried damage stays a body) is `FORM_HOLE`, the whole box for collision, navigation and
   occupancy, drawing no face and hiding none of its neighbours', no edge piece round it; each intact neighbour face
   toward it carries `pieces` (default 6 and 3, at most `DAMAGE_PIECES_MAX` 16) instances of its own kit's
@@ -1790,7 +1791,7 @@ ids it holds are opaque here and the catalogue that names them is a draft. Nothi
   (`DAMAGE_STAGES_DEFAULT`: 11–14 cracks, 6–10 a hole with 6 pieces a face, 1–5 with 3), null leaves it out; ranges
   are integrities 1–14, `min` ≤ `max`, no two stages sharing one; `pieces` (stages 2 and 3 only) 1–16. The checks are
   the voxel package's (`resolveDamageStages`), so the record and the table never disagree. `crackTexture` names an
-  image whose red channel replaces the engine's crack pattern; the content closure ships it like a kit mesh (the
+  image whose red channel replaces the engine's crack map (one image a 4 × 4 m construction tile); the content closure ships it like a kit mesh (the
   version its digest names). An empty `damage` is left out canonically. Format 1 stays a draft: an add-only field.
 - **Slots (draft change, owner 2026-11-05/06; 46c.16a–b).** Every catalogue case is a slot; every slot is optional
   (left out: nothing drawn, no warning); a slot's meshes are picked per piece by the project seed and position,

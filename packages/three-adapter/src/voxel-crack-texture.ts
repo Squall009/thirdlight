@@ -7,33 +7,39 @@
  * every texel at or above 1 − strength). So one texture grows its cracks as
  * a block weakens, like a block-breaking animation, with no frame per stage.
  *
- * The engine's texture is generated here (no file, the same on every run):
- * a few main cracks wandering from points near the middle of a 0.5 m face
- * to its rim, branches off them, and finer branches off those, each
- * generation dimmer. A kit may replace it with its own image (its red
- * channel read the same way), resampled to {@link CRACK_TEXELS} square.
- * The textures are one array, layer 0 the engine's, a layer a kit with its
- * own; the material table names each material's layer.
+ * A layer is a crack **map** over one construction tile (4 × 4 m by
+ * default), laid on the grid like the material's own texture: neighbouring
+ * cracked cells show one continuous pattern across the surface, each cell's
+ * strength masking where it shows. The engine's map is generated here (no
+ * file, the same on every run): every 0.5 m cell of the tile holds a crack
+ * origin, from which a few main cracks wander across into the cells round
+ * it, with branches off them and finer branches off those, each generation
+ * dimmer; the map wraps at its edges, so the tile repeats without a seam. A
+ * kit may replace it with its own image (its red channel read the same
+ * way, one image a tile), resampled to {@link CRACK_TEXELS} square. The
+ * textures are one array, layer 0 the engine's, a layer a kit with its own;
+ * the material table names each material's layer.
  */
 import * as THREE from 'three/webgpu';
+import { CONSTRUCTION_TILE_METRES, VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { mulberry32 } from '@thirdlight/shared';
 
-/** Texels along a side of a crack layer (one 0.5 m face). */
-export const CRACK_TEXELS = 64;
+/** Texels along a side of a crack layer (one construction tile: 128 a metre, 64 a 0.5 m cell). */
+export const CRACK_TEXELS = 512;
 
 /** The value a crack generation holds (main cracks show first, the finest last). */
 const GENERATION_VALUES = [255, 175, 110, 60] as const;
 
-/** The engine's crack layer: {@link CRACK_TEXELS}² bytes, row by row. */
+/** The engine's crack layer: {@link CRACK_TEXELS}² bytes, row by row, over one construction tile. */
 export function engineCrackTexels(): Uint8Array {
   const n = CRACK_TEXELS;
   const out = new Uint8Array(n * n);
   // A fixed seed: the same cracks on every run and renderer.
   const rnd = mulberry32(0x5eed_c4ac);
+  // The map wraps (a texel past an edge is the one across), so cracks run on over the tile's seam.
   const put = (x: number, y: number, v: number): void => {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (ix < 0 || iy < 0 || ix >= n || iy >= n) return;
+    const ix = ((Math.round(x) % n) + n) % n;
+    const iy = ((Math.round(y) % n) + n) % n;
     const o = iy * n + ix;
     if (out[o]! < v) out[o] = v;
   };
@@ -48,18 +54,22 @@ export function engineCrackTexels(): Uint8Array {
       a += (rnd() - 0.5) * 0.45;
       x += Math.cos(a);
       y += Math.sin(a);
-      if (x < 0 || y < 0 || x >= n || y >= n) return;
       if (gen + 1 < GENERATION_VALUES.length && rnd() < 0.07 - gen * 0.015) crack(x, y, a + (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.6), length * (0.35 + rnd() * 0.25), gen + 1);
     }
   };
-  const cx = n * (0.4 + rnd() * 0.2);
-  const cy = n * (0.4 + rnd() * 0.2);
-  const mains = 4;
-  for (let k = 0; k < mains; k++) crack(cx, cy, (k / mains) * 2 * Math.PI + rnd() * 0.8, n * (0.45 + rnd() * 0.25), 0);
+  // One origin a cell of the tile, off its middle; its main cracks reach into the cells round it.
+  const cell = Math.round((n * VOXEL_SIZE_M) / CONSTRUCTION_TILE_METRES);
+  for (let cy = 0; cy < n / cell; cy++) for (let cx = 0; cx < n / cell; cx++) {
+    const ox = (cx + 0.3 + rnd() * 0.4) * cell;
+    const oy = (cy + 0.3 + rnd() * 0.4) * cell;
+    const mains = 2 + Math.floor(rnd() * 2);
+    const turn = rnd() * 2 * Math.PI;
+    for (let k = 0; k < mains; k++) crack(ox, oy, turn + (k / mains) * 2 * Math.PI + (rnd() - 0.5) * 0.8, cell * (0.6 + rnd() * 0.5), 0);
+  }
   return out;
 }
 
-/** A crack layer from an image's pixels (RGBA, `width` × `height`): its red channel resampled (nearest) to {@link CRACK_TEXELS}². */
+/** A crack layer from an image's pixels (RGBA, `width` × `height`, one construction tile): its red channel resampled (nearest) to {@link CRACK_TEXELS}². */
 export function crackTexelsFromPixels(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): Uint8Array {
   const n = CRACK_TEXELS;
   const out = new Uint8Array(n * n);

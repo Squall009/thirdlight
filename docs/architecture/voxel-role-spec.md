@@ -468,7 +468,8 @@ for stages 2 and 3, a stage set to null is not used, an integrity in no stage dr
 
 - **Integrity 15:** intact.
 - **stage 1 (integrity 11–14): cracks.** The block is still drawn and keeps its edge pieces; its faces carry the crack
-  overlay (the surface shader, both renderers; one engine crack texture, which a kit may replace with its own image),
+  overlay (the surface shader, both renderers; one engine crack map over the 4 × 4 m construction tile, laid on the
+  grid as the base texture so neighbouring cracked cells show one pattern, which a kit may replace with its own image),
   stronger the lower the integrity within the stage. A cracked roof cell stays in its roof plane (the planes carry the
   crack), and a cracked wall under a roof keeps its top closed up to the underside.
 - **stage 2 (integrity 6–10, 6 pieces a face): a hole.** The block is not drawn. The hole is no open air, so no edge
@@ -729,7 +730,7 @@ Every "default chosen, owner to confirm" of the build items 46c.16a–f (plan 46
 20. Default damage counts 6 (stage 2) and 3 (stage 3) pieces a face, at most 16, one fragment a slot spread by the
     engine (16e).
 21. Crack strength rides in the face's vertices: cracks on voxel faces and roof planes (a cracked roof cell stays in its plane), not on edge pieces (16e, 16h).
-22. One generated engine crack texture (64² a 0.5 m face), replaceable by a kit's image (16e).
+22. One generated engine crack map (512² over the 4 × 4 m construction tile, laid on the grid as the base texture, so neighbouring cracked cells show one pattern), replaceable by a kit's image of the same tile (16e, 16k).
 23. Light coverage = integrity / 15 for every damaged construction cell, buried or not (16e).
 24. Clipped decals are cut from level-0 chunks only; kit pieces take projected decals only (16f).
 25. `decalLayers` is one mask on the `voxelWorld` object for faces and pieces (16f).

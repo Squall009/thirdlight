@@ -13,7 +13,8 @@ import { CONSTRUCTION_TILE_METRES, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_RE
 import { fragmentWgslOf, glslRenderer, settle, wgslRenderer } from './test-wgsl';
 import { LIGHT_PATH_TEXTURE_UNITS, LIT_TEXTURE_UNITS } from './texture-units';
 import { createVoxelSurface, PHASE_CELLS, VOXEL_OWNER_ATTRIBUTE, VOXEL_SURFACE_KEY, type VoxelGridRenderer } from './voxel-surface';
-import { gridPhases, gridUv, type ProjectionOps } from './voxel-surface-projection';
+import { gridPhases, gridUv, tileUv, type ProjectionOps } from './voxel-surface-projection';
+import { CRACK_TEXELS, engineCrackTexels } from './voxel-crack-texture';
 
 // The layout the voxel package derives for 32³ chunks.
 const LAYOUT = { cellMetres: VOXEL_SIZE_M, side: shaderGridSide(32), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS };
@@ -129,6 +130,43 @@ const sameInTile = (a: number, b: number): boolean => Math.min(Math.abs(inTile(a
 const corner = (cell: readonly number[]): number[] => cell.map((c) => Math.floor(c / 32) * 32);
 
 describe('the grid projection of construction', () => {
+  it('lays the crack map with the material\'s 4 m tile: neighbouring cells of a wall read one continuous map, the base texture\'s coordinate, whichever chunk draws them', () => {
+    const t = engineCrackTexels();
+    const texel = (uv: readonly number[]): [number, number] => uv.map((c) => Math.floor(inTile(c * T) / T * CRACK_TEXELS) % CRACK_TEXELS) as [number, number];
+    // A +z wall, four cells side by side straddling a chunk face (x 30 … 34), two rows high.
+    const n = [0, 0, 1];
+    let cracked = 0;
+    for (let row = 0; row < 2; row++) {
+      let last: [number, number] | null = null;
+      for (let s = 0; s < 4 * 64; s++) {
+        // One sample a crack texel along U (0.5 m = 64 texels), from the drawing chunk's phase.
+        const cellX = 30 + s / 64;
+        const world = [(cellX + 0.5 / 64) * VOXEL_SIZE_M, (5 + row + 0.5) * VOXEL_SIZE_M, 12 * VOXEL_SIZE_M];
+        const uv = uvAt(world, n, corner([Math.floor(cellX), 5, 11]));
+        const crack = tileUv(NUM, uv, T);
+        // The crack map's coordinate is the base texture's (one function, one tile).
+        expect(crack).toEqual(tileUv(NUM, uv, CONSTRUCTION_TILE_METRES));
+        const at = texel(crack);
+        // Continuous: one texel on from the last sample, across cell lines and the chunk face alike (no restart a cell).
+        if (last !== null) {
+          expect((at[0] - last[0] + CRACK_TEXELS) % CRACK_TEXELS, `U step at cell ${cellX.toFixed(3)}`).toBe(1);
+          expect(at[1], `V at cell ${cellX.toFixed(3)}`).toBe(last[1]);
+        }
+        if (t[at[1] * CRACK_TEXELS + at[0]]! > 0) cracked++;
+        last = at;
+      }
+    }
+    expect(cracked).toBeGreaterThan(0);
+    // The four cells' samples are 256 distinct texels a row: no 0.5 m copy repeats.
+    const rowTexels = new Set<number>();
+    for (let s = 0; s < 4 * 64; s++) {
+      const world = [(30 + (s + 0.5) / 64) * VOXEL_SIZE_M, 5.5 * VOXEL_SIZE_M, 12 * VOXEL_SIZE_M];
+      const [u] = texel(tileUv(NUM, uvAt(world, n, corner([Math.floor(30 + s / 64), 5, 11])), T));
+      rowTexels.add(u);
+    }
+    expect(rowTexels.size).toBe(4 * 64);
+  });
+
   it('puts a band at the same world height on every wall: any chunk, level, side or phase wrap', () => {
     // Walls facing each way, in chunks far apart (one past a phase wrap at 1,024 cells, one kilometres out, one below 0).
     const walls: Array<{ at: number[]; n: number[] }> = [

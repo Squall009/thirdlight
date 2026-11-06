@@ -18,6 +18,7 @@ import {
   chunkGrid,
   createWorldStore,
   applyCubeRotation,
+  CONSTRUCTION_TILE_METRES,
   CUBE_ROTATION_X90,
   cubeRotationIndex,
   deriveWithApron,
@@ -583,17 +584,39 @@ describe('damage in the chunk view', () => {
     meshes.dispose();
   });
 
-  it("the engine's crack texture: cracks reach the face's rim, brighter (earlier) generations fewer texels; a kit's image read by its red channel; layers a kit with its own", async () => {
+  it("the engine's crack map: one 4 m tile, a crack origin a 0.5 m cell, main cracks running on into the cells round it and over the tile's seam, brighter (earlier) generations fewer texels; a kit's image read by its red channel; layers a kit with its own", async () => {
     const t = engineCrackTexels();
-    expect(t.length).toBe(CRACK_TEXELS * CRACK_TEXELS);
+    const n = CRACK_TEXELS;
+    expect(t.length).toBe(n * n);
     expect(engineCrackTexels()).toEqual(t);
     const count = (min: number): number => t.filter((x) => x >= min).length;
-    // Strength 1/4 (integrity 14) shows the main cracks only; full strength every crack, still well under the face.
-    expect(count(192)).toBeGreaterThan(CRACK_TEXELS);
+    // Strength 1/4 (integrity 14) shows the main cracks only; full strength every crack, still well under the tile.
     expect(count(1)).toBeGreaterThan(count(192));
-    expect(count(1)).toBeLessThan(CRACK_TEXELS * CRACK_TEXELS * 0.25);
-    const rim = [...Array(CRACK_TEXELS).keys()].some((i) => t[i]! >= 192 || t[(CRACK_TEXELS - 1) * CRACK_TEXELS + i]! >= 192 || t[i * CRACK_TEXELS]! >= 192 || t[i * CRACK_TEXELS + CRACK_TEXELS - 1]! >= 192);
-    expect(rim).toBe(true);
+    expect(count(1)).toBeLessThan(n * n * 0.25);
+    // 64 texels a 0.5 m cell (the 4 m tile): every cell holds main cracks, so a lone cracked cell shows them.
+    const cell = (n * VOXEL_SIZE_M) / CONSTRUCTION_TILE_METRES;
+    expect(cell).toBe(64);
+    const main = (x: number, y: number): boolean => t[(((y % n) + n) % n) * n + (((x % n) + n) % n)]! >= 192;
+    for (let cy = 0; cy < n / cell; cy++) for (let cx = 0; cx < n / cell; cx++) {
+      let k = 0;
+      for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) if (main(cx * cell + x, cy * cell + y)) k++;
+      expect(k, `cell ${cx},${cy}`).toBeGreaterThan(cell / 2);
+    }
+    // One pattern across cells: most cell lines (the tile's edges too, where it wraps) are crossed by a main crack,
+    // a texel on each side of the line both cracked.
+    let lines = 0;
+    let crossed = 0;
+    for (let c = 0; c < n / cell; c++) for (let r = 0; r < n / cell; r++) for (const vertical of [true, false]) {
+      lines++;
+      const at = c * cell;
+      let hit = false;
+      for (let k = 0; k < cell && !hit; k++) {
+        const along = r * cell + k;
+        hit = vertical ? main(at - 1, along) && main(at, along) : main(along, at - 1) && main(along, at);
+      }
+      if (hit) crossed++;
+    }
+    expect(crossed / lines).toBeGreaterThan(0.5);
     // A 2 × 2 image: red channel, resampled to the layer.
     const px = Uint8Array.of(10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 255);
     const layer = crackTexelsFromPixels(px, 2, 2);

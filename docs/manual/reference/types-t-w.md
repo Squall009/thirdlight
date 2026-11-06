@@ -1021,7 +1021,7 @@ interface VoxelKitDamage {
   stage2?: DamageStageSpan | null;
   /** A hole whose neighbour faces carry fewer pieces of the `damage-stage-3` slot. */
   stage3?: DamageStageSpan | null;
-  /** The crack overlay's texture (its red channel), replacing the engine's. */
+  /** The crack overlay's map (its red channel) over one 4 × 4 m construction tile, replacing the engine's. */
   crackTexture?: VoxelKitImage;
 }
 ```
