@@ -252,7 +252,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16b | done: kits are slots (case id = slot, 1..n meshes with a cube rotation, all optional, `jitter` 0–4), project setting `voxel_piece_seed` for picks and stagger, one texture set a kit (check error), no default kit (no kit = plain voxels), beams/banisters plain voxels; catalogue `edges-draft` v2 (18), `edges` v4, piece table 3, derived 22; kits log 391 / stone 286 tris |
 | 46c.16c | done (5859c1cc): pieces dressed by role order (roof > wall > pillar > stair > floor > foundation; two kits of one role → bare), mixed corners from the corner slots (stair notches, L tops, wall feet), pieces cut flush at `opening` cells (none inside), instance 12 B, `edges` v5, derived 23; town/tower/staging openings. Seen both renderers; fast gate GREEN 13 min |
 | 46c.16d | done (7a0334ac): 1:2 roofs as planes (read 2 cells round, pad 3 kept; 45° words bit-identical, town 68,244 cells), one roof-edge mesh pitched (eave/verge turned, ridge/hip/valley squashed), underside parallel, walls under a roof (or 1 air cell under) cut to it, coarse 1:2 re-lay, √5 slope phase; derived 24, `edges` v6; D500 fixed, D518–D520. Seen both renderers; fast gate GREEN |
-| 46c.16e | not started |
+| 46c.16e | done: three damage stages a kit (`damage`: 11–14 cracks drawn by the surface shader, edges kept; 6–10 / 1–5 holes, neighbour faces carry 6 / 3 damage pieces of their kit, no edges round); solid until air, light by integrity; debris cases gone; table 4, `edges` v7, catalogue v3, derived 25; kits log 304 / stone 170 tris. Seen both renderers; fast gate GREEN |
 | 46c.16f | not started |
 | 46c.16g | not started |
 | 46c.17 | not started (after the v1 freeze) |
@@ -1523,6 +1523,64 @@ One slope a roof (decision log). Flat roofs keep their voxel faces.
   thread). `voxel-world.e2e.ts` sum 63.3 → 68.2 s (no e2e change; load drift). D515 and D516 unchanged (45° coarse
   words and the ring are untouched).
 
+### 46c.16e damage: three stages a kit
+
+**Stages from integrity** (owner A9 revised, G1, F4, C10; `damage-stages.ts`). A construction cell's integrity maps to
+its kit's stage: default **11–14 cracks**, **6–10 a hole with 6 pieces a face**, **1–5 a hole with 3**
+(`DAMAGE_STAGES_DEFAULT`). Kit format 1 (DRAFT) gains an add-only `damage` field: `stage1`/`stage2`/`stage3` each
+`{min, max, pieces?}` (null: the kit leaves the stage out; an integrity in no stage draws intact) and `crackTexture`
+(an image asset, its red channel; shipped by the content closure like a mesh). The piece table carries each kit's
+resolved stages (**format 3 → 4**); a material without a kit takes the default. The hole's kit decides the stage, the
+face's kit how many pieces.
+- **Stage 1:** the cell stays a body with its edge pieces; its faces carry the crack strength (64 / 128 / 191 / 255 for
+  14 / 13 / 12 / 11) in their vertices' position w (they merge only with faces of equal strength). The surface shader
+  (both renderers) reads it as a vertex attribute (`voxelCrack`) and darkens the crack texture's texels at or above
+  1 − strength, one 64² tile a 0.5 m face on the grid's metres: the engine's texture is generated (cracks wandering
+  from the middle, branches and finer branches dimmer, so cracks grow as integrity drops), a kit's own replaces it
+  (array layer a kit, the material table's crack-layer column). Program: +1 table read, +1 crack read (a load: the
+  texture is nearest-filtered), one binding more.
+- **Stages 2–3:** `FORM_HOLE` (was `FORM_DEBRIS`): no faces, hides none, no edge piece round it (rules `edges` 6 → **7**:
+  only a hole excludes edges; the edge pass reads the table). Each intact neighbour face toward it carries the stage's
+  slot (`damage-stage-2` / `-3`, catalogue `edges-draft` 2 → **3**, 17 cases; `debris`, `debris-heavy`, `debris-face`
+  and the `replacesBase` flag gone) `pieces` times, each with a scatter index (dressing word bits 11–14); the renderer
+  spreads them over the face (`damageScatter`: a jittered √n × √n grid within ±0.3 cell, spun about the normal) after
+  the stagger. **Derived 24 → 25** (spec owner note).
+- **Solid until air, light by integrity (F4):** collision, navigation and occupancy keep the whole box; the light
+  coverage of a damaged construction cell is round(255 · integrity / 15) at any stage, buried or not (the uniform-body
+  fast path steps aside for a damaged cell). Level 1+ are intact (unchanged); terrain has no damage.
+- **Placeholder kits** (Blender 5.2.2 headless, 4 GB scope): `debris` meshes replaced by one fragment a damage slot at
+  the face centre, two meshes a slot: **log** 14 meshes in 15 slots, **304 tris** (stage 2 splinters 10 + 10, stage 3
+  log ends 16 + 16), GLB **26,748 B**, record 4,569 B; **stone** 13 meshes in 15 slots, **170 tris** (chips 10 each),
+  GLB **19,956 B**, record 4,834 B; no textures (debug set), no LODs (L0 only), collision from voxels; kit check 0 err,
+  T1–T7 ok, a new `damage` info row. Budget a damage piece 32 tris (drawn several a face).
+- **Tests** (vitest): `damage-stages.test.ts` (default map, per-kit ranges/counts/fewer stages, refusals, coverage,
+  the table's bytes read back by a worker copy, a damaged table refused); `kit-house.test.ts` *damage drawn by stage*
+  (real derive: stage 1 keeps faces, crack strength rising, edges and every gameplay output as intact, light by
+  integrity; a cracked corner keeps its rim pieces; stages 2/3 no faces, no pieces round, 4 faces × 6 / 3 pieces,
+  scatter 0…n−1, collision and nav full; a kit with no crack stage and one hole stage over 1–14, a kit leaving out
+  stage 3, a timber hole in a stone wall (hole's stage, face's count); air; buried; level 1 and 2 equal the intact
+  wall's; 16³ sections joined = chunk with damage), the chunk-view test (damage pieces apart and on their faces);
+  adapter: the crack attribute only on the cracked cell's faces at 191/255, the engine texture (deterministic,
+  generations, rim), a kit's crack image through the bytes port and a decoder → layer 1 for its materials, an
+  undecodable image named and the engine's drawn; `voxel-kit.test.ts` (round trip, refusals, closure ships the image),
+  kit check, stream (real workers: a damage edit to 7 leaves the cell no piece, its neighbours + 6 each),
+  three-hooks (`hasGeometryAttribute` row). Surface program test: reads 19 → 21, bindings 3 → 4.
+- **Looked at** (staging slice, 1280 × 720 at the 60 Hz cap, WebGPU and WebGL 2, 07:52–07:55 and again after the crack
+  generator was straightened, load 1.0–1.6; shots `~/.cache/thirdlight-phase46/work/46c.16e/shots/`): `log|stone-cell-15/12/08/03/00`
+  (one wall cell walked 15 → 12 → 8 → 3 → air: intact; cracks; a hole with many chips / splinters on its four sides and
+  back; fewer, bigger ones; air with edge pieces round it), `log|stone-stages-row*` (14, 12, 11, 10, 8, 6, 5, 3, 1, air
+  in one row: cracks growing, the hole row's pieces thinning from stage 2 to 3, edge pieces only round the air cell).
+  Both renderers alike. Village orbit with both walls damaged: 0 of 479 missed both, render() 1.2 / 1.1 ms p50,
+  GPU 6.0 / 3.4 ms a frame, 743 instances, 75 piece draws. **Unverified:** a kit's own crack image on a page (no
+  staging kit has one; the browser decode path is untested in a browser), cracks on roof planes (D521).
+- **Gate:** gate-fast-20261106-073153 RED: `three-hooks` (the new `hasGeometryAttribute` use, row added), D418
+  `scan-bounded-log` (timed out at 5 s in the run and its rerun; workspace, not touched here) and two voxel files that
+  passed alone (edge-cases corner turns, stream refresh: 5 s timeouts under load); gate-rerun-20261106-074506 GREEN
+  (5 min, 4.3 GB; perf 0 missed both renderers, 5.77 / 4.07 ms main thread). `voxel-world.e2e.ts` sum 68.2 → 62.3 s
+  (no e2e change). The crack generator was then straightened (texture only): gate-fast-20261106-075638 GREEN (13 min,
+  4.9 GB; D416 `v4-limits` failed once, passed alone; perf 0 missed both renderers, 6.06 / 3.94 ms main thread),
+  `voxel-world.e2e.ts` sum 67.8 s.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -2126,6 +2184,28 @@ One slope a roof (decision log). Flat roofs keep their voxel faces.
 - 2026-11-06 (46c.16d): **the derive's pad stays 3.** 1:2 needs a roof cell read two cells round (the mesher three
   past the job), which fits the pad of 3: the edge pass, run for the job's own cells only, reads into the
   consumers' margin (its declared radius stays 2). No apron or invalidation change.
+
+- 2026-11-06 (46c.16e, default chosen, owner to confirm): **the hole's kit decides the stage, the face's kit the
+  pieces.** A timber hole in a stone wall is a hole by timber's ranges; the stone faces round it carry stone's
+  damage pieces, as many as stone's stage says. A material without a kit takes the engine's ranges (its holes and
+  cracks show, with no pieces).
+- 2026-11-06 (46c.16e, default chosen, owner to confirm): **default counts 6 (stage 2) and 3 (stage 3) pieces a
+  face**, at most 16 (`DAMAGE_PIECES_MAX`, the scatter index's 4 bits); a damage slot holds one fragment, spread by
+  the engine (jittered √n grid within ±0.3 cell, spun about the face's normal), so "many" and "fewer" are counts, not
+  two cluster meshes. An integrity in no stage of its kit draws intact (a kit leaving out stage 3 shows 1–5 as whole).
+- 2026-11-06 (46c.16e, default chosen, owner to confirm): **the crack strength rides in the face's vertices**
+  (position w, unused till now), not in the shader grid: a third grid byte would have doubled every chunk's grid
+  texture (rg8 → rgba8) for a rare state. Cracked faces merge only with faces of equal strength. Cracks show on the
+  cell's voxel faces only: not on its edge pieces, not on roof planes (a cracked roof cell leaves the planes, D521).
+- 2026-11-06 (46c.16e, default chosen, owner to confirm): **one generated engine crack texture** (64² a 0.5 m face,
+  values = the strength from which a crack shows: main cracks first, branches as integrity drops; nearest-filtered,
+  darkening 70 %), the same tile on every cracked face; a kit's `crackTexture` image replaces it (red channel, same
+  meaning). Strength within stage 1: a quarter at its top integrity to full at its bottom.
+- 2026-11-06 (46c.16e, default chosen, owner to confirm): **light coverage = integrity / 15 for every damaged
+  construction cell** (stage 1 and buried ones too, under every rule set), the lower of that and the cell's form
+  coverage; collision, navigation and occupancy keep the box until air (F4).
+- 2026-11-06 (46c.16e): **exposure stays one cell**: a damaged cell whose only open face is toward another hole is
+  still buried (a body), as before; a game breaking through shows the next cell's stage once its face opens to air.
 
 ## 10. Open questions for the owner
 

@@ -45,7 +45,7 @@ export function engineCrackTexels(): Uint8Array {
       put(x, y, v);
       // Main cracks are two texels wide, so they read at a distance.
       if (gen === 0) put(x + Math.sin(a), y - Math.cos(a), v);
-      a += (rnd() - 0.5) * 0.7;
+      a += (rnd() - 0.5) * 0.45;
       x += Math.cos(a);
       y += Math.sin(a);
       if (x < 0 || y < 0 || x >= n || y >= n) return;
