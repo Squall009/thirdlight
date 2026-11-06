@@ -1374,6 +1374,15 @@ result.
   range); kit, kit-check, derived, case-forms, kit-pieces, chunk-view and placeholder tests rewritten to one mesh a
   piece. Descriptor size bound + 3.1 KB, script-access digest re-pinned (added optional field, schema 8). Reference
   and behaviour API typings regenerated; `voxels.rings` / `setRings` are graph-node skips (an object of groups).
+- **Looked at** (staging, slice page, 1280 × 720 at the 60 Hz cap, WebGPU and WebGL 2, 03:05–03:14, load 2.5–5,
+  shots `~/.cache/thirdlight-phase46/work/46c.16a/shots/`): a log and a stone gable house near (`*-gable-l0-near`,
+  level 0): edge, corner and roof-edge pieces drawn (529 instances, 101 piece draws); the stone view from ~40 m with
+  the focus 110 m beyond (`stone-gable-l1-mid`, both houses at level 1, `levelAt` 1): plain square voxels and roof
+  planes, 0 pieces, 0 piece draws; the log view of the same kind stayed at level 0 (the house within the level-0
+  ring of that focus; 294 instances). Both renderers alike. Town centre (log + stone, default rings, WebGPU): 36,703
+  instances, 1,768 piece draws, render() CPU 10.4 / 11.6 ms p50 / p95, GPU 2.62 ms a frame, 0 of 479 missed; town far
+  (277 m): 0 pieces, 0 missed. Staging's two kit records lost their `low` meshes by hand (staging stopped) before
+  `run.mjs kits` set the regenerated kits (0 kit-check problems).
 - **Gates.** Pieces: gate-fast-20261106-015434 GREEN (13 min, 4.6 GB; `voxel-world.e2e.ts` sum 62.8 s, 63.4 s at R6b).
   Rings: gate-fast-20261106-023340 RED on the visual-script catalogue's skip list (fixed); a fast gate with tier scales
   anchored at low grew Play / export WebGPU 6.4 → 12.5 s and 6.6 → 11.7 s (Iris Xe at medium loading 2× the area),
