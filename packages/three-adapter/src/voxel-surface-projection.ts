@@ -10,9 +10,10 @@
  * Positions are the chunk's grid phase plus the local position: the phase
  * is taken modulo a whole number of every tile, so a floating-origin shift
  * or a chunk boundary never moves a texture. V on a slope goes along a
- * √2-long diagonal of the grid; it uses its own phase, taken modulo the
- * phase length times √2, so it stays continuous where the plain phase
- * wraps (a slope's V would jump there).
+ * diagonal of the grid, √2 long a cell at 45° and √5 long two cells at 1:2;
+ * each slope uses its own phase, taken modulo the phase length times √2 or
+ * √5, so it stays continuous where the plain phase wraps (a slope's V would
+ * jump there).
  *
  * The math is written once over a small scalar interface: the program
  * builds it from shader nodes, the tests run it on numbers.
@@ -39,13 +40,15 @@ export type Vec<F> = readonly [F, F, F];
 const LEVEL_SHARE = 1e-3;
 /** Above this a normal component makes the face axis-aligned (V from the plain phase). */
 const AXIS_SHARE = 0.99;
+/** A slope whose normal's vertical part exceeds its horizontal part this many times is 1:2 (2 ×; 45°: 1 ×). */
+const SHALLOW_RATIO = 1.5;
 
 /**
  * The (U, V) in metres of a construction surface point: `p` its grid
- * position in metres (plain phase + local), `ps` the same with the slope
- * phase, `n` its unit normal.
+ * position in metres (plain phase + local), `ps` and `ps5` the same with
+ * the 45° and the 1:2 slope phase, `n` its unit normal.
  */
-export function gridUv<F, B>(o: ProjectionOps<F, B>, p: Vec<F>, ps: Vec<F>, n: Vec<F>): [F, F] {
+export function gridUv<F, B>(o: ProjectionOps<F, B>, p: Vec<F>, ps: Vec<F>, ps5: Vec<F>, n: Vec<F>): [F, F] {
   const [nx, ny, nz] = n;
   const h = o.sqrt(o.add(o.mul(nx, nx), o.mul(nz, nz)));
   const level = o.less(h, o.num(LEVEL_SHARE));
@@ -58,10 +61,11 @@ export function gridUv<F, B>(o: ProjectionOps<F, B>, p: Vec<F>, ps: Vec<F>, n: V
   const sy = o.sub(o.mul(nz, rx), o.mul(nx, rz));
   const sz = o.sub(o.num(0), o.mul(ny, rx));
   const axis = o.less(o.num(AXIS_SHARE), o.max(o.abs(nx), o.max(o.abs(ny), o.abs(nz))));
+  const shallow = o.less(o.mul(o.num(SHALLOW_RATIO), h), o.abs(ny));
   const u = o.add(o.mul(p[0], rx), o.mul(p[2], rz));
-  const vx = o.pick(axis, p[0], ps[0]);
-  const vy = o.pick(axis, p[1], ps[1]);
-  const vz = o.pick(axis, p[2], ps[2]);
+  const vx = o.pick(axis, p[0], o.pick(shallow, ps5[0], ps[0]));
+  const vy = o.pick(axis, p[1], o.pick(shallow, ps5[1], ps[1]));
+  const vz = o.pick(axis, p[2], o.pick(shallow, ps5[2], ps[2]));
   const v = o.add(o.add(o.mul(vx, sx), o.mul(vy, sy)), o.mul(vz, sz));
   return [u, v];
 }
@@ -72,14 +76,16 @@ function wrapTo(v: number, m: number): number {
 }
 
 /**
- * An object's two phases from its corner (level-0 cells): the plain phase
- * (cells, each axis modulo `phaseCells`) and the slope phase (metres, each
- * axis modulo `phaseCells` cells times √2).
+ * An object's phases from its corner (level-0 cells): the plain phase
+ * (cells, each axis modulo `phaseCells`) and the 45° and 1:2 slope phases
+ * (metres, each axis modulo `phaseCells` cells times √2 and times √5).
  */
-export function gridPhases(cell: readonly number[], cellMetres: number, phaseCells: number, phase: { set(x: number, y: number, z: number): unknown }, slope: { set(x: number, y: number, z: number): unknown }): void {
+export function gridPhases(cell: readonly number[], cellMetres: number, phaseCells: number, phase: { set(x: number, y: number, z: number): unknown }, slope: { set(x: number, y: number, z: number): unknown }, slope5: { set(x: number, y: number, z: number): unknown }): void {
   const m = phaseCells * cellMetres * Math.SQRT2;
+  const m5 = phaseCells * cellMetres * Math.sqrt(5);
   phase.set(wrapTo(cell[0]!, phaseCells), wrapTo(cell[1]!, phaseCells), wrapTo(cell[2]!, phaseCells));
   slope.set(wrapTo(cell[0]! * cellMetres, m), wrapTo(cell[1]! * cellMetres, m), wrapTo(cell[2]! * cellMetres, m));
+  slope5.set(wrapTo(cell[0]! * cellMetres, m5), wrapTo(cell[1]! * cellMetres, m5), wrapTo(cell[2]! * cellMetres, m5));
 }
 
 /** Texels along the band test texture's side (one tile). */

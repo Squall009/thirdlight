@@ -4,7 +4,7 @@
  * into the drawn case's orientation, then staggered there (moved into the solid along the edge's bisector and
  * twisted about it through the edge's middle, by the instance's hash:
  * piece-placement.ts, scaled by the kit's jitter), shifted to the cell's middle line (half a cell in
- * and half a cell down) for a centred piece, squeezed onto half its run for a `half` one, tipped onto the cell's top or bottom face for a tipped one, turned
+ * and half a cell down) for a centred piece, pitched onto a 1:2 roof's plane for a shallow one, squeezed onto half its run for a `half` one, tipped onto the cell's top or bottom face for a tipped one, turned
  * by the case's quarter turns about +y, scaled to the level's cell and put
  * at the cell's centre. Every step but the stagger is exact (quarter turns,
  * half cells); the stagger is the only thing that differs between two
@@ -12,7 +12,7 @@
  * voxels, not pieces).
  */
 import * as THREE from 'three';
-import { CUBE_ROTATIONS, INSTANCE_FLAG, INSTANCE_PLACE, pieceStagger, VOXEL_SIZE_M, type PieceStaggerFrame } from '@thirdlight/voxel';
+import { CUBE_ROTATIONS, INSTANCE_FLAG, INSTANCE_PLACE, pieceStagger, roofPitch, VOXEL_SIZE_M, type PieceStaggerFrame } from '@thirdlight/voxel';
 
 /** How a draw's instances are placed beyond their instance bytes. */
 export interface PiecePlacement {
@@ -24,6 +24,24 @@ export interface PiecePlacement {
   readonly stagger: { readonly frame: PieceStaggerFrame; readonly seed: number; readonly caseIndex: number; readonly jitter: number } | null;
   /** How the drawn case's piece covers half its run when the instance is flagged `half` (voxel `pieceHalfRun`; absent: never). */
   readonly halfRun?: 'x' | 'diagonal' | null;
+  /** The drawn case: an instance flagged `shallow` (a 1:2 roof's edge) is pitched by it (voxel `roofPitch`; absent: never). */
+  readonly caseId?: string;
+  /** Whether the draw's mesh is mirrored (a verge rising toward its own −x pitches the other way). */
+  readonly mirror?: boolean;
+}
+
+/** The 1:2 pitch of a case, placement, phase and mirror (voxel `roofPitch`), in level-0 metres (made once each). */
+const pitches = new Map<string, THREE.Matrix4 | null>();
+function pitchOf(caseId: string, centred: boolean, high: boolean, mirror: boolean): THREE.Matrix4 | null {
+  const key = `${caseId}|${centred ? 1 : 0}${high ? 1 : 0}${mirror ? 1 : 0}`;
+  let m = pitches.get(key);
+  if (m === undefined) {
+    const a = roofPitch(caseId, centred, high, mirror);
+    const c = VOXEL_SIZE_M;
+    m = a === null ? null : new THREE.Matrix4().set(a[0]!, a[1]!, a[2]!, a[3]! * c, a[4]!, a[5]!, a[6]!, a[7]! * c, a[8]!, a[9]!, a[10]!, a[11]! * c, 0, 0, 0, 1);
+    pitches.set(key, m);
+  }
+  return m;
 }
 
 const quat = new THREE.Quaternion();
@@ -78,11 +96,18 @@ export function pieceMatrix(out: THREE.Matrix4, rotationByte: number, place: num
   pieceTurn(quat, rotationByte, place, p.turnSign);
   const s = cellMetres / VOXEL_SIZE_M;
   out.compose(at.copy(centre), quat, scale.set(s, s, s));
-  // The steps in the case's own orientation, level-0 metres: centred shift · stagger · slot rotation.
+  // The steps in the case's own orientation, level-0 metres: 1:2 pitch · centred shift · half run · stagger · slot rotation.
   let any = false;
   local.identity();
+  if ((rotationByte & INSTANCE_FLAG.shallow) !== 0 && p.caseId !== undefined) {
+    const pitch = pitchOf(p.caseId, place === INSTANCE_PLACE.centred, (rotationByte & INSTANCE_FLAG.high) !== 0, p.mirror === true);
+    if (pitch !== null) {
+      local.copy(pitch);
+      any = true;
+    }
+  }
   if (place === INSTANCE_PLACE.centred) {
-    local.makeTranslation(0, -0.5 * VOXEL_SIZE_M, -0.5 * VOXEL_SIZE_M);
+    local.multiply(step.makeTranslation(0, -0.5 * VOXEL_SIZE_M, -0.5 * VOXEL_SIZE_M));
     any = true;
   }
   const half = (rotationByte & INSTANCE_FLAG.half) !== 0 ? p.halfRun : null;

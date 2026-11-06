@@ -19,7 +19,7 @@ import type { ChunkCoord } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { createEdgeMasks } from './edge-cases';
 import { evaluateCases, evaluateEdges } from './kit-rules';
-import { classifyRoofs, ROOF_MESHER_REACH } from './roof-mesher';
+import { classifyRoofs, ROOF_MESHER_REACH } from './roof-words';
 import type { VoxelStoreCandidate } from './store';
 
 /** Cells more than the job's apron that the wider evaluation sees (3: a rule reading up to 3 cells too far is caught). */

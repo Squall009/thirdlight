@@ -189,7 +189,7 @@ interface SeamDraw {
 const seamId = (level: number, nx: number, ny: number, nz: number, face: number): string => `${level},${nx},${ny},${nz},${face}`;
 
 /** Shader values for a seam whose coarse node is not drawn (it left first; its seam goes with the next batch): one entry, all air. */
-const NO_SURFACE: VoxelSurfaceObject = { slot: new THREE.Vector4(0, 0, 0, 0), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), cellMetres: VOXEL_SIZE_M };
+const NO_SURFACE: VoxelSurfaceObject = { slot: new THREE.Vector4(0, 0, 0, 0), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), slope5Phase: new THREE.Vector3(), cellMetres: VOXEL_SIZE_M };
 
 export interface VoxelChunkViewOptions {
   /** The storage chunks' grid (32³). */
@@ -362,7 +362,7 @@ export class VoxelChunkView {
     const cellM = mipCellMetres(level);
     const surface = this.shading.objectValues(cellM);
     const cell = this.at0(level, cx, cy, cz);
-    gridPhases(cell, VOXEL_SIZE_M, PHASE_CELLS, surface.phase, surface.slopePhase);
+    gridPhases(cell, VOXEL_SIZE_M, PHASE_CELLS, surface.phase, surface.slopePhase, surface.slope5Phase);
     const geo = voxelSurfaceGeometry([d.ground, d.base], cellM);
     if (geo !== null) {
       const mesh = new THREE.Mesh(geo, this.shading.material);
@@ -463,7 +463,7 @@ export class VoxelChunkView {
       const key = caseFaces === 0 ? r.key : `${r.key}|f${caseFaces}`;
       const geometry = caseFaces === 0 || this.kitSet === null ? r.geometry : this.kitSet.meshes.flushGeometry(r.geometry, r.rotation, caseFaces);
       // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
-      if (!byMesh.has(key)) byMesh.set(key, { geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
+      if (!byMesh.has(key)) byMesh.set(key, { geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, caseId: r.caseId, mirror: r.mirror, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }) });
       byMesh.get(key)!.offsets.push(o);
     }
     // A piece is drawn at its draw's cell size (a chunk's: 0.5 m).

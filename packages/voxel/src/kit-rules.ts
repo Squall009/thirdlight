@@ -13,7 +13,8 @@
  * is skipped there and no cell gets a case.
  */
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
-import { isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-mesher';
+import { ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
+import { isRoofGapCell, isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-words';
 import { caseFormTable, isDebrisCell } from './case-forms';
 import { levelDrawsPieces } from './derived-mesh';
 import { EDGE_REACH, extractEdges, type EdgeMasks } from './edge-cases';
@@ -93,7 +94,9 @@ export function withEdges(base: AssemblyRuleSet, catalogue: CaseCatalogueDef, id
   const cased = withCases(base, catalogue, id, version);
   return Object.freeze({
     ...cased,
-    radius: Math.max(cased.radius, EDGE_REACH + ROOF_PLANE_REACH),
+    // The edge pass resolves the job's own cells only (no consumer reads an edge past the job), so its reads may
+    // run into the consumers' margin: a roof's plane cells round an edge read two cells round them.
+    radius: Math.max(cased.radius, EDGE_REACH + ROOF_PLANE_REACH - CONSUMER_REACH),
     resolveEdges(n: Neighbourhood, lo: number, hi: number, level: number, out: EdgeMasks): number {
       if (!levelHasCases(level)) {
         clearBox(n, lo, hi, out.pieces, 0);
@@ -111,16 +114,24 @@ const exclusionScratch = new Map<number, Uint8Array>();
 /**
  * The cells round a box the edge pass leaves pieces off round: the roof's
  * plane cells ({@link isRoofPlaneCell}: the roof's own edges are the roof
- * mesher's) and debris cells ({@link isDebrisCell}: the faces opening
- * toward them are dressed by debris pieces, not edges).
+ * mesher's), the air cells a supported roof closes down through onto a body
+ * ({@link isRoofGapCell}: the body's face runs on up to the roof there) and
+ * debris cells ({@link isDebrisCell}: the faces opening toward them are
+ * dressed by debris pieces, not edges).
  */
 function edgeExclusions(n: Neighbourhood, lo: number, hi: number): Uint8Array {
   let out = exclusionScratch.get(n.values.length);
   if (out === undefined) exclusionScratch.set(n.values.length, (out = new Uint8Array(n.values.length)));
   const s = n.side;
+  const v = n.values;
   for (let x = lo - 1; x <= hi; x++) for (let z = lo - 1; z <= hi; z++) {
     const row = (x * s + z) * s;
-    for (let y = lo - 1; y <= hi; y++) out[row + y] = isDebrisCell(n, row + y) || isRoofPlaneCell(n, row + y) ? 1 : 0;
+    for (let y = lo - 1; y <= hi; y++) {
+      const i = row + y;
+      // Most cells are air or plain bodies: only a roof cell can be a plane cell, only an air cell a roof's gap.
+      const role = (v[i]! >>> ROLE_SHIFT) & ROLE_MASK;
+      out[i] = role === VOXEL_ROLE.air ? (isRoofGapCell(n, i) ? 1 : 0) : isDebrisCell(n, i) || (role === VOXEL_ROLE.roof && isRoofPlaneCell(n, i)) ? 1 : 0;
+    }
   }
   return out;
 }
@@ -152,6 +163,8 @@ export function evaluateEdges(n: Neighbourhood, rules: AssemblyRuleSet, level: n
  * Version 4 (catalogue v2): no beam or banister cases, so no window pass.
  * Version 5: mixed corners (outer and inner edges meeting) take a corner
  * piece, its anchor and inner/outer from the shape at the point.
+ * Version 6: 1:2 roofs are plane cells too, and no edge piece round the air
+ * cell a supported roof closes down through onto a wall.
  */
-export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 5);
+export const EDGE_RULES: AssemblyRuleSet = withEdges(TERRAIN_RULES, EDGE_CASE_CATALOGUE, 'edges', 6);
 

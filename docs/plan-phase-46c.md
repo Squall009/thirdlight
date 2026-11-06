@@ -2052,6 +2052,30 @@ the sections within one cell (neighbour chunks only when they hold construction)
 - 2026-11-06 (46c.16c): **47b requirement (A6):** building footprints (foundation cells) mask terrain scatter: no
   terrain detail spawns under them. No scatter code in 46c.
 
+- 2026-11-06 (46c.16d, default chosen, owner to confirm): **one slope a roof.** A cell's directions are all 45° or
+  all 1:2; hips and valleys join equal slopes only, and a cell that would mix them keeps its voxel faces. (The owner
+  left mixed slopes unanswered; this is the batch-4 default.)
+- 2026-11-06 (46c.16d, default chosen, owner to confirm): **a 45° cell reads exactly as before.** A cell is read at
+  45° first (the town's 68,244 plane cells give the same words bit for bit); it is read at 1:2 where there is no 45°
+  reading, where the 45° one was the flatter stair, or where a cell two along says 1:2 (two cells behind at one
+  level, with a column beside it alike; on a diagonal, a 1:2 hip's corner). A cell with 1:2 evidence and no 1:2
+  reading keeps its voxel faces rather than a wrong 45° plane.
+- 2026-11-06 (46c.16d, default chosen, owner to confirm): **the pitch of one roof-edge mesh** (F3): eaves and verges
+  are turned rigidly onto the 1:2 plane (an eave about its line, a verge about the gable's normal through its
+  middle), so their profiles stay as authored and a verge, √2 cells long along the 45° slope, overlaps its
+  neighbours by about 0.13 cell at each end on the shorter 1:2 run; ridges, hips and valleys lie on two planes, so
+  they are squashed to half their height about their line (both sides then lie on the planes; a round ridge log
+  reads flatter). The meshes stay authored for 45°: no kit format change.
+- 2026-11-06 (46c.16d, default chosen, owner to confirm): **"walls under a roof" = a body directly under a plane
+  cell or under one air cell under it.** The village's eave walls stop one cell under the roof cell over them (the
+  overhang beside the wall's top), which left a one-cell step inside the attic; both are now closed down to the
+  body. A body two or more cells under the roof (an attic's partition, a room's ceiling) is left as it is. Each
+  closed part keeps its own floor on the body's top face (a hidden pair of faces), so bodies and roof planes stay
+  closed meshes on their own (collision, the welded closure tests).
+- 2026-11-06 (46c.16d): **the derive's pad stays 3.** 1:2 needs a roof cell read two cells round (the mesher three
+  past the job), which fits the pad of 3: the edge pass, run for the job's own cells only, reads into the
+  consumers' margin (its declared radius stays 2). No apron or invalidation change.
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).

@@ -90,10 +90,18 @@ export function instanceFlushFaces(word: number): number {
   return (word >>> 5) & 63;
 }
 
-/** Instance flags (bits 4–7 of the rotation byte; 0x20 and 0x80 are written 0). */
+/** Instance flags (bits 4–7 of the rotation byte). */
 export const INSTANCE_FLAG = Object.freeze({
   /** The piece replaces its cell's base surface (none is emitted under it). */
   replacesBase: 0x10,
+  /**
+   * A roof-edge piece on a 1:2 roof: the renderer pitches the case's one
+   * mesh (authored for 45°) onto the shallower plane (piece-placement.ts
+   * `roofPitch`).
+   */
+  shallow: 0x20,
+  /** With `shallow`: the plane it follows is the high cell of its 1:2 pair (half a cell higher at the cell). */
+  high: 0x80,
   /**
    * The piece covers half its run (piece-placement.ts {@link pieceHalfRun}):
    * a roof's ridge and hips end at the middle of an apex cell, where they

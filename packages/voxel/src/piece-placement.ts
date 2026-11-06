@@ -190,3 +190,74 @@ export function cutFlush(positions: Float32Array | number[], rotation: number, c
     for (let j = 0; j < 3; j++) positions[v + j] = m[j]! * c[0]! + m[3 + j]! * c[1]! + m[6 + j]! * c[2]!;
   }
 }
+
+/** A 3 × 4 affine map (row-major: three rows of x, y, z, translation), in cells of a piece's case orientation. */
+export type Affine34 = readonly number[];
+
+/** The rotation taking unit vector `u` to unit vector `v` (3 × 3, row-major). */
+function rotationBetween(u: Vec3, v: Vec3): number[] {
+  const k = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  const s = Math.hypot(k[0]!, k[1]!, k[2]!);
+  const c = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const n = k.map((a) => a / s);
+  const K = [0, -n[2]!, n[1]!, n[2]!, 0, -n[0]!, -n[1]!, n[0]!, 0];
+  const out: number[] = [];
+  for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) {
+    let kk = 0;
+    for (let m = 0; m < 3; m++) kk += K[3 * r + m]! * K[3 * m + q]!;
+    out.push((r === q ? 1 : 0) + s * K[3 * r + q]! + (1 - c) * kk);
+  }
+  return out;
+}
+
+const SQRT5 = Math.sqrt(5);
+
+/**
+ * How a roof-edge piece of a 1:2 roof is drawn (derived-mesh.ts `INSTANCE_FLAG.shallow`): one mesh a slot serves
+ * both slopes, authored for 45°, and the renderer pitches it onto the 1:2 plane. Applied in the case's own
+ * orientation (cells about the cell's centre, after a centred piece's shift), it moves the piece's line from where
+ * a 45° plane puts it to where the 1:2 plane of its phase (`high`: the pair's high cell) does, and turns the
+ * piece there: an eave about its line and a verge about the gable's normal through its middle, rigidly, so their
+ * profiles are kept and a verge, √2 cells long along the 45° slope, overlaps its neighbours on the shorter 1:2
+ * run; a ridge, hip or valley, which lies on two planes, is squashed to half its height about its line, so both
+ * its sides lie on the shallower planes. A mirrored verge (its mesh drawn mirrored across x = 0) turns the other
+ * way. Null for a case that is no roof edge.
+ */
+export function roofPitch(caseId: string, centred: boolean, high: boolean, mirror: boolean): Affine34 | null {
+  const lift = high ? 0.5 : 0;
+  let from: Vec3;
+  let to: Vec3;
+  let m: number[];
+  switch (caseId) {
+    case 'roof-eave':
+      // The eave's line at the voxel's top on its +z side; the plane rises toward −z.
+      from = [0, H, H];
+      to = [0, H + lift, H];
+      m = rotationBetween([0, S2, -S2], [0, 1 / SQRT5, -2 / SQRT5]);
+      break;
+    case 'roof-gable': {
+      // The verge's middle; the plane rises toward +x (toward −x mirrored).
+      const sx = mirror ? -1 : 1;
+      from = [0, 1, H];
+      to = [0, 0.75 + lift, H];
+      m = rotationBetween([sx * S2, S2, 0], [(sx * 2) / SQRT5, 1 / SQRT5, 0]);
+      break;
+    }
+    case 'roof-ridge':
+    case 'roof-hip':
+    case 'roof-valley':
+      // A ridge on the cell's +z side (a centred one shifted to the middle), a hip or valley through the middle.
+      from = caseId === 'roof-ridge' && !centred ? [0, 3 * H, H] : [0, 1, 0];
+      to = caseId === 'roof-ridge' && !centred ? [0, 1 + lift, H] : [0, 0.75 + lift, 0];
+      m = [1, 0, 0, 0, 0.5, 0, 0, 0, 1];
+      break;
+    default:
+      return null;
+  }
+  const out: number[] = [];
+  for (let r = 0; r < 3; r++) {
+    const row = [m[3 * r]!, m[3 * r + 1]!, m[3 * r + 2]!];
+    out.push(...row, to[r]! - (row[0]! * from[0] + row[1]! * from[1] + row[2]! * from[2]));
+  }
+  return Object.freeze(out);
+}

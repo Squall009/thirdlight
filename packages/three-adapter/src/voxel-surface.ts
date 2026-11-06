@@ -102,8 +102,10 @@ export interface VoxelSurfaceObject {
   readonly slot: THREE.Vector4;
   /** The chunk corner's cell (level-0 cells), each axis modulo {@link PHASE_CELLS}: where its textures start. */
   readonly phase: THREE.Vector3;
-  /** The chunk corner in metres, each axis modulo {@link PHASE_CELLS} cells times √2: where a slope's V starts (`gridPhases`). */
+  /** The chunk corner in metres, each axis modulo {@link PHASE_CELLS} cells times √2: where a 45° slope's V starts (`gridPhases`). */
   readonly slopePhase: THREE.Vector3;
+  /** The same modulo {@link PHASE_CELLS} cells times √5: where a 1:2 slope's V starts. */
+  readonly slope5Phase: THREE.Vector3;
   /** Metres a cell of the object's grid (its level's cells; the layout's for level 0). */
   cellMetres: number;
 }
@@ -407,6 +409,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   phaseU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.phase ?? (phaseU.value as THREE.Vector3).set(0, 0, 0));
   const slopePhaseU = uniform(new THREE.Vector3());
   slopePhaseU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.slopePhase ?? (slopePhaseU.value as THREE.Vector3).set(0, 0, 0));
+  const slope5PhaseU = uniform(new THREE.Vector3());
+  slope5PhaseU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.slope5Phase ?? (slope5PhaseU.value as THREE.Vector3).set(0, 0, 0));
   const cellU = uniform(layout.cellMetres);
   cellU.onObjectUpdate(({ object }: { object: THREE.Object3D }) => slotOf(object)?.cellMetres ?? layout.cellMetres);
   const matMask = 2 ** layout.materialBits;
@@ -522,7 +526,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       // World metres from the object's grid phase (plain, and the slope's) plus the local position.
       const p = phaseU.mul(layout.cellMetres).add(positionLocal);
       const ps = slopePhaseU.add(positionLocal);
-      const [gu, gv] = gridUv(nodeOps, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [n.x, n.y, n.z]);
+      const ps5 = slope5PhaseU.add(positionLocal);
+      const [gu, gv] = gridUv(nodeOps, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [ps5.x, ps5.y, ps5.z], [n.x, n.y, n.z]);
       const g = vec2(gu, gv);
       // Triplanar weights by the normal (terrain); a construction material takes the grid projection alone.
       const bw = abs(n).pow(vec3(4));
@@ -564,7 +569,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     setBlendMetres(m) {
       blendM.value = Math.max(0, m);
     },
-    objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), cellMetres }),
+    objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), slope5Phase: new THREE.Vector3(), cellMetres }),
     dispose() {
       grids.dispose();
       table.dispose();

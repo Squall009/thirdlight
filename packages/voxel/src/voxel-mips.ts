@@ -50,6 +50,7 @@ import { localIndex, type ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import { OCCUPANCY } from './derived-data';
 import { fillLevel, isConstructionRole, MATERIAL_AIR, SHAPE_EMPTY, SHAPE_FULL, VOXEL_ROLE } from './record';
+import { roofReading, ROOF_WORD, type RoofProbe } from './roof-words';
 
 /**
  * Which role a parent takes when its children hold several (first wins):
@@ -267,9 +268,30 @@ let colMat = new Uint16Array(0);
 let colWet = new Uint8Array(0);
 let colRoof = new Int32Array(0);
 let colStack = new Int32Array(0);
-/** Per roof (a column-top component): its lowest top (the eave), and whether it is laid again. */
+/** Per child column: its top roof cell's 1:2 reading (bit 0: read as 1:2, bit 1: the high cell of its pair). */
+let colShallow = new Uint8Array(0);
+/** Per roof (a column-top component): its lowest top (the eave), whether it is laid again, and whether it is 1:2. */
 const roofEave: number[] = [];
 const roofRelaid: boolean[] = [];
+const roofShallow: boolean[] = [];
+
+/** The child grid the column probe reads, and the cell it reads round. */
+let probeGrid: ChunkGrid | null = null;
+let probeChildren: ReadonlyArray<DenseChunk | null> = [];
+let probeAt = [0, 0, 0];
+const childProbe: RoofProbe = (dx, dy, dz) => roofAt(probeGrid!, probeChildren, probeAt[0]! + dx, probeAt[1]! + dy, probeAt[2]! + dz);
+
+/** A child roof cell's 1:2 reading as the roof mesher reads it (see {@link colShallow}). */
+function shallowAt(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, x: number, y: number, z: number): number {
+  probeGrid = grid;
+  probeChildren = children;
+  probeAt = [x, y, z];
+  const w = roofReading(childProbe);
+  if ((w & ROOF_WORD.shallow) === 0) return 0;
+  let k = 0;
+  while (((w >>> k) & 1) === 0) k++;
+  return 1 | (((w >>> (ROOF_WORD.phaseShift + k)) & 1) << 1);
+}
 
 /**
  * Whether every solid cell of parent cell (x, y, z) that is not roof lies
@@ -334,6 +356,7 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
     colWet = new Uint8Array(columns);
     colRoof = new Int32Array(columns);
     colStack = new Int32Array(columns);
+    colShallow = new Uint8Array(columns);
   }
   for (let bx = 0; bx < side; bx++) for (let bz = 0; bz < side; bz++) {
     const c = bx * side + bz;
@@ -341,7 +364,9 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
     let y = top;
     while (y >= 0 && !roofAt(grid, children, bx, y, bz)) y--;
     colTop[c] = y;
+    colShallow[c] = 0;
     if (y < 0) continue;
+    colShallow[c] = shallowAt(grid, children, bx, y, bz);
     const ch = children[(bx >= e ? 1 : 0) | (y >= e ? 2 : 0) | (bz >= e ? 4 : 0)]!;
     const i = localIndex(grid, bx % e, y % e, bz % e);
     colMat[c] = ch.material[i]!;
@@ -350,11 +375,14 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
   // Roofs: column tops joined side by side or corner to corner within a cell's height.
   roofEave.length = 0;
   roofRelaid.length = 0;
+  roofShallow.length = 0;
   for (let c0 = 0; c0 < columns; c0++) {
     if (colTop[c0]! < 0 || colRoof[c0]! >= 0) continue;
     const id = roofEave.length;
     let eave = colTop[c0]!;
     let relaid = false;
+    let shallow = 0;
+    let steep = 0;
     let sp = 0;
     colStack[sp++] = c0;
     colRoof[c0] = id;
@@ -363,7 +391,10 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
       const bx = (c / side) | 0, bz = c - bx * side;
       const y = colTop[c]!;
       eave = Math.min(eave, y);
-      if (!relaid && (bx === 0 || bz === 0 || bx === top || bz === top || roofDirs(grid, children, bx, y, bz) !== 0)) relaid = true;
+      const dirs = roofDirs(grid, children, bx, y, bz);
+      if (!relaid && (bx === 0 || bz === 0 || bx === top || bz === top || dirs !== 0)) relaid = true;
+      if ((colShallow[c]! & 1) !== 0) shallow++;
+      else if (dirs !== 0) steep++;
       for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
         const nx = bx + dx, nz = bz + dz;
         if (nx < 0 || nz < 0 || nx > top || nz > top) continue;
@@ -375,6 +406,7 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
     }
     roofEave.push(eave);
     roofRelaid.push(relaid);
+    roofShallow.push(shallow > steep);
   }
   let placed = false;
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
@@ -397,7 +429,20 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
     }
     if (roof < 0) continue;
     const a = roofEave[roof]!;
-    const want = Math.min(e - 1, (a >> 1) + ((lowest - a + 1) >> 1));
+    let rise = (lowest - a + 1) >> 1;
+    if (roofShallow[roof]) {
+      // A 1:2 roof: each finer column's distance in from the eave is twice its ring plus its phase; the parent's
+      // distance is half the smallest of its columns' (rounded up, as a 45° ring halves), and its rise half that,
+      // so the coarse stair is 1:2 again with a pair at its eave.
+      let d = Infinity;
+      for (let c = 0; c < 4; c++) {
+        const col = (2 * x + (c & 1)) * side + 2 * z + (c >> 1);
+        if (colTop[col]! < 0 || colRoof[col] !== roof) continue;
+        d = Math.min(d, 2 * (colTop[col]! - a) + (colShallow[col]! >> 1));
+      }
+      rise = ((d + 1) >> 1) >> 1;
+    }
+    const want = Math.min(e - 1, (a >> 1) + rise);
     for (let y = Math.min(lo, want); y <= Math.max(hi, want); y++) {
       const i = localIndex(grid, x, y, z);
       // Bodies the finer roof covers (a gable's end wall, the wall under an eave) hold a parent by priority, but

@@ -270,7 +270,8 @@ export {
 export { assemblyRules, registerAssemblyRules, registeredAssemblyRules, WORLD_RULES } from './rule-registry';
 export { TERRAIN_FEATURE, TERRAIN_FEATURE_SHIFT, TERRAIN_RULES, TERRAIN_RULES_RADIUS, TERRAIN_THRESHOLDS, terrainFeatureOf, withTerrainFeatures } from './terrain-rules';
 export { CREASE_SPLIT_DEG, LATTICE_WINDOW, TERRAIN_MESHER_REACH, terrainSurface } from './terrain-mesher';
-export { appendSurface, classifyRoofs, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofSurface, type RoofEdge, type RoofEdgeCase } from './roof-mesher';
+export { appendSurface, roofSurface } from './roof-mesher';
+export { classifyRoofs, isRoofGapCell, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
 export {
   cellBit,
   COLLISION_STEPS_PER_CELL,
@@ -294,7 +295,7 @@ export {
 } from './derived-data';
 export { dressingWord, INSTANCE_BYTES, INSTANCE_DRESSING_OFFSET, instanceDressingCell, instanceFlushFaces, INSTANCE_FLAG, INSTANCE_PLACE, INSTANCE_PLACE_SHIFT, instancePlaceOf, levelDrawsPieces, POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type CellPiece, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { applyCubeRotation, CUBE_ROTATION_COUNT, CUBE_ROTATION_X90, CUBE_ROTATION_ZM90, CUBE_ROTATIONS, cubeRotationIndex, mirrorAxisOf, type CubeRotation } from './cube-rotations';
-export { caseFlushFaces, cutFlush, meshRunAxis, PIECE_FLUSH_INSET, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, type PieceStaggerFrame } from './piece-placement';
+export { caseFlushFaces, cutFlush, meshRunAxis, PIECE_FLUSH_INSET, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, PIECE_STAGGER, PIECE_STAGGER_FRAMES, pieceHalfRun, pieceRunAxis, pieceStagger, roofPitch, type Affine34, type PieceStaggerFrame } from './piece-placement';
 export {
   buildPieceTable,
   kitPieceList,

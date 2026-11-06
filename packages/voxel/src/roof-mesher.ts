@@ -1,320 +1,107 @@
 /**
- * The roof mesher: role `roof` cells laid as a 45° stair (each a step up
- * and across from the next) are drawn as flat sloped planes instead of
- * their stair faces, as the terrain mesher draws terrain. The stair voxels
- * stay the data: light, occupancy and navigation read them as they are;
- * collision reads the planes (a roof is a ramp where it is drawn), so a
- * character stands where the roof shows.
- *
- * **Which cells.** A **plane cell** is an intact roof cell (shape 15) with
- * nothing solid above it that rises in at least one of the four horizontal
- * directions d: an intact roof cell one up and one across in d, or one
- * down and one across against d (an eave or a ridge has only one of the
- * two). A cell with no axis neighbour like that rises in two directions at
- * once when a diagonal one is (an eave corner of a hip roof). A cell rising
- * one way with a roof cell beside it on the same level on its low side is a
- * flatter stair
- * than 45° and is left out (at one cell's reach the high side of a 1:2 step
- * cannot be told from a ridge, so a 1:2 stair keeps every other cell's voxel
- * faces), and so are damaged roof cells: every cell left out keeps its
- * voxel faces, drawn by the base surface (the mandatory fallback).
+ * The roof mesher: role `roof` cells laid as a 45° or a 1:2 stair are drawn
+ * as flat sloped planes instead of their stair faces, as the terrain mesher
+ * draws terrain. Which cells and how (slope, phases, support, roof edges)
+ * is read by roof-words.ts. The stair voxels stay the data: light,
+ * occupancy and navigation read them as they are; collision reads the
+ * planes (a roof is a ramp where it is drawn), so a character stands where
+ * the roof shows.
  *
  * **The surface.** A cell rising in d carries the plane through the
- * stair's outer corners: its top is its voxel's top (T) on its low side and
- * T + 1 on its high side; its underside is one cell lower (through the
- * stair's inner corners), or, when a solid cell carries it (a gable or eave
- * wall under the roof), its voxel's floor, so the slab closes onto the
- * wall instead of leaving the wall's steps showing under the verge. A cell
- * rising in several directions takes the lowest of their planes (a ridge
- * along its middle, a hip, the apex of a pyramid), or the highest where its
- * two directions both continue upward or the cell sits where a valley meets
- * the ridges (a valley). Every plane cell is a
- * closed prism (top, underside, four sides); faces two prisms share are
- * left out, and where two meet on a side unequally only the difference is
- * drawn, so the roof is one closed skin and a ridge, hip or valley is
- * where two planes meet edge to edge. Single-direction cells in a row along
- * the slope's level line merge into one quad (inside a section; never
- * across a section face), and every edge takes the lattice points on it
- * where another polygon of the job has a corner (on a section face:
- * every lattice point), so polygons meet without T-junctions.
+ * stair's outer corners: at 45° its top is its voxel's top (T) on its low
+ * side and T + 1 on its high side; at 1:2 the pair's low cell runs from T
+ * to T + ½ and its high cell from T + ½ to T + 1. Its underside is the
+ * parallel plane one cell lower. A supported cell (a body under it,
+ * directly or across one air cell) closes down onto the body's top
+ * instead: its sides reach down to it and its floor lies on the body's top
+ * face, so the body's top reads as cut to the roof's underside and no step
+ * shows under the roof. A cell rising in several directions takes the
+ * lowest of their planes (a ridge along its middle, a hip, the apex of a
+ * pyramid), or the highest where they meet concave (a valley). Every plane
+ * cell is a closed prism (top, underside or floor, four sides); faces two
+ * prisms share are left out, and where two meet on a side unequally only
+ * the difference is drawn, so the roof is one closed skin and a ridge, hip
+ * or valley is where two planes meet edge to edge. Single-direction cells in
+ * a row along the slope's level line merge into one quad (inside a section;
+ * never across a section face), and every edge takes the lattice points on
+ * it where another polygon of the job has a corner (on a section face:
+ * every lattice point), so polygons meet without T-junctions. Points are
+ * whole quarter cells (a 1:2 plane is half a cell up a cell's middle); a
+ * cell's corners, edge middles and centre are points of the lattice.
  *
  * Plane cells hide nothing: a wall beside, under or through a roof keeps
  * its faces (the planes stop at it; the wall's face closes the slab).
  * Their own voxel faces, collision boxes and kit pieces are left out.
  *
- * **Roof edges** (what kit pieces dress, a word a cell): an eave on a low
- * side open below and in front, a verge (gable edge) on a side along the
- * slope's level line open beside it, a ridge where a plane meets the other
- * slope (owned by the cell rising toward +x or +z) or along a cell's middle,
- * a hip where two planes meet convex, a valley where they meet concave.
- *
- * **Reach.** Whether a cell is a plane cell reads one cell round it
+ * **Reach.** Whether a cell is a plane cell reads two cells round it
  * ({@link ROOF_PLANE_REACH}); the mesher reads the plane cells one round
  * the job's cells: {@link ROOF_MESHER_REACH} in all. The edge pass leaves
  * pieces off round plane cells, within its rule set's radius.
  */
-import { OPEN_ROLE, type Neighbourhood } from './assembly';
-import { POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
-import { ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, valueShape, VOXEL_ROLE } from './record';
+import type { Neighbourhood } from './assembly';
+import { POSITION_STEPS_PER_CELL, snorm8, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
+import { ROOF_DX, ROOF_DZ, roofAlong, roofPlaneAt, ROOF_WORD } from './roof-words';
 
-/** How far (Chebyshev, cells) whether a cell is a plane cell reads. */
-export const ROOF_PLANE_REACH = 1;
 
-/** Cells past the job the roof mesher reads: the plane cells round it and what decides them. */
-export const ROOF_MESHER_REACH = ROOF_PLANE_REACH + 1;
+const DX = ROOF_DX;
+const DZ = ROOF_DZ;
 
-/**
- * A plane cell's word: bits 0–3 the directions it rises toward (bit k:
- * {@link ROOF_DIR} k), then flags, then per side k (the side facing
- * direction k) its roof edges. 0: not a plane cell.
- */
-export const ROOF_WORD = Object.freeze({
-  dirs: 0x0f,
-  /** Its planes meet concave (a valley): the highest of them. */
-  concave: 0x10,
-  /** A solid cell carries it: the underside is the voxel's floor. */
-  seated: 0x20,
-  /** Shift of the 4 eave-side bits. */
-  eaveShift: 8,
-  /** Shift of the 4 verge-side bits. */
-  vergeShift: 12,
-  /** Shift of the 4 ridge-side bits (a ridge on that side, owned here). */
-  ridgeShift: 16,
-  /** A ridge along the cell's middle (rising both ways along one axis). */
-  centreRidge: 0x100000,
-});
+/** The word bits that say which plane a cell's top lies on (cells of a run along the level line share them). */
+const PLANE_BITS = ROOF_WORD.dirs | ROOF_WORD.concave | ROOF_WORD.shallow | (0xf << ROOF_WORD.phaseShift);
 
-/** Horizontal directions in yaw order (a quarter turn takes one to the next): +x, +z, −x, −z. */
-export const ROOF_DIR = Object.freeze({ px: 0, pz: 1, nx: 2, nz: 3 });
-const DX = [1, 0, -1, 0] as const;
-const DZ = [0, 1, 0, -1] as const;
-
-/** The roof-edge cases a plane cell's word names, for kit pieces (the catalogue's ids). */
-export type RoofEdgeCase = 'roof-ridge' | 'roof-eave' | 'roof-gable' | 'roof-hip' | 'roof-valley';
-
-/** Every roof-edge case, in a fixed order. */
-export const ROOF_EDGE_CASE_IDS: readonly RoofEdgeCase[] = Object.freeze(['roof-ridge', 'roof-eave', 'roof-gable', 'roof-hip', 'roof-valley']);
-
-/**
- * One roof-edge piece of a plane cell. Yaw (quarter turns about +y, +x to
- * +z) places the case's own orientation: an eave open toward +z, its plane
- * rising toward −z; a verge open toward +z, its plane rising toward +x; a
- * ridge running along x on the cell's +z side, its plane rising toward +z;
- * a hip or valley running from the cell's +x, +z corner (the low one) up to
- * its −x, −z corner. The two verges of a gable rise in opposite senses seen
- * from outside, which no quarter turn of one mesh gives: the verge rising
- * toward its own −x is `mirror` (drawn by the verge mesh mirrored across
- * x = 0, piece-table.ts `PIECE_VARIANT_MIRROR`), so one verge mesh follows
- * the slope on both sides. A ridge along the cell's middle is `centred`
- * (moved half a cell in from the side its yaw names and half a cell down:
- * the middle of a 45° cell is half a cell below its high side). On a cell
- * rising three or four ways (the apex at a hip roof's ridge end, a
- * pyramid's top) the ridge runs from the cell's middle on, toward the side
- * the cell rises toward, and each hip from its low corner up to the middle:
- * those are `half` (drawn over the half of their run on the case's +x side,
- * piece-placement.ts `pieceHalfRun`; the ridge's yaw points that way).
- */
-export interface RoofEdge {
-  readonly caseId: RoofEdgeCase;
-  readonly yaw: number;
-  readonly centred?: true;
-  readonly mirror?: true;
-  readonly half?: true;
-}
-
-/** The roof-edge pieces a plane cell's word names. */
-export function roofEdgesOf(word: number): RoofEdge[] {
-  const out: RoofEdge[] = [];
-  const dirs = word & ROOF_WORD.dirs;
-  if (dirs === 0) return out;
-  for (let k = 0; k < 4; k++) {
-    const yaw = (k + 3) & 3;
-    if (((word >>> (ROOF_WORD.eaveShift + k)) & 1) !== 0) out.push({ caseId: 'roof-eave', yaw });
-    // A verge is on a single-direction cell: at yaw k + 3 the case's +x is the direction k − 1, so the verge on the
-    // side after the rise (k = rise + 1) rises toward its +x, the one before it (k = rise − 1) toward its −x.
-    if (((word >>> (ROOF_WORD.vergeShift + k)) & 1) !== 0) out.push(((dirs >>> ((k + 1) & 3)) & 1) !== 0 ? { caseId: 'roof-gable', yaw, mirror: true } : { caseId: 'roof-gable', yaw });
-    if (((word >>> (ROOF_WORD.ridgeShift + k)) & 1) !== 0) out.push({ caseId: 'roof-ridge', yaw });
-  }
-  const apex = bits4(dirs) >= 3 && (word & ROOF_WORD.concave) === 0;
-  if ((word & ROOF_WORD.centreRidge) !== 0) {
-    const across = (dirs & 0b0101) === 0b0101 ? 0b0101 : 0b1010;
-    // An apex's ridge points (case +x) toward the one way it rises along the ridge: the ridge goes on that way.
-    const on = dirs & ~across & ROOF_WORD.dirs;
-    out.push(apex ? { caseId: 'roof-ridge', yaw: on === 1 ? 0 : on === 2 ? 1 : on === 4 ? 2 : 3, centred: true, half: true } : { caseId: 'roof-ridge', yaw: across === 0b0101 ? 3 : 0, centred: true });
-  }
-  for (let a = 0; a < 4; a++) {
-    const b = (a + 1) & 3;
-    if (((dirs >>> a) & 1) === 0 || ((dirs >>> b) & 1) === 0) continue;
-    if ((word & ROOF_WORD.concave) !== 0) out.push({ caseId: 'roof-valley', yaw: (a + 2) & 3 });
-    else out.push(apex ? { caseId: 'roof-hip', yaw: (a + 2) & 3, half: true } : { caseId: 'roof-hip', yaw: (a + 2) & 3 });
-  }
-  return out;
-}
+/** Per job face (2 · axis + side): a 1:2 plane cell lies at it, so its edges split at quarter points up. */
+const faceShallow = [false, false, false, false, false, false];
 
 function bits4(m: number): number {
   return (m & 1) + ((m >>> 1) & 1) + ((m >>> 2) & 1) + ((m >>> 3) & 1);
 }
 
-/** Cell predicates over a neighbourhood. */
-function roofIntact(n: Neighbourhood, i: number): boolean {
-  const v = n.values[i]!;
-  return ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.roof && valueShape(v) === SHAPE_FULL;
-}
-
-function solid(n: Neighbourhood, i: number): boolean {
-  return OPEN_ROLE[(n.values[i]! >>> ROLE_SHIFT) & ROLE_MASK] !== 1 && n.shapes[i]! >= SURFACE_ISO;
-}
-
-/** Neighbourhood offsets of the four horizontal directions for a side (cached). */
-const offsetsBySide = new Map<number, Int32Array>();
-function offsets(s: number): Int32Array {
-  let o = offsetsBySide.get(s);
-  if (o === undefined) offsetsBySide.set(s, (o = Int32Array.from([0, 1, 2, 3], (k) => (DX[k]! * s + DZ[k]!) * s)));
-  return o;
-}
-
-/** Whether cell `i` is a plane cell (reads {@link ROOF_PLANE_REACH} round it): the edge pass leaves pieces off round these. */
-export function isRoofPlaneCell(n: Neighbourhood, i: number): boolean {
-  return planeWord(n, i, offsets(n.side)) !== 0;
-}
-
-/** The plane-cell word of cell `i` without its edge bits (reads {@link ROOF_PLANE_REACH} round it), 0 when it is none. */
-function planeWord(n: Neighbourhood, i: number, off: Int32Array): number {
-  if (!roofIntact(n, i) || solid(n, i + 1)) return 0;
-  let dirs = 0;
-  for (let k = 0; k < 4; k++) if (roofIntact(n, i + 1 + off[k]!) || roofIntact(n, i - 1 - off[k]!)) dirs |= 1 << k;
-  if (dirs === 0) {
-    for (let k = 0; k < 4; k++) {
-      const d = off[k]! + off[(k + 1) & 3]!;
-      if (roofIntact(n, i + 1 + d) || roofIntact(n, i - 1 - d)) {
-        if (dirs !== 0) return 0;
-        dirs = (1 << k) | (1 << ((k + 1) & 3));
-      }
-    }
-    if (dirs === 0) return 0;
-  } else if (bits4(dirs) === 1) {
-    // A one-direction cell with a roof cell on the same level on its low side: a flatter stair than 45° (a valley's
-    // cell has the other slope's cell there).
-    for (let k = 0; k < 4; k++) if (((dirs >>> k) & 1) !== 0 && roofIntact(n, i - off[k]!)) return 0;
-  }
-  let w = dirs;
-  if (bits4(dirs) === 2) {
-    for (let k = 0; k < 4; k++) {
-      const b = (k + 1) & 3;
-      if (((dirs >>> k) & 1) === 0 || ((dirs >>> b) & 1) === 0) continue;
-      // Concave: both slopes go on up (a valley), or, where they meet a ridge (the top of an L's corner), the two
-      // corners off the low one each have the three cells round them on this level (high corners, not low).
-      const ok = off[k]!;
-      const ob = off[b]!;
-      const up = roofIntact(n, i + 1 + ok) && roofIntact(n, i + 1 + ob);
-      const level = roofIntact(n, i - ok) && roofIntact(n, i + ob) && roofIntact(n, i - ok + ob) && roofIntact(n, i + ok) && roofIntact(n, i - ob) && roofIntact(n, i + ok - ob);
-      if (up || level) w |= ROOF_WORD.concave;
-    }
-  }
-  if (solid(n, i - 1)) w |= ROOF_WORD.seated;
-  return w;
-}
-
-/**
- * The plane-cell words of a job: every cell of the job and one round it
- * into `out` (neighbourhood indexing; 0: none; cells further out are left as
- * they are), the job's own cells
- * with their roof edges. The pad must be at least {@link ROOF_MESHER_REACH}.
- * Returns the job's own plane cells.
- */
-export function classifyRoofs(n: Neighbourhood, out: Uint32Array): number {
-  const e = n.edge;
-  const p = n.pad;
-  const s = n.side;
-  if (p < ROOF_MESHER_REACH) throw new RangeError(`roof mesher: pad ${p}, it reads ${ROOF_MESHER_REACH} cells past the job`);
-  if (out.length !== n.values.length) throw new RangeError('roof words: wrong length');
-  const off = offsets(s);
-  const lo = p - 1;
-  const hi = p + e + 1;
-  const vals = n.values;
-  let any = false;
-  for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) {
-    const row = (x * s + z) * s;
-    for (let y = lo; y < hi; y++) {
-      const i = row + y;
-      if (((vals[i]! >>> ROLE_SHIFT) & ROLE_MASK) !== VOXEL_ROLE.roof) {
-        out[i] = 0;
-        continue;
-      }
-      const w = planeWord(n, i, off);
-      out[i] = w;
-      if (w !== 0) any = true;
-    }
-  }
-  if (!any) return 0;
-  let count = 0;
-  for (let x = p; x < p + e; x++) for (let z = p; z < p + e; z++) {
-    const row = (x * s + z) * s;
-    for (let y = p; y < p + e; y++) {
-      const i = row + y;
-      const w = out[i]!;
-      if (w === 0) continue;
-      count++;
-      const dirs = w & ROOF_WORD.dirs;
-      const many = bits4(dirs);
-      let edges = 0;
-      for (let k = 0; k < 4; k++) {
-        if (((dirs >>> k) & 1) === 0) continue;
-        const low = (k + 2) & 3;
-        const below = i - off[k]!;
-        if (!solid(n, below) && !solid(n, below - 1)) edges |= 1 << (ROOF_WORD.eaveShift + low);
-        if (many === 1) {
-          const a = (k + 1) & 3;
-          const c = (k + 3) & 3;
-          if (!solid(n, i + off[a]!)) edges |= 1 << (ROOF_WORD.vergeShift + a);
-          if (!solid(n, i + off[c]!)) edges |= 1 << (ROOF_WORD.vergeShift + c);
-          const other = out[i + off[k]!]!;
-          if (k < 2 && other !== 0 && ((other >>> low) & 1) !== 0) edges |= 1 << (ROOF_WORD.ridgeShift + k);
-        }
-      }
-      if (many >= 2 && many !== 4 && ((dirs & 0b0101) === 0b0101 || (dirs & 0b1010) === 0b1010)) edges |= ROOF_WORD.centreRidge;
-      out[i] = w | edges;
-    }
-  }
-  return count;
-}
-
 // ---------------------------------------------------------------------------
-// Geometry. Points are in half cells from the job's corner (integers), so a
-// cell's corners, its edges' middles and its centre are all lattice points.
+// Geometry. Points are in quarter cells from the job's corner (integers):
+// a cell's corners, its edges' middles and its centre lie on the even
+// points across (x, z), and a 1:2 plane's heights there are whole quarters.
 
-/** Height (half cells) of a plane cell's top at sample (iu, iv) of 0 … 2 across it, its voxel at local y. */
+/** Quarter cells a cell. */
+const Q = 4;
+
+/** Height (quarter cells) of a plane cell's top at sample (iu, iv) of 0, 2, 4 across it, its voxel at local y. */
 function topAt(w: number, y: number, iu: number, iv: number): number {
   const dirs = w & ROOF_WORD.dirs;
-  const t = 2 * (y + 1);
+  const shallow = (w & ROOF_WORD.shallow) !== 0;
   const concave = (w & ROOF_WORD.concave) !== 0;
   let h = concave ? -Infinity : Infinity;
   for (let k = 0; k < 4; k++) {
     if (((dirs >>> k) & 1) === 0) continue;
-    const along = k === 0 ? iu : k === 1 ? iv : k === 2 ? 2 - iu : 2 - iv;
-    h = concave ? Math.max(h, t + along) : Math.min(h, t + along);
+    const at = roofPlaneAt(shallow, (w >>> (ROOF_WORD.phaseShift + k)) & 1, roofAlong(k, iu, iv));
+    h = concave ? Math.max(h, at) : Math.min(h, at);
   }
-  return h;
+  return Q * (y + 1) + h;
 }
 
+/** The floor a supported cell closes down onto (quarter cells): its body's top. */
+function floorOf(w: number, y: number): number {
+  return Q * (y - ((w & ROOF_WORD.gap) !== 0 ? 1 : 0));
+}
+
+/** The prism's lower face at a sample: the underside one cell below the top, or a supported cell's floor. */
 function bottomAt(w: number, y: number, iu: number, iv: number): number {
-  return (w & ROOF_WORD.seated) !== 0 ? 2 * y : topAt(w, y, iu, iv) - 2;
+  return (w & ROOF_WORD.supported) !== 0 ? floorOf(w, y) : topAt(w, y, iu, iv) - Q;
 }
 
 const otherBot = [0, 0, 0];
 const otherTop = [0, 0, 0];
 
-/** A plane cell's side k (facing direction k) sampled at 0, ½, 1 along it: its underside and top heights. */
+/** A plane cell's side k (facing direction k) sampled at 0, ½, 1 along it: its lower face and top heights. */
 function sideProfile(w: number, y: number, k: number, bot: number[], top: number[]): void {
   for (let t = 0; t < 3; t++) {
-    const iu = (k & 1) === 0 ? (k === 0 ? 2 : 0) : t;
-    const iv = (k & 1) === 0 ? t : k === 1 ? 2 : 0;
+    const iu = (k & 1) === 0 ? (k === 0 ? Q : 0) : 2 * t;
+    const iv = (k & 1) === 0 ? 2 * t : k === 1 ? Q : 0;
     bot[t] = bottomAt(w, y, iu, iv);
     top[t] = topAt(w, y, iu, iv);
   }
 }
 
-/** A polygon: its ring (x, y, z half-cell triples, corners only) and which way it should face. */
+/** A polygon: its ring (x, y, z quarter-cell triples, corners only) and which way it should face. */
 interface Poly {
   ring: number[];
   /** Outward hint: 0 up, 1 down, 2 + k a side facing direction k (+x, +z, −x, −z). */
@@ -331,7 +118,7 @@ interface Strip {
   own: boolean;
 }
 
-/** A resolved side piece on a plane: from b0 to b1 (half cells along the plane), its low and high lines at both ends. */
+/** A resolved side piece on a plane: from b0 to b1 (half cells along the plane), its low and high lines (quarter cells) at both ends. */
 interface Piece {
   b0: number;
   b1: number;
@@ -408,8 +195,9 @@ function resolveSpan(strips: readonly Strip[], b: number, out: Piece[]): void {
 function mergePieces(pieces: Piece[]): Piece[] {
   pieces.sort((p, q) => p.b0 - q.b0 || p.lo0 - q.lo0);
   const open = new Map<number, Piece>();
-  // A piece's end as a key: where it ends along the plane, its two heights there, facing and slopes (half cells, small).
-  const endKey = (b: number, lo: number, hi: number, sign: number, dlo: number, dhi: number): number => ((((b + 8) * 256 + lo + 8) * 256 + hi + 8) * 4 + sign + 1) * 16 + (dlo + 2) * 4 + (dhi + 2);
+  // A piece's end as a key: where it ends along the plane (half cells), its two heights there (quarter cells),
+  // facing and slopes (−2 … 2 quarter cells a half cell: 45° or 1:2, up or down).
+  const endKey = (b: number, lo: number, hi: number, sign: number, dlo: number, dhi: number): number => ((((b + 8) * 512 + lo + 16) * 512 + hi + 16) * 4 + sign + 1) * 25 + (dlo + 2) * 5 + (dhi + 2);
   const out: Piece[] = [];
   for (const p of pieces) {
     const key = endKey(p.b0, p.lo0, p.hi0, p.sign, p.lo1 - p.lo0, p.hi1 - p.hi0);
@@ -428,7 +216,7 @@ function mergePieces(pieces: Piece[]): Piece[] {
   return out;
 }
 
-/** A cell's top (or underside) polygons, unmerged; `corner` gives a sample's point. */
+/** A cell's top (or underside) polygons, unmerged; `corner` gives the point of sample (iu, iv) of 0, 1, 2 across the cell. */
 function cellFacets(w: number, corner: (iu: number, iv: number) => number[], face: number, out: Poly[]): void {
   const dirs = w & ROOF_WORD.dirs;
   const ring = (pts: ReadonlyArray<readonly [number, number]>): void => {
@@ -471,16 +259,22 @@ function topDiff(dirs: number, iu: number, iv: number): number {
 
 /** Per-thread scratch. */
 const strips = new Map<number, Strip[]>();
-/** Lattice points (half cells) some polygon of the job has a corner at: a stamp per point, the job's call number. */
-let stampGrid = new Uint32Array(0);
-let stampSide = 0;
+/**
+ * Lattice points some polygon of the job has a corner at: a stamp per point, the job's call number. Corners lie on
+ * even quarters across (x and z, stored halved), any quarter up.
+ */
+let stampGrid = new Uint16Array(0);
+let stampAcross = 0;
+let stampUp = 0;
 let stampCall = 0;
-/** Half cells past the job's corner a polygon's point may lie (a prism tops out a cell above its voxel). */
-const STAMP_PAD = 4;
+/** Half cells past the job's corner a corner may lie across (the cells one round the job). */
+const STAMP_PAD_ACROSS = 4;
+/** Quarter cells below the job's corner a corner may lie (a supported floor a cell under a cell one below the job). */
+const STAMP_PAD_UP = 12;
 
 const STEPS = POSITION_STEPS_PER_CELL;
-/** Half cells to position steps (positions count from one cell below the job's corner). */
-const HALF = STEPS / 2;
+/** Quarter cells to position steps (positions count from one cell below the job's corner). */
+const QUARTER = STEPS / Q;
 
 /** The output vertex arrays, grown as needed. */
 let pos = new Int32Array(3 * 256);
@@ -490,11 +284,11 @@ let vertexCount = 0;
 let triLen = 0;
 const vertexOf = new Map<number, number>();
 
-/** Positions are whole eighths of a cell (corners, edge middles, a fan's inside point), so a vertex keys by eighths and normal. */
-const EIGHTH = STEPS / 8;
+/** Positions are whole sixteenths of a cell (corners, edge middles, a fan's inside point), so a vertex keys by sixteenths and normal. */
+const SIXTEENTH = STEPS / 16;
 
 function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, normal: number): number {
-  const key = (((x / EIGHTH) * 512 + y / EIGHTH) * 512 + z / EIGHTH) * 32 + normal;
+  const key = (((x / SIXTEENTH) * 1024 + y / SIXTEENTH) * 1024 + z / SIXTEENTH) * 32 + normal;
   const known = vertexOf.get(key);
   if (known !== undefined) return known;
   if (3 * vertexCount + 3 > pos.length) {
@@ -545,7 +339,7 @@ function gcd(a: number, b: number): number {
 }
 
 function stampKey(x: number, y: number, z: number): number {
-  return ((x + STAMP_PAD) * stampSide + (y + STAMP_PAD)) * stampSide + (z + STAMP_PAD);
+  return ((x / 2 + STAMP_PAD_ACROSS) * stampUp + (y + STAMP_PAD_UP)) * stampAcross + (z / 2 + STAMP_PAD_ACROSS);
 }
 
 function stamped(x: number, y: number, z: number): boolean {
@@ -574,9 +368,10 @@ const FACE_SIGN = [1, -1, 1, 1, -1, -1] as const;
 
 /**
  * Emits a polygon: wound to face its hint, every edge split at the stamped
- * points on it (every whole lattice point when the edge lies on a face of the
- * job), then fanned from a corner both of whose edges are whole, else
- * from a point inside.
+ * points on it (on a face of the job every lattice point a corner of the
+ * job across could have: whole half cells, and quarters up where a 1:2
+ * roof meets that face, {@link faceShallow}), then fanned from a corner
+ * both of whose edges are whole, else from a point inside.
  */
 function emit(poly: Poly, e: number): void {
   let r: number[] = [];
@@ -613,17 +408,17 @@ function emit(poly: Poly, e: number): void {
     const q = [r[3 * b]!, r[3 * b + 1]!, r[3 * b + 2]!];
     cornerAt.push(pts.length / 3);
     pts.push(p[0]!, p[1]!, p[2]!);
-    // Every lattice point along the edge (in steps of the edge's direction over the gcd of its components).
+    // Every lattice point along the edge (even quarters across, any quarter up), in steps of its direction.
     const dx = q[0]! - p[0]!, dy = q[1]! - p[1]!, dz = q[2]! - p[2]!;
-    const g = gcd(gcd(Math.abs(dx), Math.abs(dy)), Math.abs(dz));
-    // On a face of the job: the job across splits it its own way, so take every lattice point (half cells: a side
-    // piece may end half way along a cell).
-    let onFace = false;
-    for (let c = 0; c < 3; c++) if (p[c] === q[c] && (p[c] === 0 || p[c] === 2 * e)) onFace = true;
+    const g = gcd(gcd(Math.abs(dx) / 2, Math.abs(dy)), Math.abs(dz) / 2);
+    // On a face of the job: the job across splits it its own way, so take every point a corner there could have
+    // (half cells: a side piece may end half way along a cell; quarters up where a 1:2 roof meets the face).
+    let face = -1;
+    for (let c = 0; c < 3; c++) if (p[c] === q[c] && (p[c] === 0 || p[c] === Q * e)) face = 2 * c + (p[c] === 0 ? 0 : 1);
     let added = 0;
     for (let t = 1; t < g; t++) {
       const x = p[0]! + (dx / g) * t, y = p[1]! + (dy / g) * t, z = p[2]! + (dz / g) * t;
-      if (!onFace && !stamped(x, y, z)) continue;
+      if (!stamped(x, y, z) && (face < 0 || ((y & 1) !== 0 && !faceShallow[face]))) continue;
       pts.push(x, y, z);
       added++;
     }
@@ -632,7 +427,7 @@ function emit(poly: Poly, e: number): void {
   const m = pts.length / 3;
   const ids: number[] = [];
   const normal = normalIndex(nx, ny, nz);
-  for (let a = 0; a < m; a++) ids.push(addVertex(pts[3 * a]! * HALF + STEPS, pts[3 * a + 1]! * HALF + STEPS, pts[3 * a + 2]! * HALF + STEPS, nx, ny, nz, normal));
+  for (let a = 0; a < m; a++) ids.push(addVertex(pts[3 * a]! * QUARTER + STEPS, pts[3 * a + 1]! * QUARTER + STEPS, pts[3 * a + 2]! * QUARTER + STEPS, nx, ny, nz, normal));
   let apex = -1;
   for (let c = 0; c < k && apex < 0; c++) if (extra[c] === 0 && extra[(c + k - 1) % k] === 0) apex = cornerAt[c]!;
   if (apex >= 0) {
@@ -643,7 +438,7 @@ function emit(poly: Poly, e: number): void {
   const c = [0, 0, 0];
   if (k === 3) for (let a = 0; a < 3; a++) c[a] = (2 * r[a]! + r[3 + a]! + r[6 + a]!) / 4;
   else for (let a = 0; a < 3; a++) c[a] = (r[a]! + r[6 + a]!) / 2;
-  const centre = addVertex(c[0]! * HALF + STEPS, c[1]! * HALF + STEPS, c[2]! * HALF + STEPS, nx, ny, nz, normal);
+  const centre = addVertex(c[0]! * QUARTER + STEPS, c[1]! * QUARTER + STEPS, c[2]! * QUARTER + STEPS, nx, ny, nz, normal);
   for (let j = 0; j < m; j++) addTri(centre, ids[j]!, ids[(j + 1) % m]!);
 }
 
@@ -661,12 +456,18 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
   triLen = 0;
   vertexOf.clear();
   strips.clear();
-  stampSide = 2 * e + 2 * STAMP_PAD + 1;
-  if (stampGrid.length < stampSide ** 3) {
-    stampGrid = new Uint32Array(stampSide ** 3);
+  stampAcross = 2 * e + 2 * STAMP_PAD_ACROSS + 1;
+  stampUp = Q * e + 2 * STAMP_PAD_UP + 1;
+  if (stampGrid.length < stampAcross * stampAcross * stampUp) {
+    stampGrid = new Uint16Array(stampAcross * stampAcross * stampUp);
     stampCall = 0;
   }
-  stampCall++;
+  if (++stampCall > 0xffff) {
+    stampGrid.fill(0);
+    stampCall = 1;
+  }
+  // Which faces of the job a 1:2 roof meets (a plane cell on either side of it): their quarter points are split.
+  faceShallow.fill(false);
   const polys: Poly[] = [];
   const at = (x: number, y: number, z: number): number => ((x + p) * s + (z + p)) * s + (y + p);
   let any = false;
@@ -681,6 +482,13 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
     if (w === 0) continue;
     const own = x >= 0 && y >= 0 && z >= 0 && x < e && y < e && z < e;
     if (own) any = true;
+    if ((w & ROOF_WORD.shallow) !== 0) {
+      const c = [x, y, z];
+      for (let a = 0; a < 3; a++) {
+        if (c[a]! <= 0) faceShallow[2 * a] = true;
+        if (c[a]! >= e - 1) faceShallow[2 * a + 1] = true;
+      }
+    }
     for (let k = 0; k < 4; k++) {
       sideProfile(w, y, k, bot, top);
       const across = i + (DX[k]! * s + DZ[k]!) * s;
@@ -714,23 +522,24 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
     const d = w & ROOF_WORD.dirs;
     return d === 1 ? 0 : d === 2 ? 1 : d === 4 ? 2 : d === 8 ? 3 : -1;
   };
-  const corner = (x: number, y: number, z: number, w: number, under: boolean) => (iu: number, iv: number): number[] => [2 * x + iu, under ? bottomAt(w, y, iu, iv) : topAt(w, y, iu, iv), 2 * z + iv];
+  // A sample (iu, iv of 0, 1, 2 across the cell) of a cell's top or underside, in quarter cells.
+  const corner = (x: number, y: number, z: number, w: number, under: boolean) => (iu: number, iv: number): number[] => [Q * x + 2 * iu, (under ? -Q : 0) + topAt(w, y, 2 * iu, 2 * iv), Q * z + 2 * iv];
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
     const w = own(x, y, z);
     if (w === 0) continue;
-    const seated = (w & ROOF_WORD.seated) !== 0;
+    const supported = (w & ROOF_WORD.supported) !== 0;
     const d = single(w);
     if (d < 0) {
       cellFacets(w, corner(x, y, z, w, false), 0, polys);
-      if (!seated) cellFacets(w, corner(x, y, z, w, true), 1, polys);
+      if (!supported) cellFacets(w, corner(x, y, z, w, true), 1, polys);
     } else {
       // A run along the slope's level line (z for a slope along x, x for one along z) starts at its first cell.
       const runX = d === 1 || d === 3;
       const next = (j: number): number => (runX ? own(x + j, y, z) : own(x, y, z + j));
       for (const under of [false, true]) {
-        if (under && seated) continue;
-        // Tops join whatever carries them; undersides only unseated ones.
-        const mask = under ? ROOF_WORD.dirs | ROOF_WORD.seated : ROOF_WORD.dirs;
+        if (under && supported) continue;
+        // Tops join where they are one plane; undersides only unsupported ones.
+        const mask = under ? PLANE_BITS | ROOF_WORD.supported : PLANE_BITS;
         if ((next(-1) & mask) === (w & mask)) continue;
         let len = 1;
         while ((runX ? x : z) + len < e && (next(len) & mask) === (w & mask)) len++;
@@ -739,11 +548,14 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
         polys.push({ ring: runX ? [...c0(0, 0), ...c1(2, 0), ...c1(2, 2), ...c0(0, 2)] : [...c0(0, 0), ...c0(2, 0), ...c1(2, 2), ...c1(0, 2)], face: under ? 1 : 0 });
       }
     }
-    // A seated underside is the voxel's floor: one quad, merged along z.
-    if (seated && (own(x, y, z - 1) & ROOF_WORD.seated) === 0) {
+    // A supported cell's floor lies on its body's top face (so the slab and the body each stay closed): one quad,
+    // merged along z with cells on the same floor.
+    const SUPPORT = ROOF_WORD.supported | ROOF_WORD.gap;
+    if (supported && (own(x, y, z - 1) & SUPPORT) !== (w & SUPPORT)) {
       let len = 1;
-      while (z + len < e && (own(x, y, z + len) & ROOF_WORD.seated) !== 0) len++;
-      polys.push({ ring: [2 * x, 2 * y, 2 * z, 2 * x + 2, 2 * y, 2 * z, 2 * x + 2, 2 * y, 2 * (z + len), 2 * x, 2 * y, 2 * (z + len)], face: 1 });
+      while (z + len < e && (own(x, y, z + len) & SUPPORT) === (w & SUPPORT)) len++;
+      const f = floorOf(w, y);
+      polys.push({ ring: [Q * x, f, Q * z, Q * x + Q, f, Q * z, Q * x + Q, f, Q * (z + len), Q * x, f, Q * (z + len)], face: 1 });
     }
   }
 
@@ -759,9 +571,10 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array): SurfaceBuffer
   }
   for (const [planeKey, pieces] of byPlane) {
     const alongX = Math.floor(planeKey / W) === 0;
-    const plane = 2 * ((planeKey % W) - 2);
+    const plane = Q * ((planeKey % W) - 2);
     for (const q of mergePieces(pieces)) {
-      const pt = (b: number, h: number): number[] => (alongX ? [plane, h, b] : [b, h, plane]);
+      // b along the plane in half cells, h in quarter cells.
+      const pt = (b: number, h: number): number[] => (alongX ? [plane, h, 2 * b] : [2 * b, h, plane]);
       polys.push({ ring: [...pt(q.b0, q.lo0), ...pt(q.b1, q.lo1), ...pt(q.b1, q.hi1), ...pt(q.b0, q.hi0)], face: 2 + (alongX ? (q.sign > 0 ? 0 : 2) : q.sign > 0 ? 1 : 3) });
     }
   }

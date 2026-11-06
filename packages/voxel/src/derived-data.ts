@@ -58,7 +58,8 @@ export type { DerivePieces } from './derive-pieces';
 import { createEdgeMasks, type EdgeMasks } from './edge-cases';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import { evaluateCases, evaluateEdges } from './kit-rules';
-import { appendSurface, classifyRoofs, roofSurface } from './roof-mesher';
+import { appendSurface, roofSurface } from './roof-mesher';
+import { classifyRoofs } from './roof-words';
 import { terrainSurface } from './terrain-mesher';
 import { utf8Encode } from '@thirdlight/shared';
 
@@ -160,8 +161,17 @@ import { utf8Encode } from '@thirdlight/shared';
  * toward an opening (derived-mesh.ts); mixed corners take a corner piece;
  * no piece lies inside an opening. Instance lists differ from v22's; every
  * other part is v22's.
+ * 24: roofs laid as 1:2 stairs (two cells along, one up) are drawn as
+ * sloped planes like 45° ones, their roof-edge pieces flagged to be pitched
+ * onto the shallower slope (instance flags 0x20 and 0x80: the slope and
+ * the plane's phase); a roof cell is read two cells round it (the derive's
+ * pad is unchanged); a roof over a body, or over one air cell over a body,
+ * closes down onto the body's top (the body's top is cut to the roof's
+ * underside), and edges round that air cell carry no piece. Surfaces,
+ * collision ramps and instances differ from v23's round roofs; the layout
+ * is v23's.
  */
-export const DERIVED_FORMAT_VERSION = 23;
+export const DERIVED_FORMAT_VERSION = 24;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

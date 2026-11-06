@@ -674,7 +674,7 @@ describe('the world rule set\'s case pass', () => {
 
   it('composes the terrain rules, the case pass and the edge pass in one evaluation, radius 2, the job apron still 3; the world derives with it; no window case anywhere (no window rules)', () => {
     expect(WORLD_RULES).toBe(EDGE_RULES);
-    expect({ id: EDGE_RULES.id, version: EDGE_RULES.version, radius: EDGE_RULES.radius }).toEqual({ id: 'edges', version: 5, radius: 2 });
+    expect({ id: EDGE_RULES.id, version: EDGE_RULES.version, radius: EDGE_RULES.radius }).toEqual({ id: 'edges', version: 6, radius: 2 });
     expect(registeredAssemblyRules().map((r) => r.id).sort()).toEqual(['edges', 'placeholder', 'terrain']);
     expect(EDGE_RULES.radius).toBe(Math.max(TERRAIN_RULES.radius, CASE_REACH));
     expect(jobRadius(EDGE_RULES)).toBe(3);
@@ -730,7 +730,7 @@ describe('the world rule set\'s case pass', () => {
       const tree = new MipTree(store);
       for (const [cx, cy, cz] of chunks) {
         const a = deriveFromStore(store, cx, cy, cz, EDGE_RULES);
-        expect(a.rules).toEqual({ id: 'edges', version: 5, radius: 2 });
+        expect(a.rules).toEqual({ id: 'edges', version: 6, radius: 2 });
         // Does any cell the consumers read take another form from its case than from its class?
         const job = kitJob(store, cx, cy, cz);
         const forms = new Uint8Array(job.n.values.length);

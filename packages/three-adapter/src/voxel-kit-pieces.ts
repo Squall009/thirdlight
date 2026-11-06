@@ -95,6 +95,9 @@ export interface VoxelKitDraw {
   readonly stagger: { readonly frame: PieceStaggerFrame; readonly seed: number; readonly caseIndex: number; readonly jitter: number } | null;
   /** How the drawn case's piece covers half its run on an instance flagged `half` (voxel `pieceHalfRun`). */
   readonly halfRun: 'x' | 'diagonal' | null;
+  /** The drawn case (a 1:2 roof's edge piece is pitched by it, voxel `roofPitch`) and whether its mesh is mirrored. */
+  readonly caseId: string;
+  readonly mirror: boolean;
 }
 
 /** A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project. */
@@ -432,7 +435,7 @@ export class VoxelKitSet {
     const rotation = pc.rotations[variant] ?? 0;
     const key = `${slot}:${piece}:${variant}:${mirror ? 1 : 0}`;
     const frame = PIECE_STAGGER_FRAMES[pc.caseId];
-    const placed = { rotation, runAxis: meshRunAxis(pc.caseId, rotation), halfRun: pieceHalfRun(pc.caseId), stagger: frame === undefined ? null : { frame, seed: this.table.seed, caseIndex: pc.caseIndex, jitter: kit.jitter } };
+    const placed = { rotation, runAxis: meshRunAxis(pc.caseId, rotation), halfRun: pieceHalfRun(pc.caseId), caseId: pc.caseId, mirror, stagger: frame === undefined ? null : { frame, seed: this.table.seed, caseIndex: pc.caseIndex, jitter: kit.jitter } };
     const g = this.meshes.mesh(entry.mesh, mirror, mirrorAxisOf(rotation));
     if (g === 'pending' || g === null) return g;
     const look = this.meshes.material(kit.id, record?.trimLayout);

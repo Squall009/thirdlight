@@ -1112,8 +1112,9 @@ chunk):
 **Detail instance (12 bytes from v23; 8 bytes v12–v22):**
 - u8 x, y, z: the cell inside the chunk;
 - u8: bits 0–1 quarter turns about +y, bits 2–3 the placement (`INSTANCE_PLACE`), bits 4–7 flags (0x10
-  `replacesBase`, 0x40 `half`: drawn over the half of its run on its case's +x side, `pieceHalfRun`, v19; 0x20 and
-  0x80 written 0: 0x20 was `low`, drawn at low detail, until v21);
+  `replacesBase`, 0x40 `half`: drawn over the half of its run on its case's +x side, `pieceHalfRun`, v19; 0x20
+  `shallow` (v24): a roof-edge piece of a 1:2 roof, pitched by the renderer onto the 1:2 plane (`roofPitch`), 0x80
+  `high` with it: the plane is its pair's high cell; 0x20 was `low`, drawn at low detail, until v21);
 - u16 piece, **kit-local** (`piece-table.ts`, v22): the index of a filled slot of the kit the cell's material names,
   0-based in catalogue case order; no engine default piece, and a material no kit binds lists none;
 - u16 variant word: bits 0–14 which of the slot's meshes it draws (v22), bit 15 the mirror (a verge rising toward its
@@ -1138,8 +1139,9 @@ backend only.
   `texSubImage3D` through three's copy), no CPU copy of the texture is kept, and the texture grows by a quarter
   along its shortest axis by a GPU copy (edge at most 2,048 texels: 216 k regions).
 - **Per object:** the region's origin and the one-entry fallback (a vec4), the chunk corner's cell modulo 1,024
-  (the texture phase), and the corner in metres modulo 512·√2 m (the slope phase, for V up a roof plane): uniforms
-  of the object, so a floating-origin shift never moves a texture.
+  (the texture phase), and the corner in metres modulo 512·√2 m and 512·√5 m (the 45° and the 1:2 slope phase,
+  for V up a roof plane; a normal whose vertical part is over 1.5 times its horizontal part reads the 1:2 one, v24):
+  uniforms of the object, so a floating-origin shift never moves a texture.
 - **Blend.** A pixel moves a quarter of a level-0 cell (`SHADER_READ_DEPTH_CELLS`, 0.125 m at every level) into
   the surface along its normal (a face between a solid and an air cell reads the solid cell), clamps to the grid and reads the 8 cell centres around it. Each corner's weight is,
   per axis, a ramp of the blend distance across the face between two cells (`clamp((f − ½) / d + ½)`, d the
@@ -1490,23 +1492,37 @@ the material model and texture sets 46d's.
   flush at the anchor's faces toward it, an inner one (it would lie in the opening) is not placed; a dug hole (air)
   is an ordinary edge. No piece where a terrain cell (any fill) or an excluded cell (a roof plane cell or a debris
   cell) touches the edge: construction ↔ terrain contact is 47b's fringe.
-- **The roof mesher** (`roof-mesher.ts`, reach `ROOF_MESHER_REACH` 2; derived v15). A **plane cell** is an intact
-  roof cell with nothing solid above that rises toward a horizontal direction (a roof cell one up and across, or one
-  down and across the other way; an eave corner of a hip by the diagonal); flatter stairs (1:2, D500), damaged and
-  lone roof cells keep their voxel faces (the fallback). `classifyRoofs` gives each a u32 **roof word** (`ROOF_WORD`:
-  rising directions, concave (valley), seated, eave / verge / ridge sides, centre ridge); `roofSurface` emits a
-  closed prism a plane cell: the top through the stair's outer corners, the underside one cell lower or the voxel's
-  floor where a solid cell carries it (so the slab closes onto gable and eave walls); ridge, hip and apex take the
-  lowest plane, a valley the highest; shared sides cancel, single-direction rows merge along their level line inside
-  a section, every edge is split at the job's corners and, on a section face, at every half-cell point (closed across
-  sections and chunks). The planes are appended to the **base surface** (same 12-byte vertex, same shader); plane
+- **The roof mesher** (`roof-mesher.ts` the planes, `roof-words.ts` which cells; reach `ROOF_MESHER_REACH` 3,
+  inside the pad of 3; derived v15, 1:2 and support v24). A **plane cell** is an intact roof cell with nothing solid
+  above, laid as a **45°** stair (a roof cell one up and across, or one down and across the other way; an eave corner
+  of a hip by the diagonal) or a **1:2** stair (two cells along at a level, then one up; owner A7, v24): each
+  direction of a cell is fitted, two cells along each way (`ROOF_PLANE_REACH` 2), to the 1:2 stair of the pair's low
+  or high cell (its **phase**), a cell read at 45° first exactly as before and at 1:2 where a cell two along says so;
+  one slope a roof (hips and valleys between equal slopes; default, owner to confirm). Flat, damaged and lone roof
+  cells keep their voxel faces (the fallback), and so do the few cells where a 1:2 L's two ridges cross.
+  `classifyRoofs` gives each a u32 **roof word** (`ROOF_WORD`: rising directions, concave (valley), supported,
+  shallow, gap, eave / verge / ridge sides, centre ridge, a phase bit a direction); `roofSurface` emits a closed
+  prism a plane cell, in quarter cells: the top through the stair's outer corners (45°: T to T + 1 across a cell;
+  1:2: T to T + ½ on a pair's low cell, T + ½ to T + 1 on its high one), the underside the parallel plane one cell
+  lower (owner C4); a cell over a body, or over one air cell over a body (`supported`, `gap`), closes down onto the
+  body's top instead, its floor on the body's top face, so the body reads as cut to the underside slope (a gable's
+  end wall under its verge, an eave wall up to the slope inside the attic) and the edge pass dresses no edge round that
+  air cell (`isRoofGapCell`); ridge, hip and apex take the lowest plane, a valley the highest; shared sides cancel,
+  single-direction rows merge along their level line inside a section, every edge is split at the job's corners and,
+  on a section face, at every half-cell point (quarter points up where a 1:2 plane cell meets that face; closed
+  across sections and chunks). The planes are appended to the **base surface** (same 12-byte vertex, same shader); plane
   cells draw no voxel faces and hide none of their neighbours' (a wall through a roof keeps its faces). **Collision:**
   plane cells give no box; `collision.ramps` (a triangle mesh in the canonical bytes) carries the planes, so a
   character stands on the drawn roof (owner 2026-10-27, roof slopes collide as ramps); light, occupancy and
   navigation keep the stair voxels. `roofEdgesOf(word)` gives the roof-edge cases with yaw: eave and verge open toward
   +z at yaw 0, a ridge on the side it lies on (one along the cell's middle `centred`), hip and valley toward the
   cell's +x +z corner; a verge on the side before the rise carries the variant word's mirror bit (v18), an apex cell's
-  ridge and hips the `half` flag (v19). Only 90° hips and valleys at 45°.
+  ridge and hips the `half` flag (v19), a 1:2 roof's pieces `shallow` and `high` (v24). Only 90° hips and valleys.
+  **One mesh a roof-edge slot, both slopes** (owner F3): authored for 45°, pitched by the renderer
+  (`piece-placement.ts` `roofPitch`): an eave turned about its line, a verge about the gable's normal through its
+  middle (rigid: the profile kept, a verge overlapping its neighbours on the shorter 1:2 run), a ridge, hip or
+  valley squashed to half its height about its line (both its sides on the planes), each moved to the height of
+  its plane's phase.
 - **Pieces** (`derive-pieces.ts`, `cellPieces`; derived v16). A cell may own several instances, in cell order then:
   (a) its debris piece, (b) its edge and corner pieces in slot order, (c) its roof-edge pieces, (d) a `debris-face`
   on each intact body face opening toward a debris cell; only where its material's kit fills the case's slot. Every
@@ -1557,7 +1573,11 @@ the material model and texture sets 46d's.
   mesher runs at every level. The mip downsample **lays sloped roofs again** (`voxel-mips.ts` `relayRoofs`, v19): one roof cell a parent column at floor(eave / 2) + ceil(ring / 2), so an off-grid 45° roof stays
   a one-cell 45° stair (eaves at one height, ridges, hips and valleys where the finer roof has them; v20: over the
   bodies it covers, such as a gable's end walls, whose coarse cells it takes), its planes
-  within one level cell of the finer roof.
+  within one level cell of the finer roof. A **1:2 roof** (most of its columns read 1:2, v24) is laid again at 1:2: a
+  finer column's distance in from the eave is twice its ring plus its phase, a parent's half the smallest of its
+  columns' (rounded up) and its rise half that, so the coarse stair starts with a pair at its eave; its planes lie
+  within one and a half level cells of the finer roof (a small coarse 1:2 roof, four or five level cells across,
+  may read a cell where an L's arms meet at 45°, `roof-mesher.test.ts`).
 - **Changes and paints (§2.2 feeds).** A new piece table derives again only what holds a material whose pieces
   changed (`pieceTableChanges`), in one swap group. Wetness never changes a piece; a material paint within one kit
   keeps every piece and variant (shader data only); a paint moving cells to another kit's pieces also derives whole
@@ -1615,6 +1635,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 20 → 21 | 46c.16a | two detail states: level 1 lists no pieces (the `low` flag gone, its bit written 0), its beam and rail cells drawn as bodies; no case past level 0 | still 8 B | **owner 2026-11-05** (pieces in the near ring only, no low meshes) |
 | 22 → 23 | 46c.16c | 12-byte instance: the dressing word (dressing cell, flush faces); mixed corners take a corner piece (`MIXED_CORNER`, rules `edges` v5); no piece inside an opening | 12 B | **owner 2026-11-05/06** (A3/F1 role order, F2 two materials bare, A11 mixed corners, B7 flush at openings) |
 | 21 → 22 | 46c.16b | kits are slots: piece u16 = a kit's filled-slot index (no default pieces), variant bits 0–14 = the slot's mesh, hashed with the project seed; no beam or banister case, beam and rail cells plain voxels | still 8 B | **owner 2026-11-05/06** (kits are slots, beams/banisters out, no default kit, per-project seed, per-kit jitter) |
+| 23 → 24 | 46c.16d | 1:2 roofs drawn as planes (roof words read two cells round, quarter-cell geometry), their roof-edge pieces flagged `shallow` / `high` (0x20 / 0x80) and pitched by the renderer; a roof over a body or over one air cell over a body closes down onto the body (rules `edges` v6: no edge piece round that air cell); coarse levels re-lay 1:2 roofs at 1:2 | 12 B | **owner 2026-11-05/06** (A7 1:2 roofs, A8 ramps, F3 one mesh pitched, C4 parallel underside, wall tops cut, C7 coarse re-lay); one slope a roof a default |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1696,7 +1717,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 23 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 24 | refused | rebuilt, never upgraded |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 3 | refused | rebuilt from the kits, never stored |
 | Voxel kit record (DRAFT, §3.9) | `kitFormat` | 1 | a newer one refused whole | add-only fields (v1 has none to lift) |
 

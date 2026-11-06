@@ -106,11 +106,13 @@ const snorm = (v: readonly number[]): [number, number, number] => {
 function uvAt(world: readonly number[], n: readonly number[], corner: readonly number[]): [number, number] {
   const phase = { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { Object.assign(this, { x, y, z }); } };
   const slope = { ...phase };
-  gridPhases(corner, VOXEL_SIZE_M, PHASE_CELLS, phase, slope);
+  const slope5 = { ...phase };
+  gridPhases(corner, VOXEL_SIZE_M, PHASE_CELLS, phase, slope, slope5);
   const local = world.map((w, a) => w - corner[a]! * VOXEL_SIZE_M);
   const p = [phase.x, phase.y, phase.z].map((c, a) => c * VOXEL_SIZE_M + local[a]!) as [number, number, number];
   const ps = [slope.x, slope.y, slope.z].map((c, a) => c + local[a]!) as [number, number, number];
-  return gridUv(NUM, p, ps, snorm(n));
+  const ps5 = [slope5.x, slope5.y, slope5.z].map((c, a) => c + local[a]!) as [number, number, number];
+  return gridUv(NUM, p, ps, ps5, snorm(n));
 }
 
 const T = CONSTRUCTION_TILE_METRES;
@@ -162,10 +164,17 @@ describe('the grid projection of construction', () => {
   });
 
   it("maps a roof plane along its slope: V the distance up it, the same along the eave (a band parallel to the eave), continuous where the phase wraps", () => {
-    // A 45° plane facing +z and up (it rises toward −z), as the roof mesher's snorm8 normal; and one facing −x (a hip's other side).
-    for (const [n, along, up] of [[[0, 1, 1], [1, 0, 0], [0, 1, -1]], [[-1, 1, 0], [0, 0, 1], [1, 1, 0]]] as const) {
+    // A 45° plane facing +z and up (it rises toward −z), as the roof mesher's snorm8 normal; one facing −x (a hip's
+    // other side); a 1:2 plane facing +z (rising toward −z, half a cell a cell) and one facing −x.
+    for (const [n, along, up] of [
+      [[0, 1, 1], [1, 0, 0], [0, 1, -1]],
+      [[-1, 1, 0], [0, 0, 1], [1, 1, 0]],
+      [[0, 2, 1], [1, 0, 0], [0, 1, -2]],
+      [[-1, 2, 0], [0, 0, 1], [2, 1, 0]],
+    ] as const) {
       const base = [100.25, 20.5, 37.75];
-      const at = (s: number, t: number): number[] => base.map((b, a) => b + along[a]! * s + (up[a]! / Math.SQRT2) * t);
+      const len = Math.hypot(...up);
+      const at = (s: number, t: number): number[] => base.map((b, a) => b + along[a]! * s + (up[a]! / len) * t);
       const uv = (p: number[]): [number, number] => uvAt(p, n, corner(p.map((m) => Math.floor(m / VOXEL_SIZE_M))));
       const [u0, v0] = uv(at(0, 0));
       // Along the eave (level, across chunk faces): V the same, U the metres along it.
@@ -177,12 +186,14 @@ describe('the grid projection of construction', () => {
       // Up the slope: V the distance along it (within the snorm8 normal's tilt).
       for (const t of [0.5, 2, 5.5]) expect(uv(at(0, t))[1] - v0, `up ${t}`).toBeCloseTo(t, 2);
     }
-    // Where the plain phase wraps (z = 512 m, x = 512 m), the slope's V from either chunk is the same point of the tile.
-    const n = [0, 1, 1];
-    for (const at of [[3, 40.5, 512], [512, 40.5, 30], [512, 512, 512]]) {
-      const cell = at.map((m) => m / VOXEL_SIZE_M);
-      const [a, b] = [corner(cell.map((c) => c - 1e-6)), corner(cell.map((c) => c + 1e-6))].map((c) => uvAt(at, n, c));
-      expect(sameInTile(a![1], b![1]) && sameInTile(a![0], b![0]), `${at.join(',')}: ${a} vs ${b}`).toBe(true);
+    // Where the plain phase wraps (z = 512 m, x = 512 m), the slope's V from either chunk is the same point of the
+    // tile, at 45° and at 1:2.
+    for (const n of [[0, 1, 1], [0, 2, 1], [2, 1, 0].map((c, a) => (a === 1 ? 2 : a === 0 ? -1 : 0))]) {
+      for (const at of [[3, 40.5, 512], [512, 40.5, 30], [512, 512, 512]]) {
+        const cell = at.map((m) => m / VOXEL_SIZE_M);
+        const [a, b] = [corner(cell.map((c) => c - 1e-6)), corner(cell.map((c) => c + 1e-6))].map((c) => uvAt(at, n, c));
+        expect(sameInTile(a![1], b![1]) && sameInTile(a![0], b![0]), `${at.join(',')} n ${n.join(',')}: ${a} vs ${b}`).toBe(true);
+      }
     }
   });
 });

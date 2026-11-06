@@ -65,15 +65,17 @@ interface Roof {
   readonly d: number;
   /** Distance to the footprint's edge counts along x too (a hip) or only along z (a gable, open along x). */
   readonly hip: boolean;
+  /** Cells up a cell in: 1 (45°) or ½ (1:2, two cells along at a level). */
+  readonly slope: number;
 }
 
-function rect(name: string, x0: number, y0: number, z0: number, w: number, d: number, hip: boolean): Roof {
-  return { name, x0, y0, z0, w, d, hip, inside: (x, z) => x >= 0 && z >= 0 && x < w && z < d };
+function rect(name: string, x0: number, y0: number, z0: number, w: number, d: number, hip: boolean, slope = 1): Roof {
+  return { name, x0, y0, z0, w, d, hip, slope, inside: (x, z) => x >= 0 && z >= 0 && x < w && z < d };
 }
 
 /** An L: a w × a strip along x and an a-wide arm along z at its +x end, d deep. */
-function ell(name: string, x0: number, y0: number, z0: number, w: number, d: number, a: number): Roof {
-  return { name, x0, y0, z0, w, d, hip: true, inside: (x, z) => x >= 0 && z >= 0 && x < w && z < d && (z < a || x >= w - a) };
+function ell(name: string, x0: number, y0: number, z0: number, w: number, d: number, a: number, slope = 1): Roof {
+  return { name, x0, y0, z0, w, d, hip: true, slope, inside: (x, z) => x >= 0 && z >= 0 && x < w && z < d && (z < a || x >= w - a) };
 }
 
 /** The continuous distance (Chebyshev, cells) from footprint-local point (px, pz) to outside the footprint. */
@@ -90,18 +92,23 @@ function edgeDistance(r: Roof, px: number, pz: number): number {
   return best;
 }
 
-/** The roof's stair: one roof cell a column, as high above the eaves as the column is in from the edge. */
+/** A footprint column's height above the eaves (cells): its ring in from the edge, halved (rounded down) at 1:2. */
+function columnHeight(r: Roof, x: number, z: number): number {
+  const ring = Math.round(edgeDistance(r, x + 0.5, z + 0.5) - 0.5);
+  return r.slope === 1 ? ring : Math.floor(ring * r.slope);
+}
+
+/** The roof's stair: one roof cell a column, as high above the eaves as the column is in from the edge (at 1:2, half). */
 function placeRoof(s: PaletteStore, r: Roof): void {
   for (let x = 0; x < r.w; x++) for (let z = 0; z < r.d; z++) {
     if (!r.inside(x, z)) continue;
-    const h = Math.round(edgeDistance(r, x + 0.5, z + 0.5) - 0.5);
-    putVoxel(s, r.x0 + x, r.y0 + h, r.z0 + z, MAT.roofTile, R.roof);
+    putVoxel(s, r.x0 + x, r.y0 + columnHeight(r, x, z), r.z0 + z, MAT.roofTile, R.roof);
   }
 }
 
-/** The top surface the planes must lie on (world cells): one above the eaves' voxel floor plus the distance in. */
+/** The top surface the planes must lie on (world cells): one above the eaves' voxel floor plus the slope times the distance in. */
 function roofTop(r: Roof, x: number, z: number): number {
-  return r.y0 + 1 + edgeDistance(r, x - r.x0, z - r.z0);
+  return r.y0 + 1 + r.slope * edgeDistance(r, x - r.x0, z - r.z0);
 }
 
 const grid = chunkGrid(32);
@@ -252,7 +259,7 @@ function roofWords(s: PaletteStore, r: Roof, read = wordReader(s)): Array<{ x: n
   const out = [];
   for (let x = 0; x < r.w; x++) for (let z = 0; z < r.d; z++) {
     if (!r.inside(x, z)) continue;
-    const h = Math.round(edgeDistance(r, x + 0.5, z + 0.5) - 0.5);
+    const h = columnHeight(r, x, z);
     out.push({ x: r.x0 + x, y: r.y0 + h, z: r.z0 + z, w: read(r.x0 + x, r.y0 + h, r.z0 + z) });
   }
   return out;
@@ -615,24 +622,250 @@ describe('the roof mesher', () => {
     expect(onPlanes).toBe(0);
   });
 
-  it('leaves stairs it cannot read as 45° planes, damaged roof cells and lone roof cells to their voxel faces', () => {
+  it('leaves flat roofs, damaged roof cells and lone roof cells to their voxel faces', () => {
     const s = createWorldStore(grid);
     // A lone roof cell, and one in the middle of a gable damaged (integrity 7).
     putVoxel(s, 40, 10, 40, MAT.roofTile, R.roof);
     const r = rect('damaged', 2, 6, 3, 8, 9, false);
     placeRoof(s, r);
     putVoxel(s, r.x0 + 4, r.y0 + 2, r.z0 + 2, MAT.roofTile, R.roof, 7);
-    // A 1:2 stair: two cells along, one up.
-    for (let i = 0; i < 10; i++) for (let z = 50; z < 54; z++) putVoxel(s, 2 + i, 6 + (i >> 1), z, MAT.roofTile, R.roof);
+    // A flat roof six cells square.
+    for (let x = 2; x < 8; x++) for (let z = 50; z < 56; z++) putVoxel(s, x, 6, z, MAT.roofTile, R.roof);
     expect(wordAt(s, 40, 10, 40)).toBe(0);
     expect(wordAt(s, r.x0 + 4, r.y0 + 2, r.z0 + 2)).toBe(0);
     // Its intact neighbours stay planes, and planes and voxel faces each stay closed round the hole.
     expect(wordAt(s, r.x0 + 3, r.y0 + 2, r.z0 + 2)).not.toBe(0);
     expect(unbalanced(rampMesh(s, [r]))).toBe(0);
     expect(unbalanced(rampMesh(s, [r], 'base'))).toBe(0);
-    // The 1:2 stair: the low cell of each pair keeps its voxel faces (a flatter stair on its low side); at one cell's
-    // reach the high cell reads as a 45° step (recorded for the owner).
-    const flat = Array.from({ length: 10 }, (_, i) => wordAt(s, 2 + i, 6 + (i >> 1), 51));
-    for (let i = 1; i < 10; i += 2) expect(flat[i], `1:2 cell ${i}`).toBe(0);
+    const read = wordReader(s);
+    for (let x = 2; x < 8; x++) for (let z = 50; z < 56; z++) expect(read(x, 6, z), `flat ${x},${z}`).toBe(0);
+  });
+});
+
+/** 1:2 roofs (two cells along at a level, one up): odd and even gables, a hip, a pyramid, an L with a valley, a large hip. */
+const G12_ODD = rect('1:2 gable 9', 3, 4, 2, 10, 9, false, 0.5);
+const G12_EVEN = rect('1:2 gable 8', 16, 4, 2, 10, 8, false, 0.5);
+const G12_7 = rect('1:2 gable 7', 3, 4, 14, 10, 7, false, 0.5);
+const G12_6 = rect('1:2 gable 6', 16, 4, 14, 10, 6, false, 0.5);
+const HIP12 = rect('1:2 hip', 30, 4, 2, 13, 10, true, 0.5);
+const PYR12 = rect('1:2 pyramid', 46, 3, 24, 11, 11, true, 0.5);
+const ELL12 = ell('1:2 L', 3, 5, 26, 16, 16, 8, 0.5);
+const BIG12 = rect('1:2 big hip', 8, 2, 48, 30, 24, true, 0.5);
+const SHALLOW = [G12_ODD, G12_EVEN, G12_7, G12_6, HIP12, PYR12, ELL12, BIG12];
+
+function shallowWorld(): PaletteStore {
+  const s = createWorldStore(grid);
+  for (const r of SHALLOW) placeRoof(s, r);
+  return s;
+}
+
+describe('the roof mesher at 1:2', () => {
+  it('classifies every cell of the 1:2 roofs as a 1:2 plane cell', () => {
+    const s = shallowWorld();
+    const read = wordReader(s);
+    for (const r of SHALLOW) {
+      const words = roofWords(s, r, read);
+      const bad = words.filter((c) => c.w === 0 || (c.w & ROOF_WORD.shallow) === 0).map((c) => `${c.x},${c.y},${c.z}:${c.w.toString(16)}`);
+      // Where the two arms of an L meet, both ridges cross and each arm flattens the other's stair: the cells within
+      // two of the crossing keep their voxel faces (the 45° roof meets the same at coarse levels).
+      const crossing = r === ELL12 ? [r.x0 + r.w - 4, r.z0 + 4] : null;
+      const near = (c: string): boolean => {
+        const [x, , z] = c.split(':')[0]!.split(',').map(Number) as [number, number, number];
+        return crossing !== null && Math.abs(x + 0.5 - crossing[0]!) <= 2 && Math.abs(z + 0.5 - crossing[1]!) <= 2;
+      };
+      expect(bad.filter((c) => !near(c)), r.name).toEqual([]);
+      expect(bad.length, r.name).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('draws them as closed planes on the 1:2 surface through the stair\'s outer corners, the underside one cell below', () => {
+    const s = shallowWorld();
+    const m = rampMesh(s, SHALLOW);
+    expect(unbalanced(m)).toBe(0);
+    for (const r of SHALLOW) {
+      let tops = 0;
+      const off: string[] = [];
+      for (let t = 0; t < m.tris.length; t += 3) {
+        const ny = m.normals[t + 1]!;
+        if (Math.abs(ny) < 0.3) continue;
+        const first = [0, 2].map((a) => m.pos[3 * m.tris[t]! + a]! / STEPS);
+        if (!over(r, first[0]!, first[1]!)) continue;
+        for (let k = 0; k < 3; k++) {
+          const v = m.tris[t + k]!;
+          const [x, y, z] = [0, 1, 2].map((a) => m.pos[3 * v + a]! / STEPS) as [number, number, number];
+          const want = roofTop(r, x, z) - (ny > 0 ? 0 : 1);
+          if (Math.abs(y - want) > 1 / 1024) off.push(`${ny > 0 ? 'top' : 'under'} ${x},${y},${z} want ${want}`);
+          if (ny > 0) tops++;
+        }
+      }
+      expect(off.slice(0, 8), r.name).toEqual([]);
+      expect(tops, r.name).toBeGreaterThan(0);
+    }
+  });
+
+  it('gives the same 1:2 planes from 16³ sections joined as from the whole chunk, and reads no further than it declares', () => {
+    const s = shallowWorld();
+    const sections = rampMesh(s, SHALLOW);
+    const whole = rampMesh(s, SHALLOW, 'ramps', true);
+    expect(unbalanced(whole)).toBe(0);
+    const a = areaByNormal(sections);
+    const b = areaByNormal(whole);
+    expect([...a.keys()].sort()).toEqual([...b.keys()].sort());
+    for (const [k, v] of b) expect(a.get(k), k).toBeCloseTo(v, 6);
+    for (const edge of [16, 32]) {
+      const g = chunkGrid(edge as 16 | 32);
+      const st = createWorldStore(g);
+      for (const r of SHALLOW) placeRoof(st, r);
+      const chunks = [];
+      for (const r of SHALLOW) for (const c of chunksOf([r.x0 - 2, r.y0 - 2, r.z0 - 2], [r.x0 + r.w + 2, r.y0 + 10, r.z0 + r.d + 2], edge)) chunks.push({ cx: c[0], cy: c[1], cz: c[2] });
+      for (const rules of [WORLD_RULES, EDGE_RULES, TERRAIN_RULES]) expect(ruleRadiusMismatches(st, rules, chunks), `${edge}³ ${rules.id}`).toEqual([]);
+    }
+  });
+
+  it('stands a sphere and a capsule on the 1:2 plane (within 2 cm): the roof collides as the drawn ramp', async () => {
+    const s = shallowWorld();
+    const physics = await VoxelCollision.create(grid, new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } }));
+    roofChunks(SHALLOW).forEach((c, k) => physics.set(k, ...c, joined(s, ...c)));
+    const r = 0.2;
+    const rc = r / VOXEL_SIZE_M;
+    let checked = 0;
+    for (const roof of [G12_ODD, HIP12, PYR12, ELL12]) {
+      // A sphere on a plane rising s a cell rests with its centre r·√(1 + s²) above the plane.
+      const lift = Math.hypot(1, roof.slope);
+      for (const [lx, lz] of [[3.5, 1.7], [4.3, 2.4], [6.6, 1.2], [2.2, 3.1]] as const) {
+        const x = roof.x0 + lx;
+        const z = roof.z0 + lz;
+        const hit = physics.castSphere([x, roofTop(roof, x, z) + 6, z], [0, -1, 0], r, 10);
+        expect(hit, `${roof.name} ${x},${z}`).not.toBeNull();
+        expect(Math.abs(hit!.centre[1] - (roofTop(roof, x, z) + rc * lift)) * VOXEL_SIZE_M, `${roof.name} sphere at ${x},${z}`).toBeLessThanOrEqual(0.02);
+        const drop = physics.dropCapsule([x, roofTop(roof, x, z) + 3, z], r, r);
+        expect(drop.grounded, `${roof.name} ${x},${z}`).toBe(true);
+        const [fx, fy, fz] = drop.feet;
+        expect(Math.abs(fy - (roofTop(roof, fx, fz) + rc * (lift - 1))) * VOXEL_SIZE_M, `${roof.name} capsule at ${fx},${fz}`).toBeLessThanOrEqual(0.02);
+        checked++;
+      }
+    }
+    expect(checked).toBe(16);
+  });
+
+  it('keeps 1:2 roofs as closed 1:2 planes at levels 1 and 2, near the level-0 roof', () => {
+    const s = shallowWorld();
+    const tree = new MipTree(s);
+    const shallowNy = 2 / Math.sqrt(5);
+    for (const level of [1, 2]) {
+      const span = 32 << level;
+      const parts = [];
+      for (let nx = 0; nx * span < 64; nx++) for (let nz = 0; nz * span < 80; nz++) for (let ny = 0; ny * span < 32; ny++) {
+        const d = deriveMipNode(tree, { level, nx, ny, nz }, WORLD_RULES);
+        parts.push({ buf: d.collision.ramps, c: [nx, ny, nz], scale: 2 ** level });
+      }
+      const m = weld(parts);
+      expect(unbalanced(m), `L${level}`).toBe(0);
+      for (const r of SHALLOW) {
+        let slopes = 0;
+        let steep = 0;
+        let worst = 0;
+        for (let t = 0; t < m.tris.length; t += 3) {
+          const ny = m.normals[t + 1]!;
+          const first = [0, 2].map((a) => m.pos[3 * m.tris[t]! + a]! / STEPS);
+          if (ny < 0.3 || !over(r, first[0]!, first[1]!)) continue;
+          if (Math.abs(ny - shallowNy) < 0.01) slopes++;
+          if (Math.abs(ny - Math.SQRT1_2) < 0.01) steep++;
+          for (let k = 0; k < 3; k++) {
+            const v = m.tris[t + k]!;
+            const [x, y, z] = [0, 1, 2].map((a) => m.pos[3 * v + a]! / STEPS) as [number, number, number];
+            worst = Math.max(worst, Math.abs(y - roofTop(r, x, z)));
+          }
+        }
+        // A roof at least eight of the level's cells across keeps 1:2 planes. Where an L's arms meet, at a level
+        // where they are four cells wide, a cell or two read 45° (a few triangles).
+        if (Math.min(r.w, r.d) >= 8 << level) {
+          expect(slopes, `L${level} ${r.name}`).toBeGreaterThan(0);
+          expect(steep, `L${level} ${r.name}`).toBeLessThanOrEqual(r === ELL12 ? 4 : 0);
+        }
+        // Level 1 within one and a half of its cells of the level-0 roof, level 2 within two: a coarse 1:2 roof's eave
+        // is the parent holding the finer eave, half a coarse cell out where the finer eave is off the parent grid.
+        expect(worst, `L${level} ${r.name}`).toBeLessThanOrEqual((level === 1 ? 1.5 : 2) * 2 ** level);
+      }
+    }
+  });
+
+  it('names 1:2 roof edges shallow with the phase of the plane they follow', () => {
+    const s = shallowWorld();
+    const read = wordReader(s);
+    for (const r of SHALLOW) for (const c of roofWords(s, r, read)) for (const e of roofEdgesOf(c.w)) expect(e.shallow, `${r.name} ${e.caseId}`).toBe(true);
+    const at = (r: Roof, x: number, z: number): ReturnType<typeof roofEdgesOf> => roofEdgesOf(read(r.x0 + x, r.y0 + columnHeight(r, x, z), r.z0 + z));
+    // Eaves on the pair's low cell; a verge on each cell up the gable end, low and high cells alternating.
+    expect(at(G12_ODD, 4, 0)).toEqual([{ caseId: 'roof-eave', yaw: 2, shallow: true }]);
+    expect(at(G12_ODD, 0, 1)).toEqual([{ caseId: 'roof-gable', yaw: 1, shallow: true, high: true }]);
+    expect(at(G12_ODD, 0, 2)).toEqual([{ caseId: 'roof-gable', yaw: 1, shallow: true }]);
+    // Odd 9 deep: the middle cell is a pair's low cell both ways (a ridge a quarter cell over its top); 7 deep: a
+    // high cell (three quarters); even 8: the ridge on a side over the high cells; 6: over the low cells.
+    expect(at(G12_ODD, 4, 4)).toEqual([{ caseId: 'roof-ridge', yaw: 0, centred: true, shallow: true }]);
+    expect(at(G12_7, 4, 3)).toEqual([{ caseId: 'roof-ridge', yaw: 0, centred: true, shallow: true, high: true }]);
+    expect(at(G12_EVEN, 4, 3)).toEqual([{ caseId: 'roof-ridge', yaw: 0, shallow: true, high: true }]);
+    expect(at(G12_6, 4, 2)).toEqual([{ caseId: 'roof-ridge', yaw: 0, shallow: true }]);
+    const h = edgeCounts(roofWords(s, HIP12, read));
+    expect(h).toMatchObject({ 'roof-eave': 2 * 13 + 2 * 10 });
+    expect(h['roof-hip']).toBeGreaterThanOrEqual(16);
+    expect(edgeCounts(roofWords(s, ELL12, read))['roof-valley']).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/**
+ * A house as the village builds it: one-cell walls h high round a w × d footprint, the roof one cell out over
+ * them (its eave beside the walls' tops), a gable's end walls filled up under its verges.
+ */
+function walledHouse(s: PaletteStore, x0: number, yb: number, z0: number, w: number, d: number, h: number, hip: boolean, slope: number): Roof {
+  const r = rect(`${hip ? 'hip' : 'gable'} house ${slope}`, x0 - 1, yb + h, z0 - 1, w + 2, d + 2, hip, slope);
+  placeRoof(s, r);
+  for (let x = x0; x < x0 + w; x++) for (let z = z0; z < z0 + d; z++) {
+    const ring = x === x0 || z === z0 || x === x0 + w - 1 || z === z0 + d - 1;
+    if (ring) for (let y = yb; y < yb + h; y++) putVoxel(s, x, y, z, MAT.timber, R.wall);
+    if (!hip && (x === x0 || x === x0 + w - 1)) for (let y = yb + h; y < r.y0 + columnHeight(r, x - r.x0, z - r.z0); y++) putVoxel(s, x, y, z, MAT.timber, R.wall);
+  }
+  return r;
+}
+
+describe('the roof over its walls', () => {
+  it('closes the slab down onto the walls under it (the wall tops cut to the underside): no step inside the attic or under the verge, the underside one cell under the top everywhere else', () => {
+    for (const slope of [1, 0.5]) for (const hip of [false, true]) {
+      const s = createWorldStore(grid);
+      const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
+      const r = walledHouse(s, x0, yb, z0, w, d, h, hip, slope);
+      const tag = r.name;
+      const base = rampMesh(s, [r], 'base');
+      expect(unbalanced(base), tag).toBe(0);
+      const read = wordReader(s);
+      // Every roof cell a plane cell; those over the eave walls (and a gable's end walls) carried by them.
+      const words = roofWords(s, r, read);
+      expect(words.filter((c) => c.w === 0).length, tag).toBe(0);
+      const onWall = words.filter((c) => (c.x === x0 || c.x === x0 + w - 1 || c.z === z0 || c.z === z0 + d - 1) && c.x >= x0 && c.z >= z0 && c.x < x0 + w && c.z < z0 + d);
+      expect(onWall.every((c) => (c.w & ROOF_WORD.supported) !== 0), tag).toBe(true);
+      // Inside the attic, looking at the eave wall (z0) level from the middle: from the wall's top up to the roof's
+      // underside every ray meets the wall's inner face (z0 + 1), none passes over a step to the wall's outer side.
+      const xc = x0 + w / 2 + 0.25;
+      const zc = z0 + d / 2;
+      const under = roofTop(r, xc, z0 + 1) - 1;
+      for (let y = yb + h + 0.05; y < under - 0.02; y += 0.1) expect(rayHit(base, [xc, y, zc], [0, 0, -1]), `${tag} eave wall at y ${y.toFixed(2)}`).toBeCloseTo(zc - (z0 + 1), 6);
+      if (!hip) {
+        // Outside under the verge: the gable end wall's face (x0) reaches the slab at every height under the slope.
+        for (let z = z0 + 0.25; z < z0 + d; z += 0.5) for (let y = yb + 0.25; y < roofTop(r, x0, z) - 1.05; y += 0.25) expect(rayHit(base, [x0 - 3, y, z], [1, 0, 0]), `${tag} gable at y ${y}, z ${z}`).toBeCloseTo(3, 6);
+      }
+      // Every face of the roof turned down over the attic lies on the plane one cell under the top.
+      let undersides = 0;
+      for (let t = 0; t < base.tris.length; t += 3) {
+        if (base.normals[t + 1]! > -0.3 || base.normals[t + 1]! < -0.99) continue;
+        const c = [0, 1, 2].map((a) => (base.pos[3 * base.tris[t]! + a]! + base.pos[3 * base.tris[t + 1]! + a]! + base.pos[3 * base.tris[t + 2]! + a]!) / 3 / STEPS);
+        if (c[0]! < x0 + 1 || c[0]! > x0 + w - 1 || c[2]! < z0 + 1 || c[2]! > z0 + d - 1) continue;
+        undersides++;
+        for (let k = 0; k < 3; k++) {
+          const v = base.tris[t + k]!;
+          const [x, y, z] = [0, 1, 2].map((a) => base.pos[3 * v + a]! / STEPS) as [number, number, number];
+          expect(Math.abs(y - (roofTop(r, x, z) - 1)), `${tag} underside at ${x},${y},${z}`).toBeLessThanOrEqual(1 / 1024);
+        }
+      }
+      expect(undersides, tag).toBeGreaterThan(0);
+    }
   });
 });

@@ -31,7 +31,7 @@ import { DEBRIS_LIGHT_MIN } from './kit-case-catalogue';
 import type { CaseCatalogueDef } from './kit-cases';
 import { NO_PIECE, PIECE_VARIANT_MIRROR, pieceVariant, tablePiece, type PieceTable } from './piece-table';
 import { damagedIntegrity, MATERIAL_ID_MAX } from './record';
-import { ROOF_EDGE_CASE_IDS, roofEdgesOf } from './roof-mesher';
+import { ROOF_EDGE_CASE_IDS, roofEdgesOf } from './roof-words';
 
 /**
  * The kit pieces a derive chooses from: the world's piece table (null: no
@@ -147,7 +147,10 @@ export function cellPieces(p: PieceInputs, i: number, x: number, y: number, z: n
   }
   const roof = p.roofs[i]!;
   if (roof !== 0) {
-    for (const e of roofEdgesOf(roof)) put(cases.roof.get(e.caseId) ?? -1, e.yaw, e.centred === true ? INSTANCE_PLACE.centred : INSTANCE_PLACE.upright, e.half === true ? INSTANCE_FLAG.half : 0, e.mirror === true);
+    for (const e of roofEdgesOf(roof)) {
+      const flags = (e.half === true ? INSTANCE_FLAG.half : 0) | (e.shallow === true ? INSTANCE_FLAG.shallow : 0) | (e.high === true ? INSTANCE_FLAG.high : 0);
+      put(cases.roof.get(e.caseId) ?? -1, e.yaw, e.centred === true ? INSTANCE_PLACE.centred : INSTANCE_PLACE.upright, flags, e.mirror === true);
+    }
     return;
   }
   if (cases.debrisFace < 0 || formBaseOf(form) !== FORM_BASE.keep || formShapeOf(form) !== FORM_SHAPE.box) return;

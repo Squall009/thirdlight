@@ -386,11 +386,15 @@ function kitView(meshes: VoxelKitMeshes, kits: readonly VoxelKitRecordLike[]): {
   return { view: new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer, kits: meshes.set(table, kits) }), table };
 }
 
-describe('kit pieces drawn through the real chunk view', () => {
-  it('roof-edge pieces follow the planes on both sides of a gable and up a hip: verges mirrored on one side, ridges, hips and verges on the planes as drawn (jittered into the roof), an odd hip\'s ridge and hips stopping at its apex', async () => {
+/**
+ * Roof-edge pieces of the log kit drawn through the real chunk view over hand roofs at `slope` (1: 45°, ½: 1:2,
+ * the same meshes pitched): every vertex near the planes, both verges of a gable dressed (one mirrored).
+ */
+async function roofPiecesFollowThePlanes(slope: number): Promise<void> {
+  {
     const s = createWorldStore(grid);
-    // Hand roofs, each cell's height b + the smallest distance to a low edge (45° everywhere); the top planes over
-    // them in world cells are b + 1 + that distance measured to the roof's outer faces.
+    // Hand roofs, each cell's height b + the smallest distance to a low edge (at 1:2 half of it, rounded down); the
+    // top planes over them in world cells are b + 1 + that distance (times the slope) measured to the outer faces.
     const roofs = [
       { x0: 19, x1: 29, z0: 2, z1: 13, b: 8, hip: false },
       { x0: 2, x1: 13, z0: 2, z1: 12, b: 16, hip: false },
@@ -400,7 +404,7 @@ describe('kit pieces drawn through the real chunk view', () => {
     ];
     for (const r of roofs) for (let x = r.x0; x <= r.x1; x++) for (let z = r.z0; z <= r.z1; z++) {
       const d = Math.min(x - r.x0, r.x1 - x, ...(r.hip ? [z - r.z0, r.z1 - z] : []));
-      putVoxel(s, x, r.b + d, z, MAT.roofTile, R.roof);
+      putVoxel(s, x, r.b + Math.floor(d * slope), z, MAT.roofTile, R.roof);
     }
     const top = (x: number, z: number): number => {
       for (const r of roofs) {
@@ -408,7 +412,7 @@ describe('kit pieces drawn through the real chunk view', () => {
         if (x < r.x0 - 0.4 || x > r.x1 + 1.4 || z < r.z0 - 0.4 || z > r.z1 + 1.4) continue;
         const cx = Math.max(r.x0, Math.min(r.x1 + 1, x));
         const cz = Math.max(r.z0, Math.min(r.z1 + 1, z));
-        return r.b + 1 + Math.min(cx - r.x0, r.x1 + 1 - cx, ...(r.hip ? [cz - r.z0, r.z1 + 1 - cz] : []));
+        return r.b + 1 + slope * Math.min(cx - r.x0, r.x1 + 1 - cx, ...(r.hip ? [cz - r.z0, r.z1 + 1 - cz] : []));
       }
       throw new Error(`no roof at ${x}, ${z}`);
     };
@@ -458,9 +462,19 @@ describe('kit pieces drawn through the real chunk view', () => {
     expect(seen.get('roof-ridge')).toBeGreaterThan(20);
     expect(seen.get('roof-hip')).toBeGreaterThan(8);
     expect(seen.has('roof-ridge*') || seen.has('roof-hip*')).toBe(false);
-    console.log(`[roof edges] ${[...seen].map(([id, n]) => `${id} ${n}`).join(', ')}; worst offset from the planes ${(worst * 100).toFixed(1)} cm`);
+    console.log(`[roof edges ${slope === 1 ? '45°' : '1:2'}] ${[...seen].map(([id, n]) => `${id} ${n}`).join(', ')}; worst offset from the planes ${(worst * 100).toFixed(1)} cm`);
     view.dispose();
     meshes.dispose();
+  }
+}
+
+describe('kit pieces drawn through the real chunk view', () => {
+  it('roof-edge pieces follow the planes on both sides of a gable and up a hip: verges mirrored on one side, ridges, hips and verges on the planes as drawn (jittered into the roof), an odd hip\'s ridge and hips stopping at its apex', async () => {
+    await roofPiecesFollowThePlanes(1);
+  });
+
+  it('the same roof-edge meshes pitched onto 1:2 roofs follow their planes: one mesh a slot serves both slopes', async () => {
+    await roofPiecesFollowThePlanes(0.5);
   });
 
   it('a box house, a gable house and a damaged wall: one instanced draw a (piece, level), instances by family, one mesh filling three slots on one geometry, every instance staggered within bounds', () => {

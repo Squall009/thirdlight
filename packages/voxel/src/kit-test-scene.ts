@@ -46,7 +46,7 @@ import { damagedIntegrity, MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueDensi
 import { isDebrisCell } from './case-forms';
 import { createEdgeMasks, EDGE_CASE_IDS, edgeCaseOf, PIECE_SLOTS } from './edge-cases';
 import { DEBRIS_LIGHT_MIN } from './kit-case-catalogue';
-import { classifyRoofs, roofEdgesOf } from './roof-mesher';
+import { classifyRoofs, roofEdgesOf } from './roof-words';
 
 /**
  * Cells between exhibit centres along x and z, and the height of the box.
