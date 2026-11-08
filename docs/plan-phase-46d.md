@@ -208,7 +208,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 |---|---|
 | 46d.1a | done: §4 baseline re-measured (§8). Spike relief mesh (`relief-mesh.ts`, `?relief=n`, `run.mjs relief`): crack-free with plain neighbours, crease weights, other outputs byte-equal (vitest). Ring 32 m slice/hilly 4/16/64× triangles, town 18/69/276× (merges lost); n = 8 fills the low budget. Relief µs p50 0.3/1.0/4.0 ms a section. No displacement yet |
 | 46d.1b | done: vertex displacement both renderers + shadow pass, crease attribute, grown bounds, ring fade, test heights; normal from heights on all surfaces. Town n = 2/4 at 32 m: GPU +0.8–1.1 / +0.5 ms WebGPU, ±0 / +0.5 WebGL 2, 0 missed; the vertex stage itself ~0.1 ms. VERDICT: low normal only, medium n = 2, high n = 4, 16–24 m section ring; n = 8 rejected (§8, D528) |
-| 46d.2 | not started |
+| 46d.2 | done: format spec split (D496), docs only: kits section + §3.9 kit record moved unchanged to `voxel-kit-format.md` (264 lines), `voxel-render-spec.md` skeleton (material record, texture sets, relief part, far-field data); main spec 2,225 → 1,983 lines, pointers left; links re-pointed in the spec, requirements and role spec |
 | 46d.3a | not started |
 | 46d.3b | not started |
 | 46d.4a | not started |
@@ -497,6 +497,12 @@ frame), so no pop; swim unverified.
 - 2026-11-08 (46d.1b, default chosen, owner to confirm): **the relief verdict**: low off (normal only), medium n = 2 in a
   16 m section ring, high n = 4 in 24 m, n = 8 rejected; terrain and roofs first, construction may fall back to normal
   only (§8 46d.1b).
+- 2026-11-08 (46d.2, default chosen, owner to confirm): **the kits section moves whole, its derived history stays.**
+  Under the old *Kits* heading the main spec also held the derived version history (v2 → v28), chunk-tree flags and
+  the prop lighting channel, which are not kit formats: they stay in the main spec under their own heading (§3.8
+  points at the history there). The kit page keeps §3.9's number, so every "§3.9" elsewhere reads as before; a § on
+  the kit page names the main spec unless marked. Moved text changed only where a link crossed the split ("above" /
+  "below" to a named section of the other page); the main spec keeps a pointer heading at each old place.
 
 ## 10. Open questions for the owner
 

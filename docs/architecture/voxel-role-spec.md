@@ -15,8 +15,8 @@ The page matches the engine's edge catalogue `edges-draft` v3 (17 cases; its v1,
 `packages/voxel/src/kit-case-catalogue.ts`), and a test (`tools/voxel-bench/role-spec-doc.test.ts`) fails when the
 page and the catalogue disagree on a case, its facts or the numbers below. Sources: [plan 46c](../plan-phase-46c.md)
 §6c and the decision log (OWNER 2026-11-04, -05, -06 entries); [plan 45](../plan-phase-45.md) §1, §7 (owner
-2026-11-02: the ten stored roles); the [format spec](voxel-format-spec.md) §2.2 (the voxel value), §3.7 (kits: edges,
-roofs, damage) and §3.9 (the kit record). The texture layout is its own page: [voxel-trim-layout.md](voxel-trim-layout.md).
+2026-11-02: the ten stored roles); the [format spec](voxel-format-spec.md) §2.2 (the voxel value); the [kit page](voxel-kit-format.md) (kits: edges,
+roofs, damage) and its §3.9 (the kit record). The texture layout is its own page: [voxel-trim-layout.md](voxel-trim-layout.md).
 
 **How to read this page.** §1–§3 say what is stored, the one rule (no piece on a flat face) and who dresses a piece.
 §4 explains the diagrams. §5–§7 list the 17 cases (edges and corners, roof edges, damage); each case is a kit
