@@ -1833,6 +1833,11 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   height in A, ORM, height depth in metres), per-kit sheets from a `sheetLayout`, a 4 m crack map, a Kit Designer.
 - **D527 fixed:** the `setVoxelKit` shape message lists kit format 1's fields; the unknown-layout row names the
   example layouts and `sheetLayout`.
+- **Looked at** (staging, 1280 × 720, WebGPU and WebGL 2 alike, 2026-11-08 ~02:40; `run.mjs kits --kits sample`, then
+  the kit deleted again; `~/.cache/thirdlight-phase46/work/46c.17/shots/`): `sample-house|door|corner|hip|damage` —
+  a gable and a hip house in material 12 and a damaged wall: rims along every outer edge in the layout's debug set
+  (U numbers running on across pieces), cut flush at the door and window, coves at wall feet, corner blocks, roof
+  caps on ridge, hips, eaves and verges, cracks at 12, chips round the holes at 8 and 3; 855 pieces, 95 piece draws.
 - **Gate:** gate-fast-20261108-021724 GREEN (13 min, 4.8 GB; perf 0 missed both renderers, 6.26 / 4.14 ms main
   thread); `edge-cases.test.ts` failed once in the run and passed alone (D523, watch). No e2e change.
 
