@@ -23,10 +23,15 @@
  * their fronts stay fronts and tangents' handedness flipped: the mesh axis
  * its rotation carries onto the case's x; both at once cancel), so instance
  * matrices never mirror (a cube rotation has determinant +1): one copy a
- * mesh, one draw more a chunk at most. Pieces draw with a stand-in
- * material a kit and a labelled debug UV texture (one cell of UV space: a
- * 1/16-cell checker, a tick and a number every quarter, U and V marked),
- * placed camera-relative in 64 bits like the voxel surface.
+ * mesh, one draw more a chunk at most.
+ * - **What a piece wears** is its kit's one texture set: its GLB's
+ *   material (`voxel-kit-look.ts`), the file's images drawn from the texture
+ *   assets an import extracted them into (the host's `texture` reader), at
+ *   the world-anchored U for a kit with a trim layout. A GLB is read and
+ *   parsed once however many of its nodes the kit names. A material with no
+ *   image draws a stand-in colour a kit; the labelled debug UV textures (one
+ *   cell of UV space, or a trim layout's debug set) only when the page asks
+ *   (`debug`). Placed camera-relative in 64 bits like the voxel surface.
  *
  * A piece cut **flush** toward an opening (its instance names faces of its
  * cell) draws a copy of its mesh cut at those faces (voxel `cutFlush`), one
@@ -65,6 +70,8 @@ import { underHelperNode } from './pieces';
 import { mergeLayout, mergeWorldGeometry } from './static-merge';
 import type { GlbLoaderPort } from './visual';
 import { drawGlyphs, trimDebugTexture } from './voxel-trim-debug-texture';
+import { kitLookMaterial, kitLookOf, type VoxelKitLook } from './voxel-kit-look';
+import { TEXTURE_ASSET_KEY } from './resource-bytes';
 import { trimMaterial, trimRunGeometry, trimUPerMetre } from './voxel-trim-u';
 
 /** One authored mesh of a kit: a model asset version by its source digest, optionally one node of it. */
@@ -118,8 +125,14 @@ export interface VoxelKitDraw {
   readonly seed?: number;
 }
 
-/** A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project. */
-export type VoxelKitBytes = (ref: VoxelKitMeshRef) => Promise<{ readonly bytes: Uint8Array; readonly version: number } | null>;
+/**
+ * A GLB's bytes as the host has them (its version and source digest), or null: not part of this build or project;
+ * `textures`: the texture asset each of the file's images was extracted into (image index → asset id).
+ */
+export type VoxelKitBytes = (ref: VoxelKitMeshRef) => Promise<{ readonly bytes: Uint8Array; readonly version: number; readonly textures?: Readonly<Record<string, string>> } | null>;
+
+/** A texture asset decoded (and held) by the host: what a kit GLB's extracted image draws (null: unavailable, its stand-in draws). */
+export type VoxelKitTextures = (assetId: string) => Promise<THREE.Texture | null>;
 
 /** An image's key: its asset and digest. */
 function imageKey(m: VoxelKitImageRef): string {
@@ -224,8 +237,22 @@ function glbGeometry(root: THREE.Object3D, node: string | undefined): THREE.Buff
 /** Stand-in tints a kit (by a hash of its id), so neighbouring kits read apart: wood, stone, plaster, slate tones. */
 const KIT_TINTS = [0xc8a070, 0xb8b4ac, 0xe0d4bc, 0x9098a4, 0xb07850, 0xd0c090];
 
-/** A ready mesh keeps its mirrored copies by the axis mirrored. */
-type MeshState = { state: 'loading' } | { state: 'ready'; geometry: THREE.BufferGeometry; mirrored: (THREE.BufferGeometry | undefined)[] } | { state: 'failed'; reason: string };
+/** A ready mesh keeps its mirrored copies by the axis mirrored, and the look of its material (null: no image). */
+type MeshState = { state: 'loading' } | { state: 'ready'; geometry: THREE.BufferGeometry; mirrored: (THREE.BufferGeometry | undefined)[]; look: VoxelKitLook | null } | { state: 'failed'; reason: string };
+
+/** The first drawn primitive's material under the node a kit names (or the whole file): its look (null: none or no image). */
+function glbLook(root: THREE.Object3D, node: string | undefined, looks: Map<THREE.Material, VoxelKitLook | null>): VoxelKitLook | null {
+  const from = node === undefined ? root : root.getObjectByName(node);
+  let material: THREE.Material | null = null;
+  from?.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (material === null && m.isMesh === true && !underHelperNode(o, root)) material = (Array.isArray(m.material) ? m.material[0] : m.material) ?? null;
+  });
+  if (material === null) return null;
+  // One look a material of the file: every node of a kit's GLB draws the same, so their pieces share one draw material.
+  if (!looks.has(material)) looks.set(material, kitLookOf(material));
+  return looks.get(material)!;
+}
 
 /**
  * The page's kit meshes: every GLB mesh the kits name, parsed once,
@@ -234,6 +261,12 @@ type MeshState = { state: 'loading' } | { state: 'ready'; geometry: THREE.Buffer
  */
 export class VoxelKitMeshes {
   readonly texture = voxelKitDebugTexture();
+  /** Whether pieces draw the labelled debug UV textures instead of their kits' own (a page's switch). */
+  readonly debug: boolean;
+  /** Parsed GLBs whose materials' textures pieces draw with (released on dispose). */
+  private readonly held: { dispose(): void }[] = [];
+  /** Draw materials made from a kit look, by look and whether it reads the trim U. */
+  private readonly lookMaterials = new Map<VoxelKitLook, THREE.Material[]>();
   private readonly meshes = new Map<string, MeshState>();
   private readonly materials = new Map<string, THREE.Material>();
   private readonly trimTextures = new Map<string, THREE.Texture>();
@@ -246,14 +279,21 @@ export class VoxelKitMeshes {
   private readonly cracks = new Map<string, Uint8Array | null | 'loading'>();
   private disposed = false;
 
+  constructor(options: { readonly debug?: boolean } = {}) {
+    this.debug = options.debug === true;
+  }
+
   /** Calls `f` whenever meshes finished loading (views build the pieces that waited for them); returns its removal. */
   onLoaded(f: () => void): () => void {
     this.waiting.add(f);
     return () => void this.waiting.delete(f);
   }
 
-  /** Loads every mesh of `kits` not loaded yet: bytes from `read`, parsed by `loader`. Resolves when all have loaded or failed. */
-  async load(kits: readonly VoxelKitRecordLike[], read: VoxelKitBytes, loader: GlbLoaderPort, decode: CrackImageDecoder = browserCrackDecoder): Promise<{ readonly loaded: number; readonly failed: readonly string[] }> {
+  /**
+   * Loads every mesh of `kits` not loaded yet: bytes from `read` (each file once), parsed by `loader`, its extracted
+   * images from `texture`. Resolves when all have loaded or failed.
+   */
+  async load(kits: readonly VoxelKitRecordLike[], read: VoxelKitBytes, loader: GlbLoaderPort, decode: CrackImageDecoder = browserCrackDecoder, texture?: VoxelKitTextures): Promise<{ readonly loaded: number; readonly failed: readonly string[] }> {
     const todo = voxelKitMeshRefs(kits).filter((m) => !this.meshes.has(voxelKitMeshKey(m)));
     for (const m of todo) this.meshes.set(voxelKitMeshKey(m), { state: 'loading' });
     const images = voxelKitImageRefs(kits).filter((m) => !this.cracks.has(imageKey(m)));
@@ -271,29 +311,46 @@ export class VoxelKitMeshes {
       this.cracks.set(imageKey(m), layer);
       if (layer === null) failed.push(`${imageKey(m)}: crack texture not drawn (the engine's draws)`);
     });
+    // The meshes of one file (its asset version), read and parsed once.
+    const files = new Map<string, VoxelKitMeshRef[]>();
+    for (const m of todo) {
+      const f = `${m.assetId}@${m.digest}`;
+      files.set(f, [...(files.get(f) ?? []), m]);
+    }
     await Promise.all([
       ...crackLoads,
-      ...todo.map(async (m) => {
-        const key = voxelKitMeshKey(m);
-        let next: MeshState;
+      ...[...files.values()].map(async (refs) => {
+        const first = refs[0]!;
+        const states = new Map<VoxelKitMeshRef, MeshState>();
+        let keep: { dispose(): void } | null = null;
         try {
-          const got = await read(m);
-          if (got === null) next = { state: 'failed', reason: 'not in this build' };
+          const got = await read(first);
+          if (got === null) for (const m of refs) states.set(m, { state: 'failed', reason: 'not in this build' });
           else {
-            const glb = await loader.load(got.bytes, { signal: new AbortController().signal, descriptor: { assetId: m.assetId, version: got.version, sourceDigest: m.digest, sourceByteLength: got.bytes.byteLength } });
-            const g = glbGeometry(glb.root, m.node);
-            glb.dispose();
-            next = g === null ? { state: 'failed', reason: m.node !== undefined ? `no mesh node "${m.node}"` : 'no mesh' } : { state: 'ready', geometry: g, mirrored: [] };
+            const extracted = got.textures !== undefined && texture !== undefined && Object.keys(got.textures).length > 0 ? { images: { map: got.textures, load: texture } } : {};
+            const glb = await loader.load(got.bytes, { signal: new AbortController().signal, descriptor: { assetId: first.assetId, version: got.version, sourceDigest: first.digest, sourceByteLength: got.bytes.byteLength }, ...extracted });
+            const looks = new Map<THREE.Material, VoxelKitLook | null>();
+            for (const m of refs) {
+              const g = glbGeometry(glb.root, m.node);
+              states.set(m, g === null ? { state: 'failed', reason: m.node !== undefined ? `no mesh node "${m.node}"` : 'no mesh' } : { state: 'ready', geometry: g, mirrored: [], look: glbLook(glb.root, m.node, looks) });
+            }
+            // The file's textures stay while a look draws them; otherwise the parse is released now (its geometry was copied).
+            if ([...looks.values()].some((l) => l !== null)) keep = glb;
+            else glb.dispose();
           }
         } catch (e) {
-          next = { state: 'failed', reason: e instanceof Error ? e.message : String(e) };
+          for (const m of refs) states.set(m, { state: 'failed', reason: e instanceof Error ? e.message : String(e) });
         }
         if (this.disposed) {
-          if (next.state === 'ready') next.geometry.dispose();
+          for (const st of states.values()) if (st.state === 'ready') st.geometry.dispose();
+          keep?.dispose();
           return;
         }
-        this.meshes.set(key, next);
-        if (next.state === 'failed') failed.push(`${key}: ${next.reason}`);
+        if (keep !== null) this.held.push(keep);
+        for (const [m, st] of states) {
+          this.meshes.set(voxelKitMeshKey(m), st);
+          if (st.state === 'failed') failed.push(`${voxelKitMeshKey(m)}: ${st.reason}`);
+        }
       }),
     ]);
     if (todo.length + images.length > 0 && !this.disposed) for (const f of [...this.waiting]) f();
@@ -320,8 +377,14 @@ export class VoxelKitMeshes {
       was.geometry.dispose();
       for (const m of was.mirrored) m?.dispose();
     }
-    this.meshes.set(key, { state: 'ready', geometry, mirrored: [] });
+    this.meshes.set(key, { state: 'ready', geometry, mirrored: [], look: null });
     for (const f of [...this.waiting]) f();
+  }
+
+  /** A loaded mesh's look (its material's maps and factors; null: no image, loading or failed). */
+  look(ref: VoxelKitMeshRef): VoxelKitLook | null {
+    const s = this.meshes.get(voxelKitMeshKey(ref));
+    return s?.state === 'ready' ? s.look : null;
   }
 
   /** A loaded mesh (mirrored across `axis` on request); 'pending' while it loads or before it was asked for; null when it failed. */
@@ -334,11 +397,25 @@ export class VoxelKitMeshes {
   }
 
   /**
-   * The stand-in material of a kit (tinted by a hash of its id). A kit following a trim layout (a named one or its
-   * own) draws untinted with that layout's debug set, so its regions read by their own hues.
+   * What a kit's pieces draw with: its look (`look`, from its GLB's material) at the trim U when it follows a
+   * layout; without one a stand-in colour (a hash of its id). With `debug` every kit draws the stand-in with the
+   * labelled debug texture, or untinted with its trim layout's debug set (a named one or its own), so its regions
+   * read by their own hues.
    */
-  material(kitId: string, layout?: TrimLayout): THREE.Material {
+  material(kitId: string, layout?: TrimLayout, look: VoxelKitLook | null = null): THREE.Material {
     const tint = crc32(utf8Encode(kitId)) >>> 0;
+    if (!this.debug) {
+      if (look !== null) {
+        let made = this.lookMaterials.get(look);
+        if (made === undefined) this.lookMaterials.set(look, (made = []));
+        const k = layout !== undefined ? 1 : 0;
+        return (made[k] ??= kitLookMaterial(look, layout !== undefined));
+      }
+      const key = `tint:${tint}`;
+      let plain = this.materials.get(key);
+      if (plain === undefined) this.materials.set(key, (plain = cameraRelative(new MeshLambertNodeMaterial({ color: KIT_TINTS[tint % KIT_TINTS.length]! }))));
+      return plain;
+    }
     // A kit's own layout is keyed by its numbers too, so an edited layout draws its new debug set.
     const sheet = layout === undefined ? '' : layout.draft ? layout.id : `${layout.id}:${crc32(utf8Encode(JSON.stringify(layout))) >>> 0}`;
     const key = layout !== undefined ? `trim:${sheet}` : `kit:${tint}`;
@@ -424,9 +501,19 @@ export class VoxelKitMeshes {
     return { meshes, textures };
   }
 
-  /** Meshes loaded and failed, by key (diagnostics, tests). */
+  /**
+   * Meshes loaded and failed, by key (diagnostics, tests): a ready mesh whose material draws a sheet says so, naming
+   * the texture asset its base colour was extracted into ("ready, sheet <asset>"; "ready, sheet" for an image kept in
+   * the file; a missing asset's stand-in image has no asset).
+   */
   states(): Record<string, string> {
-    return Object.fromEntries([...this.meshes].map(([k, s]) => [k, s.state === 'failed' ? `failed: ${s.reason}` : s.state]));
+    const sheet = (s: Extract<MeshState, { state: 'ready' }>): string => {
+      const map = s.look?.map ?? null;
+      if (map === null) return '';
+      const asset = map.userData[TEXTURE_ASSET_KEY] as string | undefined;
+      return asset !== undefined ? `, sheet ${asset}` : ', sheet';
+    };
+    return Object.fromEntries([...this.meshes].map(([k, s]) => [k, s.state === 'failed' ? `failed: ${s.reason}` : s.state === 'ready' ? `ready${sheet(s)}` : s.state]));
   }
 
   dispose(): void {
@@ -439,6 +526,10 @@ export class VoxelKitMeshes {
     this.meshes.clear();
     for (const m of this.materials.values()) m.dispose();
     this.materials.clear();
+    for (const l of this.lookMaterials.values()) for (const m of l) m?.dispose();
+    this.lookMaterials.clear();
+    for (const g of this.held) g.dispose();
+    this.held.length = 0;
     for (const t of this.trimTextures.values()) t.dispose();
     this.trimTextures.clear();
     for (const l of this.trimmed.values()) for (const g of l) g?.dispose();
@@ -530,7 +621,7 @@ export class VoxelKitSet {
     const g = this.meshes.mesh(entry.mesh, mirror, mirrorAxisOf(rotation));
     if (g === 'pending' || g === null) return g;
     const layout = record === undefined ? undefined : kitTrimLayout(record);
-    const look = this.meshes.material(kit.id, layout);
+    const look = this.meshes.material(kit.id, layout, this.meshes.look(entry.mesh));
     if (layout === undefined) return { key, geometry: g, material: look, ...placed };
     return { key, geometry: this.meshes.trimGeometry(g, layout, placed.runAxis), material: look, uPerMetre: trimUPerMetre(layout), ...placed };
   }

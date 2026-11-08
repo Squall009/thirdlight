@@ -8,7 +8,7 @@
  * page and the Scene view draw kit pieces from these, through the same
  * piece table their streamer derives with (`worldPieceTable`).
  */
-import { VoxelKitMeshes, type VoxelKitBytes, type VoxelKitRecordLike, type VoxelKitSet } from '@thirdlight/three-adapter';
+import { decodeTexture, setKtx2DecoderBase, VoxelKitMeshes, type VoxelKitBytes, type VoxelKitRecordLike, type VoxelKitSet, type VoxelKitTextures } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { voxelPieceSeedOf } from '@thirdlight/project-model/voxel-world';
 import { boundVoxelKits } from '@thirdlight/project-model/voxel-materials';
@@ -44,13 +44,33 @@ export function backendKitBytes(r: KitRoute): VoxelKitBytes {
   return async (ref) => {
     const rec = await fetch(`${r.api}/content/assets/${encodeURIComponent(ref.assetId)}`, { headers: r.headers });
     if (!rec.ok) return null;
-    const record = (await rec.json()) as { asset?: { currentVersion?: number }; versions?: { version: number; sourceDigest?: string }[] };
+    const record = (await rec.json()) as { asset?: { currentVersion?: number; textures?: Record<string, string> }; versions?: { version: number; sourceDigest?: string }[] };
     const versions = record.versions ?? [];
     const v = versions.find((x) => x.sourceDigest === ref.digest) ?? versions.find((x) => x.version === record.asset?.currentVersion);
     if (v === undefined) return null;
     const bytes = await fetch(`${r.api}/content/assets/${encodeURIComponent(ref.assetId)}/versions/${v.version}/bytes`, { headers: r.headers });
     if (!bytes.ok) return null;
-    return { bytes: new Uint8Array(await bytes.arrayBuffer()), version: v.version };
+    // The images extracted from the current version (an older pinned version draws its file's stand-ins).
+    const textures = v.version === record.asset?.currentVersion ? record.asset?.textures : undefined;
+    return { bytes: new Uint8Array(await bytes.arrayBuffer()), version: v.version, ...(textures !== undefined ? { textures } : {}) };
+  };
+}
+
+/** Reads a texture asset's current version from the backend and decodes it (a kit sheet's extracted image; null: unavailable). */
+export function backendKitTextures(r: KitRoute): VoxelKitTextures {
+  // A sheet extracted on import is a KTX2: three's Basis files are served next to the editor's pages.
+  setKtx2DecoderBase('./decoders/');
+  return async (assetId) => {
+    try {
+      const rec = await fetch(`${r.api}/content/assets/${encodeURIComponent(assetId)}`, { headers: r.headers });
+      if (!rec.ok) return null;
+      const version = ((await rec.json()) as { asset?: { currentVersion?: number } }).asset?.currentVersion;
+      if (version === undefined) return null;
+      const bytes = await fetch(`${r.api}/content/assets/${encodeURIComponent(assetId)}/versions/${version}/bytes`, { headers: r.headers });
+      return bytes.ok ? await decodeTexture(await bytes.arrayBuffer()) : null;
+    } catch {
+      return null;
+    }
   };
 }
 
@@ -73,6 +93,6 @@ export interface PageKitPieces {
 export function pageKitPieces(r: KitRoute, project: ProjectVoxelKits | null, meshes: VoxelKitMeshes = new VoxelKitMeshes()): PageKitPieces {
   if (project === null) return { table: null, set: null, meshes, loaded: Promise.resolve('') };
   const table = worldPieceTable(project.kits, project.seed);
-  const loaded = meshes.load(project.kits, backendKitBytes(r), createGltfLoaderPort()).then((l) => (l.failed.length === 0 ? '' : `kit meshes not drawn: ${l.failed.join('; ')}`));
+  const loaded = meshes.load(project.kits, backendKitBytes(r), createGltfLoaderPort(), undefined, backendKitTextures(r)).then((l) => (l.failed.length === 0 ? '' : `kit meshes not drawn: ${l.failed.join('; ')}`));
   return { table, set: meshes.set(table, project.kits), meshes, loaded };
 }

@@ -69,14 +69,26 @@ export function engineCrackTexels(): Uint8Array {
   return out;
 }
 
-/** A crack layer from an image's pixels (RGBA, `width` × `height`, one construction tile): its red channel resampled (nearest) to {@link CRACK_TEXELS}². */
+/**
+ * A crack layer from an image's pixels (RGBA, `width` × `height`, one construction tile): its red channel resampled
+ * to {@link CRACK_TEXELS}², each texel the largest value of the source texels it covers (a smaller image: the
+ * nearest one). The largest, not a mean or a sample: a kit's map authored at the base tile's 1024 px/m (4096²) draws
+ * its cracks a pixel or two wide, which a nearest sample eight texels apart would mostly miss, and a crack shows from
+ * the strength its brightest texel names.
+ */
 export function crackTexelsFromPixels(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): Uint8Array {
   const n = CRACK_TEXELS;
   const out = new Uint8Array(n * n);
-  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    const sx = Math.min(width - 1, Math.floor(((x + 0.5) * width) / n));
-    const sy = Math.min(height - 1, Math.floor(((y + 0.5) * height) / n));
-    out[y * n + x] = rgba[(sy * width + sx) * 4]!;
+  for (let y = 0; y < n; y++) {
+    const y0 = Math.min(height - 1, Math.floor((y * height) / n));
+    const y1 = Math.max(y0 + 1, Math.min(height, Math.floor(((y + 1) * height) / n)));
+    for (let x = 0; x < n; x++) {
+      const x0 = Math.min(width - 1, Math.floor((x * width) / n));
+      const x1 = Math.max(x0 + 1, Math.min(width, Math.floor(((x + 1) * width) / n)));
+      let v = 0;
+      for (let sy = y0; sy < y1; sy++) for (let sx = x0; sx < x1; sx++) v = Math.max(v, rgba[(sy * width + sx) * 4]!);
+      out[y * n + x] = v;
+    }
   }
   return out;
 }

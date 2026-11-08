@@ -84,7 +84,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { glbBytes } from '@thirdlight/shared';
+import { glbBytes, pngBytes } from '@thirdlight/shared';
+import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { decodePng, changedPixels } from './png';
 import { expect, test, type Page } from './pw';
@@ -131,19 +132,27 @@ let stoneMesh: { assetId: string; digest: string };
 
 /**
  * A voxel kit for the stone material with one authored piece, an outside vertical edge's board (the free ends'
- * corners): a GLB (a 0.1 × 0.5 × 0.6 m box standing proud of the end face, 12 triangles, no texture) written into the
- * project and imported as every model is, named by its version's digest. The free ends' top corners draw the same
+ * corners): a GLB (a 0.1 × 0.5 × 0.6 m box standing proud of the end face, 12 triangles, its one material the kit's
+ * sheet: a 16² magenta-and-white PNG inside the file, 1 texture of 16², no LODs) written into the project and
+ * imported as every model is (its image extracted into a KTX2 texture asset), named by its version's digest. The free ends' top corners draw the same
  * board through an alias (the vertical edge's mesh turned a quarter about z onto the top), clear of the painted rows.
  */
 async function addStoneKit(): Promise<void> {
   const box = new THREE.BoxGeometry(0.1, VOXEL_SIZE_M, 0.6).translate(VOXEL_SIZE_M / 2 + 0.02, 0, 0);
   const parts = [box.getAttribute('position'), box.getAttribute('normal'), box.getAttribute('uv')].map((a) => new Uint8Array((a.array as Float32Array).slice().buffer));
   const index = new Uint8Array(Uint16Array.from(box.index!.array as ArrayLike<number>).buffer);
-  const bin = new Uint8Array([...parts, index].reduce((n, b) => n + b.length, 0));
+  // The kit's sheet: magenta with a white line every fourth row (nothing else in the scene is magenta).
+  const SHEET = 16;
+  const rows = new Uint8Array(SHEET * (SHEET * 3 + 1));
+  for (let y = 0; y < SHEET; y++) for (let x = 0; x < SHEET; x++) rows.set(y % 4 === 0 ? [255, 255, 255] : [230, 30, 230], y * (SHEET * 3 + 1) + 1 + x * 3);
+  const sheet = pngBytes({ width: SHEET, height: SHEET, bitDepth: 8, colorType: 2, idat: new Uint8Array(deflateSync(rows)) });
+  const pad = (b: Uint8Array): Uint8Array => (b.length % 4 === 0 ? b : new Uint8Array([...b, ...new Uint8Array(4 - (b.length % 4))]));
+  const chunks = [...parts, index, sheet].map(pad);
+  const bin = new Uint8Array(chunks.reduce((n, b) => n + b.length, 0));
   let at = 0;
-  const views = [...parts, index].map((b, i) => {
+  const views = chunks.map((b, i) => {
     bin.set(b, at);
-    const v = { buffer: 0, byteOffset: at, byteLength: b.length, target: i < 3 ? 34962 : 34963 };
+    const v = { buffer: 0, byteOffset: at, byteLength: i === 4 ? sheet.length : b.length, ...(i < 4 ? { target: i < 3 ? 34962 : 34963 } : {}) };
     at += b.length;
     return v;
   });
@@ -151,7 +160,11 @@ async function addStoneKit(): Promise<void> {
   const n = box.getAttribute('position').count;
   const json = {
     asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ name: 'End board', mesh: 0 }],
-    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3 }] }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
+    materials: [{ name: 'stone-sheet', pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 0.8 } }],
+    images: [{ name: 'stone-sheet', mimeType: 'image/png', bufferView: 4 }],
+    samplers: [{ magFilter: 9728, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
+    textures: [{ sampler: 0, source: 0 }],
     accessors: [
       { bufferView: 0, componentType: 5126, count: n, type: 'VEC3', min: box.boundingBox!.min.toArray(), max: box.boundingBox!.max.toArray() },
       { bufferView: 1, componentType: 5126, count: n, type: 'VEC3' },
@@ -164,9 +177,14 @@ async function addStoneKit(): Promise<void> {
   mkdirSync(join(be.projectDir, 'assets', 'kits'), { recursive: true });
   writeFileSync(join(be.projectDir, 'assets', 'kits', 'stone-end.glb'), glb);
   const imported = (await playCmd('importAssets', { folder: 'assets/kits' })) as { change: { added: { assetId: string }[] } };
-  const assetId = imported.change.added[0]!.assetId;
-  const digest = createHash('sha256').update(glb).digest('hex');
-  console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, no texture`);
+  // The model and the texture its image was extracted into.
+  const listed = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 100, offset: 0, includeVersions: true } })) as unknown as { assets: { assetId: string; textures?: Record<string, string>; versions?: { sourcePath?: string; sourceDigest?: string }[] }[] };
+  // The model's version is the file with its image extracted (a stand-in left inside): the kit names that version's digest.
+  const model = listed.assets.find((a) => a.assetId === 'stone-end');
+  if (model === undefined) throw new Error(`the kit's GLB is not among the assets: ${JSON.stringify(listed.assets.map((a) => [a.assetId, a.versions]))}`);
+  const assetId = model.assetId;
+  const digest = model.versions![0]!.sourceDigest!;
+  console.log(`[voxel kit] ${STONE_KIT}: end board GLB ${glb.length} bytes, ${box.index!.count / 3} triangles, sheet ${SHEET}² PNG ${sheet.length} bytes inside (extracted: ${JSON.stringify(model.textures ?? {})}, imported ${imported.change.added.length})`);
   stoneMesh = { assetId, digest };
   stoneKit = { kitFormat: 1, voxelKitId: STONE_KIT, name: 'Stone (test)', version: 1, materialType: 'stone', materials: [MAT.stone, MAT.plank, MAT.brick], slots: { 'edge-out-vertical': { meshes: [{ mesh: { assetId, digest } }] }, 'corner-out-top': { meshes: [{ mesh: { assetId, digest }, rotation: cubeRotationIndex([0, -1, 0, 1, 0, 0, 0, 0, 1]) }] } } };
   await playCmd('setVoxelKit', { kit: stoneKit });
@@ -430,8 +448,14 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // A cell in the middle of the wall owns no piece.
     const kitState = await hook<{ kitPieces: number; kits: { ids: string[]; meshes: Record<string, string> } }>(page, 'state');
     expect(kitState.kits.ids).toEqual([STONE_KIT]);
-    expect(Object.values(kitState.kits.meshes)).toEqual(['ready']);
+    // The board wears the kit's sheet: its GLB's material, the image drawn from the texture asset the import made.
+    expect(Object.values(kitState.kits.meshes)).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
     expect(kitState.kitPieces).toBeGreaterThan(5);
+    // And the screen shows it: the boards at the free end in the sheet's magenta (the debug texture and the stand-in
+    // colours have none).
+    const sheetPx = hueCount(await shot(page), 'magenta');
+    console.log(`[voxel kit] ${renderer}: sheet pixels on the boards ${sheetPx}`);
+    expect(sheetPx).toBeGreaterThan(40);
     const freeEnd = await cellAt(page, [ox + 5, oy + 2, oz]);
     expect(freeEnd.kitPieces.map((p) => `${p.kit} ${p.caseId} ${p.turns}`).sort()).toEqual([`${STONE_KIT} edge-out-vertical 0`, `${STONE_KIT} edge-out-vertical 3`]);
     expect((await cellAt(page, [ox, oy + 3, oz])).kitPieces).toEqual([]);
@@ -640,11 +664,12 @@ const wallMarks = (): { projected: number[]; clipped: number[] } => {
  * (57, 107, 210); nothing else in the scene comes near: the stand-in stone is grey, the ground green, the sky black
  * and the brick banister a brown-red at 1.65 × (132, 80, 75).
  */
-function hueCount(img: ReturnType<typeof decodePng>, hue: 'red' | 'blue'): number {
+function hueCount(img: ReturnType<typeof decodePng>, hue: 'red' | 'blue' | 'magenta'): number {
   let n = 0;
   for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
     const [r, g, b] = img.pixel(x, y);
-    if (hue === 'red' ? r > 100 && r >= 2.2 * g && r >= 2.2 * b : b > 100 && b >= 1.6 * g && b >= 2.5 * r) n += 1;
+    // Magenta: the test kit's sheet (red and blue alike, little green).
+    if (hue === 'magenta' ? r > 90 && b > 90 && Math.abs(r - b) < 0.35 * Math.max(r, b) && g < 0.45 * Math.min(r, b) : hue === 'red' ? r > 100 && r >= 2.2 * g && r >= 2.2 * b : b > 100 && b >= 1.6 * g && b >= 2.5 * r) n += 1;
   }
   return n;
 }
@@ -736,7 +761,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
     await expect.poll(async () => (await drawn()).worlds['far']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
     // Kit pieces drawn: the stone kit's GLB read from the build's content and parsed on the page, the default kit's elsewhere.
-    await expect.poll(async () => Object.values(await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.kits())), { timeout: 20_000 }).toEqual(['ready']);
+    await expect.poll(async () => Object.values(await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.kits())), { timeout: 20_000 }).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
     expect((await drawn()).worlds['far']!.kitInstances).toBeGreaterThan(5);
     // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
     await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
@@ -989,7 +1014,8 @@ test('Export: the Play project exported and served statically with the backend s
     await expect.poll(async () => { const y = (await observe())?.player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     // The kit's GLB came with the build's content files (the backend is stopped) and draws; the default kit's pieces too.
     const play = (): Promise<{ kits: Record<string, string>; kitInstances: number }> => game.evaluate(() => { const h = (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay; return { kits: h.kits(), kitInstances: h.stats().worlds['far']?.kitInstances ?? 0 }; });
-    await expect.poll(async () => Object.values((await play()).kits), { timeout: 20_000 }).toEqual(['ready']);
+    // The sheet's texture asset shipped with the model and draws (a missing one would leave the file's stand-in, no asset).
+    await expect.poll(async () => Object.values((await play()).kits), { timeout: 20_000 }).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
     expect((await play()).kitInstances).toBeGreaterThan(5);
     const threading = await game.evaluate(() => (window as unknown as { __thirdlightThreading?: { mode: string } }).__thirdlightThreading?.mode ?? null);
     console.log(`[voxel-export] cold fill (page load → drawn chunks steady): ${fillMs} ms, ${chunks} chunks; pit resident at ${residentMs} ms; simulation ${String(threading)}`);

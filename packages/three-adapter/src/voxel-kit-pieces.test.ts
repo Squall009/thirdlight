@@ -569,7 +569,7 @@ describe('kit pieces in the chunk view', () => {
     meshes.dispose();
   });
 
-  it("draws a kit on a trim layout with that layout's debug set: a hue a region, gutters magenta, other kits keep the cell texture", () => {
+  it("behind the debug switch, draws a kit on a trim layout with that layout's debug set: a hue a region, gutters magenta, other kits keep the cell texture", () => {
     const tex = trimDebugTexture(DRAFT_TRIM_LAYOUT);
     const side = DRAFT_TRIM_LAYOUT.size * TRIM_DEBUG_TEXTURE_SCALE;
     expect([tex.image.width, tex.image.height]).toEqual([side, side]);
@@ -589,7 +589,8 @@ describe('kit pieces in the chunk view', () => {
     for (const id of ids) expect(centre(id), id).not.toEqual([255, 0, 255]);
     expect(new Set(ids.map((id) => centre(id).join())).size).toBeGreaterThan(6);
     tex.dispose();
-    const meshes = new VoxelKitMeshes();
+    // The debug sets draw only on a page that asks for them (`?trimDebug=1`); by default kits wear their sheets (voxel-kit-look.test.ts).
+    const meshes = new VoxelKitMeshes({ debug: true });
     const named = (trimLayout: string): TrimLayout | undefined => kitTrimLayout({ voxelKitId: 'a', trimLayout });
     const trim = meshes.material('a', named('detail-trim')) as THREE.MeshLambertMaterial;
     const plain = meshes.material('a') as THREE.MeshLambertMaterial;

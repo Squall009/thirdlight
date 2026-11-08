@@ -29,7 +29,7 @@ export type PlaceholderSet = (typeof PLACEHOLDER_SETS)[number];
 /** The maps of a set, as the material record names them. */
 export const PLACEHOLDER_MAPS = ['albedoHeight', 'normal', 'orm'] as const;
 
-interface SetLook {
+export interface SetLook {
   /** Metres one tile covers (the material's tile). */
   readonly tileMetres: number;
   /** Metres between height 1 and 0 (the normal map's depth; the material's `heightDepth`). */
@@ -190,18 +190,27 @@ export function placeholderLook(name: PlaceholderSet): { tileMetres: number; dep
   return { tileMetres: l.tileMetres, depthMetres: l.depthMetres };
 }
 
-/** A set's three maps at `size`² (RGBA 8-bit, first row the tile's top). */
-export function placeholderSet(name: PlaceholderSet, size: number): Record<(typeof PLACEHOLDER_MAPS)[number], Uint8Array> {
-  const look = LOOKS[name];
+/** A set's look: its tile, height depth, roughness and its shade (u, v in [0, 1) of the tile, v up from its foot). */
+export function placeholderShade(name: PlaceholderSet): { tileMetres: number; depthMetres: number; roughness: number; shade: SetLook['shade'] } {
+  const l = LOOKS[name];
+  return { tileMetres: l.tileMetres, depthMetres: l.depthMetres, roughness: l.roughness, shade: (u, v) => l.shade(u, v) };
+}
+
+/**
+ * Three maps at `size`² (RGBA 8-bit, first row the image's top) from a shade over the image (u across, v up from its
+ * foot; `metres` the image covers): albedo with the height in A, the normal map made from that height at `depthMetres`
+ * (OpenGL, green up; the height in A too) and ORM (occlusion from the height, `roughness`, no metal).
+ */
+export function placeholderMaps(size: number, metres: number, depthMetres: number, roughness: number, shade: SetLook['shade']): Record<(typeof PLACEHOLDER_MAPS)[number], Uint8Array> {
   const n = size * size;
   const height = new Float32Array(n);
   const albedoHeight = new Uint8Array(n * 4);
   const byte = (x: number): number => Math.round(clamp01(x) * 255);
   for (let y = 0; y < size; y++) {
-    // Row 0 is the top: v (up from the tile's foot) of the pixel's centre.
+    // Row 0 is the top: v (up from the image's foot) of the pixel's centre.
     const v = 1 - (y + 0.5) / size;
     for (let x = 0; x < size; x++) {
-      const { h, rgb } = look.shade((x + 0.5) / size, v);
+      const { h, rgb } = shade((x + 0.5) / size, v);
       const i = y * size + x;
       height[i] = h;
       albedoHeight.set([byte(rgb[0]), byte(rgb[1]), byte(rgb[2]), byte(h)], i * 4);
@@ -210,7 +219,7 @@ export function placeholderSet(name: PlaceholderSet, size: number): Record<(type
   const normal = new Uint8Array(n * 4);
   const orm = new Uint8Array(n * 4);
   // Slope in metres a metre: the height step times the depth over two pixels' width.
-  const k = (look.depthMetres * size) / (2 * look.tileMetres);
+  const k = (depthMetres * size) / (2 * metres);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const at = (xx: number, yy: number): number => height[(((yy + size) % size) * size + ((xx + size) % size))]!;
     const dx = (at(x + 1, y) - at(x - 1, y)) * k;
@@ -220,9 +229,15 @@ export function placeholderSet(name: PlaceholderSet, size: number): Record<(type
     const i = y * size + x;
     normal.set([byte(0.5 - (dx / l) * 0.5), byte(0.5 - (dy / l) * 0.5), byte(0.5 + 0.5 / l), byte(height[i]!)], i * 4);
     const h = height[i]!;
-    orm.set([byte(0.55 + 0.45 * h), byte(look.roughness - 0.1 * h), 0, 255], i * 4);
+    orm.set([byte(0.55 + 0.45 * h), byte(roughness - 0.1 * h), 0, 255], i * 4);
   }
   return { albedoHeight, normal, orm };
+}
+
+/** A set's three maps at `size`² (RGBA 8-bit, first row the tile's top). */
+export function placeholderSet(name: PlaceholderSet, size: number): Record<(typeof PLACEHOLDER_MAPS)[number], Uint8Array> {
+  const look = LOOKS[name];
+  return placeholderMaps(size, look.tileMetres, look.depthMetres, look.roughness, (u, v) => look.shade(u, v));
 }
 
 /** An 8-bit RGBA image as a PNG (no row filter; the placeholder images' file form). */

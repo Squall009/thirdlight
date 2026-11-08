@@ -50,7 +50,8 @@
  * relief depth; ids without one their stand-in), and its surfaces' texture
  * sets from the texture arrays the backend assembles of every voxel
  * material's sets (page-materials.ts); `?patterns=1` draws the test
- * patterns instead (the debug program, no arrays).
+ * patterns instead (the debug program, no arrays). Kit pieces wear their
+ * kits' sheets; `?trimDebug=1` draws the labelled debug UV textures.
  *
  * Detail pieces are the project's voxel kits with its piece seed (read
  * through the command route, their GLBs from the backend), through the one
@@ -94,7 +95,7 @@ import {
   VoxelStreamer,
   WETNESS_MAX,
 } from '@thirdlight/voxel';
-import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
 import { bindViewInput, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
@@ -243,7 +244,8 @@ async function main(): Promise<void> {
   // The project's kits and seed, one table for the derives and the draws; their meshes load beside the stream.
   const kitRoute = { api, projectId, headers };
   const project = await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`));
-  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : project);
+  // `?trimDebug=1`: kit pieces draw the labelled debug UV textures (a trim layout's debug set) instead of their kits' sheets.
+  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : project, new VoxelKitMeshes({ debug: params.get('trimDebug') === '1' }));
   // Each material's look from its record, over the stand-in (and the relief's test layer) for what it leaves out.
   const reliefOptions = relief.surfaceOptions();
   const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look, patterns ? null : backendArrays(api, headers), textureResidency);
