@@ -520,8 +520,10 @@ for stages 2 and 3, a stage set to null is not used, an integrity in no stage dr
 
 A kit belongs to a material type and draws the pieces of every cell whose material it binds (§3: the dressing
 cell's). Every case of §5–§7 is a **slot**; the case id is the slot's stable name (owner A13). The kit record (kit
-format 1, still a draft) holds `slots: {<case id>: {meshes: [{mesh, rotation?, weight?}], gameData?}}`, the kit's
-`jitter` (§9), its `damage` stages (§7), an optional trim layout and opaque game data.
+format 1, still a draft) holds `slots: {<case id>: {meshes: [{mesh, rotation?, weight?, mirror?}], gameData?}}` (a
+mesh marked `mirror` is drawn mirrored across its case's run, winding and normal-map tangents flipped: one mesh for
+both hands of a handed piece; owner 2026-11-06), the kit's `jitter` (§9), its `damage` stages (§7), an optional trim
+layout (named, or its own `sheetLayout`: the trim layout page) and opaque game data.
 
 - **Every slot is optional** (owner G2). An empty slot draws nothing: the place shows its plain square voxel edge (a
   damage slot left empty: the hole's faces stay plain). No other slot, kit or engine piece stands in, and the kit

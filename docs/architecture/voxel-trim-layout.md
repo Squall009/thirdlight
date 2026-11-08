@@ -78,9 +78,10 @@ a cell round it (roof edges a cell higher), so sheets are small:
   its own normal and AO bakes on its own UVs, as one texture set for the whole kit (one atlas). The bake is local
   (no occlusion from neighbours).
 
-**World-anchored U (as built, kits naming a trim layout):** a kit that names a layout (`trimLayout`) gets its strips'
-U continued from piece to piece along the world: the mesh is authored with U from 0 on the cell's −x face at 0.25 a
-metre (the sheet's 4 m width, in step with the wall's tile), and the draw adds each instance's offset from its world
+**World-anchored U (as built, kits with a trim layout):** a kit that names a layout (`trimLayout`) or declares its own
+(`sheetLayout`, below) gets its strips' U continued from piece to piece along the world: the mesh is authored with U
+from 0 on the cell's −x face at the layout's px a metre over its size a metre (0.25 for `detail-trim`: the sheet's
+4 m width, in step with the wall's tile), and the draw adds each instance's offset from its world
 cell along the world's positive axis (x, z, or y for vertical edges), so neighbouring pieces meet without a seam
 whatever their yaw, rotation or mirror. End faces and caps keep their authored UVs. A kit without a layout keeps
 its authored UVs as they are.
@@ -91,12 +92,13 @@ its authored UVs as they are.
 32 px gutters. It was sized for the earlier draft's larger pieces: the edge-model placeholders use 4 (log) and 6
 (stone) of its regions, none of the profiled strips. It stays an example.
 
-**Gap: a kit's own layout cannot be named yet** (owner question O1, §8). `trimLayout` takes only a layout the engine
-knows by id, and `detail-trim` is the only one. A kit with its own sheet (the per-kit layout the owner chose, B3/B4)
-therefore leaves `trimLayout` out: its UVs draw exactly as authored, so a strip's pattern restarts at every 0.5 m
-piece instead of running on along the edge, and the trim rows (T1–T10) do not check it. Until O1 is answered a
-per-kit layout is second to the example in exactly these two ways; nothing else (one texture set, batching, the
-other kit rows) differs.
+**A kit's own layout** (owner O1, 2026-11-06: yes; built in 46c.16k). A kit with its own sheet (the per-kit layout
+the owner chose, B3/B4) declares it in its record instead of naming one: `sheetLayout: {size, pxPerMetre, regions:
+[{id, kind: field | strip | profiled | cap, metres, y: [top, end), x?: [left, end) (caps only)}]}` (kit format 1,
+add-only; a kit names `trimLayout` or declares `sheetLayout`, not both). Its strips then get world-anchored U at its
+own density and the trim rows (T1–T10) check it against its own regions, labelled "(the kit's layout)", not draft.
+Voxel faces always use the 4 × 4 m tiling textures, whatever a kit declares. A kit with neither keeps its authored
+UVs (a pattern repeats per piece), which suits own bakes and sculpted pieces.
 
 **What draws today:** kit pieces draw with a stand-in material a kit and a labelled debug texture (a kit naming
 `detail-trim`: the layout's debug set, each region its own colour and id). A kit's own textures are drawn once 46d's
@@ -158,7 +160,7 @@ Kit check on both: 0 errors, 0 warnings, T1–T7 ok, one texture set.
 - [ ] Detail pieces: one texture set a kit (a rule, checked); the layout per kit as a recommendation (sizes for 0.5 m
       pieces), own bakes allowed; `detail-trim` v0 kept only as an example (§3).
 - [ ] The kit check rows as listed (§5).
-- [ ] The defaults below (§8), and an answer to O1.
+- [ ] The defaults below (§8). O1 answered (yes, built: §3).
 
 ## 8. Defaults to confirm, and the open question
 
@@ -174,14 +176,11 @@ Numbers this page carries that no owner answer set (default chosen, owner to con
    it; roof edges a cell higher) (§5).
 7. **`detail-trim` v0 stays the one example layout** (4096², field 1 m, strips 0.5 / 0.25 / 0.125 m, caps in four
    cells each), not a standard (§3).
-8. **The trim rows run only for a kit naming a layout**, labelled "(draft layout)"; grid features and a kit's own
-   layout are not checked (§5).
+8. **The trim rows run only for a kit with a layout**, labelled "(draft layout)" for a named one and "(the kit's
+   layout)" for its own; grid features are not checked (§5).
 9. **Roof planes' V is the true slope distance** on each slope's own phase, the grid anchored to the eave (§2;
    owner B6 set the rule, the phase per slope is the default).
 
-**O1 (open): may a kit declare its own layout?** Proposed: an optional, add-only layout record in the kit (sheet
-size, px a metre, regions with their kind: field, strip, cap), so a kit with its own sheet gets world-anchored U
-along its strips and the trim rows check it, exactly as `detail-trim` does today. It is a kit format addition (kit
-format 1 is still a DRAFT; no stored world format changes) with its own canonicalizer, kit check and renderer path,
-so it is not built before the owner answers. The alternative is to keep per-kit sheets on authored UVs only (a
-pattern repeats per piece), which suits own bakes and sculpted pieces anyway.
+**O1 (answered 2026-11-06: yes).** A kit declares its own layout in `sheetLayout` (§3). Default chosen, owner to
+confirm: region kinds as `detail-trim`'s (field, strip, profiled strip, cap); a sheet 16–16,384 px a side; regions
+must not overlap; a kit has a named layout or its own, not both.

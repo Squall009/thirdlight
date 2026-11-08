@@ -18,10 +18,12 @@
  *
  * Every mesh is in metres for a level-0 cell, centred on the cell; turned by
  * its slot rotation it is in its case's orientation (exposed face +z, run
- * along x, up +y). A mirrored case draws a mirrored copy of the mesh (the
- * case's x negated, triangles turned so their fronts stay fronts: the mesh
- * axis its rotation carries onto the case's x), so instance matrices never
- * mirror (a cube rotation has determinant +1). Pieces draw with a stand-in
+ * along x, up +y). A mirrored case, or a slot mesh marked `mirror`, draws
+ * a mirrored copy of the mesh (the case's x negated, triangles turned so
+ * their fronts stay fronts and tangents' handedness flipped: the mesh axis
+ * its rotation carries onto the case's x; both at once cancel), so instance
+ * matrices never mirror (a cube rotation has determinant +1): one copy a
+ * mesh, one draw more a chunk at most. Pieces draw with a stand-in
  * material a kit and a labelled debug UV texture (one cell of UV space: a
  * 1/16-cell checker, a tick and a number every quarter, U and V marked),
  * placed camera-relative in 64 bits like the voxel surface.
@@ -36,7 +38,7 @@
  */
 import * as THREE from 'three';
 import { MeshLambertNodeMaterial } from 'three/webgpu';
-import { TRIM_LAYOUTS, voxelKitMeshKey, type TrimLayout } from '@thirdlight/project-model';
+import { kitTrimLayout, voxelKitMeshKey, type TrimLayout, type VoxelKitSheetLayout } from '@thirdlight/project-model';
 import { crc32, utf8Encode } from '@thirdlight/shared';
 import {
   cutFlush,
@@ -78,8 +80,10 @@ export interface VoxelKitRecordLike {
   readonly materials?: readonly number[];
   /** The trim layout the kit's UVs follow: its pieces draw with that layout's debug set (absent or unknown: the cell debug texture). */
   readonly trimLayout?: string;
-  /** Slot (case id) → its meshes, each with its cube rotation and weight. */
-  readonly slots: Readonly<Record<string, { readonly meshes: readonly { readonly mesh: VoxelKitMeshRef; readonly rotation?: number; readonly weight?: number }[] }>>;
+  /** The kit's own sheet layout, instead of a named one (project-model `kitTrimLayout`). */
+  readonly sheetLayout?: VoxelKitSheetLayout;
+  /** Slot (case id) → its meshes, each with its cube rotation, weight and whether it is drawn mirrored. */
+  readonly slots: Readonly<Record<string, { readonly meshes: readonly { readonly mesh: VoxelKitMeshRef; readonly rotation?: number; readonly weight?: number; readonly mirror?: boolean }[] }>>;
   readonly jitter?: number;
   /** Its damage stages (voxel damage-stages.ts) and crack texture (an image whose red channel the crack overlay reads; absent: the engine's). */
   readonly damage?: DamageStagesSource & { readonly crackTexture?: VoxelKitImageRef };
@@ -330,19 +334,20 @@ export class VoxelKitMeshes {
   }
 
   /**
-   * The stand-in material of a kit (tinted by a hash of its id). A kit following a known trim layout draws untinted
-   * with that layout's debug set, so its regions read by their own hues.
+   * The stand-in material of a kit (tinted by a hash of its id). A kit following a trim layout (a named one or its
+   * own) draws untinted with that layout's debug set, so its regions read by their own hues.
    */
-  material(kitId: string, trimLayout?: string): THREE.Material {
-    const layout = trimLayout === undefined ? undefined : TRIM_LAYOUTS.get(trimLayout);
+  material(kitId: string, layout?: TrimLayout): THREE.Material {
     const tint = crc32(utf8Encode(kitId)) >>> 0;
-    const key = layout !== undefined ? `trim:${layout.id}` : `kit:${tint}`;
+    // A kit's own layout is keyed by its numbers too, so an edited layout draws its new debug set.
+    const sheet = layout === undefined ? '' : layout.draft ? layout.id : `${layout.id}:${crc32(utf8Encode(JSON.stringify(layout))) >>> 0}`;
+    const key = layout !== undefined ? `trim:${sheet}` : `kit:${tint}`;
     let m = this.materials.get(key);
     if (m === undefined) {
       let map: THREE.Texture = this.texture;
       if (layout !== undefined) {
-        map = this.trimTextures.get(layout.id) ?? trimDebugTexture(layout);
-        this.trimTextures.set(layout.id, map);
+        map = this.trimTextures.get(sheet) ?? trimDebugTexture(layout);
+        this.trimTextures.set(sheet, map);
       }
       const color = layout !== undefined ? 0xffffff : KIT_TINTS[tint % KIT_TINTS.length]!;
       this.materials.set(key, (m = layout !== undefined ? trimMaterial(map) : cameraRelative(new MeshLambertNodeMaterial({ color, map }))));
@@ -503,11 +508,12 @@ export class VoxelKitSet {
     const kit = this.table.kits[slot]!;
     const pc = this.lists[slot]?.[piece];
     if (pc === undefined) return null;
-    const mirror = (variantWord & PIECE_VARIANT_MIRROR) !== 0;
     const variant = variantWord & PIECE_VARIANT_MASK;
     const record = this.records.get(kit.id);
     const entry = record?.slots[pc.caseId]?.meshes[variant];
     if (entry === undefined) return null;
+    // The case's mirror (a verge's second side) and the mesh's own (a handed piece) cancel where both apply.
+    const mirror = ((variantWord & PIECE_VARIANT_MIRROR) !== 0) !== (entry.mirror === true);
     const rotation = pc.rotations[variant] ?? 0;
     const key = `${slot}:${piece}:${variant}:${mirror ? 1 : 0}`;
     const frame = PIECE_STAGGER_FRAMES[pc.caseId];
@@ -523,8 +529,8 @@ export class VoxelKitSet {
     };
     const g = this.meshes.mesh(entry.mesh, mirror, mirrorAxisOf(rotation));
     if (g === 'pending' || g === null) return g;
-    const look = this.meshes.material(kit.id, record?.trimLayout);
-    const layout = record?.trimLayout === undefined ? undefined : TRIM_LAYOUTS.get(record.trimLayout);
+    const layout = record === undefined ? undefined : kitTrimLayout(record);
+    const look = this.meshes.material(kit.id, layout);
     if (layout === undefined) return { key, geometry: g, material: look, ...placed };
     return { key, geometry: this.meshes.trimGeometry(g, layout, placed.runAxis), material: look, uPerMetre: trimUPerMetre(layout), ...placed };
   }

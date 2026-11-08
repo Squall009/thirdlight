@@ -41,7 +41,7 @@ import { applyCubeRotation, meshRunAxis, resolveDamageStages, ROOF_EDGE_CASE_IDS
 import type { KitCheckState } from './kit-checks';
 import { readModelGeometry } from './model-collision';
 import type { VoxelKit, VoxelKitMesh } from './voxel-kit';
-import { TRIM_LAYOUTS, trimRegionAt, type TrimLayout, type TrimRegion } from './voxel-trim-layout';
+import { kitTrimLayout, TRIM_LAYOUTS, trimRegionAt, type TrimLayout, type TrimRegion } from './voxel-trim-layout';
 
 export interface VoxelKitCheckRow {
   /** Stable per rule (`required:wall-top`, `fit`, `trim:T4`, …). */
@@ -437,9 +437,11 @@ function trimFacts(f: VoxelKitMeshFacts, layout: TrimLayout, run: number): TrimF
 }
 
 function trimRows(kit: VoxelKit, pieces: readonly Piece[]): VoxelKitCheckRow[] {
-  if (kit.trimLayout === undefined) return [];
-  const layout = TRIM_LAYOUTS.get(kit.trimLayout);
-  const d = (id: string, state: KitCheckState, title: string, detail: string): VoxelKitCheckRow => ({ id: `trim:${id}`, state, title: `${id} (draft layout): ${title}`, detail, draft: true });
+  if (kit.trimLayout === undefined && kit.sheetLayout === undefined) return [];
+  const layout = kitTrimLayout(kit);
+  // A named layout is the engine's draft; a declared one is the kit's own (its numbers are the kit's to choose).
+  const draft = layout?.draft ?? true;
+  const d = (id: string, state: KitCheckState, title: string, detail: string): VoxelKitCheckRow => ({ id: `trim:${id}`, state, title: `${id} (${draft ? 'draft layout' : "the kit's layout"}): ${title}`, detail, ...(draft ? { draft: true as const } : {}) });
   if (layout === undefined) return [d('layout', 'err', `unknown trim layout ${kit.trimLayout}`, `The layouts are ${[...TRIM_LAYOUTS.keys()].join(', ')} (a DRAFT the owner has not approved).`)];
   const per = new Map<Piece, TrimFacts | null>();
   for (const p of pieces) if (p.facts !== null && p.facts.unreadable === null && p.facts.found) per.set(p, trimFacts(p.facts, layout, meshRunAxis(p.caseId, p.rotation)));
@@ -456,8 +458,9 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[]): VoxelKitCheckRow[] {
   if (noUv.length > 0) rows.push(d('uv', 'err', `${noUv.length} meshes have no UV0`, `${named(noUv)}: they draw one texel of the sheet.`));
   rule('T1', list((t) => (t.straddle > 0 ? `${t.straddle} triangles straddle regions` : null)), 'err', 'every triangle inside one region', 'triangles straddle two regions');
   rule('T2', list((t) => (t.gutter > 0 ? `${t.gutter} triangles in a gutter or reserved space` : null)), 'err', 'no UV in gutters or reserved space', 'UVs in gutters or reserved space');
-  rule('T3', list((t) => (t.texel > 0 ? `${t.texel} triangles not at 1024 px/m in V` : null)), 'warn', 'square texels (V at the sheet density)', 'texels not square');
-  rule('T4', list((t) => (t.density > 0 || t.start > 0 ? `${t.density} run faces off 0.25 U a metre, ${t.start} not starting at U 0` : null)), 'err', 'U follows the run at 0.25 a metre from 0', 'U off the run density');
+  const uPerM = layout.pxPerMetre / layout.size;
+  rule('T3', list((t) => (t.texel > 0 ? `${t.texel} triangles not at ${layout.pxPerMetre} px/m in V` : null)), 'warn', 'square texels (V at the sheet density)', 'texels not square');
+  rule('T4', list((t) => (t.density > 0 || t.start > 0 ? `${t.density} run faces off ${uPerM} U a metre, ${t.start} not starting at U 0` : null)), 'err', `U follows the run at ${uPerM} a metre from 0`, 'U off the run density');
   rule('T5', list((t) => (t.profiled.length > 0 ? t.profiled.join(', ') : null)), 'warn', 'profiled strips on faces of their height', 'profiled strips on faces of another height');
   rule('T6', list((t) => (t.caps.length > 0 ? t.caps.join(', ') : null)), 'warn', 'end faces in the right cap cell', 'caps of the wrong size or cell');
   // T7: every mesh of a slot uses the same regions (a pick never changes the look of the trim).

@@ -673,7 +673,7 @@ export { canonicalKit, canonicalKits, kitCheckTally, kitProblems, kitSlotLabel, 
 // Voxel kits (content.voxelKits): a material type's detail pieces as slots (one a case), shipped whole.
 export { canonicalVoxelKit, canonicalVoxelKits, validateVoxelKit, validateVoxelKits, voxelKitImages, voxelKitMeshes, VOXEL_KIT_FORMAT, VOXEL_KIT_LIMITS, type VoxelKit, type VoxelKitDamage, type VoxelKitImage, type VoxelKitJson, type VoxelKitMesh, type VoxelKitSlot, type VoxelKitSlotMesh } from './voxel-kit';
 export { voxelKitCheck, voxelKitCheckState, worldVoxelKitCheck, voxelKitMeshFacts, voxelKitMeshKey, type VoxelKitAssets, type VoxelKitCheckReport, type VoxelKitCheckRow, type VoxelKitMeshFacts, type VoxelKitPieceReport } from './voxel-kit-check';
-export { DRAFT_TRIM_LAYOUT, TRIM_LAYOUTS, trimRegionAt, type TrimLayout, type TrimRegion } from './voxel-trim-layout';
+export { DRAFT_TRIM_LAYOUT, kitTrimLayout, TRIM_LAYOUTS, trimRegionAt, type TrimLayout, type TrimRegion, type VoxelKitSheetLayout } from './voxel-trim-layout';
 export { kitPieceChecks, pieceFacts, trimSpecChecks, TRIM_SPEC, type KitCheck, type KitCheckFix, type KitCheckReport, type KitCheckState, type KitPieceReport, type KitSheetReport, type PieceCheckContext, type PieceFacts, type SheetCheckReport, type SheetImage, type SheetRowView } from './kit-checks';
 // The camera framework's data (virtual cameras and camera paths).
 export {

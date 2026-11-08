@@ -302,6 +302,35 @@ interface TrimCell {
 }
 ```
 
+<a id="type-trim-region"></a>
+### TrimRegion
+
+Declared in `packages/project-model/src/voxel-trim-layout.ts`.
+
+```ts
+/**
+ * The trim layout for voxel kit detail pieces, as the kit check reads it:
+ * **DRAFT — not v1** (docs/architecture/voxel-trim-layout.md, awaiting the
+ * owner). Its regions, sheet size and density are the draft's numbers
+ * (its sheet and regions tables); nothing but the kit check's draft rows
+ * reads them, and they change with the draft until the owner approves it.
+ *
+ * Pixels are on the authored sheet (glTF convention: v from the top). A
+ * field or strip tiles in u (any u is inside it); a cap is one square
+ * cell. A UV must stay half a texel inside its region.
+ */
+interface TrimRegion {
+  readonly id: string;
+  readonly kind: 'field' | 'strip' | 'profiled' | 'cap';
+  /** The region's real height (field, strips) or side (caps), metres. */
+  readonly metres: number;
+  /** Usable pixel rows, top to bottom (exclusive end). */
+  readonly y: readonly [number, number];
+  /** Usable pixel columns of a cap cell (absent: tiles in u). */
+  readonly x?: readonly [number, number];
+}
+```
+
 <a id="type-trim-row"></a>
 ### TrimRow
 
@@ -996,8 +1025,14 @@ interface VoxelKit {
   slots: Record<string, VoxelKitSlot>;
   /** How far every piece moves into the solid and twists, a scale of the engine's stagger (0–{@link VOXEL_KIT_LIMITS.jitterMax}; absent: 1). */
   jitter?: number;
-  /** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). */
+  /** The named trim layout the pieces' UVs follow (absent: none, or the kit's own `sheetLayout`). */
   trimLayout?: string;
+  /**
+   * The layout of the kit's own sheet (instead of a named `trimLayout`): its side and density and its regions
+   * (field, strip, profiled strip, cap), so its strips get world-anchored U and the trim checks. Voxel faces keep
+   * the 4 × 4 m tiling textures whatever a kit declares.
+   */
+  sheetLayout?: VoxelKitSheetLayout;
   /** Its damage stages and crack texture (absent: the engine's). */
   damage?: VoxelKitDamage;
   /** Its roofs fill the wall tops under them up to their underside (absent: false, the walls keep their steps). */
@@ -1065,6 +1100,25 @@ interface VoxelKitMesh {
 }
 ```
 
+<a id="type-voxel-kit-sheet-layout"></a>
+### VoxelKitSheetLayout
+
+Declared in `packages/project-model/src/voxel-trim-layout.ts`.
+
+```ts
+/**
+ * A sheet layout a kit declares for its own sheet (kit field `sheetLayout`): the authored sheet's side and density
+ * and its regions, as a named layout holds them.
+ */
+interface VoxelKitSheetLayout {
+  /** Authored sheet side, pixels. */
+  size: number;
+  /** Authored pixels a metre. */
+  pxPerMetre: number;
+  regions: Array<{ id: string; kind: TrimRegion['kind']; metres: number; y: [number, number]; x?: [number, number] }>;
+}
+```
+
 <a id="type-voxel-kit-slot"></a>
 ### VoxelKitSlot
 
@@ -1093,6 +1147,11 @@ interface VoxelKitSlotMesh {
   rotation?: number;
   /** Relative weight among the slot's meshes (absent: 1). */
   weight?: number;
+  /**
+   * Draw the mesh mirrored across its case's run (the case's x, after the rotation), winding and normal-map
+   * tangents flipped with it: one mesh serves both hands of a handed piece (absent: false).
+   */
+  mirror?: boolean;
 }
 ```
 

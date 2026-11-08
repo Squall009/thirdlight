@@ -379,7 +379,9 @@ them as `voxelKits`.
   GLB version it was made from, so it ships as every model does; pieces
   draw only near the camera, so there is no lower-detail mesh), a
   `rotation` (one of the 24 cube rotations, 0–23, absent 0: how the mesh is
-  turned into the slot's case) and a `weight` (absent 1). A slot left out
+  turned into the slot's case), a `weight` (absent 1) and `mirror` (true:
+  the mesh is drawn mirrored across its case's run, its normal map
+  flipped with it, so one carving serves a left and a right side). A slot left out
   is empty; a slot holds no empty list. Which of a slot's meshes a piece
   draws follows the project's **voxel detail seed** (the project setting
   `voxel_piece_seed`, 0 unless set) and the piece's place in the world, so
@@ -411,7 +413,12 @@ them as `voxelKits`.
 - **`materials`** binds the kit to materials, for now: the voxel material
   ids the kit draws. Once materials have records of their own, a material
   names its kit and this field is no longer read. **`trimLayout`** names the
-  trim layout the pieces' UVs follow; absent, the kit uses no trim sheet.
+  trim layout the pieces' UVs follow; **`sheetLayout`** instead declares the
+  kit's own sheet (`{size, pxPerMetre, regions: [{id, kind: field, strip,
+  profiled or cap, metres, y: [top, end], x (caps only)}]}`), so its
+  strips run on along an edge and the kit check reads its regions. With
+  neither, the kit uses no trim sheet (its UVs draw as authored). Voxel
+  faces always use the 4 × 4 m tiling textures.
 
 **How worlds draw them.** The voxel world page, Play, the Scene view and an
 exported game draw every world with the project's kits: a cell's pieces are

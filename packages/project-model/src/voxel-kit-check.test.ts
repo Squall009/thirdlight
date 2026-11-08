@@ -180,6 +180,24 @@ describe('the voxel kit check', () => {
       expect(run({ ...trimKit(), trimLayout: 'other' }).filter((r) => r.id.startsWith('trim:')).map((r) => `${r.state} ${r.id}`)).toEqual(['err trim:layout']);
     });
 
+    it("checks a kit's own declared sheet layout (its size, density and regions), rows labelled the kit's, not draft", () => {
+      // A 1024 px sheet at 512 px/m: one profiled 0.125 m strip on rows 64-128 and a field below.
+      const sheetLayout = { pxPerMetre: 512, size: 1024, regions: [{ kind: 'profiled' as const, id: 'trim', metres: 0.125, y: [64, 128] as [number, number] }, { id: 'wall', kind: 'field' as const, metres: 1, y: [192, 704] as [number, number] }] };
+      const own = (): VoxelKit => ({ ...trimKit(), trimLayout: undefined, sheetLayout });
+      // A face 0.123 m high fills the 64 px strip to half a texel at this density.
+      const G = 0.0615;
+      const onOwn = (scaleU = 1) => (x: number, y: number): [number, number] => [0.5 * scaleU * (x + H), (64.5 + (G - y) * 512) / 1024];
+      const ownRows = (m: VoxelKitMeshFacts): VoxelKitCheckRow[] => run(own(), { facts: () => m }).filter((r) => r.id.startsWith('trim:'));
+      const rows = ownRows(facts(quad(-H, H, -G, G, H, onOwn())));
+      expect(fired(rows)).toEqual([]);
+      expect(rows.every((r) => r.draft === undefined && /the kit's layout/.test(r.title))).toBe(true);
+      expect(rows.find((r) => r.id === 'trim:T10')!.detail).toMatch(/trim: 2 meshes/);
+      // U at the draft's density (0.25 a metre) is off this sheet's 0.5: T4.
+      expect(fired(ownRows(facts(quad(-H, H, -G, G, H, onOwn(0.5)))))).toEqual(['err trim:T4']);
+      // The draft layout's strip is a gutter on this sheet.
+      expect(fired(ownRows(good))).toContain('err trim:T2');
+    });
+
     it('fires T1–T7 each on its own fault', () => {
       const t = (over: Record<string, VoxelKitMeshFacts>): string[] => fired(runTrim(over));
       // T1: a face straddling the field and the 0.5 m strip.

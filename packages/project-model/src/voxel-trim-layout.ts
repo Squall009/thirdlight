@@ -58,6 +58,29 @@ export const DRAFT_TRIM_LAYOUT: TrimLayout = Object.freeze({
 /** Trim layouts by id (a kit's `trimLayout` names one). */
 export const TRIM_LAYOUTS: ReadonlyMap<string, TrimLayout> = new Map([[DRAFT_TRIM_LAYOUT.id, DRAFT_TRIM_LAYOUT]]);
 
+/**
+ * A sheet layout a kit declares for its own sheet (kit field `sheetLayout`): the authored sheet's side and density
+ * and its regions, as a named layout holds them.
+ */
+export interface VoxelKitSheetLayout {
+  /** Authored sheet side, pixels. */
+  size: number;
+  /** Authored pixels a metre. */
+  pxPerMetre: number;
+  regions: Array<{ id: string; kind: TrimRegion['kind']; metres: number; y: [number, number]; x?: [number, number] }>;
+}
+
+/**
+ * The trim layout a kit's pieces follow: the sheet layout it declares itself (named `kit:<its id>`, not a draft:
+ * the kit owns it), else the named layout its `trimLayout` picks; undefined when it has neither (or names an
+ * unknown one).
+ */
+export function kitTrimLayout(kit: { readonly voxelKitId: string; readonly trimLayout?: string; readonly sheetLayout?: VoxelKitSheetLayout }): TrimLayout | undefined {
+  const own = kit.sheetLayout;
+  if (own !== undefined) return { id: `kit:${kit.voxelKitId}`, draft: false, size: own.size, pxPerMetre: own.pxPerMetre, regions: own.regions };
+  return kit.trimLayout === undefined ? undefined : TRIM_LAYOUTS.get(kit.trimLayout);
+}
+
 /** The region holding a UV (u, v in sheet units, glTF v), half a texel inside, or null (a gutter or reserved space). */
 export function trimRegionAt(layout: TrimLayout, u: number, v: number): TrimRegion | null {
   const inset = 0.5;

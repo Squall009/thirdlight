@@ -376,7 +376,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-voxel-kit-limits"></a>`VOXEL_KIT_LIMITS` | `{"gameDataDepth":32,"materialIdMax":4095,"weightMax":1000,"jitterMax":4}` |  |
+| <a id="limit-voxel-kit-limits"></a>`VOXEL_KIT_LIMITS` | `{"gameDataDepth":32,"materialIdMax":4095,"weightMax":1000,"jitterMax":4,"sheetSizeMin":16,"sheetSizeMax":16384}` |  |
 
 <a id="limits-project-model--voxel-world"></a>
 ## `voxel-world.ts`

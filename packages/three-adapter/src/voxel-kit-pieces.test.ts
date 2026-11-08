@@ -47,12 +47,12 @@ import { createGltfLoaderPort } from './gltf-loader';
 import { buildGlb } from './test-glb';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { pieceMatrix } from './voxel-piece-placement';
-import { VoxelKitMeshes, voxelKitDebugTexture, KIT_DEBUG_TEXTURE_SIDE, type VoxelKitRecordLike } from './voxel-kit-pieces';
+import { VoxelKitMeshes, voxelKitDebugTexture, KIT_DEBUG_TEXTURE_SIDE, type VoxelKitDraw, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { createVoxelSurface, VOXEL_CRACK_ATTRIBUTE, type VoxelGridRenderer } from './voxel-surface';
 import { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels } from './voxel-crack-texture';
 import { VoxelWorldDraws } from './voxel-world-draws';
 import { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
-import { DRAFT_TRIM_LAYOUT } from '@thirdlight/project-model';
+import { DRAFT_TRIM_LAYOUT, kitTrimLayout, type TrimLayout } from '@thirdlight/project-model';
 
 const grid = chunkGrid(32);
 const R = jobRadius(WORLD_RULES);
@@ -281,6 +281,57 @@ describe('kit pieces in the chunk view', () => {
     const n1 = tri(m);
     expect([n1.x, n1.y, n1.z].map((c) => Math.round(c) + 0)).toEqual([-Math.round(n0.x) + 0, Math.round(n0.y) + 0, Math.round(n0.z) + 0]);
     v.dispose();
+    meshes.dispose();
+  });
+
+  it('draws a slot mesh marked mirror as its mirrored copy (x negated, winding turned, tangent handedness flipped), one draw key more; a mirrored case cancels it', () => {
+    const ref = { assetId: 'carving', digest: DIGEST_A };
+    const kits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [STONE], slots: { 'edge-out-vertical': { meshes: [{ mesh: ref, mirror: true }] } } }];
+    const plainKits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [STONE], slots: { 'edge-out-vertical': { meshes: [{ mesh: ref }] } } }];
+    const meshes = new VoxelKitMeshes();
+    const box = new THREE.BoxGeometry(0.4, 0.5, 0.2).translate(0.15, 0, 0.1);
+    box.computeTangents();
+    meshes.add(ref, box);
+    const set = meshes.set(worldPieceTable(kits, SEED), kits);
+    const plain = meshes.set(worldPieceTable(plainKits, SEED), plainKits);
+    const piece = [...Array(8).keys()].find((k) => set.describe(STONE, k)?.caseId === 'edge-out-vertical')!;
+    const own = set.resolve(STONE, piece, 0) as VoxelKitDraw;
+    const base = plain.resolve(STONE, piece, 0) as VoxelKitDraw;
+    expect(own.mirror).toBe(true);
+    expect(base.mirror).toBe(false);
+    expect(own.key).not.toBe(base.key);
+    const g = own.geometry;
+    const p = box.getAttribute('position');
+    const q = g.getAttribute('position');
+    for (let i = 0; i < p.count; i++) expect([q.getX(i), q.getY(i), q.getZ(i)]).toEqual([-p.getX(i) + 0, p.getY(i), p.getZ(i)]);
+    // Winding: every triangle's geometric normal is the mirrored one of the source's (fronts stay fronts).
+    const face = (geo: THREE.BufferGeometry, t: number): THREE.Vector3 => {
+      const a = geo.getAttribute('position');
+      const [v0, v1, v2] = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(a, geo.index!.getX(3 * t + k)));
+      return new THREE.Vector3().subVectors(v1!, v0!).cross(new THREE.Vector3().subVectors(v2!, v0!)).normalize();
+    };
+    for (let t = 0; t < box.index!.count / 3; t++) {
+      const a = face(box, t);
+      const b = face(g, t);
+      expect([b.x, b.y, b.z].map((c) => Math.round(c) + 0)).toEqual([-Math.round(a.x) + 0, Math.round(a.y) + 0, Math.round(a.z) + 0]);
+    }
+    // Normals mirror with it; a tangent's handedness (w) flips, so a normal map's bumps keep their side.
+    const nA = box.getAttribute('normal');
+    const nB = g.getAttribute('normal');
+    const tA = box.getAttribute('tangent');
+    const tB = g.getAttribute('tangent');
+    for (let i = 0; i < nA.count; i++) {
+      expect(nB.getX(i)).toBeCloseTo(-nA.getX(i), 6);
+      expect(tB.getW(i)).toBe(-tA.getW(i));
+    }
+    // The case's own mirror (a verge's second side) and the mesh's cancel: the authored mesh as it is.
+    expect((set.resolve(STONE, piece, PIECE_VARIANT_MIRROR) as VoxelKitDraw).geometry).toBe(box);
+    expect((plain.resolve(STONE, piece, PIECE_VARIANT_MIRROR) as VoxelKitDraw).geometry).toBe(g);
+    // A kit declaring its own sheet layout: its pieces take world-anchored U at that sheet's density.
+    const sheetKits: VoxelKitRecordLike[] = [{ ...plainKits[0]!, sheetLayout: { size: 1024, pxPerMetre: 512, regions: [{ id: 'S12', kind: 'strip', metres: 0.125, y: [64, 128] }] } }];
+    const sheet = meshes.set(worldPieceTable(sheetKits, SEED), sheetKits).resolve(STONE, piece, 0) as VoxelKitDraw;
+    expect(sheet.uPerMetre).toBe(0.5);
+    expect(base.uPerMetre).toBeUndefined();
     meshes.dispose();
   });
 
@@ -539,12 +590,20 @@ describe('kit pieces in the chunk view', () => {
     expect(new Set(ids.map((id) => centre(id).join())).size).toBeGreaterThan(6);
     tex.dispose();
     const meshes = new VoxelKitMeshes();
-    const trim = meshes.material('a', 'detail-trim') as THREE.MeshLambertMaterial;
+    const named = (trimLayout: string): TrimLayout | undefined => kitTrimLayout({ voxelKitId: 'a', trimLayout });
+    const trim = meshes.material('a', named('detail-trim')) as THREE.MeshLambertMaterial;
     const plain = meshes.material('a') as THREE.MeshLambertMaterial;
     expect((trim.map!.image as { width: number }).width).toBe(side);
     expect(plain.map).toBe(meshes.texture);
-    expect(meshes.material('b', 'detail-trim')).toBe(trim);
-    expect((meshes.material('a', 'unknown-layout') as THREE.MeshLambertMaterial).map).toBe(meshes.texture);
+    expect(meshes.material('b', named('detail-trim'))).toBe(trim);
+    expect((meshes.material('a', named('unknown-layout')) as THREE.MeshLambertMaterial).map).toBe(meshes.texture);
+    // A kit's own layout: its sheet's debug set (its size), one a kit and layout; an edited layout draws a new one.
+    const sheetLayout = { size: 1024, pxPerMetre: 512, regions: [{ id: 'S12', kind: 'strip' as const, metres: 0.125, y: [64, 128] as [number, number] }] };
+    const own = meshes.material('c', kitTrimLayout({ voxelKitId: 'c', sheetLayout })) as THREE.MeshLambertMaterial;
+    expect((own.map!.image as { width: number }).width).toBe(Math.round(1024 * TRIM_DEBUG_TEXTURE_SCALE));
+    expect(own).not.toBe(trim);
+    expect(meshes.material('c', kitTrimLayout({ voxelKitId: 'c', sheetLayout }))).toBe(own);
+    expect(meshes.material('c', kitTrimLayout({ voxelKitId: 'c', sheetLayout: { ...sheetLayout, pxPerMetre: 256 } }))).not.toBe(own);
     meshes.dispose();
   });
 });

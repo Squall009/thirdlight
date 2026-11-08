@@ -1776,10 +1776,13 @@ ids it holds are opaque here and the catalogue that names them is a draft. Nothi
 - **Fields, in canonical order:** `kitFormat` (1), `voxelKitId`, `name`, `version` (the kit's own revision, a
   positive integer), `materialType` (an id: a kit belongs to a material type, never to one material),
   `materials?` (test binding: voxel material ids 1–4095, ascending, each once; 46d's material model replaces it
-  and the field is then left unread, never repurposed), `slots` (case id → `{meshes: [{mesh, rotation?, weight?}, …]
+  and the field is then left unread, never repurposed), `slots` (case id → `{meshes: [{mesh, rotation?, weight?, mirror?}, …]
   (one or more), gameData?}`; a mesh is `{assetId, digest, node?}`, the digest the GLB version's SHA-256 source
-  digest; `rotation` a cube rotation 0–23, absent 0; `weight` absent 1), `jitter?` (0–4, absent 1; a 1 is left out
-  canonically), `trimLayout?` (an id; absent: no trim sheet), `damage?` (46c.16e: `stage1?`, `stage2?`, `stage3?`
+  digest; `rotation` a cube rotation 0–23, absent 0; `weight` absent 1; `mirror` true draws the mesh mirrored across
+  its case's run, winding and tangents flipped, absent false, 46c.16k), `jitter?` (0–4, absent 1; a 1 is left out
+  canonically), `trimLayout?` (an id; absent: no trim sheet), `sheetLayout?` (46c.16k, owner O1: the kit's own sheet,
+  `{size 16–16384 px, pxPerMetre, regions: [{id, kind field|strip|profiled|cap, metres, y: [top, end), x? (caps)}]}`,
+  regions not overlapping; instead of `trimLayout`, never both), `damage?` (46c.16e: `stage1?`, `stage2?`, `stage3?`
   each `{min, max, pieces?}` or null, `crackTexture?` `{assetId, digest}` an image asset; see below), `wallTopFill?`
   (46c.16j; a boolean, false left out canonically), `gameData?`.
 - **Wall-top fill (draft change, owner 2026-11-06 follow-up choices; 46c.16j).** On a roof's kit (the kit of the

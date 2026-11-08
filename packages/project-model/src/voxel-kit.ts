@@ -58,6 +58,7 @@ import type { ModelErrorV2 } from './errors';
 import { DIGEST_RE } from './content-helpers';
 import { KIT_LIMITS } from './kits';
 import { ID_RE, isValidName } from './validate';
+import type { VoxelKitSheetLayout } from './voxel-trim-layout';
 
 /** The kit record's format. A later format adds fields only; a reader refuses one newer than it knows. */
 export const VOXEL_KIT_FORMAT = 1;
@@ -81,6 +82,11 @@ export interface VoxelKitSlotMesh {
   rotation?: number;
   /** Relative weight among the slot's meshes (absent: 1). */
   weight?: number;
+  /**
+   * Draw the mesh mirrored across its case's run (the case's x, after the rotation), winding and normal-map
+   * tangents flipped with it: one mesh serves both hands of a handed piece (absent: false).
+   */
+  mirror?: boolean;
 }
 
 /** One filled slot: its meshes, and the game's data for it. */
@@ -123,8 +129,14 @@ export interface VoxelKit {
   slots: Record<string, VoxelKitSlot>;
   /** How far every piece moves into the solid and twists, a scale of the engine's stagger (0–{@link VOXEL_KIT_LIMITS.jitterMax}; absent: 1). */
   jitter?: number;
-  /** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet). */
+  /** The named trim layout the pieces' UVs follow (absent: none, or the kit's own `sheetLayout`). */
   trimLayout?: string;
+  /**
+   * The layout of the kit's own sheet (instead of a named `trimLayout`): its side and density and its regions
+   * (field, strip, profiled strip, cap), so its strips get world-anchored U and the trim checks. Voxel faces keep
+   * the 4 × 4 m tiling textures whatever a kit declares.
+   */
+  sheetLayout?: VoxelKitSheetLayout;
   /** Its damage stages and crack texture (absent: the engine's). */
   damage?: VoxelKitDamage;
   /** Its roofs fill the wall tops under them up to their underside (absent: false, the walls keep their steps). */
@@ -142,14 +154,20 @@ export const VOXEL_KIT_LIMITS = Object.freeze({
   weightMax: KIT_LIMITS.weightMax,
   /** The largest jitter (voxel `PIECE_JITTER_MAX`). */
   jitterMax: PIECE_JITTER_MAX,
+  /** A declared sheet's side range, pixels (a texture's). */
+  sheetSizeMin: 16,
+  sheetSizeMax: 16384,
 });
 
-const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'jitter', 'trimLayout', 'damage', 'wallTopFill', 'gameData'];
+const KIT_FIELDS = ['kitFormat', 'voxelKitId', 'name', 'version', 'materialType', 'materials', 'slots', 'jitter', 'trimLayout', 'sheetLayout', 'damage', 'wallTopFill', 'gameData'];
+const SHEET_FIELDS = ['size', 'pxPerMetre', 'regions'];
+const REGION_FIELDS = ['id', 'kind', 'metres', 'y', 'x'];
+const REGION_KINDS = ['field', 'strip', 'profiled', 'cap'];
 const DAMAGE_FIELDS = ['stage1', 'stage2', 'stage3', 'crackTexture'];
 const SPAN_FIELDS = ['min', 'max', 'pieces'];
 const IMAGE_FIELDS = ['assetId', 'digest'];
 const SLOT_FIELDS = ['meshes', 'gameData'];
-const SLOT_MESH_FIELDS = ['mesh', 'rotation', 'weight'];
+const SLOT_MESH_FIELDS = ['mesh', 'rotation', 'weight', 'mirror'];
 const MESH_FIELDS = ['assetId', 'digest', 'node'];
 /** A model node name (as a block kit piece's). */
 const NODE_RE = /^[^\u0000-\u001f]{1,128}$/;
@@ -218,6 +236,46 @@ function damage(v: unknown, path: string, errors: ModelErrorV2[]): void {
   }
 }
 
+/** A pixel span [start, end) within a sheet of `size`. */
+function span(v: unknown, size: number): v is [number, number] {
+  return Array.isArray(v) && v.length === 2 && v.every((q) => typeof q === 'number' && Number.isInteger(q) && q >= 0 && q <= size) && v[0] < v[1];
+}
+
+function sheetLayout(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (v === undefined) return;
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'sheetLayout is {size, pxPerMetre, regions}', v, 'object');
+  fields(v, SHEET_FIELDS, path, 'sheet layout', errors);
+  const size = v['size'];
+  const sizeOk = typeof size === 'number' && Number.isInteger(size) && size >= VOXEL_KIT_LIMITS.sheetSizeMin && size <= VOXEL_KIT_LIMITS.sheetSizeMax;
+  if (!sizeOk) err(errors, 'field_value', `${path}/size`, `size is the sheet's side in pixels, ${VOXEL_KIT_LIMITS.sheetSizeMin}-${VOXEL_KIT_LIMITS.sheetSizeMax}`, size);
+  const ppm = v['pxPerMetre'];
+  if (typeof ppm !== 'number' || !Number.isFinite(ppm) || ppm <= 0) err(errors, 'field_value', `${path}/pxPerMetre`, 'pxPerMetre is the sheet\'s pixels a metre (> 0)', ppm);
+  const regions = v['regions'];
+  if (!Array.isArray(regions) || regions.length < 1) return err(errors, 'field_value', `${path}/regions`, 'regions is a list of one or more regions', Array.isArray(regions) ? regions.length : regions);
+  const seen = new Set<string>();
+  const boxes: Array<[number, number, number, number]> = [];
+  regions.forEach((r, i) => {
+    const p = `${path}/regions/${i}`;
+    if (!isPlainObject(r)) return err(errors, 'field_type', p, 'a region is {id, kind, metres, y, x?}', r, 'object');
+    fields(r, REGION_FIELDS, p, 'region', errors);
+    if (typeof r['id'] !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(r['id'])) err(errors, 'id_invalid', `${p}/id`, 'a region id is 1-32 letters, digits, - and _', r['id']);
+    else if (seen.has(r['id'])) err(errors, 'id_duplicate', `${p}/id`, `region ${r['id']} is listed twice`, r['id']);
+    else seen.add(r['id']);
+    const kind = r['kind'];
+    if (typeof kind !== 'string' || !REGION_KINDS.includes(kind)) err(errors, 'field_value', `${p}/kind`, `kind is ${REGION_KINDS.join(', ')}`, kind);
+    const m = r['metres'];
+    if (typeof m !== 'number' || !Number.isFinite(m) || m <= 0) err(errors, 'field_value', `${p}/metres`, 'metres is the region\'s real height (a cap: its side), > 0', m);
+    if (!sizeOk) return;
+    if (!span(r['y'], size)) return err(errors, 'field_value', `${p}/y`, `y is the region's pixel rows [top, end) within the ${size} px sheet`, r['y']);
+    // A cap is one square cell (its columns given); fields and strips tile in U across the sheet.
+    if (kind === 'cap' ? !span(r['x'], size) : r['x'] !== undefined) return err(errors, 'field_value', `${p}/x`, kind === 'cap' ? `a cap gives its pixel columns [left, end) within the ${size} px sheet` : 'only a cap gives columns (a field or strip tiles in U)', r['x']);
+    const [y0, y1] = r['y'] as [number, number];
+    const [x0, x1] = (r['x'] as [number, number] | undefined) ?? [0, size];
+    if (boxes.some(([a0, b0, a1, b1]) => x0 < a1 && a0 < x1 && y0 < b1 && b0 < y1)) err(errors, 'field_value', p, 'regions overlap', r);
+    boxes.push([x0, y0, x1, y1]);
+  });
+}
+
 function slot(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a slot is {meshes, gameData?}', v, 'object');
   fields(v, SLOT_FIELDS, path, 'slot', errors);
@@ -226,19 +284,20 @@ function slot(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(meshes) || meshes.length < 1) return err(errors, 'field_value', `${path}/meshes`, 'a slot holds one or more meshes (an empty slot is not stored: leave it out)', Array.isArray(meshes) ? meshes.length : meshes);
   meshes.forEach((x, i) => {
     const p = `${path}/meshes/${i}`;
-    if (!isPlainObject(x)) return err(errors, 'field_type', p, 'a slot mesh is {mesh, rotation?, weight?}', x, 'object');
+    if (!isPlainObject(x)) return err(errors, 'field_type', p, 'a slot mesh is {mesh, rotation?, weight?, mirror?}', x, 'object');
     fields(x, SLOT_MESH_FIELDS, p, 'slot mesh', errors);
     mesh(x['mesh'], `${p}/mesh`, errors);
     const r = x['rotation'];
     if (r !== undefined && (typeof r !== 'number' || !Number.isInteger(r) || r < 0 || r >= CUBE_ROTATION_COUNT)) err(errors, 'field_value', `${p}/rotation`, `rotation is a cube rotation, 0-${CUBE_ROTATION_COUNT - 1}`, r);
     const w = x['weight'];
     if (w !== undefined && (typeof w !== 'number' || !Number.isFinite(w) || w <= 0 || w > VOXEL_KIT_LIMITS.weightMax)) err(errors, 'field_value', `${p}/weight`, `weight is a number in (0, ${VOXEL_KIT_LIMITS.weightMax}]`, w);
+    if (x['mirror'] !== undefined && typeof x['mirror'] !== 'boolean') err(errors, 'field_type', `${p}/mirror`, 'mirror is true or false', x['mirror'], 'boolean');
   });
 }
 
 /** Validate one kit's shape (what its case, section and asset ids name is the kit check's, never refused here). */
 export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, damage?, wallTopFill?, gameData?}', v, 'object');
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a voxel kit is {kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, sheetLayout?, damage?, wallTopFill?, gameData?}', v, 'object');
   // The format first: a newer kit is refused whole, never read in part.
   const f = v['kitFormat'];
   if (f === undefined) return err(errors, 'field_missing', `${path}/kitFormat`, 'kitFormat is required', undefined, String(VOXEL_KIT_FORMAT));
@@ -267,6 +326,8 @@ export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[
   const jitter = v['jitter'];
   if (jitter !== undefined && (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > VOXEL_KIT_LIMITS.jitterMax)) err(errors, 'field_value', `${path}/jitter`, `jitter is a number 0-${VOXEL_KIT_LIMITS.jitterMax} (1: the engine's stagger)`, jitter);
   if (v['trimLayout'] !== undefined) id(v['trimLayout'], `${path}/trimLayout`, 'trimLayout', errors);
+  sheetLayout(v['sheetLayout'], `${path}/sheetLayout`, errors);
+  if (v['trimLayout'] !== undefined && v['sheetLayout'] !== undefined) err(errors, 'field_value', `${path}/sheetLayout`, 'a kit names a trimLayout or declares its own sheetLayout, not both', v['sheetLayout']);
   damage(v['damage'], `${path}/damage`, errors);
   if (v['wallTopFill'] !== undefined && typeof v['wallTopFill'] !== 'boolean') err(errors, 'field_type', `${path}/wallTopFill`, 'wallTopFill is true or false', v['wallTopFill'], 'boolean');
   gameData(v['gameData'], `${path}/gameData`, errors);
@@ -309,13 +370,21 @@ function canonicalDamage(d: VoxelKitDamage): VoxelKitDamage {
   };
 }
 
+function canonicalSheetLayout(l: VoxelKitSheetLayout): VoxelKitSheetLayout {
+  return {
+    size: l.size,
+    pxPerMetre: l.pxPerMetre,
+    regions: l.regions.map((r) => ({ id: r.id, kind: r.kind, metres: r.metres, y: [r.y[0], r.y[1]], ...(r.x !== undefined ? { x: [r.x[0], r.x[1]] as [number, number] } : {}) })),
+  };
+}
+
 function byKey<T, U>(rec: Record<string, T>, f: (v: T) => U): Record<string, U> {
   return Object.fromEntries(Object.keys(rec).sort(cmp).map((k) => [k, f(rec[k]!)]));
 }
 
 /**
  * One kit in canonical form, rebuilt field by field: fields in order, maps by
- * key, materials ascending, rotations of 0, weights of 1, a jitter of 1 and
+ * key, materials ascending, rotations of 0, weights of 1, mirrors of false, a jitter of 1 and
  * a wall-top fill of false left out, game data with its keys sorted (its values exactly as given).
  */
 export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
@@ -331,11 +400,13 @@ export function canonicalVoxelKit(k: VoxelKit): VoxelKit {
         mesh: canonicalMesh(x.mesh),
         ...(x.rotation !== undefined && x.rotation !== 0 ? { rotation: x.rotation } : {}),
         ...(x.weight !== undefined && x.weight !== 1 ? { weight: x.weight } : {}),
+        ...(x.mirror === true ? { mirror: true } : {}),
       })),
       ...(c.gameData !== undefined ? { gameData: canonicalJsonValue(c.gameData) as VoxelKitJson } : {}),
     })),
     ...(k.jitter !== undefined && k.jitter !== PIECE_JITTER_DEFAULT ? { jitter: k.jitter } : {}),
     ...(k.trimLayout !== undefined ? { trimLayout: k.trimLayout } : {}),
+    ...(k.sheetLayout !== undefined ? { sheetLayout: canonicalSheetLayout(k.sheetLayout) } : {}),
     ...(k.damage !== undefined && Object.keys(canonicalDamage(k.damage)).length > 0 ? { damage: canonicalDamage(k.damage) } : {}),
     ...(k.wallTopFill === true ? { wallTopFill: true } : {}),
     ...(k.gameData !== undefined ? { gameData: canonicalJsonValue(k.gameData) as VoxelKitJson } : {}),

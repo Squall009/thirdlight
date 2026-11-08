@@ -17,7 +17,7 @@ import { canonicalVoxelKit, canonicalVoxelKits, validateVoxelKit, validateVoxelK
 const D1 = 'a'.repeat(64);
 const D2 = 'b'.repeat(64);
 
-/** Every field set, maps and lists out of order, a weight of 1 and a rotation of 0 (the defaults), a weight of 3. */
+/** Every field set, maps and lists out of order, a weight of 1, a rotation of 0 and no mirror (the defaults), a weight of 3, a mirrored mesh. */
 function full(): VoxelKit {
   return {
     gameData: { sound: { step: 'wood-step' }, break: { hits: 3, debris: ['splinter', 'plank'] }, physics: null },
@@ -31,11 +31,11 @@ function full(): VoxelKit {
         gameData: { break: { hits: 1 } },
         meshes: [
           { weight: 3, mesh: { node: 'Edge_A', digest: D1, assetId: 'log-kit' } },
-          { rotation: 0, weight: 1, mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_B' } },
+          { mirror: false, rotation: 0, weight: 1, mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_B' } },
         ],
       },
-      // One mesh filling another slot, turned (fields given out of order).
-      'edge-out-bottom': { meshes: [{ rotation: 5, mesh: { digest: D1, assetId: 'log-kit', node: 'Edge_A' } }] },
+      // One mesh filling another slot, turned and mirrored (fields given out of order).
+      'edge-out-bottom': { meshes: [{ mirror: true, rotation: 5, mesh: { digest: D1, assetId: 'log-kit', node: 'Edge_A' } }] },
       'corner-out-top': { meshes: [{ mesh: { assetId: 'log-kit', digest: D2 } }] },
     },
     materials: [12, 3, 4095],
@@ -61,14 +61,14 @@ function leaves(v: unknown, at = ''): string[] {
 }
 
 describe('voxel kit record', () => {
-  it('keeps every field through the canonical form (the default weight and rotation aside), in one order however it was built, and is idempotent', () => {
+  it('keeps every field through the canonical form (the default weight, rotation and mirror aside), in one order however it was built, and is idempotent', () => {
     const kit = full();
     expect(problems(kit)).toEqual([]);
     const canon = canonicalVoxelKit(kit);
     const dropped = leaves(kit).filter((p) => !leaves(canon).includes(p));
     // The only leaves left out are the defaults; materials are sorted, so their values move but stay.
-    expect(dropped).toEqual(['/slots/edge-out-top/meshes/1/rotation', '/slots/edge-out-top/meshes/1/weight']);
-    expect(leaves(canon).length).toBe(leaves(kit).length - 2);
+    expect(dropped.sort()).toEqual(['/slots/edge-out-top/meshes/1/mirror', '/slots/edge-out-top/meshes/1/rotation', '/slots/edge-out-top/meshes/1/weight']);
+    expect(leaves(canon).length).toBe(leaves(kit).length - 3);
     expect(JSON.stringify(canon)).toBe(
       JSON.stringify({
         kitFormat: 1,
@@ -79,7 +79,7 @@ describe('voxel kit record', () => {
         materials: [3, 12, 4095],
         slots: {
           'corner-out-top': { meshes: [{ mesh: { assetId: 'log-kit', digest: D2 } }] },
-          'edge-out-bottom': { meshes: [{ mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_A' }, rotation: 5 }] },
+          'edge-out-bottom': { meshes: [{ mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_A' }, rotation: 5, mirror: true }] },
           'edge-out-top': {
             meshes: [{ mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_A' }, weight: 3 }, { mesh: { assetId: 'log-kit', digest: D1, node: 'Edge_B' } }],
             gameData: { break: { hits: 1 } },
@@ -140,11 +140,38 @@ describe('voxel kit record', () => {
     expect(at((k) => (k['joinProfiles'] = {}))).toEqual(['field_unexpected /joinProfiles']);
     expect(at((k) => (k['slots']['corner-out-top']['sections'] = {}))).toEqual(['field_unexpected /slots/corner-out-top/sections']);
     expect(at((k) => (k['slots']['corner-out-top']['alias'] = { case: 'edge-out-top', rotation: 1 }))).toEqual(['field_unexpected /slots/corner-out-top/alias']);
-    expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['mirror'] = true))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/mirror']);
     // One mesh a piece (pieces are drawn in the near ring only): a lower-detail mesh is no field of the format.
     expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['low'] = { assetId: 'log-kit', digest: D1 }))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/low']);
     expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['high'] = { assetId: 'log-kit', digest: D1 }))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/high']);
     expect(at((k) => (k['slots']['corner-out-top']['meshes'][0]['mesh']['url'] = 'x'))).toEqual(['field_unexpected /slots/corner-out-top/meshes/0/mesh/url']);
+  });
+
+  it("keeps a kit's own sheet layout field by field (instead of a named one), refuses a bad one and both at once", () => {
+    const { trimLayout: _named, ...rest } = full();
+    const layout = { regions: [{ y: [64, 128], metres: 0.125, kind: 'strip', id: 'S12' }, { x: [0, 64], kind: 'cap', id: 'C12a', metres: 0.125, y: [128, 192] }], pxPerMetre: 512, size: 1024 };
+    const kit = { ...rest, sheetLayout: layout } as VoxelKit;
+    expect(problems(kit)).toEqual([]);
+    const canon = canonicalVoxelKit(kit);
+    expect(JSON.stringify(canon.sheetLayout)).toBe(JSON.stringify({ size: 1024, pxPerMetre: 512, regions: [{ id: 'S12', kind: 'strip', metres: 0.125, y: [64, 128] }, { id: 'C12a', kind: 'cap', metres: 0.125, y: [128, 192], x: [0, 64] }] }));
+    expect(leaves(canon).length).toBe(leaves(kit).length - 3);
+    expect(JSON.stringify(canonicalVoxelKit(canon))).toBe(JSON.stringify(canon));
+    // Both at once is refused.
+    expect(problems({ ...kit, trimLayout: 'detail-trim' }).map((e) => `${e.code} ${e.path}`)).toEqual(['field_value /sheetLayout']);
+    const at = (mutate: (l: Record<string, any>) => void): string[] => {
+      const k = JSON.parse(JSON.stringify(kit)) as Record<string, any>;
+      mutate(k['sheetLayout']);
+      return problems(k).map((e) => `${e.code} ${e.path}`);
+    };
+    expect(at((l) => (l['size'] = 8))).toEqual(['field_value /sheetLayout/size']);
+    expect(at((l) => (l['pxPerMetre'] = 0))).toEqual(['field_value /sheetLayout/pxPerMetre']);
+    expect(at((l) => (l['regions'] = []))).toEqual(['field_value /sheetLayout/regions']);
+    expect(at((l) => (l['regions'][0]['kind'] = 'trim'))).toEqual(['field_value /sheetLayout/regions/0/kind']);
+    expect(at((l) => (l['regions'][0]['y'] = [128, 64]))).toEqual(['field_value /sheetLayout/regions/0/y']);
+    expect(at((l) => (l['regions'][0]['x'] = [0, 64]))).toEqual(['field_value /sheetLayout/regions/0/x']);
+    expect(at((l) => delete l['regions'][1]['x'])).toEqual(['field_value /sheetLayout/regions/1/x']);
+    expect(at((l) => (l['regions'][1]['y'] = [100, 164]))).toEqual(['field_value /sheetLayout/regions/1']);
+    expect(at((l) => (l['regions'][1]['id'] = 'S12'))).toEqual(['id_duplicate /sheetLayout/regions/1/id']);
+    expect(at((l) => (l['regions'][0]['uv'] = 1))).toEqual(['field_unexpected /sheetLayout/regions/0/uv']);
   });
 
   it('refuses bad values with the path of each', () => {
@@ -169,6 +196,7 @@ describe('voxel kit record', () => {
     for (const w of [0, -1, VOXEL_KIT_LIMITS.weightMax + 1, Number.NaN]) expect(at((k) => (m0(k)['weight'] = w))).toEqual(['field_value /slots/corner-out-top/meshes/0/weight']);
     for (const r of [24, -1, 1.5, '3']) expect(at((k) => (m0(k)['rotation'] = r)), String(r)).toEqual(['field_value /slots/corner-out-top/meshes/0/rotation']);
     expect(at((k) => (m0(k)['rotation'] = 23))).toEqual([]);
+    for (const m of [1, 'true', null]) expect(at((k) => (m0(k)['mirror'] = m)), String(m)).toEqual(['field_type /slots/corner-out-top/meshes/0/mirror']);
     for (const j of [-0.1, VOXEL_KIT_LIMITS.jitterMax + 0.5, Number.NaN, '1']) expect(at((k) => (k['jitter'] = j)), String(j)).toEqual(['field_value /jitter']);
     for (const j of [0, VOXEL_KIT_LIMITS.jitterMax]) expect(at((k) => (k['jitter'] = j))).toEqual([]);
     expect(at((k) => (k['trimLayout'] = 'Draft 1'))).toEqual(['id_invalid /trimLayout']);
