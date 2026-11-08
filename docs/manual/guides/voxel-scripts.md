@@ -134,6 +134,23 @@ has **Affects lighting** on. Null where the world is not loaded there or the
 cell's piece is not built yet. Nothing draws from it yet; it is there for
 scripts and the world's lighting later.
 
+## Materials: `materialAt`, `materialOf`
+
+`materialAt(x, y, z)` gives the material record of the voxel at a point,
+`materialOf(id)` the one a voxel material id is: `{id, materialId, name,
+use, kit, physical, gameData}`, with the physics resolved against the
+material's profile (`physical.density`, `friction`, `restitution`, and
+`flowRate` for liquids) and the game's own `gameData` (the material's keys
+over its profile's), as the build ships them. Null where the world is not
+loaded, the cell is air, or no material in the build has that id. The
+engine never reads `gameData`: it is yours (a footstep sound, how many hits
+a block takes).
+
+```js
+const m = ctx.voxels.materialAt(feet.x, feet.y - 0.1, feet.z);
+if (m !== null) ctx.audio.play(m.gameData?.footstep ?? 'step-default');
+```
+
 ## Save and restore
 
 The engine has no voxel section in a save: **the game keeps its world

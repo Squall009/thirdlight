@@ -222,8 +222,11 @@ Limits today:
 - **The voxel world page**, `/voxel-world.html?project=<id>&world=<name>`
   (optionally `&at=x,y,z`, `&renderer=webgl2`), opens one world on its own:
   drag to orbit, wheel to zoom, W A S D to move; a click digs a 1 m ball,
-  shift-click adds one, Z undoes the newest edit. It sends the same
-  commands as any client and never writes a file itself.
+  shift-click adds one of the material picked bottom left (the picker lists
+  the project's voxel materials only; with none it adds voxel id 2), Z
+  undoes the newest edit. It sends the same commands as any client and
+  never writes a file itself. It reads the material records again when the
+  window gets the focus back.
 
 ## Edits: `editVoxels` and `undoVoxels`
 
@@ -294,7 +297,9 @@ against its digest when the game reads it. The exported game needs no
 backend and makes no range requests. An export is refused when a world it
 names is missing or has a missing or damaged region file. The project's
 voxel kits ship whole in the build's catalog (`voxelKits`), with the model
-versions their meshes name.
+versions their meshes name, and **every voxel material** ships (a world's
+cells name materials by id, so a material only the world uses ships too;
+Play builds the same way).
 
 ## Voxel kits
 
@@ -525,6 +530,38 @@ its own `voxel: {id, …}` (an id is never inherited); an instance without a
 All of it goes through `setMaterial` (the editor, MCP's `tl_command` and
 scripts send the same command; one undo).
 
+**In the editor**, the material's Inspector has a **Voxel use** section:
+its badges, the use (none, construction, terrain, liquid; on an instance,
+"a variant" with the parent's use), the voxel id (a new voxel material gets
+the smallest free one), the kit, the tile in metres and the height depth.
+Wall, floor and ceiling texture sets are set over the API for now. The
+project window shows each material's **badges**: `mesh` (draws on meshes),
+`voxel` (has a voxel use: voxel tools list it), `kit` (its edges draw a
+kit's pieces), `liquid`, `decal`, `graph` (a node graph that compiles its
+own shader). Search with **`f:<badge>`** to list the materials that have it
+(`f:voxel`, `f:kit stone`; several narrow it); MCP's index query takes
+`badges: [...]`.
+
+**What the world draws.** Each voxel id draws as its material record says:
+its colour (the material's `color`), its tile (`tileMetres`, on walls and
+terrain alike; a tile that does not divide the 512 m texture phase is drawn
+at the nearest one that does, 3 m as 2.994 m) and its relief depth. An id
+no material names keeps its stand-in colour and test pattern; every id
+keeps its test pattern until texture sets are drawn. A material edit
+rewrites the world's material table only: nothing is derived, meshed or
+uploaded again (the Scene view, Play, an export and the voxel world page
+alike).
+
+**Scripts read the records:** `ctx.voxels.materialAt(x, y, z)` gives the
+material of the voxel at a point and `ctx.voxels.materialOf(id)` the one a
+voxel id is: `{id, materialId, name, use, kit, physical: {profile?,
+density, friction, restitution, flowRate?}, gameData}`, as the build ships
+it (null where the world is not loaded, the cell is air, or no material
+has the id). Use it for footsteps, how much a block takes to break, or
+what a liquid does. The engine itself reads none of it: chunk colliders
+keep one friction (a triangle-mesh collider has no friction per
+triangle).
+
 ## Not built yet
 
 These come later; worlds made now keep working when they arrive:
@@ -536,11 +573,10 @@ These come later; worlds made now keep working when they arrive:
   debug set of their sheet layout until materials arrive); the fringe where
   buildings meet the ground and ground scatter come with the terrain tools.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
-- **Materials**: the voxel world drawing from the material records (their
-  colour, tile and texture sets; ids without a record keep today's stand-in
-  colours), the material library's badges and filters, texture arrays and
-  wetness beyond darkening (shine and filled-in crevices). Today's surface
-  shader is a stand-in.
+- **Materials**: texture sets drawn from texture arrays (today a record
+  gives its colour, tile and depth over a test pattern), the physical
+  section in the material Inspector (profiles are set over the API), and
+  wetness beyond darkening (shine and filled-in crevices).
 - **Lighting**: the world's own light and shadow, and what reads the light
   coverage props stamp; culling and navigation over voxels.
 - **Structures** (rotated grids of their own, such as a ship or a moving

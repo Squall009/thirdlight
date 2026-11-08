@@ -210,7 +210,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.1b | done: vertex displacement both renderers + shadow pass, crease attribute, grown bounds, ring fade, test heights; normal from heights on all surfaces. Town n = 2/4 at 32 m: GPU +0.8–1.1 / +0.5 ms WebGPU, ±0 / +0.5 WebGL 2, 0 missed; the vertex stage itself ~0.1 ms. VERDICT: low normal only, medium n = 2, high n = 4, 16–24 m section ring; n = 8 rejected (§8, D528) |
 | 46d.2 | done: format spec split (D496), docs only: kits section + §3.9 kit record moved unchanged to `voxel-kit-format.md` (264 lines), `voxel-render-spec.md` skeleton (material record, texture sets, relief part, far-field data); main spec 2,225 → 1,983 lines, pointers left; links re-pointed in the spec, requirements and role spec |
 | 46d.3a | done: `MaterialDef` gains `physical`, `gameData`, `voxel` (id, use, kit, tile, height depth, wall/floor/ceiling sets), canonical round trip tested; engine + project profiles with their commands; voxel_id_taken, kit_missing; kit binding from `voxel.kit` (kit list for unnamed ids). Record 414 B; 4,095 voxel materials load in 63 ms, an edit 5.5 ms |
-| 46d.3b | not started |
+| 46d.3b | done: voxel table from the records (colour, tile, depth; stand-in for the rest), a record edit re-uploads the table only (0.8 ms, 0 meshes; seen WebGPU + WebGL 2); `ctx.voxels.materialAt`/`materialOf`; badges, `f:` filter, voxel-only picker, Inspector voxel section; every voxel material ships with a world. voxel-world e2e 65.6 → 70.8 s |
 | 46d.4a | not started |
 | 46d.4b | not started |
 | 46d.4c | not started |
@@ -437,6 +437,51 @@ resolved physics). No e2e change (`voxel-world.e2e.ts` untouched).
 `edge-cases.test.ts` (D523) and `start.e2e.ts` (D417) failed once and passed in the rerun. `voxel-world.e2e.ts`
 untouched (no e2e change).
 
+### 46d.3b the record drawn and read
+
+**Built.** three-adapter `voxel-material-looks.ts`: each voxel id's look from its material record (instances
+resolved): `params.color`, `voxel.tileMetres` (both projections, drawn at the nearest tile dividing the 512 m phase),
+`voxel.heightDepth` over the base look's relief layer; the rest, and ids no record names, keep `voxelStandInLook`.
+`VoxelSurface.setLooks` rewrites and uploads the table only (no program, grid or mesh; crack layers kept; `tableUploads`,
+`tableMs`, `tableEntry` for diagnostics); `VoxelWorldDraws.setMaterials` (Play and exports from the build's
+`manifest.materials`, the Scene view from every material change through `voxelsChanged({materials})`), the voxel world
+page from `queryGameConfig` (read again on window focus). Runtime: `ctx.voxels.materialAt(x, y, z)` /
+`materialOf(id)` from the build's records (`voxelMaterialInfos`, frozen; handed over with the world ports, worker and
+page alike); chunk colliders keep the engine's one friction (Rapier's trimesh has no per-triangle friction).
+project-model: `materialBadges` (mesh, voxel, kit, liquid, decal, graph), `isVoxelMaterial`; `materialsInUse` counts
+every voxel material when the game holds a voxel world (closes the 46d.3a gap). Editor: the material Inspector's
+**Voxel use** section (badges, use / variant, id with the smallest free one for a new voxel material, kit, tile, height
+depth), badges on material tiles, `f:<badge>` in the project window search (`queryIndex` `badges`, never kept as a
+reused page, MCP `tl_content_query` too), the voxel world page's picker (voxel materials only; shift-click adds the
+picked one, id 2 without any).
+
+**Tested.** `voxel-material-looks.test.ts` (looks from records, instance variants, stand-ins, tile snapping, the key;
+a record change rewrites the table with the WGSL program text unchanged and crack layers kept);
+`voxel-materials.test.ts` (badges, voxel-capable, runtime infos), `material-use.test.ts` (voxel materials used with a
+world only); `tools/voxel-bench/world-host.test.ts` (a real runtime through the game host's ports on region files with
+real workers: `materialAt` on the ground, an instance variant's merged game data, nulls, frozen);
+`resource-files.test.ts` (`badges` filter, answered anew after an edit the index does not see); integration export
+(a voxel-only material ships, an unworn mesh material does not); `voxel-world.e2e.ts`: the picker lists only the
+stone; the Scene view's stone colour and tile set through the Inspector rewrite the table (+2 uploads, 0 mesh builds,
+0 replaced), blue pixels 96 → 3,704, set back by command (+1); badges on the tile, `f:voxel` / `f:mesh paint`; the
+export ships the stone record.
+
+**Measured.** Table upload (4,095 entries, rewrite + upload flag) 0.80 ms in the Scene view (e2e log), the WGSL program
+unchanged (vitest). Runtime reads: one map lookup (the build's voxel materials, frozen at start). `voxel-world.e2e.ts`
+65.6 → 70.8 s (gate-fast-20261108-074413 → -094858): the Scene view test +0.4 s for the material steps; the WebGL 2
+streams test 9.9 → 14.8 s has no change of this item beyond one hook read (host variance, recorded, not chased);
+`project-window.e2e.ts` untouched, 13.2 s.
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.3b/shots/`, Scene view, both renderers): `scene-view-kit-back-*`
+(stand-in), `scene-view-stone-record-*` (the stone record's blue and 1 m tile through the Inspector: the stone
+pillars blue with the finer pattern on WebGPU and WebGL 2; blue pixels 96 → 3,704 and 100 → 9,225, the WebGPU run's
+lintel front being the brick the streams test painted before it), `scene-view-stone-back-*` (back as before). The
+voxel world page's picker is checked by hook (the e2e pictures hide it); not pictured.
+
+**Gate:** gate-fast-20261108-094858 GREEN (13 min, 5.2 GB; 855 vitest files; e2e 39 passed with `voxel-world` and
+`project-window`; perf 0 missed of 360 both renderers). The first run (-093015, before the e2e and UI) was red only on
+the regenerated reference and the visual-script catalogue's skip list (both fixed in the commit).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -565,6 +610,30 @@ untouched (no e2e change).
   liquid (water shader or liquid use) > projected (construction / terrain use; on a mesh the same record draws
   standard) > standard (standard, foliage, atlas, trim, unlit); `effect` belongs to the effect records. No new shader
   types, nothing stored.
+
+- 2026-11-08 (46d.3b, default chosen, owner to confirm): **what a record draws before texture sets**: its colour is
+  `params.color` (a record naming none keeps the per-id stand-in colour), every id keeps its test pattern until
+  46d.4a's arrays, `tileMetres` sets the construction and the terrain tile alike (one repeat whatever the projection),
+  drawn at the nearest tile dividing the 512 m texture phase (3 m → 2.994 m), and `heightDepth` replaces the depth
+  only where the page names a height layer (the relief test heights) until real heights arrive (46d.4).
+- 2026-11-08 (46d.3b, default chosen, owner to confirm): **every voxel material ships when the game holds a voxel
+  world** (any `voxelWorld` object), rather than reading every region file for the ids it holds; a mesh-only material
+  still ships only when something names it.
+- 2026-11-08 (46d.3b, default chosen, owner to confirm): **`materialOf(id)` / `materialAt(p)` answer null** for an id
+  no shipped material has (as for unloaded or air cells), never a defaults record; `materialOf` answers with no world
+  loaded (materials are the game's). The engine reads no physical number: chunk colliders keep one friction.
+- 2026-11-08 (46d.3b, default chosen, owner to confirm): **badges** `mesh`, `voxel`, `kit`, `liquid`, `decal`, `graph`
+  (derived, never stored; `voxel` = has a voxel use, what voxel tools list); the filter is the project window's
+  search `f:<badge>` (several narrow), served by `queryIndex`'s `badges` from the records and never kept as a reused
+  page (a record edit does not change the index), not a separate material library panel.
+- 2026-11-08 (46d.3b, default chosen, owner to confirm): **the voxel world page's picker** lists voxel materials by
+  id and starts on the lowest; with none, shift-click adds id 2 as before records; the page has no feed, so it reads
+  the records again when its window gets the focus back (a material edited in the editor meanwhile).
+- 2026-11-08 (46d.3b, default chosen, owner to confirm): **the Inspector's voxel section** sets use, id (a new voxel
+  material takes the smallest free id), kit, tile and depth; an instance becomes a voxel variant with its own id; no
+  section on decal materials; the surface texture sets and the physical block stay API-only (the profile commands
+  remain listed in `tests/editor-op-reach.test.ts`) until 46d.4a draws sets and an Inspector physical section is
+  planned.
 
 ## 10. Open questions for the owner
 

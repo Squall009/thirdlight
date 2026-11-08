@@ -102,8 +102,11 @@ pieces load when it is chosen, not to draw its tile).
 
 - **Search** as in Unity: `t:audio`, `t:material`, `t:scene`, Unity's type
   names (`t:AudioClip`, `t:Texture2D`, `t:Prefab`), `l:voice` (several `l:`
-  must all match), the rest a part of the name, id or file; in a folder the
-  search covers its subfolders. The kind menu writes the `t:` for you.
+  must all match), `f:voxel` (materials with that badge: `mesh`, `voxel`,
+  `kit`, `liquid`, `decal`, `graph`, shown on each material's tile; see
+  [voxel materials](voxel-worlds.md#voxel-materials)), the rest a part of
+  the name, id or file; in a folder the search covers its subfolders. The
+  kind menu writes the `t:` for you.
 - **Choosing**: click, Ctrl/Cmd-click, Shift-click (a range, also past the
   tiles on screen), Ctrl/Cmd-A. The labels bar labels every chosen asset and
   resource at once; the Inspector sets the chosen item's address and labels.

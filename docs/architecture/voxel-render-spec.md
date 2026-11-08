@@ -1,6 +1,6 @@
 # Voxel rendering and materials — format page (46d additions)
 
-Status: **skeleton** (46d.2, D496); §1 written by 46d.3a. This page receives every format addition of 46d (rendering and materials), each
+Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b. This page receives every format addition of 46d (rendering and materials), each
 as a versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the
 owner on 2026-11-02) is not grown further. Nothing here is approved yet: a section is filled by the 46d item that
 builds it ([plan 46d](../plan-phase-46d.md) §6), and every section stays empty until then. § numbers name the format
@@ -67,7 +67,24 @@ row (`binding`, "Set the binding on the material") while a kit has a list. The e
 
 **What a build ships.** The materials the game uses, resolved (instances folded in), each `physical` block
 resolved against the project's profiles (every number filled in, the profile id kept, the profile's game data
-under the material's own keys), so the runtime never reads a profile.
+under the material's own keys), so the runtime never reads a profile. **Every voxel material is used** when the
+game holds a voxel world (`material-use.ts`): a world's cells name materials by voxel id, any id may be in its
+files or painted at run time, so a build ships them all instead of reading every region file (46d.3b; default
+chosen, owner to confirm). No format changes: the manifest's `materials` list carries them as any material.
+
+**What the world draws (46d.3b).** The voxel surface's material table (a texel a voxel id: colour and pattern,
+tiles and crack layer, relief layer and depth; three-adapter `voxel-surface.ts`) is built from the records
+(`voxel-material-looks.ts`): `params.color` → colour, `voxel.tileMetres` → the construction and the terrain tile
+both (drawn at the nearest tile dividing the 512 m texture phase), `voxel.heightDepth` → the relief depth over the
+height layer the page names; what a record leaves out, and every id no record names, keeps the per-id stand-in
+(`voxelStandInLook`), the test pattern included until texture sets are drawn (46d.4a). A record change rewrites and
+uploads the table only (the feeds rule: looks are shader data; no derive, mesh or grid upload), in Play, an export,
+the Scene view and the voxel world page alike.
+
+**What the game reads (46d.3b).** `ctx.voxels.materialOf(id)` / `materialAt(x, y, z)` answer `{id, materialId,
+name, use, kit, physical, gameData}` from the build's shipped records (`voxelMaterialInfos`; frozen), handed to the
+runtime with the world ports. Chunk colliders keep the engine's one friction: Rapier's triangle-mesh colliders have
+no friction per triangle, so per-material friction is game logic over these reads.
 
 **Measured** (vitest, Node): a record with every part 414 bytes compact (79 without them); a project with all
 4,095 voxel ids given a material loads (validate + canonical) in 63 ms, one material edit on the trusted block
