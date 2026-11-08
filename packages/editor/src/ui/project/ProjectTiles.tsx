@@ -15,6 +15,7 @@ import { useAssetSummaries, useCatalog } from '../catalog/catalog-context';
 import { prefabPicture } from '../../session/prefab-copy';
 import { TileImage } from '../assets/TileImage';
 import { kindIcon } from '../../session/item-icons';
+import { MaterialBadges } from '../material/MaterialVoxelSection';
 
 /** How a list draws its items: tiles in a grid, or one row each. */
 export type ProjectView = 'grid' | 'list';
@@ -160,8 +161,8 @@ function PrefabPicture(p: { prefabId: string; thumbnails: TileThumbnails | null 
   );
 }
 
-/** A resource or a scene (a prefab with its picture). */
-export function ItemTile(p: Common & { e: IndexEntryView; thumbnails?: TileThumbnails | null }): JSX.Element {
+/** A resource or a scene (a prefab with its picture); `badges`: what a material can be used for. */
+export function ItemTile(p: Common & { e: IndexEntryView; thumbnails?: TileThumbnails | null; badges?: readonly string[] }): JSX.Element {
   return (
     <li
       className={classOf('tl-project__item', p)}
@@ -177,7 +178,10 @@ export function ItemTile(p: Common & { e: IndexEntryView; thumbnails?: TileThumb
       {p.e.kind === 'prefab' ? <PrefabPicture prefabId={p.e.id} thumbnails={p.thumbnails ?? null} /> : <Glyph kind={p.e.kind} />}
       <span className="tl-tile__name">{p.e.name}</span>
       {p.view === 'list' && <span className="tl-project__cell tl-project__cell--path">{p.e.path ?? ''}</span>}
-      <span className={p.view === 'grid' ? 'tl-tile__meta' : 'tl-project__cell tl-project__cell--kind'}>{p.e.kind}</span>
+      <span className={p.view === 'grid' ? 'tl-tile__meta' : 'tl-project__cell tl-project__cell--kind'}>
+        {p.e.kind}
+        {p.badges !== undefined && p.badges.length > 0 && <MaterialBadges badges={p.badges} />}
+      </span>
     </li>
   );
 }

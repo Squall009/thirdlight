@@ -18,6 +18,17 @@ describe('materialsInUse', () => {
     expect([...used].sort()).toEqual(['m-block', 'm-effect', 'm-model-default', 'm-object', 'm-override', 'm-timeline']);
   });
 
+  it('every voxel material (instances resolved, a voxel variant too) when a voxel world is in the game, none without one', () => {
+    const materials = [
+      { materialId: 'stone', voxel: { id: 10, use: 'construction' as const } },
+      { materialId: 'stone-dark', instanceOf: 'stone', voxel: { id: 11 } },
+      { materialId: 'stone-prop', instanceOf: 'stone' },
+      { materialId: 'crate' },
+    ];
+    expect([...materialsInUse({ entities: [{ components: { voxelWorld: { world: 'w' } } }], materials })].sort()).toEqual(['stone', 'stone-dark']);
+    expect(materialsInUse({ entities: [{ components: {} }], materials }).size).toBe(0);
+  });
+
   it('an unnamed material is not used', () => {
     expect(materialsInUse({ entities: [{ components: {} }] }).size).toBe(0);
   });

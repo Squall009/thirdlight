@@ -3187,6 +3187,20 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
     },
     {
+      "name": "materialAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): VoxelMaterialInfo | null",
+      "returns": "VoxelMaterialInfo",
+      "doc": "The material record of the voxel at a world position (null where the world is not loaded there, the cell is air, or its id has no material record in the build)."
+    },
+    {
+      "name": "materialOf",
+      "kind": "method",
+      "detail": "(id: number): VoxelMaterialInfo | null",
+      "returns": "VoxelMaterialInfo",
+      "doc": "The material record a voxel material id is (null: no material in the build has that id)."
+    },
+    {
       "name": "set",
       "kind": "method",
       "detail": "(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult",
@@ -3298,6 +3312,20 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(x: number, y: number, z: number): number | null",
       "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
+    },
+    {
+      "name": "materialAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): VoxelMaterialInfo | null",
+      "returns": "VoxelMaterialInfo",
+      "doc": "The material record of the voxel at a world position (null where the world is not loaded there, the cell is air, or its id has no material record in the build)."
+    },
+    {
+      "name": "materialOf",
+      "kind": "method",
+      "detail": "(id: number): VoxelMaterialInfo | null",
+      "returns": "VoxelMaterialInfo",
+      "doc": "The material record a voxel material id is (null: no material in the build has that id)."
     },
     {
       "name": "set",
@@ -4659,6 +4687,37 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "readonly [number, number, number]"
     }
   ],
+  "ResolvedPhysical": [
+    {
+      "name": "profile",
+      "kind": "property",
+      "detail": "string | undefined",
+      "optional": true,
+      "doc": "The profile it came from (absent: none named)."
+    },
+    {
+      "name": "density",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "friction",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "restitution",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "flowRate",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "Absent: not a liquid (no profile or override gives one)."
+    }
+  ],
   "SaveStorageInfo": [
     {
       "name": "persisted",
@@ -4822,7 +4881,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "source",
       "kind": "property",
-      "detail": "'blocks' | 'terrain'",
+      "detail": "'terrain' | 'blocks'",
       "doc": "What answered: `'blocks'` (a block layer) or `'terrain'`, and that object's id."
     },
     {
@@ -4957,6 +5016,47 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "y",
       "kind": "property",
       "detail": "number"
+    }
+  ],
+  "VoxelMaterialInfo": [
+    {
+      "name": "id",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The voxel material id."
+    },
+    {
+      "name": "materialId",
+      "kind": "property",
+      "detail": "string"
+    },
+    {
+      "name": "name",
+      "kind": "property",
+      "detail": "string"
+    },
+    {
+      "name": "use",
+      "kind": "property",
+      "detail": "'construction' | 'terrain' | 'liquid'"
+    },
+    {
+      "name": "kit",
+      "kind": "property",
+      "detail": "string | null",
+      "doc": "The kit whose pieces its edges draw (null: none)."
+    },
+    {
+      "name": "physical",
+      "kind": "property",
+      "detail": "ResolvedPhysical",
+      "type": "ResolvedPhysical"
+    },
+    {
+      "name": "gameData",
+      "kind": "property",
+      "detail": "GameDataJson",
+      "doc": "The game's own data (null: none), never read by the engine."
     }
   ],
   "VoxelRings": [

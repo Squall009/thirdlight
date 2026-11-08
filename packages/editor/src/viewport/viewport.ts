@@ -52,6 +52,7 @@ import {
   type SceneAdapter,
   type SurfaceBakeOptions,
   type SurfaceBakeOutcome,
+  type VoxelLookRecord,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { BlockType, DecalComponent, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
@@ -1081,9 +1082,11 @@ export class Viewport {
   /**
    * A voxel world edit or undo applied by any client (the editor feed): the world's changed chunks are read again.
    * `'kits'`: the project's voxel kits or settings changed: the worlds draw the new kit pieces, re-deriving what they change.
+   * `{ materials }`: the project's material records (as the Scene view draws them): the worlds' material tables follow.
    */
-  voxelsChanged(c: VoxelsChangedPayload | 'kits'): void {
+  voxelsChanged(c: VoxelsChangedPayload | 'kits' | { readonly materials: readonly VoxelLookRecord[] }): void {
     if (c === 'kits') this.voxels.kitsChanged();
+    else if ('materials' in c) this.voxels.setMaterials(c.materials);
     else this.voxels.changed(c);
   }
 }

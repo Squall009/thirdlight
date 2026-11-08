@@ -35,6 +35,7 @@
 import { isPlainObject, isPlainObjectStrict } from '@thirdlight/shared';
 import { CONSTRUCTION_TILE_METRES, MATERIAL_AIR, MATERIAL_ID_MAX, TERRAIN_TILE_METRES } from '@thirdlight/voxel';
 import type { ModelErrorV2 } from './errors';
+import { PHYSICAL_DEFAULTS, type MaterialGameData, type ResolvedPhysical } from './material-profiles';
 import { ID_RE } from './validate';
 
 /** What a voxel material is used for. */
@@ -216,6 +217,71 @@ export function materialFamilyOf(m: { readonly shader: string; readonly graph?: 
   if (m.shader === 'water' || m.voxel?.use === 'liquid') return 'liquid';
   if (m.voxel?.use === 'construction' || m.voxel?.use === 'terrain') return 'projected';
   return 'standard';
+}
+
+/**
+ * What a material can be used for, as the material library shows it (derived, never stored): `mesh` (any record but a
+ * decal draws on meshes), `voxel` (it has a voxel use: voxel tools list it), `kit` (its voxel edges draw a kit's
+ * pieces), `liquid`, `decal`, `graph` (a node graph that compiles its own shader).
+ */
+export const MATERIAL_BADGES = ['mesh', 'voxel', 'kit', 'liquid', 'decal', 'graph'] as const;
+export type MaterialBadge = (typeof MATERIAL_BADGES)[number];
+
+/** The badges of a (resolved) material, in {@link MATERIAL_BADGES} order. */
+export function materialBadges(m: { readonly shader: string; readonly graph?: unknown; readonly voxel?: Partial<MaterialVoxel> }): MaterialBadge[] {
+  const family = materialFamilyOf(m);
+  const out: MaterialBadge[] = [];
+  if (family !== 'decal') out.push('mesh');
+  if (isVoxelMaterial(m)) out.push('voxel');
+  if (m.voxel?.kit !== undefined && m.voxel.use !== 'liquid') out.push('kit');
+  if (family === 'liquid') out.push('liquid');
+  if (family === 'decal') out.push('decal');
+  if (family === 'graph') out.push('graph');
+  return out;
+}
+
+/** Whether a (resolved) material can be put in voxels: it has a voxel id and a use (a decal never). */
+export function isVoxelMaterial(m: { readonly shader: string; readonly voxel?: Partial<MaterialVoxel> }): boolean {
+  return m.shader !== 'decal' && typeof m.voxel?.id === 'number' && m.voxel.use !== undefined;
+}
+
+/**
+ * A voxel material as the game reads it at run time (`ctx.voxels.materialOf`): the record that voxel id is, with its
+ * physics resolved and its game data (both as the build ships them: profile numbers and game data folded in).
+ */
+export interface VoxelMaterialInfo {
+  /** The voxel material id. */
+  readonly id: number;
+  readonly materialId: string;
+  readonly name: string;
+  readonly use: VoxelMaterialUse;
+  /** The kit whose pieces its edges draw (null: none). */
+  readonly kit: string | null;
+  readonly physical: ResolvedPhysical;
+  /** The game's own data (null: none), never read by the engine. */
+  readonly gameData: MaterialGameData | null;
+}
+
+/**
+ * The voxel materials of a list of resolved materials (a build's shipped list, instances folded in), by voxel id, as
+ * the runtime answers for them: a material without a physical block reads the engine's defaults.
+ */
+export function voxelMaterialInfos(materials: readonly { readonly materialId: string; readonly name: string; readonly shader: string; readonly voxel?: MaterialVoxel; readonly physical?: ResolvedPhysical | { readonly profile?: string }; readonly gameData?: MaterialGameData }[]): Map<number, VoxelMaterialInfo> {
+  const out = new Map<number, VoxelMaterialInfo>();
+  for (const m of materials) {
+    const v = m.voxel;
+    if (v === undefined || !isVoxelMaterial(m) || out.has(v.id)) continue;
+    const p = m.physical as Partial<ResolvedPhysical> | undefined;
+    const physical: ResolvedPhysical = {
+      ...(p?.profile !== undefined ? { profile: p.profile } : {}),
+      density: p?.density ?? PHYSICAL_DEFAULTS.density,
+      friction: p?.friction ?? PHYSICAL_DEFAULTS.friction,
+      restitution: p?.restitution ?? PHYSICAL_DEFAULTS.restitution,
+      ...(p?.flowRate !== undefined ? { flowRate: p.flowRate } : {}),
+    };
+    out.set(v.id, { id: v.id, materialId: m.materialId, name: m.name, use: v.use!, kit: v.kit ?? null, physical, gameData: m.gameData ?? null });
+  }
+  return out;
 }
 
 /** What the project rules read of a resolved material. */

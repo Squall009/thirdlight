@@ -17,6 +17,12 @@
  * the seams between levels; a change of the levels drawn arrives whole in
  * one batch, so the old level is drawn until the new one is complete.
  *
+ * Each world's material table is built from the project's material records
+ * (`voxel-material-looks.ts`; ids without one draw their stand-in), given
+ * and replaced with {@link VoxelWorldDraws.setMaterials}: a record changed
+ * rewrites every world's table and nothing else (looks are shader data, so
+ * no chunk is derived, meshed or uploaded again).
+ *
  * Kit pieces draw from one kit set for every world on the page (the
  * project's kits: every world derives with the engine's world rules, so
  * one piece table numbers them all), given and replaced with
@@ -45,9 +51,10 @@ import * as THREE from 'three';
 import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { voxelLooksKey, voxelRecordLooks, type VoxelLookRecord } from './voxel-material-looks';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
-import { createVoxelSurface, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
+import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface } from './voxel-surface';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -78,6 +85,8 @@ export interface VoxelWorldDrawsOptions {
   applied?(): void;
   /** The kit pieces every world draws (absent: none until {@link VoxelWorldDraws.setKits}). */
   readonly kits?: VoxelKitSet | null;
+  /** The material records the worlds' tables are built from (absent: every id its stand-in until {@link VoxelWorldDraws.setMaterials}). */
+  readonly materials?: readonly VoxelLookRecord[];
 }
 
 /** One world as drawn: objects (chunks and nodes of every level), per level, seams, triangles (seams included). */
@@ -93,6 +102,9 @@ export interface VoxelWorldDrawStats {
   readonly pieceDraws: number;
   readonly meshBuilds: number;
   readonly shaderSets: number;
+  /** Material table uploads (a record changed) and the ms the last one took. */
+  readonly tableUploads: number;
+  readonly tableMs: number;
 }
 
 interface WorldDraw {
@@ -126,9 +138,26 @@ export class VoxelWorldDraws {
   replaced = 0;
   private kitSet: VoxelKitSet | null = null;
   private kitLoaded: (() => void) | null = null;
+  private looks: (material: number) => VoxelMaterialLook = voxelStandInLook;
+  private looksKey = '';
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.setKits(opts.kits ?? null);
+    if (opts.materials !== undefined) this.setMaterials(opts.materials);
+  }
+
+  /**
+   * The worlds' material tables from these records from now on: each open world's table is rewritten and uploaded
+   * (nothing else changes); records whose looks read the same change nothing. False: nothing changed.
+   */
+  setMaterials(materials: readonly VoxelLookRecord[]): boolean {
+    const key = voxelLooksKey(materials);
+    if (key === this.looksKey) return false;
+    this.looksKey = key;
+    this.looks = voxelRecordLooks(materials);
+    for (const w of this.worlds.values()) w.surface.setLooks(this.looks);
+    this.opts.applied?.();
+    return true;
   }
 
   /** Every world draws its kit pieces from `set` from now on (each view as {@link VoxelChunkView.setKits}); meshes arriving later draw a frame. */
@@ -189,7 +218,7 @@ export class VoxelWorldDraws {
     let w = this.worlds.get(name);
     if (w !== undefined) return w;
     const grid = chunkGrid(edge as ChunkEdge);
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: VOXEL_SIZE_M / 2 });
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: VOXEL_SIZE_M / 2 });
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet });
     view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
@@ -247,7 +276,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets };
+    for (const [name, { view, surface }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 

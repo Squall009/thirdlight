@@ -546,6 +546,9 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       // A region (point, box or ball) and a world handle are not graph types yet (brushes bring region inputs).
       'voxels.dig',
       'voxels.isResident',
+      // A material record is an object of fields: not a graph output yet.
+      'voxels.materialAt',
+      'voxels.materialOf',
       'voxels.paint',
       // A save is bytes and a field list a list of names: not graph inputs.
       'voxels.restore',

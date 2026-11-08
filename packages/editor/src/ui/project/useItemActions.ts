@@ -15,6 +15,8 @@ import { useCallback, useMemo, useState, type Dispatch } from 'react';
 import type { AnimatorController, KitDef, MaterialDef } from '@thirdlight/project-model';
 import { DIALOGUE_LIMITS, NAME_MAX, RESOURCE_KIND_TABLE, SCRIPT_LIBRARY_LIMITS, TIMELINE_LIMITS, UI_LIMITS } from '@thirdlight/project-model/limits';
 import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
+import { materialBadges } from '@thirdlight/project-model/voxel-materials';
+import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/three-adapter';
 import { architectureGraphTemplate } from '@thirdlight/runtime';
 
 import { docKey, type WorkspaceAction } from '../../session/editor-window';
@@ -115,6 +117,8 @@ export interface ItemActions {
   readonly deleteError: { item: ProjectItem; message: string } | null;
   /** A prefab's variant: a new prefab made of one copy of it, shown in the Inspector after. */
   createVariant(basePrefabId: string): Promise<string | null>;
+  /** An item's badges (a material's: what it can be used for, `materialBadges`; none for other kinds). */
+  badges(kind: string, id: string): readonly string[];
 }
 
 export function useItemActions(deps: ItemActionsDeps): ItemActions {
@@ -340,5 +344,9 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
     [clientRef, inspect],
   );
 
-  return useMemo(() => ({ createKinds, create, canRename, rename, canDelete, remove, deleteError, createVariant }), [createKinds, create, canRename, rename, canDelete, remove, deleteError, createVariant]);
+  // A material's badges from its record as it draws (an instance has its chain's graph and voxel use).
+  const badgeMap = useMemo(() => new Map(resolveMaterialInstancesLike(materials as unknown as MaterialDefLike[]).map((m) => [m.materialId, materialBadges(m as unknown as MaterialDef)] as const)), [materials]);
+  const badges = useCallback((kind: string, id: string): readonly string[] => (kind === 'material' ? (badgeMap.get(id) ?? []) : []), [badgeMap]);
+
+  return useMemo(() => ({ createKinds, create, canRename, rename, canDelete, remove, deleteError, createVariant, badges }), [createKinds, create, canRename, rename, canDelete, remove, deleteError, createVariant, badges]);
 }

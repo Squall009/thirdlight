@@ -530,7 +530,8 @@ export const TOOL_DETAILS = {
     '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
     'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator, envpreset, kit, voxelkit — each its own file in the game folder) and scene ' +
     'as {kind, id, path, name, labels, address?, refs} (kind, id, label, address filter; loadable: true = only those with an address or a label; ' +
-    'referencing: what names that id; text: a part of the name, id or file, any case; labels: [every one]; folder: "assets/props" the entries whose file is in that ' +
+    'referencing: what names that id; text: a part of the name, id or file, any case; labels: [every one]; badges: [every one] the materials with those badges ' +
+    '(mesh, voxel, kit, liquid, decal, graph: derived from the records); folder: "assets/props" the entries whose file is in that ' +
     'folder of the game folder ("" its top), recursive: true also in its subfolders; sort: name|kind|path, descending; folders: true adds folders: [{path, name, hasFolders}] ' +
     'the subfolders of folder). Never returns bytes.',
   tl_content_upload:

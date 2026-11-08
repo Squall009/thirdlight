@@ -33,6 +33,7 @@ export function shippedMaterials(o: ShippedMaterialsInput): MaterialDef[] | unde
     blockTypes: content?.blockTypes ?? [],
     effects: content?.effects ?? [],
     timelines: content?.timelines ?? [],
+    materials: all,
   });
   // A loadable material ships too (a script may load it by name).
   for (const id of loadableResourceIds(o.content, 'material')) used.add(id);

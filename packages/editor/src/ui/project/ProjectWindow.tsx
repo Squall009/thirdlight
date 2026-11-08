@@ -26,11 +26,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 
-import { ASSET_KINDS, INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX } from '@thirdlight/project-model/limits';
+import { INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX } from '@thirdlight/project-model/limits';
 
 import type { FolderView, IndexEntryView, IndexQuery } from '../../session/catalog';
 import { ASSET_DRAG_TYPE, PREFAB_DRAG_TYPE } from '../../session/placement';
-import { PROJECT_KINDS, parseSearch, typeOf, withType } from '../../session/project-search';
+import { isSearching, PROJECT_KINDS, parseSearch, searchQuery, typeOf, withType } from '../../session/project-search';
 import { folderKey, folderTrail, freeFolderName, isAssetKind, isWithin, itemKey, parseProjectDrag, PROJECT_DRAG_TYPE, selectionOf, type ProjectItem, type ProjectSelection } from '../../session/project-items';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useCatalog } from '../catalog/catalog-context';
@@ -137,19 +137,9 @@ export function ProjectWindow(p: Props): JSX.Element {
     onFolder(null);
   }, [asked, onFolder]);
   const search = useMemo(() => parseSearch(text), [text]);
-  const searching = search.text !== '' || search.kinds !== null || search.labels.length > 0;
+  const searching = isSearching(search);
   const folder = p.folder;
-  const query = useMemo<IndexQuery>(
-    () => ({
-      ...(search.kinds !== null ? { kinds: search.kinds } : folder === null ? { kinds: ASSET_KINDS } : {}),
-      ...(search.text !== '' ? { text: search.text } : {}),
-      ...(search.labels.length > 0 ? { labels: search.labels } : {}),
-      ...(folder !== null ? { folder, recursive: searching } : {}),
-      ...(sort !== '' ? { sort } : {}),
-      ...(descending ? { descending: true } : {}),
-    }),
-    [search, folder, searching, sort, descending],
-  );
+  const query = useMemo<IndexQuery>(() => ({ ...searchQuery(search, folder), ...(sort !== '' ? { sort } : {}), ...(descending ? { descending: true } : {}) }), [search, folder, sort, descending]);
   const list = useIndexList(query);
   const subfolders = useSubfolders(folder !== null && !searching ? folder : null);
   const folderCount = subfolders.length;
@@ -566,7 +556,7 @@ export function ProjectWindow(p: Props): JSX.Element {
               onOpen: () => p.onOpen({ kind: e.kind, id: e.id }),
               onDragStart: (ev: DragEvent<HTMLLIElement>) => dragStart(ev, key, e, null),
             };
-            if (!isAssetKind(e.kind)) return <ItemTile key={key} {...common} chosen={chosen.has(key)} e={e} thumbnails={p.thumbnails} />;
+            if (!isAssetKind(e.kind)) return <ItemTile key={key} {...common} chosen={chosen.has(key)} e={e} thumbnails={p.thumbnails} badges={p.actions?.badges(e.kind, e.id) ?? []} />;
             const index = at.entry;
             return (
               <AssetTile

@@ -66,6 +66,14 @@
  * the Scene view a slot filled through the command route draws without a
  * reload, and goes again when the kit is set back.
  *
+ * The stone is a material record with a voxel use (its kit the test kit),
+ * beside a mesh-only material: the voxel world page's picker lists only the
+ * stone; in the Scene view the stone's colour and tile set through the
+ * Inspector rewrite the world's material table (no chunk derived or meshed
+ * again) and change the picture, its badges show in the project window and
+ * `f:` filters by them; the export ships the stone though only the world's
+ * cells name it.
+ *
  * Everything is derived per section (the page's default section edge) and
  * drawn per storage chunk (the sections joined): a blast dug at a chunk
  * corner, locally (a game's runtime edit) and as a command, swaps every
@@ -83,6 +91,7 @@ import { expect, test, type Page } from './pw';
 import { exportedContent, serveDir, startBackend, type E2EBackend } from './backend';
 import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
+import { chooseItem, inspector } from './ui';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
@@ -100,6 +109,10 @@ test.beforeAll(async () => {
   scene = [...writeSliceWorld(be.projectDir, 'slice', 256).scene] as Cell;
   farScene = [...writeSliceWorld(be.projectDir, 'far', 256, { x: FAR_CHUNKS, z: FAR_CHUNKS }).scene] as Cell;
   await addStoneKit();
+  // The stone's material record: a voxel material bound to the test kit (so the binding, and every picture, is as
+  // the kit's own list made it); and a material for meshes only, which voxel tools never list.
+  await playCmd('setMaterial', { material: STONE_MATERIAL });
+  await playCmd('setMaterial', { material: { materialId: 'mat-crate-paint', name: 'Crate paint', shader: 'standard', params: { color: '#a07040' }, textures: {} } });
 });
 
 /**
@@ -109,6 +122,9 @@ test.beforeAll(async () => {
  * faces.
  */
 const STONE_KIT = 'stone-test';
+
+/** The stone's material record as set up (no colour or tile of its own: it draws its stand-in look). */
+const STONE_MATERIAL = { materialId: 'mat-stone-voxel', name: 'Stone (voxel)', shader: 'standard', params: {}, textures: {}, voxel: { id: MAT.stone, use: 'construction', kit: STONE_KIT } };
 /** The test kit's record as set up, and its one mesh (the Scene view test fills another slot with it and sets the kit back). */
 let stoneKit: { slots: Record<string, unknown> } & Record<string, unknown>;
 let stoneMesh: { assetId: string; digest: string };
@@ -367,6 +383,10 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await open(page, renderer, '&bands=1');
     const state = await hook<{ drawn: number; triangles: number; pieces: number; counters: { damaged: number } }>(page, 'state');
     expect(state.drawn).toBeGreaterThan(20);
+    // The material picker lists the project's voxel materials only (not the mesh-only one); shift-click adds the stone.
+    const picker = await hook<{ entries: { id: number; materialId: string }[]; picked: number; options: string[] }>(page, 'materials');
+    expect(picker.entries.map((m) => [m.id, m.materialId])).toEqual([[MAT.stone, 'mat-stone-voxel']]);
+    expect([picker.picked, picker.options]).toEqual([MAT.stone, ['Stone (voxel) · 10 · construction']]);
     expect(state.triangles).toBeGreaterThan(1000);
     // The stone wall's kit pieces (its free end's vertical edges and top corners).
     expect(state.pieces).toBeGreaterThan(5);
@@ -803,7 +823,7 @@ async function sceneViewStill(page: Page, name: string): Promise<ReturnType<type
   return decodePng(png!);
 }
 
-interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number; kitInstances: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
+interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number; kitInstances: number; tableUploads: number; tableMs: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
 
 test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit and a kit slot filled through the command route show without a reload", async ({ page }) => {
   test.setTimeout(120_000);
@@ -852,8 +872,44 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   expect(changedPixels(dug, slotted)).toBeGreaterThan(100);
   await kitCmd(stoneKit);
   await expect.poll(pieces, { timeout: 30_000, message: 'the emptied slot draws nothing again' }).toBe(plain);
-  expect(changedPixels(dug, await sceneViewStill(page, 'scene-view-kit-back'))).toBeLessThan(50);
+  const kitBack = await sceneViewStill(page, 'scene-view-kit-back');
+  expect(changedPixels(dug, kitBack)).toBeLessThan(50);
   expect(await page.evaluate(() => (window as unknown as { __notReloaded?: boolean }).__notReloaded)).toBe(true);
+
+  // The stone's material record drawn: its colour and tile set through the Inspector rewrite the world's material table
+  // and the walls turn blue, with no chunk derived, meshed or replaced again; the project window shows its badges and
+  // filters by them; set back through the command route (as MCP sends it), the table follows again.
+  const table = async (): Promise<{ uploads: number; meshBuilds: number; replaced: number }> => { const v = (await voxels())!; return { uploads: v.worlds['slice']!.tableUploads, meshBuilds: v.worlds['slice']!.meshBuilds, replaced: v.replaced }; };
+  const looks0 = await table();
+  await chooseItem(page, 'material', 'Stone (voxel)');
+  const ins = inspector(page);
+  await expect(ins.locator('[aria-label="voxel use"] [data-badge]')).toHaveText(['mesh', 'voxel', 'kit']);
+  const colour = ins.getByLabel('color', { exact: true });
+  await colour.fill('#1030e0');
+  await colour.blur();
+  await expect.poll(async () => (await table()).uploads, { timeout: 15_000, message: 'the colour rewrites the table' }).toBe(looks0.uploads + 1);
+  const tile = ins.getByLabel('voxel tile metres');
+  await tile.fill('1');
+  await tile.press('Enter');
+  await expect.poll(async () => (await table()).uploads, { timeout: 15_000, message: 'the tile rewrites the table' }).toBe(looks0.uploads + 2);
+  expect(await table()).toMatchObject({ meshBuilds: looks0.meshBuilds, replaced: looks0.replaced });
+  const recoloured = await sceneViewStill(page, 'scene-view-stone-record');
+  const blue = [hueCount(kitBack, 'blue'), hueCount(recoloured, 'blue')];
+  expect(blue[1] - blue[0], `blue pixels ${blue.join(' → ')}`).toBeGreaterThan(2000);
+  const panel = page.locator('.tl-assets');
+  await expect(panel.locator('li[data-item-id="mat-stone-voxel"] [data-badge]')).toHaveText(['mesh', 'voxel', 'kit']);
+  const search = panel.getByLabel('search the project');
+  const listed = (): Promise<string[]> => panel.locator('li.tl-project__item').evaluateAll((els) => els.map((e) => e.getAttribute('data-item-id') ?? ''));
+  await search.fill('f:voxel');
+  await expect.poll(listed, { timeout: 10_000 }).toEqual(['mat-stone-voxel']);
+  await search.fill('f:mesh paint');
+  await expect.poll(listed, { timeout: 10_000 }).toEqual(['mat-crate-paint']);
+  await search.fill('');
+  await playCmd('setMaterial', { material: STONE_MATERIAL });
+  await expect.poll(async () => (await table()).uploads, { timeout: 15_000, message: 'the record set back rewrites the table' }).toBe(looks0.uploads + 3);
+  expect(await table()).toMatchObject({ meshBuilds: looks0.meshBuilds, replaced: looks0.replaced });
+  expect(Math.abs(hueCount(await sceneViewStill(page, 'scene-view-stone-back'), 'blue') - blue[0])).toBeLessThan(200);
+  console.log(`[voxel-scene-view] material table: ${JSON.stringify(await table())}, last upload ${(await voxels())!.worlds['slice']!.tableMs.toFixed(2)} ms; blue pixels ${blue.join(' → ')}`);
 
   // The renderer's CPU ms a frame while the view orbits (60 frames), with the world and, once its object goes, without.
   const orbit = async (): Promise<string | null> => {
@@ -891,6 +947,10 @@ test('Export: the Play project exported and served statically with the backend s
   // The catalog lists the world and its region files, each shipped whole at its content path.
   const shipped = (exportedContent(out) as unknown as { voxelWorlds?: Array<{ world: string; files: Array<{ name: string; digest: string; byteLength: number }> }> }).voxelWorlds ?? [];
   expect(shipped.map((w) => w.world)).toEqual(['far']);
+  // The stone's record ships though only the world's cells name it; the mesh-only material nothing wears does not.
+  const shippedMaterials = ((exportedContent(out) as unknown as { materials?: Array<{ materialId: string; voxel?: unknown }> }).materials ?? []);
+  expect(shippedMaterials.find((m) => m.materialId === 'mat-stone-voxel')?.voxel).toEqual(STONE_MATERIAL.voxel);
+  expect(shippedMaterials.some((m) => m.materialId === 'mat-crate-paint')).toBe(false);
   const regionPaths = new Set(shipped[0]!.files.map((f) => `content/sha256/${f.digest}`));
   const regionBytes = shipped[0]!.files.reduce((n, f) => n + f.byteLength, 0);
   // The far world is the slice's 128 m square (256 cells of 0.5 m).

@@ -4,9 +4,11 @@ import { kindsOfType, parseSearch, typeOf, withType } from './project-search';
 
 describe('the project window search', () => {
   it('reads t: kinds, l: labels and the words', () => {
-    expect(parseSearch('t:audio l:voice hello')).toEqual({ kinds: ['audio'], labels: ['voice'], text: 'hello' });
-    expect(parseSearch('  crate  ')).toEqual({ kinds: null, labels: [], text: 'crate' });
-    expect(parseSearch('t:AudioClip t:Texture2D l:a l:b big red')).toEqual({ kinds: ['audio', 'texture'], labels: ['a', 'b'], text: 'big red' });
+    expect(parseSearch('t:audio l:voice hello')).toEqual({ kinds: ['audio'], labels: ['voice'], badges: [], text: 'hello' });
+    expect(parseSearch('  crate  ')).toEqual({ kinds: null, labels: [], badges: [], text: 'crate' });
+    expect(parseSearch('t:AudioClip t:Texture2D l:a l:b big red')).toEqual({ kinds: ['audio', 'texture'], labels: ['a', 'b'], badges: [], text: 'big red' });
+    // A material's badges: f:voxel f:kit narrow it (any case).
+    expect(parseSearch('f:Voxel f:kit stone')).toEqual({ kinds: null, labels: [], badges: ['voxel', 'kit'], text: 'stone' });
   });
 
   it('names kinds by kind, Unity type name or the start of a kind; an unknown type finds nothing', () => {

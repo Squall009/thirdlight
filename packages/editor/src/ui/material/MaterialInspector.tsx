@@ -34,6 +34,7 @@ import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { TrimSheetTable, type TrimCheck } from './TrimSheetTable';
 import { DecalCellPicker } from './DecalCellPicker';
 import { OpenItemButton } from '../catalog/item-opener';
+import { MaterialVoxelSection } from './MaterialVoxelSection';
 
 /** The DataTransfer type a dragged material carries (dropped onto an object in the Scene view). */
 export const MATERIAL_DRAG_TYPE = 'application/x-thirdlight-material';
@@ -106,6 +107,7 @@ export function MaterialItemInspector(p: { materialId: string; materials: readon
           <button className="tl-btn tl-btn--small" onClick={() => p.onOpen(selected.materialId)}>
             Open graph
           </button>
+          <MaterialVoxelSection material={selected} resolved={resolved.find((r) => r.materialId === selected.materialId) ?? selected} parent={null} materials={p.materials} onSave={p.onSave} />
           <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => p.onDelete(selected.materialId)} title="Delete (refused while an object or an asset uses it)">
             delete material
           </button>
@@ -235,6 +237,7 @@ function MaterialInspector(props: { material: MaterialDef; materials: readonly M
         </label>
       ))}
       {m.shader === 'trim' && <TrimSheetTable material={m} onSave={props.onSave} {...(props.onCheckTrim !== undefined ? { onCheck: props.onCheckTrim } : {})} />}
+      {m.shader !== 'decal' && <MaterialVoxelSection material={m} resolved={m} parent={null} materials={props.materials} onSave={props.onSave} />}
       <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => props.onDelete(m.materialId)} title="Delete (refused while an object or an asset uses it)">
         delete material
       </button>
@@ -354,6 +357,7 @@ function InstanceInspector(props: { instance: MaterialDef; materials: readonly M
           ))}
         </>
       )}
+      {parent !== null && parent.shader !== 'decal' && <MaterialVoxelSection material={m} resolved={resolved.find((r) => r.materialId === m.materialId) ?? m} parent={parent} materials={props.materials} onSave={props.onSave} />}
       <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => props.onDelete(m.materialId)} title="Delete (refused while an object, an asset or another instance uses it)">
         delete material
       </button>

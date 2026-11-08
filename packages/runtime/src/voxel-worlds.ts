@@ -17,7 +17,8 @@
  * bounds) where they are, again whenever their world transform changes
  * between steps, and out again when they leave.
  */
-import { qualityLevelsOf, resolveVoxelWorld, type EntityV3, type QualityLevelConfig, type VoxelWorldComponent } from '@thirdlight/project-model';
+import { deepFreeze } from '@thirdlight/shared';
+import { qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
 import type { PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
 import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
@@ -77,6 +78,8 @@ export class RuntimeVoxels {
   private saveSeq = 0;
   /** The quality level the page draws at (null: not reported yet). */
   private level: QualityLevelConfig | null = null;
+  /** The build's voxel materials by id (frozen: scripts read them, never change them). */
+  private readonly materials: ReadonlyMap<number, VoxelMaterialInfo>;
   readonly api: BehaviorVoxels;
 
   constructor(
@@ -85,6 +88,7 @@ export class RuntimeVoxels {
     private readonly view: VoxelWorldsView,
   ) {
     const first = (): BehaviorVoxelWorld | null => this.worlds.values().next().value?.host.api ?? null;
+    this.materials = new Map([...voxelMaterialInfos(ports?.materials ?? [])].map(([id, m]) => [id, deepFreeze(m)]));
     const voxels = this;
     this.api = Object.freeze({
       worlds: () => Object.freeze([...this.worlds.keys()]),
@@ -103,6 +107,9 @@ export class RuntimeVoxels {
       },
       get: (x: number, y: number, z: number) => first()?.get(x, y, z) ?? null,
       coverageAt: (x: number, y: number, z: number) => first()?.coverageAt(x, y, z) ?? null,
+      materialAt: (x: number, y: number, z: number) => first()?.materialAt(x, y, z) ?? null,
+      // Materials are the game's, not a world's: answered with no world loaded too.
+      materialOf: (id: number) => this.materials.get(id) ?? null,
       set: (...a: Parameters<BehaviorVoxelWorld['set']>) => first()?.set(...a) ?? NO_WORLD,
       dig: (...a: Parameters<BehaviorVoxelWorld['dig']>) => first()?.dig(...a) ?? NO_WORLD,
       paint: (...a: Parameters<BehaviorVoxelWorld['paint']>) => first()?.paint(...a) ?? NO_WORLD,
@@ -150,7 +157,7 @@ export class RuntimeVoxels {
         nextSave: () => ++this.saveSeq,
         mismatch: (m) => this.mismatched.push(m),
         warn: (m) => this.view.warn(m),
-      }, () => ++this.editSeq);
+      }, () => ++this.editSeq, this.materials);
       this.worlds.set(c.world, { host, objects: [e.id] });
       host.stampProps([...this.props].filter(([, p]) => p.shape !== null).map(([id, p]) => [id, p.shape] as const));
     }

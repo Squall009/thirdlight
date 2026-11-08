@@ -25,7 +25,7 @@ import {
 import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
 import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
 import { chunkDrawBatchTransfer, chunkGrid, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
-import type { QualityLevelConfig } from '@thirdlight/project-model';
+import { resolveMaterialInstances, withResolvedPhysics, type MaterialDef, type QualityLevelConfig } from '@thirdlight/project-model';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
@@ -588,6 +588,28 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     await s().settle();
     expect(h.rt.dispose().ok).toBe(true);
   }, 120_000);
+
+  it("answers materialAt / materialOf with the build's voxel material records (instances folded in, physics resolved against the profile, game data merged), through the game host's ports", async () => {
+    const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+    const ground = oracle.voxelAt(0, groundY, 0, v).material;
+    // The materials as a build ships them: instances resolved, physics against the engine's profiles.
+    const stored = [
+      { materialId: 'ground', name: 'Ground', shader: 'standard', params: {}, textures: {}, physical: { profile: 'earth', friction: 0.9 }, gameData: { footstep: 'dirt' }, voxel: { id: ground, use: 'terrain', tileMetres: 2 } },
+      { materialId: 'ground-moss', name: 'Mossy ground', shader: 'standard', params: {}, textures: {}, instanceOf: 'ground', gameData: { moss: true }, voxel: { id: 4000 } },
+      { materialId: 'crate', name: 'Crate', shader: 'standard', params: {}, textures: {} },
+    ] as unknown as MaterialDef[];
+    const shipped = withResolvedPhysics(resolveMaterialInstances(stored), []);
+    const h = await harness((ports) => presentVoxelWorlds(ports, () => {}, [], 0, undefined, shipped).ports);
+    const y = (groundY + 0.5) * VOXEL_SIZE_M;
+    const at = await h.stepUntil((vx) => vx.materialAt(0.25, y, 0.25) ?? undefined, 'the ground under the focus to load');
+    expect(at).toEqual({ id: ground, materialId: 'ground', name: 'Ground', use: 'terrain', kit: null, physical: { profile: 'earth', density: 1500, friction: 0.9, restitution: 0.05 }, gameData: { footstep: 'dirt' } });
+    expect(Object.isFrozen(at) && Object.isFrozen(at.physical)).toBe(true);
+    const read = await h.inStep((vx) => ({ moss: vx.materialOf(4000), none: vx.materialOf(4001), air: vx.materialAt(0.25, y + 5, 0.25), world: vx.world('a')?.materialOf(ground)?.name ?? null }));
+    // The variant: its own id, its parent's use and physics, the game data merged by key.
+    expect(read.moss).toEqual({ id: 4000, materialId: 'ground-moss', name: 'Mossy ground', use: 'terrain', kit: null, physical: { profile: 'earth', density: 1500, friction: 0.9, restitution: 0.05 }, gameData: { footstep: 'dirt', moss: true } });
+    expect([read.none, read.air, read.world]).toEqual([null, null, 'Ground']);
+    expect(h.rt.dispose().ok).toBe(true);
+  }, 60_000);
 
   it("keeps a reloaded world's draws when the connection it replaced finishes opening last (out-of-order opens in Play)", async () => {
     const batches: ChunkDrawBatch[] = [];

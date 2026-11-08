@@ -772,6 +772,17 @@ export interface BehaviorVoxelWorld {
    */
   coverageAt(x: number, y: number, z: number): number | null;
   /**
+   * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
+   * or its id has no material record in the build).
+   * @graphNode skip a material record is an object, which a graph output cannot take yet
+   */
+  materialAt(x: number, y: number, z: number): VoxelMaterialInfo | null;
+  /**
+   * The material record a voxel material id is (null: no material in the build has that id).
+   * @graphNode skip a material record is an object, which a graph output cannot take yet
+   */
+  materialOf(id: number): VoxelMaterialInfo | null;
+  /**
    * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap).
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
@@ -1352,31 +1363,5 @@ export interface BehaviorDialogueState {
   readonly total: number;
   /** The options shown, in order (a choice), as their texts. */
   readonly options: readonly string[];
-}
-```
-
-<a id="script-type-behavior-dialogue-event"></a>
-## `BehaviorDialogueEvent`
-
-```ts
-/** One dialogue event (seen by scripts in the step after it happened). */
-export interface BehaviorDialogueEvent {
-  /** start, lineStart, lineEnd, choice (options shown), chosen, signal, end. */
-  readonly kind: 'start' | 'lineStart' | 'lineEnd' | 'choice' | 'chosen' | 'signal' | 'end';
-  /** The conversation (the number `start` returned). */
-  readonly conversation: number;
-  readonly dialogueId: string;
-  /** The node (a line, a choice, a signal; '' for start/end). */
-  readonly nodeId: string;
-  /** lineStart: the speaker id ('' for narration). */
-  readonly speaker: string;
-  /** lineStart: the line as shown (rich text); chosen: the option's text. */
-  readonly text: string;
-  /** signal: its name; end: why (end, stopped, loop). */
-  readonly name: string;
-  /** signal: its value. */
-  readonly value: string;
-  /** chosen: the option's index among those shown; else -1. */
-  readonly index: number;
 }
 ```

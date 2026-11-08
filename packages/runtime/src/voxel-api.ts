@@ -30,8 +30,19 @@
  * indoor part small, the open land large); the quality level still applies
  * on top. The change is applied without a reload: the levels drawn change
  * in one swap, chunks past the new load ring go and those inside it load.
+ *
+ * Materials: a voxel names its material by id; `materialOf(id)` and
+ * `materialAt(x, y, z)` answer with the material record that id is (its name,
+ * use and kit, its physics resolved against its profile, and the game's own
+ * data), as the build ships it, for game logic such as footsteps or how much
+ * a block takes to break. The engine itself reads none of it: chunk
+ * colliders keep one friction (a triangle-mesh collider has no friction per
+ * triangle).
  */
+import type { VoxelMaterialInfo } from '@thirdlight/project-model';
 import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type VoxelRecord } from '@thirdlight/voxel';
+
+export type { VoxelMaterialInfo };
 
 /** A voxel as scripts read and write it. */
 export interface VoxelValue {
@@ -154,6 +165,17 @@ export interface BehaviorVoxelWorld {
    * @graphNode Light coverage at
    */
   coverageAt(x: number, y: number, z: number): number | null;
+  /**
+   * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
+   * or its id has no material record in the build).
+   * @graphNode skip a material record is an object, which a graph output cannot take yet
+   */
+  materialAt(x: number, y: number, z: number): VoxelMaterialInfo | null;
+  /**
+   * The material record a voxel material id is (null: no material in the build has that id).
+   * @graphNode skip a material record is an object, which a graph output cannot take yet
+   */
+  materialOf(id: number): VoxelMaterialInfo | null;
   /**
    * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap).
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet

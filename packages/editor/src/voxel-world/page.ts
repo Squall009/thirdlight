@@ -15,7 +15,8 @@
  * says so in its status line; the edit is not resent for the user.
  *
  * Drag to orbit, wheel to zoom, W A S D to move; click digs a 1 m sphere,
- * shift-click adds one, Z undoes the newest edit. `window.__tlVoxelWorld`
+ * shift-click adds one of the material picked bottom left (the project's
+ * voxel materials only, page-materials.ts), Z undoes the newest edit. `window.__tlVoxelWorld`
  * is the hook a test or a measuring run drives.
  *
  * Every storage chunk within the collision ring around the camera's target
@@ -45,6 +46,8 @@
  * a quarter metre, half a cell), `?shading=flat` draws one colour with no texture
  * reads (to measure what the blend costs), `?gpuTime=1` records GPU
  * timestamps where the device has them, `?sun=` sets the sun's elevation in degrees.
+ * Each material's look comes from its material record (colour, tile,
+ * relief depth; ids without one their stand-in).
  *
  * Detail pieces are the project's voxel kits with its piece seed (read
  * through the command route, their GLBs from the backend), through the one
@@ -91,6 +94,7 @@ import {
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { bindViewInput, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
+import { PageMaterials } from './page-materials';
 import { kitSceneHooks } from './kit-scene-labels';
 import { pageToken } from '../config';
 import { PageCollisionRing } from './collision';
@@ -142,8 +146,9 @@ document.body.style.cssText = 'margin:0;overflow:hidden;background:#9fc4e8';
 const canvas = document.createElement('canvas');
 canvas.style.cssText = 'display:block;width:100vw;height:100vh';
 document.body.append(canvas, hud);
-// `?hud=0`: no status line (pictures compared pixel by pixel).
-if (params.get('hud') === '0') hud.style.display = 'none';
+// `?hud=0`: no status line and no picker (pictures compared pixel by pixel).
+const hudShown = params.get('hud') !== '0';
+if (!hudShown) hud.style.display = 'none';
 
 function fail(message: string): never {
   hud.textContent = message;
@@ -225,12 +230,19 @@ async function main(): Promise<void> {
   const target = { x: at[0], y: at[1] + 4, z: at[2] };
   const view = { yaw: -0.6, pitch: 0.45, distM: 22 };
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
-  // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
-  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...relief.surfaceOptions(), blendMetres: blendM, shading, bands });
-  relief.attach(surface);
   // The project's kits and seed, one table for the derives and the draws; their meshes load beside the stream.
   const kitRoute = { api, projectId, headers };
-  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
+  const project = await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`));
+  const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : project);
+  // Each material's look from its record, over the stand-in (and the relief's test layer) for what it leaves out.
+  const reliefOptions = relief.surfaceOptions();
+  const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look);
+  materials.take(project.materials ?? []);
+  if (hudShown) document.body.append(materials.select);
+  // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...reliefOptions, look: materials.look(), blendMetres: blendM, shading, bands });
+  relief.attach(surface);
+  materials.attach(surface);
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(relief.params.n !== null ? { relief: { n: relief.params.n, radius: Math.round(relief.params.radiusM / VOXEL_SIZE_M) } } : {}), ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows });
   const gpu = createGpuTiming();
@@ -411,7 +423,7 @@ async function main(): Promise<void> {
 
   /** A brush dab (dig, or add soil) centred on a cell. */
   function dab(cell: readonly [number, number, number], mode: 'dig' | 'add'): Promise<EditTiming> {
-    return edit({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [BRUSH_CELLS, BRUSH_CELLS, BRUSH_CELLS], points: [...cell], mode, ...(mode === 'add' ? { voxel: { material: 2, role: VOXEL_ROLE.terrain, wetness: 0 } } : {}), smooth: false });
+    return edit({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [BRUSH_CELLS, BRUSH_CELLS, BRUSH_CELLS], points: [...cell], mode, ...(mode === 'add' ? { voxel: { material: materials.material, role: VOXEL_ROLE.terrain, wetness: 0 } } : {}), smooth: false });
   }
 
   async function pickAndEdit(px: number, py: number, mode: 'dig' | 'add'): Promise<EditTiming | null> {
@@ -530,6 +542,10 @@ async function main(): Promise<void> {
     ...assemblyProbes({ streamer, grid, origin, collision, scene, files, kitPiece: (material, piece, variant) => meshes.kits?.describe(material, piece, variant) ?? null }),
     /** A dab at the cell under a screen point. */
     pickAndEdit,
+    /** The picker's voxel materials, the one shift-click adds, picking one, and reading the records again. */
+    materials: () => ({ entries: materials.entries, picked: materials.material, options: [...materials.select.options].map((o) => o.text) }),
+    pickMaterial: (id: number) => materials.pick(id),
+    readMaterials: () => materials.readAgain(),
     async settle(): Promise<void> {
       await kits.loaded;
       await streamer.settle();
@@ -569,7 +585,7 @@ async function main(): Promise<void> {
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         relief: relief.state(),
         shadows,
-        surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
+        surface: { shading, blendM, tableUploads: surface.tableUploads, tableMs: surface.tableMs, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,
         section: sectionEdge,
         editSwaps: streamer.counters.swaps,

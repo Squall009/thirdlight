@@ -38,6 +38,8 @@ export interface IndexQuery {
   readonly referencing?: string;
   /** Only entries with every one of these labels. */
   readonly labels?: readonly string[];
+  /** Only the materials with every one of these badges (`materialBadges`). */
+  readonly badges?: readonly string[];
   /** Only entries whose file is in this folder of the game folder (`""`: its top). */
   readonly folder?: string;
   /** With `folder`: its subfolders too. */
@@ -256,6 +258,7 @@ export class Catalog {
     if (q.loadable !== undefined) args['loadable'] = q.loadable;
     if (q.referencing !== undefined) args['referencing'] = q.referencing;
     if (q.labels !== undefined && q.labels.length > 0) args['labels'] = [...q.labels];
+    if (q.badges !== undefined && q.badges.length > 0) args['badges'] = [...q.badges];
     if (q.folder !== undefined) args['folder'] = q.folder;
     if (q.recursive === true) args['recursive'] = true;
     if (q.sort !== undefined) args['sort'] = q.sort;

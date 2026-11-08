@@ -1,8 +1,34 @@
-# Script API types (from `BehaviorDialogueHistoryEntry`)
+# Script API types (from `BehaviorDialogueEvent`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-dialogue-event"></a>
+## `BehaviorDialogueEvent`
+
+```ts
+/** One dialogue event (seen by scripts in the step after it happened). */
+export interface BehaviorDialogueEvent {
+  /** start, lineStart, lineEnd, choice (options shown), chosen, signal, end. */
+  readonly kind: 'start' | 'lineStart' | 'lineEnd' | 'choice' | 'chosen' | 'signal' | 'end';
+  /** The conversation (the number `start` returned). */
+  readonly conversation: number;
+  readonly dialogueId: string;
+  /** The node (a line, a choice, a signal; '' for start/end). */
+  readonly nodeId: string;
+  /** lineStart: the speaker id ('' for narration). */
+  readonly speaker: string;
+  /** lineStart: the line as shown (rich text); chosen: the option's text. */
+  readonly text: string;
+  /** signal: its name; end: why (end, stopped, loop). */
+  readonly name: string;
+  /** signal: its value. */
+  readonly value: string;
+  /** chosen: the option's index among those shown; else -1. */
+  readonly index: number;
+}
+```
 
 <a id="script-type-behavior-dialogue-history-entry"></a>
 ## `BehaviorDialogueHistoryEntry`
@@ -382,6 +408,28 @@ export interface VoxelValue {
 }
 ```
 
+<a id="script-type-voxel-material-info"></a>
+## `VoxelMaterialInfo`
+
+```ts
+/**
+ * A voxel material as the game reads it at run time (`ctx.voxels.materialOf`): the record that voxel id is, with its
+ * physics resolved and its game data (both as the build ships them: profile numbers and game data folded in).
+ */
+export interface VoxelMaterialInfo {
+  /** The voxel material id. */
+  readonly id: number;
+  readonly materialId: string;
+  readonly name: string;
+  readonly use: VoxelMaterialUse;
+  /** The kit whose pieces its edges draw (null: none). */
+  readonly kit: string | null;
+  readonly physical: ResolvedPhysical;
+  /** The game's own data (null: none), never read by the engine. */
+  readonly gameData: MaterialGameData | null;
+}
+```
+
 <a id="script-type-voxel-region"></a>
 ## `VoxelRegion`
 
@@ -632,6 +680,37 @@ export type DebugCommandArgType = 'number' | 'string' | 'boolean';
 export type CellMetaValue = boolean | number | string;
 ```
 
+<a id="script-type-voxel-material-use"></a>
+## `VoxelMaterialUse`
+
+```ts
+export type VoxelMaterialUse = (typeof VOXEL_MATERIAL_USES)[number];
+```
+
+<a id="script-type-resolved-physical"></a>
+## `ResolvedPhysical`
+
+```ts
+/** A material's physics with every number filled in, as the game and the engine read it. */
+export interface ResolvedPhysical {
+  /** The profile it came from (absent: none named). */
+  readonly profile?: string;
+  readonly density: number;
+  readonly friction: number;
+  readonly restitution: number;
+  /** Absent: not a liquid (no profile or override gives one). */
+  readonly flowRate?: number;
+}
+```
+
+<a id="script-type-material-game-data"></a>
+## `MaterialGameData`
+
+```ts
+/** Opaque game data (any JSON within the kit format's depth bound). */
+export type MaterialGameData = GameDataJson;
+```
+
 <a id="script-type-voxel-refused"></a>
 ## `VoxelRefused`
 
@@ -685,6 +764,21 @@ export interface SavedCharacter {
 ```ts
 /** The world axes a plane's normal may lie along (Y is "up", so a plane through it would be a floor). */
 export const PLANE_AXES: readonly ["x", "z"];
+```
+
+<a id="script-type-voxel-material-uses"></a>
+## `VOXEL_MATERIAL_USES`
+
+```ts
+/** What a voxel material is used for. */
+export const VOXEL_MATERIAL_USES: readonly ["construction", "terrain", "liquid"];
+```
+
+<a id="script-type-game-data-json"></a>
+## `GameDataJson`
+
+```ts
+export type GameDataJson = null | boolean | number | string | GameDataJson[] | { [key: string]: GameDataJson };
 ```
 
 <a id="script-type-voxel-refusal"></a>

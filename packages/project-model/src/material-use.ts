@@ -12,7 +12,11 @@
  * - a shipped model asset's default mapping (`materials` on the asset row);
  * - a block type's mapping;
  * - an effect's Output block that shades with a project material;
- * - a timeline's material track.
+ * - a timeline's material track;
+ * - every voxel material (one with a voxel use) when something holds a
+ *   voxel world (a `voxelWorld` object): a world's cells name materials by
+ *   voxel id, any id may be in its files or painted at run time, so the
+ *   build ships them all rather than reading every region file.
  *
  * Any of these may name a material instance; the instance is
  * then the used material and ships resolved against its parents
@@ -25,6 +29,7 @@
 import { decalMaterialOf } from './decals';
 import { effectMaterialRefs, type EffectDef } from './effects';
 import { timelineRefs, type TimelineAsset } from './timelines';
+import { resolvedVoxelParts, type BindableMaterial } from './voxel-materials';
 
 export interface MaterialUseInput {
   /** Every scene's and every spawnable prefab's entities. */
@@ -34,18 +39,22 @@ export interface MaterialUseInput {
   readonly blockTypes?: readonly { readonly materials?: Readonly<Record<string, string>> }[];
   readonly effects?: readonly EffectDef[];
   readonly timelines?: readonly TimelineAsset[];
+  /** The project's materials (stored, instances not folded in): their voxel materials are used when a voxel world is. */
+  readonly materials?: readonly BindableMaterial[];
 }
 
 /** The materialIds the game uses (see the module comment). */
 export function materialsInUse(input: MaterialUseInput): Set<string> {
   const used = new Set<string>();
+  let voxelWorld = false;
   const mapping = (m: unknown): void => {
     if (typeof m !== 'object' || m === null) return;
     for (const id of Object.values(m as Record<string, unknown>)) if (typeof id === 'string') used.add(id);
   };
   for (const e of input.entities) {
-    const c = e.components as { materials?: unknown; materialParams?: unknown } | undefined;
+    const c = e.components as { materials?: unknown; materialParams?: unknown; voxelWorld?: unknown } | undefined;
     if (c === undefined || c === null) continue;
+    if (c.voxelWorld !== undefined) voxelWorld = true;
     mapping(c.materials);
     const decal = decalMaterialOf(c);
     if (decal !== null) used.add(decal);
@@ -55,5 +64,6 @@ export function materialsInUse(input: MaterialUseInput): Set<string> {
   for (const t of input.blockTypes ?? []) mapping(t.materials);
   for (const fx of input.effects ?? []) for (const id of effectMaterialRefs(fx)) used.add(id);
   for (const id of timelineRefs(input.timelines).materials) used.add(id);
+  if (voxelWorld) for (const [id, v] of resolvedVoxelParts(input.materials ?? [])) if (v.use !== undefined) used.add(id);
   return used;
 }

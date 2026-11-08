@@ -22,10 +22,15 @@
  * pieces it changes, and the draws take the new kits when that swap
  * arrives, so a chunk is never drawn with the other table's pieces. Meshes
  * stay loaded across kit changes (a mesh already read is not read again).
+ *
+ * The worlds' material tables are built from the project's material
+ * records as the Scene view holds them (`setMaterials`, on every material
+ * change by any client): a record's colour, tile or depth changed rewrites
+ * the tables only, with no chunk derived or meshed again.
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
 import type { VoxelsChangedPayload } from '@thirdlight/protocol';
-import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer, type VoxelKitSet } from '@thirdlight/three-adapter';
+import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer, type VoxelKitSet, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import { pageKitPieces, readVoxelKits, type KitRoute, type ProjectVoxelKits } from '../voxel-world/kit-pieces';
 import type * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
@@ -46,6 +51,9 @@ export interface SceneVoxelsHost {
 }
 
 type WorldState = Extract<SceneVoxelsOut, { t: 'state' }>;
+
+/** What of a kit read the pieces depend on (the material records read with it reach the draws through `setMaterials`). */
+const kitsKeyOf = (k: ProjectVoxelKits): string => JSON.stringify([k.kits, k.seed]);
 
 /** The worker streaming the worlds and the voxel worker it starts, next to the editor page. */
 const WORKER_SCRIPT = 'voxel-view-worker.js';
@@ -73,6 +81,8 @@ export class SceneVoxels {
    * the swap group, −1 until the worker names it); drawn once none waits.
    */
   private pending: { set: VoxelKitSet | null; groups: Map<string, number> } | null = null;
+  /** The material records the tables are built from (kept for draws made again with a new renderer). */
+  private materials: readonly VoxelLookRecord[] = [];
 
   constructor(private readonly host: SceneVoxelsHost) {
     this.draws = this.makeDraws();
@@ -91,7 +101,7 @@ export class SceneVoxels {
     void read.then((kits) => {
       // The renderer was replaced, the view disposed or the kits read again meanwhile: those draws are gone, make nothing.
       if (this.kits !== read) return;
-      this.kitsKey = JSON.stringify(kits);
+      this.kitsKey = kitsKeyOf(kits);
       this.draws.setKits(this.kitSet(kits));
     });
     return this.kits;
@@ -139,7 +149,7 @@ export class SceneVoxels {
     this.kits = read;
     void read.then((kits) => {
       if (this.kits !== read) return;
-      const key = JSON.stringify(kits);
+      const key = kitsKeyOf(kits);
       if (key === this.kitsKey) return;
       this.kitsKey = key;
       const groups = new Map<string, number>();
@@ -162,9 +172,16 @@ export class SceneVoxels {
     this.draws.setKits(p.set);
   }
 
+  /** The project's material records changed (or arrived): the worlds' tables follow them. */
+  setMaterials(materials: readonly VoxelLookRecord[]): void {
+    this.materials = materials;
+    this.draws.setMaterials(materials);
+  }
+
   private makeDraws(): VoxelWorldDraws {
     const { adapter, requestRender } = this.host;
     return new VoxelWorldDraws({
+      materials: this.materials,
       scene: () => adapter().threeScene?.() ?? null,
       // The grids upload through the renderer once it can draw.
       renderer: () => (adapter().rendererStarting() ? null : ((adapter().currentRenderer?.() ?? null) as VoxelGridRenderer | null)),

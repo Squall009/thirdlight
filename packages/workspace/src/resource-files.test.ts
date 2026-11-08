@@ -303,6 +303,15 @@ describe('project resources as files', () => {
       expect(byId.total).toBe(2);
       expect(byId.entries.map((e) => [e.id, (e.record as { params: { color: string } }).params.color])).toEqual([['moss', '#00aa00'], ['stone-dark', '#202020']]);
       expect(q({ ids: [] }).ok).toBe(false);
+      // By badge (derived from the records, an instance by its chain), answered anew after an edit the index does not see.
+      expect(q({ badges: ['voxel'] }).total).toBe(0);
+      ok(s, 'setMaterial', { material: { ...mat('moss', '#00aa00'), voxel: { id: 3, use: 'terrain' } } });
+      ok(s, 'setMaterial', { material: { ...mat('moss-wet', '#008800'), instanceOf: 'moss', voxel: { id: 4 } } });
+      expect(q({ badges: ['voxel'] }).entries.map((e) => e.id)).toEqual(['moss', 'moss-wet']);
+      expect(q({ badges: ['voxel', 'mesh'], text: 'wet' }).entries.map((e) => e.id)).toEqual(['moss-wet']);
+      expect(q({ badges: ['mesh'] }).entries.map((e) => e.id)).toEqual(['moss', 'moss-wet', 'stone', 'stone-dark']);
+      expect(q({ badges: ['graph'] }).total).toBe(0);
+      expect(q({ badges: ['shiny'] }).ok).toBe(false);
       // Asset summaries by id (what a list shows for the rows on screen).
       const assets = s.query({ op: 'queryAssets', projectId: PID, args: { ids: ['nope', 'crate'], includeVersions: true } }) as unknown as { assets: { assetId: string; versions: unknown[] }[]; missing: string[] };
       expect(assets.assets.map((a) => a.assetId)).toEqual(['crate']);

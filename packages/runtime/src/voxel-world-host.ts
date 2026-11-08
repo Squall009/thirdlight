@@ -28,7 +28,7 @@
  * replaces the overlay with a save's entries (never the base store), laid
  * over loaded chunks at once and over the others as they load.
  */
-import { canonicalVoxelWorldRings, COLLIDER_3D_LIMITS, decodeBase64, encodeBase64, resolveVoxelWorld, validateVoxelWorldRings, type ModelErrorV2, type QualityLevelConfig, type ResolvedVoxelWorld, type VoxelWorldComponent, type VoxelWorldRings } from '@thirdlight/project-model';
+import { canonicalVoxelWorldRings, COLLIDER_3D_LIMITS, decodeBase64, encodeBase64, resolveVoxelWorld, validateVoxelWorldRings, type ModelErrorV2, type QualityLevelConfig, type ResolvedVoxelWorld, type VoxelWorldComponent, type VoxelWorldRings, type VoxelMaterialInfo, voxelMaterialInfos } from '@thirdlight/project-model';
 import {
   applyWorldRings,
   canonicalEditCommand,
@@ -120,7 +120,12 @@ export interface VoxelWorldPorts {
   open(world: string): Promise<VoxelWorldConnection>;
   /** The project's quality levels (absent: the engine's): the level the page reports scales each world's distances and sets its budget. */
   readonly qualityLevels?: readonly QualityLevelConfig[];
+  /** The build's materials (resolved, as it ships them): the voxel ones answer `ctx.voxels.materialOf` (absent: none). */
+  readonly materials?: VoxelMaterialSources;
 }
+
+/** Materials as the build ships them, the voxel ones read by voxel id. */
+export type VoxelMaterialSources = Parameters<typeof voxelMaterialInfos>[0];
 
 /** The step's view of where the world is looked at and what collides in it (world metres). */
 export interface VoxelFoci {
@@ -244,6 +249,8 @@ export class VoxelWorldHost {
     private readonly physics: PhysicsPort3D | undefined,
     private readonly events: VoxelHostEvents,
     private readonly nextEdit: () => number,
+    /** The build's voxel materials by id (the same for every world of the game). */
+    private readonly materials: ReadonlyMap<number, VoxelMaterialInfo> = new Map(),
   ) {
     this.rings0 = component;
     this.level = level;
@@ -255,6 +262,11 @@ export class VoxelWorldHost {
       name: this.name,
       get: (x: number, y: number, z: number) => this.get(x, y, z),
       coverageAt: (x: number, y: number, z: number) => this.coverageAt(x, y, z),
+      materialAt: (x: number, y: number, z: number) => {
+        const v = this.get(x, y, z);
+        return v === null ? null : (this.materials.get(v.material) ?? null);
+      },
+      materialOf: (id: number) => this.materials.get(id) ?? null,
       set: (region: VoxelRegion, voxel: VoxelWrite) => this.set(region, voxel),
       dig: (region: VoxelRegion) => this.dig(region),
       paint: (region: VoxelRegion, paint: VoxelPaint) => this.paint(region, paint),

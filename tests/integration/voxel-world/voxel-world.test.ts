@@ -801,7 +801,7 @@ describe('voxel world routes', () => {
     }
     expect((await send('undo', {})).status).toBe(200);
     expect((await game()).materials.some((m) => m['materialId'] === 'oak-dark')).toBe(false);
-    // An object wears it, so a build ships it (the export test reads what ships).
+    // An object wears it too: one record serves a mesh and voxels (the export test reads what ships).
     const box = await send('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Oak box', components: { materials: { '*': 'oak' } } });
     expect(box.status, JSON.stringify(box.json)).toBe(200);
     // The material's own file keeps the parts; a restart reads them back.
@@ -828,6 +828,12 @@ describe('voxel world routes', () => {
     const listed = (await query('queryEntities', { limit: 16_384 })) as { entities: Array<{ id: string; components: Record<string, unknown> }> };
     for (const e of listed.entities) if ((e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD) expect((await send('deleteEntity', { entityId: e.id })).status).toBe(200);
 
+    // A voxel material nothing but the world's cells name ships (any id may be in the files or painted at run time);
+    // a mesh material nothing names does not.
+    for (const material of [{ materialId: 'clay', name: 'Clay', shader: 'standard', params: { color: '#a0603a' }, textures: {}, voxel: { id: 14, use: 'terrain' } }, { materialId: 'unworn', name: 'Unworn', shader: 'standard', params: {}, textures: {} }]) {
+      const set = await send('setMaterial', { material });
+      expect(set.status, JSON.stringify(set.json)).toBe(200);
+    }
     const ok = await exportNow();
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     const out = join(root, 'exports', String(ok.json['outputDir']));
@@ -852,6 +858,9 @@ describe('voxel world routes', () => {
     expect(shippedOak['voxel']).toEqual(OAK_MATERIAL.voxel);
     expect(shippedOak['physical']).toEqual({ profile: 'oak-wood', density: 720, friction: 0.55, restitution: 0 });
     expect(shippedOak['gameData']).toEqual({ footstep: 'creak', break: { hits: 3 } });
+    const shippedIds = ((content as unknown as { materials?: Array<Record<string, unknown>> }).materials ?? []).map((m) => m['materialId']);
+    expect(shippedIds).toContain('clay');
+    expect(shippedIds).not.toContain('unworn');
     const kitMesh = (shippedKits![0]!['slots'] as Record<string, { meshes: Array<{ mesh: { digest: string } }> }>)['edge-out-top']!.meshes[0]!.mesh;
     expect(readFileSync(join(out, 'content', 'sha256', kitMesh.digest)).equals(pieceGlb())).toBe(true);
     expect(((content as unknown as { dependencies?: Array<{ assetId: string }> }).dependencies ?? []).map((e) => e.assetId)).toContain(KIT_MODEL.assetId);

@@ -406,6 +406,8 @@ export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] =
   {"path":"grid.applyDiff","reason":"saves store it as data"},
   {"path":"scatter.changed","reason":"saves store it as data"},
   {"path":"voxels.world","reason":"a world handle; the voxel nodes act on the first world loaded"},
+  {"path":"voxels.materialAt","reason":"a material record is an object, which a graph output cannot take yet"},
+  {"path":"voxels.materialOf","reason":"a material record is an object, which a graph output cannot take yet"},
   {"path":"voxels.set","reason":"a region is a point, a box or a ball, which a graph input cannot take yet"},
   {"path":"voxels.dig","reason":"a region is a point, a box or a ball, which a graph input cannot take yet"},
   {"path":"voxels.paint","reason":"a region is a point, a box or a ball, which a graph input cannot take yet"},

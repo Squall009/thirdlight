@@ -35,8 +35,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 19 sections |
 | [Script API types (from `BehaviorRandom`)](script-types-behavior-random.md) | 23 sections |
 | [Script API types (from `BehaviorSockets`)](script-types-behavior-sockets.md) | 44 sections |
-| [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 66 sections |
-| [Script API types (from `BehaviorDialogueHistoryEntry`)](script-types-behavior-dialogue-history-entry.md) | 55 sections |
+| [Script API types (from `BehaviorPointer`)](script-types-behavior-pointer.md) | 65 sections |
+| [Script API types (from `BehaviorDialogueEvent`)](script-types-behavior-dialogue-event.md) | 62 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |

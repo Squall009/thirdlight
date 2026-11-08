@@ -26,15 +26,17 @@ export interface KitRoute {
 export interface ProjectVoxelKits {
   readonly kits: readonly VoxelKitRecordLike[];
   readonly seed: number;
+  /** The material records read with them (absent: not read). */
+  readonly materials?: readonly MaterialDef[];
 }
 
-/** The project's voxel kits and piece seed now. */
+/** The project's voxel kits and piece seed now, and its material records. */
 export async function readVoxelKits(r: KitRoute): Promise<ProjectVoxelKits> {
   const res = await fetch(`${r.api}/commands`, { method: 'POST', headers: { ...r.headers, 'content-type': 'application/json' }, body: JSON.stringify({ op: 'queryGameConfig', projectId: r.projectId, args: { omit: ['dialogues'] } }) });
   if (!res.ok) throw new Error(`queryGameConfig: HTTP ${res.status}`);
   const body = (await res.json()) as { voxelKits?: VoxelKitRecordLike[]; materials?: MaterialDef[]; settings?: unknown };
   // Each kit with the material ids it binds: the material records' (voxel.kit), then its own test list for the rest.
-  return { kits: boundVoxelKits(body.voxelKits ?? [], body.materials ?? []), seed: voxelPieceSeedOf(body.settings) };
+  return { kits: boundVoxelKits(body.voxelKits ?? [], body.materials ?? []), seed: voxelPieceSeedOf(body.settings), materials: body.materials ?? [] };
 }
 
 /** Reads a kit mesh's GLB from the backend: the asset's version whose source digest the mesh names, else its current one (as a build ships it). */

@@ -11,7 +11,10 @@
  * folder, `""` its top; `recursive: true` also in its subfolders). `refs:
  * false` leaves the reference lists out (a list or picker needs none),
  * `records: true` adds a resource's record (`record`; assets and scenes have
- * their own queries). Entries come in `kind:id` order, or by `sort` (`name`,
+ * their own queries). `badges` (every one of them) keeps the materials that
+ * have those badges (`materialBadges`: mesh, voxel, kit, liquid, decal,
+ * graph; derived from the records, instances resolved), and nothing else.
+ * Entries come in `kind:id` order, or by `sort` (`name`,
  * `kind` then name, `path`; `descending: true` the other way), paged.
  *
  * `folders: true` adds the subfolders of `folder` (the project window's
@@ -22,7 +25,7 @@
 import { readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 
-import { INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX, isValidSourcePath } from '@thirdlight/project-model';
+import { INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX, isValidSourcePath, MATERIAL_BADGES, materialBadges, resolveMaterialInstances, type MaterialDef } from '@thirdlight/project-model';
 
 import type { QueryResult } from './types';
 import { assetRoot, PROJECT_OWN_ENTRIES } from './asset-files';
@@ -35,7 +38,7 @@ import type { ProjectSession } from './session';
 import type { V4State } from './store-v4';
 
 
-const ARGS = ['kind', 'kinds', 'id', 'ids', 'label', 'labels', 'address', 'loadable', 'referencing', 'text', 'folder', 'recursive', 'folders', 'sort', 'descending', 'refs', 'records', 'limit', 'offset'];
+const ARGS = ['kind', 'kinds', 'id', 'ids', 'label', 'labels', 'badges', 'address', 'loadable', 'referencing', 'text', 'folder', 'recursive', 'folders', 'sort', 'descending', 'refs', 'records', 'limit', 'offset'];
 const ORDERS: readonly IndexOrder[] = ['name', 'kind', 'path'];
 
 /** One subfolder in a `folders: true` reply. */
@@ -151,12 +154,23 @@ const ANSWERED_PAGES = 64;
 
 const isStringList = (v: unknown, max: number): v is string[] => Array.isArray(v) && v.length >= 1 && v.length <= max && v.every((x) => typeof x === 'string');
 
+/** The materials (resolved: an instance has its chain's use and graph) that have every one of `badges`. */
+function materialsWithBadges(state: V4State, badges: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const m of resolveMaterialInstances((state.content.materials ?? []) as MaterialDef[])) {
+    const has = materialBadges(m) as readonly string[];
+    if (badges.every((b) => has.includes(b))) out.add(m.materialId);
+  }
+  return out;
+}
+
 export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
   for (const k of Object.keys(a)) if (!ARGS.includes(k)) return failure(projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, ARGS.join(', ')));
   for (const k of ['kind', 'id', 'label', 'address', 'referencing', 'text', 'folder'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
   for (const k of ['loadable', 'refs', 'records', 'recursive', 'folders', 'descending'] as const) if (a[k] !== undefined && typeof a[k] !== 'boolean') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'boolean'));
   if (a['sort'] !== undefined && !ORDERS.includes(a['sort'] as IndexOrder)) return failure(projectId, fieldValueType('/args/sort', a['sort'], ORDERS.join(' | '), 'sort orders the entries'));
   if (typeof a['folder'] === 'string' && a['folder'] !== '' && !isValidSourcePath(a['folder'])) return failure(projectId, fieldValueType('/args/folder', a['folder'], 'a folder of the game folder ("" its top)', 'folder is relative, with forward slashes'));
+  if (a['badges'] !== undefined && (!isStringList(a['badges'], MATERIAL_BADGES.length) || !(a['badges'] as string[]).every((b) => (MATERIAL_BADGES as readonly string[]).includes(b)))) return failure(projectId, fieldValueType('/args/badges', a['badges'], MATERIAL_BADGES.join(' | '), 'badges lists material badges'));
   for (const k of ['kinds', 'ids', 'labels'] as const) {
     if (a[k] !== undefined && !isStringList(a[k], INDEX_PAGE_MAX)) return failure(projectId, fieldValueType(`/args/${k}`, a[k], `1-${INDEX_PAGE_MAX} strings`, `${k} lists 1 to ${INDEX_PAGE_MAX} strings`));
   }
@@ -165,7 +179,8 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
   if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > INDEX_PAGE_MAX) return failure(projectId, fieldValueType('/args/limit', limit, `integer 1-${INDEX_PAGE_MAX}`, 'limit pages the index'));
   if (!isSafeInt(offset) || (offset as number) < 0) return failure(projectId, fieldValueType('/args/offset', offset, 'integer >= 0', 'offset pages the index'));
   const index: ProjectIndex = s.index ?? buildIndex(state);
-  const reuse = a['records'] !== true;
+  // Badges come from the records, which an edit can change without changing the index: such a page is not kept.
+  const reuse = a['records'] !== true && a['badges'] === undefined;
   const generation = indexGeneration(index);
   let memo = answered.get(index);
   if (memo === undefined || memo.generation !== generation) answered.set(index, (memo = { generation, pages: new Map() }));
@@ -186,6 +201,7 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
   const folder = typeof a['folder'] === 'string' ? a['folder'] : null;
   const recursive = a['recursive'] === true;
   const labels = (a['labels'] as string[] | undefined) ?? null;
+  const badged = a['badges'] !== undefined ? materialsWithBadges(state, a['badges'] as string[]) : null;
   const descending = a['descending'] === true;
   const text = typeof a['text'] === 'string' && a['text'].trim() !== '' ? a['text'].trim().toLowerCase() : null;
   const withRefs = a['refs'] !== false;
@@ -202,6 +218,7 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
     if (ids !== null && !ids.has(e.id)) continue;
     if (a['label'] !== undefined && !e.labels.includes(a['label'] as string)) continue;
     if (labels !== null && !labels.every((l) => e.labels.includes(l))) continue;
+    if (badged !== null && (e.kind !== 'material' || !badged.has(e.id))) continue;
     if (folder !== null && !inFolder(e.path, folder, recursive)) continue;
     if (a['address'] !== undefined && e.address !== a['address']) continue;
     // Loadable: an address or a label (what a script may load by name).

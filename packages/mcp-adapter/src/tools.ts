@@ -148,6 +148,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         referencing: { type: 'string', description: 'target="index": only the entries that reference this id (what uses it)' },
         text: { type: 'string', description: 'target="index": only the entries whose name, id or file contains this text (any case)' },
         labels: { type: 'array', items: { type: 'string' }, description: 'target="index": only entries with every one of these labels' },
+        badges: { type: 'array', items: { type: 'string', enum: ['mesh', 'voxel', 'kit', 'liquid', 'decal', 'graph'] }, description: 'target="index": only the materials with every one of these badges (what a material can be used for: voxel = it has a voxel use, kit = its voxel edges draw a kit, graph = its own shader)' },
         folder: { type: 'string', description: 'target="index": only entries whose file is in this folder of the game folder ("" its top)' },
         recursive: { type: 'boolean', description: 'target="index": with folder, its subfolders too' },
         folders: { type: 'boolean', description: 'target="index": also list the subfolders of folder (the folder tree)' },
@@ -966,6 +967,10 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     if (a.labels !== undefined) {
       if (!Array.isArray(a.labels) || !a.labels.every((l) => typeof l === 'string')) return toolError('labels must be an array of strings');
       args.labels = a.labels;
+    }
+    if (a.badges !== undefined) {
+      if (!Array.isArray(a.badges) || !a.badges.every((l) => typeof l === 'string')) return toolError('badges must be an array of strings');
+      args.badges = a.badges;
     }
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;

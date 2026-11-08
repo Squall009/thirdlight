@@ -3,7 +3,7 @@
     {"file":"packages/backend/src/play-routes.ts","kind":"function","unit":"makePlayRoutes","size":847},
     {"file":"packages/commands/src/validate-request.ts","kind":"function","unit":"validateOpArgs","size":424},
     {"file":"packages/editor/src/ui/Hierarchy.tsx","kind":"function","unit":"Hierarchy","size":462},
-    {"file":"packages/editor/src/ui/project/ProjectWindow.tsx","kind":"function","unit":"ProjectWindow","size":489},
+    {"file":"packages/editor/src/ui/project/ProjectWindow.tsx","kind":"function","unit":"ProjectWindow","size":479},
     {"file":"packages/editor/src/ui/script/VisualScriptDocument.tsx","kind":"function","unit":"VisualScriptDocument","size":579},
     {"file":"packages/editor/src/ui/timeline/TimelineDocument.tsx","kind":"function","unit":"TimelineDocument","size":648},
     {"file":"packages/editor/src/viewport/block-editor.ts","kind":"class","unit":"BlockEditor","size":109},

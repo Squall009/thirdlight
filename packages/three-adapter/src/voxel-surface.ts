@@ -441,7 +441,20 @@ export interface VoxelSurface {
   setCracks(layers: readonly Uint8Array[], materialLayer: (material: number) => number): void;
   /** Sets what the relief draws with (no new program); a no-op without heights. */
   setRelief(s: VoxelReliefSettings): void;
-  /** The deepest relief of any material (metres; 0 without heights): how far a displaced vertex can move, what culling bounds grow by. */
+  /**
+   * Every material's look again (a material record changed): the table is rewritten and uploaded, nothing else
+   * (no program, no grid, no mesh: looks are shader data). The ms it took on this thread.
+   */
+  setLooks(look: (material: number) => VoxelMaterialLook): number;
+  /** Table uploads {@link setLooks} made, and the ms the last one took. */
+  readonly tableUploads: number;
+  readonly tableMs: number;
+  /** What the table holds for a material (diagnostics): linear colour, pattern, tiles in metres, crack layer, relief layer (−1 none) and depth. */
+  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number };
+  /**
+   * The deepest relief of any material (metres; 0 without heights): how far a displaced vertex can move, what culling
+   * bounds grow by. A geometry keeps the bound it was placed with until it is placed again.
+   */
   readonly reliefDepthM: number;
   /** The values an object passes (made once per surface object; `slot.w` −1 until it is given a grid or an entry), its grid's cells `cellMetres` (default the layout's). */
   objectValues(cellMetres?: number): VoxelSurfaceObject;
@@ -489,16 +502,26 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     return metres;
   };
   if (SHADER_CONSTRUCTION_BIT !== 2 ** layout.materialBits * (layout.wetnessMax + 1)) throw new RangeError('voxel surface: the construction bit is not above the wetness');
-  for (let m = 1; m < ids; m++) {
-    const l = opts.look(m);
-    c.setHex(l.colour);
-    tdata.set([c.r, c.g, c.b, Math.max(0, Math.min(VOXEL_PATTERNS - 1, l.pattern))], m * 4);
-    tdata.set([tile(m, 'construction', l.constructionTileMetres ?? CONSTRUCTION_TILE_METRES), tile(m, 'terrain', l.terrainTileMetres ?? TERRAIN_TILE_METRES), 0, 0], (TABLE_ROWS * TABLE_WIDTH + m) * 4);
-    const r = opts.heights === undefined ? undefined : l.relief;
-    if (r !== undefined && (!Number.isInteger(r.layer) || r.layer < 0 || r.layer >= opts.heights!.layers.length || !(r.depthMetres >= 0))) throw new RangeError(`voxel material ${m}: relief layer ${r.layer}, depth ${r.depthMetres} m`);
-    tdata.set(r === undefined ? [-1, 0, 0, 0] : [r.layer, r.depthMetres, 0, 0], (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4);
-    if (r !== undefined) reliefDepthM = Math.max(reliefDepthM, r.depthMetres);
-  }
+  /** Writes every material's look into the table (its crack layer, set by the kits, is kept). */
+  const fill = (look: (material: number) => VoxelMaterialLook): void => {
+    let deepest = 0;
+    for (let m = 1; m < ids; m++) {
+      const l = look(m);
+      c.setHex(l.colour);
+      tdata.set([c.r, c.g, c.b, Math.max(0, Math.min(VOXEL_PATTERNS - 1, l.pattern))], m * 4);
+      const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
+      tdata[t] = tile(m, 'construction', l.constructionTileMetres ?? CONSTRUCTION_TILE_METRES);
+      tdata[t + 1] = tile(m, 'terrain', l.terrainTileMetres ?? TERRAIN_TILE_METRES);
+      const r = opts.heights === undefined ? undefined : l.relief;
+      if (r !== undefined && (!Number.isInteger(r.layer) || r.layer < 0 || r.layer >= opts.heights!.layers.length || !(r.depthMetres >= 0))) throw new RangeError(`voxel material ${m}: relief layer ${r.layer}, depth ${r.depthMetres} m`);
+      tdata.set(r === undefined ? [-1, 0, 0, 0] : [r.layer, r.depthMetres, 0, 0], (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4);
+      if (r !== undefined) deepest = Math.max(deepest, r.depthMetres);
+    }
+    reliefDepthM = deepest;
+  };
+  fill(opts.look);
+  let tableUploads = 0;
+  let tableMs = 0;
   const heights = opts.heights === undefined ? null : fresh(reliefHeightTexture(opts.heights.layers, opts.heights.size));
   const patterns = patternTexture();
   const bands = opts.bands === true ? bandTexture() : null;
@@ -780,7 +803,29 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     setBlendMetres(m) {
       blendM.value = Math.max(0, m);
     },
-    reliefDepthM,
+    get reliefDepthM() {
+      return reliefDepthM;
+    },
+    setLooks(look) {
+      const t0 = performance.now();
+      fill(look);
+      fresh(table);
+      tableUploads++;
+      tableMs = performance.now() - t0;
+      return tableMs;
+    },
+    get tableUploads() {
+      return tableUploads;
+    },
+    get tableMs() {
+      return tableMs;
+    },
+    tableEntry(m) {
+      const a = m * 4;
+      const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
+      const r = (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4;
+      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]! };
+    },
     setRelief(r) {
       if (r.n !== undefined) reliefN.value = r.n;
       if (r.displace !== undefined) displaceU.value = r.displace ? 1 : 0;

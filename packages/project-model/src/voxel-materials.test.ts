@@ -14,7 +14,7 @@ import { NO_KIT, worldPieceTable } from '@thirdlight/voxel';
 import { validateContentV4 } from './content';
 import { MAX_MATERIAL_INSTANCE_DEPTH, resolveMaterial, type MaterialDef } from './materials';
 import { materialProfilesOf, PHYSICAL_DEFAULTS, resolveMaterialPhysical, withResolvedPhysics, type MaterialProfile } from './material-profiles';
-import { boundVoxelKits, materialFamilyOf, VOXEL_MATERIAL_LIMITS, voxelSurfaceSet } from './voxel-materials';
+import { boundVoxelKits, isVoxelMaterial, materialBadges, materialFamilyOf, VOXEL_MATERIAL_LIMITS, voxelMaterialInfos, voxelSurfaceSet } from './voxel-materials';
 import type { VoxelKit } from './voxel-kit';
 
 type Obj = Record<string, unknown>;
@@ -153,6 +153,29 @@ describe('the material record', () => {
     expect(materialFamilyOf({ ...base, shader: 'water' })).toBe('liquid');
     expect(materialFamilyOf({ ...base, shader: 'decal' })).toBe('decal');
     expect(materialFamilyOf({ ...base, shader: 'standard', graph: { nodes: [], edges: [] }, voxel: { id: 2, use: 'terrain' } })).toBe('graph');
+  });
+
+  it('derives the badges the material library shows and filters by, and which materials voxel tools list', () => {
+    const base = { materialId: 'm', name: 'M', params: {}, textures: {} };
+    expect(materialBadges({ ...base, shader: 'standard' })).toEqual(['mesh']);
+    expect(materialBadges(OAK)).toEqual(['mesh', 'voxel', 'kit']);
+    expect(materialBadges({ ...base, shader: 'standard', voxel: { id: 2, use: 'terrain', kit: 'log' } })).toEqual(['mesh', 'voxel', 'kit']);
+    expect(materialBadges({ ...base, shader: 'standard', voxel: { id: 5, use: 'liquid' } })).toEqual(['mesh', 'voxel', 'liquid']);
+    expect(materialBadges({ ...base, shader: 'water' })).toEqual(['mesh', 'liquid']);
+    expect(materialBadges({ ...base, shader: 'decal' })).toEqual(['decal']);
+    expect(materialBadges({ ...base, shader: 'standard', graph: { nodes: [], edges: [] } })).toEqual(['mesh', 'graph']);
+    // A voxel variant whose chain gives no use yet, and a mesh variant, are not voxel materials.
+    expect(isVoxelMaterial({ shader: 'standard', voxel: { id: 3 } })).toBe(false);
+    expect(isVoxelMaterial({ shader: 'standard' })).toBe(false);
+    expect(isVoxelMaterial({ shader: 'standard', voxel: { id: 3, use: 'terrain' } })).toBe(true);
+  });
+
+  it("gives the runtime each shipped voxel material by id: physics as shipped, the engine's defaults without a block", () => {
+    const shipped = withResolvedPhysics([OAK, { materialId: 'soil', name: 'Soil', shader: 'standard', params: {}, textures: {}, voxel: { id: 2, use: 'terrain' } }, { materialId: 'crate', name: 'Crate', shader: 'standard', params: {}, textures: {} }] as MaterialDef[], []);
+    const infos = voxelMaterialInfos(shipped);
+    expect([...infos.keys()].sort((a, b) => a - b)).toEqual([2, OAK.voxel!.id].sort((a, b) => a - b));
+    expect(infos.get(2)).toEqual({ id: 2, materialId: 'soil', name: 'Soil', use: 'terrain', kit: null, physical: { ...PHYSICAL_DEFAULTS }, gameData: null });
+    expect(infos.get(12)).toMatchObject({ materialId: 'oak', use: 'construction', kit: 'log', physical: resolveMaterialPhysical(OAK.physical, materialProfilesOf([])), gameData: OAK.gameData });
   });
 
   it('resolves physics: own numbers over the profile over the defaults; a project profile overrides an engine one field by field', () => {

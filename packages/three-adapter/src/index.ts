@@ -409,6 +409,7 @@ export { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook, voxelSurfaceGeom
 export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 export { PIECE_U_ATTRIBUTE, TRIM_RUN_ATTRIBUTE, trimUPerMetre } from './voxel-trim-u';
 export { KIT_DEBUG_TEXTURE_SIDE, voxelKitDebugTexture, voxelKitImageRefs, voxelKitMeshRefs, VoxelKitMeshes, VoxelKitSet, type VoxelKitBytes, type VoxelKitDraw, type VoxelKitImageRef, type VoxelKitMeshRef, type VoxelKitRecordLike } from './voxel-kit-pieces';
+export { phaseTileMetres, voxelLooksKey, voxelRecordLooks, type VoxelLookRecord } from './voxel-material-looks';
 export { VoxelWorldDraws, type VoxelEditToScreen, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';
 // GPU time per frame from timestamp queries (where the renderer records them).
 export { createGpuTiming, measuresGpuTime, type GpuTiming } from './gpu-timing';

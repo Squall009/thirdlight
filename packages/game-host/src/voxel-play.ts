@@ -15,9 +15,10 @@
  * material no kit binds draws plain voxel faces): one piece table
  * for all of them, the one the page draws the pieces from. The project's
  * quality levels go with the ports: the level the page reports scales
- * every world's distances and sets its budget.
+ * every world's distances and sets its budget; the build's voxel materials
+ * go with them too (`ctx.voxels.materialOf`).
  */
-import type { QualityLevelConfig, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
+import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
 import { ChunkDrawBatcher, worldPieceTable, type ChunkDrawBatch, type PieceKitSource, type PieceTable } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
@@ -27,14 +28,20 @@ export interface VoxelPresentation {
   drawn(world: string, bytes: readonly number[], coarse: number, kits: number): void;
 }
 
-/** Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from `kits` with the project's piece `seed`; `qualityLevels` the project's (absent: the engine's). */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[]): VoxelPresentation {
+/**
+ * Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from
+ * `kits` with the project's piece `seed`; `qualityLevels` the project's (absent: the engine's), `materials` the build's
+ * voxel materials (absent: the ports').
+ */
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   let table: PieceTable | null = null;
   const levels = qualityLevels ?? ports.qualityLevels;
+  const mats = materials ?? ports.materials;
   return {
     ports: {
       ...(levels !== undefined ? { qualityLevels: levels } : {}),
+      ...(mats !== undefined ? { materials: mats } : {}),
       open: async (world: string): Promise<VoxelWorldConnection> => {
         const conn = await ports.open(world);
         // A world reopened while this connection still opened (a scene reload) has its own batcher under
