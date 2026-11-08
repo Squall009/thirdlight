@@ -98,15 +98,26 @@ export interface VoxelKitCheckReport {
   totals: { pieces: number; triangles: number; textures: number; textureBytes: number };
 }
 
-/** A cell's half side, metres: meshes are centred on the cell. */
-const HALF = VOXEL_SIZE_M / 2;
-/** How far past its cell a piece may reach before it overlaps the neighbours' pieces (half a cell). */
-const REACH = HALF;
 /**
- * A roof-edge piece follows the roof mesher's planes, which run up to a cell above its voxel's top: its envelope
- * reaches that much higher (up to 3 half cells over the centre, plus the reach).
+ * The envelope a slot mesh is checked against, metres, in its case's own orientation (the mesh turned by its slot
+ * rotation), the cell centred on 0. Authoring templates and slot sheets read these numbers, so what an artist is
+ * told and what the check tests are one.
  */
-const ROOF_TOP = 3 * HALF;
+export const VOXEL_KIT_ENVELOPE = Object.freeze({
+  /** A cell's half side: a mesh must touch the box of ±this (else it draws beside its cell: err). */
+  half: VOXEL_SIZE_M / 2,
+  /** How far past that box a piece may reach before it overlaps the neighbours' pieces (half a cell: warn past it). */
+  reach: VOXEL_SIZE_M / 2,
+  /**
+   * The top of a roof-edge piece's box: the roof mesher's planes run up to a cell above its voxel's top, so its box
+   * reaches 3 half cells over the centre (the reach comes on top).
+   */
+  roofTop: (3 * VOXEL_SIZE_M) / 2,
+});
+
+const HALF = VOXEL_KIT_ENVELOPE.half;
+const REACH = VOXEL_KIT_ENVELOPE.reach;
+const ROOF_TOP = VOXEL_KIT_ENVELOPE.roofTop;
 const ROOF_CASES: ReadonlySet<string> = new Set(ROOF_EDGE_CASE_IDS);
 const EPS = 1e-3;
 /** Pieces a row names before it counts the rest. */
@@ -443,7 +454,7 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[]): VoxelKitCheckRow[] {
   // A named layout is the engine's draft; a declared one is the kit's own (its numbers are the kit's to choose).
   const draft = layout?.draft ?? true;
   const d = (id: string, state: KitCheckState, title: string, detail: string): VoxelKitCheckRow => ({ id: `trim:${id}`, state, title: `${id} (${draft ? 'draft layout' : "the kit's layout"}): ${title}`, detail, ...(draft ? { draft: true as const } : {}) });
-  if (layout === undefined) return [d('layout', 'err', `unknown trim layout ${kit.trimLayout}`, `The layouts are ${[...TRIM_LAYOUTS.keys()].join(', ')} (a DRAFT the owner has not approved).`)];
+  if (layout === undefined) return [d('layout', 'err', `unknown trim layout ${kit.trimLayout}`, `The engine names the layouts ${[...TRIM_LAYOUTS.keys()].join(', ')} (examples); a kit with its own sheet declares it in sheetLayout instead.`)];
   const per = new Map<Piece, TrimFacts | null>();
   for (const p of pieces) if (p.facts !== null && p.facts.unreadable === null && p.facts.found) per.set(p, trimFacts(p.facts, layout, meshRunAxis(p.caseId, p.rotation)));
   const list = (pick: (t: TrimFacts, p: Piece) => string | null): string[] => [...per].flatMap(([p, t]) => {

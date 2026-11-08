@@ -863,7 +863,7 @@ export function validateOpArgs(
     case 'setKit':
     case 'deleteKit': case 'setVoxelKit': case 'deleteVoxelKit': {
       // setKit/setVoxelKit {kit}; deleteKit {kitId}; deleteVoxelKit {voxelKitId} (the kits' values are the model's; here the shapes).
-      const set = op === 'setKit' || op === 'setVoxelKit', key = set ? 'kit' : op === 'deleteKit' ? 'kitId' : 'voxelKitId', shape = op === 'setKit' ? 'kitId, name, trimMaterial?, presets?, blockTypes?, pieces?' : 'kitFormat, voxelKitId, name, version, materialType, cases, materials?, joinProfiles?, trimLayout?, gameData?';
+      const set = op === 'setKit' || op === 'setVoxelKit', key = set ? 'kit' : op === 'deleteKit' ? 'kitId' : 'voxelKitId', shape = op === 'setKit' ? 'kitId, name, trimMaterial?, presets?, blockTypes?, pieces?' : 'kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, sheetLayout?, damage?, wallTopFill?, gameData?';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (set ? !isPlainObjectStrict(args[key]) : typeof args[key] !== 'string') {

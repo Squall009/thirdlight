@@ -302,6 +302,11 @@ versions their meshes name.
 > approved by the owner; kit format 1 is final. A later format only adds
 > fields, and a new case only adds a slot.
 
+**Making one:** [Make a voxel kit and a material set](../guides/voxel-kits.md)
+(Blender templates, one-click export, the kit check, a sample kit) and
+[the slot sheets](../guides/voxel-kit-slots/index.md) (one page a slot: where it
+sits, its envelope, which slots can share its mesh).
+
 **What a kit is.** Cells store only a role (wall, floor, roof …), never
 "corner" or "window sill". Walls, floors, stairs and flat roofs are plain
 voxel faces: no piece ever stands on a flat face. A piece goes only where
@@ -436,9 +441,9 @@ arrive; a kit naming a trim layout draws with that layout's debug set
 instead (each region its own colour and id, a 3 cm checker, a tick every
 0.125 m along U), so a face mapped to the wrong region or stretched shows
 at once. A kit mesh still loading draws when it arrives; one that fails
-draws nothing (the page's status names it). In the Scene view a kit edited
-while a world is open shows once the world is opened again (another scene,
-or a reload).
+draws nothing (the page's status names it). In the Scene view an open
+world follows a kit edit and a change of the voxel detail seed as they
+are made.
 
 Painting cells another material of the same kit (oak to pine of a wood
 kit) only changes the shading; painting them a material of another kit (a
@@ -481,10 +486,11 @@ These come later; worlds made now keep working when they arrive:
 
 - **The far field**: the world past the load ring, and tall ground far
   away (above).
-- **Kits**: a kit page in the editor and the guide to making a kit (with a
-  sample kit, written to the approved v1 case list and texture layout); the fringe
-  where buildings meet the ground and ground scatter come with the terrain
-  tools.
+- **Kits**: a kit page in the editor (slots assigned by drag and drop; for
+  now through `setVoxelKit`), and a kit's own textures drawn (pieces show the
+  debug set of their sheet layout until materials arrive); the fringe where
+  buildings meet the ground and ground scatter come with the terrain tools.
+  How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
 - **Materials**: material records, texture arrays and wetness beyond
   darkening (shine and filled-in crevices). Today's surface shader is a
   stand-in.

@@ -66,6 +66,7 @@ use and why.
   - [Trim sheets](guides/trim-sheets.md)
   - [Trim sheet spec: authoring a sheet for every kit](guides/trim-sheet-spec.md)
   - [The kit editor: slots, pieces and the trim checker](guides/kit-editor.md)
+  - [Make a voxel kit and a material set (Blender templates, slot sheets, sample kit)](guides/voxel-kits.md)
   - [Height in alpha: layers that blend along their stones](guides/height-in-alpha.md)
   - [Decals](guides/decals.md)
   - [Vertex paint](guides/vertex-paint.md)

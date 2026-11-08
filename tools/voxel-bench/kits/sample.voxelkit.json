@@ -1,0 +1,286 @@
+{
+ "kitFormat": 1,
+ "voxelKitId": "sample",
+ "name": "Sample dressed trim (authoring package)",
+ "version": 1,
+ "materialType": "stone",
+ "materials": [
+  12
+ ],
+ "slots": {
+  "corner-out-bottom": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "corner-out-top_v0"
+     },
+     "rotation": 5
+    }
+   ]
+  },
+  "corner-out-top": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "corner-out-top_v0"
+     }
+    }
+   ]
+  },
+  "damage-stage-2": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "damage-stage-2_v0"
+     }
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "damage-stage-2_v1"
+     }
+    }
+   ]
+  },
+  "damage-stage-3": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "damage-stage-3_v0"
+     }
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "damage-stage-3_v1"
+     }
+    }
+   ]
+  },
+  "edge-in-bottom": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-in-bottom_v0"
+     }
+    }
+   ]
+  },
+  "edge-in-top": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-in-bottom_v0"
+     },
+     "rotation": 5
+    }
+   ]
+  },
+  "edge-in-vertical": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-in-bottom_v0"
+     },
+     "rotation": 9
+    }
+   ]
+  },
+  "edge-out-bottom": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-out-top_v0"
+     },
+     "rotation": 5,
+     "weight": 3.0
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-out-top_v1"
+     },
+     "rotation": 5
+    }
+   ]
+  },
+  "edge-out-top": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-out-top_v0"
+     },
+     "weight": 3.0
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-out-top_v1"
+     }
+    }
+   ]
+  },
+  "edge-out-vertical": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-out-top_v0"
+     },
+     "rotation": 9,
+     "weight": 3.0
+    },
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "edge-out-top_v1"
+     },
+     "rotation": 9
+    }
+   ]
+  },
+  "roof-eave": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "roof-eave_v0"
+     }
+    }
+   ]
+  },
+  "roof-gable": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "roof-gable_v0"
+     }
+    }
+   ]
+  },
+  "roof-hip": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "roof-hip_v0"
+     }
+    }
+   ]
+  },
+  "roof-ridge": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "roof-ridge_v0"
+     }
+    }
+   ]
+  },
+  "roof-valley": {
+   "meshes": [
+    {
+     "mesh": {
+      "assetId": "voxel-kit-sample",
+      "digest": "4e64dde27913efdf73b924d057e64bba2387c3a6e9df788846023b7cd7651118",
+      "node": "roof-valley_v0"
+     }
+    }
+   ]
+  }
+ },
+ "sheetLayout": {
+  "size": 2048,
+  "pxPerMetre": 1024,
+  "regions": [
+   {
+    "id": "S25",
+    "kind": "strip",
+    "metres": 0.25,
+    "y": [
+     32,
+     288
+    ]
+   },
+   {
+    "id": "S12",
+    "kind": "strip",
+    "metres": 0.125,
+    "y": [
+     352,
+     480
+    ]
+   },
+   {
+    "id": "F1",
+    "kind": "field",
+    "metres": 1.0,
+    "y": [
+     544,
+     1568
+    ]
+   },
+   {
+    "id": "C25a",
+    "kind": "cap",
+    "metres": 0.25,
+    "y": [
+     1632,
+     1888
+    ],
+    "x": [
+     32,
+     288
+    ]
+   },
+   {
+    "id": "C12a",
+    "kind": "cap",
+    "metres": 0.125,
+    "y": [
+     1632,
+     1760
+    ],
+    "x": [
+     352,
+     480
+    ]
+   }
+  ]
+ },
+ "gameData": {
+  "sample": true,
+  "break": "crumble",
+  "sound": "stone"
+ }
+}

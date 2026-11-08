@@ -1,6 +1,6 @@
 /**
  * The debug texture set of a trim layout (project-model voxel-trim-layout.ts,
- * a DRAFT the owner has not approved): what a kit whose pieces follow a
+ * the engine's example layout `detail-trim`, or a kit's own `sheetLayout`): what a kit whose pieces follow a
  * layout draws with until the material model gives it real texture sets.
  * Each region its own hue with its id written in it, a 1/16-cell checker
  * (3.125 cm) to show stretching, a tick every 0.125 m along U and a number

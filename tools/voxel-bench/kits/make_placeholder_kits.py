@@ -77,6 +77,15 @@ class LayoutError(Exception):
     pass
 
 
+def use_layout(regions, sheet, px_m):
+    """
+    Point the geometry helpers below at another sheet layout (regions in the form of REGIONS, its side and px a
+    metre): the authoring templates build their sample kit with these helpers on the sample's own layout.
+    """
+    global REGIONS, SHEET, PX_M, PERM
+    REGIONS, SHEET, PX_M, PERM = regions, sheet, px_m, px_m / sheet
+
+
 def band(rid):
     r = REGIONS[rid]
     return r[2] / SHEET, r[3] / SHEET
@@ -102,7 +111,7 @@ def fit(rid, length):
 
 
 def cap_for(extent):
-    for rid in ('C12a', 'C25a', 'C50a'):
+    for rid in sorted((r for r in REGIONS if REGIONS[r][0] == 'cap'), key=lambda r: REGIONS[r][1]):
         if extent <= usable_m(rid) + 1e-9:
             return rid
     raise LayoutError(f'an end {extent:.3f} m across has no cap cell')
@@ -512,10 +521,10 @@ def square_to_slope(p, x):
     return add3(p, scale3(SLOPE, -dot(sub(p, anchor), SLOPE)))
 
 
-def hip_caps():
+def hip_caps(rid='F1'):
     # 7 cm each side of the line: its ends are the 0.25 m cap cell's size (over 0.125 m across).
     w = 0.07
-    return line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), -w, 0.025), line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), w, 0.02)
+    return line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), -w, 0.025, rid), line_cap(HIP_LOW, HIP_HIGH, (w, 0.0, -w), w, 0.02, rid)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

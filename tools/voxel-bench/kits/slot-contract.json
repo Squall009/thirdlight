@@ -1,0 +1,1575 @@
+{
+ "generatedBy": "node tools/voxel-bench/gen-slot-sheets.mjs",
+ "catalogue": {
+  "id": "edges-draft",
+  "version": 3
+ },
+ "cellMetres": 0.5,
+ "stagger": {
+  "inwardMin": 0.00781,
+  "inwardMax": 0.01563,
+  "twistMax": 0.03491
+ },
+ "jitter": {
+  "default": 1,
+  "max": 4
+ },
+ "flushInsetMetres": 0.003906,
+ "damage": {
+  "scatterReach": 0.15,
+  "stage2Pieces": 6,
+  "stage3Pieces": 3
+ },
+ "rotations": {
+  "x90": 5,
+  "zm90": 9
+ },
+ "slots": [
+  {
+   "id": "edge-out-top",
+   "family": "outer-edge",
+   "note": "outer edge, the solid cell below it: a wall top, a stair nosing, a floor edge",
+   "placedBy": "the edge pass, one piece a 0.5 m lattice edge, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0,
+    0.25,
+    0.25
+   ],
+   "open": [
+    0,
+    0.7071,
+    0.7071
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "cut",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "edge-out-vertical",
+     "rotation": 10
+    },
+    {
+     "from": "edge-out-bottom",
+     "rotation": 3
+    }
+   ],
+   "triangleGuide": 48,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     0.25
+    ],
+    "open": [
+     0,
+     -0.7071,
+     0.7071
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "edge-out-vertical",
+   "family": "outer-edge",
+   "note": "outer vertical edge: an outside wall corner, a jamb",
+   "placedBy": "the edge pass, one piece a 0.5 m lattice edge, yaw 0–3",
+   "roles": "every construction role",
+   "run": "y",
+   "anchor": [
+    0.25,
+    0,
+    0.25
+   ],
+   "open": [
+    0.7071,
+    0,
+    0.7071
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "cut",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "edge-out-top",
+     "rotation": 9
+    },
+    {
+     "from": "edge-out-bottom",
+     "rotation": 10
+    }
+   ],
+   "triangleGuide": 48,
+   "blender": {
+    "anchor": [
+     0.25,
+     -0.25,
+     0
+    ],
+    "open": [
+     0.7071,
+     -0.7071,
+     0
+    ],
+    "run": "Z",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "edge-out-bottom",
+   "family": "outer-edge",
+   "note": "outer edge, the solid cell above it: a lintel underside, an overhang",
+   "placedBy": "the edge pass, one piece a 0.5 m lattice edge, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0,
+    -0.25,
+    0.25
+   ],
+   "open": [
+    0,
+    -0.7071,
+    0.7071
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "cut",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "edge-out-top",
+     "rotation": 5
+    },
+    {
+     "from": "edge-out-vertical",
+     "rotation": 9
+    }
+   ],
+   "triangleGuide": 48,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     -0.25
+    ],
+    "open": [
+     0,
+     -0.7071,
+     -0.7071
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "edge-in-top",
+   "family": "inner-edge",
+   "note": "inner edge, the open cell below it: wall meets ceiling",
+   "placedBy": "the edge pass, one piece a 0.5 m lattice edge, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0,
+    -0.25,
+    0.25
+   ],
+   "open": [
+    0,
+    -0.7071,
+    0.7071
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "skipped",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "edge-in-vertical",
+     "rotation": 9
+    },
+    {
+     "from": "edge-in-bottom",
+     "rotation": 5
+    }
+   ],
+   "triangleGuide": 48,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     -0.25
+    ],
+    "open": [
+     0,
+     -0.7071,
+     -0.7071
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "edge-in-vertical",
+   "family": "inner-edge",
+   "note": "inner vertical edge: an inside wall corner",
+   "placedBy": "the edge pass, one piece a 0.5 m lattice edge, yaw 0–3",
+   "roles": "every construction role",
+   "run": "y",
+   "anchor": [
+    0.25,
+    0,
+    0.25
+   ],
+   "open": [
+    0.7071,
+    0,
+    0.7071
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "skipped",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "edge-in-top",
+     "rotation": 10
+    },
+    {
+     "from": "edge-in-bottom",
+     "rotation": 9
+    }
+   ],
+   "triangleGuide": 48,
+   "blender": {
+    "anchor": [
+     0.25,
+     -0.25,
+     0
+    ],
+    "open": [
+     0.7071,
+     -0.7071,
+     0
+    ],
+    "run": "Z",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "edge-in-bottom",
+   "family": "inner-edge",
+   "note": "inner edge, the open cell above it: wall meets floor, a riser foot",
+   "placedBy": "the edge pass, one piece a 0.5 m lattice edge, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0,
+    0.25,
+    0.25
+   ],
+   "open": [
+    0,
+    0.7071,
+    0.7071
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "skipped",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "edge-in-top",
+     "rotation": 3
+    },
+    {
+     "from": "edge-in-vertical",
+     "rotation": 10
+    }
+   ],
+   "triangleGuide": 48,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     0.25
+    ],
+    "open": [
+     0,
+     -0.7071,
+     0.7071
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "corner-out-top",
+   "family": "outer-corner",
+   "note": "outer corner, the solid cell below it: a box top corner",
+   "placedBy": "the edge pass, one piece a lattice corner, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0.25,
+    0.25,
+    0.25
+   ],
+   "open": [
+    0.5774,
+    0.5774,
+    0.5774
+   ],
+   "halfRun": 0.125,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "cut",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "corner-out-bottom",
+     "rotation": 4
+    }
+   ],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0.25,
+     -0.25,
+     0.25
+    ],
+    "open": [
+     0.5774,
+     -0.5774,
+     0.5774
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "corner-out-bottom",
+   "family": "outer-corner",
+   "note": "outer corner, the solid cell above it: a box bottom corner",
+   "placedBy": "the edge pass, one piece a lattice corner, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0.25,
+    -0.25,
+    0.25
+   ],
+   "open": [
+    0.5774,
+    -0.5774,
+    0.5774
+   ],
+   "halfRun": 0.125,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "cut",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "corner-out-top",
+     "rotation": 5
+    }
+   ],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0.25,
+     -0.25,
+     -0.25
+    ],
+    "open": [
+     0.5774,
+     -0.5774,
+     -0.5774
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "corner-in-top",
+   "family": "inner-corner",
+   "note": "inner corner, the open cell below it",
+   "placedBy": "the edge pass, one piece a lattice corner, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0.25,
+    -0.25,
+    0.25
+   ],
+   "open": [
+    0.5774,
+    -0.5774,
+    0.5774
+   ],
+   "halfRun": 0.125,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "skipped",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "corner-in-bottom",
+     "rotation": 5
+    }
+   ],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0.25,
+     -0.25,
+     -0.25
+    ],
+    "open": [
+     0.5774,
+     -0.5774,
+     -0.5774
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "corner-in-bottom",
+   "family": "inner-corner",
+   "note": "inner corner, the open cell above it",
+   "placedBy": "the edge pass, one piece a lattice corner, yaw 0–3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0.25,
+    0.25,
+    0.25
+   ],
+   "open": [
+    0.5774,
+    0.5774,
+    0.5774
+   ],
+   "halfRun": 0.125,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "skipped",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "corner-in-top",
+     "rotation": 4
+    }
+   ],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0.25,
+     -0.25,
+     0.25
+    ],
+    "open": [
+     0.5774,
+     -0.5774,
+     0.5774
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "roof-ridge",
+   "family": "roof-edge",
+   "note": "the top line of two roof planes meeting",
+   "placedBy": "the roof mesher, on the edges of roof planes",
+   "roles": "roof",
+   "run": "x",
+   "anchor": [
+    0,
+    0.75,
+    0.25
+   ],
+   "open": [
+    0,
+    1,
+    0
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.75,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1,
+     0.5
+    ]
+   },
+   "opening": "none",
+   "pitch": "squashed",
+   "half": true,
+   "engineMirror": false,
+   "shares": [],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     0.75
+    ],
+    "open": [
+     0,
+     0,
+     1
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.75
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "roof-eave",
+   "family": "roof-edge",
+   "note": "the lowest edge of a roof plane",
+   "placedBy": "the roof mesher, on the edges of roof planes",
+   "roles": "roof",
+   "run": "x",
+   "anchor": [
+    0,
+    0.25,
+    0.25
+   ],
+   "open": [
+    0,
+    0.7071,
+    0.7071
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.75,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1,
+     0.5
+    ]
+   },
+   "opening": "none",
+   "pitch": "turned",
+   "half": true,
+   "engineMirror": false,
+   "shares": [],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     0.25
+    ],
+    "open": [
+     0,
+     -0.7071,
+     0.7071
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.75
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "roof-gable",
+   "family": "roof-edge",
+   "note": "the sloped end of a roof plane at a gable: the verge",
+   "placedBy": "the roof mesher, on the edges of roof planes",
+   "roles": "roof",
+   "run": "x",
+   "anchor": [
+    0,
+    0.5,
+    0.25
+   ],
+   "open": [
+    -0.5,
+    0.5,
+    0.7071
+   ],
+   "halfRun": 0.3536,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.75,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1,
+     0.5
+    ]
+   },
+   "opening": "none",
+   "pitch": "turned",
+   "half": true,
+   "engineMirror": true,
+   "shares": [],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     0.5
+    ],
+    "open": [
+     -0.5,
+     -0.7071,
+     0.5
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.75
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "roof-hip",
+   "family": "roof-edge",
+   "note": "an outside corner line of two roof planes",
+   "placedBy": "the roof mesher, on the edges of roof planes",
+   "roles": "roof",
+   "run": "x",
+   "anchor": [
+    0,
+    0.5,
+    0
+   ],
+   "open": [
+    0.4082,
+    0.8165,
+    0.4082
+   ],
+   "halfRun": 0.433,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.75,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1,
+     0.5
+    ]
+   },
+   "opening": "none",
+   "pitch": "squashed",
+   "half": true,
+   "engineMirror": false,
+   "shares": [],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0,
+     0,
+     0.5
+    ],
+    "open": [
+     0.4082,
+     -0.4082,
+     0.8165
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.75
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "roof-valley",
+   "family": "roof-edge",
+   "note": "an inside corner line of two roof planes",
+   "placedBy": "the roof mesher, on the edges of roof planes",
+   "roles": "roof",
+   "run": "x",
+   "anchor": [
+    0,
+    0.5,
+    0
+   ],
+   "open": [
+    0.4082,
+    0.8165,
+    0.4082
+   ],
+   "halfRun": 0.433,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.75,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1,
+     0.5
+    ]
+   },
+   "opening": "none",
+   "pitch": "squashed",
+   "half": true,
+   "engineMirror": false,
+   "shares": [],
+   "triangleGuide": 64,
+   "blender": {
+    "anchor": [
+     0,
+     0,
+     0.5
+    ],
+    "open": [
+     0.4082,
+     -0.4082,
+     0.8165
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.75
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "damage-stage-2",
+   "family": "damage",
+   "note": "an intact face opening toward a hole at damage stage 2: many pieces scattered over it",
+   "placedBy": "the damage rule, several a face, on an intact face toward a hole at stage 2",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0,
+    0,
+    0.25
+   ],
+   "open": [
+    0,
+    0,
+    1
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "none",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "damage-stage-3",
+     "rotation": 0
+    }
+   ],
+   "triangleGuide": 32,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     0
+    ],
+    "open": [
+     0,
+     -1,
+     0
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "damage-stage-3",
+   "family": "damage",
+   "note": "an intact face opening toward a hole at damage stage 3: fewer pieces scattered over it",
+   "placedBy": "the damage rule, several a face, on an intact face toward a hole at stage 3",
+   "roles": "every construction role",
+   "run": "x",
+   "anchor": [
+    0,
+    0,
+    0.25
+   ],
+   "open": [
+    0,
+    0,
+    1
+   ],
+   "halfRun": 0.25,
+   "touch": {
+    "min": [
+     -0.25,
+     -0.25,
+     -0.25
+    ],
+    "max": [
+     0.25,
+     0.25,
+     0.25
+    ]
+   },
+   "fit": {
+    "min": [
+     -0.5,
+     -0.5,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "opening": "none",
+   "pitch": null,
+   "half": false,
+   "engineMirror": false,
+   "shares": [
+    {
+     "from": "damage-stage-2",
+     "rotation": 0
+    }
+   ],
+   "triangleGuide": 32,
+   "blender": {
+    "anchor": [
+     0,
+     -0.25,
+     0
+    ],
+    "open": [
+     0,
+     -1,
+     0
+    ],
+    "run": "X",
+    "touch": {
+     "min": [
+      -0.25,
+      -0.25,
+      -0.25
+     ],
+     "max": [
+      0.25,
+      0.25,
+      0.25
+     ]
+    },
+    "fit": {
+     "min": [
+      -0.5,
+      -0.5,
+      -0.5
+     ],
+     "max": [
+      0.5,
+      0.5,
+      0.5
+     ]
+    }
+   }
+  }
+ ]
+}

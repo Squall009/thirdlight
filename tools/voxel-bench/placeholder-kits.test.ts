@@ -19,6 +19,7 @@ import { VoxelKitMeshes } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { WORLD_RULES } from '@thirdlight/voxel';
 import { ROOF_EDGE_NEAR_M, roofCaseOffset } from './roof-edge-surface';
+import { SLOT_TRIANGLE_GUIDE, slotFamily } from './slot-sheets';
 
 const DIR = join(import.meta.dirname, 'kits');
 const KITS = ['log', 'stone'] as const;
@@ -75,10 +76,8 @@ describe.each(KITS)('placeholder kit %s', (id) => {
       expect(cat.has(cid), cid).toBe(true);
       expect(cid, cid).toMatch(/^(edge-|corner-|roof-|damage-stage-)/);
     }
-    // Game-ready budgets (triangles a piece; drawn in the near ring only, so no lower-detail mesh). A damage piece is
-    // one fragment drawn several times a face toward a hole: 32.
-    const budget = (cid: string): number => (cid.startsWith('edge-') ? 48 : cid.startsWith('corner-') || cid.startsWith('roof-') ? 64 : cid.startsWith('damage-') ? 32 : 64);
-    for (const p of report.pieces) expect(p.triangles!, p.caseId).toBeLessThanOrEqual(budget(p.caseId));
+    // Game-ready budgets: the slot sheets' triangle guidance a piece (drawn in the near ring only, so no lower-detail mesh).
+    for (const p of report.pieces) expect(p.triangles!, p.caseId).toBeLessThanOrEqual(SLOT_TRIANGLE_GUIDE[slotFamily(p.caseId)]);
     // No mesh in the file is left over from a lower level (every node a record names, and only those).
     expect(new Set(meshesOf(kit).map((m) => m.node)).size).toBe(glbNodeNames(glb).length);
     for (const m of meshesOf(kit)) {
