@@ -26,7 +26,7 @@
  */
 import type { Neighbourhood } from './assembly';
 import { packedWidth } from './packed-width';
-import { isConstructionRole, MATERIAL_BITS, valueMaterial, valueRole, valueWetness, WETNESS_BITS } from './record';
+import { isConstructionRole, MATERIAL_BITS, valueMaterial, valueRole, valueWetness, WETNESS_BITS, WETNESS_MAX } from './record';
 
 /** Cells of neighbouring chunks the shader data holds around its chunk, on every side. */
 export const SHADER_BORDER_CELLS = 1;
@@ -66,6 +66,11 @@ export function shaderGridSide(edge: number): number {
 /** A shader palette entry: material in the low bits, wetness above it, then the construction bit of the cell's role. */
 export function shaderEntry(material: number, wetness: number, role: number): number {
   return material === 0 ? 0 : material | (wetness << MATERIAL_BITS) | (isConstructionRole(role) ? SHADER_CONSTRUCTION_BIT : 0);
+}
+
+/** The wetness level (0 … `WETNESS_MAX`) of a shader palette entry ({@link shaderEntry}). */
+export function shaderEntryWetness(entry: number): number {
+  return (entry >> MATERIAL_BITS) & WETNESS_MAX;
 }
 
 export interface ShaderOut {

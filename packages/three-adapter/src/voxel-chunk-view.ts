@@ -6,9 +6,11 @@
  * are. Play, an exported game and the editor draw through this one view.
  *
  * A chunk is one mesh holding its ground and its modular base surfaces (the
- * same material, so one draw), plus its kit pieces: one instanced mesh a
- * (kit piece, slot mesh, mirror). Only a chunk (level 0, the near ring)
- * lists pieces; coarser nodes draw their edges as plain voxel faces. A kit piece's kit is its dressing cell's material's
+ * same material, so one draw), plus its kit pieces, which draw across the
+ * chunks: one instanced draw a (kit piece, slot mesh, mirror, cut) for the
+ * whole view ({@link VoxelPieceBatches}), culled by chunk. Only a chunk
+ * (level 0, the near ring) lists pieces; coarser nodes draw their edges as
+ * plain voxel faces. A kit piece's kit is its dressing cell's material's
  * (its own cell or one beside it), read from the chunk's shader data as the surface shader reads it; a piece beside an
  * opening draws a copy of its mesh cut flush at the faces its instance names. Its mesh comes from the
  * view's {@link VoxelKitSet} (the world's piece table and kits). A chunk
@@ -40,12 +42,15 @@
  * cut from, told to the scene's clipped decals as it comes and goes
  * ({@link VoxelChunkView.setDecalSurfaces}). Kit pieces are instanced and
  * coarser levels change the surface with distance, so they take projected
- * decals only.
+ * decals only. Each piece wears its dressing cell's wetness, read from the
+ * shader data as its kit is, and read again when only the shader data
+ * changes.
  *
  * A swap's draws are replaced in the task that announces them (a batch,
  * {@link applyChunkDrawBatch}: everything one streamer task changed, a
  * change of the levels drawn with its seams included), so all of them
- * change between the same two frames.
+ * change between the same two frames; the piece draws are written once, at
+ * the batch's end.
  *
  * Colours and patterns are stand-ins picked by material id: materials,
  * kits and detail art come later.
@@ -80,13 +85,16 @@ import {
   type InstanceList,
   MATERIAL_ID_MAX,
   SHADER_BORDER_CELLS,
+  shaderEntryWetness,
+  WETNESS_MAX,
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import { applyObjectDecalLayers, DECAL_LAYERS_KEY, DECAL_SURFACE_KEY } from './projected-decals';
 import type { SurfaceListener } from './render-graph';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
-import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU, runAxisOf } from './voxel-trim-u';
+import { PIECE_DATA_FLOATS, PIECE_WET_FLOAT, pieceU, runAxisOf } from './voxel-trim-u';
+import { VoxelPieceBatches, type PieceRun } from './voxel-piece-batches';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
 import { PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
@@ -202,9 +210,12 @@ interface ChunkDraw {
   readonly surface: VoxelSurfaceObject;
   /** The object's grid region (null: none, its one solid entry is passed instead). */
   region: THREE.Vector3 | null;
-  /** Its detail instances (a copy) and each one's material (0 for a default piece), kept to build its kit pieces again. */
+  /** Its detail instances (a copy), each one's material (0 for a default piece) and wetness (0 … 1), kept to build its kit pieces again. */
   readonly instances: InstanceList;
   readonly materials: Uint16Array;
+  wet: Float32Array;
+  /** GPU bytes of its pieces in the view's piece draws. */
+  pieceBytes: number;
   readonly cellMetres: number;
   /** Kit pieces whose meshes were still loading when its pieces were built. */
   waiting: boolean;
@@ -245,11 +256,8 @@ export interface VoxelChunkViewOptions {
   readonly shadows?: boolean;
 }
 
-/** GPU bytes of one instanced piece draw: a matrix an instance, and a trim draw's world-anchored U (voxel-trim-u.ts). */
-function pieceDrawBytes(mesh: THREE.InstancedMesh): number {
-  const u = mesh.geometry.getAttribute(PIECE_U_ATTRIBUTE);
-  return mesh.count * INSTANCE_MATRIX_FLOATS * Float32Array.BYTES_PER_ELEMENT + (u === undefined ? 0 : u.array.byteLength);
-}
+/** GPU bytes an instance takes in a piece draw: its matrix and its `pieceU` (voxel-trim-u.ts). */
+const PIECE_INSTANCE_BYTES = (INSTANCE_MATRIX_FLOATS + PIECE_DATA_FLOATS) * Float32Array.BYTES_PER_ELEMENT;
 
 /** Every drawn chunk, mip node and seam of a voxel world, in one scene group. */
 export class VoxelChunkView {
@@ -261,10 +269,10 @@ export class VoxelChunkView {
   /** Drawn objects by level, by key within the level. */
   private readonly levels: Array<Map<number, ChunkDraw>> = [];
   private readonly seams = new Map<string, SeamDraw>();
-  /** Of the instances drawn, the kit pieces. */
-  readonly piecesDrawn = { kit: 0 };
-  /** Instanced piece meshes drawn (each one draw call). */
-  pieceDraws = 0;
+  /** The kit pieces of every chunk, drawn per kind across them. */
+  readonly pieces: VoxelPieceBatches;
+  /** Inside {@link applyChunkDrawBatch}: the piece draws are written at its end. */
+  private batching = false;
   private kitSet: VoxelKitSet | null;
   /** Kits' own crack layers the surface has now. */
   private crackLayers = 0;
@@ -286,7 +294,6 @@ export class VoxelChunkView {
   vertices = 0;
   reliefVertices = 0;
   seamTriangles = 0;
-  instances = 0;
   /** Objects whose meshes were built (chunks and nodes), and shader grids uploaded or set (one solid entry). */
   meshBuilds = 0;
   shaderSets = 0;
@@ -303,8 +310,30 @@ export class VoxelChunkView {
     this.renderer = opts.renderer;
     this.shadows = opts.shadows === true;
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
+    this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows });
+    this.root.add(this.pieces.root);
     this.kitSet = null;
     this.setKits(opts.kits ?? null);
+  }
+
+  /** Piece instances drawn (every chunk's), and the draws they take (one a kind across the chunks). */
+  get instances(): number {
+    return this.pieces.instances;
+  }
+
+  get pieceDraws(): number {
+    return this.pieces.draws;
+  }
+
+  /** Of the instances drawn, the kit pieces (every instance drawn is one). */
+  get piecesDrawn(): { readonly kit: number } {
+    return { kit: this.pieces.instances };
+  }
+
+  /** Piece instances a chunk (or a node of `level`) draws. */
+  piecesOf(cx: number, cy: number, cz: number, level = 0): number {
+    const m = this.levels[level]?.get(chunkKey(this.grid, cx, cy, cz));
+    return m === undefined ? 0 : this.pieces.countOf(m);
   }
 
   /** The kit pieces drawn now (null: none). */
@@ -340,6 +369,7 @@ export class VoxelChunkView {
     if (mask === this.decalLayers) return;
     this.decalLayers = mask;
     applyObjectDecalLayers(this.root, mask);
+    this.pieces.setDecalLayers(mask);
     // A clipped decal reads its surfaces' layers when it cuts: each surface comes again, so the decals over it look again.
     for (const m of this.surfaceMeshes()) {
       this.decalSurfaces?.removed(m);
@@ -386,7 +416,25 @@ export class VoxelChunkView {
   /** Builds again the pieces of every drawn chunk and node that waited for kit meshes, then tells {@link rebuilt}. */
   private buildWaiting(): void {
     for (const map of this.levels) for (const m of map?.values() ?? []) if (m.waiting) this.buildPieces(m);
+    this.flushPieces();
     this.rebuilt?.();
+  }
+
+  /** Writes the piece draws a change touched, unless a batch is being applied (it writes them at its end). */
+  private flushPieces(): void {
+    if (!this.batching) this.pieces.flush();
+  }
+
+  /** Applies `f` (a batch's changes) with the piece draws written once, after it. */
+  inBatch<T>(f: () => T): T {
+    const was = this.batching;
+    this.batching = true;
+    try {
+      return f();
+    } finally {
+      this.batching = was;
+      this.flushPieces();
+    }
   }
 
   /** Level-0 chunks' GPU bytes now (`[cx, cy, cz, bytes]` repeated), as a batch reports them. */
@@ -448,6 +496,7 @@ export class VoxelChunkView {
   rebase(): void {
     for (const m of this.levels) if (m !== undefined) for (const d of m.values()) this.place(d.group, d.cell);
     for (const s of this.seams.values()) this.place(s.mesh, s.cell);
+    this.pieces.rebase();
     for (const m of this.surfaceMeshes()) {
       m.updateWorldMatrix(true, false, true);
       this.decalSurfaces?.moved(m);
@@ -494,10 +543,13 @@ export class VoxelChunkView {
       this.vertices += geo.getAttribute('position').count;
       if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) this.reliefVertices += geo.getAttribute('position').count;
     }
-    const kept = keptInstances(d.instances, this.kitMaterialsOf(d));
-    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, cellMetres: cellM, waiting: false, decalSurface };
+    const kept = keptInstances(d.instances, this.kitEntriesOf(d));
+    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface };
     this.buildPieces(m);
-    if (group.children.length === 0 && !m.waiting) return 0;
+    if (group.children.length === 0 && m.pieceBytes === 0 && !m.waiting) {
+      this.pieces.remove(m);
+      return 0;
+    }
     this.place(group, cell);
     this.root.add(group);
     if (decalSurface !== null) this.tellAdded(decalSurface);
@@ -508,6 +560,7 @@ export class VoxelChunkView {
     }
     map.set(key, m);
     this.applyShader(m, d.solid);
+    this.flushPieces();
     return m.bytes;
   }
 
@@ -521,6 +574,15 @@ export class VoxelChunkView {
     const m = this.levels[level]?.get(chunkKey(this.grid, cx, cy, cz));
     if (m === undefined) return 0;
     this.applyShader(m, solid);
+    // Its pieces' wetness from the new data (their kits stay: a kit follows a derive).
+    if (m.instances.count > 0) {
+      const wet = keptInstances(m.instances, this.kitEntriesOf({ solid })).wet;
+      if (wet.some((w, k) => w !== m.wet[k])) {
+        m.wet = wet;
+        this.buildPieces(m);
+        this.flushPieces();
+      }
+    }
     return m.bytes;
   }
 
@@ -546,28 +608,27 @@ export class VoxelChunkView {
     this.uploadMs.add(performance.now() - t0);
   }
 
-  /** Reads each kit instance's cell material from the shader data the draw arrived with ({@link cells}, or its one solid entry). */
-  private kitMaterialsOf(d: VoxelChunkDraw): (x: number, y: number, z: number) => number {
-    if (d.solid >= 0) return () => d.solid & MATERIAL_ID_MAX;
+  /** Reads each kit instance's cell entry (material, wetness) from the shader data the draw arrived with ({@link cells}, or its one solid entry). */
+  private kitEntriesOf(d: Pick<VoxelChunkDraw, 'solid'>): (x: number, y: number, z: number) => number {
+    if (d.solid >= 0) return () => d.solid;
     const side = this.shading.grids.layout.side;
     const b = SHADER_BORDER_CELLS;
     const cells = this.cells;
-    return (x, y, z) => cells[((x + b) * side + (z + b)) * side + (y + b)]! & MATERIAL_ID_MAX;
+    return (x, y, z) => cells[((x + b) * side + (z + b)) * side + (y + b)]!;
   }
 
-  /** Removes a draw's instanced pieces and builds them again from its instances and the pieces the view has now. */
+  /** Builds a draw's kit pieces again from its instances and the pieces the view has now, as its runs in the view's piece draws. */
   private buildPieces(m: ChunkDraw): void {
-    for (const child of [...m.group.children]) {
-      if (!(child instanceof THREE.InstancedMesh)) continue;
-      m.group.remove(child);
-      m.bytes -= pieceDrawBytes(child);
-      this.dropPieceMesh(child);
-    }
+    m.bytes -= m.pieceBytes;
+    m.pieceBytes = 0;
     m.waiting = false;
     const list = m.instances;
-    if (list.count === 0) return;
-    // One instanced mesh a kit piece's resolved key.
-    const byMesh = new Map<string, PiecePlacement & { geometry: THREE.BufferGeometry; material: THREE.Material; offsets: number[]; uPerMetre?: number; runAxis: 0 | 1 | 2 }>();
+    if (list.count === 0) {
+      this.pieces.remove(m);
+      return;
+    }
+    // One run a kit piece's resolved draw: its mesh (cut flush or not) and material.
+    const byMesh = new Map<string, PiecePlacement & { key: string; geometry: THREE.BufferGeometry; material: THREE.Material; offsets: number[]; uPerMetre?: number; runAxis: 0 | 1 | 2 }>();
     for (let k = 0; k < list.count; k++) {
       const o = k * INSTANCE_BYTES;
       const piece = list.data[o + 4]! | (list.data[o + 5]! << 8);
@@ -580,61 +641,51 @@ export class VoxelChunkView {
       // A piece beside an opening draws its mesh cut at the faces its instance names, turned into its case's axes.
       const flush = instanceFlushFaces(dressingAt(list.data, o));
       const caseFaces = flush === 0 ? 0 : caseFlushFaces(flush, list.data[o + 3]! & 3);
-      const key = caseFaces === 0 ? r.key : `${r.key}|f${caseFaces}`;
       const geometry = caseFaces === 0 || this.kitSet === null ? r.geometry : this.kitSet.meshes.flushGeometry(r.geometry, r.rotation, caseFaces);
+      // The draw's key names what it draws with, so kinds of two kit sets (a changed table) never share a draw.
+      const key = `${geometry.uuid}|${r.material.uuid}|${r.key}|f${caseFaces}`;
       // A case's quarter turn takes its +x to +z (kit-cases.ts applyFold): a negative turn about +y in three.
-      if (!byMesh.has(key)) byMesh.set(key, { geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, caseId: r.caseId, mirror: r.mirror, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }), ...(r.scatterCount === undefined ? {} : { scatterCount: r.scatterCount, seed: r.seed }) });
+      if (!byMesh.has(key)) byMesh.set(key, { key, geometry, material: r.material, turnSign: -1, rotation: r.rotation, stagger: r.stagger, halfRun: r.halfRun, caseId: r.caseId, mirror: r.mirror, runAxis: r.runAxis, offsets: [], ...(r.uPerMetre === undefined ? {} : { uPerMetre: r.uPerMetre }), ...(r.scatterCount === undefined ? {} : { scatterCount: r.scatterCount, seed: r.seed }) });
       byMesh.get(key)!.offsets.push(o);
     }
     // A piece is drawn at its draw's cell size (a chunk's: 0.5 m).
     const cellM = m.cellMetres;
     const k0 = cellM / VOXEL_SIZE_M;
+    const runs: PieceRun[] = [];
+    let instances = 0;
     for (const g of byMesh.values()) {
       const n = g.offsets.length;
       if (n === 0) continue;
-      // A trim piece's draw has its own geometry for the instances' world-anchored U (voxel-trim-u.ts).
-      const trim = g.uPerMetre === undefined ? null : instancedTrimGeometry(g.geometry, n);
-      const mesh = new THREE.InstancedMesh(trim?.geometry ?? g.geometry, g.material, n);
-      mesh.castShadow = mesh.receiveShadow = this.shadows;
-      mesh.matrixAutoUpdate = false;
-      if (trim !== null) {
-        mesh.userData['voxelTrimGeometry'] = true;
-        g.offsets.forEach((o, i) => {
-          const local = [list.data[o]!, list.data[o + 1]!, list.data[o + 2]!];
-          const mirror = ((list.data[o + 6]! | (list.data[o + 7]! << 8)) & PIECE_VARIANT_MIRROR) !== 0;
-          const rot = list.data[o + 3]!;
-          // The mesh's run through its slot rotation, the tip and the turns: a vertical edge's U runs up y.
-          const q = pieceTurn(this.quat, rot, instancePlaceOf(rot), g.turnSign);
-          if (g.rotation !== 0) q.multiply(this.tip.setFromRotationMatrix(cubeRotationMatrix(g.rotation)));
-          const [axis, sign] = runAxisOf(q, g.runAxis, mirror, mirrorAxisOf(g.rotation));
-          const [offset, factor] = pieceU(g.uPerMetre!, m.cell, local, cellM, axis, sign);
-          trim.u.setXY(i, offset, factor);
-        });
-      }
+      const matrices = new Float32Array(n * INSTANCE_MATRIX_FLOATS);
+      const data = new Float32Array(n * PIECE_DATA_FLOATS);
       g.offsets.forEach((o, i) => {
         const rot = list.data[o + 3]!;
         this.at.set((list.data[o]! + 0.5) * cellM, (list.data[o + 1]! + 0.5) * cellM, (list.data[o + 2]! + 0.5) * cellM);
         const cell0 = [m.cell[0]! + list.data[o]! * k0, m.cell[1]! + list.data[o + 1]! * k0, m.cell[2]! + list.data[o + 2]! * k0];
-        mesh.setMatrixAt(i, pieceMatrix(this.matrix, rot, instancePlaceOf(rot), this.at, cellM, cell0, m.level, g, instanceScatter(dressingAt(list.data, o))));
+        pieceMatrix(this.matrix, rot, instancePlaceOf(rot), this.at, cellM, cell0, m.level, g, instanceScatter(dressingAt(list.data, o))).toArray(matrices, i * INSTANCE_MATRIX_FLOATS);
+        // A trim piece's world-anchored U (voxel-trim-u.ts); every piece's wetness.
+        let offset = 0;
+        let factor = 1;
+        if (g.uPerMetre !== undefined) {
+          const local = [list.data[o]!, list.data[o + 1]!, list.data[o + 2]!];
+          const mirror = ((list.data[o + 6]! | (list.data[o + 7]! << 8)) & PIECE_VARIANT_MIRROR) !== 0;
+          // The mesh's run through its slot rotation, the tip and the turns: a vertical edge's U runs up y.
+          const q = pieceTurn(this.quat, rot, instancePlaceOf(rot), g.turnSign);
+          if (g.rotation !== 0) q.multiply(this.tip.setFromRotationMatrix(cubeRotationMatrix(g.rotation)));
+          const [axis, sign] = runAxisOf(q, g.runAxis, mirror, mirrorAxisOf(g.rotation));
+          [offset, factor] = pieceU(g.uPerMetre, m.cell, local, cellM, axis, sign);
+        }
+        data[i * PIECE_DATA_FLOATS] = offset;
+        data[i * PIECE_DATA_FLOATS + 1] = factor;
+        data[i * PIECE_DATA_FLOATS + PIECE_WET_FLOAT] = m.wet[o / INSTANCE_BYTES]!;
       });
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      mesh.userData['voxelKitPiece'] = true;
-      if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;
-      m.group.add(mesh);
-      this.instances += n;
-      this.pieceDraws++;
-      this.piecesDrawn.kit += n;
-      m.bytes += pieceDrawBytes(mesh);
+      runs.push({ kind: { key: g.key, geometry: g.geometry, material: g.material }, n, matrices, data });
+      instances += n;
     }
-  }
-
-  private dropPieceMesh(child: THREE.InstancedMesh): void {
-    this.instances -= child.count;
-    this.pieceDraws--;
-    if (child.userData['voxelKitPiece'] === true) this.piecesDrawn.kit -= child.count;
-    if (child.userData['voxelTrimGeometry'] === true) disposeInstancedTrimGeometry(child.geometry);
-    child.dispose();
+    const e = this.grid.edge * 2 ** m.level;
+    this.pieces.set(m, [m.cell[0]!, m.cell[1]!, m.cell[2]!], e * VOXEL_SIZE_M, runs);
+    m.pieceBytes = instances * PIECE_INSTANCE_BYTES;
+    m.bytes += m.pieceBytes;
   }
 
   /** Stops drawing a chunk (unloaded, or nothing left to draw), or a node of `level`. */
@@ -650,13 +701,14 @@ export class VoxelChunkView {
 
   private removeDraw(m: ChunkDraw): void {
     this.root.remove(m.group);
+    this.pieces.remove(m);
+    this.flushPieces();
     if (m.decalSurface !== null) this.decalSurfaces?.removed(m.decalSurface);
     if (m.region !== null) this.shading.grids.release(m.region);
     for (const child of m.group.children) {
       const i = this.pickable.indexOf(child);
       if (i >= 0) this.pickable.splice(i, 1);
-      if (child instanceof THREE.InstancedMesh) this.dropPieceMesh(child);
-      else if (child instanceof THREE.Mesh) {
+      if (child instanceof THREE.Mesh) {
         const g = child.geometry as THREE.BufferGeometry;
         this.triangles -= (g.index?.count ?? 0) / 3;
         this.vertices -= g.getAttribute('position').count;
@@ -724,6 +776,7 @@ export class VoxelChunkView {
       m.clear();
     }
     for (const s of [...this.seams.values()]) this.removeSeam(s.level, ...s.node);
+    this.pieces.dispose();
   }
 }
 
@@ -735,19 +788,22 @@ function dressingAt(data: Uint8Array, o: number): number {
 
 /**
  * A draw's instances copied (a batch's buffers may be reused once applied)
- * with each kit piece's cell material read now, while the draw's shader
- * data is in the view's grid buffer.
+ * with each kit piece's cell material and wetness (0 … 1) read now, while
+ * the draw's shader data is in the view's grid buffer.
  */
-function keptInstances(list: InstanceList, materialAt: (x: number, y: number, z: number) => number): { instances: InstanceList; materials: Uint16Array } {
+function keptInstances(list: InstanceList, entryAt: (x: number, y: number, z: number) => number): { instances: InstanceList; materials: Uint16Array; wet: Float32Array } {
   const data = list.data.slice(0, list.count * INSTANCE_BYTES);
   const materials = new Uint16Array(list.count);
+  const wet = new Float32Array(list.count);
   for (let k = 0; k < list.count; k++) {
     const o = k * INSTANCE_BYTES;
-    // The kit is the dressing cell's: the instance's own cell or one beside it (in the shader data's border).
+    // The kit and the wetness are the dressing cell's: the instance's own cell or one beside it (in the shader data's border).
     const [dx, dy, dz] = instanceDressingCell(dressingAt(data, o));
-    materials[k] = materialAt(data[o]! + dx, data[o + 1]! + dy, data[o + 2]! + dz);
+    const entry = entryAt(data[o]! + dx, data[o + 1]! + dy, data[o + 2]! + dz);
+    materials[k] = entry & MATERIAL_ID_MAX;
+    wet[k] = shaderEntryWetness(entry) / WETNESS_MAX;
   }
-  return { instances: { count: list.count, data }, materials };
+  return { instances: { count: list.count, data }, materials, wet };
 }
 
 /** What applying a batch replaced: per level-0 chunk, its bytes now (`[cx, cy, cz, bytes]` repeated), the coarse draws' bytes, and the entries applied. */
@@ -768,6 +824,10 @@ export interface VoxelBatchApplied {
  * stays drawn until the frame after the new one is complete.
  */
 export function applyChunkDrawBatch(view: VoxelChunkView, b: ChunkDrawBatch): VoxelBatchApplied {
+  return view.inBatch(() => applyBatch(view, b));
+}
+
+function applyBatch(view: VoxelChunkView, b: ChunkDrawBatch): VoxelBatchApplied {
   const chunkBytes: number[] = [];
   let replaced = 0;
   for (const c of b.chunks) {

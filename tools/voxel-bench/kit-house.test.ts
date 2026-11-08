@@ -19,7 +19,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { createVoxelSurface, VoxelChunkView, VoxelKitMeshes, voxelStandInLook } from '@thirdlight/three-adapter';
+import { createVoxelSurface, PIECE_SOURCE_KEY, VoxelChunkView, VoxelKitMeshes, voxelStandInLook } from '@thirdlight/three-adapter';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -77,6 +77,9 @@ import { townWorld } from './town';
 import { fullTestKit } from './test-kits';
 import { MAT } from './world-kit';
 import { ROOF_EDGE_NEAR_M, roofCaseOffset, type RoofEdgeCaseId } from './roof-edge-surface';
+
+/** The piece mesh a view's piece draw draws (its own geometry shares that one's attributes). */
+const sourceOf = (m: THREE.InstancedMesh): THREE.BufferGeometry => m.userData[PIECE_SOURCE_KEY] as THREE.BufferGeometry;
 
 const grid = chunkGrid(32);
 const E = grid.edge;
@@ -538,7 +541,7 @@ async function roofPiecesFollowThePlanes(slope: number): Promise<void> {
     const seen = new Map<string, number>();
     let worst = 0;
     for (const mesh of draws) {
-      const k = kinds.find((q) => q.g === mesh.geometry);
+      const k = kinds.find((q) => q.g === sourceOf(mesh));
       if (k === undefined) continue;
       const pos = mesh.geometry.getAttribute('position');
       for (let i = 0; i < mesh.count; i++) {
@@ -621,7 +624,7 @@ describe('kit pieces drawn through the real chunk view', () => {
     expect(byCase.get('damage-stage-3')).toBe(4 * 3);
     // The three outer edge slots draw with the one strip geometry, turned.
     const stripGeometry = meshes.mesh(strip, false);
-    const onStrip = draws.filter((m) => m.geometry === stripGeometry);
+    const onStrip = draws.filter((m) => sourceOf(m) === stripGeometry);
     expect(onStrip.length).toBe(['edge-out-top', 'edge-out-vertical', 'edge-out-bottom'].filter((id) => byCase.has(id)).length);
     expect(onStrip.length).toBeGreaterThanOrEqual(2);
     // Every staggered instance moved into its solid within bounds; a roof board sits exactly on its cell's grid.
@@ -630,7 +633,7 @@ describe('kit pieces drawn through the real chunk view', () => {
     let staggered = 0;
     const damageGeometries = new Set(['damage-stage-2', 'damage-stage-3'].map((id) => meshes.mesh({ assetId: id, digest: D }, false)));
     for (const mesh of draws) {
-      if (damageGeometries.has(mesh.geometry as THREE.BufferGeometry)) {
+      if (damageGeometries.has(sourceOf(mesh))) {
         // Spread over the face toward the hole and spun about its normal: every piece its own place, within the face.
         const at = new Set<string>();
         const p = new THREE.Vector3();

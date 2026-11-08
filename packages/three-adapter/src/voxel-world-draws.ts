@@ -161,9 +161,12 @@ export interface VoxelWorldDrawStats {
   readonly triangles: number;
   readonly seamTriangles: number;
   readonly instances: number;
-  /** Of them kit pieces, and the instanced piece meshes drawn (a draw call each). */
+  /** Of them kit pieces, and the piece draws (one a piece kind across the chunks, a draw call each a pass). */
   readonly kitInstances: number;
   readonly pieceDraws: number;
+  /** Of them, as the view last drew: the draws it drew some of and the instances it drew. */
+  readonly pieceDrawsInView: number;
+  readonly piecesInView: number;
   readonly meshBuilds: number;
   readonly shaderSets: number;
   /** Material table uploads (a record changed) and the ms the last one took. */
@@ -439,7 +442,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 

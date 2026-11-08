@@ -496,7 +496,12 @@ plain and the material blend draws the seam),
 picked by the seed and the cell (an edit elsewhere never reshuffles them),
 turned to fit and jittered by the kit. Pieces draw only in the near ring
 (level 0); from the middle ring out the edges are plain square voxel faces.
-The stagger is drawing only, collision never sees it. Kit pieces draw with
+The stagger is drawing only, collision never sees it. A piece wears its
+cell's wetness as the surface does (darker, smoother, its fine relief
+flatter; water never stands on a piece). Pieces are drawn per piece kind
+for the whole near ring, not per chunk, so the draw count follows the kinds
+in view, and each pass (the view, a shadow map) draws only the chunks it
+sees. Kit pieces draw with
 a stand-in material a kit and a labelled debug UV texture until materials
 arrive; a kit naming a trim layout draws with that layout's debug set
 instead (each region its own colour and id, a 3 cm checker, a tick every
@@ -658,8 +663,7 @@ These come later; worlds made now keep working when they arrive:
   buildings meet the ground and ground scatter come with the terrain tools.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
 - **Materials**: texture sets in the material Inspector (set over the API),
-  the physical section in the Inspector (profiles are set over the API), and
-  wet kit pieces (a kit's pieces stay dry when their cells are wet).
+  and the physical section in the Inspector (profiles are set over the API).
 - **Lighting**: the world's own light and shadow, and what reads the light
   coverage props stamp; culling and navigation over voxels.
 - **Structures** (rotated grids of their own, such as a ship or a moving

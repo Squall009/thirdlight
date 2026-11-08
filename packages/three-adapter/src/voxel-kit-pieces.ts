@@ -72,7 +72,15 @@ import type { GlbLoaderPort } from './visual';
 import { drawGlyphs, trimDebugTexture } from './voxel-trim-debug-texture';
 import { kitLookMaterial, kitLookOf, type VoxelKitLook } from './voxel-kit-look';
 import { TEXTURE_ASSET_KEY } from './resource-bytes';
-import { trimMaterial, trimRunGeometry, trimUPerMetre } from './voxel-trim-u';
+import { pieceWetLook, trimMaterial, trimRunGeometry, trimUPerMetre } from './voxel-trim-u';
+import { materialColor } from 'three/tsl';
+
+/** A stand-in piece material (a tint, or the debug texture): lit, camera-relative, darkened by its cell's wetness. */
+function standInMaterial(params: { color: number; map?: THREE.Texture }): THREE.Material {
+  const m = new MeshLambertNodeMaterial(params);
+  m.colorNode = materialColor.mul(pieceWetLook().albedo);
+  return cameraRelative(m);
+}
 
 /** One authored mesh of a kit: a model asset version by its source digest, optionally one node of it. */
 export interface VoxelKitMeshRef {
@@ -413,7 +421,7 @@ export class VoxelKitMeshes {
       }
       const key = `tint:${tint}`;
       let plain = this.materials.get(key);
-      if (plain === undefined) this.materials.set(key, (plain = cameraRelative(new MeshLambertNodeMaterial({ color: KIT_TINTS[tint % KIT_TINTS.length]! }))));
+      if (plain === undefined) this.materials.set(key, (plain = standInMaterial({ color: KIT_TINTS[tint % KIT_TINTS.length]! })));
       return plain;
     }
     // A kit's own layout is keyed by its numbers too, so an edited layout draws its new debug set.
@@ -427,7 +435,7 @@ export class VoxelKitMeshes {
         this.trimTextures.set(sheet, map);
       }
       const color = layout !== undefined ? 0xffffff : KIT_TINTS[tint % KIT_TINTS.length]!;
-      this.materials.set(key, (m = layout !== undefined ? trimMaterial(map) : cameraRelative(new MeshLambertNodeMaterial({ color, map }))));
+      this.materials.set(key, (m = layout !== undefined ? trimMaterial(map) : standInMaterial({ color, map })));
     }
     return m;
   }

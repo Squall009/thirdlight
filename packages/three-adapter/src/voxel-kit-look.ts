@@ -24,9 +24,9 @@ import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { cameraRelative } from './camera-relative';
-import { PIECE_U_ATTRIBUTE, TRIM_RUN_ATTRIBUTE } from './voxel-trim-u';
+import { pieceWetLook, trimRunUv } from './voxel-trim-u';
 
-const { attribute, float, normalView, positionView, texture, uniform, uv, vec2, vec3 } = TSL;
+const { float, materialColor, materialNormal, materialRoughness, mix, normalView, positionView, texture, uniform, vec3 } = TSL;
 
 /** The parts of a GLB material a kit piece draws: its maps (null: none) and factors. */
 export interface VoxelKitLook {
@@ -68,10 +68,12 @@ export function kitLookOf(material: THREE.Material): VoxelKitLook | null {
 
 /**
  * The material a kit's pieces draw with: its look as a lit node material placed camera-relative; `trim`: every
- * map read at the world-anchored U of the pieces' run faces (the draw gives each instance its `pieceU`).
+ * map read at the world-anchored U of the pieces' run faces (the draw gives each instance its `pieceU`). Each
+ * piece wears its cell's wetness as the voxel surface does: darker, smoother, its normal detail flatter.
  */
 export function kitLookMaterial(look: VoxelKitLook, trim: boolean): THREE.Material {
   const m = new MeshStandardNodeMaterial({ color: look.color, roughness: look.roughness, metalness: look.metalness });
+  const wet = pieceWetLook();
   if (!trim) {
     if (look.map !== null) m.map = look.map;
     if (look.normalMap !== null) {
@@ -84,22 +86,18 @@ export function kitLookMaterial(look: VoxelKitLook, trim: boolean): THREE.Materi
       m.aoMap = look.aoMap;
       m.aoMapIntensity = look.aoMapIntensity;
     }
+    // The material's own colour, roughness and normal (its maps at the authored UV), as wetness changes them.
+    m.colorNode = materialColor.mul(wet.albedo);
+    m.roughnessNode = materialRoughness.mul(wet.roughness);
+    if (look.normalMap !== null) m.normalNode = mix(materialNormal, normalView, wet.flatten).normalize();
     return cameraRelative(m);
   }
-  const authored = uv();
-  const run = attribute(TRIM_RUN_ATTRIBUTE, 'float');
-  const p = attribute(PIECE_U_ATTRIBUTE, 'vec2');
-  // run ? offset + factor × U : U
-  const st = vec2(authored.x.add(run.mul(p.x.add(p.y.sub(1).mul(authored.x)))), authored.y);
+  const st = trimRunUv();
   // The maps stay on the material for whoever reads which textures it draws; the nodes are what sample them.
-  if (look.map !== null) {
-    m.map = look.map;
-    m.colorNode = texture(look.map, st).mul(uniform(look.color));
-  }
-  if (look.roughnessMap !== null) {
-    m.roughnessMap = look.roughnessMap;
-    m.roughnessNode = texture(look.roughnessMap, st).g.mul(look.roughness);
-  }
+  if (look.map !== null) m.map = look.map;
+  m.colorNode = (look.map !== null ? texture(look.map, st).mul(uniform(look.color)) : uniform(look.color)).mul(wet.albedo);
+  if (look.roughnessMap !== null) m.roughnessMap = look.roughnessMap;
+  m.roughnessNode = (look.roughnessMap !== null ? texture(look.roughnessMap, st).g.mul(look.roughness) : float(look.roughness)).mul(wet.roughness);
   if (look.metalnessMap !== null) {
     m.metalnessMap = look.metalnessMap;
     m.metalnessNode = texture(look.metalnessMap, st).b.mul(look.metalness);
@@ -125,7 +123,7 @@ export function kitLookMaterial(look: VoxelKitLook, trim: boolean): THREE.Materi
     const scale = det.equal(0).select(float(0), det.inverseSqrt());
     const tex = texture(look.normalMap, st).xyz.mul(2).sub(1);
     const tn = vec3(tex.x.mul(look.normalScale.x), tex.y.mul(look.normalScale.y), tex.z);
-    m.normalNode = t.mul(scale).mul(tn.x).add(b.mul(scale).mul(tn.y)).add(n.mul(tn.z)).normalize();
+    m.normalNode = mix(t.mul(scale).mul(tn.x).add(b.mul(scale).mul(tn.y)).add(n.mul(tn.z)).normalize(), n, wet.flatten).normalize();
   }
   return cameraRelative(m);
 }

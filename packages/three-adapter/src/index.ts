@@ -409,6 +409,7 @@ export { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook, voxelSurfaceGeom
 export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 export { kitLookMaterial, kitLookOf, kitLookTextures, type VoxelKitLook } from './voxel-kit-look';
 export { PIECE_U_ATTRIBUTE, TRIM_RUN_ATTRIBUTE, trimUPerMetre } from './voxel-trim-u';
+export { PIECE_SOURCE_KEY, VoxelPieceBatches, type PieceKind, type PieceRun } from './voxel-piece-batches';
 export { KIT_DEBUG_TEXTURE_SIDE, voxelKitDebugTexture, voxelKitImageRefs, voxelKitMeshRefs, VoxelKitMeshes, VoxelKitSet, type VoxelKitTextures, type VoxelKitBytes, type VoxelKitDraw, type VoxelKitImageRef, type VoxelKitMeshRef, type VoxelKitRecordLike } from './voxel-kit-pieces';
 export { phaseTileMetres, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 export { capVoxelArrays, voxelTexelDensityAt, VoxelWorldDraws, type VoxelEditToScreen, type VoxelTextureResidency, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';

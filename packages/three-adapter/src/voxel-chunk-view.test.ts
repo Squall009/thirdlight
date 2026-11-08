@@ -152,7 +152,7 @@ describe('the voxel chunk view', () => {
       const surfaces = g!.children.filter((c) => !(c instanceof THREE.InstancedMesh));
       expect(surfaces.length, at).toBe(wholeTris > 0 ? 1 : 0);
       if (wholeTris > 0) expect(triangles((surfaces[0] as THREE.Mesh).geometry), at).toEqual(triangles(voxelSurfaceGeometry([whole.ground, whole.base])));
-      const drawnPieces = g!.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh).reduce((n, m) => n + m.count, 0);
+      const drawnPieces = view.piecesOf(cx, cy, cz);
       expect(drawnPieces, at).toBe(whole.instances.count);
       pieces += drawnPieces;
       // Placed at the chunk's corner relative to the origin.
@@ -188,7 +188,7 @@ describe('the voxel chunk view', () => {
     view.set(0, 0, 0, joined(s, 0, 0, 0, view.cells));
     view.set(-1, 0, -1, joined(s, -1, 0, -1, view.cells));
     const builds = view.meshBuilds;
-    const mesh = surfaceOf(view.root.children[0]!);
+    const mesh = surfaceOf(view.root.children.find((c) => c.name === 'voxel-chunk 0,0,0')!);
     const tris = view.triangles;
     // The wall painted brick (material 5): only its shader data changes.
     for (let x = -6; x < 6; x++) for (let y = 4; y < 12; y++) s.setVoxel(x, y, 0, { material: 5, role: VOXEL_ROLE.wall, shape: 15, wetness: 3 });
@@ -197,7 +197,7 @@ describe('the voxel chunk view', () => {
     expect(d.solid).toBe(-1);
     expect(view.setShader(0, 0, 0, d.solid)).toBeGreaterThan(0);
     expect(view.meshBuilds).toBe(builds);
-    expect(surfaceOf(view.root.children[0]!)).toBe(mesh);
+    expect(surfaceOf(view.root.children.find((c) => c.name === 'voxel-chunk 0,0,0')!)).toBe(mesh);
     expect(view.triangles).toBe(tris);
     expect(r.uploads.length).toBe(uploads + 1);
     expect(r.uploads[uploads]!.entries.includes(5 | (3 << MATERIAL_BITS) | SHADER_CONSTRUCTION_BIT)).toBe(true);
@@ -206,7 +206,7 @@ describe('the voxel chunk view', () => {
     const moved = origin.update(600, 0, 0);
     expect(moved).not.toBeNull();
     view.rebase();
-    for (const g of view.root.children) {
+    for (const g of view.root.children.filter((c) => c.name.startsWith('voxel-chunk '))) {
       const [cx, , cz] = g.name.split(' ')[1]!.split(',').map(Number);
       const want = (cx! * 32 - origin.origin.x) * VOXEL_SIZE_M;
       expect(g.position.x).toBe(want);
@@ -404,7 +404,7 @@ describe('the voxel chunk view', () => {
     view.set(far, 0, far, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
     const scene = new THREE.Scene();
     scene.add(view.root);
-    const g = view.root.children[0]!;
+    const g = view.root.children.find((c) => c.name.startsWith('voxel-chunk '))!;
     expect(g.position.x).toBe(far * 32 * VOXEL_SIZE_M);
     const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 300);
     camera.position.set(far * 16 + 3.37, 6.13, far * 16 + 9.71);
@@ -412,7 +412,7 @@ describe('the voxel chunk view', () => {
     scene.updateMatrixWorld();
     camera.updateMatrixWorld();
     const surface = surfaceOf(g);
-    const piece = g.children.find((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh)!;
+    const piece = view.pieces.root.children.find((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh)!;
     expect(piece).toBeDefined();
     // Both programs take the view-space position from the 64-bit matrix, never from camera view × model world on the GPU.
     const r = wgslRenderer();

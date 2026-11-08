@@ -76,7 +76,8 @@ function draw(v: VoxelChunkView, s: PaletteStore, table: PieceTable, c: [number,
 
 const chunkGroup = (v: VoxelChunkView, name: string): THREE.Object3D => v.root.children.find((c) => c.name === name)!;
 const surfaceOf = (g: THREE.Object3D): THREE.Mesh => g.children.find((c) => !(c instanceof THREE.InstancedMesh)) as THREE.Mesh;
-const piecesOf = (g: THREE.Object3D): THREE.InstancedMesh[] => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh);
+/** The view's piece draws (one a piece kind, across its chunks). */
+const piecesOf = (v: VoxelChunkView): THREE.InstancedMesh[] => v.pieces.root.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh);
 
 describe('projected decals on a voxel world', () => {
   it('reach a chunk 8 km out and its kit pieces, blend in their own program on the 64-bit model-view, and keep to the world\'s decal layers', () => {
@@ -93,7 +94,7 @@ describe('projected decals on a voxel world', () => {
     scene.updateMatrixWorld();
     const g = chunkGroup(v, `voxel-chunk ${far},0,${far}`);
     const surface = surfaceOf(g);
-    const pieces = piecesOf(g);
+    const pieces = piecesOf(v);
     expect(pieces.length).toBeGreaterThan(0);
     // A decal box on the wall's top edge, 8 km out on x and z (metres): the wall's cells x 0…5, y 11, z 0 of that chunk.
     const x0 = far * 32 * VOXEL_SIZE_M;
@@ -123,7 +124,7 @@ describe('projected decals on a voxel world', () => {
     // A frame's matrix update (the renderer's).
     scene.updateMatrixWorld();
     const again = chunkGroup(v, `voxel-chunk ${far},0,${far}`);
-    expect([surfaceOf(again), ...piecesOf(again)].every((m) => m.userData[DECAL_LAYERS_KEY] === 0b10)).toBe(true);
+    expect([surfaceOf(again), ...piecesOf(v)].every((m) => m.userData[DECAL_LAYERS_KEY] === 0b10)).toBe(true);
     // Back to every layer: the key goes (absent is every layer), and the decal reaches them again.
     v.setDecalLayers(undefined);
     expect(surfaceOf(again).userData[DECAL_LAYERS_KEY]).toBeUndefined();

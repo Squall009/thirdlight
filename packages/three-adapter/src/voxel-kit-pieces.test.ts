@@ -46,6 +46,7 @@ import {
 import { createGltfLoaderPort } from './gltf-loader';
 import { buildGlb } from './test-glb';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { PIECE_SOURCE_KEY } from './voxel-piece-batches';
 import { pieceMatrix } from './voxel-piece-placement';
 import { VoxelKitMeshes, voxelKitDebugTexture, KIT_DEBUG_TEXTURE_SIDE, type VoxelKitDraw, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { createVoxelSurface, VOXEL_CRACK_ATTRIBUTE, type VoxelGridRenderer } from './voxel-surface';
@@ -91,6 +92,8 @@ function draw(v: VoxelChunkView, d: DerivedData, level = 0): void {
 }
 
 const pieceMeshes = (v: VoxelChunkView): THREE.InstancedMesh[] => v.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh));
+/** The piece mesh a draw draws (its own geometry shares that one's attributes). */
+const sourceOf = (m: THREE.InstancedMesh): THREE.BufferGeometry => m.userData[PIECE_SOURCE_KEY] as THREE.BufferGeometry;
 
 /** A stone kit: a coping in the wall's top-edge slot (its own GLB), every other slot empty. */
 function stoneKit(digest: string, assetId = 'coping'): VoxelKitRecordLike {
@@ -231,8 +234,8 @@ describe('kit pieces in the chunk view', () => {
     const after = reports.at(-1)!;
     expect(reports.length).toBeGreaterThan(1);
     expect([after.bytes[0], after.bytes[1], after.bytes[2]]).toEqual([0, 0, 0]);
-    // A matrix an instance (64 B) more for every coping built now; the kit meshes' bytes as the set holds them.
-    expect(after.bytes[3]! - before.bytes[3]!).toBe(copings * 64);
+    // A matrix and a data quad an instance (80 B) more for every coping built now; the kit meshes' bytes as the set holds them.
+    expect(after.bytes[3]! - before.bytes[3]!).toBe(copings * 80);
     const b = meshes.bytes();
     expect(after.kits).toBe(b.meshes + b.textures);
     expect(after.kits).toBeGreaterThan(before.kits);
@@ -255,7 +258,7 @@ describe('kit pieces in the chunk view', () => {
     const geomA = meshes.mesh({ assetId: 'coping-a', digest: DIGEST_A }, false) as THREE.BufferGeometry;
     const geomB = meshes.mesh({ assetId: 'coping-b', digest: DIGEST_B }, false) as THREE.BufferGeometry;
     expect(geomA).not.toBe(geomB);
-    const uses = (g: THREE.BufferGeometry): number => pieceMeshes(v).filter((m) => m.geometry === g).length;
+    const uses = (g: THREE.BufferGeometry): number => pieceMeshes(v).filter((m) => sourceOf(m) === g).length;
     expect(uses(geomA)).toBeGreaterThan(0);
     v.setKits(meshes.set(tB, kitsB));
     // Not derived again yet: still kit A's coping (its geometry alive), never a mix inside one chunk.
@@ -420,7 +423,7 @@ describe('kit pieces in the chunk view', () => {
       const m4 = new THREE.Matrix4();
       const n3 = new THREE.Matrix3();
       for (const mesh of pieceMeshes(v)) {
-        geometries.add(mesh.geometry);
+        geometries.add(sourceOf(mesh));
         const p = mesh.geometry.getAttribute('position');
         const nn = mesh.geometry.getAttribute('normal');
         for (let k = 0; k < mesh.count; k++) {

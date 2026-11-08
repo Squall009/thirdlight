@@ -20,7 +20,8 @@
  *   faces seen from the axis' negative side; a real trim texture has no
  *   reading direction.
  * - **How:** each instanced mesh carries a per-instance `pieceU` (offset,
- *   factor) with U' = offset + factor × U. The offset is taken modulo one
+ *   factor, and the piece's wetness, which every piece draw reads) with
+ *   U' = offset + factor × U. The offset is taken modulo one
  *   sheet in 64 bits on the CPU, so a cell kilometres out keeps full
  *   precision; the factor is ± the cell's size in level-0 cells (a level-1
  *   node's piece spans 1 m, so its authored U is stretched to keep the
@@ -32,12 +33,49 @@ import * as TSL from 'three/tsl';
 import { trimRegionAt, type TrimLayout } from '@thirdlight/project-model';
 import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
+import { NODE_OPS } from './voxel-surface-sets';
+import { wetLook } from './voxel-surface-wetness';
 
-const { attribute, texture, uv, vec2 } = TSL;
+import type { N as AnyNode } from './effects-tsl';
 
-/** The per-vertex flag (1: the run offset applies) and the per-instance (offset, factor). */
+const { attribute, float, texture, uv, vec2 } = TSL;
+/** Untyped: a build function's node reads the builder (three's typings take no builder argument). */
+const { Fn } = TSL as unknown as AnyNode;
+
+/** The per-vertex flag (1: the run offset applies) and the per-instance (offset, factor, wetness 0 … 1, unused). */
 export const TRIM_RUN_ATTRIBUTE = 'trimRun';
 export const PIECE_U_ATTRIBUTE = 'pieceU';
+/** Floats an instance takes in {@link PIECE_U_ATTRIBUTE}, and where its wetness rides. */
+export const PIECE_DATA_FLOATS = 4;
+export const PIECE_WET_FLOAT = 2;
+
+type N = ReturnType<typeof float>;
+
+/** The drawn piece's (offset, factor) (vertex attribute; (0, 1) on a geometry without it: the authored U). */
+const pieceUOf = (): ReturnType<typeof vec2> =>
+  Fn((builder: { hasGeometryAttribute(name: string): boolean }) => (builder.hasGeometryAttribute(PIECE_U_ATTRIBUTE) ? attribute(PIECE_U_ATTRIBUTE, 'vec4').xy : vec2(0, 1)))() as unknown as ReturnType<typeof vec2>;
+
+/** The drawn piece's wetness, 0 dry … 1 the wettest level (0 on a geometry without the attribute). */
+const pieceWetOf = (): N => Fn((builder: { hasGeometryAttribute(name: string): boolean }) => (builder.hasGeometryAttribute(PIECE_U_ATTRIBUTE) ? attribute(PIECE_U_ATTRIBUTE, 'vec4').z : float(0)))() as unknown as N;
+
+/**
+ * What its cell's wetness does to a kit piece (the voxel surface's R111 look, `voxel-surface-wetness.ts`): the
+ * albedo and roughness multipliers and how far the normal detail flattens. A piece stands proud of its faces, so
+ * it is measured at its top (height 1): it darkens, smooths and flattens, but water never stands on it.
+ */
+export function pieceWetLook(): { readonly albedo: N; readonly roughness: N; readonly flatten: N } {
+  const w = wetLook(NODE_OPS, pieceWetOf(), float(1));
+  return { albedo: w.albedo, roughness: w.roughness, flatten: w.flatten };
+}
+
+/** The world-anchored U of a trim piece's vertex: its authored UV with the run offset applied on run faces. */
+export function trimRunUv(): ReturnType<typeof vec2> {
+  const authored = uv();
+  const run = attribute(TRIM_RUN_ATTRIBUTE, 'float');
+  const p = pieceUOf();
+  // run ? offset + factor × U : U
+  return vec2(authored.x.add(run.mul(p.x.add(p.y.sub(1).mul(authored.x)))), authored.y);
+}
 
 /** A face is end-on to the piece's x (its U runs across it, not along the run) past this |normal x|. */
 const END_ON = 0.05;
@@ -75,12 +113,7 @@ export function trimRunGeometry(g: THREE.BufferGeometry, layout: TrimLayout, run
 export function trimMaterial(map: THREE.Texture): THREE.Material {
   // `map` stays on the material for whoever reads which sheet it draws; the colour node is what samples it.
   const m = new MeshLambertNodeMaterial({ color: 0xffffff, map });
-  const authored = uv();
-  const run = attribute(TRIM_RUN_ATTRIBUTE, 'float');
-  const p = attribute(PIECE_U_ATTRIBUTE, 'vec2');
-  // run ? offset + factor × U : U
-  const u = authored.x.add(run.mul(p.x.add(p.y.sub(1).mul(authored.x))));
-  m.colorNode = texture(map, vec2(u, authored.y));
+  m.colorNode = texture(map, trimRunUv()).mul(pieceWetLook().albedo);
   return cameraRelative(m);
 }
 
@@ -109,17 +142,18 @@ export function runAxisOf(q: THREE.Quaternion, runAxis: 0 | 1 | 2, mirror: boole
 }
 
 /**
- * A draw's own geometry for `n` instances of a trim piece: the piece's
- * attributes shared, plus its per-instance `pieceU` (filled by the caller).
+ * A draw's own geometry for up to `capacity` instances of a piece: the
+ * piece's attributes shared, plus its per-instance {@link PIECE_U_ATTRIBUTE}
+ * (filled by the caller).
  */
-export function instancedTrimGeometry(g: THREE.BufferGeometry, n: number): { geometry: THREE.BufferGeometry; u: THREE.InstancedBufferAttribute } {
+export function instancedPieceGeometry(g: THREE.BufferGeometry, capacity: number): { geometry: THREE.BufferGeometry; u: THREE.InstancedBufferAttribute } {
   const out = new THREE.BufferGeometry();
   for (const [name, attr] of Object.entries(g.attributes)) out.setAttribute(name, attr);
   if (g.index !== null) out.setIndex(g.index);
   if (g.boundingSphere === null) g.computeBoundingSphere();
   out.boundingSphere = g.boundingSphere!.clone();
   if (g.boundingBox !== null) out.boundingBox = g.boundingBox.clone();
-  const u = new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);
+  const u = new THREE.InstancedBufferAttribute(new Float32Array(capacity * PIECE_DATA_FLOATS), PIECE_DATA_FLOATS);
   out.setAttribute(PIECE_U_ATTRIBUTE, u);
   return { geometry: out, u };
 }
@@ -129,7 +163,7 @@ export function instancedTrimGeometry(g: THREE.BufferGeometry, n: number): { geo
  * attributes are taken off first, because a renderer frees every attribute a
  * disposed geometry holds, and the piece's other draws still use them.
  */
-export function disposeInstancedTrimGeometry(g: THREE.BufferGeometry): void {
+export function disposeInstancedPieceGeometry(g: THREE.BufferGeometry): void {
   for (const name of Object.keys(g.attributes)) if (name !== PIECE_U_ATTRIBUTE) g.deleteAttribute(name);
   g.setIndex(null);
   g.dispose();
