@@ -18,9 +18,9 @@
   ],
   "bounds": {
     "frameBytes": 1048576,
-    "stageBytes": 33554432,
+    "stageBytes": 68423696,
     "openStages": 8,
-    "stagedBytesPerProject": 134217728,
+    "stagedBytesPerProject": 273694784,
     "stageTtlSeconds": 3600,
     "abandonedStageRetentionSeconds": 86400,
     "proposalResponseBytes": 262144
@@ -71,11 +71,11 @@
     {
       "caseId": "U4-stage-over-cap",
       "frameBytes": 1048576,
-      "offset": 33554432,
-      "expectedOffset": 33554432,
-      "declaredTotal": 34603008,
+      "offset": 68423696,
+      "expectedOffset": 68423696,
+      "declaredTotal": 69472272,
       "openStages": 1,
-      "stagedBytes": 33554432,
+      "stagedBytes": 68423696,
       "expect": {
         "accepted": false,
         "code": "stage_limits_exceeded",
@@ -103,7 +103,7 @@
       "expectedOffset": 0,
       "declaredTotal": 4096,
       "openStages": 2,
-      "stagedBytes": 134217728,
+      "stagedBytes": 273694784,
       "expect": {
         "accepted": false,
         "code": "stage_limits_exceeded",

@@ -18,9 +18,10 @@ export const MAX_ASSET_VERSIONS = 32;
  */
 export const MAX_CONTENT_FILE_BYTES = 1_048_576;
 /**
- * The largest imported file (bytes): a model, an image, a font, an audio file
- * of any length. It is the upload stage's bound too; the number of files is
- * not bounded.
+ * The largest imported model or audio file (bytes; an audio file of any
+ * length). Textures have their own bound ({@link MAX_TEXTURE_SOURCE_BYTES});
+ * the upload stage takes the larger ({@link MAX_IMPORT_BYTES}). The number of
+ * files is not bounded.
  */
 export const MAX_SOURCE_BYTES = 33_554_432;
 /**
@@ -59,6 +60,24 @@ export const MAX_AUDIO_VERSIONS = 8;
 export const MAX_TEXTURE_VERSIONS = 8;
 /** The largest texture edge (pixels): every GPU the engine targets samples it; texture streaming revisits it. */
 export const MAX_TEXTURE_EDGE = 4096;
+/** A PNG of the largest texture (8-bit RGBA) stored uncompressed: a filter byte and `MAX_TEXTURE_EDGE` texels a row. */
+const LARGEST_RAW_PNG_BYTES = MAX_TEXTURE_EDGE * (1 + MAX_TEXTURE_EDGE * 4);
+/**
+ * The largest imported texture file (bytes): derived from the largest
+ * texture, so any image the engine can draw at full size imports, however
+ * busy (noise and normal maps barely compress: a 4096² normal map is ~60 MB
+ * as a PNG). The worst PNG of `MAX_TEXTURE_EDGE`² 8-bit RGBA stores its rows
+ * uncompressed; 1/256 more covers zlib's stored-block headers and IDAT chunks
+ * of at least 4 KiB, and 1 MiB its other chunks (colour profile, text).
+ * 16-bit images of that size may not fit.
+ */
+export const MAX_TEXTURE_SOURCE_BYTES = LARGEST_RAW_PNG_BYTES + Math.ceil(LARGEST_RAW_PNG_BYTES / 256) + 1_048_576;
+/**
+ * The largest imported file of any kind (bytes): the upload stage's bound, an
+ * asset record's `sourceByteLength` and a source read back. Each kind's own
+ * inspector keeps its own bound under it.
+ */
+export const MAX_IMPORT_BYTES = Math.max(MAX_SOURCE_BYTES, MAX_TEXTURE_SOURCE_BYTES);
 /** Versions of one font asset record (TTF, OTF, WOFF2, WOFF). */
 export const MAX_FONT_VERSIONS = 8;
 /** The longest family name a font version records (characters). */
@@ -160,9 +179,9 @@ export const MAX_FOLDER_DEPTH = 32;
 /** An asset tile's thumbnail edge (px): what the editor draws and the backend makes from an image. */
 export const ASSET_THUMBNAIL_EDGE = 128;
 
-/** Open import stages per project, and their staged bytes together. */
+/** Open import stages per project, and their staged bytes together (four of the largest files at once). */
 export const MAX_OPEN_STAGES = 8;
-export const MAX_STAGED_BYTES_PER_PROJECT = 134_217_728;
+export const MAX_STAGED_BYTES_PER_PROJECT = 4 * MAX_IMPORT_BYTES;
 
 /**
  * An asset label (the name a script may load a group of assets by): a letter

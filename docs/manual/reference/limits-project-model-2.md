@@ -1,8 +1,25 @@
-# Limits and defaults: project-model (part 2, from `manifest.ts`)
+# Limits and defaults: project-model (part 2, from `light-layers.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
+
+<a id="limits-project-model--light-layers"></a>
+## `light-layers.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-max-light-layer-name"></a>`MAX_LIGHT_LAYER_NAME` | `32` | Longest layer name. |
+
+<a id="limits-project-model--lighting"></a>
+## `lighting.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-max-baked-lights"></a>`MAX_BAKED_LIGHTS` | `64` |  |
+| <a id="limit-max-lightmap-atlases"></a>`MAX_LIGHTMAP_ATLASES` | `16` | One scene bake's atlases, entries and baked lights: the bake format's own bounds (scalable lighting reworks the bake). |
+| <a id="limit-max-lightmap-entries"></a>`MAX_LIGHTMAP_ENTRIES` | `4096` |  |
+| <a id="limit-max-surface-bake-files"></a>`MAX_SURFACE_BAKE_FILES` | `64` | Most files of one saved surface bake (each up to `MAX_TEXTURE_EDGE` rows of the container's width). |
 
 <a id="limits-project-model--manifest"></a>
 ## `manifest.ts`

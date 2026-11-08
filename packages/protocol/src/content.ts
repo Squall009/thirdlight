@@ -12,7 +12,7 @@
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { isProjectId } from './ids';
-import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT } from '@thirdlight/project-model/limits';
+import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, MAX_IMPORT_BYTES, MAX_OPEN_STAGES, MAX_STAGED_BYTES_PER_PROJECT } from '@thirdlight/project-model/limits';
 import { checkField, checkShape, isPlainObject, type FieldErrorResult } from './strict';
 import { sessionError, type SessionError } from './errors';
 
@@ -21,13 +21,13 @@ import { sessionError, type SessionError } from './errors';
 /** One upload frame ≤ 1 MiB. */
 export const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
 /** One staged source (and one authoritative source blob): the model's source bound. */
-export const CONTENT_STAGE_MAX = MAX_SOURCE_BYTES;
+export const CONTENT_STAGE_MAX = MAX_IMPORT_BYTES;
 /** Staged bytes per project. */
 export const CONTENT_STAGED_BYTES_PER_PROJECT = MAX_STAGED_BYTES_PER_PROJECT;
 /** Open stages per project. */
 export const CONTENT_OPEN_STAGES = MAX_OPEN_STAGES;
-/** The asset byte-read response cap (32 MiB). */
-export const CONTENT_ASSET_BYTES_MAX = 33_554_432;
+/** The asset byte-read response cap: any imported file reads back whole. */
+export const CONTENT_ASSET_BYTES_MAX = MAX_IMPORT_BYTES;
 /** Proposal response ≤ 256 KiB. */
 export const CONTENT_PROPOSAL_MAX_BYTES = 262_144;
 /** Inspection job budget 30 s. */

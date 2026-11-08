@@ -19,12 +19,12 @@ The limits and defaults `@thirdlight/protocol` defines, by source file. Values a
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-content-asset-bytes-max"></a>`CONTENT_ASSET_BYTES_MAX` | `33554432` | The asset byte-read response cap (32 MiB). |
+| <a id="limit-content-asset-bytes-max"></a>`CONTENT_ASSET_BYTES_MAX` | `68423696` | The asset byte-read response cap: any imported file reads back whole. |
 | <a id="limit-content-assets-limit-default"></a>`CONTENT_ASSETS_LIMIT_DEFAULT` | `50` |  |
 | <a id="limit-content-assets-limit-max"></a>`CONTENT_ASSETS_LIMIT_MAX` | `128` | The asset-list/query page ceiling (the `queryAssets` command's). |
 | <a id="limit-content-proposal-max-bytes"></a>`CONTENT_PROPOSAL_MAX_BYTES` | `262144` | Proposal response ≤ 256 KiB. |
 | <a id="limit-content-stage-create-response-max"></a>`CONTENT_STAGE_CREATE_RESPONSE_MAX` | `4096` | The response `Content-Length` bound for a JSON route. |
-| <a id="limit-content-stage-max"></a>`CONTENT_STAGE_MAX` | `33554432` | One staged source (and one authoritative source blob): the model's source bound. |
+| <a id="limit-content-stage-max"></a>`CONTENT_STAGE_MAX` | `68423696` | One staged source (and one authoritative source blob): the model's source bound. |
 | <a id="limit-content-upload-frame-max"></a>`CONTENT_UPLOAD_FRAME_MAX` | `1048576` | One upload frame ≤ 1 MiB. |
 | <a id="limit-instance-buffer-inline-max"></a>`INSTANCE_BUFFER_INLINE_MAX` | `4096` | The most instance-set copies one request carries inline (the buffer route, reads included); larger sets upload through a stage. |
 

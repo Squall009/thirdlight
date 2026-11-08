@@ -7,14 +7,14 @@
  * file name); the container header's declared size decides the pixel budget.
  */
 import { sha256Hex } from '@thirdlight/shared';
-import { MAX_TEXTURE_EDGE } from '@thirdlight/project-model/limits';
+import { MAX_TEXTURE_EDGE, MAX_TEXTURE_SOURCE_BYTES } from '@thirdlight/project-model/limits';
 import { resolveImportJob } from './inspect';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, M2_GLTF_MAX_DIAGNOSTICS } from './limits';
 import { decodedImageBytes, detectImageMime, imageDimensions, ktx2Info } from './images';
 import type { ImportDiagnostic, ImportJobPort } from './types';
 
-/** Largest texture file accepted (bytes). */
-export const TEXTURE_SOURCE_BYTES_MAX = 16_777_216;
+/** Largest texture file accepted (bytes): a PNG of the largest texture, however busy. */
+export const TEXTURE_SOURCE_BYTES_MAX = MAX_TEXTURE_SOURCE_BYTES;
 /** Largest texture edge (pixels). */
 export const TEXTURE_EDGE_MAX = MAX_TEXTURE_EDGE;
 

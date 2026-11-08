@@ -18,7 +18,7 @@ still has a `content.flow` is refused on open, naming it
 `AudioClip`, Godot's `AudioStream`): Ogg Vorbis, Ogg Opus, MP3, WAV (integer
 PCM of 8–32 bits or 32/64-bit float, plain or extensible) and FLAC, at any
 channel count and sample rate, of any length; only the file size is bounded
-(32 MiB, as every imported file). Sound effects, music, voice and UI are
+(32 MiB, as every imported model; textures take up to 65 MiB). Sound effects, music, voice and UI are
 mixer buses, not kinds: a footstep, a voice line and an hour of ambience are
 all `audio`, and any of them can be a dialogue voice or blip, an audio
 source, an event sound, a timeline key, `ctx.audio.play` or

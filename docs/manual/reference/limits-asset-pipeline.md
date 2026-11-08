@@ -19,7 +19,7 @@ The limits and defaults `@thirdlight/asset-pipeline` defines, by source file. Va
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-texture-edge-max"></a>`TEXTURE_EDGE_MAX` | `4096` | Largest texture edge (pixels). |
-| <a id="limit-texture-source-bytes-max"></a>`TEXTURE_SOURCE_BYTES_MAX` | `16777216` | Largest texture file accepted (bytes). |
+| <a id="limit-texture-source-bytes-max"></a>`TEXTURE_SOURCE_BYTES_MAX` | `68423696` | Largest texture file accepted (bytes): a PNG of the largest texture, however busy. |
 
 <a id="limits-asset-pipeline--limits"></a>
 ## `limits.ts`

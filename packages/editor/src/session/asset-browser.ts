@@ -25,12 +25,12 @@
 import {
   CONTENT_ASSETS_LIMIT_DEFAULT,
   CONTENT_ASSETS_LIMIT_MAX,
-  CONTENT_STAGE_MAX,
   CONTENT_UPLOAD_FRAME_MAX,
   CONTENT_JOB_RESULT_TTL_MS,
   type ContentJobState,
   type ContentJobView,
 } from '@thirdlight/protocol';
+import { MAX_SOURCE_BYTES } from '@thirdlight/project-model/limits';
 
 /** The drop extension the browser accepts (glTF 2.0 binary, GLB). */
 export const ASSET_DROP_EXTENSION = '.glb';
@@ -139,12 +139,13 @@ export function validateDropCandidate(candidate: DropCandidate): DropVerdict {
   if (!Number.isInteger(candidate.byteLength) || candidate.byteLength < 1) {
     return { ok: false, error: { code: 'import_rejected', message: 'the dropped file is empty' } };
   }
-  if (candidate.byteLength > CONTENT_STAGE_MAX) {
+  // A GLB is a model: the model bound, under the stage's (which a texture's larger bound sets).
+  if (candidate.byteLength > MAX_SOURCE_BYTES) {
     return {
       ok: false,
       error: {
         code: 'stage_limits_exceeded',
-        message: `the file is ${candidate.byteLength} bytes; the stage bound is ${CONTENT_STAGE_MAX}`,
+        message: `the file is ${candidate.byteLength} bytes; a model is at most ${MAX_SOURCE_BYTES}`,
       },
     };
   }

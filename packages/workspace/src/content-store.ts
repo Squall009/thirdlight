@@ -37,6 +37,7 @@ import {
   type ContentCatalogV4,
   isValidSourcePath,
   MAX_OPEN_STAGES,
+  MAX_IMPORT_BYTES,
   MAX_SOURCE_BYTES,
   MAX_STAGED_BYTES_PER_PROJECT,
   MAX_CONVERTED_SOURCE_BYTES,
@@ -85,7 +86,7 @@ export type { DerivedReadResult } from './content-derived';
 // ---- bounds --------------------------------------------
 
 /** The staged source / authoritative source blob bound, open stages and staged bytes per project (the model's). */
-export { MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT };
+export { MAX_IMPORT_BYTES, MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT };
 /** Stage TTL: 3 600 s. */
 export const STAGE_TTL_SECONDS = 3_600;
 /** Device free space required before a blob write: blobBytes + 64 MiB. */
@@ -407,8 +408,8 @@ export function publishBlob(
   } else {
     return { ok: false, error: pathRejected('', 'blob source must be { stageId } or { bytes }') };
   }
-  if (bytes.length > MAX_SOURCE_BYTES) {
-    return { ok: false, error: stageLimitError('stage_bytes', bytes.length, MAX_SOURCE_BYTES) };
+  if (bytes.length > MAX_IMPORT_BYTES) {
+    return { ok: false, error: stageLimitError('stage_bytes', bytes.length, MAX_IMPORT_BYTES) };
   }
   const actual = sha256HexNative(bytes);
   // A caller-supplied digest/byteLength is never authoritative.
@@ -773,7 +774,7 @@ function readProjectFileBytes(
 ): { ok: true; bytes: Uint8Array; real: string } | { ok: false; error: CommandError; missing?: true } {
   const res = resolveProjectFile(ctx, sourcePath);
   if (!res.ok) return res;
-  if (res.size > MAX_SOURCE_BYTES) return { ok: false, error: stageLimitError('stage_bytes', res.size, MAX_SOURCE_BYTES) };
+  if (res.size > MAX_IMPORT_BYTES) return { ok: false, error: stageLimitError('stage_bytes', res.size, MAX_IMPORT_BYTES) };
   const r = readBlobBytes(res.real);
   if (!r.ok) {
     if (r.code === 'ENOENT') return { ok: false, error: pathRejected(sourcePath, `${sourcePath} does not exist in the game folder`), missing: true };

@@ -48,7 +48,7 @@ import {
   MAX_CONVERTED_SOURCE_BYTES,
   MAX_FONT_FAMILY_NAME,
   MAX_FONT_VERSIONS,
-  MAX_SOURCE_BYTES,
+  MAX_IMPORT_BYTES,
   MAX_TEXTURE_EDGE,
   MAX_TEXTURE_LAYERS,
   MAX_TEXTURE_VERSIONS,
@@ -349,14 +349,14 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
 
   const len = v['sourceByteLength'];
   if (len === undefined) errors.push(fieldMissing(`${path}/sourceByteLength`, 'sourceByteLength'));
-  else if (typeof len !== 'number' || !Number.isInteger(len) || len < 1 || len > MAX_SOURCE_BYTES) {
+  else if (typeof len !== 'number' || !Number.isInteger(len) || len < 1 || len > MAX_IMPORT_BYTES) {
     errors.push(
       withFound(
         {
           code: 'number_out_of_range',
           path: `${path}/sourceByteLength`,
-          message: `sourceByteLength must be an integer in [1, ${MAX_SOURCE_BYTES}]`,
-          expected: `integer 1..${MAX_SOURCE_BYTES}`,
+          message: `sourceByteLength must be an integer in [1, ${MAX_IMPORT_BYTES}]`,
+          expected: `integer 1..${MAX_IMPORT_BYTES}`,
         },
         len,
       ),

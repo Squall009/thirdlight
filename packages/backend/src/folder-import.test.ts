@@ -15,12 +15,19 @@
  *   or folder of it is named as an upload may not be (a sidecar, a scene or
  *   resource file, a hidden name): otherwise it is refused, nothing written;
  * - a whole folder moved outside the editor (with its sidecars) keeps its
- *   assets: "check files" re-points every one.
+ *   assets: "check files" re-points every one;
+ * - a texture of the largest size imports however busy (an uncompressed
+ *   4096² RGBA PNG, past the model and audio bound) and reads back whole; a
+ *   texture file past the texture bound is refused.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { deflateSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { MAX_SOURCE_BYTES, MAX_TEXTURE_EDGE, MAX_TEXTURE_SOURCE_BYTES } from '@thirdlight/project-model/limits';
+import { pngBytes } from '@thirdlight/shared';
 
 import { zipDirectory } from './exports';
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
@@ -186,6 +193,35 @@ describe('folder import and upload folders over HTTP (a project in the data root
     expect(revision()).toBe((more.json as { revision: number }).revision);
     expect(assets()).toHaveLength(7);
   }, 60_000);
+
+  it('imports the largest texture as an uncompressed PNG (the worst case) and reads it back; a larger texture file is refused', async () => {
+    const edge = MAX_TEXTURE_EDGE;
+    const raw = new Uint8Array(edge * (1 + edge * 4));
+    // Noise in every channel (a filter byte of 0 a row): what a busy normal or height map is to a compressor.
+    let h = 2463534242;
+    for (let y = 0; y < edge; y++) for (let i = 1; i <= edge * 4; i++) {
+      h ^= h << 13;
+      h ^= h >>> 17;
+      h ^= h << 5;
+      raw[y * (1 + edge * 4) + i] = h & 255;
+    }
+    const png = pngBytes({ width: edge, height: edge, bitDepth: 8, colorType: 6, idat: new Uint8Array(deflateSync(raw, { level: 0 })) });
+    expect(png.length).toBeGreaterThan(MAX_SOURCE_BYTES);
+    expect(png.length).toBeLessThanOrEqual(MAX_TEXTURE_SOURCE_BYTES);
+    put('assets/big/noise.png', png);
+    const tooBig = new Uint8Array(MAX_TEXTURE_SOURCE_BYTES + 1);
+    tooBig.set(png.subarray(0, 64));
+    put('assets/big-refused/noise.png', tooBig);
+    const r = await command('importAssets', { folder: 'assets/big' });
+    expect(r.status, JSON.stringify(r.json).slice(0, 2000)).toBe(200);
+    const added = (r.json as { change: { added: Array<Record_ & { versions: Array<{ sourceByteLength: number }> }> } }).change.added;
+    expect(added.map((a) => [a.assetId, a.kind, a.versions[0]!.sourceByteLength])).toEqual([['noise', 'texture', png.length]]);
+    const back = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/assets/noise/versions/1/bytes`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
+    expect(back.status).toBe(200);
+    expect(new Uint8Array(await back.arrayBuffer()).length).toBe(png.length);
+    const refused = await command('importAssets', { folder: 'assets/big-refused' });
+    expect(JSON.stringify(refused.json)).toContain('stage_bytes');
+  }, 120_000);
 
   it('refuses folders outside the game folder, hidden or the project\'s own', async () => {
     for (const folder of ['../elsewhere', '.thirdlight', 'scenes', 'cache/imported', '', 'assets/../..', 'missing-folder']) {

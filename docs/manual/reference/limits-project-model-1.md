@@ -187,18 +187,20 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-folder-depth"></a>`MAX_FOLDER_DEPTH` | `32` | The deepest folder of the game folder the editor reads resources and asset files from. |
 | <a id="limit-max-font-family-name"></a>`MAX_FONT_FAMILY_NAME` | `64` | The longest family name a font version records (characters). |
 | <a id="limit-max-font-versions"></a>`MAX_FONT_VERSIONS` | `8` | Versions of one font asset record (TTF, OTF, WOFF2, WOFF). |
-| <a id="limit-max-open-stages"></a>`MAX_OPEN_STAGES` | `8` | Open import stages per project, and their staged bytes together. |
+| <a id="limit-max-import-bytes"></a>`MAX_IMPORT_BYTES` | `68423696` | The largest imported file of any kind (bytes): the upload stage's bound, an asset record's `sourceByteLength` and a source read back. Each kind's own inspector keeps its own bound under it. |
+| <a id="limit-max-open-stages"></a>`MAX_OPEN_STAGES` | `8` | Open import stages per project, and their staged bytes together (four of the largest files at once). |
 | <a id="limit-max-owned-transforms"></a>`MAX_OWNED_TRANSFORMS` | `16` | The most entities a script may own the transforms of (`ownedTransforms`). |
 | <a id="limit-max-prefab-bytes"></a>`MAX_PREFAB_BYTES` | `1048576` |  |
 | <a id="limit-max-prefab-depth"></a>`MAX_PREFAB_DEPTH` | `16` |  |
 | <a id="limit-max-prefab-entities"></a>`MAX_PREFAB_ENTITIES` | `1024` | One prefab: its entities (a building or a vehicle of many parts) and its depth. A prefab is one content file, so its bytes have the content file cap. |
 | <a id="limit-max-prefab-overrides"></a>`MAX_PREFAB_OVERRIDES` | `64` | The most overrides one prefab instantiation request carries (commands and the editor's planner check it). |
 | <a id="limit-max-request-bytes"></a>`MAX_REQUEST_BYTES` | `65536` | The largest command request, in canonical bytes (the whole envelope). It bounds what one parse and one undo step carry, and with it how many objects one command names: a selection is moved, pasted, edited or deleted in one command (one undo step) with no count of its own. Only a stream of batches (a scatter or decal stroke as it is drawn) is split by these bytes. Defined here, not in commands, because the editor reads model limits but not commands. |
-| <a id="limit-max-source-bytes"></a>`MAX_SOURCE_BYTES` | `33554432` | The largest imported file (bytes): a model, an image, a font, an audio file of any length. It is the upload stage's bound too; the number of files is not bounded. |
+| <a id="limit-max-source-bytes"></a>`MAX_SOURCE_BYTES` | `33554432` | The largest imported model or audio file (bytes; an audio file of any length). Textures have their own bound ({@link MAX_TEXTURE_SOURCE_BYTES}); the upload stage takes the larger ({@link MAX_IMPORT_BYTES}). The number of files is not bounded. |
 | <a id="limit-max-source-path-length"></a>`MAX_SOURCE_PATH_LENGTH` | `512` | The longest accepted `sourcePath` (UTF-16 code units). |
-| <a id="limit-max-staged-bytes-per-project"></a>`MAX_STAGED_BYTES_PER_PROJECT` | `134217728` |  |
+| <a id="limit-max-staged-bytes-per-project"></a>`MAX_STAGED_BYTES_PER_PROJECT` | `273694784` |  |
 | <a id="limit-max-texture-edge"></a>`MAX_TEXTURE_EDGE` | `4096` | The largest texture edge (pixels): every GPU the engine targets samples it; texture streaming revisits it. |
 | <a id="limit-max-texture-layers"></a>`MAX_TEXTURE_LAYERS` | `256` | The layers of a texture array (WebGL 2 and WebGPU both guarantee 256). |
+| <a id="limit-max-texture-source-bytes"></a>`MAX_TEXTURE_SOURCE_BYTES` | `68423696` | The largest imported texture file (bytes): derived from the largest texture, so any image the engine can draw at full size imports, however busy (noise and normal maps barely compress: a 4096² normal map is ~60 MB as a PNG). The worst PNG of `MAX_TEXTURE_EDGE`² 8-bit RGBA stores its rows uncompressed; 1/256 more covers zlib's stored-block headers and IDAT chunks of at least 4 KiB, and 1 MiB its other chunks (colour profile, text). 16-bit images of that size may not fit. |
 | <a id="limit-max-texture-versions"></a>`MAX_TEXTURE_VERSIONS` | `8` | Versions of one texture asset record (PNG/JPEG/WebP/KTX2). |
 | <a id="limit-max-total-decoded-bytes"></a>`MAX_TOTAL_DECODED_BYTES` | `536870912` | The total decoded bytes of one model (`decodedGeometryBytes + decodedImageBytes`). |
 | <a id="limit-model-json-chunk-bytes-max"></a>`MODEL_JSON_CHUNK_BYTES_MAX` | `8388608` | The largest JSON chunk of an imported GLB (bytes). |
@@ -342,20 +344,3 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-kit-limits"></a>`KIT_LIMITS` | `{"descriptionChars":1024,"piecesPerSlot":8,"weightMax":1000}` |  |
-
-<a id="limits-project-model--light-layers"></a>
-## `light-layers.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-max-light-layer-name"></a>`MAX_LIGHT_LAYER_NAME` | `32` | Longest layer name. |
-
-<a id="limits-project-model--lighting"></a>
-## `lighting.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-max-baked-lights"></a>`MAX_BAKED_LIGHTS` | `64` |  |
-| <a id="limit-max-lightmap-atlases"></a>`MAX_LIGHTMAP_ATLASES` | `16` | One scene bake's atlases, entries and baked lights: the bake format's own bounds (scalable lighting reworks the bake). |
-| <a id="limit-max-lightmap-entries"></a>`MAX_LIGHTMAP_ENTRIES` | `4096` |  |
-| <a id="limit-max-surface-bake-files"></a>`MAX_SURFACE_BAKE_FILES` | `64` | Most files of one saved surface bake (each up to `MAX_TEXTURE_EDGE` rows of the container's width). |

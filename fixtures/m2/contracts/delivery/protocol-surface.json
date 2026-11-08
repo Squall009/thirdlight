@@ -40,8 +40,8 @@
     "PLAY_CONTENT_GRACE": 60,
     "PLAY_CONTENT_ID_BYTES": 32,
     "uploadFrameBytes": 1048576,
-    "uploadStageBytes": 33554432,
-    "assetReadBytes": 33554432,
+    "uploadStageBytes": 68423696,
+    "assetReadBytes": 68423696,
     "manifestBytes": 262144,
     "proposalBytes": 262144,
     "relayFrames": 600,
@@ -69,7 +69,7 @@
         "version"
       ],
       "responseKind": "binary",
-      "responseCap": 33554432,
+      "responseCap": 68423696,
       "cache": "private, max-age=31536000, immutable",
       "errors": [
         {
@@ -476,7 +476,7 @@
         "version"
       ],
       "responseKind": "binary",
-      "responseCap": 33554432,
+      "responseCap": 68423696,
       "cache": "private, max-age=<remaining>, immutable",
       "errors": [
         {

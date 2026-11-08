@@ -30,9 +30,9 @@ describe('checkUploadFrame', () => {
     { caseId: 'U1', frameBytes: 1_048_576, offset: 0, expectedOffset: 0, declaredTotal: 1_048_576, openStages: 1, stagedBytes: 0, expect: { accepted: true, code: null, limit: null } },
     { caseId: 'U2', frameBytes: 1_048_577, offset: 0, expectedOffset: 0, declaredTotal: 2_097_152, openStages: 1, stagedBytes: 0, expect: { accepted: false, code: 'stage_limits_exceeded', limit: 'frame_bytes' } },
     { caseId: 'U3', frameBytes: 4096, offset: 8192, expectedOffset: 4096, declaredTotal: 8192, openStages: 1, stagedBytes: 0, expect: { accepted: false, code: 'content_frame_invalid', limit: null } },
-    { caseId: 'U4', frameBytes: 1_048_576, offset: 33_554_432, expectedOffset: 33_554_432, declaredTotal: 34_603_008, openStages: 1, stagedBytes: 33_554_432, expect: { accepted: false, code: 'stage_limits_exceeded', limit: 'stage_bytes' } },
+    { caseId: 'U4', frameBytes: 1_048_576, offset: 68_423_696, expectedOffset: 68_423_696, declaredTotal: 69_472_272, openStages: 1, stagedBytes: 68_423_696, expect: { accepted: false, code: 'stage_limits_exceeded', limit: 'stage_bytes' } },
     { caseId: 'U5', frameBytes: 4096, offset: 0, expectedOffset: 0, declaredTotal: 4096, openStages: 8, stagedBytes: 0, expect: { accepted: false, code: 'stage_limits_exceeded', limit: 'open_stages' } },
-    { caseId: 'U6', frameBytes: 4096, offset: 0, expectedOffset: 0, declaredTotal: 4096, openStages: 2, stagedBytes: 134_217_728, expect: { accepted: false, code: 'stage_limits_exceeded', limit: 'staged_bytes_per_project' } },
+    { caseId: 'U6', frameBytes: 4096, offset: 0, expectedOffset: 0, declaredTotal: 4096, openStages: 2, stagedBytes: 273_694_784, expect: { accepted: false, code: 'stage_limits_exceeded', limit: 'staged_bytes_per_project' } },
     { caseId: 'U7', frameBytes: 4096, offset: 4096, expectedOffset: 4096, declaredTotal: 8192, openStages: 1, stagedBytes: 4096, expect: { accepted: true, code: null, limit: null } },
   ] as const;
 

@@ -8,7 +8,7 @@
 import { ID_RE } from '@thirdlight/project-model';
 import { lstatSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT } from '@thirdlight/project-model';
+import { MAX_IMPORT_BYTES, MAX_OPEN_STAGES, MAX_STAGED_BYTES_PER_PROJECT } from '@thirdlight/project-model';
 import { sha256HexNative } from './digest';
 import {
   contentPublishFailed,
@@ -237,8 +237,8 @@ export function stageContent(
       return { ok: false, error: pathRejected('', 'displayName must be 1-128 chars without control characters') };
     }
   }
-  if (bytes.length > MAX_SOURCE_BYTES) {
-    return { ok: false, error: stageLimitError('stage_bytes', bytes.length, MAX_SOURCE_BYTES) };
+  if (bytes.length > MAX_IMPORT_BYTES) {
+    return { ok: false, error: stageLimitError('stage_bytes', bytes.length, MAX_IMPORT_BYTES) };
   }
   const rootRes = stagingRoot(ctx.dir, ctx.thirdlightDir);
   if (!rootRes.ok) return { ok: false, error: rootRes.error };
@@ -367,8 +367,8 @@ export function resolveStage(
   if (st.isSymbolicLink() || !st.isFile()) {
     return { ok: false, error: pathRejected(binPath, 'the staged source file is not a real file') };
   }
-  if (st.size > MAX_SOURCE_BYTES) {
-    return { ok: false, error: stageLimitError('stage_bytes', st.size, MAX_SOURCE_BYTES) };
+  if (st.size > MAX_IMPORT_BYTES) {
+    return { ok: false, error: stageLimitError('stage_bytes', st.size, MAX_IMPORT_BYTES) };
   }
   let bytes: Uint8Array;
   try {

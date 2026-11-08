@@ -27,7 +27,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, isValidSourcePath, type PropertyValue, type SettingsKeySpec, DIGEST_RE } from '@thirdlight/project-model';
+import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, MAX_IMPORT_BYTES, isValidSourcePath, type PropertyValue, type SettingsKeySpec, DIGEST_RE } from '@thirdlight/project-model';
 import { COMPONENT_FIELD_ORDER } from './v3';
 import { SURFACE_PRESET_NAMES } from '@thirdlight/project-model';
 import type {
@@ -135,13 +135,13 @@ export function validatePublishAssetArgs(
   if (typeof len !== 'number' || !Number.isInteger(len)) {
     return { ok: false, error: fieldType('/args/sourceByteLength', len, 'integer') };
   }
-  if (len < 1 || len > 33_554_432) {
+  if (len < 1 || len > MAX_IMPORT_BYTES) {
     return {
       ok: false,
       error: fieldValue(
         '/args/sourceByteLength',
         len,
-        'integer in [1, 33554432]',
+        `integer in [1, ${MAX_IMPORT_BYTES}]`,
         'sourceByteLength must be a positive integer within the source-byte cap',
       ),
     };
