@@ -12,6 +12,7 @@ import { cellInWorld, SECTION_EDGES, type CellGrid, type ChunkGrid } from './coo
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { deriveChunk, encodeDerived, type DerivedData, type DerivePieces, type DeriveTimes } from './derived-data';
 import type { PieceTable } from './piece-table';
+import type { ReliefOptions } from './relief-mesh';
 import { encodeShader, SHADER_BORDER_CELLS, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import { valueDensity, valueOf, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
@@ -58,13 +59,13 @@ function unitPieces(edge: number, p: ChunkPieces | undefined, lx = 0, ly = 0, lz
  * A mip node of chunk-tree level `level` derives the same way from its own
  * cells and apron (mip-derive.ts); the result records the level.
  */
-export function deriveWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, times?: DeriveTimes, level = 0, pieces?: ChunkPieces): DerivedData {
+export function deriveWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, times?: DeriveTimes, level = 0, pieces?: ChunkPieces, relief: ReliefOptions | null = null): DerivedData {
   const pad = jobRadius(rules);
   if (apron.radius !== pad) throw new RangeError(`assembly derive: apron ${apron.radius} deep, rules need ${pad}`);
   const s = scratchFor(grid, pad);
   const has = exportChunk(s.dense);
   fillNeighbourhood(s.n, grid, has ? s.dense : null, apron);
-  return deriveChunk(s.n, rules, s.classes, times, level, unitPieces(grid.edge, pieces));
+  return deriveChunk(s.n, rules, s.classes, times, level, unitPieces(grid.edge, pieces), relief);
 }
 
 /**
@@ -162,7 +163,7 @@ export function cropNeighbourhood(full: Neighbourhood, lx: number, ly: number, l
  * whole edge is the chunk's derive, byte for byte. A mip node's sections
  * derive the same way (`level` > 0).
  */
-export function deriveSectionsWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, sectionEdge: number, ids: readonly number[], level = 0, pieces?: ChunkPieces): SectionResult[] {
+export function deriveSectionsWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: Apron, exportChunk: (out: DenseChunk) => boolean, sectionEdge: number, ids: readonly number[], level = 0, pieces?: ChunkPieces, relief: ((id: number) => ReliefOptions | null) | null = null): SectionResult[] {
   checkSections(grid.edge, sectionEdge, ids);
   const pad = jobRadius(rules);
   if (apron.radius !== pad) throw new RangeError(`assembly derive: apron ${apron.radius} deep, rules need ${pad}`);
@@ -173,7 +174,7 @@ export function deriveSectionsWithApron(grid: ChunkGrid, rules: AssemblyRuleSet,
     const at = sectionLocalOrigin(grid.edge, sectionEdge, id);
     if (sub !== s) cropNeighbourhood(s.n, ...at, sub.n);
     const times: DeriveTimes = { evaluateUs: 0, consumersUs: 0, meshUs: 0 };
-    const assembly = deriveChunk(sub.n, rules, sub.classes, times, level, unitPieces(grid.edge, pieces, ...at));
+    const assembly = deriveChunk(sub.n, rules, sub.classes, times, level, unitPieces(grid.edge, pieces, ...at), relief?.(id) ?? null);
     return { id, hash: crc32(encodeDerived(assembly)), assembly, shader: null, times };
   });
 }

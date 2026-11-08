@@ -35,10 +35,15 @@
  * a quarter cell in (derived-mesh.ts), which names the cell behind each
  * pixel, so a wall never blends with the roof it carries. Its other faces
  * blend as any body's. Owned faces merge only with faces of the same kind.
+ *
+ * **Unmerged** (`merge` false): every face is its own two triangles, so a
+ * subdivision of the faces (relief-mesh.ts) lays a regular lattice over
+ * each cell whatever the merges would have been.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, type Neighbourhood } from './assembly';
 import { FORM_BASE, FORM_SHAPE, formBaseOf, formShapeOf } from './case-forms';
 import { POSITION_STEPS_PER_CELL, SURFACE_ISO, SURFACE_OWNER_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, writeSurfaceExtras, type SurfaceBuffer } from './derived-mesh';
+import type { CreaseRule } from './relief-mesh';
 
 const STEPS = POSITION_STEPS_PER_CELL;
 
@@ -225,9 +230,9 @@ function isBody(form: number, piecesAsBodies: boolean): boolean {
   return base === FORM_BASE.suppress && piecesAsBodies;
 }
 
-/** Whether cell `i` hides the face of its neighbour looking toward it (a body, or ground at least half full). */
-function hides(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number, piecesAsBodies: boolean): boolean {
-  if (drawnElsewhere !== null && drawnElsewhere[i] !== 0) return false;
+/** Whether cell `i` hides the face of its neighbour looking toward it (a body, or ground at least half full); `elsewhere` as {@link baseSurface}'s. */
+function hides(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: number, piecesAsBodies: boolean, elsewhere: Uint32Array | null): boolean {
+  if (elsewhere !== null && elsewhere[i] !== 0) return false;
   const f = forms[i]!;
   if (isBody(f, piecesAsBodies)) return true;
   return (classes[i]! & CLASS_MASK) === ASSEMBLY_CLASS.ground && n.shapes[i]! >= SURFACE_ISO;
@@ -242,17 +247,17 @@ function hides(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, i: numb
  * faces out and keeps its neighbours' faces toward it, so the bodies'
  * surface stays closed on its own.
  */
-export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false, elsewhere: Uint32Array | null = null, crackOf: CrackOf | null = null): SurfaceBuffer {
+export function baseSurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies = false, elsewhere: Uint32Array | null = null, crackOf: CrackOf | null = null, merge = true): SurfaceBuffer {
   // A job with no plane cell round it takes the plain path.
   drawnElsewhere = elsewhere !== null && findPlaneCells(n, elsewhere) ? elsewhere : null;
   try {
-    return bodySurface(n, classes, forms, piecesAsBodies, crackOf);
+    return bodySurface(n, classes, forms, piecesAsBodies, crackOf, merge);
   } finally {
     drawnElsewhere = null;
   }
 }
 
-function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies: boolean, crackOf: CrackOf | null): SurfaceBuffer {
+function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies: boolean, crackOf: CrackOf | null, merge: boolean): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -271,7 +276,7 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     let f = 0;
     if (isBody(forms[i]!, piecesAsBodies) && (drawnElsewhere === null || drawnElsewhere[i] === 0)) {
-      for (let d = 0; d < 6; d++) if (!hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, piecesAsBodies)) f |= 1 << d;
+      for (let d = 0; d < 6; d++) if (!hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, piecesAsBodies, drawnElsewhere)) f |= 1 << d;
     }
     const c = (x * e + y) * e + z;
     faces[c] = f;
@@ -308,9 +313,9 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
         const val = mask[b * e + a]!;
         if (val === 0) continue;
         let w = 1;
-        while (a + w < e && mask[b * e + a + w] === val) w++;
+        while (merge && a + w < e && mask[b * e + a + w] === val) w++;
         let h = 1;
-        grow: while (b + h < e) {
+        grow: while (merge && b + h < e) {
           const row = (b + h) * e + a;
           for (let k = 0; k < w; k++) if (mask[row + k] !== val) break grow;
           h++;
@@ -422,4 +427,116 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
     }
   }
   return buildSurface();
+}
+
+/**
+ * The crease rule of an unmerged base surface (`merge` false) for its
+ * relief mesh (relief-mesh.ts), read from the voxels round each lattice
+ * point, so two sections meeting at a point or an edge agree on it without
+ * seeing each other's faces. A point of a face of direction d is smooth
+ * when the four cells of the face's layer round it all show a face d (the
+ * surface goes on flat past it on every side) and no roof plane cell
+ * touches it (the seam where a wall meets its roof stays put); an edge
+ * when the two cells either side of it show a face d and no plane cell
+ * touches it. Every other point and edge is a crease: a corner, an edge of
+ * a wall, the line where a floor meets a wall, the rim of an opening (where
+ * kit edge pieces sit), the line a face meets the ground along. Reads one
+ * cell round the job, the consumers' reach.
+ */
+export function baseCreaseRule(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, piecesAsBodies: boolean, elsewhere: Uint32Array, surface: SurfaceBuffer): CreaseRule {
+  const s = n.side;
+  const p = n.pad;
+  const stride = [s * s, 1, s];
+  const view = new DataView(surface.vertices.buffer, surface.vertices.byteOffset, surface.vertices.byteLength);
+  const at = (c: readonly number[]): number => ((c[0]! + p) * s + (c[2]! + p)) * s + (c[1]! + p);
+  /** The lattice point (job cells) and face direction of vertex v; null off the lattice. */
+  const point = (v: number, out: number[]): number => {
+    const o = v * SURFACE_VERTEX_BYTES;
+    for (let k = 0; k < 3; k++) {
+      const q = view.getUint16(o + 2 * k, true);
+      if (q % STEPS !== 0) return -1;
+      out[k] = q / STEPS - 1;
+    }
+    for (let k = 0; k < 3; k++) {
+      const c = view.getInt8(o + 8 + k);
+      if (c !== 0) return 2 * k + (c > 0 ? 1 : 0);
+    }
+    return -1;
+  };
+  const exposed = (c: readonly number[], d: number): boolean => {
+    const i = at(c);
+    if (!isBody(forms[i]!, piecesAsBodies) || elsewhere[i] !== 0) return false;
+    return !hides(n, classes, forms, i + SIGN[d]! * stride[AXIS[d]!]!, piecesAsBodies, elsewhere);
+  };
+  const pa = [0, 0, 0];
+  const pb = [0, 0, 0];
+  const cell = [0, 0, 0];
+  /** Whether a roof plane cell is among the cells with x, y, z in [lo, lo + span] per axis. */
+  const roofIn = (lo: readonly number[], span: readonly number[]): boolean => {
+    for (let x = lo[0]!; x <= lo[0]! + span[0]!; x++) for (let y = lo[1]!; y <= lo[1]! + span[1]!; y++) for (let z = lo[2]!; z <= lo[2]! + span[2]!; z++) {
+      cell[0] = x;
+      cell[1] = y;
+      cell[2] = z;
+      if (elsewhere[at(cell)] !== 0) return true;
+    }
+    return false;
+  };
+  const lo = [0, 0, 0];
+  const span = [1, 1, 1];
+  const vertexCrease = new Int8Array(surface.vertexCount).fill(-1);
+  return {
+    sharedReachSteps: 0,
+    vertex(v: number): boolean {
+      const known = vertexCrease[v]!;
+      if (known >= 0) return known === 1;
+      const d = point(v, pa);
+      let crease = d < 0;
+      if (!crease) {
+        const a = AXIS[d]!;
+        const u = (a + 1) % 3;
+        const w = (a + 2) % 3;
+        cell[a] = SIGN[d]! > 0 ? pa[a]! - 1 : pa[a]!;
+        for (let du = -1; du <= 0 && !crease; du++) for (let dw = -1; dw <= 0 && !crease; dw++) {
+          cell[u] = pa[u]! + du;
+          cell[w] = pa[w]! + dw;
+          if (!exposed(cell, d)) crease = true;
+        }
+        for (let k = 0; k < 3; k++) {
+          lo[k] = pa[k]! - 1;
+          span[k] = 1;
+        }
+        if (!crease && roofIn(lo, span)) crease = true;
+      }
+      vertexCrease[v] = crease ? 1 : 0;
+      return crease;
+    },
+    edge(va: number, vb: number): boolean {
+      const d = point(va, pa);
+      if (d < 0 || point(vb, pb) !== d) return true;
+      let along = -1;
+      let axes = 0;
+      for (let k = 0; k < 3; k++) {
+        if (pa[k] === pb[k]) continue;
+        if (Math.abs(pa[k]! - pb[k]!) !== 1) return true;
+        along = k;
+        axes++;
+      }
+      // A face's diagonal lies inside its cell: smooth.
+      if (axes === 2) return false;
+      if (axes !== 1) return true;
+      const a = AXIS[d]!;
+      const across = 3 - a - along;
+      cell[a] = SIGN[d]! > 0 ? pa[a]! - 1 : pa[a]!;
+      cell[along] = Math.min(pa[along]!, pb[along]!);
+      for (let t = -1; t <= 0; t++) {
+        cell[across] = pa[across]! + t;
+        if (!exposed(cell, d)) return true;
+      }
+      for (let k = 0; k < 3; k++) {
+        lo[k] = k === along ? Math.min(pa[k]!, pb[k]!) : pa[k]! - 1;
+        span[k] = k === along ? 0 : 1;
+      }
+      return roofIn(lo, span);
+    },
+  };
 }

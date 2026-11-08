@@ -51,7 +51,7 @@
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { classForm, evaluateForms, rulesDrawDamage, FORM_BODY, FORM_SHAPE, FORM_STEPS, formBox, formCoverage, formShapeOf, formSupports } from './case-forms';
 import { BRICK_EDGE } from './brick-layout';
-import { baseSurface } from './base-surface';
+import { baseCreaseRule, baseSurface } from './base-surface';
 import { detailInstances, levelDrawsPieces, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { cellPieces, NO_PIECES, type DerivePieces, type PieceInputs } from './derive-pieces';
 import { integrityCoverage } from './damage-stages';
@@ -63,7 +63,8 @@ import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-sh
 import { evaluateCases, evaluateEdges } from './kit-rules';
 import { appendSurface, roofSurface } from './roof-mesher';
 import { classifyRoofs } from './roof-words';
-import { terrainSurface } from './terrain-mesher';
+import { terrainSurface, type TerrainCreases } from './terrain-mesher';
+import { appendRelief, checkReliefOptions, groundCreaseRule, markGroundNearBodies, reliefBytes, reliefTransfer, roofCreaseRule, subdivideSurface, type ReliefOptions, type ReliefPart } from './relief-mesh';
 import { utf8Encode } from '@thirdlight/shared';
 
 /**
@@ -296,6 +297,13 @@ export interface DerivedData {
   /** Material and wetness per cell for the surface shader (derived-shader.ts). */
   readonly shader: ShaderOut;
   readonly counts: DerivedCounts;
+  /**
+   * The denser copy of the ground and base surfaces a relief draw
+   * displaces (relief-mesh.ts; a spike: asked for per derive, level 0
+   * only, outside the canonical bytes). Every other output is the same with
+   * or without it.
+   */
+  readonly relief?: ReliefPart;
 }
 
 /** Ground filled to the surface: solid for every consumer. */
@@ -625,6 +633,8 @@ export interface DeriveTimes {
   evaluateUs: number;
   consumersUs: number;
   meshUs: number;
+  /** The relief mesh, when one was asked for. */
+  reliefUs?: number;
 }
 
 /**
@@ -634,8 +644,9 @@ export interface DeriveTimes {
  * the same way from its own cells (`level` > 0): the rule set's thresholds
  * and the mesher read cells, whatever their size.
  */
-export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: Uint8Array, times?: DeriveTimes, level = 0, pieces: DerivePieces = NO_PIECES): DerivedData {
+export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: Uint8Array, times?: DeriveTimes, level = 0, pieces: DerivePieces = NO_PIECES, relief: ReliefOptions | null = null): DerivedData {
   if (!Number.isInteger(level) || level < 0) throw new RangeError(`derive: level ${level}`);
+  if (relief !== null) checkReliefOptions(relief);
   const table = pieces.table;
   if (table !== null && (table.rules.id !== rules.id || table.rules.version !== rules.version)) throw new RangeError(`derive: a piece table of rules ${table.rules.id} v${table.rules.version} for rules ${rules.id} v${rules.version}`);
   const classes = scratch !== undefined && scratch.length === n.values.length ? scratch : new Uint8Array(n.values.length);
@@ -656,8 +667,9 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   evaluateCases(n, rules, level, cases);
   evaluateForms(n, rules, classes, cases, forms, table);
   const t1 = performance.now();
-  const ground = terrainSurface(n, classes);
   const pieced = levelDrawsPieces(level);
+  const creases: TerrainCreases | undefined = relief !== null && pieced ? { flags: null } : undefined;
+  const ground = terrainSurface(n, classes, creases);
   let roofs = roofScratches.get(classes.length);
   if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
   // Cracks (damage stage 1) show where pieces do: a coarser node's construction is intact.
@@ -670,6 +682,8 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   const inputs: PieceInputs = { n, forms, pieces, level, roofs, edges, catalogue: rules.catalogue };
   const instances = pieced ? detailInstances(n, (i, x, y, z, cell, emit) => cellPieces(inputs, i, x, y, z, cell, emit)) : { count: 0, data: new Uint8Array(0) };
   const t2 = performance.now();
+  const reliefPart = creases === undefined ? undefined : reliefOf(n, classes, forms, roofs, crackOf, ground, creases.flags!, ramps, relief!);
+  const t3 = performance.now();
   const collision = collisionOf(n, forms, roofs, ramps);
   const out: DerivedData = {
     v: DERIVED_FORMAT_VERSION,
@@ -685,13 +699,37 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     instances,
     shader: shaderOfNeighbourhood(n),
     counts: countsOf(n, classes),
+    ...(reliefPart === undefined ? {} : { relief: reliefPart }),
   };
   if (times !== undefined) {
     times.evaluateUs += (t1 - t0) * 1000;
     times.meshUs += (t2 - t1) * 1000;
-    times.consumersUs += (performance.now() - t2) * 1000;
+    times.consumersUs += (performance.now() - t3) * 1000;
+    if (reliefPart !== undefined) times.reliefUs = (times.reliefUs ?? 0) + (t3 - t2) * 1000;
   }
   return out;
+}
+
+function markedFlags(n: Neighbourhood, classes: Uint8Array, ground: SurfaceBuffer, flags: Uint8Array): Uint8Array {
+  markGroundNearBodies(n, classes, ground, flags);
+  return flags;
+}
+
+/**
+ * A level-0 unit's relief part: its ground subdivided with the terrain
+ * mesher's creases, its bodies drawn unmerged and subdivided with the
+ * voxels' creases, its roof planes subdivided with their own.
+ */
+function reliefOf(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, roofs: Uint32Array, crackOf: ((v: number) => number) | null, ground: SurfaceBuffer, groundFlags: Uint8Array, ramps: SurfaceBuffer, o: ReliefOptions): ReliefPart {
+  const e = n.edge;
+  const plain = o.plainNeighbours ?? 0;
+  const bodies = baseSurface(n, classes, forms, false, roofs, crackOf, false);
+  const base = subdivideSurface(bodies, e, o.n, plain, baseCreaseRule(n, classes, forms, false, roofs, bodies));
+  return {
+    n: o.n,
+    ground: subdivideSurface(ground, e, o.n, plain, groundCreaseRule(markedFlags(n, classes, ground, groundFlags))),
+    base: appendRelief(base, subdivideSurface(ramps, e, o.n, plain, roofCreaseRule(ramps, e, n, classes, roofs))),
+  };
 }
 
 /** Every array of a derived chunk, in a fixed order (canonical bytes, transfer lists, byte counts). */
@@ -707,7 +745,7 @@ function arraysOf(d: DerivedData): ArrayBufferView[] {
 
 /** Bytes a derived chunk holds in memory (its arrays; what the streaming budget counts). */
 export function derivedBytes(d: DerivedData): number {
-  let n = 0;
+  let n = d.relief === undefined ? 0 : reliefBytes(d.relief);
   for (const a of arraysOf(d)) n += a.byteLength;
   return n;
 }
@@ -730,6 +768,7 @@ export function derivedPartBytes(d: DerivedData): { occupancy: number; light: nu
 /** A derived chunk's buffers, for a postMessage transfer list. */
 export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayBuffer[] {
   for (const a of arraysOf(d)) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
+  if (d.relief !== undefined) reliefTransfer(d.relief, out);
   return out;
 }
 
@@ -737,7 +776,8 @@ export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayB
  * Canonical bytes of a derived chunk (little-endian): the header (format
  * version, edge, rules id, version and radius, the flags) then every array
  * with its length. Equal results give equal bytes; used to compare and
- * hash results, never stored.
+ * hash results, never stored. A relief part is left out: it is a drawing
+ * of the same surfaces, so a derive with it gives the bytes of one without.
  */
 export function encodeDerived(d: DerivedData): Uint8Array {
   const id = utf8Encode(d.rules.id);

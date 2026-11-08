@@ -118,6 +118,12 @@ const sectionParam = Number(params.get('section') ?? DEFAULT_SECTION_EDGE) as Se
 const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionParam : DEFAULT_SECTION_EDGE;
 /** `?levels=a,b`: level 0 drawn within a metres, level 1 within b (default the engine's rings). */
 const levelsParam = params.get('levels');
+/**
+ * `?relief=n` (2, 4, 8): the chunks within `?reliefRadius=` metres (default 32) of the focus when derived also derive
+ * the relief mesh n lattice steps a cell, drawn in place of their surfaces (a spike: no displacement yet).
+ */
+const reliefParam = params.get('relief');
+const reliefRadiusM = Number(params.get('reliefRadius') ?? 32);
 const levelRings = (metres: readonly number[]): { radii: number[]; hysteresis: number } => ({ radii: metres.map((m) => Math.round(m / VOXEL_SIZE_M)), hysteresis: DEFAULT_LEVEL_RINGS.hysteresis });
 /** A brush dab's half size in cells (a 1 m sphere). */
 const BRUSH_CELLS = 2;
@@ -226,7 +232,7 @@ async function main(): Promise<void> {
   // The project's kits and seed, one table for the derives and the draws; their meshes load beside the stream.
   const kitRoute = { api, projectId, headers };
   const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(reliefParam !== null ? { relief: { n: Number(reliefParam), radius: Math.round(reliefRadiusM / VOXEL_SIZE_M) } } : {}), ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
@@ -578,7 +584,7 @@ async function main(): Promise<void> {
         heapMB: Number((heap / 1e6).toFixed(1)),
         gpu: rendererMemory(renderer),
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
-        evaluateUs: m.evaluateUs,
+        evaluateUs: m.evaluateUs, reliefUs: m.reliefUs,
         kitBytes: kits.meshes.bytes(),
         mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, gpuBytes: mips.gpuBytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },

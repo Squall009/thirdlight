@@ -168,6 +168,14 @@ export interface DeriveInput {
    * by hash.
    */
   readonly pieces?: Uint8Array;
+  /**
+   * Also the relief mesh of each level-0 section (relief-mesh.ts; a spike,
+   * outside the canonical bytes), `n` lattice steps a cell; `plainChunks`
+   * (the relief-mesh.ts neighbour bits, over the 26 chunks round this one)
+   * names the chunks drawn plain, so each section keeps its edges toward
+   * them whole.
+   */
+  readonly relief?: { readonly n: number; readonly plainChunks: number };
 }
 
 /** A chunk-tree node's 8 children (octant order: bit 0 x, bit 1 y, bit 2 z; null: air, or not known). */

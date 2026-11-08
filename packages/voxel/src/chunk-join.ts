@@ -37,6 +37,7 @@ import { INSTANCE_BYTES, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type Ins
 import { shaderGridEntries, shaderGridSide, shaderSolidEntry, SHADER_BORDER_CELLS, type ShaderOut } from './derived-shader';
 import { sectionLocalOrigin } from './derive-assembly';
 import { packedWidth } from './packed-width';
+import type { ReliefSurface } from './relief-mesh';
 
 /** What a renderer draws for one storage chunk, joined from its derive sections. */
 export interface JoinedChunk {
@@ -68,6 +69,13 @@ export interface JoinedDraw {
   readonly solid: number;
   /** The grid's side (edge + 2 · border). */
   readonly side: number;
+  /**
+   * The relief meshes of its sections joined as the surfaces are (a section
+   * without one gives its plain surfaces, every crease weight 0), when any
+   * section has one: drawn in place of {@link ground} and {@link base},
+   * which stay what collides.
+   */
+  readonly relief?: { readonly ground: ReliefSurface; readonly base: ReliefSurface };
 }
 
 /** How a joined chunk's buffers came about (for measurements). */
@@ -316,18 +324,38 @@ export function joinSectionsForDraw(chunkEdge: number, sectionEdge: number, sect
     const solid = shaderSolidEntry(d.shader);
     if (solid < 0) shaderGridEntries(d.shader, cells);
     if (times !== undefined) times.shaderUs += (performance.now() - t0) * 1000;
-    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, collision: d.collision, solid, side };
+    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, collision: d.collision, solid, side, ...(d.relief === undefined ? {} : { relief: { ground: d.relief.ground, base: d.relief.base } }) };
   }
   const t0 = performance.now();
   const ground = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.ground ?? null));
   const base = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.base ?? null));
   const instances = joinInstances(chunkEdge, sectionEdge, sections.map((s) => s?.instances ?? null));
   const collision = joinCollision(chunkEdge, sectionEdge, sections.map((s) => s?.collision ?? null));
+  const relief = joinRelief(chunkEdge, sectionEdge, sections);
   const t1 = performance.now();
   const solid = joinShaderCells(chunkEdge, sectionEdge, sections.map((s) => s?.shader ?? null), cells);
   if (times !== undefined) {
     times.surfacesUs += (t1 - t0) * 1000;
     times.shaderUs += (performance.now() - t1) * 1000;
   }
-  return { edge: chunkEdge, ground, base, instances, collision, solid, side };
+  return { edge: chunkEdge, ground, base, instances, collision, solid, side, ...(relief === undefined ? {} : { relief }) };
+}
+
+/** The sections' relief meshes joined (see {@link JoinedDraw.relief}); undefined when no section has one. */
+export function joinRelief(chunkEdge: number, sectionEdge: number, sections: ReadonlyArray<DerivedData | null>): JoinedDraw['relief'] {
+  if (!sections.some((s) => s?.relief !== undefined)) return undefined;
+  const one = (kind: 'ground' | 'base'): ReliefSurface => {
+    const parts = sections.map((s) => (s === null ? null : (s.relief?.[kind] ?? s[kind])));
+    const joined = joinSurfaces(chunkEdge, sectionEdge, parts);
+    const crease = new Uint8Array(joined.vertexCount);
+    let at = 0;
+    // In joinSurfaces' order: section id order, empty parts left out.
+    for (const p of parts) {
+      if (p === null || p.vertexCount === 0) continue;
+      if ('crease' in p) crease.set((p as ReliefSurface).crease.subarray(0, p.vertexCount), at);
+      at += p.vertexCount;
+    }
+    return { ...joined, crease };
+  };
+  return { ground: one('ground'), base: one('base') };
 }

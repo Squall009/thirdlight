@@ -266,7 +266,9 @@ export class ChunkDrawBatcher {
     this.sent.add(key);
     const own = <T extends Uint8Array | Uint16Array | Uint32Array>(a: T): T => (this.copy ? (a.slice() as T) : a);
     const surface = (s: SurfaceBuffer): SurfaceBuffer => ({ vertexCount: s.vertexCount, vertices: own(s.vertices), indices: own(s.indices) });
-    this.push({ cx, cy, cz, kind: 'draw', ground: surface(d.ground), base: surface(d.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
+    // The relief mesh is drawn in place of the surfaces where the derive made one (the plain ones still collide).
+    const shown = d.relief ?? d;
+    this.push({ cx, cy, cz, kind: 'draw', ground: surface(shown.ground), base: surface(shown.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
   }
 
   /** A drawn mip node's draw from its current result (nothing to draw: removed). */

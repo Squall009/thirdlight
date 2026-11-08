@@ -206,7 +206,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 
 | Item | Status |
 |---|---|
-| 46d.1a | not started |
+| 46d.1a | done: §4 baseline re-measured (§8). Spike relief mesh (`relief-mesh.ts`, `?relief=n`, `run.mjs relief`): crack-free with plain neighbours, crease weights, other outputs byte-equal (vitest). Ring 32 m slice/hilly 4/16/64× triangles, town 18/69/276× (merges lost); n = 8 fills the low budget. Relief µs p50 0.3/1.0/4.0 ms a section. No displacement yet |
 | 46d.1b | not started |
 | 46d.2 | not started |
 | 46d.3a | not started |
@@ -230,7 +230,89 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 
 ## 8. Results
 
-(empty; one subsection an item, numbers and pictures looked at)
+### 46d.1a baseline and the denser near-ring topology
+
+**§4 baseline, re-measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, 2026-11-08 06:27–06:50, load 0.8–3.1,
+uptime 15.6 d; scratch `~/.cache/thirdlight-phase46/work/46d.1a/`; town = R9's view and ~480-frame orbit, village =
+46c.16g's two houses on the slice world; the page was built from the item's tree with relief off, which changes no
+output):
+
+| What | Re-measured |
+|---|---|
+| Town at the cap, WebGPU / WebGL 2 (2 rounds) | `render()` CPU p50/p95 9.1–9.2/10.2–10.3 / 9.2–9.6/10.6 ms; GPU 3.35–3.40 / 4.72–4.78 ms; 0 / 0 missed of 479; 43,711 instances, 1,466 piece draws, 1,319 draw calls, 842,024 triangles; stream 124.8 MB (derived 84.2, mips 32.0, kits 6.1); derive job µs p50/p95 3,000–3,100/9,500–9,800 |
+| Village (slice), WebGPU / WebGL 2 | `render()` 1.7/1.9 / 1.6/2.0 ms; GPU 7.33 / 4.0 ms; 0 missed; 785 instances, 110 piece draws, 177 calls, 379.8 k triangles; 79.0 MB (derived 42.5, mips 23.5) |
+| Flight (`run.mjs stream-page`, hilly 2 × 2 km, 60 s, 1 round) | 40 m/s: 1 / 1 missed of 3,600 (WebGPU / WebGL 2); 80 m/s: 0 / 1; stream 11.0–13.2 MB |
+| Mesher µs a 16³ section with ground p50/p95 (`run.mjs mesher`) | slice 217/313, town 239/332, hilly 226/488, caves 349/662 |
+| Roofs (`cases --roofs --fill`, town 512², 1,070 sections) | roof pass 287/737 µs, derive 997/1,564 µs; base triangles 468,872 (unchanged) |
+| Voxel surface textures | grid 3D textures 23.1 MB (town view) / 19.8 MB (village); material table 128 KB (Float32 RGBA 64 × 128); pattern array 64 KB; crack array 256 KB a layer (512² R8); kit textures 5.94 MB (trim debug set) |
+| Far field | load box 192 m, nothing past it (D463, D516) |
+| `voxel-world.e2e.ts` / full gate | 65.1 s (gate 02:17, 46c.17) / 34 min, 8.0 GB (46c close) |
+
+**Built (spike, no format version).** `@thirdlight/voxel` `relief-mesh.ts`: a level-0 unit's ground and base
+surfaces split until no edge spans more than 1.5 / n cells on any axis (a triangle with every edge too long into
+four, else its longest such edge halved; whether and where an edge splits depends on that edge alone, so two
+sections split a shared edge alike); base faces drawn unmerged first (`baseSurface(…, merge = false)`), so a face is
+an n × n lattice; roofs split along their merged rows. A crease weight a vertex (0 fixed, 255 free): base from the
+voxels round each lattice point (`baseCreaseRule`: a face that does not continue flat, roof contact), ground from the
+terrain mesher's crease vertices (`TerrainCreases`) and every vertex within half a cell of a wall, beam or rail,
+roofs from their own triangles (turn > 30°, open edges), wall contact and a one-cell margin at section faces. Toward
+plain units (26 neighbours, `plainNeighbours`) shared edges stay whole and fixed. Derived as `DerivedData.relief`
+(level 0, outside the canonical bytes), joined into the draw (`JoinedDraw.relief`, crease joined too), drawn in
+place of the surfaces by `ChunkDrawBatcher`, read by the seams; collision keeps the plain ground. Page switch
+`?relief=n&reliefRadius=m` (chunks within m of the focus when derived, plain chunks named to the worker), state
+`reliefUs`. Bench `run.mjs relief`.
+
+**Tested** (`packages/voxel/src/relief-mesh.test.ts`, `tools/voxel-bench/relief.test.ts`, 18 s alone, ~1 GB): an
+n × n lattice a face; shared edges split alike; edges ≤ 1.5 / n; plain faces kept whole and fixed; a section's plain
+neighbours from its chunk's; on slice, town (ground, roofs), hilly and caves (near the surface, deep), each a
+2 × 2 × 2-section window straddling chunk faces (16³ sections, world rules), for n = 2, 4, 8 every relief edge with other than
+two triangles lies along plain edges with as many (no crack, no T-junction, across section and chunk faces), area
+equal (3 decimals), copies of a point with different normals all fixed and same-normal copies one weight (ground
+and bodies together), every other output's canonical bytes equal with relief on and off, mixed relief/plain
+sections crack-free with their border vertices fixed; deterministic.
+
+**Measured, Node** (`run.mjs relief --rounds 2`, 6 GB scope, 06:50–06:53, load 1.9–3.4; ring = sections within the
+radius of the camera, sections with surface; derive µs = the whole derive of a relief section):
+
+| world, radius | sections | triangles plain → n = 2 / 4 / 8 | ring MB plain → 2 / 4 / 8 | relief µs a section p50/p95 n = 2 / 4 / 8 | derive µs p50 plain → 2 / 4 / 8 |
+|---|---|---|---|---|---|
+| slice 16 m | 20 | 10.7 k → 44 k / 175 k / 694 k | 0.14 → 0.58 / 2.2 / 8.8 | 485/4,294; 1,250/2,308; 4,318/10,314 | 726 → 1,197 / 1,939 / 5,082 |
+| slice 32 m | 76 | 32.7 k → 133 k / 526 k / 2.09 M | 0.43 → 1.7 / 6.7 / 26.4 | 281/468; 990/1,411; 3,899/6,766 | 637 → 941 / 1,628 / 4,545 |
+| slice 64 m | 286 | 115 k → 463 k / 1.84 M / 7.34 M | 1.5 → 6.0 / 23.4 / 92.7 | 265/387; 944/1,139; 3,883/5,066 | 639 → 916 / 1,590 / 4,528 |
+| town 16 m | 46 | 20.3 k → 440 k / 1.74 M / 6.92 M | 0.35 → 5.8 / 26.1 / 123 | 836/11,316; 2,284/41,437; 9,663/170,789 | 710 → 1,839 / 2,963 / 10,350 |
+| town 32 m | 136 | 57.3 k → 1.00 M / 3.98 M / 15.8 M | 0.94 → 13.3 / 59.8 / 274 | 320/6,085; 1,004/26,813; 3,965/113,090 | 625 → 957 / 1,672 / 4,701 |
+| town 64 m | 538 | 228 k → 4.40 M / 17.5 M / 70.0 M | 3.8 → 58 / 261 / 1,218 | 315/6,766; 999/24,306; 4,140/113,783 | 638 → 957 / 1,695 / 4,989 |
+| hilly 32 m | 69 | 32.7 k → 131 k / 520 k / 2.07 M | 0.42 → 1.7 / 6.6 / 26.1 | 303/442; 1,028/1,150; 4,141/5,093 | 661 → 981 / 1,687 / 4,803 |
+| hilly 64 m | 285 | 115 k → 460 k / 1.83 M / 7.29 M | 1.5 → 6.0 / 23.3 / 92.0 | 265/377; 957/1,113; 4,025/5,258 | 637 → 904 / 1,589 / 4,689 |
+| caves 32 m | 101 | 56.6 k → 198 k / 777 k / 3.09 M | 0.81 → 2.7 / 10.1 / 39.4 | 276/776; 869/2,813; 3,562/12,573 | 589 → 883 / 1,471 / 4,156 |
+| caves 64 m | 449 | 305 k → 1.02 M / 4.04 M / 16.1 M | 4.5 → 14.2 / 53.2 / 207 | 299/949; 1,027/3,598; 4,099/14,314 | 633 → 933 / 1,661 / 4,793 |
+
+Terrain and the slice grow 4 / 16 / 64× as the lattice says; the town 18–22 / 69–86 / 276–340×, because its plain
+base merges coplanar faces (a whole floor two triangles) and the lattice cannot; a dense town section (p95) takes
+0.4 / 2.4 / 9.4 MB and 6 / 27 / 113 ms. The mesher budget (0.1–0.2 ms a section) holds for none: n = 2 adds ~0.3 ms.
+
+**Measured, browser** (staging, town view and orbit, `?relief=n` at the default 32 m, 06:55–06:58, load 2.5–5.4, one round each):
+n = 2: 1.66 M triangles drawn (842 k plain), stream 156.8 MB (derived 116.2), `render()` 9.1/9.9 (WebGPU) and
+9.9/11.0 ms (WebGL 2), GPU 3.85 / 4.90 ms, 0 missed, relief µs a section in the workers p50/p95 1,400/18,300–23,400;
+n = 4: 4.10 M, 248.8 MB, GPU 4.90 / 4.63 ms, 0 missed, 2,500–2,800/49,100–52,100 µs; n = 8: the low tier's 256 MB
+stream budget fills and holds the ring back (120 piece draws instead of 1,466, 5.54 M triangles, most of the town
+missing: seen), 6,600–8,400/130,000 µs. Village (two houses near, n = 4): 1.14 M triangles (380 k), GPU 9.84 / 4.37
+ms, 0 missed. Memory of the ring is the derived share (+32 MB at n = 2, +134 MB at n = 4 over the town's 84 MB).
+
+**Looked at** (`shots/`, both renderers): `relief4-log-house-near`, `relief4-stone-house-near` against `base-*`:
+the same pictures (1.1 % / 0.8 % of pixels differ, at most 4 by more than 24 levels: normals interpolated over the
+finer triangles), no crack or gap at walls, roofs, the foundation or the ground; `relief2/4-town-mid` the same near,
+differing only on the horizon (far nodes streamed at another moment under the fuller budget); `relief8-town-mid`
+shows the budget cut. Displacement is 46d.1b: nothing moves yet, so the crease weights are tested, not seen.
+
+**Gate:** gate-fast-20261108-070711 GREEN (13 min, 5.1 GB; perf 0 missed both renderers); `scan-bounded-log` (D307,
+D418) and `world-host` (D484) failed once under load and passed alone. `voxel-world.e2e.ts` 65.1 → 64.6 s (no e2e
+change). A first gate (06:59) was OOM-killed at 7 GB: the first relief test kept whole n = 8 chunk windows as JS
+arrays; it now checks 2 × 2 × 2-section windows in typed arrays (~1 GB).
+
+**For 46d.1b:** the crease weights travel in `JoinedDraw.relief.{ground,base}.crease` but not yet on the chunk draw
+wire (`ChunkDrawBatcher` sends the relief positions only); the vertex stage needs them as an attribute. Expect
+roofs undisplaced in a 1 m stripe at section faces and ground fixed within half a cell of walls (both by design).
 
 ## 9. Decision log
 
@@ -288,6 +370,27 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
   distance: sun and sky from the node's normal and macro colour; far shadows are 46e's lighting question.
 - 2026-11-08 (plan, default chosen, owner to confirm): **D526 is its own small item (46d.6c)**, beside the piece
   instancing, since it is mesher work; D468 stays with the performance phase.
+- 2026-11-08 (46d.1a, default chosen, owner to confirm): **the relief mesh splits each triangle until no edge spans
+  more than 1.5 / n cells on any axis** (a regular n × n lattice on unmerged base faces, about 4^log2 n triangles a
+  ground triangle, roofs along their rows) rather than a per-surface lattice, because an edge-only rule keeps every
+  shared edge identical across sections without either side seeing the other.
+- 2026-11-08 (46d.1a, default chosen, owner to confirm): **crease weights**: base points from the voxels round them
+  (a face continuing flat on every side, no roof plane cell touching); ground from the terrain mesher's crease
+  vertices plus every vertex within half a cell of a wall, beam or rail (the ground meets bodies along a line their
+  faces stop at); roofs from their own triangles, wall contact, and **fixed within one cell of every section face**
+  (a neighbour's roof reaches a cell in, unseen): roofs get no relief in a 1 m stripe at section faces (46d.1b to
+  judge in pictures, an exact rule from the roof words if it shows). Kit edge pieces sit on cell edges the base rule
+  already fixes; no per-piece flag.
+- 2026-11-08 (46d.1a, default chosen, owner to confirm): **plain neighbours over all 26 units round a section**
+  (`plainNeighbours`), not its 6 faces: a point on an edge or corner is shared by up to 8 sections, and all must fix
+  it alike. The ring's fade over its last metres is left to the vertex stage (a distance, 46d.1b), not baked.
+- 2026-11-08 (46d.1a, default chosen, owner to confirm): **the spike relief is a derived part outside the canonical
+  bytes** (no derived version step until 46d.5a), drawn in place of the surfaces while collision keeps the plain
+  ground; the page's relief ring is chunks within `?reliefRadius=` (default 32 m) of the focus when derived, not
+  re-planned as the camera moves (46d.5a builds the ring), and level seams read the relief boundary.
+- 2026-11-08 (46d.1a, default chosen, owner to confirm): **relief tests in a new vitest file**
+  (`tools/voxel-bench/relief.test.ts`, with `relief-checks.ts` shared with the bench) instead of `derived.test.ts`
+  (1,541 lines); no e2e change.
 
 ## 10. Open questions for the owner
 

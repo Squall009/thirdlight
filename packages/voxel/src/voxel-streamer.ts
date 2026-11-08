@@ -55,6 +55,7 @@ import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, type VoxelRecord }
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import type { PieceTable } from './piece-table';
 import { StreamPieces } from './stream-pieces';
+import { checkReliefOptions, reliefNeighbourBit } from './relief-mesh';
 import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
@@ -152,6 +153,15 @@ export interface VoxelStreamerOptions {
    * (`pieces.set` changes it).
    */
   readonly pieces?: PieceTable | null;
+  /**
+   * Level-0 sections of the chunks whose centre lies within `radius` cells
+   * of the focus when they are derived also derive a relief mesh `n`
+   * lattice steps a cell (relief-mesh.ts RELIEF_SUBDIVISIONS; a spike
+   * switch, absent: none), drawn in place of their surfaces; collision and
+   * every other output stay the plain derive's. The ring is not re-planned
+   * as the focus moves (the spike measures a still view).
+   */
+  readonly relief?: { readonly n: number; readonly radius: number };
 }
 
 /**
@@ -264,6 +274,8 @@ export interface StreamMetrics {
   readonly counters: Readonly<StreamCounters>;
   /** Worker µs a level-0 section evaluating the rules, all sections and those drawing pieces (null: nothing derived). */
   readonly evaluateUs: { readonly all: SampleSummary; readonly pieces: SampleSummary } | null;
+  /** Worker µs a level-0 section building its relief mesh (null: none asked for, or nothing derived). */
+  readonly reliefUs: SampleSummary | null;
 }
 
 /** Quantiles of a sample ring (µs) and how many samples it holds. */
@@ -360,6 +372,9 @@ export class VoxelStreamer {
       chunkForm: (cx, cy, cz) => this.overlay.chunkForm(cx, cy, cz),
       chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
     };
+    const relief = opts.relief;
+    if (relief !== undefined) checkReliefOptions({ n: relief.n });
+    const reliefChunk = (cx: number, cy: number, cz: number): boolean => relief !== undefined && chunkDistance2(this.grid, this.focus, cx, cy, cz) <= relief.radius * relief.radius;
     this.derives =
       opts.derive === true
         ? new SectionDerives(
@@ -372,6 +387,14 @@ export class VoxelStreamer {
               radius: this.radius,
               rules: opts.rules,
               pieceTable: () => this.pieces.table,
+              relief: (cx, cy, cz) => {
+                if (!reliefChunk(cx, cy, cz)) return null;
+                let plainChunks = 0;
+                for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+                  if ((dx !== 0 || dy !== 0 || dz !== 0) && !reliefChunk(cx + dx, cy + dy, cz + dz)) plainChunks |= reliefNeighbourBit(dx, dy, dz);
+                }
+                return { n: relief!.n, plainChunks };
+              },
               counters: this.counters,
               rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs, joinUs: this.joinUs },
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
@@ -603,6 +626,7 @@ export class VoxelStreamer {
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
       evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },
+      reliefUs: this.derives === null || this.derives.reliefUs.count === 0 ? null : summarize(this.derives.reliefUs),
     };
   }
 

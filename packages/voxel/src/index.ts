@@ -245,7 +245,7 @@ export { StreamLod, type LevelEvent, type LodHost } from './stream-lod';
 export { faceLevels, StreamSeams, type LevelSelection, type SeamEvent, type SeamHold, type SeamHost, type SeamKey } from './stream-seams';
 export { COLLISION_ADD_MS_PER_UPDATE, COLLISION_PART, COLLISION_RING_HYSTERESIS_CELLS, CollisionRing, collisionRingBounds, type CollisionBodies, type CollisionRingBounds, type CollisionRingFeed, type CollisionRingOptions, type CollisionRingUpdate } from './collision-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
-export { joinCollision, joinInstances, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
+export { joinCollision, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkSwapWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
@@ -269,7 +269,8 @@ export {
 } from './assembly';
 export { assemblyRules, registerAssemblyRules, registeredAssemblyRules, WORLD_RULES } from './rule-registry';
 export { TERRAIN_FEATURE, TERRAIN_FEATURE_SHIFT, TERRAIN_RULES, TERRAIN_RULES_RADIUS, TERRAIN_THRESHOLDS, terrainFeatureOf, withTerrainFeatures } from './terrain-rules';
-export { CREASE_SPLIT_DEG, LATTICE_WINDOW, TERRAIN_MESHER_REACH, terrainSurface } from './terrain-mesher';
+export { CREASE_SPLIT_DEG, LATTICE_WINDOW, TERRAIN_MESHER_REACH, terrainSurface, type TerrainCreases } from './terrain-mesher';
+export { appendRelief, checkReliefOptions, emptyReliefSurface, groundCreaseRule, RELIEF_CREASE_DEG, RELIEF_FREE, RELIEF_SUBDIVISIONS, reliefBytes, reliefNeighbourBit, reliefTransfer, roofCreaseRule, subdivideSurface, type CreaseRule, type ReliefOptions, type ReliefPart, type ReliefSurface } from './relief-mesh';
 export { appendSurface, roofSurface } from './roof-mesher';
 export { classifyRoofs, isRoofGapCell, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
 export {

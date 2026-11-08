@@ -106,6 +106,8 @@ export interface SectionHost {
   readonly rules: AssemblyRuleSet | undefined;
   /** The world's kit piece table the derives choose pieces from (null: none, the default pieces). */
   pieceTable(): PieceTable | null;
+  /** The relief mesh a chunk's level-0 sections derive beside their surfaces (absent, or null for the chunk: none). */
+  relief?(cx: number, cy: number, cz: number): DeriveInput['relief'] | null;
   readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
@@ -227,6 +229,8 @@ export class SectionDerives {
    * result draws pieces: what the case pass costs where the world runs.
    */
   readonly evaluateUs = { all: new SampleRing(), pieces: new SampleRing() };
+  /** Worker µs a level-0 section building its relief mesh (when the streamer asks for one). */
+  readonly reliefUs = new SampleRing();
 
   constructor(
     private readonly host: SectionHost,
@@ -323,7 +327,8 @@ export class SectionDerives {
       const r = (held ? (s.held ?? s.derived) : s.derived) ?? null;
       if (r === null) return undefined;
       const a = r.assembly;
-      if (a !== null && (a.ground.vertexCount > 0 || a.base.vertexCount > 0)) out.push({ x0: lo[0]!, y0: lo[1]!, z0: lo[2]!, ground: a.ground, base: a.base });
+      // Seams join the surfaces as drawn: the relief mesh where there is one.
+      if (a !== null && (a.ground.vertexCount > 0 || a.base.vertexCount > 0)) out.push({ x0: lo[0]!, y0: lo[1]!, z0: lo[2]!, ground: a.relief?.ground ?? a.ground, base: a.relief?.base ?? a.base });
     }
     return out;
   }
@@ -805,6 +810,7 @@ export class SectionDerives {
     const k = Math.min(list.length, split);
     const ref = { grid: host.gridId, key: list[0]!.chunk };
     const pieces = host.pieceTable();
+    const relief = shaderOnly || rules === undefined ? null : host.relief?.(cx, cy, cz);
     for (let j = 0; j < k; j++) {
       const part = list.filter((_, i) => i % k === j);
       const t1 = performance.now();
@@ -832,6 +838,7 @@ export class SectionDerives {
         apron: a,
         ...(shaderOnly ? { parts: DERIVED_PART.shader } : rules === undefined ? {} : { rules: rulesRef(rules) }),
         ...(shaderOnly || rules === undefined || pieces === null ? {} : { pieces: pieces.bytes }),
+        ...(relief == null ? {} : { relief }),
         ...(sections === undefined ? {} : { sections }),
       };
       void host.pool.submit<DeriveOutput>({ id, kind: 'derive', lane, distance, input, transfer: payloadTransfer(payload, apronTransfer(a)) }).then((o) => this.answered(id, part, stamps, o));
@@ -876,6 +883,7 @@ export class SectionDerives {
       if (r.assembly !== null) {
         this.evaluateUs.all.add(r.times.evaluateUs);
         if (r.assembly.instances.count > 0) this.evaluateUs.pieces.add(r.times.evaluateUs);
+        if (r.times.reliefUs !== undefined) this.reliefUs.add(r.times.reliefUs);
       }
       this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader }, r.times);
     });

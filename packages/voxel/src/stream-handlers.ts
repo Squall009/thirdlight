@@ -12,7 +12,8 @@
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
 import { jobRadius } from './assembly';
 import { assemblyRules } from './rule-registry';
-import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type ChunkPieces, type SectionResult } from './derive-assembly';
+import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, sectionLocalOrigin, type ChunkPieces, type SectionResult } from './derive-assembly';
+import { reliefNeighbourBit, type ReliefOptions } from './relief-mesh';
 import { pieceTableOf } from './piece-table';
 import { derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';
@@ -209,7 +210,8 @@ function derive(raw: unknown): JobResult {
     if (input.rules !== undefined) {
       const rules = assemblyRules(input.rules);
       if (jobRadius(rules) !== r) throw new RangeError(`derive job: radius ${r} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
-      const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out), undefined, level, jobPieces(input));
+      const relief = level === 0 ? input.relief : undefined;
+      const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out), undefined, level, jobPieces(input), relief === undefined ? null : { n: relief.n, plainNeighbours: relief.plainChunks });
       const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeDerived(assembly)), assembly, shader: null };
       return { output, transfer: derivedTransfer(assembly) };
     }
@@ -218,6 +220,24 @@ function derive(raw: unknown): JobResult {
   } finally {
     clear(store);
   }
+}
+
+/**
+ * A section's relief options from its chunk's: its neighbours inside the
+ * chunk are relief like it, those past the chunk's faces take the
+ * neighbouring chunk's state.
+ */
+export function sectionRelief(chunkEdge: number, sectionEdge: number, id: number, n: number, plainChunks: number): ReliefOptions {
+  const k = chunkEdge / sectionEdge;
+  const [lx, ly, lz] = sectionLocalOrigin(chunkEdge, sectionEdge, id).map((c) => c / sectionEdge) as [number, number, number];
+  let plainNeighbours = 0;
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    const ox = Math.floor((lx + dx) / k);
+    const oy = Math.floor((ly + dy) / k);
+    const oz = Math.floor((lz + dz) / k);
+    if ((ox !== 0 || oy !== 0 || oz !== 0) && (plainChunks & reliefNeighbourBit(ox, oy, oz)) !== 0) plainNeighbours |= reliefNeighbourBit(dx, dy, dz);
+  }
+  return { n, plainNeighbours };
 }
 
 /** A derive job's kit pieces: its table (decoded once a thread) and its chunk. */
@@ -239,7 +259,8 @@ function deriveSections(store: PaletteStore, input: DeriveInput, parts: number):
     if (input.rules === undefined) throw new RangeError('derive job: sections need assembly rules');
     const rules = assemblyRules(input.rules);
     if (jobRadius(rules) !== input.radius) throw new RangeError(`derive job: radius ${input.radius} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
-    results = deriveSectionsWithApron(g, rules, input.apron, exportChunk, edge, ids, 0, jobPieces(input));
+    const relief = input.relief;
+    results = deriveSectionsWithApron(g, rules, input.apron, exportChunk, edge, ids, 0, jobPieces(input), relief === undefined ? null : (id) => sectionRelief(g.edge, edge, id, relief.n, relief.plainChunks));
   }
   const transfer: ArrayBuffer[] = [];
   for (const r of results) {

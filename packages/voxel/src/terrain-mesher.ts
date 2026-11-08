@@ -139,6 +139,8 @@ let dualCount = 0;
 /** Output vertices. */
 let pos = new Int32Array(3 * 1024);
 let nrm = new Int8Array(3 * 1024);
+/** Per output vertex: 1 when it is a crease vertex (its dual vertex may split), for the relief mesh's crease weights. */
+let vcrease = new Uint8Array(1024);
 let tris = new Uint32Array(3 * 2048);
 let vertexCount = 0;
 let triLen = 0;
@@ -171,7 +173,11 @@ function addVertex(qx: number, qy: number, qz: number, nx: number, ny: number, n
     const q = new Int8Array(nrm.length * 2);
     q.set(nrm);
     nrm = q;
+    const c = new Uint8Array(vcrease.length * 2);
+    c.set(vcrease);
+    vcrease = c;
   }
+  vcrease[vertexCount] = 0;
   const o = 3 * vertexCount;
   pos[o] = qx;
   pos[o + 1] = qy;
@@ -226,6 +232,7 @@ function smoothOut(dv: number): number {
   if (v < 0) {
     const o = 3 * dv;
     v = addVertex(dpos[o]!, dpos[o + 1]!, dpos[o + 2]!, dnrm[o]!, dnrm[o + 1]!, dnrm[o + 2]!);
+    vcrease[v] = dsplit[dv]!;
     dout[dv] = v;
   }
   return v;
@@ -259,6 +266,7 @@ function cornerOut(dv: number): number {
   const n = dcopyN[dv]!;
   for (let i = at; i < at + n; i++) if (copyKey[i] === key) return copyOut[i]!;
   const v = addVertex(dpos[o]!, dpos[o + 1]!, dpos[o + 2]!, fx, fy, fz);
+  vcrease[v] = 1;
   copyKey[at + n] = key;
   copyOut[at + n] = v;
   dcopyN[dv] = n + 1;
@@ -358,7 +366,7 @@ function inside(cell: number, f: number): number {
  * (pad at least {@link TERRAIN_MESHER_REACH}) and resolved classes; with
  * rules that set no terrain features, the creases are placed as plain nets.
  */
-export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBuffer {
+export function terrainSurface(n: Neighbourhood, classes: Uint8Array, creases?: TerrainCreases): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -740,5 +748,16 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBu
       }
     }
   }
+  if (creases !== undefined) creases.flags = vcrease.slice(0, vertexCount);
   return buildSurface();
+}
+
+/**
+ * Where the ground's creases are, beside its surface: per vertex, 1 for a
+ * crease vertex (a cube touching a cliff, terrace lip, ledge, cave mouth,
+ * one-cell wall or spike, whose normal may split), else 0. A function of
+ * the samples like the vertex, so every section meeting it agrees.
+ */
+export interface TerrainCreases {
+  flags: Uint8Array | null;
 }
