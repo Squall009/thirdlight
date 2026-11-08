@@ -18,6 +18,7 @@
  *                       names that model's version
  *   --crack SIZE        a placeholder 4 × 4 m crack map at SIZE² (`assets/kits/voxel-kit-crack.png`) as every
  *                       kit's own (`damage.crackTexture`)
+ *   --from DIR          the kits' GLB and record from DIR (an export with its sheet inside), imported as sheet models
  *   --sheets-out DIR    only write the first kit's sheet at --sheets SIZE as DIR/albedo.png, normal.png, orm.png
  *                       (what the Blender export's `--sheet DIR` puts on a kit's material) and stop
  */
@@ -41,7 +42,9 @@ const TOKEN = readFileSync(arg('token-file', join(homedir(), 'thirdlight-staging
 const DATA_ROOT = arg('data-root', join(homedir(), 'thirdlight-staging-p45'));
 const PROJECT = arg('project', 'voxel-slice');
 const KITS = arg('kits', 'log,stone').split(',');
-const KIT_DIR = join(REPO, 'tools', 'voxel-bench', 'kits');
+// `--from DIR`: a kit exported with its sheet inside (the Blender export's `--sheet`), imported as a sheet model.
+const FROM = arg('from', '');
+const KIT_DIR = FROM !== '' ? FROM : join(REPO, 'tools', 'voxel-bench', 'kits');
 const FOLDER = 'assets/kits';
 
 type Answer = Record<string, unknown> & { ok?: boolean; error?: { code: string; message?: string } };
@@ -74,7 +77,8 @@ if (SHEETS_OUT !== '') {
 const dir = join(DATA_ROOT, 'projects', PROJECT, ...FOLDER.split('/'));
 mkdirSync(dir, { recursive: true });
 /** The file a kit's GLB is imported from (its sheet version a model of its own). */
-const fileOf = (id: string): string => (SHEETS > 0 ? `voxel-kit-${id}-sheet.glb` : `voxel-kit-${id}.glb`);
+const SHEETED = SHEETS > 0 || FROM !== '';
+const fileOf = (id: string): string => (SHEETED ? `voxel-kit-${id}-sheet.glb` : `voxel-kit-${id}.glb`);
 for (const id of KITS) {
   if (SHEETS === 0) {
     copyFileSync(join(KIT_DIR, `voxel-kit-${id}.glb`), join(dir, fileOf(id)));
@@ -102,7 +106,7 @@ if (!checked.ok) throw new Error(`check files: ${checked.status} ${await checked
 const listed = await command('queryAssets', { limit: 100 }, false);
 if (listed.ok !== true) throw new Error(`queryAssets: ${JSON.stringify(listed.error)}`);
 const assets = listed['assets'] as Array<{ assetId: string; sourcePath?: string; textures?: Record<string, string> }>;
-const crackAsset = CRACK > 0 ? assets.find((a) => a.sourcePath === `${FOLDER}/voxel-kit-crack.png`) : undefined;
+const crackAsset = CRACK > 0 ? assets.find((a) => a.sourcePath === `${FOLDER}/voxel-kit-crack.png` || a.assetId === 'voxel-kit-crack') : undefined;
 if (CRACK > 0 && crackAsset === undefined) throw new Error('voxel-kit-crack.png was not imported');
 const currentDigest = async (assetId: string): Promise<string> => {
   const r = (await (await fetch(`${ORIGIN}/api/v1/projects/${PROJECT}/content/assets/${assetId}`, { headers: { authorization: `Bearer ${TOKEN}` } })).json()) as { asset?: { currentVersion?: number }; versions?: { version: number; sourceDigest: string }[] };
@@ -112,18 +116,19 @@ const before = ((await (await fetch(`${ORIGIN}/api/v1/projects/${PROJECT}/proble
 for (const id of KITS) {
   const glb = readFileSync(join(KIT_DIR, `voxel-kit-${id}.glb`));
   const digest = createHash('sha256').update(glb).digest('hex');
-  const asset = assets.find((a) => a.sourcePath === `${FOLDER}/${fileOf(id)}`);
+  // A model whose images were extracted lists no source path of its own file: its id is the file's stem.
+  const asset = assets.find((a) => a.sourcePath === `${FOLDER}/${fileOf(id)}`) ?? assets.find((a) => a.assetId === fileOf(id).replace(/\.glb$/, ''));
   if (asset === undefined) throw new Error(`${fileOf(id)} was not imported`);
   const record = (await (await fetch(`${ORIGIN}/api/v1/projects/${PROJECT}/content/assets/${asset.assetId}`, { headers: { authorization: `Bearer ${TOKEN}` } })).json()) as { versions?: { sourceDigest?: string }[] };
-  if (SHEETS === 0 && !(record.versions ?? []).some((v) => v.sourceDigest === digest)) throw new Error(`${asset.assetId} has no version of these bytes (${digest})`);
+  if (!SHEETED && !(record.versions ?? []).some((v) => v.sourceDigest === digest)) throw new Error(`${asset.assetId} has no version of these bytes (${digest})`);
   // The record names the asset by the id the file was committed with; the project's import may name it otherwise. A
   // sheet GLB is stored with its images extracted: the record names that stored version's digest.
   let text = readFileSync(join(KIT_DIR, `${id}.voxelkit.json`), 'utf8').replaceAll(`"voxel-kit-${id}"`, JSON.stringify(asset.assetId));
   if (!text.includes(digest)) throw new Error(`${id}.voxelkit.json does not name voxel-kit-${id}.glb's digest ${digest}: run the generator again`);
-  if (SHEETS > 0) text = text.replaceAll(digest, await currentDigest(asset.assetId));
+  if (SHEETED) text = text.replaceAll(digest, await currentDigest(asset.assetId));
   const kit = JSON.parse(text) as { slots: Record<string, unknown>; damage?: Record<string, unknown> };
   if (crackAsset !== undefined) kit.damage = { ...(kit.damage ?? {}), crackTexture: { assetId: crackAsset.assetId, digest: await currentDigest(crackAsset.assetId) } };
-  if (SHEETS > 0) console.log(`[kits] ${id}: extracted images ${JSON.stringify(asset.textures ?? {})}`);
+  if (SHEETED) console.log(`[kits] ${id}: extracted images ${JSON.stringify(asset.textures ?? {})}`);
   const set = await command('setVoxelKit', { kit }, true);
   if (set.ok !== true && set.error?.code !== 'no_change') throw new Error(`setVoxelKit ${id}: ${JSON.stringify(set.error)}`);
   console.log(`[kits] ${id}: asset ${asset.assetId} (${glb.length} B, sha256 ${digest.slice(0, 12)}…), ${Object.keys(kit.slots).length} slots, setVoxelKit ${set.ok === true ? 'ok' : set.error?.code}`);

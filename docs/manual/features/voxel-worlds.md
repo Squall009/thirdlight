@@ -413,13 +413,23 @@ them as `voxelKits`.
   replaces the engine's crack pattern: 0 no crack, bright cracks show at
   the first crack stage, dimmer ones join as the integrity drops; one image
   covers a 4 × 4 m construction tile, laid on the build grid like the
-  material's own texture, so cracked blocks side by side show one pattern).
+  material's own texture, so cracked blocks side by side show one pattern;
+  any size: read into 512² by the brightest texel of each, so cracks a
+  pixel wide in a 4096² map, the base tile's 1024 px/m, still show; a PNG,
+  imported as it is).
   For example
   `{"stage1": null, "stage2": {"min": 1, "max": 14, "pieces": 4}, "stage3": null}`
   makes every damaged block a hole with four pieces a face.
 - **One texture set a kit**: every piece of a kit uses the same one
   material (one trim sheet or one material); a kit whose pieces use two is
-  a kit-check error. Timber on stone is two kits.
+  a kit-check error. Timber on stone is two kits. That material is the
+  pieces' GLB material, as exported: its base colour, normal map and ORM
+  (occlusion R, roughness G, metal B) images inside the file, which the
+  model import extracts into KTX2 textures (streamed like any model's);
+  a kit with a trim layout reads every map at the world-anchored U. A GLB
+  whose material has no image draws a stand-in colour a kit; the voxel
+  world page's `?trimDebug=1` draws the labelled UV debug textures
+  instead of the sheets.
 - **`gameData`** on the kit and on each slot: any JSON (break, sound,
   physics defaults). The engine keeps it, ships it and never reads it; a
   game's scripts read it.

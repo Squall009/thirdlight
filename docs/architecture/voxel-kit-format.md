@@ -158,8 +158,10 @@ the material model and texture sets 46d's.
   the bisector, roof edges into the roof, a damage piece into the intact cell it dresses). Drawing
   only. `half` pieces draw the half of their run on the case's +x side (`pieceHalfRun`). A trim kit's U
   (`voxel-trim-u.ts` `pieceU`) runs along the edge's world axis (vertical edges up y, `pieceRunAxis`), along the mesh
-  axis its slot rotation turns onto the run (`meshRunAxis`); pieces draw with a stand-in
-  material and a 256² debug UV texture (a trim kit its layout's 1024² debug set) until 46d's materials.
+  axis its slot rotation turns onto the run (`meshRunAxis`); pieces draw with their kit's one material since 46d.4c ([render spec](voxel-render-spec.md) §2; this page's
+  older words follow: they drew with a stand-in
+  material and a 256² debug UV texture (a trim kit its layout's 1024² debug set) until 46d's materials; now
+  only under `?trimDebug=1`).
 - **Grid-anchored UVs** (derived v17): the base surface and roof planes are mapped from the build grid in metres by
   the shader data entry's construction bit (*Projection* in the [format spec](voxel-format-spec.md) §3.7: 4 m construction repeat, owner 2026-11-04; terrain
   triplanar 2 m; roofs up the slope), never from a trim sheet (R112).

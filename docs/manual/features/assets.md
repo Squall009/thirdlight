@@ -194,7 +194,10 @@ import: the project window's **texture import encoding** → *KTX2 colour (ETC1S
 emissive art, *KTX2 normal map (UASTC)* for normal maps (MCP:
 `tl_content_upload {kind: "texture", ktx2: "color" | "normal"}`, then publish
 with the returned `convertedFrom`). Encoding takes seconds (a 2048² normal map
-about 40 s on the GPU host) in a worker thread; up to 12 Mpix; WebP sources
+about 40 s on the GPU host) in a worker thread; one encode takes up to 12
+Mpix, and a larger image (up to 32 Mpix, e.g. an authored 4096² tile) is
+encoded in UASTC in stripes and put together, whatever its encoding (about
+40 s a 4096² map, without changing a texel the encoder made); WebP sources
 and data maps (ORM, masks) stay images (a WebP is decoded with libwebp,
 `@jsquash/webp`, pinned, and encoded like a PNG). The selected asset shows
 `KTX2 · ETC1S · n mip levels` and the original it was encoded from. UI
@@ -266,7 +269,8 @@ UI images and effects read plain textures and refuse an array. The asset
 shows `KTX2 · … · n layers` and the textures it was packed from. MCP:
 `tl_content_upload {pack: {layers: [[{assetId, channel} | {value}, ×4], …],
 encoding}}`, then `publishAsset` with the returned `packedFrom`. The encoder
-takes at most 12 Mpix across the layers (four layers of 1024²).
+takes at most 12 Mpix across the layers (four layers of 1024²); a single
+layer up to 32 Mpix is encoded in UASTC stripes.
 
 KTX2 sources: when every layer is the whole of a UASTC KTX2 and all
 share size, mip count and the encoding's colour space (sRGB for colour,
@@ -323,7 +327,8 @@ only if something else uses them. 4 × 1024²: joined in about 14 ms (UASTC),
 encoded in about 9 s (ETC1S); a cached array is found in a few
 milliseconds (the layers' files are read and any PNG beside them hashed
 first, as both are part of the key). An array past the encoder's 12 Mpix
-(four 2048² layers) is encoded a layer at a time and joined, a colour one
+(four 2048² layers) is encoded a layer at a time and joined (a layer past
+12 Mpix itself, such as 4096², in UASTC stripes), a colour one
 in UASTC instead of ETC1S (larger: four 2048² albedos make 15 MiB in
 18 s on three encoder threads, where three in one ETC1S array make 1.3 MiB
 in 11 s). An array that cannot be

@@ -179,10 +179,11 @@ space neutral (height 0.5, flat normal).
   and sculpted pieces: each piece repeats its own pattern).
 
 The kit check's trim rows (T1–T7, T9, T10) test all of this against the
-kit's own layout. Until materials arrive the engine draws pieces with the
-layout's **debug set** (each region its own colour and id, a 3 cm checker, a
-tick every 0.125 m along U), so a face in the wrong region or a stretched
-one shows at once.
+kit's own layout. The pieces draw with the kit's sheet (§5); to check the
+UVs, open the voxel world page with `?trimDebug=1`: the pieces then draw
+the layout's **debug set** (each region its own colour and id, a 3 cm
+checker, a tick every 0.125 m along U), so a face in the wrong region or a
+stretched one shows at once.
 
 ## 5. Export
 
@@ -195,9 +196,14 @@ blender --background my-kit.blend --python tools/voxel-bench/kits/kit_templates.
 
 The export: each slot's meshes (modifiers applied) moved from the slot's
 place to the GLB's origin, one node a mesh named `<slot>_v<k>`, glTF binary
-with +Y up, normals and UV0, no tangents, cameras, lights or animation, the
-kit's one material (a placeholder of it: the engine draws the debug set
-until materials arrive); the record names every mesh by the GLB's SHA-256,
+with +Y up, normals and UV0, no tangents, cameras, lights or animation, and
+the kit's one material **with its images**: put the sheet on the
+`<kit>-sheet` material (Base Color the albedo image, Normal through a Normal
+Map node, the ORM through Separate Color: G to Roughness, B to Metallic, R to
+the glTF Material Output group's Occlusion), or headless pass
+`--sheet <folder>` holding `albedo.png`, `normal.png` and `orm.png`. A
+material still showing the UV guide is written as a placeholder (no
+images; the pieces then draw a stand-in colour). The record names every mesh by the GLB's SHA-256,
 with each borrowing slot's rotation, each mesh's weight and mirror, and the
 `tl_kit` fields. It prints triangles a mesh and in all.
 
@@ -210,7 +216,9 @@ with each borrowing slot's rotation, each mesh's weight and mirror, and the
    exported again is imported again by **check files**.
 2. **Set the kit:** the record's `assetId` is `voxel-kit-<id>`; replace it with
    the imported asset's id (`queryAssets`; its version's source digest is the
-   record's `digest`), then `setVoxelKit {kit}` (MCP:
+   record's `digest`; a GLB with its sheet inside is stored with the images
+   extracted into KTX2 textures, so that version's digest is not the file's
+   own: take it from `queryAssets`), then `setVoxelKit {kit}` (MCP:
    `tl_command setVoxelKit {kit}`; one undo). Bind it on each material
    that wears it: `setMaterial` with `voxel: {id, use: "construction", kit:
    "<voxelKitId>"}` ([Voxel materials](../features/voxel-worlds.md#voxel-materials)).
@@ -280,7 +288,7 @@ plain voxels.
 | Meshes | 13 in 15 of 17 slots (inner corners empty: the fillets close them) |
 | Triangles | 170 in all (264 counting each slot's meshes); a mesh 4–20 |
 | GLB | 20,012 bytes; record 5,572 bytes |
-| Textures | none embedded: the engine draws its layout's debug set |
+| Textures | none embedded in the committed GLB (pieces draw a stand-in colour); `sample --sheet <folder>` exports it with a 2048² sheet (albedo, normal, ORM PNG inside, 2.2 MB GLB) |
 | LODs | none (pieces draw at level 0 only) |
 | Collision | from the voxels |
 | Kit check | 0 errors, 0 warnings, trim T1–T7 ok on its own layout |

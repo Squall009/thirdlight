@@ -1,6 +1,6 @@
 # Voxel rendering and materials — format page (46d additions)
 
-Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a. This page receives every format addition of 46d (rendering and materials), each
+Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4c. This page receives every format addition of 46d (rendering and materials), each
 as a versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the
 owner on 2026-11-02) is not grown further. Nothing here is approved yet: a section is filled by the 46d item that
 builds it ([plan 46d](../plan-phase-46d.md) §6), and every section stays empty until then. § numbers name the format
@@ -149,7 +149,38 @@ it) and ships the parts in place of the file; the editor's views stream the same
 fetch. A level change at run time moves the caps: levels above a lowered cap go in the same plan; a raised cap
 streams the finer levels in one at a time while the old chain draws.
 
-Kit sheets and crack maps, height depth and wetness: not yet written (46d.4c–46d.4d).
+**Authored size (46d.4c, D532; default chosen, owner to confirm).** No format change. One encode of the pinned
+KTX2 encoder takes 12 Mpix (`KTX2_SOURCE_PIXELS_MAX`); a larger image, up to `KTX2_IMAGE_PIXELS_MAX` (32 Mpix,
+two 4096² tiles), is encoded in UASTC in stripes of the image's whole width and assembled (`ktx2-striped.ts`):
+the top level's blocks are the stripes' blocks one after another (block for block what one encode would make:
+UASTC blocks are encoded each on its own), the levels below are the image halved (colour in linear light, normals
+renormalized, data as stored) until one encode takes the rest with its own mips; the container is that encode's.
+Every mode, a colour image too, goes UASTC there (ETC1S's codebook spans the image). Measured on the 4096²
+placeholder sets (one thread, the assembled effort): 14–49 s a map, 2.2–16.7 MB a KTX2, 13 levels, mean error
+against the source 0.01–1.39 / 255 at level 0, decoded by three's transcoder. Imports, model texture extraction
+and the slot route take it; an array of 4096² layers joins at most 16 of them (`KTX2_JOIN_LEVEL_BYTES_MAX`).
+
+### Kit sheets and crack maps (46d.4c)
+
+**Owner note (46d.4c, 2026-11-08):** no format change: kit format 1, the texture layout v1 and the manifest are
+read as they are. Default chosen, owner to confirm (plan 46d §9).
+
+- **A kit's one texture set is its pieces' GLB material** (owner B5): base colour, normal map, and occlusion /
+  roughness / metal (glTF: R, G, B of one ORM image) with their factors, as the authoring export writes them. A
+  model import extracts the images into KTX2 texture assets (the model's `textures`: image index → asset), which a
+  build ships with the model; every host (Play, an export, the Scene view, the voxel world page) hands the GLB
+  loader those textures, so a kit sheet streams and counts in the texture budget like any model texture. A kit
+  names no material record: the voxel material's arrays dress its faces, the kit's sheet its pieces.
+- **Mapping.** A kit with a trim layout (named or its own `sheetLayout`) reads every map at the world-anchored U
+  of its run faces, the normal map's tangent frame from that U's screen derivatives; a kit without one keeps its
+  authored UVs. Pieces draw lit (three's standard node material), camera-relative.
+- **No image** (a placeholder material): a stand-in colour a kit. The labelled UV debug textures (a layout's debug
+  set, or the cell checker) draw only on a page that asks (`?trimDebug=1`).
+- **Crack maps.** A kit's `damage.crackTexture` (an image, one 4 × 4 m construction tile) is read into the crack
+  array's layer (512²) by the brightest texel of each, so a map authored at the base tile's 1024 px/m (4096²) keeps
+  its one-pixel cracks; laid on walls and roof planes as before.
+
+Height depth and wetness: not yet written (46d.4d).
 
 ## 3. Relief part
 

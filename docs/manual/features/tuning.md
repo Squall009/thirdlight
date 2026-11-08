@@ -75,7 +75,7 @@ its reason (the same line is next to its constant in the code):
 | Texture arrays | 256 layers | What WebGL 2 and WebGPU both guarantee |
 | Texture edge | 4,096 px | Kept after streaming: the KTX2 encoder makes at most about 3,500² (12 Mpix), WebGL 2 promises only 2,048 and many devices stop at 4,096, and a streamed texture close to the camera still needs its full-size level |
 | Texture budget | 512 MiB by default (`texture_budget_mb`, 1–65,536) | A runtime budget: streamed textures' mips fit it, the least needed dropped first; the mip tails and textures that do not stream are counted, never dropped |
-| KTX2 encoding | 12 Mpix per source (across a packed array's layers) | A known limit of the pinned encoder (Basis Universal 2.5), kept; a larger texture is imported as PNG/JPEG or encoded outside the editor |
+| KTX2 encoding | 12 Mpix an encode (across a packed array's layers); one image up to 32 Mpix (`KTX2_IMAGE_PIXELS_MAX`) | 12 Mpix is a known limit of the pinned encoder (Basis Universal 2.5), kept; a larger image (an authored 4096² tile) is encoded in UASTC stripes and assembled, bounded by an encoder worker's memory |
 | Joined KTX2 array (UASTC layers packed as stored) | 256 MiB in the largest mip level, all layers (64 layers of 2048², 16 of 4096²) | The join holds that level twice while it compresses it |
 | Material instances | 8 parents deep | A chain resolved at build; deeper chains are an authoring smell |
 | Graphs | 4,096 nodes per graph (the kind may set fewer; 256 for a script or effect system graph, which compile into one bounded module) | The editor and the compiled output of one document |

@@ -213,7 +213,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.3b | done: voxel table from the records (colour, tile, depth; stand-in for the rest), a record edit re-uploads the table only (0.8 ms, 0 meshes; seen WebGPU + WebGL 2); `ctx.voxels.materialAt`/`materialOf`; badges, `f:` filter, voxel-only picker, Inspector voxel section; every voxel material ships with a world. voxel-world e2e 65.6 → 70.8 s |
 | 46d.4a | done: albedo+height, normal and ORM arrays from every voxel material's wall/floor/ceiling sets (slot assembly, KTX2 cache), layers in the table; floor/ceiling/wall by face, grid 4 m, terrain triplanar 2 m; patterns under `?patterns=1`; Play/export ship `voxelTextures`. 6 units. Town GPU WebGPU 3.4 → 4.1 ms, WebGL 2 4.7 → 4.8, 0 missed. Seen both renderers |
 | 46d.4b | done: quality field `voxelTexelDensity` (low 256, medium 512, high 1024 px/m) caps each voxel array (4096²: levels 2/1/0); arrays stream per level under `texture_budget_mb`, need from the chunks; builds ship them cut; Play, export, Scene view, voxel world page. 2048² sets: 24/96/96 MiB per tier, switch 0.93 s, 0–2 missed; GPU ±0.1 ms. 4096² not assemblable (D532) |
-| 46d.4c | not started |
+| 46d.4c | done: D532 fixed (4096² in UASTC stripes, 14–49 s a map, mean error ≤ 1.4/255). Kit pieces wear their GLB material (sheet extracted to KTX2, trim U on every map) in Play, export, Scene view, page; debug sets only under `?trimDebug=1`; kit crack maps by brightest texel; Blender export writes the images. Town draws 1,857 either way, GPU ±0.2 ms. D535–D537 |
 | 46d.4d | not started |
 | 46d.5a | not started |
 | 46d.5b | not started |
@@ -588,6 +588,68 @@ textured on every tier; low against high differs in 0.01–0.15 % of pixels at 2
 the step from 256 to 512 px/m barely shows), medium = high, WebGPU = WebGL 2 (≤ 0.01 %). The rock cliff's faint line
 (46d.4a): `c-cliff-{tex,flat,patterns}-webgpu`: at the 56 m section face, only with texture sets (D533).
 
+### 46d.4c kit sheets and crack maps for real; D532
+
+**D532 (default chosen, owner to confirm).** The pinned encoder (Basis 2.5) takes 12 Mpix an encode. A larger
+image (to `KTX2_IMAGE_PIXELS_MAX`, 32 Mpix) is now encoded in UASTC in stripes of its whole width
+(`ktx2-striped.ts`; 3,072 rows a stripe at 4096): UASTC blocks are encoded each on its own and stored row by row,
+so the stripes' blocks laid one after another are block for block the level one encode makes (vitest: byte-equal
+to a whole-image encode); the levels below are the image halved (colour in linear light, normals renormalized,
+data as stored) until one encode takes the rest with its own mip chain; the container is that encode's. Any mode
+goes UASTC there (ETC1S's codebook spans the image), a colour import included. Imports, model texture extraction,
+the slot route and the decode checks take it. Proof (`run.mjs textures --encode 4096 --sets stone,grass`, one
+thread, the assembled effort, decoded by three's transcoder): stone albedo / normal / ORM 35.5 / 43.0 / 13.7 s,
+4.57 / 7.85 / 2.24 MB KTX2 (PNG 3.82 / 7.75 / 1.53), grass 40.5 / 49.3 / 29.5 s, 10.45 / 16.71 / 10.18 MB; 13
+levels each; mean error level 0 0.01–1.39 /255, level 1 against the box halving 0.02–2.81, at the stripe-edge
+texels ≤ 4.0. On staging the 4096² base arrays (3 maps × 4 layers, BC7) assembled in 394 s once (then cached) and
+streamed to level 0 at `high` (85 MiB a map). What remains: the import's byte caps (D535); the join's 256 MiB
+level bound takes at most 16 layers of 4096² in one array.
+
+**Built.** three-adapter `voxel-kit-look.ts`: a kit's look from its GLB material (base colour, normal, roughness /
+metal / occlusion maps and factors; null without an image) and its draw material (standard node material, camera-
+relative; a trim kit samples every map at the world-anchored U, the normal map's tangent frame from that U's
+derivatives). `VoxelKitMeshes`: a GLB read and parsed once however many nodes a kit names, the parse kept while a
+look draws its textures, extracted images loaded through the host's `texture` reader, `debug` (the old stand-in +
+debug sets), `states()` names the sheet ("ready, sheet <asset>"). Hosts: Play/export (the catalog row's
+`textures`, the page's streamed texture loader), Scene view and voxel world page (the asset record's `textures`,
+a backend texture reader; `?trimDebug=1`). Crack maps read by the brightest texel of each 512² texel. Authoring:
+the Blender export writes the kit material's images when it carries a sheet (`--sheet DIR`), the placeholder only
+on the UV guide (the committed sample re-exports byte-identical). Bench: `kit-sheets.ts` (placeholder sheets on a
+layout, the GLB with the sheet as its one material, a 4 m crack map), `run.mjs kits --sheets N --crack N --from DIR`.
+
+**Tested.** vitest `voxel-kit-look.test.ts` (a real GLB through the loader: one read for two nodes, the image from
+the extracted texture asset, plain and trim materials, programs build in WGSL and GLSL; no image → stand-in; debug
+only behind the switch), `kit-sheets.test.ts` (neutral gutters, the GLB's one material and its bytes, a 4096²
+one-pixel crack map kept), `ktx2-striped.test.ts`; `voxel-kit-pieces.test.ts`' debug test now constructs the debug
+switch (the default changed by design). e2e `voxel-world.e2e.ts`: the test kit's GLB carries a 16² magenta sheet;
+page (both renderers) states "ready, sheet stone-sheet" and draws 1,681 / 2,100 magenta pixels on the boards; Play
+and the export (backend stopped) report the sheet's texture asset loaded. Fast gates gate-fast-20261108-124828
+(D532) and -131407 GREEN (13 min, 4.7 / 4.9 GB; perf 0 missed both renderers); docs slice -140735 red only on
+`rendering.e2e.ts` dynamic resolution (D320, watch; `world-host.test.ts` failed once and passed alone, D484) →
+rerun -142122 GREEN. `voxel-world.e2e.ts` 64.2 → 64.9 s.
+
+**Texture assets** (engine test data on staging, none committed): log and stone sheets on `detail-trim`, 4096²
+(1024 px/m), PNG albedo / normal / ORM 1.67 / 2.54 / 0.83 MB (log), 2.17 / 6.38 / 1.27 MB (stone) inside GLBs of
+5.06 / 9.84 MB; extracted to UASTC KTX2, 13 levels: 2.87 / 2.48 / 1.16 MB and 3.82 / 6.93 / 1.85 MB; the stored GLBs
+with stand-ins 27.9 / 21.1 kB (meshes unchanged: 304 / 170 triangles, no LODs, collision from the voxels). Sample
+kit through Blender with a 2048² sheet: GLB 2.23 MB, extracted ETC1S albedo 0.13 MB, UASTC normal 1.70 MB, ORM
+0.47 MB (12 levels); stored GLB 21.1 kB. Crack map 4096² PNG 0.41 MB (read into 512², R8). GPU when resident: a
+4096² BC7 map 21.3 MiB with mips, 64 MiB a kit's three.
+
+**Measured** (staging, Iris Xe, 1280 × 720, 60 Hz cap, town, `high`, 1 round, 14:03–14:05, load 2.0–2.3, uptime
+15.9 d), sheets / `?trimDebug=1` (the 46c look): WebGPU GPU 3.66 / 3.71 ms, `render()` p50 9.1 / 8.5 ms, WebGL 2
+4.48 / 4.68, 10.4 / 8.8 ms; 0 missed of 479–480; 53,036 pieces, 1,857 piece draws, 842 k triangles either way. The
+lit standard material costs ~0.6 / 1.6 ms of `render()` CPU (more uniforms a draw), not GPU.
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.4c/shots/`, both renderers alike): `sheet-log-corner-near`,
+`-log-gable-near` (log ends, sill and eave rails in the timber sheet), `-stone-corner-near`, `-stone-eave-near`
+(stone trim in the stone sheet), `-sample-corner-near` (the Blender-exported sample on the plaster house: corner
+and door/window rims), `-crack-wall`, `-crack-stone-wall`, `-crack-roof` (the kit's map: long cracks on the wall
+and the hip roof; `enginecrack-*` the same views with the engine's branching map), `-base-stone-wall-1m` (the
+4096² base set at 1 m: crisp joints), `-village-mid`, `-town`; `debug-*` the same views under `?trimDebug=1` (the
+debug sets). Seen: the sheets read on every piece; the placeholder sheets are flat-looking at a distance; grass and
+rock wear the earth set in these pictures (D535).
+
 
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -779,10 +841,31 @@ the step from 256 to 512 px/m barely shows), medium = high, WebGPU = WebGL 2 (�
   they fetch (the backend route answers whole arrays), at the engine's default budget; asset textures in the editor
   still load whole. The voxel world page starts at `low` (the floor it measures); Play and exports at the level drawn.
 
+- 2026-11-08 (46d.4c, default chosen, owner to confirm): **4096² past the encoder: UASTC stripes assembled**
+  (D532) rather than a newer encoder (a dependency change is the owner's) or layers made outside the engine; every
+  image past 12 Mpix goes UASTC, colour too (larger than ETC1S, the price of one asset set at 1024 px/m), up to
+  32 Mpix an image (an encoder worker's memory); the levels just below a striped top are box-filtered here, the
+  rest by the encoder.
+- 2026-11-08 (46d.4c, default chosen, owner to confirm): **a kit's one texture set is its pieces' GLB material**
+  (images extracted on import into KTX2 textures, as every model's), not a material record the kit names: kit
+  format 1 is read as it is, the artist's export carries the sheet, and a kit sheet streams like any model texture.
+- 2026-11-08 (46d.4c, default chosen, owner to confirm): **pieces draw lit with three's standard node material**
+  (colour, normal, ORM), the trim U on every map, the normal map's frame from that U; **a material without an image
+  draws a stand-in colour a kit**, and the debug sets (layout or cell) only under `?trimDebug=1` on the voxel world
+  page (no switch in Play or the Scene view).
+- 2026-11-08 (46d.4c, default chosen, owner to confirm): **a kit's crack map is read into the 512² crack layer by
+  the brightest texel of each** (not the nearest), so a 4096² map's one-pixel cracks survive; the layer size stays
+  the engine's.
+- 2026-11-08 (46d.4c, default chosen, owner to confirm): **the authoring export writes the kit material's images
+  only when it carries a sheet** (an albedo image that is not the UV guide); the committed sample stays untextured
+  (no images committed) and exports with a sheet through `--sheet DIR`.
+- 2026-11-08 (46d.4c): kit sheets follow the texture budget and on-screen need, not the tier's texel density
+  (D536); the extraction's time inside one import command (D537).
+
 ## 10. Open questions for the owner
 
-- The authored 4096² sets cannot pass the engine's KTX2 encoder (12 Mpix, D532): encode layers outside the engine
-  (UASTC joined as stored), wait for a newer encoder, or author at 2048² until then.
+- 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method, and whether a texture file may
+  exceed 16 MiB on import (D535: busy 4096² PNGs do).
 
 - **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — after 46d.7d's comparison
   (`~/.cache/thirdlight-phase46/far-field-comparison.md`). Both stay until then.
