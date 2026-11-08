@@ -222,8 +222,13 @@ import { utf8Encode } from '@thirdlight/shared';
  * ones by geometry and crack alone, the rectangle holding one owned whole;
  * owned rectangles of a direction share vertices. Bodies' surfaces differ
  * from v29's; the layout is v29's.
+ *
+ * v31: the chunk tree's downsample closes openings narrower than two of the
+ * parent's cells in the body round them (voxel-mips.ts), so level 1 and up
+ * draw a wall where a door or a window would leave a one-cell gap. Level-0
+ * results are v30's byte for byte; the layout is v30's.
  */
-export const DERIVED_FORMAT_VERSION = 30;
+export const DERIVED_FORMAT_VERSION = 31;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

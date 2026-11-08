@@ -182,6 +182,21 @@ export function writeVoxelWorld(dir: string, m: Omit<VoxelWorldManifest, 'format
   return { files: world.files.size };
 }
 
+/**
+ * Writes a world folder's manifest at revision 0 listing region files
+ * already written into its world grid's folder (a generator writing a large
+ * world tile by tile, never holding it whole). Refuses a folder that already
+ * holds a world, and a listed file that is not there.
+ */
+export function writeVoxelWorldManifest(dir: string, m: Omit<VoxelWorldManifest, 'format' | 'revision' | 'regions'>, regions: readonly string[]): void {
+  if (existsSync(join(dir, VOXEL_WORLD_MANIFEST))) throw new Error(`${dir} already holds a voxel world`);
+  const sorted = [...new Set(regions)].sort();
+  for (const name of sorted) if (!existsSync(join(dir, gridFolder(WORLD_GRID_ID), name))) throw new Error(`${name}: listed but not written`);
+  const manifest = parseVoxelWorldManifest({ format: VOXEL_WORLD_FORMAT, revision: 0, ...m, regions: sorted });
+  const out = writeAtomic({ dir, target: VOXEL_WORLD_MANIFEST, bytes: manifestBytes(manifest), allowedPreHashes: null, previousHash: null });
+  if (!out.ok) throw new Error(`${join(dir, VOXEL_WORLD_MANIFEST)}: not written`);
+}
+
 function worldOptions(m: VoxelWorldManifest): WorldDirOptions {
   return { grid: chunkGrid(m.edge), worldId: hexToBytes(m.worldId), layout: m.layout, footprint: m.footprint, gridId: WORLD_GRID_ID };
 }

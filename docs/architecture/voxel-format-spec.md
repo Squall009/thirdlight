@@ -1298,6 +1298,8 @@ planes are appended to it (v15) and damage holes draw no faces (v16; v25 by the 
   level. The node cell takes the first body role among those cells. Terrain holds it with any fill.
 - With no solid role, the cell is liquid when its liquid cells' share rounds to at least 1 (the shape is then that
   share), else air.
+  (Derived 31 adds narrow openings closing and wider ones kept as openings, and the far cache keeps levels 2 and
+  up of the mips as a derived cache: [voxel-render-spec.md](voxel-render-spec.md) §4.)
 - Its material is the one its surface shows (derived 8). Among the counted cells nearest the surface it takes the
   material of the most cells (ties: the larger summed fill, then the lower id). Nearest means, best first: partly
   filled or beside an open cell; beside a partly filled cell; beside the node's side (not read there); buried. So

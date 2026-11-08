@@ -222,7 +222,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.6b | done: D544 traced (timestamps follow the GPU clock; pieces now draw after the surfaces, −0.3 ms). Piece draws are column-instanced copies the WebGPU culler tests against the depth pyramid (71 % of 35.4 k culled): town GPU 5.6–7.0 → 3.5–3.8 ms, `render()` +0.7 ms (D546); WebGL 2 keeps chunk culling. D485 closed; D545 re-measured. Same pictures |
 | 46d.6c | done (0c85d3a8): D526 fixed. Owned body faces merge with blended ones, the rectangle owned whole (derived 30); roof mesher scans plane cells once, typed vertex table. Town roofs: base 468,872 → 415,636 tris (46c.16d 417,396), mesher p50/p95 296/728 → 213/545 µs (238/577). D519 holds. Town at cap 0 missed, GPU within drift. D545 proposal in its row |
 | 46d.6d | done (4635510e): D545 fixed. Relief chunks cast from their plain surfaces (shadow-only draws, 46.9 k tris for ~2.4 M at high), relief meshes cast none and read shadows at their plain place; one draw path. Town high + shadows missed 13–15 / 4–8 of ~430 (relief casters same hour 27–30 / 38–39); pictures equal (0.00 %). D547 |
-| 46d.7a | not started |
+| 46d.7a | done: `run.mjs far-world`: 8.2 km mountain world (peaks 1.51 km, cliffs, overhangs, town at centre) written per region column in 4 workers, 476 MB (7.1 MB/km²), 249 s; far cache L2–L8 (`far-tree.ts`, region files) 48.5 MB (0.72 MB/km²), 255 s; peak 2.2 GB. Selection by screen error + hysteresis + budget; edit rebuilds exactly its ancestors; doors/windows close at L1+ (v31) |
 | 46d.7b | not started |
 | 46d.7c | not started |
 | 46d.7d | not started |
@@ -1043,6 +1043,72 @@ lit at a grazing angle), `stone-east-eave` (the eave's shadow on the wall: no ga
 `rock-cliff-steps`, `rock-cliff-near`: every pair differs in 0.00 % of pixels (> 24 levels; ≤ 24 pixels of 921,600),
 mean luminance equal, on both renderers. No leak, gap or acne seen.
 
+### 46d.7a the far world and the far tree (data)
+
+**Built.** `tools/voxel-bench/far-world.ts` (`run.mjs far-world --project-dir DIR`): the multi-km test world,
+engine-owned test data. Side 8.192 km (32 × 32 region columns of 256 m, so the town sits at the centre), seed 97:
+ridged mountain masses to 1,513 m (mean 205 m, 14.8 % of the ground above 500 m, 3.9 % above 1 km), terraced
+cliffs (28 m steps, 12 % risers) where a cliff mask is high, overhangs (the ground pushed ±5 m within 8 m of its
+surface there), rolling ground in the middle, grass / soil / rock with rock past a slope of 1.1 and gravel above
+1.1 km, base −64 m; the bench town (town.ts, world grid only) flat at the centre within 210 m. Each region column is
+a pure function of the seed and written straight to its stacked region files by a worker (`far-worker-node.ts`,
+`FarPool` in `far-world-run.ts`); chunks wholly under the ground are uniform rock entries; the manifest
+(`writeVoxelWorldManifest`, new in the workspace) last; a disk guard stops between columns under 2.5 GiB free.
+`@thirdlight/voxel` `far-tree.ts`: the far tree's nodes (levels 2 … top), the uniform shortcut, `buildFarNode`
+(a node from chunks or cached children), `farAncestors`, `FarNodeIndex`, `FarSelection` (screen error, hysteresis,
+budget, near box; a binary heap, largest error first) and `farSelectionDiff`. `@thirdlight/workspace`
+`voxel-far-cache.ts`: the far cache (`buildFarCache` per region column through a runner, here the workers;
+`rebuildFarCache` for an edit's ancestors; `FarCacheReader`, `farCacheFiles`). `voxel-mips.ts`: narrow openings
+close at every level ≥ 1, wider ones stay openings (derived 31). The format is
+[voxel-render-spec.md](architecture/voxel-render-spec.md) §4.
+
+**Tested.** `packages/voxel/src/far-tree.test.ts` (10, 2 s): a node opens past the threshold and closes only
+under (1 − hysteresis) of it, a fresh selection at the same eye keeps it closed; every node of a 4 km world is
+covered exactly once from any eye, coarser with distance, the far corner (5.6 km) drawn; the near box is left out
+and met by level-2 nodes only; the budget holds and the nearest get the finest; an edit's ancestors exactly; the
+uniform shortcut equals the downsample (not for roofs or damaged walls); a node built from cached children equals
+one built from chunks; a door (2 × 4 cells) and a window (2 × 2) close in their wall at level 1, a 3 m gate stays
+open at level 1 and closes at level 2, and the same door as air leaves the gap (the legs). The derive test's lone
+opening among ground and water stays open (it closes only in a body). `tools/voxel-bench/far-world.test.ts` (4,
+~30 s, 2 worker threads, a 512 m world on disk): region files written by the workers byte-equal to one thread's,
+read back through the shipped-world reader, mountains' depths as uniform entries; the far cache from the workers
+byte-equal to one thread's, far data in every 64 m column and every level, the whole world drawn from the town
+inside the default budget; a dig through the workspace's `VoxelWorlds` command rebuilds exactly
+`farAncestors(changed chunks)`, writes only the files holding them, and leaves the cache byte-equal to a full build
+of the edited world; on the town's houses no opening leaves a gap at levels 1 or 2 with the wall solid on both sides
+(1,000+ opening cells). Fast gate gate-fast-20261108-230257 GREEN (14 min, 5.5 GB; `scan-bounded-log` failed once, passed alone; perf 0 missed both renderers); `voxel-world.e2e.ts` not changed.
+
+**Measured** (Node, 4 workers, 6 GB scope, 22:39–23:01, load 1.5–7.3, uptime 16.3 d; scratch
+`~/.cache/thirdlight-phase46/work/46d.7a/`):
+
+| What | 8.192 km world (67.1 km²) |
+|---|---|
+| World on disk | 476.1 MB in 2,917 region files (7.09 MB/km²); 572,645 stored + 4,082,352 uniform chunks; estimate from 32 spread columns was 460 MB |
+| World generation | 249 s wall (3.7 s/km² with 4 workers) |
+| Far cache | 48.5 MB (0.72 MB/km², 10 % of the world): L2 85,938 nodes 36.2 MB · L3 14,960 9.3 MB · L4 2,915 2.3 MB · L5 610 0.56 MB · L6 138 · L7 32 · L8 8 |
+| Far cache build | 255 s wall (3.8 s/km²; 326 s the first time, cold file cache) |
+| Memory | scope peak 2.2 GB (main + 4 workers, world write then cache build); a worker holds one region column |
+| Disk free | 4.52 → 4.02 GiB |
+
+Nodes drawn against distance (from scratch each, 720p 60°, the load ring's box as the near box; per band of the
+node's distance from the eye, 0–1 / 1–2 / 2–4 / 4–8 / 8+ km, and the coarsest level there):
+
+| Eye | 1 px | 2 px (default) | 4 px |
+|---|---|---|---|
+| town square, 2 m up | 28,851 nodes, 16.4 MB; 2,494 / 8,119 / 13,761 / 4,477 / 0; L2 L2 L3 L4 | 8,905, 6.2 MB; 2,494 / 2,896 / 2,803 / 712 / 0; L2 L3 L4 L5 | 2,584, 2.0 MB; L3 L4 L5 L5 |
+| 300 m over the town | 28,938, 16.5 MB | 8,945, 6.2 MB | 2,624, 2.0 MB |
+| a valley 2.5 km out, 200 m up | 21,254, 12.7 MB | 6,721, 4.8 MB | 2,162, 1.8 MB |
+| world corner, 1.6 km up | 22,926, 8.9 MB; 8+ km at L5 | 5,207, 3.1 MB; 8+ km at L6 | 1,050, 0.9 MB |
+
+Selection from scratch 9–18 ms at 2 px (Node; 49–91 ms at 1 px); none held by the 48 MiB budget. The draw count is
+D549.
+
+**For 46d.7b/7c.** The world and its cache stay on disk (`work/46d.7a/project`: `voxels/far/`, `cache/voxel-far/far/`,
+~0.52 GB) for the draw modes and 46d.7d; delete after 46d.9 unless the owner's pick needs them. Serving it from
+staging needs D548 first (the backend loads a world whole). Not wired yet, by default (§9): the backend's rebuild
+on an edit (the function is built and tested at the workspace boundary), the export shipping the cache, the page
+streaming it; nodes need batching (D549).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1339,6 +1405,26 @@ mean luminance equal, on both renderers. No leak, gap or acne seen.
 - 2026-11-08 (46d.6d, default chosen, owner to confirm): **the plain caster is sent with every relief draw**, shadows
   or not (a quarter of the relief bytes at n 2, a sixteenth at n 4, handed over without a copy); a view without
   shadows builds nothing of it. Play and exports still cast no voxel shadows (46d.5b default).
+- 2026-11-08 (46d.7a, default chosen, owner to confirm): **the far world** is 8.192 km a side (32 × 32 regions, the
+  town at the centre), seed 97, peaks 1.51 km, base −64 m, terraced cliffs (28 m steps, 12 % risers) with overhangs
+  (±5 m within 8 m of the surface) where a cliff mask is high, no lakes, the town's rotated-grid houses left out; it
+  stays on disk (scratch, ~0.52 GB with its cache) for 46d.7b–7d.
+- 2026-11-08 (46d.7a, default chosen, owner to confirm): **the far cache is the world's own region format per
+  level** (stacked, the world's footprint and id) in the project's `cache/voxel-far/<world>/`, levels 2 (64 m nodes,
+  2 m cells) up to the lowest level at which two nodes span the world (8 for 8 km); built per region column in
+  workers, the levels above from those nodes.
+- 2026-11-08 (46d.7a, default chosen, owner to confirm): **far selection**: a node's error is its cell (2^L cells)
+  over its box distance from the eye in pixels, 2 px at 720p and 60° by default, hysteresis 0.25, a budget of
+  48 MiB of stored node bytes, largest error opened first; nodes reaching into the load ring's box open to level 2
+  and are marked for the draw modes. Per quality tier and per scene (like the rings) when 46d.7b draws them.
+- 2026-11-08 (46d.7a, default chosen, owner to confirm): **openings at the coarser levels** close when narrower
+  than two of the parent's cells and a body ends them across their width (its role, the opening's material);
+  wider ones stay openings, so they keep their width up the levels (derived 31). An opening the parent's side cuts
+  is judged by its part inside.
+- 2026-11-08 (46d.7a, default chosen, owner to confirm): **the backend's rebuild on an edit, the export's shipping
+  of the cache and the page's streaming of it come with the draw modes (46d.7b)**: before them nothing in the
+  backend or a game reads the cache, so shipping or rebuilding it would only cost; the rebuild and file list are
+  built and tested now.
 
 ## 10. Open questions for the owner
 
@@ -1363,4 +1449,4 @@ mean luminance equal, on both renderers. No leak, gap or acne seen.
   setting? With shadows at high it misses more (D545).
 - The high tier (RTX 5090): run the harness page on the workstation against staging (§5c); until then high-tier
   numbers are unverified.
-- Whether the 8 km test world (scratch, ~0.5 GB on disk estimated) is kept after 46d for 46e's measurements.
+- Whether the 8 km test world (scratch: 476 MB on disk, its far cache 48.5 MB) is kept after 46d for 46e's measurements.

@@ -388,7 +388,32 @@ export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismat
 export { cellOutputs, resolvedClassAt, type CellOutputs, type CellPieceOutput } from './derived-cell';
 export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
 export { groundHeightfield, groundHeightfieldPatches, GROUND_HEIGHTFIELD_TOLERANCE_M, MIN_HEIGHTFIELD_PATCH_CELLS, type GroundHeightfield, type GroundHeightfieldPatches, type HeightfieldPatchOptions, type HeightfieldRefusal } from './ground-heightfield';
-export { ChunkTreeFlags, downsampleMip, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export { ChunkTreeFlags, downsampleMip, MIP_OPENING_KEEP_CELLS, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export {
+  buildFarNode,
+  collapseUniform,
+  downsampleCells,
+  FAR_BUDGET_BYTES,
+  FAR_CACHE_FORMAT,
+  FAR_ERROR_PIXELS,
+  FAR_HYSTERESIS,
+  FAR_MIN_LEVEL,
+  farAncestors,
+  farCellsDense,
+  FarNodeIndex,
+  farNodeBox,
+  FarSelection,
+  farSelectionDiff,
+  farTopLevel,
+  isUniformKeepable,
+  uniformCells,
+  type FarBox,
+  type FarCells,
+  type FarDrawn,
+  type FarSelected,
+  type FarSource,
+  type FarView,
+} from './far-tree';
 export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
 export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, SEAM_RIM_CELLS, SEAM_WALK_STEPS, type FaceSeam, type NodeFace, type SeamCounts, type SeamFaceInput, type SeamPiece, type SeamSurface } from './lod-seam';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';

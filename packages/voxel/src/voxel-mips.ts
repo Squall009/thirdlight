@@ -35,7 +35,14 @@
  *   material of the most cells (ties: the larger summed fill, then the lower
  *   id). A liquid parent takes its dominant liquid;
  * - wetness comes from the first cell (in local-index order) of that
- *   material.
+ *   material;
+ * - **openings** narrower than {@link MIP_OPENING_KEEP_CELLS} parent cells
+ *   are closed in the body round them before the downsample (a door or a
+ *   window is wall at the level where it would leave a gap of one cell, so
+ *   a far front wall does not stand on "legs"); a parent left with no solid
+ *   or liquid share but an opening cell is an opening (open space, as air
+ *   is drawn), so a wider one stays open, and keeps its width, until a level
+ *   where it too is that narrow.
  *
  * A node therefore has the same form as a chunk (the same planes, the same
  * palette store and codec), so it streams, compresses, derives and meshes
@@ -47,7 +54,7 @@
  */
 import { OPEN_ROLE } from './assembly';
 import { localIndex, type ChunkGrid } from './coords';
-import type { DenseChunk } from './dense-chunk';
+import { copyDenseChunk, createDenseChunk, type DenseChunk } from './dense-chunk';
 import { OCCUPANCY } from './derived-data';
 import { fillLevel, isConstructionRole, MATERIAL_AIR, SHAPE_EMPTY, SHAPE_FULL, VOXEL_ROLE } from './record';
 import { roofReading, ROOF_WORD, type RoofProbe } from './roof-words';
@@ -480,6 +487,126 @@ function relayRoofs(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>,
   return placed;
 }
 
+/**
+ * Openings narrower than this many parent cells close at the parent's level,
+ * in the body round them: a far wall reads as a wall, not as a row of
+ * pillars standing on "legs" where its door and windows were.
+ */
+export const MIP_OPENING_KEEP_CELLS = 2;
+
+/** Per child cell of a parent node (2 · edge a side): opening run lengths along x, y and z (capped), then the opening mask. */
+let runScratch: Uint8Array[] = [];
+
+/**
+ * The children with every opening narrower than {@link MIP_OPENING_KEEP_CELLS}
+ * parent cells closed in the body round it (the same array when there are
+ * none). An opening's width is the middle of its three run lengths through
+ * a cell (the shortest is the wall's thickness, the longest its height or
+ * length), counted in child cells and clipped at the parent's sides, so an
+ * opening the parent's side cuts is judged by the part inside it. It closes
+ * only in a body: a body cell must end its run across that width on a side
+ * (an opening standing free of any body stays open). A closed cell takes
+ * that body's role (the first by {@link MIP_ROLE_PRIORITY} when both sides
+ * are bodies), its own material (the body's when it has none), and is
+ * whole. Children holding no closed cell are passed through, never copied.
+ */
+function closeNarrowOpenings(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>): ReadonlyArray<DenseChunk | null> {
+  let any = false;
+  for (let o = 0; o < 8 && !any; o++) {
+    const c = children[o];
+    if (c !== null && c !== undefined && c.role.includes(VOXEL_ROLE.opening)) any = true;
+  }
+  if (!any) return children;
+  const e = grid.edge;
+  const side = 2 * e;
+  const keep = 2 * MIP_OPENING_KEEP_CELLS;
+  const n = side * side * side;
+  if (runScratch.length !== 4 || runScratch[0]!.length !== n) runScratch = [new Uint8Array(n), new Uint8Array(n), new Uint8Array(n), new Uint8Array(n)];
+  // Index (x · side + z) · side + y, so a step along y is 1, along z side, along x side².
+  const at = (x: number, y: number, z: number): number => (x * side + z) * side + y;
+  const mask = runScratch[3]!;
+  mask.fill(0);
+  for (let o = 0; o < 8; o++) {
+    const c = children[o] ?? null;
+    if (c === null || !c.role.includes(VOXEL_ROLE.opening)) continue;
+    const ox = (o & 1) * e, oy = ((o >> 1) & 1) * e, oz = ((o >> 2) & 1) * e;
+    for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
+      if (c.role[localIndex(grid, x, y, z)] === VOXEL_ROLE.opening) mask[at(ox + x, oy + y, oz + z)] = 1;
+    }
+  }
+  const strides = [side * side, 1, side] as const;
+  for (let a = 0; a < 3; a++) {
+    const run = runScratch[a]!;
+    run.fill(0);
+    const d = strides[a]!;
+    // Every line along axis a: the cells of each run of openings get the run's length.
+    for (let p = 0; p < n; p++) {
+      const pos = a === 0 ? Math.floor(p / (side * side)) : a === 1 ? p % side : Math.floor(p / side) % side;
+      if (mask[p] === 0 || run[p] !== 0 || (pos > 0 && mask[p - d] === 1)) continue;
+      let len = 0;
+      while (pos + len < side && mask[p + len * d] === 1) len++;
+      const v = Math.min(len, 255);
+      for (let k = 0; k < len; k++) run[p + k * d] = v;
+    }
+  }
+  const out: Array<DenseChunk | null> = [...children];
+  const copied = new Uint8Array(8);
+  for (let x = 0; x < side; x++) for (let z = 0; z < side; z++) for (let y = 0; y < side; y++) {
+    const ai = at(x, y, z);
+    const rx = runScratch[0]![ai]!;
+    if (rx === 0) continue;
+    const ry = runScratch[1]![ai]!;
+    const rz = runScratch[2]![ai]!;
+    const middle = Math.max(Math.min(rx, ry), Math.min(Math.max(rx, ry), rz));
+    if (middle >= keep) continue;
+    const o = (x >= e ? 1 : 0) | (y >= e ? 2 : 0) | (z >= e ? 4 : 0);
+    const src = children[o]!;
+    const i = localIndex(grid, x % e, y % e, z % e);
+    // Closed only in a body: along its width (an axis whose run is the middle length) a body ends the run on a side.
+    const p = [x, y, z];
+    const runs = [rx, ry, rz];
+    let role: number = -1;
+    let rank = MIP_ROLE_PRIORITY.length;
+    let neighbourMaterial = MATERIAL_AIR;
+    for (let a = 0; a < 3; a++) {
+      if (runs[a] !== middle) continue;
+      let start = p[a]!;
+      while (start > 0 && mask[ai - (p[a]! - start + 1) * strides[a]!] === 1) start--;
+      for (const end of [start - 1, start + runs[a]!]) {
+        if (end < 0 || end >= side) continue;
+        const q = [x, y, z];
+        q[a] = end;
+        const c = children[(q[0]! >= e ? 1 : 0) | (q[1]! >= e ? 2 : 0) | (q[2]! >= e ? 4 : 0)] ?? null;
+        if (c === null) continue;
+        const ni = localIndex(grid, q[0]! % e, q[1]! % e, q[2]! % e);
+        const r = c.role[ni]!;
+        if (c.material[ni] === MATERIAL_AIR || WHOLE_CELL[r] !== 1) continue;
+        const k = MIP_ROLE_PRIORITY.indexOf(r);
+        if (k < rank) {
+          rank = k;
+          role = r;
+          neighbourMaterial = c.material[ni]!;
+        }
+      }
+    }
+    if (role < 0) continue;
+    let material = src.material[i]!;
+    if (material === MATERIAL_AIR) material = neighbourMaterial;
+    if (material === MATERIAL_AIR) continue;
+    if (copied[o] === 0) {
+      const copy = createDenseChunk(grid);
+      copyDenseChunk(src, copy);
+      out[o] = copy;
+      copied[o] = 1;
+    }
+    const dst = out[o]!;
+    dst.material[i] = material;
+    dst.role[i] = role;
+    dst.shape[i] = SHAPE_FULL;
+  }
+  return out;
+}
+
 const solidRole = (r: number): boolean => OPEN_ROLE[r] !== 1;
 const liquidRole = (r: number): boolean => r === VOXEL_ROLE.liquid;
 
@@ -488,8 +615,9 @@ const liquidRole = (r: number): boolean => r === VOXEL_ROLE.liquid;
  * of the same edge. Returns false when the parent is all air (`out` is
  * then air too).
  */
-export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChunk | null>, out: DenseChunk): boolean {
-  if (children.length !== 8) throw new RangeError('a mip node has 8 children');
+export function downsampleMip(grid: ChunkGrid, given: ReadonlyArray<DenseChunk | null>, out: DenseChunk): boolean {
+  if (given.length !== 8) throw new RangeError('a mip node has 8 children');
+  const children = closeNarrowOpenings(grid, given);
   const e = grid.edge;
   const h = e >> 1;
   const cells = new Int32Array(8);
@@ -573,7 +701,18 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
         counts = liquidRole;
       }
       if (shape === 0) {
-        air(pi);
+        // An opening stays an opening (drawn as open space), so the levels above still see how wide it is.
+        let opening = -1;
+        for (let c = 0; c < 8 && opening < 0; c++) if (roles[cells[c]!] === VOXEL_ROLE.opening && material[cells[c]!] !== MATERIAL_AIR) opening = cells[c]!;
+        if (opening < 0) {
+          air(pi);
+          continue;
+        }
+        out.material[pi] = material[opening]!;
+        out.role[pi] = VOXEL_ROLE.opening;
+        out.shape[pi] = SHAPE_FULL;
+        out.wetness[pi] = wetness[opening]!;
+        any = true;
         continue;
       }
       // A construction shape is integrity, not fill: a parent block is intact (damage shows at the finest level only).

@@ -1,6 +1,6 @@
 # Voxel rendering and materials — format page (46d additions)
 
-Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4d, §3 by 46d.5a. This page receives every format addition of 46d (rendering and materials), each
+Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4d, §3 by 46d.5a, §4 (far tree and far cache) by 46d.7a. This page receives every format addition of 46d (rendering and materials), each
 as a versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the
 owner on 2026-11-02) is not grown further. Nothing here is approved yet: a section is filled by the 46d item that
 builds it ([plan 46d](../plan-phase-46d.md) §6), and every section stays empty until then. § numbers name the format
@@ -264,4 +264,49 @@ half diagonal inside that; once the focus has moved a section edge (8 m) it trie
 
 ## 4. Far-field data
 
-Not yet written (46d.7a–46d.7c: the far tree, voxel-mip meshes and ray-marched bricks behind a switch).
+**Owner note (46d.7a, 2026-11-08):** derived data steps **30 → 31** (nothing stored, nothing to upgrade, no world
+regenerated; a worker of another version is refused as ever): the chunk tree's downsample closes narrow openings and
+keeps wider ones as openings. Level-0 results are v30's byte for byte. A new derived store, the **far cache**
+(format 1), is never committed and is built again whenever its format or its world's revision differs. Nothing in
+the approved format spec, the role spec, the texture layout or kit format 1 changes. Default chosen, owner to
+confirm (plan 46d §9, the 46d.7a defaults). The draw modes that read it (voxel-mip meshes, ray-marched bricks) are
+46d.7b and 46d.7c.
+
+**Openings at the coarser levels** (`voxel-mips.ts`, every level ≥ 1, near rings and far tree alike). Before a
+parent is downsampled from its 8 children, an opening narrower than `MIP_OPENING_KEEP_CELLS` (2) parent cells is
+closed in the body round it: its width is the middle of the three run lengths of opening cells through a cell
+(the shortest is the wall's thickness), in child cells, clipped at the parent's sides; it closes only when a body
+cell ends that run on a side, takes that body's role and its own material, and is whole. A parent left with no
+solid or liquid share but holding an opening cell is an opening (drawn as open space, like air), so a wider opening
+keeps its width up the levels until it too is that narrow. So a 0.5 m door or window is wall at level 1 (no
+"legs" under a far front wall), a 3 m gate stays open at level 1 and closes at level 2.
+
+**The far tree** (`@thirdlight/voxel` `far-tree.ts`). The chunk tree over the whole world: a level-L node covers
+2^L chunks a side (16 m · 2^L) and holds the voxel mip of that block, a chunk-shaped block of 0.5 m · 2^L cells.
+The tree keeps levels `FAR_MIN_LEVEL` (2: 2 m cells, 64 m nodes) up to its top level, the lowest at which at most
+two nodes span the world's widest side (`farTopLevel`; 8 for 8 km, nodes 4 km). A node whose 8 children are one
+whole solid value (not roof, not opening) is that value without a downsample, which is what the downsample gives.
+
+**The far cache** (`@thirdlight/workspace` `voxel-far-cache.ts`), per world in the project's
+`cache/voxel-far/<world>/` (`FAR_CACHE_SEGMENTS`; the project's `.gitignore` keeps `cache/` out of git):
+- `far.json`: `format` (1), `worldId`, `edge`, `footprint`, `minLevel`, `maxLevel`, `revision` (the world's when
+  built), and per level its sorted region file names, nodes and bytes.
+- `L<level>/`: the level's nodes in region files of the world's format (stacked, the world's footprint and id, zstd
+  per node, uniform nodes as 12-byte entries), node (nx, ny, nz) of level L stored as "chunk" (nx, ny, nz). Read,
+  checked and decoded by the code that reads the world.
+- Deterministic: the same world gives the same bytes whatever order or process builds it. A full build works one
+  region column at a time (levels `minLevel` … the level at which a node spans one region, 4 at 256 m), in workers,
+  then the levels above from those nodes, into a fresh folder moved into place last.
+- An edit's changed chunks make exactly their ancestors at the kept levels stale (`farAncestors`); a rebuild
+  (`rebuildFarCache`) builds those, reading their untouched children from the cache, rewrites only the level files
+  holding them, then `far.json`; the result equals a full build byte for byte.
+- An export ships `farCacheFiles` (the manifest and the files it lists) beside the world's region files, from the
+  draw modes' item on (46d.7b: nothing in a game reads it before).
+
+**Selection** (`FarSelection`). Every top-level node holding anything is drawn, or opened into its children while
+its on-screen error (2^L cells × pixels a radian / its distance from the eye, at least its own size) is over
+`FAR_ERROR_PIXELS` (2 px); an open node closes again only under (1 − `FAR_HYSTERESIS`) of it (0.25). Opening that
+would pass the byte budget (`FAR_BUDGET_BYTES`, 48 MiB of stored node bytes) keeps a node closed, largest error
+opened first. Nodes wholly inside the box the near rings load are not drawn; nodes reaching into it open down to
+the lowest kept level and are marked (`nearOverlap`) for the draw modes to meet the near field. The top level
+covers the world, so nothing is cut off at any distance.

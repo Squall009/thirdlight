@@ -20,14 +20,14 @@ export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SOURCES = join(REPO, 'tools', 'voxel-bench');
 
 /** Bundles a worker entry of this folder for Node or the browser; returns the file written. */
-export async function bundleWorker(entry: 'stream-worker-node' | 'stream-worker-browser', outFile: string): Promise<string> {
+export async function bundleWorker(entry: 'stream-worker-node' | 'stream-worker-browser' | 'far-worker-node', outFile: string): Promise<string> {
   mkdirSync(dirname(outFile), { recursive: true });
   await esbuild.build({
     entryPoints: [join(SOURCES, `${entry}.ts`)],
     bundle: true,
-    platform: entry === 'stream-worker-node' ? 'node' : 'browser',
+    platform: entry === 'stream-worker-browser' ? 'browser' : 'node',
     format: 'esm',
-    target: entry === 'stream-worker-node' ? 'node22' : 'es2022',
+    target: entry === 'stream-worker-browser' ? 'es2022' : 'node22',
     // The browser build is minified like an export, so the export scan sees what a game would ship.
     minify: entry === 'stream-worker-browser',
     outfile: outFile,
