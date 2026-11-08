@@ -7,6 +7,12 @@
  *       every set at the authored size (1024 px/m on a 4 m tile) into DIR
  *       (default ~/.cache/thirdlight-phase46/work/46d.4a/textures): bytes a
  *       map and the ms it took
+ *   node tools/voxel-bench/run.mjs textures --encode 4096 [--sets stone,grass]
+ *       each map of the sets (default all) at that size encoded as one layer
+ *       the way the backend's slot route encodes a layer past the encoder's
+ *       limit (UASTC, the assembled effort, in stripes), decoded again by
+ *       three's transcoder and checked against the source at fixed texels
+ *       of every level-0 stripe edge: ms, bytes, levels, the texel error
  *   node tools/voxel-bench/run.mjs textures --import 1024 [--origin URL] [--token-file F] [--data-root DIR] [--project ID]
  *       every set at that size into the project's `assets/voxel-textures`
  *       folder, imported as every texture is (`importAssets`; regenerated
@@ -68,7 +74,65 @@ function writeSets(dir: string, size: number): { files: Array<{ name: string; by
 }
 
 const importSize = arg('import', '');
-if (importSize === '') {
+const encodeSize = arg('encode', '');
+if (encodeSize !== '') {
+  const { packKtx2 } = await import('../../packages/backend/src/texture-encode');
+  const { readKtx2 } = await import('../../packages/backend/src/ktx2-container');
+  const { halveRgba, stripeRows } = await import('../../packages/backend/src/ktx2-striped');
+  const { KTX2_SOURCE_PIXELS_MAX } = await import('../../packages/backend/src/texture-encode');
+  const { transcodeKtx2Levels } = await import('./three-basis');
+  const size = Number(encodeSize);
+  const sets = arg('sets', PLACEHOLDER_SETS.join(',')).split(',') as PlaceholderSet[];
+  const modeOf = { albedoHeight: 'color', normal: 'normal', orm: 'data' } as const;
+  const rows = stripeRows(size, KTX2_SOURCE_PIXELS_MAX);
+  // Texels on both sides of every stripe edge, the corners and the middle.
+  const probes: Array<[number, number]> = [[0, 0], [size - 1, size - 1], [size >> 1, size >> 1]];
+  for (let y = rows; y < size; y += rows) probes.push([17, y - 1], [size - 33, y], [size >> 2, y + 1]);
+  let total = 0;
+  for (const set of sets) {
+    const maps = placeholderSet(set, size);
+    for (const map of PLACEHOLDER_MAPS) {
+      const png = placeholderPng(maps[map], size);
+      const t0 = performance.now();
+      const layer = [0, 1, 2, 3].map((channel) => ({ source: 0, channel })) as never;
+      const r = await packKtx2([png], [layer], modeOf[map], [], 'assembled', true);
+      const ms = performance.now() - t0;
+      if (!r.ok) throw new Error(`${set} ${map}: ${r.message}`);
+      total += ms;
+      const head = readKtx2(r.ktx2)!;
+      const t1 = performance.now();
+      const { levels } = await transcodeKtx2Levels(r.ktx2);
+      const decodeMs = performance.now() - t1;
+      const src = maps[map];
+      let worst = 0;
+      for (const [x, y] of probes) {
+        // A 3×3 mean round the texel on both sides: UASTC's per-texel error averages out, a misplaced stripe does not.
+        for (let c = 0; c < 4; c++) {
+          let a = 0;
+          let b = 0;
+          let n = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const xx = Math.min(size - 1, Math.max(0, x + dx));
+            const yy = Math.min(size - 1, Math.max(0, y + dy));
+            const p = (yy * size + xx) * 4 + c;
+            a += levels[0]!.data[p]!;
+            b += src[p]!;
+            n++;
+          }
+          worst = Math.max(worst, Math.abs(a - b) / n);
+        }
+      }
+      const mean = (a: Uint8Array, b: Uint8Array): number => {
+        let d = 0;
+        for (let i = 0; i < a.length; i++) d += Math.abs(a[i]! - b[i]!);
+        return d / a.length;
+      };
+      const half = halveRgba(src, size, size, modeOf[map]).data;
+      console.log(`[encode] ${set} ${map} ${size}² ${modeOf[map]}: ${(ms / 1000).toFixed(1)} s, ${(r.ktx2.length / 1e6).toFixed(2)} MB KTX2 (PNG ${(png.length / 1e6).toFixed(2)} MB), ${head.levels.length} levels, ${levels[0]!.width}×${levels[0]!.height} decoded by three in ${(decodeMs / 1000).toFixed(1)} s; mean error level 0 ${mean(levels[0]!.data, src).toFixed(2)}, level 1 vs the box halving ${mean(levels[1]!.data, half).toFixed(2)}, worst 3×3 mean at ${probes.length} stripe-edge texels ${worst.toFixed(1)} (/255)`);
+    }
+  }
+  console.log(`[encode] ${sets.length * PLACEHOLDER_MAPS.length} maps in ${(total / 1000).toFixed(1)} s (one thread), stripes of ${rows} rows`);
+} else if (importSize === '') {
   const size = Number(arg('size', '4096'));
   const dir = arg('out', join(homedir(), '.cache', 'thirdlight-phase46', 'work', '46d.4a', 'textures'));
   const { files, ms } = writeSets(dir, size);

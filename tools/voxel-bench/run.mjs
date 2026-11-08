@@ -56,8 +56,9 @@ await esbuild.build({
   format: 'esm',
   target: 'node22',
   outfile: out,
-  // The decode bench drives a browser and builds the worker itself: those stay node_modules imports.
-  external: ['@playwright/test', 'playwright-core', 'esbuild'],
+  // The decode bench drives a browser and builds the worker itself; the KTX2 encoder loads its WASM from beside
+  // its own module: those stay node_modules imports.
+  external: ['@playwright/test', 'playwright-core', 'esbuild', 'ktx2-encoder'],
   logLevel: 'warning',
 });
 const cap = memoryCap();

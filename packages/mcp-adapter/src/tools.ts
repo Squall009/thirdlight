@@ -208,7 +208,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           description:
             'Pack a KTX2 texture (a texture array with several layers) from texture assets of the project: layers = per layer its [R, G, B, A] sources, each ' +
             '{assetId, channel: "r"|"g"|"b"|"a"} (a PNG/JPEG texture asset, its current version) or {value: 0-255}; all sources one size; at most 12 Mpix across the layers ' +
-            '(e.g. 4 layers of 1024²). encoding as ktx2. E.g. terrain: albedo RGB + height in A ("color"), normals ("normal"), occlusion/roughness/metalness ("data").',
+            '(e.g. 4 layers of 1024²; one layer up to 32 Mpix, encoded in UASTC stripes). encoding as ktx2. E.g. terrain: albedo RGB + height in A ("color"), normals ("normal"), occlusion/roughness/metalness ("data").',
           properties: {
             layers: { type: 'array', items: { type: 'array', items: { type: 'object' } } },
             encoding: { type: 'string', enum: ['color', 'normal', 'data'] },

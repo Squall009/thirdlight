@@ -8,9 +8,6 @@
  * the cap from the quality level's texel density.
  */
 import { PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 import * as THREE from 'three';
@@ -23,6 +20,7 @@ import { validateQualityLevels } from '../packages/project-model/src/materials';
 import { VOXEL_AUTHORED_TEXEL_DENSITY, voxelArrayTopLevel } from '../packages/project-model/src/voxel-surface-textures';
 import { createTextureStreamer, StreamedArrayTexture, WORLD_MAPPED_TEXTURES_KEY, wholeKtx2Source, type TextureStreamer } from '../packages/three-adapter/src/texture-streaming';
 import { capVoxelArrays, voxelTexelDensityAt } from '../packages/three-adapter/src/voxel-world-draws';
+import { transcodeKtx2Levels } from '../tools/voxel-bench/three-basis';
 
 const EDGE = 1024;
 const LAYERS = 2;
@@ -48,56 +46,11 @@ function layerPng(size: number, tint: number): Uint8Array {
   return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), pngChunk('IDAT', deflateSync(Buffer.concat(rows))), pngChunk('IEND', new Uint8Array(0))]));
 }
 
-interface BasisFile {
-  getWidth(): number;
-  getHeight(): number;
-  getLevels(): number;
-  getLayers(): number;
-  startTranscoding(): boolean;
-  getImageTranscodedSizeInBytes(l: number, layer: number, f: number, fmt: number): number;
-  transcodeImage(dst: Uint8Array, l: number, layer: number, f: number, fmt: number, a: number, b: number, c: number): boolean;
-  close(): void;
-  delete(): void;
-}
-let basis: Promise<{ KTX2File: new (b: Uint8Array) => BasisFile }> | null = null;
-/** three's Basis transcoder in Node (a classic script: run with Node's require, take its BASIS factory). */
-function transcoder(): Promise<{ KTX2File: new (b: Uint8Array) => BasisFile }> {
-  basis ??= (async () => {
-    const dir = join(process.cwd(), 'node_modules', 'three', 'examples', 'jsm', 'libs', 'basis');
-    const factory = new Function('require', '__filename', '__dirname', `${readFileSync(join(dir, 'basis_transcoder.js'), 'utf8')}\n;return BASIS;`) as (r: NodeJS.Require, f: string, d: string) => (m: { wasmBinary: Uint8Array }) => Promise<{ initializeBasis(): void; KTX2File: new (b: Uint8Array) => BasisFile }>;
-    const mod = await factory(createRequire(import.meta.url), join(dir, 'basis_transcoder.js'), dir)({ wasmBinary: new Uint8Array(readFileSync(join(dir, 'basis_transcoder.wasm'))) });
-    mod.initializeBasis();
-    return mod;
-  })();
-  return basis;
-}
-
 /** Transcodes a whole KTX2 as three's KTX2Loader does (every level, a level's layers one after another), to RGBA8. */
 async function decode(bytes: Uint8Array): Promise<THREE.CompressedTexture> {
-  const mod = await transcoder();
-  const f = new mod.KTX2File(bytes);
-  try {
-    expect(Boolean(f.startTranscoding())).toBe(true);
-    const layers = Math.max(1, f.getLayers());
-    const mipmaps: { data: Uint8Array; width: number; height: number }[] = [];
-    for (let l = 0; l < f.getLevels(); l++) {
-      const parts: Uint8Array[] = [];
-      for (let layer = 0; layer < layers; layer++) {
-        // 13: cTFRGBA32.
-        const dst = new Uint8Array(f.getImageTranscodedSizeInBytes(l, layer, 0, 13));
-        expect(Boolean(f.transcodeImage(dst, l, layer, 0, 13, 0, -1, -1))).toBe(true);
-        parts.push(dst);
-      }
-      const data = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-      parts.reduce((at, p) => (data.set(p, at), at + p.length), 0);
-      mipmaps.push({ data, width: Math.max(1, f.getWidth() >> l), height: Math.max(1, f.getHeight() >> l) });
-    }
-    const t = layers > 1 ? new THREE.CompressedArrayTexture(mipmaps as never, f.getWidth(), f.getHeight(), layers, THREE.RGBAFormat as never) : new THREE.CompressedTexture(mipmaps as never, f.getWidth(), f.getHeight(), THREE.RGBAFormat as never);
-    return t;
-  } finally {
-    f.close();
-    f.delete();
-  }
+  const { levels, layers, width, height } = await transcodeKtx2Levels(bytes);
+  const mipmaps = levels.map((l) => ({ data: l.data, width: l.width, height: l.height }));
+  return layers > 1 ? new THREE.CompressedArrayTexture(mipmaps as never, width, height, layers, THREE.RGBAFormat as never) : new THREE.CompressedTexture(mipmaps as never, width, height, THREE.RGBAFormat as never);
 }
 
 /** A chunk-like mesh whose material samples `texture` in world space on a `tile` metre repeat, 0.5 m in front of the camera. */

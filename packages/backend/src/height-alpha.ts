@@ -36,7 +36,7 @@ import type { ImportKey, WorkspaceService } from '@thirdlight/workspace';
 
 import { FLAT_ALPHA_SPREAD, heightAlphaOf, type HeightAlpha } from './height-pixels';
 import { readKtx2 } from './ktx2-container';
-import { KTX2_SOURCE_PIXELS_MAX, type TextureEncoder } from './texture-encode';
+import { KTX2_IMAGE_PIXELS_MAX, type TextureEncoder } from './texture-encode';
 import { meanOfRgba, type TextureMean } from './texture-mean';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
@@ -80,7 +80,7 @@ export function createHeightAlphaChecks(deps: { service: WorkspaceService; encod
     const encoder = deps.encoder;
     if (encoder === undefined) return Promise.resolve(null);
     const run = (async (): Promise<{ alpha: HeightAlpha; mean: TextureMean } | null> => {
-      const decoded = await encoder.decode(lossless ?? bytes, KTX2_SOURCE_PIXELS_MAX);
+      const decoded = await encoder.decode(lossless ?? bytes, KTX2_IMAGE_PIXELS_MAX);
       if (!decoded.ok) return null;
       const alpha = heightAlphaOf(decoded.data);
       const mean = meanOfRgba(decoded.data);

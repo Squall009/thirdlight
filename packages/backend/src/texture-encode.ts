@@ -25,7 +25,10 @@
  * found) read in its place — and the layers are encoded once; a layer read
  * from transcoded texels is reported re-encoded (a second lossy generation).
  * All sources are the same size; the encoder takes at most 12 Mpix across the
- * layers (4 layers of 1024², 2 of 2048²).
+ * layers (4 layers of 1024², 2 of 2048²). One image larger than that (an
+ * authored 4096² tile, up to `KTX2_IMAGE_PIXELS_MAX`) is encoded in UASTC in
+ * stripes and assembled (`ktx2-striped.ts`), whatever its mode: ETC1S's
+ * codebook spans the image, so only UASTC can be made in parts.
  *
  * The encoder is `ktx2-encoder` (pinned; its bundled Basis Universal WASM
  * build, non-threaded), run off the backend's event loop on a small pool of
@@ -44,6 +47,7 @@ import { brightnessHeight } from './height-pixels';
 import { decodeImage, sourceFormat, type DecodedImage } from './image-decode';
 import { makeImageThumbnail } from './image-thumbnail';
 import { joinUastcLayers, KTX2_TRANSFER_LINEAR, KTX2_TRANSFER_SRGB, readKtx2 } from './ktx2-container';
+import { encodeUastcStriped, type UastcEncode } from './ktx2-striped';
 
 export type Ktx2Mode = 'color' | 'normal' | 'data';
 export const KTX2_MODES: readonly Ktx2Mode[] = ['color', 'normal', 'data'];
@@ -55,6 +59,14 @@ export const KTX2_ENCODER = { name: 'ktx2-encoder', version: '0.6.0' } as const;
  * larger texture is imported as PNG/JPEG or encoded outside the editor.
  */
 export const KTX2_SOURCE_PIXELS_MAX = 12 * 1024 * 1024;
+/**
+ * The largest single image the backend encodes to KTX2 (decoded, then
+ * encoded in stripes of at most `KTX2_SOURCE_PIXELS_MAX`): two 4096² tiles'
+ * worth, e.g. 4096 × 8192. Bounded by an encoder worker's memory
+ * (`KTX2_WORKER_MEMORY_BYTES`): the pixels and their working copies, about
+ * three times 128 MiB, beside the encoder's own memory at a full stripe.
+ */
+export const KTX2_IMAGE_PIXELS_MAX = 2 * 4096 * 4096;
 
 export type Ktx2EncodeResult =
   | { ok: true; ktx2: Uint8Array; source: { format: 'png' | 'jpeg' | 'webp'; width: number; height: number } }
@@ -122,12 +134,17 @@ export async function encodeKtx2(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx
   if (format === null) return { ok: false, code: 'texture_encode_unsupported', message: 'not a PNG, JPEG or WebP image' };
   let img: DecodedImage;
   try {
-    img = await decodeImage(bytes, format, KTX2_SOURCE_PIXELS_MAX);
+    img = await decodeImage(bytes, format, KTX2_IMAGE_PIXELS_MAX);
   } catch (e) {
     return { ok: false, code: 'texture_encode_failed', message: `the ${format.toUpperCase()} could not be decoded: ${e instanceof Error ? e.message : String(e)}` };
   }
+  if (img.width * img.height > KTX2_IMAGE_PIXELS_MAX) {
+    return { ok: false, code: 'texture_encode_unsupported', message: `KTX2 encoding takes at most ${KTX2_IMAGE_PIXELS_MAX} pixels (${img.width}×${img.height} is larger; 4096×8192 fits)` };
+  }
+  // Past one encode: UASTC in stripes (the mode's colour space and normal preset), assembled.
   if (img.width * img.height > KTX2_SOURCE_PIXELS_MAX) {
-    return { ok: false, code: 'texture_encode_unsupported', message: `KTX2 encoding takes at most ${KTX2_SOURCE_PIXELS_MAX} pixels (${img.width}×${img.height} is larger; 2048×4096 fits)` };
+    const striped = await encodeStriped(img.data, img.width, img.height, mode);
+    return striped.ok ? { ok: true, ktx2: striped.ktx2, source: { format, width: img.width, height: img.height } } : striped;
   }
   try {
     const colour = mode === 'color';
@@ -292,7 +309,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     if (format === null) return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG, JPEG, WebP or KTX2 image` };
     let img: DecodedImage;
     try {
-      const max = images.size === 0 ? KTX2_SOURCE_PIXELS_MAX : width * height;
+      const max = images.size === 0 ? KTX2_IMAGE_PIXELS_MAX : width * height;
       if (format === 'ktx2') {
         img = await transcodeKtx2Rgba(bytes, max);
         transcoded.add(i);
@@ -306,7 +323,8 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
       height = img.height;
       // A preview's layers are encoded at the preview size: only that counts against the encoder's limit.
       const [ew, eh] = effort === 'preview' ? shrunkSize(width, height, SLOT_PREVIEW_SIDE) : [width, height];
-      if (ew * eh * layers.length > KTX2_SOURCE_PIXELS_MAX) {
+      // One layer past one encode is made in stripes (below); several are packed a layer at a time by the caller.
+      if (ew * eh * layers.length > KTX2_SOURCE_PIXELS_MAX && !(layers.length === 1 && ew * eh <= KTX2_IMAGE_PIXELS_MAX)) {
         return { ok: false, code: 'texture_encode_unsupported', message: `KTX2 encoding takes at most ${KTX2_SOURCE_PIXELS_MAX} pixels across the layers (${layers.length} × ${width}×${height} is more; e.g. 4 layers of 1024×1024 fit)` };
       }
     } else if (img.width !== width || img.height !== height) {
@@ -345,7 +363,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     return out;
   });
   const reencoded = layers.map((l) => l.some((c) => 'source' in c && transcoded.has(c.source)));
-  const encoded = await encodeSlices(slices, width, height, mode, mode !== 'color' || uastc, effort);
+  const encoded = slices.length === 1 && n > KTX2_SOURCE_PIXELS_MAX ? await encodeStriped(slices[0]!, width, height, mode, effort) : await encodeSlices(slices, width, height, mode, mode !== 'color' || uastc, effort);
   return encoded.ok ? { ok: true, ktx2: encoded.ktx2, width, height, layers: slices.length, reencoded, joined: false } : encoded;
 }
 
@@ -356,7 +374,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
  * colour import's quality); `effort` 'assembled' the faster efforts of what
  * a view waits on (absent: the encoder's defaults, as imports use).
  */
-async function encodeSlices(slices: readonly Uint8Array[], width: number, height: number, mode: Ktx2Mode, uastc: boolean, effort?: EncodeEffort): Promise<{ ok: true; ktx2: Uint8Array } | { ok: false; code: 'texture_encode_failed'; message: string }> {
+async function encodeSlices(slices: readonly Uint8Array[], width: number, height: number, mode: Ktx2Mode, uastc: boolean, effort?: EncodeEffort, mipGen = true): Promise<{ ok: true; ktx2: Uint8Array } | { ok: false; code: 'texture_encode_failed'; message: string }> {
   const n = width * height;
   try {
     const mod = await basisModule();
@@ -369,7 +387,7 @@ async function encodeSlices(slices: readonly Uint8Array[], width: number, height
       enc.setDebug(false);
       enc.setCreateKTX2File(true);
       enc.setUASTC(uastc);
-      enc.setMipGen(true);
+      enc.setMipGen(mipGen);
       enc.setYFlip(false);
       if (enc.setKTX2AndBasisSRGBTransferFunc !== undefined) enc.setKTX2AndBasisSRGBTransferFunc(colour);
       else enc.setKTX2SRGBTransferFunc(colour);
@@ -406,6 +424,25 @@ async function encodeSlices(slices: readonly Uint8Array[], width: number, height
   } catch (e) {
     return { ok: false, code: 'texture_encode_failed', message: `KTX2 encoding failed: ${e instanceof Error ? e.message : String(e)}` };
   }
+}
+
+/** One UASTC encode of one image with the mode's settings and `effort`, with or without its mip chain (a stripe has none). */
+export function uastcEncodeOf(mode: Ktx2Mode, effort?: EncodeEffort): UastcEncode {
+  return async (data, w, h, mips) => {
+    const one = await encodeSlices([data], w, h, mode, true, effort, mips);
+    return one.ok ? one : { ok: false, message: one.message };
+  };
+}
+
+/**
+ * One image past the encoder's limit as a UASTC KTX2 with its full mip
+ * chain (`encodeUastcStriped`): each stripe and the lower levels encoded
+ * with the mode's settings (colour sRGB and perceptual, the normal preset,
+ * data linear) and `effort`.
+ */
+async function encodeStriped(rgba: Uint8Array, width: number, height: number, mode: Ktx2Mode, effort?: EncodeEffort): Promise<{ ok: true; ktx2: Uint8Array } | { ok: false; code: 'texture_encode_failed'; message: string }> {
+  const r = await encodeUastcStriped(rgba, width, height, mode, KTX2_SOURCE_PIXELS_MAX, uastcEncodeOf(mode, effort));
+  return r.ok ? { ok: true, ktx2: r.ktx2 } : { ok: false, code: 'texture_encode_failed', message: `KTX2 encoding in stripes failed: ${r.message}` };
 }
 
 /**

@@ -12,7 +12,7 @@ import { pngBytes } from '@thirdlight/shared';
 import { ASSET_THUMBNAIL_EDGE } from '@thirdlight/project-model/limits';
 
 import { decodeImage, sourceFormat } from './image-decode';
-import { decodeTextureRgba, KTX2_SOURCE_PIXELS_MAX } from './texture-encode';
+import { decodeTextureRgba, KTX2_IMAGE_PIXELS_MAX } from './texture-encode';
 
 /**
  * The thumbnail of a PNG, JPEG or WebP image, or of a KTX2 imported as is
@@ -26,10 +26,10 @@ export async function makeImageThumbnail(bytes: Uint8Array, edge = ASSET_THUMBNA
   let img: { width: number; height: number; data: Uint8Array };
   try {
     if (format === 'ktx2') {
-      const d = await decodeTextureRgba(bytes, KTX2_SOURCE_PIXELS_MAX);
+      const d = await decodeTextureRgba(bytes, KTX2_IMAGE_PIXELS_MAX);
       if (!d.ok) return null;
       img = d;
-    } else img = await decodeImage(bytes, format, KTX2_SOURCE_PIXELS_MAX);
+    } else img = await decodeImage(bytes, format, KTX2_IMAGE_PIXELS_MAX);
   } catch {
     return null;
   }

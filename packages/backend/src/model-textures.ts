@@ -15,8 +15,8 @@
  *    and prepares its import: a PNG, JPEG or WebP is encoded to KTX2 with
  *    mips (colour, normal map or data, from what the materials sample it as;
  *    one image at a time on the encoder worker, so the backend holds at most
- *    one encode's pixels), a KTX2 file and an image over the encoder's pixel
- *    limit come in as they are. A JPEG or WebP whose lossless original sits
+ *    one encode's pixels), a KTX2 file and an image over the largest the
+ *    encoder takes (`KTX2_IMAGE_PIXELS_MAX`) come in as they are. A JPEG or WebP whose lossless original sits
  *    beside the model (a PNG of the image's name and size, in the model's
  *    folder or its `textures/`) is encoded from that PNG instead, so a lossy
  *    image is not compressed a second time;
@@ -344,7 +344,7 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
           if ('sourceDigest' in facts) args = { convertedFrom, ...facts };
           else entry.note = `the KTX2 was not accepted: ${facts.message}`;
         } else {
-          // Over the encoder's pixel limit (or no encoder here): the image comes in as it is, without a mip chain to stream.
+          // Over the largest image the encoder takes (or no encoder here): the image comes in as it is, without a mip chain to stream.
           entry.note = encoded === null ? 'no KTX2 encoder on this server: imported as it is' : `not encoded to KTX2 (${encoded.message}): imported as it is`;
           mode = null;
         }
