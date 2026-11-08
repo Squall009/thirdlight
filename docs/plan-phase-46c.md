@@ -266,7 +266,7 @@ freeze, 46c.17, 46c.18.
 | 46c.17 | done (000b2444): authoring package — 17 slot sheets + index generated with the slot contract (`gen-slot-sheets.mjs`), Blender 5.2.2 templates (135 kB .blend) + one-click export, sample kit through it (13 meshes, 170 tris, GLB 20,012 B, own 2048² layout, check 0 err/0 warn), guide, art-factory request; D527 fixed. Fast gate GREEN 13 min |
 | 46c.14b | done: first build's full gate GREEN at 9107abbd (33 min, 8.0 GB), review fixed (46c.14c). Closing gate-full-20261106-092942 at 9e50b65e GREEN: 34 min (33), 8.0 GB, 393 e2e; edge-cases failed once, passed alone (D523). Its first run OOM-killed at 8G with no vitest worker cap; restarted with TL_VITEST_WORKERS=4. Review r2: 0H 5M 8L (46c.16h) |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
-| 46c.18 | not started (after approval) |
+| 46c.18 | done 2026-11-08 (lead): 46c closed. Full gate GREEN 9e50b65e (34 min, 8.0 GB, 393 e2e), review r2 0H 5M 8L fixed (16h), 16j/k after it on fast gates; specs v1 + kit format 1 final; package in (000b2444). Open: D502, D509, D515, D516, D518, D520, D522, D524, D526; watch D517, D523. 46d on the owner's word. |
 | R1 | done: `edge-cases.ts` edge pass (12 edges + 8 corners a cell, 10 cases × yaw 4, reach 1) + `edges-draft` v0 (20 cases; window rules beam/banister only) as `edges` v1 (registered, conformance incl. edges); construction shape = integrity in every reader, derived v13 → v14. Town µs a section p50/p95: old case pass 123/318, new passes 144/290 (edge pass 52/111) |
 | R2 | done (53c71768): `roof-mesher.ts`: 45° roof stairs → closed sloped prisms (ridge, hip, valley, pyramid apex; underside onto gable/eave walls), appended to the base, collide as ramps (`collision.ramps`); roof-edge words for R3; derived v15, `edges` v2. Town base tris 328 k → 303 k, roof mesher 188/403 µs a section; fast gate green 13 min; D500–D503 |
 | R3 | done (6dff42ce, cleanup R3c): `derive-pieces.ts`: instances only on edges, corners, roof edges, beams/banisters and debris (integrity < 15, exposed); `WORLD_RULES` = `edges` v3, placement bits, derived v16; no piece on a flat face (tested). Town L0 320 k → 131 k instances (p50 1,355 → 555 a chunk), L1 53 k → 73 k (D505); D504–D505 |
@@ -2590,6 +2590,13 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   material** (no images) until 46d's material model reads kit textures; the sample binds material 12 for tests only
   and nothing binds it by default. The templates `.blend` is committed (135 kB); the sample's `.blend` is made on
   demand (`sample --blend`, 146 kB). The art-factory request asks for a 1024² crack map (the engine's is 512²).
+
+- 2026-11-08 (lead, 46c.18): **46c closed.** Owner answers recorded (2026-11-05/06), built in 46c.16a–k, one full gate
+  (GREEN 9e50b65e, 34 min vs 33, 8.0 GB; the first start was OOM-killed at 8G for want of a vitest worker cap and
+  restarted with TL_VITEST_WORKERS=4), independent review r2 fixed in 16h, 16j/k verified by fast gates; role spec +
+  texture layout v1 APPROVED, kit format 1 final; authoring package (46c.17). Closed rows stay in the audit until
+  phase 46 ends. Next: 46d (material model + far field; its first item the near-ring tessellation spike) — only on
+  the owner's word.
 
 ## 10. Open questions for the owner
 
