@@ -76,7 +76,7 @@ import {
   type FloatingOrigin,
   type JoinedDraw,
   type SeamPieceWire,
-  type SurfaceBuffer,
+  type DrawSurface,
   type InstanceList,
   MATERIAL_ID_MAX,
   SHADER_BORDER_CELLS,
@@ -89,7 +89,7 @@ import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { disposeInstancedTrimGeometry, instancedTrimGeometry, PIECE_U_ATTRIBUTE, pieceU, runAxisOf } from './voxel-trim-u';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
-import { PHASE_CELLS, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
+import { PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
 const SWATCHES = [0x8a8f96, 0x7d7f84, 0x7a5a3c, 0x5f8f3e, 0xc8b47c, 0x4a78b8, 0x9a958c, 0xb0a48c, 0xa9a39a, 0x8b5a33, 0xd8d0c0, 0x9c4a3a, 0xb08850, 0xa0523c, 0x6d6a5f, 0x8c7a6b];
@@ -101,7 +101,7 @@ export function voxelStandInLook(material: number): VoxelMaterialLook {
 
 /** A surface buffer to place: metres a position step, and the metres added to every position. */
 interface PlacedSurface {
-  readonly buf: SurfaceBuffer;
+  readonly buf: DrawSurface;
   readonly stepMetres: number;
   readonly offset: readonly [number, number, number];
 }
@@ -115,12 +115,19 @@ interface PlacedSurface {
  * `cellMetres`: the buffers' cells (a coarser level's for a mip node);
  * positions count from one cell below the object's corner.
  */
-export function voxelSurfaceGeometry(bufs: readonly SurfaceBuffer[], cellMetres = VOXEL_SIZE_M): THREE.BufferGeometry | null {
+export function voxelSurfaceGeometry(bufs: readonly DrawSurface[], cellMetres = VOXEL_SIZE_M, reliefDepthM = 0): THREE.BufferGeometry | null {
   const offset: [number, number, number] = [-cellMetres, -cellMetres, -cellMetres];
-  return placedGeometry(bufs.map((buf) => ({ buf, stepMetres: cellMetres / POSITION_STEPS_PER_CELL, offset })));
+  return placedGeometry(bufs.map((buf) => ({ buf, stepMetres: cellMetres / POSITION_STEPS_PER_CELL, offset })), reliefDepthM);
 }
 
-function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry | null {
+/**
+ * The buffers' vertices placed; a relief mesh's crease weights become the
+ * {@link VOXEL_CREASE_ATTRIBUTE} (0 for a part without them), and its
+ * culling bounds grow by the deepest relief, `reliefDepthM`: the vertex
+ * stage moves its vertices up to that far, so a bound of the plain
+ * positions would cull (or leave out of a shadow) a displaced edge.
+ */
+function placedGeometry(parts: readonly PlacedSurface[], reliefDepthM = 0): THREE.BufferGeometry | null {
   let n = 0;
   let indexCount = 0;
   for (const { buf } of parts) {
@@ -133,6 +140,8 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
   const nor = new Float32Array(n * 3);
   const crack = new Float32Array(n);
   const owner = new Int8Array(n * 4);
+  const relief = parts.some((p) => p.buf.crease !== undefined);
+  const crease = relief ? new Float32Array(n) : null;
   const index = n < 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
   let v0 = 0;
   let i0 = 0;
@@ -150,6 +159,7 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
       const own = surfaceOwnerOf(view, o);
       if (own !== null) owner.set([own[0], own[1], own[2], 1], (v0 + i) * 4);
     }
+    if (crease !== null && b.crease !== undefined) for (let i = 0; i < b.vertexCount; i++) crease[v0 + i] = b.crease[i]! / 255;
     const src = b.indices;
     if (v0 === 0) index.set(src, i0);
     else for (let k = 0; k < src.length; k++) index[i0 + k] = src[k]! + v0;
@@ -163,7 +173,9 @@ function placedGeometry(parts: readonly PlacedSurface[]): THREE.BufferGeometry |
   // snorm8x4 (four bytes a vertex): quarter cells and the owned flag, read back whole by the shader.
   geo.setAttribute(VOXEL_OWNER_ATTRIBUTE, new THREE.BufferAttribute(owner, 4, true));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
+  if (crease !== null) geo.setAttribute(VOXEL_CREASE_ATTRIBUTE, new THREE.BufferAttribute(crease, 1));
   geo.computeBoundingSphere();
+  if (crease !== null) geo.boundingSphere!.radius += reliefDepthM;
   return geo;
 }
 
@@ -175,7 +187,7 @@ function geometryBytes(geo: THREE.BufferGeometry): number {
 }
 
 /** What a chunk's (or node's) draw is made of: its joined sections' surfaces, pieces and shader grid (a join, or a batch's copy of one). */
-export type VoxelChunkDraw = Pick<JoinedDraw, 'ground' | 'base' | 'instances' | 'solid'>;
+export type VoxelChunkDraw = Pick<JoinedDraw, 'instances' | 'solid'> & { readonly ground: DrawSurface; readonly base: DrawSurface };
 
 /** A seam piece: positions in the finer level's steps from its origin (finer-level cells). */
 export type VoxelSeamPiece = SeamPieceWire;
@@ -229,6 +241,8 @@ export interface VoxelChunkViewOptions {
   readonly renderer: VoxelGridRenderer;
   /** Kit pieces' meshes (the world's piece table and kits); absent: kit pieces are not drawn ({@link VoxelChunkView.setKits}). */
   readonly kits?: VoxelKitSet | null;
+  /** Surfaces and pieces cast and receive shadows (default false). */
+  readonly shadows?: boolean;
 }
 
 /** GPU bytes of one instanced piece draw: a matrix an instance, and a trim draw's world-anchored U (voxel-trim-u.ts). */
@@ -265,8 +279,12 @@ export class VoxelChunkView {
   private readonly origin: FloatingOrigin;
   private readonly shading: VoxelSurface;
   private readonly renderer: VoxelGridRenderer;
+  private readonly shadows: boolean;
   /** Triangles drawn (seams included), and of them the seams'. */
   triangles = 0;
+  /** Vertices of the chunk and node surfaces drawn (seams not counted), and of them the relief meshes' (displaced). */
+  vertices = 0;
+  reliefVertices = 0;
   seamTriangles = 0;
   instances = 0;
   /** Objects whose meshes were built (chunks and nodes), and shader grids uploaded or set (one solid entry). */
@@ -283,6 +301,7 @@ export class VoxelChunkView {
     this.origin = opts.origin;
     this.shading = opts.surface;
     this.renderer = opts.renderer;
+    this.shadows = opts.shadows === true;
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     this.kitSet = null;
     this.setKits(opts.kits ?? null);
@@ -454,11 +473,12 @@ export class VoxelChunkView {
     const surface = this.shading.objectValues(cellM);
     const cell = this.at0(level, cx, cy, cz);
     gridPhases(cell, VOXEL_SIZE_M, PHASE_CELLS, surface.phase, surface.slopePhase, surface.slope5Phase);
-    const geo = voxelSurfaceGeometry([d.ground, d.base], cellM);
+    const geo = voxelSurfaceGeometry([d.ground, d.base], cellM, this.shading.reliefDepthM);
     let decalSurface: THREE.Mesh | null = null;
     if (geo !== null) {
       const mesh = new THREE.Mesh(geo, this.shading.material);
       mesh.matrixAutoUpdate = false;
+      mesh.castShadow = mesh.receiveShadow = this.shadows;
       mesh.userData['voxelChunk'] = key;
       mesh.userData['voxelLevel'] = level;
       mesh.userData[VOXEL_SURFACE_KEY] = surface;
@@ -471,6 +491,8 @@ export class VoxelChunkView {
       if (level === 0) this.pickable.push(mesh);
       bytes += geometryBytes(geo);
       this.triangles += (geo.index?.count ?? 0) / 3;
+      this.vertices += geo.getAttribute('position').count;
+      if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) this.reliefVertices += geo.getAttribute('position').count;
     }
     const kept = keptInstances(d.instances, this.kitMaterialsOf(d));
     const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, cellMetres: cellM, waiting: false, decalSurface };
@@ -573,6 +595,7 @@ export class VoxelChunkView {
       // A trim piece's draw has its own geometry for the instances' world-anchored U (voxel-trim-u.ts).
       const trim = g.uPerMetre === undefined ? null : instancedTrimGeometry(g.geometry, n);
       const mesh = new THREE.InstancedMesh(trim?.geometry ?? g.geometry, g.material, n);
+      mesh.castShadow = mesh.receiveShadow = this.shadows;
       mesh.matrixAutoUpdate = false;
       if (trim !== null) {
         mesh.userData['voxelTrimGeometry'] = true;
@@ -634,7 +657,10 @@ export class VoxelChunkView {
       if (i >= 0) this.pickable.splice(i, 1);
       if (child instanceof THREE.InstancedMesh) this.dropPieceMesh(child);
       else if (child instanceof THREE.Mesh) {
-        this.triangles -= ((child.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
+        const g = child.geometry as THREE.BufferGeometry;
+        this.triangles -= (g.index?.count ?? 0) / 3;
+        this.vertices -= g.getAttribute('position').count;
+        if (g.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) this.reliefVertices -= g.getAttribute('position').count;
         (child.geometry as THREE.BufferGeometry).dispose();
       }
     }
@@ -659,6 +685,7 @@ export class VoxelChunkView {
     const geo = placedGeometry(parts);
     if (geo === null) return 0;
     const mesh = new THREE.Mesh(geo, this.shading.material);
+    mesh.castShadow = mesh.receiveShadow = this.shadows;
     mesh.name = `voxel-seam ${seamId(level, nx, ny, nz, face)}`;
     mesh.matrixAutoUpdate = false;
     if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;

@@ -32,10 +32,14 @@ import { chunkKey, type ChunkGrid } from './coords';
 import type { JoinedDraw, JoinTimes } from './chunk-join';
 import type { DerivedData } from './derived-data';
 import type { InstanceList, SurfaceBuffer } from './derived-mesh';
+import type { ReliefSurface } from './relief-mesh';
 import { shaderGridEntries, shaderGridSide, shaderSolidEntry } from './derived-shader';
 import type { FaceSeam, NodeFace } from './lod-seam';
 import type { SwapReport } from './stream-sections';
 import type { StreamEvent } from './voxel-streamer';
+
+/** A surface as drawn: a relief mesh's carries a crease weight a vertex (relief-mesh.ts; 0 fixed, 255 free). */
+export type DrawSurface = SurfaceBuffer & { readonly crease?: Uint8Array };
 
 /** One chunk's (or, with `level`, one mip node's) change in a batch. */
 export interface ChunkDrawWire {
@@ -46,8 +50,8 @@ export interface ChunkDrawWire {
   readonly cz: number;
   /** `draw`: its draw is replaced (nothing to draw removes it); `shader`: only its shader data; `remove`: no longer drawn. */
   readonly kind: 'draw' | 'shader' | 'remove';
-  readonly ground?: SurfaceBuffer;
-  readonly base?: SurfaceBuffer;
+  readonly ground?: DrawSurface;
+  readonly base?: DrawSurface;
   readonly instances?: InstanceList;
   /** The grid's one solid entry (0: all air), or −1: its side³ entries are in `cells`. */
   readonly solid?: number;
@@ -149,6 +153,8 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(c.ground?.indices);
     add(c.base?.vertices);
     add(c.base?.indices);
+    add(c.ground?.crease);
+    add(c.base?.crease);
     add(c.instances?.data);
     add(c.cells);
   }
@@ -266,9 +272,13 @@ export class ChunkDrawBatcher {
     this.sent.add(key);
     const own = <T extends Uint8Array | Uint16Array | Uint32Array>(a: T): T => (this.copy ? (a.slice() as T) : a);
     const surface = (s: SurfaceBuffer): SurfaceBuffer => ({ vertexCount: s.vertexCount, vertices: own(s.vertices), indices: own(s.indices) });
-    // The relief mesh is drawn in place of the surfaces where the derive made one (the plain ones still collide).
-    const shown = d.relief ?? d;
-    this.push({ cx, cy, cz, kind: 'draw', ground: surface(shown.ground), base: surface(shown.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
+    if (d.relief !== undefined) {
+      // The relief mesh is drawn in place of the surfaces (the plain ones still collide), its crease weights with it.
+      const relief = (r: ReliefSurface): DrawSurface => ({ ...surface(r), crease: own(r.crease) });
+      this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
+      return;
+    }
+    this.push({ cx, cy, cz, kind: 'draw', ground: surface(d.ground), base: surface(d.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
   }
 
   /** A drawn mip node's draw from its current result (nothing to draw: removed). */

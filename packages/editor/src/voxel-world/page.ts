@@ -88,7 +88,8 @@ import {
   VoxelStreamer,
   WETNESS_MAX,
 } from '@thirdlight/voxel';
-import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { bindViewInput, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { kitSceneHooks } from './kit-scene-labels';
 import { pageToken } from '../config';
@@ -120,10 +121,15 @@ const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionP
 const levelsParam = params.get('levels');
 /**
  * `?relief=n` (2, 4, 8): the chunks within `?reliefRadius=` metres (default 32) of the focus when derived also derive
- * the relief mesh n lattice steps a cell, drawn in place of their surfaces (a spike: no displacement yet).
+ * the relief mesh n lattice steps a cell, drawn in place of their surfaces and moved in the vertex stage by the
+ * engine's relief test heights (`voxelTestRelief`); every surface's lighting normal follows the heights. The
+ * displacement fades to none between `?reliefFade=a,b` metres from the focus (default the 4 m up to the radius less a
+ * chunk's half diagonal: a chunk at the ring's edge, plain or relief, does not move). `?displace=0` and `?bump=0`
+ * start with either off (the hook's `setRelief` switches them).
  */
-const reliefParam = params.get('relief');
-const reliefRadiusM = Number(params.get('reliefRadius') ?? 32);
+const relief = new PageRelief(reliefParams(params), grid.edge);
+/** `?shadows=1`: the sun casts shadows (a map over the view round the focus), surfaces and pieces cast and receive them. */
+const shadows = params.get('shadows') === '1';
 const levelRings = (metres: readonly number[]): { radii: number[]; hysteresis: number } => ({ radii: metres.map((m) => Math.round(m / VOXEL_SIZE_M)), hysteresis: DEFAULT_LEVEL_RINGS.hysteresis });
 /** A brush dab's half size in cells (a 1 m sphere). */
 const BRUSH_CELLS = 2;
@@ -182,15 +188,6 @@ export interface EditTiming {
   startedAt?: number;
 }
 
-/** The page's sky light and sun: ~60° high by default; `?sun=` lowers it (same azimuth) so slope banding and creases can be looked at in grazing light. */
-function addLights(scene: THREE.Scene): void {
-  scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a4030, 1.3));
-  const sun = new THREE.DirectionalLight(0xfff2dc, 2.2);
-  const sunHorizontal = Math.hypot(0.5, 0.3);
-  sun.position.set(0.5, sunElevationDeg === null ? 1 : Math.tan((sunElevationDeg * Math.PI) / 180) * sunHorizontal, 0.3);
-  scene.add(sun);
-}
-
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
 /** What a swapped edit cost once the frame showing it is drawn (meshes and colliders swap in the same task). */
 async function shownTiming(streamer: Pick<VoxelStreamer, 'settle'>, t0: number, startFrame: number, seen: SwapSeen): Promise<EditTiming> {
@@ -220,7 +217,8 @@ async function main(): Promise<void> {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9fc4e8);
-  addLights(scene);
+  const sun = new PageSun(scene, sunElevationDeg, shadows);
+  if (shadows) renderer.shadowMap.enabled = true;
   const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1500);
 
   // The camera orbits a target point (cells, 64-bit); everything drawn is relative to the floating origin.
@@ -228,12 +226,13 @@ async function main(): Promise<void> {
   const view = { yaw: -0.6, pitch: 0.45, distM: 22 };
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
-  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: blendM, shading, bands });
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...relief.surfaceOptions(), blendMetres: blendM, shading, bands });
+  relief.attach(surface);
   // The project's kits and seed, one table for the derives and the draws; their meshes load beside the stream.
   const kitRoute = { api, projectId, headers };
   const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : await readVoxelKits(kitRoute).catch((e: unknown) => fail(`voxel kits: ${e instanceof Error ? e.message : String(e)}`)));
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(reliefParam !== null ? { relief: { n: Number(reliefParam), radius: Math.round(reliefRadiusM / VOXEL_SIZE_M) } } : {}), ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
-  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(relief.params.n !== null ? { relief: { n: relief.params.n, radius: Math.round(relief.params.radiusM / VOXEL_SIZE_M) } } : {}), ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
   const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') === 'level' ? 'level' : params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
@@ -320,45 +319,21 @@ async function main(): Promise<void> {
     const c = Math.cos(view.pitch);
     camera.position.set(tx + Math.sin(view.yaw) * c * view.distM, ty + Math.sin(view.pitch) * view.distM, tz + Math.cos(view.yaw) * c * view.distM);
     camera.lookAt(tx, ty, tz);
+    relief.follow(tx, ty, tz);
+    sun.follow(tx, ty, tz);
     streamer.setFocus(target.x, target.y, target.z);
     ring?.ring.setFoci([target]);
   }
 
   // ---- input: orbit, zoom, move, pick to edit ----
-  const keys = new Set<string>();
-  let drag: { x: number; y: number; moved: boolean } | null = null;
-  canvas.addEventListener('pointerdown', (e) => {
-    drag = { x: e.clientX, y: e.clientY, moved: false };
-  });
-  addEventListener('pointerup', (e) => {
-    const d = drag;
-    drag = null;
-    if (d !== null && !d.moved && e.target === canvas) void pickAndEdit(e.clientX, e.clientY, e.shiftKey ? 'add' : 'dig');
-  });
-  addEventListener('pointermove', (e) => {
-    if (drag === null) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-    if (!drag.moved) return;
-    drag.x = e.clientX;
-    drag.y = e.clientY;
-    view.yaw -= dx * 0.005;
-    view.pitch = Math.min(1.45, Math.max(-0.2, view.pitch + dy * 0.005));
-  });
-  canvas.addEventListener('wheel', (e) => {
-    view.distM = Math.min(400, Math.max(4, view.distM * Math.exp(e.deltaY * 0.001)));
-    e.preventDefault();
-  });
-  addEventListener('keydown', (e) => {
-    keys.add(e.key.toLowerCase());
-    if (e.key.toLowerCase() === 'z') void undo();
-  });
-  addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-  addEventListener('resize', () => {
-    renderer.setSize(innerWidth, innerHeight, false);
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
+  const keys = bindViewInput(canvas, view, {
+    pick: (x, y, mode) => void pickAndEdit(x, y, mode),
+    undo: () => void undo(),
+    resize: () => {
+      renderer.setSize(innerWidth, innerHeight, false);
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+    },
   });
 
   const raycaster = new THREE.Raycaster();
@@ -525,6 +500,10 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
+    /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
+    setRelief(s: { displace?: boolean; bump?: boolean }): void {
+      relief.set(s);
+    },
     /** Metres two neighbouring cells' materials blend over (no new program). */
     setBlend(m: number): void {
       surface.setBlendMetres(m);
@@ -577,7 +556,7 @@ async function main(): Promise<void> {
         seams: meshes.seamCount,
         seamTriangles: meshes.seamTriangles,
         lod: mips === null ? null : { ...mips.lod.counters, radii: mips.lod.levelRings.radii, swapMs: { p50: q(mips.lod.swapMs, 0.5), p95: q(mips.lod.swapMs, 0.95), n: mips.lod.swapMs.count } },
-        triangles: meshes.triangles,
+        triangles: meshes.triangles, vertices: meshes.vertices, reliefVertices: meshes.reliefVertices,
         pieces: meshes.instances, kitPieces: meshes.piecesDrawn.kit, pieceDraws: meshes.pieceDraws, drawCalls: (renderer.info as unknown as { render: { drawCalls: number } }).render.drawCalls,
         kits: { ids: kits.table?.kits.map((k) => k.id) ?? [], meshes: kits.meshes.states() },
         streamBytes: m.bytes,
@@ -588,6 +567,8 @@ async function main(): Promise<void> {
         kitBytes: kits.meshes.bytes(),
         mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, gpuBytes: mips.gpuBytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
+        relief: relief.state(),
+        shadows,
         surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,
         section: sectionEdge,

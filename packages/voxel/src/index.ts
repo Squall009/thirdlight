@@ -246,7 +246,7 @@ export { faceLevels, StreamSeams, type LevelSelection, type SeamEvent, type Seam
 export { COLLISION_ADD_MS_PER_UPDATE, COLLISION_PART, COLLISION_RING_HYSTERESIS_CELLS, CollisionRing, collisionRingBounds, type CollisionBodies, type CollisionRingBounds, type CollisionRingFeed, type CollisionRingOptions, type CollisionRingUpdate } from './collision-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { joinCollision, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
-export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkSwapWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
+export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkSwapWire, type DrawSurface, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
 export { applyWorldRings, worldLevelRings, worldPieceTable, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres, type WorldRingSettings } from './world-streamer';

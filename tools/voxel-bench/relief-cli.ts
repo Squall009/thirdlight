@@ -16,7 +16,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { cpus, loadavg, uptime } from 'node:os';
 import { join } from 'node:path';
-import { chunkGrid, createWorldStore, reliefBytes, reliefNeighbourBit, VOXEL_SIZE_M, type PaletteStore, type ReliefOptions } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, RELIEF_FREE, reliefBytes, reliefNeighbourBit, VOXEL_SIZE_M, type PaletteStore, type ReliefOptions } from '@thirdlight/voxel';
 import type { TestGrid } from './world-kit';
 import { benchDir } from './bench-dirs';
 import { loadArea, surfaceY } from './regions';
@@ -86,6 +86,9 @@ interface Row {
   plainBytes: number;
   reliefBytes: number;
   reliefVertexBytes: number;
+  /** Relief vertices, and of them those free to move (crease weight {@link RELIEF_FREE}): what displacement can reach. */
+  reliefVertices: number;
+  freeVertices: number;
   sectionReliefBytes: [number, number];
   reliefUs: number[];
   deriveUs: number[];
@@ -112,7 +115,7 @@ function measure(sc: Scene, radiusM: number, n: number, round: number, row: Row 
     }
     return { n, plainNeighbours };
   };
-  const out: Row = row ?? { world: sc.name, radiusM, n, sections: 0, plainTriangles: 0, reliefTriangles: 0, sectionTriangles: { plain: [0, 0], relief: [0, 0] }, plainBytes: 0, reliefBytes: 0, reliefVertexBytes: 0, sectionReliefBytes: [0, 0], reliefUs: [], deriveUs: [], plainUs: [] };
+  const out: Row = row ?? { world: sc.name, radiusM, n, sections: 0, plainTriangles: 0, reliefTriangles: 0, sectionTriangles: { plain: [0, 0], relief: [0, 0] }, plainBytes: 0, reliefBytes: 0, reliefVertexBytes: 0, reliefVertices: 0, freeVertices: 0, sectionReliefBytes: [0, 0], reliefUs: [], deriveUs: [], plainUs: [] };
   const per = { plain: [] as number[], relief: [] as number[], bytes: [] as number[] };
   const c0 = (v: number): number => Math.floor((v - rc) / E);
   const c1 = (v: number): number => Math.floor((v + rc) / E);
@@ -133,6 +136,10 @@ function measure(sc: Scene, radiusM: number, n: number, round: number, row: Row 
       out.reliefTriangles += rt;
       out.plainBytes += surfaceBytes(p.ground) + surfaceBytes(p.base);
       out.reliefBytes += reliefBytes(rel);
+      for (const sf of [rel.ground, rel.base]) {
+        out.reliefVertices += sf.vertexCount;
+        for (let i = 0; i < sf.vertexCount; i++) if (sf.crease[i] === RELIEF_FREE) out.freeVertices++;
+      }
       out.reliefVertexBytes += rel.ground.vertices.byteLength + rel.base.vertices.byteLength + rel.ground.crease.byteLength + rel.base.crease.byteLength;
       per.plain.push(pt);
       per.relief.push(rt);
@@ -167,11 +174,11 @@ const md = [
   '',
   `Node ${process.version}, ${cpus()[0]?.model ?? '?'}, load ${loadavg().map((l) => l.toFixed(2)).join(' ')}, uptime ${(uptime() / 86400).toFixed(1)} d; ${ROUNDS} rounds (µs over all of them); 16³ sections, world rules, no kit.`,
   '',
-  '| world | radius m | n | sections | triangles plain → relief (×) | a section p50 / p95 plain → relief | ring MB plain → relief (vertex MB) | relief MB a section p50 / p95 | relief µs a section p50 / p95 | derive µs p50 / p95 plain → with relief |',
-  '|---|---|---|---|---|---|---|---|---|---|',
+  '| world | radius m | n | sections | triangles plain → relief (×) | a section p50 / p95 plain → relief | ring MB plain → relief (vertex MB) | relief MB a section p50 / p95 | relief µs a section p50 / p95 | derive µs p50 / p95 plain → with relief | free vertices |',
+  '|---|---|---|---|---|---|---|---|---|---|---|',
   ...rows.map(
     (r) =>
-      `| ${r.world} | ${r.radiusM} | ${r.n} | ${r.sections} | ${r.plainTriangles} → ${r.reliefTriangles} (${(r.reliefTriangles / Math.max(1, r.plainTriangles)).toFixed(1)}) | ${r.sectionTriangles.plain.join(' / ')} → ${r.sectionTriangles.relief.join(' / ')} | ${(r.plainBytes / 1e6).toFixed(2)} → ${(r.reliefBytes / 1e6).toFixed(2)} (${(r.reliefVertexBytes / 1e6).toFixed(2)}) | ${(r.sectionReliefBytes[0] / 1e3).toFixed(1)} / ${(r.sectionReliefBytes[1] / 1e3).toFixed(1)} kB | ${r1(q(r.reliefUs, 0.5))} / ${r1(q(r.reliefUs, 0.95))} | ${r1(q(r.plainUs, 0.5))} / ${r1(q(r.plainUs, 0.95))} → ${r1(q(r.deriveUs, 0.5))} / ${r1(q(r.deriveUs, 0.95))} |`,
+      `| ${r.world} | ${r.radiusM} | ${r.n} | ${r.sections} | ${r.plainTriangles} → ${r.reliefTriangles} (${(r.reliefTriangles / Math.max(1, r.plainTriangles)).toFixed(1)}) | ${r.sectionTriangles.plain.join(' / ')} → ${r.sectionTriangles.relief.join(' / ')} | ${(r.plainBytes / 1e6).toFixed(2)} → ${(r.reliefBytes / 1e6).toFixed(2)} (${(r.reliefVertexBytes / 1e6).toFixed(2)}) | ${(r.sectionReliefBytes[0] / 1e3).toFixed(1)} / ${(r.sectionReliefBytes[1] / 1e3).toFixed(1)} kB | ${r1(q(r.reliefUs, 0.5))} / ${r1(q(r.reliefUs, 0.95))} | ${r1(q(r.plainUs, 0.5))} / ${r1(q(r.plainUs, 0.95))} → ${r1(q(r.deriveUs, 0.5))} / ${r1(q(r.deriveUs, 0.95))} | ${((100 * r.freeVertices) / Math.max(1, r.reliefVertices)).toFixed(0)} % |`,
   ),
   '',
 ].join('\n');
