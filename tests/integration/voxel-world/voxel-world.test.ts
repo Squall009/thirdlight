@@ -24,7 +24,8 @@
  * their pieces' model, each with the material ids it binds), the materials
  * with their parts and resolved physics, the voxel surfaces' texture arrays
  * (assembled from the voxel materials' surface sets, the same bytes the
- * editor's route answers), or refusing a damaged world.
+ * editor's route answers, the height in the normal array's A), or refusing
+ * a damaged world.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
@@ -70,6 +71,7 @@ import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
 import { caseAt } from '../../../tools/voxel-bench/case-probe';
 import { flatGround, placeWallBeamBanister } from '../../../tools/voxel-bench/scenes';
 import { placeholderPng, placeholderSet } from '../../../tools/voxel-bench/texture-sets';
+import { transcodeKtx2Levels } from '../../../tools/voxel-bench/three-basis';
 
 const ORIGIN = 'http://127.0.0.1:8501';
 const TOKEN = 'voxel-authoring-token';
@@ -837,12 +839,12 @@ describe('voxel world routes', () => {
     mkdirSync(texDir, { recursive: true });
     for (const set of ['stone', 'timber'] as const) {
       const maps = placeholderSet(set, 256);
-      for (const map of ['albedoHeight', 'normal'] as const) writeFileSync(join(texDir, `${set}-${map}.png`), placeholderPng(maps[map], 256));
+      for (const map of ['albedo', 'normal'] as const) writeFileSync(join(texDir, `${set}-${map}.png`), placeholderPng(maps[map], 256));
     }
     expect((await send('importAssets', { folder: 'assets/voxel-textures' })).status).toBe(200);
     const texAssets = ((await query('queryAssets', { limit: 100 })) as { assets: Array<{ assetId: string; sourcePath?: string }> }).assets;
     const tex = (name: string): string => texAssets.find((a) => a.sourcePath === `assets/voxel-textures/${name}.png`)!.assetId;
-    const clayVoxel: MaterialVoxel = { id: 14, use: 'terrain', surfaces: { wall: { albedoHeight: tex('stone-albedoHeight'), normal: tex('stone-normal') }, floor: { albedoHeight: tex('timber-albedoHeight') } } };
+    const clayVoxel: MaterialVoxel = { id: 14, use: 'terrain', surfaces: { wall: { albedo: tex('stone-albedo'), normal: tex('stone-normal') }, floor: { albedo: tex('timber-albedo') } } };
     // A voxel material nothing but the world's cells name ships (any id may be in the files or painted at run time);
     // a mesh material nothing names does not.
     for (const material of [{ materialId: 'clay', name: 'Clay', shader: 'standard', params: { color: '#a0603a' }, textures: {}, voxel: clayVoxel }, { materialId: 'unworn', name: 'Unworn', shader: 'standard', params: {}, textures: {} }]) {
@@ -881,7 +883,7 @@ describe('voxel world routes', () => {
     // project-wide; a map no set names (ORM) has no array. Two layers: the stone wall, the timber floor. Each ships cut
     // into its mip parts (the head with the tail to 128², then 256²), as a streamed texture asset ships, never whole.
     const voxelTextures = (content as unknown as { voxelTextures?: Record<string, string> }).voxelTextures!;
-    expect(Object.keys(voxelTextures).sort()).toEqual(['albedoHeight', 'normal']);
+    expect(Object.keys(voxelTextures).sort()).toEqual(['albedo', 'normal']);
     const shippedDeps = ((content as unknown as { dependencies?: Array<{ assetId: string; path: string }> }).dependencies ?? []);
     const sets = voxelSurfaceTextures([{ shader: 'standard', voxel: clayVoxel }])!;
     for (const [map, id] of Object.entries(voxelTextures)) {
@@ -894,10 +896,26 @@ describe('voxel world routes', () => {
       expect(layout.ok && layout.layout.layers, map).toBe(2);
       expect(layout.ok && layout.layout.width, map).toBe(256);
       // The editor's views draw the very array: the backend's route answers the same bytes for the same slot list.
-      const set = sets.sets[map as 'albedoHeight' | 'normal']!;
-      const viewed = await fetch(`${base()}/api/v1/projects/${PROJECT}/content/textures/slots`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ layers: set.layers, mode: set.mode, ...(set.height === true ? { height: true } : {}) }) });
+      const set = sets.sets[map as 'albedo' | 'normal']!;
+      const viewed = await fetch(`${base()}/api/v1/projects/${PROJECT}/content/textures/slots`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ layers: set.layers, mode: set.mode }) });
       expect(viewed.status, `${map}: ${textureSlotSetKey(set)}`).toBe(200);
       expect(Buffer.from(await viewed.arrayBuffer()).equals(Buffer.from(bytes)), map).toBe(true);
+      if (map !== 'normal') continue;
+      // The height lives in the normal map's A (texture layout v1), kept through the import and the assembly and read
+      // back by three's transcoder: the stone wall's layer holds the stone's height; the timber floor's set names no
+      // normal map, so its layer is the flat normal at height 1 (no relief, no crevice to fill).
+      const top = (await transcodeKtx2Levels(bytes)).levels[0]!;
+      const source = placeholderSet('stone', 256).normal;
+      let err = 0;
+      let spread = 0;
+      for (let i = 0; i < 256 * 256; i++) {
+        err += Math.abs(top.data[i * 4 + 3]! - source[i * 4 + 3]!);
+        spread = Math.max(spread, Math.abs(source[i * 4 + 3]! - source[3]!));
+      }
+      expect(spread, 'the stone has a height range').toBeGreaterThan(60);
+      expect(err / (256 * 256), 'mean height error (/255)').toBeLessThan(3);
+      const floor = top.data.subarray(256 * 256 * 4);
+      for (let i = 3; i < floor.length; i += 4 * 97) expect(floor[i]).toBe(255);
     }
     expect([...sets.layers]).toEqual([[14, [0, 1, 0]]]);
     const kitMesh = (shippedKits![0]!['slots'] as Record<string, { meshes: Array<{ mesh: { digest: string } }> }>)['edge-out-top']!.meshes[0]!.mesh;

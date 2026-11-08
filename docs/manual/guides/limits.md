@@ -18,8 +18,10 @@ holds this build's value.
 
 - **Per file or per object.** One content file is at most 1 MiB
   ([`MAX_CONTENT_FILE_BYTES`](../reference/limits-project-model-1.md#limit-max-content-file-bytes)),
-  one imported asset at most 32 MiB
-  ([`CONTENT_STAGE_MAX`](../reference/limits-protocol.md#limit-content-stage-max)),
+  one imported model or audio file at most 32 MiB
+  ([`MAX_SOURCE_BYTES`](../reference/limits-project-model-1.md#limit-max-source-bytes)), a texture
+  file at most 65.3 MiB (the largest texture as a PNG, however busy)
+  ([`MAX_TEXTURE_SOURCE_BYTES`](../reference/limits-project-model-1.md#limit-max-texture-source-bytes)),
   one scene's objects at most 32 MiB of scene document, about four times
   16,384 plain objects
   ([`SCENE_OBJECT_BUDGET_BYTES`](../reference/limits-project-model-2.md#limit-scene-object-budget-bytes);

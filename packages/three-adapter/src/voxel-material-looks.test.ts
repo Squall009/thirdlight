@@ -28,10 +28,11 @@ const records: VoxelLookRecord[] = [
 
 describe('voxel looks from material records', () => {
   it('draws each voxel id as its record says, over the stand-in for what it leaves out and for ids without one', () => {
-    const base = (m: number) => ({ ...voxelStandInLook(m), ...(m === 10 ? { relief: { layer: 1, depthMetres: 0.03 } } : {}) });
+    const base = (m: number) => ({ ...voxelStandInLook(m), ...(m === 10 ? { testHeightLayer: 1, heightDepthMetres: 0.03 } : {}) });
     const look = voxelRecordLooks(records, base);
-    expect(look(10)).toEqual({ ...voxelStandInLook(10), colour: 0x808070, constructionTileMetres: phaseTileMetres(3), terrainTileMetres: phaseTileMetres(3), relief: { layer: 1, depthMetres: 0.08 } });
-    expect(look(11)).toEqual({ ...voxelStandInLook(11), colour: 0x202020, constructionTileMetres: 8, terrainTileMetres: 8 });
+    expect(look(10)).toEqual({ ...voxelStandInLook(10), colour: 0x808070, constructionTileMetres: phaseTileMetres(3), terrainTileMetres: phaseTileMetres(3), testHeightLayer: 1, heightDepthMetres: 0.08 });
+    // The variant inherits its parent's height depth: every surface's heights blend and fill by it.
+    expect(look(11)).toEqual({ ...voxelStandInLook(11), colour: 0x202020, constructionTileMetres: 8, terrainTileMetres: 8, heightDepthMetres: 0.08 });
     expect(look(2)).toEqual(voxelStandInLook(2));
     for (const id of [1, 3, 12, 4095]) expect(look(id)).toEqual(voxelStandInLook(id));
     // A tile that does not divide the 512 m phase is drawn at the nearest that does.
@@ -44,10 +45,10 @@ describe('voxel looks from material records', () => {
 
   it('draws a record with a texture set as its set (white unless it names a colour, a tint) and finds its layers from the records, a variant\'s own sets included', () => {
     const textured: VoxelLookRecord[] = [
-      { materialId: 'brick', shader: 'standard', params: {}, voxel: { id: 15, use: 'construction', surfaces: { wall: { albedoHeight: 'brick-a', normal: 'brick-n' } } } },
+      { materialId: 'brick', shader: 'standard', params: {}, voxel: { id: 15, use: 'construction', surfaces: { wall: { albedo: 'brick-a', normal: 'brick-n' } } } },
       // A tinted variant on the same textures (one layer), and one with a floor set of its own.
       { materialId: 'brick-red', shader: 'standard', params: { color: '#d08a70' }, instanceOf: 'brick', voxel: { id: 16 } },
-      { materialId: 'brick-floor', shader: 'standard', params: {}, instanceOf: 'brick', voxel: { id: 17, surfaces: { floor: { albedoHeight: 'tile-a' } } } },
+      { materialId: 'brick-floor', shader: 'standard', params: {}, instanceOf: 'brick', voxel: { id: 17, surfaces: { floor: { albedo: 'tile-a' } } } },
       ...records,
     ];
     const look = voxelRecordLooks(textured);
@@ -56,7 +57,7 @@ describe('voxel looks from material records', () => {
     expect(look(10).colour).toBe(0x808070);
     expect(look(2)).toEqual(voxelStandInLook(2));
     const t = voxelRecordTextures(textured)!;
-    expect(t.sets.albedoHeight.layers).toEqual(['brick-a', 'tile-a']);
+    expect(t.sets.albedo.layers).toEqual(['brick-a', 'tile-a']);
     expect([...t.layers]).toEqual([
       [15, [0, 0, 0]],
       [16, [0, 0, 0]],

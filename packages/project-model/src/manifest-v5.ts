@@ -263,7 +263,7 @@ export type CaptureManifestV5Input = Omit<CaptureManifestV2Input, 'assets' | 'sc
   voxelWorlds?: readonly ShippedVoxelWorld[];
   /** The project's voxel kits (absent or empty: none). */
   voxelKits?: readonly VoxelKit[];
-  /** The voxel surfaces' texture arrays by map (`albedoHeight`, `normal`, `orm`: shipped texture ids; absent or empty: none). */
+  /** The voxel surfaces' texture arrays by map (`albedo`, `normal`, `orm`: shipped texture ids; absent or empty: none). */
   voxelTextures?: Readonly<Partial<Record<VoxelTextureMap, string>>>;
   /** SHA-256 (lowercase hex) of the files' bytes (default: project-model's portable one). */
   sha256?: (bytes: Uint8Array) => string;

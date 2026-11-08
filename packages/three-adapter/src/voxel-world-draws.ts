@@ -255,7 +255,7 @@ export class VoxelWorldDraws {
         }
         this.textureLoads++;
         this.textureLoadMs = performance.now() - t0;
-        this.drawArrays({ key, textures, layers: made.layers, count: made.sets.albedoHeight.layers.length });
+        this.drawArrays({ key, textures, layers: made.layers, count: made.sets.albedo.layers.length });
       })
       .catch(() => {
         // A failed array leaves the surfaces on their flat colours (the host reports the failure where it loads).

@@ -39,7 +39,7 @@ const OAK: MaterialDef = {
   textures: {},
   physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 },
   gameData: { footstep: 'wood', break: { hits: 3 } },
-  voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, surfaces: { wall: { albedoHeight: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedoHeight: 'tex-f' } } },
+  voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, surfaces: { wall: { albedo: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedo: 'tex-f' } } },
 };
 
 function content(extra: Obj = {}): Obj {
@@ -64,7 +64,7 @@ function refused(extra: Obj): { code: string; path: string } {
 describe('the material record', () => {
   it('keeps every new optional field through the canonical round trip (field order fixed, game data keys sorted), and the profiles', () => {
     // Given out of canonical order, with an empty surface set and an empty physical block on another material.
-    const shuffled = { voxel: { surfaces: { floor: { albedoHeight: 'tex-f' }, ceiling: {}, wall: { orm: 'tex-o', normal: 'tex-n', albedoHeight: 'tex-a' } }, heightDepth: 0.03, tileMetres: 4, kit: 'log', use: 'construction', id: 12 }, gameData: { break: { hits: 3 }, footstep: 'wood' }, physical: { flowRate: 0, restitution: 0.2, friction: 0.55, density: 650, profile: 'wood' }, textures: {}, params: {}, shader: 'standard', name: 'Oak', materialId: 'oak' };
+    const shuffled = { voxel: { surfaces: { floor: { albedo: 'tex-f' }, ceiling: {}, wall: { orm: 'tex-o', normal: 'tex-n', albedo: 'tex-a' } }, heightDepth: 0.03, tileMetres: 4, kit: 'log', use: 'construction', id: 12 }, gameData: { break: { hits: 3 }, footstep: 'wood' }, physical: { flowRate: 0, restitution: 0.2, friction: 0.55, density: 650, profile: 'wood' }, textures: {}, params: {}, shader: 'standard', name: 'Oak', materialId: 'oak' };
     const plain = { materialId: 'plain', name: 'Plain', shader: 'standard', params: {}, textures: {}, physical: {} };
     const profile: MaterialProfile = { profileId: 'oak-wood', name: 'Oak wood', density: 700, friction: 0.6, restitution: 0.2, flowRate: 0, gameData: { z: 1, a: 2 } };
     const c = loaded({ materials: [shuffled, plain], materialProfiles: [{ gameData: { z: 1, a: 2 }, flowRate: 0, restitution: 0.2, friction: 0.6, density: 700, name: 'Oak wood', profileId: 'oak-wood' }] });
@@ -74,7 +74,7 @@ describe('the material record', () => {
     expect(Object.keys(oak!['gameData'] as Obj)).toEqual(['break', 'footstep']);
     expect(Object.keys(oak!['voxel'] as Obj)).toEqual(['id', 'use', 'kit', 'tileMetres', 'heightDepth', 'surfaces']);
     expect(Object.keys((oak!['voxel'] as Obj)['surfaces'] as Obj)).toEqual(['wall', 'floor']);
-    expect(Object.keys(((oak!['voxel'] as Obj)['surfaces'] as Obj)['wall'] as Obj)).toEqual(['albedoHeight', 'normal', 'orm']);
+    expect(Object.keys(((oak!['voxel'] as Obj)['surfaces'] as Obj)['wall'] as Obj)).toEqual(['albedo', 'normal', 'orm']);
     expect(oak).toEqual(OAK);
     // An empty physical block says nothing: left out.
     expect(kept).toEqual({ materialId: 'plain', name: 'Plain', shader: 'standard', params: {}, textures: {} });
@@ -102,7 +102,7 @@ describe('the material record', () => {
     expect(refused(m({ physical: { restitution: 1.5 } }))).toMatchObject({ code: 'field_value', path: '/materials/0/physical/restitution' });
     expect(refused(m({ gameData: { f: () => 1 } }))).toMatchObject({ code: 'field_value', path: '/materials/0/gameData' });
     // A texture set map names a texture asset of the project.
-    expect(refused(m({ voxel: { ...OAK.voxel, surfaces: { wall: { albedoHeight: 'no-such-texture' } } } }))).toMatchObject({ code: 'asset_reference_missing', path: '/materials/0/voxel/surfaces/wall/albedoHeight' });
+    expect(refused(m({ voxel: { ...OAK.voxel, surfaces: { wall: { albedo: 'no-such-texture' } } } }))).toMatchObject({ code: 'asset_reference_missing', path: '/materials/0/voxel/surfaces/wall/albedo' });
     expect(refused({ materialProfiles: [{ profileId: 'x', name: 'X', grip: 1 }] })).toMatchObject({ code: 'field_unexpected', path: '/materialProfiles/0/grip' });
     expect(refused({ materialProfiles: [{ profileId: 'x', name: 'X' }, { profileId: 'x', name: 'Y' }] })).toMatchObject({ code: 'id_duplicate', path: '/materialProfiles/1/profileId' });
   });
@@ -129,13 +129,13 @@ describe('the material record', () => {
     // The second level changes the friction and adds a game data key; the last is a voxel variant with its own tile and floor albedo.
     chain[2] = { ...chain[2]!, physical: { friction: 0.9 }, gameData: { stain: 'dark' } };
     const last = chain.length - 1;
-    chain[last] = { ...chain[last]!, voxel: { id: 40, tileMetres: 2, surfaces: { floor: { albedoHeight: 'tex-a' } } } };
+    chain[last] = { ...chain[last]!, voxel: { id: 40, tileMetres: 2, surfaces: { floor: { albedo: 'tex-a' } } } };
     const c = loaded({ materials: chain });
     const stored = c['materials'] as MaterialDef[];
     const variant = resolveMaterial(stored, `oak-${MAX_MATERIAL_INSTANCE_DEPTH}`)!;
     expect(variant.physical).toEqual({ profile: 'wood', density: 650, friction: 0.9, restitution: 0.2, flowRate: 0 });
     expect(variant.gameData).toEqual({ footstep: 'wood', break: { hits: 3 }, stain: 'dark' });
-    expect(variant.voxel).toEqual({ id: 40, use: 'construction', kit: 'log', tileMetres: 2, heightDepth: 0.03, surfaces: { wall: OAK.voxel!.surfaces!.wall, floor: { albedoHeight: 'tex-a' } } });
+    expect(variant.voxel).toEqual({ id: 40, use: 'construction', kit: 'log', tileMetres: 2, heightDepth: 0.03, surfaces: { wall: OAK.voxel!.surfaces!.wall, floor: { albedo: 'tex-a' } } });
     // A level between without a voxel part of its own is a mesh variant: no voxel use.
     expect(resolveMaterial(stored, 'oak-3')!.voxel).toBeUndefined();
     expect(voxelSurfaceSet(variant.voxel!, 'ceiling')).toEqual(OAK.voxel!.surfaces!.wall);

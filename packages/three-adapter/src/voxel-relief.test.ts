@@ -2,12 +2,13 @@
  * Relief displacement as three builds it, on a real relief derive: a chunk
  * of the voxel package's relief mesh (16³ sections, joined) drawn by the
  * chunk view carries its crease weights as an attribute and culling bounds
- * grown by the deepest relief; its vertex program (WGSL and GLSL) reads the
- * height array at an explicit level (no sharper than the vertex spacing),
- * a plain chunk's program reads none; three's shadow pass takes the
- * material's position node, so a shadow is displaced the same; without
- * heights nothing of relief is built. And the test heights themselves:
- * deterministic, tileable, using the 0–1 range.
+ * grown by the deepest height depth; its vertex program (WGSL and GLSL)
+ * reads the heights at an explicit level (no sharper than the vertex
+ * spacing) from the normal maps' A (texture layout v1), or under the debug
+ * patterns from the test heights; a plain chunk's program reads none;
+ * three's shadow pass takes the material's position node, so a shadow is
+ * displaced the same; without relief nothing of it is built. And the test
+ * heights themselves: deterministic, tileable, using the 0–1 range.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -43,7 +44,10 @@ const LAYOUT = { cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), bord
 /** Small height layers: the program and the bounds do not depend on the size. */
 const SIZE = 16;
 const heights = { size: SIZE, layers: RELIEF_TEST_LAYERS.map((_, k) => new Uint8Array(SIZE * SIZE).fill(40 * k)) };
-const look = (m: number): VoxelMaterialLook => ({ ...voxelStandInLook(m), ...(voxelTestRelief(m) === null ? {} : { relief: voxelTestRelief(m)! }) });
+const look = (m: number): VoxelMaterialLook => {
+  const r = voxelTestRelief(m);
+  return { ...voxelStandInLook(m), ...(r === null ? {} : { heightDepthMetres: r.depthMetres, testHeightLayer: r.layer }) };
+};
 
 /** Rock ground (id 1) with a stone wall (id 10) on it, inside chunk (0, 0, 0). */
 function world(): PaletteStore {
@@ -62,9 +66,9 @@ function joined(s: PaletteStore, n: number | null): JoinedDraw {
 
 const noUploads: VoxelGridRenderer = { backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined };
 
-/** The chunk drawn by a view with a relief surface: its surface mesh. */
-function drawn(d: JoinedDraw, relief: boolean): { mesh: THREE.Mesh; surface: ReturnType<typeof createVoxelSurface> } {
-  const surface = createVoxelSurface(LAYOUT, { look, blendMetres: 0.25, heights });
+/** The chunk drawn by a view with a relief surface (texture sets; `patterns`: the debug program on the test heights): its surface mesh. */
+function drawn(d: JoinedDraw, relief: boolean, patterns = false, reliefOn = true): { mesh: THREE.Mesh; surface: ReturnType<typeof createVoxelSurface> } {
+  const surface = createVoxelSurface(LAYOUT, { look, blendMetres: 0.25, relief: reliefOn, ...(patterns ? { patterns, ...(reliefOn ? { heights } : {}) } : {}) });
   const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer: noUploads });
   const shown = relief ? { ground: d.relief!.ground, base: d.relief!.base } : { ground: d.ground, base: d.base };
   view.set(0, 0, 0, { ...shown, instances: d.instances, solid: d.solid });
@@ -81,7 +85,7 @@ const stage = (src: string, which: 'vertex' | 'fragment'): string => {
 };
 
 describe('relief displacement', () => {
-  it('draws a relief chunk with its crease weights and bounds grown by the deepest relief; its vertex stage reads the heights at an explicit level on both backends, a plain chunk\'s reads none', async () => {
+  it('draws a relief chunk with its crease weights and bounds grown by the deepest height depth; its vertex stage reads the normal maps\' heights at an explicit level on both backends (the patterns: the test heights), a plain chunk\'s reads none', async () => {
     await settle();
     const s = world();
     const d = joined(s, 4);
@@ -94,7 +98,7 @@ describe('relief displacement', () => {
     for (let i = 0; i < crease.count; i += 97) expect(crease.getX(i)).toBeCloseTo(bytes[i]! / 255, 6);
     // Both kinds of vertex are there: fixed (creases, borders) and free.
     expect(bytes.some((b) => b === 0) && bytes.some((b) => b === 255)).toBe(true);
-    // The bounds: the plain positions' sphere grown by the deepest relief of any material.
+    // The bounds: the plain positions' sphere grown by the deepest height depth of any material (rock's).
     expect(surface.reliefDepthM).toBe(RELIEF_TEST_MAX_DEPTH_M);
     const plain = new THREE.BufferGeometry().setAttribute('position', geo.getAttribute('position'));
     plain.computeBoundingSphere();
@@ -102,14 +106,25 @@ describe('relief displacement', () => {
     const scene = new THREE.Scene().add(new THREE.HemisphereLight(0xffffff, 0x444444, 1), new THREE.DirectionalLight(0xffffff, 2), mesh);
     const wgsl = wgslOf(wgslRenderer(), scene, mesh);
     const vs = stage(wgsl, 'vertex');
-    // Two materials, three projections each, every one at an explicit level (the vertex stage has no derivatives).
+    // Two materials, three projections each of the normal array (its A), every one at an explicit level (the vertex
+    // stage has no derivatives).
     expect((vs.match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
+    expect(vs).toMatch(/texture_2d_array<f32>/);
     // The blend's grid reads (eight cells, the one under a roof apex, an owned face's cell) and the table's.
     expect((vs.match(/\btextureLoad\(\s*\w+,\s*vec3<i32>\(/g) ?? []).length).toBe(10);
     expect(vs).toMatch(new RegExp(`\\b${VOXEL_CREASE_ATTRIBUTE}\\b`));
-    // The fragment: the lighting normal from the heights' screen derivatives (six samples more, in uniform flow).
-    const fs = stage(wgsl, 'fragment');
-    expect(fs).toMatch(/\bdpdx\b/);
+    // The fragment's lighting normal is the normal maps' (no bump from screen derivatives on top): its derivatives are
+    // a plain textured surface's. The debug patterns: the same displacement from the test heights, and the lighting
+    // normal bent by them (derivatives more).
+    const dpdx = (src: string): number => (stage(src, 'fragment').match(/\bdpdx\b/g) ?? []).length;
+    const plainTextured = drawn(d, false, false, false).mesh;
+    expect(dpdx(wgsl)).toBe(dpdx(wgslOf(wgslRenderer(), new THREE.Scene().add(new THREE.DirectionalLight(0xffffff, 2), plainTextured), plainTextured)));
+    const dbg = drawn(d, true, true);
+    const dwgsl = wgslOf(wgslRenderer(), new THREE.Scene().add(new THREE.DirectionalLight(0xffffff, 2), dbg.mesh), dbg.mesh);
+    expect((stage(dwgsl, 'vertex').match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
+    const plainDbg = drawn(d, false, true, false).mesh;
+    expect(dpdx(dwgsl)).toBeGreaterThan(dpdx(wgslOf(wgslRenderer(), new THREE.Scene().add(new THREE.DirectionalLight(0xffffff, 2), plainDbg), plainDbg)));
+    expect(dbg.surface.reliefDepthM).toBe(RELIEF_TEST_MAX_DEPTH_M);
     const glsl = wgslOf(glslRenderer(), scene, mesh);
     // The GLSL vertex program is the first of the two (each starts with its #version line).
     const gvs = glsl.slice(0, glsl.indexOf('#version', 1));
@@ -137,7 +152,7 @@ describe('relief displacement', () => {
     expect((vs.match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
   });
 
-  it('builds nothing of relief without heights (programs as before), and refuses a look naming a layer the heights lack', () => {
+  it('builds nothing of relief without it (programs as before), and refuses a look naming a test layer the heights lack or a negative depth', () => {
     const plain = createVoxelSurface(LAYOUT, { look, blendMetres: 0.25, patterns: true });
     expect(plain.material.positionNode).toBeNull();
     expect(plain.material.normalNode).toBeNull();
@@ -147,7 +162,8 @@ describe('relief displacement', () => {
     expect(textured.material.positionNode).toBeNull();
     expect(textured.material.normalNode).not.toBeNull();
     expect(textured.reliefDepthM).toBe(0);
-    expect(() => createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0, relief: { layer: 9, depthMetres: 0.1 } }), blendMetres: 0.25, heights })).toThrow(/relief layer 9/);
+    expect(() => createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0, testHeightLayer: 9 }), blendMetres: 0.25, patterns: true, heights })).toThrow(/relief layer 9/);
+    expect(() => createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0, heightDepthMetres: -0.01 }), blendMetres: 0.25 })).toThrow(/height depth/);
   });
 });
 

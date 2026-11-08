@@ -83,9 +83,10 @@ describe('the voxel surface program', () => {
     const flat = program('flat');
     const patterns = program('blend');
     const sets = program('blend', false, false, false);
-    // The arrays: 3 maps × 3 samples × 2 materials, against the patterns' 6; each material's layers one table load.
-    expect(reads(sets) - reads(flat)).toBe(reads(patterns) - reads(flat) - 6 + 18 + 2);
-    expect((sets.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(18);
+    // The arrays: 3 maps × 3 samples × 2 materials, against the patterns' 6; each material's layers one table load,
+    // its height depth one more (the height blend and the water in its crevices; the height is the normal map's A).
+    expect(reads(sets) - reads(flat)).toBe(reads(patterns) - reads(flat) - 6 + 18 + 2 + 2);
+    expect((sets.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(20);
     expect((sets.match(/:\s*texture_2d_array<f32>\s*;/g) ?? []).length).toBe(4);
     expect(bindings(sets) - bindings(flat)).toBe(6);
     // The band test texture draws on construction here too: a binding and a sample a material more. With the relief
@@ -99,7 +100,7 @@ describe('the voxel surface program', () => {
     // WebGL 2 builds it too: the same fetches, 18 array samples in place of 6 pattern samples.
     const glsl = program('blend', false, true, false);
     const glslPatterns = program('blend', false, true);
-    expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length).toBe(17);
+    expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length).toBe(19);
     expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (glslPatterns.match(/\btexture\s*\(/g) ?? []).length).toBe(12);
     expect((glsl.match(/uniform\s+(?:highp\s+|mediump\s+|lowp\s+)?sampler2DArray\b/g) ?? []).length).toBe(4);
   });
@@ -110,7 +111,7 @@ describe('the voxel surface program', () => {
     expect(surface.tableEntry(7).layers).toEqual([-1, -1, -1]);
     const arr = new THREE.DataArrayTexture(new Uint8Array(4 * 4 * 4 * 3), 4, 4, 3);
     const uploads = surface.tableUploads;
-    surface.setTextures({ albedoHeight: arr }, (m) => (m === 7 ? [0, 2, 1] : null));
+    surface.setTextures({ albedo: arr }, (m) => (m === 7 ? [0, 2, 1] : null));
     expect(surface.tableEntry(7).layers).toEqual([0, 2, 1]);
     expect(surface.tableEntry(8).layers).toEqual([-1, -1, -1]);
     expect(surface.tableUploads).toBe(uploads + 1);
@@ -122,7 +123,7 @@ describe('the voxel surface program', () => {
     // The debug patterns' program takes no arrays.
     const debug = createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0 }), blendMetres: 0.5, patterns: true });
     expect(debug.textured).toBe(false);
-    debug.setTextures({ albedoHeight: arr }, () => [0, 0, 0]);
+    debug.setTextures({ albedo: arr }, () => [0, 0, 0]);
     expect(debug.tableEntry(7).layers).toEqual([-1, -1, -1]);
   });
 

@@ -56,14 +56,17 @@ export class PageRelief {
     this.on = { displace: params.displace, bump: params.bump };
   }
 
-  /** The surface options: each material's stand-in look with its test relief, and the test heights (none without relief). */
-  surfaceOptions(): Pick<VoxelSurfaceOptions, 'look' | 'heights'> {
+  /**
+   * The surface options: each material's stand-in look with the bench materials' test depths (a material record's
+   * own depth wins), relief when asked; under `patterns` (no normal maps to carry heights) the test heights.
+   */
+  surfaceOptions(patterns: boolean): Pick<VoxelSurfaceOptions, 'look' | 'heights' | 'relief'> {
     const n = this.params.n;
     const look = (m: number): VoxelMaterialLook => {
-      const r = n === null ? null : voxelTestRelief(m);
-      return { ...voxelStandInLook(m), ...(r === null ? {} : { relief: r }) };
+      const r = voxelTestRelief(m);
+      return { ...voxelStandInLook(m), ...(r === null ? {} : { heightDepthMetres: r.depthMetres, ...(n !== null && patterns ? { testHeightLayer: r.layer } : {}) }) };
     };
-    return { look, ...(n === null ? {} : { heights: { size: RELIEF_TEST_SIZE, layers: reliefTestHeights() } }) };
+    return { look, ...(n === null ? {} : { relief: true, ...(patterns ? { heights: { size: RELIEF_TEST_SIZE, layers: reliefTestHeights() } } : {}) }) };
   }
 
   /** The surface made with {@link surfaceOptions}: given its settings. */

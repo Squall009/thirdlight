@@ -550,7 +550,9 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // and its grids uploaded; no mesh is built, and the picture changes.
     const wallCell: Cell = [ox - 4, oy + 6, oz];
     const was = (await hook<{ material: number }>(page, 'voxelAt', ...wallCell)).material;
-    const material = was === MAT.brick ? MAT.plank : MAT.brick;
+    // A run that finds the wall brick (the other renderer's run left it so, wet) paints it back to light stone: plank's
+    // stand-in swatch is as dark as wet brick, so brick → plank there would measure a colour coincidence, not the paint.
+    const material = was === MAT.brick ? MAT.stone : MAT.brick;
     const wall = (m: number, wetness: number): unknown => ({ v: 2, grid: 0, kind: 'fill', min: [ox - 4, oy + 5, oz], max: [ox + 3, oy + 7, oz], mode: 'paint', voxel: { material: m, role: VOXEL_ROLE.wall, wetness } });
     type Surface = { swaps: number; surface: { meshBuilds: number; gridUploads: number } };
     let shown = after;

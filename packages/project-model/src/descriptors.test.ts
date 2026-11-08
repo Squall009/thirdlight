@@ -728,7 +728,7 @@ const MATERIAL_BASES: J[] = [
   // A decal material drawing a trim sheet's cell (no texture slots of its own).
   [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
   // A material with the material model's parts: physics, game data and a voxel use with its texture sets.
-  [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, surfaces: { wall: { albedoHeight: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedoHeight: 'tex-f' }, ceiling: { orm: 'tex-c' } } } }],
+  [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, surfaces: { wall: { albedo: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedo: 'tex-f' }, ceiling: { orm: 'tex-c' } } } }],
   // A layered material naming its layers for the palette.
   [{ materialId: 'mat-l', name: 'Layers', shader: 'standard', params: {}, textures: {}, layerNames: ['Grass', 'Dirt'] }],
   // A layered material whose first layer follows a trim sheet.

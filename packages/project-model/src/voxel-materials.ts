@@ -46,8 +46,11 @@ export type VoxelMaterialUse = (typeof VOXEL_MATERIAL_USES)[number];
 export const VOXEL_SURFACES = ['wall', 'floor', 'ceiling'] as const;
 export type VoxelSurface = (typeof VOXEL_SURFACES)[number];
 
-/** The maps of a texture set (the standard layout: albedo with height in alpha, normal, roughness/metal/AO). */
-export const VOXEL_TEXTURE_MAPS = ['albedoHeight', 'normal', 'orm'] as const;
+/**
+ * The maps of a texture set (texture layout v1): albedo (its alpha unused), the tangent-space normal with the height
+ * 0–1 in its alpha (1 the surface; a normal map without one, or none, draws no height), occlusion/roughness/metal.
+ */
+export const VOXEL_TEXTURE_MAPS = ['albedo', 'normal', 'orm'] as const;
 export type VoxelTextureMap = (typeof VOXEL_TEXTURE_MAPS)[number];
 
 /** One texture set: a texture asset per map (a map left out: the engine's flat stand-in). */

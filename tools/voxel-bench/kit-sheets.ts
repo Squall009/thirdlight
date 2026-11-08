@@ -48,12 +48,10 @@ export function kitSheetMaps(layout: TrimLayout, size: number, set: PlaceholderS
 
 /** A kit sheet's maps as PNG files (albedo sRGB; normal with the height in A; ORM). */
 export function kitSheetPngs(layout: TrimLayout, size: number, set: PlaceholderSet): { albedo: Uint8Array; normal: Uint8Array; orm: Uint8Array } {
+  // The albedo is opaque (an alpha below 1 would read as cut-out or blended in a glTF material); the height is the
+  // normal map's A (texture layout v1).
   const m = kitSheetMaps(layout, size, set);
-  // The albedo's A is opaque: a kit sheet's height lives in the normal map (texture layout v1), and an alpha below 1
-  // would read as cut-out or blended in a glTF material.
-  const albedo = m.albedoHeight.slice();
-  for (let i = 3; i < albedo.length; i += 4) albedo[i] = 255;
-  return { albedo: placeholderPng(albedo, size), normal: placeholderPng(m.normal, size), orm: placeholderPng(m.orm, size) };
+  return { albedo: placeholderPng(m.albedo, size), normal: placeholderPng(m.normal, size), orm: placeholderPng(m.orm, size) };
 }
 
 /**

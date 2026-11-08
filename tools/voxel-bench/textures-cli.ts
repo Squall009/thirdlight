@@ -83,7 +83,7 @@ if (encodeSize !== '') {
   const { transcodeKtx2Levels } = await import('./three-basis');
   const size = Number(encodeSize);
   const sets = arg('sets', PLACEHOLDER_SETS.join(',')).split(',') as PlaceholderSet[];
-  const modeOf = { albedoHeight: 'color', normal: 'normal', orm: 'data' } as const;
+  const modeOf = { albedo: 'color', normal: 'normal', orm: 'data' } as const;
   const rows = stripeRows(size, KTX2_SOURCE_PIXELS_MAX);
   // Texels on both sides of every stripe edge, the corners and the middle.
   const probes: Array<[number, number]> = [[0, 0], [size - 1, size - 1], [size >> 1, size >> 1]];

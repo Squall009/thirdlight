@@ -119,7 +119,7 @@ describe('voxel texture residency', () => {
     const tailBytes = whole.mipmaps.slice(3).reduce((n, m) => n + (m as { data: Uint8Array }).data.length, 0);
 
     // 1024² on a 4 m tile is 256 px/m: a level keeping 64 px/m caps it at level 2 (256²).
-    const capAt = (density: number): void => void capVoxelArrays({ albedoHeight: tex }, density, (t, l) => streamer.limit(t, l));
+    const capAt = (density: number): void => void capVoxelArrays({ albedo: tex }, density, (t, l) => streamer.limit(t, l));
     capAt(64);
     await settle(streamer, scene, camera);
     let o = streamer.observe().textures[0]!;

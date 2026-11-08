@@ -27,7 +27,7 @@ describe('placeholder kit sheets', () => {
     expect(at(m.normal, 0.5, gutter)).toEqual([128, 128, 255, 128]);
     // Inside the field: the stone's relief, not neutral.
     const field: number[] = [];
-    for (let u = 0.1; u < 0.9; u += 0.05) for (const y of [300, 520, 740, 960]) field.push(at(m.albedoHeight, u, y / 4096)[3]!);
+    for (let u = 0.1; u < 0.9; u += 0.05) for (const y of [300, 520, 740, 960]) field.push(at(m.normal, u, y / 4096)[3]!);
     expect(Math.max(...field) - Math.min(...field)).toBeGreaterThan(20);
     // A kit's own layout: its strip filled, everything else neutral.
     const own = kitTrimLayout({ voxelKitId: 'k', sheetLayout: { size: 1024, pxPerMetre: 1024, regions: [{ id: 'S25', kind: 'strip', metres: 0.25, y: [32, 288] }] } })!;

@@ -2,12 +2,11 @@
  * Placeholder texture sets for voxel materials (engine-owned test data, not
  * art): stone, plaster and timber for construction (one 4 × 4 m wall a
  * tile), earth, grass and rock for terrain (2 m a tile). Each is the set a
- * voxel material's surface names (`MaterialVoxel.surfaces`): albedo with
- * its height in A, a tangent-space normal map (OpenGL, green up) made from
- * that height at the material's depth, the height in its A as well (the
- * texture layout's place for it; the material record's map is the albedo's),
- * and ORM (occlusion from the height,
- * roughness, no metal), every map seamless left–right and top–bottom.
+ * voxel material's surface names (`MaterialVoxel.surfaces`): albedo (opaque),
+ * a tangent-space normal map (OpenGL, green up) made from the height at the
+ * material's depth with the height in its A (texture layout v1's one place
+ * for it), and ORM (occlusion from the height, roughness, no metal), every
+ * map seamless left–right and top–bottom.
  *
  * Construction tiles keep their features on the build grid as the texture
  * layout recommends (courses every 0.5 m, block joints every metre, boards
@@ -27,7 +26,7 @@ export const PLACEHOLDER_SETS = ['stone', 'plaster', 'timber', 'earth', 'grass',
 export type PlaceholderSet = (typeof PLACEHOLDER_SETS)[number];
 
 /** The maps of a set, as the material record names them. */
-export const PLACEHOLDER_MAPS = ['albedoHeight', 'normal', 'orm'] as const;
+export const PLACEHOLDER_MAPS = ['albedo', 'normal', 'orm'] as const;
 
 export interface SetLook {
   /** Metres one tile covers (the material's tile). */
@@ -198,13 +197,13 @@ export function placeholderShade(name: PlaceholderSet): { tileMetres: number; de
 
 /**
  * Three maps at `size`² (RGBA 8-bit, first row the image's top) from a shade over the image (u across, v up from its
- * foot; `metres` the image covers): albedo with the height in A, the normal map made from that height at `depthMetres`
- * (OpenGL, green up; the height in A too) and ORM (occlusion from the height, `roughness`, no metal).
+ * foot; `metres` the image covers): albedo (opaque), the normal map made from the height at `depthMetres` (OpenGL,
+ * green up) with the height in A, and ORM (occlusion from the height, `roughness`, no metal).
  */
 export function placeholderMaps(size: number, metres: number, depthMetres: number, roughness: number, shade: SetLook['shade']): Record<(typeof PLACEHOLDER_MAPS)[number], Uint8Array> {
   const n = size * size;
   const height = new Float32Array(n);
-  const albedoHeight = new Uint8Array(n * 4);
+  const albedo = new Uint8Array(n * 4);
   const byte = (x: number): number => Math.round(clamp01(x) * 255);
   for (let y = 0; y < size; y++) {
     // Row 0 is the top: v (up from the image's foot) of the pixel's centre.
@@ -213,7 +212,7 @@ export function placeholderMaps(size: number, metres: number, depthMetres: numbe
       const { h, rgb } = shade((x + 0.5) / size, v);
       const i = y * size + x;
       height[i] = h;
-      albedoHeight.set([byte(rgb[0]), byte(rgb[1]), byte(rgb[2]), byte(h)], i * 4);
+      albedo.set([byte(rgb[0]), byte(rgb[1]), byte(rgb[2]), 255], i * 4);
     }
   }
   const normal = new Uint8Array(n * 4);
@@ -231,7 +230,7 @@ export function placeholderMaps(size: number, metres: number, depthMetres: numbe
     const h = height[i]!;
     orm.set([byte(0.55 + 0.45 * h), byte(roughness - 0.1 * h), 0, 255], i * 4);
   }
-  return { albedoHeight, normal, orm };
+  return { albedo, normal, orm };
 }
 
 /** A set's three maps at `size`² (RGBA 8-bit, first row the tile's top). */

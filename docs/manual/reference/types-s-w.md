@@ -1142,8 +1142,11 @@ const VOXEL_SURFACES: readonly ["wall", "floor", "ceiling"];
 Declared in `packages/project-model/src/voxel-materials.ts`.
 
 ```ts
-/** The maps of a texture set (the standard layout: albedo with height in alpha, normal, roughness/metal/AO). */
-const VOXEL_TEXTURE_MAPS: readonly ["albedoHeight", "normal", "orm"];
+/**
+ * The maps of a texture set (texture layout v1): albedo (its alpha unused), the tangent-space normal with the height
+ * 0–1 in its alpha (1 the surface; a normal map without one, or none, draws no height), occlusion/roughness/metal.
+ */
+const VOXEL_TEXTURE_MAPS: readonly ["albedo", "normal", "orm"];
 ```
 
 <a id="type-voxel-edit-command"></a>

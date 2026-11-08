@@ -142,7 +142,7 @@ export class PageMaterials {
     this.arraysKey = key;
     this.textures.loads++;
     this.textures.ms = performance.now() - t0;
-    this.textures.layers = made?.sets.albedoHeight.layers.length ?? 0;
+    this.textures.layers = made?.sets.albedo.layers.length ?? 0;
     this.textures.arrays = loaded.flatMap(([map, t]) => {
       if (t === null) return [];
       const image = t.image as { width?: number; height?: number; depth?: number };

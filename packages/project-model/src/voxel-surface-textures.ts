@@ -1,6 +1,6 @@
 /**
- * The voxel surfaces' texture arrays: per map type one array (albedo with
- * height in A, normal, ORM), a layer per distinct texture set the voxel
+ * The voxel surfaces' texture arrays: per map type one array (albedo, the
+ * normal with the height in A, ORM), a layer per distinct texture set the voxel
  * materials dress their wall, floor and ceiling surfaces with, and each
  * voxel id's layer per surface (what the surface shader's material table
  * holds).
@@ -58,9 +58,12 @@ export function voxelArrayTopLevel(layerEdge: number, texelsPerMetre: number): n
 /** Fewest layers an array has (a single-layer KTX2 is not an array). */
 const MIN_ARRAY_LAYERS = 2;
 
-/** How each map's array is encoded and read (the albedo's A is a height). */
-const MAP_SLOTS: Readonly<Record<VoxelTextureMap, { readonly mode: TextureSlotSet['mode']; readonly height?: true; readonly fill: string | null }>> = {
-  albedoHeight: { mode: 'color', height: true, fill: null },
+/**
+ * How each map's array is encoded and read. The height is the normal map's A (texture layout v1): a normal layer
+ * whose texture has none (an opaque A) reads as height 1, flat, as does the neutral flat normal layer.
+ */
+const MAP_SLOTS: Readonly<Record<VoxelTextureMap, { readonly mode: TextureSlotSet['mode']; readonly fill: string | null }>> = {
+  albedo: { mode: 'color', fill: null },
   normal: { mode: 'normal', fill: fillLayerId(FLAT_NORMAL_TEXEL) },
   orm: { mode: 'data', fill: fillLayerId(TEXTURE_ABSENT_VALUES.orm) },
 };
@@ -72,7 +75,7 @@ export interface VoxelSurfaceTextures {
    * a normal or ORM array no set names a texture of is left out (an array takes its size from a texture), and the
    * surface reads that map's neutral value.
    */
-  readonly sets: Readonly<{ albedoHeight: TextureSlotSet } & Partial<Record<Exclude<VoxelTextureMap, 'albedoHeight'>, TextureSlotSet>>>;
+  readonly sets: Readonly<{ albedo: TextureSlotSet } & Partial<Record<Exclude<VoxelTextureMap, 'albedo'>, TextureSlotSet>>>;
   /** By voxel id, its wall, floor and ceiling layer ({@link VOXEL_NO_LAYER}: none). */
   readonly layers: ReadonlyMap<number, readonly [number, number, number]>;
   /** Voxel ids with a set that found no layer (the arrays were full). */
@@ -105,7 +108,7 @@ export function voxelSurfaceTextures(materials: readonly VoxelTexturedMaterial[]
     let full = false;
     const per = VOXEL_SURFACES.map((surface) => {
       const s = voxelSurfaceSet(v, surface);
-      if (s === null || s.albedoHeight === undefined) return VOXEL_NO_LAYER;
+      if (s === null || s.albedo === undefined) return VOXEL_NO_LAYER;
       const k = setKey(s);
       let l = layerOf.get(k);
       if (l === undefined) {
@@ -132,7 +135,7 @@ export function voxelSurfaceTextures(materials: readonly VoxelTexturedMaterial[]
       if (!ordered.some((s) => s[map] !== undefined)) return [];
       // An albedo is always there (a set without one has no layer); another map left out is its neutral constant.
       const list = ordered.map((s) => s[map] ?? how.fill!);
-      return [[map, { layers: list, mode: how.mode, ...(how.height === true ? { height: true as const } : {}) }]];
+      return [[map, { layers: list, mode: how.mode }]];
     }),
   ) as unknown as VoxelSurfaceTextures['sets'];
   return { sets, layers, dropped };

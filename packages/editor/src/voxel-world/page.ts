@@ -131,8 +131,9 @@ const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionP
 const levelsParam = params.get('levels');
 /**
  * `?relief=n` (2, 4, 8): the chunks within `?reliefRadius=` metres (default 32) of the focus when derived also derive
- * the relief mesh n lattice steps a cell, drawn in place of their surfaces and moved in the vertex stage by the
- * engine's relief test heights (`voxelTestRelief`); every surface's lighting normal follows the heights. The
+ * the relief mesh n lattice steps a cell, drawn in place of their surfaces and moved in the vertex stage by their
+ * materials' heights (the normal maps' A) and height depths; under `?patterns=1` by the engine's relief test heights
+ * (`voxelTestRelief`), which there also bend every surface's lighting normal (`?bump=0` off). The
  * displacement fades to none between `?reliefFade=a,b` metres from the focus (default the 4 m up to the radius less a
  * chunk's half diagonal: a chunk at the ring's edge, plain or relief, does not move). `?displace=0` and `?bump=0`
  * start with either off (the hook's `setRelief` switches them).
@@ -247,7 +248,7 @@ async function main(): Promise<void> {
   // `?trimDebug=1`: kit pieces draw the labelled debug UV textures (a trim layout's debug set) instead of their kits' sheets.
   const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : project, new VoxelKitMeshes({ debug: params.get('trimDebug') === '1' }));
   // Each material's look from its record, over the stand-in (and the relief's test layer) for what it leaves out.
-  const reliefOptions = relief.surfaceOptions();
+  const reliefOptions = relief.surfaceOptions(patterns);
   const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look, patterns ? null : backendArrays(api, headers), textureResidency);
   materials.take(project.materials ?? []);
   if (hudShown) document.body.append(materials.select);
