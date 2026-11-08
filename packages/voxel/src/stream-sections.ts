@@ -324,18 +324,26 @@ export class SectionDerives {
     return any ? results : null;
   }
 
-  /** Whether a chunk has sections and each has had a result (what it draws is known; air included). */
+  /**
+   * Whether a chunk has sections and each has had a result (what it draws is known; air included), or waits for a
+   * chunk that is not coming (past the load ring: drawn as the world's edge until that chunk lands).
+   */
   chunkReady(cx: number, cy: number, cz: number): boolean {
     if (!chunkInWorld(this.host.grid, cx, cy, cz)) return false;
     const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
-    return list !== undefined && list.every((s) => s.derived !== null);
+    return list !== undefined && list.every((s) => s.derived !== null || this.stranded(s));
+  }
+
+  /** A section that has never had a result and cannot have one while the world stays as loaded: a chunk it reaches is neither resident nor coming. */
+  private stranded(s: Section): boolean {
+    return s.derived === null && s.job === 0 && !this.neighboursComing(s);
   }
 
   /**
    * A chunk's derive sections within a cell of a plane (`axis`, cells) as a
    * seam reads them: each section's drawn result (with `held`, the one
-   * waiting for its group's swap first). Undefined while one of them has
-   * never had a result, or the chunk has no sections.
+   * waiting for its group's swap first; a stranded one draws nothing). Undefined while one of them has
+   * never had a result and may get one, or the chunk has no sections.
    */
   seamSurfaces(cx: number, cy: number, cz: number, axis: number, plane: number, held = false): SeamSurface[] | undefined {
     if (!chunkInWorld(this.host.grid, cx, cy, cz)) return undefined;
@@ -347,6 +355,7 @@ export class SectionDerives {
       const lo = [s.sx * e, s.sy * e, s.sz * e];
       if (plane < lo[axis]! - 1 || plane > lo[axis]! + e + 1) continue;
       const r = (held ? (s.held ?? s.derived) : s.derived) ?? null;
+      if (r === null && this.stranded(s)) continue;
       if (r === null) return undefined;
       const a = r.assembly;
       // Seams join the surfaces as drawn: the relief mesh where there is one.
@@ -743,16 +752,35 @@ export class SectionDerives {
     for (const [, t] of list) this.host.emit({ type: 'chunk', cx: t.cx, cy: t.cy, cz: t.cz, shaderOnly: t.shaderOnly, reliefOnly: t.reliefOnly });
   }
 
-  /** Whether all of a chunk's neighbours are known (resident, or outside the world): its apron can be built. */
-  private canDerive(cx: number, cy: number, cz: number): boolean {
-    if (!this.host.isResident(cx, cy, cz)) return false;
-    if (this.host.radius === 0) return true;
+  /**
+   * The storage chunks a section's derive reads besides its own: those its
+   * box reaches within the dependency radius R (what an edit's invalidation
+   * reaches back, so a result never reads more than it is told of). A
+   * section of an eighth of a chunk reaches at most 7 of the 26 neighbours.
+   */
+  private *reach(s: Section): IterableIterator<readonly [number, number, number]> {
     const g = this.host.grid;
-    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) {
-      if (dx === 0 && dy === 0 && dz === 0) continue;
-      if (!chunkInWorld(g, cx + dx, cy + dy, cz + dz)) continue;
-      if (!this.host.isResident(cx + dx, cy + dy, cz + dz)) return false;
+    const r = this.host.radius;
+    if (r === 0) return;
+    const e = this.sections.edge;
+    const sh = g.shift;
+    const span = (i: number): [number, number] => [(i * e - r) >> sh, (i * e + e - 1 + r) >> sh];
+    const [x0, x1] = span(s.sx);
+    const [y0, y1] = span(s.sy);
+    const [z0, z1] = span(s.sz);
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
+      if ((x !== s.cx || y !== s.cy || z !== s.cz) && chunkInWorld(g, x, y, z)) yield [x, y, z];
     }
+  }
+
+  /**
+   * Whether a section's apron is known: its chunk is resident and so is every chunk it reaches. Per section, not per
+   * chunk: a section away from a corner derives though the chunk across that corner lies outside the load ring (in a
+   * small ring round a chunk corner every chunk has such a neighbour, and nothing would derive at all).
+   */
+  private canDerive(s: Section): boolean {
+    if (!this.host.isResident(s.cx, s.cy, s.cz)) return false;
+    for (const [x, y, z] of this.reach(s)) if (!this.host.isResident(x, y, z)) return false;
     return true;
   }
 
@@ -764,7 +792,7 @@ export class SectionDerives {
   /** Whether anything wanted can be sent now (for the streamer's idle check). */
   pending(): boolean {
     if (this.jobs.size > 0) return true;
-    for (const s of this.wanted) if (this.shaderOnly(s) || this.canDerive(s.cx, s.cy, s.cz)) return true;
+    for (const s of this.wanted) if (this.shaderOnly(s) || this.canDerive(s)) return true;
     return false;
   }
 
@@ -816,19 +844,15 @@ export class SectionDerives {
     for (const s of this.heldBlocked) {
       if (this.wanted.has(s)) continue;
       const g = s.group;
-      if (g !== null && g.open && this.bySection.get(s.key) === s && this.neighboursComing(s.cx, s.cy, s.cz)) continue;
+      if (g !== null && g.open && this.bySection.get(s.key) === s && this.neighboursComing(s)) continue;
       this.heldBlocked.delete(s);
       this.leave(s);
     }
   }
 
-  /** Whether every neighbour of a chunk that is not resident is on its way (so a section blocked on them will derive). */
-  private neighboursComing(cx: number, cy: number, cz: number): boolean {
-    const g = this.host.grid;
-    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) {
-      if (!chunkInWorld(g, cx + dx, cy + dy, cz + dz)) continue;
-      if (!this.host.isResident(cx + dx, cy + dy, cz + dz) && !this.host.coming(cx + dx, cy + dy, cz + dz)) return false;
-    }
+  /** Whether every chunk a section reaches that is not resident is on its way (so the section, blocked on them, will derive). */
+  private neighboursComing(s: Section): boolean {
+    for (const [x, y, z] of this.reach(s)) if (!this.host.isResident(x, y, z) && !this.host.coming(x, y, z)) return false;
     return true;
   }
 
@@ -837,18 +861,22 @@ export class SectionDerives {
     const host = this.host;
     const { cx, cy, cz } = list[0]!;
     for (const s of list) this.heldBlocked.delete(s);
-    if (!shaderOnly && !this.canDerive(cx, cy, cz)) {
-      let waiting = this.blocked.get(list[0]!.chunk);
-      if (waiting === undefined) this.blocked.set(list[0]!.chunk, (waiting = new Set()));
-      // An edit's section waits in its group for neighbours on their way (the edit lands whole, in one swap);
-      // otherwise the group swaps without it and it derives as streaming once its neighbours are known.
-      const keep = list.some((s) => s.group !== null && s.group.open) && this.neighboursComing(cx, cy, cz);
-      for (const s of list) {
-        if (keep && s.group !== null && s.group.open) this.heldBlocked.add(s);
-        else this.leave(s);
-        waiting.add(s);
+    if (!shaderOnly) {
+      const blocked = list.filter((s) => !this.canDerive(s));
+      if (blocked.length > 0) {
+        let waiting = this.blocked.get(list[0]!.chunk);
+        if (waiting === undefined) this.blocked.set(list[0]!.chunk, (waiting = new Set()));
+        // An edit's section waits in its group for neighbours on their way (the edit lands whole, in one swap);
+        // otherwise the group swaps without it and it derives as streaming once its neighbours are known.
+        for (const s of blocked) {
+          if (s.group !== null && s.group.open && this.neighboursComing(s)) this.heldBlocked.add(s);
+          else this.leave(s);
+          waiting.add(s);
+        }
+        list = list.filter((s) => !blocked.includes(s));
+        if (list.length === 0) return 0;
+        split = Math.min(split, list.length);
       }
-      return 0;
     }
     const store = host.store;
     const form = store.chunkForm(cx, cy, cz);

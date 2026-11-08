@@ -24,7 +24,7 @@ import {
 } from '@thirdlight/runtime';
 import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
 import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
-import { chunkDrawBatchTransfer, chunkGrid, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
+import { chunkDrawBatchTransfer, chunkGrid, DEFAULT_SECTION_EDGE, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
 import { resolveMaterialInstances, withResolvedPhysics, type MaterialDef, type QualityLevelConfig } from '@thirdlight/project-model';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
@@ -411,7 +411,8 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     const pit = { center: [0.25, surfaceM - 1, 0.25] as [number, number, number], radius: 2 };
     await h.stepUntil((v) => (v.isResident(pit) ? true : undefined), 'the pit region to load');
     await h.until(() => groundBelow(h.port, 0.25, 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus');
-    // Until the ring is filled: no batch for 40 steps.
+    // Until the ring is filled: the streamer settled, then no batch for 40 steps.
+    await stream!.settle();
     let quiet = 0;
     let seenBatches = -1;
     await h.until(() => {
@@ -587,6 +588,21 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(s().relief!.radius).toBe(cells(12));
     await s().settle();
     expect(s().relief!.ring.size).toBeGreaterThan(0);
+    // The ring shrank to nothing and grew to 32 m round a chunk corner, where every chunk has a neighbour across a
+    // corner outside the ring: each reloaded chunk still derives the sections that do not reach it, and is drawn at
+    // level 0 with a body under the focus (a section waits only for the chunks it reads).
+    const reloaded = resident();
+    expect(reloaded.length).toBeGreaterThan(0);
+    const k = grid.edge / DEFAULT_SECTION_EDGE;
+    const derivedIn = ([cx, cy, cz]: [number, number, number]): number => {
+      let n = 0;
+      for (let a = 0; a < k; a++) for (let b = 0; b < k; b++) for (let c = 0; c < k; c++) if (s().derivedOf(cx * k + a, cy * k + b, cz * k + c, true) !== null) n++;
+      return n;
+    };
+    expect(reloaded.filter((c) => derivedIn(c) === 0)).toEqual([]);
+    expect(s().metrics().bytes.derived).toBeGreaterThan(0);
+    expect(lod.drawn.countAt(0)).toBeGreaterThan(0);
+    await h.until(() => groundBelow(h.port, F + 0.25, F + 0.25)?.id.startsWith('voxel:a:') === true, 'a body under the focus again');
     expect([s().ring.loadRadius, s().budgetBytes]).toEqual([cells(32), VOXEL_STREAM_BUDGET_BYTES.high]);
     // Level 0 at least the collision ring and its hysteresis (40 + 8 m).
     expect(lod.levelRings.radii[0]).toBe(cells(48));
@@ -647,6 +663,9 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     const surfaceM = (groundY + 1) * VOXEL_SIZE_M;
     const pit = { center: [0.25, surfaceM - 1, 0.25] as [number, number, number], radius: 2 };
     await h.stepUntil((v) => (v.isResident(pit) ? true : undefined), 'the pit region to load');
+    // Its chunk drawn first (a swap re-draws only chunks drawn at full detail).
+    const pitChunk = pit.center.map((m) => Math.floor(m / VOXEL_SIZE_M / grid.edge));
+    await h.until(() => batches.some((b) => b.chunks.some((c) => c.kind === 'draw' && (c.level ?? 0) === 0 && c.cx === pitChunk[0] && c.cy === pitChunk[1] && c.cz === pitChunk[2])), 'the pit chunk drawn');
     const before = batches.length;
     const dug = await h.inStep((v) => v.dig(pit));
     expect(dug.ok).toBe(true);
@@ -770,11 +789,13 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
         // A 10 x 10 grid of spots 4.8 m apart, the first ten digs one row of it.
         const x = (k % 10) * 4.8 - 21.35;
         const z = Math.floor(k / 10) * 4.8 - 21.35;
-        const ok = await h.inStep((v) => {
+        // Dug once the ground under the spot is loaded (the ring fills as its chunks are read and derived).
+        const ok = await h.stepUntil((v) => {
           let y = surfaceM + 12;
           while (y > surfaceM - 20 && (v.get(x, y, z)?.material ?? 1) === 0) y -= VOXEL_SIZE_M;
-          return v.dig({ center: [x, y, z], radius: 1 }).ok;
-        });
+          const at = { center: [x, y, z] as [number, number, number], radius: 1 };
+          return v.get(x, y, z) === null || !v.isResident(at) ? undefined : v.dig(at).ok;
+        }, `the ground at spot ${k} to load`);
         expect(ok).toBe(true);
       }
       const s = await save();

@@ -764,7 +764,8 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect.poll(async () => (await drawn()).worlds['far']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
     // Kit pieces drawn: the stone kit's GLB read from the build's content and parsed on the page, the default kit's elsewhere.
     await expect.poll(async () => Object.values(await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.kits())), { timeout: 20_000 }).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
-    expect((await drawn()).worlds['far']!.kitInstances).toBeGreaterThan(5);
+    // The pieces come with their chunks' draws, which may land after the kit's meshes.
+    await expect.poll(async () => (await drawn()).worlds['far']?.kitInstances ?? 0, { timeout: 20_000 }).toBeGreaterThan(5);
     // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
     await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     const standing = (await observe()).player!;
