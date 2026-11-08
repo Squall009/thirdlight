@@ -350,7 +350,9 @@ terrain, as **flat sloped planes** with the roof material's tiling texture laid 
   cells under the roof (an attic partition, a room's ceiling) is left as it is. A wall or chimney through the roof
   keeps its own faces. (47a's building object may override the fill per building.)
 - **Wall and roof never blend** (owner 2026-11-06, D519). The roof planes show the roof's material up to the seam,
-  the fill the wall's; walls and chimneys next to a roof show their own cells' materials, unblended.
+  the fill the wall's; walls and chimneys next to a roof show their own cells' materials, unblended. A wall face
+  that merges with one next to a roof (the same plane, one rectangle) is unblended whole (46d.6c, derived 30; a
+  46d default in plan 46d §9).
 - **Ridges, hips and a pyramid's apex** take the lower of two planes, valleys the higher.
 - **Collision** follows the drawn planes at both slopes (a ramp; owner A8); light, occupancy and navigation keep the
   stair voxels.
@@ -687,8 +689,6 @@ empty; no textures (the runtime debug set), no LODs, collision from the voxels.
   overhang.
 - **D509:** the placeholder kits keep a few hidden faces (test data; real kits close run ends with corner pieces).
 - **D502:** the roof mesher is over the 0.1–0.2 ms section budget at p95 (recorded for the performance phase).
-- **D526:** owned body faces next to roofs do not merge with blended ones (+51 k town base triangles), and the roof
-  mesher stays about 12 % slower than before the wall–roof separation.
 
 ## 15. What the owner approved (2026-11-06)
 

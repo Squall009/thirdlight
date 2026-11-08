@@ -333,6 +333,9 @@ function topDiff(dirs: number, iu: number, iv: number): number {
 
 /** Per-thread scratch. */
 const strips = new Map<number, Strip[]>();
+/** The job's own plane cells (x, y, z), in the order the job's cells are scanned. */
+let ownCells = new Int32Array(3 * 256);
+let ownCount = 0;
 /**
  * Lattice points some polygon of the job has a corner at: a stamp per point, the job's call number. Corners lie on
  * even quarters across (x and z, stored halved), any quarter up.
@@ -363,21 +366,62 @@ let owners = new Int8Array(3 * 256);
 let tris = new Uint32Array(3 * 512);
 let vertexCount = 0;
 let triLen = 0;
-const vertexOf = new Map<number, number>();
 
 /** Positions are whole sixteenths of a cell (corners, edge middles, a fan's inside point), so a vertex keys by sixteenths and normal. */
 const SIXTEENTH = STEPS / 16;
 
 /**
- * Keys below this are a position and normal (sixteenths under 1,024 each way, 32 normals); the owner offset counts
- * above (it names the owner box, and a box's faces of one normal carry one crack strength).
+ * The vertices of a job by key, open addressing in typed arrays (a Map of keys past 31 bits boxes every key): the
+ * low word a position (sixteenths under 1,024 each way), the high word the normal (32) and the owner offset (it
+ * names the owner box, and a box's faces of one normal carry one crack strength). Slots stamped by job.
  */
-const OWNER_KEY = 1024 * 1024 * 1024 * 32;
+let slotLo = new Int32Array(1024);
+let slotHi = new Int32Array(1024);
+let slotVertex = new Int32Array(1024);
+let slotStamp = new Uint32Array(1024);
+let slotJob = 0;
+
+/** Empties the vertex table for a job (it grows as the job's vertices need). */
+function resetVertices(): void {
+  slotJob++;
+}
+
+/** Doubles the vertex table, keeping the job's keys. */
+function growVertices(): void {
+  const lo = slotLo, hi = slotHi, vertex = slotVertex, stamp = slotStamp, job = slotJob;
+  slotLo = new Int32Array(2 * lo.length);
+  slotHi = new Int32Array(2 * lo.length);
+  slotVertex = new Int32Array(2 * lo.length);
+  slotStamp = new Uint32Array(2 * lo.length);
+  slotJob = 1;
+  for (let k = 0; k < stamp.length; k++) {
+    if (stamp[k] !== job) continue;
+    const at = slotOf(lo[k]!, hi[k]!);
+    slotStamp[at] = 1;
+    slotLo[at] = lo[k]!;
+    slotHi[at] = hi[k]!;
+    slotVertex[at] = vertex[k]!;
+  }
+}
+
+/** The slot of a key: its own, or the free one it goes in. */
+function slotOf(lo: number, hi: number): number {
+  const mask = slotStamp.length - 1;
+  let h = (Math.imul(lo, 0x9e3779b1) ^ Math.imul(hi, 0x85ebca77)) >>> 0;
+  for (;;) {
+    h &= mask;
+    if (slotStamp[h] !== slotJob || (slotLo[h] === lo && slotHi[h] === hi)) return h;
+    h++;
+  }
+}
 
 function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, normal: number, crack: number, ox: number, oy: number, oz: number): number {
-  const key = ((((x / SIXTEENTH) * 1024 + y / SIXTEENTH) * 1024 + z / SIXTEENTH) * 32 + normal) + (((ox + 8) * 16 + oz + 8) * 128 + oy + 64) * OWNER_KEY;
-  const known = vertexOf.get(key);
-  if (known !== undefined) return known;
+  const lo = ((x / SIXTEENTH) * 1024 + y / SIXTEENTH) * 1024 + z / SIXTEENTH;
+  const hi = ((((ox + 8) * 16 + oz + 8) * 128 + oy + 64) << 5) | normal;
+  // Kept at most half full: past that the table grows (keys rehashed) before the next vertex is placed.
+  if (2 * vertexCount + 2 > slotStamp.length) growVertices();
+  const slot = slotOf(lo, hi);
+  if (slotStamp[slot] === slotJob) return slotVertex[slot]!;
   if (3 * vertexCount + 3 > pos.length) {
     const p = new Int32Array(pos.length * 2);
     p.set(pos);
@@ -403,7 +447,10 @@ function addVertex(x: number, y: number, z: number, nx: number, ny: number, nz: 
   nrm[o] = nx;
   nrm[o + 1] = ny;
   nrm[o + 2] = nz;
-  vertexOf.set(key, vertexCount);
+  slotStamp[slot] = slotJob;
+  slotLo[slot] = lo;
+  slotHi[slot] = hi;
+  slotVertex[slot] = vertexCount;
   return vertexCount++;
 }
 
@@ -570,7 +617,7 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array, crackOf: ((v: 
   const s = n.side;
   vertexCount = 0;
   triLen = 0;
-  vertexOf.clear();
+  resetVertices();
   strips.clear();
   stampAcross = 2 * e + 2 * STAMP_PAD_ACROSS + 1;
   stampUp = Q * e + 2 * STAMP_PAD_UP + 1;
@@ -592,43 +639,59 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array, crackOf: ((v: 
   const W = e + 4;
   const bot = [0, 0, 0];
   const top = [0, 0, 0];
-  for (let x = -1; x <= e; x++) for (let z = -1; z <= e; z++) for (let y = -1; y <= e; y++) {
-    const i = at(x, y, z);
-    const w = words[i]!;
-    if (w === 0) continue;
-    const own = x >= 0 && y >= 0 && z >= 0 && x < e && y < e && z < e;
-    if (own) any = true;
-    if ((w & ROOF_WORD.shallow) !== 0) {
-      const c = [x, y, z];
-      for (let a = 0; a < 3; a++) {
-        if (c[a]! <= 0) faceShallow[2 * a] = true;
-        if (c[a]! >= e - 1) faceShallow[2 * a + 1] = true;
+  ownCount = 0;
+  for (let x = -1; x <= e; x++) for (let z = -1; z <= e; z++) {
+    const row = at(x, 0, z);
+    for (let y = -1; y <= e; y++) {
+      const i = row + y;
+      const w = words[i]!;
+      if (w === 0) continue;
+      const own = x >= 0 && y >= 0 && z >= 0 && x < e && y < e && z < e;
+      if (own) {
+        any = true;
+        // The job's own plane cells in scan order (x, z, y), for the tops below.
+        if (3 * ownCount + 3 > ownCells.length) {
+          const c = new Int32Array(ownCells.length * 2);
+          c.set(ownCells);
+          ownCells = c;
+        }
+        ownCells[3 * ownCount] = x;
+        ownCells[3 * ownCount + 1] = y;
+        ownCells[3 * ownCount + 2] = z;
+        ownCount++;
       }
-    }
-    for (let k = 0; k < 4; k++) {
-      sideProfile(w, y, k, bot, top);
-      const across = i + (DX[k]! * s + DZ[k]!) * s;
-      // Only cells the words cover (the job and one round it) are read across.
-      const ax = x + DX[k]!;
-      const az = z + DZ[k]!;
-      const inBox = ax >= -1 && ax <= e && az >= -1 && az <= e;
-      let met = false;
-      for (let dy = -1; dy <= 1 && !met && inBox; dy++) {
-        if (y + dy < -1 || y + dy > e) continue;
-        const wj = words[across + dy]!;
-        if (wj === 0) continue;
-        sideProfile(wj, y + dy, (k + 2) & 3, otherBot, otherTop);
-        met = bot[0] === otherBot[0] && bot[1] === otherBot[1] && bot[2] === otherBot[2] && top[0] === otherTop[0] && top[1] === otherTop[1] && top[2] === otherTop[2];
+      if ((w & ROOF_WORD.shallow) !== 0) {
+        const c = [x, y, z];
+        for (let a = 0; a < 3; a++) {
+          if (c[a]! <= 0) faceShallow[2 * a] = true;
+          if (c[a]! >= e - 1) faceShallow[2 * a + 1] = true;
+        }
       }
-      if (met) continue;
-      const alongX = (k & 1) === 0;
-      const plane = alongX ? x + (k === 0 ? 1 : 0) : z + (k === 1 ? 1 : 0);
-      const b = alongX ? z : x;
-      const key = ((alongX ? 0 : 1) * W + plane + 2) * W + b + 2;
-      let list = strips.get(key);
-      if (list === undefined) strips.set(key, (list = []));
-      const split: [number, number, number] | null = (w & ROOF_WORD.supported) !== 0 ? [top[0]! - Q, top[1]! - Q, top[2]! - Q] : null;
-      list.push({ sign: k < 2 ? 1 : -1, bot: [bot[0]!, bot[1]!, bot[2]!], top: [top[0]!, top[1]!, top[2]!], own, cell: [x, y, z], split, body: [x, floorOf(w, y) / Q - 1, z] });
+      for (let k = 0; k < 4; k++) {
+        sideProfile(w, y, k, bot, top);
+        const across = i + (DX[k]! * s + DZ[k]!) * s;
+        // Only cells the words cover (the job and one round it) are read across.
+        const ax = x + DX[k]!;
+        const az = z + DZ[k]!;
+        const inBox = ax >= -1 && ax <= e && az >= -1 && az <= e;
+        let met = false;
+        for (let dy = -1; dy <= 1 && !met && inBox; dy++) {
+          if (y + dy < -1 || y + dy > e) continue;
+          const wj = words[across + dy]!;
+          if (wj === 0) continue;
+          sideProfile(wj, y + dy, (k + 2) & 3, otherBot, otherTop);
+          met = bot[0] === otherBot[0] && bot[1] === otherBot[1] && bot[2] === otherBot[2] && top[0] === otherTop[0] && top[1] === otherTop[1] && top[2] === otherTop[2];
+        }
+        if (met) continue;
+        const alongX = (k & 1) === 0;
+        const plane = alongX ? x + (k === 0 ? 1 : 0) : z + (k === 1 ? 1 : 0);
+        const b = alongX ? z : x;
+        const key = ((alongX ? 0 : 1) * W + plane + 2) * W + b + 2;
+        let list = strips.get(key);
+        if (list === undefined) strips.set(key, (list = []));
+        const split: [number, number, number] | null = (w & ROOF_WORD.supported) !== 0 ? [top[0]! - Q, top[1]! - Q, top[2]! - Q] : null;
+        list.push({ sign: k < 2 ? 1 : -1, bot: [bot[0]!, bot[1]!, bot[2]!], top: [top[0]!, top[1]!, top[2]!], own, cell: [x, y, z], split, body: [x, floorOf(w, y) / Q - 1, z] });
+      }
     }
   }
   if (!any) return { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) };
@@ -644,9 +707,9 @@ export function roofSurface(n: Neighbourhood, words: Uint32Array, crackOf: ((v: 
   // A sample (iu, iv of 0, 1, 2 across the cell) of a cell's top or underside, in quarter cells.
   const corner = (x: number, y: number, z: number, w: number, under: boolean) => (iu: number, iv: number): number[] => [Q * x + 2 * iu, (under ? -Q : 0) + topAt(w, y, 2 * iu, 2 * iv), Q * z + 2 * iv];
   const SUPPORT = ROOF_WORD.supported | ROOF_WORD.gap;
-  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
-    const w = own(x, y, z);
-    if (w === 0) continue;
+  for (let c = 0; c < ownCount; c++) {
+    const x = ownCells[3 * c]!, y = ownCells[3 * c + 1]!, z = ownCells[3 * c + 2]!;
+    const w = words[at(x, y, z)]!;
     const supported = (w & ROOF_WORD.supported) !== 0;
     const d = single(w);
     const crack = crackAt(x, y, z);

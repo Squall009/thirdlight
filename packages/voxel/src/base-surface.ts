@@ -34,7 +34,13 @@
  * shows its own cell's material alone: its vertices carry the owner offset
  * a quarter cell in (derived-mesh.ts), which names the cell behind each
  * pixel, so a wall never blends with the roof it carries. Its other faces
- * blend as any body's. Owned faces merge only with faces of the same kind.
+ * blend as any body's. Owned and blended faces merge as any two (the mesh
+ * is the one the bodies would have without the owners), and a rectangle
+ * holding an owned face is owned whole: its other cells show their own
+ * material too, which is the blend's choice wherever neighbouring body
+ * cells agree, and never a plane cell's (the offset lands each pixel in the
+ * body cell behind it). Owned rectangles of one direction share vertices
+ * (their offset is the direction's), as blended ones do.
  *
  * **Unmerged** (`merge` false): every face is its own two triangles, so a
  * subdivision of the faces (relief-mesh.ts) lays a regular lattice over
@@ -55,6 +61,8 @@ let cracks = new Uint16Array(0);
 let owned = new Uint8Array(0);
 /** Per face cell of a layer: 0 none, else 1 + its crack value (faces merge only with equal values). */
 let mask = new Uint16Array(0);
+/** Per face cell of a layer: whether it shows its own cell alone (a rectangle holding one is owned). */
+let ownMask = new Uint8Array(0);
 /** Rectangles: direction, layer, a0, b0, a1, b1 (in-plane cells, ends exclusive), crack value. */
 const RECT = 7;
 /** A crack value's flag: the faces show their own cell's material alone (a body next to a roof's plane cell). */
@@ -289,7 +297,10 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
   if (any === 0) return buildSurface();
 
   // Rectangles a direction and layer: the face plane's axes u, v (u × v outward), cells a along u, b along v.
-  if (mask.length < e * e) mask = new Uint16Array(e * e);
+  if (mask.length < e * e) {
+    mask = new Uint16Array(e * e);
+    ownMask = new Uint8Array(e * e);
+  }
   const cell = [0, 0, 0];
   for (let d = 0; d < 6; d++) {
     if ((any & (1 << d)) === 0) continue;
@@ -305,7 +316,8 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
         cell[v] = b;
         const c = (cell[0]! * e + cell[1]!) * e + cell[2]!;
         const on = faces[c]! & bit;
-        mask[b * e + a] = on === 0 ? 0 : 1 + (cracks[c]! | ((owned[c]! & bit) !== 0 ? OWN : 0));
+        mask[b * e + a] = on === 0 ? 0 : 1 + cracks[c]!;
+        ownMask[b * e + a] = owned[c]! & bit;
         set |= on;
       }
       if (set === 0) continue;
@@ -320,8 +332,12 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
           for (let k = 0; k < w; k++) if (mask[row + k] !== val) break grow;
           h++;
         }
-        for (let r = b; r < b + h; r++) mask.fill(0, r * e + a, r * e + a + w);
-        addRect(d, layer, a, b, a + w, b + h, val - 1);
+        let own = 0;
+        for (let r = b; r < b + h; r++) {
+          for (let k = r * e + a; k < r * e + a + w; k++) own |= ownMask[k]!;
+          mask.fill(0, r * e + a, r * e + a + w);
+        }
+        addRect(d, layer, a, b, a + w, b + h, (val - 1) | (own !== 0 ? OWN : 0));
       }
     }
   }
@@ -331,8 +347,8 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
   const points = m * m * m;
   if (cornerStamp.length < points) {
     cornerStamp = new Uint32Array(points);
-    vertexStamp = new Uint32Array(points * 6);
-    vertexOf = new Int32Array(points * 6);
+    vertexStamp = new Uint32Array(points * 12);
+    vertexOf = new Int32Array(points * 12);
     call = 0;
   }
   call++;
@@ -398,17 +414,19 @@ function bodySurface(n: Neighbourhood, classes: Uint8Array, forms: Uint8Array, p
       extra[side] = added;
     }
     // Output vertices of the ring, shared by direction with the job's other rectangles.
-    // A cracked or owned rectangle's vertices are its own (they carry its strength or owner); they sit on the same points.
+    // A cracked rectangle's vertices are its own (they carry its strength); they sit on the same points. Owned ones
+    // share theirs apart from the blended ones' (they carry the direction's owner offset).
     const crack = rects[o + 6]!;
+    const kind = d + ((crack & OWN) !== 0 ? 6 : 0);
     for (let j = 0; j < k; j++) {
-      const key = pointOf(axis, u, v, plane, ring[2 * j]!, ring[2 * j + 1]!) * 6 + d;
-      if (crack !== 0) {
+      const key = pointOf(axis, u, v, plane, ring[2 * j]!, ring[2 * j + 1]!) * 12 + kind;
+      if ((crack & 0xff) !== 0) {
         ring[2 * j] = addVertex((lattice[0]! + 1) * STEPS, (lattice[1]! + 1) * STEPS, (lattice[2]! + 1) * STEPS, d, crack);
         continue;
       }
       if (vertexStamp[key] !== now) {
         vertexStamp[key] = now;
-        vertexOf[key] = addVertex((lattice[0]! + 1) * STEPS, (lattice[1]! + 1) * STEPS, (lattice[2]! + 1) * STEPS, d, 0);
+        vertexOf[key] = addVertex((lattice[0]! + 1) * STEPS, (lattice[1]! + 1) * STEPS, (lattice[2]! + 1) * STEPS, d, crack);
       }
       ring[2 * j] = vertexOf[key]!;
     }

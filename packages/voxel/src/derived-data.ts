@@ -217,8 +217,13 @@ import { utf8Encode } from '@thirdlight/shared';
  * crease weight byte; its edges toward sections drawn plain are kept
  * whole. Outside the canonical bytes, so every other output and every
  * hash are v28's; a worker of another version is refused as ever.
+ *
+ * v30: a body's owned faces (next to a plane cell) merge with its blended
+ * ones by geometry and crack alone, the rectangle holding one owned whole;
+ * owned rectangles of a direction share vertices. Bodies' surfaces differ
+ * from v29's; the layout is v29's.
  */
-export const DERIVED_FORMAT_VERSION = 29;
+export const DERIVED_FORMAT_VERSION = 30;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

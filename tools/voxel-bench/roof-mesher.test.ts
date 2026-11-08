@@ -1079,6 +1079,57 @@ describe('the roof over its walls', () => {
     }
   });
 
+  it('merges a wall\'s faces next to its roof with the rest of the wall: each outer wall face under the eaves one kind (owned whole), the mesh of walls striped in two materials and wetness the one-material walls\', and every pixel of an owned wall shows the body cell behind it', { timeout: 60_000 }, () => {
+    const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
+    // Walls striped cell by cell (stone and timber, wetness every other cell), the roof one material.
+    const wallMat = (x: number, y: number, z: number): number => (((x + y + z) & 1) !== 0 ? MAT.stone : MAT.timber);
+    for (const slope of [1, 0.5]) for (const hip of [false, true]) {
+      const plain = createWorldStore(grid);
+      const r = walledHouse(plain, x0, yb, z0, w, d, h, hip, slope);
+      const striped = createWorldStore(grid);
+      walledHouse(striped, x0, yb, z0, w, d, h, hip, slope);
+      const walls = new Set<string>();
+      for (let x = x0; x < x0 + w; x++) for (let z = z0; z < z0 + d; z++) {
+        const ring = x === x0 || z === z0 || x === x0 + w - 1 || z === z0 + d - 1;
+        const top = !hip && (x === x0 || x === x0 + w - 1) ? r.y0 + columnHeight(r, x - r.x0, z - r.z0) : ring ? yb + h : yb;
+        for (let y = yb; y < top; y++) {
+          walls.add(`${x},${y},${z}`);
+          putVoxel(striped, x, y, z, wallMat(x, y, z), R.wall, SHAPE_FULL, ((x + z) & 1) * 4);
+        }
+      }
+      const tag = r.name;
+      for (const ch of roofChunks([r])) {
+        const a = deriveFromStore(plain, ...ch, WORLD_RULES, undefined, FILL);
+        const b = deriveFromStore(striped, ...ch, WORLD_RULES, undefined, FILL);
+        expect(Buffer.from(b.base.vertices).equals(Buffer.from(a.base.vertices)), `${tag} base vertices`).toBe(true);
+        expect([...b.base.indices], `${tag} base indices`).toEqual([...a.base.indices]);
+      }
+      const read = wordReader(striped, FILL);
+      let eave = 0;
+      let shown = 0;
+      for (const t of shownMaterials(striped, r, FILL)) {
+        // The outer face of the eave wall at z0, from the ground to the eaves: one rectangle, so owned at every point.
+        const onEave = t.n[2]! < -0.99 && Math.abs(t.c[2]! - z0) < 1e-6 && t.c[1]! < yb + h;
+        if (!t.owned) {
+          expect(onEave, `${tag}: a blended triangle on the eave wall at ${t.c.map((v) => v.toFixed(2))}`).toBe(false);
+          for (const q of t.reach) expect(read(...q), `${tag}: a blended face at ${t.c.map((v) => v.toFixed(2))} reads plane cell ${q}`).toBe(0);
+          continue;
+        }
+        if (onEave) eave++;
+        // A body's face (the cell a quarter cell behind the pixel a wall cell): that cell's material.
+        const behind = [0, 1, 2].map((k) => Math.floor(t.c[k]! - t.n[k]! / 4));
+        if (!walls.has(behind.join(','))) continue;
+        const [px, py, pz] = t.c as [number, number, number];
+        // Points on a cell line may read either side.
+        if ([px, py, pz].some((q, k) => Math.abs(t.n[k]!) < 0.5 && Math.abs(q - Math.round(q)) < 1e-6)) continue;
+        expect(t.owner, `${tag}: wall point at ${t.c.map((v) => v.toFixed(2))} normal ${t.n.map((v) => v.toFixed(2))}`).toBe(wallMat(...(behind as [number, number, number])));
+        shown++;
+      }
+      expect(eave, tag).toBeGreaterThan(0);
+      expect(shown, tag).toBeGreaterThan(eave);
+    }
+  });
+
   it('fills the wall tops only where the roof\'s kit asks:no kit or a kit without it keeps the stepped tops under the parallel underside, closed, the gable open between each step and the slope', { timeout: 60_000 }, () => {
     const [x0, yb, z0, w, d, h] = [4, 3, 4, 12, 11, 4];
     for (const slope of [1, 0.5]) {
