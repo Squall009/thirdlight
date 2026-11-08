@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX } from '@thirdlight/voxel';
 import { fragmentWgslOf, wgslRenderer } from './test-wgsl';
 import { voxelStandInLook } from './voxel-chunk-view';
-import { phaseTileMetres, voxelLooksKey, voxelRecordLooks, type VoxelLookRecord } from './voxel-material-looks';
+import { phaseTileMetres, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 import { createVoxelSurface, PHASE_CELLS, VOXEL_SURFACE_KEY } from './voxel-surface';
 import { CRACK_TEXELS } from './voxel-crack-texture';
 
@@ -40,6 +40,29 @@ describe('voxel looks from material records', () => {
     // The key moves with a look-relevant change only.
     expect(voxelLooksKey(records)).toBe(voxelLooksKey(records.map((r) => ({ ...r, textures: { map: 'x' } }))));
     expect(voxelLooksKey(records)).not.toBe(voxelLooksKey(records.map((r) => (r.materialId === 'stone' ? { ...r, params: { color: '#000000' } } : r))));
+  });
+
+  it('draws a record with a texture set as its set (white unless it names a colour, a tint) and finds its layers from the records, a variant\'s own sets included', () => {
+    const textured: VoxelLookRecord[] = [
+      { materialId: 'brick', shader: 'standard', params: {}, voxel: { id: 15, use: 'construction', surfaces: { wall: { albedoHeight: 'brick-a', normal: 'brick-n' } } } },
+      // A tinted variant on the same textures (one layer), and one with a floor set of its own.
+      { materialId: 'brick-red', shader: 'standard', params: { color: '#d08a70' }, instanceOf: 'brick', voxel: { id: 16 } },
+      { materialId: 'brick-floor', shader: 'standard', params: {}, instanceOf: 'brick', voxel: { id: 17, surfaces: { floor: { albedoHeight: 'tile-a' } } } },
+      ...records,
+    ];
+    const look = voxelRecordLooks(textured);
+    expect(look(15).colour).toBe(0xffffff);
+    expect(look(16).colour).toBe(0xd08a70);
+    expect(look(10).colour).toBe(0x808070);
+    expect(look(2)).toEqual(voxelStandInLook(2));
+    const t = voxelRecordTextures(textured)!;
+    expect(t.sets.albedoHeight.layers).toEqual(['brick-a', 'tile-a']);
+    expect([...t.layers]).toEqual([
+      [15, [0, 0, 0]],
+      [16, [0, 0, 0]],
+      [17, [0, 1, 0]],
+    ]);
+    expect(voxelRecordTextures(records)).toBeNull();
   });
 
   it('rewrites the table alone when a record changes: the program stays, the crack layers stay', () => {

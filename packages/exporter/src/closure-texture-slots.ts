@@ -15,9 +15,14 @@
  * digest (`slots-…`): the same layers give the same file and the same id
  * build after build; the slots' own textures ship only when something else
  * names them.
+ *
+ * The voxel surfaces' texture arrays (`voxelSurfaceTextures`: a map's
+ * array of every voxel material's surface sets) are slot lists the same
+ * way and ship the same way; the build names them in its `voxelTextures`
+ * block by map.
  */
 import type { WorkspaceService, BlobFile } from '@thirdlight/workspace';
-import { materialTextureSlotSets, parseFillLayer, textureSlotSetKey, type Ktx2Encoding, type ManifestAssetInputV2, type TextureSlotSet } from '@thirdlight/project-model';
+import { materialTextureSlotSets, parseFillLayer, textureSlotSetKey, voxelSurfaceTextures, VOXEL_TEXTURE_MAPS, type Ktx2Encoding, type ManifestAssetInputV2, type TextureSlotSet, type VoxelTextureMap } from '@thirdlight/project-model';
 
 import type { ClosureDecalPages } from './closure-decal-pages';
 import type { ClosureArtifact, ClosureFileArtifact, ContentClosureError } from './content-closure';
@@ -44,6 +49,8 @@ export interface ClosureSlotArrays {
   readonly rows: readonly ManifestAssetInputV2[];
   readonly files: readonly ClosureFileArtifact[];
   readonly artifacts: readonly ClosureArtifact[];
+  /** The voxel surfaces' arrays' ids by map (empty: no voxel material has a texture set). */
+  readonly voxelTextures: Readonly<Partial<Record<VoxelTextureMap, string>>>;
 }
 
 interface AssetRecordLike {
@@ -65,12 +72,15 @@ export async function closureSlotArrays(o: {
   readonly locate: boolean;
   readonly hash: (bytes: Uint8Array) => string;
 }): Promise<{ ok: true; arrays: ClosureSlotArrays } | { ok: false; error: ContentClosureError }> {
-  const sets = materialTextureSlotSets(o.materials);
+  const voxel = voxelSurfaceTextures(o.materials as unknown as Parameters<typeof voxelSurfaceTextures>[0]);
+  const voxelSets = voxel === null ? [] : VOXEL_TEXTURE_MAPS.flatMap((m) => (voxel.sets[m] !== undefined ? [[m, voxel.sets[m]] as const] : []));
+  const sets = [...materialTextureSlotSets(o.materials), ...voxelSets.map(([, set]) => set)];
   const ids = new Map<string, string>();
   const rows: ManifestAssetInputV2[] = [];
   const files: ClosureFileArtifact[] = [];
   const artifacts: ClosureArtifact[] = [];
-  if (sets.length === 0) return { ok: true, arrays: { ids, rows, files, artifacts } };
+  const voxelTextures: Partial<Record<VoxelTextureMap, string>> = {};
+  if (sets.length === 0) return { ok: true, arrays: { ids, rows, files, artifacts, voxelTextures } };
   if (o.port === undefined) return refused('a material names per-layer texture slots, and this build has no texture assembly');
   const byId = new Map(o.assets.map((a) => [a.assetId, a]));
   const shipped = new Set<string>();
@@ -83,6 +93,7 @@ export async function closureSlotArrays(o: {
     const id = `${SLOT_ARRAY_ID_PREFIX}${f.digest.slice(0, 57)}`;
     if (byId.has(id)) return refused(`the assembled array's id ${id} is an asset of the project`);
     ids.set(textureSlotSetKey(set), id);
+    for (const [m, s] of voxelSets) if (s === set) voxelTextures[m] = id;
     if (shipped.has(id)) continue;
     shipped.add(id);
     const path = `content/sha256/${f.digest}`;
@@ -96,7 +107,19 @@ export async function closureSlotArrays(o: {
     const metricsDigest = o.hash(new TextEncoder().encode(JSON.stringify({ slots: layers.map((l) => l.sourceDigest), mode: set.mode, ...(set.height === true ? { height: true } : {}) })));
     rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: f.digest, sourceByteLength: f.byteLength, metricsDigest });
   }
-  return { ok: true, arrays: { ids, rows, files, artifacts } };
+  return { ok: true, arrays: { ids, rows, files, artifacts, voxelTextures } };
+}
+
+/** The project-wide dependencies with the voxel surfaces' arrays (every voxel world of the game draws from them, like the kits). */
+export function withVoxelArrays(dependencies: string[], arrays: ClosureSlotArrays | null): string[] {
+  const ids = Object.values(arrays?.voxelTextures ?? {});
+  return ids.length === 0 ? dependencies : [...new Set([...dependencies, ...ids])];
+}
+
+/** The capture's `voxelTextures` input (nothing when no voxel material has a texture set). */
+export function voxelTexturesBlock(arrays: ClosureSlotArrays | null): { voxelTextures?: Partial<Record<VoxelTextureMap, string>> } {
+  const v = arrays?.voxelTextures ?? {};
+  return Object.keys(v).length > 0 ? { voxelTextures: { ...v } } : {};
 }
 
 /** Each layer's texture version in the captured content, or why there is none. */

@@ -31,7 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { pageFlagOn, sha256HexAsync } from '@thirdlight/shared';
-import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, voxelPieceSeedOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument, type QualityLevelConfig } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, voxelPieceSeedOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument, type QualityLevelConfig, type VoxelTextureMap } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
@@ -482,6 +482,12 @@ function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog,
     );
 }
 
+/** The voxel surfaces' texture array of a map: the build's `voxelTextures` block names it, read as any shipped texture (none: null). */
+function voxelTexturesOf(manifest: GamePageManifest, load: NonNullable<SceneAdapterOptions['materials']>['loadTexture']): (map: VoxelTextureMap) => ReturnType<typeof load> {
+  const ids = (manifest as { voxelTextures?: Partial<Record<VoxelTextureMap, string>> }).voxelTextures ?? {};
+  return (map) => (ids[map] === undefined ? Promise.resolve(null) : load(ids[map]));
+}
+
 /** The build's voxel kits (none: every world draws plain voxel edges). */
 /** The build's voxel materials (those with a voxel part): what the worlds' tables and `ctx.voxels.materialOf` read. */
 function voxelMaterialsOf(manifest: GamePageManifest): VoxelMaterialSources {
@@ -677,7 +683,7 @@ interface PageVoxelKits {
  * chunk drawn before its kit's meshes are there builds those pieces when
  * they arrive.
  */
-function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[], materials: VoxelMaterialSources) {
+function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[], materials: VoxelMaterialSources, textures: (map: VoxelTextureMap) => ReturnType<NonNullable<SceneAdapterOptions['materials']>['loadTexture']>) {
   let report: (world: string, bytes: number[], coarse: number, kits: number) => void = () => undefined;
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length + voxelKitImageRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
@@ -685,6 +691,8 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     kits: kitMeshes.world(kits.records, kits.seed),
     // The worlds' material tables from the build's material records.
     materials: materials as readonly VoxelLookRecord[],
+    // The voxel surfaces' texture arrays the build assembled (its `voxelTextures` block), read as any shipped texture.
+    textures: (map) => textures(map),
     scene: () => adapter()?.threeScene?.() ?? null,
     // The grids upload through the renderer once it can draw.
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
@@ -810,7 +818,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
     // The voxel worlds run with the simulation; the page draws the chunks each swap sends.
-    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase), qualityLevels, voxelMaterialsOf(manifest)) : null;
+    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase), qualityLevels, voxelMaterialsOf(manifest), voxelTexturesOf(manifest, pageTextureLoader(assetReader, content.catalog, textureStreamer))) : null;
     if (voxels !== null) releases.push(() => (voxels.draws.dispose(), voxels.kitMeshes.dispose()));
     if (threadMode === 'worker') {
       const worker = voxels === null ? createBrowserSimWorker(o.workerUrl) : voxels.worker(createBrowserSimWorker(o.workerUrl));

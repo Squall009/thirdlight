@@ -33,6 +33,7 @@ import type { VoxelsChangedPayload } from '@thirdlight/protocol';
 import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer, type VoxelKitSet, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import { pageKitPieces, readVoxelKits, type KitRoute, type ProjectVoxelKits } from '../voxel-world/kit-pieces';
 import type * as THREE from 'three';
+import type { TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import type { ProjectedEntity } from '../session/projection';
 import type { SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
 
@@ -48,6 +49,8 @@ export interface SceneVoxelsHost {
   readonly adapter: () => SceneAdapter;
   readonly requestRender: () => void;
   readonly source: SceneVoxelsSource | null;
+  /** The voxel surfaces' texture array of a slot list (the view's loader: the backend assembles it); absent: flat colours. */
+  readonly textures?: (set: TextureSlotSet) => Promise<THREE.Texture | null>;
 }
 
 type WorldState = Extract<SceneVoxelsOut, { t: 'state' }>;
@@ -187,6 +190,8 @@ export class SceneVoxels {
       renderer: () => (adapter().rendererStarting() ? null : ((adapter().currentRenderer?.() ?? null) as VoxelGridRenderer | null)),
       report: (world, bytes, coarse, kits) => this.post({ t: 'drawn', world, bytes, coarse, kits }),
       applied: () => requestRender(),
+      // The view's loader hands each array over to the caller: the draws dispose those they stop drawing.
+      ...(this.host.textures !== undefined ? { textures: (_map: unknown, set: TextureSlotSet) => this.host.textures!(set), release: (t: THREE.Texture) => t.dispose() } : {}),
     });
   }
 

@@ -74,6 +74,7 @@ import type { GameplaySettings } from './types-v2';
 import { isDigest } from './content-helpers';
 import { canonicalShippedVoxelWorld, shippedVoxelWorldsProblem, type ShippedVoxelWorld } from '@thirdlight/voxel';
 import { canonicalVoxelKits, validateVoxelKits, type VoxelKit } from './voxel-kit';
+import { VOXEL_TEXTURE_MAPS, type VoxelTextureMap } from './voxel-materials';
 import type { ModelErrorV2 } from './errors';
 
 export const RUNTIME_CONTENT_MANIFEST_VERSION_5 = 5 as const;
@@ -181,6 +182,8 @@ export const CATALOG_BLOCK_KEYS = [
   'voxelWorlds',
   // The voxel kits (each its record as authored, game data untouched): the world draws its cases with them.
   'voxelKits',
+  // The voxel surfaces' texture arrays (a map's assembled array id each): the worlds draw the materials' texture sets from them.
+  'voxelTextures',
 ] as const;
 export type CatalogBlockKey = (typeof CATALOG_BLOCK_KEYS)[number];
 
@@ -260,6 +263,8 @@ export type CaptureManifestV5Input = Omit<CaptureManifestV2Input, 'assets' | 'sc
   voxelWorlds?: readonly ShippedVoxelWorld[];
   /** The project's voxel kits (absent or empty: none). */
   voxelKits?: readonly VoxelKit[];
+  /** The voxel surfaces' texture arrays by map (`albedoHeight`, `normal`, `orm`: shipped texture ids; absent or empty: none). */
+  voxelTextures?: Readonly<Partial<Record<VoxelTextureMap, string>>>;
   /** SHA-256 (lowercase hex) of the files' bytes (default: project-model's portable one). */
   sha256?: (bytes: Uint8Array) => string;
 };
@@ -392,6 +397,8 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
   const shared = entriesOf(input.dependencies ?? []);
   if (shared.length > 0) blocks.dependencies = shared;
   if (input.voxelKits !== undefined && input.voxelKits.length > 0) blocks.voxelKits = canonicalVoxelKits(input.voxelKits);
+  const voxelTextures = Object.fromEntries(VOXEL_TEXTURE_MAPS.flatMap((m) => (input.voxelTextures?.[m] !== undefined ? [[m, input.voxelTextures[m]]] : [])));
+  if (Object.keys(voxelTextures).length > 0) blocks.voxelTextures = voxelTextures;
   if (input.voxelWorlds !== undefined && input.voxelWorlds.length > 0) blocks.voxelWorlds = [...input.voxelWorlds].sort((a, b) => (a.world < b.world ? -1 : a.world > b.world ? 1 : 0)).map(canonicalShippedVoxelWorld);
   const fileRows: CatalogBlockRow[] = [];
   for (const key of CATALOG_BLOCK_KEYS) {
@@ -645,6 +652,8 @@ export function catalogBlockProblem(key: CatalogBlockKey, value: unknown, contex
       return catalogEntriesProblem(value);
     case 'voxelWorlds':
       return shippedVoxelWorldsProblem(value);
+    case 'voxelTextures':
+      return voxelTexturesProblem(value);
     case 'voxelKits': {
       const errors: ModelErrorV2[] = [];
       validateVoxelKits(value, '/voxelKits', errors);
@@ -655,6 +664,19 @@ export function catalogBlockProblem(key: CatalogBlockKey, value: unknown, contex
       return e === null ? null : `${key}: ${e.message}`;
     }
   }
+}
+
+/** Why a `voxelTextures` block is not one (null: it is): an object of texture ids by map, at least one. */
+function voxelTexturesProblem(v: unknown): string | null {
+  if (!isPlainObject(v)) return 'voxelTextures is an object of texture ids by map';
+  const keys = Object.keys(v);
+  if (keys.length === 0) return 'voxelTextures names at least one map';
+  for (const k of keys) {
+    if (!(VOXEL_TEXTURE_MAPS as readonly string[]).includes(k)) return `voxelTextures: "${k}" is not a map (${VOXEL_TEXTURE_MAPS.join(', ')})`;
+    const id = (v as Record<string, unknown>)[k];
+    if (typeof id !== 'string' || !ID_RE.test(id)) return `voxelTextures.${k} is a texture id`;
+  }
+  return null;
 }
 
 /** Put a block's parts together (a list's parts concatenate, a map's merge; a single part is itself). */

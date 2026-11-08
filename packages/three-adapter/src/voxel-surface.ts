@@ -9,9 +9,9 @@
  * the surface along its normal, so a face between a solid and an air cell
  * reads the solid one), each weighted per axis by a ramp of the blend
  * distance across the face between two cells, air cells left out. The two
- * heaviest materials are looked up (colour and test pattern) and mixed by
- * their weights; wetness, averaged the same way, darkens the colour and
- * lowers the roughness. A material or wetness change re-uploads a grid and
+ * heaviest materials are looked up (their texture sets, or a flat colour)
+ * and mixed by their weights; wetness, averaged the same way, darkens the
+ * colour and lowers the roughness. A material or wetness change re-uploads a grid and
  * rebuilds no mesh, and the blend is a function of the cells alone, so it
  * looks the same on any mesh that covers the surface.
  *
@@ -53,13 +53,30 @@
  * A chunk whose grid holds one solid entry needs no region: the object
  * passes the entry instead.
  *
- * Texture units: the grid texture, the material table, the pattern array
- * and the crack array, four of a lit program's sixteen (`texture-units.ts`);
- * the band test texture a fifth when it is on. Reads a pixel: nine grid
- * texels (ten with the owner cell's), five table texels (look and tiles of two materials, the crack
- * layer of the first), six pattern samples (a construction material takes
- * one projection, through the first of its three samples) and one crack
- * sample, two band samples more with the bands on.
+ * **Texture sets.** A material's surfaces draw from three texture arrays
+ * (`setTextures`; one a map: albedo with height in A, tangent-space normal,
+ * ORM), a layer per texture set; the table holds each material's wall,
+ * floor and ceiling layer. Construction picks the floor layer on a face
+ * looking up, the ceiling layer on one looking down and the wall layer on
+ * every other (a roof plane included); terrain draws its one set (the
+ * wall's) triplanar. A layer is sampled on the same projection as the
+ * colour (the grid's U/V on construction, three axes on terrain) and the
+ * normal map turned by that projection's frame (the grid's U and V, or each
+ * axis's), so a texture's light and shade line up with its colour on every
+ * face. A material without a layer draws its flat colour, its geometry
+ * normal and the absent ORM. The test patterns (grey value noise, planks,
+ * cobbles) replace the arrays under the `patterns` option.
+ *
+ * Texture units: the grid texture, the material table, the three texture
+ * arrays and the crack array, six of a lit program's sixteen
+ * (`texture-units.ts`; the pattern array in place of the three under
+ * `patterns`: four); the band test texture one more when it is on, the
+ * relief heights one more with them. Reads a pixel: nine grid texels (ten
+ * with the owner cell's), seven table texels (look, tiles and layers of two
+ * materials, the crack layer of the first), three samples of each array for
+ * each of the two materials (a construction material takes one projection,
+ * through the first of its three samples; under `patterns` six pattern
+ * samples) and one crack sample, two band samples more with the bands on.
  *
  * **Cracks.** A cracked block's faces (voxel damage stage 1) carry the
  * overlay's strength in a vertex attribute ({@link VOXEL_CRACK_ATTRIBUTE});
@@ -73,6 +90,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
+import { VOXEL_TEXTURE_MAPS, type VoxelTextureMap } from '@thirdlight/project-model';
 import { CONSTRUCTION_TILE_METRES, SHADER_CONSTRUCTION_BIT, SURFACE_OWNER_STEPS_PER_CELL, TERRAIN_TILE_METRES } from '@thirdlight/voxel';
 import { crackArrayTexture } from './voxel-crack-texture';
 import { reliefHeightTexture } from './voxel-relief';
@@ -102,10 +120,11 @@ const CRACK_DARKEN = 0.7;
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
-import { BAND_TEXELS, bandTexels, gridUv, tileUv, type ProjectionOps } from './voxel-surface-projection';
+import { BAND_TEXELS, bandTexels, gridUv, tileUv } from './voxel-surface-projection';
+import { NEUTRAL_TEXELS, NODE_OPS, textureSetAt } from './voxel-surface-sets';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, normalLocal, normalView, positionLocal, positionView, property, select, smoothstep, sqrt, texture, uniform, vec2, vec3, vec4 } = TSL;
+const { Fn, abs, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, normalLocal, normalView, positionLocal, positionView, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, vec2, vec3, vec4 } = TSL;
 
 /** The object `userData` key holding a voxel surface's per-object values ({@link VoxelSurfaceObject}). */
 export const VOXEL_SURFACE_KEY = 'tlVoxelSurface';
@@ -115,11 +134,17 @@ export const VOXEL_GRID_MAX_EDGE = 2048;
 
 /** Entries the material table holds (material ids 0 … 4,095), 64 a row. */
 const TABLE_WIDTH = 64;
-/** Rows of one block of the table: looks in the first block, tiles in the second, relief in the third. */
+/** Rows of one block of the table: looks in the first block, tiles in the second, relief in the third, texture layers in the fourth. */
 const TABLE_ROWS = 4096 / TABLE_WIDTH;
+/** The first texel of the table's layer block. */
+const LAYER_BLOCK = 3 * TABLE_ROWS * TABLE_WIDTH;
 /** Texels along a test pattern's side, and how many patterns there are. */
 const PATTERN_SIZE = 64;
 export const VOXEL_PATTERNS = 4;
+/** Anisotropic filtering of the texture arrays: floors and walls are seen at grazing angles. */
+const TEXTURE_ANISOTROPY = 4;
+/** The texture arrays the surfaces draw from, one a map of a texture set (a map left out: its neutral value). */
+export type VoxelSurfaceTextureArrays = Partial<Record<VoxelTextureMap, THREE.Texture>>;
 
 /** How the shader data's cells and entries are laid out (the voxel format's numbers, passed in by its owner). */
 export interface VoxelSurfaceLayout {
@@ -368,6 +393,32 @@ function patternTexture(): THREE.DataArrayTexture {
   return fresh(tex);
 }
 
+/** A two-layer array of one texel a layer: what a map's array node holds until (or without) the real array. */
+function neutralArray(texel: readonly number[]): THREE.DataArrayTexture {
+  const tex = new THREE.DataArrayTexture(new Uint8Array([...texel, ...texel]), 1, 1, 2);
+  tex.format = THREE.RGBAFormat;
+  tex.type = THREE.UnsignedByteType;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  // Filtered as the real arrays are: three builds a nearest-filtered texture's reads as loads, and the program keeps
+  // the reads it was built with when the array arrives.
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = false;
+  return fresh(tex);
+}
+
+/** Each map's neutral array. */
+const neutralArrays = (): Record<VoxelTextureMap, THREE.DataArrayTexture> => ({ albedoHeight: neutralArray(NEUTRAL_TEXELS.albedoHeight), normal: neutralArray(NEUTRAL_TEXELS.normal), orm: neutralArray(NEUTRAL_TEXELS.orm) });
+
+/** Binds each map's array (absent: its neutral one) to its node. */
+function bindArrays(nodes: Record<VoxelTextureMap, N>, neutral: Record<VoxelTextureMap, THREE.Texture>, arrays: VoxelSurfaceTextureArrays | null): void {
+  for (const map of VOXEL_TEXTURE_MAPS) {
+    const t = arrays?.[map] ?? neutral[map];
+    if (t !== neutral[map]) t.anisotropy = TEXTURE_ANISOTROPY;
+    (nodes[map] as unknown as { value: THREE.Texture }).value = t;
+  }
+}
+
 /** The band test texture over one construction tile (`voxel-surface-projection.ts`). */
 function bandTexture(): THREE.DataTexture {
   const tex = new THREE.DataTexture(bandTexels(CONSTRUCTION_TILE_METRES), BAND_TEXELS, BAND_TEXELS, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -383,11 +434,15 @@ function bandTexture(): THREE.DataTexture {
  * index in a; a second block of rows below it the tiles (construction
  * metres in r, terrain metres in g) and its crack layer in b (0: the
  * engine's; voxel-crack-texture.ts); a third its relief (height layer in r,
- * −1 none; depth in metres in g).
+ * −1 none; depth in metres in g); a fourth its texture layers (wall, floor,
+ * ceiling in r, g, b; −1 none).
  */
 function tableTexture(): THREE.DataTexture {
-  const rows = 3 * TABLE_ROWS;
-  const tex = new THREE.DataTexture(new Float32Array(TABLE_WIDTH * rows * 4), TABLE_WIDTH, rows, THREE.RGBAFormat, THREE.FloatType);
+  const rows = 4 * TABLE_ROWS;
+  const data = new Float32Array(TABLE_WIDTH * rows * 4);
+  // No material has a texture layer until the arrays are set.
+  data.fill(-1, LAYER_BLOCK * 4);
+  const tex = new THREE.DataTexture(data, TABLE_WIDTH, rows, THREE.RGBAFormat, THREE.FloatType);
   tex.minFilter = THREE.NearestFilter;
   tex.magFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
@@ -401,8 +456,10 @@ export interface VoxelSurfaceOptions {
   blendMetres: number;
   /** `flat`: one colour, no reads (to measure what the blend costs). */
   shading?: 'blend' | 'flat';
-  /** Draw construction with the band test texture (bands at fixed heights in the tile) instead of its pattern. */
+  /** Draw construction with the band test texture (bands at fixed heights in the tile) over its flat colour instead of its texture set or pattern. */
   bands?: boolean;
+  /** Draw every material with the test patterns (by its look's pattern index) instead of texture sets: the debug program. */
+  patterns?: boolean;
   /**
    * Relief: a height array (`size`² bytes a layer, 1 the surface, 0 a
    * material's depth below it; the looks name a layer and a depth). With
@@ -442,6 +499,15 @@ export interface VoxelSurface {
   /** Sets what the relief draws with (no new program); a no-op without heights. */
   setRelief(s: VoxelReliefSettings): void;
   /**
+   * The texture arrays and each material's wall, floor and ceiling layer in them (null or −1: none, its flat colour):
+   * the arrays are bound and the table's layers rewritten, no program, grid or mesh changes. A map left out reads its
+   * neutral value; null arrays: every material flat again. The surface does not own the arrays (never disposes them).
+   * Without effect under `patterns`.
+   */
+  setTextures(arrays: VoxelSurfaceTextureArrays | null, layers: (material: number) => readonly [number, number, number] | null): void;
+  /** Whether the program draws texture sets (false: the test patterns). */
+  readonly textured: boolean;
+  /**
    * Every material's look again (a material record changed): the table is rewritten and uploaded, nothing else
    * (no program, no grid, no mesh: looks are shader data). The ms it took on this thread.
    */
@@ -450,7 +516,7 @@ export interface VoxelSurface {
   readonly tableUploads: number;
   readonly tableMs: number;
   /** What the table holds for a material (diagnostics): linear colour, pattern, tiles in metres, crack layer, relief layer (−1 none) and depth. */
-  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number };
+  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number; layers: [number, number, number] };
   /**
    * The deepest relief of any material (metres; 0 without heights): how far a displaced vertex can move, what culling
    * bounds grow by. A geometry keeps the bound it was placed with until it is placed again.
@@ -523,7 +589,11 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   let tableUploads = 0;
   let tableMs = 0;
   const heights = opts.heights === undefined ? null : fresh(reliefHeightTexture(opts.heights.layers, opts.heights.size));
-  const patterns = patternTexture();
+  // The texture sets' program, unless the debug patterns or a flat colour are asked for.
+  const textured = opts.patterns !== true && opts.shading !== 'flat';
+  const patterns = textured ? null : patternTexture();
+  const neutral = textured ? neutralArrays() : null;
+  const arrayNodes = neutral === null ? null : { albedoHeight: texture(neutral.albedoHeight), normal: texture(neutral.normal), orm: texture(neutral.orm) };
   const bands = opts.bands === true ? bandTexture() : null;
   let cracks = crackArrayTexture([]);
   const cracksNode = texture(cracks);
@@ -567,18 +637,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     wet: mod(floor(entry.div(matMask)), layout.wetnessMax + 1),
   });
   const look = (m: N, block: number): N => tableNode.load(ivec2(int(mod(m, TABLE_WIDTH)), int(floor(m.div(TABLE_WIDTH))).add(block * TABLE_ROWS)));
-  const nodeOps: ProjectionOps<N, N> = {
-    num: (v) => float(v),
-    add: (a, b) => a.add(b),
-    sub: (a, b) => a.sub(b),
-    mul: (a, b) => a.mul(b),
-    div: (a, b) => a.div(b),
-    abs: (a) => abs(a),
-    max: (a, b) => max(a, b),
-    sqrt: (a) => sqrt(a),
-    less: (a, b) => a.lessThan(b),
-    pick: (c, a, b) => select(c, a, b),
-  };
+
   if (opts.shading === 'flat') {
     material.colorNode = vec4(0.55, 0.52, 0.47, 1);
     material.roughnessNode = float(0.85);
@@ -689,7 +748,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const p = phaseU.mul(layout.cellMetres).add(pos);
       const ps = slopePhaseU.add(pos);
       const ps5 = slope5PhaseU.add(pos);
-      const [gu, gv] = gridUv(nodeOps, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [ps5.x, ps5.y, ps5.z], [n.x, n.y, n.z]);
+      const [gu, gv] = gridUv(NODE_OPS, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [ps5.x, ps5.y, ps5.z], [n.x, n.y, n.z]);
       // Triplanar weights by the normal (terrain); a construction material takes the grid projection alone.
       const bw = abs(n).pow(vec3(4));
       const bn = bw.div(bw.x.add(bw.y).add(bw.z));
@@ -716,7 +775,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
           return (level === null ? t : t.level(level)).r.toVar();
         };
         const pt = b.p.div(tiles.y);
-        const gt = vec2(...tileUv(nodeOps, [b.gu, b.gv], tiles.x));
+        const gt = vec2(...tileUv(NODE_OPS, [b.gu, b.gv], tiles.x));
         const h0 = sample(select(built, gt, pt.zy));
         const h1 = sample(pt.xz);
         const h2 = sample(pt.xy);
@@ -739,9 +798,9 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         const tiles = look(id, 1).toVar();
         const built = m.greaterThanEqual(matMask);
         const layer = int(floor(l.a.add(0.5)));
-        const sample = (uv: N): N => texture(patterns, uv).depth(layer).r;
+        const sample = (uv: N): N => texture(patterns!, uv).depth(layer).r;
         const pt = p.div(tiles.y);
-        const gt = vec2(...tileUv(nodeOps, [gu, gv], tiles.x));
+        const gt = vec2(...tileUv(NODE_OPS, [gu, gv], tiles.x));
         const pat = sample(select(built, gt, pt.zy)).mul(select(built, float(1), bn.x)).add(sample(pt.xz).mul(select(built, float(0), bn.y))).add(sample(pt.xy).mul(select(built, float(0), bn.z)));
         const shaded = l.rgb.mul(pat.sub(0.5).mul(1.2).add(1)).toVar();
         if (bands === null) return shaded;
@@ -750,25 +809,45 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         return select(built, mix(l.rgb, band.rgb, band.a), shaded);
       };
       // Sampled in uniform control flow (WGSL refuses an implicit-derivative sample inside a branch that varies per pixel): into variables first, then picked.
-      const a1 = albedo(mA).toVar();
-      const a2 = albedo(mB).toVar();
-      const blended = mix(a1, a2, share);
+      let blended: N;
+      if (textured) {
+        const sets = { maps: arrayNodes!, look, matMask, bands };
+        const at = { n, p, gu, gv, bn };
+        const s1 = textureSetAt(sets, mA, at);
+        const s2 = textureSetAt(sets, mB, at);
+        blended = mix(s1.albedo, s2.albedo, share);
+        normalOut.assign(select(seen, mix(s1.normal, s2.normal, share).normalize(), n));
+        ormOut.assign(select(seen, mix(s1.orm, s2.orm, share), vec3(1, 0.8, 0)));
+      } else {
+        const a1 = albedo(mA).toVar();
+        const a2 = albedo(mB).toVar();
+        blended = mix(a1, a2, share);
+      }
       // Cracks (a damaged block's faces, damage stage 1): one crack map a construction tile, laid on the grid exactly as
       // the material's texture (the same metres and phase), so neighbouring cracked cells show one continuous pattern;
       // a texel shows once the face's strength reaches it (bright cracks first). Sampled outside any branch, as above.
       const crackLook = look(mod(mA, matMask), 1).toVar();
       const crackLayer = int(floor(crackLook.z.add(0.5)));
-      const crackTexel = cracksNode.sample(vec2(...tileUv(nodeOps, [gu, gv], crackLook.x))).depth(crackLayer).r.toVar();
+      const crackTexel = cracksNode.sample(vec2(...tileUv(NODE_OPS, [gu, gv], crackLook.x))).depth(crackLayer).r.toVar();
       const strength = crackStrength();
       const cracked = select(strength.greaterThan(0.002).and(crackTexel.greaterThan(0.002)).and(crackTexel.greaterThanEqual(float(1).sub(strength))), float(CRACK_DARKEN), float(0));
       const colour = mix(vec3(0.5), blended.mul(float(1).sub(wetness.mul(0.5))).mul(float(1).sub(cracked)), select(seen, float(1), float(0)));
       wetOut.assign(wetness);
       return vec4(colour, 1);
     });
-    // The colour is built before the roughness in a program, so the roughness reads the wetness the colour found.
+    // The colour is built before the roughness, metalness, occlusion and normal in a program, so they read what the
+    // colour found: the wetness, the texture sets' ORM and normal.
     const wetOut = property('float', 'tlVoxelWetness');
+    const normalOut = property('vec3', 'tlVoxelNormal');
+    const ormOut = property('vec3', 'tlVoxelOrm');
     material.colorNode = shade();
-    material.roughnessNode = mix(float(0.85), float(0.3), wetOut);
+    material.roughnessNode = mix(textured ? ormOut.y : float(0.85), float(0.3), wetOut);
+    if (textured) {
+      material.metalnessNode = ormOut.z;
+      material.aoNode = ormOut.x;
+      // The texture sets' normal (object space: world directions) as the lighting normal, unless the heights bend it too (below).
+      if (heights === null) material.normalNode = transformNormalToView(normalOut).normalize();
+    }
     if (heights !== null) {
       // The vertex stage: a relief vertex moves inward along its normal by the recess, its crease weight and the
       // ring's fade; heights are read at the mip whose texels are as wide as the vertex spacing, never sharper.
@@ -788,7 +867,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         const hgt = reliefOut.negate().mul(bumpU);
         const sx = positionView.dFdx();
         const sy = positionView.dFdy();
-        const nv = normalView;
+        // Bent from the texture sets' normal where they draw.
+        const nv = textured ? transformNormalToView(normalOut).normalize() : normalView;
         const r1 = sy.cross(nv);
         const r2 = nv.cross(sx);
         const det = sx.dot(r1).mul(faceDirection);
@@ -824,7 +904,18 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const a = m * 4;
       const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
       const r = (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4;
-      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]! };
+      const ly = (LAYER_BLOCK + m) * 4;
+      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]!, layers: [tdata[ly]!, tdata[ly + 1]!, tdata[ly + 2]!] };
+    },
+    get textured() {
+      return textured;
+    },
+    setTextures(arrays, layers) {
+      if (arrayNodes === null || neutral === null) return;
+      bindArrays(arrayNodes, neutral, arrays);
+      for (let m = 1; m < ids; m++) tdata.set((arrays === null ? null : layers(m)) ?? [-1, -1, -1], (LAYER_BLOCK + m) * 4);
+      fresh(table);
+      tableUploads++;
     },
     setRelief(r) {
       if (r.n !== undefined) reliefN.value = r.n;
@@ -846,7 +937,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     dispose() {
       grids.dispose();
       table.dispose();
-      patterns.dispose();
+      patterns?.dispose();
+      if (neutral !== null) for (const map of VOXEL_TEXTURE_MAPS) neutral[map].dispose();
       cracks.dispose();
       bands?.dispose();
       heights?.dispose();

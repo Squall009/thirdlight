@@ -23,6 +23,13 @@
  * rewrites every world's table and nothing else (looks are shader data, so
  * no chunk is derived, meshed or uploaded again).
  *
+ * The records' surface texture sets draw from three texture arrays (one a
+ * map), made of every voxel material's sets (`voxelRecordTextures`), which
+ * the host loads (`textures`: Play the build's assembled arrays, the editor
+ * the backend's). Until they arrive, and for ids without a set, a surface
+ * draws its flat colour; the arrays and the layers go in together, every
+ * world's table rewritten once, no chunk derived or meshed again.
+ *
  * Kit pieces draw from one kit set for every world on the page (the
  * project's kits: every world derives with the engine's world rules, so
  * one piece table numbers them all), given and replaced with
@@ -51,10 +58,11 @@ import * as THREE from 'three';
 import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
-import { voxelLooksKey, voxelRecordLooks, type VoxelLookRecord } from './voxel-material-looks';
+import { textureSlotSetKey, VOXEL_TEXTURE_MAPS, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
+import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
-import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface } from './voxel-surface';
+import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -87,6 +95,12 @@ export interface VoxelWorldDrawsOptions {
   readonly kits?: VoxelKitSet | null;
   /** The material records the worlds' tables are built from (absent: every id its stand-in until {@link VoxelWorldDraws.setMaterials}). */
   readonly materials?: readonly VoxelLookRecord[];
+  /**
+   * A map's texture array, assembled from its slot list (absent, or null back: that map's neutral value). Arrays
+   * replaced by later records are handed to `release` (absent: the host keeps them, e.g. its loader's cache).
+   */
+  textures?(map: VoxelTextureMap, set: TextureSlotSet): Promise<THREE.Texture | null>;
+  release?(texture: THREE.Texture): void;
 }
 
 /** One world as drawn: objects (chunks and nodes of every level), per level, seams, triangles (seams included). */
@@ -105,6 +119,9 @@ export interface VoxelWorldDrawStats {
   /** Material table uploads (a record changed) and the ms the last one took. */
   readonly tableUploads: number;
   readonly tableMs: number;
+  /** Layers of the texture arrays drawn (0: none yet), and whether the program draws texture sets. */
+  readonly textureLayers: number;
+  readonly textured: boolean;
 }
 
 interface WorldDraw {
@@ -140,6 +157,14 @@ export class VoxelWorldDraws {
   private kitLoaded: (() => void) | null = null;
   private looks: (material: number) => VoxelMaterialLook = voxelStandInLook;
   private looksKey = '';
+  /** The texture arrays drawn, the layers with them, and the key of the sets they were made of. */
+  private arrays: { readonly key: string; readonly textures: VoxelSurfaceTextureArrays; readonly layers: VoxelSurfaceTextures['layers']; readonly count: number } | null = null;
+  /** The key of the sets asked for last (a load that finds another key asked meanwhile is dropped). */
+  private arraysWanted = '';
+  /** Texture array loads finished, failed, and the ms the last took (diagnostics). */
+  textureLoads = 0;
+  textureFailures = 0;
+  textureLoadMs = 0;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.setKits(opts.kits ?? null);
@@ -156,8 +181,51 @@ export class VoxelWorldDraws {
     this.looksKey = key;
     this.looks = voxelRecordLooks(materials);
     for (const w of this.worlds.values()) w.surface.setLooks(this.looks);
+    this.loadTextures(materials);
     this.opts.applied?.();
     return true;
+  }
+
+  /** The arrays of the records' surface sets, loaded and drawn when they arrive (the same sets: nothing loaded). */
+  private loadTextures(materials: readonly VoxelLookRecord[]): void {
+    const made = this.opts.textures === undefined ? null : voxelRecordTextures(materials);
+    const key = made === null ? '' : JSON.stringify([VOXEL_TEXTURE_MAPS.map((m) => (made.sets[m] === undefined ? '' : textureSlotSetKey(made.sets[m]))), [...made.layers]]);
+    if (key === this.arraysWanted) return;
+    this.arraysWanted = key;
+    if (made === null) {
+      this.drawArrays(null);
+      return;
+    }
+    const t0 = performance.now();
+    void Promise.all(VOXEL_TEXTURE_MAPS.map(async (map) => [map, made.sets[map] === undefined ? null : await this.opts.textures!(map, made.sets[map])] as const))
+      .then((loaded) => {
+        const textures: VoxelSurfaceTextureArrays = Object.fromEntries(loaded.filter(([, t]) => t !== null));
+        if (this.disposed || this.arraysWanted !== key) {
+          for (const [, t] of loaded) if (t !== null) this.opts.release?.(t);
+          return;
+        }
+        this.textureLoads++;
+        this.textureLoadMs = performance.now() - t0;
+        this.drawArrays({ key, textures, layers: made.layers, count: made.sets.albedoHeight.layers.length });
+      })
+      .catch(() => {
+        // A failed array leaves the surfaces on their flat colours (the host reports the failure where it loads).
+        if (this.arraysWanted === key) this.textureFailures++;
+      });
+  }
+
+  /** Every world draws these arrays (null: none) from now on; the arrays they replace are released. */
+  private drawArrays(next: typeof this.arrays): void {
+    const old = this.arrays;
+    this.arrays = next;
+    for (const w of this.worlds.values()) this.giveArrays(w.surface);
+    if (old !== null) for (const t of Object.values(old.textures)) if (t !== undefined && !Object.values(next?.textures ?? {}).includes(t)) this.opts.release?.(t);
+    this.opts.applied?.();
+  }
+
+  private giveArrays(surface: VoxelSurface): void {
+    const a = this.arrays;
+    surface.setTextures(a === null ? null : a.textures, (m) => a?.layers.get(m) ?? null);
   }
 
   /** Every world draws its kit pieces from `set` from now on (each view as {@link VoxelChunkView.setKits}); meshes arriving later draw a frame. */
@@ -219,6 +287,7 @@ export class VoxelWorldDraws {
     if (w !== undefined) return w;
     const grid = chunkGrid(edge as ChunkEdge);
     const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: VOXEL_SIZE_M / 2 });
+    if (this.arrays !== null) this.giveArrays(surface);
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet });
     view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
@@ -276,7 +345,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs };
+    for (const [name, { view, surface }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 
@@ -288,5 +357,7 @@ export class VoxelWorldDraws {
     this.kitLoaded = null;
     for (const name of [...this.worlds.keys()]) this.close(name);
     this.waiting.length = 0;
+    if (this.arrays !== null) for (const t of Object.values(this.arrays.textures)) if (t !== undefined) this.opts.release?.(t);
+    this.arrays = null;
   }
 }

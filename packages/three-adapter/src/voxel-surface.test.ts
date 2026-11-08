@@ -19,8 +19,8 @@ import { CRACK_TEXELS, engineCrackTexels } from './voxel-crack-texture';
 // The layout the voxel package derives for 32³ chunks.
 const LAYOUT = { cellMetres: VOXEL_SIZE_M, side: shaderGridSide(32), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS };
 
-function program(shading: 'blend' | 'flat', bands = false, glsl = false): string {
-  const surface = createVoxelSurface(LAYOUT, { look: (m) => ({ colour: 0x808080 + m, pattern: m % 4 }), blendMetres: 0.5, shading, bands });
+function program(shading: 'blend' | 'flat', bands = false, glsl = false, patterns = true): string {
+  const surface = createVoxelSurface(LAYOUT, { look: (m) => ({ colour: 0x808080 + m, pattern: m % 4 }), blendMetres: 0.5, shading, bands, patterns });
   const scene = new THREE.Scene();
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1), new THREE.DirectionalLight(0xffffff, 2));
   const geo = new THREE.BufferGeometry();
@@ -76,6 +76,52 @@ describe('the voxel surface program', () => {
       expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(15);
       expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (program('flat', false, true).match(/\btexture\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(bandsOn ? 9 : 7);
     }
+  });
+
+  it('draws texture sets by default: three arrays in place of the pattern array, three samples of each a material, two table texels more (the materials\' layers), six textures bound, room for the light path, the bands and the relief heights', async () => {
+    await settle();
+    const flat = program('flat');
+    const patterns = program('blend');
+    const sets = program('blend', false, false, false);
+    // The arrays: 3 maps × 3 samples × 2 materials, against the patterns' 6; each material's layers one table load.
+    expect(reads(sets) - reads(flat)).toBe(reads(patterns) - reads(flat) - 6 + 18 + 2);
+    expect((sets.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(18);
+    expect((sets.match(/:\s*texture_2d_array<f32>\s*;/g) ?? []).length).toBe(4);
+    expect(bindings(sets) - bindings(flat)).toBe(6);
+    // The band test texture draws on construction here too: a binding and a sample a material more. With the relief
+    // heights on top they still leave the light path's units.
+    const banded = program('blend', true, false, false);
+    expect(reads(banded) - reads(sets)).toBe(2);
+    expect(bindings(banded) - bindings(sets)).toBe(1);
+    expect(bindings(banded) + 1 + LIGHT_PATH_TEXTURE_UNITS).toBeLessThanOrEqual(LIT_TEXTURE_UNITS);
+    const body = sets.slice(sets.indexOf('@fragment'));
+    for (const line of body.split('\n').filter((l) => /\btextureSample\(/.test(l))) expect(line.startsWith('\t') && !line.startsWith('\t\t'), line).toBe(true);
+    // WebGL 2 builds it too: the same fetches, 18 array samples in place of 6 pattern samples.
+    const glsl = program('blend', false, true, false);
+    const glslPatterns = program('blend', false, true);
+    expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length).toBe(17);
+    expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (glslPatterns.match(/\btexture\s*\(/g) ?? []).length).toBe(12);
+    expect((glsl.match(/uniform\s+(?:highp\s+|mediump\s+|lowp\s+)?sampler2DArray\b/g) ?? []).length).toBe(4);
+  });
+
+  it('binds the arrays it is given and writes each material\'s wall, floor and ceiling layer into the table (none: −1), and binds the neutral texels again without arrays', () => {
+    const surface = createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0 }), blendMetres: 0.5 });
+    expect(surface.textured).toBe(true);
+    expect(surface.tableEntry(7).layers).toEqual([-1, -1, -1]);
+    const arr = new THREE.DataArrayTexture(new Uint8Array(4 * 4 * 4 * 3), 4, 4, 3);
+    const uploads = surface.tableUploads;
+    surface.setTextures({ albedoHeight: arr }, (m) => (m === 7 ? [0, 2, 1] : null));
+    expect(surface.tableEntry(7).layers).toEqual([0, 2, 1]);
+    expect(surface.tableEntry(8).layers).toEqual([-1, -1, -1]);
+    expect(surface.tableUploads).toBe(uploads + 1);
+    expect(arr.anisotropy).toBe(4);
+    surface.setTextures(null, () => [0, 0, 0]);
+    expect(surface.tableEntry(7).layers).toEqual([-1, -1, -1]);
+    // The debug patterns' program takes no arrays.
+    const debug = createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0 }), blendMetres: 0.5, patterns: true });
+    expect(debug.textured).toBe(false);
+    debug.setTextures({ albedoHeight: arr }, () => [0, 0, 0]);
+    expect(debug.tableEntry(7).layers).toEqual([-1, -1, -1]);
   });
 
   it('refuses a material tile that does not divide the phase length (the texture would move where the phase wraps)', () => {

@@ -138,10 +138,15 @@ describe('relief displacement', () => {
   });
 
   it('builds nothing of relief without heights (programs as before), and refuses a look naming a layer the heights lack', () => {
-    const plain = createVoxelSurface(LAYOUT, { look, blendMetres: 0.25 });
+    const plain = createVoxelSurface(LAYOUT, { look, blendMetres: 0.25, patterns: true });
     expect(plain.material.positionNode).toBeNull();
     expect(plain.material.normalNode).toBeNull();
     expect(plain.reliefDepthM).toBe(0);
+    // The texture sets' program has a normal of its own (the normal maps'), still nothing of relief.
+    const textured = createVoxelSurface(LAYOUT, { look, blendMetres: 0.25 });
+    expect(textured.material.positionNode).toBeNull();
+    expect(textured.material.normalNode).not.toBeNull();
+    expect(textured.reliefDepthM).toBe(0);
     expect(() => createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0, relief: { layer: 9, depthMetres: 0.1 } }), blendMetres: 0.25, heights })).toThrow(/relief layer 9/);
   });
 });

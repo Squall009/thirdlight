@@ -5,19 +5,21 @@
  * the Scene view and the voxel world page alike.
  *
  * From a record (instances folded in, as a build ships them): its colour
- * (`params.color`), its tile (`voxel.tileMetres`, on both the construction
+ * (`params.color`; it tints the record's texture sets, white when it has a
+ * set and names none), its tile (`voxel.tileMetres`, on both the construction
  * and the terrain projection, so one repeat is what the record names however
  * a cell is projected) and its relief depth (`voxel.heightDepth`, over the
  * height layer the base look names). What a record does not say stays the
  * base look's (by default the per-id stand-in, `voxelStandInLook`), as do
- * ids no record has, and the test pattern until a record's texture sets are
- * drawn from arrays.
+ * ids no record has. A record's surface texture sets draw from the texture
+ * arrays (`voxelRecordTextures`: the arrays to assemble and each id's
+ * layers), handed to the surface apart from the looks, once they are loaded.
  *
  * A tile must divide the surface's phase (`PHASE_CELLS` cells), so the phase
  * never moves a texture; a record's tile is drawn at the nearest one that
  * does (e.g. 3 m as 2.994 m over a 512 m phase).
  */
-import { isVoxelMaterial, resolveMaterialInstances, type MaterialDef } from '@thirdlight/project-model';
+import { isVoxelMaterial, resolveMaterialInstances, VOXEL_SURFACES, voxelSurfaceSet, voxelSurfaceTextures, type MaterialDef, type VoxelSurfaceTextures } from '@thirdlight/project-model';
 import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { voxelStandInLook } from './voxel-chunk-view';
 import { PHASE_CELLS, type VoxelMaterialLook } from './voxel-surface';
@@ -45,7 +47,10 @@ export function voxelRecordLooks(materials: readonly VoxelLookRecord[], base: (m
     const look = base(id);
     const m = byId.get(id);
     if (m === undefined) return look;
-    const colour = typeof m.params['color'] === 'string' ? HEX.exec(m.params['color'])?.[1] : undefined;
+    // A record's colour tints its texture sets; one with a set and no colour draws the set as authored (white), not
+    // the stand-in swatch.
+    const named = typeof m.params['color'] === 'string' ? HEX.exec(m.params['color'])?.[1] : undefined;
+    const colour = named ?? (VOXEL_SURFACES.some((s) => voxelSurfaceSet(m.voxel!, s)?.albedoHeight !== undefined) ? 'ffffff' : undefined);
     const tile = m.voxel!.tileMetres;
     const depth = m.voxel!.heightDepth;
     return {
@@ -60,4 +65,9 @@ export function voxelRecordLooks(materials: readonly VoxelLookRecord[], base: (m
 /** A key that changes exactly when the looks {@link voxelRecordLooks} makes of `materials` may (what of the records it reads). */
 export function voxelLooksKey(materials: readonly VoxelLookRecord[]): string {
   return JSON.stringify(materials.map((m) => [m.materialId, m.instanceOf ?? null, m.shader, m.params['color'] ?? null, m.voxel ?? null, m.graph !== undefined]));
+}
+
+/** The texture arrays the records' surface sets make and each voxel id's layers (instances resolved here; null: no record has a set with an albedo). */
+export function voxelRecordTextures(materials: readonly VoxelLookRecord[]): VoxelSurfaceTextures | null {
+  return voxelSurfaceTextures(resolveMaterialInstances(materials as unknown as MaterialDef[]));
 }

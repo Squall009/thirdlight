@@ -44,22 +44,33 @@ const AXIS_SHARE = 0.99;
 const SHALLOW_RATIO = 1.5;
 
 /**
+ * The directions U and V run in on a construction surface of unit normal
+ * `n` (unit vectors, world axes; with `n` a right-handed frame): U along
+ * the level line (up × n; x on a floor or ceiling), V up the face (n × U).
+ * A normal map's tangent and bitangent on the grid projection. `h`: the
+ * normal's horizontal length.
+ */
+export function gridFrame<F, B>(o: ProjectionOps<F, B>, n: Vec<F>): { u: Vec<F>; v: Vec<F>; h: F } {
+  const [nx, ny, nz] = n;
+  const h = o.sqrt(o.add(o.mul(nx, nx), o.mul(nz, nz)));
+  const level = o.less(h, o.num(LEVEL_SHARE));
+  const hh = o.max(h, o.num(LEVEL_SHARE));
+  const rx = o.pick(level, o.num(1), o.div(nz, hh));
+  const rz = o.pick(level, o.num(0), o.div(o.sub(o.num(0), nx), hh));
+  const sx = o.mul(ny, rz);
+  const sy = o.sub(o.mul(nz, rx), o.mul(nx, rz));
+  const sz = o.sub(o.num(0), o.mul(ny, rx));
+  return { u: [rx, o.num(0), rz], v: [sx, sy, sz], h };
+}
+
+/**
  * The (U, V) in metres of a construction surface point: `p` its grid
  * position in metres (plain phase + local), `ps` and `ps5` the same with
  * the 45° and the 1:2 slope phase, `n` its unit normal.
  */
 export function gridUv<F, B>(o: ProjectionOps<F, B>, p: Vec<F>, ps: Vec<F>, ps5: Vec<F>, n: Vec<F>): [F, F] {
   const [nx, ny, nz] = n;
-  const h = o.sqrt(o.add(o.mul(nx, nx), o.mul(nz, nz)));
-  const level = o.less(h, o.num(LEVEL_SHARE));
-  const hh = o.max(h, o.num(LEVEL_SHARE));
-  // U along the level line: up × n, normalised (x on a floor or ceiling).
-  const rx = o.pick(level, o.num(1), o.div(nz, hh));
-  const rz = o.pick(level, o.num(0), o.div(o.sub(o.num(0), nx), hh));
-  // V up the face: n × U.
-  const sx = o.mul(ny, rz);
-  const sy = o.sub(o.mul(nz, rx), o.mul(nx, rz));
-  const sz = o.sub(o.num(0), o.mul(ny, rx));
+  const { u: [rx, , rz], v: [sx, sy, sz], h } = gridFrame(o, n);
   const axis = o.less(o.num(AXIS_SHARE), o.max(o.abs(nx), o.max(o.abs(ny), o.abs(nz))));
   const shallow = o.less(o.mul(o.num(SHALLOW_RATIO), h), o.abs(ny));
   const u = o.add(o.mul(p[0], rx), o.mul(p[2], rz));

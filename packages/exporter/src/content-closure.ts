@@ -28,7 +28,7 @@ import { boundVoxelKits, type GameMode, type ShippedVoxelWorld, type VoxelKit } 
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureLayerFurnishing, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, planeLockOf, type PlaneLock, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, planeLockOf, type PlaneLock, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, hasVoxelSurfaceTextures, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { collidersOfModel } from './closure-model-colliders';
 import { shipModelBricks, staticModelUses } from './model-bricks';
 import { isStoredVertexColors, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
@@ -37,7 +37,7 @@ import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 import { closureDecalPages, hasDecalMaterials, withDecalPages, type ClosureDecalPageArrays } from './closure-decal-pages';
 import { shippedMaterials } from './closure-materials';
-import { closureSlotArrays, readWhole, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
+import { closureSlotArrays, readWhole, voxelTexturesBlock, withVoxelArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 import { blockDataPacker, type GzipPort } from './block-chunk-data';
 import { overviewsIn, terrainOverviewPacker } from './terrain-overview-data';
 import { architectureMeshPacker } from './architecture-meshes';
@@ -923,7 +923,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
   // 5a. Per-layer texture slots: each distinct list a used material draws with ships as one
   //     assembled array (the backend's, cached by the layers' digests) under an id of its own.
   let slotArrays: ClosureSlotArrays | null = null;
-  if (allMaterials !== undefined && hasTextureSlots(resolveMaterialInstances(allMaterials))) {
+  if (allMaterials !== undefined && (hasTextureSlots(resolveMaterialInstances(allMaterials)) || hasVoxelSurfaceTextures(usedMaterialsOf() ?? []))) {
     const made = await closureSlotArrays({ port: input.textureSlots, service, projectId, assets: ((input.content as { assets?: [] }).assets ?? []) as never, materials: usedMaterialsOf() ?? [], locate, hash });
     if (!made.ok) return made;
     slotArrays = made.arrays;
@@ -1142,7 +1142,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       if (remember !== null) remember.sceneDependencies = sceneDependencies;
     }
     // (The speakers' portraits and blips; a line's voice is read when it plays.)
-    const sharedDependencies = scanDependencies(tables, projectWideRoots(content, runtimeEffects ?? null));
+    const sharedDependencies = withVoxelArrays(scanDependencies(tables, projectWideRoots(content, runtimeEffects ?? null)), slotArrays);
     // Each shipped asset with its address and labels (scripts load it by them) and, for a model, the textures its material map draws with.
     const namesById = new Map<string, { address?: string; labels?: readonly string[] }>();
     for (const r of ((content['assets'] as { assetId: string; address?: string; labels?: readonly string[] }[] | undefined) ?? [])) if (r.address !== undefined || (r.labels?.length ?? 0) > 0) namesById.set(r.assetId, r);
@@ -1217,7 +1217,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries(), ...blockData.filter((a) => !buffers.has(a.digest)).map((a) => [a.digest, a.bytes.length] as const), ...brickBuffers].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
       start: input.startScenes ?? [],
       dependencies: sharedDependencies,
-      ...(input.voxelWorlds !== undefined && input.voxelWorlds.length > 0 ? { voxelWorlds: input.voxelWorlds } : {}), ...(content['voxelKits'] !== undefined ? { voxelKits: boundVoxelKits(content['voxelKits'] as VoxelKit[], allMaterials ?? []) } : {}),
+      ...(input.voxelWorlds !== undefined && input.voxelWorlds.length > 0 ? { voxelWorlds: input.voxelWorlds } : {}), ...(content['voxelKits'] !== undefined ? { voxelKits: boundVoxelKits(content['voxelKits'] as VoxelKit[], allMaterials ?? []) } : {}), ...voxelTexturesBlock(slotArrays),
       media,
       moduleIds,
       enginePins: M3_ENGINE_PINS,

@@ -22,7 +22,9 @@
  * export shipping the worlds its scenes name
  * (each listed region file whole, by digest) and the voxel kits (their block,
  * their pieces' model, each with the material ids it binds), the materials
- * with their parts and resolved physics, or refusing a damaged world.
+ * with their parts and resolved physics, the voxel surfaces' texture arrays
+ * (assembled from the voxel materials' surface sets, the same bytes the
+ * editor's route answers), or refusing a damaged world.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
@@ -56,7 +58,7 @@ import {
   type ShippedVoxelWorld,
   WORLD_RULES,
 } from '@thirdlight/voxel';
-import { readRuntimeContentSync, type VoxelKit, type VoxelKitMesh } from '@thirdlight/project-model';
+import { readKtx2Layout, readRuntimeContentSync, textureSlotSetKey, voxelSurfaceTextures, type MaterialVoxel, type VoxelKit, type VoxelKitMesh } from '@thirdlight/project-model';
 import { glbBytes } from '@thirdlight/shared';
 import { importRead, writeVoxelWorld } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -67,6 +69,7 @@ import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client'
 import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
 import { caseAt } from '../../../tools/voxel-bench/case-probe';
 import { flatGround, placeWallBeamBanister } from '../../../tools/voxel-bench/scenes';
+import { placeholderPng, placeholderSet } from '../../../tools/voxel-bench/texture-sets';
 
 const ORIGIN = 'http://127.0.0.1:8501';
 const TOKEN = 'voxel-authoring-token';
@@ -828,9 +831,20 @@ describe('voxel world routes', () => {
     const listed = (await query('queryEntities', { limit: 16_384 })) as { entities: Array<{ id: string; components: Record<string, unknown> }> };
     for (const e of listed.entities) if ((e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD) expect((await send('deleteEntity', { entityId: e.id })).status).toBe(200);
 
+    // Texture sets for the clay's surfaces: placeholder images (32², PNG) imported as every texture is.
+    const texDir = join(backend._test.service.projectDir(PROJECT)!, 'assets', 'voxel-textures');
+    mkdirSync(texDir, { recursive: true });
+    for (const set of ['stone', 'timber'] as const) {
+      const maps = placeholderSet(set, 32);
+      for (const map of ['albedoHeight', 'normal'] as const) writeFileSync(join(texDir, `${set}-${map}.png`), placeholderPng(maps[map], 32));
+    }
+    expect((await send('importAssets', { folder: 'assets/voxel-textures' })).status).toBe(200);
+    const texAssets = ((await query('queryAssets', { limit: 100 })) as { assets: Array<{ assetId: string; sourcePath?: string }> }).assets;
+    const tex = (name: string): string => texAssets.find((a) => a.sourcePath === `assets/voxel-textures/${name}.png`)!.assetId;
+    const clayVoxel: MaterialVoxel = { id: 14, use: 'terrain', surfaces: { wall: { albedoHeight: tex('stone-albedoHeight'), normal: tex('stone-normal') }, floor: { albedoHeight: tex('timber-albedoHeight') } } };
     // A voxel material nothing but the world's cells name ships (any id may be in the files or painted at run time);
     // a mesh material nothing names does not.
-    for (const material of [{ materialId: 'clay', name: 'Clay', shader: 'standard', params: { color: '#a0603a' }, textures: {}, voxel: { id: 14, use: 'terrain' } }, { materialId: 'unworn', name: 'Unworn', shader: 'standard', params: {}, textures: {} }]) {
+    for (const material of [{ materialId: 'clay', name: 'Clay', shader: 'standard', params: { color: '#a0603a' }, textures: {}, voxel: clayVoxel }, { materialId: 'unworn', name: 'Unworn', shader: 'standard', params: {}, textures: {} }]) {
       const set = await send('setMaterial', { material });
       expect(set.status, JSON.stringify(set.json)).toBe(200);
     }
@@ -861,6 +875,27 @@ describe('voxel world routes', () => {
     const shippedIds = ((content as unknown as { materials?: Array<Record<string, unknown>> }).materials ?? []).map((m) => m['materialId']);
     expect(shippedIds).toContain('clay');
     expect(shippedIds).not.toContain('unworn');
+    // The voxel surfaces' texture arrays: assembled by the backend from every voxel material's sets (the oak's has
+    // none), shipped as textures the game reads without the backend, named by map in their own block, needed
+    // project-wide; a map no set names (ORM) has no array. Two layers: the stone wall, the timber floor.
+    const voxelTextures = (content as unknown as { voxelTextures?: Record<string, string> }).voxelTextures!;
+    expect(Object.keys(voxelTextures).sort()).toEqual(['albedoHeight', 'normal']);
+    const shippedDeps = ((content as unknown as { dependencies?: Array<{ assetId: string; path: string }> }).dependencies ?? []);
+    const sets = voxelSurfaceTextures([{ shader: 'standard', voxel: clayVoxel }])!;
+    for (const [map, id] of Object.entries(voxelTextures)) {
+      const row = shippedDeps.find((e) => e.assetId === id)!;
+      expect(row, map).toBeDefined();
+      const bytes = new Uint8Array(readFileSync(join(out, row.path)));
+      const layout = readKtx2Layout(bytes);
+      expect(layout.ok && layout.layout.layers, map).toBe(2);
+      expect(layout.ok && layout.layout.width, map).toBe(32);
+      // The editor's views draw the very array: the backend's route answers the same bytes for the same slot list.
+      const set = sets.sets[map as 'albedoHeight' | 'normal']!;
+      const viewed = await fetch(`${base()}/api/v1/projects/${PROJECT}/content/textures/slots`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ layers: set.layers, mode: set.mode, ...(set.height === true ? { height: true } : {}) }) });
+      expect(viewed.status, `${map}: ${textureSlotSetKey(set)}`).toBe(200);
+      expect(Buffer.from(await viewed.arrayBuffer()).equals(Buffer.from(bytes)), map).toBe(true);
+    }
+    expect([...sets.layers]).toEqual([[14, [0, 1, 0]]]);
     const kitMesh = (shippedKits![0]!['slots'] as Record<string, { meshes: Array<{ mesh: { digest: string } }> }>)['edge-out-top']!.meshes[0]!.mesh;
     expect(readFileSync(join(out, 'content', 'sha256', kitMesh.digest)).equals(pieceGlb())).toBe(true);
     expect(((content as unknown as { dependencies?: Array<{ assetId: string }> }).dependencies ?? []).map((e) => e.assetId)).toContain(KIT_MODEL.assetId);

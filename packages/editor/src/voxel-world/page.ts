@@ -47,7 +47,10 @@
  * reads (to measure what the blend costs), `?gpuTime=1` records GPU
  * timestamps where the device has them, `?sun=` sets the sun's elevation in degrees.
  * Each material's look comes from its material record (colour, tile,
- * relief depth; ids without one their stand-in).
+ * relief depth; ids without one their stand-in), and its surfaces' texture
+ * sets from the texture arrays the backend assembles of every voxel
+ * material's sets (page-materials.ts); `?patterns=1` draws the test
+ * patterns instead (the debug program, no arrays).
  *
  * Detail pieces are the project's voxel kits with its piece seed (read
  * through the command route, their GLBs from the backend), through the one
@@ -94,7 +97,7 @@ import {
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { bindViewInput, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
-import { PageMaterials } from './page-materials';
+import { backendArrays, PageMaterials } from './page-materials';
 import { kitSceneHooks } from './kit-scene-labels';
 import { pageToken } from '../config';
 import { PageCollisionRing } from './collision';
@@ -115,6 +118,7 @@ const blendM = Number(params.get('blend') ?? VOXEL_SIZE_M / 2);
 const shading = params.get('shading') === 'flat' ? 'flat' : 'blend';
 /** `bands=1`: construction drawn with the band test texture (bands at fixed heights in the 4 m tile). */
 const bands = params.get('bands') === '1';
+const patterns = params.get('patterns') === '1';
 const gpuTime = params.get('gpuTime') === '1';
 /** `?sun=deg`: the sun's elevation in degrees (default the page's fixed light). */
 const sunElevationDeg = params.get('sun') === null ? null : Number(params.get('sun'));
@@ -236,11 +240,11 @@ async function main(): Promise<void> {
   const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : project);
   // Each material's look from its record, over the stand-in (and the relief's test layer) for what it leaves out.
   const reliefOptions = relief.surfaceOptions();
-  const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look);
+  const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look, patterns ? null : backendArrays(api, headers));
   materials.take(project.materials ?? []);
   if (hudShown) document.body.append(materials.select);
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
-  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...reliefOptions, look: materials.look(), blendMetres: blendM, shading, bands });
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...reliefOptions, look: materials.look(), blendMetres: blendM, shading, bands, patterns });
   relief.attach(surface);
   materials.attach(surface);
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(relief.params.n !== null ? { relief: { n: relief.params.n, radius: Math.round(relief.params.radiusM / VOXEL_SIZE_M) } } : {}), ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
@@ -585,6 +589,7 @@ async function main(): Promise<void> {
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         relief: relief.state(),
         shadows,
+        textures: { ...materials.textures, current: materials.texturesCurrent, textured: surface.textured },
         surface: { shading, blendM, tableUploads: surface.tableUploads, tableMs: surface.tableMs, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,
         section: sectionEdge,
