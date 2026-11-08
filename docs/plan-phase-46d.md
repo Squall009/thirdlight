@@ -219,7 +219,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.5b | done: relief displaced in Play (worker + page), exports, Scene view (its quality level) and the voxel world page (tier default, relief switch); batches carry the ring (steps, radius, centre). High ring 24 m (relief scale 1.5). Town GPU med/high 4.26/4.36 WebGPU, 4.42/5.05 WebGL 2, 0–7 missed. D541 fixed; D542 cause found (kit pieces); D543. voxel e2e 64.2 → 83.2 s |
 | 46d.6a | done: kit pieces drawn across chunks, one instanced draw a piece kind (49 in the town, was 1,466), culled by chunk per pass (view, shadow), written once a batch; pieces wear their cell's wetness (D538). Town `render()` 10.2–11.8 → 2.7–3.2 ms, shadows 15.5–20.3 → 4.1–4.6 ms (D529 fixed); GPU +0.6–2.5 ms (D544); high+shadows GPU-bound (D545). e2e 83.2 → 82.3 s |
 | 46d.6b | done: D544 traced (timestamps follow the GPU clock; pieces now draw after the surfaces, −0.3 ms). Piece draws are column-instanced copies the WebGPU culler tests against the depth pyramid (71 % of 35.4 k culled): town GPU 5.6–7.0 → 3.5–3.8 ms, `render()` +0.7 ms (D546); WebGL 2 keeps chunk culling. D485 closed; D545 re-measured. Same pictures |
-| 46d.6c | not started |
+| 46d.6c | done (0c85d3a8): D526 fixed. Owned body faces merge with blended ones, the rectangle owned whole (derived 30); roof mesher scans plane cells once, typed vertex table. Town roofs: base 468,872 → 415,636 tris (46c.16d 417,396), mesher p50/p95 296/728 → 213/545 µs (238/577). D519 holds. Town at cap 0 missed, GPU within drift. D545 proposal in its row |
 | 46d.7a | not started |
 | 46d.7b | not started |
 | 46d.7c | not started |
@@ -942,6 +942,49 @@ screen edges and in shadow on both renderers; `hiz` and the page's own draw diff
 in all 18 WebGPU pairs, with and without shadows; WebGL 2 vs WebGPU 0.01–0.02 %. Unverified: the first frame after a
 jump (pass 2's newly visible copies; the read-back never caught one).
 
+### 46d.6c Base-surface merges (D526)
+
+**Built** (0c85d3a8, derived 29 → 30, format spec row with owner note). `base-surface.ts`: an owned face (a body's
+face whose read reaches a roof plane cell) no longer splits the greedy merge; the rectangle holding one is owned whole
+(its offset, a quarter cell in, lands each pixel in the body cell behind it), and owned rectangles of a direction share
+vertices as blended ones do. `roof-mesher.ts`: the job's plane cells are collected in the one scan of its cells (the
+tops pass walked all 16³ again through a closure), and vertices are keyed in a typed open-addressing table (a `Map` of
+keys past 31 bits boxed each key); output bytes unchanged. The relief path (unmerged faces) keeps per-cell ownership.
+The 46d.6c row names no D545 work: its proposal is in the D545 row (relief meshes cast no shadow; the ring's plain
+surfaces, set `heightDepth` in, cast instead).
+
+**Tested.** `roof-mesher.test.ts` +1 (fails on bb3bba7b): walled houses 45°/1:2, gable/hip, walls striped stone/timber
+cell by cell with wetness: base mesh byte-equal to one-material walls (feeds rule), the eave wall's outer face from the
+ground to the eaves owned at every triangle (one rectangle), every owned wall sample shows the material of the body
+cell behind it, blended faces still read no plane cell; the D519 two-material and roof-row tests unchanged and green.
+`packages/voxel` + `tools/voxel-bench` vitest 385/386 (the one red `edge-cases` corner case is D523's watch, green
+alone). Gate gate-fast-20261108-212741 (red only on `role-spec-doc.test.ts`: the approved page may not say "owner to
+confirm", reworded) → rerun -213909 GREEN (perf 0 missed both renderers). `voxel-world.e2e.ts` not touched.
+
+**Measured, Node** (town 512², 1,070 roof sections, `run.mjs cases --roofs --fill --rounds 2`, 6 GB scope, 21:11–21:20,
+load 0.6–3.1): base triangles incl. ramps **468,872 → 415,636** (46c.16d 417,396; ramps 204,388 unchanged), roof mesher
+µs p50/p95 **296/728 → 213/545** (46c.16d 238/577, another hour), section derive p50 1,058 → 957 µs. Steps: owned faces
+merged 468,872 → 415,636 (the narrower read reach alone, own layer only, gave −1.9 k and was not kept); single scan
+296 → 227 µs; typed vertex table → 213 µs.
+
+**Measured, staging** (Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 orbit 60 m out, ~479 frames, `?relief=tier`, 1
+round each, before = bb3bba7b's build 21:25–21:27 load 2.6–4.7, after 21:44–21:47 load 1.7–2.4):
+
+| Town medium / high | triangles | GPU ms WebGPU | GPU ms WebGL 2 | `render()` p50 WebGPU / WebGL 2 | missed |
+|---|---|---|---|---|---|
+| before | 1,285,254 / 3,211,122 | 5.35 / 6.99 | 5.20 / 5.69 | 3.2 / 3.0, 3.1 / 3.0 | 0 / 0 (WebGL 2 1 / 0) |
+| after | 1,254,195 / 3,180,969 | 5.80 / 6.94 | 5.13 / 5.72 | 2.7 / 3.0, 2.7 / 2.9 | 0 / 0 (WebGL 2 1 / 0) |
+
+−31 k triangles in the streamed town (the relief ring is unmerged either way); GPU ms move within the clock drift D544
+describes, not traced.
+
+**Looked at** (staging, both renderers alike, `~/.cache/thirdlight-phase46/work/46d.6c/shots/{before,after}-fill-…`:
+stone walls under the log kit's timber roofs with the wall-top fill): `g45-near`, `h45-near`, `g12-near`,
+`g45-eave-under`, `g45-attic`, `g45-gable-end`: the roof's timber to the seam, the stone up to the underside, no blend,
+0.00–0.05 % of pixels differ before → after (> 24 levels). `stripe-eave-wall`, `stripe-eave-close`, `stripe-near`
+(walls checkered stone / plaster): before, the top row met in hard cell lines and the rows below blended (rounded
+corners); after, the whole wall face meets in hard lines (2.2 / 1.5 % of pixels), §9 default. `town-medium|high`.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1218,6 +1261,17 @@ jump (pass 2's newly visible copies; the read-back never caught one).
   field** (and the project's `occlusion_culling`); no tier turns it on by default (auto culls nothing), although it
   saves 2–3 ms GPU in the town on WebGPU: whether medium/high default to `on` for voxel worlds is the owner's call
   (§10). The voxel world page pins a path with `?occlusion=`.
+- 2026-11-08 (46d.6c, default chosen, owner to confirm): **a body's owned faces merge with its blended ones, and the
+  rectangle holding an owned face is owned whole** (derived 30): every pixel on it shows the body cell behind it,
+  unblended, so a wall face next to a roof (its top row, a gable's steps) and the rest of that wall in the same plane
+  read alike: two wall materials meet there in a hard line on the cell boundary and wetness steps per cell, as the
+  wall's top row already did (role spec item 27). The other way (blending the merged face) would bring D519 back; a
+  face kept blended needs its own polygon, the +53 k triangles of D526. One-material walls look the same either way.
+  The relief ring (unmerged faces) keeps the narrower ownership, so a two-material wall next to a roof can differ
+  between the relief ring and past it.
+- 2026-11-08 (46d.6c): **D545 not built here** (the 46d.6c row names no D545 work); the proposal (the relief ring's
+  plain surfaces as shadow-only casters set `heightDepth` in, relief meshes casting none) is in its audit row for the
+  performance phase.
 
 ## 10. Open questions for the owner
 
@@ -1234,6 +1288,9 @@ jump (pass 2's newly visible copies; the read-back never caught one).
   default.
 - The engine's physical profiles list (Wood, Stone, Metal, Earth, Glass, Water, Lava) and whether a project's
   profiles may override them.
+- Walls next to a roof unblended whole (46d.6c, §9): a two-material wall under a roof now meets in hard cell lines
+  over the whole wall face that merges with its top row (pictures `work/46d.6c/shots/*stripe*`); confirm, or say if
+  the blend matters more than the 53 k triangles.
 - Occlusion culling for voxel worlds (46d.6b): on WebGPU it culls ~71 % of the town's kit pieces and saves 2–3 ms
   GPU at medium/high (`render()` +0.7 ms, D546); should medium/high default `occlusionCulling: on`, or stay a project
   setting? With shadows at high it misses more (D545).
