@@ -194,6 +194,7 @@ export type {
   SetEffectChange,
   SetKitChange,
   SetVoxelKitChange,
+  SetMaterialProfileChange,
   SetEffectInverse,
   SetScriptLibraryChange,
   SetScriptLibraryInverse,

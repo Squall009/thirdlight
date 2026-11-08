@@ -1,7 +1,8 @@
 /**
- * The editor's side of a project's voxel kits: the kit records and the
- * project's piece seed read through the command route (`queryGameConfig`'s
- * `voxelKits` and `settings`), and each kit mesh's
+ * The editor's side of a project's voxel kits: the kit records (each with
+ * the material ids it binds, from the material records), and the project's
+ * piece seed read through the command route (`queryGameConfig`'s
+ * `voxelKits`, `materials` and `settings`), and each kit mesh's
  * GLB read from the backend at the version its digest names (the current
  * one when no version has those bytes, as a build ships it). The voxel world
  * page and the Scene view draw kit pieces from these, through the same
@@ -10,6 +11,8 @@
 import { VoxelKitMeshes, type VoxelKitBytes, type VoxelKitRecordLike, type VoxelKitSet } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { voxelPieceSeedOf } from '@thirdlight/project-model/voxel-world';
+import { boundVoxelKits } from '@thirdlight/project-model/voxel-materials';
+import type { MaterialDef } from '@thirdlight/project-model';
 import { worldPieceTable, type PieceTable } from '@thirdlight/voxel';
 
 /** The project route (`/api/v1/projects/<id>`) and the headers it needs. */
@@ -29,8 +32,9 @@ export interface ProjectVoxelKits {
 export async function readVoxelKits(r: KitRoute): Promise<ProjectVoxelKits> {
   const res = await fetch(`${r.api}/commands`, { method: 'POST', headers: { ...r.headers, 'content-type': 'application/json' }, body: JSON.stringify({ op: 'queryGameConfig', projectId: r.projectId, args: { omit: ['dialogues'] } }) });
   if (!res.ok) throw new Error(`queryGameConfig: HTTP ${res.status}`);
-  const body = (await res.json()) as { voxelKits?: VoxelKitRecordLike[]; settings?: unknown };
-  return { kits: body.voxelKits ?? [], seed: voxelPieceSeedOf(body.settings) };
+  const body = (await res.json()) as { voxelKits?: VoxelKitRecordLike[]; materials?: MaterialDef[]; settings?: unknown };
+  // Each kit with the material ids it binds: the material records' (voxel.kit), then its own test list for the rest.
+  return { kits: boundVoxelKits(body.voxelKits ?? [], body.materials ?? []), seed: voxelPieceSeedOf(body.settings) };
 }
 
 /** Reads a kit mesh's GLB from the backend: the asset's version whose source digest the mesh names, else its current one (as a build ships it). */

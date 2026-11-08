@@ -57,6 +57,7 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setGraph',
   'setEffect',
   'setKit',
+  'setMaterialProfile',
   // Project UI documents and themes.
   'setUiDocument',
   'setUiTheme',

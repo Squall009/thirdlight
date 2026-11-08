@@ -44,9 +44,12 @@ import {
   validateMaterials,
   validateMaterialInstances,
   resolveMaterial,
+  resolveMaterialInstances,
   type EnvironmentConfig,
   type MaterialDef,
 } from './materials';
+import { canonicalMaterialProfiles, materialProfilesOf, validateMaterialProfiles, type MaterialProfile } from './material-profiles';
+import { validateVoxelMaterialRules } from './voxel-materials';
 import {
   fail,
   fieldMissing,
@@ -129,8 +132,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable' || k === 'lightLayers' || k === 'kits' || k === 'voxelKits'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)', 'lightLayers (optional)', 'kits (optional)', 'voxelKits (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable' || k === 'lightLayers' || k === 'kits' || k === 'voxelKits' || k === 'materialProfiles'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)', 'lightLayers (optional)', 'kits (optional)', 'voxelKits (optional)', 'materialProfiles (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -283,6 +286,9 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (version === 4 && doc['kits'] !== undefined && !same('kits')) validateKits(doc['kits'], '/kits', errors, trusted('kits'));
   // Voxel kits (v4): their shapes and format; what their cases and meshes name is the kit check's, never refused.
   if (version === 4 && doc['voxelKits'] !== undefined && !same('voxelKits')) validateVoxelKits(doc['voxelKits'], '/voxelKits', errors, trusted('voxelKits'));
+  // The physical profiles (v4), and what the materials' physical, voxel and kit fields name.
+  if (version === 4 && doc['materialProfiles'] !== undefined && !same('materialProfiles')) validateMaterialProfiles(doc['materialProfiles'], '/materialProfiles', errors);
+  if (version === 4 && errors.length === 0 && !same('materials', 'voxelKits', 'materialProfiles')) validateMaterialModelRules(doc, errors);
   // The named collision layers (v4).
   if (version === 4 && doc['collisionLayers'] !== undefined && !same('collisionLayers')) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
   // The light layers' names (v4).
@@ -551,6 +557,7 @@ const CANONICAL_KEYS: readonly CanonicalKey[] = [
   { key: 'blockStamps', canon: canonicalBlockStamps, present: nonEmpty },
   { key: 'kits', canon: canonicalKits, idOf: (k: KitDef) => k.kitId, present: nonEmpty },
   { key: 'voxelKits', canon: canonicalVoxelKits, idOf: (k: VoxelKit) => k.voxelKitId, present: nonEmpty },
+  { key: 'materialProfiles', canon: canonicalMaterialProfiles, present: nonEmpty },
   { key: 'uiDocuments', canon: canonicalUiDocuments, idOf: (d: { uiDocumentId: string }) => d.uiDocumentId, present: nonEmpty },
   { key: 'uiThemes', canon: canonicalUiThemes, idOf: (t: { uiThemeId: string }) => t.uiThemeId, present: nonEmpty },
   { key: 'modes', canon: canonicalModes, present: nonEmpty },
@@ -710,6 +717,19 @@ export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<st
  * an instance (an instance's parameters come from its chain), an unchanged
  * graph, effect, environment, input, animator or bake list.
  */
+/**
+ * The material model's rules over the whole block: voxel ids once, the kits and profiles materials name exist
+ * (`voxel-materials.ts`), with instances resolved (a variant's fields folded in).
+ */
+function validateMaterialModelRules(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
+  const list = Array.isArray(doc['materials']) ? (doc['materials'] as MaterialDef[]) : [];
+  if (!list.some((m) => isPlainObject(m) && (m.voxel !== undefined || m.physical !== undefined))) return;
+  const index = new Map(list.map((m, i) => [m.materialId, i]));
+  const kits = new Set((Array.isArray(doc['voxelKits']) ? (doc['voxelKits'] as VoxelKit[]) : []).map((k) => k.voxelKitId));
+  const profiles = new Set(materialProfilesOf(doc['materialProfiles'] as MaterialProfile[] | undefined).keys());
+  validateVoxelMaterialRules(resolveMaterialInstances(list), (id) => index.get(id) ?? -1, kits, profiles, errors);
+}
+
 function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[], assetRules = true, previous?: { same: (...keys: string[]) => boolean; materials: ReadonlySet<unknown> | undefined }): void {
   const unchanged = (...keys: string[]): boolean => previous !== undefined && previous.same('assets', ...keys);
   const list = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : EMPTY_LIST;
@@ -754,6 +774,18 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
         } else if (arrays.has(id as string) && m['graph'] === undefined && (typeof m['materialId'] !== 'string' || resolveMaterial(materials as unknown as MaterialDef[], m['materialId'])?.graph === undefined)) {
           // A shader material's slot reads one plain texture.
           errors.push(withFound({ code: 'field_value', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot reads one plain texture: a texture array is read by a graph material\'s texture nodes', expected: 'a plain texture assetId' }, id));
+        }
+      }
+    }
+    // A voxel material's texture sets name plain texture assets (each one layer of a map's array).
+    const voxel = m['voxel'];
+    if (isPlainObject(voxel) && isPlainObject(voxel['surfaces'])) {
+      for (const [surface, set] of Object.entries(voxel['surfaces'])) {
+        if (!isPlainObject(set)) continue;
+        for (const [map, id] of Object.entries(set)) {
+          const at = `/materials/${i}/voxel/surfaces/${pointerSegment(surface)}/${pointerSegment(map)}`;
+          if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: at, message: 'a voxel texture set map must name a texture asset of this project', expected: 'a texture assetId' }, id));
+          else if (arrays.has(id as string)) errors.push(withFound({ code: 'field_value', path: at, message: 'a voxel texture set map is one layer: it names a plain texture, not a texture array', expected: 'a plain texture assetId' }, id));
         }
       }
     }

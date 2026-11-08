@@ -6,12 +6,13 @@
  */
 
 import type { OpFamily } from './op-table-types';
-import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, MaterialProfile, SceneEnvironment } from '@thirdlight/project-model';
 import { contentOf } from './content-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetInput, applySetLighting, applySetMaterial, withAnimator, withEnvironment, withInput, withLighting, withMaterial } from './material-ops';
 import { applySetScenePlane } from './scene-plane-ops';
 import { applySetCollisionLayers, applySetLightLayers, withCollisionLayers, withLightLayers } from './layer-ops';
 import { applySetSaveSchema, withSaveSchema } from './save-schema-ops';
+import { applyDeleteMaterialProfile, applySetMaterialProfile, materialProfilesOfContent, withMaterialProfile } from './material-profile-ops';
 import { applySetBehaviorGroups, applySetEventCues, applySetModes, applySetShell, behaviorGroupsOf, eventCuesOf, modesOf, shellOf, withBehaviorGroups, withEventCues, withModes, withShell } from './mode-ops';
 import { bumped, finish, sceneLookTo, scenePlaneTo } from './history-steps';
 import { deepClone } from './ops';
@@ -21,6 +22,9 @@ export const projectFamily = {
   ops: {
     setMaterial: { apply: (input, args) => applySetMaterial(input, args as { material: MaterialDef; assign?: { entityId: string } }), records: [['setMaterial', 'setMaterial']] },
     deleteMaterial: { apply: (input, args) => applyDeleteMaterial(input, args), records: [['setMaterial', 'setMaterial']] },
+    // The project's physical profiles (one each).
+    setMaterialProfile: { apply: (input, args) => applySetMaterialProfile(input, args as { profile: MaterialProfile }), records: [['setMaterialProfile', 'setMaterialProfile']] },
+    deleteMaterialProfile: { apply: (input, args) => applyDeleteMaterialProfile(input, args), records: [['setMaterialProfile', 'setMaterialProfile']] },
     setEnvironment: { apply: (input, args) => applySetEnvironment(input, args), records: [['setEnvironment', 'setEnvironment']] },
     setScenePlane: { apply: (input, args) => applySetScenePlane(input, args), records: [['setScenePlane', 'setScenePlane']] },
     setLighting: { apply: (input, args) => applySetLighting(input, args), records: [['setLighting', 'setLighting']] },
@@ -39,6 +43,12 @@ export const projectFamily = {
     setShell: { apply: (input, args) => applySetShell(input, args), records: [['setShell', 'setShell']] },
   },
   undo: {
+    setMaterialProfile: (state, entry, inv) => {
+      const content = contentOf(state.content);
+      const before = materialProfilesOfContent(content).find((p) => p.profileId === inv.profileId) ?? null;
+      const change: ChangeData = { type: 'setMaterialProfile', profileId: inv.profileId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+      return finish(state, bumped(state.scene), withMaterialProfile(content, inv.profileId, inv.restore), change, entry.requestId);
+    },
     setMaterial: (state, entry, inv) => {
       const scene = state.scene;
       const content = contentOf(state.content);
@@ -133,6 +143,12 @@ export const projectFamily = {
     },
   },
   redo: {
+    setMaterialProfile: (state, entry, f) => {
+      const content = contentOf(state.content);
+      const before = materialProfilesOfContent(content).find((p) => p.profileId === f.profileId) ?? null;
+      const change: ChangeData = { type: 'setMaterialProfile', profileId: f.profileId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+      return finish(state, bumped(state.scene), withMaterialProfile(content, f.profileId, f.next), change, entry.requestId);
+    },
     setMaterial: (state, entry, f) => {
       const scene = state.scene;
       const content = contentOf(state.content);

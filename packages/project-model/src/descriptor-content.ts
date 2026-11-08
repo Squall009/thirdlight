@@ -35,6 +35,9 @@ import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
 import { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
 import { VOXEL_KIT_FORMAT, VOXEL_KIT_LIMITS } from './voxel-kit';
+import { ENGINE_MATERIAL_PROFILES, PHYSICAL_DEFAULTS, PHYSICAL_LIMITS } from './material-profiles';
+import { VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES, VOXEL_SURFACES, VOXEL_TEXTURE_MAPS } from './voxel-materials';
+import { GAME_DATA_DEPTH_MAX } from './game-data';
 import { ANTIALIAS_KINDS, BLOOM_DEFAULTS, BLOOM_LIMITS, DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
@@ -285,6 +288,15 @@ function paramField(key: string, t: MaterialParamType, shader: string): FieldDes
   }
 }
 
+// A physical block's numbers (a material's and a profile's).
+const PHYSICAL_NUMBERS = [
+  num('density', 'Density', 'Mass density.', { min: 0, minExclusive: true, max: PHYSICAL_LIMITS.densityMax, step: 10, unit: 'kg/m³' }),
+  num('friction', 'Friction', 'Friction coefficient (0: ice-smooth).', { min: 0, max: PHYSICAL_LIMITS.frictionMax, step: 0.05 }),
+  num('restitution', 'Restitution', 'Bounciness (0: none, 1: perfectly elastic).', { min: 0, max: PHYSICAL_LIMITS.restitutionMax, step: 0.05 }),
+  num('flowRate', 'Flow rate', 'How fast a liquid spreads, relative to water (1); solids leave it out.', { min: 0, max: PHYSICAL_LIMITS.flowRateMax, step: 0.05 }),
+];
+const PHYSICAL_FIELDS = [str('profile', 'Profile', `A physical profile: an engine one (${ENGINE_MATERIAL_PROFILES.map((p) => p.profileId).join(', ')}) or one of the project's.`, ID), ...PHYSICAL_NUMBERS];
+
 const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and overrides.', [
   str('materialId', 'Id', 'The stable material id.', { ...ID, required: true }),
   str('name', 'Name', 'Shown in pickers.', { ...NAME, required: true }),
@@ -333,6 +345,17 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
   list('layerNames', 'Layer names', `A layered material's names for its texture-array layers, as the layer palette shows them (index i = layer i; "" or past the end: the layer's texture's name). At most ${MAX_TEXTURE_LAYERS}.`, str('*', 'Name', 'The layer\'s name ("": its texture\'s).', { maxLength: MATERIAL_LAYER_NAME_MAX }), { maxItems: MAX_TEXTURE_LAYERS }),
   // The trim sheets a layered material's layers follow (layered-surface.ts).
   list('layerSheets', 'Trim sheets', `Per layer, the trim material whose rows the layer follows ("": none). At most ${MAX_TEXTURE_LAYERS}.`, str('*', 'Sheet', 'A trim material id.', { maxLength: 64 }), { maxItems: MAX_TEXTURE_LAYERS }),
+  // The material model: physics, the game's data and the voxel use (material-profiles.ts, voxel-materials.ts).
+  obj('physical', 'Physical', `Its physics: a profile and the numbers it changes (absent numbers: the profile's, else density ${PHYSICAL_DEFAULTS.density}, friction ${PHYSICAL_DEFAULTS.friction}, restitution ${PHYSICAL_DEFAULTS.restitution}). The engine reads friction and restitution where its physics has a slot; games read all of them.`, PHYSICAL_FIELDS),
+  json('gameData', 'Game data', `The game's own data for the material (sounds, break tags …): JSON nested at most ${GAME_DATA_DEPTH_MAX} deep, shipped as it is, never read by the engine. An instance's keys override its parent's.`),
+  obj('voxel', 'Voxel use', 'It is also a voxel material: its voxel id, what it is used for, its kit and its texture sets on walls, floors and ceilings. An instance with its own (and its own id) is a voxel variant.', [
+    int('id', 'Voxel id', `Its voxel material id (${VOXEL_MATERIAL_LIMITS.idMin}-${VOXEL_MATERIAL_LIMITS.idMax}), unique in the project; every world shares it.`, { required: true, min: VOXEL_MATERIAL_LIMITS.idMin, max: VOXEL_MATERIAL_LIMITS.idMax, default: 1 }),
+    enm('use', 'Use', 'Construction (grid-anchored tiles), terrain (triplanar) or liquid. An instance may leave it to its parent.', VOXEL_MATERIAL_USES, { required: true, default: 'construction' }),
+    str('kit', 'Kit', 'The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid).', ID),
+    num('tileMetres', 'Tile', 'Metres one texture repeat covers (absent: 4 construction, 2 terrain and liquid).', { min: VOXEL_MATERIAL_LIMITS.tileMetresMin, max: VOXEL_MATERIAL_LIMITS.tileMetresMax, step: 0.5, unit: 'm' }),
+    num('heightDepth', 'Height depth', `Metres between its height map's 1 (the surface) and 0 (absent: ${VOXEL_MATERIAL_LIMITS.heightDepthDefault}): sand shallow, rock deep.`, { min: 0, max: VOXEL_MATERIAL_LIMITS.heightDepthMax, step: 0.005, unit: 'm' }),
+    json('surfaces', 'Surfaces', `Texture sets by surface: {${VOXEL_SURFACES.join('?, ')}?: {${VOXEL_TEXTURE_MAPS.join('?, ')}?: a plain texture asset}} (role and face direction pick one; floor and ceiling fall back to wall, wall to the material's own look).`, { shape: 'Partial<Record<VoxelSurface, VoxelTextureSet>>' }),
+  ]),
 ]);
 
 // A visual effect (systems of particles, each a graph of kind "effect").
@@ -620,6 +643,19 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       json('gameData', 'Game data', `The game's own data for the kit (break, sound, physics defaults …): JSON nested at most ${VOXEL_KIT_LIMITS.gameDataDepth} deep, shipped as it is, never read by the engine.`),
     ]), { default: [] }),
     ops: ['setVoxelKit', 'deleteVoxelKit'],
+  },
+  {
+    key: 'materialProfiles',
+    label: 'Physical profiles',
+    tooltip: `Shared physics (and the game's defaults as game data) materials name instead of repeating them. The engine has ${ENGINE_MATERIAL_PROFILES.map((p) => p.name).join(', ')}; a project profile with one of their ids overrides the fields it sets.`,
+    required: false,
+    value: list('materialProfiles', 'Physical profiles', "The project's profiles.", obj('*', 'Profile', 'A physical profile.', [
+      str('profileId', 'Id', 'The stable profile id (an engine profile\'s id overrides it).', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in pickers.', { ...NAME, required: true }),
+      ...PHYSICAL_NUMBERS,
+      json('gameData', 'Game data', `The game's defaults for every material of the profile (footstep sound, break tags …): JSON nested at most ${GAME_DATA_DEPTH_MAX} deep, never read by the engine; a material's own keys override them.`),
+    ]), { default: [] }),
+    ops: ['setMaterialProfile', 'deleteMaterialProfile'],
   },
   // Project UI documents and themes (JSON widget trees, also edited in the visual UI editor).
   { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', 'The project\'s documents (each its own file).', json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true, shape: 'UiDocument' }), { default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },

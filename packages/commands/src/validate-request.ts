@@ -477,6 +477,8 @@ export type ValidatedOpArgs =
   | { op: 'setKit'; args: { kit: import('@thirdlight/project-model').KitDef } }
   | { op: 'deleteKit'; args: { kitId: string } }
   | { op: 'setVoxelKit'; args: { kit: import('@thirdlight/project-model').VoxelKit } }
+  | { op: 'setMaterialProfile'; args: { profile: import('@thirdlight/project-model').MaterialProfile } }
+  | { op: 'deleteMaterialProfile'; args: { profileId: string } }
   | { op: 'deleteVoxelKit'; args: { voxelKitId: string } }
   | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
   | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
@@ -619,6 +621,16 @@ function validateSceneFieldArgs(op: 'setLighting' | 'setScenePlane', args: Recor
   }
   return { ok: true, validated: { op, args } as ValidatedOpArgs };
 }
+
+/** The kit and profile ops' one argument: its key and, for a set, the record's shape (a delete names an id). */
+const RECORD_OP_ARGS: Readonly<Record<string, readonly [string, string | null]>> = {
+  setKit: ['kit', 'kitId, name, trimMaterial?, presets?, blockTypes?, pieces?'],
+  deleteKit: ['kitId', null],
+  setVoxelKit: ['kit', 'kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, sheetLayout?, damage?, wallTopFill?, gameData?'],
+  deleteVoxelKit: ['voxelKitId', null],
+  setMaterialProfile: ['profile', 'profileId, name, density?, friction?, restitution?, flowRate?, gameData?'],
+  deleteMaterialProfile: ['profileId', null],
+};
 
 /**
  * Per-op `args` schema pass: failures are the `field_*`
@@ -861,9 +873,9 @@ export function validateOpArgs(
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setKit':
-    case 'deleteKit': case 'setVoxelKit': case 'deleteVoxelKit': {
-      // setKit/setVoxelKit {kit}; deleteKit {kitId}; deleteVoxelKit {voxelKitId} (the kits' values are the model's; here the shapes).
-      const set = op === 'setKit' || op === 'setVoxelKit', key = set ? 'kit' : op === 'deleteKit' ? 'kitId' : 'voxelKitId', shape = op === 'setKit' ? 'kitId, name, trimMaterial?, presets?, blockTypes?, pieces?' : 'kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, sheetLayout?, damage?, wallTopFill?, gameData?';
+    case 'deleteKit': case 'setVoxelKit': case 'deleteVoxelKit': case 'setMaterialProfile': case 'deleteMaterialProfile': {
+      // One record set {kit | profile}, or deleted by its id (the records' values are the model's; here the shapes).
+      const [key, shape] = RECORD_OP_ARGS[op]!, set = shape !== null;
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (set ? !isPlainObjectStrict(args[key]) : typeof args[key] !== 'string') {

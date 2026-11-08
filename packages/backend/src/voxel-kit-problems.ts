@@ -14,7 +14,7 @@
  */
 import { imageDimensions } from '@thirdlight/asset-pipeline';
 import type { VoxelKit, VoxelKitMesh } from '@thirdlight/project-model';
-import { voxelKitMeshFacts, voxelKitMeshKey, worldVoxelKitCheck, type VoxelKitCheckReport, type VoxelKitCheckRow, type VoxelKitMeshFacts } from '@thirdlight/project-model/voxel-kit-check';
+import { namedVoxelIds, voxelKitMeshFacts, voxelKitMeshKey, worldVoxelKitCheck, type VoxelKitCheckReport, type VoxelKitCheckRow, type VoxelKitMeshFacts } from '@thirdlight/project-model/voxel-kit-check';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The change types that can change a voxel kit's answer. */
@@ -71,7 +71,7 @@ export function createVoxelKitProblemChecker(deps: {
   const check = (projectId: string): VoxelKitCheckReport[] | null => {
     const captured = deps.service.readCapturedV3(projectId);
     if (!captured.ok) return null;
-    const content = captured.read.content as unknown as { voxelKits?: VoxelKit[]; assets?: CapturedAsset[] };
+    const content = captured.read.content as unknown as { voxelKits?: VoxelKit[]; assets?: CapturedAsset[]; materials?: unknown[] };
     const assets = new Map((content.assets ?? []).map((a) => [a.assetId, a]));
     const view = new Map([...assets].map(([id, a]) => [id, { kind: a.kind ?? 'model', digests: a.versions.map((v) => v.sourceDigest), ...currentDigest(a) }]));
     const kept = facts.get(projectId) ?? new Map<string, VoxelKitMeshFacts | null>();
@@ -91,7 +91,8 @@ export function createVoxelKitProblemChecker(deps: {
       used.set(key, f);
       return f;
     };
-    const reports = (content.voxelKits ?? []).map((k) => worldVoxelKitCheck(k, view, factsOf));
+    const named = namedVoxelIds(content.materials ?? []);
+    const reports = (content.voxelKits ?? []).map((k) => worldVoxelKitCheck(k, view, factsOf, named));
     facts.set(projectId, used);
     const before = last.get(projectId);
     const now = new Set<string>();

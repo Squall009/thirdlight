@@ -75,10 +75,18 @@ const slotsOf = (k: VoxelKit, f: (c: VoxelKit['slots']) => void): VoxelKit => {
 };
 
 describe('the voxel kit check', () => {
+  it("names the kit's test binding as info: the ids material records name follow them, the rest bind by the list; no list, no row", () => {
+    const kit = { ...fullKit(), materials: [3, 11] };
+    const row = voxelKitCheck(kit, CATALOGUE, assetsOf(kit), () => box(), new Set([11])).rows.find((r) => r.id === 'binding')!;
+    expect(row).toMatchObject({ state: 'info', title: 'Set the binding on the material' });
+    expect(row.detail).toContain('binds voxel materials 3; 11 follow their material records instead');
+    const { materials: _m, ...unbound } = kit;
+    expect(run(unbound).some((r) => r.id === 'binding')).toBe(false);
+  });
   it('passes a kit with every slot filled (one mesh a piece, one texture set)', () => {
     const rows = run(fullKit());
     expect(bad(rows)).toEqual([]);
-    expect(rows.map((r) => r.id)).toEqual(['catalogue', 'slots', 'damage', 'assets', 'pivot', 'fit', 'texture-set', 'budget']);
+    expect(rows.map((r) => r.id)).toEqual(['catalogue', 'slots', 'damage', 'binding', 'assets', 'pivot', 'fit', 'texture-set', 'budget']);
     expect(rows.find((r) => r.id === 'slots')!.title).toBe(`${CATALOGUE.cases.length} of ${CATALOGUE.cases.length} slots filled`);
     expect(rows.find((r) => r.id === 'budget')!.title).toBe(`${CATALOGUE.cases.length} slot meshes: ${CATALOGUE.cases.length * 2} triangles`);
     expect(rows.some((r) => r.id.startsWith('trim:'))).toBe(false);

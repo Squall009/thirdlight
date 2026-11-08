@@ -57,6 +57,7 @@
 import { canonicalJsonValue, isPlainObject, isPlainObjectStrict } from '@thirdlight/shared';
 import { CUBE_ROTATION_COUNT, MATERIAL_AIR, MATERIAL_ID_MAX, PIECE_JITTER_DEFAULT, PIECE_JITTER_MAX, resolveDamageStages, type DamageStageSpan } from '@thirdlight/voxel';
 import type { ModelErrorV2 } from './errors';
+import { GAME_DATA_DEPTH_MAX, validateGameData, type GameDataJson } from './game-data';
 import { DIGEST_RE } from './content-helpers';
 import { KIT_LIMITS } from './kits';
 import { ID_RE, isValidName } from './validate';
@@ -66,7 +67,8 @@ import type { VoxelKitSheetLayout } from './voxel-trim-layout';
 export const VOXEL_KIT_FORMAT = 1;
 
 /** JSON as a kit's game data holds it. */
-export type VoxelKitJson = null | boolean | number | string | VoxelKitJson[] | { [key: string]: VoxelKitJson };
+/** A kit's game data (opaque JSON, `game-data.ts`). */
+export type VoxelKitJson = GameDataJson;
 
 /** One authored mesh: a model asset, the digest of the GLB version it was made from, optionally one node of it. */
 export interface VoxelKitMesh {
@@ -148,8 +150,8 @@ export interface VoxelKit {
 }
 
 export const VOXEL_KIT_LIMITS = Object.freeze({
-  /** Nesting depth of game data (JSON parsers stop far deeper; this keeps a walk over it bounded). */
-  gameDataDepth: 32,
+  /** Nesting depth of game data. */
+  gameDataDepth: GAME_DATA_DEPTH_MAX,
   /** The largest voxel material id the test binding may name (the voxel value's 12 bits; 0 is air). */
   materialIdMax: MATERIAL_ID_MAX,
   /** A slot mesh's weight range, a block kit piece's. */
@@ -186,20 +188,6 @@ function fields(v: Record<string, unknown>, known: readonly string[], path: stri
 
 function id(v: unknown, path: string, what: string, errors: ModelErrorV2[]): void {
   if (typeof v !== 'string' || !ID_RE.test(v)) err(errors, 'id_invalid', path, `${what} uses the id syntax (lower case, digits, - and _)`, v);
-}
-
-/** Whether a value is JSON within the depth bound (plain objects, arrays, finite numbers, strings, booleans, null). */
-function isJson(v: unknown, depth: number): boolean {
-  if (v === null || typeof v === 'boolean' || typeof v === 'string') return true;
-  if (typeof v === 'number') return Number.isFinite(v);
-  if (depth >= VOXEL_KIT_LIMITS.gameDataDepth) return false;
-  if (Array.isArray(v)) return v.every((x) => isJson(x, depth + 1));
-  if (isPlainObjectStrict(v)) return Object.values(v).every((x) => isJson(x, depth + 1));
-  return false;
-}
-
-function gameData(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (v !== undefined && !isJson(v, 0)) err(errors, 'field_value', path, `gameData is JSON (objects, lists, finite numbers, text, true/false, null) nested at most ${VOXEL_KIT_LIMITS.gameDataDepth} deep`);
 }
 
 function mesh(v: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -281,7 +269,7 @@ function sheetLayout(v: unknown, path: string, errors: ModelErrorV2[]): void {
 function slot(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a slot is {meshes, gameData?}', v, 'object');
   fields(v, SLOT_FIELDS, path, 'slot', errors);
-  gameData(v['gameData'], `${path}/gameData`, errors);
+  validateGameData(v['gameData'], `${path}/gameData`, errors);
   const meshes = v['meshes'];
   if (!Array.isArray(meshes) || meshes.length < 1) return err(errors, 'field_value', `${path}/meshes`, 'a slot holds one or more meshes (an empty slot is not stored: leave it out)', Array.isArray(meshes) ? meshes.length : meshes);
   meshes.forEach((x, i) => {
@@ -332,7 +320,7 @@ export function validateVoxelKit(v: unknown, path: string, errors: ModelErrorV2[
   if (v['trimLayout'] !== undefined && v['sheetLayout'] !== undefined) err(errors, 'field_value', `${path}/sheetLayout`, 'a kit names a trimLayout or declares its own sheetLayout, not both', v['sheetLayout']);
   damage(v['damage'], `${path}/damage`, errors);
   if (v['wallTopFill'] !== undefined && typeof v['wallTopFill'] !== 'boolean') err(errors, 'field_type', `${path}/wallTopFill`, 'wallTopFill is true or false', v['wallTopFill'], 'boolean');
-  gameData(v['gameData'], `${path}/gameData`, errors);
+  validateGameData(v['gameData'], `${path}/gameData`, errors);
   const slots = v['slots'];
   if (!isPlainObject(slots)) return err(errors, slots === undefined ? 'field_missing' : 'field_type', `${path}/slots`, 'slots is {caseId: {meshes, gameData?}}', slots, 'object');
   for (const [cid, c] of Object.entries(slots)) {

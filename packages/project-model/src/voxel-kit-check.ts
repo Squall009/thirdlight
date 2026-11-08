@@ -43,6 +43,8 @@ import type { KitCheckState } from './kit-checks';
 import { readModelGeometry } from './model-collision';
 import type { VoxelKit, VoxelKitMesh } from './voxel-kit';
 import { kitTrimLayout, TRIM_LAYOUTS, trimRegionAt, type TrimLayout, type TrimRegion } from './voxel-trim-layout';
+// The ids material records bind (the backend's kit check reads them through this module).
+export { namedVoxelIds } from './voxel-materials';
 
 export interface VoxelKitCheckRow {
   /** Stable per rule (`required:wall-top`, `fit`, `trim:T4`, …). */
@@ -492,7 +494,7 @@ function trimRows(kit: VoxelKit, pieces: readonly Piece[]): VoxelKitCheckRow[] {
  * gives a mesh's facts, or null when its file was not read (no such
  * model, or not a model: the asset rows say so).
  */
-export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets: VoxelKitAssets, facts: (m: VoxelKitMesh) => VoxelKitMeshFacts | null): VoxelKitCheckReport {
+export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets: VoxelKitAssets, facts: (m: VoxelKitMesh) => VoxelKitMeshFacts | null, named: ReadonlySet<number> = new Set()): VoxelKitCheckReport {
   const pieces: Piece[] = [];
   const reports: VoxelKitPieceReport[] = [];
   for (const [cid, c] of Object.entries(kit.slots)) {
@@ -502,7 +504,7 @@ export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets
       reports.push({ caseId: cid, mesh: k, triangles: f !== null && f.unreadable === null && f.found ? f.triangles : null, textures: f?.textures ?? { count: 0, bytes: 0, sizes: [] } });
     });
   }
-  const rows = [...slotRows(kit, catalogue), ...meshRows(pieces, assets), ...textureSetRows(pieces)];
+  const rows = [...slotRows(kit, catalogue), ...bindingRows(kit, named), ...meshRows(pieces, assets), ...textureSetRows(pieces)];
   const totals = {
     pieces: reports.length,
     triangles: reports.reduce((n, r) => n + (r.triangles ?? 0), 0),
@@ -522,8 +524,21 @@ export function voxelKitCheck(kit: VoxelKit, catalogue: CaseCatalogueDef, assets
 }
 
 /** The kit check against the world rules' catalogue (the cases a world's derive gives). */
-export function worldVoxelKitCheck(kit: VoxelKit, assets: VoxelKitAssets, facts: (m: VoxelKitMesh) => VoxelKitMeshFacts | null): VoxelKitCheckReport {
-  return voxelKitCheck(kit, WORLD_RULES.catalogue!, assets, facts);
+export function worldVoxelKitCheck(kit: VoxelKit, assets: VoxelKitAssets, facts: (m: VoxelKitMesh) => VoxelKitMeshFacts | null, named?: ReadonlySet<number>): VoxelKitCheckReport {
+  return voxelKitCheck(kit, WORLD_RULES.catalogue!, assets, facts, named);
+}
+
+/**
+ * The kit's test binding (kit format 1's `materials`), when it has one (info): the material records bind their own
+ * ids (`voxel.kit`); the list binds only the ids no record names (`named`).
+ */
+function bindingRows(kit: VoxelKit, named: ReadonlySet<number>): VoxelKitCheckRow[] {
+  const list = kit.materials ?? [];
+  if (list.length === 0) return [];
+  const kept = list.filter((id) => !named.has(id));
+  const ruled = list.filter((id) => named.has(id));
+  const ids = (l: readonly number[]): string => l.join(', ');
+  return [{ id: 'binding', state: 'info', title: 'Set the binding on the material', detail: `The kit's test list binds ${kept.length > 0 ? `voxel materials ${ids(kept)}` : 'no material'}${ruled.length > 0 ? `; ${ids(ruled)} follow their material records instead` : ''}. Name the kit on each material (voxel.kit); the list is read only for ids no material names.` }];
 }
 
 /** The worst state of a report's rows. */

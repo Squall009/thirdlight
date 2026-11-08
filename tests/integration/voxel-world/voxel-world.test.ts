@@ -16,11 +16,13 @@
  * over its WebSocket feed, a voxel kit made, refused, undone and deleted as a
  * project content item over HTTP and MCP (its own file, kept across a
  * restart), a broken voxel kit's check rows in the project's Problems (HTTP
- * and MCP), the kit test scene written as one command (each label's cell
+ * and MCP), a material's physics, game data and voxel use and a physical
+ * profile through the same command path (refusals, a restart), the kit test scene written as one command (each label's cell
  * deriving as its case from the files, no_change again, one undo), and an
  * export shipping the worlds its scenes name
  * (each listed region file whole, by digest) and the voxel kits (their block,
- * their pieces' model) or refusing a damaged world.
+ * their pieces' model, each with the material ids it binds), the materials
+ * with their parts and resolved physics, or refusing a damaged world.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
@@ -125,6 +127,18 @@ function logKit(assetId: string, digest: string): VoxelKit {
     gameData: { sound: { hit: 'wood-knock' }, physics: { density: 0.6 }, tags: ['flammable', 2, null] },
   };
 }
+
+/** A material with the material model's parts (its voxel id is one the log kit's test list does not name). */
+const OAK_MATERIAL = {
+  materialId: 'oak',
+  name: 'Oak',
+  shader: 'standard',
+  params: {},
+  textures: {},
+  physical: { profile: 'oak-wood', friction: 0.55 },
+  gameData: { break: { hits: 3 } },
+  voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03 },
+};
 
 /** The model rows an export's catalog ships (one version an asset). */
 function shippedModels(outputDir: string): Map<string, { version: number; sourceDigest: string }> {
@@ -746,6 +760,57 @@ describe('voxel world routes', () => {
     expectSame(await readChunks(around, SCENE_WORLD), sceneStore(), around);
   }, 60_000);
 
+  it("a material's physics, game data and voxel use through the one command path (HTTP and MCP's tl_command): canonical, one undo, kept on disk across a restart; voxel_id_taken, kit_missing and a missing profile refused; a project profile its own command", async () => {
+    const query = async (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
+    const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject'))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
+    const game = async (): Promise<{ materials: Array<Record<string, unknown>>; materialProfiles: Array<Record<string, unknown>> }> => (await query('queryGameConfig', { omit: ['dialogues'] })) as never;
+    const profile = await send('setMaterialProfile', { profile: { profileId: 'oak-wood', name: 'Oak wood', density: 720, gameData: { footstep: 'creak', break: { hits: 1 } } } });
+    expect(profile.status, JSON.stringify(profile.json)).toBe(200);
+    expect(profile.json['change']).toMatchObject({ type: 'setMaterialProfile', profileId: 'oak-wood', previous: null });
+    const made = await send('setMaterial', { material: OAK_MATERIAL });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const stored = (await game()).materials.find((m) => m['materialId'] === 'oak')!;
+    expect(Object.keys(stored)).toEqual(['materialId', 'name', 'shader', 'params', 'textures', 'physical', 'gameData', 'voxel']);
+    expect(stored['voxel']).toEqual({ id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03 });
+    expect((await game()).materialProfiles).toEqual([{ profileId: 'oak-wood', name: 'Oak wood', density: 720, gameData: { break: { hits: 1 }, footstep: 'creak' } }]);
+    // Refused, nothing changed: an id another material has, a kit the project lacks, a profile it lacks, a kit a material names deleted.
+    const codeOf = (r: { json: Record<string, unknown> }): string => { const e = r.json['error'] as { code: string; details?: Array<{ code: string }> }; return e.details?.[0]?.code ?? e.code; };
+    expect(codeOf(await send('setMaterial', { material: { ...OAK_MATERIAL, materialId: 'pine', name: 'Pine' } }))).toBe('voxel_id_taken');
+    expect(codeOf(await send('setMaterial', { material: { ...OAK_MATERIAL, materialId: 'pine', name: 'Pine', voxel: { id: 13, use: 'construction', kit: 'brick' } } }))).toBe('kit_missing');
+    expect(codeOf(await send('setMaterial', { material: { ...OAK_MATERIAL, materialId: 'pine', name: 'Pine', voxel: { id: 13, use: 'terrain' }, physical: { profile: 'bamboo' } } }))).toBe('reference_missing');
+    expect(codeOf(await send('deleteVoxelKit', { voxelKitId: 'log' }))).toBe('kit_missing');
+    expect(codeOf(await send('deleteMaterialProfile', { profileId: 'oak-wood' }))).toBe('reference_missing');
+    // MCP sends the same op: a voxel variant (an instance with its own id) of the same record; undo takes it back in one step.
+    const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'voxel-material-mcp' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const mcp = new Client({ name: 'voxel-material-mcp-test', version: '0.1.0' });
+    await mcp.connect(clientTransport);
+    try {
+      const { tools } = await mcp.listTools();
+      const opEnum = (tools.find((t) => t.name === 'tl_command')!.inputSchema as { properties: { op: { enum: string[] } } }).properties.op.enum;
+      expect(opEnum).toEqual(expect.arrayContaining(['setMaterialProfile', 'deleteMaterialProfile']));
+      const variant = { materialId: 'oak-dark', name: 'Dark oak', shader: 'standard', params: {}, textures: {}, instanceOf: 'oak', voxel: { id: 13 }, gameData: { stain: 'dark' } };
+      const res = (await mcp.callTool({ name: 'tl_command', arguments: { op: 'setMaterial', expectedRevision: (await query('queryProject'))['revision'], args: { material: variant } } })) as { isError?: boolean; content: Array<{ text: string }> };
+      expect(res.isError === true, res.content[0]!.text).toBe(false);
+      const g = (await mcp.callTool({ name: 'tl_content_query', arguments: { target: 'game' } })) as { content: Array<{ text: string }> };
+      expect((JSON.parse(g.content[0]!.text) as { materials: Array<{ materialId: string; voxel?: unknown }> }).materials.find((m) => m.materialId === 'oak-dark')!.voxel).toEqual({ id: 13 });
+    } finally {
+      await mcp.close();
+      await server.close();
+    }
+    expect((await send('undo', {})).status).toBe(200);
+    expect((await game()).materials.some((m) => m['materialId'] === 'oak-dark')).toBe(false);
+    // An object wears it, so a build ships it (the export test reads what ships).
+    const box = await send('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Oak box', components: { materials: { '*': 'oak' } } });
+    expect(box.status, JSON.stringify(box.json)).toBe(200);
+    // The material's own file keeps the parts; a restart reads them back.
+    await close();
+    await start();
+    expect((await game()).materials.find((m) => m['materialId'] === 'oak')).toEqual(stored);
+    expect((await game()).materialProfiles.map((p) => p['profileId'])).toEqual(['oak-wood']);
+  }, 60_000);
+
   it("an export ships the worlds its scenes name: each listed region file whole as a content file, listed in the catalog with its digest, the voxel worker beside the game's scripts; a world with a damaged region refuses the export", async () => {
     const query = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
     const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject', {}))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
@@ -780,6 +845,13 @@ describe('voxel world routes', () => {
     const shippedKits = (content as unknown as { voxelKits?: Array<Record<string, unknown>> }).voxelKits;
     expect(shippedKits?.map((k) => k['voxelKitId'])).toEqual(['log']);
     expect(shippedKits![0]!['gameData']).toEqual(logKit(KIT_MODEL.assetId, 'x').gameData);
+    // It ships with the ids it binds: the oak record's 12 and its own list's 3 (no material record names 3).
+    expect(shippedKits![0]!['materials']).toEqual([3, 12]);
+    // The oak material ships with its parts, its physics resolved against its profile (the profile's game data under its own).
+    const shippedOak = ((content as unknown as { materials?: Array<Record<string, unknown>> }).materials ?? []).find((m) => m['materialId'] === 'oak')!;
+    expect(shippedOak['voxel']).toEqual(OAK_MATERIAL.voxel);
+    expect(shippedOak['physical']).toEqual({ profile: 'oak-wood', density: 720, friction: 0.55, restitution: 0 });
+    expect(shippedOak['gameData']).toEqual({ footstep: 'creak', break: { hits: 3 } });
     const kitMesh = (shippedKits![0]!['slots'] as Record<string, { meshes: Array<{ mesh: { digest: string } }> }>)['edge-out-top']!.meshes[0]!.mesh;
     expect(readFileSync(join(out, 'content', 'sha256', kitMesh.digest)).equals(pieceGlb())).toBe(true);
     expect(((content as unknown as { dependencies?: Array<{ assetId: string }> }).dependencies ?? []).map((e) => e.assetId)).toContain(KIT_MODEL.assetId);

@@ -47,6 +47,9 @@ export { AREA_LIGHT_DEFAULTS, AREA_LIGHT_SHAPES, AREA_LIGHT_SIZE_MAX } from './a
 // names, the worst of a piece's checks; the block layer's default cell (what a piece is sized against).
 export { KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, kitCheckTally, kitSlotLabel, kitSlotPlacement } from './kits';
 export { VOXEL_KIT_FORMAT, VOXEL_KIT_LIMITS } from './voxel-kit';
+// The material model's ranges and the engine's physical profiles.
+export { ENGINE_MATERIAL_PROFILES, PHYSICAL_DEFAULTS, PHYSICAL_LIMITS } from './material-profiles';
+export { VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES } from './voxel-materials';
 export { BLOCK_LAYER_DEFAULT, BLOCK_LIMITS } from './block-layers';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
 export { DECAL_CELL_BUDGET, DECAL_LAYER_COUNT, DECAL_LAYERS_ALL, DECAL_LIMITS, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS } from './decals';

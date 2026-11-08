@@ -1106,6 +1106,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         scenes: state.content.scenes.map((e) => ({ ...e })),
         startScenes: [...state.content.startScenes],
         materials: JSON.parse(JSON.stringify(state.content.materials ?? [])) as unknown,
+        // The project's physical profiles (the engine's are constants every client has).
+        materialProfiles: JSON.parse(JSON.stringify((state.content as { materialProfiles?: unknown[] }).materialProfiles ?? [])) as unknown,
         environment: state.content.environment !== undefined ? (JSON.parse(JSON.stringify(state.content.environment)) as unknown) : null,
         lighting: state.content.lighting !== undefined ? (JSON.parse(JSON.stringify(state.content.lighting)) as unknown) : null,
         animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,

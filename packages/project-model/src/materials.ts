@@ -30,7 +30,10 @@ import { validateDecalCellRef, type DecalCellRef } from './decals';
 import { canonicalWind, validateWind } from './wind';
 
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
-import { isPlainObject } from '@thirdlight/shared';
+import { canonicalJsonValue, isPlainObject } from '@thirdlight/shared';
+import { canonicalMaterialPhysical, mergeGameData, validateMaterialPhysical, type MaterialGameData, type MaterialPhysical } from './material-profiles';
+import { canonicalMaterialVoxel, mergeMaterialVoxel, validateMaterialVoxel, voxelTextureRefs, type MaterialVoxel } from './voxel-materials';
+import { validateGameData } from './game-data';
 export { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, materialParameterPortType, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
 
 /**
@@ -155,6 +158,22 @@ export interface MaterialDef {
    * uses its root's.
    */
   layerSheets?: string[];
+  /**
+   * Its physics (`material-profiles.ts`): a profile and the numbers it changes. Absent: the engine's defaults. An
+   * instance's numbers override its chain's one by one.
+   */
+  physical?: MaterialPhysical;
+  /**
+   * The game's own data (sounds, break tags, …): any JSON, kept and shipped, never read by the engine. An
+   * instance's top-level keys override its chain's.
+   */
+  gameData?: MaterialGameData;
+  /**
+   * Its voxel use (`voxel-materials.ts`): a voxel material id, construction / terrain / liquid, its kit, tile and
+   * height depth in metres, wall / floor / ceiling texture sets. Absent: not a voxel material. An instance with its
+   * own (and its own id) is a voxel variant of its chain's; without, a mesh variant only.
+   */
+  voxel?: MaterialVoxel;
 }
 
 /** Longest layer name (`MaterialDef.layerNames`). */
@@ -362,7 +381,7 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     }
     for (const k of Object.keys(m)) {
       if (build && k === 'decalPage') continue;
-      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal', 'layerNames', 'layerSheets'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim, decal, layerNames, layerSheets');
+      if (!MATERIAL_FIELDS.includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, MATERIAL_FIELDS.join(', '));
     }
     // A material instance (its parent is checked with the whole list, `validateMaterialInstances`).
     if (m['instanceOf'] !== undefined) {
@@ -435,12 +454,19 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     if (sheets !== undefined && m['instanceOf'] === undefined && (!Array.isArray(sheets) || sheets.length > MAX_TEXTURE_LAYERS || !sheets.every((x) => x === '' || (typeof x === 'string' && ID_RE.test(x))))) {
       err(errors, 'field_value', `${p}/layerSheets`, `layerSheets is a list of at most ${MAX_TEXTURE_LAYERS} trim material ids (or "" for a layer without one)`, sheets);
     }
+    // The physical block, game data and voxel use (what they name is checked with the whole list).
+    if (m['physical'] !== undefined) validateMaterialPhysical(m['physical'], `${p}/physical`, errors);
+    validateGameData(m['gameData'], `${p}/gameData`, errors);
+    if (m['voxel'] !== undefined) validateMaterialVoxel(m['voxel'], `${p}/voxel`, errors, m['instanceOf'] !== undefined);
     // A graph material.
     if (m['parameters'] !== undefined) validateMaterialParameters(m['parameters'], `${p}/parameters`, errors);
     // Parameters without a graph are kept (inert) so a graph can be removed and added back.
     if (m['graph'] !== undefined) validateMaterialGraph(m, p, errors, graphs);
   });
 }
+
+/** A material record's fields (a build's materials may also carry `decalPage`). */
+const MATERIAL_FIELDS = ['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal', 'layerNames', 'layerSheets', 'physical', 'gameData', 'voxel'];
 
 /** The longest chain of instances (an instance of an instance of … a material), resolved at build and in the renderer per material. */
 export const MAX_MATERIAL_INSTANCE_DEPTH = 8;
@@ -549,13 +575,19 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
   const params: Record<string, MaterialParamValue> = {};
   const textures: Record<string, string> = {};
   const values: Record<string, MaterialValue> = {};
+  const physical: MaterialPhysical = {};
+  let gameData: MaterialGameData | undefined;
   // From the root down to the instance: the nearer level wins.
   for (let i = chain.length - 1; i >= 0; i--) {
     const m = chain[i]!;
     Object.assign(params, m.params ?? {});
     Object.assign(textures, m.textures ?? {});
     if (i < chain.length - 1) Object.assign(values, m.values ?? {});
+    Object.assign(physical, m.physical ?? {});
+    if (m.gameData !== undefined) gameData = gameData === undefined ? m.gameData : mergeGameData(gameData, m.gameData);
   }
+  // The voxel fields fold only into an instance with its own voxel part (its id is its own).
+  const voxel = mergeMaterialVoxel([...chain].reverse().map((m) => m.voxel));
   return {
     materialId: self.materialId,
     name: self.name,
@@ -568,6 +600,9 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
     ...(root.decal !== undefined ? { decal: root.decal } : {}),
     ...(root.layerNames !== undefined ? { layerNames: root.layerNames } : {}),
     ...(root.layerSheets !== undefined ? { layerSheets: root.layerSheets } : {}),
+    ...(Object.keys(physical).length > 0 ? { physical } : {}),
+    ...(gameData !== undefined ? { gameData } : {}),
+    ...(voxel !== undefined ? { voxel } : {}),
   };
 }
 
@@ -639,6 +674,10 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       // Trailing "" names say nothing (the texture's name shows): dropped, and an empty list with them.
       ...(layerNamesKept(m.layerNames).length > 0 ? { layerNames: layerNamesKept(m.layerNames) } : {}),
       ...(layerNamesKept(m.layerSheets).length > 0 ? { layerSheets: layerNamesKept(m.layerSheets) } : {}),
+      // The material model's parts, last: every material without them keeps its exact bytes.
+      ...(m.physical !== undefined && canonicalMaterialPhysical(m.physical) !== null ? { physical: canonicalMaterialPhysical(m.physical)! } : {}),
+      ...(m.gameData !== undefined ? { gameData: canonicalJsonValue(m.gameData) as MaterialGameData } : {}),
+      ...(m.voxel !== undefined ? { voxel: canonicalMaterialVoxel(m.voxel) } : {}),
     }));
 }
 
@@ -694,6 +733,7 @@ export function materialTextureRefs(m: MaterialDef): string[] {
   const out = new Set(Object.values(m.textures));
   if (m.graph !== undefined) for (const r of graphAssetRefs(MATERIAL_GRAPH_KIND, m.graph)) if (r.asset === 'texture') out.add(r.id);
   for (const p of m.parameters ?? []) if (p.type === 'texture' && typeof p.default === 'string' && p.default !== '') out.add(p.default);
+  for (const id of voxelTextureRefs(m.voxel)) out.add(id);
   return [...out].sort();
 }
 

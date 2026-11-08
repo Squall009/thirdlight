@@ -124,6 +124,8 @@ export const CHANGE_TYPES = [
   'setKit',
   // Voxel kits.
   'setVoxelKit',
+  // Physical profiles.
+  'setMaterialProfile',
   'setUi',
   // Dialogue.
   'setDialogue',

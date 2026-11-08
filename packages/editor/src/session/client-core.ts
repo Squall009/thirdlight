@@ -737,7 +737,8 @@ export class SessionClientCore extends SessionProjectState {
       // Props' block footprints written with the change: read those chunks too.
       for (const f of (change as { footprints?: readonly FootprintChunks[] }).footprints ?? []) void this.refreshBlockChunks(f.entityId, f.chunks).then(() => this.cb.onSceneChanged());
       if (blockLayerListTouched(change, this.blockLayers)) void this.refreshBlockLayers().then(() => this.cb.onSceneChanged());
-      if (change.type === 'setVoxelKit' || change.type === 'setSettings') this.cb.onVoxelKitsChanged?.();
+      // A material's voxel id, use or kit binds it to a kit's pieces: the piece table changes with them.
+      if (change.type === 'setVoxelKit' || change.type === 'setSettings' || (change.type === 'setMaterial' && voxelBindingKey(change.previous) !== voxelBindingKey(change.next))) this.cb.onVoxelKitsChanged?.();
       this.ensureSceneRecords();
       this.save = 'saved';
       this.cb.onSceneChanged();
@@ -1116,4 +1117,10 @@ function blockLayerListTouched(change: ChangeData, layers: ReadonlyMap<string, B
     default:
       return false;
   }
+}
+
+/** What of a material binds voxel pieces (its voxel id, use and kit; '' for none). */
+function voxelBindingKey(m: { voxel?: { id: number; use?: string; kit?: string } } | null): string {
+  const v = m?.voxel;
+  return v === undefined ? '' : `${v.id}|${v.use ?? ''}|${v.kit ?? ''}`;
 }

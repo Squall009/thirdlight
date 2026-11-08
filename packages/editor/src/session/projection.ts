@@ -743,6 +743,8 @@ export class Projection {
       case 'setKit':
       // Voxel kits (the editor reads them from the next full state).
       case 'setVoxelKit':
+      // Physical profiles (read from the next full state).
+      case 'setMaterialProfile':
       // UI documents and themes too.
       case 'setUi':
       // Dialogue content too.

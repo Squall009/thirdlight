@@ -347,6 +347,19 @@ export interface SetVoxelKitInverse {
   restore: import('@thirdlight/project-model').VoxelKit | null;
 }
 
+/** `setMaterialProfile`/`deleteMaterialProfile` change data: one of the project's physical profiles before and after (null = none). */
+export interface SetMaterialProfileChange {
+  type: 'setMaterialProfile';
+  profileId: string;
+  previous: import('@thirdlight/project-model').MaterialProfile | null;
+  next: import('@thirdlight/project-model').MaterialProfile | null;
+}
+export interface SetMaterialProfileInverse {
+  kind: 'setMaterialProfile';
+  profileId: string;
+  restore: import('@thirdlight/project-model').MaterialProfile | null;
+}
+
 /** `setBlockStamp`/`deleteBlockStamp` change data. */
 export interface SetBlockStampChange {
   type: 'setBlockStamp';
@@ -806,6 +819,7 @@ export type ChangeData =
   | SetBlockStampChange
   | SetKitChange
   | SetVoxelKitChange
+  | SetMaterialProfileChange
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
@@ -864,6 +878,7 @@ export type ForwardChange =
   | SetBlockStampChange
   | SetKitChange
   | SetVoxelKitChange
+  | SetMaterialProfileChange
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
@@ -1078,6 +1093,7 @@ export type InverseSpec =
   | SetBlockStampInverse
   | SetKitInverse
   | SetVoxelKitInverse
+  | SetMaterialProfileInverse
   | GraphEditInverse
   | SetGraphInverse
   | SetEffectInverse

@@ -29,6 +29,10 @@ import {
   RESOURCE_CREATING_OPS,
 } from '@thirdlight/protocol';
 import {
+  ENGINE_MATERIAL_PROFILES,
+  PHYSICAL_LIMITS,
+  VOXEL_MATERIAL_LIMITS,
+  VOXEL_MATERIAL_USES,
   AMBIENT_OCCLUSION_KINDS,
   CAMERA_EXPOSURE_METERING,
   CAMERA_OCCLUSION_MODES,
@@ -286,6 +290,10 @@ export const TOOL_DETAILS = {
     'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water|trim|decal, params: {...overrides}, textures: {slot: ' +
     'textureAssetId}}, assign?: {entityId, slots?}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); with assign the object also takes it for all of its materials (its materials "*" slot, and the named slots listed in slots, which draw before "*") in the same undo step; ' +
     'a layered material may name its texture-array layers for the layer palette with layerNames: [name or "" (its texture\'s name), …] (index i = layer i); ' +
+    'Any material (or instance) may carry physical? {profile? (an engine profile ' + ENGINE_MATERIAL_PROFILES.map((p) => p.profileId).join('|') + ' or one of the project\'s), density? kg/m³ (0, ' + String(PHYSICAL_LIMITS.densityMax) + '], friction? [0, ' + String(PHYSICAL_LIMITS.frictionMax) + '], restitution? [0, 1], flowRate? (liquids, water = 1)} (absent numbers: the profile\'s, else density 1000, friction 0.5, restitution 0), gameData? (any JSON, the game\'s, never read) and ' +
+    'voxel? {id 1-' + String(VOXEL_MATERIAL_LIMITS.idMax) + ' (its voxel material id, unique in the project: voxel_id_taken), use: ' + VOXEL_MATERIAL_USES.join('|') + ', kit? (a voxelKitId whose pieces its edges draw; kit_missing when none; never with liquid), tileMetres? (' + String(VOXEL_MATERIAL_LIMITS.tileMetresMin) + '-' + String(VOXEL_MATERIAL_LIMITS.tileMetresMax) + ' m a texture repeat; absent 4 construction, 2 terrain/liquid), heightDepth? (0-' + String(VOXEL_MATERIAL_LIMITS.heightDepthMax) + ' m between its height map\'s 1 and 0; absent ' + String(VOXEL_MATERIAL_LIMITS.heightDepthDefault) + '), surfaces? {wall?, floor?, ceiling?: {albedoHeight?, normal?, orm? (plain texture assets)}} (floor and ceiling fall back to wall)}: one record serves meshes and voxels. ' +
+    'An instance inherits physical, gameData (top-level keys merged) and voxel fields and overrides any; a voxel variant gives its own voxel {id, …} (an instance without voxel is a mesh variant). A material naming a kit binds its id to that kit\'s pieces; a kit\'s own materials list binds only ids no material names. ' +
+    'Physical profiles: setMaterialProfile {profile: {profileId, name, density?, friction?, restitution?, flowRate?, gameData?}} creates or replaces one of the project\'s (one with an engine profile\'s id overrides it field by field); deleteMaterialProfile {profileId} (refused while a material names a project-only profile). tl_content_query target="game" lists them (materialProfiles). ' +
     'a trim material carries trim {size, texelDensity, padding, rows, cells? [{name, rect: [x, y, w, h] px}] (decal cells)}; a decal material (params blend: blend|multiply|add, sortOrder -1000..1000, ' +
     'opacity, color, roughness, metalness, normalScale, aoIntensity, emissive, emissiveIntensity) draws its own map/normalMap/ormMap/emissiveMap or decal {sheet: trim materialId, cell: name} (not both). ' +
     'Mesh decals: any mesh wearing a decal material (a model mapped to one with setAssetOptions/materials, a box) draws over the surface under it — transparent, no depth written, no shadow cast, ' +

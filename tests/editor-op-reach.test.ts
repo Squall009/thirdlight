@@ -30,6 +30,9 @@ const API_ONLY: Readonly<Record<string, string>> = {
   setVoxelKit:
     'voxel kits have no editor page yet: MCP, scripts and tools make them over the command route until the case catalogue and trim layout they follow are approved; an editor page then sends it',
   deleteVoxelKit: 'as setVoxelKit: no editor page for voxel kits yet',
+  setMaterialProfile:
+    "physical profiles have no editor panel yet (the material inspector's voxel and physical section comes with the record drawn and read): MCP, scripts and tools set them over the command route",
+  deleteMaterialProfile: 'as setMaterialProfile: no editor panel for physical profiles yet',
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

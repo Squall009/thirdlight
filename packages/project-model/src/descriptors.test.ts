@@ -726,6 +726,8 @@ const MATERIAL_BASES: J[] = [
   ]),
   // A decal material drawing a trim sheet's cell (no texture slots of its own).
   [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
+  // A material with the material model's parts: physics, game data and a voxel use with its texture sets.
+  [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, surfaces: { wall: { albedoHeight: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedoHeight: 'tex-f' }, ceiling: { orm: 'tex-c' } } } }],
   // A layered material naming its layers for the palette.
   [{ materialId: 'mat-l', name: 'Layers', shader: 'standard', params: {}, textures: {}, layerNames: ['Grass', 'Dirt'] }],
   // A layered material whose first layer follows a trim sheet.
@@ -954,6 +956,7 @@ function runAllProbes(): void {
   // The UI editor's descriptors (a document's own fields, each widget type, styles, tweens).
   runUiProbes();
   // The named collision layers.
+  probe('materialProfiles', contentErrors, contentDoc({ materialProfiles: [{ profileId: 'oak', name: 'Oak', density: 700, friction: 0.6, restitution: 0.2, flowRate: 0, gameData: { footstep: 'wood' } }] }), '/materialProfiles', block('materialProfiles'), 'materialProfiles:');
   probe('lightLayers', contentErrors, contentDoc({ lightLayers: ['world', '', 'characters'] }), '/lightLayers', block('lightLayers'), 'lightLayers:');
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   // The project save schema.
@@ -1075,8 +1078,9 @@ describe('descriptor registry', () => {
     // distances, about 0.7 KB; a project's voxel kits, about 2.7 KB; a voxel world's distances per quality level and a
     // quality level's voxel ring scale, about 3.1 KB; the voxel kits' slots and jitter in place of cases and join profiles,
     // and the voxel detail seed setting, about 0.6 KB; a voxel world's decal layers, about 0.3 KB; a voxel kit's
-    // wall-top fill, about 0.3 KB; a voxel kit's own sheet layout and its slot meshes' mirror, about 0.45 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(369_600);
+    // wall-top fill, about 0.3 KB; a voxel kit's own sheet layout and its slot meshes' mirror, about 0.45 KB; the
+    // material record's physics, game data and voxel use, and the physical profiles, about 4.7 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(374_400);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

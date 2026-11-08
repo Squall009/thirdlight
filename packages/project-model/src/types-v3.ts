@@ -514,6 +514,8 @@ export interface ContentCatalogV4 extends Omit<ContentCatalogV3, 'game'> {
   kits?: import('./kits').KitDef[];
   /** Voxel kits: a material type's detail pieces per case and section (shipped whole; absent = none). */
   voxelKits?: import('./voxel-kit').VoxelKit[];
+  /** The project's physical profiles (by id; one with an engine profile's id overrides it; absent = the engine's only). */
+  materialProfiles?: import('./material-profiles').MaterialProfile[];
   /** Project UI documents drawn by the game host (absent = none). */
   uiDocuments?: import('./ui-documents').UiDocument[];
   /** UI themes (named styles and icons documents share; absent = none). */

@@ -83,6 +83,9 @@ export const V3_MUTATION_OPS = [
   // Voxel kits
   'setVoxelKit',
   'deleteVoxelKit',
+  // Physical profiles
+  'setMaterialProfile',
+  'deleteMaterialProfile',
   // Project UI documents and themes
   'setUiDocument',
   'deleteUiDocument',

@@ -9,7 +9,7 @@
  * build will hold without making one (the editor's decal atlas reads the
  * decal pages the build will plan from these).
  */
-import { architectureGraphsOf, architectureStylesOf, captureContentViewV3, decalSheetsOf, graphForRuntime, loadableAssetIds, loadableResourceIds, materialsInUse, resolveMaterialInstances, type ArchitectureStyles, type GraphDocument, type BlockType, type EffectDef, type MaterialDef, type PrefabDefinition, type TimelineAsset } from '@thirdlight/project-model';
+import { architectureGraphsOf, architectureStylesOf, captureContentViewV3, decalSheetsOf, graphForRuntime, loadableAssetIds, loadableResourceIds, materialsInUse, resolveMaterialInstances, withResolvedPhysics, type ArchitectureStyles, type MaterialProfile, type GraphDocument, type BlockType, type EffectDef, type MaterialDef, type PrefabDefinition, type TimelineAsset } from '@thirdlight/project-model';
 
 export interface ShippedMaterialsInput {
   /** The content block. */
@@ -43,7 +43,8 @@ export function shippedMaterials(o: ShippedMaterialsInput): MaterialDef[] | unde
   for (const id of decalSheetsOf(resolved, used)) used.add(id);
   // A named instance ships resolved (its chain's graph, parameters and values folded
   // in), so the runtime never sees an instance; its parents ship only when something names them.
-  return resolved.filter((m) => used.has(m.materialId));
+  // Physics ships resolved against the project's profiles (the runtime never reads a profile).
+  return withResolvedPhysics(resolved.filter((m) => used.has(m.materialId)), (o.content as { materialProfiles?: MaterialProfile[] } | null)?.materialProfiles);
 }
 
 /**
