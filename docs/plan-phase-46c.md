@@ -251,7 +251,7 @@ freeze, 46c.17, 46c.18.
 | 46c.13 | draft v0 (DRAFT — awaiting owner, hard stop): `docs/architecture/voxel-trim-layout.md`: 4096² sheet authored 1024 px/m (tiers 256/512/1024), 32 px gutters, field 1 m + strips 0.5/0.25/0.125 m plain/profiled + caps 3 sizes × 4, U from world run distance (4 m repeat), path B (own bakes) beside it, kit-check rows T1–T10, log/stone examples, 10 owner questions |
 | 46c.14 | done (docs only): spec §3.7 one "Kits and cases" section (case pass, catalogue v4 DRAFT, `kits` v5, runs, forms, piece table 2, instance, levels, paints, v9 → v13 owner notes in one table; no stored format change), §3.8/§4; requirements R73–R77, R86, R87, R90, R112; manual kits, kit check, `writeKitTestScene` (draft); D485 (kit draw count). Reference unchanged |
 | 46c.15 | presented, awaiting owner approval (hard stop): 50 shots × 2 renderers re-taken at b6ec7d2f (kit scenes, log/stone houses, two-thick jambs, wall-beam-banister, long walls, cross-kit paint, town L0/L1, default kit) in `acceptance/46c/final`, older shots in `older/`; README + approve-46c.md: 65 questions. Seen: D480–D482, stone plinth breaks at jamb cells |
-| 46c.16 | answers recorded 2026-11-06 (all 35); build items 46c.16a–g (§6c); closing full gate GREEN 34 min, 8.0 GB, 393 e2e (46c.14b); review r2 fixed in 46c.16h; then acc46c-r2 (hard stop), v1 freeze |
+| 46c.16 | done: v1 frozen (owner 2026-11-06, acc46c-r2 S1/S2): role spec + texture layout v1 APPROVED, describing 46c.16a–k as built; kit format 1 final (any other refused, add-only); catalogue `edges-draft` v3 = role spec v1 (`draft: false`, id kept: a label, nothing stores it); defaults 1–26 + trim 1–9 owner-confirmed, 16j/k's 6 stand as approved. Docs + doc tests only |
 | 46c.16a | done: pieces at L0 only (derived 21; kit `low` mesh, check pairs, adapter low draws gone; kits regenerated, Blender 5.2.2: log 757 tris 58.4 kB, stone 490 tris 47.3 kB; town L1 7.7 k → 0 instances); every ring per scene + `quality` per level, `voxelRings` (tier √budget) with the tier budget, `ctx.voxels.setRings` and the reported level re-plan without reload |
 | 46c.16b | done: kits are slots (case id = slot, 1..n meshes with a cube rotation, all optional, `jitter` 0–4), project setting `voxel_piece_seed` for picks and stagger, one texture set a kit (check error), no default kit (no kit = plain voxels), beams/banisters plain voxels; catalogue `edges-draft` v2 (18), `edges` v4, piece table 3, derived 22; kits log 391 / stone 286 tris |
 | 46c.16c | done (5859c1cc): pieces dressed by role order (roof > wall > pillar > stair > floor > foundation; two kits of one role → bare), mixed corners from the corner slots (stair notches, L tops, wall feet), pieces cut flush at `opening` cells (none inside), instance 12 B, `edges` v5, derived 23; town/tower/staging openings. Seen both renderers; fast gate GREEN 13 min |
@@ -2522,9 +2522,20 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   `detail-trim` (field, strip, profiled strip, cap), a sheet of 16–16,384 px a side, regions not overlapping, and
   replaces a named `trimLayout` (never both); its trim rows are not marked draft (the kit owns its numbers).
 
+- 2026-11-08 (46c.16, owner 2026-11-06 acc46c-r2 S1/S2): **v1 frozen.** The role spec and the texture layout are
+  v1 APPROVED, rewritten only to describe what 46c.16j/k built (D519 gone from the gaps, D526 in, the mirror per slot
+  mesh, `wallTopFill`, own sheet layouts checked by the trim rows); their "defaults to confirm" became "Decided
+  defaults": role spec 1–26 and trim 1–9 owner-confirmed (role spec 7 and 18 changed by the owner: mirror per slot
+  mesh, fill a roof-kit setting), 46c.16j/k's (owned face alone, fill from the roof kit, rows merged across
+  materials, mirror across the run, crack map on the material tile, `sheetLayout` numbers) stand as approved (owner
+  review model). Kit format 1 is final: unknown versions refused, add-only from here; `VOXEL_KIT_FORMAT` stays 1 (no
+  record of another shape ships). The catalogue id `edges-draft` is kept (only messages and the bench print it; the
+  rule set `edges` and the derived version name what is derived), its `draft` flag false; `detail-trim` keeps its
+  draft label (an example, not a standard; trim default 8). No stored format, derived byte or behaviour changed.
+
 ## 10. Open questions for the owner
 
-- Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
+- ~~Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).~~ Approved 2026-11-06 (v1 frozen, 46c.16).
 - Whether the case reach of 2 cells is enough for soffits and mouldings under deep eaves, or the apron may grow.
 - Where kits live: project content items (schema, add-only) or files beside the world; and the binding's move to 46d.
 - Who makes the Texture Designer graphs and Kit Designer after approval: art-factory's own sessions from a request doc.

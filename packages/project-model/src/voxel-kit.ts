@@ -44,8 +44,10 @@
  *   GLB the piece was made from), so it ships through the content closure as
  *   every model does and a re-import that changes the bytes is visible.
  *
- * The record is versioned (`kitFormat`, still a DRAFT): a newer format is
- * refused rather than read in part, and unknown fields are refused. The
+ * The record is versioned (`kitFormat`). Format 1 is final (the owner
+ * approved the role spec and texture layout it serves as v1): any other
+ * format is refused rather than read in part, unknown fields are refused,
+ * and a later format only adds fields. The
  * canonicalizer rebuilds the record field by field, so a field added here
  * must be added to {@link canonicalVoxelKit} too (a round-trip test lists every
  * field).
@@ -60,7 +62,7 @@ import { KIT_LIMITS } from './kits';
 import { ID_RE, isValidName } from './validate';
 import type { VoxelKitSheetLayout } from './voxel-trim-layout';
 
-/** The kit record's format. A later format adds fields only; a reader refuses one newer than it knows. */
+/** The kit record's format, final: a later format adds fields only; a reader refuses any format but the one it knows. */
 export const VOXEL_KIT_FORMAT = 1;
 
 /** JSON as a kit's game data holds it. */

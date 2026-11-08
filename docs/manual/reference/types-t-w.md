@@ -309,11 +309,12 @@ Declared in `packages/project-model/src/voxel-trim-layout.ts`.
 
 ```ts
 /**
- * The trim layout for voxel kit detail pieces, as the kit check reads it:
- * **DRAFT — not v1** (docs/architecture/voxel-trim-layout.md, awaiting the
- * owner). Its regions, sheet size and density are the draft's numbers
- * (its sheet and regions tables); nothing but the kit check's draft rows
- * reads them, and they change with the draft until the owner approves it.
+ * The trim layouts for voxel kit detail pieces, as the kit check reads
+ * them (docs/architecture/voxel-trim-layout.md, v1): a kit's layout is
+ * its own choice, a recommendation, never a standard. The one named
+ * layout, `detail-trim`, is the engine's example, so its rows stay
+ * labelled draft; a kit declaring its own sheet layout is checked against
+ * that, labelled as the kit's.
  *
  * Pixels are on the authored sheet (glTF convention: v from the top). A
  * field or strip tiles in u (any u is inside it); a cap is one square
@@ -992,7 +993,7 @@ interface VertexPaintStroke {
 Declared in `packages/project-model/src/voxel-kit.ts`.
 
 ```ts
-/** The kit record's format. A later format adds fields only; a reader refuses one newer than it knows. */
+/** The kit record's format, final: a later format adds fields only; a reader refuses any format but the one it knows. */
 const VOXEL_KIT_FORMAT: 1;
 ```
 

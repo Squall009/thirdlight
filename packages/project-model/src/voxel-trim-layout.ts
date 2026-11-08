@@ -1,9 +1,10 @@
 /**
- * The trim layout for voxel kit detail pieces, as the kit check reads it:
- * **DRAFT — not v1** (docs/architecture/voxel-trim-layout.md, awaiting the
- * owner). Its regions, sheet size and density are the draft's numbers
- * (its sheet and regions tables); nothing but the kit check's draft rows
- * reads them, and they change with the draft until the owner approves it.
+ * The trim layouts for voxel kit detail pieces, as the kit check reads
+ * them (docs/architecture/voxel-trim-layout.md, v1): a kit's layout is
+ * its own choice, a recommendation, never a standard. The one named
+ * layout, `detail-trim`, is the engine's example, so its rows stay
+ * labelled draft; a kit declaring its own sheet layout is checked against
+ * that, labelled as the kit's.
  *
  * Pixels are on the authored sheet (glTF convention: v from the top). A
  * field or strip tiles in u (any u is inside it); a cap is one square
@@ -35,7 +36,7 @@ const strip = (id: string, kind: TrimRegion['kind'], metres: number, y0: number,
 const caps = (size: string, metres: number, y: [number, number], xs: [number, number][]): TrimRegion[] =>
   xs.map(([x0, x1], k) => Object.freeze({ id: `C${size}${'abcd'[k]}`, kind: 'cap' as const, metres, y: Object.freeze(y), x: Object.freeze([x0, x1] as const) }));
 
-/** The draft layout `detail-trim` (v0): a 4096² sheet at 1024 px/m, field, plain and profiled strips, caps in three sizes × four cells. */
+/** The example layout `detail-trim` (v0, its rows labelled draft): a 4096² sheet at 1024 px/m, field, plain and profiled strips, caps in three sizes × four cells. */
 export const DRAFT_TRIM_LAYOUT: TrimLayout = Object.freeze({
   id: 'detail-trim',
   draft: true,

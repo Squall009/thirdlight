@@ -1,6 +1,6 @@
 /**
- * The role spec v1 candidate (docs/architecture/voxel-role-spec.md) against the
- * edge catalogue it is written from, so the document the owner approves and
+ * The role spec v1 (docs/architecture/voxel-role-spec.md) against the edge
+ * catalogue it is written from, so the document the owner approved and
  * the cases the engine places cannot drift apart: the document has a
  * heading for exactly the catalogue's cases (every one a kit's optional
  * slot), and each heading opens with the facts rendered from the catalogue
@@ -82,17 +82,19 @@ function caseSections(): Map<string, { text: string; count: number }> {
   return out;
 }
 
-describe('role spec v1 candidate against the edge catalogue', () => {
+describe('role spec v1 against the edge catalogue', () => {
   if (process.env.ROLE_SPEC_PRINT) {
     it('prints every case block', () => {
       for (const c of cat.cases) console.log(`--- ${c.id}\n${expectedBlock(c)}\n--- end`);
     });
   }
 
-  it("is the world's catalogue, and the page names it, its version, its draft state and the numbers it states", () => {
+  it("is the world's catalogue, and the page names it, its version, its v1 state and the numbers it states", () => {
     expect(WORLD_RULES.catalogue).toBe(cat);
-    expect(cat.draft).toBe(true);
-    expect(doc).toContain("v1 CANDIDATE — awaiting the owner's look at acc46c-r2; nothing builds on it as final");
+    // The page claims v1 only while the catalogue is not a draft, and the other way round.
+    expect(cat.draft).toBe(false);
+    expect(doc).toContain('Status: **v1 — APPROVED by the owner on 2026-11-06.**');
+    expect(doc).not.toMatch(/CANDIDATE|owner to confirm/);
     expect(doc).toContain(`\`${cat.id}\` v${cat.version}`);
     expect(doc).toContain(`${cat.cases.length} cases`);
     const d = DAMAGE_STAGES_DEFAULT;

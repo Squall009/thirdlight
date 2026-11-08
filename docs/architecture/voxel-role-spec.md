@@ -1,21 +1,28 @@
-# Role spec — v1 CANDIDATE (edge model)
+# Role spec — v1 (edge model)
 
-Status: **v1 CANDIDATE — awaiting the owner's look at acc46c-r2; nothing builds on it as final.** It is written to
-the owner's acc46c-r answers (2026-11-05 and 2026-11-06, all 35) and the code built from them (46c.16a–f). It
-freezes as v1 only after the full gate, the independent review and the owner's look at the acc46c-r2 pictures; until
-then no Blender template, spec sheet, manual guide or art-factory request treats the case list as fixed. The page
-matches the engine's edge catalogue `edges-draft` v3 (17 cases; `packages/voxel/src/kit-case-catalogue.ts`), and a
-test (`tools/voxel-bench/role-spec-doc.test.ts`) fails when the page and the catalogue disagree on a case, its facts
-or the numbers below. Sources: [plan 46c](../plan-phase-46c.md) §6c and the decision log (OWNER 2026-11-04, -05, -06
-entries); [plan 45](../plan-phase-45.md) §1, §7 (owner 2026-11-02: the ten stored roles); the
-[format spec](voxel-format-spec.md) §2.2 (the voxel value) and §3.7 (kits: edges, roofs, damage). The texture
-layout is its own page: [voxel-trim-layout.md](voxel-trim-layout.md).
+Status: **v1 — APPROVED by the owner on 2026-11-06.** It is written to the owner's acc46c-r answers (2026-11-05 and
+2026-11-06, all 35) and acc46c-r2 answers (2026-11-06), and describes the code built from them (46c.16a–k, branch
+`phase-45` at 3a078a94).
+
+**Owner note (2026-11-06, acc46c-r2 S1):** "The role spec and texture layout are fine, no more changes for now." The
+page froze as v1 once the three fixes the owner asked for were built (46c.16j: wall and roof apart, D519, and the
+wall-top fill a roof-kit setting; 46c.16k: the 4 m crack map, a mirror per slot mesh, a kit's own sheet layout); the
+freeze commit is in plan 46c's 46c.16 progress row. From here a change to the case list or its rules is a new version
+with an owner note, never a silent edit, and a new case only adds a slot; Blender templates, spec sheets, the manual
+and art-factory requests may treat the case list as fixed.
+
+The page matches the engine's edge catalogue `edges-draft` v3 (17 cases; its v1, the id a label nothing stores;
+`packages/voxel/src/kit-case-catalogue.ts`), and a test (`tools/voxel-bench/role-spec-doc.test.ts`) fails when the
+page and the catalogue disagree on a case, its facts or the numbers below. Sources: [plan 46c](../plan-phase-46c.md)
+§6c and the decision log (OWNER 2026-11-04, -05, -06 entries); [plan 45](../plan-phase-45.md) §1, §7 (owner
+2026-11-02: the ten stored roles); the [format spec](voxel-format-spec.md) §2.2 (the voxel value), §3.7 (kits: edges,
+roofs, damage) and §3.9 (the kit record). The texture layout is its own page: [voxel-trim-layout.md](voxel-trim-layout.md).
 
 **How to read this page.** §1–§3 say what is stored, the one rule (no piece on a flat face) and who dresses a piece.
 §4 explains the diagrams. §5–§7 list the 17 cases (edges and corners, roof edges, damage); each case is a kit
 **slot** and opens with the same block of facts (generated from the engine), then a small diagram. §8–§11 are about
 kits: slots, jitter, the near ring, decals. §12 is for kit artists (Blender). §13 says what is out of scope or moved,
-§14 lists known gaps, §15 what approving this page means, §16 the defaults the owner has not confirmed yet.
+§14 lists known gaps, §15 what the owner approved, §16 the decided defaults.
 
 ## 1. Roles are stored; everything else is read from the arrangement
 
@@ -329,7 +336,7 @@ terrain, as **flat sloped planes** with the roof material's tiling texture laid 
   the four horizontal directions. A cell is read at 45° first; it is read at 1:2 where it has no 45° reading, where
   the 45° reading was the flatter stair, or where a cell two along says 1:2 (each 1:2 cell is the low or the high
   cell of its pair: its phase). Roof cells are read two cells round.
-- **One slope a roof** (default, owner to confirm): a cell's directions are all 45° or all 1:2; hips and valleys
+- **One slope a roof** (owner-confirmed default, §16): a cell's directions are all 45° or all 1:2; hips and valleys
   join equal slopes only, and a cell that would mix them keeps its voxel faces.
 - **The fallback is voxel faces.** Flat roofs, plans other than 90° hips and valleys, and
   the few cells where the two ridges of a 1:2 L cross (D518) keep their voxel faces, so a roof never disappears.
@@ -477,7 +484,7 @@ for stages 2 and 3, a stage set to null is not used, an integrity in no stage dr
   own kit's `damage-stage-2` slot, spread over the face.
 - **stage 3 (integrity 1–5, 3 pieces a face): the same hole, fewer pieces** (`damage-stage-3`).
 - **Air:** broken: the faces and edge pieces round the hole draw as for any hole.
-- **The hole's kit decides the stage, the face's kit the pieces** (default, owner to confirm): a timber hole in a
+- **The hole's kit decides the stage, the face's kit the pieces** (owner-confirmed default): a timber hole in a
   stone wall is a hole by timber's ranges, and the stone faces round it carry stone's pieces.
 - **Only exposed damage shows.** A damaged cell with every face against solid stays a plain block.
 - **Solid until air** (owner F4): collision and navigation keep the whole block at every stage. **Light** lets a
@@ -520,9 +527,9 @@ for stages 2 and 3, a stage set to null is not used, an integrity in no stage dr
 
 A kit belongs to a material type and draws the pieces of every cell whose material it binds (§3: the dressing
 cell's). Every case of §5–§7 is a **slot**; the case id is the slot's stable name (owner A13). The kit record (kit
-format 1, still a draft) holds `slots: {<case id>: {meshes: [{mesh, rotation?, weight?, mirror?}], gameData?}}` (a
+format 1, final since the v1 freeze: later formats only add fields) holds `slots: {<case id>: {meshes: [{mesh, rotation?, weight?, mirror?}], gameData?}}` (a
 mesh marked `mirror` is drawn mirrored across its case's run, winding and normal-map tangents flipped: one mesh for
-both hands of a handed piece; owner 2026-11-06), the kit's `jitter` (§9), its `damage` stages (§7), an optional trim
+both hands of a handed piece; owner 2026-11-06), the kit's `jitter` (§9), its `damage` stages (§7), `wallTopFill` (a roof kit's, §6; default off), an optional trim
 layout (named, or its own `sheetLayout`: the trim layout page) and opaque game data.
 
 - **Every slot is optional** (owner G2). An empty slot draws nothing: the place shows its plain square voxel edge (a
@@ -533,7 +540,8 @@ layout (named, or its own `sheetLayout`: the trim layout page) and opaque game d
   A sample kit belongs in the authoring package (46c.17), never shipped or bound by default.
 - **1..n meshes a slot**, each with a **rotation** (one of the 24 cube rotations, 0–23, fixed numbers in
   `cube-rotations.ts`) that turns it into the slot's own orientation, and a **weight** (absent 1). A rotation never
-  mirrors, so normals and winding stay right; the verge's second side is the engine's own mirror (§6). Any mesh may
+  mirrors, so normals and winding stay right; a handed piece takes the mesh's `mirror` flag, and the verge's second
+  side is the engine's own mirror (§6; the two cancel). Any mesh may
   fill any number of slots: one mesh may fill every slot. Two rotations do most of the work: rotation 5 (X90, a
   quarter turn about +x) turns a top edge under into a bottom edge; rotation 9 (ZM90, a quarter turn about −z) turns
   a horizontal edge up into a vertical one.
@@ -590,7 +598,8 @@ piece** and needs no LODs; collision comes from the voxels.
 | L0 (near) | 0.5 m | the kit's pieces (edges, corners, roof edges, damage) | voxel faces, roof planes |
 | L1 (middle) and coarser | 1 m and up | **none** | flat square voxels, roof planes |
 
-The piece ring **is** level 0's ring (default, owner to confirm). **Every ring is configurable** (owner 2026-11-05):
+The piece ring **is** level 0's ring (owner-confirmed: it stays so until the voxel phases are done and the far-rendering
+phase has performance numbers). **Every ring is configurable** (owner 2026-11-05):
 
 - **Per scene**, on its `voxelWorld` component, in metres: the load ring (`ring`: load and unload radius and height),
   the collision ring (`collision`), and the level rings (`levels`: `level0`, the piece ring; `level1`). Defaults: load
@@ -613,7 +622,7 @@ material swaps**; the 9 reserved bits get no overlay meaning. Both decal kinds r
 Play and an export, on both renderers:
 
 - **projected decals** mark voxel faces at every level and the kit pieces;
-- **clipped decals** are cut from level-0 chunks (default, owner to confirm: coarser levels change the surface with
+- **clipped decals** are cut from level-0 chunks (owner-confirmed default: coarser levels change the surface with
   distance), cut again when a dig changes the surface under them; kit pieces take projected marks only;
 - `voxelWorld.decalLayers` sets which decal layers mark the world's faces and pieces.
 
@@ -672,47 +681,53 @@ empty; no textures (the runtime debug set), no LODs, collision from the voxels.
 ## 14. Known gaps (open D-rows)
 
 - **D518:** where the two ridges of a 1:2 L hip roof cross, up to four cells keep their voxel faces.
-- **D519:** a wall cut up to a roof's underside reads the roof's material where wall and roof differ (the shader
-  picks materials by position); 46d's material model.
 - **D520:** a flat roof laid one cell above a wall's top with an air gap loses the wall's top-edge pieces there.
 - **D515:** an L hip roof with arms of odd and even coarse width keeps one to three voxel steps at level 1 or 2.
 - **D516:** at the load ring's edge whole chunk columns come and go, so a house the edge cuts can show a floating
   overhang.
 - **D509:** the placeholder kits keep a few hidden faces (test data; real kits close run ends with corner pieces).
 - **D502:** the roof mesher is over the 0.1–0.2 ms section budget at p95 (recorded for the performance phase).
+- **D526:** owned body faces next to roofs do not merge with blended ones (+51 k town base triangles), and the roof
+  mesher stays about 12 % slower than before the wall–roof separation.
 
-## 15. What you are approving
+## 15. What the owner approved (2026-11-06)
 
-- [ ] Roles are stored, pieces are read from the arrangement; construction shape = integrity (§1).
-- [ ] No piece on a flat face; pieces only on exposed lattice edges and corners, roof edges and the faces round a
-      damage hole (§2).
-- [ ] The case rules, mixed corners through the corner slots, the anchor, and who dresses a piece: role order roof >
-      wall > pillar > stair > floor > foundation, two kits at a corner or inner edge → none, terrain contact → none;
-      flush pieces at `opening` cells (§3).
-- [ ] The 17 cases of `edges-draft` v3 as slots, and their orientation convention (§4–§7).
-- [ ] Roofs: flat, 45° and 1:2, one slope a roof, voxel faces as the fallback, the parallel underside, wall tops
-      stepped or filled up to it by the roof kit's choice, no blend across the seam, collision as the planes; one roof-edge mesh pitched for both slopes, the mirrored verge, half
-      pieces at hip apexes (§6).
-- [ ] Damage: three stages a kit (ranges, piece counts, crack texture), solid until air, light by integrity, near
-      ring only (§7).
-- [ ] Kits as slots: all optional, 1..n meshes with a rotation and a weight, the project seed, one texture set a
-      kit, no engine default kit (§8); per-kit jitter on every piece, into the solid (§9).
-- [ ] Pieces at L0 only, plain voxels from L1; every ring per scene, per quality level and at runtime (§10).
-- [ ] Decals as the way to add dirt and moss; no paint overlay layer (§11).
-- [ ] The Blender conventions (§12); beams and banisters out of scope, and what moved to 46d, 47a and 47b (§13).
+- Roles are stored, pieces are read from the arrangement; construction shape = integrity (§1).
+- No piece on a flat face; pieces only on exposed lattice edges and corners, roof edges and the faces round a
+  damage hole (§2).
+- The case rules, mixed corners through the corner slots, the anchor, and who dresses a piece: role order roof >
+  wall > pillar > stair > floor > foundation, two kits at a corner or inner edge → none, terrain contact → none;
+  flush pieces at `opening` cells (§3).
+- The 17 cases of `edges-draft` v3 as slots, and their orientation convention (§4–§7).
+- Roofs: flat, 45° and 1:2, one slope a roof, voxel faces as the fallback, the parallel underside, wall tops
+  stepped or filled up to it by the roof kit's choice, no blend across the seam, collision as the planes; one
+  roof-edge mesh pitched for both slopes, the mirrored verge, half pieces at hip apexes (§6).
+- Damage: three stages a kit (ranges, piece counts, crack texture), solid until air, light by integrity, near
+  ring only (§7).
+- Kits as slots: all optional, 1..n meshes with a rotation, a weight and an optional mirror, the project seed, one
+  texture set a kit, no engine default kit (§8); per-kit jitter on every piece, into the solid (§9).
+- Pieces at L0 only, plain voxels from L1; every ring per scene, per quality level and at runtime (§10).
+- Decals as the way to add dirt and moss; no paint overlay layer (§11).
+- The Blender conventions (§12); beams and banisters out of scope, and what moved to 46d, 47a and 47b (§13).
 
-## 16. Defaults to confirm
+## 16. Decided defaults
 
-Every "default chosen, owner to confirm" of the build items 46c.16a–f (plan 46c decision log), one line each:
+Every default the build items 46c.16a–k chose for the owner (plan 46c decision log), one line each. 1–26
+were put to the owner on acc46c-r2 and are **owner-confirmed** (2026-11-06) except where a line says what the owner
+changed; 27–31 came with 46c.16j/k after those answers and **stand as approved** (owner review model: a default the
+owner has not answered stands).
 
 1. One slope a roof: no mixed 45° / 1:2 on one roof; a cell that would mix keeps its voxel faces (batch 4, 16d).
+   Owner-confirmed.
 2. The detail-piece ring is level 0's ring; no ring of full-detail voxels without pieces inside it (16a).
+   Owner-confirmed: it stays so until the voxel phases are done and the far-rendering phase has performance numbers.
 3. A quality tier scales every ring by √(its budget / the medium budget): low 0.71, medium 1, high 1.41 (16a).
 4. A script changes the scene's base distances; the quality level applies on top, a scene's own per-level distance
    wins (16a).
 5. Jitter is one number a kit (0–4, a scale of the engine stagger), not separate move and twist values (16b).
 6. The project seed is the project setting `voxel_piece_seed` (0 unless set) (16b).
-7. A slot mesh has a rotation but no mirror of its own; the engine mirrors only the second verge (16b).
+7. A slot mesh has a rotation but no mirror of its own (16b). **Changed by the owner:** a slot mesh may be mirrored
+   (`mirror`, built in 16k; see 30).
 8. "One texture set" = every drawn primitive names the same material, same images by CRC-32 (16b).
 9. A damaged cell whose kit has no damage piece (or no kit) still shows as a hole with its neighbours' faces (16b,
    kept by 16e's stages).
@@ -727,7 +742,8 @@ Every "default chosen, owner to confirm" of the build items 46c.16a–f (plan 46
 16. A 45° roof cell reads exactly as before; 1:2 only where there is no 45° reading or evidence says 1:2 (16d).
 17. Pitching one roof-edge mesh: eaves and verges turned rigidly, ridges, hips and valleys squashed to half height
     (16d).
-18. "Walls under a roof" = a body directly under a plane cell or under one air cell under it (16d).
+18. "Walls under a roof" = a body directly under a plane cell or under one air cell under it (16d). **Changed by the
+    owner:** whether they are filled is an artistic choice, the roof kit's `wallTopFill`, default off (16j; see 28).
 19. The hole's kit decides the stage, the face's kit the damage pieces (16e).
 20. Default damage counts 6 (stage 2) and 3 (stage 3) pieces a face, at most 16, one fragment a slot spread by the
     engine (16e).
@@ -738,3 +754,20 @@ Every "default chosen, owner to confirm" of the build items 46c.16a–f (plan 46
 25. `decalLayers` is one mask on the `voxelWorld` object for faces and pieces (16f).
 26. The Scene view and the slice page keep the scene's own distances (no quality level there); Play and exports
     follow the level the page draws at (16a).
+
+Lines 3–6, 8–17 and 19–26 are owner-confirmed as written (22 as rebuilt in 16k). With the confirmation the owner also
+required: wall and roof never blend across the seam (D519, built in 16j), and flat roofs stay possible beside 45°
+and 1:2 (voxel faces with edge pieces; a flat roof is in the proto world, 16j).
+
+Stand as approved (46c.16j/k defaults the owner has not answered; owner review model):
+
+27. An owned face shows its cell alone, no blend: two roof materials meet in a hard line on the cell boundary, a wall
+    within one cell of a roof (or a chimney through one) no longer blends with other wall materials there, and
+    wetness on those faces steps per cell (16j).
+28. The wall-top fill is read from the roof cell's kit only; a fill on the wall's kit does nothing (16j).
+29. Roof rows merge whatever their materials (the mesh never depends on a material); pixels exactly on a row's two
+    end edges may show the cell past the end (16k).
+30. A slot mesh's `mirror` is across its case's run (left and right along an edge; up and down on a vertical edge);
+    a mirrored case and a mirrored mesh cancel (16k).
+31. The crack map follows the material's construction tile (4 m by default; a material with another tile scales its
+    crack map with it), 128 texels a metre in the engine's map (16k).

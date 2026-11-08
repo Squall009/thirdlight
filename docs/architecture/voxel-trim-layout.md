@@ -1,9 +1,13 @@
-# Texture layout for voxel construction — v1 CANDIDATE (edge model)
+# Texture layout for voxel construction — v1 (edge model)
 
-Status: **v1 CANDIDATE — awaiting the owner's look at acc46c-r2; nothing builds on it as final.** It is written to the
-owner's acc46c-r answers (B0–B8, 2026-11-05 and 2026-11-06) and the code as built through 46c.16f. It freezes as v1
-only after the full gate, the independent review and the owner's look at the acc46c-r2 pictures; until then no kit
-pipeline, Blender template, spec sheet or art-factory graph treats these numbers as fixed. Sources:
+Status: **v1 — APPROVED by the owner on 2026-11-06.** It is written to the owner's acc46c-r answers (B0–B8,
+2026-11-05 and 2026-11-06) and acc46c-r2 answers (O1, 2026-11-06), and describes the code as built through 46c.16k
+(branch `phase-45` at 3a078a94).
+
+**Owner note (2026-11-06, acc46c-r2 S2):** "The role spec and texture layout are fine, no more changes for now." The
+page froze as v1 with the role spec, once the 4 m crack map and a kit's own sheet layout (O1) were built (46c.16k);
+the freeze commit is in plan 46c's 46c.16 progress row. From here a change is a new version with an owner note; kit
+pipelines, Blender templates, spec sheets and art-factory graphs may treat these numbers as fixed. Sources:
 [plan 46c](../plan-phase-46c.md) §6c and the decision log (OWNER 2026-11-04: tiling textures authored to a 4 × 4 m
 full wall, grid-anchored; OWNER 2026-11-05/06: B1–B8); [plan 45](../plan-phase-45.md) §7 (R112: no trim sheet for
 terrain or construction voxels); the [role spec](voxel-role-spec.md) (the cases, slots and kits). Code:
@@ -17,7 +21,7 @@ terrain or construction voxels); the [role spec](voxel-role-spec.md) (the cases,
 |---|---|---|
 | What | wall, floor, ceiling and flat-roof voxel faces; the roof mesher's sloped planes | a kit's slot meshes: edges, corners, roof edges (ridge, eave, verge, hip, valley), damage pieces |
 | Texture | the material's **tiling** texture set: one repeat = a **4 × 4 m full wall** (§2) | the **kit's one texture set**: its own trim sheet or its own bakes, laid out as the kit chooses (§3) |
-| UVs | none in the mesh: the shader maps them from the world | in the mesh (UV0); along the edge per instance for a kit naming a trim layout |
+| UVs | none in the mesh: the shader maps them from the world | in the mesh (UV0); along the edge per instance for a kit with a trim layout (named or its own) |
 | Never | a trim sheet (R112) | a unique texture per piece instance; two texture sets in one kit |
 
 **Terrain** is neither: triplanar at a **2 m** repeat (`TERRAIN_TILE_METRES`), its own materials, never this page's
@@ -41,7 +45,7 @@ As built:
 
 **Authoring a base texture:**
 
-| | v1 candidate |
+| | v1 |
 |---|---|
 | Size | **authored at 4096 × 4096 px = 4 × 4 m, 1024 px/m** (owner B1) |
 | Resident size | the **mip level resident on a device is chosen by the quality level and the texture memory budget** (owner B1); one asset set for every device. Residency and compression are 46d's |
@@ -128,13 +132,14 @@ as `voxel_kit_check`):
 | `fit` | warn / ok | a piece reaches past half a cell round its cell (±0.5 m; roof edges a cell higher) |
 | `budget` | info | triangles a mesh and in all, texture sizes; reported, never capped |
 
-**Trim rows**, only for a kit naming a trim layout, labelled "(draft layout)": **T1** every triangle inside one
-region (err), **T2** no UV in gutters or reserved space (err), **T3** square texels, V at the sheet density (warn),
-**T4** U at 0.25 a metre from 0 along the run, read along the mesh axis its slot rotation turns onto the slot's run
-(the same axis the renderer uses; err), **T5** profiled strips on faces of their height (warn), **T6** end faces in a
-cap of the right size (warn), **T7** the meshes of one slot on the same regions (warn), **T9** the texture set's maps
-not checked yet (info), **T10** regions used (info). Grid features at 0.5 m (§2) and a kit's own layout are not
-checked (recommendations).
+**Trim rows**, only for a kit with a trim layout: one it names, labelled "(draft layout)" (the example
+`detail-trim`), or its own `sheetLayout`, labelled "(the kit's layout)" and checked against its own regions: **T1**
+every triangle inside one region (err), **T2** no UV in gutters or reserved space (err), **T3** square texels, V at
+the layout's density (warn), **T4** U at the layout's rate from 0 along the run (its px a metre over its size: 0.25 a
+metre for `detail-trim`), read along the mesh axis its slot rotation turns onto the slot's run (the same axis the
+renderer uses; err), **T5** profiled strips on faces of their height (warn), **T6** end faces in a cap of the right
+size (warn), **T7** the meshes of one slot on the same regions (warn), **T9** the texture set's maps not checked yet
+(info), **T10** regions used (info). Grid features at 0.5 m (§2) are not checked (a recommendation).
 
 ## 6. Worked examples: the two placeholder kits
 
@@ -149,22 +154,24 @@ Engine test data, not game art (Blender 5.2.2 headless, `tools/voxel-bench/kits/
 
 Kit check on both: 0 errors, 0 warnings, T1–T7 ok, one texture set.
 
-## 7. What you are approving
+## 7. What the owner approved (2026-11-06)
 
-- [ ] Base surfaces: the material's tiling texture, one repeat = a 4 × 4 m full wall, anchored to the build grid in
-      metres (walls, floors, ceilings; roof planes along the slope at 45° and 1:2); terrain triplanar at 2 m (§1, §2).
-- [ ] Base textures authored at 4096² (1024 px/m), the resident mip chosen by quality level and texture budget (§2).
-- [ ] Grid features at 0.5 m multiples as a recommendation, not a rule (§2).
-- [ ] Height maps 0–1 with a per-material height depth in metres, owned by 46d's material model (§2).
-- [ ] Dirt and moss through decals and whole-voxel material swaps, no overlay layer (§2, §4).
-- [ ] Detail pieces: one texture set a kit (a rule, checked); the layout per kit as a recommendation (sizes for 0.5 m
-      pieces), own bakes allowed; `detail-trim` v0 kept only as an example (§3).
-- [ ] The kit check rows as listed (§5).
-- [ ] The defaults below (§8). O1 answered (yes, built: §3).
+- Base surfaces: the material's tiling texture, one repeat = a 4 × 4 m full wall, anchored to the build grid in
+  metres (walls, floors, ceilings; roof planes along the slope at 45° and 1:2); terrain triplanar at 2 m (§1, §2).
+- Base textures authored at 4096² (1024 px/m), the resident mip chosen by quality level and texture budget (§2).
+- Grid features at 0.5 m multiples as a recommendation, not a rule (§2).
+- Height maps 0–1 with a per-material height depth in metres, owned by 46d's material model (§2).
+- Dirt and moss through decals and whole-voxel material swaps, no overlay layer (§2, §4).
+- Detail pieces: one texture set a kit (a rule, checked); the layout per kit as a recommendation (sizes for 0.5 m
+  pieces), own bakes allowed; `detail-trim` v0 kept only as an example (§3).
+- The kit check rows as listed (§5).
+- The defaults below (§8); O1 answered (yes, built: §3).
 
-## 8. Defaults to confirm, and the open question
+## 8. Decided defaults
 
-Numbers this page carries that no owner answer set (default chosen, owner to confirm):
+Numbers this page carries that no owner answer set. 1–9 were put to the owner on acc46c-r2 and are
+**owner-confirmed** (2026-11-06); the `sheetLayout` default after them came with 46c.16k and **stands as approved**
+(owner review model: a default the owner has not answered stands).
 
 1. **Piece density 1024 px/m**, the base tile's (§3), so a piece and the wall behind it are equally sharp.
 2. **Gutters of 32 px** round every region (clean to mip 5), unused space neutral (height 0.5, flat normal) (§3).
@@ -181,6 +188,7 @@ Numbers this page carries that no owner answer set (default chosen, owner to con
 9. **Roof planes' V is the true slope distance** on each slope's own phase, the grid anchored to the eave (§2;
    owner B6 set the rule, the phase per slope is the default).
 
-**O1 (answered 2026-11-06: yes).** A kit declares its own layout in `sheetLayout` (§3). Default chosen, owner to
-confirm: region kinds as `detail-trim`'s (field, strip, profiled strip, cap); a sheet 16–16,384 px a side; regions
-must not overlap; a kit has a named layout or its own, not both.
+**O1 (owner 2026-11-06: yes; built in 46c.16k).** A kit declares its own layout in `sheetLayout` (§3). Stands as
+approved (owner review model): region kinds as `detail-trim`'s (field, strip, profiled strip, cap); a sheet
+16–16,384 px a side; regions must not overlap; a kit has a named layout or its own, not both; its trim rows are not
+marked draft (the kit owns its numbers).

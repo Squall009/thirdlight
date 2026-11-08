@@ -255,7 +255,7 @@ describe('the edge catalogue (window part)', () => {
   const cat = new CaseCatalogue(EDGE_CASE_CATALOGUE);
 
   it('is a 17-case draft with no window rules and no fallback for any role: no cell gets a window case', () => {
-    expect([cat.id, cat.version, cat.draft]).toEqual(['edges-draft', 3, true]);
+    expect([cat.id, cat.version, cat.draft]).toEqual(['edges-draft', 3, false]);
     expect(cat.cases).toHaveLength(17);
     expect(cat.cases.map((c) => c.id).slice(0, EDGE_CASE_IDS.length)).toEqual([...EDGE_CASE_IDS]);
     expect(cat.cases.map((c) => c.id).filter((id) => /beam|banister/.test(id))).toEqual([]);

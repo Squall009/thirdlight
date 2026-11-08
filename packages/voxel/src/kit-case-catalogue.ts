@@ -1,5 +1,7 @@
 /**
- * The edge case catalogue: **DRAFT — not the role spec's v1.** Walls,
+ * The edge case catalogue: the role spec's v1, approved by the owner
+ * (docs/architecture/voxel-role-spec.md; its id is a label, no stored
+ * format names it). A new case only adds a slot. Walls,
  * floors, stairs, pillars, foundations and flat roofs are plain voxel faces
  * and get no case of their own; a detail piece goes only where faces meet.
  * Its 17 cases come from three passes:
@@ -60,11 +62,11 @@ const cases: CaseDef[] = [
 /** No role has a fallback case: a cell no window rule matches carries none. */
 const NO_FALLBACK = Object.freeze(Object.fromEntries(CASE_ROLES.map((r) => [r, null])));
 
-/** The edge catalogue (see the file comment: DRAFT — not v1). */
+/** The edge catalogue (see the file comment: the role spec's v1). */
 export const EDGE_CASE_CATALOGUE: CaseCatalogueDef = Object.freeze({
   id: 'edges-draft',
   version: 3,
-  draft: true,
+  draft: false,
   cases,
   rules: [],
   fallback: NO_FALLBACK,

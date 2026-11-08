@@ -298,9 +298,9 @@ versions their meshes name.
 
 ## Voxel kits
 
-> **Candidate:** the case list and the kit format may still change. The
-> role spec and the texture layout are v1 candidates that freeze once the
-> owner has approved them; worlds draw with kits now.
+> **v1:** the case list (the role spec) and the texture layout are v1,
+> approved by the owner; kit format 1 is final. A later format only adds
+> fields, and a new case only adds a slot.
 
 **What a kit is.** Cells store only a role (wall, floor, roof …), never
 "corner" or "window sill". Walls, floors, stairs and flat roofs are plain
@@ -459,7 +459,9 @@ MCP's `tl_diagnostics`) as `voxel_kit_check` lines, one a rule:
   reported, never capped.
 
 A kit passes when it has no error. Trim rules (T1–T7, T9, T10) run only for
-kits naming a trim layout and are marked "(draft layout)".
+kits with a trim layout: one naming the example layout `detail-trim` (marked
+"(draft layout)"), or one declaring its own `sheetLayout` (marked "(the
+kit's layout)" and checked against its own regions).
 
 **Kit test scene.** `writeKitTestScene {world, origin [x, y, z], material}`
 (the editor, MCP and scripts alike; one undo with `undoVoxels`) empties a
@@ -479,8 +481,8 @@ These come later; worlds made now keep working when they arrive:
 
 - **The far field**: the world past the load ring, and tall ground far
   away (above).
-- **Kits**: the approved case list and texture layout (the candidates draw
-  now), a kit page in the editor, and the guide to making a kit; the fringe
+- **Kits**: a kit page in the editor and the guide to making a kit (with a
+  sample kit, written to the approved v1 case list and texture layout); the fringe
   where buildings meet the ground and ground scatter come with the terrain
   tools.
 - **Materials**: material records, texture arrays and wetness beyond

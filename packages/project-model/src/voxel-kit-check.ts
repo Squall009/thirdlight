@@ -29,9 +29,10 @@
  *   nothing else uses the model (warn). Never refusals (the kit record
  *   validator accepts them, so deleting an asset is never refused for a
  *   kit).
- * - **Trim conformance** (T1–T7, T9, T10) only for a kit that names a trim
- *   layout, labelled draft: the layout is a draft the owner has not
- *   approved (voxel-trim-layout.ts).
+ * - **Trim conformance** (T1–T7, T9, T10) only for a kit with a trim
+ *   layout: one it names, labelled draft (the engine's example layout, not
+ *   a standard), or its own sheet layout, labelled as the kit's (its
+ *   numbers are the kit's to choose; voxel-trim-layout.ts).
  *
  * Pure: the kit, the catalogue and each mesh's facts in, rows out; facts
  * are read from GLB bytes by {@link voxelKitMeshFacts}.
@@ -49,7 +50,7 @@ export interface VoxelKitCheckRow {
   state: KitCheckState;
   title: string;
   detail: string;
-  /** The rule follows a draft spec the owner has not approved (the trim layout). */
+  /** The rule follows the engine's example trim layout (`detail-trim`, labelled draft: an example, not a standard). */
   draft?: true;
 }
 
