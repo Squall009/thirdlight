@@ -22,6 +22,11 @@
  *   other camera all. The order changes only when a chunk crosses a frustum's
  *   edge; the buffers are written then, never between two passes of a frame
  *   (see `cull`), so every pass of a frame reads the same order.
+ * - **Culled on the GPU too** (WebGPU, occlusion culling's depth pyramid
+ *   path): each draw is a {@link PieceDraw}, its copies placed by instance
+ *   columns, which the culler tests one by one against the pyramid among
+ *   the view's chunks (voxel-piece-draw.ts). WebGL 2 has no such path (no
+ *   compute, storage buffers or indirect draws) and draws the view's chunks.
  * - **Which camera is the view.** The camera of the last pass drawn without
  *   an override material (a shadow pass draws with one). A camera that moved
  *   since its chunks were picked draws everything (never too little): the
@@ -37,8 +42,9 @@ import * as THREE from 'three';
 import { VOXEL_SIZE_M, type FloatingOrigin } from '@thirdlight/voxel';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { applyObjectDecalLayers } from './projected-decals';
-import { disposeInstancedPieceGeometry, instancedPieceGeometry, PIECE_DATA_FLOATS, TRIM_RUN_ATTRIBUTE } from './voxel-trim-u';
-import { CullView, SphereSide } from './view-cull';
+import { PieceDraw } from './voxel-piece-draw';
+import { TRIM_RUN_ATTRIBUTE } from './voxel-trim-u';
+import { CullView, maxScaleOf, SphereSide } from './view-cull';
 
 /** `mesh.userData[PIECE_SOURCE_KEY]`: the piece mesh a draw draws (its own geometry shares that one's attributes). */
 export const PIECE_SOURCE_KEY = 'voxelPieceSource';
@@ -92,8 +98,9 @@ interface Chunk {
   /** The chunk's corner (level-0 cells) and its extent (metres a side). */
   readonly cell: readonly [number, number, number];
   readonly sizeM: number;
-  /** Its runs, matrices moved to the anchor. */
+  /** Its runs, matrices moved to the anchor, and each run's spheres (the piece's bounds through each matrix). */
   runs: readonly PieceRun[];
+  readonly spheres: readonly Float32Array[];
   cls: number;
   /** How far ahead of the view its centre was when its class was last found (metres). */
   depth: number;
@@ -109,8 +116,7 @@ interface Batch {
   /** Instances of the chunks the view sees, and of those only another camera sees (they follow). */
   inView: number;
   inOther: number;
-  mesh: THREE.InstancedMesh | null;
-  data: THREE.InstancedBufferAttribute | null;
+  draw: PieceDraw | null;
   capacity: number;
   dirty: boolean;
 }
@@ -198,7 +204,8 @@ export class VoxelPieceBatches {
     for (const r of runs) {
       for (let i = 0; i < r.n; i++) for (let a = 0; a < 3; a++) r.matrices[i * INSTANCE_MATRIX_FLOATS + 12 + a]! += at[a]!;
     }
-    const chunk: Chunk = { cell: [cell[0], cell[1], cell[2]], sizeM, runs, cls: REST, depth: 0, centre: [at[0] + half, at[1] + half, at[2] + half], radius: half * Math.sqrt(3) + PIECE_REACH_M };
+    const spheres = runs.map((r) => pieceSpheres(r));
+    const chunk: Chunk = { cell: [cell[0], cell[1], cell[2]], sizeM, runs, spheres, cls: REST, depth: 0, centre: [at[0] + half, at[1] + half, at[2] + half], radius: half * Math.sqrt(3) + PIECE_REACH_M };
     chunk.cls = this.classOf(chunk);
     this.chunks.set(id, chunk);
     for (const r of runs) {
@@ -241,7 +248,7 @@ export class VoxelPieceBatches {
         this.batches.delete(key);
         continue;
       }
-      if (b.mesh === null || total > b.capacity || (total < b.capacity / 4 && b.capacity > MIN_CAPACITY)) this.make(b, Math.max(MIN_CAPACITY, 2 ** Math.ceil(Math.log2(total))));
+      if (b.draw === null || total > b.capacity || (total < b.capacity / 4 && b.capacity > MIN_CAPACITY)) this.make(b, Math.max(MIN_CAPACITY, 2 ** Math.ceil(Math.log2(total))));
       this.write(b);
     }
   }
@@ -272,6 +279,7 @@ export class VoxelPieceBatches {
     for (const c of this.chunks.values()) {
       for (let a = 0; a < 3; a++) c.centre[a]! += d[a]!;
       for (const r of c.runs) for (let i = 0; i < r.n; i++) for (let a = 0; a < 3; a++) r.matrices[i * INSTANCE_MATRIX_FLOATS + 12 + a]! += d[a]!;
+      for (const s of c.spheres) for (let i = 0; i < s.length; i += 4) for (let a = 0; a < 3; a++) s[i + a]! += d[a]!;
     }
     for (const b of this.batches.values()) b.dirty = true;
     this.place();
@@ -279,53 +287,58 @@ export class VoxelPieceBatches {
 
   private batchOf(kind: PieceKind): Batch {
     let b = this.batches.get(kind.key);
-    if (b === undefined) this.batches.set(kind.key, (b = { kind, chunks: new Set(), total: 0, inView: 0, inOther: 0, mesh: null, data: null, capacity: 0, dirty: true }));
+    if (b === undefined) this.batches.set(kind.key, (b = { kind, chunks: new Set(), total: 0, inView: 0, inOther: 0, draw: null, capacity: 0, dirty: true }));
     return b;
   }
 
   /** A draw with room for `capacity` instances (the old one dropped). */
   private make(b: Batch, capacity: number): void {
     this.drop(b);
-    const { geometry, u } = instancedPieceGeometry(b.kind.geometry, capacity);
-    const mesh = new THREE.InstancedMesh(geometry, b.kind.material, capacity);
+    const draw = new PieceDraw(b.kind.geometry, b.kind.material, capacity, { viewCount: () => this.viewCountOf(b) });
+    const mesh = draw.mesh;
     mesh.name = `voxel-pieces ${b.kind.key}`;
-    mesh.matrixAutoUpdate = false;
     mesh.castShadow = mesh.receiveShadow = this.shadows;
     mesh.renderOrder = PIECE_RENDER_ORDER;
     mesh.userData['voxelKitPiece'] = true;
     // What it draws: the kind's own mesh (the draw's geometry shares its attributes) and whether that is a trim run's.
     mesh.userData[PIECE_SOURCE_KEY] = b.kind.geometry;
     if (b.kind.geometry.getAttribute(TRIM_RUN_ATTRIBUTE) !== undefined) mesh.userData['voxelTrimGeometry'] = true;
-    mesh.boundingSphere = new THREE.Sphere();
     mesh.onBeforeRender = (_r, scene, camera) => {
-      mesh.count = this.countFor(b, scene, camera);
+      const n = this.countFor(b, scene, camera);
+      draw.beforeDraw(scene, n, n === b.inView && scene.overrideMaterial === null && this.view.is(camera));
     };
-    // Outside a pass the draw holds all of its instances (what a reader of `count` expects).
+    // Outside a pass the draw holds all of its instances (what a reader of the count expects).
     mesh.onAfterRender = () => {
-      mesh.count = b.total;
+      draw.geometry.instanceCount = b.total;
     };
-    b.mesh = mesh;
-    b.data = u;
+    b.draw = draw;
     b.capacity = capacity;
     if (this.decalLayers !== undefined) applyObjectDecalLayers(mesh, this.decalLayers);
     this.root.add(mesh);
   }
 
   private drop(b: Batch): void {
-    if (b.mesh === null) return;
-    this.root.remove(b.mesh);
-    disposeInstancedPieceGeometry(b.mesh.geometry);
-    b.mesh.dispose();
-    b.mesh = null;
-    b.data = null;
+    if (b.draw === null) return;
+    this.root.remove(b.draw.mesh);
+    b.draw.dispose();
+    b.draw = null;
     b.capacity = 0;
+  }
+
+  /**
+   * The copies the view's pass draws, culled for the view camera as it is now (the GPU culler asks once a frame,
+   * before any pass: a view that moved is culled here, as its first pass would); null: no view yet.
+   */
+  private viewCountOf(b: Batch): number | null {
+    const cam = this.viewCamera;
+    if (cam === null) return null;
+    this.cull();
+    return this.view.is(cam) ? b.inView : null;
   }
 
   /** Writes a draw's buffers in the chunks' order: the view's, the other cameras', the rest; and its bounds. */
   private write(b: Batch): void {
-    const mesh = b.mesh!;
-    const matrices = mesh.instanceMatrix.array as Float32Array;
-    const data = b.data!.array as Float32Array;
+    const draw = b.draw!;
     const key = b.kind.key;
     let at = 0;
     const counts = [0, 0, 0];
@@ -334,31 +347,25 @@ export class VoxelPieceBatches {
     for (let cls = VIEW; cls <= REST; cls++) {
       for (const c of cls === VIEW ? seen : b.chunks) {
         if (c.cls !== cls) continue;
-        for (const r of c.runs) {
-          if (r.kind.key !== key) continue;
-          matrices.set(r.matrices.subarray(0, r.n * INSTANCE_MATRIX_FLOATS), at * INSTANCE_MATRIX_FLOATS);
-          data.set(r.data.subarray(0, r.n * PIECE_DATA_FLOATS), at * PIECE_DATA_FLOATS);
+        c.runs.forEach((r, i) => {
+          if (r.kind.key !== key) return;
+          draw.put(at, r.n, r.matrices, r.data, c.spheres[i]!);
           at += r.n;
           counts[cls]! += r.n;
-        }
+        });
       }
     }
     b.inView = counts[VIEW]!;
     b.inOther = counts[OTHER]!;
-    mesh.count = b.total;
-    mesh.instanceMatrix.clearUpdateRanges();
-    mesh.instanceMatrix.addUpdateRange(0, at * INSTANCE_MATRIX_FLOATS);
-    mesh.instanceMatrix.needsUpdate = true;
-    b.data!.clearUpdateRanges();
-    b.data!.addUpdateRange(0, at * PIECE_DATA_FLOATS);
-    b.data!.needsUpdate = true;
+    draw.written(at);
+    draw.geometry.instanceCount = b.total;
     // The bounds three culls the whole draw by in every pass: round its chunks' spheres.
     const box = new THREE.Box3();
     for (const c of b.chunks) {
       box.expandByPoint(sphere.set(c.centre[0] - c.radius, c.centre[1] - c.radius, c.centre[2] - c.radius));
       box.expandByPoint(sphere.set(c.centre[0] + c.radius, c.centre[1] + c.radius, c.centre[2] + c.radius));
     }
-    const bounds = mesh.boundingSphere!;
+    const bounds = draw.geometry.boundingSphere!;
     box.getBoundingSphere(bounds);
     // three sorts the piece draws among themselves (after the surfaces) by their spheres' centres: at the nearest
     // chunk in view, the kinds nearest the camera go first (the whole ring's centre would order them at random);
@@ -412,7 +419,7 @@ export class VoxelPieceBatches {
     if (!changed) return;
     this.reorders++;
     for (const b of this.batches.values()) {
-      if (!b.dirty || b.mesh === null) continue;
+      if (!b.dirty || b.draw === null) continue;
       b.dirty = false;
       this.write(b);
     }
@@ -445,4 +452,19 @@ export class VoxelPieceBatches {
     }
     return b.total;
   }
+}
+
+/** A run's copies' spheres (centre xyz in the run's metres, radius): the piece's bounds through each matrix. */
+function pieceSpheres(r: PieceRun): Float32Array {
+  const g = r.kind.geometry;
+  if (g.boundingSphere === null) g.computeBoundingSphere();
+  const { center: c, radius } = g.boundingSphere!;
+  const out = new Float32Array(r.n * 4);
+  const m = r.matrices;
+  for (let i = 0; i < r.n; i++) {
+    const o = i * INSTANCE_MATRIX_FLOATS;
+    for (let a = 0; a < 3; a++) out[i * 4 + a] = m[o + a]! * c.x + m[o + 4 + a]! * c.y + m[o + 8 + a]! * c.z + m[o + 12 + a]!;
+    out[i * 4 + 3] = radius * maxScaleOf(m, o);
+  }
+  return out;
 }

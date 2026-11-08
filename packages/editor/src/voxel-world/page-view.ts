@@ -8,8 +8,8 @@
  * move, click to pick, Z to undo).
  */
 import * as THREE from 'three';
-import { RELIEF_TEST_SIZE, reliefTestHeights, voxelStandInLook, voxelTestRelief, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
-import { reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type ReliefRingSettings, type StreamRelief } from '@thirdlight/voxel';
+import { createOcclusionFrame, occlusionFromUrl, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
+import { reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FloatingOrigin, type ReliefRingSettings, type StreamRelief } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
@@ -225,4 +225,33 @@ export function bindViewInput(canvas: HTMLCanvasElement, view: { yaw: number; pi
   addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   addEventListener('resize', () => act.resize());
   return keys;
+}
+
+/** A picker of the cell under a screen point among `pickable()`: the one behind the hit surface (dig) or in front of it (add). */
+export function cellPicker(camera: THREE.Camera, pickable: () => THREE.Object3D[], origin: FloatingOrigin): (px: number, py: number, mode: 'dig' | 'add') => [number, number, number] | null {
+  const raycaster = new THREE.Raycaster();
+  return (px, py, mode) => {
+    raycaster.setFromCamera(new THREE.Vector2((px / innerWidth) * 2 - 1, -(py / innerHeight) * 2 + 1), camera);
+    const hit = raycaster.intersectObjects(pickable(), false)[0];
+    if (hit === undefined || hit.face === null || hit.face === undefined) return null;
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    const p = hit.point.addScaledVector(n, mode === 'dig' ? -0.25 : 0.25);
+    const o = origin.origin;
+    return [Math.floor(p.x / VOXEL_SIZE_M) + o.x, Math.floor(p.y / VOXEL_SIZE_M) + o.y, Math.floor(p.z / VOXEL_SIZE_M) + o.z];
+  };
+}
+
+/**
+ * `?occlusion=hiz|off`: the page's frames drawn through the engine's occlusion culler and a scene pass (the pyramid
+ * path culls the kit pieces' copies on WebGPU; `off` the same pass without it, to compare); null: no flag, the page
+ * draws its scene itself. It follows the window's size.
+ */
+export function pageOcclusion(renderer: unknown, backend: string, scene: THREE.Scene, camera: THREE.Camera): OcclusionFrame | null {
+  const path = occlusionFromUrl(location.search);
+  if (path === null) return null;
+  const frame = createOcclusionFrame({ renderer: renderer as never, backend: backend === 'webgl2' ? 'webgl2' : 'webgpu', scene, camera, path });
+  const fit = (): void => frame.setSize(innerWidth, innerHeight, 1);
+  fit();
+  addEventListener('resize', fit);
+  return frame;
 }

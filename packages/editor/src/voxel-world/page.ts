@@ -57,7 +57,10 @@
  * through the command route, their GLBs from the backend), through the one
  * piece table the streamer derives with; a material no kit binds draws
  * plain voxel edges. `?kits=0` derives without a table (no pieces at all,
- * to compare).
+ * to compare). `?occlusion=hiz` draws through the engine's occlusion
+ * culling (WebGPU: the kit pieces culled on the GPU against the depth
+ * pyramid; WebGL 2 has no such path and draws what the CPU culling keeps);
+ * `?occlusion=off` draws through the same scene pass without it, to compare.
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
  * the catalogue built from voxels, `writeKitTestScene`: the same command MCP
@@ -96,7 +99,7 @@ import {
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
-import { bindViewInput, pageLevel, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
+import { bindViewInput, cellPicker, pageLevel, pageOcclusion, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { backendArrays, PageMaterials } from './page-materials';
 import { kitSceneHooks } from './kit-scene-labels';
@@ -260,6 +263,8 @@ async function main(): Promise<void> {
   relief.attach(surface, streamer.relief, level.relief);
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows });
   const gpu = createGpuTiming();
+  // `?occlusion=`: drawn through the engine's culler and a scene pass (none: the page draws the scene itself).
+  const occlusion = pageOcclusion(renderer, backendName, scene, camera);
   scene.add(meshes.root);
   const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') === 'level' ? 'level' : params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
   const collision = ring?.collision ?? null;
@@ -362,17 +367,8 @@ async function main(): Promise<void> {
     },
   });
 
-  const raycaster = new THREE.Raycaster();
   /** The cell under a screen point: the one behind the hit surface (dig) or in front of it (add). */
-  function pickCell(px: number, py: number, mode: 'dig' | 'add'): [number, number, number] | null {
-    raycaster.setFromCamera(new THREE.Vector2((px / innerWidth) * 2 - 1, -(py / innerHeight) * 2 + 1), camera);
-    const hit = raycaster.intersectObjects(meshes.pickable, false)[0];
-    if (hit === undefined || hit.face === null || hit.face === undefined) return null;
-    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-    const p = hit.point.addScaledVector(n, mode === 'dig' ? -0.25 : 0.25);
-    const o = origin.origin;
-    return [Math.floor(p.x / VOXEL_SIZE_M) + o.x, Math.floor(p.y / VOXEL_SIZE_M) + o.y, Math.floor(p.z / VOXEL_SIZE_M) + o.z];
-  }
+  const pickCell = cellPicker(camera, () => meshes.pickable, origin);
 
   const lastEdits: EditTiming[] = [];
 
@@ -482,7 +478,8 @@ async function main(): Promise<void> {
     ring?.update();
     materials.streamer.update(scene, camera, renderer.domElement.height);
     const r0 = performance.now();
-    renderer.render(scene, camera);
+    if (occlusion !== null) occlusion.render();
+    else renderer.render(scene, camera);
     renderMs.add(performance.now() - r0);
     kitScene.update(camera, origin.origin);
     surface.grids.frame();
@@ -596,7 +593,7 @@ async function main(): Promise<void> {
         gpu: rendererMemory(renderer),
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
         evaluateUs: m.evaluateUs, reliefUs: m.reliefUs,
-        kitBytes: kits.meshes.bytes(),
+        kitBytes: kits.meshes.bytes(), occlusion: occlusion?.diagnostics() ?? null,
         mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, gpuBytes: mips.gpuBytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         relief: relief.state(m.relief),

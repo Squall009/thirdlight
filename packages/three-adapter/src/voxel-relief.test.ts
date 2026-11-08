@@ -75,7 +75,7 @@ function drawn(d: JoinedDraw, relief: boolean, patterns = false, reliefOn = true
   view.set(0, 0, 0, { ...shown, instances: d.instances, solid: d.solid });
   let mesh: THREE.Mesh | null = null;
   view.root.traverse((o) => {
-    if (o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh)) mesh = o;
+    if (o instanceof THREE.Mesh && o.userData['voxelKitPiece'] !== true) mesh = o;
   });
   return { mesh: mesh!, surface };
 }
@@ -165,7 +165,7 @@ describe('relief displacement', () => {
     expect(r.vertices).toBe(d.relief!.ground.vertexCount + d.relief!.base.vertexCount);
     let mesh: THREE.Mesh | null = null;
     scene.traverse((o) => {
-      if (o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh) && o.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) mesh = o;
+      if (o instanceof THREE.Mesh && o.userData['voxelKitPiece'] !== true && o.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) mesh = o;
     });
     expect(mesh).not.toBeNull();
     const vs = stage(wgslOf(wgslRenderer(), scene, mesh!), 'vertex');

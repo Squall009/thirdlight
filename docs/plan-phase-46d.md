@@ -218,7 +218,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.5a | done: relief part = derived v29; ring per 8 m section round the focus (hysteresis, atomic re-plan, bodies stand), `levels.relief` 16 m scaled, `voxelRelief` low 0/med 2/high 4, setRings; own 1/8 budget share, ring shrinks (D528 fixed). Town med/high: relief 12.9/106 MB, 1.29/4.10 M tris, `render()` +0–1.1 ms, 0–7 missed; shadows main-thread bound (D529). D541, D542 |
 | 46d.5b | done: relief displaced in Play (worker + page), exports, Scene view (its quality level) and the voxel world page (tier default, relief switch); batches carry the ring (steps, radius, centre). High ring 24 m (relief scale 1.5). Town GPU med/high 4.26/4.36 WebGPU, 4.42/5.05 WebGL 2, 0–7 missed. D541 fixed; D542 cause found (kit pieces); D543. voxel e2e 64.2 → 83.2 s |
 | 46d.6a | done: kit pieces drawn across chunks, one instanced draw a piece kind (49 in the town, was 1,466), culled by chunk per pass (view, shadow), written once a batch; pieces wear their cell's wetness (D538). Town `render()` 10.2–11.8 → 2.7–3.2 ms, shadows 15.5–20.3 → 4.1–4.6 ms (D529 fixed); GPU +0.6–2.5 ms (D544); high+shadows GPU-bound (D545). e2e 83.2 → 82.3 s |
-| 46d.6b | not started |
+| 46d.6b | done: D544 traced (timestamps follow the GPU clock; pieces now draw after the surfaces, −0.3 ms). Piece draws are column-instanced copies the WebGPU culler tests against the depth pyramid (71 % of 35.4 k culled): town GPU 5.6–7.0 → 3.5–3.8 ms, `render()` +0.7 ms (D546); WebGL 2 keeps chunk culling. D485 closed; D545 re-measured. Same pictures |
 | 46d.6c | not started |
 | 46d.7a | not started |
 | 46d.7b | not started |
@@ -893,6 +893,55 @@ piece draws now come after every surface (`PIECE_RENDER_ORDER`), −0.3 ms WebGP
 WebGPU) is not traced further (round limit): D544 re-recorded for the performance phase, where GPU work should be
 read at a fixed clock (or as GPU busy share) rather than as timestamp ms at the cap.
 
+**Built (GPU culling of pieces).** three-adapter `voxel-piece-draw.ts` (`PieceDraw`): a piece kind's draw is a plain
+mesh whose copies are placed by instance-matrix columns (attribute-instancing.ts) instead of three's `InstancedMesh`;
+a copy's trim U offset, factor and wetness ride in its matrix's spare fourth row (floats 3, 7, 15:
+`PIECE_RIDER_FLOATS`; the `pieceU` attribute is gone), so the culler's pools carry them with the matrix and a culled
+draw reads them through its list (vertex stage, passed on as varyings). Each copy's sphere (the piece's bounds through
+its matrix) is kept per place. It is a `CullableCopies` the GPU culler (occlusion-instances.ts) adopts at its first
+draw once a culler is there and **lists itself** (`nested`: it lies inside the chunk view, below the scene's
+drawables the culler walks); `viewDraw` culls the view by chunk first (`VoxelPieceBatches.viewCountOf`), so the
+copies handed over are this frame's. Shadow maps and other cameras keep 46d.6a's per-chunk culling against their own
+frustum. Raycasts test each copy as an instanced mesh's are. The voxel world page draws through the same culler with
+`?occlusion=hiz|off` (adapter `createOcclusionFrame`: `OcclusionCuller` + a scene pass, two passes on `hiz`), state
+`occlusion`. Readers `pieceDrawCopies`, `pieceCopyMatrix`, `pieceCopyData`, `isPieceDraw` (tests, bench). Manual
+(*Voxel kits*, *Occlusion culling*).
+
+**Tested.** `voxel-piece-batches.test.ts`: a real `InstanceOcclusion` attached to the scene adopts both piece draws at
+their first pass and marks them; nested two groups deep they are listed (2 draws) with the copies the view draws: in
+the pools exactly as drawn (riders included: wetness 3/7), each world sphere holding its copy, all in the chunks in
+view; hidden → not listed, shown → listed again; the culled build's WGSL reads the copy through the list (more storage
+bindings than the plain build). Every piece test reads the columns (`voxel-kit-pieces`, `voxel-chunk-view`,
+`voxel-decals`, `voxel-kit-look`, `voxel-relief`, `kit-house`). Gates: D544 slice gate-fast-20261108-201239 (red only on
+`start.e2e.ts`, D417 watch) → rerun -202604 GREEN; GPU culling gate-fast-20261108-205259 (red: the three-hook check
+read a rider's `.w` beside `builder` as a hook, restructured; `scan-bounded-log` D307/D418 timed out once) → rerun
+-210414 GREEN (perf 0 missed both renderers); `see-through.test.ts`' bounded-time case failed once in a local run and
+passed alone and at the base. `voxel-world.e2e.ts` 81.8 → 82.5 s (no e2e change).
+
+**Measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 view 60 m out, ~479-frame orbit, `?relief=tier`,
+2 rounds, 20:36–20:46, load 1.3–4.6, uptime 16.2 d; `off` = the same scene pass without culling; scratch
+`~/.cache/thirdlight-phase46/work/46d.6b/`):
+
+| Town, medium / high | GPU ms WebGPU | GPU ms WebGL 2 | `render()` p50/p95 ms (WebGPU) | missed | piece copies drawn |
+|---|---|---|---|---|---|
+| page draws itself (as 46d.6a) | 5.55–6.05 / 6.95–6.97 | 5.14 / 5.69–5.70 | 2.8–3.0 / 4.1–4.8 | 0 / 0–2 | 37,182 in view |
+| scene pass, no culling (`off`) | 5.40–5.58 / 7.0 | 4.90–5.03 / 5.39–5.46 | 2.8–3.0 / 4.1–4.6 | 0 / 0–1 | 37,182 |
+| GPU culling (`hiz`, WebGPU) | **3.51–3.59 / 3.84** | — (no path) | 3.5–3.9 / 6.2–7.0 (D546) | 0 | 10.3–11.1 k of 35.4–36.9 k tested (71 % culled), 40 draws |
+| shadows low / medium / high, page (D545) | 6.52 / 7.34 / — | 4.88 / 5.34 / — | 4.4 / 4.4 / 4.5 | 0 / 2 / 28 of 344 (WebGL 2 0 / 2 / 39 of 333) | |
+| shadows low / medium / high, `hiz` | 4.72 / 4.14 / — | | 5.2 / 5.4 / 5.4 | 0 / 0 / 84 of 375 | |
+
+Culling: pools 12.6 MB (18.9 with shadows), pyramid 1.23 MB (640 × 360, 11 levels), the culler's own main-thread time
+0–0.1 ms; copies drawn in the second pass read 0 at each read-back (a slow orbit). Flight: not measured (the flight
+page `stream-page` draws boxes, no kit pieces). Play: the adapter's culler adopts the piece draws the same way when a
+project or quality level sets `occlusion_culling` on; not run on staging (unverified).
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.6b/shots/`): `m{a,b}-{plain,off,hiz}-town-{,near-,mid-}{medium,high}
+-webgpu.png`, `m{a,b}-{plain,off}-…-webgl2.png`, `sh-{plain,hiz}-town-{,near-,mid-}{low,medium,high}-webgpu.png`,
+`sh-plain-…-webgl2.png`, `s2-hiz-town-*`: rails, fences, balconies, window and door frames and eaves present at the
+screen edges and in shadow on both renderers; `hiz` and the page's own draw differ in 0.00 % of pixels (> 24 levels)
+in all 18 WebGPU pairs, with and without shadows; WebGL 2 vs WebGPU 0.01–0.02 %. Unverified: the first frame after a
+jump (pass 2's newly visible copies; the read-back never caught one).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1149,6 +1198,27 @@ read at a fixed clock (or as GPU busy share) rather than as timestamp ms at the 
   (the cell its kit is read from), with the surface's R111 look taken at height 1: darker, smoother, normal detail
   flattened; water never stands on a piece (it stands proud of its faces).
 
+- 2026-11-08 (46d.6b, D544, default chosen, owner to confirm): **kit pieces draw after the world's surfaces** (render
+  order 1): a piece draw holds a kind's pieces near and far, so drawn among the surfaces it shaded hidden far pieces.
+- 2026-11-08 (46d.6b, default chosen, owner to confirm): **piece draws place their copies by instance columns with
+  their data in the matrix's spare fourth row** (floats 3, 7, 15; 11 stays the surface cache's), not three's
+  `InstancedMesh` and a `pieceU` attribute: the GPU culler's pools and lists carry the 16 floats as they are, so a culled
+  draw reads its riders through the same list. A copy's data is read in the vertex stage and passed on as a varying.
+- 2026-11-08 (46d.6b, default chosen, owner to confirm): **the culler lists piece draws itself** (`CullableCopies.nested`:
+  adopted at their first draw, listed every frame they are in the scene and shown) rather than the voxel world adding
+  its draws to the scene's top level; a draw adopts whenever a culler appears (its program built once more).
+- 2026-11-08 (46d.6b, default chosen, owner to confirm): **copies are handed to the culler by place** (slot = place),
+  so a reorder (a chunk crossing the view's edge) copies every copy in view again and the visibility kept per place
+  belongs to other copies for a frame (they move to the second pass, never missing); by slot is D546.
+- 2026-11-08 (46d.6b, default chosen, owner to confirm): **WebGL 2 keeps the per-chunk CPU culling** of 46d.6a: it has
+  no compute, storage buffers or indirect draws for per-copy lists, and the engine's WebGL 2 occlusion queries were
+  dropped earlier (answers frames late, too little saved); culling every copy on the CPU would rewrite the buffers on
+  every view change. **Shadow maps keep per-chunk culling against their own frustum** (the pyramid is the view's).
+- 2026-11-08 (46d.6b, default chosen, owner to confirm): **the tier switch is the existing `occlusionCulling` level
+  field** (and the project's `occlusion_culling`); no tier turns it on by default (auto culls nothing), although it
+  saves 2–3 ms GPU in the town on WebGPU: whether medium/high default to `on` for voxel worlds is the owner's call
+  (§10). The voxel world page pins a path with `?occlusion=`.
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
@@ -1164,6 +1234,9 @@ read at a fixed clock (or as GPU busy share) rather than as timestamp ms at the 
   default.
 - The engine's physical profiles list (Wood, Stone, Metal, Earth, Glass, Water, Lava) and whether a project's
   profiles may override them.
+- Occlusion culling for voxel worlds (46d.6b): on WebGPU it culls ~71 % of the town's kit pieces and saves 2–3 ms
+  GPU at medium/high (`render()` +0.7 ms, D546); should medium/high default `occlusionCulling: on`, or stay a project
+  setting? With shadows at high it misses more (D545).
 - The high tier (RTX 5090): run the harness page on the workstation against staging (§5c); until then high-tier
   numbers are unverified.
 - Whether the 8 km test world (scratch, ~0.5 GB on disk estimated) is kept after 46d for 46e's measurements.

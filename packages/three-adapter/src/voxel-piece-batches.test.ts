@@ -28,12 +28,14 @@ import {
   type PaletteStore,
   type PieceTable,
 } from '@thirdlight/voxel';
-import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
+import { CULLED_COPIES_ATTRIBUTE, CULLED_COPIES_KEY, INSTANCE_MATRIX_FLOATS, type CulledCopies } from './attribute-instancing';
+import { InstanceOcclusion } from './occlusion-instances';
+import { wgslOf, wgslRenderer, litScene } from './test-wgsl';
+import { isPieceDraw, pieceCopyData as copyDataAt, pieceCopyMatrix as copyMatrixAt, pieceDrawColumns as columnsOf, pieceDrawCopies as copiesOf } from './voxel-piece-draw';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { VoxelKitMeshes, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { PIECE_ANCHOR_REACH_CELLS, PIECE_SOURCE_KEY } from './voxel-piece-batches';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
-import { PIECE_DATA_FLOATS, PIECE_U_ATTRIBUTE, PIECE_WET_FLOAT } from './voxel-trim-u';
 
 const grid = chunkGrid(32);
 const R = jobRadius(WORLD_RULES);
@@ -52,15 +54,16 @@ function world(wet = 0): PaletteStore {
 
 const renderer = (): VoxelGridRenderer => ({ backend: { isWebGLBackend: true, get: () => ({}), copyTextureToTexture: () => undefined }, initTexture: () => undefined, copyTextureToTexture: () => undefined });
 
-function kitSet(): { meshes: VoxelKitMeshes; table: PieceTable } {
+/** `segments`: the boxes' segments a side (more triangles a piece: copies worth culling one by one). */
+function kitSet(segments = 1): { meshes: VoxelKitMeshes; table: PieceTable } {
   const meshes = new VoxelKitMeshes();
-  meshes.add(COPING, new THREE.BoxGeometry(0.5, 0.06, 0.06));
-  meshes.add(CORNER, new THREE.BoxGeometry(0.06, 0.5, 0.06));
+  meshes.add(COPING, new THREE.BoxGeometry(0.5, 0.06, 0.06, segments, segments, segments));
+  meshes.add(CORNER, new THREE.BoxGeometry(0.06, 0.5, 0.06, segments, segments, segments));
   return { meshes, table: worldPieceTable(KITS, 0) };
 }
 
-function view(origin = { x: 0, y: 0, z: 0 }): { v: VoxelChunkView; meshes: VoxelKitMeshes; table: PieceTable } {
-  const { meshes, table } = kitSet();
+function view(origin = { x: 0, y: 0, z: 0 }, segments = 1): { v: VoxelChunkView; meshes: VoxelKitMeshes; table: PieceTable } {
+  const { meshes, table } = kitSet(segments);
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
   const v = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 1e9, origin }), surface, renderer: renderer(), kits: meshes.set(table, KITS) });
   return { v, meshes, table };
@@ -74,7 +77,10 @@ function draw(v: VoxelChunkView, d: DerivedData, cx: number, cz = 0): void {
   v.set(cx, 0, cz, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
 }
 
-const draws = (v: VoxelChunkView): THREE.InstancedMesh[] => v.pieces.root.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh);
+const draws = (v: VoxelChunkView): THREE.Mesh[] => v.pieces.root.children.filter(isPieceDraw);
+const countOf = copiesOf;
+const matrixAt = copyMatrixAt;
+const dataAt = copyDataAt;
 
 /** Every drawn instance as the GPU reads it: its world matrix (rounded to 0.1 mm) and its data quad, by draw, sorted. */
 function drawn(v: VoxelChunkView): string[] {
@@ -82,10 +88,9 @@ function drawn(v: VoxelChunkView): string[] {
   const out: string[] = [];
   const m = new THREE.Matrix4();
   for (const mesh of draws(v)) {
-    const data = mesh.geometry.getAttribute(PIECE_U_ATTRIBUTE) as THREE.InstancedBufferAttribute;
-    for (let i = 0; i < mesh.count; i++) {
-      mesh.getMatrixAt(i, m).premultiply(mesh.matrixWorld);
-      const q = Array.from(data.array.subarray(i * PIECE_DATA_FLOATS, (i + 1) * PIECE_DATA_FLOATS));
+    for (let i = 0; i < countOf(mesh); i++) {
+      matrixAt(mesh, i, m).premultiply(mesh.matrixWorld);
+      const q = dataAt(mesh, i);
       const kind = JSON.stringify((mesh.userData[PIECE_SOURCE_KEY] as THREE.BoxGeometry).parameters);
       out.push(`${kind}|${m.elements.map((e) => Math.round(e * 1e4)).join(',')}|${q.join(',')}`);
     }
@@ -94,10 +99,10 @@ function drawn(v: VoxelChunkView): string[] {
 }
 
 /** The world x (metres) of each of the first `n` instances of a draw. */
-function xs(mesh: THREE.InstancedMesh, n: number): number[] {
+function xs(mesh: THREE.Mesh, n: number): number[] {
   mesh.updateMatrixWorld(true);
   const m = new THREE.Matrix4();
-  return Array.from({ length: n }, (_, i) => new THREE.Vector3().setFromMatrixPosition(mesh.getMatrixAt(i, m).premultiply(mesh.matrixWorld)).x);
+  return Array.from({ length: n }, (_, i) => new THREE.Vector3().setFromMatrixPosition(matrixAt(mesh, i, m).premultiply(mesh.matrixWorld)).x);
 }
 
 describe('kit pieces drawn across chunks', () => {
@@ -146,7 +151,7 @@ describe('kit pieces drawn across chunks', () => {
     draw(v, d, 0);
     draw(v, d, 1);
     const before = drawn(v);
-    const versions = (): number[] => draws(v).map((m) => m.instanceMatrix.version);
+    const versions = (): number[] => draws(v).map((m) => columnsOf(m).version);
     const was = versions();
     // One streamer task: chunk 1 goes, chunk 2 comes. Inside the batch nothing is written; after it, both at once.
     const chunk = (cx: number): ChunkDrawBatch['chunks'][number] => ({ kind: 'draw', cx, cy: 0, cz: 0, ground: j.ground, base: j.base, instances: j.instances, solid: j.solid, cells: j.solid >= 0 ? undefined : v.cells.slice() }) as unknown as ChunkDrawBatch['chunks'][number];
@@ -175,7 +180,7 @@ describe('kit pieces drawn across chunks', () => {
     // The far chunk's matrices are small (metres from the anchor, which is its corner now).
     const m = new THREE.Matrix4();
     let near = 0;
-    for (const mesh of draws(v)) for (let i = 0; i < mesh.count; i++) if (Math.abs(mesh.getMatrixAt(i, m).elements[12]!) < grid.edge * VOXEL_SIZE_M) near++;
+    for (const mesh of draws(v)) for (let i = 0; i < countOf(mesh); i++) if (Math.abs(matrixAt(mesh, i, m).elements[12]!) < grid.edge * VOXEL_SIZE_M) near++;
     expect(near).toBe(v.piecesOf(far, 0, 0));
     expect(INSTANCE_MATRIX_FLOATS).toBe(16);
     v.dispose();
@@ -191,7 +196,7 @@ describe('kit pieces drawn across chunks', () => {
     scene.add(v.root);
     scene.updateMatrixWorld(true);
     const [mesh] = draws(v);
-    const total = mesh!.count;
+    const total = countOf(mesh!);
     const per = total / 10;
     // A narrow view looking down −z at chunks 2 and 3 (x 32 … 64 m).
     const cam = new THREE.PerspectiveCamera(20, 1, 0.5, 200);
@@ -207,7 +212,7 @@ describe('kit pieces drawn across chunks', () => {
     const pass = (camera: THREE.Camera, override: boolean): number => {
       scene.overrideMaterial = override ? new THREE.MeshBasicMaterial() : null;
       mesh!.onBeforeRender(r, scene, camera, mesh!.geometry, mesh!.material as THREE.Material, null as never);
-      const n = mesh!.count;
+      const n = countOf(mesh!);
       mesh!.onAfterRender(r, scene, camera, mesh!.geometry, mesh!.material as THREE.Material, null as never);
       return n;
     };
@@ -220,7 +225,7 @@ describe('kit pieces drawn across chunks', () => {
     for (const x of xs(mesh!, inView)) expect(x).toBeGreaterThan(16);
     for (const x of xs(mesh!, inView)) expect(x).toBeLessThan(80);
     // Outside a pass the draw holds all.
-    expect(mesh!.count).toBe(total);
+    expect(countOf(mesh!)).toBe(total);
     // The shadow pass (an override material) over chunk 8: everything at first, then the view's and its own chunks.
     expect(pass(shadow, true)).toBe(total);
     expect(pass(cam, false)).toBe(inView);
@@ -255,11 +260,85 @@ describe('kit pieces drawn across chunks', () => {
     v.dispose();
   });
 
+  it("the view's copies go to the GPU culler: adopted at their first draw, listed with their spheres while shown, read through its list in the vertex stage", () => {
+    // Pieces of 432 triangles: the copies in view draw enough to be worth testing one by one.
+    const { v, table } = view(undefined, 6);
+    const d = derive(world(3), table);
+    for (let cx = 0; cx < 10; cx++) draw(v, d, cx);
+    const scene = new THREE.Scene();
+    const holder = new THREE.Group();
+    holder.add(v.root);
+    scene.add(holder);
+    scene.updateMatrixWorld(true);
+    const occ = new InstanceOcclusion(wgslRenderer(), { drawing: 0, firstPass: () => true });
+    occ.attach(scene);
+    const cam = new THREE.PerspectiveCamera(20, 1, 0.5, 200);
+    cam.position.set(48, 3, 60);
+    cam.lookAt(48, 3, 8);
+    cam.updateMatrixWorld(true);
+    const r = {} as never;
+    const pass = (mesh: THREE.Mesh): number => {
+      mesh.onBeforeRender(r, scene, cam, mesh.geometry, mesh.material as THREE.Material, null as never);
+      const n = countOf(mesh);
+      mesh.onAfterRender(r, scene, cam, mesh.geometry, mesh.material as THREE.Material, null as never);
+      return n;
+    };
+    const meshes = draws(v);
+    expect(meshes.length).toBe(2);
+    // Before any pass nothing is adopted; the first pass adopts each draw (its build then reads copies by list).
+    expect(meshes.every((m) => m.userData[CULLED_COPIES_KEY] === undefined)).toBe(true);
+    const inView = meshes.map((m) => [pass(m), pass(m)][1]!);
+    for (const m of meshes) expect(m.geometry.getAttribute(CULLED_COPIES_ATTRIBUTE)).toBeDefined();
+    // Below the scene's drawables (in a group in a group), yet listed: the copies the view draws, in its order.
+    occ.update([], cam);
+    expect(occ.diagnostics().draws).toBe(2);
+    const placed = new THREE.Matrix4();
+    const at = new THREE.Vector3();
+    meshes.forEach((m, k) => {
+      const c = m.userData[CULLED_COPIES_KEY] as CulledCopies & { n: number; row: number };
+      expect(c.n, 'the copies in view').toBe(inView[k]);
+      expect(c.row).toBeGreaterThanOrEqual(0);
+      const pool = c.matrices.array as Float32Array;
+      const spheres = (occ as unknown as { pools: { spheres: THREE.BufferAttribute } }).pools.spheres.array as Float32Array;
+      const own = columnsOf(m).array as Float32Array;
+      for (let i = 0; i < c.n; i++) {
+        // The copy as drawn, its data riding in its fourth row (wetness 3 of 7 on the wall).
+        expect(Array.from(pool.subarray((c.base + i) * INSTANCE_MATRIX_FLOATS, (c.base + i + 1) * INSTANCE_MATRIX_FLOATS))).toEqual(Array.from(own.subarray(i * INSTANCE_MATRIX_FLOATS, (i + 1) * INSTANCE_MATRIX_FLOATS)));
+        expect(dataAt(m, i)[2]).toBeCloseTo(3 / WETNESS_MAX, 6);
+        // Its sphere in the world holds the copy's place, and the copy lies in the chunks the view sees (x 16 … 80 m).
+        at.setFromMatrixPosition(placed.multiplyMatrices(m.matrixWorld, matrixAt(m, i, new THREE.Matrix4())));
+        const o = (c.base + i) * 4;
+        expect(Math.hypot(spheres[o]! - at.x, spheres[o + 1]! - at.y, spheres[o + 2]! - at.z)).toBeLessThanOrEqual(spheres[o + 3]! + 1e-4);
+        expect(spheres[o + 3]).toBeGreaterThan(0.2);
+        expect(at.x > 16 && at.x < 80).toBe(true);
+      }
+    });
+    // The group hidden: not listed (drawn by no pass); shown again: listed again.
+    holder.visible = false;
+    occ.update([], cam);
+    expect(occ.diagnostics().draws).toBe(0);
+    holder.visible = true;
+    occ.update([], cam);
+    expect(occ.diagnostics().draws).toBe(2);
+    // The culled build's vertex stage reads the matrix and the riders through the culler's list.
+    const lit = litScene();
+    const m0 = meshes[0]!;
+    lit.add(m0);
+    const culled = wgslOf(wgslRenderer(), lit, m0);
+    occ.clear();
+    expect(m0.geometry.getAttribute(CULLED_COPIES_ATTRIBUTE)).toBeUndefined();
+    const whole = wgslOf(wgslRenderer(), lit, m0);
+    expect(culled).toMatch(/instanceIndex|instance_index/);
+    expect(culled.length).toBeGreaterThan(whole.length);
+    expect((culled.match(/var<storage/g) ?? []).length).toBeGreaterThan((whole.match(/var<storage/g) ?? []).length);
+    v.dispose();
+  });
+
   it("pieces wear their dressing cell's wetness; a wetness paint (shader data only) rewrites it, no mesh built", () => {
     const { v, table } = view();
     const dry = derive(world(0), table);
     draw(v, dry, 0);
-    const wetOf = (): number[] => draws(v).flatMap((m) => Array.from({ length: m.count }, (_, i) => (m.geometry.getAttribute(PIECE_U_ATTRIBUTE) as THREE.InstancedBufferAttribute).array[i * PIECE_DATA_FLOATS + PIECE_WET_FLOAT]!));
+    const wetOf = (): number[] => draws(v).flatMap((m) => Array.from({ length: countOf(m) }, (_, i) => dataAt(m, i)[2]!));
     expect(wetOf().every((w) => w === 0)).toBe(true);
     const builds = v.meshBuilds;
     // The wall soaked to level 5: only the shader data comes (as a paint's batch does).

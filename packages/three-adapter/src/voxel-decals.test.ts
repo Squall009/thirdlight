@@ -75,9 +75,9 @@ function draw(v: VoxelChunkView, s: PaletteStore, table: PieceTable, c: [number,
 }
 
 const chunkGroup = (v: VoxelChunkView, name: string): THREE.Object3D => v.root.children.find((c) => c.name === name)!;
-const surfaceOf = (g: THREE.Object3D): THREE.Mesh => g.children.find((c) => !(c instanceof THREE.InstancedMesh)) as THREE.Mesh;
+const surfaceOf = (g: THREE.Object3D): THREE.Mesh => g.children.find((c) => c.userData['voxelKitPiece'] !== true) as THREE.Mesh;
 /** The view's piece draws (one a piece kind, across its chunks). */
-const piecesOf = (v: VoxelChunkView): THREE.InstancedMesh[] => v.pieces.root.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh);
+const piecesOf = (v: VoxelChunkView): THREE.Mesh[] => v.pieces.root.children.filter((c): c is THREE.Mesh => c.userData['voxelKitPiece'] === true);
 
 describe('projected decals on a voxel world', () => {
   it('reach a chunk 8 km out and its kit pieces, blend in their own program on the 64-bit model-view, and keep to the world\'s decal layers', () => {

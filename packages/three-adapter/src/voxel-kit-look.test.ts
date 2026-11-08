@@ -15,7 +15,8 @@ import { TEXTURE_ASSET_KEY } from './resource-bytes';
 import { buildGlb } from './test-glb';
 import { fragmentWgslOf, glslRenderer, litScene, wgslRenderer } from './test-wgsl';
 import { VoxelKitMeshes, type VoxelKitBytes, type VoxelKitRecordLike } from './voxel-kit-pieces';
-import { instancedPieceGeometry, trimRunGeometry } from './voxel-trim-u';
+import { PieceDraw } from './voxel-piece-draw';
+import { trimRunGeometry } from './voxel-trim-u';
 
 const DIGEST = 'c'.repeat(64);
 
@@ -60,10 +61,11 @@ describe("kit pieces wear their kit's texture set", () => {
     expect(trim.colorNode).not.toBeNull();
     // Both programs build, the trim one reading the per-instance U.
     for (const renderer of [wgslRenderer(), glslRenderer()]) {
-      const geometry = instancedPieceGeometry(trimRunGeometry(new THREE.BoxGeometry(0.5, 0.1, 0.1), DRAFT_TRIM_LAYOUT, 0), 2).geometry;
-      for (const [m, g] of [[trim, geometry], [plain, new THREE.BoxGeometry()]] as const) {
+      const run = trimRunGeometry(new THREE.BoxGeometry(0.5, 0.1, 0.1), DRAFT_TRIM_LAYOUT, 0);
+      for (const [m, g] of [[trim, run], [plain, new THREE.BoxGeometry()]] as const) {
         const scene = litScene();
-        const mesh = new THREE.InstancedMesh(g, m, 2);
+        // Drawn as the piece batches draw a kind: copies through instance columns, the data in their riders.
+        const mesh = new PieceDraw(g, m, 2, { viewCount: () => null }).mesh;
         scene.add(mesh);
         expect(fragmentWgslOf(renderer, scene, mesh).length).toBeGreaterThan(100);
       }

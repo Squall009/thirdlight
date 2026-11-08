@@ -501,7 +501,10 @@ cell's wetness as the surface does (darker, smoother, its fine relief
 flatter; water never stands on a piece). Pieces are drawn per piece kind
 for the whole near ring, not per chunk, so the draw count follows the kinds
 in view, and each pass (the view, a shadow map) draws only the chunks it
-sees. Kit pieces draw with
+sees; they draw after the world's surfaces, so a piece behind a wall is not
+shaded. With [occlusion culling](occlusion.md) on, WebGPU also leaves out
+each piece the walls in front hide (in the town about seven in ten);
+WebGL 2 draws every piece of the chunks in view. Kit pieces draw with
 a stand-in material a kit and a labelled debug UV texture until materials
 arrive; a kit naming a trim layout draws with that layout's debug set
 instead (each region its own colour and id, a 3 cm checker, a tick every

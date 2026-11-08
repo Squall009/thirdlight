@@ -355,28 +355,11 @@ export class InstanceOcclusion implements InstanceCullerHost {
         d = this.draws.get(handle as CullableCopies);
         if (d === undefined) continue;
       }
-      d.seen = this.stamp;
-      d.row = -1;
-      const m = o as THREE.Mesh;
-      if (camera === null || !occlusionMayTest(m, camera)) continue;
-      const vd = d.handle.viewDraw();
-      // Too few triangles in view to win back the draw's second encode and upkeep: drawn whole this frame.
-      if (vd === null || !copiesInViewWorthCulling(vd.count, d.triangles)) continue;
-      // How far wind moves its copies now (asked each frame: the wind changes); no known bound: drawn whole.
-      const reach = d.box ? 0 : vertexReachOf(m);
-      if (reach === null) continue;
-      if (reach !== d.reach) {
-        d.reach = reach;
-        d.copied = Number.NaN;
-        d.copiedSlots = Number.NaN;
-      }
-      if (d.base < 0) this.place(d);
-      this.copy(d, vd);
-      d.n = vd.count;
-      d.firstPass = this.passes.firstPass(m);
-      d.row = this.frameRows.length;
-      this.frameRows.push(d);
+      this.list(d, camera);
     }
+    // Draws below the scene's drawables (a voxel world's kit pieces, inside its chunk view) are no occludees of the
+    // scene's own: they were adopted at their first draw and are listed while they are in the scene and shown.
+    for (const d of this.draws.values()) if (d.handle.nested === true && d.seen !== this.stamp && shownInScene(d.handle.mesh)) this.list(d, camera);
     // Draws gone from the scene give their ranges back (their marks stay: they may come back).
     for (const d of this.draws.values()) {
       if (d.seen === this.stamp || d.base < 0) continue;
@@ -389,6 +372,31 @@ export class InstanceOcclusion implements InstanceCullerHost {
     this.dirty.matrices.flush(this.pools.matrices);
     this.dirty.spheres.flush(this.pools.spheres);
     this.dirty.slots.flush(this.pools.slots);
+  }
+
+  /** One draw in this frame's table, if the view's copies of it are worth testing (else drawn whole this frame). */
+  private list(d: Draw, camera: THREE.Camera | null): void {
+    d.seen = this.stamp;
+    d.row = -1;
+    const m = d.handle.mesh;
+    if (camera === null || !occlusionMayTest(m, camera)) return;
+    const vd = d.handle.viewDraw();
+    // Too few triangles in view to win back the draw's second encode and upkeep: drawn whole this frame.
+    if (vd === null || !copiesInViewWorthCulling(vd.count, d.triangles)) return;
+    // How far wind moves its copies now (asked each frame: the wind changes); no known bound: drawn whole.
+    const reach = d.box ? 0 : vertexReachOf(m);
+    if (reach === null) return;
+    if (reach !== d.reach) {
+      d.reach = reach;
+      d.copied = Number.NaN;
+      d.copiedSlots = Number.NaN;
+    }
+    if (d.base < 0) this.place(d);
+    this.copy(d, vd);
+    d.n = vd.count;
+    d.firstPass = this.passes.firstPass(m);
+    d.row = this.frameRows.length;
+    this.frameRows.push(d);
   }
 
   /**
@@ -935,4 +943,13 @@ export class InstanceOcclusion implements InstanceCullerHost {
     this.readback = null;
     if (r !== null && !this.reading) r.dispose();
   }
+}
+
+/** Whether `o` is drawn at all: it and every parent shown, up to a scene. */
+function shownInScene(o: THREE.Object3D): boolean {
+  for (let x: THREE.Object3D | null = o; x !== null; x = x.parent) {
+    if (!x.visible) return false;
+    if ((x as THREE.Scene).isScene === true) return true;
+  }
+  return false;
 }

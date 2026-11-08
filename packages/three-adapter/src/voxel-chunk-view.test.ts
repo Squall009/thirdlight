@@ -126,7 +126,7 @@ function setup(): { view: VoxelChunkView; r: ReturnType<typeof recorder>; origin
   return { view: new VoxelChunkView({ grid, origin, surface, renderer: r }), r, origin };
 }
 
-const surfaceOf = (g: THREE.Object3D): THREE.Mesh => g.children.find((c) => !(c instanceof THREE.InstancedMesh)) as THREE.Mesh;
+const surfaceOf = (g: THREE.Object3D): THREE.Mesh => g.children.find((c) => c.userData['voxelKitPiece'] !== true) as THREE.Mesh;
 
 describe('the voxel chunk view', () => {
   it('draws a chunk joined from 16³ sections as one surface mesh with the whole-chunk derive\'s triangles and shader grid (no kit: no pieces)', () => {
@@ -149,7 +149,7 @@ describe('the voxel chunk view', () => {
       }
       expect(bytes, at).toBeGreaterThan(0);
       // One surface mesh (ground and base in one draw); no kit, so no piece.
-      const surfaces = g!.children.filter((c) => !(c instanceof THREE.InstancedMesh));
+      const surfaces = g!.children.filter((c) => c.userData['voxelKitPiece'] !== true);
       expect(surfaces.length, at).toBe(wholeTris > 0 ? 1 : 0);
       if (wholeTris > 0) expect(triangles((surfaces[0] as THREE.Mesh).geometry), at).toEqual(triangles(voxelSurfaceGeometry([whole.ground, whole.base])));
       const drawnPieces = view.piecesOf(cx, cy, cz);
@@ -412,7 +412,7 @@ describe('the voxel chunk view', () => {
     scene.updateMatrixWorld();
     camera.updateMatrixWorld();
     const surface = surfaceOf(g);
-    const piece = view.pieces.root.children.find((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh)!;
+    const piece = view.pieces.root.children.find((c): c is THREE.Mesh => c.userData['voxelKitPiece'] === true)!;
     expect(piece).toBeDefined();
     // Both programs take the view-space position from the 64-bit matrix, never from camera view × model world on the GPU.
     const r = wgslRenderer();

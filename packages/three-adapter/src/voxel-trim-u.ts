@@ -19,9 +19,9 @@
  *   without a seam. The price is that text on a debug sheet reads mirrored on
  *   faces seen from the axis' negative side; a real trim texture has no
  *   reading direction.
- * - **How:** each instanced mesh carries a per-instance `pieceU` (offset,
- *   factor, and the piece's wetness, which every piece draw reads) with
- *   U' = offset + factor × U. The offset is taken modulo one
+ * - **How:** each copy carries its (offset, factor), and the piece's wetness,
+ *   which every piece draw reads, in its matrix's spare fourth row
+ *   ({@link PIECE_RIDER_FLOATS}), with U' = offset + factor × U. The offset is taken modulo one
  *   sheet in 64 bits on the CPU, so a cell kilometres out keeps full
  *   precision; the factor is ± the cell's size in level-0 cells (a level-1
  *   node's piece spans 1 m, so its authored U is stretched to keep the
@@ -32,31 +32,44 @@ import { MeshLambertNodeMaterial } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { trimRegionAt, type TrimLayout } from '@thirdlight/project-model';
 import { VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { buildHasInstanceColumns, instanceColumn } from './attribute-instancing';
 import { cameraRelative } from './camera-relative';
 import { NODE_OPS } from './voxel-surface-sets';
 import { wetLook } from './voxel-surface-wetness';
 
 import type { N as AnyNode } from './effects-tsl';
 
-const { attribute, float, texture, uv, vec2 } = TSL;
+const { attribute, float, texture, uv, varying, vec2 } = TSL;
 /** Untyped: a build function's node reads the builder (three's typings take no builder argument). */
 const { Fn } = TSL as unknown as AnyNode;
 
-/** The per-vertex flag (1: the run offset applies) and the per-instance (offset, factor, wetness 0 … 1, unused). */
+/** The per-vertex flag (1: the run offset applies). */
 export const TRIM_RUN_ATTRIBUTE = 'trimRun';
-export const PIECE_U_ATTRIBUTE = 'pieceU';
-/** Floats an instance takes in {@link PIECE_U_ATTRIBUTE}, and where its wetness rides. */
+/** Floats a piece's data takes (offset, factor, wetness 0 … 1, unused), as a chunk gives it, and where its wetness is. */
 export const PIECE_DATA_FLOATS = 4;
 export const PIECE_WET_FLOAT = 2;
+/**
+ * Where a drawn copy carries its data's first three floats among its 16: the matrix's fourth row, which an
+ * affine matrix leaves unused and the columns' transform never reads (float 11 is the surface cache's slot).
+ */
+export const PIECE_RIDER_FLOATS = [3, 7, 15] as const;
 
 type N = ReturnType<typeof float>;
+type B = { hasGeometryAttribute(name: string): boolean };
 
-/** The drawn piece's (offset, factor) (vertex attribute; (0, 1) on a geometry without it: the authored U). */
+/** Column `i`'s `w`: the rider in the copy's fourth row (vertex stage; through the culler's list where it culls). */
+const riderOf = (i: number): N => (instanceColumn(i) as unknown as { w: N }).w;
+
+/**
+ * The drawn copy's (offset, factor) from its columns, passed on to the fragment stage (constant over the copy;
+ * a culled draw reads the columns through its list, which only the vertex stage can); (0, 1) on a geometry
+ * without columns: the authored U.
+ */
 const pieceUOf = (): ReturnType<typeof vec2> =>
-  Fn((builder: { hasGeometryAttribute(name: string): boolean }) => (builder.hasGeometryAttribute(PIECE_U_ATTRIBUTE) ? attribute(PIECE_U_ATTRIBUTE, 'vec4').xy : vec2(0, 1)))() as unknown as ReturnType<typeof vec2>;
+  Fn((builder: B) => (buildHasInstanceColumns(builder as never) ? varying(vec2(riderOf(0), riderOf(1))) : vec2(0, 1)))() as unknown as ReturnType<typeof vec2>;
 
-/** The drawn piece's wetness, 0 dry … 1 the wettest level (0 on a geometry without the attribute). */
-const pieceWetOf = (): N => Fn((builder: { hasGeometryAttribute(name: string): boolean }) => (builder.hasGeometryAttribute(PIECE_U_ATTRIBUTE) ? attribute(PIECE_U_ATTRIBUTE, 'vec4').z : float(0)))() as unknown as N;
+/** The drawn copy's wetness, 0 dry … 1 the wettest level (0 on a geometry without columns). */
+const pieceWetOf = (): N => Fn((builder: B) => (buildHasInstanceColumns(builder as never) ? varying(riderOf(3)) : float(0)))() as unknown as N;
 
 /**
  * What its cell's wetness does to a kit piece (the voxel surface's R111 look, `voxel-surface-wetness.ts`): the
@@ -141,30 +154,3 @@ export function runAxisOf(q: THREE.Quaternion, runAxis: 0 | 1 | 2, mirror: boole
   return [a, v.getComponent(a) > 0 ? 1 : -1];
 }
 
-/**
- * A draw's own geometry for up to `capacity` instances of a piece: the
- * piece's attributes shared, plus its per-instance {@link PIECE_U_ATTRIBUTE}
- * (filled by the caller).
- */
-export function instancedPieceGeometry(g: THREE.BufferGeometry, capacity: number): { geometry: THREE.BufferGeometry; u: THREE.InstancedBufferAttribute } {
-  const out = new THREE.BufferGeometry();
-  for (const [name, attr] of Object.entries(g.attributes)) out.setAttribute(name, attr);
-  if (g.index !== null) out.setIndex(g.index);
-  if (g.boundingSphere === null) g.computeBoundingSphere();
-  out.boundingSphere = g.boundingSphere!.clone();
-  if (g.boundingBox !== null) out.boundingBox = g.boundingBox.clone();
-  const u = new THREE.InstancedBufferAttribute(new Float32Array(capacity * PIECE_DATA_FLOATS), PIECE_DATA_FLOATS);
-  out.setAttribute(PIECE_U_ATTRIBUTE, u);
-  return { geometry: out, u };
-}
-
-/**
- * Frees a draw's own geometry and its `pieceU` buffer only: the shared
- * attributes are taken off first, because a renderer frees every attribute a
- * disposed geometry holds, and the piece's other draws still use them.
- */
-export function disposeInstancedPieceGeometry(g: THREE.BufferGeometry): void {
-  for (const name of Object.keys(g.attributes)) if (name !== PIECE_U_ATTRIBUTE) g.deleteAttribute(name);
-  g.setIndex(null);
-  g.dispose();
-}

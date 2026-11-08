@@ -344,6 +344,11 @@ export interface CullableCopies {
   markCulled(on: boolean): void;
   /** Its copies are tested as their world boxes, which each drawn copy carries in its floats from `COPY_BOX_FLOAT` (else as their spheres). */
   readonly boxes?: boolean;
+  /**
+   * It lies below the scene's drawables (a voxel world's kit pieces inside its chunk view), which the culler
+   * lists from the scene: it is listed from its adoption on, every frame it is in the scene and shown.
+   */
+  readonly nested?: boolean;
 }
 
 /** `mesh.userData[CULLABLE_COPIES_KEY]`: the {@link CullableCopies} of a draw not culled inside by the view (a terrain page). */

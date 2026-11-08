@@ -19,7 +19,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { createVoxelSurface, PIECE_SOURCE_KEY, VoxelChunkView, VoxelKitMeshes, voxelStandInLook } from '@thirdlight/three-adapter';
+import { createVoxelSurface, isPieceDraw, PIECE_SOURCE_KEY, pieceCopyMatrix, pieceDrawCopies, VoxelChunkView, VoxelKitMeshes, voxelStandInLook } from '@thirdlight/three-adapter';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -79,7 +79,7 @@ import { MAT } from './world-kit';
 import { ROOF_EDGE_NEAR_M, roofCaseOffset, type RoofEdgeCaseId } from './roof-edge-surface';
 
 /** The piece mesh a view's piece draw draws (its own geometry shares that one's attributes). */
-const sourceOf = (m: THREE.InstancedMesh): THREE.BufferGeometry => m.userData[PIECE_SOURCE_KEY] as THREE.BufferGeometry;
+const sourceOf = (m: THREE.Mesh): THREE.BufferGeometry => m.userData[PIECE_SOURCE_KEY] as THREE.BufferGeometry;
 
 const grid = chunkGrid(32);
 const E = grid.edge;
@@ -529,7 +529,7 @@ async function roofPiecesFollowThePlanes(slope: number): Promise<void> {
     const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
     view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
     view.root.updateMatrixWorld(true);
-    const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
+    const draws = view.root.children.flatMap((g) => g.children.filter(isPieceDraw));
     // Each roof slot's mesh, plain and mirrored: which draw is which.
     const kinds: { caseId: RoofEdgeCaseId; mirror: boolean; g: THREE.BufferGeometry }[] = [];
     for (const caseId of ['roof-ridge', 'roof-gable', 'roof-hip'] as const) for (const mirror of [false, true]) kinds.push({ caseId, mirror, g: meshes.mesh(kit.slots[caseId]!.meshes[0]!.mesh, mirror) as THREE.BufferGeometry });
@@ -544,8 +544,8 @@ async function roofPiecesFollowThePlanes(slope: number): Promise<void> {
       const k = kinds.find((q) => q.g === sourceOf(mesh));
       if (k === undefined) continue;
       const pos = mesh.geometry.getAttribute('position');
-      for (let i = 0; i < mesh.count; i++) {
-        mesh.getMatrixAt(i, m4);
+      for (let i = 0; i < pieceDrawCopies(mesh); i++) {
+        pieceCopyMatrix(mesh, i, m4);
         m4.premultiply(mesh.matrixWorld);
         for (let v = 0; v < pos.count; v++) {
           p.fromBufferAttribute(pos, v).applyMatrix4(m4).divideScalar(VOXEL_SIZE_M);
@@ -554,7 +554,7 @@ async function roofPiecesFollowThePlanes(slope: number): Promise<void> {
           expect(off, `${k.caseId}${k.mirror ? ' (mirrored)' : ''} vertex at ${p.toArray().map((c) => c.toFixed(2)).join(', ')}`).toBeLessThan(ROOF_EDGE_NEAR_M);
         }
       }
-      seen.set(`${k.caseId}${k.mirror ? '*' : ''}`, (seen.get(`${k.caseId}${k.mirror ? '*' : ''}`) ?? 0) + mesh.count);
+      seen.set(`${k.caseId}${k.mirror ? '*' : ''}`, (seen.get(`${k.caseId}${k.mirror ? '*' : ''}`) ?? 0) + pieceDrawCopies(mesh));
     }
     // Both verges of every gable end are dressed, one mirrored; ridges (centred and on a side) and hips are drawn.
     expect(seen.get('roof-gable')).toBe(seen.get('roof-gable*'));
@@ -603,13 +603,13 @@ describe('kit pieces drawn through the real chunk view', () => {
     const d = deriveFromStore(s, 0, 0, 0, RULES, undefined, table);
     const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
     view.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid });
-    const draws = view.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.userData['voxelKitPiece'] === true));
+    const draws = view.root.children.flatMap((g) => g.children.filter(isPieceDraw));
     // Instances by case from the derive, and what the view drew of them: every kit instance, one draw a piece kind.
     const byCase = new Map<string, number>();
     const pieces = piecesOf(d, 0, 0, 0);
     for (const p of pieces) byCase.set(p.caseId, (byCase.get(p.caseId) ?? 0) + 1);
     const total = [...byCase.values()].reduce((a, b) => a + b, 0);
-    expect(draws.reduce((n, m) => n + m.count, 0)).toBe(total);
+    expect(draws.reduce((n, m) => n + pieceDrawCopies(m), 0)).toBe(total);
     expect(view.piecesDrawn.kit).toBe(total);
     // One draw a piece kind, a mirrored one (the gable's second verge) its own.
     const kinds = new Set(pieces.map((p) => `${p.caseId}${p.mirror ? '*' : ''}`));
@@ -637,8 +637,8 @@ describe('kit pieces drawn through the real chunk view', () => {
         // Spread over the face toward the hole and spun about its normal: every piece its own place, within the face.
         const at = new Set<string>();
         const p = new THREE.Vector3();
-        for (let k = 0; k < mesh.count; k++) {
-          mesh.getMatrixAt(k, m4);
+        for (let k = 0; k < pieceDrawCopies(mesh); k++) {
+          pieceCopyMatrix(mesh, k, m4);
           expect(m4.determinant()).toBeCloseTo(1, 5);
           p.setFromMatrixPosition(m4);
           at.add(p.toArray().map((x) => x.toFixed(4)).join(','));
@@ -647,11 +647,11 @@ describe('kit pieces drawn through the real chunk view', () => {
           // On the intact cell's side: within the face's reach (0.3 cell each way) plus the stagger, of its centre.
           expect(p.distanceTo(centre) / VOXEL_SIZE_M).toBeLessThanOrEqual(DAMAGE_SCATTER_REACH * Math.SQRT2 + PIECE_STAGGER.inwardMax * 4 + 1e-6);
         }
-        expect(at.size).toBe(mesh.count);
+        expect(at.size).toBe(pieceDrawCopies(mesh));
         continue;
       }
-      for (let k = 0; k < mesh.count; k++) {
-        mesh.getMatrixAt(k, m4);
+      for (let k = 0; k < pieceDrawCopies(mesh); k++) {
+        pieceCopyMatrix(mesh, k, m4);
         expect(m4.determinant()).toBeCloseTo(1, 5);
         const q = new THREE.Quaternion().setFromRotationMatrix(m4);
         // Unstaggered, every instance's rotation is one of the cube's 24 (turns, tips, slot rotations): the nearest is within the twist.

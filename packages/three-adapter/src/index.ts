@@ -395,6 +395,8 @@ export { OCCLUSION_ORACLE_KEY, type OracleResult } from './occlusion-oracle';
 export { hiddenFractions, ORACLE_KINDS, type OracleKind, type OracleShare } from './occlusion-oracle-count';
 // Occlusion culling: the page flag, the scene's switch tools read and pin, and the draws it may leave out.
 export { OCCLUSION_SWITCH_KEY, OCCLUSION_URL_PARAM, occlusionFromUrl, occlusionPyramidFromUrl, type OcclusionDiagnostics, type OcclusionSwitch } from './occlusion';
+// A page that draws its scene itself (the voxel world page) culls through the same culler.
+export { createOcclusionFrame, type OcclusionFrame, type OcclusionFrameOptions } from './occlusion-frame';
 // The depth pyramid's layout and rule (what a read-back is checked against).
 export { pyramidBreaks, pyramidLayout, type PyramidLayout } from './occlusion-pyramid-rule';
 export type { PyramidReadback } from './occlusion-pyramid';
@@ -408,8 +410,9 @@ export { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, RELIEF_TEST_SIZE, reliefTe
 export { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelBatchApplied, type VoxelChunkDraw, type VoxelChunkViewOptions, type VoxelSeamPiece } from './voxel-chunk-view';
 export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 export { kitLookMaterial, kitLookOf, kitLookTextures, type VoxelKitLook } from './voxel-kit-look';
-export { PIECE_U_ATTRIBUTE, TRIM_RUN_ATTRIBUTE, trimUPerMetre } from './voxel-trim-u';
+export { TRIM_RUN_ATTRIBUTE, trimUPerMetre } from './voxel-trim-u';
 export { PIECE_SOURCE_KEY, VoxelPieceBatches, type PieceKind, type PieceRun } from './voxel-piece-batches';
+export { isPieceDraw, pieceCopyData, pieceCopyMatrix, pieceDrawCopies } from './voxel-piece-draw';
 export { KIT_DEBUG_TEXTURE_SIDE, voxelKitDebugTexture, voxelKitImageRefs, voxelKitMeshRefs, VoxelKitMeshes, VoxelKitSet, type VoxelKitTextures, type VoxelKitBytes, type VoxelKitDraw, type VoxelKitImageRef, type VoxelKitMeshRef, type VoxelKitRecordLike } from './voxel-kit-pieces';
 export { phaseTileMetres, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 export { capVoxelArrays, voxelTexelDensityAt, VoxelWorldDraws, type VoxelEditToScreen, type VoxelTextureResidency, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';

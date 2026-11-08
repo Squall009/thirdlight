@@ -45,6 +45,7 @@ import {
 } from '@thirdlight/voxel';
 import { createGltfLoaderPort } from './gltf-loader';
 import { buildGlb } from './test-glb';
+import { pieceCopyData as copyDataAt, pieceCopyMatrix as copyMatrixAt, pieceDrawCopies as copiesOf } from './voxel-piece-draw';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { PIECE_SOURCE_KEY } from './voxel-piece-batches';
 import { pieceMatrix } from './voxel-piece-placement';
@@ -91,9 +92,9 @@ function draw(v: VoxelChunkView, d: DerivedData, level = 0): void {
   v.set(0, 0, 0, { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid }, level);
 }
 
-const pieceMeshes = (v: VoxelChunkView): THREE.InstancedMesh[] => v.root.children.flatMap((g) => g.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh));
+const pieceMeshes = (v: VoxelChunkView): THREE.Mesh[] => v.root.children.flatMap((g) => g.children.filter((c): c is THREE.Mesh => c.userData['voxelKitPiece'] === true));
 /** The piece mesh a draw draws (its own geometry shares that one's attributes). */
-const sourceOf = (m: THREE.InstancedMesh): THREE.BufferGeometry => m.userData[PIECE_SOURCE_KEY] as THREE.BufferGeometry;
+const sourceOf = (m: THREE.Mesh): THREE.BufferGeometry => m.userData[PIECE_SOURCE_KEY] as THREE.BufferGeometry;
 
 /** A stone kit: a coping in the wall's top-edge slot (its own GLB), every other slot empty. */
 function stoneKit(digest: string, assetId = 'coping'): VoxelKitRecordLike {
@@ -143,7 +144,7 @@ describe('kit pieces in the chunk view', () => {
     const all = pieceMeshes(v);
     // One draw a (kit piece, variant, mirror, detail): the instances of each mesh share those.
     const coping = all.filter((m) => m.geometry.getAttribute('position').count === 3);
-    expect(coping.reduce((n, m) => n + m.count, 0)).toBe(stone.length);
+    expect(coping.reduce((n, m) => n + copiesOf(m), 0)).toBe(stone.length);
     expect(all.length).toBe(v.pieceDraws);
     const keys = new Set(kitInstances.map((i) => `${i.piece}:${i.mirror}`));
     expect(all.filter((m) => m.userData['voxelKitPiece'] === true).length).toBe(keys.size);
@@ -152,8 +153,8 @@ describe('kit pieces in the chunk view', () => {
     const x = new THREE.Vector3();
     const atCells = new Set(stone.map((i) => i.cell.join(',')));
     for (const mesh of coping) {
-      for (let k = 0; k < mesh.count; k++) {
-        mesh.getMatrixAt(k, m4);
+      for (let k = 0; k < copiesOf(mesh); k++) {
+        copyMatrixAt(mesh, k, m4);
         const p = new THREE.Vector3().setFromMatrixPosition(m4);
         const cell = [p.x, p.y, p.z].map((c) => c / VOXEL_SIZE_M - 0.5);
         expect(atCells.has(cell.map((c) => Math.round(c)).join(','))).toBe(true);
@@ -362,8 +363,8 @@ describe('kit pieces in the chunk view', () => {
       const p = new THREE.Vector3();
       for (const mesh of pieceMeshes(v)) {
         const pos = mesh.geometry.getAttribute('position');
-        for (let i = 0; i < mesh.count; i++) {
-          mesh.getMatrixAt(i, m);
+        for (let i = 0; i < copiesOf(mesh); i++) {
+          copyMatrixAt(mesh, i, m);
           m.premultiply(mesh.matrixWorld);
           for (let k = 0; k < pos.count; k++) {
             p.fromBufferAttribute(pos, k).applyMatrix4(m);
@@ -426,8 +427,8 @@ describe('kit pieces in the chunk view', () => {
         geometries.add(sourceOf(mesh));
         const p = mesh.geometry.getAttribute('position');
         const nn = mesh.geometry.getAttribute('normal');
-        for (let k = 0; k < mesh.count; k++) {
-          mesh.getMatrixAt(k, m4);
+        for (let k = 0; k < copiesOf(mesh); k++) {
+          copyMatrixAt(mesh, k, m4);
           dets.push(m4.determinant());
           n3.getNormalMatrix(m4);
           const pts: string[] = [];
@@ -472,7 +473,7 @@ describe('kit pieces in the chunk view', () => {
       const v = view(meshes.set(table, [kit]));
       draw(v, derive(st, table));
       const out: string[] = [];
-      for (const mesh of pieceMeshes(v)) for (let k = 0; k < mesh.count; k++) out.push(mesh.getMatrixAt(k, new THREE.Matrix4()).toArray().map((c) => Math.round(c * 1e6)).join());
+      for (const mesh of pieceMeshes(v)) for (let k = 0; k < copiesOf(mesh); k++) out.push(copyMatrixAt(mesh, k, new THREE.Matrix4()).toArray().map((c) => Math.round(c * 1e6)).join());
       v.dispose();
       meshes.dispose();
       return out.sort();
@@ -550,9 +551,9 @@ describe('kit pieces in the chunk view', () => {
     let horizontal = 0;
     const m4 = new THREE.Matrix4();
     for (const mesh of trim) {
-      const u = mesh.geometry.getAttribute('pieceU') as THREE.InstancedBufferAttribute;
-      for (let k = 0; k < mesh.count; k++) {
-        mesh.getMatrixAt(k, m4);
+      for (let k = 0; k < copiesOf(mesh); k++) {
+        const [offset, factor] = copyDataAt(mesh, k);
+        copyMatrixAt(mesh, k, m4);
         const run = new THREE.Vector3(0, 1, 0).transformDirection(m4);
         const c = new THREE.Vector3().setFromMatrixPosition(m4);
         const axis = Math.abs(run.y) > 0.9 ? 1 : Math.abs(run.x) > 0.9 ? 0 : 2;
@@ -560,8 +561,8 @@ describe('kit pieces in the chunk view', () => {
         // The cell's low face on that axis (metres) gives U: its fraction of a sheet, the sign the direction.
         const lowM = (Math.round(c.getComponent(axis) / VOXEL_SIZE_M - 0.5)) * VOXEL_SIZE_M;
         const at = perM * (sign > 0 ? lowM : lowM + VOXEL_SIZE_M);
-        expect(u.getX(k)).toBeCloseTo(at - Math.floor(at), 5);
-        expect(u.getY(k)).toBe(sign);
+        expect(offset).toBeCloseTo(at - Math.floor(at), 5);
+        expect(factor).toBe(sign);
         if (axis === 1) vertical++;
         else horizontal++;
       }
@@ -624,7 +625,7 @@ describe('damage in the chunk view', () => {
     meshes.add({ assetId: 'chip', digest: DIGEST_A }, new THREE.BoxGeometry(0.05, 0.05, 0.05));
     const v = view(meshes.set(table, [kit]));
     draw(v, derive(s, table));
-    const surface = v.root.children.flatMap((g) => g.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.InstancedMesh)));
+    const surface = v.root.children.flatMap((g) => g.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && c.userData['voxelKitPiece'] !== true));
     const geo = surface[0]!.geometry;
     const crack = geo.getAttribute(VOXEL_CRACK_ATTRIBUTE) as THREE.BufferAttribute;
     const pos = geo.getAttribute('position') as THREE.BufferAttribute;
@@ -638,10 +639,10 @@ describe('damage in the chunk view', () => {
     for (let i = 0; i < crack.count; i++) if (crack.getX(i) > 0) expect(crack.getX(i)).toBeCloseTo(191 / 255, 6);
     // The hole: 4 faces × the default 6 pieces, each placed apart on its face.
     const chips = pieceMeshes(v);
-    expect(chips.map((m) => m.count)).toEqual([24]);
+    expect(chips.map((m) => copiesOf(m))).toEqual([24]);
     const m4 = new THREE.Matrix4();
     const at = new Set<string>();
-    for (let k = 0; k < 24; k++) at.add(new THREE.Vector3().setFromMatrixPosition((chips[0]!.getMatrixAt(k, m4), m4)).toArray().map((x) => x.toFixed(4)).join(','));
+    for (let k = 0; k < 24; k++) at.add(new THREE.Vector3().setFromMatrixPosition(copyMatrixAt(chips[0]!, k, m4)).toArray().map((x) => x.toFixed(4)).join(','));
     expect(at.size).toBe(24);
     v.dispose();
     meshes.dispose();

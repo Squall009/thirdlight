@@ -33,7 +33,9 @@ For a game:
   themselves and are drawn first. Solid buildings and hills between areas
   are where culling pays most.
 - **Instance sets** (scatter, ground cover, kit copies) are culled copy by
-  copy on WebGPU: dense foliage behind a hill is the biggest saving.
+  copy on WebGPU: dense foliage behind a hill is the biggest saving. So are
+  a [voxel world's](voxel-worlds.md) kit pieces (rails, frames, eaves)
+  behind its walls.
 - **Thin or see-through things** (a hedge, a fence, a lattice, glass) hide
   nothing unless they have an `_OCC` stand-in (below). Give one to large
   ones that stand between areas; small ones are not worth it.
