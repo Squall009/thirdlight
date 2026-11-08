@@ -9,6 +9,8 @@ Blender templates for voxel kits, their one-click export, and the recommended sa
         export as an artist's kit: voxel-kit-sample.glb + sample.voxelkit.json (and voxel-kit-sample.blend with --blend)
     blender --background my-kit.blend --python tools/voxel-bench/kits/kit_templates.py -- export [--out DIR]
         exports an edited template: <id>.voxelkit.json + voxel-kit-<id>.glb (DIR: the .blend's folder)
+    ... sample|export --sheet DIR
+        puts the kit's sheet (DIR/albedo.png, DIR/normal.png, DIR/orm.png) on the kit's one material first
     In Blender's UI: open the template, Text editor, kit_templates.py, Run Script: the same export.
 
 Why it is built this way:
@@ -22,7 +24,10 @@ Why it is built this way:
   expects (the origin is the anchor cell's centre). Guides carry `tl_guide` and are never exported.
 - A slot borrows another slot's meshes (the empty's `tl_source`, `tl_rotation`): one mesh fills many slots, turned by
   one of the 24 cube rotations, as the slot sheets list.
-- One texture set a kit: the export draws every piece with the kit's one material (the kit check's rule).
+- One texture set a kit: the export draws every piece with the kit's one material (the kit check's rule). The
+  material's real images go into the GLB when it has them (an albedo image on Base Color that is not the UV guide;
+  normal map, and ORM as occlusion / roughness / metal), so the import extracts the kit's sheet into KTX2 textures
+  the pieces draw with; a material still on the UV guide is written as a placeholder (no images).
 - No LODs (pieces draw at level 0 only), collision from the voxels: the export writes one mesh a piece and nothing else.
 - The kit record's other fields live in the scene's `tl_kit` property (JSON), so the .blend is the whole source.
 """
@@ -175,6 +180,48 @@ def kit_material(bpy, kit_id, img):
     return mat
 
 
+def use_sheet(bpy, mat, folder):
+    """Put a kit's sheet (albedo.png, normal.png, orm.png in `folder`) on its one material, as the glTF exporter reads it."""
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
+    for n in [n for n in nodes if n.type == 'TEX_IMAGE']:
+        nodes.remove(n)
+
+    def image(name, colour):
+        tex = nodes.new('ShaderNodeTexImage')
+        tex.image = bpy.data.images.load(os.path.join(folder, f'{name}.png'))
+        tex.image.name = f'{mat.name}-{name}'
+        tex.image.colorspace_settings.name = 'sRGB' if colour else 'Non-Color'
+        return tex
+
+    links.new(image('albedo', True).outputs['Color'], bsdf.inputs['Base Color'])
+    nm = nodes.new('ShaderNodeNormalMap')
+    links.new(image('normal', False).outputs['Color'], nm.inputs['Color'])
+    links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])
+    orm = image('orm', False)
+    sep = nodes.new('ShaderNodeSeparateColor')
+    links.new(orm.outputs['Color'], sep.inputs['Color'])
+    links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
+    links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
+    # Occlusion: the exporter's "glTF Material Output" group (its Occlusion socket, the ORM's R).
+    group = bpy.data.node_groups.get('glTF Material Output')
+    if group is None:
+        group = bpy.data.node_groups.new('glTF Material Output', 'ShaderNodeTree')
+        group.interface.new_socket('Occlusion', in_out='INPUT', socket_type='NodeSocketFloat')
+    out = nodes.new('ShaderNodeGroup')
+    out.node_tree = group
+    links.new(sep.outputs['Red'], out.inputs['Occlusion'])
+
+
+def has_sheet(mat):
+    """Whether the kit's material carries a real sheet: an albedo image on Base Color other than the UV guide."""
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None) if mat.node_tree else None
+    if bsdf is None or not bsdf.inputs['Base Color'].is_linked:
+        return False
+    src = bsdf.inputs['Base Color'].links[0].from_node
+    return src.type == 'TEX_IMAGE' and src.image is not None and src.image.name != 'uv-guide'
+
+
 def wall_tile(bpy, coll, at, mat):
     """The 4 x 4 m base tile as a wall (the material's tiling texture covers it once), its 0.5 m grid as wire."""
     me = bpy.data.meshes.new('wall-tile-4m')
@@ -311,12 +358,15 @@ def slot_meshes(bpy, contract):
     return out
 
 
-def export_kit(bpy, contract, out_dir, materials='PLACEHOLDER'):
+def export_kit(bpy, contract, out_dir, materials=None):
     """Write the kit's GLB (one node a mesh, at the origin) and its record; return their paths and a report."""
     kit = scene_kit(bpy)
     kit_id = kit['voxelKitId']
     slots = slot_meshes(bpy, contract)
     mat = bpy.data.materials.get(f'{kit_id}-sheet') or bpy.data.materials.new(f'{kit_id}-sheet')
+    # The kit's real images when its material has them; a material still on the UV guide as a placeholder.
+    if materials is None:
+        materials = 'EXPORT' if has_sheet(mat) else 'PLACEHOLDER'
     depsgraph = bpy.context.evaluated_depsgraph_get()
     copies, own, renamed = [], {}, []
     bpy.ops.object.select_all(action='DESELECT')
@@ -507,20 +557,27 @@ def main():
         bpy.ops.wm.save_as_mainfile(filepath=path, compress=True)
         print(f'[templates] {path}: {os.path.getsize(path)} bytes, {len(contract["slots"])} slots')
         return
+    sheet = argv[argv.index('--sheet') + 1] if '--sheet' in argv else None
     if mode == 'sample':
         build_sample(bpy, contract)
+        if sheet is not None:
+            use_sheet(bpy, bpy.data.materials[f"{SAMPLE_KIT['voxelKitId']}-sheet"], sheet)
         if '--blend' in argv:
             path = os.path.join(out, 'voxel-kit-sample.blend')
             bpy.ops.wm.save_as_mainfile(filepath=path, compress=True)
             print(f'[sample] {path}: {os.path.getsize(path)} bytes')
     elif mode != 'export':
         raise SystemExit(f'kit_templates: unknown mode {mode} (templates, sample, export)')
+    elif sheet is not None:
+        use_sheet(bpy, bpy.data.materials[f"{scene_kit(bpy)['voxelKitId']}-sheet"], sheet)
     glb, record, size, digest, tris = export_kit(bpy, contract, out)
     print(f'[export] {glb}: {size} bytes, sha256 {digest}')
     print(f'[export] {record}')
     for name, n in sorted(tris.items()):
         print(f'  {name:22} {n:4} tris')
-    print(f'[export] {len(tris)} meshes, {sum(tris.values())} triangles, textures: none (placeholder material), LODs: none (L0 only), collision: from the voxels')
+    images = [n.image for n in bpy.data.materials[f"{scene_kit(bpy)['voxelKitId']}-sheet"].node_tree.nodes if n.type == 'TEX_IMAGE' and n.image is not None]
+    textures = ', '.join(f'{i.name} {i.size[0]}x{i.size[1]}' for i in images) if has_sheet(bpy.data.materials[f"{scene_kit(bpy)['voxelKitId']}-sheet"]) else 'none (placeholder material)'
+    print(f'[export] {len(tris)} meshes, {sum(tris.values())} triangles, textures: {textures}, LODs: none (L0 only), collision: from the voxels')
 
 
 if __name__ == '__main__':
