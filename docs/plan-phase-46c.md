@@ -230,7 +230,6 @@ freeze, 46c.17, 46c.18.
 | 46c.16g | Placeholder kits regenerated, role spec + texture layout rewritten as v1 candidates, proto scene re-shot both renderers, town measured. |
 | 46c.16h | Review r2 fixes after the closing full gate: roofs follow the kit's damage stages (M1, D521), the Scene view follows kit and seed edits (M2), voxel decals checked in the export (M3), the trim page's defaults and the per-kit layout question (M4), Lows. |
 | 46c.16i | acc46c-r2 presented, awaiting owner (hard stop): pictures of the 46c.16a–h build, both renderers, README + approve page; then the v1 freeze. |
-| 46c.16j | done (09a4cd17): D519 fixed — roof polygons and bodies next to a roof name the one cell they show (owner offset in normal w / position w; derived 27), closing geometry the wall's, no blend; kit `wallTopFill` (piece table 5) default off: stepped wall tops. Flat roof's rim dressed. Seen both renderers; fast gate GREEN, e2e 65.5 → 66.5 s. D525 (roof tris ~x2) |
 
 ## 7. Progress
 
@@ -262,6 +261,8 @@ freeze, 46c.17, 46c.18.
 | 46c.16g | done: role spec + texture layout rewritten as v1 CANDIDATES (17 slots, ownership, rings, roofs, damage, decals; 25 defaults); kits unchanged, check 0 err/0 warn (log 304 tris 26.7 kB, stone 170 tris 20.0 kB). Town at the cap both renderers: 42.7 k instances, 1,412 piece draws, render() 8.7–9.3 ms, 0 missed, 126.5 MB (R9 59.5 k, 3,081, 14.3–14.8, 0–1, 121.3). D507 fixed, D523 watch |
 | 46c.16h | done (e76d362e, 5c50afd8): review r2 M1–M4 fixed — roofs follow the kit's damage stages (D521; derived 26), Scene view follows kit/seed edits live, export e2e reads both voxel decals, trim page §8 defaults + O1; M5 a shot-list note; L1/L4/L7 fixed, rest noted, D524. Cracked roof seen both renderers. Fast gate GREEN after D418 + one test fix; e2e 68.0 → ~65.5 s |
 | 46c.16i | acc46c-r2 presented, awaiting owner (hard stop): 78 shots × 2 renderers in `acceptance/46c-r2/final` (both kits, 45°/1:2 gable/hip, L, L0/L1, no kit, openings, attic, damage, cracked roofs, two materials, decals, town). Town 42.7 k instances, 1,412 draws, render() 8.8–9.2 ms, 0 missed. Seen: D519, D515, D516; no new D-row. 2 + 35 + 3 questions |
+| 46c.16j | done (09a4cd17): D519 fixed — roof polygons and bodies next to a roof name the one cell they show (owner offset in normal w / position w; derived 27), closing geometry the wall's, no blend; kit `wallTopFill` (piece table 5) default off: stepped wall tops. Flat roof's rim dressed. Seen both renderers; fast gate GREEN, e2e 65.5 → 66.5 s. D525 (roof tris ~x2) |
+| 46c.16k | done (6e77ee45, 5267364d, 0d854339): D525 fixed — roof rows merge by geometry, never material (town roofs fill: ramps 409 k → 204 k, base 674 k → 469 k; derived 28); cracks one 512² map a 4 m tile (continuous across cells); slot-mesh `mirror`; kit `sheetLayout` (O1). Seen both renderers; fast gate GREEN 13 min, e2e 66.5 → 64.5 s; D526 |
 | 46c.17 | not started (after the v1 freeze) |
 | 46c.14b | done: first build's full gate GREEN at 9107abbd (33 min, 8.0 GB), review fixed (46c.14c). Closing gate-full-20261106-092942 at 9e50b65e GREEN: 34 min (33), 8.0 GB, 393 e2e; edge-cases failed once, passed alone (D523). Its first run OOM-killed at 8G with no vitest worker cap; restarted with TL_VITEST_WORKERS=4. Review r2: 0H 5M 8L (46c.16h) |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
@@ -1753,6 +1754,49 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   stepped material line; off, the stepped gable under the slope. `flat-{near,rim}-off`: a flat stone roof keeps its
   voxel faces, its rim dressed by the kit's edge and corner pieces. Unverified: coarse levels of a two-material house.
 
+### 46c.16k roofs merged again (D525), cracks on the 4 m tile, slot mirror, kit sheet layouts
+
+- **D525 (6e77ee45, derived 27 → 28).** Single-direction roof tops and undersides merge along their level line,
+  supported floors along z and side pieces along their plane, as before 46c.16j, by geometry and crack strength only:
+  a first version that also required equal material and wetness broke the feeds rule (a material paint changed the
+  mesh; `kit-pieces.test.ts` caught it) and was dropped. D519 holds through the offsets: a merged polygon's owner is
+  its row, the offset is 0 along the row (the pixel reads the cell it lies over) and a quarter cell inside across it,
+  so each pixel shows its own cell; only pixels exactly on a row's two end edges may read the cell past it. A body's
+  face is owned only where its shader read reaches a plane cell (its layer and the one in front, 3 × 3), and a job with
+  no plane cell round it skips the ownership tests. Town 512², 1,070 roof sections (`run.mjs cases --roofs --fill`):
+  ramps **409,086 → 204,388** (46c.16d 206,148), base incl. ramps **674,174 → 468,872** (46c.16d 417,396); fill off
+  ramps 351,052 → 132,604, base 616,140 → 397,088. Roof mesher µs, same-hour interleaved A/B against a10aa4f9 (load
+  2–7, 2–3 rounds): 264–340 → 303–363 p50 (+10–15 %), p95 658–924 → 728–1,020; 46c.16j's 345/1,131 measured at load
+  1. What remains (D526): owned body faces next to roofs do not merge with blended ones (+51 k base), and the mesher
+  stays ~12 % slower (owned polygons share no vertices across owners). Test (`roof-mesher.test.ts`): a roof striped in
+  two materials and wetness, 45°/1:2, gable/hip, derives byte-equal base and ramps to the one-material roof, fewer
+  sloped triangles than plane cells, every sample of a sloped triangle shows the cell under it; fails on 09a4cd17.
+- **Cracks (5267364d).** The crack overlay samples its map with the material's construction tile (4 m; `tileUv`, the
+  one function the base texture uses), so neighbouring cracked cells show one pattern; the engine map is 512² over
+  the tile (an origin a 0.5 m cell, main cracks reaching into the cells round it, wrapping at the seam); a kit's
+  `crackTexture` is one image a tile. Shader reads unchanged. Tests: every cell of the map holds main cracks, > 50 %
+  of cell lines (tile seam included) crossed by one; a wall's samples across four cells and a chunk face step one
+  texel at a time with the base texture's coordinate (no 0.5 m repeat).
+- **Mirror (0d854339).** Slot mesh `mirror?: boolean` (kit format 1 draft, canonical false left out): the mirrored copy
+  across the case's run (winding, normals, tangent w flipped; the case's own mirror cancels it), one draw key more.
+  Test: positions, every triangle's facing, normals and tangent w of the copy; the case mirror cancelling.
+- **Kit sheet layout (0d854339, owner O1).** Kit `sheetLayout?: {size 16–16,384, pxPerMetre, regions: [{id, kind
+  field|strip|profiled|cap, metres, y, x? (caps)}]}`, regions not overlapping, never with `trimLayout`
+  (`kitTrimLayout` resolves either). Its strips get world-anchored U at its density; the trim rows T1–T10 check its
+  regions, labelled "(the kit's layout)", not draft (T3/T4 now name the layout's density). Tests: round trip and
+  refusals; the trim rows on a 1024 px / 512 px/m sheet pass a mesh on its strip, fire T4 at the draft's density and
+  T2 on the draft's coordinates; the adapter draws a declared layout's debug set (keyed by its numbers) and gives its
+  pieces U at 0.5 a metre. Placeholder kits not regenerated (no format they use changed).
+- **Looked at** (staging, 1280 × 720 at the 60 Hz cap, WebGPU and WebGL 2 alike, 2026-11-08 01:35–01:37, load
+  1.4–2.2; `~/.cache/thirdlight-phase46/work/46c.16k/shots/`): `cracks-wall|cracks-close` (a 2 × 2 block at 12 and a
+  row of four at 11 show one continuous pattern each, a lone cell at 13 its part of it), `twomat-near|eave-under|attic`
+  (stone walls under a timber roof: no blend at the seam, stepped gable, fill off), `mirror-off|mirror-on` (the log
+  kit's vertical edge and corners drawn as authored, then mirrored: the log ends swap courses), `town-mid` (orbit 479
+  frames, 0 missed both; GPU 3.20 / 4.54 ms a frame, render() 9.3 / 9.0 ms p50; triangles 855,075 at 46c.16i →
+  842,024; draw calls 1,277 → 1,319, not explained here). The engine crack map: `crack-map.png`.
+- **Gate:** gate-fast-20261108-012059 GREEN (13 min, 4.9 GB; perf 0 missed both renderers, 5.83 / 4.05 ms main
+  thread). `voxel-world.e2e.ts` 66.5 → 64.5 s (no e2e change). Descriptor budget 369,100 → 369,600 chars (two fields).
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -2465,13 +2509,24 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   for the verge). Remaining items before the v1 freeze: 46c.16j (D519 seam + wall-top fill setting), 46c.16k (4 m
   crack map, per-mesh mirror, kit-declared sheet layout), then pictures incl. a flat roof, then the freeze.
 
+- 2026-11-08 (46c.16k, default chosen, owner to confirm): **roof rows merge whatever their materials**: the mesh
+  never depends on a material (the feeds rule), so a row's polygon spans cells of different materials and each pixel
+  reads the cell it lies over; pixels exactly on a row's two end edges may show the cell past the end (where the
+  materials meet anyway).
+- 2026-11-08 (46c.16k, default chosen, owner to confirm): **the crack map follows the material's construction tile**
+  (4 m by default; a material with another tile scales its crack map with it), 128 texels a metre in the engine's.
+- 2026-11-08 (46c.16k, default chosen, owner to confirm): **a slot mesh's `mirror` is across its case's run** (the
+  case's x, as the verge's mirror): left and right along an edge swap; on a vertical edge that is up and down. A
+  mirrored case and a mirrored mesh cancel.
+- 2026-11-08 (46c.16k, default chosen, owner to confirm): **a kit's `sheetLayout`** takes the four region kinds of
+  `detail-trim` (field, strip, profiled strip, cap), a sheet of 16–16,384 px a side, regions not overlapping, and
+  replaces a named `trimLayout` (never both); its trim rows are not marked draft (the kit owns its numbers).
+
 ## 10. Open questions for the owner
 
 - Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).
 - Whether the case reach of 2 cells is enough for soffits and mouldings under deep eaves, or the apron may grow.
 - Where kits live: project content items (schema, add-only) or files beside the world; and the binding's move to 46d.
 - Who makes the Texture Designer graphs and Kit Designer after approval: art-factory's own sessions from a request doc.
-- **O1 (trim layout §8):** may a kit declare its own layout (sheet size, px a metre, regions) in its record, so a
-  per-kit sheet gets world-anchored U and the trim checks? Proposed add-only; not built before the answer.
 - **acc46c-r2 shot list (lead):** add a two-material gable house (stone walls, timber roof) so D519's stepped
   material line under the roof is judged before the freeze (review r2 M5); a cracked roof cell (stage 1) at 45° and 1:2.
