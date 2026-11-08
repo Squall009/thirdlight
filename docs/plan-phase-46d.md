@@ -212,7 +212,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.3a | done: `MaterialDef` gains `physical`, `gameData`, `voxel` (id, use, kit, tile, height depth, wall/floor/ceiling sets), canonical round trip tested; engine + project profiles with their commands; voxel_id_taken, kit_missing; kit binding from `voxel.kit` (kit list for unnamed ids). Record 414 B; 4,095 voxel materials load in 63 ms, an edit 5.5 ms |
 | 46d.3b | done: voxel table from the records (colour, tile, depth; stand-in for the rest), a record edit re-uploads the table only (0.8 ms, 0 meshes; seen WebGPU + WebGL 2); `ctx.voxels.materialAt`/`materialOf`; badges, `f:` filter, voxel-only picker, Inspector voxel section; every voxel material ships with a world. voxel-world e2e 65.6 → 70.8 s |
 | 46d.4a | done: albedo+height, normal and ORM arrays from every voxel material's wall/floor/ceiling sets (slot assembly, KTX2 cache), layers in the table; floor/ceiling/wall by face, grid 4 m, terrain triplanar 2 m; patterns under `?patterns=1`; Play/export ship `voxelTextures`. 6 units. Town GPU WebGPU 3.4 → 4.1 ms, WebGL 2 4.7 → 4.8, 0 missed. Seen both renderers |
-| 46d.4b | not started |
+| 46d.4b | done: quality field `voxelTexelDensity` (low 256, medium 512, high 1024 px/m) caps each voxel array (4096²: levels 2/1/0); arrays stream per level under `texture_budget_mb`, need from the chunks; builds ship them cut; Play, export, Scene view, voxel world page. 2048² sets: 24/96/96 MiB per tier, switch 0.93 s, 0–2 missed; GPU ±0.1 ms. 4096² not assemblable (D532) |
 | 46d.4c | not started |
 | 46d.4d | not started |
 | 46d.5a | not started |
@@ -541,7 +541,54 @@ draw in both now) → rerun -104701 GREEN; gate-fast-20261108-111109 GREEN (13 m
 passed; perf 0 missed of 360 both renderers); `scan-bounded-log` (D307/D418) and `edge-cases` (D523) failed once in the
 first run and passed alone. `voxel-world.e2e.ts` 70.8 → 63.7 s (no e2e change; host variance).
 
-## 9. Decision log
+### 46d.4b slot residency per quality tier and the texture budget
+
+**Built.** project-model: quality level field `voxelTexelDensity` (texels a metre on a construction tile, one of
+64 … 4096; absent the tier's `VOXEL_TEXEL_DENSITY_BY_TIER` 256 / 512 / 1024; `levelVoxels(l).texelDensity`; validated,
+descriptor, reference), `VOXEL_AUTHORED_TEXEL_DENSITY` 1024 and `voxelArrayTopLevel(edge, density)`. three-adapter
+texture streamer (extended, not forked): array KTX2s stream (`StreamedArrayTexture`: a part is one level of every
+layer; the tail ≤ 128² always resident), a per-texture cap (`limit`, the planner's `top`: never asked for or kept above
+it, a lowered cap drops at once), world-mapped textures measured by their tile (`WORLD_MAPPED_TEXTURES_KEY`: the voxel
+surface lists its arrays with the finest textured tile), `wholeKtx2Source` (a whole file in memory streamed by parts),
+injectable `decode`. `VoxelWorldDraws` caps the arrays from the level drawn each frame (`residency`, `capVoxelArrays`;
+adapter `qualityLevelSettings()`). Hosts: Play/export (the build cuts each voxel array into mip parts and ships them in
+place of the file, rows carry `mipParts`), the Scene view (its own streamer for the arrays, updated by the adapter's
+frame, default budget), the voxel world page (`?quality=`, `?textureBudget=`, hooks `setQuality`, `textureStreaming`).
+Docs: render spec §2 residency, manual (texture detail by quality level), reference regenerated.
+
+**Tested.** `tests/voxel-texture-residency.test.ts` (real 2 × 1024² array from the backend encoder, cut as a build
+cuts it, decoded by three's Basis transcoder): tier → level for 4096² (low 2, medium 1, high 0) and the validator; a
+cap at 64 px/m streams to level 2 only (bytes = levels 2 … tail × 2 layers; the level equals the whole file's); raised
+at run time 512² then 1024² stream in (2 upgrades); lowered, level 0 drops in the same plan (no read); a 1-byte budget
+keeps the tail (`over`), a budget for 512² stops at level 1 inside it; 200 m away nothing past the tail is asked.
+Integration export: 256² placeholder sets → each voxel array ships as parts `[1–8], [0]`, no whole file, the parts
+join to the editor route's bytes. Fast gate gate-fast-20261108-114635 (red: one test pinned `levelVoxels`' old shape,
+fixed) → rerun -115740 GREEN (4 min, 4.6 GB; e2e 36 passed; perf 0 missed both renderers). `voxel-world.e2e.ts`
+63.7 → 64.1 s (no e2e change).
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, 12:08–12:31, load 1.8–3.2, uptime 15.8 d; placeholder
+sets imported at **2048²** because 4096² layers are refused by the encoder (D532); 3 arrays × 6 layers, BC7):
+
+| Tier (2048² sets) | resident, town 60 m | resident, near 5 m | GPU ms town 60 m, WebGPU / WebGL 2 | GPU ms near 5 m | missed (orbit ~478) |
+|---|---|---|---|---|---|
+| low (256 px/m: cap level 1, 1024²) | level 2, 6 MiB | level 1, 24 MiB | 3.82 / 4.65 | 4.04 / 4.49 | 1 / 0 |
+| medium (512: level 0) | level 2, 6 MiB | level 0, 72–96 MiB | 3.83 / 4.61 | 4.08 / 4.60 | 1 / 3 |
+| high (1024: level 0) | level 2, 6 MiB | level 0, 96 MiB | 3.82 / 4.74 | 4.07 / 4.68 | 0 / 3 |
+
+At 60 m the need (level 2) is below every cap, so tiers draw alike; near they differ by the cap. With 4096² sets
+(computed): 24 / 96 / 384 MiB. Runtime switch at the near view, orbiting: low → medium streams 3 × 2048² level 0 in
+934 / 942 ms, 0 / 2 frames missed (33 ms: WebGL 2 uploads a whole 25 MB array chain in one frame); high → low drops in
+0.1 ms, 0 / 1 missed; a medium ↔ high switch changes nothing (same cap). The first assembly of the 2048² arrays took
+175 s on staging (then cached, 0.4 s a load). Round 1's per-tier logs were overwritten (one file name per renderer),
+round 2 lost its logs to a script error; the table is round 3, one round.
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.4b/shots/`, both renderers): `t-{low,medium,high}-{stone-wall-near,
+log-wall-near,rock-cliff-near,ground-near}-*`, `p-town-near-{tier}-*`, `p-town-{tier}-*`: walls, floor and terrain
+textured on every tier; low against high differs in 0.01–0.15 % of pixels at 2 m (the placeholders' detail is coarse:
+the step from 256 to 512 px/m barely shows), medium = high, WebGPU = WebGL 2 (≤ 0.01 %). The rock cliff's faint line
+(46d.4a): `c-cliff-{tex,flat,patterns}-webgpu`: at the 56 m section face, only with texture sets (D533).
+
+
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
   model**, as the owner asked; it uses a bench-generated height test set and a spike-only switch, so it needs no
@@ -720,7 +767,22 @@ first run and passed alone. `voxel-world.e2e.ts` 70.8 → 63.7 s (no e2e change;
 - 2026-11-08 (46d.4a): **the height's place** (normal A per texture layout v1 and R111, albedo A per the 46d.3a
   record) is left to 46d.4d (D531); the placeholder sets carry it in both.
 
+- 2026-11-08 (46d.4b, default chosen, owner to confirm): **the tier's texel density is a quality-level field**
+  (`voxelTexelDensity`, powers of two 64 … 4096, tier defaults 256 / 512 / 1024), a cap on the arrays' top level; the
+  page's one `texture_budget_mb` decides below it (no voxel-only budget), the tail ≤ 128² always resident.
+- 2026-11-08 (46d.4b, default chosen, owner to confirm): **the near need is measured from the chunks drawn with the
+  surface material at the finest tile a textured material draws** (terrain's 2 m tile asks one level more than a 4 m
+  wall); the cap is measured on the construction tile (4 m), so a 2 m terrain tile keeps twice the density.
+- 2026-11-08 (46d.4b, default chosen, owner to confirm): **voxel arrays always stream** (no per-texture `streaming`
+  setting: they are not texture assets); a build cuts them into parts whenever they have a level past the tail.
+- 2026-11-08 (46d.4b, default chosen, owner to confirm): **the editor's views stream the arrays from the whole file**
+  they fetch (the backend route answers whole arrays), at the engine's default budget; asset textures in the editor
+  still load whole. The voxel world page starts at `low` (the floor it measures); Play and exports at the level drawn.
+
 ## 10. Open questions for the owner
+
+- The authored 4096² sets cannot pass the engine's KTX2 encoder (12 Mpix, D532): encode layers outside the engine
+  (UASTC joined as stored), wait for a newer encoder, or author at 2048² until then.
 
 - **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — after 46d.7d's comparison
   (`~/.cache/thirdlight-phase46/far-field-comparison.md`). Both stay until then.
