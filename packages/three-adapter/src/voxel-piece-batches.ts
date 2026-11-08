@@ -87,6 +87,8 @@ interface Chunk {
   /** Its runs, matrices moved to the anchor. */
   runs: readonly PieceRun[];
   cls: number;
+  /** How far ahead of the view its centre was when its class was last found (metres). */
+  depth: number;
   /** Its sphere's centre (metres from the anchor) and radius. */
   readonly centre: [number, number, number];
   readonly radius: number;
@@ -188,7 +190,7 @@ export class VoxelPieceBatches {
     for (const r of runs) {
       for (let i = 0; i < r.n; i++) for (let a = 0; a < 3; a++) r.matrices[i * INSTANCE_MATRIX_FLOATS + 12 + a]! += at[a]!;
     }
-    const chunk: Chunk = { cell: [cell[0], cell[1], cell[2]], sizeM, runs, cls: REST, centre: [at[0] + half, at[1] + half, at[2] + half], radius: half * Math.sqrt(3) + PIECE_REACH_M };
+    const chunk: Chunk = { cell: [cell[0], cell[1], cell[2]], sizeM, runs, cls: REST, depth: 0, centre: [at[0] + half, at[1] + half, at[2] + half], radius: half * Math.sqrt(3) + PIECE_REACH_M };
     chunk.cls = this.classOf(chunk);
     this.chunks.set(id, chunk);
     for (const r of runs) {
@@ -318,8 +320,10 @@ export class VoxelPieceBatches {
     const key = b.kind.key;
     let at = 0;
     const counts = [0, 0, 0];
+    // The view's chunks nearest first (each pixel shaded once where pieces overlap), then the others as they come.
+    const seen = [...b.chunks].filter((c) => c.cls === VIEW).sort((p, q) => p.depth - q.depth);
     for (let cls = VIEW; cls <= REST; cls++) {
-      for (const c of b.chunks) {
+      for (const c of cls === VIEW ? seen : b.chunks) {
         if (c.cls !== cls) continue;
         for (const r of c.runs) {
           if (r.kind.key !== key) continue;
@@ -345,7 +349,17 @@ export class VoxelPieceBatches {
       box.expandByPoint(sphere.set(c.centre[0] - c.radius, c.centre[1] - c.radius, c.centre[2] - c.radius));
       box.expandByPoint(sphere.set(c.centre[0] + c.radius, c.centre[1] + c.radius, c.centre[2] + c.radius));
     }
-    box.getBoundingSphere(mesh.boundingSphere!);
+    const bounds = mesh.boundingSphere!;
+    box.getBoundingSphere(bounds);
+    // three sorts a draw among the opaque ones by its sphere's centre: at the nearest chunk in view it is drawn about
+    // when that chunk's surface is (the whole ring's centre would put it among far ones at random); grown to keep
+    // every chunk inside.
+    const near = seen[0];
+    if (near !== undefined) {
+      sphere.set(near.centre[0], near.centre[1], near.centre[2]);
+      bounds.radius += sphere.distanceTo(bounds.center);
+      bounds.center.copy(sphere);
+    }
   }
 
   /** A chunk's class against the view and the other cameras as they were last culled for. */
@@ -354,6 +368,7 @@ export class VoxelPieceBatches {
     const x = c.centre[0] * w[0]! + c.centre[1] * w[4]! + c.centre[2] * w[8]! + w[12]!;
     const y = c.centre[0] * w[1]! + c.centre[1] * w[5]! + c.centre[2] * w[9]! + w[13]!;
     const z = c.centre[0] * w[2]! + c.centre[1] * w[6]! + c.centre[2] * w[10]! + w[14]!;
+    if (this.view.camera !== null) c.depth = this.view.depth(x, y, z);
     if (this.view.camera !== null && this.view.side(x, y, z, c.radius) !== SphereSide.Outside) return VIEW;
     for (const o of this.others.values()) if (o.side(x, y, z, c.radius) !== SphereSide.Outside) return OTHER;
     return REST;

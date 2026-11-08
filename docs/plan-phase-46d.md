@@ -217,7 +217,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.4d | done: D531 height = normal map's A only (record map renamed `albedo`); heights blend in metres (1 cm contrast), relief reads the normal array; R111 wetness (darker, smoother, flatter, water in the low parts by height). D535: textures to 65.3 MiB. Town GPU 3.81–3.85 / 4.42–4.43 ms (46d.4c 3.66 / 4.48); WebGL 2 3–5 missed (D540). Seen both renderers; pieces dry (D538) |
 | 46d.5a | done: relief part = derived v29; ring per 8 m section round the focus (hysteresis, atomic re-plan, bodies stand), `levels.relief` 16 m scaled, `voxelRelief` low 0/med 2/high 4, setRings; own 1/8 budget share, ring shrinks (D528 fixed). Town med/high: relief 12.9/106 MB, 1.29/4.10 M tris, `render()` +0–1.1 ms, 0–7 missed; shadows main-thread bound (D529). D541, D542 |
 | 46d.5b | done: relief displaced in Play (worker + page), exports, Scene view (its quality level) and the voxel world page (tier default, relief switch); batches carry the ring (steps, radius, centre). High ring 24 m (relief scale 1.5). Town GPU med/high 4.26/4.36 WebGPU, 4.42/5.05 WebGL 2, 0–7 missed. D541 fixed; D542 cause found (kit pieces); D543. voxel e2e 64.2 → 83.2 s |
-| 46d.6a | not started |
+| 46d.6a | done: kit pieces drawn across chunks, one instanced draw a piece kind (49 in the town, was 1,466), culled by chunk per pass (view, shadow), written once a batch; pieces wear their cell's wetness (D538). Town `render()` 10.2–11.8 → 2.7–3.2 ms, shadows 15.5–20.3 → 4.1–4.6 ms (D529 fixed); GPU +0.6–2.5 ms (D544); high+shadows GPU-bound (D545). e2e 83.2 → 82.3 s |
 | 46d.6b | not started |
 | 46d.6c | not started |
 | 46d.7a | not started |
@@ -815,6 +815,57 @@ over the face beside its edge; the face's crease is 0 only on the edge line, so 
 recess (stone 6 cm) and uncover the piece's buried sides. Fix (not small, recorded): crease 0 on every vertex within
 a piece's reach of a cell carrying an edge piece, decided from cells alone so every section meeting a vertex agrees.
 
+### 46d.6a kit pieces drawn across chunks; D529, D538
+
+**Built.** three-adapter `voxel-piece-batches.ts` (`VoxelPieceBatches`): a chunk view's kit pieces as one
+`InstancedMesh` a piece kind (geometry, material, cut; keyed by the objects, so two kit sets never share a draw) for
+all of its chunks and nodes. Each chunk gives a run a kind (matrices in metres from an anchor cell, a `pieceU` vec4:
+trim U offset, factor, wetness); a chunk set/removed marks its kinds and the view writes them once at the end of
+`applyChunkDrawBatch` (`VoxelChunkView.inBatch`; a direct `set` writes at once). Culling: each pass's camera against
+the chunks' spheres (half diagonal + 1 m); a draw's buffer holds the view's chunks (nearest first), then those only
+another camera (a shadow map) holds, then the rest; three asks `count` per pass in `onBeforeRender`: the view its
+part, a still other camera view + its own, a moved or new camera all. The view is the last camera drawn without an
+override material; it is culled before any pass of a frame draws (its matrices change only between frames); another
+camera's chunks are picked in a microtask after the frame, so no buffer changes between two passes of one frame
+(WebGPU uploads before the frame's commands run). Room in powers of two (≥ 64); the anchor follows a chunk past
+1 km. Wetness: the dressing cell's (read with its kit at `set`, again on a shader-only change, no mesh), every piece
+material (kit look, trim, stand-ins) applies `wetLook` at height 1. Stats: the draws and the voxel world page report
+`pieceDrawsInView`, `piecesInView`. Manual (*Voxel kits*: wet pieces, per-kind draws); the three checklist names
+`voxel-trim-u.ts`' `builder.hasGeometryAttribute`.
+
+**Tested.** `voxel-piece-batches.test.ts` (real derives, a real chunk view): two kinds over six chunks are two draws;
+removes, adds and a swap leave the GPU-side instances (world matrix + data) equal to a rebuild in another order; a
+batch writes nothing until its end, then both chunks at once (also through `applyChunkDrawBatch`); a chunk 1.6 km out
+moves the anchor and no instance moves in the world; per-pass counts with a real perspective view and an orthographic
+shadow camera (first pass all, then the view's chunks only, the shadow's after its microtask, a moved shadow all);
+a wetness paint rewrites `pieceU`.z with no mesh built. Existing piece tests now read the batch draws
+(`voxel-kit-pieces`, `voxel-chunk-view`, `voxel-decals`, `kit-house`). Fast gate gate-fast-20261108-190425 (red:
+the three checklist row; edge-cases D523 passed alone) → rerun -191554 GREEN (perf 0 missed both renderers);
+`voxel-world.e2e.ts` 83.2 → 82.3 s (unchanged tests: the page, Play ×2, Scene view and export draw the pieces).
+Nearest-first order and docs: gate-fast-20261108-193214 (red only on `start.e2e.ts`, D417 watch;
+`scan-bounded-log.test.ts` failed once, passed alone) → rerun -194545 GREEN; `voxel-world.e2e.ts` 81.6 s.
+
+**Measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 view 60 m out, ~479-frame orbit,
+`?relief=tier`, 19:21–19:29, load 1.9–3.4, uptime 16.1 d; rounds: p1, p2 = nearest first, p3 = attribute matrices,
+p4 = p2 again; base = 46d.5b):
+
+| Town, WebGPU / WebGL 2 | piece draws (in view) | instances (in view) | draw calls | `render()` p50/p95 ms | GPU ms | missed |
+|---|---|---|---|---|---|---|
+| 46d.5b medium / high | 1,466 | 43,711 | 1,319 | 10.2 / 11.1, 10.4 / 11.8 | 4.26 / 4.42, 4.36 / 5.05 | 0 / 7, 0 / 0 |
+| medium | 49 (49) | 43,711 (37,182) | 298 | 2.7–3.0/4.3–4.9 / 2.9–3.0/4.2–5.1 | 5.4–6.1 / 5.0–5.1 | 0 / 1–2 |
+| high | 49 (49) | 43,711 (37,182) | 298 | 2.9–3.2/3.8–4.5 / 2.9–3.1/4.4–4.6 | 6.9 / 5.9–6.0 | 0 / 0 |
+| shadows low / medium / high (46d.5a: 15.5/16.1/18.2, 17.5/18.1/20.3 ms; 10/32/95, 59/77/153 missed) | 49 | | 499 | 4.1/4.3/4.4 / 4.5/4.6/4.6 | not usable at high | 0/0/27 of 344 / 0/2/50 of 326 |
+
+The main thread no longer limits the town: `render()` falls ~7.5 ms, with shadows ~12–15 ms (D529 fixed). The GPU
+rose 0.6–2.5 ms (D544, cause not traced: neither the matrix path nor the order). High with shadows is GPU-bound now
+(D545). Village (`MODE=pieces`, high): 45 piece draws for 839 pieces; away and back: 0 → 45 draws.
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.6a/shots/`, both renderers): `p-town-{medium,high}-*` (as
+46d.5b's, pieces in place), `p-town-near-*`, `p-town-mid-*` (rails, fences, window and door frames, eaves),
+`ps-town-*` (shadows), `v-stone-wall-near-*`, `v-log-corner-near-*`, `v-village-wide-*` and `*-back-*` (pieces back
+after the ring moved away and back), `v-stone-wall-near-hole-*` (a hole dug: its frame pieces), `-dry-` vs `-wet7-`
+(the window and door frame pieces darken with the wall). D542's shards still show on the door leaf (unchanged).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1057,6 +1108,19 @@ a piece's reach of a cell carrying an edge piece, decided from cells alone so ev
 - 2026-11-08 (46d.5b, default chosen, owner to confirm): **the Scene view draws relief at the view's quality level** (its steps and the relief distance scaled by it; its other distances stay the scene's own); a level change re-plans the ring in the worker, no reopen. The voxel world page takes the level's relief by default (`?relief=0` none) with a **relief** switch (moved / mesh flat).
 - 2026-11-08 (46d.5b, default chosen, owner to confirm): **Play and exports still cast no voxel shadows** (as before: the voxel world's shadows and their cost, D529, are lighting work, 46e); where shadows are on (the page's `?shadows=1`) the shadow pass is displaced the same.
 - 2026-11-08 (46d.5b, D541, default chosen, owner to confirm): **a section waits only for the chunks it reads** (its box + R), and a section reading a chunk neither resident nor coming counts as drawn-empty for the level choice and the seams (the world ends per section at the load ring's edge). Cost: the ring's edge sections now derive (a 32 m ring: 3.2× the derives; default 192 m ring unmeasured, D543).
+
+- 2026-11-08 (46d.6a, default chosen, owner to confirm): **pieces are culled per chunk on the CPU on both
+  renderers** (a chunk's sphere against each pass's frustum, a draw's buffer ordered view / other camera / rest, each
+  pass drawing its leading part) with three's `InstancedMesh`, not `attribute-instancing.ts`' per-instance culling:
+  that one tests and re-sorts every instance on each view change and carries only its own riders (no trim U or
+  wetness); a few hundred chunk tests serve every kind. GPU culling per instance stays 46d.6b's (WebGPU).
+- 2026-11-08 (46d.6a, default chosen, owner to confirm): **which camera is the view**: the last one drawn without an
+  override material; any other camera (a shadow map) draws the view's chunks and its own while it is still, all
+  while it moves; buffers are never rewritten between two passes of a frame. Draw room in powers of two (≥ 64
+  instances); the matrices' anchor follows a chunk past 1 km.
+- 2026-11-08 (46d.6a, D538, default chosen, owner to confirm): **a kit piece wears its dressing cell's wetness**
+  (the cell its kit is read from), with the surface's R111 look taken at height 1: darker, smoother, normal detail
+  flattened; water never stands on a piece (it stands proud of its faces).
 
 ## 10. Open questions for the owner
 
