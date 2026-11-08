@@ -263,7 +263,7 @@ freeze, 46c.17, 46c.18.
 | 46c.16i | acc46c-r2 presented, awaiting owner (hard stop): 78 shots × 2 renderers in `acceptance/46c-r2/final` (both kits, 45°/1:2 gable/hip, L, L0/L1, no kit, openings, attic, damage, cracked roofs, two materials, decals, town). Town 42.7 k instances, 1,412 draws, render() 8.8–9.2 ms, 0 missed. Seen: D519, D515, D516; no new D-row. 2 + 35 + 3 questions |
 | 46c.16j | done (09a4cd17): D519 fixed — roof polygons and bodies next to a roof name the one cell they show (owner offset in normal w / position w; derived 27), closing geometry the wall's, no blend; kit `wallTopFill` (piece table 5) default off: stepped wall tops. Flat roof's rim dressed. Seen both renderers; fast gate GREEN, e2e 65.5 → 66.5 s. D525 (roof tris ~x2) |
 | 46c.16k | done (6e77ee45, 5267364d, 0d854339): D525 fixed — roof rows merge by geometry, never material (town roofs fill: ramps 409 k → 204 k, base 674 k → 469 k; derived 28); cracks one 512² map a 4 m tile (continuous across cells); slot-mesh `mirror`; kit `sheetLayout` (O1). Seen both renderers; fast gate GREEN 13 min, e2e 66.5 → 64.5 s; D526 |
-| 46c.17 | not started (after the v1 freeze) |
+| 46c.17 | done (000b2444): authoring package — 17 slot sheets + index generated with the slot contract (`gen-slot-sheets.mjs`), Blender 5.2.2 templates (135 kB .blend) + one-click export, sample kit through it (13 meshes, 170 tris, GLB 20,012 B, own 2048² layout, check 0 err/0 warn), guide, art-factory request; D527 fixed. Fast gate GREEN 13 min |
 | 46c.14b | done: first build's full gate GREEN at 9107abbd (33 min, 8.0 GB), review fixed (46c.14c). Closing gate-full-20261106-092942 at 9e50b65e GREEN: 34 min (33), 8.0 GB, 393 e2e; edge-cases failed once, passed alone (D523). Its first run OOM-killed at 8G with no vitest worker cap; restarted with TL_VITEST_WORKERS=4. Review r2: 0H 5M 8L (46c.16h) |
 | 46c.14c | done: review M1–M5 fixed (D486–D490): jamb fronts (`cases-draft` v5, `kits` v6), run cells keep their axis, kit pins never move other refs, `_COL`/`_OCC` never drawn, kits + trim U + late pieces in the stream budget (town 105.7 → 112.7 MB, kits 6.58 MB). Lows: 5 fixed, D491–D497 open, D498 watch. Role spec blocks to regenerate (wall/opening jamb) |
 | 46c.18 | not started (after approval) |
@@ -1797,6 +1797,45 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
 - **Gate:** gate-fast-20261108-012059 GREEN (13 min, 4.9 GB; perf 0 missed both renderers, 5.83 / 4.05 ms main
   thread). `voxel-world.e2e.ts` 66.5 → 64.5 s (no e2e change). Descriptor budget 369,100 → 369,600 chars (two fields).
 
+### 46c.17 the kit authoring package
+
+- **Slot sheets** (`docs/manual/guides/voxel-kit-slots/`, 17 pages + index, served by `tl_docs`): generated with
+  `tools/voxel-bench/kits/slot-contract.json` by `node tools/voxel-bench/gen-slot-sheets.mjs` (`--check`) from the
+  catalogue (`edges-draft` v3), the stagger frames (anchor, open side, run), the kit check's envelope (now one
+  export, `VOXEL_KIT_ENVELOPE`: touch ±0.25 m, fit ±0.5 m, roof edges 0.75 / 1.0 m up), the flush inset (0.39 cm,
+  outer slots cut, inner ones skipped), the jitter range, mirror/pitch/half rules and the triangle guidance
+  (`SLOT_TRIANGLE_GUIDE` 48 edges / 64 corners and roofs / 32 damage, the bound the committed kits' tests now import).
+  "Shares a mesh with" is computed: the first cube rotation turning one slot's frame and open side onto another's with
+  its run kept (outer edges: bottom = top r5, vertical = top r9; inner: top = bottom r5, vertical = bottom r9;
+  corners r5); the placeholders' borrowed slots all use a listed rotation. Diagrams are the role spec's.
+  `slot-sheets.test.ts` (5): committed = generated, a page per case, envelope = the check's in both axes, shares
+  turn frames exactly, kits' borrows listed.
+- **Blender templates** (`tools/voxel-bench/kits/kit_templates.py`, Blender 5.2.2 headless in a 3 GB scope):
+  `templates` writes `voxel-kit-templates.blend` (**135,274 B**, committed): a collection a slot with its empty
+  (anchor cell centre), cell, touch and fit boxes, anchor, open and run arrows, label; a 4 × 4 m wall tile with the
+  0.5 m grid, a 2 m U ruler (U = (x + 0.25) × px/m ÷ size), the UV guide of the sheet layout on the kit's one material,
+  README and the script as text blocks, the record's fields in the scene's `tl_kit`. `export` (also Run Script in the
+  UI) writes each slot's meshes relative to its empty as `<slot>_v<k>` nodes (modifiers applied, one material, +Y up,
+  no tangents/cameras/lights/animation, placeholder material) and the record (borrowed slots by `tl_source` /
+  `tl_rotation`, `tl_weight`, `tl_mirror`). `make_placeholder_kits.py` gained `use_layout` and caps by layout (log
+  and stone GLBs byte-identical after it).
+- **Sample kit** (`sample` mode, through the same export; `sample.voxelkit.json`, `voxel-kit-sample.glb`; never bound
+  by default, test binding material 12): dressed trim (two bevelled rims 20 tris each, weights 3 : 1; cove fillet 4;
+  corner block 6; ridge 16, eave 18, verge 14, hip 16, valley 16; chips 10 × 4): **13 meshes in 15 of 17 slots,
+  170 triangles (264 counting each slot's meshes), GLB 20,012 B, record 5,572 B, no textures (its layout's debug set),
+  LODs none (L0 only), collision from the voxels**; own `sheetLayout` 2048² at 1024 px/m (S25, S12, F1, C25a, C12a,
+  32 px gutters); same bytes on a rerun. `sample-kit.test.ts`: valid and canonical, kit check on the real GLB 0
+  errors 0 warnings, T1–T7 ok "(the kit's layout)", every mesh within the guidance.
+- **Docs:** guide `docs/manual/guides/voxel-kits.md` (textures on plain voxels first, templates, one slot at a time,
+  UVs, export, `setVoxelKit`, kit check, kit test scene, damage/crack map, wall-top fill, mirror, the sample); linked
+  from the index and the voxel-worlds page (its stale Scene-view line and "not built" kits bullet fixed). Request
+  `docs/requests/art-factory-2026-11-08.md`: construction-tile graphs per material type (4096², albedo, normal +
+  height in A, ORM, height depth in metres), per-kit sheets from a `sheetLayout`, a 4 m crack map, a Kit Designer.
+- **D527 fixed:** the `setVoxelKit` shape message lists kit format 1's fields; the unknown-layout row names the
+  example layouts and `sheetLayout`.
+- **Gate:** gate-fast-20261108-021724 GREEN (13 min, 4.8 GB; perf 0 missed both renderers, 6.26 / 4.14 ms main
+  thread); `edge-cases.test.ts` failed once in the run and passed alone (D523, watch). No e2e change.
+
 ## 9. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **case reach 2 cells (Chebyshev)**, the two-voxel reach the
@@ -2533,11 +2572,25 @@ renderers, 5.71 / 4.11 ms main thread). `voxel-world.e2e.ts`: Scene view 8.8 →
   rule set `edges` and the derived version name what is derived), its `draft` flag false; `detail-trim` keeps its
   draft label (an example, not a standard; trim default 8). No stored format, derived byte or behaviour changed.
 
+- 2026-11-08 (46c.17, default chosen, owner to confirm): **the slot sheets live in the manual**
+  (`guides/voxel-kit-slots/`, generated, one page a slot) so an agent reads them through `tl_docs`; the numbers the
+  Blender templates use come from the same generator as a JSON contract, so templates, sheets and the kit check hold
+  one envelope.
+- 2026-11-08 (46c.17, default chosen, owner to confirm): **triangle guidance a piece: 48 for edges, 64 for corners
+  and roof edges, 32 for a damage fragment** (the placeholder kits' existing test bounds), reported never capped.
+- 2026-11-08 (46c.17, default chosen, owner to confirm): **the recommended piece sheet is 2048² at 1024 px/m** (two
+  strips 0.25 / 0.125 m, a 1 m field for slope and hip faces, caps 0.25 / 0.125 m, 32 px gutters): a 1024² sheet
+  had no room for the faces up a roof's slope. A recommendation; any kit declares its own.
+- 2026-11-08 (46c.17, default chosen, owner to confirm): **the export writes a placeholder of the kit's one
+  material** (no images) until 46d's material model reads kit textures; the sample binds material 12 for tests only
+  and nothing binds it by default. The templates `.blend` is committed (135 kB); the sample's `.blend` is made on
+  demand (`sample --blend`, 146 kB). The art-factory request asks for a 1024² crack map (the engine's is 512²).
+
 ## 10. Open questions for the owner
 
 - ~~Role spec v1 and the trim layout for detail pieces (the hard stops, 46c.15).~~ Approved 2026-11-06 (v1 frozen, 46c.16).
 - Whether the case reach of 2 cells is enough for soffits and mouldings under deep eaves, or the apron may grow.
 - Where kits live: project content items (schema, add-only) or files beside the world; and the binding's move to 46d.
-- Who makes the Texture Designer graphs and Kit Designer after approval: art-factory's own sessions from a request doc.
+- ~~Who makes the Texture Designer graphs and Kit Designer after approval~~: art-factory's own sessions, from `docs/requests/art-factory-2026-11-08.md` (46c.17).
 - **acc46c-r2 shot list (lead):** add a two-material gable house (stone walls, timber roof) so D519's stepped
   material line under the roof is judged before the freeze (review r2 M5); a cracked roof cell (stage 1) at 45° and 1:2.
