@@ -8,7 +8,7 @@
  * move, click to pick, Z to undo).
  */
 import * as THREE from 'three';
-import { createOcclusionFrame, occlusionFromUrl, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
+import { createOcclusionFrame, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
 import { reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FloatingOrigin, type ReliefRingSettings, type StreamRelief } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
@@ -170,6 +170,8 @@ export class PageSun {
     cam.right = cam.top = SHADOW_SPAN_M / 2;
     cam.near = 1;
     cam.far = 400;
+    // Relief chunks cast from their plain surfaces, drawn off the view.
+    shadowSeesCutaways(cam);
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     scene.add(sun.target);

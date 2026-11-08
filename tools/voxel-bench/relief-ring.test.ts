@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   ChunkDrawBatcher,
+  chunkDrawBatchTransfer,
   chunkGrid,
   createWorldStore,
   deriveSectionFromStore,
@@ -22,6 +23,7 @@ import {
   RELIEF_BUDGET_SHARE,
   RELIEF_FOCUS_STEP_CELLS,
   sectionGrid,
+  SURFACE_VERTEX_BYTES,
   VoxelStreamer,
   WORLD_RULES,
   WorkerPool,
@@ -204,7 +206,7 @@ describe('the relief ring while streaming (real workers, town regions on disk)',
     checkWindow(tight, sectionOf(focus), 'shrunk');
   });
 
-  it("tells the draws the ring's state: its steps, where it displaces and its centre, once a step of the centre, and its relief chunks come with crease weights", { timeout: 240_000 }, async () => {
+  it("tells the draws the ring's state: its steps, where it displaces and its centre, once a step of the centre, and its relief chunks come with crease weights and their plain surfaces to cast shadows from", { timeout: 240_000 }, async () => {
     const s = streamer(RELIEF);
     const batches: ChunkDrawBatch[] = [];
     new ChunkDrawBatcher('town', s, RELIEF_SECTION_EDGE, (b) => batches.push(b));
@@ -218,6 +220,32 @@ describe('the relief ring while streaming (real workers, town regions on disk)',
     const drawn = batches.flatMap((b) => b.chunks).filter((c) => c.kind === 'draw');
     expect(drawn.some((c) => c.ground?.crease !== undefined || c.base?.crease !== undefined)).toBe(true);
     expect(drawn.some((c) => c.ground?.crease === undefined && c.base?.crease === undefined)).toBe(true);
+    // A relief chunk also carries its plain surfaces (a view with shadows casts from them), byte-equal to the plain
+    // join, handed over with the batch; a plain chunk carries none (it casts itself).
+    const last = new Map(drawn.map((c) => [`${c.cx},${c.cy},${c.cz}`, c]));
+    let reliefTris = 0;
+    let casterTris = 0;
+    for (const c of last.values()) {
+      const relief = c.ground?.crease !== undefined || c.base?.crease !== undefined;
+      expect(c.caster !== undefined, `${c.cx},${c.cy},${c.cz}`).toBe(relief);
+      if (c.caster === undefined) continue;
+      const plain = s.joinedChunk(c.cx, c.cy, c.cz)!;
+      for (const k of ['ground', 'base'] as const) {
+        expect((c.caster[k] as { crease?: Uint8Array }).crease).toBeUndefined();
+        expect(c.caster[k].vertexCount).toBe(plain[k].vertexCount);
+        expect(Buffer.from(c.caster[k].vertices.subarray(0, plain[k].vertexCount * SURFACE_VERTEX_BYTES)).equals(Buffer.from(plain[k].vertices.subarray(0, plain[k].vertexCount * SURFACE_VERTEX_BYTES)))).toBe(true);
+        expect([...c.caster[k].indices]).toEqual([...plain[k].indices]);
+      }
+      reliefTris += (c.ground!.indices.length + c.base!.indices.length) / 3;
+      casterTris += (c.caster.ground.indices.length + c.caster.base.indices.length) / 3;
+    }
+    // At 2 steps a cell the plain casters hold about a quarter of the relief triangles (merged faces: fewer).
+    expect(casterTris).toBeGreaterThan(0);
+    expect(casterTris).toBeLessThan(reliefTris / 3);
+    const withCaster = batches.find((b) => b.chunks.some((c) => c.caster !== undefined))!;
+    const handed = new Set(chunkDrawBatchTransfer(withCaster));
+    const c0 = withCaster.chunks.find((c) => c.caster !== undefined)!;
+    expect(handed.has(c0.caster!.ground.vertices.buffer as ArrayBuffer) && handed.has(c0.caster!.base.indices.buffer as ArrayBuffer)).toBe(true);
     // A move under a step tells nothing; a step tells the new centre.
     const n0 = batches.length;
     s.setFocus(focus.x + RELIEF_FOCUS_STEP_CELLS / 2, focus.y, focus.z);

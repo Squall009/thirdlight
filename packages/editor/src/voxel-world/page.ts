@@ -144,6 +144,8 @@ const levelsParam = params.get('levels');
 const relief = new PageRelief(reliefParams(params));
 /** `?shadows=1`: the sun casts shadows (a map over the view round the focus), surfaces and pieces cast and receive them. */
 const shadows = params.get('shadows') === '1';
+/** `?reliefShadow=relief`: relief chunks cast from their displaced meshes (to compare) instead of their plain surfaces. */
+const reliefCasters = params.get('reliefShadow') === 'relief' ? 'relief' : 'plain';
 const levelRings = (metres: readonly number[]): { radii: number[]; hysteresis: number } => ({ radii: metres.map((m) => Math.round(m / VOXEL_SIZE_M)), hysteresis: DEFAULT_LEVEL_RINGS.hysteresis });
 /** A brush dab's half size in cells (a 1 m sphere). */
 const BRUSH_CELLS = 2;
@@ -261,7 +263,7 @@ async function main(): Promise<void> {
   const level = pageLevel(textureResidency.quality, relief.params);
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   relief.attach(surface, streamer.relief, level.relief);
-  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows });
+  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters });
   const gpu = createGpuTiming();
   // `?occlusion=`: drawn through the engine's culler and a scene pass (none: the page draws the scene itself).
   const occlusion = pageOcclusion(renderer, backendName, scene, camera);
@@ -585,7 +587,7 @@ async function main(): Promise<void> {
         seams: meshes.seamCount,
         seamTriangles: meshes.seamTriangles,
         lod: mips === null ? null : { ...mips.lod.counters, radii: mips.lod.levelRings.radii, swapMs: { p50: q(mips.lod.swapMs, 0.5), p95: q(mips.lod.swapMs, 0.95), n: mips.lod.swapMs.count } },
-        triangles: meshes.triangles, vertices: meshes.vertices, reliefVertices: meshes.reliefVertices,
+        triangles: meshes.triangles, casterTriangles: meshes.casterTriangles, vertices: meshes.vertices, reliefVertices: meshes.reliefVertices,
         pieces: meshes.instances, kitPieces: meshes.piecesDrawn.kit, pieceDraws: meshes.pieceDraws, pieceDrawsInView: meshes.pieces.drawsInView, piecesInView: meshes.pieces.instancesInView, drawCalls: (renderer.info as unknown as { render: { drawCalls: number } }).render.drawCalls,
         kits: { ids: kits.table?.kits.map((k) => k.id) ?? [], meshes: kits.meshes.states() },
         streamBytes: m.bytes,
@@ -598,6 +600,7 @@ async function main(): Promise<void> {
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         relief: relief.state(m.relief),
         shadows,
+        reliefCasters,
         textures: { ...materials.textures, current: materials.texturesCurrent, textured: surface.textured },
         surface: { shading, blendM, tableUploads: surface.tableUploads, tableMs: surface.tableMs, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,

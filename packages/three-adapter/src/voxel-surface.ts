@@ -131,7 +131,7 @@ import { NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt } from './voxel
 import { heightBlend, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, normalLocal, normalView, positionLocal, positionView, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, vec2, vec3, vec4 } = TSL;
+const { Fn, abs, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, modelWorldMatrix, normalLocal, normalView, positionGeometry, positionLocal, positionView, positionWorld, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, varying, vec2, vec3, vec4 } = TSL;
 
 /** The object `userData` key holding a voxel surface's per-object values ({@link VoxelSurfaceObject}). */
 export const VOXEL_SURFACE_KEY = 'tlVoxelSurface';
@@ -934,7 +934,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     if (opts.relief === true && (textured || heights !== null)) {
       // The vertex stage: a relief vertex moves inward along its normal by the blended recess, its crease weight and
       // the ring's fade; heights are read at the mip whose texels are as wide as the vertex spacing, never sharper.
-      // Three's shadow pass draws with the material's position node too, so shadows move the same.
+      // Three's shadow pass draws with the material's position node too, so a relief mesh that casts moves the same.
       material.positionNode = Fn((builder: { hasGeometryAttribute(name: string): boolean }) => {
         if (!builder.hasGeometryAttribute(VOXEL_CREASE_ATTRIBUTE)) return positionLocal;
         const n = normalLocal.normalize();
@@ -951,6 +951,12 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         const fade = float(1).sub(smoothstep(fadeStartU, fadeEndU, positionLocal.sub(focusU).length()));
         return positionLocal.sub(n.mul(d.mul(creaseWeight()).mul(fade).mul(displaceU)));
       })();
+      // A relief mesh casts no shadow where its view draws shadows (its chunk's plain surfaces do, voxel-chunk-view.ts),
+      // so it looks its shadow up where the plain surface is: a recessed point is then lit or shaded exactly as the
+      // plain surface there (no point lies behind its own caster's far side).
+      material.receivedShadowPositionNode = Fn((builder: { hasGeometryAttribute(name: string): boolean }) =>
+        builder.hasGeometryAttribute(VOXEL_CREASE_ATTRIBUTE) ? varying(modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz) : positionWorld,
+      )();
     }
     if (heights !== null) {
       // The debug program's lighting normal follows its test heights (the geometry's normals are never rebuilt): the

@@ -6,8 +6,10 @@
  * reads the heights at an explicit level (no sharper than the vertex
  * spacing) from the normal maps' A (texture layout v1), or under the debug
  * patterns from the test heights; a plain chunk's program reads none;
- * three's shadow pass takes the material's position node, so a shadow is
- * displaced the same; without relief nothing of it is built. And the test
+ * where shadows are drawn a relief chunk casts from its plain surfaces (a
+ * caster only the shadow cameras see) and looks its shadow up at its plain
+ * place, and three's shadow pass of a relief mesh that casts itself takes
+ * the material's position node; without relief nothing of it is built. And the test
  * heights themselves: deterministic, tileable, using the 0–1 range.
  */
 import * as THREE from 'three';
@@ -33,7 +35,9 @@ import {
 } from '@thirdlight/voxel';
 
 import { glslRenderer, settle, wgslOf, wgslRenderer } from './test-wgsl';
-import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { shadowSeesCutaways } from './block-cutaway-view';
+import { VOXEL_CASTER_KEY, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { OFF_VIEW_LAYER } from './view-hidden';
 import { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, reliefTestHeights, voxelTestRelief } from './voxel-relief';
 import { createVoxelSurface, VOXEL_CREASE_ATTRIBUTE, type VoxelGridRenderer, type VoxelMaterialLook } from './voxel-surface';
 import { VoxelWorldDraws } from './voxel-world-draws';
@@ -42,6 +46,12 @@ const grid = chunkGrid(32);
 const R = jobRadius(PLACEHOLDER_RULES);
 const SECTION = 16;
 const LAYOUT = { cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS };
+/** A program builder whose shadow maps are on (the lights' shadow nodes build; with no device, a WebGPU build gives the plain answer to what it can do). */
+const shadowed = <T>(r: T, device = true): T => {
+  (r as unknown as { shadowMap: { enabled: boolean } }).shadowMap.enabled = true;
+  if (device) (r as unknown as { hasCompatibility: () => boolean }).hasCompatibility = () => false;
+  return r;
+};
 /** Small height layers: the program and the bounds do not depend on the size. */
 const SIZE = 16;
 const heights = { size: SIZE, layers: RELIEF_TEST_LAYERS.map((_, k) => new Uint8Array(SIZE * SIZE).fill(40 * k)) };
@@ -138,17 +148,90 @@ describe('relief displacement', () => {
     expect(fvs).not.toMatch(/\btextureLoad\s*\(/);
   });
 
-  it('displaces the shadow the same: three\'s shadow pass takes the material\'s position node, which builds the displacement for a relief chunk', async () => {
+  it("casts a relief chunk's shadow from its plain surfaces where shadows are drawn: the relief mesh casts none, a plain caster only the shadow cameras see casts, and the relief looks its shadow up at its plain place; `reliefCasters: 'relief'` casts the displaced mesh as before", async () => {
     await settle();
-    const { mesh, surface } = drawn(joined(world(), 2), true);
-    const renderer = wgslRenderer() as unknown as { _getShadowNodes(m: THREE.Material): { positionNode: unknown } };
-    expect(surface.material.positionNode).not.toBeNull();
+    const d = joined(world(), 4);
+    const surface = createVoxelSurface(LAYOUT, { look, blendMetres: 0.25, relief: true });
+    const origin = new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } });
+    const draw = { ground: d.relief!.ground, base: d.relief!.base, caster: { ground: d.ground, base: d.base }, instances: d.instances, solid: d.solid };
+    const meshesOf = (view: VoxelChunkView): THREE.Mesh[] => {
+      const out: THREE.Mesh[] = [];
+      view.root.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.userData['voxelKitPiece'] !== true) out.push(o);
+      });
+      return out;
+    };
+    const view = new VoxelChunkView({ grid, origin, surface, renderer: noUploads, shadows: true });
+    const bytes = view.set(0, 0, 0, draw);
+    const meshes = meshesOf(view);
+    const relief = meshes.find((m) => m.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined)!;
+    const caster = meshes.find((m) => m.userData[VOXEL_CASTER_KEY] === true)!;
+    expect(meshes.length).toBe(2);
+    expect([relief.castShadow, relief.receiveShadow, relief.layers.isEnabled(0)]).toEqual([false, true, true]);
+    // The caster: the plain triangles, cast only (the view's camera, layer 0, never draws it; a shadow camera that sees
+    // the off-view layer does), its world place the relief mesh's.
+    expect([caster.castShadow, caster.receiveShadow, caster.layers.isEnabled(0), caster.layers.isEnabled(OFF_VIEW_LAYER)]).toEqual([true, false, false, true]);
+    expect(caster.geometry.index!.count).toBe(d.ground.indices.length + d.base.indices.length);
+    expect(caster.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE)).toBeUndefined();
+    caster.updateWorldMatrix(true, false);
+    relief.updateWorldMatrix(true, false);
+    expect(caster.matrixWorld.equals(relief.matrixWorld)).toBe(true);
+    const cam = new THREE.PerspectiveCamera();
+    const shadowCam = new THREE.OrthographicCamera();
+    shadowSeesCutaways(shadowCam);
+    expect([caster.layers.test(cam.layers), caster.layers.test(shadowCam.layers), relief.layers.test(cam.layers)]).toEqual([false, true, true]);
+    expect(view.pickable).toEqual([relief]);
+    // Counted as drawn GPU bytes; its triangles apart from the view's (a sixteenth of the lattice's here).
+    const reliefTris = (d.relief!.ground.indices.length + d.relief!.base.indices.length) / 3;
+    expect(view.triangles).toBe(reliefTris);
+    expect(view.casterTriangles).toBe((d.ground.indices.length + d.base.indices.length) / 3);
+    expect(view.casterTriangles).toBeLessThan(reliefTris / 8);
+    expect(bytes).toBeGreaterThan(new VoxelChunkView({ grid, origin, surface, renderer: noUploads, shadows: true }).set(0, 0, 0, { ...draw, caster: undefined } as never));
+    // The caster's shadow pass reads no height and no grid (its material shades nothing).
+    const renderer = wgslRenderer() as unknown as { _getShadowNodes(m: THREE.Material): { positionNode: unknown; colorNode: unknown } };
+    expect(renderer._getShadowNodes(caster.material as THREE.Material)).toMatchObject({ positionNode: null, colorNode: null });
+    // The relief receives at the plain place: with a shadowed sun its program looks the shadow up at the undisplaced
+    // position (without the received position node: at the displaced one); both backends build it.
+    const sun = new THREE.DirectionalLight(0xffffff, 2);
+    sun.castShadow = true;
+    const probe = new THREE.Mesh(relief.geometry, relief.material);
+    probe.userData = relief.userData;
+    probe.receiveShadow = true;
+    const lit = new THREE.Scene().add(sun, probe);
+    const withPlain = wgslOf(shadowed(wgslRenderer()), lit, probe);
+    const kept = surface.material.receivedShadowPositionNode;
+    surface.material.receivedShadowPositionNode = null;
+    surface.material.needsUpdate = true;
+    const without = wgslOf(shadowed(wgslRenderer()), lit, probe);
+    surface.material.receivedShadowPositionNode = kept;
+    surface.material.needsUpdate = true;
+    // What the shadow lookup's world position is made of in the vertex stage: the geometry's own position attribute
+    // (the plain place) or the displaced local position.
+    const lookupFrom = (src: string): string => {
+      const v = /shadowPositionWorld = (\w+);/.exec(src)![1]!;
+      return new RegExp(`varyings\\.${v} = ([^;]+);`).exec(stage(src, 'vertex'))![1]!;
+    };
+    expect(lookupFrom(withPlain)).toMatch(/vec4<f32>\( position, 1\.0 \)/);
+    expect(lookupFrom(without)).toMatch(/positionLocal/);
+    expect(wgslOf(shadowed(glslRenderer(), false), lit, probe)).toMatch(/shadowPositionWorld/);
+    // Removed: the caster goes with the chunk.
+    view.remove(0, 0, 0);
+    expect([view.triangles, view.casterTriangles, meshesOf(view).length]).toEqual([0, 0, 0]);
+    // Without shadows nothing of it is built; `relief` casters: the relief mesh casts itself, displaced (three's shadow
+    // pass takes the material's position node, which builds the displacement for a relief chunk).
+    const noShadows = new VoxelChunkView({ grid, origin, surface, renderer: noUploads });
+    noShadows.set(0, 0, 0, draw);
+    expect(meshesOf(noShadows).length).toBe(1);
+    const asBefore = new VoxelChunkView({ grid, origin, surface, renderer: noUploads, shadows: true, reliefCasters: 'relief' });
+    asBefore.set(0, 0, 0, draw);
+    const [own] = meshesOf(asBefore);
+    expect(meshesOf(asBefore).length).toBe(1);
+    expect(own!.castShadow).toBe(true);
     expect(renderer._getShadowNodes(surface.material).positionNode).toBe(surface.material.positionNode);
-    // A depth-only material with that position node, as the shadow pass's override is: its vertex stage displaces.
     const shadowMat = new (await import('three/webgpu')).MeshBasicNodeMaterial();
     shadowMat.positionNode = surface.material.positionNode;
-    const shadowMesh = new THREE.Mesh(mesh.geometry, shadowMat as unknown as THREE.Material);
-    shadowMesh.userData = mesh.userData;
+    const shadowMesh = new THREE.Mesh(own!.geometry, shadowMat as unknown as THREE.Material);
+    shadowMesh.userData = own!.userData;
     const vs = stage(wgslOf(wgslRenderer(), new THREE.Scene().add(shadowMesh), shadowMesh), 'vertex');
     expect((vs.match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
   });

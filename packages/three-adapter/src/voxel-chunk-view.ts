@@ -56,7 +56,7 @@
  * kits and detail art come later.
  */
 import * as THREE from 'three';
-import { MeshLambertNodeMaterial } from 'three/webgpu';
+import { MeshBasicNodeMaterial, MeshLambertNodeMaterial } from 'three/webgpu';
 import {
   caseFlushFaces,
   chunkKey,
@@ -90,6 +90,7 @@ import {
 } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import { applyObjectDecalLayers, DECAL_LAYERS_KEY, DECAL_SURFACE_KEY } from './projected-decals';
+import { OFF_VIEW_LAYER } from './view-hidden';
 import type { SurfaceListener } from './render-graph';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
@@ -195,7 +196,21 @@ function geometryBytes(geo: THREE.BufferGeometry): number {
 }
 
 /** What a chunk's (or node's) draw is made of: its joined sections' surfaces, pieces and shader grid (a join, or a batch's copy of one). */
-export type VoxelChunkDraw = Pick<JoinedDraw, 'instances' | 'solid'> & { readonly ground: DrawSurface; readonly base: DrawSurface };
+export type VoxelChunkDraw = Pick<JoinedDraw, 'instances' | 'solid'> & { readonly ground: DrawSurface; readonly base: DrawSurface; readonly caster?: { readonly ground: DrawSurface; readonly base: DrawSurface } };
+
+/** `mesh.userData[VOXEL_CASTER_KEY]`: a chunk's plain shadow caster (drawn only by the shadow cameras, for its relief mesh). */
+export const VOXEL_CASTER_KEY = '__tlVoxelCaster';
+
+/**
+ * The plain casters' material: nothing but depth is read from it (three's
+ * shadow pass draws its back faces, as for every front-sided surface), so no
+ * colour, grid or texture is shaded for a caster's shadow pixels.
+ */
+function casterMaterial(): THREE.Material {
+  const m = new MeshBasicNodeMaterial();
+  m.name = 'voxel shadow caster';
+  return m;
+}
 
 /** A seam piece: positions in the finer level's steps from its origin (finer-level cells). */
 export type VoxelSeamPiece = SeamPieceWire;
@@ -254,6 +269,13 @@ export interface VoxelChunkViewOptions {
   readonly kits?: VoxelKitSet | null;
   /** Surfaces and pieces cast and receive shadows (default false). */
   readonly shadows?: boolean;
+  /**
+   * What casts a relief chunk's shadow: its plain surfaces (`plain`, the
+   * default; see {@link VoxelChunkView} `addCaster`) or the displaced relief
+   * mesh itself (`relief`: every lattice triangle drawn into each shadow map,
+   * kept to compare).
+   */
+  readonly reliefCasters?: 'plain' | 'relief';
 }
 
 /** GPU bytes an instance takes in a piece draw: its matrix and its `pieceU` (voxel-trim-u.ts). */
@@ -288,12 +310,17 @@ export class VoxelChunkView {
   private readonly shading: VoxelSurface;
   private readonly renderer: VoxelGridRenderer;
   private readonly shadows: boolean;
+  private readonly plainCasters: boolean;
   /** Triangles drawn (seams included), and of them the seams'. */
   triangles = 0;
   /** Vertices of the chunk and node surfaces drawn (seams not counted), and of them the relief meshes' (displaced). */
   vertices = 0;
   reliefVertices = 0;
   seamTriangles = 0;
+  /** Triangles of the plain shadow casters drawn for relief chunks (shadow passes only; not in {@link triangles}). */
+  casterTriangles = 0;
+  /** The plain casters' material (made with the first caster). */
+  private caster: THREE.Material | null = null;
   /** Objects whose meshes were built (chunks and nodes), and shader grids uploaded or set (one solid entry). */
   meshBuilds = 0;
   shaderSets = 0;
@@ -309,6 +336,7 @@ export class VoxelChunkView {
     this.shading = opts.surface;
     this.renderer = opts.renderer;
     this.shadows = opts.shadows === true;
+    this.plainCasters = opts.reliefCasters !== 'relief';
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows });
     this.root.add(this.pieces.root);
@@ -541,7 +569,10 @@ export class VoxelChunkView {
       bytes += geometryBytes(geo);
       this.triangles += (geo.index?.count ?? 0) / 3;
       this.vertices += geo.getAttribute('position').count;
-      if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) this.reliefVertices += geo.getAttribute('position').count;
+      if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) {
+        this.reliefVertices += geo.getAttribute('position').count;
+        bytes += this.addCaster(group, mesh, d, cellM);
+      }
     }
     const kept = keptInstances(d.instances, this.kitEntriesOf(d));
     const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface };
@@ -562,6 +593,36 @@ export class VoxelChunkView {
     this.applyShader(m, d.solid);
     this.flushPieces();
     return m.bytes;
+  }
+
+  /**
+   * A relief mesh's shadow: with shadows on and the chunk's plain surfaces
+   * given, the relief mesh casts none and the plain surfaces cast in its
+   * place, drawn only by the shadow cameras ({@link OFF_VIEW_LAYER}). The
+   * relief only recesses the plain surface (inward along its normal, never
+   * out), so the plain solid holds the displaced one and its shadow is the
+   * one every chunk outside the ring casts: no edge or seam lets light
+   * through, and the shadow map draws the plain triangles (a sixteenth of
+   * the relief ring's at 4 steps a cell) instead of the lattice. The relief
+   * looks its shadow up at its plain place (the surface's received shadow
+   * position), so a recessed point is lit or shaded as the plain surface
+   * there. Returns the caster's bytes (0: none built).
+   */
+  private addCaster(group: THREE.Group, relief: THREE.Mesh, d: VoxelChunkDraw, cellM: number): number {
+    if (!this.shadows || !this.plainCasters || d.caster === undefined) return 0;
+    const geo = voxelSurfaceGeometry([d.caster.ground, d.caster.base], cellM);
+    if (geo === null) return 0;
+    relief.castShadow = false;
+    const mesh = new THREE.Mesh(geo, (this.caster ??= casterMaterial()));
+    mesh.name = 'voxel shadow caster';
+    mesh.matrixAutoUpdate = false;
+    mesh.layers.set(OFF_VIEW_LAYER);
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+    mesh.userData[VOXEL_CASTER_KEY] = true;
+    group.add(mesh);
+    this.casterTriangles += (geo.index?.count ?? 0) / 3;
+    return geometryBytes(geo);
   }
 
   /**
@@ -708,7 +769,10 @@ export class VoxelChunkView {
     for (const child of m.group.children) {
       const i = this.pickable.indexOf(child);
       if (i >= 0) this.pickable.splice(i, 1);
-      if (child instanceof THREE.Mesh) {
+      if (child instanceof THREE.Mesh && child.userData[VOXEL_CASTER_KEY] === true) {
+        this.casterTriangles -= ((child.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
+        (child.geometry as THREE.BufferGeometry).dispose();
+      } else if (child instanceof THREE.Mesh) {
         const g = child.geometry as THREE.BufferGeometry;
         this.triangles -= (g.index?.count ?? 0) / 3;
         this.vertices -= g.getAttribute('position').count;
@@ -777,6 +841,8 @@ export class VoxelChunkView {
     }
     for (const s of [...this.seams.values()]) this.removeSeam(s.level, ...s.node);
     this.pieces.dispose();
+    this.caster?.dispose();
+    this.caster = null;
   }
 }
 
@@ -839,7 +905,7 @@ function applyBatch(view: VoxelChunkView, b: ChunkDrawBatch): VoxelBatchApplied 
     }
     if (c.cells !== undefined) view.cells.set(c.cells);
     const solid = c.solid ?? 0;
-    const n = c.kind === 'shader' ? view.setShader(c.cx, c.cy, c.cz, solid, level) : view.set(c.cx, c.cy, c.cz, { ground: c.ground!, base: c.base!, instances: c.instances!, solid }, level);
+    const n = c.kind === 'shader' ? view.setShader(c.cx, c.cy, c.cz, solid, level) : view.set(c.cx, c.cy, c.cz, { ground: c.ground!, base: c.base!, ...(c.caster !== undefined ? { caster: c.caster } : {}), instances: c.instances!, solid }, level);
     if (level === 0) chunkBytes.push(c.cx, c.cy, c.cz, n);
   }
   let seams = 0;

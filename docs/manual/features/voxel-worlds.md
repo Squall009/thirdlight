@@ -232,9 +232,16 @@ the plain surfaces: relief only ever recesses.
   exports, the editor's Scene view (at the view's quality level, round the
   point it orbits) and the voxel world page (the quality level's by default;
   `?relief=0` none; its **relief** switch, bottom right, draws the relief
-  mesh flat to compare). Shadows are moved the same where the world casts
-  them (the voxel world page's `?shadows=1`; Play and exports do not cast
-  voxel shadows yet).
+  mesh flat to compare).
+- **Shadows.** Where the world casts shadows (the voxel world page's
+  `?shadows=1`; Play and exports do not cast voxel shadows yet), a relief
+  chunk casts from its plain surfaces, not from the relief mesh: relief only
+  ever recesses the surface, so the plain shape holds it, and the shadow map
+  draws a fraction of the triangles. The relief surface looks its shadow up
+  where the plain surface is. What is lost: the small shadows inside the
+  relief itself (a stone's side in its own joint at a low sun); the
+  surface's normals still shade it. `?reliefShadow=relief` casts from the
+  relief meshes instead, to compare.
 
 Limits today:
 

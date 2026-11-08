@@ -53,6 +53,13 @@ export interface ChunkDrawWire {
   readonly kind: 'draw' | 'shader' | 'remove';
   readonly ground?: DrawSurface;
   readonly base?: DrawSurface;
+  /**
+   * With a relief draw: the chunk's plain surfaces (what collides), for a
+   * view that casts shadows to draw into its shadow maps in place of the
+   * relief meshes (the relief only ever recesses the plain surface, so the
+   * plain solid holds it).
+   */
+  readonly caster?: { readonly ground: SurfaceBuffer; readonly base: SurfaceBuffer };
   readonly instances?: InstanceList;
   /** The grid's one solid entry (0: all air), or −1: its side³ entries are in `cells`. */
   readonly solid?: number;
@@ -170,6 +177,10 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(c.base?.indices);
     add(c.ground?.crease);
     add(c.base?.crease);
+    add(c.caster?.ground.vertices);
+    add(c.caster?.ground.indices);
+    add(c.caster?.base.vertices);
+    add(c.caster?.base.indices);
     add(c.instances?.data);
     add(c.cells);
   }
@@ -303,11 +314,14 @@ export class ChunkDrawBatcher {
     const own = <T extends Uint8Array | Uint16Array | Uint32Array>(a: T): T => (this.copy ? (a.slice() as T) : a);
     const surface = (s: SurfaceBuffer): SurfaceBuffer => ({ vertexCount: s.vertexCount, vertices: own(s.vertices), indices: own(s.indices) });
     if (d.relief !== undefined) {
-      // The relief mesh is drawn in place of the surfaces (the plain ones still collide), its crease weights with it.
+      // The relief mesh is drawn in place of the surfaces (the plain ones still collide, and cast where shadows are
+      // drawn), its crease weights with it.
       const relief = (r: ReliefSurface): DrawSurface => ({ ...surface(r), crease: own(r.crease) });
-      // What of the chunk's draw is relief (its GPU copy): the relief share's, not the base world's.
+      // What of the chunk's draw is relief (its GPU copy): the relief share's, not the base world's; a plain caster the
+      // view builds is the chunk's mesh part, as the same surfaces drawn plain would be.
       this.reliefSent.set(key, reliefBytes({ n: 0, ...d.relief }));
-      this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
+      const caster = { ground: surface(d.ground), base: surface(d.base) };
+      this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), caster, instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
       return;
     }
     if (this.reliefSent.delete(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, 0);

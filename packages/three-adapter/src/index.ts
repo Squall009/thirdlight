@@ -407,7 +407,8 @@ export { markHostDrawing, markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occl
 export { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels, browserCrackDecoder, type CrackImageDecoder } from './voxel-crack-texture';
 export { createVoxelSurface, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_GRID_MAX_EDGE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelReliefSettings, type VoxelSurfaceObject, type VoxelSurfaceOptions, type VoxelSurfaceTextureArrays } from './voxel-surface';
 export { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, RELIEF_TEST_SIZE, reliefTestHeights, voxelTestRelief, type VoxelReliefLook } from './voxel-relief';
-export { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelBatchApplied, type VoxelChunkDraw, type VoxelChunkViewOptions, type VoxelSeamPiece } from './voxel-chunk-view';
+export { shadowSeesCutaways } from './block-cutaway-view';
+export { applyChunkDrawBatch, VOXEL_CASTER_KEY, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelBatchApplied, type VoxelChunkDraw, type VoxelChunkViewOptions, type VoxelSeamPiece } from './voxel-chunk-view';
 export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 export { kitLookMaterial, kitLookOf, kitLookTextures, type VoxelKitLook } from './voxel-kit-look';
 export { TRIM_RUN_ATTRIBUTE, trimUPerMetre } from './voxel-trim-u';

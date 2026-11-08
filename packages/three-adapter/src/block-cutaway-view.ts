@@ -47,7 +47,7 @@ const FADE_KEY = '__tlCutawayFade';
 /** Marks a fading copy (picking, counts and bakes pass over it). */
 export const CUTAWAY_COPY_KEY = '__tlCutawayCopy';
 
-/** Let a shadow camera see cut-away geometry: what is cut from the view still casts. */
+/** Let a shadow camera see what is drawn off the view ({@link OFF_VIEW_LAYER}): what is cut from the view, and shadow-only casters (a voxel relief chunk's plain surfaces), still cast. */
 export function shadowSeesCutaways(camera: THREE.Camera): void {
   camera.layers.enable(CUTAWAY_LAYER);
 }
