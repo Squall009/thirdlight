@@ -866,6 +866,33 @@ rose 0.6–2.5 ms (D544, cause not traced: neither the matrix path nor the order
 after the ring moved away and back), `v-stone-wall-near-hole-*` (a hole dug: its frame pieces), `-dry-` vs `-wet7-`
 (the window and door frame pieces darken with the wall). D542's shards still show on the door leaf (unchanged).
 
+### 46d.6b D544 traced; pieces culled on the GPU
+
+**D544 trace** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 view 60 m out, ~479-frame orbit, `medium`,
+`?relief=tier`, 19:55–20:10, load 1.1–2.4, uptime 16.1 d; 3 rounds; scratch `~/.cache/thirdlight-phase46/work/46d.6b/`,
+switches built only for the trace; GPU clock sampled from `gt_act_freq_mhz` every 25 ms of the orbit: mean of the
+non-idle samples and the share not in RC6):
+
+| Town, WebGPU / WebGL 2 | GPU ms | clock MHz | GPU awake | `render()` p50 |
+|---|---|---|---|---|
+| before 46d.6a (fd3fa355 rebuilt, same hour, 2 runs) | 4.16–4.25 / 4.62–4.71 | 1371–1398 / 1320–1355 | 0.94–0.96 / 0.79–0.81 | 9.8–10.0 / 10.6–10.7 |
+| 46d.6a head (4 runs) | 5.62–6.02 / 4.95–5.09 | 1330–1347 / 1344–1384 | 0.71–0.78 / 0.61–0.68 | 2.6–2.9 / 2.9–3.2 |
+| no kit pieces (`?kits=0`), either build (4 runs) | 6.76–7.37 / 4.39–4.64 | 936–974 / 945–1004 | 0.66–0.75 / 0.57–0.60 | 2.5–2.8 |
+| pieces without the wet look / every instance drawn (no cull) / view held still | 5.79 / 5.01, 5.50 / 5.08, 7.54 / 5.02 | 1263–1310 | | |
+| a 7 ms busy loop a frame on the main thread | 4.98 / 5.14 | 1329 / 1348 | | |
+| piece draws after the surfaces (render order 1, 2 runs) | 5.66–5.68 / 5.01–5.03 | 1346–1350 / 1355–1370 | | |
+
+The rise is real in timestamp ms (WebGPU +1.4–1.8 ms, WebGL 2 +0.3–0.4 at the same hour) but it does not follow
+the pieces' work: the wet look, culling (every instance drawn) and buffer uploads (view held still) change nothing,
+and **drawing no piece at all raises WebGPU's GPU ms by 1.5 ms** (the governor drops the clock to ~950 MHz), so on
+this host the timestamps at the cap measure the clock governor as much as the work; the clock cannot be pinned here
+(sysfs read-only in the container). What changed with 46d.6a is that the GPU sleeps more of each frame (awake 0.95
+→ 0.75: the main thread no longer feeds it for 10 ms). One part is the work: a draw holds a kind's pieces near and
+far, and drawn among the surfaces at its nearest chunk it shaded far pieces before the walls that hide them; the
+piece draws now come after every surface (`PIECE_RENDER_ORDER`), −0.3 ms WebGPU, ±0 WebGL 2. The rest (~1.1–1.5 ms
+WebGPU) is not traced further (round limit): D544 re-recorded for the performance phase, where GPU work should be
+read at a fixed clock (or as GPU busy share) rather than as timestamp ms at the cap.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material

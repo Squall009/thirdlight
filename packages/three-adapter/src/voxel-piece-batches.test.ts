@@ -111,6 +111,13 @@ describe('kit pieces drawn across chunks', () => {
     expect(v.pieceDraws).toBe(2);
     expect(draws(v).length).toBe(2);
     expect(v.instances).toBe(6 * per);
+    // Drawn after every surface of the view (three sorts the opaque list by render order first).
+    const surfaces: THREE.Mesh[] = [];
+    v.root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh === true && o.parent !== v.pieces.root) surfaces.push(o as THREE.Mesh);
+    });
+    expect(surfaces.length).toBeGreaterThan(0);
+    for (const m of draws(v)) expect(m.renderOrder).toBeGreaterThan(Math.max(...surfaces.map((x) => x.renderOrder)));
     // Remove, add, swap (a chunk replaced by another derive), in any order.
     v.remove(2, 0, 0);
     v.remove(4, 0, 0);

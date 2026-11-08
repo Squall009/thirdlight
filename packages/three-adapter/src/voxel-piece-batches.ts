@@ -56,6 +56,14 @@ const PIECE_REACH_M = 1;
  */
 const MIN_CAPACITY = 64;
 
+/**
+ * The draws' render order: after the world's surfaces (order 0). A draw holds a kind's pieces of every chunk in
+ * view, near and far, so drawn among the surfaces by its nearest chunk it shades far pieces before the nearer
+ * walls that hide them; drawn after every surface, the depth test leaves the hidden ones unshaded. Pieces hide
+ * little themselves (rails, frames, eaves), so the surfaces lose nothing by going first.
+ */
+export const PIECE_RENDER_ORDER = 1;
+
 /** The other cameras remembered (a shadow map each); the oldest are forgotten past this. */
 const MAX_OTHER_CAMERAS = 8;
 
@@ -283,6 +291,7 @@ export class VoxelPieceBatches {
     mesh.name = `voxel-pieces ${b.kind.key}`;
     mesh.matrixAutoUpdate = false;
     mesh.castShadow = mesh.receiveShadow = this.shadows;
+    mesh.renderOrder = PIECE_RENDER_ORDER;
     mesh.userData['voxelKitPiece'] = true;
     // What it draws: the kind's own mesh (the draw's geometry shares its attributes) and whether that is a trim run's.
     mesh.userData[PIECE_SOURCE_KEY] = b.kind.geometry;
@@ -351,9 +360,9 @@ export class VoxelPieceBatches {
     }
     const bounds = mesh.boundingSphere!;
     box.getBoundingSphere(bounds);
-    // three sorts a draw among the opaque ones by its sphere's centre: at the nearest chunk in view it is drawn about
-    // when that chunk's surface is (the whole ring's centre would put it among far ones at random); grown to keep
-    // every chunk inside.
+    // three sorts the piece draws among themselves (after the surfaces) by their spheres' centres: at the nearest
+    // chunk in view, the kinds nearest the camera go first (the whole ring's centre would order them at random);
+    // grown to keep every chunk inside.
     const near = seen[0];
     if (near !== undefined) {
       sphere.set(near.centre[0], near.centre[1], near.centre[2]);
