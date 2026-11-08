@@ -10,7 +10,9 @@
  * The records' surface texture sets draw from texture arrays the backend
  * assembles (the route the editor's views use), loaded once the sets change
  * and handed to the surface with each id's layers; until they arrive the
- * surfaces draw their flat colours.
+ * surfaces draw their flat colours. With a texture streamer the arrays
+ * stream from their whole file into the GPU, capped at the page's texel
+ * density (`setTexelDensity`) as Play caps them.
  *
  * The page has no change feed: it reads the records again when the window
  * gets the focus back (a material edited in the editor meanwhile) and on
@@ -21,8 +23,9 @@ import { isVoxelMaterial } from '@thirdlight/project-model/voxel-materials';
 import type { MaterialDef } from '@thirdlight/project-model';
 import { textureSlotSetKey, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import { VOXEL_TEXTURE_MAPS } from '@thirdlight/project-model/voxel-materials';
-import { decodeTexture, resolveMaterialInstancesLike, setKtx2DecoderBase, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type MaterialDefLike, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from '@thirdlight/three-adapter';
+import { capVoxelArrays, createTextureStreamer, decodeTexture, resolveMaterialInstancesLike, voxelTexelDensityAt, wholeKtx2Source, type TextureStreamer, setKtx2DecoderBase, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type MaterialDefLike, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from '@thirdlight/three-adapter';
 import type * as THREE from 'three';
+import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
 
 /** The voxel id the brush adds when the project has no voxel material. */
 const STAND_IN_MATERIAL = 2;
@@ -48,12 +51,14 @@ export function voxelPickerMaterials(materials: readonly MaterialDef[]): PickerM
  * A slot list's texture array from the backend's slot assembly (the route the editor's views use); KTX2 transcodes
  * with three's Basis files next to the page.
  */
-export function backendArrays(api: string, headers: Readonly<Record<string, string>>): (set: TextureSlotSet) => Promise<THREE.Texture> {
+export function backendArrays(api: string, headers: Readonly<Record<string, string>>): (set: TextureSlotSet, streamer?: TextureStreamer) => Promise<THREE.Texture> {
   setKtx2DecoderBase('./decoders/');
-  return async (set) => {
+  return async (set, streamer) => {
     const res = await fetch(`${api}/content/textures/slots`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ layers: set.layers, mode: set.mode, ...(set.height === true ? { height: true } : {}) }) });
     if (!res.ok) throw new Error(`texture array (${set.mode}, ${set.layers.length} layers): HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-    return decodeTexture(new Uint8Array(await res.arrayBuffer()));
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const source = streamer === undefined ? null : wholeKtx2Source(bytes);
+    return source !== null ? streamer!.open(textureSlotSetKey(set), source) : decodeTexture(bytes);
   };
 }
 
@@ -66,17 +71,24 @@ export class PageMaterials {
   readonly select = document.createElement('select');
   /** The arrays drawn and the key of the sets they are; the sets asked for last. */
   private arrays: THREE.Texture[] = [];
+  private byMap: VoxelSurfaceTextureArrays = {};
   private arraysKey = '';
+  /** The page's texture streamer (the arrays are its only streamed textures) and the quality level capping them. */
+  readonly streamer: TextureStreamer;
+  private quality: string;
   private arraysWanted = '';
   /** Texture array loads (and the ms the last took, its layers), failures and their last message: the hook reads them. */
-  readonly textures = { loads: 0, ms: 0, layers: 0, failures: 0, problem: '', arrays: [] as { map: string; width: number; height: number; layers: number; levels: number; format: number; colorSpace: string }[] };
+  readonly textures = { loads: 0, ms: 0, layers: 0, failures: 0, problem: '', arrays: [] as { map: string; width: number; height: number; layers: number; levels: number; format: number; colorSpace: string }[], tops: {} as Record<string, number> };
 
   constructor(
     private readonly read: () => Promise<readonly MaterialDef[]>,
     private readonly base: (material: number) => VoxelMaterialLook,
-    /** A slot list's texture array (null: none: the page draws flat colours). */
-    private readonly loadArray: ((set: TextureSlotSet) => Promise<THREE.Texture>) | null = null,
+    /** A slot list's texture array, streamed through the streamer it is given (null: none: the page draws flat colours). */
+    private readonly loadArray: ((set: TextureSlotSet, streamer: TextureStreamer) => Promise<THREE.Texture>) | null = null,
+    residency: { readonly quality: string; readonly budgetBytes: number } = { quality: 'low', budgetBytes: textureBudgetBytesOf(undefined) },
   ) {
+    this.streamer = createTextureStreamer({ budgetBytes: residency.budgetBytes });
+    this.quality = voxelTexelDensityAt(residency.quality).level;
     this.select.setAttribute('aria-label', 'voxel material');
     this.select.style.cssText = 'position:fixed;left:8px;bottom:8px;font:12px system-ui,sans-serif;max-width:40vw';
     this.select.addEventListener('change', () => (this.picked = Number(this.select.value)));
@@ -111,7 +123,7 @@ export class PageMaterials {
     const t0 = performance.now();
     let loaded: [string, THREE.Texture | null][] = [];
     try {
-      loaded = made === null ? [] : await Promise.all(VOXEL_TEXTURE_MAPS.map(async (m) => [m, made.sets[m] === undefined ? null : await this.loadArray!(made.sets[m])] as [string, THREE.Texture | null]));
+      loaded = made === null ? [] : await Promise.all(VOXEL_TEXTURE_MAPS.map(async (m) => [m, made.sets[m] === undefined ? null : await this.loadArray!(made.sets[m], this.streamer)] as [string, THREE.Texture | null]));
     } catch (e) {
       this.textures.failures++;
       this.textures.problem = e instanceof Error ? e.message : String(e);
@@ -122,9 +134,11 @@ export class PageMaterials {
       for (const t of fresh) t.dispose();
       return;
     }
-    surface.setTextures(made === null ? null : (Object.fromEntries(loaded.filter(([, t]) => t !== null)) as VoxelSurfaceTextureArrays), (m) => made?.layers.get(m) ?? null);
+    this.byMap = Object.fromEntries(loaded.filter(([, t]) => t !== null)) as VoxelSurfaceTextureArrays;
+    surface.setTextures(made === null ? null : this.byMap, (m) => made?.layers.get(m) ?? null);
     for (const t of this.arrays) t.dispose();
     this.arrays = fresh;
+    this.capArrays();
     this.arraysKey = key;
     this.textures.loads++;
     this.textures.ms = performance.now() - t0;
@@ -134,6 +148,27 @@ export class PageMaterials {
       const image = t.image as { width?: number; height?: number; depth?: number };
       return [{ map, width: image.width ?? 0, height: image.height ?? 0, layers: image.depth ?? 1, levels: t.mipmaps?.length ?? 0, format: t.format as number, colorSpace: t.colorSpace }];
     });
+  }
+
+  /** The arrays capped at the largest level the quality level's texel density keeps. */
+  private capArrays(): void {
+    this.textures.tops = capVoxelArrays(this.byMap, voxelTexelDensityAt(this.quality).texelDensity, (t, level) => this.streamer.limit(t, level));
+  }
+
+  /** The hook's material and texture calls. */
+  hooks(): Record<string, unknown> {
+    return {
+      pickMaterial: (id: number) => this.pick(id),
+      readMaterials: () => this.readAgain(),
+      /** The engine quality level whose texel density caps the arrays (no reload: levels above the cap go, below stream in). */
+      setQuality: (id: string) => {
+        this.quality = voxelTexelDensityAt(id).level;
+        this.capArrays();
+        return { level: this.quality, texelDensity: voxelTexelDensityAt(this.quality).texelDensity };
+      },
+      /** Texture streaming: the budget, resident bytes and each array's levels (resident, cap, wanted). */
+      textureStreaming: () => ({ quality: this.quality, texelDensity: voxelTexelDensityAt(this.quality).texelDensity, ...this.streamer.observe(), pending: this.streamer.pending() }),
+    };
   }
 
   /** Whether the arrays drawn are those of the records read last. */

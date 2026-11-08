@@ -924,7 +924,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
   //     assembled array (the backend's, cached by the layers' digests) under an id of its own.
   let slotArrays: ClosureSlotArrays | null = null;
   if (allMaterials !== undefined && (hasTextureSlots(resolveMaterialInstances(allMaterials)) || hasVoxelSurfaceTextures(usedMaterialsOf() ?? []))) {
-    const made = await closureSlotArrays({ port: input.textureSlots, service, projectId, assets: ((input.content as { assets?: [] }).assets ?? []) as never, materials: usedMaterialsOf() ?? [], locate, hash });
+    const made = await closureSlotArrays({ port: input.textureSlots, service, projectId, assets: ((input.content as { assets?: [] }).assets ?? []) as never, materials: usedMaterialsOf() ?? [], locate, hash, streamed: streamedTextures });
     if (!made.ok) return made;
     slotArrays = made.arrays;
     // An array that is also a shipped asset's file (the same bytes published) ships once.

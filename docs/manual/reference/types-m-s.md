@@ -890,6 +890,8 @@ interface QualityLevelConfig {
   shadowAtlas?: number;
   /** 0.25–4: scales every voxel world's ring distances (absent: the tier's, `VOXEL_RING_SCALES`). */
   voxelRings?: number;
+  /** Texels a metre the voxel surfaces keep resident at most, one of `VOXEL_TEXEL_DENSITIES` (absent: the tier's, `VOXEL_TEXEL_DENSITY_BY_TIER`). */
+  voxelTexelDensity?: number;
 }
 ```
 

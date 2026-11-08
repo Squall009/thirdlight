@@ -136,8 +136,20 @@ a tint, white for the set as authored). The image's first row is its top. Roughn
 it), metalness its B, occlusion its R. The test patterns leave the default program (`?patterns=1` on the voxel
 world page draws them).
 
-Residency per quality tier and the texture budget, kit sheets and crack maps, height depth and wetness: not yet
-written (46d.4b–46d.4d).
+**Residency (46d.4b; default chosen, owner to confirm).** No format change: the arrays keep every level. A quality
+level field `voxelTexelDensity` (texels a metre on a construction tile, one of 64 … 4096 in powers of two; absent:
+the lighting tier's, `VOXEL_TEXEL_DENSITY_BY_TIER` low 256, medium 512, high 1024) caps each array at the largest
+level at or below it (`voxelArrayTopLevel`: an array of edge E keeps level ⌈log2(E / (4 m × density))⌉, 0 when
+authored smaller; sets are authored at `VOXEL_AUTHORED_TEXEL_DENSITY` 1024 px/m, so 4096² keeps level 2 / 1 / 0).
+Under the cap the page's texture streamer keeps what its budget (`texture_budget_mb`) holds, measuring the need
+from the chunks drawn with the surface material (world-mapped textures: texels a metre = edge / the finest tile a
+textured material draws at); the levels at or below 128² (`TEXTURE_STREAM_TAIL_PX`) are the always-resident tail. A
+build cuts each voxel array into its mip parts (the head with the tail, then one part a level, every layer in
+it) and ships the parts in place of the file; the editor's views stream the same parts from the whole file they
+fetch. A level change at run time moves the caps: levels above a lowered cap go in the same plan; a raised cap
+streams the finer levels in one at a time while the old chain draws.
+
+Kit sheets and crack maps, height depth and wetness: not yet written (46d.4c–46d.4d).
 
 ## 3. Relief part
 

@@ -42,7 +42,8 @@ import { ANTIALIAS_KINDS, BLOOM_DEFAULTS, BLOOM_LIMITS, DEFAULT_WIND, HEIGHT_FOG
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
-import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN, levelVoxels, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN } from './quality-levels';
+import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN, levelVoxels, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, VOXEL_TEXEL_DENSITIES } from './quality-levels';
+import { VOXEL_AUTHORED_TEXEL_DENSITY } from './voxel-surface-textures';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { LIGHT_TYPES, MAX_TAGS } from './types-v3';
 import { WIND_DEFAULTS, WIND_LIMITS } from './wind';
@@ -215,6 +216,7 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   enm('reflections', 'Reflections', `Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: the tier's, ${lightingTierValues((t) => t.reflections)}).`, [...REFLECTION_QUALITIES], { labels: { off: 'Off', medium: 'Medium', high: 'High' } }),
   int('shadowAtlas', 'Shadow atlas', `Side in texels of the depth texture every shadowed point and spot light shares: lights largest on screen get the larger tiles, a light without room draws unshadowed (absent: the tier's, ${lightingTierValues((t) => t.shadowAtlas)}).`, { values: [...SHADOW_ATLAS_SIZES] }),
   num('voxelRings', 'Voxel ring scale', `Scales every voxel world's distances at this level: where chunks load, where they collide and where each detail level is drawn (a scene may set its own per level). The stream memory budget is the tier's (absent: the tier's scale, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).ringScale.toFixed(2)}`).join(', ')}, so the area loaded grows as the tier's budget, ${LIGHTING_TIERS.map((t) => `${levelVoxels({ lighting: t }).budgetBytes / (1024 * 1024)} MiB`).join(' / ')}).`, { min: VOXEL_RING_SCALE_MIN, max: VOXEL_RING_SCALE_MAX, step: 0.05, unit: '×' }),
+  int('voxelTexelDensity', 'Voxel texel density', `The most texels a metre the voxel surfaces' texture sets keep resident (authored at ${VOXEL_AUTHORED_TEXEL_DENSITY}; the texture budget may keep fewer; absent: the tier's, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).texelDensity}`).join(', ')}).`, { values: [...VOXEL_TEXEL_DENSITIES] }),
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [

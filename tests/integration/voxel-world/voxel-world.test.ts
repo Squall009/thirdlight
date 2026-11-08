@@ -831,12 +831,13 @@ describe('voxel world routes', () => {
     const listed = (await query('queryEntities', { limit: 16_384 })) as { entities: Array<{ id: string; components: Record<string, unknown> }> };
     for (const e of listed.entities) if ((e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD) expect((await send('deleteEntity', { entityId: e.id })).status).toBe(200);
 
-    // Texture sets for the clay's surfaces: placeholder images (32², PNG) imported as every texture is.
+    // Texture sets for the clay's surfaces: placeholder images (256², PNG: a level past the mip tail, so the arrays
+    // stream) imported as every texture is.
     const texDir = join(backend._test.service.projectDir(PROJECT)!, 'assets', 'voxel-textures');
     mkdirSync(texDir, { recursive: true });
     for (const set of ['stone', 'timber'] as const) {
-      const maps = placeholderSet(set, 32);
-      for (const map of ['albedoHeight', 'normal'] as const) writeFileSync(join(texDir, `${set}-${map}.png`), placeholderPng(maps[map], 32));
+      const maps = placeholderSet(set, 256);
+      for (const map of ['albedoHeight', 'normal'] as const) writeFileSync(join(texDir, `${set}-${map}.png`), placeholderPng(maps[map], 256));
     }
     expect((await send('importAssets', { folder: 'assets/voxel-textures' })).status).toBe(200);
     const texAssets = ((await query('queryAssets', { limit: 100 })) as { assets: Array<{ assetId: string; sourcePath?: string }> }).assets;
@@ -877,18 +878,21 @@ describe('voxel world routes', () => {
     expect(shippedIds).not.toContain('unworn');
     // The voxel surfaces' texture arrays: assembled by the backend from every voxel material's sets (the oak's has
     // none), shipped as textures the game reads without the backend, named by map in their own block, needed
-    // project-wide; a map no set names (ORM) has no array. Two layers: the stone wall, the timber floor.
+    // project-wide; a map no set names (ORM) has no array. Two layers: the stone wall, the timber floor. Each ships cut
+    // into its mip parts (the head with the tail to 128², then 256²), as a streamed texture asset ships, never whole.
     const voxelTextures = (content as unknown as { voxelTextures?: Record<string, string> }).voxelTextures!;
     expect(Object.keys(voxelTextures).sort()).toEqual(['albedoHeight', 'normal']);
     const shippedDeps = ((content as unknown as { dependencies?: Array<{ assetId: string; path: string }> }).dependencies ?? []);
     const sets = voxelSurfaceTextures([{ shader: 'standard', voxel: clayVoxel }])!;
     for (const [map, id] of Object.entries(voxelTextures)) {
-      const row = shippedDeps.find((e) => e.assetId === id)!;
+      const row = shippedDeps.find((e) => e.assetId === id) as { path: string; mipParts?: Array<{ path: string; offset: number; levels: number[] }> } | undefined;
       expect(row, map).toBeDefined();
-      const bytes = new Uint8Array(readFileSync(join(out, row.path)));
+      expect(row!.mipParts?.map((p) => p.levels), map).toEqual([[1, 2, 3, 4, 5, 6, 7, 8], [0]]);
+      expect(existsSync(join(out, row!.path)), `${map}: the whole file is not shipped beside its parts`).toBe(false);
+      const bytes = new Uint8Array(Buffer.concat(row!.mipParts!.map((p) => readFileSync(join(out, p.path)))));
       const layout = readKtx2Layout(bytes);
       expect(layout.ok && layout.layout.layers, map).toBe(2);
-      expect(layout.ok && layout.layout.width, map).toBe(32);
+      expect(layout.ok && layout.layout.width, map).toBe(256);
       // The editor's views draw the very array: the backend's route answers the same bytes for the same slot list.
       const set = sets.sets[map as 'albedoHeight' | 'normal']!;
       const viewed = await fetch(`${base()}/api/v1/projects/${PROJECT}/content/textures/slots`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ layers: set.layers, mode: set.mode, ...(set.height === true ? { height: true } : {}) }) });

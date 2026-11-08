@@ -35,10 +35,19 @@
  *   the texture's size and tiling gives texels per world unit; the camera's
  *   pixels per world unit at the mesh's distance (its bounding sphere's
  *   nearest point) turn that into texels per pixel, and the level is its
- *   base-2 logarithm.
+ *   base-2 logarithm. A material that samples textures in world space
+ *   (triplanar or on a build grid, without UVs) names them with their tile
+ *   ({@link WORLD_MAPPED_TEXTURES_KEY}): their texels per world unit are the
+ *   texture's edge over the tile.
+ * - A texture array (a KTX2 with layers) streams the same way: a level of
+ *   the file holds that level of every layer, so a part is still one level,
+ *   and the array's chain moves as one.
+ * - A user may cap a texture's largest level (`limit`: a quality level's
+ *   texel density): the plan never goes above it, and a lowered cap drops
+ *   the levels above it at once.
  */
 import * as THREE from 'three';
-import { buildKtx2Subset, readKtx2Layout, type Ktx2Layout, type Ktx2Range } from '@thirdlight/project-model';
+import { buildKtx2Subset, planKtx2Parts, readKtx2Layout, TEXTURE_STREAM_TAIL_PX, type Ktx2Layout, type Ktx2Range } from '@thirdlight/project-model';
 
 import { decodeKtx2 } from './ktx2';
 import { planMipLevels, residentBytes, type MipCandidate } from './texture-budget';
@@ -61,14 +70,27 @@ export interface StreamSource {
 /** Material user data key: textures a node graph samples (they are not material properties). */
 export const SAMPLED_TEXTURES_KEY = 'sampledTextures';
 
+/**
+ * Material user data key: textures the material samples in world space, one repeat every `tileMetres` world units
+ * ({@link WorldMappedTextures}); the streamer measures their need from that instead of a UV set.
+ */
+export const WORLD_MAPPED_TEXTURES_KEY = 'worldMappedTextures';
+
+/** What a material lists under {@link WORLD_MAPPED_TEXTURES_KEY}. */
+export interface WorldMappedTextures {
+  readonly textures: readonly THREE.Texture[];
+  /** World units one repeat of the textures spans (the finest tile any of its surfaces draws them at). */
+  readonly tileMetres: number;
+}
+
 interface Mip {
   readonly data: ArrayBufferView;
   readonly width: number;
   readonly height: number;
 }
 
-/** A streamed texture of either kind. */
-export type AnyStreamed = StreamedTexture | StreamedDataTexture;
+/** A streamed texture of any kind. */
+export type AnyStreamed = StreamedTexture | StreamedDataTexture | StreamedArrayTexture;
 
 interface TextureStream {
   readonly id: string;
@@ -90,6 +112,10 @@ interface TextureStream {
   closed: boolean;
   /** Drawn by something other than a mesh's material (a sky, a cookie, a lightmap): wanted at full size. */
   pinned: boolean;
+  /** Layers (1: a plain texture). */
+  readonly layers: number;
+  /** The largest level it may hold (`limit`; 0: no cap). */
+  top: number;
   /** A level failed to read or decode: no new load before this time (the page's clock). */
   retryAt: number;
 }
@@ -127,6 +153,27 @@ export class StreamedDataTexture extends THREE.DataTexture {
   stream: TextureStream | null = null;
 
   override copy(source: THREE.DataTexture): this {
+    super.copy(source);
+    joinStream(this, source);
+    return this;
+  }
+
+  override dispose(): void {
+    leaveStream(this);
+    super.dispose();
+  }
+}
+
+/**
+ * A streamed texture array (a KTX2 with layers): each level's data holds every layer, as three's compressed array
+ * upload reads it, on both renderers.
+ */
+export class StreamedArrayTexture extends THREE.CompressedArrayTexture {
+  readonly isStreamedTexture = true;
+  /** The stream this texture draws from (null once it is let go). */
+  stream: TextureStream | null = null;
+
+  override copy(source: THREE.CompressedArrayTexture): this {
     super.copy(source);
     joinStream(this, source);
     return this;
@@ -185,6 +232,10 @@ export interface TextureStreamingObservation {
     readonly height: number;
     readonly levels: number;
     readonly tail: number;
+    /** Layers (1: a plain texture). */
+    readonly layers: number;
+    /** The largest level it may hold (its cap; 0: none). */
+    readonly top: number;
     /** The largest level resident (0: full size). */
     readonly resident: number;
     /** The largest level its size on screen asks for (`tail` when not seen). */
@@ -213,6 +264,8 @@ export interface TextureStreamerOptions {
   /** How often the needs are worked out again (ms). */
   readonly intervalMs?: number;
   readonly now?: () => number;
+  /** Transcode a whole KTX2 (absent: the page's loader, `decodeKtx2`). */
+  readonly decode?: (bytes: Uint8Array) => Promise<THREE.CompressedTexture | THREE.DataTexture>;
 }
 
 export interface TextureStreamer {
@@ -224,6 +277,11 @@ export interface TextureStreamer {
    * against the budget, first in line.
    */
   pin(texture: THREE.Texture): void;
+  /**
+   * The largest level `texture` may hold from now on (0: full size again): the plan never asks for more, and levels
+   * above it go at once. Clamped to the texture's tail.
+   */
+  limit(texture: THREE.Texture, level: number): void;
   /**
    * Work out what the visible meshes need and move towards it (call before
    * drawing a frame). `also`: meshes drawn through a batch outside the
@@ -301,6 +359,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
   let drops = 0;
   let target = new Map<TextureStream, number>();
   let disposed = false;
+  const decode = options.decode ?? decodeKtx2;
 
   const bytesOf = (s: TextureStream, level: number): number => residentBytes({ levelBytes: s.levelBytes, copies: 1 }, level);
   /** Textures that do not stream: the page's texture bytes without the streamed ones. */
@@ -323,7 +382,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
     const top = mips[0];
     if (top === undefined) return;
     // The source (its image) is shared by the texture and every copy; a data texture's image holds its top level.
-    s.root.image = s.root instanceof StreamedDataTexture ? { data: top.data as Uint8Array, width: top.width, height: top.height } : { width: top.width, height: top.height };
+    s.root.image = s.root instanceof StreamedDataTexture ? { data: top.data as Uint8Array, width: top.width, height: top.height } : s.root instanceof StreamedArrayTexture ? { width: top.width, height: top.height, depth: s.layers } : { width: top.width, height: top.height };
     for (const t of [s.root, ...s.copies]) {
       t.mipmaps = mips as unknown as THREE.CompressedTexture['mipmaps'];
       // Let the GPU texture go (and the bind groups using it); the next draw uploads the new chain.
@@ -344,7 +403,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
       throw new RangeError(`bytes ${range.offset}+${range.length} of ${s.id} are in no part read`);
     };
     const file = buildKtx2Subset(s.layout, first, last, read);
-    const t = await decodeKtx2(file);
+    const t = await decode(file);
     try {
       if (t.format !== s.format) throw new Error(`${s.id}: level ${first} transcoded to another format`);
       return (t.mipmaps as unknown as Mip[]).slice(0, last - first + 1);
@@ -405,6 +464,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
   const sphere = new THREE.Sphere();
   const camPos = new THREE.Vector3();
   const found: AnyStreamed[] = [];
+  const mapped: [AnyStreamed, number][] = [];
 
   const plan = (): void => {
     const candidates: MipCandidate[] = [];
@@ -413,7 +473,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
     for (const s of streams) {
       const id = `${i++}`;
       byId.set(id, s);
-      candidates.push({ id, levelBytes: s.levelBytes, tail: s.tail, resident: s.resident, wanted: s.wanted, copies: copiesOf(s), weight: s.weight });
+      candidates.push({ id, levelBytes: s.levelBytes, tail: s.tail, resident: s.resident, wanted: s.wanted, copies: copiesOf(s), weight: s.weight, top: s.top });
     }
     const p = planMipLevels(candidates, budget, fixedBytes());
     target = new Map();
@@ -443,11 +503,12 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
       const n = layout.levels.length;
       const tail = Math.min(...headPart.levels);
       if (!(tail >= 1 && tail < n)) throw new Error(`${id}: its head holds no mip tail`);
-      const decoded = await decodeKtx2(buildKtx2Subset(layout, tail, n - 1, (range) => head.subarray(range.offset, range.offset + range.length)));
+      const decoded = await decode(buildKtx2Subset(layout, tail, n - 1, (range) => head.subarray(range.offset, range.offset + range.length)));
       const mips = decoded.mipmaps as unknown as Mip[];
       const top = mips[0];
       if (top === undefined) throw new Error(`${id}: its tail decoded to nothing`);
-      const blocks = Math.ceil(top.width / 4) * Math.ceil(top.height / 4);
+      const layers = Math.max(1, layout.layers);
+      const blocks = Math.ceil(top.width / 4) * Math.ceil(top.height / 4) * layers;
       const blockBytes = blocks > 0 ? top.data.byteLength / blocks : 16;
       const levels: (Mip | null)[] = new Array<Mip | null>(n).fill(null);
       const levelBytes: number[] = [];
@@ -455,13 +516,16 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
         if (l >= tail) {
           levels[l] = mips[l - tail] ?? null;
           levelBytes.push(mips[l - tail]?.data.byteLength ?? 0);
-        } else levelBytes.push(levelByteSize(decoded.format, blockBytes, Math.max(1, layout.width >>> l), Math.max(1, (layout.height || 1) >>> l)));
+        } else levelBytes.push(layers * levelByteSize(decoded.format, blockBytes, Math.max(1, layout.width >>> l), Math.max(1, (layout.height || 1) >>> l)));
       }
-      // Plain RGBA (no compressed format on this GPU) streams as data; anything else as compressed levels.
+      // An array streams as a compressed array (three uploads its levels, RGBA ones too, every layer at once on both
+      // renderers); plain RGBA (no compressed format on this GPU) as data; anything else as compressed levels.
       const root: AnyStreamed =
-        (decoded.format as number) === THREE.RGBAFormat
-          ? new StreamedDataTexture(top.data as Uint8Array, top.width, top.height, THREE.RGBAFormat, decoded.type)
-          : new StreamedTexture(mips as unknown as THREE.CompressedTexture['mipmaps'], top.width, top.height, decoded.format as THREE.CompressedPixelFormat, decoded.type);
+        (decoded as { isCompressedArrayTexture?: boolean }).isCompressedArrayTexture === true
+          ? new StreamedArrayTexture(mips as unknown as THREE.CompressedTexture['mipmaps'], top.width, top.height, layers, decoded.format as THREE.CompressedPixelFormat, decoded.type)
+          : (decoded.format as number) === THREE.RGBAFormat
+            ? new StreamedDataTexture(top.data as Uint8Array, top.width, top.height, THREE.RGBAFormat, decoded.type)
+            : new StreamedTexture(mips as unknown as THREE.CompressedTexture['mipmaps'], top.width, top.height, decoded.format as THREE.CompressedPixelFormat, decoded.type);
       root.mipmaps = mips as unknown as THREE.CompressedTexture['mipmaps'];
       root.colorSpace = decoded.colorSpace;
       root.premultiplyAlpha = decoded.premultiplyAlpha;
@@ -490,6 +554,8 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
         closed: false,
         pinned: false,
         retryAt: 0,
+        layers,
+        top: 0,
       };
       root.stream = stream;
       streams.add(stream);
@@ -523,8 +589,12 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh !== true || mesh.material === undefined || mesh.userData['tlBatch'] === true) return;
         found.length = 0;
-        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) streamedOf(m, found);
-        if (found.length === 0) return;
+        mapped.length = 0;
+        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          streamedOf(m, found);
+          worldMappedOf(m, mapped);
+        }
+        if (found.length === 0 && mapped.length === 0) return;
         const g = mesh.geometry;
         const bounds = (mesh as { boundingSphere?: THREE.Sphere | null }).boundingSphere ?? (g.boundingSphere ?? (g.computeBoundingSphere(), g.boundingSphere));
         if (bounds === null || bounds === undefined) return;
@@ -534,18 +604,21 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
         const pxPerWorld = persp !== null ? h / (2 * dist * Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2)) : ortho !== null ? (h * ortho.zoom) / Math.max(1e-6, ortho.top - ortho.bottom) : h / dist;
         const scale = Math.max(1e-6, mesh.matrixWorld.getMaxScaleOnAxis());
         const radiusPx = sphere.radius * pxPerWorld;
-        for (const tex of found) {
-          const s = tex.stream!;
-          const density = uvDensity(g, tex.channel);
-          if (density <= 0) continue;
-          const repeat = Math.max(Math.abs(tex.repeat.x), Math.abs(tex.repeat.y), 1e-6);
-          const texelsPerWorld = (Math.max(s.layout.width, s.layout.height || 1) * density * repeat) / scale;
+        const need = (s: TextureStream, texelsPerWorld: number): void => {
           const ratio = texelsPerWorld / pxPerWorld;
           const level = clampLevel(Math.floor(Math.log2(Math.max(1, ratio))), s.levels.length);
           s.wanted = Math.min(s.wanted, level);
           s.weight = Math.max(s.weight, radiusPx);
           s.lastSeen = t;
+        };
+        for (const tex of found) {
+          const s = tex.stream!;
+          const density = uvDensity(g, tex.channel);
+          if (density <= 0) continue;
+          const repeat = Math.max(Math.abs(tex.repeat.x), Math.abs(tex.repeat.y), 1e-6);
+          need(s, (Math.max(s.layout.width, s.layout.height || 1) * density * repeat) / scale);
         }
+        for (const [tex, tile] of mapped) need(tex.stream!, Math.max(tex.stream!.layout.width, tex.stream!.layout.height || 1) / tile);
       };
       scene.traverseVisible(measure);
       if (also !== undefined) for (const o of also) o.traverseVisible(measure);
@@ -556,6 +629,15 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
       const s = isStreamedTexture(texture) ? texture.stream : null;
       if (s === null || s.closed) return;
       s.pinned = true;
+      lastUpdate = -Infinity;
+    },
+
+    limit(texture, level) {
+      const s = isStreamedTexture(texture) ? texture.stream : null;
+      if (s === null || s.closed) return;
+      const top = Math.max(0, Math.min(s.tail, Math.floor(level)));
+      if (top === s.top) return;
+      s.top = top;
       lastUpdate = -Infinity;
     },
 
@@ -571,7 +653,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
         .map((s) => {
           const bytes = bytesOf(s, s.resident) * copiesOf(s);
           streamed += bytes;
-          return { id: s.id, width: s.layout.width, height: s.layout.height || 1, levels: s.levels.length, tail: s.tail, resident: s.resident, wanted: s.wanted, copies: copiesOf(s), bytes };
+          return { id: s.id, width: s.layout.width, height: s.layout.height || 1, levels: s.levels.length, tail: s.tail, layers: s.layers, top: s.top, resident: s.resident, wanted: s.wanted, copies: copiesOf(s), bytes };
         });
       const fixed = fixedBytes();
       return { budgetBytes: budget, residentBytes: streamed + fixed, streamedBytes: streamed, fixedBytes: fixed, over: streamed + fixed > budget, loading: loads, upgrades, drops, textures };
@@ -593,6 +675,26 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
 }
 
 /** Whether a texture is a streamed one (its size changes as levels stream). */
-export function isStreamedTexture(t: unknown): t is StreamedTexture | StreamedDataTexture {
-  return t instanceof StreamedTexture || t instanceof StreamedDataTexture;
+export function isStreamedTexture(t: unknown): t is AnyStreamed {
+  return t instanceof StreamedTexture || t instanceof StreamedDataTexture || t instanceof StreamedArrayTexture;
+}
+
+/** The streamed textures a material samples in world space, each with its tile (world units a repeat). */
+function worldMappedOf(m: THREE.Material, out: [AnyStreamed, number][]): void {
+  const w = (m.userData as Record<string, unknown> | undefined)?.[WORLD_MAPPED_TEXTURES_KEY] as WorldMappedTextures | undefined;
+  if (w === undefined || !(w.tileMetres > 0)) return;
+  for (const v of w.textures) if (isStreamedTexture(v) && v.stream !== null) out.push([v, w.tileMetres]);
+}
+
+/**
+ * A stream source over a whole KTX2 already in memory (a host that fetched the file whole, as the editor's views
+ * fetch assembled arrays): its parts as a build cuts them, so the GPU holds only the levels the plan keeps. Null when
+ * the file has nothing to stream (one level, every level in the tail, not a KTX2).
+ */
+export function wholeKtx2Source(bytes: Uint8Array): StreamSource | null {
+  const r = readKtx2Layout(bytes);
+  if (!r.ok) return null;
+  const parts = planKtx2Parts(r.layout, bytes.length, TEXTURE_STREAM_TAIL_PX);
+  if (parts === null) return null;
+  return { parts: parts.map((p) => ({ offset: p.offset, byteLength: p.length, levels: p.levels })), read: (i) => Promise.resolve(bytes.subarray(parts[i]!.offset, parts[i]!.offset + parts[i]!.length)) };
 }

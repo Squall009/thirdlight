@@ -27,13 +27,19 @@
  * records as the Scene view holds them (`setMaterials`, on every material
  * change by any client): a record's colour, tile or depth changed rewrites
  * the tables only, with no chunk derived or meshed again.
+ *
+ * Their texture arrays stream from their whole file into the GPU through
+ * the view's texture streamer (`textureStreamer`, which the view's adapter
+ * updates each frame), capped at the view's quality level's texel density
+ * within the engine's default texture budget, as Play keeps them.
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
 import type { VoxelsChangedPayload } from '@thirdlight/protocol';
-import { VoxelKitMeshes, VoxelWorldDraws, type SceneAdapter, type VoxelGridRenderer, type VoxelKitSet, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { createTextureStreamer, decodeTexture, VoxelKitMeshes, VoxelWorldDraws, wholeKtx2Source, type SceneAdapter, type TextureStreamer, type VoxelGridRenderer, type VoxelKitSet, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
 import { pageKitPieces, readVoxelKits, type KitRoute, type ProjectVoxelKits } from '../voxel-world/kit-pieces';
 import type * as THREE from 'three';
-import type { TextureSlotSet } from '@thirdlight/project-model/texture-slots';
+import { textureSlotSetKey, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import type { ProjectedEntity } from '../session/projection';
 import type { SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
 
@@ -49,8 +55,8 @@ export interface SceneVoxelsHost {
   readonly adapter: () => SceneAdapter;
   readonly requestRender: () => void;
   readonly source: SceneVoxelsSource | null;
-  /** The voxel surfaces' texture array of a slot list (the view's loader: the backend assembles it); absent: flat colours. */
-  readonly textures?: (set: TextureSlotSet) => Promise<THREE.Texture | null>;
+  /** The bytes of the voxel surfaces' texture array of a slot list (the backend assembles it); absent: flat colours. */
+  readonly arrayBytes?: (set: TextureSlotSet) => Promise<Uint8Array>;
 }
 
 type WorldState = Extract<SceneVoxelsOut, { t: 'state' }>;
@@ -87,7 +93,11 @@ export class SceneVoxels {
   /** The material records the tables are built from (kept for draws made again with a new renderer). */
   private materials: readonly VoxelLookRecord[] = [];
 
+  /** The view's texture streamer: the voxel arrays are its only streamed textures (the view's asset textures load whole). */
+  readonly textureStreamer: TextureStreamer;
+
   constructor(private readonly host: SceneVoxelsHost) {
+    this.textureStreamer = createTextureStreamer({ budgetBytes: textureBudgetBytesOf(undefined), onChange: () => host.requestRender() });
     this.draws = this.makeDraws();
   }
 
@@ -191,8 +201,16 @@ export class SceneVoxels {
       report: (world, bytes, coarse, kits) => this.post({ t: 'drawn', world, bytes, coarse, kits }),
       applied: () => requestRender(),
       // The view's loader hands each array over to the caller: the draws dispose those they stop drawing.
-      ...(this.host.textures !== undefined ? { textures: (_map: unknown, set: TextureSlotSet) => this.host.textures!(set), release: (t: THREE.Texture) => t.dispose() } : {}),
+      ...(this.host.arrayBytes !== undefined ? { textures: (_map: unknown, set: TextureSlotSet) => this.loadArray(set), release: (t: THREE.Texture) => t.dispose() } : {}),
+      residency: { level: () => adapter().qualityLevelSettings?.() ?? null, limit: (t, level) => this.textureStreamer.limit(t, level) },
     });
+  }
+
+  /** A slot list's array, streamed from its whole file (decoded whole when it has nothing past its mip tail). */
+  private async loadArray(set: TextureSlotSet): Promise<THREE.Texture> {
+    const bytes = await this.host.arrayBytes!(set);
+    const source = wholeKtx2Source(bytes);
+    return source !== null ? this.textureStreamer.open(textureSlotSetKey(set), source) : decodeTexture(bytes);
   }
 
   private post(m: SceneVoxelsIn): void {
@@ -313,6 +331,7 @@ export class SceneVoxels {
     this.worker?.terminate();
     this.worker = null;
     this.draws.dispose();
+    this.textureStreamer.dispose();
     this.kitMeshes?.dispose();
     this.kitMeshes = null;
     this.kits = null;

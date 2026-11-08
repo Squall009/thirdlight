@@ -675,7 +675,7 @@ export { canonicalVoxelKit, canonicalVoxelKits, validateVoxelKit, validateVoxelK
 export { GAME_DATA_DEPTH_MAX, isGameData, validateGameData, type GameDataJson } from './game-data';
 export { canonicalMaterialPhysical, canonicalMaterialProfile, canonicalMaterialProfiles, ENGINE_MATERIAL_PROFILES, materialProfilesOf, mergeGameData, PHYSICAL_DEFAULTS, PHYSICAL_LIMITS, resolveMaterialPhysical, validateMaterialPhysical, validateMaterialProfile, validateMaterialProfiles, withProfileGameData, withResolvedPhysics, type MaterialGameData, type MaterialPhysical, type MaterialProfile, type PhysicalValues, type ResolvedPhysical } from './material-profiles';
 export { boundVoxelKits, canonicalMaterialVoxel, resolvedVoxelParts, isVoxelMaterial, MATERIAL_BADGES, materialBadges, MATERIAL_FAMILIES, materialFamilyOf, voxelMaterialInfos, type MaterialBadge, type VoxelMaterialInfo, mergeMaterialVoxel, namedVoxelIds, validateMaterialVoxel, validateVoxelMaterialRules, VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES, VOXEL_SURFACES, VOXEL_TEXTURE_MAPS, voxelSurfaceSet, voxelTextureRefs, voxelTileMetresDefault, type BindableKit, type BindableMaterial, type MaterialFamily, type MaterialVoxel, type VoxelMaterialUse, type VoxelSurface, type VoxelTextureMap, type VoxelTextureSet } from './voxel-materials';
-export { hasVoxelSurfaceTextures, VOXEL_NO_LAYER, voxelSurfaceTextures, type VoxelSurfaceTextures, type VoxelTexturedMaterial } from './voxel-surface-textures';
+export { hasVoxelSurfaceTextures, VOXEL_AUTHORED_TEXEL_DENSITY, VOXEL_NO_LAYER, voxelArrayTopLevel, voxelSurfaceTextures, type VoxelSurfaceTextures, type VoxelTexturedMaterial } from './voxel-surface-textures';
 export { VOXEL_KIT_ENVELOPE, voxelKitCheck, voxelKitCheckState, worldVoxelKitCheck, voxelKitMeshFacts, voxelKitMeshKey, type VoxelKitAssets, type VoxelKitCheckReport, type VoxelKitCheckRow, type VoxelKitMeshFacts, type VoxelKitPieceReport } from './voxel-kit-check';
 export { DRAFT_TRIM_LAYOUT, kitTrimLayout, TRIM_LAYOUTS, trimRegionAt, type TrimLayout, type TrimRegion, type VoxelKitSheetLayout } from './voxel-trim-layout';
 export { kitPieceChecks, pieceFacts, trimSpecChecks, TRIM_SPEC, type KitCheck, type KitCheckFix, type KitCheckReport, type KitCheckState, type KitPieceReport, type KitSheetReport, type PieceCheckContext, type PieceFacts, type SheetCheckReport, type SheetImage, type SheetRowView } from './kit-checks';
@@ -1726,6 +1726,8 @@ export {
   DEFAULT_QUALITY_LEVELS,
   levelScalingIsEngineDefault,
   levelVoxels,
+  VOXEL_TEXEL_DENSITIES,
+  VOXEL_TEXEL_DENSITY_BY_TIER,
   VOXEL_RING_SCALE_MAX,
   VOXEL_RING_SCALE_MIN,
   DEFAULT_SURFACE_CACHE_MIB,

@@ -126,6 +126,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     },
     setQuality: (level: QualityLevel | null): boolean => p.qualityControl.choose(level),
     qualityLevel: (): QualityLevel => p.qualityControl.level().id,
+    qualityLevelSettings: () => p.qualityControl.level(),
     lightingState: () => {
       const light = p.surfaceLight;
       const starting = state.disposed || p.renderer.backend === null;

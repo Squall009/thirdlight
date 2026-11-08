@@ -19,13 +19,16 @@
  * The voxel surfaces' texture arrays (`voxelSurfaceTextures`: a map's
  * array of every voxel material's surface sets) are slot lists the same
  * way and ship the same way; the build names them in its `voxelTextures`
- * block by map.
+ * block by map. They always stream (a quality level's texel density and the
+ * page's texture budget choose their resident levels): a build that finds
+ * its files on disk ships each cut into its mip parts, as a streamed
+ * texture asset ships.
  */
 import type { WorkspaceService, BlobFile } from '@thirdlight/workspace';
 import { materialTextureSlotSets, parseFillLayer, textureSlotSetKey, voxelSurfaceTextures, VOXEL_TEXTURE_MAPS, type Ktx2Encoding, type ManifestAssetInputV2, type TextureSlotSet, type VoxelTextureMap } from '@thirdlight/project-model';
 
 import type { ClosureDecalPages } from './closure-decal-pages';
-import type { ClosureArtifact, ClosureFileArtifact, ContentClosureError } from './content-closure';
+import type { ClosureArtifact, ClosureFileArtifact, ClosureStreamedTexture, ContentClosureError } from './content-closure';
 
 /** One layer of a slot list: the texture version the captured content holds. */
 export interface ClosureSlotLayer {
@@ -71,6 +74,8 @@ export async function closureSlotArrays(o: {
   readonly materials: Parameters<typeof materialTextureSlotSets>[0];
   readonly locate: boolean;
   readonly hash: (bytes: Uint8Array) => string;
+  /** Where arrays shipped as their mip parts in place of their whole file go (the voxel arrays a located build cuts). */
+  readonly streamed: ClosureStreamedTexture[];
 }): Promise<{ ok: true; arrays: ClosureSlotArrays } | { ok: false; error: ContentClosureError }> {
   const voxel = voxelSurfaceTextures(o.materials as unknown as Parameters<typeof voxelSurfaceTextures>[0]);
   const voxelSets = voxel === null ? [] : VOXEL_TEXTURE_MAPS.flatMap((m) => (voxel.sets[m] !== undefined ? [[m, voxel.sets[m]] as const] : []));
@@ -97,7 +102,12 @@ export async function closureSlotArrays(o: {
     if (shipped.has(id)) continue;
     shipped.add(id);
     const path = `content/sha256/${f.digest}`;
-    if (o.locate) files.push({ path, digest: f.digest, byteLength: f.byteLength, contentType: 'image/x-texture', file: f });
+    // A voxel array streams: its parts ship in place of the whole file (none when it has nothing past its tail).
+    const cut = o.locate && voxelSets.some(([, s]) => s === set) ? o.service.locateMipParts(o.projectId, f) : null;
+    if (cut !== null && !cut.ok) return { ok: false, error: { code: 'export_scene_invalid', cls: 'unavailable', reason: 'texture_slots', message: `the voxel array ${f.digest.slice(0, 12)}… could not be cut into its mip parts: ${cut.error.message}`.slice(0, 256) } };
+    const parts = cut?.ok === true ? cut.parts : null;
+    if (parts !== null) o.streamed.push({ assetId: id, digest: f.digest, parts: parts.map((p) => ({ path: `content/sha256/${p.digest}`, digest: p.digest, byteLength: p.byteLength, contentType: 'application/octet-stream', file: p.file })) });
+    else if (o.locate) files.push({ path, digest: f.digest, byteLength: f.byteLength, contentType: 'image/x-texture', file: f });
     else {
       const bytes = await readWhole(o.service, o.projectId, f);
       if (typeof bytes === 'string') return { ok: false, error: { code: 'asset_digest_mismatch', cls: 'unavailable', reason: 'asset_digest_mismatch', message: bytes } };
@@ -105,7 +115,7 @@ export async function closureSlotArrays(o: {
     }
     // The metrics digest stands for what the array is made of (its layers' files and encoding).
     const metricsDigest = o.hash(new TextEncoder().encode(JSON.stringify({ slots: layers.map((l) => l.sourceDigest), mode: set.mode, ...(set.height === true ? { height: true } : {}) })));
-    rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: f.digest, sourceByteLength: f.byteLength, metricsDigest });
+    rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: f.digest, sourceByteLength: f.byteLength, metricsDigest, ...(parts !== null ? { mipParts: parts.map((p) => ({ digest: p.digest, byteLength: p.byteLength, offset: p.offset, levels: [...p.levels] })) } : {}) });
   }
   return { ok: true, arrays: { ids, rows, files, artifacts, voxelTextures } };
 }

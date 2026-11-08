@@ -30,6 +30,15 @@
  * draws its flat colour; the arrays and the layers go in together, every
  * world's table rewritten once, no chunk derived or meshed again.
  *
+ * Residency: the page's quality level names a texel density
+ * (`levelVoxels(...).texelDensity`, the level read each frame through
+ * `residency`);
+ * each array is capped at the largest level within it
+ * (`voxelArrayTopLevel`), and the page's texture streamer keeps what fits
+ * its budget under the cap, by what the chunks drawn need. A level change
+ * at run time moves the caps (lowered: the levels above go at once;
+ * raised: they stream in, the old chain drawn until then).
+ *
  * Kit pieces draw from one kit set for every world on the page (the
  * project's kits: every world derives with the engine's world rules, so
  * one piece table numbers them all), given and replaced with
@@ -57,8 +66,9 @@
 import * as THREE from 'three';
 import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
+import { isStreamedTexture } from './texture-streaming';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
-import { textureSlotSetKey, VOXEL_TEXTURE_MAPS, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
+import { DEFAULT_QUALITY_LEVELS, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
 import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
@@ -101,6 +111,39 @@ export interface VoxelWorldDrawsOptions {
    */
   textures?(map: VoxelTextureMap, set: TextureSlotSet): Promise<THREE.Texture | null>;
   release?(texture: THREE.Texture): void;
+  /** How the arrays are kept resident (absent: as loaded): the level's texel density and the streamer's cap. */
+  readonly residency?: VoxelTextureResidency;
+}
+
+/** The page's say over the voxel texture arrays' resident levels. */
+export interface VoxelTextureResidency {
+  /** The quality level drawn (null: none known, the arrays uncapped): read every frame, a change applies at once. */
+  level(): QualityLevelConfig | null;
+  /** Cap a streamed texture at a level (`TextureStreamer.limit`); a texture that does not stream ignores it. */
+  limit(texture: THREE.Texture, level: number): void;
+}
+
+/**
+ * Caps each voxel texture array at the largest level `texelsPerMetre` keeps (Infinity: uncapped) through `limit`;
+ * the caps by map. Every host drawing voxel arrays caps them this way.
+ */
+export function capVoxelArrays(arrays: VoxelSurfaceTextureArrays, texelsPerMetre: number, limit: (texture: THREE.Texture, level: number) => void): Partial<Record<VoxelTextureMap, number>> {
+  const tops: Partial<Record<VoxelTextureMap, number>> = {};
+  for (const map of VOXEL_TEXTURE_MAPS) {
+    const t = arrays[map];
+    if (t === undefined) continue;
+    // The authored size: a streamed texture's file, else what was uploaded.
+    const edge = isStreamedTexture(t) && t.stream !== null ? t.stream.layout.width : ((t.image as { width?: number } | null)?.width ?? 0);
+    tops[map] = Number.isFinite(texelsPerMetre) ? voxelArrayTopLevel(edge, texelsPerMetre) : 0;
+    limit(t, tops[map]);
+  }
+  return tops;
+}
+
+/** The quality level of `levels` (absent: the engine's) named `id` (else the highest) and the voxel texel density it keeps. */
+export function voxelTexelDensityAt(id: string | null, levels: readonly QualityLevelConfig[] = DEFAULT_QUALITY_LEVELS): { readonly level: string; readonly texelDensity: number } {
+  const l = qualityLevelOf(levels, id);
+  return { level: l.id, texelDensity: levelVoxels(l).texelDensity };
 }
 
 /** One world as drawn: objects (chunks and nodes of every level), per level, seams, triangles (seams included). */
@@ -122,6 +165,9 @@ export interface VoxelWorldDrawStats {
   /** Layers of the texture arrays drawn (0: none yet), and whether the program draws texture sets. */
   readonly textureLayers: number;
   readonly textured: boolean;
+  /** The texel density the arrays are capped at (null: no residency) and each array's cap (largest level kept). */
+  readonly texelDensity: number | null;
+  readonly textureTops: Readonly<Partial<Record<VoxelTextureMap, number>>>;
 }
 
 interface WorldDraw {
@@ -165,6 +211,9 @@ export class VoxelWorldDraws {
   textureLoads = 0;
   textureFailures = 0;
   textureLoadMs = 0;
+  /** The density the arrays were last capped at and their caps by map. */
+  private density: number | null = null;
+  private tops: Partial<Record<VoxelTextureMap, number>> = {};
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.setKits(opts.kits ?? null);
@@ -220,7 +269,20 @@ export class VoxelWorldDraws {
     this.arrays = next;
     for (const w of this.worlds.values()) this.giveArrays(w.surface);
     if (old !== null) for (const t of Object.values(old.textures)) if (t !== undefined && !Object.values(next?.textures ?? {}).includes(t)) this.opts.release?.(t);
+    this.density = null;
+    this.capArrays();
     this.opts.applied?.();
+  }
+
+  /** Each array capped at the level the quality level's texel density keeps (nothing when unchanged). */
+  private capArrays(): void {
+    const r = this.opts.residency;
+    if (r === undefined || this.arrays === null) return;
+    const level = r.level();
+    const density = level === null ? Infinity : levelVoxels(level).texelDensity;
+    if (density === this.density) return;
+    this.density = density;
+    this.tops = capVoxelArrays(this.arrays.textures, density, r.limit);
   }
 
   private giveArrays(surface: VoxelSurface): void {
@@ -277,6 +339,7 @@ export class VoxelWorldDraws {
       if (this.edits.length > EDITS_KEPT) this.edits.splice(0, this.edits.length - EDITS_KEPT);
       while (this.waiting.length > 0 && this.apply(this.waiting[0]!, now)) this.waiting.shift();
       for (const w of this.worlds.values()) w.surface.grids.frame();
+      this.capArrays();
       if (this.worlds.size > 0 || this.waiting.length > 0) this.loop();
     };
     this.raf = requestAnimationFrame(tick);
@@ -345,7 +408,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured };
+    for (const [name, { view, surface }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 

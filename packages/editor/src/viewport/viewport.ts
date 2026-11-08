@@ -229,7 +229,7 @@ export class Viewport {
       instanceChunkSize: () => this.instanceChunk,
     });
     this.source.setCamera(this.camera);
-    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, textures: (set) => this.assets.loadTexture(slotTextureKey(set)) });
+    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, arrayBytes: (set) => this.assets.loadBytes(slotTextureKey(set)) });
     this.look = new ViewportLook({ adapter: () => this.adapter, source: this.source, projected: () => this.projected, requestRender: () => this.requestRender() });
     this.overlay.name = 'scene-view-overlays';
     // The view's own drawing (grid, gizmo, outlines, handles, brush cursors) is never an occludee.
@@ -403,6 +403,8 @@ export class Viewport {
       occlusionPyramid: occlusionPyramidFromUrl(pageSearch()),
       portals: pageFlagOn(pageSearch(), PORTALS_URL_PARAM),
       onChange: () => this.contentArrived(),
+      // The voxel arrays stream through the voxel worlds' streamer, updated with each frame drawn.
+      textureStreamer: this.voxels.textureStreamer,
       renderer: {
         ...this.rendererChoice,
         onChange: (info) => {

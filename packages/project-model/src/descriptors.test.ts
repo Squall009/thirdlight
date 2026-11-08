@@ -643,6 +643,7 @@ const ENV_BASES: J[] = [
         reflections: 'high',
         shadowAtlas: 2048,
         voxelRings: 0.75,
+        voxelTexelDensity: 512,
       },
       { id: 'high' },
     ],
@@ -1079,8 +1080,9 @@ describe('descriptor registry', () => {
     // quality level's voxel ring scale, about 3.1 KB; the voxel kits' slots and jitter in place of cases and join profiles,
     // and the voxel detail seed setting, about 0.6 KB; a voxel world's decal layers, about 0.3 KB; a voxel kit's
     // wall-top fill, about 0.3 KB; a voxel kit's own sheet layout and its slot meshes' mirror, about 0.45 KB; the
-    // material record's physics, game data and voxel use, and the physical profiles, about 4.7 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(374_400);
+    // material record's physics, game data and voxel use, and the physical profiles, about 4.7 KB; a quality level's
+    // voxel texel density, about 0.35 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(374_750);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

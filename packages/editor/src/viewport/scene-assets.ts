@@ -32,6 +32,7 @@ export interface SceneViewAssets {
   readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   /** A slot array's stand-ins while the backend makes it (a material library's `previewTexture`). */
   readonly previewTexture: (key: string, show: (t: THREE.Texture) => void) => THREE.Texture | null;
+  /** A texture asset's stored bytes, or a slot list's assembled array's (its `slotTextureKey`). */
   readonly loadBytes: (assetId: string) => Promise<Uint8Array>;
   readonly materialLibrary: MaterialLibrary;
   /** The model rows and bytes the scene adapter realizes placements from (rows follow reimports). */
@@ -225,8 +226,10 @@ export function createSceneViewAssets(o: {
     assetTexturesFor: (assetId) => client.content.getAsset(assetId)?.textures ?? null,
     ...(o.onFailuresChanged !== undefined ? { onFailuresChanged: o.onFailuresChanged } : {}),
   });
-  /** A texture asset's stored bytes (the probe tiles' files are data, never decoded as images). */
+  /** A texture asset's stored bytes (the probe tiles' files are data, never decoded as images); a slot list's assembled array's. */
   const loadBytes = async (assetId: string): Promise<Uint8Array> => {
+    const slots = parseSlotTextureKey(assetId);
+    if (slots !== null) return client.textureSlotBytes(slots.layers, slots.mode, slots.height === true);
     await client.catalog.ensureAssets([assetId]);
     const v = client.content.resolveVersion(assetId);
     if (v === null) throw new Error(`${assetId} is not an asset of this project`);

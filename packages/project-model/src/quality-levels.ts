@@ -96,6 +96,15 @@ export const SURFACE_LIGHT_MS_MAX = 8;
 export const VOXEL_RING_SCALE_MIN = 0.25;
 export const VOXEL_RING_SCALE_MAX = 4;
 
+/**
+ * Texel densities a level may keep for the voxel surfaces (px/m on a
+ * construction tile): powers of two, as the mip levels are.
+ */
+export const VOXEL_TEXEL_DENSITIES: readonly number[] = Object.freeze([64, 128, 256, 512, 1024, 2048, 4096]);
+
+/** A level's voxel texel density by its tier: an integrated GPU's low tier keeps a quarter of the authored 1024 px/m. */
+export const VOXEL_TEXEL_DENSITY_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 256, medium: 512, high: 1024 });
+
 /** A level's reflections: none, or screen-space rays with traced fallback at a quality. */
 export const REFLECTION_QUALITIES = ['off', 'medium', 'high'] as const;
 export type ReflectionQuality = (typeof REFLECTION_QUALITIES)[number];
@@ -219,12 +228,17 @@ export interface QualityLevelConfig {
   shadowAtlas?: number;
   /** 0.25–4: scales every voxel world's ring distances (absent: the tier's, `VOXEL_RING_SCALES`). */
   voxelRings?: number;
+  /** Texels a metre the voxel surfaces keep resident at most, one of `VOXEL_TEXEL_DENSITIES` (absent: the tier's, `VOXEL_TEXEL_DENSITY_BY_TIER`). */
+  voxelTexelDensity?: number;
 }
 
-/** What a level sets for the voxel worlds: the scale of their ring distances and their stream memory budget (bytes), both by its tier unless it sets the scale. */
-export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings'>): { readonly ringScale: number; readonly budgetBytes: number } {
+/**
+ * What a level sets for the voxel worlds: the scale of their ring distances, their stream memory budget (bytes) and
+ * the most texels a metre their surfaces keep resident, each by its tier unless the level sets the scale or density.
+ */
+export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity'>): { readonly ringScale: number; readonly budgetBytes: number; readonly texelDensity: number } {
   const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
-  return { ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier], budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier] };
+  return { ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier], budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier], texelDensity: level.voxelTexelDensity ?? VOXEL_TEXEL_DENSITY_BY_TIER[tier] };
 }
 
 /**

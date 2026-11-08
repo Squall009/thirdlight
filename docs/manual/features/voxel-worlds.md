@@ -566,6 +566,22 @@ world page alike); a changed texture set loads the arrays again, and the
 world keeps drawing the old ones until the new ones are there. The voxel
 world page's `?patterns=1` draws the old test patterns instead.
 
+**Texture detail by quality level.** Author one set, at 1024 texels a
+metre (4096 × 4096 for a 4 × 4 m wall). Each quality level keeps the arrays
+resident down to its **Voxel texel density** (`voxelTexelDensity` on a
+[quality level](../reference/content-blocks-environment.md), 64–4096 in
+powers of two; else its lighting tier's: low 256, medium 512, high 1024
+texels a metre), so a 4096² set is drawn from its 1024², 2048² or 4096²
+level. Within that the arrays stream like any large texture: the page's
+[texture budget](tuning.md) (`texture_budget_mb`) keeps what fits, the
+nearest surfaces' need first, and the smallest levels (128² and below)
+always stay. Changing the level while the game runs drops the levels above
+the new cap at once or streams the finer ones in, drawing the old ones
+until they arrive, without a reload; Play, an export, the Scene view and
+the voxel world page (`?quality=low|medium|high`, `?textureBudget=MiB`)
+keep them the same way. A build ships each array cut into its mip levels,
+as it ships any streamed texture.
+
 **Scripts read the records:** `ctx.voxels.materialAt(x, y, z)` gives the
 material of the voxel at a point and `ctx.voxels.materialOf(id)` the one a
 voxel id is: `{id, materialId, name, use, kit, physical: {profile?,
@@ -587,9 +603,7 @@ These come later; worlds made now keep working when they arrive:
   debug set of their sheet layout until materials arrive); the fringe where
   buildings meet the ground and ground scatter come with the terrain tools.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
-- **Materials**: texture detail by quality level and the texture budget
-  (today every array is loaded whole at the size its textures have), the
-  heights in the sets moving relief and blends (the depth field is read,
+- **Materials**: the heights in the sets moving relief and blends (the depth field is read,
   the sets' heights not yet), texture sets in the material Inspector (set
   over the API), the physical section in the Inspector (profiles are set
   over the API), and wetness beyond darkening (shine and filled-in

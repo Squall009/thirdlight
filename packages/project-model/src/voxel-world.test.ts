@@ -158,8 +158,8 @@ describe('the voxelWorld component', () => {
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
     // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
-    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium });
-    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high });
+    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512 });
+    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024 });
     const base = resolveVoxelWorld({ world: 'w' });
     const scaled = (k: number) => ({
       ring: Object.fromEntries(Object.entries(base.ring).map(([f, v]) => [f, v * k])),

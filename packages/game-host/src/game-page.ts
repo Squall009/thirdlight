@@ -683,7 +683,7 @@ interface PageVoxelKits {
  * chunk drawn before its kit's meshes are there builds those pieces when
  * they arrive.
  */
-function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[], materials: VoxelMaterialSources, textures: (map: VoxelTextureMap) => ReturnType<NonNullable<SceneAdapterOptions['materials']>['loadTexture']>) {
+function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[], materials: VoxelMaterialSources, textures: (map: VoxelTextureMap) => ReturnType<NonNullable<SceneAdapterOptions['materials']>['loadTexture']>, streamer: TextureStreamer, startLevel: string | undefined) {
   let report: (world: string, bytes: number[], coarse: number, kits: number) => void = () => undefined;
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length + voxelKitImageRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader());
@@ -693,6 +693,11 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     materials: materials as readonly VoxelLookRecord[],
     // The voxel surfaces' texture arrays the build assembled (its `voxelTextures` block), read as any shipped texture.
     textures: (map) => textures(map),
+    // The level drawn caps the arrays' resident levels; the streamer keeps what the budget holds under the caps.
+    residency: {
+      level: () => adapter()?.qualityLevelSettings?.() ?? qualityLevelOf(qualityLevels, startLevel),
+      limit: (t, level) => streamer.limit(t, level),
+    },
     scene: () => adapter()?.threeScene?.() ?? null,
     // The grids upload through the renderer once it can draw.
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
@@ -818,7 +823,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
     // The voxel worlds run with the simulation; the page draws the chunks each swap sends.
-    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase), qualityLevels, voxelMaterialsOf(manifest), voxelTexturesOf(manifest, pageTextureLoader(assetReader, content.catalog, textureStreamer))) : null;
+    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase), qualityLevels, voxelMaterialsOf(manifest), voxelTexturesOf(manifest, pageTextureLoader(assetReader, content.catalog, textureStreamer)), textureStreamer, pinnedQuality ?? manifest.environment?.quality) : null;
     if (voxels !== null) releases.push(() => (voxels.draws.dispose(), voxels.kitMeshes.dispose()));
     if (threadMode === 'worker') {
       const worker = voxels === null ? createBrowserSimWorker(o.workerUrl) : voxels.worker(createBrowserSimWorker(o.workerUrl));

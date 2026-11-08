@@ -201,7 +201,7 @@ export {
 export type { CreateInstanceOptions } from './visual';
 // KTX2 texture assets (the page names where the Basis transcoder is served).
 export { setKtx2DecoderBase } from './ktx2';
-export { createTextureStreamer, isStreamedTexture, SAMPLED_TEXTURES_KEY, StreamedDataTexture, StreamedTexture, type AnyStreamed, type MipPartRef, type StreamSource, type TextureStreamer, type TextureStreamerOptions, type TextureStreamingObservation } from './texture-streaming';
+export { createTextureStreamer, isStreamedTexture, SAMPLED_TEXTURES_KEY, StreamedArrayTexture, StreamedDataTexture, StreamedTexture, WORLD_MAPPED_TEXTURES_KEY, wholeKtx2Source, type AnyStreamed, type WorldMappedTextures, type MipPartRef, type StreamSource, type TextureStreamer, type TextureStreamerOptions, type TextureStreamingObservation } from './texture-streaming';
 export { planMipLevels, residentBytes, type MipCandidate, type MipPlan } from './texture-budget';
 // Project materials (shader types, global wind) at runtime.
 export {
@@ -410,6 +410,6 @@ export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-t
 export { PIECE_U_ATTRIBUTE, TRIM_RUN_ATTRIBUTE, trimUPerMetre } from './voxel-trim-u';
 export { KIT_DEBUG_TEXTURE_SIDE, voxelKitDebugTexture, voxelKitImageRefs, voxelKitMeshRefs, VoxelKitMeshes, VoxelKitSet, type VoxelKitBytes, type VoxelKitDraw, type VoxelKitImageRef, type VoxelKitMeshRef, type VoxelKitRecordLike } from './voxel-kit-pieces';
 export { phaseTileMetres, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
-export { VoxelWorldDraws, type VoxelEditToScreen, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';
+export { capVoxelArrays, voxelTexelDensityAt, VoxelWorldDraws, type VoxelEditToScreen, type VoxelTextureResidency, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';
 // GPU time per frame from timestamp queries (where the renderer records them).
 export { createGpuTiming, measuresGpuTime, type GpuTiming } from './gpu-timing';

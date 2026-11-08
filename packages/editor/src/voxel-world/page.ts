@@ -95,6 +95,7 @@ import {
   WETNESS_MAX,
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
 import { bindViewInput, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { backendArrays, PageMaterials } from './page-materials';
@@ -152,6 +153,11 @@ canvas.style.cssText = 'display:block;width:100vw;height:100vh';
 document.body.append(canvas, hud);
 // `?hud=0`: no status line and no picker (pictures compared pixel by pixel).
 const hudShown = params.get('hud') !== '0';
+/**
+ * `?quality=low|medium|high`: the engine level whose voxel texel density caps the texture arrays (default low, the
+ * floor this page measures); `?textureBudget=MiB`: the texture budget they stream within (default the engine's).
+ */
+const textureResidency = { quality: params.get('quality') ?? 'low', budgetBytes: textureBudgetBytesOf(params.get('textureBudget') === null ? undefined : { texture_budget_mb: Number(params.get('textureBudget')) }) };
 if (!hudShown) hud.style.display = 'none';
 
 function fail(message: string): never {
@@ -240,7 +246,7 @@ async function main(): Promise<void> {
   const kits = pageKitPieces(kitRoute, params.get('kits') === '0' ? null : project);
   // Each material's look from its record, over the stand-in (and the relief's test layer) for what it leaves out.
   const reliefOptions = relief.surfaceOptions();
-  const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look, patterns ? null : backendArrays(api, headers));
+  const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look, patterns ? null : backendArrays(api, headers), textureResidency);
   materials.take(project.materials ?? []);
   if (hudShown) document.body.append(materials.select);
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
@@ -470,6 +476,7 @@ async function main(): Promise<void> {
     placeCamera();
     streamer.update();
     ring?.update();
+    materials.streamer.update(scene, camera, renderer.domElement.height);
     const r0 = performance.now();
     renderer.render(scene, camera);
     renderMs.add(performance.now() - r0);
@@ -548,8 +555,7 @@ async function main(): Promise<void> {
     pickAndEdit,
     /** The picker's voxel materials, the one shift-click adds, picking one, and reading the records again. */
     materials: () => ({ entries: materials.entries, picked: materials.material, options: [...materials.select.options].map((o) => o.text) }),
-    pickMaterial: (id: number) => materials.pick(id),
-    readMaterials: () => materials.readAgain(),
+    ...materials.hooks(),
     tableEntry: (m: number) => surface.tableEntry(m),
     async settle(): Promise<void> {
       await kits.loaded;

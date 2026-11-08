@@ -118,6 +118,7 @@ export const VOXEL_CREASE_ATTRIBUTE = 'voxelCrease';
 const CRACK_DARKEN = 0.7;
 
 import { cameraRelative } from './camera-relative';
+import { WORLD_MAPPED_TEXTURES_KEY, type WorldMappedTextures } from './texture-streaming';
 import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
 import { BAND_TEXELS, bandTexels, gridUv, tileUv } from './voxel-surface-projection';
@@ -423,6 +424,21 @@ function bindArrays(nodes: Record<VoxelTextureMap, N>, neutral: Record<VoxelText
   }
 }
 
+/**
+ * The arrays as world-mapped textures (texture-streaming.ts) at the finest tile a material with a layer draws them
+ * at (the table's tile and layer blocks), so a page's streamer measures their need from the chunks drawn with them.
+ */
+function worldMapped(tdata: Float32Array, ids: number, textures: THREE.Texture[]): WorldMappedTextures {
+  let tile = Infinity;
+  for (let m = 1; m < ids; m++) {
+    const ly = (LAYER_BLOCK + m) * 4;
+    if (tdata[ly]! < 0 && tdata[ly + 1]! < 0 && tdata[ly + 2]! < 0) continue;
+    const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
+    tile = Math.min(tile, tdata[t]!, tdata[t + 1]!);
+  }
+  return { textures, tileMetres: Number.isFinite(tile) ? tile : CONSTRUCTION_TILE_METRES };
+}
+
 /** The band test texture over one construction tile (`voxel-surface-projection.ts`). */
 function bandTexture(): THREE.DataTexture {
   const tex = new THREE.DataTexture(bandTexels(CONSTRUCTION_TILE_METRES), BAND_TEXELS, BAND_TEXELS, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -605,6 +621,9 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   const material = cameraRelative(new THREE.MeshStandardNodeMaterial());
   material.metalness = 0;
   material.name = 'voxel surface';
+  /** The texture arrays bound (none: the neutral values). */
+  let bound: THREE.Texture[] = [];
+  const mapTextures = (): void => void (material.userData[WORLD_MAPPED_TEXTURES_KEY] = worldMapped(tdata, ids, bound));
   const blendM = uniform(Math.max(0, opts.blendMetres));
   const gridNode = texelTexture3D(grids.texture);
   grids.onTexture = (tex) => {
@@ -893,6 +912,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     setLooks(look) {
       const t0 = performance.now();
       fill(look);
+      mapTextures();
       fresh(table);
       tableUploads++;
       tableMs = performance.now() - t0;
@@ -918,6 +938,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       if (arrayNodes === null || neutral === null) return;
       bindArrays(arrayNodes, neutral, arrays);
       for (let m = 1; m < ids; m++) tdata.set((arrays === null ? null : layers(m)) ?? [-1, -1, -1], (LAYER_BLOCK + m) * 4);
+      bound = arrays === null ? [] : VOXEL_TEXTURE_MAPS.flatMap((map) => (arrays[map] !== undefined ? [arrays[map]] : []));
+      mapTextures();
       fresh(table);
       tableUploads++;
     },

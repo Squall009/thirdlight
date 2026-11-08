@@ -24,7 +24,15 @@
  *
  * Layers are numbered in ascending voxel id, wall then floor then ceiling,
  * so the same records give the same arrays and table on every host.
+ *
+ * Residency: sets are authored at {@link VOXEL_AUTHORED_TEXEL_DENSITY} on a
+ * construction tile (4096² for 4 m) and the arrays keep every level. A
+ * quality level's texel density decides the largest level a page keeps
+ * resident ({@link voxelArrayTopLevel}); the page's texture budget may keep
+ * less (the mip tail always stays).
  */
+import { CONSTRUCTION_TILE_METRES } from '@thirdlight/voxel';
+
 import { MAX_TEXTURE_LAYERS } from './content-limits';
 import { FLAT_NORMAL_TEXEL, TEXTURE_ABSENT_VALUES } from './material-graph-kinds';
 import { fillLayerId, type TextureSlotSet } from './texture-slots';
@@ -32,6 +40,20 @@ import { isVoxelMaterial, VOXEL_SURFACES, VOXEL_TEXTURE_MAPS, voxelSurfaceSet, t
 
 /** A layer of the arrays: none (the surface draws its material's flat colour). */
 export const VOXEL_NO_LAYER = -1;
+
+/** Texels a metre the voxel texture sets are authored at, on a construction tile (4096² for the 4 m tile). */
+export const VOXEL_AUTHORED_TEXEL_DENSITY = 1024;
+
+/**
+ * The largest mip level (0: full size) an array whose layers are `layerEdge` texels a side keeps resident at a
+ * texel density of `texelsPerMetre` on a construction tile: the first level at or below the density. An array
+ * authored smaller than the density keeps level 0.
+ */
+export function voxelArrayTopLevel(layerEdge: number, texelsPerMetre: number): number {
+  if (!(layerEdge > 0) || !(texelsPerMetre > 0)) return 0;
+  const over = layerEdge / CONSTRUCTION_TILE_METRES / texelsPerMetre;
+  return over <= 1 ? 0 : Math.ceil(Math.log2(over) - 1e-9);
+}
 
 /** Fewest layers an array has (a single-layer KTX2 is not an array). */
 const MIN_ARRAY_LAYERS = 2;

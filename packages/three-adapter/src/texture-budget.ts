@@ -9,7 +9,8 @@
  * that nothing needs now (the camera moved away, the object left the view)
  * stay as long as the budget has room, the most recently needed first; when
  * it is full they are the first to go, and the least-needed texture drops
- * first. Pure: the streamer applies the plan (drops at once, loads one
+ * first. A texture's cap (`top`) bounds both: no level above it is asked
+ * for or kept. Pure: the streamer applies the plan (drops at once, loads one
  * level at a time).
  */
 
@@ -28,6 +29,8 @@ export interface MipCandidate {
   readonly copies: number;
   /** How much it is needed: its size on screen now, else how recently it was seen (larger: more). */
   readonly weight: number;
+  /** The largest level it may hold (a quality level's cap; absent or 0: none). */
+  readonly top?: number;
 }
 
 /** Bytes of a texture resident down to `level` (every level from it to the smallest, all copies). */
@@ -61,13 +64,15 @@ export function planMipLevels(candidates: readonly MipCandidate[], budgetBytes: 
   }
   const over = used > budgetBytes;
   const cost = (c: MipCandidate, level: number): number => c.levelBytes[level]! * Math.max(1, c.copies);
+  /** What a texture asks for within its cap. */
+  const wantOf = (c: MipCandidate): number => Math.max(0, c.wanted, Math.min(c.tail, c.top ?? 0));
   // Needed levels, in rounds: the textures furthest below what they need first.
   const blocked = new Set<string>();
   for (;;) {
     let deficit = 0;
-    for (const c of candidates) if (!blocked.has(c.id)) deficit = Math.max(deficit, target.get(c.id)! - Math.max(0, c.wanted));
+    for (const c of candidates) if (!blocked.has(c.id)) deficit = Math.max(deficit, target.get(c.id)! - wantOf(c));
     if (deficit <= 0) break;
-    const round = candidates.filter((c) => !blocked.has(c.id) && target.get(c.id)! - Math.max(0, c.wanted) === deficit).sort(byNeed);
+    const round = candidates.filter((c) => !blocked.has(c.id) && target.get(c.id)! - wantOf(c) === deficit).sort(byNeed);
     for (const c of round) {
       const next = target.get(c.id)! - 1;
       const n = cost(c, next);
@@ -83,7 +88,9 @@ export function planMipLevels(candidates: readonly MipCandidate[], budgetBytes: 
   // Levels resident beyond the need are kept while there is room, the most needed texture first.
   for (const c of [...candidates].sort(byNeed)) {
     let t = target.get(c.id)!;
-    while (t > c.resident) {
+    // Never above the cap, whatever is resident (a lowered cap drops what lies above it).
+    const floor = Math.max(c.resident, Math.min(c.tail, c.top ?? 0));
+    while (t > floor) {
       const n = cost(c, t - 1);
       if (used + n > budgetBytes) break;
       used += n;
