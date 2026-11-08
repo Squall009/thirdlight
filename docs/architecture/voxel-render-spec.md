@@ -243,7 +243,14 @@ changed (the canonical bytes are equal), so bodies stand. New lattice steps mesh
 **Settings.** `voxelWorld.levels.relief` (metres, 0: none; default 16 m = `DEFAULT_RELIEF_RADIUS_CELLS`, scaled per
 quality level like every distance, never past `level0`); a quality level's `voxelRelief` (lattice steps a cell,
 `RELIEF_STEPS` 0 | 2 | 4 | 8; absent its tier's `RELIEF_STEPS_BY_TIER`: low 0, medium 2, high 4). A world resolved
-without a quality level (the Scene view) has steps 0. `ctx.voxels.setRings({levels: {relief}})` changes the
+without a quality level has steps 0. The relief distance scales by its tier's own `RELIEF_RING_SCALES` (low 0.71,
+medium 1, high 1.5: 16 m and 24 m by default), or by the level's `voxelRings` when it sets one.
+
+**Drawn** (46d.5b, no format change). The streamer tells the draws its ring (a `relief` stream event; the chunk
+batch's `relief`: steps, where it displaces now and the ring's centre, cells; again when the centre moves
+`RELIEF_FOCUS_STEP_CELLS`, 1/8 m), and the vertex stage fades the displacement from that centre by `reliefFade` of
+that radius. Play, exports and the Scene view draw through `VoxelWorldDraws`; the Scene view derives the ring at
+its quality level round the point it orbits. `ctx.voxels.setRings({levels: {relief}})` changes the
 distance at run time; `rings()` reports it and `reliefSteps`.
 
 **Budget (D528).** Relief has its own share of the stream budget, `RELIEF_BUDGET_SHARE` (1/8: low 32, medium 64,

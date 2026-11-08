@@ -216,7 +216,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.4c | done: D532 fixed (4096² in UASTC stripes, 14–49 s a map, mean error ≤ 1.4/255). Kit pieces wear their GLB material (sheet extracted to KTX2, trim U on every map) in Play, export, Scene view, page; debug sets only under `?trimDebug=1`; kit crack maps by brightest texel; Blender export writes the images. Town draws 1,857 either way, GPU ±0.2 ms. D535–D537 |
 | 46d.4d | done: D531 height = normal map's A only (record map renamed `albedo`); heights blend in metres (1 cm contrast), relief reads the normal array; R111 wetness (darker, smoother, flatter, water in the low parts by height). D535: textures to 65.3 MiB. Town GPU 3.81–3.85 / 4.42–4.43 ms (46d.4c 3.66 / 4.48); WebGL 2 3–5 missed (D540). Seen both renderers; pieces dry (D538) |
 | 46d.5a | done: relief part = derived v29; ring per 8 m section round the focus (hysteresis, atomic re-plan, bodies stand), `levels.relief` 16 m scaled, `voxelRelief` low 0/med 2/high 4, setRings; own 1/8 budget share, ring shrinks (D528 fixed). Town med/high: relief 12.9/106 MB, 1.29/4.10 M tris, `render()` +0–1.1 ms, 0–7 missed; shadows main-thread bound (D529). D541, D542 |
-| 46d.5b | not started |
+| 46d.5b | done: relief displaced in Play (worker + page), exports, Scene view (its quality level) and the voxel world page (tier default, relief switch); batches carry the ring (steps, radius, centre). High ring 24 m (relief scale 1.5). Town GPU med/high 4.26/4.36 WebGPU, 4.42/5.05 WebGL 2, 0–7 missed. D541 fixed; D542 cause found (kit pieces); D543. voxel e2e 64.2 → 83.2 s |
 | 46d.6a | not started |
 | 46d.6b | not started |
 | 46d.6c | not started |
@@ -774,6 +774,47 @@ at section faces, the ring's edge or the ground; the town whole at every tier. T
 Shards on the stone house's door leaf through the doorway with displacement on (D542; identical in 46d.4d's
 `?relief=4` picture). Ring edge in motion: not pictured as frames (crack-free at every swap is tested, not seen).
 
+### 46d.5b relief drawn in the hosts; D541, D542
+
+**Built.** `@thirdlight/voxel`: `RELIEF_RING_SCALES` and `RELIEF_FOCUS_STEP_CELLS` (relief-ring.ts); the streamer emits
+a `relief` event (stream-relief.ts `drawState`: steps, displace radius, centre; again when the centre moves 1/8 m or
+the ring changes) and `ChunkDrawBatcher` carries it as `ChunkDrawBatch.relief`; per-section derive readiness (D541,
+stream-sections.ts). project-model: `levelVoxels().reliefScale`, `resolveVoxelWorld` scales `relief` by it.
+three-adapter: `VoxelWorldDraws` builds the displacing surface, fades it by each batch's ring, `setRelief({displace})`,
+stats `relief`. Hosts: Play/export through the draws (hook `__tlVoxelPlay.setRelief`), Scene view (open message
+`reliefSteps`, `relief` message on a level change, scene-voxels-worker.ts), voxel world page (tier default, relief
+switch). Manual *Relief* updated.
+
+**Tested.** `relief-ring.test.ts` (real workers, town regions: the batches tell steps/radius/centre, not under a
+step, once a step, off once; relief chunks come with crease weights); `voxel-relief.test.ts` (the draws' surface
+displaces a batch's relief chunk, WGSL vertex stage reads the heights; the switch); `voxel-world.test.ts` (medium
+16 m, high 24 m); `world-host.test.ts` (D541: after 8 m → 32 m round a chunk corner every reloaded chunk derives,
+level 0 drawn, a body under the focus). `voxel-world.e2e.ts`: Play (worker / single) and the static export (backend
+stopped) at `high` with the pad's grass as a textured voxel material (placeholder grass set 256², depth 0.25 m):
+24 m ring, ~200 k relief vertices, moved vs flat 5,401 / 5,068 / 45,595 px (>20 levels). Fast gate
+gate-fast-20261108-180929 (vitest green, edge-cases D523 passed alone; e2e red: relief checks) → reruns
+-182313/-182517/-182731 (test fixes) → -182954 GREEN (perf 0 missed both renderers). `voxel-world.e2e.ts`
+64.2 → 83.2 s (+18 s: the relief checks in Play ×2 and the export's reload at `high`).
+
+**Measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 view 60 m out, ~480-frame orbit, one round,
+`?relief=tier`, 18:33–18:35, load 1.6–2.6, uptime 16.1 d): medium (n 2, 16 m, 100–104 sections, 12.9 MB):
+`render()` p50 10.2 / 11.1 ms, GPU 4.26 / 4.42 ms, missed 0 / 7 (WebGPU / WebGL 2); high (n 4, 24 m asked, **shrunk
+to 21.4 m** by its 134 MB share: 176 sections, 77.3 MB, 3.21 M triangles): `render()` 10.4 / 11.8 ms, GPU 4.36 /
+5.05 ms, missed 0 / 0. 1,466 piece draws each run. Shadow pass not re-measured (46d.5a's stands; hosts cast none).
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.5b/shots/`): `play-webgpu-relief-{moved,flat}`,
+`play-webgl2-relief-{moved,flat}` (Play at high: the pad's grass texture shifts with its vertices; no crack seen),
+`export-relief-{moved,flat}` (WebGPU, backend stopped: the same, ground pattern moves), `sceneview-high-{webgpu,
+webgl2}-b` (Scene view at high: textured world drawn, 147 k relief vertices; displacement not distinguishable by eye
+at that distance), `d-d542-*` and `nokits-d542-*` (D542). Unverified: relief on walls and roofs in Play (the e2e
+scene displaces only ground), the Scene view's fade stepping as the view pans.
+
+**D542 cause.** The bright shards on the stone house's doorway jamb are the door frame's kit pieces: with `?kits=0`
+the same displaced view shows none (`nokits-d542-stone-wall-near-displaced-webgpu`). An edge piece reaches a few cm
+over the face beside its edge; the face's crease is 0 only on the edge line, so the lattice vertices beside it
+recess (stone 6 cm) and uncover the piece's buried sides. Fix (not small, recorded): crease 0 on every vertex within
+a piece's reach of a cell carrying an edge piece, decided from cells alone so every section meeting a vertex agrees.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1010,6 +1051,12 @@ Shards on the stone house's door leaf through the doorway with displacement on (
 - 2026-11-08 (46d.5a, default chosen, owner to confirm): **relief's budget share is 1/8 of the stream budget while the ring is on** (low 32, medium 64, high 128 MiB), reserved: the base world's eviction counts the rest; relief bytes are each section's relief part and its chunk draw's relief copy (GPU). Over its share the ring shrinks farthest first to 90 % of it and grows back once the focus has moved 8 m (D528).
 - 2026-11-08 (46d.5a, default chosen, owner to confirm): **a ring change derives the whole section again** (the plain outputs are byte-equal, the relief part is new) in one group with every relief neighbour, rather than a relief-only job: one derive path, the atomic swap and the stamps reused; the swap's `chunk` events say `reliefOnly` (canonical bytes equal) so bodies stand.
 - 2026-11-08 (46d.5a, default chosen, owner to confirm): **Play and exports derive the relief ring at medium and high from now on** but draw it undisplaced until 46d.5b; the Scene view (no quality level) derives none.
+
+- 2026-11-08 (46d.5b, default chosen, owner to confirm): **the relief distance scales by its own tier scale** (`RELIEF_RING_SCALES`: low 0.71, medium 1, high 1.5), not the ring scale (√2), so the default 16 m gives the verdict's medium 16 m and high 24 m; a level that sets **Voxel ring scale** scales relief with every distance, and a scene's per-level `scale` or own `relief` wins as before. Replaces 46d.5a's "high 22.6 m; a scene sets 17 m".
+- 2026-11-08 (46d.5b, default chosen, owner to confirm): **the draws learn the relief ring from the streamer** (a `relief` stream event → the chunk batch's `relief`: steps, where it displaces now, the ring's centre, re-sent each 1/8 m the centre moves), not from the page's camera: Play's stream focus is the sim's camera, the Scene view's the orbit target (whole cells there, so its fade moves in 0.5 m steps), and the fade must be the ring's.
+- 2026-11-08 (46d.5b, default chosen, owner to confirm): **the Scene view draws relief at the view's quality level** (its steps and the relief distance scaled by it; its other distances stay the scene's own); a level change re-plans the ring in the worker, no reopen. The voxel world page takes the level's relief by default (`?relief=0` none) with a **relief** switch (moved / mesh flat).
+- 2026-11-08 (46d.5b, default chosen, owner to confirm): **Play and exports still cast no voxel shadows** (as before: the voxel world's shadows and their cost, D529, are lighting work, 46e); where shadows are on (the page's `?shadows=1`) the shadow pass is displaced the same.
+- 2026-11-08 (46d.5b, D541, default chosen, owner to confirm): **a section waits only for the chunks it reads** (its box + R), and a section reading a chunk neither resident nor coming counts as drawn-empty for the level choice and the seams (the world ends per section at the load ring's edge). Cost: the ring's edge sections now derive (a 32 m ring: 3.2× the derives; default 192 m ring unmeasured, D543).
 
 ## 10. Open questions for the owner
 
