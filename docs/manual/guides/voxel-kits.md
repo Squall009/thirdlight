@@ -52,13 +52,14 @@ tiles and no pieces at all, and add pieces one slot at a time.
   painted into the tile ([decals](decals.md)).
 - **Avoid one eye-catching mark** in the tile: it shows once every 4 m.
 
-**Where you see them today.** Voxel materials (material records, texture
-arrays, the height depth) are not built yet: the world's surface shader is a
-stand-in. Until they are, check a tile in Blender on the template's
-`wall-tile-4m` plane (4 × 4 m with its 0.5 m grid, UV 0–1 over the plane) or
-in the Texture Designer's preview, and see the grid it will follow on the
-voxel world page with `?bands=1` (a line every 0.5 m, thick lines at 0 and
-2 m, a tick every metre).
+**Where you see them.** A voxel material's `voxel.surfaces` names the three
+maps ([voxel materials](../features/voxel-worlds.md#voxel-materials)); the
+world draws them on the build grid, blends neighbouring materials by height
+in metres and fills the low parts with water as cells get wet. Check a tile
+in Blender on the template's `wall-tile-4m` plane (4 × 4 m with its 0.5 m
+grid, UV 0–1 over the plane) or in the Texture Designer's preview, and see
+the grid it follows on the voxel world page with `?bands=1` (a line every
+0.5 m, thick lines at 0 and 2 m, a tick every metre).
 
 ## 2. The Blender templates
 

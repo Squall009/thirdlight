@@ -214,7 +214,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.4a | done: albedo+height, normal and ORM arrays from every voxel material's wall/floor/ceiling sets (slot assembly, KTX2 cache), layers in the table; floor/ceiling/wall by face, grid 4 m, terrain triplanar 2 m; patterns under `?patterns=1`; Play/export ship `voxelTextures`. 6 units. Town GPU WebGPU 3.4 → 4.1 ms, WebGL 2 4.7 → 4.8, 0 missed. Seen both renderers |
 | 46d.4b | done: quality field `voxelTexelDensity` (low 256, medium 512, high 1024 px/m) caps each voxel array (4096²: levels 2/1/0); arrays stream per level under `texture_budget_mb`, need from the chunks; builds ship them cut; Play, export, Scene view, voxel world page. 2048² sets: 24/96/96 MiB per tier, switch 0.93 s, 0–2 missed; GPU ±0.1 ms. 4096² not assemblable (D532) |
 | 46d.4c | done: D532 fixed (4096² in UASTC stripes, 14–49 s a map, mean error ≤ 1.4/255). Kit pieces wear their GLB material (sheet extracted to KTX2, trim U on every map) in Play, export, Scene view, page; debug sets only under `?trimDebug=1`; kit crack maps by brightest texel; Blender export writes the images. Town draws 1,857 either way, GPU ±0.2 ms. D535–D537 |
-| 46d.4d | not started |
+| 46d.4d | done: D531 height = normal map's A only (record map renamed `albedo`); heights blend in metres (1 cm contrast), relief reads the normal array; R111 wetness (darker, smoother, flatter, water in the low parts by height). D535: textures to 65.3 MiB. Town GPU 3.81–3.85 / 4.42–4.43 ms (46d.4c 3.66 / 4.48); WebGL 2 3–5 missed (D540). Seen both renderers; pieces dry (D538) |
 | 46d.5a | not started |
 | 46d.5b | not started |
 | 46d.6a | not started |
@@ -652,6 +652,75 @@ rock wear the earth set in these pictures (D535).
 
 
 
+### 46d.4d height depth, wetness R111; D531, D535
+
+**D531 (default chosen, owner to confirm).** The approved texture layout v1 and R111 put a set's height in the normal
+map's A; that is now its only home. The material record's map `albedoHeight` is renamed `albedo` (its A unused; the
+manifest's `voxelTextures` key with it: nothing of this branch shipped, and a record naming the old key is refused as
+unknown, so staging's materials were rewritten by hand); voxel arrays no longer derive a brightness height (the
+layered surface keeps its own convention). A normal map without alpha, the flat fill layer and a layerless material
+read height 1. Render spec §2 *Height, height depth and wetness*, manual (voxel materials, wetness, the kit guide).
+
+**D535 (default chosen, owner to confirm).** `MAX_TEXTURE_SOURCE_BYTES` (project-model) is derived from
+`MAX_TEXTURE_EDGE`: a 4096² 8-bit RGBA PNG stored uncompressed (16,385 B a row) + 1/256 for zlib and IDAT framing +
+1 MiB of other chunks = 68,423,696 B (65.3 MiB); the image inspector's bound is it. `MAX_IMPORT_BYTES` = the larger of
+it and the 32 MiB model/audio bound (`MAX_SOURCE_BYTES`, unchanged) bounds the upload stage, an asset's
+`sourceByteLength` (the commands' copy of 32 MiB now imports it) and a source read back; staged bytes a project = 4 ×
+that (273.7 MB, was 4 × 32 MiB). A GLB drop checks the model bound. 16-bit 4096² PNGs may still not fit (recorded in
+the row). Tested at the HTTP boundary (`folder-import.test.ts`: an uncompressed noise 4096² PNG of 67.2 MB imports
+and reads back whole; a file one byte past the bound is refused `stage_bytes`); on staging the 4096² placeholder sets
+imported, grass normal 59.9 MB included.
+
+**Built.** three-adapter `voxel-surface-wetness.ts` (written once over the projection's scalar ops; the program and
+the tests run the same code): `heightBlend` — each of the two heaviest materials' surface level (h − 1) ×
+`heightDepth` raised by its share × (deeper depth + 1 cm), the higher wins over a 1 cm contrast
+(`HEIGHT_BLEND_CONTRAST_METRES`); colour, normal, ORM, the recess and the water use that share; `wetLook` — albedo ×
+(1 − 0.5 w)(1 − 0.2 water), roughness × (1 − 0.6 w) then toward 0.03 under water, normal toward the surface's own by
+0.4 w + water, water line w² × 0.6 of the blended height with a 0.04 shore. The surface's table holds every material's
+depth (third block, g; the r channel the debug program's test layer). `voxel-surface-sets.ts` returns the height from
+the normal read and `textureHeightAt` (explicit level) for the vertex stage; relief (`relief: true`) displaces by the
+same blend; the derivative bump stays on the debug program only (`?patterns=1`, test heights). `createVoxelSurface`
+split (`surfaceBlend` module function) to stay under 400 lines. Placeholder generator and kit sheets: albedo opaque,
+height in the normal's A.
+
+**Tested.** `voxel-surface-wetness.test.ts` (numbers through the program's functions: higher-in-metres wins, a whole
+share alone, flat by share; levels 0–7 on 8 pixel heights darken / smooth / flatten in order, water fills the lowest
+first, none at levels 1–2 above the floor, level 7 under the 0.6 line); `voxel-surface.test.ts` (+2 table loads,
+WGSL and GLSL); `voxel-relief.test.ts` (relief reads the normal array at an explicit level, 6 samples, WGSL and GLSL;
+no derivative bump on texture sets; the debug program's test heights and bump; a negative depth refused);
+`voxel-material-looks.test.ts` (depth on every record, variants inherit); integration export (the shipped normal
+array's A, transcoded by three's Basis transcoder, is the stone's height, mean error < 3/255; the floor's flat layer
+255). e2e: the material step paints brick back to stone (plank's stand-in swatch 0x6d6a5f is as dark as wet brick, so
+brick → plank measured a colour coincidence; WebGPU stone → brick changes 3,850 pixels); `voxel-world.e2e.ts`
+64.1 → 64.1 s. Fast gates gate-fast-20261108-143421 → rerun -144515 GREEN (D535), -153655 GREEN (13 min, 4.7 GB;
+perf 0 missed both renderers).
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, town R9 view at `high`, ~478-frame orbit, 2 rounds,
+16:01–16:06, load 2.1–4.3, uptime 16.0 d; six placeholder sets at 4096²): WebGPU GPU 3.85 / 3.81 ms, `render()` p50
+9.6 ms, 0 / 0 missed; WebGL 2 4.42 / 4.43 ms, 10.7 ms, 3 / 5 missed (max 50 / 33 ms); WebGL 2 with `?patterns=1` (no
+arrays) 4.02 ms, 0 missed, so the misses are the arrays' stream-ins (D540), not the shader. Against 46d.4c (3.66 /
+4.48 ms) and 46d.4a (4.06 / 4.81, low): within the rounds' spread; the two extra table reads and the blend math cost
+no measurable GPU time.
+
+**Texture assets** (engine test data on staging, none committed): 18 PNGs at 4096² (1024 px/m on 4 m, 2048 px/m on
+terrain's 2 m), 8-bit RGBA, 149.4 MB, written in 50 s: albedo (opaque now) stone 2.18, plaster 1.40, timber 1.67,
+earth 4.09, grass 1.01, rock 2.13 MB; normal + height stone 7.75, plaster 9.04, timber 2.88, earth 16.0, grass 59.9,
+rock 24.3 MB; ORM as 46d.4a. Arrays (6 layers, 13 levels, UASTC, BC7 on the Iris Xe): albedo 17.9 MB, normal 62.8 MB
+KTX2, assembled in 373 s on the first page load, then cached; GPU at `high` near 85 MiB a map (46d.4c's figure),
+levels by need below.
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.4d/shots/`, both renderers, sun at 12°): `look-stone-wall-near-
+wet{0,3,5,7}-*` (the stone house's front wall: darker and smoother as it rises, the joints dark at 7; door, window and
+their kit rims unchanged and dry, D538), `look-ground-near-wet{0,3,5,7}-*` (grass shines in the low sun from 5, the
+rock patch's low parts stand as dark flat pools at 5 and 7), `look-seam-grass-rock-wet{0,3,5,7}-*` (the rock patch
+let into grass: an irregular seam where rock's tops and grass's fill meet by height, no straight blend band; wet the
+pools follow the rock's low parts), `relief-{rock-cliff-near,stone-wall-near,seam-grass-rock}-{displaced,flat}-*`
+(`?relief=4`: the cliff's silhouette moves a few pixels, the patch's surface undulates, no crack or gap; shading
+from the normal maps). WebGPU and WebGL 2 alike. Water reads dark rather than mirror-like: the page has a hemisphere
+light and no environment to reflect (46e). Decals over the real sets: not pictured (D539).
+
+## 9. Decision log
+
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
   model**, as the owner asked; it uses a bench-generated height test set and a spike-only switch, so it needs no
   format step or material record. Its product version (46d.5) waits for real heights (46d.4).
@@ -862,10 +931,31 @@ rock wear the earth set in these pictures (D535).
 - 2026-11-08 (46d.4c): kit sheets follow the texture budget and on-screen need, not the tier's texel density
   (D536); the extraction's time inside one import command (D537).
 
+- 2026-11-08 (46d.4d, default chosen, owner to confirm): **height lives in the normal map's A only** (texture layout
+  v1, R111; D531): the record's map is renamed `albedo` rather than kept as `albedoHeight` with its A ignored, since
+  nothing of the branch shipped and a name that says height where none is read would mislead; no fallback to the
+  albedo's A (one home); a normal map without alpha draws no height.
+- 2026-11-08 (46d.4d, default chosen, owner to confirm): **the import bound for textures is derived from the largest
+  edge** (a 4096² 8-bit RGBA PNG stored uncompressed, 65.3 MiB; D535), not streamed import; the 32 MiB model and audio
+  bound stays; the stage takes the larger; four of the largest files may be staged a project at once.
+- 2026-11-08 (46d.4d, default chosen, owner to confirm): **height blend**: the higher surface in metres wins over a
+  1 cm contrast, each surface raised by its share × (deeper depth + 1 cm), so a whole share always shows alone and two
+  flat materials blend by share (the old linear blend, slightly steeper in the middle).
+- 2026-11-08 (46d.4d, default chosen, owner to confirm): **wetness numbers**: albedo × (1 − 0.5 w), standing water ×
+  0.8 more; roughness × (1 − 0.6 w), water 0.03; normal detail flattened by 0.4 w (all under water); the water line
+  at w² × 0.6 of the blended height (levels 1–2 only darken and shine, crevices fill from 3, level 7 under 60 % of
+  the height range), over a 0.04 shore. The line is in each pixel's blended height (0–1), the blend itself in metres.
+- 2026-11-08 (46d.4d, default chosen, owner to confirm): **the texture sets' lighting normal is the normal map's**;
+  the screen-derivative bump from heights (46d.1b's stand-in) stays only on the debug program with its test heights.
+- 2026-11-08 (46d.4d, default chosen, owner to confirm): **kit pieces stay dry for now** (D538): a piece's material
+  would need its cell's wetness from the grid per instance, which 46d.6a's cross-chunk piece buffers decide.
+
 ## 10. Open questions for the owner
 
-- 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method, and whether a texture file may
-  exceed 16 MiB on import (D535: busy 4096² PNGs do).
+- 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
+  65.3 MiB (a 4096² RGBA PNG uncompressed, D535 fixed in 46d.4d): confirm the bound.
+- The voxel texture set's maps are `albedo`, `normal` (height in A), `orm` (46d.4d, D531): confirm the rename and the
+  wetness look (numbers in §9; pictures in `work/46d.4d/shots`).
 
 - **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — after 46d.7d's comparison
   (`~/.cache/thirdlight-phase46/far-field-comparison.md`). Both stay until then.

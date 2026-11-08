@@ -1,6 +1,6 @@
 # Voxel rendering and materials — format page (46d additions)
 
-Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4c. This page receives every format addition of 46d (rendering and materials), each
+Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4d. This page receives every format addition of 46d (rendering and materials), each
 as a versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the
 owner on 2026-11-02) is not grown further. Nothing here is approved yet: a section is filled by the 46d item that
 builds it ([plan 46d](../plan-phase-46d.md) §6), and every section stays empty until then. § numbers name the format
@@ -40,7 +40,7 @@ is refused whole), unknown fields at every level are refused, and later steps on
     `TERRAIN_TILE_METRES` 2 for terrain and liquid, the derive's own constants).
   - `heightDepth` 0–0.25 m between the height map's 1 (the surface) and 0 (absent: 0.02 m). Relief only recesses,
     and half a 0.5 m cell keeps both sides of a one-cell wall apart.
-  - `surfaces` `{wall?, floor?, ceiling?}`, each a texture set `{albedoHeight?, normal?, orm?}` of plain texture
+  - `surfaces` `{wall?, floor?, ceiling?}`, each a texture set `{albedo?, normal?, orm?}` of plain texture
     assets (not arrays: each becomes one layer of its map's array in 46d.4a). Floor and ceiling fall back to wall,
     wall to the material's own look (`voxelSurfaceSet`). Empty sets are left out canonically.
 - `content.materialProfiles?`: `[{profileId, name, density?, friction?, restitution?, flowRate?, gameData?}]` by
@@ -100,8 +100,8 @@ runtime texture, not a file). A build or project without voxel texture sets read
 before. Nothing in the approved format spec, the role spec, the texture layout or kit format 1 changes. Default
 chosen, owner to confirm (plan 46d §9).
 
-**The arrays.** Per map type one texture array: `albedoHeight` (sRGB albedo, height 0–1 in A), `normal`
-(tangent-space, OpenGL green up), `orm` (occlusion, roughness, metalness). A layer is one distinct texture set of
+**The arrays.** Per map type one texture array: `albedo` (sRGB, its A unused), `normal` (tangent-space,
+OpenGL green up, **the height 0–1 in A**, texture layout v1), `orm` (occlusion, roughness, metalness). A layer is one distinct texture set of
 the voxel materials' `voxel.surfaces` (`project-model` `voxel-surface-textures.ts`, `voxelSurfaceTextures`):
 layers numbered in ascending voxel id, wall then floor then ceiling; equal sets share a layer (a floor falling back
 to its wall, two materials on the same textures). A set without an albedo has no layer (its surfaces draw the
@@ -117,7 +117,7 @@ assemble each through the backend's slot assembly into one KTX2 array (cached by
 under `slots-<digest>`; the editor's views and the voxel world page ask the same route
 (`POST …/content/textures/slots`) and draw the very same bytes.
 
-**The build's block** `voxelTextures?: {albedoHeight?, normal?, orm?}` names each map's shipped array (texture
+**The build's block** `voxelTextures?: {albedo?, normal?, orm?}` names each map's shipped array (texture
 ids); the ids are in the catalog's project-wide `dependencies`. Absent when no voxel material has a set with an
 albedo. The runtime makes each id's layers from the shipped material records with the same function, so the block
 carries no table.
@@ -180,7 +180,34 @@ read as they are. Default chosen, owner to confirm (plan 46d §9).
   array's layer (512²) by the brightest texel of each, so a map authored at the base tile's 1024 px/m (4096²) keeps
   its one-pixel cracks; laid on walls and roof planes as before.
 
-Height depth and wetness: not yet written (46d.4d).
+### Height, height depth and wetness (46d.4d)
+
+**Owner note (46d.4d, 2026-11-08):** D531 resolved toward the approved texture layout v1 and R111: **a voxel
+texture set's height lives in its normal map's A**, nowhere else. Two changes to this page's unapproved 46d steps,
+not to any approved spec: the material record's map `albedoHeight` is renamed **`albedo`** (its A is unused) and the
+catalog block's key with it (nothing of this branch is merged or shipped; a record or build naming `albedoHeight` is
+refused as an unknown field), and no voxel array derives a brightness height any more (the layered surface's albedo
+convention stays the layered surface's). Default chosen, owner to confirm (plan 46d §9).
+
+- **Height.** The normal array's A, 0–1 (1 the surface, 0 the material's `heightDepth` below it), read on the same
+  layer and projection as the colour. A normal map without alpha (opaque), the neutral flat normal layer and a
+  material without a set read height 1: no relief, no crevice.
+- **Height depth** (`voxel.heightDepth`, metres; absent `VOXEL_MATERIAL_LIMITS.heightDepthDefault`, 0.02) is in the
+  surface's material table (third block, g) for every material; the r channel is the debug program's test height
+  layer (−1 none).
+- **Height blend, in metres** (three-adapter `voxel-surface-wetness.ts`, `heightBlend`): of the two heaviest
+  materials (A, B with B's cell share s), each surface's level (h − 1) × depth is raised by its share times
+  (the deeper depth + `HEIGHT_BLEND_CONTRAST_METRES` 0.01 m); the higher wins over that contrast. A whole share shows
+  its material alone; two materials without depth blend by share. Colour, normal, ORM, the recess (relief) and the
+  water all use that blended share, in the pixel and in the vertex stage (relief, explicit level).
+- **Wetness R111** (`wetLook`; the voxel wetness bits, 0 … 7 → 0 … 1): albedo × (1 − 0.5 w) × (1 − 0.2 water);
+  roughness × (1 − 0.6 w), then toward 0.03 by the water; the normal toward the surface's own by 0.4 w + water;
+  the water line at w² × 0.6 of the blended height's 0–1, a pixel below it under water over a 0.04 shore. So levels
+  1–2 only darken and shine, the crevices fill from level 3, level 7 stands as water in the lowest 60 % of the
+  height range. Shader data only: no remesh, no format change (the bits exist since format v1).
+- **Not covered:** kit pieces draw dry (their material does not read the cells' wetness; D538). Relief on the
+  debug program (`?patterns=1`) keeps the engine's test heights (`voxel-relief.ts`) and its lighting normal from
+  their screen derivatives; the texture sets' lighting normal is the normal map's.
 
 ## 3. Relief part
 

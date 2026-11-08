@@ -31,7 +31,10 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
     building roles (wall, floor, roof, foundation, stair, pillar) it is the
     cell's **integrity**: 15 intact, lower damaged (see *Damage* under
     [Voxel kits](#voxel-kits)); a building cell is always a whole block;
-  - **wetness** — 0 (dry) to 7: the surface darkens as it rises.
+  - **wetness** — 0 (dry) to 7: as it rises the surface darkens, gets
+    smoother and loses its fine relief, and water fills the low parts of its
+    texture first (the cracks between stones, then more) until level 7
+    stands as water in the low parts.
 - **What a change rebuilds.** Shape and role change the world's form: its
   meshes and colliders are rebuilt round the change. Material and wetness
   only change how it looks: only the surface's shading data is rebuilt, no
@@ -517,12 +520,15 @@ the same record dresses a prop and a wall, so there is one oak, not an
   voxel edges.
 - **`voxel.tileMetres`** (0.5–64 m) and **`voxel.heightDepth`** (0–0.25 m,
   the depth between its height map's white and black: sand shallow, rock
-  deep).
+  deep). Where two materials meet, the one whose surface stands higher in
+  metres shows (rock tops break through sand, sand fills rock's cracks), so
+  a deep material wins over a shallow one with the same map values.
 - **`voxel.surfaces`**: `{wall, floor, ceiling}` texture sets, each
-  `{albedoHeight, normal, orm}` (plain texture assets: albedo with the
-  height in alpha, a tangent-space normal map with green up, and occlusion,
-  roughness and metalness in R, G and B); floor and ceiling use the wall's
-  when left out. A set needs its albedo; a normal or ORM map left out is
+  `{albedo, normal, orm}` (plain texture assets: the albedo, its alpha
+  unused; a tangent-space normal map with green up and the **height in its
+  alpha** (white the surface, black `heightDepth` below it; a normal map
+  without alpha has no height); occlusion, roughness and metalness in R, G
+  and B); floor and ceiling use the wall's when left out. A set needs its albedo; a normal or ORM map left out is
   flat. All textures of the sets should be one size (the engine joins them
   into arrays): a construction tile is authored at 4096 × 4096 for its
   4 × 4 m wall, the image's top up the wall.
@@ -613,11 +619,9 @@ These come later; worlds made now keep working when they arrive:
   debug set of their sheet layout until materials arrive); the fringe where
   buildings meet the ground and ground scatter come with the terrain tools.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
-- **Materials**: the heights in the sets moving relief and blends (the depth field is read,
-  the sets' heights not yet), texture sets in the material Inspector (set
-  over the API), the physical section in the Inspector (profiles are set
-  over the API), and wetness beyond darkening (shine and filled-in
-  crevices).
+- **Materials**: texture sets in the material Inspector (set over the API),
+  the physical section in the Inspector (profiles are set over the API), and
+  wet kit pieces (a kit's pieces stay dry when their cells are wet).
 - **Lighting**: the world's own light and shadow, and what reads the light
   coverage props stamp; culling and navigation over voxels.
 - **Structures** (rotated grids of their own, such as a ship or a moving
