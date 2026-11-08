@@ -207,7 +207,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | Item | Status |
 |---|---|
 | 46d.1a | done: §4 baseline re-measured (§8). Spike relief mesh (`relief-mesh.ts`, `?relief=n`, `run.mjs relief`): crack-free with plain neighbours, crease weights, other outputs byte-equal (vitest). Ring 32 m slice/hilly 4/16/64× triangles, town 18/69/276× (merges lost); n = 8 fills the low budget. Relief µs p50 0.3/1.0/4.0 ms a section. No displacement yet |
-| 46d.1b | not started |
+| 46d.1b | done: vertex displacement both renderers + shadow pass, crease attribute, grown bounds, ring fade, test heights; normal from heights on all surfaces. Town n = 2/4 at 32 m: GPU +0.8–1.1 / +0.5 ms WebGPU, ±0 / +0.5 WebGL 2, 0 missed; the vertex stage itself ~0.1 ms. VERDICT: low normal only, medium n = 2, high n = 4, 16–24 m section ring; n = 8 rejected (§8, D528) |
 | 46d.2 | not started |
 | 46d.3a | not started |
 | 46d.3b | not started |
@@ -314,6 +314,94 @@ arrays; it now checks 2 × 2 × 2-section windows in typed arrays (~1 GB).
 wire (`ChunkDrawBatcher` sends the relief positions only); the vertex stage needs them as an attribute. Expect
 roofs undisplaced in a 1 m stripe at section faces and ground fixed within half a cell of walls (both by design).
 
+### 46d.1b vertex displacement and the verdict
+
+**Built.** The chunk draw carries the relief mesh's crease weights (`DrawSurface.crease`, transferred with the batch)
+into a `voxelCrease` attribute (`VOXEL_CREASE_ATTRIBUTE`); only relief draws have it. The voxel surface takes an
+optional height array (`heights`) and a relief per material look (layer, depth in metres; a third table block); with
+it, (1) `positionNode` moves a relief vertex inward along its normal by the recess
+(1 − h) × depth, blended between the two heaviest materials by the surface shader's own blend (`blendAt`, the same
+nine grid reads and owner cell, so both sides of a seam move alike), × crease × the ring's fade (smoothstep over
+`fadeStartM`–`fadeEndM` from a focus in each object's own metres, so the shadow pass fades alike), the heights read at
+the mip whose texel is as wide as the vertex spacing (`log2(cell / n · size / tile)`); a draw without the attribute
+builds none of it (program per attribute set). (2) Every surface's lighting normal follows the heights: the recess at
+full resolution (implicit mips) bends the view normal by its screen derivatives (surface gradient in metres;
+geometry normals never rebuilt). Three's shadow pass takes the material's `positionNode` (checked against r187's
+`_getShadowNodes`; row in `docs/three-upgrade-checklist.md`). Bounding spheres of relief geometry grow by the deepest
+relief (`reliefDepthM`). Test heights `voxel-relief.ts` (engine-owned, made by code at page load, not shipped):
+brick, stone (Voronoi cobbles), plank, rock (ridged fractal), sand (ripples); 1024² R8 a layer, tileable,
+deterministic; one `r8unorm` array texture, mipmapped on the GPU: 5.2 MB + mips ≈ 7.0 MB GPU, no file (asset-less);
+material → layer and depth by the bench worlds' ids (rock 12 cm, stone 6, roof tile 4, brick 3, sand/soil 3, grass 2,
+timber/plank 2, plaster 1). Page: `?relief=n` displaces, `?reliefFade=a,b`, `?displace=0`, `?bump=0`, `?shadows=1`
+(2048² sun map over 80 m round the focus), hook `setRelief`, state `relief`, `vertices`, `reliefVertices`
+(`page-view.ts` holds the page's relief, sun and input). Bench `run.mjs relief` reports the share of free vertices
+(n = 4, 32 m: slice 98 %, town 61 %, hilly 100 %, caves 87 %).
+
+**Tested** (`packages/three-adapter/src/voxel-relief.test.ts`, real relief derive of 16³ sections joined): crease
+attribute = the derive's bytes / 255; bounds = plain sphere + 12 cm; the vertex program reads the heights 6 times at an
+explicit level and the grid 10 times on WGSL, 6 `textureLod` on GLSL; a plain chunk's vertex program reads nothing;
+`_getShadowNodes(material).positionNode` is the material's and a shadow-pass-like material built with it displaces;
+no heights → no position or normal node (programs unchanged: `voxel-surface.test.ts` counts unchanged); the test
+heights deterministic, tileable, using the range. Fast gate gate-fast-20261108-074413 GREEN (13 min, 4.3 GB; perf 0
+missed both renderers); `edge-cases.test.ts` timed out once and passed alone (D523 watch). `voxel-world.e2e.ts`
+untouched (64.6 → unchanged; no e2e change).
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, 2 rounds of town (R9 view, 60 m out, ~480-frame orbit) and
+village, 07:58–08:40, load 1.7–5.1, uptime 15.6 d; relief ring 32 m = chunks whose centre is within it, displaced to
+18 m (fade 14–18 m); scratch `~/.cache/thirdlight-phase46/work/46d.1b/`):
+
+| Town, WebGPU / WebGL 2 | triangles (vertices, displaced) | GPU ms | `render()` p50/p95 | missed | stream MB (derived) |
+|---|---|---|---|---|---|
+| plain | 0.84 M (0.63 M) | 3.22–3.55 / 4.61–4.70 | 9.1–9.2/10–11 / 9.1–9.5/10.5 | 0 / 0 | 124.8 (84.2) |
+| normal from heights only (`reliefRadius=0`) | 0.84 M | 3.44–3.71 / 4.67–4.86 | 8.8–8.9/10 / 9.4–9.5/10.5 | 0 / 0 | 124.8 |
+| n = 2 | 1.66 M (1.07 M, 0.49 M) | 4.29–4.31 / 4.65–4.69 | 8.9–9.3/12 / 9.4/10.5 | 0 / 0 | 158.7 (118.2) |
+| n = 4 | 4.01 M (2.25 M, 1.81 M) | 4.52–4.62 / 5.15–5.25 | 9.2–9.4/10.5 / 10.1–10.2/11–13 | 0 / 0 | 242.6 (223.5) |
+| n = 4, displacement off (mesh only) | 4.01 M | 4.43–4.52 / 5.15–5.20 | 9.4/10.5–11 / 10.0–10.1/11–13 | 0 / 0 | 242.5 |
+| n = 4 at 48 / 64 m | 5.18 M, budget full: 331 piece draws, half the town missing (D528) | 6.4 / 5.2 | — | 0 | 248.5 |
+| n = 8 | never settled in 180 s (budget, D528) | — | — | — | — |
+| shadows, plain / n = 4 | as above | 4.18–4.19 / 5.25–5.35; n = 4 not usable (D529) | 14.6–15.3/16.4; n = 4: 15.8–16.9/17–19.5 | 0; n = 4: 30–34 / 77–107 of ~320 | — |
+
+Village (two houses near, 40 m orbit): triangles 0.36 → 0.52 / 1.12 / 3.51 M (n = 2 / 4 / 8), stream 74.8 → 81.6 /
+105.1 / 207.3 MB, 0 missed everywhere; its GPU ms are not readable (WebGPU plain 7.5–8.4 ms, above n = 8's 6.5–6.7: the
+village's WebGPU GPU time was already 7.3 ms at §4 and varies by more than relief adds; WebGL 2 4.4–4.8 plain, 4.5–4.6
+n = 4, 5.9–6.2 n = 8). Worker relief µs a section p50/p95 town n = 2 1.4–1.7/17–24 ms, n = 4 2.7–3.8/42–58 ms, village
+n = 8 6.1–7.3/34–38 ms. Shadow pass GPU ms (plain town, shadows on − off): +0.6–1.0 WebGPU, +0.6 WebGL 2.
+
+**What costs.** The displacement in the vertex stage is cheap: n = 4 with it on vs off differs by 0.0–0.1 ms GPU on
+both renderers, though every relief vertex runs the full nine-texel blend and six height reads. The cost is the
+topology and its memory: GPU +1.0–1.3 ms WebGPU / +0.5 ms WebGL 2 at n = 4 for 4.8× triangles, +139 MB derived data
+(more than half the low tier's 256 MB budget), 50 ms p95 worker time a dense town section. The normal from the heights
+costs +0.2 ms WebGPU, ±0.2 WebGL 2 on the whole town.
+
+**Looked at** (both renderers, `~/.cache/thirdlight-phase46/acceptance/46d/46d.1b/`, each relief on / normal only / off:
+`look4-log-wall-near`, `-stone-wall-near`, `-stone-roof`, `-ground-near`, `-rock-slope`, `-rock-cliff-near`,
+`-ring-wide`; `lowsun-*` with the sun at 12°; `r2/r4/r8-log-wall-near-webgpu`): the normal from the heights makes the
+look (cobbles, planks, rock read as material from 4 m to 40 m); displacement adds a little on top near: the rock cliff
+and slope's surface undulates and their silhouettes move a few pixels at 5–10 m, walls show nothing a normal does not,
+because a wall's silhouette edges are its creases (fixed: corners, openings, kit pieces stay on the undisplaced lattice;
+no crack or gap seen anywhere, roof/wall seams, foundation corners and chunk borders included). At 60 m
+(`ring-wide`) on vs normal-only differ in 90 pixels: relief past ~20 m is invisible. WebGPU and WebGL 2 show the same
+pictures (at most 0.7 % of pixels differ by > 24 levels). Shadows are displaced the same (no acne seen on the rock
+or walls). Low sun: the derivative-based normal sparkles in single pixels on rock at grazing light (seen on WebGL 2;
+a stand-in until normal maps, 46d.4). The roofs' 1 m stripe at section faces is not distinguishable at n = 4 under the
+normal (unverified close up). Ring edge in motion: not pictured as frames; by construction the displacement fades to
+none before any relief/plain chunk border and moves at most depth × speed · dt / 4 m a frame (rock at 5 m/s: 0.25 mm a
+frame), so no pop; swim unverified.
+
+**VERDICT** (default chosen, owner to confirm; for 46d.5a/b):
+- **The mesh path is kept, but small, and the normal from heights is the base for every tier.** Low (Iris Xe): relief
+  mesh **off**; lighting normal from the material's height/normal on every surface (+0.2 ms). Medium: **n = 2** in a
+  **16 m** ring. High: **n = 4** in a **24 m** ring (high tier unverified until the owner runs it, §5c). **n = 8
+  rejected** (15.8 M town triangles at 32 m, does not fit the low budget at all, and nothing in the pictures needs
+  6 cm vertices next to a normal).
+- 46d.5a builds the ring per **section** (16³ = 8 m, half diagonal 6.9 m), not per chunk: the chunk ring meshes out to
+  R + 14 m but may displace only to R − 14 m (here 18 m of 46). With sections the fade can end at R − 7 m. Relief gets its
+  own budget share (D528); the fade ring re-plans with hysteresis (sections change only outside the fade).
+- Displacement goes first on terrain and roofs (smooth normals, few creases: the rock reads better); construction faces
+  keep the lattice but gain little (creased silhouettes); if 46d.5's numbers are tight, medium may drop construction
+  relief (normal only) before dropping terrain's. The replacement for walls, if the owner wants depth there without
+  triangles, is parallax occlusion in the fragment (not built; a proposal).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -391,13 +479,31 @@ roofs undisplaced in a 1 m stripe at section faces and ground fixed within half 
 - 2026-11-08 (46d.1a, default chosen, owner to confirm): **relief tests in a new vitest file**
   (`tools/voxel-bench/relief.test.ts`, with `relief-checks.ts` shared with the bench) instead of `derived.test.ts`
   (1,541 lines); no e2e change.
+- 2026-11-08 (46d.1b, default chosen, owner to confirm): **the spike's lighting normal comes from the height map's
+  screen derivatives** (surface gradient of the blended recess in metres) on every surface, because no material has a
+  normal map yet; 46d.4's normal maps replace it (it sparkles at grazing light). It is also what "relief off" keeps.
+- 2026-11-08 (46d.1b, default chosen, owner to confirm): **the vertex stage runs the surface shader's full blend**
+  (nine grid reads, the owner cell, two materials' heights) rather than a per-vertex material attribute, so a material
+  paint still never remeshes and both sides of a seam move alike; measured ~0.1 ms at n = 4 in the town.
+- 2026-11-08 (46d.1b, default chosen, owner to confirm): **heights are read in the vertex stage at the mip whose texel
+  is as wide as the vertex spacing** (so n = 2 shows only the 25 cm shape of a material; finer detail is the normal's).
+- 2026-11-08 (46d.1b, default chosen, owner to confirm): **the fade ends a chunk's half diagonal inside the relief
+  ring, over 4 m**, so a chunk at the ring's edge, relief or plain, never moves (46d.5a: a section's half diagonal).
+- 2026-11-08 (46d.1b, default chosen, owner to confirm): **culling bounds grow by the deepest relief of any material**
+  (12 cm with the test set), not per chunk: one number, conservative, no per-chunk scan.
+- 2026-11-08 (46d.1b, default chosen, owner to confirm): **the test heights are made by code at page load** (engine
+  test data in `voxel-relief.ts`, by the bench worlds' material ids), not written to files by a bench script, so the
+  page needs no asset; nothing ships them.
+- 2026-11-08 (46d.1b, default chosen, owner to confirm): **the relief verdict**: low off (normal only), medium n = 2 in a
+  16 m section ring, high n = 4 in 24 m, n = 8 rejected; terrain and roofs first, construction may fall back to normal
+  only (§8 46d.1b).
 
 ## 10. Open questions for the owner
 
 - **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — after 46d.7d's comparison
   (`~/.cache/thirdlight-phase46/far-field-comparison.md`). Both stay until then.
-- The spike's verdict: subdivision density and relief radius per tier, or the replacement path if the mesh path
-  is rejected (46d.1b).
+- The relief verdict (46d.1b, §8): low normal only, medium n = 2 in 16 m, high n = 4 in 24 m, n = 8 rejected; and
+  whether walls should get parallax occlusion instead of mesh relief.
 - Whether relief should also push outward (proud stones) where the collision shape allows it, against the inward-only
   default.
 - The engine's physical profiles list (Wood, Stone, Metal, Earth, Glass, Water, Lava) and whether a project's
