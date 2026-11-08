@@ -194,6 +194,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.6a | **Piece instancing across chunks (D485):** one instance buffer per (kit piece mesh, variant, mirror) for the whole level-0 ring, chunk ranges packed and compacted on chunk add/remove (no per-chunk draws), reusing `attribute-instancing.ts`; WebGL 2: per-chunk-range frustum culling compacting visible ranges into the draw's instance list (`view-cull.ts` path) when visibility changes. | vitest (buffers after add/remove/swap equal a rebuild; atomic swap keeps pieces of a group together), `voxel-world.e2e.ts` piece checks unchanged | piece draws, instances, render() CPU p50/p95 town orbit vs D485/46c.16g, frames missed | draws ≈ piece kinds in view; D485 numbers re-recorded |
 | 46d.6b | **GPU culling of pieces on WebGPU:** the piece buffers join `occlusion-instances.ts` (frustum + depth pyramid per instance), so each pass draws only visible copies; shadow pass culls against its own frustum; tier switch (`occlusionCulling` level field). | vitest (cull lists on a fixed view), staging both renderers | render() CPU, GPU ms incl. the cull pass, town orbit and flight | D485 closed or re-recorded with the cause |
 | 46d.6c | **Base-surface merges (D526):** owned and blended faces merge where the blend reads no plane cell; vertex sharing along a roof row; derived step with owner note. | `roof-mesher.test.ts`, `derived.test.ts` (bytes, watertight, owner offsets exact) | town base triangles (468,872 →), roof mesher µs p50/p95 | D526 closed or re-recorded |
+| 46d.6d | **Relief shadows from plain casters (D545):** relief chunks cast from their plain surfaces (shadow-only draws), relief meshes cast none and look shadows up at their plain place; both renderers, one draw path. | vitest (real derive + view, program builds), real-worker batch test, staging pictures | town shadows med/high at the cap | D545 closed or re-recorded |
 | 46d.7a | **Multi-km test world and the far tree (data):** `run.mjs far-world` writes an engine-owned synthetic test world tile by tile to disk (default 8 × 8 km, mountains to ~1.5 km with cliffs, overhangs and valleys, the town patch at its centre; within the 6 G cap, never held in memory), plus `far-tree.ts`: a chunk tree past the load ring whose nodes (16 m · 2^k) hold voxel mips built from the regions by workers into a derived far cache (never committed; rebuilt per node when an edit lands under it; shipped in an export like distance bricks), streamed by on-screen size over the whole world (no cut-off). Mip readers role-aware: openings narrower than two of a level's cells close in the wall's material (the L1 door/window "legs"). | vitest (tree selection by screen error with hysteresis; far cache bytes deterministic; an edit rebuilds exactly its ancestors; legs closed at L1/L2 on test houses), Node bench | build s/km², cache MB/km², nodes resident vs distance | the world's far data exists for every km; legs closed |
 | 46d.7b | **(a) Voxel-mip mesh far field (chunk-tree HLOD):** far nodes meshed by the 46b mesher on their mips, a macro colour + normal per node baked from the material table (the `terrain-macro.ts` idea; one read a pixel), skirts between far levels, dither cross-fade (`dither-fade.ts`) on level change, per-level shader data so a material/wetness paint updates far nodes without a mesh derive (D479); the near rings hand over to it without the ring-edge pop (D516) and tall terrain past the load box draws (D463). `?farField=mesh` and quality field `farField`. | vitest (skirts close seams; shader-only far derive on paints), staging pictures both renderers at 1, 3, 5 km and at the ring edge | GPU ms, CPU ms, triangles, MB, build time, pop seen in a flight | mountains visible from 5 km (seen); D463, D479, D516 closed or re-recorded |
 | 46d.7c | **(b) Ray-marched distance-field brick far field:** per far node sparse 8³ distance bricks from the mips (`far-bricks.ts`, the phase-42 brick format's constants and inside/outside codes), a shared 3D atlas + page table, each brick's box drawn and sphere-traced in a TSL fragment shader on both renderers (the `brickDistance` walk of `tracer-wgsl-objects.ts` / `tracer-cpu-objects.ts` ported once, shared with the CPU check), colour from a per-node macro, normal from the field's gradient, depth written so it composes with meshes; `?farField=bricks`; optional hybrid (bricks mid band, meshes horizon) only if 46d.7d's numbers call for it. | vitest (CPU march = shader math on fixed rays; atlas packing; program builds on both backends), staging pictures both renderers at 1, 3, 5 km | GPU ms (the horizon band's pixel cost), atlas MB, build time, crispness, steps a ray | both modes switchable at runtime; nothing cut off |
@@ -220,6 +221,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.6a | done: kit pieces drawn across chunks, one instanced draw a piece kind (49 in the town, was 1,466), culled by chunk per pass (view, shadow), written once a batch; pieces wear their cell's wetness (D538). Town `render()` 10.2–11.8 → 2.7–3.2 ms, shadows 15.5–20.3 → 4.1–4.6 ms (D529 fixed); GPU +0.6–2.5 ms (D544); high+shadows GPU-bound (D545). e2e 83.2 → 82.3 s |
 | 46d.6b | done: D544 traced (timestamps follow the GPU clock; pieces now draw after the surfaces, −0.3 ms). Piece draws are column-instanced copies the WebGPU culler tests against the depth pyramid (71 % of 35.4 k culled): town GPU 5.6–7.0 → 3.5–3.8 ms, `render()` +0.7 ms (D546); WebGL 2 keeps chunk culling. D485 closed; D545 re-measured. Same pictures |
 | 46d.6c | done (0c85d3a8): D526 fixed. Owned body faces merge with blended ones, the rectangle owned whole (derived 30); roof mesher scans plane cells once, typed vertex table. Town roofs: base 468,872 → 415,636 tris (46c.16d 417,396), mesher p50/p95 296/728 → 213/545 µs (238/577). D519 holds. Town at cap 0 missed, GPU within drift. D545 proposal in its row |
+| 46d.6d | done (4635510e): D545 fixed. Relief chunks cast from their plain surfaces (shadow-only draws, 46.9 k tris for ~2.4 M at high), relief meshes cast none and read shadows at their plain place; one draw path. Town high + shadows missed 13–15 / 4–8 of ~430 (relief casters same hour 27–30 / 38–39); pictures equal (0.00 %). D547 |
 | 46d.7a | not started |
 | 46d.7b | not started |
 | 46d.7c | not started |
@@ -985,6 +987,62 @@ stone walls under the log kit's timber roofs with the wall-top fill): `g45-near`
 (walls checkered stone / plaster): before, the top row met in hard cell lines and the rows below blended (rounded
 corners); after, the whole wall face meets in hard lines (2.2 / 1.5 % of pixels), §9 default. `town-medium|high`.
 
+### 46d.6d relief shadows from plain casters (D545)
+
+**Built** (4635510e). `ChunkDrawBatcher` sends a relief chunk's plain surfaces with its relief meshes (`ChunkDrawWire.caster`,
+handed over in the transfer list; the plain bytes count as the chunk's mesh part, as drawn plain). `VoxelChunkView`
+with shadows: the relief mesh casts none; the plain surfaces become a shadow-only mesh (`VOXEL_CASTER_KEY`, on
+`OFF_VIEW_LAYER`, the layer the engine's shadow cameras already see for cut-aways, a plain `MeshBasicNodeMaterial`: no
+grid, table or texture read in the shadow pass), stat `casterTriangles`. The surface material's
+`receivedShadowPositionNode` is the plain (undisplaced) world position for relief geometry. `?reliefShadow=relief` on
+the voxel world page casts from the relief meshes, to compare; the page's sun sees the off-view layer
+(`shadowSeesCutaways`, now exported). Play, exports and the Scene view take the same path; they cast no voxel
+shadows (46d.5b default), so nothing changes there today. Manual (*Relief*, Shadows).
+
+**Why not the proposal's push.** three draws a front-sided material's back faces into the shadow map, so a lit
+relief surface is compared with its solid's far side and never with its own front; relief only recesses, so the
+plain solid holds the relief solid. Casting the plain surfaces at their plain place gives exactly the shadow every
+chunk outside the ring casts: no leak at walls, roof edges or seams, no peter-panning or acne beyond the plain
+world's. Pushed `heightDepth` in, the caster's far side would shrink (light through thin walls and convex edges by
+up to 12 cm). What a recessed point needs is to look its shadow up where the plain surface is (else a side facing
+away from the sun, recessed past the normal bias, reads lit): that is the received shadow position.
+
+**Lost.** The relief's own micro-shadows (a joint's side facing away from a low sun, drawn as back faces of the
+lattice). At the page's map (80 m over 2048², 3.9 cm a texel, PCF) they did not show: every picture pair below is
+equal. The relief normals still shade it.
+
+**Tested.** `voxel-relief.test.ts` (real relief derive, real chunk view, three's program builders on both backends):
+the relief mesh casts none and receives; the caster holds the plain triangles, casts only, is seen by a shadow camera
+with the off-view layer and never by the view's, sits where the relief mesh is, is not pickable, costs bytes, goes
+with its chunk; its shadow pass has no position or colour node; the relief's shadow lookup reads a varying made from
+the geometry's own `position` (without the node: the displaced `positionLocal`); no shadows → no caster;
+`reliefCasters: 'relief'` → the displaced shadow as before. `relief-ring.test.ts` (real workers, the town's regions):
+every relief draw carries a caster byte-equal to the plain join and in the transfer list, a plain draw none; casters
+< 1/3 of the relief triangles at n 2. Fast gate gate-fast-20261108-220842 GREEN (13 min, 5.0 GB; `scan-bounded-log`
+and `edge-cases` D523 failed once, passed alone; perf 0 missed both renderers). `voxel-world.e2e.ts` not changed (Play
+and exports cast no voxel shadows; the page's shadows have no e2e).
+
+**Measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 orbit 60 m out, `?relief=tier&shadows=1`, round 1
+21:55–22:05 medium + high, round 2 22:06–22:08 high, load 2.4–3.6, uptime 16.2 d; GPU timestamps of shadow runs at
+high not usable, as before):
+
+| Town + shadows, WebGPU / WebGL 2 | shadow triangles of the relief ring | `render()` p50 ms | GPU ms (medium) | missed medium | missed high |
+|---|---|---|---|---|---|
+| D545 at 46d.6b | relief meshes | 4.4 / — | 7.34 / 5.34 | 2 / 2 | 28 of 344 / 39 of 333 |
+| relief casters (`?reliefShadow=relief`), same hour | ~2.4 M | 4.2–4.3 / 4.8–5.2 | 7.12 / 5.28 | 0 / 3 | 27–30 of ~355 / 38–39 of ~370 |
+| plain casters | 46,940 | 4.5–4.6 / 4.6–4.8 | 6.88 / 4.98 | 0 / 2 | **13–15 of ~430 / 4–8 of ~445** |
+| high, no shadows | — | 2.9 / 3.2 | — | — | 0 / 1 |
+
+What high + shadows still misses is D547 (GPU-bound; the view's 3.2 M relief triangles and the shadow pass of the
+base world and pieces; not traced). Village at high: relief ring 1.28 M triangles drawn, casters 61.8 k.
+
+**Looked at** (`~/.cache/thirdlight-phase46/work/46d.6d/shots/`, village at high, sun 12°, both renderers,
+`s-relief-*` = relief casters, `s-plain-*` = plain casters): `stone-back-wall`, `stone-back-wall-close` (stone relief
+lit at a grazing angle), `stone-east-eave` (the eave's shadow on the wall: no gap at the wall top), `stone-roof`,
+`log-house-roof`, `plaster-gable`, `wall-foot-shadow` (the house's shadow on the ground from the wall's foot),
+`rock-cliff-steps`, `rock-cliff-near`: every pair differs in 0.00 % of pixels (> 24 levels; ≤ 24 pixels of 921,600),
+mean luminance equal, on both renderers. No leak, gap or acne seen.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1272,6 +1330,15 @@ corners); after, the whole wall face meets in hard lines (2.2 / 1.5 % of pixels)
 - 2026-11-08 (46d.6c): **D545 not built here** (the 46d.6c row names no D545 work); the proposal (the relief ring's
   plain surfaces as shadow-only casters set `heightDepth` in, relief meshes casting none) is in its audit row for the
   performance phase.
+
+- 2026-11-08 (46d.6d, D545, default chosen, owner to confirm): **relief chunks cast from their plain surfaces at the
+  plain place, not pushed `heightDepth` in** (the proposal): three casts a front-sided surface's back faces, and the
+  plain solid holds the relief one, so the plain caster gives the plain world's shadow exactly; the push would let
+  light through thin walls and edges. Relief surfaces look their shadow up at the plain place. The relief's own
+  micro-shadows go (none showed at the page's 3.9 cm map texel). `?reliefShadow=relief` keeps the old way to compare.
+- 2026-11-08 (46d.6d, default chosen, owner to confirm): **the plain caster is sent with every relief draw**, shadows
+  or not (a quarter of the relief bytes at n 2, a sixteenth at n 4, handed over without a copy); a view without
+  shadows builds nothing of it. Play and exports still cast no voxel shadows (46d.5b default).
 
 ## 10. Open questions for the owner
 
