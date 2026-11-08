@@ -2,13 +2,15 @@
  * The messages between the editor page and the worker that streams the
  * Scene view's voxel worlds (scene-voxels-worker.ts).
  */
-import type { ChunkDrawBatch, PieceKitSource, SectionEdge, WorldLevelsMetres, WorldRingMetres } from '@thirdlight/voxel';
+import type { ChunkDrawBatch, PieceKitSource, ReliefRingSettings, SectionEdge, WorldLevelsMetres, WorldRingMetres } from '@thirdlight/voxel';
 import type { WorldChange } from './range-world';
 
 /** Page → worker. */
 export type SceneVoxelsIn =
-  /** Stream `world` (its route `url`, read with `headers`; derive workers from `workerUrl`) with a `voxelWorld` object's ring, levels and sections (its collision radius bounds level 0), its pieces from the project's `kits` and piece seed. */
-  | { readonly t: 'open'; readonly world: string; readonly url: string; readonly headers: Readonly<Record<string, string>>; readonly workerUrl: string; readonly ring: WorldRingMetres; readonly levels: WorldLevelsMetres; readonly collision: { readonly radius: number }; readonly sectionEdge: SectionEdge; readonly kits: readonly PieceKitSource[]; readonly pieceSeed: number }
+  /** Stream `world` (its route `url`, read with `headers`; derive workers from `workerUrl`) with a `voxelWorld` object's ring, levels and sections (its collision radius bounds level 0), its relief lattice steps (the view's quality level's), its pieces from the project's `kits` and piece seed. */
+  | { readonly t: 'open'; readonly world: string; readonly url: string; readonly headers: Readonly<Record<string, string>>; readonly workerUrl: string; readonly ring: WorldRingMetres; readonly levels: WorldLevelsMetres; readonly collision: { readonly radius: number }; readonly sectionEdge: SectionEdge; readonly reliefSteps: number; readonly kits: readonly PieceKitSource[]; readonly pieceSeed: number }
+  /** The view's quality level changed: `world`'s relief ring from now on (cells). */
+  | { readonly t: 'relief'; readonly world: string; readonly ring: ReliefRingSettings }
   | { readonly t: 'close'; readonly world: string }
   /** The project's kits or piece seed changed: `world` derives again what the new piece table changes. */
   | { readonly t: 'kits'; readonly world: string; readonly kits: readonly PieceKitSource[]; readonly pieceSeed: number }

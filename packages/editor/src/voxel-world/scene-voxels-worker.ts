@@ -30,6 +30,8 @@ interface Streamed {
   readonly resident: Map<number, ChunkCoord>;
   /** Changes that arrived while the world opened. */
   readonly early: WorldChange[];
+  /** A relief ring that arrived while the world opened (it opens with it). */
+  relief: Extract<SceneVoxelsIn, { t: 'relief' }> | null;
   /** Kits that arrived while the world opened (it opens with these). */
   kits: Extract<SceneVoxelsIn, { t: 'kits' }> | null;
   closed: boolean;
@@ -76,7 +78,7 @@ async function change(w: Streamed, c: WorldChange): Promise<void> {
 }
 
 async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
-  const w: Streamed = { name: m.world, world: null, streamer: null, batcher: null, resident: new Map(), early: [], kits: null, closed: false, kick: null };
+  const w: Streamed = { name: m.world, world: null, streamer: null, batcher: null, resident: new Map(), early: [], relief: null, kits: null, closed: false, kick: null };
   worlds.set(m.world, w);
   let world: RangeWorld;
   try {
@@ -98,6 +100,7 @@ async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
     if (e.type === 'loaded') w.resident.set(chunkKey(world.grid, e.cx, e.cy, e.cz), { cx: e.cx, cy: e.cy, cz: e.cz });
     else if (e.type === 'unloaded') w.resident.delete(chunkKey(world.grid, e.cx, e.cy, e.cz));
   });
+  if (w.relief !== null) streamer.relief?.set(w.relief.ring);
   w.batcher = new ChunkDrawBatcher(m.world, streamer, m.sectionEdge, (batch) => post({ t: 'batch', batch }, chunkDrawBatchTransfer(batch)));
   if (focus !== null) streamer.setFocus(focus.x, focus.y, focus.z);
   void stream(w, streamer);
@@ -139,6 +142,16 @@ scope.onmessage = (e) => {
       if (w === undefined) break;
       if (w.streamer === null) w.early.push(m.change);
       else void change(w, m.change);
+      break;
+    }
+    case 'relief': {
+      const w = worlds.get(m.world);
+      if (w === undefined) break;
+      if (w.streamer === null) w.relief = m;
+      else {
+        w.streamer.relief?.set(m.ring);
+        kick(w);
+      }
       break;
     }
     case 'drawn':

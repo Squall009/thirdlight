@@ -56,7 +56,7 @@ import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import type { PieceTable } from './piece-table';
 import { StreamPieces } from './stream-pieces';
 import type { ReliefRing, ReliefRingSettings } from './relief-ring';
-import { StreamRelief } from './stream-relief';
+import { StreamRelief, type ReliefEvent } from './stream-relief';
 import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
@@ -188,7 +188,8 @@ export type StreamEvent =
   | { readonly type: 'mismatch'; readonly cx: number; readonly cy: number; readonly cz: number; readonly applied: boolean }
   | MipEvent
   | SeamEvent
-  | LevelEvent;
+  | LevelEvent
+  | ReliefEvent;
 
 type Phase = 'reading' | 'decoding' | 'resident' | 'damaged';
 
@@ -682,6 +683,9 @@ export class VoxelStreamer {
     }
     this.relief?.plan(this.focus);
     this.enforceBudget();
+    // The draws' fade follows the ring's centre and where it displaces now.
+    const told = this.relief?.drawState(this.focus) ?? null;
+    if (told !== null) this.emit(told);
     // Held stored chunks go to the pool as it has room (a dropped chunk's bytes are let go).
     const held = this.plan.held;
     let n = 0;

@@ -95,6 +95,7 @@ import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-
 import { chooseItem, inspector } from './ui';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
+import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-sets';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
@@ -732,8 +733,59 @@ async function playProject(): Promise<[number, number, number]> {
   return (standAt = at);
 }
 
+/** The ground's texture set (its albedo and normal map assets, imported once). */
+let groundSet: { albedo: string; normal: string } | null = null;
+
+/**
+ * The pad's grass as a voxel material with a texture set whose normal map carries heights (the placeholder grass set,
+ * 256²) at the deepest height depth, so relief near the camera moves visibly (Play and the export draw it at the
+ * medium and high tiers); `false` deletes the record again, so the Scene view's test sees the stone alone.
+ */
+async function groundRelief(on: boolean): Promise<void> {
+  if (!on) {
+    await playCmd('deleteMaterial', { materialId: 'mat-grass-voxel' });
+    return;
+  }
+  if (groundSet === null) {
+    const texDir = join(be.projectDir, 'assets', 'voxel-textures');
+    mkdirSync(texDir, { recursive: true });
+    const maps = placeholderSet('grass', 256);
+    for (const map of ['albedo', 'normal'] as const) writeFileSync(join(texDir, `grass-${map}.png`), placeholderPng(maps[map], 256));
+    await playCmd('importAssets', { folder: 'assets/voxel-textures' });
+    const listed = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 100, offset: 0 } })) as unknown as { assets: { assetId: string; sourcePath?: string }[] };
+    const id = (map: string): string => listed.assets.find((a) => a.sourcePath === `assets/voxel-textures/grass-${map}.png`)!.assetId;
+    groundSet = { albedo: id('albedo'), normal: id('normal') };
+  }
+  await playCmd('setMaterial', { material: { materialId: 'mat-grass-voxel', name: 'Grass (voxel)', shader: 'standard', params: {}, textures: {}, voxel: { id: MAT.grass, use: 'terrain', heightDepth: 0.25, surfaces: { wall: groundSet } } } });
+}
+
 interface PlayObservation { state?: string; stepIndex?: number; counters?: Record<string, number>; player?: { x: number; y: number; z: number } }
-interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }> }
+interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void }
+
+/**
+ * Relief at the high tier, by pixels: once the ring's relief meshes are drawn and stand still, the frame with them
+ * moved by the grass's heights differs from the same meshes drawn flat (the hook's switch). Returns the pixels changed.
+ */
+async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promise<R> }, shot: (name: string) => Promise<ReturnType<typeof decodePng>>, label: string): Promise<number> {
+  const relief = (): Promise<{ n: number; radiusM: number; vertices: number } | null> => frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: VoxelPlayHook }).__tlVoxelPlay?.stats().worlds['far']?.relief ?? null);
+  await expect.poll(async () => { const r = await relief(); return r !== null && r.n === 4 && r.vertices > 0; }, { timeout: 30_000, message: `${label}: relief meshes drawn at the high tier` }).toBe(true);
+  // The ground's texture set drawn (its normal map carries the heights).
+  await expect.poll(() => frame.evaluate(() => (window as unknown as { __tlVoxelPlay: { stats(): { worlds: Record<string, { textureLayers: number }> } } }).__tlVoxelPlay.stats().worlds['far']?.textureLayers ?? 0), { timeout: 30_000, message: `${label}: the texture arrays drawn` }).toBeGreaterThan(0);
+  let last = -1;
+  await expect.poll(async () => { const v = (await relief())!.vertices; const still = v === last; last = v; return still; }, { timeout: 30_000, intervals: [1000], message: `${label}: the relief ring settles` }).toBe(true);
+  const frames = (): Promise<void> => frame.evaluate(() => new Promise<void>((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok()))));
+  await frames();
+  const moved = await shot(`${label}-relief-moved`);
+  await frame.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.setRelief({ displace: false }));
+  await frames();
+  const flat = await shot(`${label}-relief-flat`);
+  await frame.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.setRelief({ displace: true }));
+  // The ground's texture moves with its vertices: a broad shift of a few levels a pixel (a dig's 60-level bar would miss it).
+  const changed = changedPixels(moved, flat, () => true, 20);
+  const arrays = await frame.evaluate(() => { const w = (window as unknown as { __tlVoxelPlay: { stats(): { worlds: Record<string, { textureLayers: number; textured: boolean; textureTops: unknown }> } } }).__tlVoxelPlay.stats().worlds['far']; return w === undefined ? null : { layers: w.textureLayers, textured: w.textured, tops: w.textureTops }; });
+  console.log(`[voxel-relief] ${label}: ${JSON.stringify(await relief())}; arrays ${JSON.stringify(arrays)}; moved vs flat ${changed} px`);
+  return changed;
+}
 
 for (const renderer of ['webgpu', 'webgl2'] as const) {
   // WebGPU plays with the simulation in its worker, WebGL 2 in the page: both ways the world reaches the draws.
@@ -742,6 +794,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 1280, height: 720 });
     const at = await playProject();
+    await groundRelief(true);
     const errors = consoleErrors(page);
     const url = editorUrlFor(be.editorUrl, renderer);
     await page.goto(threads === 'single' ? url.replace('#', '&threads=off#') : url);
@@ -824,8 +877,13 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect.poll(async () => again.y - ((await observe()).player?.y ?? again.y), { timeout: 10_000, message: 'the character falls into the restored pit' }).toBeGreaterThan(1);
     const restored = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('restored.png') }));
     expect(changedPixels(restarted, restored)).toBeGreaterThan(500);
+    // The high tier: the relief ring round the camera draws the pad's grass moved by its heights.
+    await control({ command: 'setQuality', level: 'high' });
+    const shot = async (name: string): Promise<ReturnType<typeof decodePng>> => decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath(`${name}.png`) }));
+    expect(await reliefMoves(canvas, shot, `play-${renderer}`)).toBeGreaterThan(2000);
     expect((await observe()).state).toBe('running');
     expect(errors).toEqual([]);
+    await groundRelief(false);
   });
 }
 
@@ -967,6 +1025,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
 test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it and its wall marks, stands the character on it, and a console dig opens the pit', async ({ page }) => {
   test.setTimeout(180_000);
   const at = await playProject();
+  await groundRelief(true);
   // The debug console takes the dig (the test's way to drive the script, as Play's debug command).
   await playCmd('setSettings', { settings: { debug_console: 1 } });
   const exported = await be.admin(`projects/${be.projectId}/export`);
@@ -1052,6 +1111,9 @@ test('Export: the Play project exported and served statically with the backend s
     expect(regionReads.length).toBeGreaterThan(0);
     expect(new Set(regionReads).size).toBe(regionReads.length);
     expect((await observe())?.state).toBe('running');
+    // The export at the high tier (its URL's level): relief drawn moved by the shipped grass set's heights.
+    await game.goto(`${site.url}${exportQueryFor('webgpu')}&quality=high`);
+    expect(await reliefMoves(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')).toBeGreaterThan(2000);
     expect(errors).toEqual([]);
   } finally {
     await game.close();

@@ -36,6 +36,7 @@ import { glslRenderer, settle, wgslOf, wgslRenderer } from './test-wgsl';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, reliefTestHeights, voxelTestRelief } from './voxel-relief';
 import { createVoxelSurface, VOXEL_CREASE_ATTRIBUTE, type VoxelGridRenderer, type VoxelMaterialLook } from './voxel-surface';
+import { VoxelWorldDraws } from './voxel-world-draws';
 
 const grid = chunkGrid(32);
 const R = jobRadius(PLACEHOLDER_RULES);
@@ -150,6 +151,29 @@ describe('relief displacement', () => {
     shadowMesh.userData = mesh.userData;
     const vs = stage(wgslOf(wgslRenderer(), new THREE.Scene().add(shadowMesh), shadowMesh), 'vertex');
     expect((vs.match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
+  });
+
+  it("draws a game's relief chunks displaced (Play, exports and the Scene view draw through VoxelWorldDraws): a batch's ring state sets the fade, the vertex stage moves them; a view's switch draws them flat", async () => {
+    await settle();
+    const d = joined(world(), 4);
+    const scene = new THREE.Scene().add(new THREE.DirectionalLight(0xffffff, 2));
+    const draws = new VoxelWorldDraws({ scene: () => scene, renderer: () => noUploads, report: () => undefined });
+    const crease = (r: typeof d.relief): { ground: typeof d.ground & { crease: Uint8Array }; base: typeof d.base & { crease: Uint8Array } } => ({ ground: r!.ground, base: r!.base });
+    draws.receive({ world: 'w', edge: grid.edge, chunks: [{ kind: 'draw', cx: 0, cy: 0, cz: 0, ...crease(d.relief), instances: d.instances, solid: d.solid }], swaps: [], relief: { n: 4, radius: 16, focus: [16, 8, 16] }, sentAt: 0, joinMs: 0 });
+    const r = draws.stats().worlds['w']!.relief!;
+    expect([r.n, r.radiusM, r.displace]).toEqual([4, 8, true]);
+    expect(r.vertices).toBe(d.relief!.ground.vertexCount + d.relief!.base.vertexCount);
+    let mesh: THREE.Mesh | null = null;
+    scene.traverse((o) => {
+      if (o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh) && o.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) mesh = o;
+    });
+    expect(mesh).not.toBeNull();
+    const vs = stage(wgslOf(wgslRenderer(), scene, mesh!), 'vertex');
+    // The texture sets' program: the normal array's heights read at an explicit level for the two materials' three projections.
+    expect((vs.match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
+    draws.setRelief({ displace: false });
+    expect(draws.stats().worlds['w']!.relief!.displace).toBe(false);
+    draws.dispose();
   });
 
   it('builds nothing of relief without it (programs as before), and refuses a look naming a test layer the heights lack or a negative depth', () => {

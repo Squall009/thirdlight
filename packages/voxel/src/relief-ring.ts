@@ -29,7 +29,7 @@
  */
 import { chunkInWorld, chunkKey, type CellGrid } from './coords';
 import { RELIEF_SUBDIVISIONS, reliefNeighbourBit, type ReliefOptions } from './relief-mesh';
-import type { Focus } from './stream-ring';
+import { VOXEL_RING_SCALES, type Focus } from './stream-ring';
 
 /** A quality level's relief: lattice steps a cell (0: no relief mesh, normal from the heights only), or one of {@link RELIEF_SUBDIVISIONS}. */
 export const RELIEF_STEPS: readonly number[] = Object.freeze([0, ...RELIEF_SUBDIVISIONS]);
@@ -42,7 +42,16 @@ export const RELIEF_STEPS: readonly number[] = Object.freeze([0, ...RELIEF_SUBDI
  */
 export const RELIEF_STEPS_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 0, medium: 2, high: 4 });
 
-/** Where relief displaces by default (cells from a focus): 16 m, scaled per quality level like every ring distance. */
+/**
+ * How a tier scales the relief distance by default (a level's own ring scale, `voxelRings`, wins): its own, not the
+ * ring scale, because the relief ring was sized by what is seen (medium 16 m, high 24 m), not by the budget's area.
+ */
+export const RELIEF_RING_SCALES: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: VOXEL_RING_SCALES.low, medium: 1, high: 1.5 });
+
+/** Cells the focus moves before the relief ring's centre is told to the draws again (the fade follows it): an eighth of a metre. */
+export const RELIEF_FOCUS_STEP_CELLS = 0.25;
+
+/** Where relief displaces by default (cells from a focus): 16 m, scaled per quality level (by {@link RELIEF_RING_SCALES}). */
 export const DEFAULT_RELIEF_RADIUS_CELLS = 32;
 
 /** Cells over which the displacement fades to none before the ring's radius (4 m). */

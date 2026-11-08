@@ -58,6 +58,13 @@
  * them). They are reported again when kit meshes arrive (the pieces that
  * waited for them are built then) and when the kits change.
  *
+ * Relief: the simulation's relief ring meshes sections finer near its
+ * focus (relief-ring.ts); its chunks arrive with crease weights and the
+ * surface moves them in the vertex stage (and in the shadow pass) by their
+ * materials' heights and depths. Each batch that carries the ring's state
+ * (`relief`: its steps, where it displaces now, its centre) sets the
+ * world's fade, so the displacement ends before any section drawn plain.
+ *
  * While a world is drawn, an animation-frame loop retires replaced grid
  * textures and records frame times, so an edit's way to the screen can be
  * measured: from the edit (the simulation's swap less its edit-to-swap ms)
@@ -65,7 +72,7 @@
  */
 import * as THREE from 'three';
 import { wallClock } from '@thirdlight/shared';
-import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
+import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { DEFAULT_QUALITY_LEVELS, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
@@ -168,6 +175,8 @@ export interface VoxelWorldDrawStats {
   /** The texel density the arrays are capped at (null: no residency) and each array's cap (largest level kept). */
   readonly texelDensity: number | null;
   readonly textureTops: Readonly<Partial<Record<VoxelTextureMap, number>>>;
+  /** The relief ring as last told (null: not yet): steps, where it displaces (metres), whether it moves; the vertices drawn displaceable. */
+  readonly relief: { readonly n: number; readonly radiusM: number; readonly displace: boolean; readonly vertices: number } | null;
 }
 
 interface WorldDraw {
@@ -176,6 +185,8 @@ interface WorldDraw {
   /** The nodes' and seams' GPU bytes last reported, and the kits'. */
   coarse: number;
   kits: number;
+  /** The relief ring as the last batch told it (null: not yet). */
+  relief: ChunkReliefWire | null;
   /** Stops following the world's decal layers. */
   unlink: () => void;
 }
@@ -214,6 +225,9 @@ export class VoxelWorldDraws {
   /** The density the arrays were last capped at and their caps by map. */
   private density: number | null = null;
   private tops: Partial<Record<VoxelTextureMap, number>> = {};
+  /** Whether relief vertices move (false: the relief meshes draw flat; a view's switch). */
+  private displace = true;
+  private readonly focus = new THREE.Vector3();
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.setKits(opts.kits ?? null);
@@ -290,6 +304,20 @@ export class VoxelWorldDraws {
     surface.setTextures(a === null ? null : a.textures, (m) => a?.layers.get(m) ?? null);
   }
 
+  /** Relief vertices move (true, the default) or draw flat in every world (a view's switch; the meshes are the same). */
+  setRelief(s: { readonly displace: boolean }): void {
+    this.displace = s.displace;
+    for (const w of this.worlds.values()) w.surface.setRelief({ displace: s.displace });
+    this.opts.applied?.();
+  }
+
+  /** A world's surface displaces by the ring as told: its steps, and the fade over the metres before where it displaces now. */
+  private giveRelief(w: WorldDraw, r: ChunkReliefWire): void {
+    w.relief = r;
+    const f = reliefFade(r.radius);
+    w.surface.setRelief({ n: Math.max(1, r.n), focus: this.focus.set(r.focus[0] * VOXEL_SIZE_M, r.focus[1] * VOXEL_SIZE_M, r.focus[2] * VOXEL_SIZE_M), fadeStartM: f.start * VOXEL_SIZE_M, fadeEndM: f.end * VOXEL_SIZE_M });
+  }
+
   /** Every world draws its kit pieces from `set` from now on (each view as {@link VoxelChunkView.setKits}); meshes arriving later draw a frame. */
   setKits(set: VoxelKitSet | null): void {
     this.kitLoaded?.();
@@ -349,7 +377,9 @@ export class VoxelWorldDraws {
     let w = this.worlds.get(name);
     if (w !== undefined) return w;
     const grid = chunkGrid(edge as ChunkEdge);
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: VOXEL_SIZE_M / 2 });
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: VOXEL_SIZE_M / 2, relief: true });
+    // Nothing is displaced until the ring is told (a relief mesh arrives only with or after it).
+    surface.setRelief({ displace: this.displace, fadeStartM: 0, fadeEndM: 0 });
     if (this.arrays !== null) this.giveArrays(surface);
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet });
     view.rebuilt = () => this.rebuilt(name);
@@ -363,7 +393,7 @@ export class VoxelWorldDraws {
       view.setDecalLayers(decals.layersOf(name));
       this.opts.applied?.();
     }) ?? ((): void => undefined);
-    this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0, unlink }));
+    this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0, relief: null, unlink }));
     return w;
   }
 
@@ -389,6 +419,7 @@ export class VoxelWorldDraws {
     if (scene === null || renderer === null) return false;
     const t0 = performance.now();
     const w = this.world(b.world, b.edge, scene, renderer);
+    if (b.relief !== undefined) this.giveRelief(w, b.relief);
     const done = applyChunkDrawBatch(w.view, b);
     this.replaced += done.chunkBytes.length / 4;
     this.applied++;
@@ -408,7 +439,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 

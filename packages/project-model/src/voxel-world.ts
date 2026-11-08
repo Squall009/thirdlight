@@ -198,10 +198,12 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
   const at = level === null || level === undefined ? null : levelVoxels(level);
   const own = level === null || level === undefined ? undefined : c.quality?.[level.id];
   const k = own?.scale ?? at?.ringScale ?? 1;
+  // The relief distance has its tier's own scale (sized by what is seen, not by the budget's area).
+  const kRelief = own?.scale ?? at?.reliefScale ?? 1;
   const pick = (group: keyof VoxelWorldRings, field: string): number => {
     const set = (own?.[group] as Readonly<Record<string, number | undefined>> | undefined)?.[field];
     if (set !== undefined) return set;
-    const scaled = (b[group] as Readonly<Record<string, number>>)[field]! * k;
+    const scaled = (b[group] as Readonly<Record<string, number>>)[field]! * (field === 'relief' ? kRelief : k);
     if (scaled === 0 && ZERO_ALLOWED.has(field)) return 0;
     return Math.min(STREAMING_RADIUS_LIMITS.max, Math.max(STREAMING_RADIUS_LIMITS.min, scaled));
   };

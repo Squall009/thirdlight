@@ -215,7 +215,8 @@ the plain surfaces: relief only ever recesses.
   no relief mesh is made at any distance; the normal maps still shade the
   heights everywhere.
 - **How far.** The world's `levels.relief` (default 16 m, scaled by the quality
-  level like every distance: high 22.6 m), changed at run time with
+  level's own relief scale: medium 16 m, high 24 m; a level's **Voxel ring
+  scale** scales it like every distance when the level sets one), changed at run time with
   `ctx.voxels.setRings({ levels: { relief } })`. The ring moves with the focus;
   a section turns relief or plain only where nothing of it is moved, and the
   sections that change swap in together between two frames, so its edge
@@ -227,10 +228,13 @@ the plain surfaces: relief only ever recesses.
   on, and the displacement ends where it now stops.
 - A material paint (material or wetness) never remeshes relief: heights and
   depths are shader data.
-- **Drawn today on the voxel world page** (`?relief=tier`). Play and exports
-  derive the relief ring at medium and high but draw it without displacement
-  for now (the surfaces look as without relief); the Scene view (no quality
-  level) draws none yet.
+- **Where it is drawn.** Play (the simulation in its worker or on the page),
+  exports, the editor's Scene view (at the view's quality level, round the
+  point it orbits) and the voxel world page (the quality level's by default;
+  `?relief=0` none; its **relief** switch, bottom right, draws the relief
+  mesh flat to compare). Shadows are moved the same where the world casts
+  them (the voxel world page's `?shadows=1`; Play and exports do not cast
+  voxel shadows yet).
 
 Limits today:
 
@@ -242,7 +246,8 @@ Limits today:
 - **A rare gap between levels.** Where two caves meet in a saddle that the
   two levels join differently, a small hole (about 1 × 5 m) can show at a
   level boundary inside the cave.
-- Nothing is drawn past the load ring.
+- Nothing is drawn past the load ring. At its edge the world ends per 8 m
+  section: a section that reads a chunk past the ring is not drawn.
 
 ## In the editor
 

@@ -165,16 +165,17 @@ describe('the voxelWorld component', () => {
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
     // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
-    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 2 });
-    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 4 });
+    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 2 });
+    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 4 });
     // Relief steps by tier (none on low), a level's own beating its tier's.
     expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).reliefSteps)).toEqual([0, 2, 4]);
     expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelRelief: 8 }).reliefSteps).toBe(8);
     const base = resolveVoxelWorld({ world: 'w' });
-    const scaled = (k: number) => ({
+    // The relief distance scales by its tier's own (`kRelief`, absent: as every distance).
+    const scaled = (k: number, kRelief = k) => ({
       ring: Object.fromEntries(Object.entries(base.ring).map(([f, v]) => [f, v * k])),
       collision: Object.fromEntries(Object.entries(base.collision).map(([f, v]) => [f, v * k])),
-      levels: Object.fromEntries(Object.entries(base.levels).map(([f, v]) => [f, v * k])),
+      levels: Object.fromEntries(Object.entries(base.levels).map(([f, v]) => [f, v * (f === 'relief' ? kRelief : k)])),
     });
     const at = (c: VoxelWorldComponent, l: QualityLevelConfig) => {
       const r = resolveVoxelWorld(c, l);
@@ -183,7 +184,9 @@ describe('the voxelWorld component', () => {
     // The engine's levels: low √½, medium as the defaults, high √2 times every distance; the budget is the tier's.
     expect(at({ world: 'w' }, low!)).toEqual(scaled(Math.SQRT1_2));
     expect(at({ world: 'w' }, medium!)).toEqual(scaled(1));
-    expect(at({ world: 'w' }, high!)).toEqual(scaled(Math.SQRT2));
+    expect(at({ world: 'w' }, high!)).toEqual(scaled(Math.SQRT2, 1.5));
+    // Relief: medium 16 m, high 24 m (the rings the relief verdict chose).
+    expect([medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).levels.relief)).toEqual([16, 24]);
     expect([resolveVoxelWorld({ world: 'w' }, high!).quality, resolveVoxelWorld({ world: 'w' }, high!).budgetBytes]).toEqual(['high', VOXEL_STREAM_BUDGET_BYTES.high]);
     // A level's own voxel ring scale beats its tier's; the scene's scale for the level beats both.
     const tiny: QualityLevelConfig = { id: 'tiny', lighting: 'high', voxelRings: 0.5 };

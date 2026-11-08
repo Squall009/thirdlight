@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  ChunkDrawBatcher,
   chunkGrid,
   createWorldStore,
   deriveSectionFromStore,
@@ -19,10 +20,12 @@ import {
   jobRadius,
   POSITION_STEPS_PER_CELL,
   RELIEF_BUDGET_SHARE,
+  RELIEF_FOCUS_STEP_CELLS,
   sectionGrid,
   VoxelStreamer,
   WORLD_RULES,
   WorkerPool,
+  type ChunkDrawBatch,
   type DerivedData,
   type PaletteStore,
   type ReliefRingSettings,
@@ -199,5 +202,37 @@ describe('the relief ring while streaming (real workers, town regions on disk)',
     expect(tight.relief!.ring.size).toBeLessThan(free.relief!.ring.size);
     checkSections(tight);
     checkWindow(tight, sectionOf(focus), 'shrunk');
+  });
+
+  it("tells the draws the ring's state: its steps, where it displaces and its centre, once a step of the centre, and its relief chunks come with crease weights", { timeout: 240_000 }, async () => {
+    const s = streamer(RELIEF);
+    const batches: ChunkDrawBatch[] = [];
+    new ChunkDrawBatcher('town', s, RELIEF_SECTION_EDGE, (b) => batches.push(b));
+    s.setFocus(focus.x, focus.y, focus.z);
+    await s.settle();
+    await Promise.resolve();
+    const told = batches.filter((b) => b.relief !== undefined).map((b) => b.relief!);
+    expect(told.length).toBeGreaterThan(0);
+    expect(told.at(-1)).toEqual({ n: RELIEF.n, radius: RELIEF.radius, focus: [focus.x, focus.y, focus.z] });
+    // The relief sections' chunks are drawn with crease weights (the vertex stage moves them), the rest without.
+    const drawn = batches.flatMap((b) => b.chunks).filter((c) => c.kind === 'draw');
+    expect(drawn.some((c) => c.ground?.crease !== undefined || c.base?.crease !== undefined)).toBe(true);
+    expect(drawn.some((c) => c.ground?.crease === undefined && c.base?.crease === undefined)).toBe(true);
+    // A move under a step tells nothing; a step tells the new centre.
+    const n0 = batches.length;
+    s.setFocus(focus.x + RELIEF_FOCUS_STEP_CELLS / 2, focus.y, focus.z);
+    s.update();
+    await Promise.resolve();
+    expect(batches.slice(n0).some((b) => b.relief !== undefined)).toBe(false);
+    s.setFocus(focus.x + RELIEF_FOCUS_STEP_CELLS, focus.y, focus.z);
+    s.update();
+    await Promise.resolve();
+    expect(batches.slice(n0).filter((b) => b.relief !== undefined).map((b) => b.relief!.focus)).toEqual([[focus.x + RELIEF_FOCUS_STEP_CELLS, focus.y, focus.z]]);
+    // The ring off: the draws are told (nothing displaces), once.
+    s.relief!.set({ n: 0, radius: 0 });
+    await s.settle();
+    await Promise.resolve();
+    const off = batches.slice(n0).filter((b) => b.relief !== undefined && b.relief.n === 0);
+    expect(off.map((b) => b.relief)).toEqual([{ n: 0, radius: 0, focus: [focus.x + RELIEF_FOCUS_STEP_CELLS, focus.y, focus.z] }]);
   });
 });

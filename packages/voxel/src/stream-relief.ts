@@ -7,7 +7,7 @@
  * world's chunks.
  */
 import type { CellGrid, ChunkGrid } from './coords';
-import { RELIEF_BUDGET_SHARE, RELIEF_DRAW_PART, RELIEF_PART, ReliefRing, type ReliefRingSettings, type SectionCoord } from './relief-ring';
+import { RELIEF_BUDGET_SHARE, RELIEF_DRAW_PART, RELIEF_FOCUS_STEP_CELLS, RELIEF_PART, ReliefRing, type ReliefRingSettings, type SectionCoord } from './relief-ring';
 import type { Focus } from './stream-ring';
 
 /** What the relief ring needs of the streamer's derive sections. */
@@ -19,7 +19,23 @@ export interface ReliefDerives {
   reliefBytesOf(sx: number, sy: number, sz: number): number;
 }
 
+/**
+ * What the draws need of the ring (cells): its lattice steps, where it displaces now, and its centre, which the
+ * vertex stage's fade is measured from. Emitted when any changes (the centre by {@link RELIEF_FOCUS_STEP_CELLS}).
+ */
+export interface ReliefEvent {
+  readonly type: 'relief';
+  readonly n: number;
+  readonly radius: number;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
 export class StreamRelief {
+  /** What the draws were last told (null: nothing yet). */
+  private told: ReliefEvent | null = null;
+
   readonly ring: ReliefRing;
   /** Bytes of the `relief` budget parts of resident chunks. */
   bytes = 0;
@@ -59,6 +75,16 @@ export class StreamRelief {
   plan(focus: Focus): void {
     const changed = this.ring.plan(focus);
     if (changed !== null && changed.length > 0) this.rederive(this.ring.affected(changed));
+  }
+
+  /** The ring's state for the draws when it changed since last told (the centre moved a step, or its steps or radius changed); else null. */
+  drawState(focus: Focus): ReliefEvent | null {
+    const n = this.ring.n;
+    const radius = this.radius;
+    const t = this.told;
+    if (t !== null && t.n === n && t.radius === radius && (n === 0 || Math.max(Math.abs(t.x - focus.x), Math.abs(t.y - focus.y), Math.abs(t.z - focus.z)) < RELIEF_FOCUS_STEP_CELLS)) return null;
+    if (t === null && n === 0) return null;
+    return (this.told = { type: 'relief', n, radius, x: focus.x, y: focus.y, z: focus.z });
   }
 
   /** Over its share of `budgetBytes`, the ring shrinks to fit (the dropped sections and their neighbours derive again). */

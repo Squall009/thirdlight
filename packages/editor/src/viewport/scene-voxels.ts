@@ -32,8 +32,14 @@
  * the view's texture streamer (`textureStreamer`, which the view's adapter
  * updates each frame), capped at the view's quality level's texel density
  * within the engine's default texture budget, as Play keeps them.
+ *
+ * Relief is the view's quality level's, as in Play: its lattice steps and
+ * the world's relief distance scaled by it (the other distances stay the
+ * scene's own); a level change re-plans each world's relief ring without
+ * reopening it, and the draws displace round the point the view orbits.
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
+import { VOXEL_SIZE_M, worldReliefRing, type ReliefRingSettings } from '@thirdlight/voxel';
 import type { VoxelsChangedPayload } from '@thirdlight/protocol';
 import { createTextureStreamer, decodeTexture, VoxelKitMeshes, VoxelWorldDraws, wholeKtx2Source, type SceneAdapter, type TextureStreamer, type VoxelGridRenderer, type VoxelKitSet, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
@@ -90,6 +96,9 @@ export class SceneVoxels {
    * the swap group, −1 until the worker names it); drawn once none waits.
    */
   private pending: { set: VoxelKitSet | null; groups: Map<string, number> } | null = null;
+  /** Each open world's object (its relief follows the view's quality level), and the level its relief was planned at. */
+  private readonly components = new Map<string, VoxelWorldComponent>();
+  private reliefLevel: string | null = null;
   /** The material records the tables are built from (kept for draws made again with a new renderer). */
   private materials: readonly VoxelLookRecord[] = [];
 
@@ -213,6 +222,14 @@ export class SceneVoxels {
     return source !== null ? this.textureStreamer.open(textureSlotSetKey(set), source) : decodeTexture(bytes);
   }
 
+  /** A world's relief ring at the view's quality level now: its steps, the scene's relief distance scaled by the level (never past level 0). */
+  private reliefOf(c: VoxelWorldComponent): ReliefRingSettings {
+    const level = this.host.adapter().qualityLevelSettings?.() ?? null;
+    const own = resolveVoxelWorld(c);
+    const at = resolveVoxelWorld(c, level);
+    return worldReliefRing({ levels: { ...own.levels, relief: Math.min(at.levels.relief, own.levels.level0) }, reliefSteps: at.reliefSteps });
+  }
+
   private post(m: SceneVoxelsIn): void {
     this.worker?.postMessage(m);
   }
@@ -265,18 +282,23 @@ export class SceneVoxels {
       this.problems.delete(name);
       this.post({ t: 'close', world: name });
       this.posted.delete(name);
+      this.components.delete(name);
       this.drawPending(name);
     }
     for (const [name, key] of wanted) {
       if (this.open.has(name)) continue;
       const s = settings.get(name)!;
+      const c = entities.find((e) => (e.components['voxelWorld'] as VoxelWorldComponent | undefined)?.world === name)!.components['voxelWorld'] as VoxelWorldComponent;
       this.start();
       this.open.set(name, key);
+      this.components.set(name, c);
       void this.currentKits().then((kits) => {
         // Closed (or opened again with other settings) while the kits were read.
         if (this.open.get(name) !== key) return;
         this.posted.add(name);
-        this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: s.levels, collision: s.collision, sectionEdge: s.sectionEdge, kits: kits.kits, pieceSeed: kits.seed });
+        const relief = this.reliefOf(c);
+        this.reliefLevel = this.host.adapter().qualityLevelSettings?.()?.id ?? null;
+        this.post({ t: 'open', world: name, url: source.url(name), headers: source.headers, workerUrl: new URL(DERIVE_SCRIPT, document.baseURI).href, ring: s.ring, levels: { ...s.levels, relief: relief.radius * VOXEL_SIZE_M }, collision: s.collision, sectionEdge: s.sectionEdge, reliefSteps: relief.n, kits: kits.kits, pieceSeed: kits.seed });
         if (this.focusSent !== null) this.post({ t: 'focus', x: this.focusSent[0], y: this.focusSent[1], z: this.focusSent[2] });
       });
     }
@@ -285,6 +307,15 @@ export class SceneVoxels {
   /** Where the view looks (the orbit's target, metres): the worlds stream around it. */
   focus(at: THREE.Vector3): void {
     if (this.open.size === 0) return;
+    // The view's quality level changed: every world's relief ring follows it.
+    const level = this.host.adapter().qualityLevelSettings?.()?.id ?? null;
+    if (level !== this.reliefLevel) {
+      this.reliefLevel = level;
+      for (const name of this.posted) {
+        const c = this.components.get(name);
+        if (c !== undefined) this.post({ t: 'relief', world: name, ring: this.reliefOf(c) });
+      }
+    }
     const f = this.focusSent;
     // A move within a cell changes nothing the streamer plans with.
     if (f !== null && Math.abs(f[0] - at.x) < 0.5 && Math.abs(f[1] - at.y) < 0.5 && Math.abs(f[2] - at.z) < 0.5) return;
@@ -312,6 +343,7 @@ export class SceneVoxels {
     for (const name of names) this.post({ t: 'close', world: name });
     this.open.clear();
     this.posted.clear();
+    this.components.clear();
     this.states.clear();
     this.focusSent = null;
   }

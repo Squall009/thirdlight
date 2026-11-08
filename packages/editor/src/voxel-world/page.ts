@@ -129,7 +129,7 @@ const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionP
 /** `?levels=a,b`: level 0 drawn within a metres, level 1 within b (default the engine's rings). */
 const levelsParam = params.get('levels');
 /**
- * `?relief=n` (2, 4, 8) or `?relief=tier` (the quality level's steps, none on low): the streamer's relief ring (its
+ * `?relief=n` (0, 2, 4, 8) or `?relief=tier` (the default, as Play: the quality level's steps, none on low): the streamer's relief ring (its
  * sections within `?reliefRadius=` metres of the focus, default the quality level's distance, re-planned as the
  * focus moves, inside its share of the stream budget) derives the relief mesh n lattice steps a cell, drawn in place
  * of the surfaces and moved in the vertex stage by their materials' heights (the normal maps' A) and height depths;
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
   const reliefOptions = relief.surfaceOptions(patterns);
   const materials = new PageMaterials(async () => (await readVoxelKits(kitRoute)).materials ?? [], reliefOptions.look, patterns ? null : backendArrays(api, headers), textureResidency);
   materials.take(project.materials ?? []);
-  if (hudShown) document.body.append(materials.select);
+  if (hudShown) document.body.append(materials.select, relief.toggle());
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...reliefOptions, look: materials.look(), blendMetres: blendM, shading, bands, patterns });
   materials.attach(surface);
@@ -327,7 +327,7 @@ async function main(): Promise<void> {
     }
     // Draws and bodies follow the batcher (above): chunks, level nodes, their seams and the levels chosen.
     if (e.type === 'node') return levelLog.node(e.level, frames);
-    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'seams' || e.type === 'levels') return;
+    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'seams' || e.type === 'levels' || e.type === 'relief') return;
     if (e.type === 'shader') {
       // Only the shader data changed (material or wetness): bodies stand as they are; the view uploads the chunk's grid.
       for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);

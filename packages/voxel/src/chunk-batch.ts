@@ -88,6 +88,16 @@ export interface ChunkSwapWire {
   readonly mainMs: number;
 }
 
+/**
+ * The relief ring as the draws displace by it (cells): lattice steps a cell (0: none), where the displacement ends
+ * now and the ring's centre; the vertex stage fades over the last metres before `radius` from `focus`.
+ */
+export interface ChunkReliefWire {
+  readonly n: number;
+  readonly radius: number;
+  readonly focus: readonly [number, number, number];
+}
+
 export interface ChunkDrawBatch {
   readonly world: string;
   /** The storage chunks' edge (cells). */
@@ -98,6 +108,8 @@ export interface ChunkDrawBatch {
   /** Seams drawn or removed (applied after `chunks`). */
   readonly seams?: readonly SeamDrawWire[];
   readonly swaps: readonly ChunkSwapWire[];
+  /** The relief ring changed (its centre moved, its steps or radius): what the draws displace by from now on. */
+  readonly relief?: ChunkReliefWire;
   /** Wall-clock ms (`performance.timeOrigin + performance.now()`) when the batch left. */
   readonly sentAt: number;
   /** ms the batch's joins took where the world runs. */
@@ -194,6 +206,7 @@ export class ChunkDrawBatcher {
   private chunks: ChunkDrawWire[] = [];
   private seams: SeamDrawWire[] = [];
   private swaps: ChunkSwapWire[] = [];
+  private relief: ChunkReliefWire | null = null;
   private joinMs = 0;
   private queued = false;
   private closed = false;
@@ -223,6 +236,10 @@ export class ChunkDrawBatcher {
       if (this.sent.delete(key)) this.push({ cx: e.cx, cy: e.cy, cz: e.cz, kind: 'remove' });
     } else if (e.type === 'chunk') this.chunk(e.cx, e.cy, e.cz, e.shaderOnly, e.reliefOnly);
     else if (e.type === 'swap') this.swap(e.report);
+    else if (e.type === 'relief') {
+      this.relief = { n: e.n, radius: e.radius, focus: [e.x, e.y, e.z] };
+      this.queue();
+    }
     else if (e.type === 'levels') {
       // Removed first: a chunk drawn again in the same swap (a level change and back) ends drawn.
       for (const n of e.removed) {
@@ -352,8 +369,9 @@ export class ChunkDrawBatcher {
 
   private flush(): void {
     this.queued = false;
-    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, sentAt: wallClock(), joinMs: this.joinMs };
+    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null)) return;
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    this.relief = null;
     this.chunks = [];
     this.seams = [];
     this.swaps = [];
@@ -385,6 +403,7 @@ export class ChunkDrawBatcher {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.relief = null;
     this.chunks = [];
     this.seams = [];
     this.swaps = [];

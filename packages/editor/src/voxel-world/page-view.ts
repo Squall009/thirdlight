@@ -30,7 +30,8 @@ export function reliefParams(params: URLSearchParams): ReliefParams {
   const n = params.get('relief');
   const radius = params.get('reliefRadius');
   return {
-    n: n === null ? null : n === 'tier' ? 'tier' : Number(n),
+    // Absent: the quality level's, as Play draws it (`?relief=0`: none).
+    n: n === null || n === 'tier' ? 'tier' : Number(n),
     radiusM: radius === null ? null : Number(radius),
     fade: params.get('reliefFade')?.split(',').map(Number) ?? null,
     displace: params.get('displace') !== '0',
@@ -120,6 +121,23 @@ export class PageRelief {
   set(s: { displace?: boolean; bump?: boolean }): void {
     Object.assign(this.on, s);
     this.surface?.setRelief(s);
+    if (s.displace !== undefined && this.box !== null) this.box.checked = s.displace;
+  }
+
+  private box: HTMLInputElement | null = null;
+
+  /** The page's relief switch: relief moved by the heights (checked) or its mesh drawn flat, to compare the two. */
+  toggle(): HTMLLabelElement {
+    const label = document.createElement('label');
+    label.style.cssText = 'position:fixed;right:8px;bottom:8px;padding:2px 6px;background:rgba(0,0,0,.55);color:#fff;font:12px system-ui,sans-serif;border-radius:4px';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = this.on.displace;
+    box.setAttribute('aria-label', 'relief');
+    box.addEventListener('change', () => this.set({ displace: box.checked }));
+    this.box = box;
+    label.append(box, ' relief');
+    return label;
   }
 
   state(ring: Record<string, unknown> | null): Record<string, unknown> | null {

@@ -246,7 +246,7 @@ export { faceLevels, StreamSeams, type LevelSelection, type SeamEvent, type Seam
 export { COLLISION_ADD_MS_PER_UPDATE, COLLISION_PART, COLLISION_RING_HYSTERESIS_CELLS, CollisionRing, collisionRingBounds, type CollisionBodies, type CollisionRingBounds, type CollisionRingFeed, type CollisionRingOptions, type CollisionRingUpdate } from './collision-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { joinCollision, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
-export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkSwapWire, type DrawSurface, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
+export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkReliefWire, type ChunkSwapWire, type DrawSurface, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
 export { applyWorldRings, worldLevelRings, worldPieceTable, worldReliefRing, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres, type WorldRingSettings } from './world-streamer';
@@ -271,8 +271,8 @@ export { assemblyRules, registerAssemblyRules, registeredAssemblyRules, WORLD_RU
 export { TERRAIN_FEATURE, TERRAIN_FEATURE_SHIFT, TERRAIN_RULES, TERRAIN_RULES_RADIUS, TERRAIN_THRESHOLDS, terrainFeatureOf, withTerrainFeatures } from './terrain-rules';
 export { CREASE_SPLIT_DEG, LATTICE_WINDOW, TERRAIN_MESHER_REACH, terrainSurface, type TerrainCreases } from './terrain-mesher';
 export { appendRelief, checkReliefOptions, emptyReliefSurface, groundCreaseRule, RELIEF_CREASE_DEG, RELIEF_FREE, RELIEF_SUBDIVISIONS, reliefBytes, reliefNeighbourBit, reliefTransfer, roofCreaseRule, subdivideSurface, type CreaseRule, type ReliefOptions, type ReliefPart, type ReliefSurface } from './relief-mesh';
-export { checkReliefRing, DEFAULT_RELIEF_RADIUS_CELLS, RELIEF_BUDGET_SHARE, RELIEF_DRAW_PART, RELIEF_FADE_CELLS, RELIEF_HYSTERESIS_CELLS, RELIEF_PART, RELIEF_STEPS, RELIEF_STEPS_BY_TIER, reliefFade, ReliefRing, sectionHalfDiagonal, type ReliefRingSettings, type SectionCoord } from './relief-ring';
-export { StreamRelief, type ReliefDerives } from './stream-relief';
+export { checkReliefRing, DEFAULT_RELIEF_RADIUS_CELLS, RELIEF_BUDGET_SHARE, RELIEF_DRAW_PART, RELIEF_FADE_CELLS, RELIEF_HYSTERESIS_CELLS, RELIEF_FOCUS_STEP_CELLS, RELIEF_PART, RELIEF_RING_SCALES, RELIEF_STEPS, RELIEF_STEPS_BY_TIER, reliefFade, ReliefRing, sectionHalfDiagonal, type ReliefRingSettings, type SectionCoord } from './relief-ring';
+export { StreamRelief, type ReliefDerives, type ReliefEvent } from './stream-relief';
 export { appendSurface, roofSurface } from './roof-mesher';
 export { classifyRoofs, isRoofGapCell, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
 export {
