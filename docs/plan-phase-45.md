@@ -589,7 +589,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
     optional (§7a): a kit may use them, none has to. Owner 2026-11-02: the trim layout spec is kept for detail pieces
     only, so a piece can use a different material, or a blend, instead of the tileable arrays the triplanar base uses;
     base construction and terrain surfaces never use trim.
-  - **46d Rendering and materials:** the material model (§1c: shader families, physical block, profiles, game data,
+  - **46d Rendering and materials** ([plan 46d](plan-phase-46d.md))**:** the material model (§1c: shader families, physical block, profiles, game data,
     variants, badges); texture arrays and slot residency; kit-piece instancing and GPU culling; the chunk-tree HLOD
     beyond 46b's rings; the far-field choice (voxel-mip meshes vs brick ray-marching, measured here); every feature
     behind a quality-tier switch and budget.
