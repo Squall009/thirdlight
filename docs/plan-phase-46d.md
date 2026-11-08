@@ -215,7 +215,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.4b | done: quality field `voxelTexelDensity` (low 256, medium 512, high 1024 px/m) caps each voxel array (4096²: levels 2/1/0); arrays stream per level under `texture_budget_mb`, need from the chunks; builds ship them cut; Play, export, Scene view, voxel world page. 2048² sets: 24/96/96 MiB per tier, switch 0.93 s, 0–2 missed; GPU ±0.1 ms. 4096² not assemblable (D532) |
 | 46d.4c | done: D532 fixed (4096² in UASTC stripes, 14–49 s a map, mean error ≤ 1.4/255). Kit pieces wear their GLB material (sheet extracted to KTX2, trim U on every map) in Play, export, Scene view, page; debug sets only under `?trimDebug=1`; kit crack maps by brightest texel; Blender export writes the images. Town draws 1,857 either way, GPU ±0.2 ms. D535–D537 |
 | 46d.4d | done: D531 height = normal map's A only (record map renamed `albedo`); heights blend in metres (1 cm contrast), relief reads the normal array; R111 wetness (darker, smoother, flatter, water in the low parts by height). D535: textures to 65.3 MiB. Town GPU 3.81–3.85 / 4.42–4.43 ms (46d.4c 3.66 / 4.48); WebGL 2 3–5 missed (D540). Seen both renderers; pieces dry (D538) |
-| 46d.5a | not started |
+| 46d.5a | done: relief part = derived v29; ring per 8 m section round the focus (hysteresis, atomic re-plan, bodies stand), `levels.relief` 16 m scaled, `voxelRelief` low 0/med 2/high 4, setRings; own 1/8 budget share, ring shrinks (D528 fixed). Town med/high: relief 12.9/106 MB, 1.29/4.10 M tris, `render()` +0–1.1 ms, 0–7 missed; shadows main-thread bound (D529). D541, D542 |
 | 46d.5b | not started |
 | 46d.6a | not started |
 | 46d.6b | not started |
@@ -719,6 +719,61 @@ pools follow the rock's low parts), `relief-{rock-cliff-near,stone-wall-near,sea
 from the normal maps). WebGPU and WebGL 2 alike. Water reads dark rather than mirror-like: the page has a hemisphere
 light and no environment to reflect (46e). Decals over the real sets: not pictured (D539).
 
+### 46d.5a relief on the chosen path: derive + format; D528
+
+**Built.** `@thirdlight/voxel`: `relief-ring.ts` (the plan: a section whose centre lies within R + its half diagonal
+joins, it leaves past that + 4 m; 3D distances; `optionsFor` names its plain neighbours; `affected` = the changed
+sections and the relief sections round them; `fit` drops the farthest to 90 % of the share and keeps the ring small
+until the focus has moved 8 m; `reliefFade`), `stream-relief.ts` (the streamer's ring: planned each update, a change
+derived again in one edit-style group, relief bytes = the `relief…` budget parts: each section's relief part and its
+chunk draw's relief copy, `RELIEF_DRAW_PART` from the batcher), the job asks relief per section (`{n, ids, plain}`),
+`chunk` events carry `reliefOnly` (canonical bytes equal: the runtime and the page keep bodies), eviction counts the
+budget less the share and the base bytes without relief. Derived v28 → v29 (format spec table, render spec §3).
+project-model: `voxelWorld.levels.relief` (0 allowed, never past `level0`, scaled per level), `ResolvedVoxelWorld.reliefSteps`,
+quality field `voxelRelief`, descriptors; runtime: `setRings({levels: {relief}})`, `rings().reliefSteps`, hosts
+apply the ring (`worldReliefRing`, `applyWorldRings`). Page: `?relief=tier` (the quality level's steps and distance),
+`setQuality` also sets the level's stream budget and ring, the fade follows where the ring displaces now. Manual
+(*Relief*), reference regenerated.
+
+**Tested.** `packages/voxel/src/relief-ring.test.ts` (join/leave distances, every point within R in a relief section,
+re-plan only on a cell's move, hysteresis, plain-neighbour bits, `affected`, shrink farthest first and grow back,
+a new step re-meshes all); `tools/voxel-bench/relief-ring.test.ts` (real workers, the town's regions on disk, 16³
+sections: relief exactly on the ring, every section's canonical bytes = the plain derive on the oracle, the window
+round the focus watertight against the plain mesh after settling and **at every swap** while the focus moves 6 m,
+the move's chunk events all `reliefOnly`, off → all plain; a share holding half the ring's relief: the ring shrinks
+(28 of 100 sections, 10.6 of 17.3 MB), no chunk evicted, resident count as with room); `world-host.test.ts`
+(`setRings` and the quality level drive the streamer's ring: low none, high 4 steps to 20 m, a script's 6 m → 12 m);
+`voxel-world.test.ts`, `descriptors.test.ts`. Fast gate gate-fast-20261108-165416 (red: lint read a scratch file
+deleted mid-run) → rerun -165733 GREEN (13 min, 4.7 GB; 863 vitest files; e2e 36; perf 0 missed both renderers).
+`voxel-world.e2e.ts` 64.1 → 64.2 s (no e2e change).
+
+**Measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 view 60 m out, ~478-frame orbit, one round
+each, `?relief=tier`, the level's own stream budget, 17:00–17:16, load 1.9–4.7, uptime 16.0 d):
+
+| Town, WebGPU / WebGL 2 | ring (sections, displaced to) | triangles | relief MB / share | `render()` p50 ms | GPU ms | missed |
+|---|---|---|---|---|---|---|
+| low (n 0) | none | 0.84 M | 0 / 0 | 8.9 / 10.3 | 4.05 / 4.80 | 1 / 2 |
+| medium, no relief | — | 0.84 M | — | 9.9 / 10.7 | 3.91 / 4.56 | 0 / 3 |
+| medium (n 2) | 100, 16 m | 1.29 M | 12.9 / 67.1 | 9.3 / 10.9 | 4.34 / 4.49 | 1 / 3 |
+| high, no relief | — | 0.84 M | — | 9.8 / 10.6 | 3.87 / 4.58 | 0 / 0 |
+| high (n 4) | 212, 22.6 m | 4.10 M | 106.2 / 134.2 | 10.3 / 11.7 | 1.46 / 2.29 (not usable) | 7 / 3 |
+| shadows low / medium / high, WebGPU | as above | | | 15.5 / 16.1 / 18.2 | — | 10 / 32 / 95 of ~450 |
+| shadows low / medium / high, WebGL 2 | as above | | | 17.5 / 18.1 / 20.3 | — | 59 / 77 / 153 of ~400 |
+
+Every run drew all 1,466 piece draws (D528: at n = 4 the town no longer loses half its pieces to relief). Worker relief
+µs a section p50/p95: medium 1.9–2.4 / 15–19 ms, high 2.1–2.3 / 26–32 ms. Village at high (n 4, 22.6 m): 251
+sections, relief 22.8 MB. The high tier's GPU timestamps came back lower than medium's (as 46d.1b's shadow runs):
+not usable, `render()` and misses stand. Misses: high WebGPU 7 (relief adds +0.5 ms `render()` and 3.3 M triangles;
+the arrays' stream-ins at high, D540, give the rest; cause per frame not traced); shadows are main-thread bound as
+D529 records (the shadow pass draws every piece draw again; relief's triangles add ~2 ms at high): performance phase.
+
+**Looked at** (`work/46d.5a/shots/`, both renderers, high, sun 12°): `l-high-rock-cliff-near-*`, `-stone-wall-near-*`,
+`-seam-grass-rock-*`, `-village-ring-wide-*`, `-cliff-face-d533-*` displaced and flat; `p-town-{low,medium,high}-*`,
+`ps-*` (shadows), `p0-*` (no relief). The cliff's rock moves and its silhouette shifts a few pixels, no crack or gap
+at section faces, the ring's edge or the ground; the town whole at every tier. The 56 m cliff line (D533) not seen.
+Shards on the stone house's door leaf through the doorway with displacement on (D542; identical in 46d.4d's
+`?relief=4` picture). Ring edge in motion: not pictured as frames (crack-free at every swap is tested, not seen).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -949,6 +1004,12 @@ light and no environment to reflect (46e). Decals over the real sets: not pictur
   the screen-derivative bump from heights (46d.1b's stand-in) stays only on the debug program with its test heights.
 - 2026-11-08 (46d.4d, default chosen, owner to confirm): **kit pieces stay dry for now** (D538): a piece's material
   would need its cell's wetness from the grid per instance, which 46d.6a's cross-chunk piece buffers decide.
+
+- 2026-11-08 (46d.5a, default chosen, owner to confirm): **`levels.relief` is where the displacement ends** (default 16 m, the verdict's medium ring, scaled per quality level like every distance: high 22.6 m rather than the verdict's 24 m; a scene sets 17 m to get 24), and the ring meshes a section whose centre lies within it plus the section's half diagonal (6.9 m), keeping it 4 m longer (hysteresis); the fade is the last 4 m before the distance. So what the owner reads as "relief to 16 m" is what is drawn, and a section turns relief or plain only where nothing of it moves.
+- 2026-11-08 (46d.5a, default chosen, owner to confirm): **relief steps are a quality level field (`voxelRelief`, 0/2/4/8; tiers low 0, medium 2, high 4)**, not a scene field: how fine is a device question, how far a scene one. A world resolved without a level (the Scene view) has none.
+- 2026-11-08 (46d.5a, default chosen, owner to confirm): **relief's budget share is 1/8 of the stream budget while the ring is on** (low 32, medium 64, high 128 MiB), reserved: the base world's eviction counts the rest; relief bytes are each section's relief part and its chunk draw's relief copy (GPU). Over its share the ring shrinks farthest first to 90 % of it and grows back once the focus has moved 8 m (D528).
+- 2026-11-08 (46d.5a, default chosen, owner to confirm): **a ring change derives the whole section again** (the plain outputs are byte-equal, the relief part is new) in one group with every relief neighbour, rather than a relief-only job: one derive path, the atomic swap and the stamps reused; the swap's `chunk` events say `reliefOnly` (canonical bytes equal) so bodies stand.
+- 2026-11-08 (46d.5a, default chosen, owner to confirm): **Play and exports derive the relief ring at medium and high from now on** but draw it undisplaced until 46d.5b; the Scene view (no quality level) derives none.
 
 ## 10. Open questions for the owner
 
