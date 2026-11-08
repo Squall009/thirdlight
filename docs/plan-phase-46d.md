@@ -1103,6 +1103,12 @@ node's distance from the eye, 0–1 / 1–2 / 2–4 / 4–8 / 8+ km, and the coa
 Selection from scratch 9–18 ms at 2 px (Node; 49–91 ms at 1 px); none held by the 48 MiB budget. The draw count is
 D549.
 
+**Looked at** (staging slice page, 1280 × 720, both renderers, `~/.cache/thirdlight-phase46/work/46d.7a/shots/`;
+the 46c-r2 houses with a 1 × 3-cell door and a one-cell window, `&levels=6,400` so they draw at level 1):
+`log-g45`, `log-g12`, `stone-g45`, `stone-ell` `-mid-l1`: the front walls stand whole down to their foundations
+(46c-r2's `*-mid-l1` showed them on legs); `*-near` (level 0) still show the door and window open. Seen on WebGPU and
+WebGL 2.
+
 **For 46d.7b/7c.** The world and its cache stay on disk (`work/46d.7a/project`: `voxels/far/`, `cache/voxel-far/far/`,
 ~0.52 GB) for the draw modes and 46d.7d; delete after 46d.9 unless the owner's pick needs them. Serving it from
 staging needs D548 first (the backend loads a world whole). Not wired yet, by default (§9): the backend's rebuild
