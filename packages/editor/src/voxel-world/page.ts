@@ -550,6 +550,7 @@ async function main(): Promise<void> {
     materials: () => ({ entries: materials.entries, picked: materials.material, options: [...materials.select.options].map((o) => o.text) }),
     pickMaterial: (id: number) => materials.pick(id),
     readMaterials: () => materials.readAgain(),
+    tableEntry: (m: number) => surface.tableEntry(m),
     async settle(): Promise<void> {
       await kits.loaded;
       await streamer.settle();

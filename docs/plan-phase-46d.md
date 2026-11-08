@@ -211,7 +211,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.2 | done: format spec split (D496), docs only: kits section + §3.9 kit record moved unchanged to `voxel-kit-format.md` (264 lines), `voxel-render-spec.md` skeleton (material record, texture sets, relief part, far-field data); main spec 2,225 → 1,983 lines, pointers left; links re-pointed in the spec, requirements and role spec |
 | 46d.3a | done: `MaterialDef` gains `physical`, `gameData`, `voxel` (id, use, kit, tile, height depth, wall/floor/ceiling sets), canonical round trip tested; engine + project profiles with their commands; voxel_id_taken, kit_missing; kit binding from `voxel.kit` (kit list for unnamed ids). Record 414 B; 4,095 voxel materials load in 63 ms, an edit 5.5 ms |
 | 46d.3b | done: voxel table from the records (colour, tile, depth; stand-in for the rest), a record edit re-uploads the table only (0.8 ms, 0 meshes; seen WebGPU + WebGL 2); `ctx.voxels.materialAt`/`materialOf`; badges, `f:` filter, voxel-only picker, Inspector voxel section; every voxel material ships with a world. voxel-world e2e 65.6 → 70.8 s |
-| 46d.4a | not started |
+| 46d.4a | done: albedo+height, normal and ORM arrays from every voxel material's wall/floor/ceiling sets (slot assembly, KTX2 cache), layers in the table; floor/ceiling/wall by face, grid 4 m, terrain triplanar 2 m; patterns under `?patterns=1`; Play/export ship `voxelTextures`. 6 units. Town GPU WebGPU 3.4 → 4.1 ms, WebGL 2 4.7 → 4.8, 0 missed. Seen both renderers |
 | 46d.4b | not started |
 | 46d.4c | not started |
 | 46d.4d | not started |
@@ -482,6 +482,65 @@ voxel world page's picker is checked by hook (the e2e pictures hide it); not pic
 `project-window`; perf 0 missed of 360 both renderers). The first run (-093015, before the e2e and UI) was red only on
 the regenerated reference and the visual-script catalogue's skip list (both fixed in the commit).
 
+### 46d.4a texture sets in arrays
+
+**Built.** project-model `voxel-surface-textures.ts` (`voxelSurfaceTextures`): from the voxel materials' surface sets
+one slot list a map (albedo + height `color`/height, normal `normal`, ORM `data`), a layer per distinct set in
+ascending voxel id (wall, floor, ceiling), each id's three layers; a map left out takes its neutral constant layer, a
+map no set names has no array, at least two layers, at most `MAX_TEXTURE_LAYERS` (`dropped`). three-adapter: the
+surface's table gains a layer block; `VoxelSurface.setTextures` binds the arrays (repeat wrap, 4× anisotropy) and
+writes the layers, no program change; `voxel-surface-sets.ts` reads a material's set (floor where the normal's y >
+0.95, ceiling < −0.95, wall else; terrain its wall set triplanar; the image's top up; normal maps turned by the grid
+frame `gridFrame` or each axis's frame), ORM to roughness/metalness/occlusion, the record's colour tints;
+`VoxelWorldDraws` loads the arrays through the host (`textures`, `release`) and keeps drawing the old ones until the
+new are there; the test patterns only under `patterns` (`?patterns=1`), the bands in both programs. Hosts: Play and
+the export assemble the arrays with the slot lists (`closure-texture-slots.ts`), name them in the catalog block
+`voxelTextures`, list them project-wide; the game page reads them as any shipped texture; the Scene view and the voxel
+world page ask the backend's slot route (the same bytes). Bench `run.mjs textures` (placeholder generator
+`texture-sets.ts`; `--import N` puts the sets on a running backend as materials for the bench ids, kits kept).
+
+**Placeholder sets** (engine test data, deterministic, nothing committed): stone (ashlar, 0.5 m courses, 1 m blocks),
+plaster, timber (0.25 m boards), earth, grass, rock; each albedo (height in A), normal (OpenGL, height in A too),
+ORM. Authored 4096² (1024 px/m on a 4 m tile; 2048 px/m on terrain's 2 m tile), PNG 8-bit RGBA, full mip chain made
+by the assembly: 145 MB for the 18 PNGs (stone 3.8/5.4/1.5 MB albedo/normal/ORM, plaster 5.6/4.7/2.7, timber
+2.5/1.9/1.0, earth 6.5/13.0/2.6, grass 16.8/46.0/7.1, rock 4.2/17.7/2.1), 59 s to write; deleted after measuring.
+Staging holds the 1024² cut (19.5 MB PNG, 256 px/m on a 4 m tile); its arrays: albedo ETC1S, normal and ORM
+UASTC, transcoded to BC7 on the Iris Xe, 6 layers × 11 levels each, assembled in 40 s once, then cached (0.5 s a page
+load). GPU bytes (BC7, 1 B a texel, mips 4/3): 8.4 MB a map, 25 MB the three at 1024² (low's 256 px/m); 2048²
+(medium) 101 MB, 4096² (high) 403 MB, before 46d.4b's residency; textures a project imports at another size draw at
+that size.
+
+**Reads a pixel** (default program): 9–10 grid texels, 7 table texels, 18 array samples (3 maps × 3 projections × 2
+materials; the patterns' 6), 1 crack sample; 6 texture units (the patterns' 4), 8 with bands and the relief heights,
+within 16 with the light path's 3 (vitest, WGSL and GLSL).
+
+**Tested.** `voxel-surface-textures.test.ts` (layers, sharing, fallbacks, neutral fills, two layers, the limit, the
+keys); `voxel-surface.test.ts` (programs on both backends: reads, units, top-level samples, bands; `setTextures`
+binds, wraps and writes layers); `voxel-material-looks.test.ts` (colour as tint, white with a set, layers from records
+and variants); `manifest-v5.test.ts` (the block); `tests/integration/voxel-world` export: placeholder images imported,
+a voxel material's sets → the export's `voxelTextures` block names a normal and an albedo array (no ORM), both
+project-wide, two layers of 32² each, byte-equal to the editor route's answer for the same slot list.
+
+**Measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 view and ~480-frame orbit, 1 round, 11:00–11:10,
+load 2.4–2.9, uptime 15.8 d): WebGPU `?patterns=1` / arrays: GPU 3.37 / 4.06 ms, `render()` p50/p95 9.2/11.0 /
+8.8/10.0 ms; WebGL 2 4.65 / 4.81 ms, 9.5/10.3 / 9.7/11.3 ms; 0 missed of 479 everywhere; 842 k triangles, 1,319
+calls either way. The arrays cost +0.7 ms GPU on WebGPU, +0.2 on WebGL 2 (18 samples for 6).
+
+**Looked at** (`~/.cache/thirdlight-phase46/acceptance/46d/46d.4a/`, both renderers, 15 views each): the log
+house's timber walls, roof (roof tile = timber tinted) and corner; the stone house's walls, corner and hip roof
+(courses at the same heights round the corner and across the foundation: the 4 m grid lines up); the plaster house's
+wall and its timber floor seen through the opened front (floor set ≠ wall set); grass ground near; rock slope and
+cliff (triplanar); village mid and wide; terrain slope; the town mid (WebGPU). WebGPU and WebGL 2 show the same
+pictures. Seen: the grass's 2 m repeat reads as a pattern at 20–60 m (macro variation is a §1d proposal); a faint
+horizontal line across the rock cliff at a section face (shading of the mesh normals there; cause unverified). The
+first pictures drew every face in one colour: a loaded KTX2 clamps, so the tile's coordinates read its edge texel;
+`setTextures` now sets repeat wrapping (tested).
+
+**Gate:** gate-fast-20261108-103313 (red only on the e2e's band test: the bands had left the textured program; they
+draw in both now) → rerun -104701 GREEN; gate-fast-20261108-111109 GREEN (13 min, 4.5 GB; 856 vitest files; e2e 36
+passed; perf 0 missed of 360 both renderers); `scan-bounded-log` (D307/D418) and `edge-cases` (D523) failed once in the
+first run and passed alone. `voxel-world.e2e.ts` 70.8 → 63.7 s (no e2e change; host variance).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -634,6 +693,32 @@ the regenerated reference and the visual-script catalogue's skip list (both fixe
   section on decal materials; the surface texture sets and the physical block stay API-only (the profile commands
   remain listed in `tests/editor-op-reach.test.ts`) until 46d.4a draws sets and an Inspector physical section is
   planned.
+
+- 2026-11-08 (46d.4a, default chosen, owner to confirm): **one array per map for every voxel material** (albedo with
+  height in A, normal, ORM: three units in place of the pattern array, six of sixteen), layers one size (the
+  assembly's rule), so a 2 m terrain tile in a 4096² array carries 2048 px/m, twice construction's; arrays per tile
+  size would cost three more units a program.
+- 2026-11-08 (46d.4a, default chosen, owner to confirm): **which set a face draws**: on construction the floor set
+  where the face's normal points up (y > 0.95), the ceiling set where it points down, the wall set on every other
+  face, roof slopes included (the roof material's main set); terrain draws its wall set alone, triplanar.
+- 2026-11-08 (46d.4a, default chosen, owner to confirm): **a record's colour tints its sets** (albedo × `color`);
+  a record with a set and no colour draws the set as authored (white), not the stand-in swatch; an id without a set
+  draws its flat colour (no test pattern).
+- 2026-11-08 (46d.4a, default chosen, owner to confirm): **no placeholder images committed** (the plan said a 512²
+  cut): the generator (`tools/voxel-bench/texture-sets.ts`) is deterministic at any size, tests make 32² sets on
+  the fly, the bench writes the authored 4096² to scratch and imports 1024² (256 px/m on a 4 m tile, the low
+  tier's density) into staging until 46d.4b streams the top mips.
+- 2026-11-08 (46d.4a, default chosen, owner to confirm): **the build names the arrays in a `voxelTextures`
+  catalog block** (by map) and the runtime makes each id's layers from the shipped records with the same function,
+  so no layer table ships.
+- 2026-11-08 (46d.4a, default chosen, owner to confirm): **the image's first row is its top**: V up reads it from
+  the bottom, the tile's foot on the grid's 0 m line; the normal map is turned by the projection's own frame (the
+  grid's U and V, each axis's on terrain), not by screen-derivative tangents; with the spike's test heights the bump
+  bends the mapped normal.
+- 2026-11-08 (46d.4a, default chosen, owner to confirm): **the band test texture draws over construction in both
+  programs**, the test patterns only under `?patterns=1`; arrays sampled with 4× anisotropy (floors at grazing view).
+- 2026-11-08 (46d.4a): **the height's place** (normal A per texture layout v1 and R111, albedo A per the 46d.3a
+  record) is left to 46d.4d (D531); the placeholder sets carry it in both.
 
 ## 10. Open questions for the owner
 

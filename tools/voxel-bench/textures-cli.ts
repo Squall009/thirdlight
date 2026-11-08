@@ -31,21 +31,22 @@ function arg(name: string, fallback: string): string {
 
 /**
  * The benchmark worlds' voxel ids (the world kit's: rock 1, soil 2, grass 3, sand 4, gravel 6, stone 10, timber 11,
- * plaster 12, roof tile 13, plank 14, brick 15) as voxel materials: the set each surface wears and a tint (the record's
- * colour, multiplying the albedo) for the ids that reuse another's textures.
+ * plaster 12, roof tile 13, plank 14, brick 15) as voxel materials: the set each surface wears, a tint (the record's
+ * colour, multiplying the albedo) for the ids that reuse another's textures, and the placeholder kit (`run.mjs kits`)
+ * whose test list binds the id, kept on the record (left out where the project has no such kit).
  */
-const BENCH_MATERIALS: ReadonlyArray<{ id: number; name: string; use: 'construction' | 'terrain'; wall: PlaceholderSet; floor?: PlaceholderSet; ceiling?: PlaceholderSet; color?: string }> = [
+const BENCH_MATERIALS: ReadonlyArray<{ id: number; name: string; use: 'construction' | 'terrain'; wall: PlaceholderSet; floor?: PlaceholderSet; ceiling?: PlaceholderSet; color?: string; kit?: string }> = [
   { id: 1, name: 'Rock', use: 'terrain', wall: 'rock' },
   { id: 2, name: 'Soil', use: 'terrain', wall: 'earth' },
   { id: 3, name: 'Grass', use: 'terrain', wall: 'grass' },
   { id: 4, name: 'Sand', use: 'terrain', wall: 'earth', color: '#f2dcae' },
   { id: 6, name: 'Gravel', use: 'terrain', wall: 'rock', color: '#d8d0c4' },
-  { id: 10, name: 'Stone', use: 'construction', wall: 'stone' },
-  { id: 11, name: 'Timber', use: 'construction', wall: 'timber' },
+  { id: 10, name: 'Stone', use: 'construction', wall: 'stone', kit: 'stone' },
+  { id: 11, name: 'Timber', use: 'construction', wall: 'timber', kit: 'log' },
   { id: 12, name: 'Plaster', use: 'construction', wall: 'plaster', floor: 'timber', ceiling: 'plaster' },
   { id: 13, name: 'Roof tile', use: 'construction', wall: 'timber', color: '#c07a62' },
-  { id: 14, name: 'Plank', use: 'construction', wall: 'timber', color: '#e8d8c0' },
-  { id: 15, name: 'Brick', use: 'construction', wall: 'stone', color: '#d08a70' },
+  { id: 14, name: 'Plank', use: 'construction', wall: 'timber', color: '#e8d8c0', kit: 'log' },
+  { id: 15, name: 'Brick', use: 'construction', wall: 'stone', color: '#d08a70', kit: 'stone' },
 ];
 
 const fileOf = (set: PlaceholderSet, map: string): string => `voxel-${set}-${map}.png`;
@@ -99,7 +100,8 @@ if (importSize === '') {
   if (imported.ok !== true && imported.error?.code !== 'no_change') throw new Error(`importAssets: ${JSON.stringify(imported.error)}`);
   const checked = await fetch(`${ORIGIN}/api/v1/projects/${PROJECT}/content/files/check`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' }, body: '{}' });
   if (!checked.ok) throw new Error(`check files: ${checked.status} ${await checked.text()}`);
-  const listed = await command('queryAssets', { limit: 500 }, false);
+  const listed = await command('queryAssets', { limit: 100 }, false);
+  if (listed.ok !== true) throw new Error(`queryAssets: ${JSON.stringify(listed.error)}`);
   const assets = (listed['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>;
   const idOf = (set: PlaceholderSet, map: string): string => {
     const a = assets.find((x) => x.sourcePath === `${FOLDER}/${fileOf(set, map)}`);
@@ -114,9 +116,10 @@ if (importSize === '') {
       shader: 'standard',
       params: { color: m.color ?? '#ffffff' },
       textures: {},
-      voxel: { id: m.id, use: m.use, heightDepth: placeholderLook(m.wall).depthMetres, surfaces: { wall: setOf(m.wall), ...(m.floor !== undefined ? { floor: setOf(m.floor) } : {}), ...(m.ceiling !== undefined ? { ceiling: setOf(m.ceiling) } : {}) } },
+      voxel: { id: m.id, use: m.use, ...(m.kit !== undefined ? { kit: m.kit } : {}), heightDepth: placeholderLook(m.wall).depthMetres, surfaces: { wall: setOf(m.wall), ...(m.floor !== undefined ? { floor: setOf(m.floor) } : {}), ...(m.ceiling !== undefined ? { ceiling: setOf(m.ceiling) } : {}) } },
     };
-    const set = await command('setMaterial', { material }, true);
+    let set = await command('setMaterial', { material }, true);
+    if (set.error?.code === 'kit_missing') set = await command('setMaterial', { material: { ...material, voxel: { ...material.voxel, kit: undefined } } }, true);
     if (set.ok !== true && set.error?.code !== 'no_change') throw new Error(`setMaterial ${m.name}: ${JSON.stringify(set.error)}`);
     console.log(`[textures] material ${material.materialId} (voxel ${m.id}, ${m.use}): wall ${m.wall}${m.floor !== undefined ? `, floor ${m.floor}` : ''}${m.ceiling !== undefined ? `, ceiling ${m.ceiling}` : ''}: ${set.ok === true ? 'set' : set.error?.code}`);
   }

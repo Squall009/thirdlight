@@ -7,11 +7,16 @@
  */
 import * as TSLTyped from 'three/tsl';
 
+import { VOXEL_MATERIAL_LIMITS } from '@thirdlight/project-model';
+
 import type { N } from './effects-tsl';
 import { gridFrame, tileUv, type ProjectionOps } from './voxel-surface-projection';
 
 const TSL: N = TSLTyped;
-const { abs, float, floor, int, max, mix, mod, select, sqrt, texture, vec2, vec3 } = TSL;
+const { abs, float, floor, int, max, mix, mod, select, sqrt, step, texture, vec2, vec3 } = TSL;
+
+/** The smallest tile a material record may name (metres): the table's tiles are read no smaller. */
+const MIN_TILE_METRES = VOXEL_MATERIAL_LIMITS.tileMetresMin;
 
 /** Above this upward share of its normal a construction face draws its floor set (below its negative, the ceiling set). */
 const LEVEL_FACE_NORMAL_Y = 0.95;
@@ -69,19 +74,22 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint): 
   const tiles = look(id, 1).toVar();
   const ls = look(id, 3).toVar();
   const built = m.greaterThanEqual(matMask);
+  // The projection picked by arithmetic, not a branch: three builds a node first met inside a branch into that branch
+  // alone, and the uv and frame are read again outside it (the band, the weights).
+  const onBuilt = step(float(matMask), m).toVar();
   const picked = select(built.and(n.y.greaterThan(LEVEL_FACE_NORMAL_Y)), ls.y, select(built.and(n.y.lessThan(-LEVEL_FACE_NORMAL_Y)), ls.z, ls.x)).toVar();
   const has = picked.greaterThan(-0.5);
   const layer = int(floor(max(picked, 0).add(0.5)));
-  const pt = p.div(tiles.y);
-  const gt = vec2(...tileUv(NODE_OPS, [gu, gv], tiles.x));
+  const pt = p.div(max(tiles.y, MIN_TILE_METRES));
+  const gt = vec2(...tileUv(NODE_OPS, [gu, gv], max(tiles.x, MIN_TILE_METRES)));
   // An image's first row is its top (KTX2, no flip on upload): V up reads it bottom to top, so a texture stands
   // upright on a wall and its bottom edge lies on the grid's 0 m line.
   const up = (uv: N): N => vec2(uv.x, uv.y.negate());
-  const uvs = [up(select(built, gt, pt.zy)), up(pt.xz), up(pt.xy)];
+  const uvs = [mix(up(pt.zy), up(gt), onBuilt).toVar(), up(pt.xz).toVar(), up(pt.xy).toVar()];
   const read = (map: N): [N, N, N] => uvs.map((uv) => texture(map, uv).depth(layer).toVar()) as [N, N, N];
-  const wx = select(built, float(1), bn.x);
-  const wy = select(built, float(0), bn.y);
-  const wz = select(built, float(0), bn.z);
+  const wx = mix(bn.x, float(1), onBuilt);
+  const wy = bn.y.mul(onBuilt.oneMinus());
+  const wz = bn.z.mul(onBuilt.oneMinus());
   const weighted = (r: [N, N, N]): N => r[0].mul(wx).add(r[1].mul(wy)).add(r[2].mul(wz));
   const a = read(maps.albedoHeight);
   const t = read(maps.normal).map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
@@ -97,7 +105,7 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint): 
   const band = src.bands == null ? null : texture(src.bands, gt).toVar();
   return {
     albedo: band === null ? textured : select(built, mix(l.rgb, band.rgb, band.a), textured),
-    normal: select(has, select(built, onGrid, onAxes).normalize(), n),
+    normal: select(has, mix(onAxes, onGrid, onBuilt).normalize(), n),
     orm: select(has, weighted(o).xyz, vec3(NEUTRAL_TEXELS.orm[0] / 255, NEUTRAL_TEXELS.orm[1] / 255, NEUTRAL_TEXELS.orm[2] / 255)),
   };
 }

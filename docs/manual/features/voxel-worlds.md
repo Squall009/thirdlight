@@ -299,7 +299,10 @@ names is missing or has a missing or damaged region file. The project's
 voxel kits ship whole in the build's catalog (`voxelKits`), with the model
 versions their meshes name, and **every voxel material** ships (a world's
 cells name materials by id, so a material only the world uses ships too;
-Play builds the same way).
+Play builds the same way). The materials' texture sets ship as three
+texture arrays (albedo, normal, ORM) the build assembles once and caches
+(the catalog's `voxelTextures` names them); the sets' own textures ship
+only when something else uses them.
 
 ## Voxel kits
 
@@ -506,9 +509,13 @@ the same record dresses a prop and a wall, so there is one oak, not an
   the depth between its height map's white and black: sand shallow, rock
   deep).
 - **`voxel.surfaces`**: `{wall, floor, ceiling}` texture sets, each
-  `{albedoHeight, normal, orm}` (plain texture assets); floor and ceiling
-  use the wall's when left out, the wall the material's own look. (Drawing
-  them is not built yet: see below.)
+  `{albedoHeight, normal, orm}` (plain texture assets: albedo with the
+  height in alpha, a tangent-space normal map with green up, and occlusion,
+  roughness and metalness in R, G and B); floor and ceiling use the wall's
+  when left out. A set needs its albedo; a normal or ORM map left out is
+  flat. All textures of the sets should be one size (the engine joins them
+  into arrays): a construction tile is authored at 4096 × 4096 for its
+  4 × 4 m wall, the image's top up the wall.
 
 Any material may also carry **`physical`** (a profile and the numbers it
 changes: `density` kg/m³, `friction`, `restitution`, `flowRate` for
@@ -543,14 +550,21 @@ own shader). Search with **`f:<badge>`** to list the materials that have it
 `badges: [...]`.
 
 **What the world draws.** Each voxel id draws as its material record says:
-its colour (the material's `color`), its tile (`tileMetres`, on walls and
-terrain alike; a tile that does not divide the 512 m texture phase is drawn
-at the nearest one that does, 3 m as 2.994 m) and its relief depth. An id
-no material names keeps its stand-in colour and test pattern; every id
-keeps its test pattern until texture sets are drawn. A material edit
-rewrites the world's material table only: nothing is derived, meshed or
-uploaded again (the Scene view, Play, an export and the voxel world page
-alike).
+its texture sets, its colour (the material's `color`: it tints the sets;
+leave it out, or white, to draw them as authored), its tile (`tileMetres`,
+on walls and terrain alike; a tile that does not divide the 512 m texture
+phase is drawn at the nearest one that does, 3 m as 2.994 m) and its relief
+depth. Construction faces looking up draw the floor set, faces looking down
+the ceiling set, every other face (walls, roof slopes) the wall set, laid
+on the build grid so a course at 2 m sits at 2 m on every wall; terrain
+draws its wall set from three axes. Neighbouring materials blend in the
+shader, their normal maps too. An id no material names, or a material
+without sets, draws a flat colour (its stand-in's, or its `color`). A
+material edit rewrites the world's material table only: nothing is derived,
+meshed or uploaded again (the Scene view, Play, an export and the voxel
+world page alike); a changed texture set loads the arrays again, and the
+world keeps drawing the old ones until the new ones are there. The voxel
+world page's `?patterns=1` draws the old test patterns instead.
 
 **Scripts read the records:** `ctx.voxels.materialAt(x, y, z)` gives the
 material of the voxel at a point and `ctx.voxels.materialOf(id)` the one a
@@ -573,10 +587,13 @@ These come later; worlds made now keep working when they arrive:
   debug set of their sheet layout until materials arrive); the fringe where
   buildings meet the ground and ground scatter come with the terrain tools.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
-- **Materials**: texture sets drawn from texture arrays (today a record
-  gives its colour, tile and depth over a test pattern), the physical
-  section in the material Inspector (profiles are set over the API), and
-  wetness beyond darkening (shine and filled-in crevices).
+- **Materials**: texture detail by quality level and the texture budget
+  (today every array is loaded whole at the size its textures have), the
+  heights in the sets moving relief and blends (the depth field is read,
+  the sets' heights not yet), texture sets in the material Inspector (set
+  over the API), the physical section in the Inspector (profiles are set
+  over the API), and wetness beyond darkening (shine and filled-in
+  crevices).
 - **Lighting**: the world's own light and shadow, and what reads the light
   coverage props stamp; culling and navigation over voxels.
 - **Structures** (rotated grids of their own, such as a ship or a moving

@@ -414,7 +414,11 @@ const neutralArrays = (): Record<VoxelTextureMap, THREE.DataArrayTexture> => ({ 
 function bindArrays(nodes: Record<VoxelTextureMap, N>, neutral: Record<VoxelTextureMap, THREE.Texture>, arrays: VoxelSurfaceTextureArrays | null): void {
   for (const map of VOXEL_TEXTURE_MAPS) {
     const t = arrays?.[map] ?? neutral[map];
-    if (t !== neutral[map]) t.anisotropy = TEXTURE_ANISOTROPY;
+    if (t !== neutral[map]) {
+      // A tile repeats (a loaded KTX2 clamps by default), at a grazing view too.
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.anisotropy = TEXTURE_ANISOTROPY;
+    }
     (nodes[map] as unknown as { value: THREE.Texture }).value = t;
   }
 }

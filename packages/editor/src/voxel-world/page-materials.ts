@@ -69,7 +69,7 @@ export class PageMaterials {
   private arraysKey = '';
   private arraysWanted = '';
   /** Texture array loads (and the ms the last took, its layers), failures and their last message: the hook reads them. */
-  readonly textures = { loads: 0, ms: 0, layers: 0, failures: 0, problem: '' };
+  readonly textures = { loads: 0, ms: 0, layers: 0, failures: 0, problem: '', arrays: [] as { map: string; width: number; height: number; layers: number; levels: number; format: number; colorSpace: string }[] };
 
   constructor(
     private readonly read: () => Promise<readonly MaterialDef[]>,
@@ -129,6 +129,11 @@ export class PageMaterials {
     this.textures.loads++;
     this.textures.ms = performance.now() - t0;
     this.textures.layers = made?.sets.albedoHeight.layers.length ?? 0;
+    this.textures.arrays = loaded.flatMap(([map, t]) => {
+      if (t === null) return [];
+      const image = t.image as { width?: number; height?: number; depth?: number };
+      return [{ map, width: image.width ?? 0, height: image.height ?? 0, layers: image.depth ?? 1, levels: t.mipmaps?.length ?? 0, format: t.format as number, colorSpace: t.colorSpace }];
+    });
   }
 
   /** Whether the arrays drawn are those of the records read last. */

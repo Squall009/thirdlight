@@ -115,6 +115,8 @@ describe('the voxel surface program', () => {
     expect(surface.tableEntry(8).layers).toEqual([-1, -1, -1]);
     expect(surface.tableUploads).toBe(uploads + 1);
     expect(arr.anisotropy).toBe(4);
+    // Tiles repeat: a loaded KTX2 comes clamped.
+    expect([arr.wrapS, arr.wrapT]).toEqual([THREE.RepeatWrapping, THREE.RepeatWrapping]);
     surface.setTextures(null, () => [0, 0, 0]);
     expect(surface.tableEntry(7).layers).toEqual([-1, -1, -1]);
     // The debug patterns' program takes no arrays.

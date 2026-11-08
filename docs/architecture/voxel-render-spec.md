@@ -1,6 +1,6 @@
 # Voxel rendering and materials — format page (46d additions)
 
-Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b. This page receives every format addition of 46d (rendering and materials), each
+Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a. This page receives every format addition of 46d (rendering and materials), each
 as a versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the
 owner on 2026-11-02) is not grown further. Nothing here is approved yet: a section is filled by the 46d item that
 builds it ([plan 46d](../plan-phase-46d.md) §6), and every section stays empty until then. § numbers name the format
@@ -79,7 +79,9 @@ both (drawn at the nearest tile dividing the 512 m texture phase), `voxel.height
 height layer the page names; what a record leaves out, and every id no record names, keeps the per-id stand-in
 (`voxelStandInLook`), the test pattern included until texture sets are drawn (46d.4a). A record change rewrites and
 uploads the table only (the feeds rule: looks are shader data; no derive, mesh or grid upload), in Play, an export,
-the Scene view and the voxel world page alike.
+the Scene view and the voxel world page alike. Since 46d.4a the test pattern is gone from the default program: a
+record's surface texture sets draw from arrays (§2), the colour tinting them; an id without a set draws its flat
+colour.
 
 **What the game reads (46d.3b).** `ctx.voxels.materialOf(id)` / `materialAt(x, y, z)` answer `{id, materialId,
 name, use, kit, physical, gameData}` from the build's shipped records (`voxelMaterialInfos`; frozen), handed to the
@@ -92,7 +94,50 @@ no friction per triangle, so per-material friction is game logic over these read
 
 ## 2. Texture sets
 
-Not yet written (46d.4a–46d.4d: texture sets in arrays, residency, kit sheets and crack maps, height depth and wetness).
+**Owner note (46d.4a, 2026-11-08):** an add-only step inside project schema 8 and runtime manifest v5, not a new
+format: one optional catalog block (`voxelTextures`) and a fourth block of rows in the surface's material table (a
+runtime texture, not a file). A build or project without voxel texture sets reads and writes byte for byte as
+before. Nothing in the approved format spec, the role spec, the texture layout or kit format 1 changes. Default
+chosen, owner to confirm (plan 46d §9).
+
+**The arrays.** Per map type one texture array: `albedoHeight` (sRGB albedo, height 0–1 in A), `normal`
+(tangent-space, OpenGL green up), `orm` (occlusion, roughness, metalness). A layer is one distinct texture set of
+the voxel materials' `voxel.surfaces` (`project-model` `voxel-surface-textures.ts`, `voxelSurfaceTextures`):
+layers numbered in ascending voxel id, wall then floor then ceiling; equal sets share a layer (a floor falling back
+to its wall, two materials on the same textures). A set without an albedo has no layer (its surfaces draw the
+material's flat colour); a set leaving out a normal or ORM map takes that map's neutral constant layer (a flat
+normal; AO 1, roughness 0.8, no metal); a map no set names has no array (the surface reads its neutral value).
+Every array has at least two layers (a single-layer KTX2 is not an array). At most `MAX_TEXTURE_LAYERS` (256, the
+GPU's array limit) layers; a set past it has no layer (`dropped`). All layers of an array are one size (the
+assembly's rule): the authored size, 4096² for a 4 m construction tile (1024 px/m), so a 2 m terrain tile carries
+2048 px/m in the same array.
+
+**Assembly.** The arrays are slot lists like a layered material's (`texture-slots.ts`): Play and the export
+assemble each through the backend's slot assembly into one KTX2 array (cached by the layers' digests) and ship it
+under `slots-<digest>`; the editor's views and the voxel world page ask the same route
+(`POST …/content/textures/slots`) and draw the very same bytes.
+
+**The build's block** `voxelTextures?: {albedoHeight?, normal?, orm?}` names each map's shipped array (texture
+ids); the ids are in the catalog's project-wide `dependencies`. Absent when no voxel material has a set with an
+albedo. The runtime makes each id's layers from the shipped material records with the same function, so the block
+carries no table.
+
+**The table.** The surface's material table (`voxel-surface.ts`) gains a fourth block of 64 × 64 texels: per
+material id its wall, floor and ceiling layer (r, g, b; −1 none). The arrays and the layers are set together
+(`VoxelSurface.setTextures`): the table is rewritten and uploaded, no program, grid or mesh changes.
+
+**Drawing.** Construction (a cell of a construction role) picks the floor layer on a face whose normal points up
+(y > 0.95), the ceiling layer on one pointing down, the wall layer on every other (roof planes included), mapped on
+the build grid (U along the face, V up it, the tile's foot on the grid's 0 m line; `tileMetres`, default 4 m);
+terrain draws its one set (the wall's) triplanar at its tile (default 2 m). Each map is read on the same
+projection; the normal map is turned by that projection's frame (the grid's U and V, or each axis's) and blended
+between the two heaviest materials like the colour. The albedo is multiplied by the material's colour (`color`:
+a tint, white for the set as authored). The image's first row is its top. Roughness is the ORM's G (wetness lowers
+it), metalness its B, occlusion its R. The test patterns leave the default program (`?patterns=1` on the voxel
+world page draws them).
+
+Residency per quality tier and the texture budget, kit sheets and crack maps, height depth and wetness: not yet
+written (46d.4b–46d.4d).
 
 ## 3. Relief part
 
