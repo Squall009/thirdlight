@@ -19,6 +19,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-material-data-max"></a>`MATERIAL_DATA_MAX` | `64` | The largest data parameter, cells per side (engine limit): 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a large board or map region, small enough to send whole on every change. |
 
+<a id="limits-project-model--material-profiles"></a>
+## `material-profiles.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-physical-defaults"></a>`PHYSICAL_DEFAULTS` | `{"density":1000,"friction":0.5,"restitution":0}` | What a material with no profile and no override has. |
+| <a id="limit-physical-limits"></a>`PHYSICAL_LIMITS` | `{"densityMax":30000,"frictionMax":4,"restitutionMax":1,"flowRateMax":100}` | The ranges of the physical numbers (a validator's and a descriptor's). |
+
 <a id="limits-project-model--material-schema"></a>
 ## `material-schema.ts`
 
@@ -377,6 +385,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-voxel-kit-limits"></a>`VOXEL_KIT_LIMITS` | `{"gameDataDepth":32,"materialIdMax":4095,"weightMax":1000,"jitterMax":4,"sheetSizeMin":16,"sheetSizeMax":16384}` |  |
+
+<a id="limits-project-model--voxel-materials"></a>
+## `voxel-materials.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-voxel-material-limits"></a>`VOXEL_MATERIAL_LIMITS` | `{"idMin":1,"idMax":4095,"tileMetresMin":0.5,"tileMetresMax":64,"heightDepthMax":0.25,"heightDepthDefault":0.02}` |  |
 
 <a id="limits-project-model--voxel-world"></a>
 ## `voxel-world.ts`

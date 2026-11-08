@@ -325,6 +325,17 @@ Arguments (`args`):
 { materialId: string }
 ```
 
+<a id="op-deleteMaterialProfile"></a>
+## deleteMaterialProfile
+
+Writes: [`content.materialProfiles`](content-blocks-effects.md#content-materialProfiles).
+
+Arguments (`args`):
+
+```ts
+{ profileId: string }
+```
+
 <a id="op-deletePrefab"></a>
 ## deletePrefab
 
@@ -501,7 +512,7 @@ Arguments (`args`):
 { world: string; command: VoxelEditCommand }
 ```
 
-Types: [`VoxelEditCommand`](types-t-w.md#type-voxel-edit-command).
+Types: [`VoxelEditCommand`](types-s-w.md#type-voxel-edit-command).
 
 <a id="op-graphEdit"></a>
 ## graphEdit
@@ -1024,7 +1035,7 @@ Arguments (`args`):
 { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string }
 ```
 
-Types: [`EnvironmentConfig`](types-c-m.md#type-environment-config), [`SceneEnvironment`](types-m-t.md#type-scene-environment).
+Types: [`EnvironmentConfig`](types-c-m.md#type-environment-config), [`SceneEnvironment`](types-m-s.md#type-scene-environment).
 
 <a id="op-setEventCues"></a>
 ## setEventCues
@@ -1131,6 +1142,19 @@ Arguments (`args`):
 
 Types: [`MaterialDef`](types-c-m.md#type-material-def).
 
+<a id="op-setMaterialProfile"></a>
+## setMaterialProfile
+
+Writes: [`content.materialProfiles`](content-blocks-effects.md#content-materialProfiles).
+
+Arguments (`args`):
+
+```ts
+{ profile: MaterialProfile }
+```
+
+Types: [`MaterialProfile`](types-m-s.md#type-material-profile).
+
 <a id="op-setModes"></a>
 ## setModes
 
@@ -1155,7 +1179,7 @@ Arguments (`args`):
 { schema: SaveSchema | null }
 ```
 
-Types: [`SaveSchema`](types-m-t.md#type-save-schema).
+Types: [`SaveSchema`](types-m-s.md#type-save-schema).
 
 <a id="op-setScenePlane"></a>
 ## setScenePlane
@@ -1166,7 +1190,7 @@ Arguments (`args`):
 { sceneId: string; plane: PlaneLock | null }
 ```
 
-Types: [`PlaneLock`](types-m-t.md#type-plane-lock).
+Types: [`PlaneLock`](types-m-s.md#type-plane-lock).
 
 <a id="op-setScriptLibrary"></a>
 ## setScriptLibrary
@@ -1179,7 +1203,7 @@ Arguments (`args`):
 ScriptLibraryPatch
 ```
 
-Types: [`ScriptLibraryPatch`](types-m-t.md#type-script-library-patch).
+Types: [`ScriptLibraryPatch`](types-m-s.md#type-script-library-patch).
 
 <a id="op-setSettings"></a>
 ## setSettings
@@ -1268,7 +1292,7 @@ Arguments (`args`):
 { timeline: TimelineAsset }
 ```
 
-Types: [`TimelineAsset`](types-t-w.md#type-timeline-asset).
+Types: [`TimelineAsset`](types-s-w.md#type-timeline-asset).
 
 <a id="op-setTransform"></a>
 ## setTransform
@@ -1293,7 +1317,7 @@ Arguments (`args`):
 { document: UiDocument }
 ```
 
-Types: [`UiDocument`](types-t-w.md#type-ui-document).
+Types: [`UiDocument`](types-s-w.md#type-ui-document).
 
 <a id="op-setUiTheme"></a>
 ## setUiTheme
@@ -1306,7 +1330,7 @@ Arguments (`args`):
 { theme: UiTheme }
 ```
 
-Types: [`UiTheme`](types-t-w.md#type-ui-theme).
+Types: [`UiTheme`](types-s-w.md#type-ui-theme).
 
 <a id="op-setVoxelKit"></a>
 ## setVoxelKit
@@ -1319,7 +1343,7 @@ Arguments (`args`):
 { kit: VoxelKit }
 ```
 
-Types: [`VoxelKit`](types-t-w.md#type-voxel-kit).
+Types: [`VoxelKit`](types-s-w.md#type-voxel-kit).
 
 <a id="op-undo"></a>
 ## undo

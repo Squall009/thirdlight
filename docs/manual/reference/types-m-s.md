@@ -1,8 +1,123 @@
-# Types (ModelColliderKind to TerrainSplinesLayer)
+# Types (MaterialPhysical to SurfacePresetName)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-material-physical"></a>
+### MaterialPhysical
+
+Declared in `packages/project-model/src/material-profiles.ts`.
+
+```ts
+/** A material's physical block: a profile and the numbers it changes. */
+interface MaterialPhysical extends PhysicalValues {
+  /** A profile id (an engine one or the project's). Absent: the engine's defaults. */
+  profile?: string;
+}
+```
+
+<a id="type-material-profile"></a>
+### MaterialProfile
+
+Declared in `packages/project-model/src/material-profiles.ts`.
+
+```ts
+interface MaterialProfile extends PhysicalValues {
+  profileId: string;
+  name: string;
+  /** The game's defaults for every material of the profile (sounds, break tags …), never read by the engine. */
+  gameData?: MaterialGameData;
+}
+```
+
+<a id="type-material-shader"></a>
+### MaterialShader
+
+Declared in `packages/project-model/src/material-schema.ts`.
+
+```ts
+type MaterialShader = (typeof MATERIAL_SHADERS)[number];
+```
+
+<a id="type-material-value"></a>
+### MaterialValue
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+/** A material's or an instance's value of a parameter: an override's, or per-layer texture slots (`texture-slots.ts`). */
+type MaterialValue = MaterialParameterValue | string[];
+```
+
+<a id="type-material-voxel"></a>
+### MaterialVoxel
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+interface MaterialVoxel {
+  /** The voxel material id, 1–{@link VOXEL_MATERIAL_LIMITS.idMax}, unique in the project. */
+  id: number;
+  /** Required on a material; an instance may leave it to its chain. */
+  use?: VoxelMaterialUse;
+  /** The voxel kit whose pieces its edges draw (absent: none; never with liquid). */
+  kit?: string;
+  /** Metres one texture repeat covers (absent: {@link voxelTileMetresDefault}). */
+  tileMetres?: number;
+  /** Metres between the height map's 1 (the surface) and 0 (absent: {@link VOXEL_MATERIAL_LIMITS.heightDepthDefault}). */
+  heightDepth?: number;
+  /** Texture sets per surface (absent: the material's own look on every surface). */
+  surfaces?: Partial<Record<VoxelSurface, VoxelTextureSet>>;
+}
+```
+
+<a id="type-mode-blend"></a>
+### ModeBlend
+
+Declared in `packages/project-model/src/modes.ts`.
+
+```ts
+type ModeBlend = 'cut' | 'linear' | 'eased';
+```
+
+<a id="type-model-occluder-modes"></a>
+### MODEL_OCCLUDER_MODES
+
+Declared in `packages/project-model/src/model-occluders.ts`.
+
+```ts
+/** What of a model counts as an occluder (absent: `auto`). */
+const MODEL_OCCLUDER_MODES: readonly ["auto", "occ", "none"];
+```
+
+<a id="type-model-animation-roles-value"></a>
+### ModelAnimationRolesValue
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/** The three role keys, all required, in canonical order. */
+interface ModelAnimationRolesValue {
+  idle: AnimationRoleBindingValue;
+  run: AnimationRoleBindingValue;
+  airborne: AnimationRoleBindingValue;
+}
+```
+
+<a id="type-model-args"></a>
+### ModelArgs
+
+Declared in `packages/commands/src/entity-types.ts`.
+
+```ts
+/** Model args for createEntity: only when `kind` is `"model"`. */
+interface ModelArgs {
+  asset: { assetId: string };
+  /** One named piece of a multi-piece GLB (absent = the whole file). */
+  piece?: string;
+}
+```
 
 <a id="type-model-collider-kind"></a>
 ### ModelColliderKind
@@ -348,6 +463,25 @@ Declared in `packages/project-model/src/vertex-paint.ts`.
 
 ```ts
 type PathPaintSide = (typeof PATH_PAINT_SIDES)[number];
+```
+
+<a id="type-physical-values"></a>
+### PhysicalValues
+
+Declared in `packages/project-model/src/material-profiles.ts`.
+
+```ts
+/** The physical numbers a profile or a material's `physical` block holds (each optional: absent = the next level's). */
+interface PhysicalValues {
+  /** Mass density, kg/m³. */
+  density?: number;
+  /** Coulomb friction coefficient (0 = ice-smooth). */
+  friction?: number;
+  /** Bounciness, 0 (none) – 1 (perfectly elastic). */
+  restitution?: number;
+  /** How fast a liquid spreads, relative to water (1); solids leave it out. */
+  flowRate?: number;
+}
 ```
 
 <a id="type-plane-axes"></a>
@@ -1508,123 +1642,4 @@ Declared in `packages/commands/src/change-types.ts`.
 ```ts
 /** The three built-in surface-preset names. */
 type SurfacePresetName = 'matte-ground' | 'signal-red' | 'emissive-accent';
-```
-
-<a id="type-surface-rule"></a>
-### SurfaceRule
-
-Declared in `packages/project-model/src/surface-rules.ts`.
-
-```ts
-interface SurfaceRule {
-  /** What the rule is called in the editor ("Rock on steep slopes"; absent: a summary of its conditions). Paints nothing. */
-  name?: string;
-  /** The material layer it paints (block layers: 0-3, the four their paint carries). */
-  layer: number;
-  /** How much of its layer it gives where every condition holds (0-1; absent: 1). */
-  strength?: number;
-  /** Only tops or only walls (a face whose box-mapping projection is sideways; terrain is all tops); absent: both. */
-  face?: 'top' | 'wall';
-  /** World height (metres). */
-  height?: RuleRange;
-  /** Slope from level (degrees: 0 flat, 90 a wall). */
-  slope?: RuleRange;
-  /** Cavity (metres): how far the ground `radius` metres around lies above the point — positive in hollows, negative on ridges. */
-  cavity?: RuleRange & { radius?: number };
-  /** A noise mask (0-1) over world space, its bumps `scale` metres apart. */
-  noise?: RuleRange & { scale: number; seed?: number };
-  /** The share (0-1) the rules before this one left to `layer` ("where rock is below 0.3"). */
-  weight?: RuleRange & { layer: number };
-  /** Block layers only: the block types it paints (terrain never matches a rule that names them). */
-  blocks?: string[];
-  /** Block layers only: cell metadata the cell must hold (its own value or its block type's). */
-  meta?: Record<string, CellMetaValue>;
-}
-```
-
-<a id="type-terrain-blocks-layer"></a>
-### TerrainBlocksLayer
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-/** Block layers standing on the terrain (`terrain-blocks.ts`). */
-interface TerrainBlocksLayer extends LayerCommon {
-  kind: 'blocks';
-  /** The block layer objects the ground meets (absent: every block layer of the scene). */
-  blockLayers?: string[];
-  /** cut (absent): holes under the blocks; flatten: the ground kept, just under them. */
-  mode?: TerrainBlocksMode;
-  /** Metres over which the ground round them fades from their border's height and paint to its own (absent: `TERRAIN_BLOCKS_BLEND_DEFAULT`). */
-  blend?: number;
-  /** Stored only when false: the blocks' paint does not carry across the border. */
-  paint?: boolean;
-}
-```
-
-<a id="type-terrain-blocks-mode"></a>
-### TerrainBlocksMode
-
-Declared in `packages/project-model/src/terrain-blocks.ts`.
-
-```ts
-type TerrainBlocksMode = 'cut' | 'flatten';
-```
-
-<a id="type-terrain-erosion-layer"></a>
-### TerrainErosionLayer
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-interface TerrainErosionLayer extends LayerCommon {
-  kind: 'erosion';
-  /** What its runs changed, per tile (absent tiles: nothing). */
-  tiles?: TerrainLayerTileRef[];
-  /** The settings it last ran with (the tools offer them again). */
-  settings?: ErosionSettings;
-}
-```
-
-<a id="type-terrain-layer"></a>
-### TerrainLayer
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-type TerrainLayer = TerrainStampsLayer | TerrainErosionLayer | TerrainSplinesLayer | TerrainBlocksLayer;
-```
-
-<a id="type-terrain-layer-tile-ref"></a>
-### TerrainLayerTileRef
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-/** One tile's stored erosion difference (a blob named by digest). */
-interface TerrainLayerTileRef {
-  x: number;
-  z: number;
-  data: string;
-}
-```
-
-<a id="type-terrain-sculpt-kind"></a>
-### TerrainSculptKind
-
-Declared in `packages/project-model/src/terrain-edit.ts`.
-
-```ts
-type TerrainSculptKind = 'raise' | 'lower' | 'smooth' | 'flatten' | 'noise';
-```
-
-<a id="type-terrain-splines-layer"></a>
-### TerrainSplinesLayer
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-interface TerrainSplinesLayer extends LayerCommon {
-  kind: 'splines';
-}
 ```

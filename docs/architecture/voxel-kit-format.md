@@ -144,8 +144,8 @@ the material model and texture sets 46d's.
   format, rule id (text), u16 rule version, u16 case count, u32 project seed, u16 kit count; per kit (by id) its id
   (text), f32 jitter, u16 wall-top fill (0/1; format 5), its three damage stages (each u16 used, min, max, pieces a face; format 4), u16 piece count, case count × u16 (its piece, or `NO_PIECE` 0xffff: an empty slot), per piece a
   u16 count + u16 mesh weight thresholds; then u32 pair count and (u16 material, u16 kit) pairs. **Material → kit**
-  by the kit's test binding (`materials`; 46d's material model replaces it); a material no kit binds (`NO_KIT`)
-  draws no pieces. No default kit (`default-kit.ts` archived). A kit's hash is crc32 of its part xor-mixed with the
+  from the material records (`voxel.kit`; a kit's own `materials` list binds only the ids no material record
+  names: [render spec](voxel-render-spec.md) §1); a material no kit binds (`NO_KIT`) draws no pieces. No default kit (`default-kit.ts` archived). A kit's hash is crc32 of its part xor-mixed with the
   seed, so a seed change re-derives every bound material. Hosts build it with `worldPieceTable(kits, seed)`; slot
   rotations are the renderer's only. Canonical; a worker decodes it once and keeps it by hash; another format or rule
   set is refused.
@@ -216,8 +216,9 @@ no record of an earlier shape ships, so no step).
   because it names project assets and uses the project's id syntax; the voxel package stays free of both.
 - **Fields, in canonical order:** `kitFormat` (1), `voxelKitId`, `name`, `version` (the kit's own revision, a
   positive integer), `materialType` (an id: a kit belongs to a material type, never to one material),
-  `materials?` (test binding: voxel material ids 1–4095, ascending, each once; 46d's material model replaces it
-  and the field is then left unread, never repurposed), `slots` (case id → `{meshes: [{mesh, rotation?, weight?, mirror?}, …]
+  `materials?` (test binding: voxel material ids 1–4095, ascending, each once; since 46d.3a it binds only the
+  ids no material record names, the records deciding for theirs, [render spec](voxel-render-spec.md) §1, owner
+  note there: no format change, never repurposed), `slots` (case id → `{meshes: [{mesh, rotation?, weight?, mirror?}, …]
   (one or more), gameData?}`; a mesh is `{assetId, digest, node?}`, the digest the GLB version's SHA-256 source
   digest; `rotation` a cube rotation 0–23, absent 0; `weight` absent 1; `mirror` true draws the mesh mirrored across
   its case's run, winding and tangents flipped, absent false, 46c.16k), `jitter?` (0–4, absent 1; a 1 is left out

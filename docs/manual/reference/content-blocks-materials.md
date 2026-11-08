@@ -157,13 +157,27 @@ Project materials.
 | `materials[].trim.rows[].bottom` | int |  | ≥ 1, step 1, px | **Bottom.** The pixel row below its last (exclusive; inside the sheet, below top). (required) |
 | `materials[].trim.rows[].texelDensity` | number |  | 1 – 65536, step 1, px | **Texel density.** Its own pixels per metre (absent: the sheet's). |
 | `materials[].trim.rows[].tileV` | bool | `false` |  | **Tiles in v.** It tiles in v too: its padding continues its wrap. (stored only when not the default) |
-| `materials[].trim.cells` | JSON: `TrimCell[]` ([TrimCell](types-t-w.md#type-trim-cell)) |  |  | **Decal cells.** Marks placed once on the sheet (signs, cracks, stains): [{name, rect: [x, y, width, height]}], each a named rectangle in whole pixels from the image's top-left corner, inside the sheet, that decal materials draw (read from the Texture Designer's layout.json; empty: none). |
+| `materials[].trim.cells` | JSON: `TrimCell[]` ([TrimCell](types-s-w.md#type-trim-cell)) |  |  | **Decal cells.** Marks placed once on the sheet (signs, cracks, stains): [{name, rect: [x, y, width, height]}], each a named rectangle in whole pixels from the image's top-left corner, inside the sheet, that decal materials draw (read from the Texture Designer's layout.json; empty: none). |
 | `materials[].trim.realHeight` | bool | `false` |  | **Rows at their real height.** Rows draw at their own metres (fields repeat, trims keep their scale). Off: parts are fitted to whole rows, as older sheets draw. (stored only when not the default) |
 | `materials[].decal` | object |  |  | **Decal cell.** A decal material that draws one decal cell of a trim sheet (its textures are the sheet's; empty: its own texture slots). (applies when `shader` is `decal`) |
 | `materials[].decal.sheet` | material id |  |  | **Sheet.** The trim material whose sheet holds the cell. (required) |
 | `materials[].decal.cell` | string, id, 1–64 chars |  |  | **Cell.** The cell's name in the sheet's decal cells. (required; format id) |
 | `materials[].layerNames` | list of string, ≤ 64 chars, ≤ 256 items |  |  | **Layer names.** A layered material's names for its texture-array layers, as the layer palette shows them (index i = layer i; "" or past the end: the layer's texture's name). At most 256. |
 | `materials[].layerSheets` | list of string, ≤ 64 chars, ≤ 256 items |  |  | **Trim sheets.** Per layer, the trim material whose rows the layer follows ("": none). At most 256. |
+| `materials[].physical` | object |  |  | **Physical.** Its physics: a profile and the numbers it changes (absent numbers: the profile's, else density 1000, friction 0.5, restitution 0). The engine reads friction and restitution where its physics has a slot; games read all of them. |
+| `materials[].physical.profile` | string, id, 1–64 chars |  |  | **Profile.** A physical profile: an engine one (earth, glass, lava, metal, stone, water, wood) or one of the project's. (format id) |
+| `materials[].physical.density` | number |  | > 0, ≤ 30000, step 10, kg/m³ | **Density.** Mass density. |
+| `materials[].physical.friction` | number |  | 0 – 4, step 0.05 | **Friction.** Friction coefficient (0: ice-smooth). |
+| `materials[].physical.restitution` | number |  | 0 – 1, step 0.05 | **Restitution.** Bounciness (0: none, 1: perfectly elastic). |
+| `materials[].physical.flowRate` | number |  | 0 – 100, step 0.05 | **Flow rate.** How fast a liquid spreads, relative to water (1); solids leave it out. |
+| `materials[].gameData` | JSON |  |  | **Game data.** The game's own data for the material (sounds, break tags …): JSON nested at most 32 deep, shipped as it is, never read by the engine. An instance's keys override its parent's. |
+| `materials[].voxel` | object |  |  | **Voxel use.** It is also a voxel material: its voxel id, what it is used for, its kit and its texture sets on walls, floors and ceilings. An instance with its own (and its own id) is a voxel variant. |
+| `materials[].voxel.id` | int | `1` | 1 – 4095, step 1 | **Voxel id.** Its voxel material id (1-4095), unique in the project; every world shares it. (required) |
+| `materials[].voxel.use` | enum: `construction`, `terrain`, `liquid` | `"construction"` |  | **Use.** Construction (grid-anchored tiles), terrain (triplanar) or liquid. An instance may leave it to its parent. (required) |
+| `materials[].voxel.kit` | string, id, 1–64 chars |  |  | **Kit.** The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid). (format id) |
+| `materials[].voxel.tileMetres` | number |  | 0.5 – 64, step 0.5, m | **Tile.** Metres one texture repeat covers (absent: 4 construction, 2 terrain and liquid). |
+| `materials[].voxel.heightDepth` | number |  | 0 – 0.25, step 0.005, m | **Height depth.** Metres between its height map's 1 (the surface) and 0 (absent: 0.02): sand shallow, rock deep. |
+| `materials[].voxel.surfaces` | JSON: `Partial<Record<VoxelSurface, VoxelTextureSet>>` ([VoxelSurface](types-s-w.md#type-voxel-surface), [VoxelTextureSet](types-s-w.md#type-voxel-texture-set)) |  |  | **Surfaces.** Texture sets by surface: {wall?, floor?, ceiling?: {albedoHeight?, normal?, orm?: a plain texture asset}} (role and face direction pick one; floor and ceiling fall back to wall, wall to the material's own look). |
 
 <a id="content-animators"></a>
 ## animators — Animator controllers

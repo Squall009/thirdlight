@@ -21,16 +21,16 @@ What the engine offers, generated from its source: the objects, components and c
 | [Content documents](content.md) | Content blocks |
 | [Content documents (environment to input)](content-blocks-environment.md) | environment — Environment, input — Input |
 | [Content documents (materials to animators)](content-blocks-materials.md) | materials — Materials, animators — Animator controllers |
-| [Content documents (effects to saveSchema)](content-blocks-effects.md) | 23 sections |
+| [Content documents (effects to saveSchema)](content-blocks-effects.md) | 24 sections |
 | [Content documents (settings to lighting)](content-blocks-settings.md) | settings — Gameplay settings, scenes — Scenes, startScenes — Start scenes, assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 92 sections |
+| [Command op arguments](ops-detail.md) | 94 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
-| [Types (CreateEntityArgs to ModelArgs)](types-c-m.md) | 92 sections |
-| [Types (ModelColliderKind to TerrainSplinesLayer)](types-m-t.md) | 102 sections |
-| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 59 sections |
+| [Types (CreateEntityArgs to MaterialParamValue)](types-c-m.md) | 88 sections |
+| [Types (MaterialPhysical to SurfacePresetName)](types-m-s.md) | 104 sections |
+| [Types (SurfaceRule to WindOctave)](types-s-w.md) | 74 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 19 sections |
 | [Script API types (from `BehaviorRandom`)](script-types-behavior-random.md) | 23 sections |
@@ -67,8 +67,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
-| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 35 sections |
-| [Limits and defaults: project-model (part 2, from `manifest.ts`)](limits-project-model-2.md) | 43 sections |
+| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
+| [Limits and defaults: project-model (part 2, from `manifest.ts`)](limits-project-model-2.md) | 45 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 27 sections |
 | [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |

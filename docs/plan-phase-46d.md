@@ -209,7 +209,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.1a | done: §4 baseline re-measured (§8). Spike relief mesh (`relief-mesh.ts`, `?relief=n`, `run.mjs relief`): crack-free with plain neighbours, crease weights, other outputs byte-equal (vitest). Ring 32 m slice/hilly 4/16/64× triangles, town 18/69/276× (merges lost); n = 8 fills the low budget. Relief µs p50 0.3/1.0/4.0 ms a section. No displacement yet |
 | 46d.1b | done: vertex displacement both renderers + shadow pass, crease attribute, grown bounds, ring fade, test heights; normal from heights on all surfaces. Town n = 2/4 at 32 m: GPU +0.8–1.1 / +0.5 ms WebGPU, ±0 / +0.5 WebGL 2, 0 missed; the vertex stage itself ~0.1 ms. VERDICT: low normal only, medium n = 2, high n = 4, 16–24 m section ring; n = 8 rejected (§8, D528) |
 | 46d.2 | done: format spec split (D496), docs only: kits section + §3.9 kit record moved unchanged to `voxel-kit-format.md` (264 lines), `voxel-render-spec.md` skeleton (material record, texture sets, relief part, far-field data); main spec 2,225 → 1,983 lines, pointers left; links re-pointed in the spec, requirements and role spec |
-| 46d.3a | not started |
+| 46d.3a | done: `MaterialDef` gains `physical`, `gameData`, `voxel` (id, use, kit, tile, height depth, wall/floor/ceiling sets), canonical round trip tested; engine + project profiles with their commands; voxel_id_taken, kit_missing; kit binding from `voxel.kit` (kit list for unnamed ids). Record 414 B; 4,095 voxel materials load in 63 ms, an edit 5.5 ms |
 | 46d.3b | not started |
 | 46d.4a | not started |
 | 46d.4b | not started |
@@ -402,6 +402,41 @@ frame), so no pop; swim unverified.
   relief (normal only) before dropping terrain's. The replacement for walls, if the owner wants depth there without
   triangles, is parallax occlusion in the fragment (not built; a proposal).
 
+### 46d.3a material record
+
+**Built.** `project-model`: `MaterialDef.physical` / `gameData` / `voxel` (add-only, canonicalized last and field by
+field, so a material without them keeps its bytes), `material-profiles.ts` (engine profiles earth, glass, lava,
+metal, stone, water, wood; `content.materialProfiles`; resolution own → profile → defaults), `voxel-materials.ts`
+(the voxel part, `materialFamilyOf`, the project rules, `boundVoxelKits`), `game-data.ts` (the kit format's JSON rule
+moved out of `voxel-kit.ts` so materials and profiles share it). Instances fold the three parts in
+(`resolveMaterial`); a voxel variant gives its own `voxel.id`. Project rules over the whole block: `voxel_id_taken`,
+`kit_missing` (so deleting a kit a material names is refused too), a profile neither the engine nor the project
+has (`reference_missing`), a liquid with a kit, a voxel variant without a use in its chain; surface texture sets
+name plain texture assets. Commands: `setMaterial` carries the parts; `setMaterialProfile` / `deleteMaterialProfile`
+(project family, one undo each, workspace change keys, protocol, MCP docs; API-only until the inspector's physical
+section, `tests/editor-op-reach.test.ts`); `queryGameConfig` lists `materialProfiles`. Binding: the editor's kit read,
+Play and the export build the piece table from `boundVoxelKits` (a build ships each kit with its bound ids, the
+materials with physics resolved against their profile); the kit check's info row `binding`; a material change that
+moves a voxel id, use or kit re-reads the Scene view's kits. Spec: `voxel-render-spec.md` §1 with its owner note;
+kit page pointers; manual `features/voxel-worlds.md#voxel-materials`, the kit guide's step 2; reference regenerated.
+
+**Tested.** `voxel-materials.test.ts` (real content validator: every new field present and ordered after the
+canonical round trip, empty parts dropped, refusals at every level, cross-list refusals, inheritance down the
+8-deep chain, families, physics resolution and the build's resolved physics, the binding read by the voxel package's
+real piece table, the 4,095-material load); `material-profile-ops.test.ts` (commands, undo/redo, refusals);
+`voxel-kit-check.test.ts` (the binding row); `descriptors.test.ts` (the new descriptors probed against the
+validator; registry +4.7 KB); `tests/integration/voxel-world/voxel-world.test.ts` (HTTP and MCP's `tl_command`,
+kept across a restart, refusals; the export's kit block carries ids 3 + 12 and the oak material its parts with
+resolved physics). No e2e change (`voxel-world.e2e.ts` untouched).
+
+**Measured** (Node, vitest): a record with every part 414 B compact (79 B without); 4,095 voxel materials: load
+(validate + canonical) 63 ms, one material edit on the trusted block 5.5 ms, the list 1.65 MB compact.
+
+**Gate:** gate-fast-20261108-085657, reruns -090843 and -091247 GREEN (9 + 3 + 1 min, peak 4.4 GB; perf 0 missed of
+360 both renderers). The first run's stale reference pages were the code commit's (regenerated in the docs commit);
+`edge-cases.test.ts` (D523) and `start.e2e.ts` (D417) failed once and passed in the rerun. `voxel-world.e2e.ts`
+untouched (no e2e change).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -503,6 +538,33 @@ frame), so no pop; swim unverified.
   points at the history there). The kit page keeps §3.9's number, so every "§3.9" elsewhere reads as before; a § on
   the kit page names the main spec unless marked. Moved text changed only where a link crossed the split ("above" /
   "below" to a named section of the other page); the main spec keeps a pointer heading at each old place.
+
+- 2026-11-08 (46d.3a, default chosen, owner to confirm): **the voxel id is identity, never inherited**: an instance
+  with its own `voxel {id, …}` is a voxel variant (inheriting use, kit, tile, depth and texture sets map by map); an
+  instance without one is a mesh variant only, so "maple prop" needs no voxel id.
+- 2026-11-08 (46d.3a, default chosen, owner to confirm): **game data merges by top-level key** (instance over
+  parent, material over profile); a value that is not an object replaces the farther one whole. The engine still
+  never reads a member.
+- 2026-11-08 (46d.3a, default chosen, owner to confirm): **physical numbers and profiles**: density kg/m³ in
+  (0, 30,000], friction 0–4, restitution 0–1, flowRate 0–100 relative to water = 1; defaults density 1000, friction
+  0.5, restitution 0; engine profile values earth 1500/0.8/0.05, glass 2500/0.3/0.3, lava 3100/0/0 flow 0.05, metal
+  7850/0.4/0.15, stone 2500/0.7/0.1, water 1000/0/0 flow 1, wood 700/0.6/0.2; a project profile's fields are optional
+  and override the engine profile of its id one by one. Profiles live in `content.json`, not one file each.
+- 2026-11-08 (46d.3a, default chosen, owner to confirm): **voxel ranges**: `tileMetres` 0.5–64 m (absent: the
+  derive's 4 / 2 m), `heightDepth` 0–0.25 m (half a cell, so a one-cell wall's two recesses never meet; absent
+  0.02 m); a texture set is `{albedoHeight, normal, orm}` of plain textures (46d.4a's arrays), floor and ceiling
+  falling back to wall, wall to the material's own look.
+- 2026-11-08 (46d.3a, default chosen, owner to confirm): **`kit_missing` is a project rule**, so the material command
+  and deleting the kit are refused alike (as a material an object uses); a project-only profile a material names is
+  held the same way, while deleting a project override of an engine profile falls back to the engine's.
+- 2026-11-08 (46d.3a, default chosen, owner to confirm): **a build resolves what the runtime would otherwise need
+  the project for**: each shipped kit carries its bound ids in its `materials` (same meaning, the material records
+  applied) and each shipped material its physics with the profile's numbers and game data folded in, so the runtime
+  reads neither profiles nor unshipped materials (46d.3b's `ctx.voxels` reads the shipped records).
+- 2026-11-08 (46d.3a, default chosen, owner to confirm): **shader families as `materialFamilyOf`**: graph > decal >
+  liquid (water shader or liquid use) > projected (construction / terrain use; on a mesh the same record draws
+  standard) > standard (standard, foliage, atlas, trim, unlit); `effect` belongs to the effect records. No new shader
+  types, nothing stored.
 
 ## 10. Open questions for the owner
 

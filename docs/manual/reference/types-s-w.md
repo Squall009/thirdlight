@@ -1,8 +1,127 @@
-# Types (TerrainStamp to WindOctave)
+# Types (SurfaceRule to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-surface-rule"></a>
+### SurfaceRule
+
+Declared in `packages/project-model/src/surface-rules.ts`.
+
+```ts
+interface SurfaceRule {
+  /** What the rule is called in the editor ("Rock on steep slopes"; absent: a summary of its conditions). Paints nothing. */
+  name?: string;
+  /** The material layer it paints (block layers: 0-3, the four their paint carries). */
+  layer: number;
+  /** How much of its layer it gives where every condition holds (0-1; absent: 1). */
+  strength?: number;
+  /** Only tops or only walls (a face whose box-mapping projection is sideways; terrain is all tops); absent: both. */
+  face?: 'top' | 'wall';
+  /** World height (metres). */
+  height?: RuleRange;
+  /** Slope from level (degrees: 0 flat, 90 a wall). */
+  slope?: RuleRange;
+  /** Cavity (metres): how far the ground `radius` metres around lies above the point — positive in hollows, negative on ridges. */
+  cavity?: RuleRange & { radius?: number };
+  /** A noise mask (0-1) over world space, its bumps `scale` metres apart. */
+  noise?: RuleRange & { scale: number; seed?: number };
+  /** The share (0-1) the rules before this one left to `layer` ("where rock is below 0.3"). */
+  weight?: RuleRange & { layer: number };
+  /** Block layers only: the block types it paints (terrain never matches a rule that names them). */
+  blocks?: string[];
+  /** Block layers only: cell metadata the cell must hold (its own value or its block type's). */
+  meta?: Record<string, CellMetaValue>;
+}
+```
+
+<a id="type-terrain-blocks-layer"></a>
+### TerrainBlocksLayer
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+/** Block layers standing on the terrain (`terrain-blocks.ts`). */
+interface TerrainBlocksLayer extends LayerCommon {
+  kind: 'blocks';
+  /** The block layer objects the ground meets (absent: every block layer of the scene). */
+  blockLayers?: string[];
+  /** cut (absent): holes under the blocks; flatten: the ground kept, just under them. */
+  mode?: TerrainBlocksMode;
+  /** Metres over which the ground round them fades from their border's height and paint to its own (absent: `TERRAIN_BLOCKS_BLEND_DEFAULT`). */
+  blend?: number;
+  /** Stored only when false: the blocks' paint does not carry across the border. */
+  paint?: boolean;
+}
+```
+
+<a id="type-terrain-blocks-mode"></a>
+### TerrainBlocksMode
+
+Declared in `packages/project-model/src/terrain-blocks.ts`.
+
+```ts
+type TerrainBlocksMode = 'cut' | 'flatten';
+```
+
+<a id="type-terrain-erosion-layer"></a>
+### TerrainErosionLayer
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+interface TerrainErosionLayer extends LayerCommon {
+  kind: 'erosion';
+  /** What its runs changed, per tile (absent tiles: nothing). */
+  tiles?: TerrainLayerTileRef[];
+  /** The settings it last ran with (the tools offer them again). */
+  settings?: ErosionSettings;
+}
+```
+
+<a id="type-terrain-layer"></a>
+### TerrainLayer
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+type TerrainLayer = TerrainStampsLayer | TerrainErosionLayer | TerrainSplinesLayer | TerrainBlocksLayer;
+```
+
+<a id="type-terrain-layer-tile-ref"></a>
+### TerrainLayerTileRef
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+/** One tile's stored erosion difference (a blob named by digest). */
+interface TerrainLayerTileRef {
+  x: number;
+  z: number;
+  data: string;
+}
+```
+
+<a id="type-terrain-sculpt-kind"></a>
+### TerrainSculptKind
+
+Declared in `packages/project-model/src/terrain-edit.ts`.
+
+```ts
+type TerrainSculptKind = 'raise' | 'lower' | 'smooth' | 'flatten' | 'noise';
+```
+
+<a id="type-terrain-splines-layer"></a>
+### TerrainSplinesLayer
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+interface TerrainSplinesLayer extends LayerCommon {
+  kind: 'splines';
+}
+```
 
 <a id="type-terrain-stamp"></a>
 ### TerrainStamp
@@ -997,6 +1116,36 @@ Declared in `packages/project-model/src/voxel-kit.ts`.
 const VOXEL_KIT_FORMAT: 1;
 ```
 
+<a id="type-voxel-material-uses"></a>
+### VOXEL_MATERIAL_USES
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+/** What a voxel material is used for. */
+const VOXEL_MATERIAL_USES: readonly ["construction", "terrain", "liquid"];
+```
+
+<a id="type-voxel-surfaces"></a>
+### VOXEL_SURFACES
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+/** The surfaces a voxel material dresses (picked by role and face direction). */
+const VOXEL_SURFACES: readonly ["wall", "floor", "ceiling"];
+```
+
+<a id="type-voxel-texture-maps"></a>
+### VOXEL_TEXTURE_MAPS
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+/** The maps of a texture set (the standard layout: albedo with height in alpha, normal, roughness/metal/AO). */
+const VOXEL_TEXTURE_MAPS: readonly ["albedoHeight", "normal", "orm"];
+```
+
 <a id="type-voxel-edit-command"></a>
 ### VoxelEditCommand
 
@@ -1081,8 +1230,8 @@ interface VoxelKitImage {
 Declared in `packages/project-model/src/voxel-kit.ts`.
 
 ```ts
-/** JSON as a kit's game data holds it. */
-type VoxelKitJson = null | boolean | number | string | VoxelKitJson[] | { [key: string]: VoxelKitJson };
+/** A kit's game data (opaque JSON, `game-data.ts`). */
+type VoxelKitJson = GameDataJson;
 ```
 
 <a id="type-voxel-kit-mesh"></a>
@@ -1154,6 +1303,43 @@ interface VoxelKitSlotMesh {
    */
   mirror?: boolean;
 }
+```
+
+<a id="type-voxel-material-use"></a>
+### VoxelMaterialUse
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+type VoxelMaterialUse = (typeof VOXEL_MATERIAL_USES)[number];
+```
+
+<a id="type-voxel-surface"></a>
+### VoxelSurface
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+type VoxelSurface = (typeof VOXEL_SURFACES)[number];
+```
+
+<a id="type-voxel-texture-map"></a>
+### VoxelTextureMap
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+type VoxelTextureMap = (typeof VOXEL_TEXTURE_MAPS)[number];
+```
+
+<a id="type-voxel-texture-set"></a>
+### VoxelTextureSet
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+/** One texture set: a texture asset per map (a map left out: the engine's flat stand-in). */
+type VoxelTextureSet = Partial<Record<VoxelTextureMap, string>>;
 ```
 
 <a id="type-wind-config"></a>

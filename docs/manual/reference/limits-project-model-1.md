@@ -301,6 +301,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-frame-rate-cap-choices"></a>`FRAME_RATE_CAP_CHOICES` | `["30","60","120","none"]` | What a settings field bound to the cap may choose: each cap as text, and 'none' (no cap). |
 
+<a id="limits-project-model--game-data"></a>
+## `game-data.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-game-data-depth-max"></a>`GAME_DATA_DEPTH_MAX` | `32` | Nesting depth of game data (JSON parsers stop far deeper; this keeps a walk over it bounded). |
+
 <a id="limits-project-model--graph"></a>
 ## `graph.ts`
 

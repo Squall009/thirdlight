@@ -50,7 +50,7 @@ Shared TypeScript and JSON modules every script can import as @lib/<id>.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `scriptLibraries` | list of JSON: `ScriptLibrary` ([ScriptLibrary](types-m-t.md#type-script-library)) | `[]` |  | **Script libraries.** The project's libraries (each its own file). |
+| `scriptLibraries` | list of JSON: `ScriptLibrary` ([ScriptLibrary](types-m-s.md#type-script-library)) | `[]` |  | **Script libraries.** The project's libraries (each its own file). |
 
 <a id="content-blockTypes"></a>
 ## blockTypes — Block types
@@ -195,12 +195,31 @@ The detail pieces a material type (wood, stone, …) draws a voxel world's edges
 | `voxelKits[].version` | int | `1` | ≥ 1, step 1 | **Version.** The kit's own revision (a positive integer its author moves). (required) |
 | `voxelKits[].materialType` | string, id, 1–64 chars |  |  | **Material type.** The material type the kit dresses (wood, stone, …): every material of the type shares its pieces. (required; format id) |
 | `voxelKits[].materials` | list of int, distinct |  |  | **Materials.** Test binding: the voxel material ids (1-4095) the kit applies to, until materials name their kit. |
-| `voxelKits[].slots` | JSON: `Record<string, VoxelKitSlot>` ([VoxelKitSlot](types-t-w.md#type-voxel-kit-slot)) |  |  | **Slots.** {caseId: {meshes: [{mesh, rotation?, weight?, mirror?}, …], gameData?}}: a slot a case of the case catalogue, every one optional (left out: nothing drawn); a mesh is {assetId, digest (the GLB's SHA-256), node?}; rotation one of the 24 cube rotations 0-23 (absent 0); weight in (0, 1000], absent 1; mirror true draws it mirrored across its case's run (a handed piece's other hand). Which mesh a piece draws follows the project's voxel detail seed. (required) |
+| `voxelKits[].slots` | JSON: `Record<string, VoxelKitSlot>` ([VoxelKitSlot](types-s-w.md#type-voxel-kit-slot)) |  |  | **Slots.** {caseId: {meshes: [{mesh, rotation?, weight?, mirror?}, …], gameData?}}: a slot a case of the case catalogue, every one optional (left out: nothing drawn); a mesh is {assetId, digest (the GLB's SHA-256), node?}; rotation one of the 24 cube rotations 0-23 (absent 0); weight in (0, 1000], absent 1; mirror true draws it mirrored across its case's run (a handed piece's other hand). Which mesh a piece draws follows the project's voxel detail seed. (required) |
 | `voxelKits[].jitter` | number | `1` | 0 – 4, step 0.05 | **Jitter.** How far every piece moves into the solid and twists, as a share of the engine's stagger (1: 1/64-1/32 cell in, up to 2°; 0: on the lattice; at most 4). |
 | `voxelKits[].trimLayout` | string, id, 1–64 chars |  |  | **Trim layout.** The trim layout the pieces' UVs follow (absent: the kit uses no trim sheet, or its own sheet layout). (format id) |
-| `voxelKits[].sheetLayout` | JSON: `VoxelKitSheetLayout` ([VoxelKitSheetLayout](types-t-w.md#type-voxel-kit-sheet-layout)) |  |  | **Sheet layout.** The kit's own sheet instead of a named trim layout: {size (16-16384 px a side), pxPerMetre, regions: [{id, kind: field\|strip\|profiled\|cap, metres, y: [top, end), x?: [left, end) (caps only)}]}; its strips get world-anchored U and the kit check reads its regions. Voxel faces keep the 4 × 4 m tiling textures. |
+| `voxelKits[].sheetLayout` | JSON: `VoxelKitSheetLayout` ([VoxelKitSheetLayout](types-s-w.md#type-voxel-kit-sheet-layout)) |  |  | **Sheet layout.** The kit's own sheet instead of a named trim layout: {size (16-16384 px a side), pxPerMetre, regions: [{id, kind: field\|strip\|profiled\|cap, metres, y: [top, end), x?: [left, end) (caps only)}]}; its strips get world-anchored U and the kit check reads its regions. Voxel faces keep the 4 × 4 m tiling textures. |
 | `voxelKits[].wallTopFill` | bool | `false` |  | **Wall-top fill.** A roof kit's: its roofs close their slab down onto the walls under them, cutting the wall tops to the roof's underside. Off: the walls keep their stepped tops under the parallel underside. |
 | `voxelKits[].gameData` | JSON |  |  | **Game data.** The game's own data for the kit (break, sound, physics defaults …): JSON nested at most 32 deep, shipped as it is, never read by the engine. |
+
+<a id="content-materialProfiles"></a>
+## materialProfiles — Physical profiles
+
+Shared physics (and the game's defaults as game data) materials name instead of repeating them. The engine has Earth, Glass, Lava, Metal, Stone, Water, Wood; a project profile with one of their ids overrides the fields it sets.
+
+- In every project: no
+- Written by: [`setMaterialProfile`](ops-detail.md#op-setMaterialProfile), [`deleteMaterialProfile`](ops-detail.md#op-deleteMaterialProfile)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `materialProfiles` | list of objects | `[]` |  | **Physical profiles.** The project's profiles. |
+| `materialProfiles[].profileId` | string, id, 1–64 chars |  |  | **Id.** The stable profile id (an engine profile's id overrides it). (required; format id) |
+| `materialProfiles[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in pickers. (required; format name) |
+| `materialProfiles[].density` | number |  | > 0, ≤ 30000, step 10, kg/m³ | **Density.** Mass density. |
+| `materialProfiles[].friction` | number |  | 0 – 4, step 0.05 | **Friction.** Friction coefficient (0: ice-smooth). |
+| `materialProfiles[].restitution` | number |  | 0 – 1, step 0.05 | **Restitution.** Bounciness (0: none, 1: perfectly elastic). |
+| `materialProfiles[].flowRate` | number |  | 0 – 100, step 0.05 | **Flow rate.** How fast a liquid spreads, relative to water (1); solids leave it out. |
+| `materialProfiles[].gameData` | JSON |  |  | **Game data.** The game's defaults for every material of the profile (footstep sound, break tags …): JSON nested at most 32 deep, never read by the engine; a material's own keys override them. |
 
 <a id="content-uiDocuments"></a>
 ## uiDocuments — UI documents
@@ -212,7 +231,7 @@ HUDs, menus and screens drawn by the game over the view (widget trees bound to s
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `uiDocuments` | list of JSON: `UiDocument` ([UiDocument](types-t-w.md#type-ui-document)) | `[]` |  | **UI documents.** The project's documents (each its own file). |
+| `uiDocuments` | list of JSON: `UiDocument` ([UiDocument](types-s-w.md#type-ui-document)) | `[]` |  | **UI documents.** The project's documents (each its own file). |
 
 <a id="content-modes"></a>
 ## modes — Game modes
@@ -316,7 +335,7 @@ Named styles and icons UI documents share.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `uiThemes` | list of JSON: `UiTheme` ([UiTheme](types-t-w.md#type-ui-theme)) | `[]` |  | **UI themes.** The project's themes (each its own file). |
+| `uiThemes` | list of JSON: `UiTheme` ([UiTheme](types-s-w.md#type-ui-theme)) | `[]` |  | **UI themes.** The project's themes (each its own file). |
 
 <a id="content-dialogues"></a>
 ## dialogues — Dialogues
@@ -364,7 +383,7 @@ Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals an
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `timelines` | list of JSON: `TimelineAsset` ([TimelineAsset](types-t-w.md#type-timeline-asset)) | `[]` |  | **Timelines.** The project's timelines (each its own file). |
+| `timelines` | list of JSON: `TimelineAsset` ([TimelineAsset](types-s-w.md#type-timeline-asset)) | `[]` |  | **Timelines.** The project's timelines (each its own file). |
 
 <a id="content-graphs"></a>
 ## graphs — Graphs
@@ -455,4 +474,4 @@ The project save document (its version and migrations), the slot count, the engi
 | `thumbnail.height` | int |  | 16 – 512, step 1 | **Height.** Pixels. (required) |
 | `thumbnail.format` | enum: `jpeg`, `webp` |  |  | **Format.** JPEG or WebP. (required) |
 | `thumbnail.quality` | number |  | 0.1 – 1, step 0.05 | **Quality.** Encoder quality. |
-| `settings` | list of JSON: `SettingsField` ([SettingsField](types-m-t.md#type-settings-field)) |  |  | **Settings document.** The fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |
+| `settings` | list of JSON: `SettingsField` ([SettingsField](types-m-s.md#type-settings-field)) |  |  | **Settings document.** The fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |

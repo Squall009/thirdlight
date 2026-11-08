@@ -211,9 +211,10 @@ with each borrowing slot's rotation, each mesh's weight and mirror, and the
 2. **Set the kit:** the record's `assetId` is `voxel-kit-<id>`; replace it with
    the imported asset's id (`queryAssets`; its version's source digest is the
    record's `digest`), then `setVoxelKit {kit}` (MCP:
-   `tl_command setVoxelKit {kit}`; one undo). `materials` lists the voxel
-   material ids the kit draws (a test binding until material records name
-   their kit).
+   `tl_command setVoxelKit {kit}`; one undo). Bind it on each material
+   that wears it: `setMaterial` with `voxel: {id, use: "construction", kit:
+   "<voxelKitId>"}` ([Voxel materials](../features/voxel-worlds.md#voxel-materials)).
+   The kit's own `materials` list still binds ids no material record names.
 3. **Read the kit check** in **Problems** (MCP: `tl_diagnostics`, lines
    `voxel_kit_check`): errors draw wrong or not at all (an unknown slot, a
    missing model or node, a piece off its cell, two texture sets, trim T1,

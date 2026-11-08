@@ -1,4 +1,4 @@
-# Types (CreateEntityArgs to ModelArgs)
+# Types (CreateEntityArgs to MaterialParamValue)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -718,6 +718,15 @@ interface FogConfig {
   far?: number;
   density?: number;
 }
+```
+
+<a id="type-game-data-json"></a>
+### GameDataJson
+
+Declared in `packages/project-model/src/game-data.ts`.
+
+```ts
+type GameDataJson = null | boolean | number | string | GameDataJson[] | { [key: string]: GameDataJson };
 ```
 
 <a id="type-game-mode"></a>
@@ -1498,7 +1507,33 @@ interface MaterialDef {
    * uses its root's.
    */
   layerSheets?: string[];
+  /**
+   * Its physics (`material-profiles.ts`): a profile and the numbers it changes. Absent: the engine's defaults. An
+   * instance's numbers override its chain's one by one.
+   */
+  physical?: MaterialPhysical;
+  /**
+   * The game's own data (sounds, break tags, …): any JSON, kept and shipped, never read by the engine. An
+   * instance's top-level keys override its chain's.
+   */
+  gameData?: MaterialGameData;
+  /**
+   * Its voxel use (`voxel-materials.ts`): a voxel material id, construction / terrain / liquid, its kit, tile and
+   * height depth in metres, wall / floor / ceiling texture sets. Absent: not a voxel material. An instance with its
+   * own (and its own id) is a voxel variant of its chain's; without, a mesh variant only.
+   */
+  voxel?: MaterialVoxel;
 }
+```
+
+<a id="type-material-game-data"></a>
+### MaterialGameData
+
+Declared in `packages/project-model/src/material-profiles.ts`.
+
+```ts
+/** Opaque game data (any JSON within the kit format's depth bound). */
+type MaterialGameData = GameDataJson;
 ```
 
 <a id="type-material-parameter"></a>
@@ -1564,70 +1599,4 @@ Declared in `packages/project-model/src/material-schema.ts`.
 
 ```ts
 type MaterialParamValue = number | boolean | string | [number, number];
-```
-
-<a id="type-material-shader"></a>
-### MaterialShader
-
-Declared in `packages/project-model/src/material-schema.ts`.
-
-```ts
-type MaterialShader = (typeof MATERIAL_SHADERS)[number];
-```
-
-<a id="type-material-value"></a>
-### MaterialValue
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-/** A material's or an instance's value of a parameter: an override's, or per-layer texture slots (`texture-slots.ts`). */
-type MaterialValue = MaterialParameterValue | string[];
-```
-
-<a id="type-mode-blend"></a>
-### ModeBlend
-
-Declared in `packages/project-model/src/modes.ts`.
-
-```ts
-type ModeBlend = 'cut' | 'linear' | 'eased';
-```
-
-<a id="type-model-occluder-modes"></a>
-### MODEL_OCCLUDER_MODES
-
-Declared in `packages/project-model/src/model-occluders.ts`.
-
-```ts
-/** What of a model counts as an occluder (absent: `auto`). */
-const MODEL_OCCLUDER_MODES: readonly ["auto", "occ", "none"];
-```
-
-<a id="type-model-animation-roles-value"></a>
-### ModelAnimationRolesValue
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/** The three role keys, all required, in canonical order. */
-interface ModelAnimationRolesValue {
-  idle: AnimationRoleBindingValue;
-  run: AnimationRoleBindingValue;
-  airborne: AnimationRoleBindingValue;
-}
-```
-
-<a id="type-model-args"></a>
-### ModelArgs
-
-Declared in `packages/commands/src/entity-types.ts`.
-
-```ts
-/** Model args for createEntity: only when `kind` is `"model"`. */
-interface ModelArgs {
-  asset: { assetId: string };
-  /** One named piece of a multi-piece GLB (absent = the whole file). */
-  piece?: string;
-}
 ```

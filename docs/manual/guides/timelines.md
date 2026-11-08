@@ -4,7 +4,7 @@
 black under letterbox bars while a crate rises, then a signal tells your
 scripts the intro is over. **Jump** skips it. Every track and key:
 [Timelines](../features/timelines.md) and
-[TimelineAsset](../reference/types-t-w.md#type-timeline-asset); the calls:
+[TimelineAsset](../reference/types-s-w.md#type-timeline-asset); the calls:
 [`ctx.timeline`](../reference/script-api.md#ctx-timeline).
 
 A timeline has a **duration**, **tracks** of **keys** and **markers**.

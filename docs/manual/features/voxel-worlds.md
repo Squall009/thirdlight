@@ -235,7 +235,7 @@ and MCP (`tl_command`) send alike:
   sphere, box or cylinder through one or more points, to `place`, `add`,
   `dig` or `paint`), a box `fill`, a `stamp`, or exact cells (`set`,
   `dig`). The command format:
-  [`VoxelEditCommand`](../reference/types-t-w.md#type-voxel-edit-command).
+  [`VoxelEditCommand`](../reference/types-s-w.md#type-voxel-edit-command).
   **Positions here are cells (0.5 m), not metres.**
 - [`undoVoxels`](../reference/ops-detail.md#op-undoVoxels) `{world}` takes
   back the world's newest edit.
@@ -415,9 +415,11 @@ them as `voxelKits`.
 - **`gameData`** on the kit and on each slot: any JSON (break, sound,
   physics defaults). The engine keeps it, ships it and never reads it; a
   game's scripts read it.
-- **`materials`** binds the kit to materials, for now: the voxel material
-  ids the kit draws. Once materials have records of their own, a material
-  names its kit and this field is no longer read. **`trimLayout`** names the
+- **`materials`** is the kit's own list of voxel material ids it draws, from
+  before materials named their kit. A material record names its kit
+  (`voxel.kit`, see [Voxel materials](#voxel-materials)) and decides for its
+  id; the list still binds the ids no material record names (the kit check
+  shows an info row, *Set the binding on the material*). **`trimLayout`** names the
   trim layout the pieces' UVs follow; **`sheetLayout`** instead declares the
   kit's own sheet (`{size, pxPerMetre, regions: [{id, kind: field, strip,
   profiled or cap, metres, y: [top, end], x (caps only)}]}`), so its
@@ -480,6 +482,49 @@ label's cell, role and case; the voxel world page labels them
 (`?kitScene=x,y,z,material`).
 Writing the same scene again changes nothing (`no_change`).
 
+## Voxel materials
+
+A voxel material is an ordinary project material with a **`voxel`** part:
+the same record dresses a prop and a wall, so there is one oak, not an
+"oak (prop)" and an "oak (voxel)".
+
+- **`voxel.id`** (1–4,095): the voxel material id cells store. Every world
+  of the project shares the ids; two materials with one id are refused
+  (`voxel_id_taken`).
+- **`voxel.use`**: `construction` (grid-anchored tiles, 4 × 4 m by
+  default), `terrain` (projected from three axes, 2 m) or `liquid`.
+- **`voxel.kit`**: the voxel kit whose pieces its edges draw (a kit the
+  project has: `kit_missing` otherwise, and deleting a kit a material names
+  is refused). A liquid has no kit. A material without one draws plain
+  voxel edges.
+- **`voxel.tileMetres`** (0.5–64 m) and **`voxel.heightDepth`** (0–0.25 m,
+  the depth between its height map's white and black: sand shallow, rock
+  deep).
+- **`voxel.surfaces`**: `{wall, floor, ceiling}` texture sets, each
+  `{albedoHeight, normal, orm}` (plain texture assets); floor and ceiling
+  use the wall's when left out, the wall the material's own look. (Drawing
+  them is not built yet: see below.)
+
+Any material may also carry **`physical`** (a profile and the numbers it
+changes: `density` kg/m³, `friction`, `restitution`, `flowRate` for
+liquids) and **`gameData`** (any JSON the game reads, such as a footstep
+sound or block health; the engine never reads it). **Physical profiles**
+hold the shared numbers: the engine has earth, glass, lava, metal, stone,
+water and wood; `setMaterialProfile {profile: {profileId, name, density?,
+friction?, restitution?, flowRate?, gameData?}}` adds the project's own (one
+with an engine profile's id overrides it field by field) and
+`deleteMaterialProfile {profileId}` removes one. A number a material leaves
+out is its profile's, else density 1000, friction 0.5, restitution 0. A
+build ships each material's physics with its profile's numbers filled in.
+
+**Variants** are material instances: an instance takes its parent's
+physics, game data and voxel fields and changes any. A voxel variant gives
+its own `voxel: {id, …}` (an id is never inherited); an instance without a
+`voxel` part is a mesh-only variant.
+
+All of it goes through `setMaterial` (the editor, MCP's `tl_command` and
+scripts send the same command; one undo).
+
 ## Not built yet
 
 These come later; worlds made now keep working when they arrive:
@@ -491,9 +536,11 @@ These come later; worlds made now keep working when they arrive:
   debug set of their sheet layout until materials arrive); the fringe where
   buildings meet the ground and ground scatter come with the terrain tools.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
-- **Materials**: material records, texture arrays and wetness beyond
-  darkening (shine and filled-in crevices). Today's surface shader is a
-  stand-in.
+- **Materials**: the voxel world drawing from the material records (their
+  colour, tile and texture sets; ids without a record keep today's stand-in
+  colours), the material library's badges and filters, texture arrays and
+  wetness beyond darkening (shine and filled-in crevices). Today's surface
+  shader is a stand-in.
 - **Lighting**: the world's own light and shadow, and what reads the light
   coverage props stamp; culling and navigation over voxels.
 - **Structures** (rotated grids of their own, such as a ship or a moving

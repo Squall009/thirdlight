@@ -91,6 +91,7 @@ interface MutationFailure {
 | [`deleteGraph`](ops-detail.md#op-deleteGraph) | { graphId: string } | `graphs` |
 | [`deleteKit`](ops-detail.md#op-deleteKit) | { kitId: string } | `kits` |
 | [`deleteMaterial`](ops-detail.md#op-deleteMaterial) | { materialId: string } | `materials` |
+| [`deleteMaterialProfile`](ops-detail.md#op-deleteMaterialProfile) | { profileId: string } | `materialProfiles` |
 | [`deletePrefab`](ops-detail.md#op-deletePrefab) | { prefabId: string } | `prefabs` |
 | [`deleteScene`](ops-detail.md#op-deleteScene) | SceneIndexArgs | `scenes` |
 | [`deleteScriptLibrary`](ops-detail.md#op-deleteScriptLibrary) | { libraryId: string } | `scriptLibraries` |
@@ -141,6 +142,7 @@ interface MutationFailure {
 | [`setLighting`](ops-detail.md#op-setLighting) | { sceneId: string; lighting: LightingBake \| null } | `lighting` |
 | [`setLightLayers`](ops-detail.md#op-setLightLayers) | { layers: string[] } | `lightLayers` |
 | [`setMaterial`](ops-detail.md#op-setMaterial) | { material: MaterialDef } | `materials` |
+| [`setMaterialProfile`](ops-detail.md#op-setMaterialProfile) | { profile: MaterialProfile } | `materialProfiles` |
 | [`setModes`](ops-detail.md#op-setModes) | { modes: GameMode[] } | `modes` |
 | [`setSaveSchema`](ops-detail.md#op-setSaveSchema) | { schema: SaveSchema \| null } | `saveSchema` |
 | [`setScenePlane`](ops-detail.md#op-setScenePlane) | { sceneId: string; plane: PlaneLock \| null } |  |
