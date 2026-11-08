@@ -1,6 +1,6 @@
 # Voxel rendering and materials — format page (46d additions)
 
-Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4d. This page receives every format addition of 46d (rendering and materials), each
+Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4d, §3 by 46d.5a. This page receives every format addition of 46d (rendering and materials), each
 as a versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the
 owner on 2026-11-02) is not grown further. Nothing here is approved yet: a section is filled by the 46d item that
 builds it ([plan 46d](../plan-phase-46d.md) §6), and every section stays empty until then. § numbers name the format
@@ -211,7 +211,49 @@ convention stays the layered surface's). Default chosen, owner to confirm (plan 
 
 ## 3. Relief part
 
-Not yet written (46d.5a: the relief part as a derived output).
+**Owner note (46d.5a, 2026-11-08):** derived data steps **28 → 29** (nothing stored, nothing to upgrade, no world
+regenerated; a worker of another version is refused as ever) and an add-only step inside project schema 8 (one
+optional distance on `voxelWorld.levels`, one optional quality level field). The relief part was the 46d.1 spike's
+switch; it is now a derived output a section carries when the relief ring holds it. Outside the canonical bytes:
+every other output and every hash are v28's, byte for byte. Nothing in the approved format spec, the role spec,
+the texture layout or kit format 1 changes. Default chosen, owner to confirm (plan 46d §9: the 46d.1b verdict and
+the 46d.5a defaults).
+
+**The part** (`DerivedData.relief`, `@thirdlight/voxel` `relief-mesh.ts`): a level-0 section's ground and base
+surfaces again, in the surface layout (12-byte vertex, u16/u32 indices), each triangle split until no edge spans
+more than 1.5 / n cells on any axis (n = 2, 4 or 8 lattice steps a cell: 25, 12.5, 6.25 cm; a base face an n × n
+lattice, roofs along their merged rows), plus a **crease weight** byte a vertex (0 fixed, 255 free; the vertex
+stage scales its displacement by it): 0 where the surface turns, at kit edge cells, wall–roof seams and roofs'
+one-cell stripe at section faces, and on every edge shared with a section drawn plain, which is kept whole
+(no T-junction). An edge splits by its two end positions alone, so two relief sections split a shared edge bit for
+bit alike. A job asks it per section (`DeriveInput.relief = {n, ids, plain}`: the sections of the chunk that are
+relief and, per section, its plain neighbours among the 26 round it); a section not named derives none. Collision,
+occupancy, navigation and light never read it. A shader-only derive (material or wetness) keeps it as it is:
+heights and depths are shader data (the feeds rule).
+
+**The ring** (`relief-ring.ts`, `stream-relief.ts`): the streamer plans which sections are relief round its focus,
+per derive section (16³ = 8 m), not per chunk. A ring displacing to R (cells) holds a section whose centre lies
+within R + its half diagonal (6.9 m), and keeps it to R + its half diagonal + 4 m (`RELIEF_HYSTERESIS_CELLS`), 3D
+distances as the vertex fade's; the fade ends at R and starts 4 m inside (`reliefFade`). So a section changes
+state only where nothing of it is displaced, and every displaced point is in a relief section. A plan (the focus
+moved a cell, or new settings) derives again, in **one group** (one atomic swap, as an edit's), every section that
+changed and every relief section round one; the swap's `chunk` events say `reliefOnly` when only relief meshes
+changed (the canonical bytes are equal), so bodies stand. New lattice steps mesh every relief section again.
+
+**Settings.** `voxelWorld.levels.relief` (metres, 0: none; default 16 m = `DEFAULT_RELIEF_RADIUS_CELLS`, scaled per
+quality level like every distance, never past `level0`); a quality level's `voxelRelief` (lattice steps a cell,
+`RELIEF_STEPS` 0 | 2 | 4 | 8; absent its tier's `RELIEF_STEPS_BY_TIER`: low 0, medium 2, high 4). A world resolved
+without a quality level (the Scene view) has steps 0. `ctx.voxels.setRings({levels: {relief}})` changes the
+distance at run time; `rings()` reports it and `reliefSteps`.
+
+**Budget (D528).** Relief has its own share of the stream budget, `RELIEF_BUDGET_SHARE` (1/8: low 32, medium 64,
+high 128 MiB) while the ring is on: the base world's eviction counts the budget less that share and the base bytes
+without relief, so relief never evicts a chunk of the world. Relief bytes are the budget parts named `relief…`
+(`RELIEF_PART`): each section's relief part, and each chunk draw's relief share (`RELIEF_DRAW_PART`, the GPU's
+copy of the relief meshes it sent). Over its share the ring **shrinks**: its farthest sections drop until the
+rest hold 90 % of the share, sections join only nearer than the nearest dropped one, and the displacement ends a
+half diagonal inside that; once the focus has moved a section edge (8 m) it tries its full radius again.
+
 
 ## 4. Far-field data
 

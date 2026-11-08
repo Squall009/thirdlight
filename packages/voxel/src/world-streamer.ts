@@ -19,6 +19,7 @@ import type { LevelRings } from './lod-select';
 import { createWorldStore } from './palette-store';
 import { jobRadius } from './assembly';
 import { WORLD_RULES } from './rule-registry';
+import type { ReliefRingSettings } from './relief-ring';
 import { VoxelStreamer } from './voxel-streamer';
 import type { WorkerPool } from './worker-pool';
 import { buildPieceTable, type PieceKitSource, type PieceTable } from './piece-table';
@@ -42,10 +43,11 @@ export interface WorldRingMetres {
   readonly unloadHeight: number;
 }
 
-/** A world's level distances in metres (a `voxelWorld` object's, resolved): level 0 within `level0`, level 1 within `level1`, level 2 past it. */
+/** A world's level distances in metres (a `voxelWorld` object's, resolved): level 0 within `level0`, level 1 within `level1`, level 2 past it; relief within `relief`. */
 export interface WorldLevelsMetres {
   readonly level0: number;
   readonly level1: number;
+  readonly relief?: number;
 }
 
 /**
@@ -73,24 +75,34 @@ export function worldStreamRing(r: WorldRingMetres): StreamRing {
   return { loadRadius, unloadRadius: cells(r.unloadRadius), loadHeight: cells(r.loadHeight), unloadHeight: cells(r.unloadHeight), nearRadius: Math.min(loadRadius, DEFAULT_STREAM_RING.nearRadius) };
 }
 
-/** A world's distances as a `voxelWorld` object resolves them (metres), and its memory budget (absent or null: the connection's, else the low tier's). */
+/** A world's distances as a `voxelWorld` object resolves them (metres), its memory budget (absent or null: the connection's, else the low tier's) and its relief lattice steps (absent or 0: none). */
 export interface WorldRingSettings {
   readonly ring: WorldRingMetres;
   readonly levels?: WorldLevelsMetres;
   readonly collision?: { readonly radius: number };
   readonly budgetBytes?: number | null;
+  readonly reliefSteps?: number;
+}
+
+/** The relief ring of a world's settings: its lattice steps and where it displaces (cells; none without both). */
+export function worldReliefRing(settings: Pick<WorldRingSettings, 'levels' | 'reliefSteps'>): ReliefRingSettings {
+  const n = settings.reliefSteps ?? 0;
+  const metres = settings.levels?.relief ?? 0;
+  return n === 0 || metres <= 0 ? { n: 0, radius: 0 } : { n, radius: metres / VOXEL_SIZE_M };
 }
 
 /**
  * New distances for a running world's streamer, without a reload: the load
  * ring and the levels kept derived re-plan at the next update, the levels
- * drawn are chosen again and change in one swap (stream-lod.ts), and the
- * budget applies at the next update (evicting down to it if it shrank).
+ * drawn are chosen again and change in one swap (stream-lod.ts), the budget
+ * applies at the next update (evicting down to it if it shrank), and the
+ * relief ring is planned again (its changed sections swap together).
  */
 export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSettings): void {
   streamer.setRing(worldStreamRing(settings.ring));
   streamer.mips?.lod.setRings(worldLevelRings(settings.levels, settings.collision?.radius));
   if (settings.budgetBytes !== undefined && settings.budgetBytes !== null) streamer.budgetBytes = settings.budgetBytes;
+  streamer.relief?.set(worldReliefRing(settings));
 }
 
 /** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: no kit, plain voxel faces). */
@@ -106,6 +118,7 @@ export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source:
     rules: WORLD_RULES,
     sectionEdge: settings.sectionEdge,
     levels: worldLevelRings(settings.levels, settings.collision?.radius),
+    relief: worldReliefRing(settings),
     ...(conn.pieces !== undefined ? { pieces: conn.pieces } : {}),
   });
 }

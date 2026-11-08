@@ -36,6 +36,8 @@ import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, sectionGrid, type CellGrid, type ChunkGrid, type SectionEdge } from './coords';
 import type { SectionResult } from './derive-assembly';
 import { derivedBytes, encodeDerived, type DerivedData } from './derived-data';
+import { reliefBytes, type ReliefOptions } from './relief-mesh';
+import { RELIEF_PART } from './relief-ring';
 import { SHADER_BORDER_CELLS } from './derived-shader';
 import { EDGE_REACH } from './edge-cases';
 import type { DirtyTracker } from './dirty-tracker';
@@ -79,9 +81,12 @@ export type SectionEvent =
    * A storage chunk's sections have new results (all that one task brings:
    * an edit group's swap, or one job's answer): its joined draw
    * ({@link SectionDerives.joinedChunk}) is to be replaced. `shaderOnly`:
-   * only shader data changed, the surfaces stand.
+   * only shader data changed, the surfaces stand. `reliefOnly`: only the
+   * relief meshes changed (the relief ring moved): the surfaces drawn are
+   * new, but collision, navigation, light and occupancy are byte for byte
+   * what they were, so bodies stand.
    */
-  | { readonly type: 'chunk'; readonly cx: number; readonly cy: number; readonly cz: number; readonly shaderOnly: boolean }
+  | { readonly type: 'chunk'; readonly cx: number; readonly cy: number; readonly cz: number; readonly shaderOnly: boolean; readonly reliefOnly: boolean }
   | { readonly type: 'swap'; readonly report: SwapReport };
 
 /**
@@ -106,8 +111,8 @@ export interface SectionHost {
   readonly rules: AssemblyRuleSet | undefined;
   /** The world's kit piece table the derives choose pieces from (null: none, the default pieces). */
   pieceTable(): PieceTable | null;
-  /** The relief mesh a chunk's level-0 sections derive beside their surfaces (absent, or null for the chunk: none). */
-  relief?(cx: number, cy: number, cz: number): DeriveInput['relief'] | null;
+  /** The relief mesh a level-0 section derives beside its surfaces (absent, or null for the section: none; relief-ring.ts). */
+  relief?(sx: number, sy: number, sz: number): ReliefOptions | null;
   readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
@@ -151,6 +156,8 @@ interface Section {
   /** A new result waiting for its group to swap. */
   held: DeriveOutput | null;
   heldTimes: SectionResult['times'] | null;
+  /** The pending derive is wanted only because the relief ring changed round it (its other outputs cannot change). */
+  reliefOnly: boolean;
 }
 
 interface EditGroup {
@@ -193,6 +200,21 @@ export function sectionsOfChunk(grid: ChunkGrid, sections: CellGrid, cx: number,
   return out;
 }
 
+/** What a chunk's job asks of relief for its sections (null: none of them has relief). */
+function reliefWire(list: readonly Section[], of: (s: Section) => ReliefOptions | null): DeriveInput['relief'] | null {
+  let n = 0;
+  const ids: number[] = [];
+  const plain: number[] = [];
+  for (const s of list) {
+    const o = of(s);
+    if (o === null) continue;
+    n = o.n;
+    ids.push(s.id);
+    plain.push(o.plainNeighbours ?? 0);
+  }
+  return ids.length === 0 ? null : { n, ids, plain };
+}
+
 function cloneApron(a: Apron): Apron {
   return { edge: a.edge, radius: a.radius, dense: a.dense.slice(), uniform: a.uniform.slice(), offsets: a.offsets.slice(), values: a.values.slice() };
 }
@@ -222,7 +244,7 @@ export class SectionDerives {
   private stampSeq = 0;
   private groupSeq = 0;
   /** Chunks whose sections took new results in this task, not yet announced: chunk key → whether only shader data changed. */
-  private readonly touched = new Map<number, { cx: number; cy: number; cz: number; shaderOnly: boolean }>();
+  private readonly touched = new Map<number, { cx: number; cy: number; cz: number; shaderOnly: boolean; reliefOnly: boolean }>();
   /**
    * Worker µs a section spent evaluating the rules (classes and every pass
    * the set has: cases, runs, forms), over all sections and over those whose
@@ -355,7 +377,7 @@ export class SectionDerives {
         const sx = cx * n + x;
         const sy = cy * n + y;
         const sz = cz * n + z;
-        const s: Section = { sx, sy, sz, key: chunkKey(this.sections, sx, sy, sz), id: (x * n + z) * n + y, cx, cy, cz, chunk: ck, derive: 'no', parts: 0, job: 0, stamp: 0, derived: null, group: null, held: null, heldTimes: null };
+        const s: Section = { sx, sy, sz, key: chunkKey(this.sections, sx, sy, sz), id: (x * n + z) * n + y, cx, cy, cz, chunk: ck, derive: 'no', parts: 0, job: 0, stamp: 0, derived: null, group: null, held: null, heldTimes: null, reliefOnly: false };
         list.push(s);
         this.bySection.set(s.key, s);
       }
@@ -521,9 +543,37 @@ export class SectionDerives {
     }
   }
 
-  /** A section's inputs changed: its stamp moves (results on their way are refused), it is wanted again, in group `g` when given. */
-  private stale(s: Section, why: 'yes' | 'edit', parts: number, g: EditGroup | null): EditGroup | null {
+  /**
+   * The relief ring changed round these sections (relief-ring.ts
+   * `affected`): each resident one is derived again in `groupId`'s swap,
+   * so a section and the relief neighbours meshed against it change in one
+   * frame. What they derive is asked of the host at the time they are sent.
+   */
+  rederiveRelief(coords: Iterable<{ readonly sx: number; readonly sy: number; readonly sz: number }>, groupId: number): number {
+    let g = this.group(groupId);
+    let n = 0;
+    for (const c of coords) {
+      if (!chunkInWorld(this.sections, c.sx, c.sy, c.sz)) continue;
+      const s = this.bySection.get(chunkKey(this.sections, c.sx, c.sy, c.sz));
+      if (s === undefined) continue;
+      g = this.stale(s, 'yes', ALL_DERIVED_PARTS, g, true);
+      n++;
+    }
+    return n;
+  }
+
+  /** Bytes of a section's relief part as drawn (0: none, or no result). */
+  reliefBytesOf(sx: number, sy: number, sz: number): number {
+    if (!chunkInWorld(this.sections, sx, sy, sz)) return 0;
+    const r = this.bySection.get(chunkKey(this.sections, sx, sy, sz))?.derived?.assembly?.relief;
+    return r === undefined ? 0 : reliefBytes(r);
+  }
+
+  /** A section's inputs changed: its stamp moves (results on their way are refused), it is wanted again, in group `g` when given; `relief`: only its relief ring did. */
+  private stale(s: Section, why: 'yes' | 'edit', parts: number, g: EditGroup | null, relief = false): EditGroup | null {
     s.stamp = ++this.stampSeq;
+    // Only a ring change on a section with nothing else pending keeps its plain outputs as they are.
+    s.reliefOnly = relief && (s.derive === 'no' || s.reliefOnly);
     this.want(s, why, parts);
     if (g !== null) return this.join(g, s);
     if (s.group !== null) {
@@ -644,28 +694,45 @@ export class SectionDerives {
   private commit(s: Section, out: DeriveOutput): void {
     s.derive = 'no';
     s.parts = 0;
+    const reliefOnly = s.reliefOnly;
+    s.reliefOnly = false;
     const counters = this.host.counters;
     if (out.shader !== null && s.derived?.assembly != null) {
-      // Only the shader data was rebuilt: it replaces that part of the full result.
+      // Only the shader data was rebuilt: it replaces that part of the full result (its relief mesh stays: heights are shader data).
       const assembly = { ...s.derived.assembly, shader: out.shader };
       s.derived = { ...s.derived, assembly, hash: crc32(encodeDerived(assembly)) };
       counters.shaderDerives++;
-      this.host.setPart(s.cx, s.cy, s.cz, `derive#${s.id}`, derivedBytes(assembly));
+      this.setParts(s, assembly);
       this.host.emit({ type: 'shader', cx: s.sx, cy: s.sy, cz: s.sz });
-      this.touch(s, true);
+      this.touch(s, true, false);
       return;
     }
-    this.touch(s, false);
+    // A ring change gives the same canonical bytes (the relief part lies outside them): bodies and the rest stand.
+    this.touch(s, false, reliefOnly && s.derived?.assembly != null && out.assembly !== null && s.derived.hash === out.hash);
     s.derived = out;
     counters.derives++;
-    this.host.setPart(s.cx, s.cy, s.cz, `derive#${s.id}`, out.assembly !== null ? derivedBytes(out.assembly) : (out.mask?.byteLength ?? 0));
+    if (out.assembly !== null) this.setParts(s, out.assembly);
+    else {
+      this.host.setPart(s.cx, s.cy, s.cz, `derive#${s.id}`, out.mask?.byteLength ?? 0);
+      this.host.setPart(s.cx, s.cy, s.cz, `${RELIEF_PART}#${s.id}`, 0);
+    }
     this.host.emit({ type: 'derived', cx: s.sx, cy: s.sy, cz: s.sz });
   }
 
-  private touch(s: Section, shaderOnly: boolean): void {
+  /** A section's budget parts: its derived data, and apart from it its relief mesh (the relief share's). */
+  private setParts(s: Section, a: DerivedData): void {
+    const relief = a.relief === undefined ? 0 : reliefBytes(a.relief);
+    this.host.setPart(s.cx, s.cy, s.cz, `derive#${s.id}`, derivedBytes(a) - relief);
+    this.host.setPart(s.cx, s.cy, s.cz, `${RELIEF_PART}#${s.id}`, relief);
+  }
+
+  private touch(s: Section, shaderOnly: boolean, reliefOnly: boolean): void {
     const t = this.touched.get(s.chunk);
-    if (t === undefined) this.touched.set(s.chunk, { cx: s.cx, cy: s.cy, cz: s.cz, shaderOnly });
-    else t.shaderOnly &&= shaderOnly;
+    if (t === undefined) this.touched.set(s.chunk, { cx: s.cx, cy: s.cy, cz: s.cz, shaderOnly, reliefOnly });
+    else {
+      t.shaderOnly &&= shaderOnly;
+      t.reliefOnly &&= reliefOnly;
+    }
   }
 
   /** Announces every chunk whose sections took new results since the last flush (one `chunk` event each, key order). */
@@ -673,7 +740,7 @@ export class SectionDerives {
     if (this.touched.size === 0) return;
     const list = [...this.touched.entries()].sort((a, b) => a[0] - b[0]);
     this.touched.clear();
-    for (const [, t] of list) this.host.emit({ type: 'chunk', cx: t.cx, cy: t.cy, cz: t.cz, shaderOnly: t.shaderOnly });
+    for (const [, t] of list) this.host.emit({ type: 'chunk', cx: t.cx, cy: t.cy, cz: t.cz, shaderOnly: t.shaderOnly, reliefOnly: t.reliefOnly });
   }
 
   /** Whether all of a chunk's neighbours are known (resident, or outside the world): its apron can be built. */
@@ -810,7 +877,7 @@ export class SectionDerives {
     const k = Math.min(list.length, split);
     const ref = { grid: host.gridId, key: list[0]!.chunk };
     const pieces = host.pieceTable();
-    const relief = shaderOnly || rules === undefined ? null : host.relief?.(cx, cy, cz);
+    const relief = shaderOnly || rules === undefined || host.relief === undefined ? null : reliefWire(list, (s) => host.relief!(s.sx, s.sy, s.sz));
     for (let j = 0; j < k; j++) {
       const part = list.filter((_, i) => i % k === j);
       const t1 = performance.now();

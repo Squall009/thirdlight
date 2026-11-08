@@ -39,6 +39,7 @@ const rings = (withDefaults: boolean): ReturnType<typeof obj>[] => {
     obj('levels', 'Detail levels', 'Where the world is drawn coarser, from full detail near the camera and characters to 2 m voxels far out (level 0 always covers the collision ring).', [
       metres('level0', 'Full detail', `Metres across the ground within which the world is drawn at full detail (0.5 m voxels) with its kit pieces; at least the collision radius + ${colliderKeep} m.`, d(D.levels.level0)),
       metres('level1', 'Level 1', 'Metres across the ground within which 1 m voxels are drawn; past it, 2 m voxels to the load ring (below full detail: taken as it).', d(D.levels.level1)),
+      num('relief', 'Relief', "Metres from the focus within which surfaces are drawn with relief: meshed finer and moved by their materials' heights, fading out toward it (0: none; past full detail: taken as it). How fine is the quality level's voxel relief; the low tier draws none.", { min: 0, max: STREAMING_RADIUS_LIMITS.max, step: 1, unit: 'm', ...(withDefaults ? { default: D.levels.relief } : {}) }),
     ]),
   ];
 };

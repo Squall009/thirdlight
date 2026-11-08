@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
-import { sectionLocalOrigin } from './derive-assembly';
-import { sectionRelief } from './stream-handlers';
 import { RELIEF_FREE, RELIEF_SUBDIVISIONS, reliefNeighbourBit, subdivideSurface, type CreaseRule, type ReliefSurface } from './relief-mesh';
 
 const S = POSITION_STEPS_PER_CELL;
@@ -126,19 +124,5 @@ describe('relief mesh subdivision', () => {
     expect([...a.vertices]).toEqual([...b.vertices]);
     expect([...a.indices]).toEqual([...b.indices]);
     expect([...a.crease]).toEqual([...b.crease]);
-  });
-
-  it('gives a section the plain neighbours of its chunk across the chunk faces it touches, none inside the chunk', () => {
-    // A 32³ chunk of 16³ sections whose +x neighbour chunk (and only it) is plain.
-    const plainChunks = reliefNeighbourBit(1, 0, 0);
-    for (let id = 0; id < 8; id++) {
-      const [x, y, z] = sectionLocalOrigin(32, 16, id).map((c) => c / 16) as [number, number, number];
-      const o = sectionRelief(32, 16, id, 4, plainChunks);
-      // Past the +x face, the neighbours that stay level with the chunk (the others lie in chunks diagonal to it, drawn with relief).
-      let expected = 0;
-      if (x === 1) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) if (y + dy >= 0 && y + dy < 2 && z + dz >= 0 && z + dz < 2) expected |= reliefNeighbourBit(1, dy, dz);
-      expect(o.plainNeighbours, `section ${id}`).toBe(expected);
-      expect(o.n).toBe(4);
-    }
   });
 });

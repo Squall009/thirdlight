@@ -5075,7 +5075,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "levels",
       "kind": "property",
-      "detail": "{ readonly level0: number; readonly level1: number; }",
+      "detail": "{ readonly level0: number; readonly level1: number; readonly relief: number; }",
       "type": "VoxelRings.levels"
     },
     {
@@ -5089,6 +5089,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "number | null",
       "doc": "The stream memory budget in bytes (null: the host's)."
+    },
+    {
+      "name": "reliefSteps",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Relief lattice steps a cell within `levels.relief` (the quality level's; 0: no relief)."
     }
   ],
   "VoxelRings.collision": [
@@ -5111,6 +5117,11 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     },
     {
       "name": "level1",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "relief",
       "kind": "property",
       "detail": "number"
     }

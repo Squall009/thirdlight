@@ -32,7 +32,8 @@ import { chunkKey, type ChunkGrid } from './coords';
 import type { JoinedDraw, JoinTimes } from './chunk-join';
 import type { DerivedData } from './derived-data';
 import type { InstanceList, SurfaceBuffer } from './derived-mesh';
-import type { ReliefSurface } from './relief-mesh';
+import { reliefBytes, type ReliefSurface } from './relief-mesh';
+import { RELIEF_DRAW_PART } from './relief-ring';
 import { shaderGridEntries, shaderGridSide, shaderSolidEntry } from './derived-shader';
 import type { FaceSeam, NodeFace } from './lod-seam';
 import type { SwapReport } from './stream-sections';
@@ -131,9 +132,11 @@ export interface ChunkDrawBatcherOptions {
   /**
    * Told of every chunk's join on its `chunk` event, drawn or not (`drawn`:
    * at level 0), for what else is built per chunk from the same join (a
-   * page's collision bodies). With it every chunk event is joined.
+   * page's collision bodies; `bodiesStand`: only shader data or relief
+   * meshes changed, what collides is as it was). With it every chunk event
+   * is joined.
    */
-  readonly onJoined?: (cx: number, cy: number, cz: number, joined: JoinedDraw | null, shaderOnly: boolean, drawn: boolean) => void;
+  readonly onJoined?: (cx: number, cy: number, cz: number, joined: JoinedDraw | null, bodiesStand: boolean, drawn: boolean) => void;
   /**
    * The batches are applied where the world runs and never transferred
    * (default false): buffers the streamer keeps (node results, seams) are
@@ -182,6 +185,8 @@ export class ChunkDrawBatcher {
   private readonly copy: boolean;
   /** Chunks whose draw was sent and not removed since. */
   private readonly sent = new Set<number>();
+  /** Bytes of the relief meshes in each chunk's draw sent (only chunks drawn with relief). */
+  private readonly reliefSent = new Map<number, number>();
   /** Mip nodes and seams whose draw was sent and not removed since ("level,nx,ny,nz", "…,face"). */
   private readonly nodesSent = new Set<string>();
   private readonly seamsSent = new Set<string>();
@@ -213,8 +218,10 @@ export class ChunkDrawBatcher {
   private onStream(e: StreamEvent): void {
     if (this.closed) return;
     if (e.type === 'unloaded') {
-      if (this.sent.delete(chunkKey(this.grid, e.cx, e.cy, e.cz))) this.push({ cx: e.cx, cy: e.cy, cz: e.cz, kind: 'remove' });
-    } else if (e.type === 'chunk') this.chunk(e.cx, e.cy, e.cz, e.shaderOnly);
+      const key = chunkKey(this.grid, e.cx, e.cy, e.cz);
+      this.reliefSent.delete(key);
+      if (this.sent.delete(key)) this.push({ cx: e.cx, cy: e.cy, cz: e.cz, kind: 'remove' });
+    } else if (e.type === 'chunk') this.chunk(e.cx, e.cy, e.cz, e.shaderOnly, e.reliefOnly);
     else if (e.type === 'swap') this.swap(e.report);
     else if (e.type === 'levels') {
       // Removed first: a chunk drawn again in the same swap (a level change and back) ends drawn.
@@ -223,7 +230,7 @@ export class ChunkDrawBatcher {
         else if (this.nodesSent.delete(`${n.level},${n.nx},${n.ny},${n.nz}`)) this.push({ level: n.level, cx: n.nx, cy: n.ny, cz: n.nz, kind: 'remove' });
       }
       for (const n of e.added) {
-        if (n.level === 0) this.chunk(n.nx, n.ny, n.nz, false);
+        if (n.level === 0) this.chunk(n.nx, n.ny, n.nz, false, false);
         else this.node(n.level, n.nx, n.ny, n.nz);
       }
     } else if (e.type === 'node') {
@@ -237,14 +244,20 @@ export class ChunkDrawBatcher {
     }
   }
 
-  /** A chunk no longer drawn at level 0 (it stays resident): its draw goes, and its part with it. */
+  /** A chunk no longer drawn at level 0 (it stays resident): its draw goes, and its parts with it. */
   private undraw(cx: number, cy: number, cz: number): void {
-    if (!this.sent.delete(chunkKey(this.grid, cx, cy, cz))) return;
+    const key = chunkKey(this.grid, cx, cy, cz);
+    if (!this.sent.delete(key)) return;
     this.push({ cx, cy, cz, kind: 'remove' });
-    this.feed.setPart(cx, cy, cz, MESH_PART, 0);
+    this.dropParts(cx, cy, cz, key);
   }
 
-  private chunk(cx: number, cy: number, cz: number, shaderOnly: boolean): void {
+  private dropParts(cx: number, cy: number, cz: number, key: number): void {
+    this.feed.setPart(cx, cy, cz, MESH_PART, 0);
+    if (this.reliefSent.delete(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, 0);
+  }
+
+  private chunk(cx: number, cy: number, cz: number, shaderOnly: boolean, reliefOnly: boolean): void {
     const key = chunkKey(this.grid, cx, cy, cz);
     const levels = this.feed.mips;
     const drawn = levels == null || levels.lod.drawn.drawn(0, cx, cy, cz);
@@ -253,13 +266,13 @@ export class ChunkDrawBatcher {
     const t0 = performance.now();
     const d = this.feed.joinedChunk(cx, cy, cz, undefined, this.scratch);
     this.joinMs += performance.now() - t0;
-    onJoined?.(cx, cy, cz, d, shaderOnly, drawn);
+    onJoined?.(cx, cy, cz, d, shaderOnly || reliefOnly, drawn);
     if (!drawn) return this.undraw(cx, cy, cz);
     if (d === null) {
       if (this.sent.delete(key)) {
         this.push({ cx, cy, cz, kind: 'remove' });
-        // The chunk stays resident with no draw: the page reports no bytes for a removed draw, so its part goes here.
-        this.feed.setPart(cx, cy, cz, MESH_PART, 0);
+        // The chunk stays resident with no draw: the page reports no bytes for a removed draw, so its parts go here.
+        this.dropParts(cx, cy, cz, key);
       }
       return;
     }
@@ -275,9 +288,12 @@ export class ChunkDrawBatcher {
     if (d.relief !== undefined) {
       // The relief mesh is drawn in place of the surfaces (the plain ones still collide), its crease weights with it.
       const relief = (r: ReliefSurface): DrawSurface => ({ ...surface(r), crease: own(r.crease) });
+      // What of the chunk's draw is relief (its GPU copy): the relief share's, not the base world's.
+      this.reliefSent.set(key, reliefBytes({ n: 0, ...d.relief }));
       this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
       return;
     }
+    if (this.reliefSent.delete(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, 0);
     this.push({ cx, cy, cz, kind: 'draw', ground: surface(d.ground), base: surface(d.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
   }
 
@@ -356,8 +372,12 @@ export class ChunkDrawBatcher {
       const cx = bytes[i]!;
       const cy = bytes[i + 1]!;
       const cz = bytes[i + 2]!;
+      const key = chunkKey(this.grid, cx, cy, cz);
       // A chunk unloaded since it was drawn keeps no part (its draw went with it).
-      if (this.sent.has(chunkKey(this.grid, cx, cy, cz))) this.feed.setPart(cx, cy, cz, MESH_PART, bytes[i + 3]!);
+      if (!this.sent.has(key)) continue;
+      const relief = Math.min(this.reliefSent.get(key) ?? 0, bytes[i + 3]!);
+      this.feed.setPart(cx, cy, cz, MESH_PART, bytes[i + 3]! - relief);
+      if (this.reliefSent.has(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, relief);
     }
   }
 
@@ -369,6 +389,7 @@ export class ChunkDrawBatcher {
     this.seams = [];
     this.swaps = [];
     this.sent.clear();
+    this.reliefSent.clear();
     this.nodesSent.clear();
     this.seamsSent.clear();
     this.send({ world: this.world, edge: this.grid.edge, closed: true, chunks: [], swaps: [], sentAt: wallClock(), joinMs: 0 });

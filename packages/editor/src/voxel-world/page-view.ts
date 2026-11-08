@@ -1,7 +1,7 @@
 /**
- * The voxel world page's view: its relief and sun: the relief switches (`?relief=n`,
+ * The voxel world page's view: its relief and sun: the relief switches (`?relief=n|tier`,
  * `?reliefRadius=`, `?reliefFade=a,b`, `?displace=0`, `?bump=0`, see
- * page.ts) turned into the surface's options and settings, and the sun
+ * page.ts) turned into the streamer's relief ring and the surface's options and settings, and the sun
  * (`?sun=` elevation, `?shadows=1`), both kept on the camera's target as it
  * moves: the relief ring's fade is centred there, and so is the shadow map;
  * and the page's view input (drag to orbit, wheel to zoom, keys held to
@@ -9,18 +9,18 @@
  */
 import * as THREE from 'three';
 import { RELIEF_TEST_SIZE, reliefTestHeights, voxelStandInLook, voxelTestRelief, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
-import { VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type ReliefRingSettings, type StreamRelief } from '@thirdlight/voxel';
+import { engineQualityLevel, resolveVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
 const SHADOW_SPAN_M = 80;
 const SHADOW_MAP_TEXELS = 2048;
-/** Metres over which relief fades out before the ring's edge. */
-const RELIEF_FADE_M = 4;
 
-/** What the page's URL asks of relief (n null: none). */
+/** What the page's URL asks of relief (n null: none; 'tier': the quality level's steps and distance). */
 export interface ReliefParams {
-  readonly n: number | null;
-  readonly radiusM: number;
+  readonly n: number | 'tier' | null;
+  /** Metres within which relief displaces (null: the quality level's, the engine's default scaled by it). */
+  readonly radiusM: number | null;
   readonly fade: readonly number[] | null;
   readonly displace: boolean;
   readonly bump: boolean;
@@ -28,31 +28,50 @@ export interface ReliefParams {
 
 export function reliefParams(params: URLSearchParams): ReliefParams {
   const n = params.get('relief');
+  const radius = params.get('reliefRadius');
   return {
-    n: n === null ? null : Number(n),
-    radiusM: Number(params.get('reliefRadius') ?? 32),
+    n: n === null ? null : n === 'tier' ? 'tier' : Number(n),
+    radiusM: radius === null ? null : Number(radius),
     fade: params.get('reliefFade')?.split(',').map(Number) ?? null,
     displace: params.get('displace') !== '0',
     bump: params.get('bump') !== '0',
   };
 }
 
-/** The page's relief: the surface options it adds, and the settings it keeps the surface at. */
+/** What a quality level gives the page's world, as a scene with no distances of its own resolves it: the stream budget and the relief ring (cells). */
+export function pageLevel(quality: string, p: ReliefParams): { readonly id: string; readonly budgetBytes: number; readonly relief: ReliefRingSettings } {
+  const level = engineQualityLevel(quality);
+  const s = resolveVoxelWorld({ world: 'page' }, level);
+  const radiusM = p.radiusM ?? s.levels.relief;
+  const n = p.n === null ? 0 : p.n === 'tier' ? s.reliefSteps : p.n;
+  return { id: level.id, budgetBytes: s.budgetBytes ?? VOXEL_STREAM_BUDGET_BYTES.low, relief: { n, radius: n === 0 ? 0 : radiusM / VOXEL_SIZE_M } };
+}
+
+/** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, and with `?relief=tier` its relief ring. */
+export function pageQualityHook(textures: (id: string) => unknown, streamer: { budgetBytes: number }, relief: PageRelief): (id: string) => unknown {
+  return (id) => {
+    const out = textures(id);
+    const l = pageLevel(id, relief.params);
+    streamer.budgetBytes = l.budgetBytes;
+    relief.setRing(l.relief);
+    return out;
+  };
+}
+
+/**
+ * The page's relief: the surface options it adds, and the settings it keeps the surface at. The fade follows the
+ * streamer's relief ring (where it displaces now, `reliefFade`), so no section the ring holds plain moves.
+ */
 export class PageRelief {
-  readonly fadeStartM: number;
-  readonly fadeEndM: number;
+  private fadeStartM = 0;
+  private fadeEndM = 0;
+  private n = 0;
   private readonly on: { displace: boolean; bump: boolean };
   private surface: VoxelSurface | null = null;
+  private relief: StreamRelief | null = null;
   private readonly focus = new THREE.Vector3();
 
-  constructor(
-    readonly params: ReliefParams,
-    chunkEdge: number,
-  ) {
-    // The fade ends a chunk's half diagonal inside the ring (chunks whose centre lies within it derive relief), so a
-    // chunk at the ring's edge, relief or plain, does not move.
-    this.fadeEndM = params.fade?.[1] ?? Math.max(0, params.radiusM - (chunkEdge * VOXEL_SIZE_M * Math.sqrt(3)) / 2);
-    this.fadeStartM = params.fade?.[0] ?? Math.max(0, this.fadeEndM - RELIEF_FADE_M);
+  constructor(readonly params: ReliefParams) {
     this.on = { displace: params.displace, bump: params.bump };
   }
 
@@ -61,23 +80,41 @@ export class PageRelief {
    * own depth wins), relief when asked; under `patterns` (no normal maps to carry heights) the test heights.
    */
   surfaceOptions(patterns: boolean): Pick<VoxelSurfaceOptions, 'look' | 'heights' | 'relief'> {
-    const n = this.params.n;
+    const on = this.params.n !== null;
     const look = (m: number): VoxelMaterialLook => {
       const r = voxelTestRelief(m);
-      return { ...voxelStandInLook(m), ...(r === null ? {} : { heightDepthMetres: r.depthMetres, ...(n !== null && patterns ? { testHeightLayer: r.layer } : {}) }) };
+      return { ...voxelStandInLook(m), ...(r === null ? {} : { heightDepthMetres: r.depthMetres, ...(on && patterns ? { testHeightLayer: r.layer } : {}) }) };
     };
-    return { look, ...(n === null ? {} : { relief: true, ...(patterns ? { heights: { size: RELIEF_TEST_SIZE, layers: reliefTestHeights() } } : {}) }) };
+    return { look, ...(on ? { relief: true, ...(patterns ? { heights: { size: RELIEF_TEST_SIZE, layers: reliefTestHeights() } } : {}) } : {}) };
   }
 
-  /** The surface made with {@link surfaceOptions}: given its settings. */
-  attach(surface: VoxelSurface): void {
+  /** The surface made with {@link surfaceOptions} and the streamer whose ring it fades with. */
+  attach(surface: VoxelSurface, relief: StreamRelief | null, ring: ReliefRingSettings): void {
     this.surface = surface;
-    if (this.params.n !== null) surface.setRelief({ n: this.params.n, fadeStartM: this.fadeStartM, fadeEndM: this.fadeEndM, ...this.on });
+    this.relief = relief;
+    this.n = ring.n;
+    if (this.params.n !== null) surface.setRelief({ n: Math.max(1, ring.n), ...this.on });
   }
 
-  /** The ring's centre (scene metres) moved. */
+  /** A quality level's ring (`?relief=tier`): the streamer meshes it, the surface takes its steps. */
+  setRing(ring: ReliefRingSettings): void {
+    if (this.params.n !== 'tier' || this.relief === null) return;
+    this.relief.set(ring);
+    this.n = ring.n;
+    if (ring.n > 0) this.surface?.setRelief({ n: ring.n });
+  }
+
+  /** The ring's centre (scene metres) moved; the fade follows where the streamer's ring displaces now. */
   follow(x: number, y: number, z: number): void {
-    this.surface?.setRelief({ focus: this.focus.set(x, y, z) });
+    if (this.surface === null || this.params.n === null) return;
+    const f = this.params.fade;
+    const fade = reliefFade(this.relief?.radius ?? 0);
+    const start = f?.[0] ?? fade.start * VOXEL_SIZE_M;
+    const end = f?.[1] ?? fade.end * VOXEL_SIZE_M;
+    const changed = start !== this.fadeStartM || end !== this.fadeEndM;
+    this.fadeStartM = start;
+    this.fadeEndM = end;
+    this.surface.setRelief({ focus: this.focus.set(x, y, z), ...(changed ? { fadeStartM: start, fadeEndM: end } : {}) });
   }
 
   set(s: { displace?: boolean; bump?: boolean }): void {
@@ -85,9 +122,9 @@ export class PageRelief {
     this.surface?.setRelief(s);
   }
 
-  state(): Record<string, unknown> | null {
-    const p = this.params;
-    return p.n === null ? null : { n: p.n, radiusM: p.radiusM, fadeStartM: this.fadeStartM, fadeEndM: this.fadeEndM, depthM: this.surface?.reliefDepthM ?? 0, ...this.on };
+  state(ring: Record<string, unknown> | null): Record<string, unknown> | null {
+    if (this.params.n === null) return null;
+    return { n: this.n, fadeStartM: this.fadeStartM, fadeEndM: this.fadeEndM, depthM: this.surface?.reliefDepthM ?? 0, ...this.on, ring };
   }
 }
 

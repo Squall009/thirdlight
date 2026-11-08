@@ -533,7 +533,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     const changed = await h.inStep((v) => v.setRings({ levels: { level0: 60, level1: 100 } }));
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
-    expect(changed.rings.levels).toEqual({ level0: 60, level1: 100 });
+    expect(changed.rings.levels).toEqual({ level0: 60, level1: 100, relief: 16 });
     expect(lod.levelRings.radii).toEqual([cells(60), cells(100)]);
     await h.until(() => lod.drawn.countAt(1) === 0 && !lod.swapping, 'level 0 drawn over the ring');
     const swaps = levelEvents.slice(swapsBefore).filter((e) => e.reason === 'swap');
@@ -547,7 +547,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(swaps.some((e) => e.added.some((a) => a.level === 1))).toBe(false);
     // A script's level-0 distance below the collision ring's keeps level 0 there (1 + 8 m).
     const near = await h.inStep((v) => v.setRings({ levels: { level0: 2 } }));
-    expect(near.ok && near.rings.levels).toEqual({ level0: 2, level1: 100 });
+    expect(near.ok && near.rings.levels).toEqual({ level0: 2, level1: 100, relief: 2 });
     expect(lod.levelRings.radii[0]).toBe(cells(9));
 
     // The collision ring: 20 m; the chunk 16 m off gets its body.
@@ -572,19 +572,28 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     // The page reports its quality level: `small` halves every distance the scene (as the script changed it) sets, at the low tier's budget.
     expect(h.rt.setStats!(pageStats('small'))).toBe(true);
     const small = await h.inStep((v) => v.rings());
-    expect(small).toEqual({ ring: { loadRadius: 8, unloadRadius: 8, loadHeight: 16, unloadHeight: 32 }, collision: { radius: 10, height: 8 }, levels: { level0: 1, level1: 50 }, quality: 'small', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low });
+    expect(small).toEqual({ ring: { loadRadius: 8, unloadRadius: 8, loadHeight: 16, unloadHeight: 32 }, collision: { radius: 10, height: 8 }, levels: { level0: 1, level1: 50, relief: 1 }, quality: 'small', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, reliefSteps: 0 });
+    // The low tier draws no relief mesh at any distance.
+    expect(s().relief!.ring.n).toBe(0);
     expect([s().ring.loadRadius, s().budgetBytes]).toEqual([cells(8), VOXEL_STREAM_BUDGET_BYTES.low]);
     // `big` (the high tier, scale 2): twice the distances, its own full-detail distance from the scene, the high tier's budget.
     expect(h.rt.setStats!(pageStats('big'))).toBe(true);
     const big = await h.inStep((v) => v.rings());
-    expect(big).toEqual({ ring: { loadRadius: 32, unloadRadius: 32, loadHeight: 64, unloadHeight: 128 }, collision: { radius: 40, height: 32 }, levels: { level0: 20, level1: 200 }, quality: 'big', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high });
+    expect(big).toEqual({ ring: { loadRadius: 32, unloadRadius: 32, loadHeight: 64, unloadHeight: 128 }, collision: { radius: 40, height: 32 }, levels: { level0: 20, level1: 200, relief: 20 }, quality: 'big', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, reliefSteps: 4 });
+    // The high tier: relief 4 steps a cell to the scene's 16 m doubled, within level 0; a script's own distance re-plans the ring.
+    expect([s().relief!.ring.n, s().relief!.radius]).toEqual([4, cells(20)]);
+    const rel = await h.inStep((v) => v.setRings({ levels: { relief: 6 } }));
+    expect(rel.ok && rel.rings.levels.relief).toBe(12);
+    expect(s().relief!.radius).toBe(cells(12));
+    await s().settle();
+    expect(s().relief!.ring.size).toBeGreaterThan(0);
     expect([s().ring.loadRadius, s().budgetBytes]).toEqual([cells(32), VOXEL_STREAM_BUDGET_BYTES.high]);
     // Level 0 at least the collision ring and its hysteresis (40 + 8 m).
     expect(lod.levelRings.radii[0]).toBe(cells(48));
     // Back to the scene's own distances (still at the level).
     const reset = await h.inStep((v) => v.setRings(null));
     expect(reset.ok && reset.rings.ring.loadRadius).toBe(96);
-    expect(reset.ok && reset.rings.levels).toEqual({ level0: 20, level1: 192 });
+    expect(reset.ok && reset.rings.levels).toEqual({ level0: 20, level1: 192, relief: 20 });
     await s().settle();
     expect(h.rt.dispose().ok).toBe(true);
   }, 120_000);

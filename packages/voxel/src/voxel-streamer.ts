@@ -55,7 +55,8 @@ import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, type VoxelRecord }
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import type { PieceTable } from './piece-table';
 import { StreamPieces } from './stream-pieces';
-import { checkReliefOptions, reliefNeighbourBit } from './relief-mesh';
+import type { ReliefRing, ReliefRingSettings } from './relief-ring';
+import { StreamRelief } from './stream-relief';
 import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
@@ -154,14 +155,14 @@ export interface VoxelStreamerOptions {
    */
   readonly pieces?: PieceTable | null;
   /**
-   * Level-0 sections of the chunks whose centre lies within `radius` cells
-   * of the focus when they are derived also derive a relief mesh `n`
-   * lattice steps a cell (relief-mesh.ts RELIEF_SUBDIVISIONS; a spike
-   * switch, absent: none), drawn in place of their surfaces; collision and
-   * every other output stay the plain derive's. The ring is not re-planned
-   * as the focus moves (the spike measures a still view).
+   * The relief ring, with `rules` (relief-ring.ts; absent or n 0: none):
+   * level-0 sections round the focus also derive a relief mesh `n` lattice
+   * steps a cell, drawn in place of their surfaces, displaced to `radius`
+   * cells; collision and every other output stay the plain derive's. The
+   * ring is planned again as the focus moves (`relief.set` changes it) and holds at most its share of the budget
+   * (`RELIEF_BUDGET_SHARE`), shrinking to fit; the base world keeps the rest.
    */
-  readonly relief?: { readonly n: number; readonly radius: number };
+  readonly relief?: ReliefRingSettings;
 }
 
 /**
@@ -256,7 +257,7 @@ export interface StreamCounters {
   refreshed: number;
   /** Refreshes not swapped in: damaged, superseded by a later refresh, or the chunk was edited here meanwhile. */
   refreshDropped: number;
-  /** Edits whose rebuilt sections were swapped in together. */
+  /** Edits (and relief ring changes, `relief.plans`) whose rebuilt sections were swapped in together. */
   swaps: number;
 }
 
@@ -268,7 +269,7 @@ export interface StreamMetrics {
   readonly damaged: number;
   readonly deriving: number;
   /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables (and region files a source holds whole), the chunk tree's nodes, the page's kit meshes and textures. */
-  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly mips: number; readonly kits: number; readonly budget: number };
+  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly mips: number; readonly kits: number; readonly budget: number; readonly relief: number; readonly reliefShare: number };
   /** The store's own count of its arrays (to check the streamer's sum). */
   readonly storeBytes: number;
   readonly counters: Readonly<StreamCounters>;
@@ -276,6 +277,8 @@ export interface StreamMetrics {
   readonly evaluateUs: { readonly all: SampleSummary; readonly pieces: SampleSummary } | null;
   /** Worker µs a level-0 section building its relief mesh (null: none asked for, or nothing derived). */
   readonly reliefUs: SampleSummary | null;
+  /** The relief ring (cells; null: the streamer derives no sections with rules). */
+  readonly relief: ReturnType<ReliefRing['state']> | null;
 }
 
 /** Quantiles of a sample ring (µs) and how many samples it holds. */
@@ -347,6 +350,12 @@ export class VoxelStreamer {
   /** The chunk tree's coarser levels: their nodes' derived results, metrics and bytes (null without rules or levels). */
   readonly mips: StreamMips | null;
   private wake: (() => void) | null = null;
+  /**
+   * The relief ring (null: no sections derived with rules): `relief.set`
+   * changes it without a reload (the next update plans it; the sections it
+   * changes swap in together), `relief.radius` is where it displaces now.
+   */
+  readonly relief: StreamRelief | null;
   /** The kit piece table the derives choose pieces from ({@link StreamPieces.set} changes it). */
   readonly pieces: StreamPieces;
 
@@ -372,9 +381,6 @@ export class VoxelStreamer {
       chunkForm: (cx, cy, cz) => this.overlay.chunkForm(cx, cy, cz),
       chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
     };
-    const relief = opts.relief;
-    if (relief !== undefined) checkReliefOptions({ n: relief.n });
-    const reliefChunk = (cx: number, cy: number, cz: number): boolean => relief !== undefined && chunkDistance2(this.grid, this.focus, cx, cy, cz) <= relief.radius * relief.radius;
     this.derives =
       opts.derive === true
         ? new SectionDerives(
@@ -387,14 +393,7 @@ export class VoxelStreamer {
               radius: this.radius,
               rules: opts.rules,
               pieceTable: () => this.pieces.table,
-              relief: (cx, cy, cz) => {
-                if (!reliefChunk(cx, cy, cz)) return null;
-                let plainChunks = 0;
-                for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-                  if ((dx !== 0 || dy !== 0 || dz !== 0) && !reliefChunk(cx + dx, cy + dy, cz + dz)) plainChunks |= reliefNeighbourBit(dx, dy, dz);
-                }
-                return { n: relief!.n, plainChunks };
-              },
+              relief: (sx, sy, sz) => this.relief?.ring.optionsFor(sx, sy, sz) ?? null,
               counters: this.counters,
               rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs, joinUs: this.joinUs },
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
@@ -421,6 +420,11 @@ export class VoxelStreamer {
             opts.editDeriveMsPerUpdate ?? 8,
           )
         : null;
+    this.relief = this.derives !== null && opts.rules !== undefined ? new StreamRelief(this.derives, this.grid, (cx, cy, cz) => this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.parts ?? null) : null;
+    if (opts.relief !== undefined && opts.relief.n !== 0) {
+      if (this.relief === null) throw new RangeError('relief needs a streamer deriving with assembly rules');
+      this.relief.set(opts.relief);
+    }
     const rings = opts.mips ?? mipRingsFor(ring);
     const streamer = this;
     this.mips =
@@ -594,6 +598,7 @@ export class VoxelStreamer {
     else c.parts.delete(part);
     c.bytes += bytes - old;
     this.bytesDerived += bytes - old;
+    if (this.relief !== null && StreamRelief.isPart(part)) this.relief.bytes += bytes - old;
     return true;
   }
 
@@ -622,11 +627,12 @@ export class VoxelStreamer {
       decoding,
       damaged,
       deriving,
-      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + mips + kits, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, mips, kits, budget: this.budgetBytes },
+      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + mips + kits, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, mips, kits, budget: this.budgetBytes, relief: this.relief?.bytes ?? 0, reliefShare: this.relief?.share(this.budgetBytes) ?? 0 },
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
       evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },
       reliefUs: this.derives === null || this.derives.reliefUs.count === 0 ? null : summarize(this.derives.reliefUs),
+      relief: this.relief?.ring.state() ?? null,
     };
   }
 
@@ -674,6 +680,7 @@ export class VoxelStreamer {
         else this.heldOutside.delete(key);
       }
     }
+    this.relief?.plan(this.focus);
     this.enforceBudget();
     // Held stored chunks go to the pool as it has room (a dropped chunk's bytes are let go).
     const held = this.plan.held;
@@ -752,6 +759,7 @@ export class VoxelStreamer {
       this.tracker.unload(ref);
       this.bytesChunks -= c.bytes - partBytes(c);
       this.bytesDerived -= partBytes(c);
+      if (this.relief !== null) this.relief.bytes -= reliefPartBytes(c);
       this.unloadedAt.delete(c.key);
       this.unloadedAt.set(c.key, performance.now());
       this.counters.unloads++;
@@ -769,11 +777,14 @@ export class VoxelStreamer {
 
   private enforceBudget(): void {
     const tables = this.opts.source.memoryBytes();
+    // Relief keeps to its own share: its ring shrinks, the world's chunks are never evicted for it.
+    this.relief?.fit(this.budgetBytes);
+    const budget = this.budgetBytes - (this.relief?.share(this.budgetBytes) ?? 0);
     // The overlay counts but is never evicted: it is the game's changes, not a copy of the files.
     // Mip nodes count too; they leave with the chunks under them. The kit meshes stay as long as the kits do.
-    let total = this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + (this.mips?.bytes ?? 0) + this.pieces.gpuBytes;
-    if (total <= this.budgetBytes) {
-      if (total < this.budgetBytes * RESUME_BELOW && this.horizon !== Infinity) {
+    let total = this.bytesChunks + this.bytesDerived - (this.relief?.bytes ?? 0) + this.bytesOverlay + tables + (this.mips?.bytes ?? 0) + this.pieces.gpuBytes;
+    if (total <= budget) {
+      if (total < budget * RESUME_BELOW && this.horizon !== Infinity) {
         this.horizon = Infinity;
         this.cursor = 0;
       }
@@ -782,14 +793,14 @@ export class VoxelStreamer {
     const candidates = [...this.chunks.values()].filter((c) => c.phase === 'resident' && this.tracker.canUnload(jobRef(this, c)));
     candidates.sort((a, b) => b.d2 - a.d2 || a.wantedTick - b.wantedTick);
     for (const c of candidates) {
-      if (total <= this.budgetBytes * EVICT_TO) break;
-      const bytes = c.bytes;
+      if (total <= budget * EVICT_TO) break;
+      const bytes = c.bytes - reliefPartBytes(c);
       const mips = this.mips?.bytes ?? 0;
       if (!this.drop(c, true)) continue;
       total -= bytes + mips - (this.mips?.bytes ?? 0);
       this.horizon = Math.min(this.horizon, c.d2);
     }
-    if (total > this.budgetBytes) this.counters.overBudgetTicks++;
+    if (total > budget) this.counters.overBudgetTicks++;
   }
 
   private requestLoads(): void {
@@ -872,10 +883,7 @@ export class VoxelStreamer {
     const job = this.tracker.beginJob(jobRef(this, c));
     c.phase = 'decoding';
     c.job = job.id;
-    this.submitLoad(c, job.id, stored);
-  }
-
-  private submitLoad(c: Chunk, id: number, stored: StoredChunk): void {
+    const id = job.id;
     const input: LoadInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, bytes: stored, hash: false };
     const transfer = 'stored' in stored ? [stored.stored.buffer as ArrayBuffer] : [];
     void this.opts.pool.submit<LoadOutput>({ id, kind: 'load', lane: laneOf(this.grid, this.ring, this.focus, c.cx, c.cz), distance: c.d2, input, transfer }).then((o) => {
@@ -1233,6 +1241,13 @@ export class VoxelStreamer {
     out.push(...this.restoring.entries());
     return out;
   }
+}
+
+/** Bytes of a chunk's relief parts (its sections' relief meshes and their draw). */
+function reliefPartBytes(c: Chunk): number {
+  let n = 0;
+  if (c.parts !== null) for (const [name, b] of c.parts) if (StreamRelief.isPart(name)) n += b;
+  return n;
 }
 
 /** Bytes of a chunk's derived parts. */

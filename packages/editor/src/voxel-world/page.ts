@@ -91,13 +91,12 @@ import {
   voxel,
   VOXEL_ROLE,
   VOXEL_SIZE_M,
-  VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
   WETNESS_MAX,
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
-import { bindViewInput, PageRelief, PageSun, reliefParams } from './page-view';
+import { bindViewInput, pageLevel, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { backendArrays, PageMaterials } from './page-materials';
 import { kitSceneHooks } from './kit-scene-labels';
@@ -130,15 +129,16 @@ const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionP
 /** `?levels=a,b`: level 0 drawn within a metres, level 1 within b (default the engine's rings). */
 const levelsParam = params.get('levels');
 /**
- * `?relief=n` (2, 4, 8): the chunks within `?reliefRadius=` metres (default 32) of the focus when derived also derive
- * the relief mesh n lattice steps a cell, drawn in place of their surfaces and moved in the vertex stage by their
- * materials' heights (the normal maps' A) and height depths; under `?patterns=1` by the engine's relief test heights
- * (`voxelTestRelief`), which there also bend every surface's lighting normal (`?bump=0` off). The
- * displacement fades to none between `?reliefFade=a,b` metres from the focus (default the 4 m up to the radius less a
- * chunk's half diagonal: a chunk at the ring's edge, plain or relief, does not move). `?displace=0` and `?bump=0`
- * start with either off (the hook's `setRelief` switches them).
+ * `?relief=n` (2, 4, 8) or `?relief=tier` (the quality level's steps, none on low): the streamer's relief ring (its
+ * sections within `?reliefRadius=` metres of the focus, default the quality level's distance, re-planned as the
+ * focus moves, inside its share of the stream budget) derives the relief mesh n lattice steps a cell, drawn in place
+ * of the surfaces and moved in the vertex stage by their materials' heights (the normal maps' A) and height depths;
+ * under `?patterns=1` by the engine's relief test heights (`voxelTestRelief`), which there also bend every surface's
+ * lighting normal (`?bump=0` off). The displacement fades to none over the 4 m up to where the ring displaces now
+ * (`?reliefFade=a,b` metres instead). `?displace=0` and `?bump=0` start with either off (the hook's `setRelief`
+ * switches them); the hook's `setQuality` also sets the stream budget, and with `tier` the ring, of that level.
  */
-const relief = new PageRelief(reliefParams(params), grid.edge);
+const relief = new PageRelief(reliefParams(params));
 /** `?shadows=1`: the sun casts shadows (a map over the view round the focus), surfaces and pieces cast and receive them. */
 const shadows = params.get('shadows') === '1';
 const levelRings = (metres: readonly number[]): { radii: number[]; hysteresis: number } => ({ radii: metres.map((m) => Math.round(m / VOXEL_SIZE_M)), hysteresis: DEFAULT_LEVEL_RINGS.hysteresis });
@@ -254,9 +254,10 @@ async function main(): Promise<void> {
   if (hudShown) document.body.append(materials.select);
   // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...reliefOptions, look: materials.look(), blendMetres: blendM, shading, bands, patterns });
-  relief.attach(surface);
   materials.attach(surface);
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, ...(relief.params.n !== null ? { relief: { n: relief.params.n, radius: Math.round(relief.params.radiusM / VOXEL_SIZE_M) } } : {}), ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const level = pageLevel(textureResidency.quality, relief.params);
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  relief.attach(surface, streamer.relief, level.relief);
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
@@ -559,6 +560,7 @@ async function main(): Promise<void> {
     /** The picker's voxel materials, the one shift-click adds, picking one, and reading the records again. */
     materials: () => ({ entries: materials.entries, picked: materials.material, options: [...materials.select.options].map((o) => o.text) }),
     ...materials.hooks(),
+    setQuality: pageQualityHook(materials.hooks()['setQuality'] as (id: string) => unknown, streamer, relief),
     tableEntry: (m: number) => surface.tableEntry(m),
     async settle(): Promise<void> {
       await kits.loaded;
@@ -597,7 +599,7 @@ async function main(): Promise<void> {
         kitBytes: kits.meshes.bytes(),
         mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, gpuBytes: mips.gpuBytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
-        relief: relief.state(),
+        relief: relief.state(m.relief),
         shadows,
         textures: { ...materials.textures, current: materials.texturesCurrent, textured: surface.textured },
         surface: { shading, blendM, tableUploads: surface.tableUploads, tableMs: surface.tableMs, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },

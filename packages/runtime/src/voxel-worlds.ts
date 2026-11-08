@@ -56,7 +56,7 @@ interface HeldWorld {
 
 const NO_WORLD: VoxelRefused = Object.freeze({ ok: false, reason: 'no_world', message: 'no loaded scene has a voxel world' });
 /** What `rings()` reads without a world: nothing streams. */
-const NO_RINGS: VoxelRings = Object.freeze({ ring: Object.freeze({ loadRadius: 0, unloadRadius: 0, loadHeight: 0, unloadHeight: 0 }), collision: Object.freeze({ radius: 0, height: 0 }), levels: Object.freeze({ level0: 0, level1: 0 }), quality: null, budgetBytes: null });
+const NO_RINGS: VoxelRings = Object.freeze({ ring: Object.freeze({ loadRadius: 0, unloadRadius: 0, loadHeight: 0, unloadHeight: 0 }), collision: Object.freeze({ radius: 0, height: 0 }), levels: Object.freeze({ level0: 0, level1: 0, relief: 0 }), quality: null, budgetBytes: null, reliefSteps: 0 });
 
 export class RuntimeVoxels {
   /** Worlds by name, in load order. */

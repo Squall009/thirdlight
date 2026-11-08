@@ -43,7 +43,7 @@ describe('ChunkDrawBatcher', () => {
     let flush: () => void = () => {};
     const b = new ChunkDrawBatcher('w', f.feed, 16, (x) => sent.push(x), (fn) => (flush = fn));
     f.joins.set('1,0,2', draw);
-    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false });
+    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false, reliefOnly: false });
     flush();
     expect(sent.at(-1)!.chunks.map((c) => c.kind)).toEqual(['draw']);
     b.drawn([1, 0, 2, 4096], 0, 5000);
@@ -52,7 +52,7 @@ describe('ChunkDrawBatcher', () => {
     expect(f.feed.pieces!.gpuBytes).toBe(5000);
     // Its sections no longer join to anything: the page drops the draw and the budget its bytes.
     f.joins.set('1,0,2', null);
-    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false });
+    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false, reliefOnly: false });
     flush();
     expect(sent.at(-1)!.chunks.map((c) => c.kind)).toEqual(['remove']);
     expect(f.parts.has(`1,0,2:${MESH_PART}`)).toBe(false);

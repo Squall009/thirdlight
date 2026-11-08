@@ -13,6 +13,7 @@ import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIO
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
 import { LIGHT_LAYER_COUNT, MAX_LIGHT_LAYER_NAME } from './light-layers';
+import { RELIEF_STEPS } from '@thirdlight/voxel';
 import { RESOURCE_KIND_TABLE } from './loadable';
 import { ADDRESS_MAX_LENGTH, ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_DECLARATION_BYTES, MAX_PREFAB_ENTITIES, PREFAB_V4_COMPONENTS } from './content';
 import {
@@ -217,6 +218,7 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   int('shadowAtlas', 'Shadow atlas', `Side in texels of the depth texture every shadowed point and spot light shares: lights largest on screen get the larger tiles, a light without room draws unshadowed (absent: the tier's, ${lightingTierValues((t) => t.shadowAtlas)}).`, { values: [...SHADOW_ATLAS_SIZES] }),
   num('voxelRings', 'Voxel ring scale', `Scales every voxel world's distances at this level: where chunks load, where they collide and where each detail level is drawn (a scene may set its own per level). The stream memory budget is the tier's (absent: the tier's scale, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).ringScale.toFixed(2)}`).join(', ')}, so the area loaded grows as the tier's budget, ${LIGHTING_TIERS.map((t) => `${levelVoxels({ lighting: t }).budgetBytes / (1024 * 1024)} MiB`).join(' / ')}).`, { min: VOXEL_RING_SCALE_MIN, max: VOXEL_RING_SCALE_MAX, step: 0.05, unit: '×' }),
   int('voxelTexelDensity', 'Voxel texel density', `The most texels a metre the voxel surfaces' texture sets keep resident (authored at ${VOXEL_AUTHORED_TEXEL_DENSITY}; the texture budget may keep fewer; absent: the tier's, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).texelDensity}`).join(', ')}).`, { values: [...VOXEL_TEXEL_DENSITIES] }),
+  int('voxelRelief', 'Voxel relief', `Relief lattice steps a voxel cell in each voxel world's relief ring (its \`levels.relief\`): surfaces there are meshed that much finer and moved by their materials' heights; 0 draws no relief mesh, the normal maps still shade the heights (absent: the tier's, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).relief}`).join(', ')}).`, { values: [...RELIEF_STEPS] }),
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [

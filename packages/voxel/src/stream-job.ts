@@ -169,13 +169,13 @@ export interface DeriveInput {
    */
   readonly pieces?: Uint8Array;
   /**
-   * Also the relief mesh of each level-0 section (relief-mesh.ts; a spike,
-   * outside the canonical bytes), `n` lattice steps a cell; `plainChunks`
-   * (the relief-mesh.ts neighbour bits, over the 26 chunks round this one)
-   * names the chunks drawn plain, so each section keeps its edges toward
-   * them whole.
+   * Also the relief mesh (relief-mesh.ts, the derived relief part, outside
+   * the canonical bytes) of the level-0 sections named in `ids`, `n` lattice
+   * steps a cell; `plain[i]` (the relief-mesh.ts neighbour bits over the 26
+   * sections round `ids[i]`) names its neighbours drawn plain, so it keeps
+   * its edges toward them whole. A section not named derives no relief.
    */
-  readonly relief?: { readonly n: number; readonly plainChunks: number };
+  readonly relief?: { readonly n: number; readonly ids: readonly number[]; readonly plain: readonly number[] };
 }
 
 /** A chunk-tree node's 8 children (octant order: bit 0 x, bit 1 y, bit 2 z; null: air, or not known). */

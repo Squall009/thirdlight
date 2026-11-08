@@ -334,7 +334,7 @@ export class VoxelWorldHost {
 
   private ringsInUse(): VoxelRings {
     const s = this.settings;
-    return Object.freeze({ ring: s.ring, collision: s.collision, levels: s.levels, quality: s.quality, budgetBytes: s.budgetBytes });
+    return Object.freeze({ ring: s.ring, collision: s.collision, levels: s.levels, quality: s.quality, budgetBytes: s.budgetBytes, reliefSteps: s.reliefSteps });
   }
 
   /**
@@ -371,8 +371,9 @@ export class VoxelWorldHost {
       this.ring?.unloaded(e.cx, e.cy, e.cz);
     } else if (e.type === 'chunk') {
       this.derived.add(chunkKey(this.conn!.grid, e.cx, e.cy, e.cz));
-      // The body follows the chunk's new join in this task, so it swaps with the draw and the shader data.
-      if (!e.shaderOnly) this.ring?.changed(e.cx, e.cy, e.cz);
+      // The body follows the chunk's new join in this task, so it swaps with the draw and the shader data; a change of
+      // the relief meshes alone (the relief ring moved) leaves what collides as it was.
+      if (!e.shaderOnly && !e.reliefOnly) this.ring?.changed(e.cx, e.cy, e.cz);
       const id = `${e.cx},${e.cy},${e.cz}`;
       this.shaderOnlyChunks.set(id, (this.shaderOnlyChunks.get(id) ?? true) && e.shaderOnly);
     } else if (e.type === 'mismatch') {

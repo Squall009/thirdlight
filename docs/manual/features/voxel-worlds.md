@@ -76,7 +76,7 @@ how a game changes levels). All its fields:
 | **World** (`world`) | — | The folder's name, `voxels/<world>/` (lower-case letters, digits, `-` and `_`). |
 | **Load ring** (`ring`) | 192 m across, 96 m up and down; goes past 224 m / 128 m | Where chunks load round the focus, and how far past that a loaded chunk may be before it goes (so a camera at the edge does not load and drop the same chunks). An unload distance below its load distance is taken as the load distance. |
 | **Collision ring** (`collision`) | 48 m across, 24 m up and down | Where loaded chunks have colliders. Further out the world is only drawn. Never reaches past the load ring. |
-| **Detail levels** (`levels`) | full detail to 64 m, 1 m voxels to 128 m, 2 m voxels past it | How far the world is drawn at full detail (`level0`, 0.5 m voxels, with its kit pieces: this is also the detail-piece ring) and at 1 m voxels (`level1`); past that, 2 m voxels to the load ring. Full detail always reaches 8 m past the collision ring, so what a character touches is what is drawn. Where a coarser level is not built yet (the far edge of the load ring), the finer one stands in. A level-1 distance below the full-detail one is taken as it. |
+| **Detail levels** (`levels`) | full detail to 64 m, 1 m voxels to 128 m, 2 m voxels past it; relief to 16 m | How far the world is drawn at full detail (`level0`, 0.5 m voxels, with its kit pieces: this is also the detail-piece ring) and at 1 m voxels (`level1`); past that, 2 m voxels to the load ring. Full detail always reaches 8 m past the collision ring, so what a character touches is what is drawn. Where a coarser level is not built yet (the far edge of the load ring), the finer one stands in. A level-1 distance below the full-detail one is taken as it. Within `relief` of the focus (0: none; never past full detail) surfaces are drawn with [relief](#relief). |
 | **Per quality level** (`quality`) | — | By quality level id: a `scale` of the distances above at that level, or distances of its own (`ring`, `collision`, `levels`; each one set replaces the scaled one). A level the scene does not name scales by its own **Voxel ring scale** (below). |
 | **Section edge** (`sectionEdge`) | 16 | Cells along the edge of the pieces a chunk is rebuilt in after a change (8, 16 or 32): smaller rebuilds less a change, larger draws fewer pieces. Leave it at 16 unless you measure. |
 | **Saved fields** (`savedFields`) | material, role, shape | Which fields of the game's changes a save keeps. Wetness is left out by default: weather sets it again. A script can change it for a run (`ctx.voxels.setSavedFields`). |
@@ -102,7 +102,8 @@ player changes the level, without a reload.
 
 **Changing distances while the game runs.** A script reads the distances in
 use with `ctx.voxels.rings()` and changes the scene's with
-`ctx.voxels.setRings({ ring?, collision?, levels? })` (metres; each field it
+`ctx.voxels.setRings({ ring?, collision?, levels? })` (metres, `levels.relief`
+included; each field it
 gives replaces the scene's, the rest stay; `setRings(null)` goes back to the
 component's own). The quality level still applies on top, and a distance the
 scene sets for the running level wins over it. The change applies without a
@@ -198,6 +199,38 @@ player characters, so a large view costs a fraction of drawing every cell:
   same ground the characters stand on.
 - Reading cells (`ctx.voxels`) always reads the full-detail cells, whatever
   ring they are drawn in.
+
+### Relief
+
+Near the focus, surfaces are drawn **with relief**: their mesh is made finer
+(per 8 m section of the world) so the vertex stage can move it inward by each
+material's height (the normal map's alpha) times its **height depth**
+(see [Voxel materials](#voxel-materials)), fading to none toward the relief
+distance. What collides, what characters stand on and what scripts read stay
+the plain surfaces: relief only ever recesses.
+
+- **How fine, by quality level.** A quality level's **Voxel relief**
+  (`voxelRelief`: 0, 2, 4 or 8 steps a cell; absent: its tier's, low 0, medium
+  2 = 25 cm, high 4 = 12.5 cm). At 0 (the low tier, an integrated GPU's floor)
+  no relief mesh is made at any distance; the normal maps still shade the
+  heights everywhere.
+- **How far.** The world's `levels.relief` (default 16 m, scaled by the quality
+  level like every distance: high 22.6 m), changed at run time with
+  `ctx.voxels.setRings({ levels: { relief } })`. The ring moves with the focus;
+  a section turns relief or plain only where nothing of it is moved, and the
+  sections that change swap in together between two frames, so its edge
+  neither cracks nor pops.
+- **Memory.** Relief has its own share of the world's stream budget (one
+  eighth): the base world keeps the rest, so relief never pushes the world's
+  own chunks out. When the relief meshes outgrow their share (a dense town at
+  a fine setting), the relief ring shrinks to fit until the focus has moved
+  on, and the displacement ends where it now stops.
+- A material paint (material or wetness) never remeshes relief: heights and
+  depths are shader data.
+- **Drawn today on the voxel world page** (`?relief=tier`). Play and exports
+  derive the relief ring at medium and high but draw it without displacement
+  for now (the surfaces look as without relief); the Scene view (no quality
+  level) draws none yet.
 
 Limits today:
 

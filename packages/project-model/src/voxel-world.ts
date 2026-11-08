@@ -22,7 +22,11 @@
  *   detail-piece ring: kit pieces are drawn where level 0 is and nowhere
  *   else. Level 0 always reaches at least as far as a chunk keeps its
  *   collider (the collision radius and the voxel format's hysteresis): the
- *   voxel package widens it.
+ *   voxel package widens it. `relief`: surfaces within it of a focus are
+ *   drawn with relief (meshed finer per derive section and moved by their
+ *   materials' heights, fading to none at it; 0: none); how fine is the
+ *   quality level's (`voxelRelief`, its tier's: none on low), so a level
+ *   without relief draws none at any distance. Never past `level0`.
  * - `quality`: per quality level id, how the distances above change at that
  *   level: `scale` (every distance times it, in place of the level's own
  *   `voxelRings` scale), or distances of its own (`ring`, `collision`,
@@ -40,8 +44,8 @@
  * Pure data.
  */
 import { isPlainObject } from '@thirdlight/shared';
-import { levelVoxels, QUALITY_LEVEL_ID_RE, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, type QualityLevelConfig } from './quality-levels';
-import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
+import { DEFAULT_QUALITY_LEVELS, levelVoxels, QUALITY_LEVEL_ID_RE, qualityLevelOf, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, type QualityLevelConfig } from './quality-levels';
+import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_RELIEF_RADIUS_CELLS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
 import { validateDecalLayerMask } from './decals';
 import type { ModelErrorV2 } from './errors';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
@@ -81,6 +85,8 @@ export interface VoxelWorldLevels {
   level0?: number;
   /** Metres across the ground within which level 1 (1 m cells) is drawn; past it, level 2 (below `level0`: taken as it). */
   level1?: number;
+  /** Metres from a focus within which surfaces are drawn with relief (0: none; past `level0`: taken as it). */
+  relief?: number;
 }
 
 /** A world's ring distances (metres), each group and field optional: what a scene, a quality level of it, or a script sets. */
@@ -113,7 +119,9 @@ export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ri
 export const VOXEL_WORLD_QUALITY_FIELDS = ['scale', 'ring', 'collision', 'levels'] as const;
 export const VOXEL_WORLD_RING_FIELDS = ['loadRadius', 'unloadRadius', 'loadHeight', 'unloadHeight'] as const;
 export const VOXEL_WORLD_COLLISION_FIELDS = ['radius', 'height'] as const;
-export const VOXEL_WORLD_LEVEL_FIELDS = ['level0', 'level1'] as const;
+export const VOXEL_WORLD_LEVEL_FIELDS = ['level0', 'level1', 'relief'] as const;
+/** Distance fields that may be 0 (none) rather than at least `STREAMING_RADIUS_LIMITS.min`. */
+const ZERO_ALLOWED: ReadonlySet<string> = new Set(['relief']);
 
 const cellsToMetres = (cells: number): number => cells * VOXEL_SIZE_M;
 
@@ -126,7 +134,7 @@ export const VOXEL_WORLD_DEFAULTS = Object.freeze({
     unloadHeight: cellsToMetres(DEFAULT_STREAM_RING.unloadHeight),
   }),
   collision: Object.freeze({ radius: cellsToMetres(DEFAULT_COLLISION_RING.radius), height: cellsToMetres(DEFAULT_COLLISION_RING.height) }),
-  levels: Object.freeze({ level0: cellsToMetres(DEFAULT_LEVEL_RINGS.radii[0]!), level1: cellsToMetres(DEFAULT_LEVEL_RINGS.radii[1]!) }),
+  levels: Object.freeze({ level0: cellsToMetres(DEFAULT_LEVEL_RINGS.radii[0]!), level1: cellsToMetres(DEFAULT_LEVEL_RINGS.radii[1]!), relief: cellsToMetres(DEFAULT_RELIEF_RADIUS_CELLS) }),
   sectionEdge: DEFAULT_SECTION_EDGE,
   savedFields: Object.freeze(planesOf(DEFAULT_SAVED_FIELDS)),
 });
@@ -143,6 +151,8 @@ export interface ResolvedVoxelWorld {
   readonly quality: string | null;
   /** The level's stream memory budget in bytes (null: none known; the host's, else the low tier's). */
   readonly budgetBytes: number | null;
+  /** Relief lattice steps a cell in the relief ring (the level's `voxelRelief`; 0: none, and with no level known). */
+  readonly reliefSteps: number;
 }
 
 /** The planes of a `PLANE_BIT` mask, in the voxel planes' order. */
@@ -166,7 +176,7 @@ function baseRings(c: VoxelWorldRings): { ring: Required<VoxelWorldRing>; collis
   return {
     ring: { loadRadius, unloadRadius: r.unloadRadius ?? loadRadius + (D.ring.unloadRadius - D.ring.loadRadius), loadHeight, unloadHeight: r.unloadHeight ?? loadHeight + (D.ring.unloadHeight - D.ring.loadHeight) },
     collision: { radius: c.collision?.radius ?? D.collision.radius, height: c.collision?.height ?? D.collision.height },
-    levels: { level0: c.levels?.level0 ?? D.levels.level0, level1: c.levels?.level1 ?? D.levels.level1 },
+    levels: { level0: c.levels?.level0 ?? D.levels.level0, level1: c.levels?.level1 ?? D.levels.level1, relief: c.levels?.relief ?? D.levels.relief },
   };
 }
 
@@ -192,6 +202,7 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
     const set = (own?.[group] as Readonly<Record<string, number | undefined>> | undefined)?.[field];
     if (set !== undefined) return set;
     const scaled = (b[group] as Readonly<Record<string, number>>)[field]! * k;
+    if (scaled === 0 && ZERO_ALLOWED.has(field)) return 0;
     return Math.min(STREAMING_RADIUS_LIMITS.max, Math.max(STREAMING_RADIUS_LIMITS.min, scaled));
   };
   const loadRadius = pick('ring', 'loadRadius');
@@ -201,12 +212,18 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
     world: c.world,
     ring: Object.freeze({ loadRadius, unloadRadius: Math.max(loadRadius, pick('ring', 'unloadRadius')), loadHeight, unloadHeight: Math.max(loadHeight, pick('ring', 'unloadHeight')) }),
     collision: Object.freeze({ radius: pick('collision', 'radius'), height: pick('collision', 'height') }),
-    levels: Object.freeze({ level0, level1: Math.max(level0, pick('levels', 'level1')) }),
+    levels: Object.freeze({ level0, level1: Math.max(level0, pick('levels', 'level1')), relief: Math.min(level0, pick('levels', 'relief')) }),
     sectionEdge: c.sectionEdge ?? D.sectionEdge,
     savedFields: c.savedFields !== undefined ? planeMaskOf(c.savedFields) : DEFAULT_SAVED_FIELDS,
     quality: level?.id ?? null,
     budgetBytes: at?.budgetBytes ?? null,
+    reliefSteps: at?.relief ?? 0,
   });
+}
+
+/** The engine's quality level named `id` (else its highest): what a view without a project's own levels resolves a world at. */
+export function engineQualityLevel(id: string | null): QualityLevelConfig {
+  return qualityLevelOf(DEFAULT_QUALITY_LEVELS, id);
 }
 
 const L = STREAMING_RADIUS_LIMITS;
@@ -218,7 +235,10 @@ function err(errors: ModelErrorV2[], code: string, path: string, message: string
 function validateDistances(v: unknown, path: string, what: string, keys: readonly string[], errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, `${what} is an object {${keys.map((k) => `${k}?`).join(', ')}} in metres`, v);
   for (const k of Object.keys(v)) if (!keys.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown ${what} field "${k}" (${keys.join(', ')})`, k);
-  for (const k of keys) if (v[k] !== undefined && !inRange(v[k])) err(errors, 'field_value', `${path}/${k}`, `${k} is ${L.min}-${L.max} metres`, v[k]);
+  for (const k of keys) {
+    if (v[k] === undefined || inRange(v[k]) || (v[k] === 0 && ZERO_ALLOWED.has(k))) continue;
+    err(errors, 'field_value', `${path}/${k}`, `${k} is ${ZERO_ALLOWED.has(k) ? `0 (none) or ` : ''}${L.min}-${L.max} metres`, v[k]);
+  }
 }
 
 /** `ring?`, `collision?`, `levels?` of a scene, a quality entry or a script's change. */

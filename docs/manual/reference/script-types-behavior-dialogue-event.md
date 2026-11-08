@@ -493,11 +493,13 @@ export type VoxelField = 'material' | 'role' | 'shape' | 'wetness';
 export interface VoxelRings {
   readonly ring: { readonly loadRadius: number; readonly unloadRadius: number; readonly loadHeight: number; readonly unloadHeight: number };
   readonly collision: { readonly radius: number; readonly height: number };
-  readonly levels: { readonly level0: number; readonly level1: number };
+  readonly levels: { readonly level0: number; readonly level1: number; readonly relief: number };
   /** The quality level (null: the page has not reported one yet; the scene's own distances apply). */
   readonly quality: string | null;
   /** The stream memory budget in bytes (null: the host's). */
   readonly budgetBytes: number | null;
+  /** Relief lattice steps a cell within `levels.relief` (the quality level's; 0: no relief). */
+  readonly reliefSteps: number;
 }
 ```
 
@@ -511,8 +513,8 @@ export interface VoxelRingChange {
   readonly ring?: { readonly loadRadius?: number; readonly unloadRadius?: number; readonly loadHeight?: number; readonly unloadHeight?: number };
   /** Where loaded chunks have colliders round a focus. */
   readonly collision?: { readonly radius?: number; readonly height?: number };
-  /** Where level 0 (full detail, with the kit pieces) and level 1 are drawn; past level 1, level 2. */
-  readonly levels?: { readonly level0?: number; readonly level1?: number };
+  /** Where level 0 (full detail, with the kit pieces) and level 1 are drawn, past level 1 level 2; within `relief` (0: none) surfaces are drawn with relief. */
+  readonly levels?: { readonly level0?: number; readonly level1?: number; readonly relief?: number };
 }
 ```
 

@@ -34,6 +34,7 @@ import { canonicalJsonValue, isPlainObject } from '@thirdlight/shared';
 import { canonicalMaterialPhysical, mergeGameData, validateMaterialPhysical, type MaterialGameData, type MaterialPhysical } from './material-profiles';
 import { canonicalMaterialVoxel, mergeMaterialVoxel, validateMaterialVoxel, voxelTextureRefs, type MaterialVoxel } from './voxel-materials';
 import { validateGameData } from './game-data';
+import { RELIEF_STEPS } from '@thirdlight/voxel';
 export { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, materialParameterPortType, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
 
 /**
@@ -950,7 +951,7 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
 /** `environment.qualityLevels`: at least one level, unique ids, each field in its range (quality-levels.ts). */
 export function validateQualityLevels(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length === 0) {
-    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, lighting?, surfaceCacheMiB?, surfaceLightMs?, contactShadows?, reflections?, shadowAtlas?, voxelRings?, voxelTexelDensity? }, lowest first', value);
+    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, lighting?, surfaceCacheMiB?, surfaceLightMs?, contactShadows?, reflections?, shadowAtlas?, voxelRings?, voxelTexelDensity?, voxelRelief? }, lowest first', value);
     return;
   }
   const seen = new Set<string>();
@@ -979,6 +980,7 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
         shadowAtlas: { kind: 'other' },
         voxelRings: { kind: 'num', min: VOXEL_RING_SCALE_MIN, max: VOXEL_RING_SCALE_MAX },
         voxelTexelDensity: { kind: 'other' },
+        voxelRelief: { kind: 'other' },
       },
       ['id'],
       errors,
@@ -994,6 +996,7 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
     if (v['shadowMapSize'] !== undefined && !(SHADOW_MAP_SIZES as readonly unknown[]).includes(v['shadowMapSize'])) err(errors, 'field_value', `${at}/shadowMapSize`, `shadowMapSize is one of ${SHADOW_MAP_SIZES.join(', ')}`, v['shadowMapSize'], SHADOW_MAP_SIZES.join(' | '));
     if (v['shadowAtlas'] !== undefined && !(SHADOW_ATLAS_SIZES as readonly unknown[]).includes(v['shadowAtlas'])) err(errors, 'field_value', `${at}/shadowAtlas`, `shadowAtlas is one of ${SHADOW_ATLAS_SIZES.join(', ')}`, v['shadowAtlas'], SHADOW_ATLAS_SIZES.join(' | '));
     if (v['voxelTexelDensity'] !== undefined && !(VOXEL_TEXEL_DENSITIES as readonly unknown[]).includes(v['voxelTexelDensity'])) err(errors, 'field_value', `${at}/voxelTexelDensity`, `voxelTexelDensity is one of ${VOXEL_TEXEL_DENSITIES.join(', ')} texels a metre`, v['voxelTexelDensity'], VOXEL_TEXEL_DENSITIES.join(' | '));
+    if (v['voxelRelief'] !== undefined && !(RELIEF_STEPS as readonly unknown[]).includes(v['voxelRelief'])) err(errors, 'field_value', `${at}/voxelRelief`, `voxelRelief is one of ${RELIEF_STEPS.join(', ')} lattice steps a cell (0: no relief mesh)`, v['voxelRelief'], RELIEF_STEPS.join(' | '));
     if (v['post'] !== undefined) {
       const post = v['post'];
       if (isPlainObject(post)) {

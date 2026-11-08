@@ -892,6 +892,8 @@ interface QualityLevelConfig {
   voxelRings?: number;
   /** Texels a metre the voxel surfaces keep resident at most, one of `VOXEL_TEXEL_DENSITIES` (absent: the tier's, `VOXEL_TEXEL_DENSITY_BY_TIER`). */
   voxelTexelDensity?: number;
+  /** Relief lattice steps a voxel cell in the relief ring, one of `RELIEF_STEPS` (0: no relief mesh; absent: the tier's, `RELIEF_STEPS_BY_TIER`). */
+  voxelRelief?: number;
 }
 ```
 

@@ -246,7 +246,7 @@ describe('the voxel chunk view', () => {
     }, { schedule: (f) => (flush = f), inPlace: true });
     const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
     const corner = [[-1, 0, -1], [-1, 0, 0], [0, 0, -1], [0, 0, 0]] as const;
-    for (const [cx, cy, cz] of corner) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false });
+    for (const [cx, cy, cz] of corner) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false });
     // One batch at the end of the task: nothing is drawn before it, everything with it.
     expect(view.count).toBe(0);
     flush();
@@ -254,7 +254,7 @@ describe('the voxel chunk view', () => {
     expect(view.count).toBe(4);
     for (const [cx, cy, cz] of corner) expect(parts.get(`${cx},${cy},${cz}:mesh`)).toBeGreaterThan(0);
     const builds = view.meshBuilds;
-    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: true });
+    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: true, reliefOnly: false });
     flush();
     expect(view.meshBuilds).toBe(builds);
     expect(batches.at(-1)!.chunks.map((c) => c.kind)).toEqual(['shader']);
@@ -301,7 +301,7 @@ describe('the voxel chunk view', () => {
     const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
     const children = [[-2, -2, -2], [-1, -2, -2], [-2, -1, -2], [-1, -1, -2], [-2, -2, -1], [-1, -2, -1], [-2, -1, -1], [-1, -1, -1]] as const;
     // Chunks under the node stream in while level 0 is drawn elsewhere: not drawn (not chosen at level 0).
-    for (const [cx, cy, cz] of children) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false });
+    for (const [cx, cy, cz] of children) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false });
     flush();
     expect(view.count).toBe(0);
     // Level 0 across the node's +x face is drawn by a swap: those chunks join then.

@@ -4,7 +4,7 @@
  * nothing added), and the defaults taken from the voxel format.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_RELIEF_RADIUS_CELLS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, VOXEL_SIZE_M } from '@thirdlight/voxel';
 
 import type { ModelErrorV2 } from './errors';
 import { validatePrefabDefinitions } from './content';
@@ -133,8 +133,10 @@ describe('the voxelWorld component', () => {
     // The plan's numbers: collision 48 m across, 24 m up and down; 16³ sections; wetness not saved.
     expect(r.collision).toEqual({ radius: 48, height: 24 });
     // The plan's level distances: full detail to 64 m, level 1 to 128 m (level 2 past it).
-    expect(r.levels).toEqual({ level0: DEFAULT_LEVEL_RINGS.radii[0]! * VOXEL_SIZE_M, level1: DEFAULT_LEVEL_RINGS.radii[1]! * VOXEL_SIZE_M });
-    expect(r.levels).toEqual({ level0: 64, level1: 128 });
+    expect(r.levels).toEqual({ level0: DEFAULT_LEVEL_RINGS.radii[0]! * VOXEL_SIZE_M, level1: DEFAULT_LEVEL_RINGS.radii[1]! * VOXEL_SIZE_M, relief: DEFAULT_RELIEF_RADIUS_CELLS * VOXEL_SIZE_M });
+    // Relief displaces to 16 m (the 46d.1b verdict's medium ring), its steps the quality level's: none without one.
+    expect(r.levels).toEqual({ level0: 64, level1: 128, relief: 16 });
+    expect(r.reliefSteps).toBe(0);
     expect(r.sectionEdge).toBe(DEFAULT_SECTION_EDGE);
     expect(r.sectionEdge).toBe(16);
     expect(r.savedFields).toBe(DEFAULT_SAVED_FIELDS);
@@ -146,8 +148,13 @@ describe('the voxelWorld component', () => {
     expect(own.ring).toEqual({ loadRadius: 300, unloadRadius: 300 + gap, loadHeight: 50, unloadHeight: 50 });
     expect(own.collision).toEqual({ radius: 48, height: 8 });
     // A level-1 distance inside level 0 is taken as it; one left out is the default.
-    expect(resolveVoxelWorld({ world: 'w', levels: { level0: 70, level1: 20 } }).levels).toEqual({ level0: 70, level1: 70 });
-    expect(resolveVoxelWorld({ world: 'w', levels: { level0: 30 } }).levels).toEqual({ level0: 30, level1: 128 });
+    expect(resolveVoxelWorld({ world: 'w', levels: { level0: 70, level1: 20 } }).levels).toEqual({ level0: 70, level1: 70, relief: 16 });
+    expect(resolveVoxelWorld({ world: 'w', levels: { level0: 30 } }).levels).toEqual({ level0: 30, level1: 128, relief: 16 });
+    // Relief never reaches past level 0; 0 is none, at every level.
+    expect(resolveVoxelWorld({ world: 'w', levels: { level0: 10, relief: 40 } }).levels.relief).toBe(10);
+    expect(resolveVoxelWorld({ world: 'w', levels: { relief: 0 } }, DEFAULT_QUALITY_LEVELS[2]!).levels.relief).toBe(0);
+    expect(errorsOf({ world: 'w', levels: { relief: 0 } })).toEqual([]);
+    expect(errorsOf({ world: 'w', levels: { relief: 0.5 } })).toEqual(['field_value /levels/relief']);
     expect(own.sectionEdge).toBe(8);
     expect(own.savedFields).toBe(PLANE_BIT.wetness);
     expect(resolveVoxelWorld({ world: 'w', savedFields: [] }).savedFields).toBe(0);
@@ -158,8 +165,11 @@ describe('the voxelWorld component', () => {
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
     // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
-    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512 });
-    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024 });
+    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 2 });
+    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 4 });
+    // Relief steps by tier (none on low), a level's own beating its tier's.
+    expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).reliefSteps)).toEqual([0, 2, 4]);
+    expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelRelief: 8 }).reliefSteps).toBe(8);
     const base = resolveVoxelWorld({ world: 'w' });
     const scaled = (k: number) => ({
       ring: Object.fromEntries(Object.entries(base.ring).map(([f, v]) => [f, v * k])),
@@ -192,14 +202,14 @@ describe('the voxelWorld component', () => {
     // A distance the scene sets for the level replaces the scaled one; the others stay scaled; the invariants hold.
     const over = at({ world: 'w', quality: { big: { ring: { loadRadius: 500, unloadRadius: 10 }, levels: { level1: 1 } } } }, big);
     expect(over.ring).toEqual({ ...scaled(2).ring, loadRadius: 500, unloadRadius: 500 });
-    expect(over.levels).toEqual({ level0: scaled(2).levels['level0'], level1: scaled(2).levels['level0'] });
+    expect(over.levels).toEqual({ level0: scaled(2).levels['level0'], level1: scaled(2).levels['level0'], relief: scaled(2).levels['relief'] });
     expect(over.collision).toEqual(scaled(2).collision);
     // Another level of the scene is not touched by the entry.
     expect(at({ world: 'w', quality: { high: { scale: 4 } } }, medium!)).toEqual(scaled(1));
     // A quality level's voxel ring scale is range-checked like its other fields.
     const errs: ModelErrorV2[] = [];
-    validateQualityLevels([{ id: 'a', voxelRings: 0.1 }, { id: 'b', voxelRings: 1.5 }], '/q', errs);
-    expect(errs.map((e) => `${e.code} ${e.path}`)).toEqual(['field_value /q/0/voxelRings']);
+    validateQualityLevels([{ id: 'a', voxelRings: 0.1 }, { id: 'b', voxelRings: 1.5, voxelRelief: 4 }, { id: 'c', voxelRelief: 3 }], '/q', errs);
+    expect(errs.map((e) => `${e.code} ${e.path}`)).toEqual(['field_value /q/0/voxelRings', 'field_value /q/2/voxelRelief']);
   });
 });
 

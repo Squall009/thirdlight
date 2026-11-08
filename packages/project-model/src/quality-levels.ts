@@ -52,7 +52,7 @@
  *
  * Pure: no I/O.
  */
-import { VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
+import { RELIEF_STEPS_BY_TIER, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 import type { PostConfig } from './materials';
 import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
 
@@ -230,15 +230,18 @@ export interface QualityLevelConfig {
   voxelRings?: number;
   /** Texels a metre the voxel surfaces keep resident at most, one of `VOXEL_TEXEL_DENSITIES` (absent: the tier's, `VOXEL_TEXEL_DENSITY_BY_TIER`). */
   voxelTexelDensity?: number;
+  /** Relief lattice steps a voxel cell in the relief ring, one of `RELIEF_STEPS` (0: no relief mesh; absent: the tier's, `RELIEF_STEPS_BY_TIER`). */
+  voxelRelief?: number;
 }
 
 /**
- * What a level sets for the voxel worlds: the scale of their ring distances, their stream memory budget (bytes) and
- * the most texels a metre their surfaces keep resident, each by its tier unless the level sets the scale or density.
+ * What a level sets for the voxel worlds: the scale of their ring distances, their stream memory budget (bytes), the
+ * most texels a metre their surfaces keep resident and the relief lattice steps a cell in their relief rings, each by
+ * its tier unless the level sets it.
  */
-export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity'>): { readonly ringScale: number; readonly budgetBytes: number; readonly texelDensity: number } {
+export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity' | 'voxelRelief'>): { readonly ringScale: number; readonly budgetBytes: number; readonly texelDensity: number; readonly relief: number } {
   const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
-  return { ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier], budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier], texelDensity: level.voxelTexelDensity ?? VOXEL_TEXEL_DENSITY_BY_TIER[tier] };
+  return { ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier], budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier], texelDensity: level.voxelTexelDensity ?? VOXEL_TEXEL_DENSITY_BY_TIER[tier], relief: level.voxelRelief ?? RELIEF_STEPS_BY_TIER[tier] };
 }
 
 /**

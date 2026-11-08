@@ -210,8 +210,15 @@ import { utf8Encode } from '@thirdlight/shared';
  * the cell it lies over. A body's face is owned only where its shader read
  * reaches a plane cell. Surfaces and ramps differ from v27's; the layout
  * is v27's.
+ *
+ * v29: the relief part (relief-mesh.ts) is a derived output: a level-0
+ * section in a relief ring carries its ground and base surfaces again,
+ * subdivided n lattice steps a cell (n 2, 4 or 8), each vertex with a
+ * crease weight byte; its edges toward sections drawn plain are kept
+ * whole. Outside the canonical bytes, so every other output and every
+ * hash are v28's; a worker of another version is refused as ever.
  */
-export const DERIVED_FORMAT_VERSION = 28;
+export const DERIVED_FORMAT_VERSION = 29;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -299,9 +306,9 @@ export interface DerivedData {
   readonly counts: DerivedCounts;
   /**
    * The denser copy of the ground and base surfaces a relief draw
-   * displaces (relief-mesh.ts; a spike: asked for per derive, level 0
-   * only, outside the canonical bytes). Every other output is the same with
-   * or without it.
+   * displaces (relief-mesh.ts; asked for per level-0 section by the relief
+   * ring, relief-ring.ts; outside the canonical bytes). Every other output
+   * is the same with or without it.
    */
   readonly relief?: ReliefPart;
 }
