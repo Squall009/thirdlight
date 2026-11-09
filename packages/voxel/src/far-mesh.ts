@@ -96,9 +96,26 @@ const emptyMesh = (): FarMesh => ({ vertexCount: 0, vertices: new Uint8Array(0),
  * entry's zstd frame.
  */
 export function meshFarNode(store: PaletteStore, input: FarMeshInput, decompress: (b: Uint8Array) => Uint8Array): FarMesh {
+  return withFarNeighbourhood(store, input, decompress, () => {
+    const g = store.grid;
+    const [nx, ny, nz] = input.node;
+    const rules = assemblyRules(input.rules);
+    const apron = buildApron(store, nx, ny, nz, jobRadius(rules));
+    const d = deriveWithApron(g, rules, apron, (out) => store.exportChunk(nx, ny, nz, out), undefined, input.level);
+    return farMeshOf(g, store, [nx, ny, nz], [d.ground, d.base]);
+  }, emptyMesh);
+}
+
+/**
+ * Runs `use` with a far job's 27 entries decoded into `store` (a scratch
+ * store), and takes them out again before it returns; `empty` when the
+ * node itself holds nothing. The far mesh and the far bricks read a node
+ * and its same-level neighbours this way.
+ */
+export function withFarNeighbourhood<T>(store: PaletteStore, input: Pick<FarMeshInput, 'cells' | 'level' | 'node'>, decompress: (b: Uint8Array) => Uint8Array, use: () => T, empty: () => T): T {
   const g = store.grid;
-  if (input.cells.length !== 27) throw new RangeError('far mesh job: 27 cells, the node and its neighbours');
-  if (!Number.isInteger(input.level) || input.level < 1) throw new RangeError(`far mesh job: level ${String(input.level)}`);
+  if (input.cells.length !== 27) throw new RangeError('far job: 27 cells, the node and its neighbours');
+  if (!Number.isInteger(input.level) || input.level < 1) throw new RangeError(`far job: level ${String(input.level)}`);
   const [nx, ny, nz] = input.node;
   const placed: Array<[number, number, number]> = [];
   try {
@@ -113,11 +130,8 @@ export function meshFarNode(store: PaletteStore, input: FarMeshInput, decompress
       store.decodeChunk(at[0], at[1], at[2], codec);
       placed.push(at);
     }
-    if (store.chunkForm(nx, ny, nz) === 'absent') return emptyMesh();
-    const rules = assemblyRules(input.rules);
-    const apron = buildApron(store, nx, ny, nz, jobRadius(rules));
-    const d = deriveWithApron(g, rules, apron, (out) => store.exportChunk(nx, ny, nz, out), undefined, input.level);
-    return farMeshOf(g, store, [nx, ny, nz], [d.ground, d.base]);
+    if (store.chunkForm(nx, ny, nz) === 'absent') return empty();
+    return use();
   } finally {
     for (const [x, y, z] of placed) store.dropChunk(x, y, z);
   }

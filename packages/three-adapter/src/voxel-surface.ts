@@ -210,12 +210,22 @@ function fresh<T extends THREE.Texture>(tex: T): T {
   return tex;
 }
 
-function gridTexture(width: number, height: number, depth: number, data: Uint8Array | null): THREE.Data3DTexture {
+/** What a region store's texels are: their format, bytes a texel, and how they are filtered when sampled. */
+export interface RegionTexels {
+  readonly format: typeof THREE.RedFormat | typeof THREE.RGFormat;
+  readonly bytes: 1 | 2;
+  readonly filter: typeof THREE.NearestFilter | typeof THREE.LinearFilter;
+}
+
+/** The shader grids' texels: an entry's two bytes, read texel by texel. */
+const GRID_TEXELS: RegionTexels = { format: THREE.RGFormat, bytes: 2, filter: THREE.NearestFilter };
+
+function gridTexture(width: number, height: number, depth: number, data: Uint8Array | null, texels: RegionTexels = GRID_TEXELS): THREE.Data3DTexture {
   const tex = new THREE.Data3DTexture(data, width, height, depth);
-  tex.format = THREE.RGFormat;
+  tex.format = texels.format;
   tex.type = THREE.UnsignedByteType;
-  tex.minFilter = THREE.NearestFilter;
-  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = texels.filter;
+  tex.magFilter = texels.filter;
   tex.wrapS = tex.wrapT = tex.wrapR = THREE.ClampToEdgeWrapping;
   tex.generateMipmaps = false;
   tex.unpackAlignment = 1;
@@ -229,7 +239,8 @@ function gridTexture(width: number, height: number, depth: number, data: Uint8Ar
  * texels a chunk, regions handed out and given back as chunks come and go.
  * Texel (x, y, z) of a region is grid cell (y, z, x)'s entry: the grid's
  * order (x, z, y with y fastest) is the texture's memory order, so a grid
- * uploads as it is.
+ * uploads as it is. The same store with other texels (`texels`) keeps the
+ * far field's distance bricks, a brick a region.
  */
 export class VoxelShaderGrids {
   texture: THREE.Data3DTexture;
@@ -244,9 +255,12 @@ export class VoxelShaderGrids {
   /** Times the texture grew. */
   grown = 0;
 
-  constructor(readonly layout: VoxelSurfaceLayout) {
+  constructor(
+    readonly layout: Pick<VoxelSurfaceLayout, 'side'>,
+    private readonly texels: RegionTexels = GRID_TEXELS,
+  ) {
     // A one-texel stand-in until the first grid: a program binds a texture of the right kind from the start.
-    this.texture = gridTexture(1, 1, 1, new Uint8Array(2));
+    this.texture = gridTexture(1, 1, 1, new Uint8Array(texels.bytes), texels);
   }
 
   /** Regions in use. */
@@ -257,12 +271,12 @@ export class VoxelShaderGrids {
   /** Bytes the texture holds on the GPU. */
   get gpuBytes(): number {
     const s = this.layout.side;
-    return this.dims[0] * this.dims[1] * this.dims[2] * s * s * s * 2;
+    return this.dims[0] * this.dims[1] * this.dims[2] * s * s * s * this.texels.bytes;
   }
 
   /** Bytes one region holds. */
   get regionBytes(): number {
-    return this.layout.side ** 3 * 2;
+    return this.layout.side ** 3 * this.texels.bytes;
   }
 
   /** A free region's origin (texels), the texture grown when none is left. */
@@ -281,22 +295,23 @@ export class VoxelShaderGrids {
     this.used--;
   }
 
-  /** Uploads a grid (side³ entries, grid order) into its region. */
-  upload(renderer: VoxelGridRenderer, origin: THREE.Vector3, entries: Uint16Array): void {
+  /** Uploads a grid (side³ entries, grid order; or side³ texels of the store's own) into its region. */
+  upload(renderer: VoxelGridRenderer, origin: THREE.Vector3, entries: Uint16Array | Uint8Array): void {
     const s = this.layout.side;
-    const bytes = new Uint8Array(entries.buffer, entries.byteOffset, s * s * s * 2);
+    const t = this.texels.bytes;
+    const bytes = new Uint8Array(entries.buffer, entries.byteOffset, s * s * s * t);
     renderer.initTexture(this.texture);
     if (renderer.backend.isWebGLBackend === true) {
       // A texture never given to the GPU: three's copy uploads its data straight into the region.
       const src = new THREE.Data3DTexture(bytes, s, s, s);
-      src.format = THREE.RGFormat;
+      src.format = this.texels.format;
       src.type = THREE.UnsignedByteType;
       renderer.backend.copyTextureToTexture(src, this.texture, null, origin);
     } else {
       const device = renderer.backend.device as { queue: GpuQueue } | undefined;
       const gpu = renderer.backend.get(this.texture).texture;
       if (device === undefined || gpu === undefined) throw new Error('the voxel grid texture is not on the GPU');
-      device.queue.writeTexture({ texture: gpu, origin: { x: origin.x, y: origin.y, z: origin.z } }, bytes, { bytesPerRow: s * 2, rowsPerImage: s }, { width: s, height: s, depthOrArrayLayers: s });
+      device.queue.writeTexture({ texture: gpu, origin: { x: origin.x, y: origin.y, z: origin.z } }, bytes, { bytesPerRow: s * t, rowsPerImage: s }, { width: s, height: s, depthOrArrayLayers: s });
     }
     this.uploads++;
     this.uploadedBytes += bytes.byteLength;
@@ -334,7 +349,7 @@ export class VoxelShaderGrids {
       next[axis] = Math.min(per, old[axis]! + Math.max(1, Math.floor(old[axis]! / 4)));
       if (next[axis] === old[axis]) throw new Error(`voxel grid texture: no room past ${old.join(' × ')} regions`);
     }
-    const tex = gridTexture(next[0] * s, next[1] * s, next[2] * s, null);
+    const tex = gridTexture(next[0] * s, next[1] * s, next[2] * s, null, this.texels);
     renderer.initTexture(tex);
     if (old[0] > 0) renderer.copyTextureToTexture(this.texture, tex, new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(old[0] * s, old[1] * s, old[2] * s)), new THREE.Vector3(0, 0, 0));
     // The new regions, handed out lowest first.

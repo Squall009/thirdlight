@@ -697,11 +697,11 @@ Declared in `packages/voxel/src/far-field.ts`.
 ```ts
 /**
  * How a voxel world is drawn past its near rings: `mesh` (the far tree's
- * nodes meshed from their voxel mips, this module) or `off` (nothing past
- * the load ring). The default draws meshes; the ray-marched bricks join as
- * a mode of their own, and which is the default is the owner's pick.
+ * nodes meshed from their voxel mips), `bricks` (the same nodes as distance
+ * bricks, ray marched) or `off` (nothing past the load ring). Both draw
+ * modes stay until the owner picks one; meshes are the default meanwhile.
  */
-const FAR_FIELD_MODES: readonly ["off", "mesh"];
+const FAR_FIELD_MODES: readonly ["off", "mesh", "bricks"];
 ```
 
 <a id="type-far-field-mode"></a>

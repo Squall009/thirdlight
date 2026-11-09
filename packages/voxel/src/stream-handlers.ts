@@ -33,6 +33,7 @@ import { stampShapeHash, type StampResolver } from './stamp-shape';
 import { encodeUndoRecord } from './undo-store';
 import { downsampleMip } from './voxel-mips';
 import { buildFaceSeam, type SeamFaceInput } from './lod-seam';
+import { brickFarNode, farBricksTransfer } from './far-bricks';
 import { farMeshTransfer, meshFarNode, type FarMeshInput } from './far-mesh';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
 
@@ -364,6 +365,18 @@ function farMesh(opts: StreamHandlerOptions, raw: unknown): JobResult {
   }
 }
 
+/** A far node's distance bricks (far-bricks.ts), from the same cells a far mesh reads. */
+function farBricks(opts: StreamHandlerOptions, raw: unknown): JobResult {
+  const input = raw as FarMeshInput;
+  const store = storeFor(input.edge);
+  try {
+    const output = brickFarNode(store, input, opts.decompress);
+    return { output, transfer: farBricksTransfer(output) };
+  } finally {
+    clear(store);
+  }
+}
+
 /** The stream job handlers ({@link serveJobs} serves them). */
 export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
   return {
@@ -374,6 +387,7 @@ export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
     mip: (input) => mip(input),
     seam: (input) => seam(input),
     'far-mesh': (input) => farMesh(opts, input),
+    'far-bricks': (input) => farBricks(opts, input),
   };
 }
 

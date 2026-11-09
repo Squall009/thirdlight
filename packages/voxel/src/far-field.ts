@@ -1,7 +1,9 @@
 /**
- * The far field as voxel-mip meshes: the far tree's nodes (far-tree.ts)
- * drawn past the near rings over the whole world, read from the world's far
- * cache and meshed in the stream's workers (far-mesh.ts).
+ * The far field: the far tree's nodes (far-tree.ts) drawn past the near
+ * rings over the whole world, read from the world's far cache and made in
+ * the stream's workers as voxel-mip meshes (far-mesh.ts) or as distance
+ * bricks a draw ray marches (far-bricks.ts), the selection and its swaps
+ * the same for both.
  *
  * - **Where it runs.** Beside the world's streamer, with its pool (far jobs
  *   go last, in the `mip` lane, a few at a time so they never fill the
@@ -24,7 +26,9 @@
  *   are meshed again and replaced each alone.
  */
 import { rulesRef, type AssemblyRuleSet } from './assembly';
+import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import type { ChunkCoord, ChunkGrid, RegionFootprint } from './coords';
+import { farBricksBytes, type FarBricks } from './far-bricks';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, FarNodeIndex, FarSelection, type FarDrawn } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
@@ -35,12 +39,20 @@ import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
 
 /**
  * How a voxel world is drawn past its near rings: `mesh` (the far tree's
- * nodes meshed from their voxel mips, this module) or `off` (nothing past
- * the load ring). The default draws meshes; the ray-marched bricks join as
- * a mode of their own, and which is the default is the owner's pick.
+ * nodes meshed from their voxel mips), `bricks` (the same nodes as distance
+ * bricks, ray marched) or `off` (nothing past the load ring). Both draw
+ * modes stay until the owner picks one; meshes are the default meanwhile.
  */
-export const FAR_FIELD_MODES = Object.freeze(['off', 'mesh'] as const);
+export const FAR_FIELD_MODES = Object.freeze(['off', 'mesh', 'bricks'] as const);
 export type FarFieldMode = (typeof FAR_FIELD_MODES)[number];
+
+/** What a far node is made as: a mesh or bricks. */
+export type FarDrawKind = Exclude<FarFieldMode, 'off'>;
+
+/** A far field mode as the far field's view settings: on or off, and what its nodes are made as. */
+export function farViewOf(mode: FarFieldMode): { readonly enabled: boolean; readonly draw?: FarDrawKind } {
+  return mode === 'off' ? { enabled: false } : { enabled: true, draw: mode };
+}
 
 /** The far field mode each tier draws when a level leaves it out. */
 export const FAR_FIELD_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', FarFieldMode>> = Object.freeze({ low: 'mesh', medium: 'mesh', high: 'mesh' });
@@ -172,7 +184,9 @@ export interface FarNodeDraw {
   readonly nx: number;
   readonly ny: number;
   readonly nz: number;
-  readonly mesh: FarMesh;
+  /** Its mesh (the `mesh` mode) or its bricks (the `bricks` mode): exactly one is present. */
+  readonly mesh?: FarMesh;
+  readonly bricks?: FarBricks;
 }
 
 /** The far nodes drawn changed: these go in (a node again: its draw is replaced) and these go, between the same two frames. */
@@ -186,6 +200,8 @@ export interface FarFieldOptions {
   readonly source: FarNodeSource;
   /** Whether anything is drawn (default true): off, every far draw goes and nothing is read or meshed. */
   readonly enabled?: boolean;
+  /** What nodes are made as (default `mesh`); a change makes every drawn node again, swapped in node by node. */
+  readonly draw?: FarDrawKind;
   /** On-screen error a drawn node's cell may make (pixels; {@link FAR_ERROR_PIXELS}). */
   readonly errorPixels?: number;
   /** Pixels a radian of the view ({@link FAR_VIEW_PIXELS_PER_RADIAN}). */
@@ -202,7 +218,8 @@ export interface FarFieldHost {
 }
 
 interface Ready {
-  readonly mesh: FarMesh | null;
+  /** Null: the node draws nothing. */
+  readonly made: { readonly mesh?: FarMesh; readonly bricks?: FarBricks } | null;
 }
 
 /**
@@ -245,7 +262,7 @@ export class FarField {
   /** Selection ms and mesh worker µs. */
   readonly selectMs = new SampleRing();
   readonly meshUs = new SampleRing();
-  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0 };
+  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0 };
   /** GPU bytes of the far draws, as the page reports them. */
   gpuBytes = 0;
 
@@ -283,10 +300,29 @@ export class FarField {
   }
 
   /** The selection's settings changed (a quality level): selects again. */
-  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'pixelsPerRadian'>): void {
+  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'pixelsPerRadian' | 'draw'>): void {
+    const drawWas = this.opts.draw ?? 'mesh';
     Object.assign(this.opts as { -readonly [K in keyof FarFieldOptions]: FarFieldOptions[K] }, o);
+    if ((this.opts.draw ?? 'mesh') !== drawWas) this.remakeAll();
     this.reselect = true;
     this.update();
+  }
+
+  /** Every node is made again (the draw kind changed): each drawn one stays until its new draw replaces it. */
+  private remakeAll(): void {
+    for (const key of new Set([...this.shown.keys(), ...this.target.keys(), ...this.jobs.keys()])) {
+      this.stamps.set(key, (this.stamps.get(key) ?? 0) + 1);
+      if (this.shown.has(key)) this.stale.add(key);
+    }
+    for (const j of this.jobs.values()) this.host.pool.cancel(j.id);
+    this.jobs.clear();
+    this.ready.clear();
+    this.todo = null;
+  }
+
+  /** What nodes are made as now. */
+  get draw(): FarDrawKind {
+    return this.opts.draw ?? 'mesh';
   }
 
   /** Selects again if the eye moved far enough, and starts the meshes the selection needs. */
@@ -483,10 +519,11 @@ export class FarField {
     const d = this.target.get(key);
     // After every near job of the lane (theirs count squared cells from the focus): the far field never holds the near field back.
     const distance = FAR_JOB_DISTANCE_OFFSET + (d?.distance ?? 0) ** 2;
-    void this.host.pool.submit<FarMesh>({ id, kind: 'far-mesh', lane: 'mip', distance, input, transfer }).then((o) => this.meshed(n, key, id, stamp, o));
+    const kind = this.draw;
+    void this.host.pool.submit<FarMesh | FarBricks>({ id, kind: kind === 'bricks' ? 'far-bricks' : 'far-mesh', lane: 'mip', distance, input, transfer }).then((o) => this.meshed(n, key, id, stamp, kind, o));
   }
 
-  private meshed(n: MipNode, key: string, id: number, stamp: number, o: JobOutcome<FarMesh>): void {
+  private meshed(n: MipNode, key: string, id: number, stamp: number, kind: FarDrawKind, o: JobOutcome<FarMesh | FarBricks>): void {
     const j = this.jobs.get(key);
     if (j === undefined || j.id !== id) return;
     this.jobs.delete(key);
@@ -512,7 +549,13 @@ export class FarField {
     }
     this.meshUs.add(o.workerUs);
     this.counters.meshes++;
-    this.ready.set(key, { mesh: o.output.indices.length === 0 ? null : o.output });
+    if (kind === 'bricks') {
+      const b = o.output as FarBricks;
+      this.ready.set(key, { made: b.samples.length === 0 ? null : { bricks: b } });
+    } else {
+      const m = o.output as FarMesh;
+      this.ready.set(key, { made: m.indices.length === 0 ? null : { mesh: m } });
+    }
     this.commitSoon();
     void this.pump();
   }
@@ -596,9 +639,10 @@ export class FarField {
     const r = this.ready.get(key)!;
     this.ready.delete(key);
     this.shown.set(key, d.node);
-    if (r.mesh !== null) {
-      this.counters.triangles += r.mesh.indices.length / 3;
-      added.push({ level: d.node.level, nx: d.node.nx, ny: d.node.ny, nz: d.node.nz, mesh: r.mesh });
+    if (r.made !== null) {
+      if (r.made.mesh !== undefined) this.counters.triangles += r.made.mesh.indices.length / 3;
+      if (r.made.bricks !== undefined) this.counters.bricks += r.made.bricks.samples.length / DISTANCE_BRICK_SAMPLES;
+      added.push({ level: d.node.level, nx: d.node.nx, ny: d.node.ny, nz: d.node.nz, ...r.made });
     }
   }
 
@@ -676,8 +720,9 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; problem: string | null; counters: FarField['counters']; index: number[] | null } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; problem: string | null; counters: FarField['counters']; index: number[] | null } {
     return {
+      draw: this.draw,
       nodes: this.target.size,
       drawn: this.shown.size,
       pending: this.pending,
@@ -709,9 +754,9 @@ export class FarField {
   }
 }
 
-/** Bytes of the meshes in a far event. */
+/** Bytes of the meshes and bricks in a far event. */
 export function farEventBytes(e: Pick<FarEvent, 'added'>): number {
   let n = 0;
-  for (const a of e.added) n += farMeshBytes(a.mesh);
+  for (const a of e.added) n += (a.mesh !== undefined ? farMeshBytes(a.mesh) : 0) + (a.bricks !== undefined ? farBricksBytes(a.bricks) : 0);
   return n;
 }

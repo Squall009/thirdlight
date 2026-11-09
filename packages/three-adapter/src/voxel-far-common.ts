@@ -1,0 +1,141 @@
+/**
+ * What a voxel world's two far field draws share (voxel-far-mesh.ts draws
+ * nodes as meshes, voxel-far-bricks.ts ray marches them as distance
+ * bricks): the depth they write past the camera's far plane, and the near
+ * cover that hides them where the near field draws. Both draws write the
+ * same depth for the same distance, so meshes, bricks and the near field
+ * sort against each other wherever they meet.
+ */
+import * as THREE from 'three';
+import * as TSLTyped from 'three/tsl';
+import { VOXEL_SIZE_M, type ChunkGrid, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
+
+import type { N } from './effects-tsl';
+import { texelTexture3D } from './texel-texture-node';
+
+const TSL: N = TSLTyped;
+const { Fn, cameraFar, cameraNear, cameraProjectionMatrix, clamp, float, floor, int, ivec3, log, mix, positionView, select, uniform, vec3, vec4 } = TSL;
+
+/** How far behind its distance a far fragment's depth is (near the camera): where it meets the near field, the near field is in front. */
+export const FAR_DEPTH_PUSH = 1.05;
+
+/** The share of the camera's far plane up to which far depth is the camera's own (past it, logarithmic). */
+export const FAR_DEPTH_SPLIT = 0.5;
+
+/** The distance (metres) the far depth range ends at: a far node past it sorts as if there. */
+export const FAR_DEPTH_MAX_M = 64_000;
+
+/** The camera's own normalized depth (NDC z) of a distance `x` along the view axis (standard, reversed and either range alike). */
+function cameraNdc(x: N): N {
+  const A = cameraProjectionMatrix.element(2).z;
+  const B = cameraProjectionMatrix.element(3).z;
+  return A.negate().add(B.div(x));
+}
+
+/**
+ * A far draw's normalized depth (NDC z) of a point `viewZ` metres along the
+ * view axis (negative in front): the camera's own depth of the distance
+ * pushed back by {@link FAR_DEPTH_PUSH} up to {@link FAR_DEPTH_SPLIT} of the
+ * far plane, and past it the distance's logarithm up to
+ * {@link FAR_DEPTH_MAX_M} in what remains of the depth range.
+ */
+export function farNdcDepth(viewZ: N): N {
+  const x = viewZ.negate().mul(FAR_DEPTH_PUSH).max(1e-3).toVar();
+  const split = cameraFar.mul(FAR_DEPTH_SPLIT);
+  const zSplit = cameraNdc(split);
+  const zEnd = mix(zSplit, cameraNdc(cameraFar), 0.9999);
+  const t = clamp(log(x.div(split)).div(log(float(FAR_DEPTH_MAX_M).div(split))), 0, 1);
+  return select(x.lessThan(split), cameraNdc(x), mix(zSplit, zEnd, t));
+}
+
+/**
+ * A far draw's clip position (its material's `vertexNode`): the camera's
+ * projection with {@link farNdcDepth} as its depth, so a far vertex is never
+ * clipped by the camera's far plane.
+ */
+export function farClipPosition(): N {
+  return Fn(() => {
+    const clip = cameraProjectionMatrix.mul(vec4(positionView, 1)).toVar();
+    return vec4(clip.x, clip.y, farNdcDepth(positionView.z).mul(clip.w), clip.w);
+  })();
+}
+
+/**
+ * {@link farNdcDepth} as a fragment's depth (window depth 0–1): WebGPU's NDC
+ * depth is already 0–1, WebGL 2's runs −1–1 (told apart by the near plane's).
+ */
+export function farFragmentDepth(viewZ: N): N {
+  const ndc = farNdcDepth(viewZ);
+  return select(cameraNdc(cameraNear).lessThan(-0.5), ndc.mul(0.5).add(0.5), ndc);
+}
+
+/**
+ * The near cover (where the near field draws, by storage chunk, its edge
+ * ring left out): a small 3D texture and its corner and size, which a far
+ * draw's fragments test their world position against.
+ */
+export class FarCover {
+  private texture: THREE.Data3DTexture;
+  /** One node for every draw that tests the cover (its texture follows the cover). */
+  private readonly node: N;
+  /** The cover's corner (world chunks). */
+  private min: [number, number, number] = [0, 0, 0];
+  private readonly at = uniform(new THREE.Vector3(0, 0, 0));
+  private readonly size = uniform(new THREE.Vector3(1, 1, 1));
+  /** The cover now: its corner and size (chunks), and the chunks it hides the far field in. */
+  state = { min: [0, 0, 0] as number[], size: [1, 1, 1] as number[], covered: 0 };
+
+  constructor(
+    private readonly grid: ChunkGrid,
+    private readonly origin: FloatingOrigin,
+  ) {
+    this.texture = coverTexture(new Uint8Array(1), [1, 1, 1]);
+    this.node = texelTexture3D(this.texture);
+  }
+
+  set(c: NearCoverWire): void {
+    const old = this.texture;
+    this.texture = coverTexture(c.cells, c.size);
+    (this.node as unknown as { value: THREE.Texture }).value = this.texture;
+    old.dispose();
+    this.min = [c.min[0], c.min[1], c.min[2]];
+    let covered = 0;
+    for (let i = 0; i < c.cells.length; i++) covered += c.cells[i]!;
+    this.state = { min: [...c.min], size: [...c.size], covered };
+    (this.size.value as THREE.Vector3).set(c.size[0], c.size[1], c.size[2]);
+    this.place();
+  }
+
+  /** After a floating-origin re-base: the cover's corner again. */
+  place(): void {
+    const o = this.origin.origin;
+    const e = this.grid.edge;
+    (this.at.value as THREE.Vector3).set((this.min[0] * e - o.x) * VOXEL_SIZE_M, (this.min[1] * e - o.y) * VOXEL_SIZE_M, (this.min[2] * e - o.z) * VOXEL_SIZE_M);
+  }
+
+  /** Whether a world position (metres) lies in a chunk the near field draws (a bool node). */
+  covered(world: N): N {
+    const node = this.node;
+    const chunkM = float(this.grid.edge * VOXEL_SIZE_M);
+    const c = floor(world.sub(this.at).div(chunkM)).toVar();
+    const inside = c.x.greaterThanEqual(0).and(c.y.greaterThanEqual(0)).and(c.z.greaterThanEqual(0)).and(c.x.lessThan(this.size.x)).and(c.y.lessThan(this.size.y)).and(c.z.lessThan(this.size.z));
+    const at = clamp(c, vec3(0), this.size.sub(1));
+    return inside.and(node.load(ivec3(int(at.x), int(at.y), int(at.z))).r.greaterThan(0.5));
+  }
+
+  dispose(): void {
+    this.texture.dispose();
+  }
+}
+
+function coverTexture(cells: Uint8Array, size: readonly [number, number, number]): THREE.Data3DTexture {
+  // Read normalized (r8unorm): a covered chunk is 1, stored as 255.
+  const t = new THREE.Data3DTexture(cells.map((c) => (c === 0 ? 0 : 255)), size[0], size[1], size[2]);
+  t.format = THREE.RedFormat;
+  t.type = THREE.UnsignedByteType;
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.unpackAlignment = 1;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}

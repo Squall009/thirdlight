@@ -248,17 +248,25 @@ the plain surfaces: relief only ever recesses.
 Past the load ring the world is drawn by its **far field**, as far as the
 world reaches: there is no distance past which nothing is drawn, and a
 mountain kilometres away shows above the horizon. The far field draws the
-world's coarser voxels (2 m cells and up, coarser with distance) meshed from
-the world's **far cache**, which the backend builds beside the world (in the
+world's coarser voxels (2 m cells and up, coarser with distance) from the
+world's **far cache**, either meshed or as ray-marched distance bricks, which the backend builds beside the world (in the
 project's `cache/` folder, never committed), keeps current with every edit
 command, and an export ships with the world.
 
 - **Mode and detail, by quality level.** A quality level's **Voxel far
-  field** is `mesh` (default on every tier) or `off` (nothing past the load
-  ring); its **Voxel far detail** is how many pixels a far voxel may cover
-  before finer ones are drawn (low 8, medium 4, high 2; smaller is sharper
-  and draws more). A second mode, ray-marched bricks, comes next; which mode
-  is the default is decided once both are measured.
+  field** is `mesh` (default on every tier), `bricks` or `off` (nothing past
+  the load ring); its **Voxel far detail** is how many pixels a far voxel
+  may cover before finer ones are drawn (low 8, medium 4, high 3; smaller is
+  sharper and draws more). Which of the two modes is the default is decided
+  once both are compared.
+- **Meshes and bricks.** `mesh` draws each far node as triangles (terraced,
+  like the near ground). `bricks` keeps each far node as a sparse distance
+  field (8³-cell bricks where its surface passes) and draws a box a brick,
+  in which the GPU marches each pixel's ray to the surface: smoother slopes,
+  no triangles, and it writes the surface's own depth. Both take the
+  material's colour, light the same way, and hand over to the near field
+  the same way; a mode switch makes every far node again and swaps it in
+  node by node.
 - **Where it meets the near field.** The far field draws under the near
   field and is hidden wherever the near field draws, chunk by chunk, so
   ground the near rings have not streamed in yet shows its far stand-in,
@@ -269,7 +277,7 @@ command, and an export ships with the world.
   and openings narrower than 1 m are not drawn there. A game's runtime edits
   (`ctx.voxels`) show in the near field only; edit commands reach the far
   field too.
-- On the voxel world page, `?farField=off|mesh` and `?farError=` (pixels)
+- On the voxel world page, `?farField=off|mesh|bricks` and `?farError=` (pixels)
   override the quality level's; `?farShow=0` keeps the far draws hidden.
 
 Limits today:
@@ -692,7 +700,6 @@ triangle).
 
 These come later; worlds made now keep working when they arrive:
 
-- **The far field as ray-marched bricks**, the second far field mode.
 - **Kits**: a kit page in the editor (slots assigned by drag and drop; for
   now through `setVoxelKit`), and a kit's own textures drawn (pieces show the
   debug set of their sheet layout until materials arrive); the fringe where

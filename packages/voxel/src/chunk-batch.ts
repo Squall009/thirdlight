@@ -220,8 +220,12 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(p.base.indices);
   }
   for (const a of b.far?.added ?? []) {
-    add(a.mesh.vertices);
-    add(a.mesh.indices);
+    add(a.mesh?.vertices);
+    add(a.mesh?.indices);
+    add(a.bricks?.bricks);
+    add(a.bricks?.samples);
+    add(a.bricks?.looks);
+    add(a.bricks?.blocks);
   }
   add(b.nearCover?.cells);
   return [...out];

@@ -343,7 +343,7 @@ export class VoxelChunkView {
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows });
     this.root.add(this.pieces.root);
-    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface });
+    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer });
     this.root.add(this.far.root);
     this.kitSet = null;
     this.setKits(opts.kits ?? null);

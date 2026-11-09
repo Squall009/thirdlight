@@ -63,9 +63,9 @@
  * `?occlusion=off` draws through the same scene pass without it, to compare.
  *
  * Past the load ring the world's far field draws the far cache's nodes as
- * meshes (the backend builds the cache on the first read and keeps it current
+ * meshes or as ray-marched distance bricks (the backend builds the cache on the first read and keeps it current
  * with every command), under the near field and hidden where it draws:
- * `?farField=off|mesh` and `?farError=` (pixels) override the quality
+ * `?farField=off|mesh|bricks` and `?farError=` (pixels) override the quality
  * level's; `?farShow=0` keeps the far draws hidden.
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
@@ -268,7 +268,7 @@ async function main(): Promise<void> {
   materials.attach(surface);
   const level = pageLevel(textureResidency.quality, relief.params);
   const far = pageFar(params, level);
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, errorPixels: far.errorPixels }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   relief.attach(surface, streamer.relief, level.relief);
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters });
   const gpu = createGpuTiming();

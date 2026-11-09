@@ -600,14 +600,26 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(far, 'the far field').not.toBeNull();
     expect(far!.problem).toBeNull();
     expect(far!.drawnNodes).toBeGreaterThan(0);
-    const grazing = await shot(page);
-    let sky = 0;
-    // Below the horizon everywhere across the picture (it sits at 0.55–0.57 of the height at the left edge).
-    for (let y = Math.floor(grazing.height * 0.62); y < grazing.height; y++) for (let x = 0; x < grazing.width; x++) {
-      const [r, g, b] = grazing.pixel(x, y);
-      if (Math.abs(r - 0x9f) <= 8 && Math.abs(g - 0xc4) <= 8 && Math.abs(b - 0xe8) <= 8) sky++;
-    }
-    expect(sky, 'background pixels below the horizon').toBe(0);
+    // Background pixels below the horizon everywhere across the picture (it sits at 0.55–0.57 of the height at the left edge).
+    const skyBelow = (p: Awaited<ReturnType<typeof shot>>): number => {
+      let n = 0;
+      for (let y = Math.floor(p.height * 0.62); y < p.height; y++) for (let x = 0; x < p.width; x++) {
+        const [r, g, b] = p.pixel(x, y);
+        if (Math.abs(r - 0x9f) <= 8 && Math.abs(g - 0xc4) <= 8 && Math.abs(b - 0xe8) <= 8) n++;
+      }
+      return n;
+    };
+    expect(skyBelow(await shot(page)), 'background pixels below the horizon').toBe(0);
+    // The far field switched to ray-marched bricks at run time: the same nodes made again as bricks, swapped in, and
+    // still no background below the horizon.
+    await hook(page, 'setFar', { mode: 'bricks' });
+    await hook(page, 'settleFar');
+    const bricks = (await hook<{ far: { problem: string | null; draw: string; bricks: number; triangles: number } }>(page, 'state')).far;
+    expect(bricks.problem).toBeNull();
+    expect(bricks.draw).toBe('bricks');
+    expect(bricks.bricks).toBeGreaterThan(0);
+    expect(bricks.triangles).toBe(0);
+    expect(skyBelow(await shot(page)), 'background pixels below the horizon (bricks)').toBe(0);
     // A runtime dig in the level-1 ring (on the line from the target to the camera, in view) shows: the node over
     // it is derived again and its draw replaced, still at level 1.
     let pit: Cell | null = null;

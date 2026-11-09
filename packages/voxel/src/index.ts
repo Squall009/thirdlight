@@ -414,8 +414,9 @@ export {
   type FarSource,
   type FarView,
 } from './far-tree';
-export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, type FarMesh, type FarMeshInput } from './far-mesh';
-export { FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_BY_TIER, FAR_FIELD_MODES, FAR_JOBS_IN_FLIGHT, FAR_RESELECT_CELLS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, farEventBytes, regionFarSource, type FarCacheLevelFiles, type FarEvent, type FarFieldHost, type FarFieldMode, type FarFieldOptions, type FarNodeDraw, type FarNodeSource, type RegionFarSourceOptions } from './far-field';
+export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
+export { brickFarNode, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickBox, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksOf, farBricksTransfer, marchFarBrick, squaredDistances, type FarBricks } from './far-bricks';
+export { FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_BY_TIER, FAR_FIELD_MODES, FAR_JOBS_IN_FLIGHT, FAR_RESELECT_CELLS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, farEventBytes, farViewOf, regionFarSource, type FarCacheLevelFiles, type FarDrawKind, type FarEvent, type FarFieldHost, type FarFieldMode, type FarFieldOptions, type FarNodeDraw, type FarNodeSource, type RegionFarSourceOptions } from './far-field';
 export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
 export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, SEAM_RIM_CELLS, SEAM_WALK_STEPS, type FaceSeam, type NodeFace, type SeamCounts, type SeamFaceInput, type SeamPiece, type SeamSurface } from './lod-seam';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';

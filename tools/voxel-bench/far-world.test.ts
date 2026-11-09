@@ -11,7 +11,7 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, farAncestors, FarField, farVertexLook, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarNode, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, farVertexLook, marchFarBrick, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
 import { buildFarCache, farCacheDir, FarCacheReader, FarWorldSource, openShippedWorld, readFarCacheManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
 import { hexToBytes } from '@thirdlight/shared';
 import { farWorldColumns, farWorldDirs, writeFarWorldColumn, FAR_WORLD_GRID } from './far-world';
@@ -164,7 +164,7 @@ describe('the far cache', () => {
 
 /** A far node's mesh triangles without its skirts (the skirts are the last ones), as world-cell edges on one axis plane. */
 function planeEdges(d: FarNodeDraw, axis: 0 | 1 | 2, plane: number, which: 'crossing' | 'lying' | 'all' = 'crossing'): Set<string> {
-  const m = d.mesh;
+  const m = d.mesh!;
   const view = new DataView(m.vertices.buffer, m.vertices.byteOffset, m.vertices.byteLength);
   const scale = 2 ** d.level;
   const corner = [d.nx * 32, d.ny * 32, d.nz * 32];
@@ -205,8 +205,8 @@ function farthestEnd(from: ReadonlySet<string>, to: ReadonlySet<string>, scale: 
   return worst / (POSITION_STEPS_PER_CELL * scale);
 }
 
-describe('the far field drawn as meshes', () => {
-  it('meshes the selection in workers from the cache on disk, swaps whole, meets same-level neighbours exactly, colours from the cells, and meshes an edit again', async () => {
+describe('the far field drawn as meshes and as bricks', () => {
+  it('meshes the selection in workers from the cache on disk, swaps whole, meets same-level neighbours exactly, colours from the cells, meshes an edit again, and switches to bricks', async () => {
     // The world in a project the workspace's voxel worlds serve, its far cache where they keep it.
     const p = join(root, 'field');
     cpSync(projectDir, p, { recursive: true });
@@ -248,9 +248,9 @@ describe('the far field drawn as meshes', () => {
       let skirts = 0;
       const looks = new Set<number>();
       for (const d of shown.values()) {
-        skirts += d.mesh.skirtTriangles;
-        const view = new DataView(d.mesh.vertices.buffer, d.mesh.vertices.byteOffset, d.mesh.vertices.byteLength);
-        for (let v = 0; v < d.mesh.vertexCount; v++) looks.add(farVertexLook(view.getUint16(v * FAR_VERTEX_BYTES + 6, true)).material);
+        skirts += d.mesh!.skirtTriangles;
+        const view = new DataView(d.mesh!.vertices.buffer, d.mesh!.vertices.byteOffset, d.mesh!.vertices.byteLength);
+        for (let v = 0; v < d.mesh!.vertexCount; v++) looks.add(farVertexLook(view.getUint16(v * FAR_VERTEX_BYTES + 6, true)).material);
       }
       expect(skirts).toBeGreaterThan(0);
       // Every vertex has the material of a cell of the world behind it (the ground's and the town's), never air.
@@ -283,7 +283,7 @@ describe('the far field drawn as meshes', () => {
       expect(r.ok && r.far).toMatchObject({ nodes: expect.any(Number) });
       const chunks = r.ok ? r.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })) : [];
       const l2 = farAncestors(chunks, m.minLevel, m.minLevel).map(mipNodeKey);
-      const before = new Map([...shown].filter(([k]) => l2.includes(k)).map(([k, d]) => [k, d.mesh.vertices.slice()]));
+      const before = new Map([...shown].filter(([k]) => l2.includes(k)).map(([k, d]) => [k, d.mesh!.vertices.slice()]));
       expect(before.size).toBeGreaterThan(0);
       const seen = events.length;
       far.refresh(chunks);
@@ -291,8 +291,45 @@ describe('the far field drawn as meshes', () => {
       const again = events.slice(seen).flatMap((e) => e.added.map(mipNodeKey));
       for (const k of before.keys()) {
         expect(again, k).toContain(k);
-        expect(Buffer.from(shown.get(k)!.mesh.vertices).equals(Buffer.from(before.get(k)!)), k).toBe(false);
+        expect(Buffer.from(shown.get(k)!.mesh!.vertices).equals(Buffer.from(before.get(k)!)), k).toBe(false);
       }
+      // The bricks mode, switched at run time: every drawn node is made again as bricks and swapped in, none drawn twice.
+      const meshNodes = shown.size;
+      far.setView({ draw: 'bricks' });
+      await far.settle();
+      expect(far.metrics().problem).toBeNull();
+      expect(far.metrics().draw).toBe('bricks');
+      expect([...shown.values()].every((d) => d.mesh === undefined && d.bricks !== undefined)).toBe(true);
+      expect(shown.size).toBeGreaterThan(meshNodes / 2);
+      const brickLooks = new Set<number>();
+      let surfaceHits = 0;
+      for (const d of shown.values()) {
+        const b = d.bricks!;
+        expect(b.samples.length / DISTANCE_BRICK_SAMPLES).toBeGreaterThan(0);
+        for (let i = 0; i < b.looks.length; i += 37) brickLooks.add(farVertexLook(b.looks[i]!).material);
+        // A ray straight down each stored brick's middle column meets its surface or leaves through its floor (the
+        // surface may lie in a neighbour); some do meet it.
+        for (let k = 0; k < b.samples.length / DISTANCE_BRICK_SAMPLES; k++) if (marchFarBrick(b.samples, k, b.blocks[k * 4 + 3]!, [4, 7.9, 4], [0, -1, 0]) !== null) surfaceHits++;
+      }
+      expect(surfaceHits).toBeGreaterThan(shown.size);
+      for (const mat of [MAT.grass, MAT.rock]) expect(brickLooks.has(mat), `${[...brickLooks]}`).toBe(true);
+      // Same-level neighbours along x share their face's samples exactly (the field reads across the face).
+      let shared = 0;
+      for (const a of shown.values()) {
+        const b = shown.get(mipNodeKey({ level: a.level, nx: a.nx + 1, ny: a.ny, nz: a.nz }));
+        if (b === undefined) continue;
+        for (let by = 0; by < 4; by++) for (let bz = 0; bz < 4; bz++) {
+          const ia = a.bricks!.bricks[(bz * 4 + by) * 4 + 3]!;
+          const ib = b.bricks!.bricks[(bz * 4 + by) * 4 + 0]!;
+          if (ia < 0 || ib < 0) continue;
+          for (let sz = 0; sz < DISTANCE_BRICK_SIDE; sz++) for (let sy = 0; sy < DISTANCE_BRICK_SIDE; sy++) {
+            const row = (sz * DISTANCE_BRICK_SIDE + sy) * DISTANCE_BRICK_SIDE;
+            expect(a.bricks!.samples[ia * DISTANCE_BRICK_SAMPLES + row + 8]).toBe(b.bricks!.samples[ib * DISTANCE_BRICK_SAMPLES + row]);
+          }
+          shared++;
+        }
+      }
+      expect(shared).toBeGreaterThan(0);
       far.close();
     } finally {
       for (const d of opened) await d.close();

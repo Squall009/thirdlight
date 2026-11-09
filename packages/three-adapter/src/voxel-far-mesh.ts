@@ -1,8 +1,10 @@
 /**
- * A voxel world's far field drawn as meshes (`@thirdlight/voxel`
- * far-field.ts): the far tree's nodes past the near rings, batched into a
- * few draws, coloured from the world's material table, drawn under the near
- * field and hidden where it draws.
+ * A voxel world's far field draws (`@thirdlight/voxel` far-field.ts): the
+ * far tree's nodes past the near rings, as meshes (here) or as ray-marched
+ * distance bricks (voxel-far-bricks.ts makes those groups' draws), batched
+ * into a few draws, coloured from the world's material table, drawn under
+ * the near field and hidden where it draws. A node arrives as one or the
+ * other (the far field's mode); a group holds nodes of one kind.
  *
  * - **Batches.** Nodes are drawn in groups of {@link FAR_GROUP_NODES}² node
  *   columns of one level (every height in one), each group one merged
@@ -33,14 +35,15 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawWire, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
+import { FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
-import { texelTexture3D } from './texel-texture-node';
-import type { VoxelSurface } from './voxel-surface';
+import { FarBrickAtlas, farBrickGeometry, FarBrickMaterial } from './voxel-far-bricks';
+import { FarCover, farClipPosition } from './voxel-far-common';
+import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
-const { Discard, Fn, If, attribute, cameraFar, cameraProjectionMatrix, clamp, float, floor, int, ivec3, log, mix, mod, positionView, positionWorld, select, uniform, varying, vec3, vec4 } = TSL;
+const { Discard, Fn, If, attribute, floor, mod, positionWorld, varying, vec4 } = TSL;
 
 /** The far geometry's attribute holding a vertex's material id + wetness · 4096 (far-mesh.ts's look word). */
 export const VOXEL_FAR_LOOK_ATTRIBUTE = 'voxelFarLook';
@@ -48,17 +51,9 @@ export const VOXEL_FAR_LOOK_ATTRIBUTE = 'voxelFarLook';
 /** Node columns a side one far draw holds (one level, every height). */
 export const FAR_GROUP_NODES = 8;
 
-/** How far behind its distance a far fragment's depth is (near the camera): where it meets the near field, the near field is in front. */
-export const FAR_DEPTH_PUSH = 1.05;
-
-/** The share of the camera's far plane up to which far depth is the camera's own (past it, logarithmic). */
-export const FAR_DEPTH_SPLIT = 0.5;
-
-/** The distance (metres) the far depth range ends at: a far node past it sorts as if there. */
-export const FAR_DEPTH_MAX_M = 64_000;
-
 interface FarGroup {
   readonly key: string;
+  readonly kind: FarDrawKind;
   readonly level: number;
   /** The group's corner (world cells): its geometry's positions count from it. */
   readonly cell: readonly [number, number, number];
@@ -67,6 +62,10 @@ interface FarGroup {
   dirty: boolean;
   triangles: number;
   bytes: number;
+  /** Bricks drawn (brick groups). */
+  brickCount: number;
+  /** Nodes its draw holds. */
+  drawnNodes: number;
 }
 
 export interface VoxelFarViewOptions {
@@ -74,6 +73,8 @@ export interface VoxelFarViewOptions {
   readonly origin: FloatingOrigin;
   /** The surface whose material table and arrays colour the far field. */
   readonly surface: VoxelSurface;
+  /** What the bricks are uploaded with (the bricks mode needs it). */
+  readonly renderer?: VoxelGridRenderer;
 }
 
 /** One world's far field draws. */
@@ -82,28 +83,38 @@ export class VoxelFarView {
   private readonly groups = new Map<string, FarGroup>();
   private readonly groupOf = new Map<string, string>();
   private material: THREE.Material | null = null;
-  private cover: THREE.Data3DTexture;
-  private coverNode: N | null = null;
-  /** The cover's corner (world chunks) and size (chunks). */
-  private coverMin: [number, number, number] = [0, 0, 0];
-  private readonly coverAt = uniform(new THREE.Vector3(0, 0, 0));
-  private readonly coverSize = uniform(new THREE.Vector3(1, 1, 1));
+  private readonly cover: FarCover;
+  /** The bricks on the GPU and their one material (made with the first brick node). */
+  private atlas: FarBrickAtlas | null = null;
+  private brickMaterial: FarBrickMaterial | null = null;
+  /** Each brick node's atlas regions, by node key. */
+  private readonly regions = new Map<string, THREE.Vector3[]>();
   private hidden = false;
   triangles = 0;
-  bytes = 0;
+  /** Bricks drawn (the bricks mode). */
+  bricks = 0;
+  /** GPU bytes of the draws' buffers (the atlas's are counted in {@link bytes}). */
+  private drawBytes = 0;
   /** Far nodes drawn (with anything to draw). */
   nodes = 0;
   /** Groups rebuilt (draws replaced) since made. */
   rebuilds = 0;
   /** ms the last batch's group rebuilds took. */
   lastBuildMs = 0;
-  /** The near cover now: its corner and size (chunks), and the chunks it hides the far field in. */
-  coverState = { min: [0, 0, 0] as number[], size: [1, 1, 1] as number[], covered: 0 };
-
   constructor(private readonly opts: VoxelFarViewOptions) {
     this.root.name = 'voxel-far';
     this.root.matrixAutoUpdate = false;
-    this.cover = coverTexture(new Uint8Array(1), [1, 1, 1]);
+    this.cover = new FarCover(opts.grid, opts.origin);
+  }
+
+  /** GPU bytes the far field holds: its draws' buffers and the brick atlas. */
+  get bytes(): number {
+    return this.drawBytes + (this.atlas?.gpuBytes ?? 0);
+  }
+
+  /** The near cover now: its corner and size (chunks), and the chunks it hides the far field in. */
+  get coverState(): FarCover['state'] {
+    return this.cover.state;
   }
 
   /** The number of far draws (groups with anything to draw). */
@@ -125,11 +136,13 @@ export class VoxelFarView {
 
   /** A batch's far changes and near cover, all applied in this task. */
   apply(far: FarDrawWire | undefined, cover: NearCoverWire | undefined): void {
-    if (cover !== undefined) this.setCover(cover);
+    if (cover !== undefined) this.cover.set(cover);
     if (far === undefined) return;
     const t0 = performance.now();
+    this.atlas?.frame();
     for (const n of far.removed) {
       const key = mipNodeKey(n);
+      this.dropRegions(key);
       const gk = this.groupOf.get(key);
       if (gk === undefined) continue;
       this.groupOf.delete(key);
@@ -139,12 +152,14 @@ export class VoxelFarView {
     }
     for (const a of far.added) {
       const key = mipNodeKey(a);
+      this.dropRegions(key);
+      if (a.bricks !== undefined) this.regions.set(key, this.brickAtlas().add(this.uploader(), a.bricks));
       const old = this.groupOf.get(key);
       if (old !== undefined) {
         this.groups.get(old)!.nodes.delete(key);
         this.groups.get(old)!.dirty = true;
       }
-      const g = this.group(a.level, a.nx, a.nz);
+      const g = this.group(a.bricks !== undefined ? 'bricks' : 'mesh', a.level, a.nx, a.nz);
       g.nodes.set(key, a);
       g.dirty = true;
       this.groupOf.set(key, g.key);
@@ -153,14 +168,30 @@ export class VoxelFarView {
     this.lastBuildMs = performance.now() - t0;
   }
 
-  private group(level: number, nx: number, nz: number): FarGroup {
+  private dropRegions(key: string): void {
+    const r = this.regions.get(key);
+    if (r === undefined) return;
+    this.atlas!.remove(r);
+    this.regions.delete(key);
+  }
+
+  private brickAtlas(): FarBrickAtlas {
+    return (this.atlas ??= new FarBrickAtlas());
+  }
+
+  private uploader(): VoxelGridRenderer {
+    if (this.opts.renderer === undefined) throw new Error('far bricks: the view has no renderer to upload them with');
+    return this.opts.renderer;
+  }
+
+  private group(kind: FarDrawKind, level: number, nx: number, nz: number): FarGroup {
     const gx = Math.floor(nx / FAR_GROUP_NODES);
     const gz = Math.floor(nz / FAR_GROUP_NODES);
-    const key = `${level}:${gx},${gz}`;
+    const key = `${kind}:${level}:${gx},${gz}`;
     let g = this.groups.get(key);
     if (g === undefined) {
       const span = FAR_GROUP_NODES * this.opts.grid.edge * 2 ** level;
-      g = { key, level, cell: [gx * span, 0, gz * span], nodes: new Map(), mesh: null, dirty: false, triangles: 0, bytes: 0 };
+      g = { key, kind, level, cell: [gx * span, 0, gz * span], nodes: new Map(), mesh: null, dirty: false, triangles: 0, bytes: 0, brickCount: 0, drawnNodes: 0 };
       this.groups.set(key, g);
     }
     return g;
@@ -174,20 +205,35 @@ export class VoxelFarView {
       g.mesh.geometry.dispose();
       g.mesh = null;
       this.triangles -= g.triangles;
-      this.bytes -= g.bytes;
-      this.nodes -= g.nodes.size;
+      this.bricks -= g.brickCount;
+      this.drawBytes -= g.bytes;
+      this.nodes -= g.drawnNodes;
     }
     if (g.nodes.size === 0) {
       this.groups.delete(g.key);
       return;
     }
-    const geo = groupGeometry(this.opts.grid, g, [...g.nodes.values()]);
-    g.triangles = (geo.index?.count ?? 0) / 3;
-    g.bytes = geometryBytes(geo);
+    let mesh: THREE.Mesh;
+    if (g.kind === 'bricks') {
+      const atlas = this.brickAtlas();
+      const geo = farBrickGeometry(this.opts.grid.edge, g, [...g.nodes.values()], (n) => this.regions.get(mipNodeKey(n)) ?? []);
+      this.brickMaterial ??= new FarBrickMaterial(atlas, this.opts.surface, this.cover);
+      g.triangles = 0;
+      g.brickCount = geo.instanceCount;
+      g.bytes = geometryBytes(geo);
+      mesh = new THREE.Mesh(geo, this.brickMaterial.material);
+    } else {
+      const geo = groupGeometry(this.opts.grid, g, [...g.nodes.values()]);
+      g.triangles = (geo.index?.count ?? 0) / 3;
+      g.brickCount = 0;
+      g.bytes = geometryBytes(geo);
+      mesh = new THREE.Mesh(geo, this.farMaterial());
+    }
+    g.drawnNodes = g.nodes.size;
     this.triangles += g.triangles;
-    this.bytes += g.bytes;
-    this.nodes += g.nodes.size;
-    const mesh = new THREE.Mesh(geo, this.farMaterial());
+    this.bricks += g.brickCount;
+    this.drawBytes += g.bytes;
+    this.nodes += g.drawnNodes;
     mesh.name = `voxel-far ${g.key}`;
     mesh.matrixAutoUpdate = false;
     // Three's frustum ends at the camera's far plane; far draws reach past it (their depth is their own).
@@ -209,26 +255,7 @@ export class VoxelFarView {
   /** After a floating-origin re-base: every draw's position again, and the cover's corner. */
   rebase(): void {
     for (const g of this.groups.values()) if (g.mesh !== null) this.place(g.mesh, g.cell);
-    this.placeCover();
-  }
-
-  private setCover(c: NearCoverWire): void {
-    const old = this.cover;
-    this.cover = coverTexture(c.cells, c.size);
-    if (this.coverNode !== null) (this.coverNode as unknown as { value: THREE.Texture }).value = this.cover;
-    old.dispose();
-    this.coverMin = [c.min[0], c.min[1], c.min[2]];
-    let covered = 0;
-    for (let i = 0; i < c.cells.length; i++) covered += c.cells[i]!;
-    this.coverState = { min: [...c.min], size: [...c.size], covered };
-    (this.coverSize.value as THREE.Vector3).set(c.size[0], c.size[1], c.size[2]);
-    this.placeCover();
-  }
-
-  private placeCover(): void {
-    const o = this.opts.origin.origin;
-    const e = this.opts.grid.edge;
-    (this.coverAt.value as THREE.Vector3).set((this.coverMin[0] * e - o.x) * VOXEL_SIZE_M, (this.coverMin[1] * e - o.y) * VOXEL_SIZE_M, (this.coverMin[2] * e - o.z) * VOXEL_SIZE_M);
+    this.cover.place();
   }
 
   /** The far draws' material (one for the view): lit, coloured in the vertex stage, its own depth, hidden under the near cover. */
@@ -241,36 +268,14 @@ export class VoxelFarView {
     const surface = this.opts.surface;
     const look = attribute(VOXEL_FAR_LOOK_ATTRIBUTE, 'float');
     const colour = varying(surface.farColour(mod(look, 4096), floor(look.div(4096))));
-    const coverNode = texelTexture3D(this.cover);
-    this.coverNode = coverNode;
-    const chunkM = float(this.opts.grid.edge * VOXEL_SIZE_M);
-    const coverAt = this.coverAt;
-    const coverSize = this.coverSize;
+    const cover = this.cover;
     m.colorNode = Fn(() => {
-      const c = floor(positionWorld.sub(coverAt).div(chunkM)).toVar();
-      const inside = c.x.greaterThanEqual(0).and(c.y.greaterThanEqual(0)).and(c.z.greaterThanEqual(0)).and(c.x.lessThan(coverSize.x)).and(c.y.lessThan(coverSize.y)).and(c.z.lessThan(coverSize.z));
-      const at = clamp(c, vec3(0), coverSize.sub(1));
-      const covered = coverNode.load(ivec3(int(at.x), int(at.y), int(at.z))).r.greaterThan(0.5);
-      If(inside.and(covered), () => {
+      If(cover.covered(positionWorld), () => {
         Discard();
       });
       return vec4(colour, 1);
     })();
-    m.vertexNode = Fn(() => {
-      const pv = positionView;
-      const clip = cameraProjectionMatrix.mul(vec4(pv, 1)).toVar();
-      const A = cameraProjectionMatrix.element(2).z;
-      const B = cameraProjectionMatrix.element(3).z;
-      // The camera's own normalized depth of a distance x along the view axis (standard, reversed and either range alike).
-      const ndc = (x: N): N => A.negate().add(B.div(x));
-      const x = pv.z.negate().mul(FAR_DEPTH_PUSH).max(1e-3).toVar();
-      const split = cameraFar.mul(FAR_DEPTH_SPLIT);
-      const zSplit = ndc(split);
-      const zEnd = mix(zSplit, ndc(cameraFar), 0.9999);
-      const t = clamp(log(x.div(split)).div(log(float(FAR_DEPTH_MAX_M).div(split))), 0, 1);
-      const z = select(x.lessThan(split), ndc(x), mix(zSplit, zEnd, t));
-      return vec4(clip.x, clip.y, z.mul(clip.w), clip.w);
-    })();
+    m.vertexNode = farClipPosition();
     this.material = m;
     return m;
   }
@@ -279,23 +284,14 @@ export class VoxelFarView {
     for (const g of this.groups.values()) g.mesh?.geometry.dispose();
     this.groups.clear();
     this.groupOf.clear();
+    this.regions.clear();
     this.root.clear();
     this.material?.dispose();
+    this.brickMaterial?.dispose();
+    this.atlas?.dispose();
     this.cover.dispose();
-    this.triangles = this.bytes = this.nodes = 0;
+    this.triangles = this.bricks = this.drawBytes = this.nodes = 0;
   }
-}
-
-function coverTexture(cells: Uint8Array, size: readonly [number, number, number]): THREE.Data3DTexture {
-  // Read normalized (r8unorm): a covered chunk is 1, stored as 255.
-  const t = new THREE.Data3DTexture(cells.map((c) => (c === 0 ? 0 : 255)), size[0], size[1], size[2]);
-  t.format = THREE.RedFormat;
-  t.type = THREE.UnsignedByteType;
-  t.minFilter = t.magFilter = THREE.NearestFilter;
-  t.unpackAlignment = 1;
-  t.generateMipmaps = false;
-  t.needsUpdate = true;
-  return t;
 }
 
 /** A group's nodes as one geometry: positions in metres from the group's corner, normals, look words; indices offset. */
@@ -303,8 +299,8 @@ export function groupGeometry(grid: ChunkGrid, g: { readonly level: number; read
   let n = 0;
   let k = 0;
   for (const d of nodes) {
-    n += d.mesh.vertexCount;
-    k += d.mesh.indices.length;
+    n += d.mesh?.vertexCount ?? 0;
+    k += d.mesh?.indices.length ?? 0;
   }
   const pos = new Float32Array(n * 3);
   const nor = new Int8Array(n * 4);
@@ -316,6 +312,7 @@ export function groupGeometry(grid: ChunkGrid, g: { readonly level: number; read
   let i0 = 0;
   for (const d of nodes) {
     const m = d.mesh;
+    if (m === undefined) continue;
     const view = new DataView(m.vertices.buffer, m.vertices.byteOffset, m.vertices.byteLength);
     // The node's far origin, in metres from the group's corner.
     const ox = ((d.nx * grid.edge - FAR_POSITION_ORIGIN_CELLS) * scale - g.cell[0]) * VOXEL_SIZE_M;
