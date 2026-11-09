@@ -224,7 +224,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.6d | done (4635510e): D545 fixed. Relief chunks cast from their plain surfaces (shadow-only draws, 46.9 k tris for ~2.4 M at high), relief meshes cast none and read shadows at their plain place; one draw path. Town high + shadows missed 13–15 / 4–8 of ~430 (relief casters same hour 27–30 / 38–39); pictures equal (0.00 %). D547 |
 | 46d.7a | done: `run.mjs far-world`: 8.2 km mountain world (peaks 1.51 km, cliffs, overhangs, town at centre) written per region column in 4 workers, 476 MB (7.1 MB/km²), 249 s; far cache L2–L8 (`far-tree.ts`, region files) 48.5 MB (0.72 MB/km²), 255 s; peak 2.2 GB. Selection by screen error + hysteresis + budget; edit rebuilds exactly its ancestors; doors/windows close at L1+ (v31) |
 | 46d.7b | done: D548 fixed (backend opens worlds on demand: 8 km world 0.65 s, 264 MB). Far field as meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`): cache served, rebuilt per command (190–350 ms), shipped; 40 draws (D549 fixed), no cut-off (D463, D516 fixed). Medium 4 px: 5.0 M tris, 0 missed orbit, flight 16–18 missed; high 3 px 8.1 M. D550–D553 |
-| 46d.7c | not started |
+| 46d.7c | done: `farField=bricks`: far nodes as sparse 8³ distance bricks in workers (13.9 of 64 a node), one shared atlas, a box a brick marched in the fragment with its own depth; one path both renderers, switched at run time. Medium: 36.9 k bricks, 98.8 MB GPU, fill 16 s, orbit 18–39 missed (GPU-bound, D555; hidden 0), flight 21–26. D555–D557 |
 | 46d.7d | not started |
 | 46d.8a | not started |
 | 46d.8b | not started |
@@ -1180,6 +1180,57 @@ cliffs as stepped 2–8 m voxels, grass and rock), `peak-to-town` (the whole wor
 dark patch 4.5 km away, the world's edge visible). A few light specks on a hillside in `town-north` (D553). The
 pictures are 46d.7d's input.
 
+### 46d.7c the far field as ray-marched distance bricks; D555–D557
+
+**Built.** `@thirdlight/voxel` `far-bricks.ts`: a far node as sparse bricks of the distance-brick format (its
+constants moved into `distance-brick-format.ts`, project-model and the tracer re-export them): occupancy by fill
+level, Euclidean distance (Felzenszwalb, a 3-cell apron from the 26 neighbours), corner samples the mean of 8 cells,
+a brick stored only where its samples change sign, a material word a sample, node-face bits a brick;
+`marchFarBrick`, the draw's march on the CPU. `far-field.ts`: a `draw` view setting (`mesh` | `bricks`, `farViewOf`),
+`far-bricks` jobs in the stream workers, a draw change remakes every node and swaps it in node by node.
+Three-adapter `voxel-far-bricks.ts` (atlas, instanced boxes, the marching material), `voxel-far-common.ts` (the far
+depth, clip position and near cover both modes share; `voxel-far-mesh.ts` holds mesh and brick groups);
+`VoxelShaderGrids` takes a texel format (r8 filtered for distances). Page `?farField=bricks` and the hook's
+`setFar({ mode })`; Play, Scene view and exports through the quality field `voxelFarField: 'bricks'`. Spec:
+`voxel-render-spec.md` §4 (no format change). Upgrade checklist: the fragment depth and clip-position hooks.
+
+**Tested.** `far-bricks.test.ts` (4): distances within a quantization step of flat ground, stored/inside/outside
+bricks, a partial top cell moving the surface, determinism, the transform against brute force, fixed rays (down,
+slanted, through air, into the skirt). `far-world.test.ts` (+bricks in the existing test, real workers, cache on
+disk): the mode switched at run time, every node made again as bricks, no node drawn twice, grass and rock looks,
+rays meeting surfaces, same-level neighbours sharing their face samples exactly. `voxel-far-view.test.ts`: brick
+groups, regions uploaded where the instances point, the program built on WGSL (`frag_depth`) and GLSL
+(`gl_FragDepth`), a node swapping kinds, regions given back. `voxel-world.e2e.ts`: the slice's far field switched
+to bricks (drawn, no triangles, no background below the horizon) on both renderers; 87 → 88.5 s. Fast gate
+gate-fast-20261109-032204 red on two tests the change made wrong (the descriptor budget, a level test using
+`bricks` as the invalid mode), fixed; rerun gate-rerun-20261109-033312 GREEN (5 min, 5.0 GB; village perf 0 missed
+both renderers).
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, the 8 km world, mode A's poses and scripts; 03:41–03:52,
+load 2.7–4.3, uptime 16.5 d; `work/46d.7c/perf-*-bricks*.json`):
+
+| | far nodes / bricks / GPU MB / draws | fill | orbit missed (3 × 8 s) | render() p50 | flight missed of ~2,350 (max ms) | page heap |
+|---|---|---|---|---|---|---|
+| WebGPU medium | 2,648 / 36.9 k / 98.8 / 40 | 15.9 s | 21 / 18 / 18 | 2.1–2.3 | 26 (233) | 703 MB |
+| WebGL 2 medium | same | 16.4 s | 39 / 21 / 34 | 2.1–2.2 | 21 (200) | 793 MB |
+| WebGPU high (3 px) | 61.4 k / 152.7 / 52 | 28.7 s | 23 / 22 / 24 | 2.4–2.5 | 33 (267) | 1.28 GB |
+| WebGL 2 high | same | 29.3 s | 59 / 65 / 81 | 2.6–2.7 | 29 (1,217) | 1.28 GB |
+| WebGPU medium, brick draws hidden | same | — | 0 / 0 / 0 | 1.8–1.9 | 13 (150) | — |
+
+Against the meshes (46d.7b): GPU memory 98.8 vs 106 MB (medium), page heap 0.70–0.79 vs 1.36 GB, no triangles (the
+boxes are 12 each); a brick job 19–20 ms p50 / 30–32 p95 (a mesh job 13–37). The orbit misses are the brick draws
+(hidden: 0): GPU-bound march (D555). GPU timestamps read 0.5–1.5 ms at a boosted clock (D544), so no GPU ms is given.
+The flight's misses are the same far rebuilds on the page's thread as the meshes' (D550, D551). Atlas MB grows with
+travel and is not given back (122 MB after the massif views, D557).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/bricks/`, the same names and poses as `meshes/`, both
+renderers, medium): the same massif, ridges and valleys from 1–5 km and from above the peak, no cut-off, the
+town's patch 4.5 km away; slopes smooth where the meshes show 2–8 m terraces (cliff terraces still show as steps);
+WebGPU and WebGL 2 alike. A dark strip along the near field's edge from the town (D556). First takes showed black
+boxes and a blank view from 1.7 km up: three shares one node build between materials with the same graph (a
+material per group read the first group's atlas) and the boxes past the far plane were clipped; both fixed before
+these pictures.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1519,6 +1570,31 @@ pictures are 46d.7d's input.
   the far field.
 - 2026-11-09 (46d.7b): the 8 km world and its cache moved into the staging project (`voxel-slice/voxels/far`,
   `cache/voxel-far/far`); `work/46d.7a/project` links to them.
+- 2026-11-09 (46d.7c, default chosen, owner to confirm): **a far brick is drawn as its own box** (one instance a
+  stored brick, all of a group in one instanced draw), its region in the atlas carried by the instance: the box's
+  raster is the page table, so a ray is marched only through bricks the surface passes, never through empty ones.
+  The plan's node-level page table walk would march a node's whole box per pixel.
+- 2026-11-09 (46d.7c, default chosen, owner to confirm): **a brick is stored only where its samples change sign**
+  (phase 42 keeps every brick within the band): 13.9 of a node’s 64 on average from the town (36.9 k for 2,648 nodes).
+- 2026-11-09 (46d.7c, default chosen, owner to confirm): **the far field is the cells' occupancy as a distance**:
+  solid where the fill level is at least half, Euclidean distance to the other kind less half a cell, ½ − fill next
+  to it, corners the mean of 8 cells, so slopes come out smooth where the meshes show terraces (both kept as they
+  are for the comparison).
+- 2026-11-09 (46d.7c, default chosen, owner to confirm): **skirts as a lip**: a brick on its node's face is marched
+  0.5 cell past it with the field rising 4 per cell there, a steep skirt; deep under the surface the samples are
+  clamped to the band, so a hit there (a coarser neighbour lies lower) is shaded as the box face it entered: a wall
+  down to the brick's floor instead of a crack.
+- 2026-11-09 (46d.7c, default chosen, owner to confirm): **colour as mode A**: a material and wetness word a sample
+  (the plan said a per-node macro), coloured by the same table read as the far meshes, so the two modes differ only
+  in shape.
+- 2026-11-09 (46d.7c, default chosen, owner to confirm): **one shared atlas, one material**: every brick's samples
+  and looks are a region of two 3D textures (r8 filtered, rg8 texels), the voxel surface's region store reused
+  (`VoxelShaderGrids` takes its texel format), uploaded per brick on both backends; one material for every brick
+  draw, since three keys a program build by the material's properties and a second material with the same graph
+  would read the first one's textures and uniforms.
+- 2026-11-09 (46d.7c, default chosen, owner to confirm): **same selection, detail and tiers as the meshes** (low 8,
+  medium 4, high 3 px) so the comparison measures the draw, not the selection; at most 32 steps a ray through one
+  brick. No hybrid built (46d.7d decides whether one is needed).
 
 ## 10. Open questions for the owner
 
