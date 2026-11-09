@@ -59,6 +59,7 @@ import {
   VOXEL_WORLD_NAME_RE,
   WORLD_GRID_ID,
   WORLD_ID_BYTES,
+  FAR_MAX_LEVEL,
   type CellBox,
   type ChunkCoord,
   type ChunkEdge,
@@ -76,7 +77,7 @@ import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
 import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, REGION_WORLD_RESIDENT_BYTES, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
 import { writeAtomic, type WriteOps } from './write';
-import { buildFarCache, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, readFarCacheManifest, rebuildFarCache, yieldingFarRunner, type FarCacheManifest } from './voxel-far-cache';
+import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, inProcessFarJobs, readFarCacheManifest, swapFarCache, type FarCacheJobs, type FarCacheManifest } from './voxel-far-cache';
 
 /** The project folder holding its voxel worlds, one folder each. */
 export const VOXEL_WORLDS_FOLDER = 'voxels';
@@ -237,7 +238,9 @@ export type ShippedWorldFiles =
       world: { world: string; worldId: string; edge: ChunkEdge; layout: RegionLayout; footprint: RegionFootprint; revision: number };
       files: Array<{ name: string; path: string; digest: string; byteLength: number }>;
       /** The world's far cache, current with its revision: what the far field draws (its files named `L<level>/<name>`). */
-      far: { minLevel: number; maxLevel: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }> };
+      far?: { minLevel: number; maxLevel: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }> };
+      /** Why the world ships without its far cache (it was still being built when the export stopped waiting). */
+      farNote?: string;
     }
   | { ok: false; code: string; message: string };
 
@@ -252,6 +255,21 @@ export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest
 
 /** A far cache's level file folder name (`L<level>`). */
 const FAR_LEVEL_RE = /^L(\d{1,2})$/;
+const isFarLevel = (level: string): boolean => {
+  const m = FAR_LEVEL_RE.exec(level);
+  return m !== null && Number(m[1]) <= FAR_MAX_LEVEL;
+};
+
+/** Waits for `p` or `ms`, whichever is first (a timer that keeps no process alive). */
+async function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const elapsed = new Promise<void>((ok) => {
+    timer = setTimeout(ok, ms);
+    timer.unref();
+  });
+  await Promise.race([p, elapsed]);
+  clearTimeout(timer);
+}
 
 /** What an applied voxel command answers. */
 export interface VoxelCommandApplied {
@@ -351,7 +369,25 @@ export interface VoxelWorldsOptions {
   readonly writeOps?: WriteOps;
   /** Store bytes each open world keeps of its clean region files (default {@link REGION_WORLD_RESIDENT_BYTES}). */
   readonly residentBytes?: number;
+  /** Where far cache builds and rebuilds run (the backend's worker thread; default this thread). */
+  readonly farJobs?: FarCacheJobs;
+  /** How long an export waits for a far cache being built (default {@link FAR_EXPORT_WAIT_MS}). */
+  readonly farExportWaitMs?: number;
 }
+
+/**
+ * A full far cache build under way: it runs outside the world's queue, so
+ * commands go on meanwhile; the chunks they change are noted and built
+ * again once the new cache has landed, and a change on disk by someone else
+ * (`lost`) leaves the new cache stale, built again when next read.
+ */
+interface FarBuild {
+  readonly changed: Map<string, ChunkCoord>;
+  lost: boolean;
+  done: Promise<void>;
+}
+
+const worldKey = (w: { projectId: string; name: string }): string => `${w.projectId}\u0000${w.name}`;
 
 function fileStamp(path: string): string {
   try {
@@ -375,10 +411,13 @@ export class VoxelWorlds {
   private readonly open = new Map<string, Promise<OpenWorld | { ok: false; error: VoxelWorldError }>>();
   /** The worlds opened, by their pending open (what {@link residency} reads without waiting). */
   private readonly known = new WeakMap<Promise<unknown>, OpenWorld>();
-  /** Far cache builds queued or running, by world. */
-  private readonly farBuilds = new Map<string, Promise<void>>();
+  /** Far cache builds running, by world. */
+  private readonly farBuilds = new Map<string, FarBuild>();
+  private readonly farJobs: FarCacheJobs;
 
-  constructor(private readonly opts: VoxelWorldsOptions) {}
+  constructor(private readonly opts: VoxelWorldsOptions) {
+    this.farJobs = opts.farJobs ?? inProcessFarJobs();
+  }
 
   private load(projectId: string, name: string): Promise<OpenWorld | { ok: false; error: VoxelWorldError }> {
     if (!VOXEL_WORLD_NAME_RE.test(name)) return Promise.resolve(refuse('invalid_request', 'validation', `a world name matches ${VOXEL_WORLD_NAME_RE.source}`, '/world'));
@@ -472,6 +511,9 @@ export class VoxelWorlds {
   private async refresh(w: OpenWorld, files?: readonly string[]): Promise<string[] | { ok: false; error: VoxelWorldError }> {
     const changed = this.changedOnDisk(w, files);
     if (changed.length === 0) return changed;
+    // Someone else's change: a far cache being built meanwhile cannot tell which chunks it missed.
+    const build = this.farBuilds.get(worldKey(w));
+    if (build !== undefined) build.lost = true;
     const projectDir = this.opts.projectDir(w.projectId);
     const state = projectDir === null ? refuse('project_not_found', 'not_found', `project ${w.projectId} cannot be opened`) : await this.readState(projectDir, w.dir, w.name);
     if ('ok' in state) {
@@ -545,11 +587,9 @@ export class VoxelWorlds {
   }
 
   /**
-   * The world's far cache, current with its revision: built first when it
-   * is missing or stale (in this thread, a region column at a time with the
-   * event loop given back between columns, inside the world's queue so no
-   * command changes the world under it), answered `far_cache_building`
-   * meanwhile.
+   * The world's far cache, current with its revision; when it is missing or
+   * stale it is built in the background (commands go on meanwhile, see
+   * {@link buildFar}) and the answer is `far_cache_building` until it lands.
    */
   async farInfo(projectId: string, name: string): Promise<VoxelFarInfo> {
     const w = await this.load(projectId, name);
@@ -572,20 +612,51 @@ export class VoxelWorlds {
     });
   }
 
-  /** Builds a world's far cache in its queue unless a build is queued already. */
+  /**
+   * Builds a world's whole far cache unless a build runs already: by the far
+   * jobs (a worker thread in the backend) into a fresh folder, outside the
+   * world's queue, so commands, reads and other worlds go on while it runs.
+   * It lands in the queue: swapped in whole, then the chunks commands
+   * changed meanwhile built again on it, so it is current when the queue
+   * moves on.
+   */
   private buildFar(w: OpenWorld): Promise<void> {
-    const key = `${w.projectId}\u0000${w.name}`;
-    let p = this.farBuilds.get(key);
-    if (p !== undefined) return p;
-    p = this.queued(w, async () => {
+    const key = worldKey(w);
+    const had = this.farBuilds.get(key);
+    if (had !== undefined) return had.done;
+    const job: FarBuild = { changed: new Map(), lost: false, done: Promise.resolve() };
+    const fresh = farCacheBuildDir(w.farDir);
+    const drop = (): void => {
+      if (this.farBuilds.get(key) === job) this.farBuilds.delete(key);
+    };
+    job.done = (async () => {
       if (farCacheStale(w.farDir, w.manifest) === null) return;
+      await this.farJobs.build(w.dir, fresh);
+      await this.queued(w, async () => {
+        // From here commands see no build under way: theirs rebuild the landed cache themselves.
+        drop();
+        swapFarCache(fresh, w.farDir);
+        w.farTags.clear();
+        if (job.lost || job.changed.size === 0) return;
+        await this.farRebuild(w, [...job.changed.values()]);
+      });
+    })()
+      .catch(() => rmSync(fresh, { recursive: true, force: true }))
+      .finally(drop);
+    this.farBuilds.set(key, job);
+    return job.done;
+  }
+
+  /** The kept ancestors of `chunks` built again by the far jobs; a cache that cannot be is dropped (the next read builds it whole). */
+  private async farRebuild(w: OpenWorld, chunks: readonly ChunkCoord[]): Promise<VoxelCommandApplied['far']> {
+    try {
+      const r = await this.farJobs.rebuild(w.dir, w.farDir, chunks);
+      return { nodes: r.rebuilt.length, ms: r.ms };
+    } catch (e) {
+      rmSync(w.farDir, { recursive: true, force: true });
       w.farTags.clear();
-      await buildFarCache(w.dir, w.farDir, { run: yieldingFarRunner(w.dir) });
-    })
-      .catch(() => undefined)
-      .finally(() => this.farBuilds.delete(key));
-    this.farBuilds.set(key, p);
-    return p;
+      return { stale: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   /** A far cache file's tag (the hash of its bytes), taken again only when its stamp moved. */
@@ -601,7 +672,7 @@ export class VoxelWorlds {
 
   /** Where a far cache file is and its tag (`level`: `L<n>`), when the cache lists it (a stale one is built again meanwhile). */
   async farFile(projectId: string, name: string, level: string, file: string): Promise<RegionFileAnswer> {
-    if (!FAR_LEVEL_RE.test(level) || !REGION_FILE_NAME_RE.test(file)) return refuse('invalid_request', 'validation', 'not a far cache file name', '/file');
+    if (!isFarLevel(level) || !REGION_FILE_NAME_RE.test(file)) return refuse('invalid_request', 'validation', 'not a far cache file name', '/file');
     const w = await this.load(projectId, name);
     if ('ok' in w) return w;
     return this.queued(w, async (): Promise<RegionFileAnswer> => {
@@ -616,33 +687,35 @@ export class VoxelWorlds {
 
   /**
    * After a change written in full: the far cache's ancestors of the
-   * changed chunks rebuilt (it was current before the change), else the
-   * reason it is now stale (built again whole when next read).
+   * changed chunks rebuilt (it was current before the change) by the far
+   * jobs, off the event loop; while a full build runs, the chunks join it
+   * instead; else the reason it is now stale (built again whole when next
+   * read).
    */
-  private farAfter(w: OpenWorld, before: number, chunks: ReadonlyArray<readonly [number, number, number]>): VoxelCommandApplied['far'] {
+  private async farAfter(w: OpenWorld, before: number, chunks: ReadonlyArray<readonly [number, number, number]>): Promise<VoxelCommandApplied['far']> {
+    const build = this.farBuilds.get(worldKey(w));
+    if (build !== undefined) {
+      for (const [cx, cy, cz] of chunks) build.changed.set(`${cx},${cy},${cz}`, { cx, cy, cz });
+      return { stale: 'the far cache is being built; this change is built into it when it lands' };
+    }
     const stale = farCacheStale(w.farDir, { ...w.manifest, revision: before });
     if (stale === 'not built') return null;
     if (stale !== null) return { stale };
-    try {
-      const r = rebuildFarCache(w.dir, w.farDir, chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })));
-      return { nodes: r.rebuilt.length, ms: r.ms };
-    } catch (e) {
-      // A cache that could not be rebuilt is dropped: the next read builds it whole.
-      rmSync(w.farDir, { recursive: true, force: true });
-      w.farTags.clear();
-      return { stale: e instanceof Error ? e.message : String(e) };
-    }
+    return this.farRebuild(w, chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })));
   }
 
   /**
    * What an export ships of a world: its manifest fields and every listed
    * region file with its path, length and hash, read in one queued step (no
    * command half applied). A listed file that is missing or damaged refuses
-   * it: an export never ships a world with holes.
+   * it: an export never ships a world with holes. A far cache being built
+   * is waited for outside the queue (commands go on) up to the export's
+   * wait; one still not current then is left out, and `farNote` says so.
    */
   async shippedFiles(projectId: string, name: string): Promise<ShippedWorldFiles> {
     const w = await this.load(projectId, name);
     if ('ok' in w) return { ok: false, code: w.error.code, message: w.error.message };
+    if (farCacheStale(w.farDir, w.manifest) !== null) await waitAtMost(this.buildFar(w), this.opts.farExportWaitMs ?? FAR_EXPORT_WAIT_MS);
     return this.queued(w, async (): Promise<ShippedWorldFiles> => {
       const fresh = await this.refresh(w);
       if (!Array.isArray(fresh)) return { ok: false, code: fresh.error.code, message: fresh.error.message };
@@ -655,9 +728,11 @@ export class VoxelWorlds {
         const path = join(w.world.dir, file);
         files.push({ name: file, path, digest: f.hash, byteLength: statSync(path).size });
       }
-      if (farCacheStale(w.farDir, m) !== null) {
-        w.farTags.clear();
-        await buildFarCache(w.dir, w.farDir, { run: yieldingFarRunner(w.dir) });
+      const stale = farCacheStale(w.farDir, m);
+      if (stale !== null) {
+        void this.buildFar(w);
+        const shipped = { world: name, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, revision: m.revision };
+        return { ok: true, world: shipped, files, farNote: `voxel world ${name} ships without its far field: its far cache is still being built (${stale}); export again once it is built to draw the world past its load ring` };
       }
       const far = readFarCacheManifest(w.farDir);
       const farFiles = farCacheFiles(w.farDir)
@@ -782,7 +857,7 @@ export class VoxelWorlds {
     }
     // A scene's record names a chunk once an edit of it: each chunk is answered once.
     const chunks = [...new Map(record.map((u) => [`${u.cx},${u.cy},${u.cz}`, [u.cx, u.cy, u.cz] as const])).values()];
-    const far = this.farAfter(w, w.manifest.revision - 1, chunks);
+    const far = await this.farAfter(w, w.manifest.revision - 1, chunks);
     const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
     const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, far, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 }, ...(scene !== undefined ? { scene } : {}) };
     if (requestId !== null) {

@@ -13,10 +13,6 @@ import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, M2_GLTF_MAX_DIAGNOSTICS } 
 import { decodedImageBytes, detectImageMime, imageDimensions, ktx2Info } from './images';
 import type { ImportDiagnostic, ImportJobPort } from './types';
 
-/** Largest texture file accepted (bytes): a PNG of the largest texture, however busy. */
-export const TEXTURE_SOURCE_BYTES_MAX = MAX_TEXTURE_SOURCE_BYTES;
-/** Largest texture edge (pixels). */
-export const TEXTURE_EDGE_MAX = MAX_TEXTURE_EDGE;
 
 export type TextureFormat = 'png' | 'jpeg' | 'webp' | 'ktx2';
 
@@ -74,8 +70,8 @@ function diag(code: ImportDiagnostic['code'], message: string, found?: unknown, 
 }
 
 function inspectStages(bytes: Uint8Array): ImageMetrics | ImportDiagnostic[] {
-  if (bytes.length > TEXTURE_SOURCE_BYTES_MAX) {
-    return [diag('asset_size_exceeded', 'the texture file is too large', bytes.length, `<= ${TEXTURE_SOURCE_BYTES_MAX} bytes`)];
+  if (bytes.length > MAX_TEXTURE_SOURCE_BYTES) {
+    return [diag('asset_size_exceeded', 'the texture file is too large', bytes.length, `<= ${MAX_TEXTURE_SOURCE_BYTES} bytes`)];
   }
   const mime = detectImageMime(bytes);
   if (mime === null) {
@@ -84,8 +80,8 @@ function inspectStages(bytes: Uint8Array): ImageMetrics | ImportDiagnostic[] {
   if (mime === 'image/ktx2') {
     const info = ktx2Info(bytes);
     if (info === null) return [diag('asset_image_invalid', 'the KTX2 is not a 2D Basis Universal texture or texture array (ETC1S or UASTC) with its mip levels', undefined, 'a 2D Basis Universal KTX2 (e.g. encoded at import)')];
-    if (info.width > TEXTURE_EDGE_MAX || info.height > TEXTURE_EDGE_MAX) {
-      return [diag('asset_limits_exceeded', 'the texture is larger than the edge limit', `${info.width}x${info.height}`, `<= ${TEXTURE_EDGE_MAX} px per edge`)];
+    if (info.width > MAX_TEXTURE_EDGE || info.height > MAX_TEXTURE_EDGE) {
+      return [diag('asset_limits_exceeded', 'the texture is larger than the edge limit', `${info.width}x${info.height}`, `<= ${MAX_TEXTURE_EDGE} px per edge`)];
     }
     // An array's decoded size counts every layer.
     const layers = info.layers ?? 1;
@@ -95,8 +91,8 @@ function inspectStages(bytes: Uint8Array): ImageMetrics | ImportDiagnostic[] {
   if (dims === null || dims.width < 1 || dims.height < 1) {
     return [diag('asset_image_invalid', 'the image header declares no readable size')];
   }
-  if (dims.width > TEXTURE_EDGE_MAX || dims.height > TEXTURE_EDGE_MAX) {
-    return [diag('asset_limits_exceeded', 'the texture is larger than the edge limit', `${dims.width}x${dims.height}`, `<= ${TEXTURE_EDGE_MAX} px per edge`)];
+  if (dims.width > MAX_TEXTURE_EDGE || dims.height > MAX_TEXTURE_EDGE) {
+    return [diag('asset_limits_exceeded', 'the texture is larger than the edge limit', `${dims.width}x${dims.height}`, `<= ${MAX_TEXTURE_EDGE} px per edge`)];
   }
   const format: TextureFormat = mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpeg' : 'webp';
   return { format, width: dims.width, height: dims.height, decodedBytes: decodedImageBytes(dims) };

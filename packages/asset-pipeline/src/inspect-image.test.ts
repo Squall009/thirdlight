@@ -5,7 +5,8 @@
 import { KTX2_IDENTIFIER } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
-import { IMAGE_TOOLCHAIN, inspectImage, TEXTURE_EDGE_MAX } from './index';
+import { MAX_TEXTURE_EDGE } from '@thirdlight/project-model/limits';
+import { IMAGE_TOOLCHAIN, inspectImage } from './index';
 
 const OPTS = { profile: 'image' as const, recipeVersion: 1 as const, toolchain: IMAGE_TOOLCHAIN };
 
@@ -29,7 +30,7 @@ describe('inspectImage', () => {
   });
 
   it('rejects oversized images, other formats and garbage, never throwing', () => {
-    expect(inspectImage(png(TEXTURE_EDGE_MAX + 1, 4), OPTS).status).toBe('rejected');
+    expect(inspectImage(png(MAX_TEXTURE_EDGE + 1, 4), OPTS).status).toBe('rejected');
     expect(inspectImage(new TextEncoder().encode('hello, not an image at all'), OPTS).status).toBe('rejected');
     const ktx2 = new Uint8Array(64);
     ktx2.set(KTX2_IDENTIFIER);

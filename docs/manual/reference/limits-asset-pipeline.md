@@ -13,14 +13,6 @@ The limits and defaults `@thirdlight/asset-pipeline` defines, by source file. Va
 | <a id="limit-font-source-bytes-max"></a>`FONT_SOURCE_BYTES_MAX` | `4194304` | Largest font file accepted (bytes). An engine limit, not a format one: the whole file is held in memory by the page and parsed by the browser at load, and 4 MiB covers a full Latin/Greek/Cyrillic family member with hinting. |
 | <a id="limit-font-tables-max"></a>`FONT_TABLES_MAX` | `128` | Most tables a font's directory may list (real fonts carry about 10–30). |
 
-<a id="limits-asset-pipeline--inspect-image"></a>
-## `inspect-image.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-texture-edge-max"></a>`TEXTURE_EDGE_MAX` | `4096` | Largest texture edge (pixels). |
-| <a id="limit-texture-source-bytes-max"></a>`TEXTURE_SOURCE_BYTES_MAX` | `68423696` | Largest texture file accepted (bytes): a PNG of the largest texture, however busy. |
-
 <a id="limits-asset-pipeline--limits"></a>
 ## `limits.ts`
 

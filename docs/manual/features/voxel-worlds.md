@@ -251,7 +251,9 @@ mountain kilometres away shows above the horizon. The far field draws the
 world's coarser voxels (2 m cells and up, coarser with distance) from the
 world's **far cache**, either meshed or as ray-marched distance bricks, which the backend builds beside the world (in the
 project's `cache/` folder, never committed), keeps current with every edit
-command, and an export ships with the world.
+command, and an export ships with the world. A world's first build (minutes
+for a world of kilometres) runs in the background: edits go on meanwhile and
+are built into it when it lands, and the far field appears once it is there.
 
 - **Mode and detail, by quality level.** A quality level's **Voxel far
   field** is `mesh` (default on every tier), `bricks` or `off` (nothing past
@@ -375,7 +377,10 @@ The voxel object's **Decal layers** choose which decals mark the world.
 
 An export ships each world its scenes name with all of the world's region
 files, whole (about 4–6 MB per km² for the test world), and its far cache's
-files (about a tenth of that). Each file is checked
+files (about a tenth of that). An export waits up to two minutes for a far
+cache still being built; past that it ships the world without one (the game
+draws nothing past the load ring) and its warnings say so: export again once
+the cache is built. Each file is checked
 against its digest when the game reads it. The exported game needs no
 backend and makes no range requests. An export is refused when a world it
 names is missing or has a missing or damaged region file. The project's

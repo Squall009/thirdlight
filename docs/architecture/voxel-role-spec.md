@@ -351,8 +351,9 @@ terrain, as **flat sloped planes** with the roof material's tiling texture laid 
   keeps its own faces. (47a's building object may override the fill per building.)
 - **Wall and roof never blend** (owner 2026-11-06, D519). The roof planes show the roof's material up to the seam,
   the fill the wall's; walls and chimneys next to a roof show their own cells' materials, unblended. A wall face
-  that merges with one next to a roof (the same plane, one rectangle) is unblended whole (46d.6c, derived 30; a
-  46d default in plan 46d §9).
+  that merges with one next to a roof (the same plane, one rectangle) is unblended whole. **v1 add-only note**
+  (derived 30, 46d.6c): it adds this case to the rule and changes nothing else in v1; a 46d default put to the
+  owner in plan 46d §9 and acc46d.
 - **Ridges, hips and a pyramid's apex** take the lower of two planes, valleys the higher.
 - **Collision** follows the drawn planes at both slopes (a ramp; owner A8); light, occupancy and navigation keep the
   stair voxels.

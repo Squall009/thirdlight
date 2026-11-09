@@ -28,8 +28,6 @@ export {
 export {
   IMAGE_TOOLCHAIN,
   inspectImage,
-  TEXTURE_EDGE_MAX,
-  TEXTURE_SOURCE_BYTES_MAX,
   type ImageImportOptions,
   type ImageImportProposal,
   type ImageMetrics,

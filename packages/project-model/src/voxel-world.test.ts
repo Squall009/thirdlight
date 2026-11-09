@@ -14,7 +14,7 @@ import { DEFAULT_QUALITY_LEVELS, levelVoxels, type QualityLevelConfig } from './
 import { validateQualityLevels } from './materials';
 import { canonicalVoxelWorld, resolveVoxelWorld, validateVoxelWorldComponent, VOXEL_WORLD_DEFAULTS, type VoxelWorldComponent } from './voxel-world';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
-import { VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
+import { RELIEF_RING_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const CAMERA = { id: 'cam-main', components: { transform: T, virtualCamera: { rig: 'fixed' } } };
@@ -134,7 +134,7 @@ describe('the voxelWorld component', () => {
     expect(r.collision).toEqual({ radius: 48, height: 24 });
     // The plan's level distances: full detail to 64 m, level 1 to 128 m (level 2 past it).
     expect(r.levels).toEqual({ level0: DEFAULT_LEVEL_RINGS.radii[0]! * VOXEL_SIZE_M, level1: DEFAULT_LEVEL_RINGS.radii[1]! * VOXEL_SIZE_M, relief: DEFAULT_RELIEF_RADIUS_CELLS * VOXEL_SIZE_M });
-    // Relief displaces to 16 m (the 46d.1b verdict's medium ring), its steps the quality level's: none without one.
+    // Relief displaces to 16 m (the relief verdict's medium ring), its steps the quality level's: none without one.
     expect(r.levels).toEqual({ level0: 64, level1: 128, relief: 16 });
     expect(r.reliefSteps).toBe(0);
     expect(r.sectionEdge).toBe(DEFAULT_SECTION_EDGE);
@@ -167,6 +167,9 @@ describe('the voxelWorld component', () => {
     // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
     expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 2, farField: 'mesh', farError: 4 });
     expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 4, farField: 'mesh', farError: 3 });
+    // A level's own ring scale moves relief by its factor against the tier's ring scale, relief's own tier scale kept.
+    expect(levelVoxels({ ...high!, voxelRings: 2 * Math.SQRT2 }).reliefScale).toBeCloseTo(3, 12);
+    expect(levelVoxels({ lighting: 'medium', voxelRings: 0.5 }).reliefScale).toBe(0.5);
     // Relief steps by tier (none on low), a level's own beating its tier's.
     expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).reliefSteps)).toEqual([0, 2, 4]);
     expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelRelief: 8 }).reliefSteps).toBe(8);
@@ -192,9 +195,10 @@ describe('the voxelWorld component', () => {
     // Relief: medium 16 m, high 24 m (the rings the relief verdict chose).
     expect([medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).levels.relief)).toEqual([16, 24]);
     expect([resolveVoxelWorld({ world: 'w' }, high!).quality, resolveVoxelWorld({ world: 'w' }, high!).budgetBytes]).toEqual(['high', VOXEL_STREAM_BUDGET_BYTES.high]);
-    // A level's own voxel ring scale beats its tier's; the scene's scale for the level beats both.
+    // A level's own voxel ring scale beats its tier's (relief moved by its factor against the tier's ring scale, keeping
+    // relief's own tier scale); the scene's scale for the level beats both.
     const tiny: QualityLevelConfig = { id: 'tiny', lighting: 'high', voxelRings: 0.5 };
-    expect(at({ world: 'w' }, tiny)).toEqual(scaled(0.5));
+    expect(at({ world: 'w' }, tiny)).toEqual(scaled(0.5, (0.5 / VOXEL_RING_SCALES.high) * RELIEF_RING_SCALES.high));
     expect(resolveVoxelWorld({ world: 'w' }, tiny).budgetBytes).toBe(VOXEL_STREAM_BUDGET_BYTES.high);
     expect(at({ world: 'w', quality: { tiny: { scale: 3 } } }, tiny)).toEqual(scaled(3));
     // The scene's own distances are what is scaled.
@@ -209,7 +213,7 @@ describe('the voxelWorld component', () => {
     // A distance the scene sets for the level replaces the scaled one; the others stay scaled; the invariants hold.
     const over = at({ world: 'w', quality: { big: { ring: { loadRadius: 500, unloadRadius: 10 }, levels: { level1: 1 } } } }, big);
     expect(over.ring).toEqual({ ...scaled(2).ring, loadRadius: 500, unloadRadius: 500 });
-    expect(over.levels).toEqual({ level0: scaled(2).levels['level0'], level1: scaled(2).levels['level0'], relief: scaled(2).levels['relief'] });
+    expect(over.levels).toEqual({ level0: scaled(2).levels['level0'], level1: scaled(2).levels['level0'], relief: scaled(2, (2 / VOXEL_RING_SCALES.high) * RELIEF_RING_SCALES.high).levels['relief'] });
     expect(over.collision).toEqual(scaled(2).collision);
     // Another level of the scene is not touched by the entry.
     expect(at({ world: 'w', quality: { high: { scale: 4 } } }, medium!)).toEqual(scaled(1));

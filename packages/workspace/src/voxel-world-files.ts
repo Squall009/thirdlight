@@ -532,6 +532,24 @@ export class RegionWorld {
     }
   }
 
+  /**
+   * A file just written counts again (opened on demand): its chunks' store
+   * bytes now, edits having grown or shrunk them, and it is the file used
+   * last, so one an edit created is counted and may be dropped like any.
+   */
+  private recount(name: string, f: RegionFileState): void {
+    if (this.budget === null || !f.loaded) return;
+    const c: ChunkCoord = { cx: 0, cy: 0, cz: 0 };
+    let n = 0;
+    for (const key of f.entries.keys()) {
+      chunkOfKey(this.opts.grid, key, c);
+      n += this.store.chunkBytes(c.cx, c.cy, c.cz);
+    }
+    f.residentBytes = n;
+    this.order.delete(name);
+    this.order.add(name);
+  }
+
   private fileOf(c: ChunkCoord): RegionFileState {
     const address = addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, c);
     const name = addressName(address);
@@ -628,6 +646,7 @@ export class RegionWorld {
       }
       f.hash = w.hash;
       f.entries = p.entries;
+      this.recount(p.name, f);
       return true;
     });
     return r.ok ? { ok: true } : { ok: false, why: why ?? r.reason };
@@ -661,6 +680,7 @@ export class RegionWorld {
         this.removals.delete(p.name);
         f.hash = sha256HexNative(p.bytes);
         f.entries = p.entries;
+        this.recount(p.name, f);
         return true;
       });
     }

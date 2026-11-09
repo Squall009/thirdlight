@@ -24,7 +24,7 @@ import {
 } from '@thirdlight/runtime';
 import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
 import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
-import { chunkDrawBatchTransfer, chunkGrid, DEFAULT_SECTION_EDGE, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
+import { chunkDrawBatchTransfer, chunkGrid, DEFAULT_SECTION_EDGE, RELIEF_RING_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
 import { resolveMaterialInstances, withResolvedPhysics, type MaterialDef, type QualityLevelConfig } from '@thirdlight/project-model';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
@@ -583,9 +583,11 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(big).toEqual({ ring: { loadRadius: 32, unloadRadius: 32, loadHeight: 64, unloadHeight: 128 }, collision: { radius: 40, height: 32 }, levels: { level0: 20, level1: 200, relief: 20 }, quality: 'big', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, reliefSteps: 4 });
     // The high tier: relief 4 steps a cell to the scene's 16 m doubled, within level 0; a script's own distance re-plans the ring.
     expect([s().relief!.ring.n, s().relief!.radius]).toEqual([4, cells(20)]);
+    // A script's relief distance scales by the level's ring scale against its tier's, times relief's own tier scale.
     const rel = await h.inStep((v) => v.setRings({ levels: { relief: 6 } }));
-    expect(rel.ok && rel.rings.levels.relief).toBe(12);
-    expect(s().relief!.radius).toBe(cells(12));
+    const relM = 6 * (2 / VOXEL_RING_SCALES.high) * RELIEF_RING_SCALES.high;
+    expect(rel.ok && rel.rings.levels.relief).toBe(relM);
+    expect(s().relief!.radius).toBe(cells(relM));
     await s().settle();
     expect(s().relief!.ring.size).toBeGreaterThan(0);
     // The ring shrank to nothing and grew to 32 m round a chunk corner, where every chunk has a neighbour across a

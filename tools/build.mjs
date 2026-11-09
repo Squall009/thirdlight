@@ -348,6 +348,22 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     minify: false,
   });
   console.log('build: backend (terrain erosion worker): packages/backend/src/erosion-worker.ts -> dist/backend/erosion-worker.mjs');
+  // The voxel far cache worker thread, beside the bundle too.
+  await esbuild.build({
+    entryPoints: [join(root, 'packages/backend/src/far-cache-worker.ts')],
+    outfile: join(root, 'dist/backend/far-cache-worker.mjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'bundle',
+    treeShaking: true,
+    sourcemap: false,
+    minify: false,
+    banner: {
+      js: 'import { createRequire as __tl_createRequire } from "node:module"; const require = __tl_createRequire(import.meta.url);',
+    },
+  });
+  console.log('build: backend (voxel far cache worker): packages/backend/src/far-cache-worker.ts -> dist/backend/far-cache-worker.mjs');
   // The script type check's worker thread, beside the bundle.
   await esbuild.build({
     entryPoints: [join(root, 'packages/backend/src/type-check-worker.ts')],

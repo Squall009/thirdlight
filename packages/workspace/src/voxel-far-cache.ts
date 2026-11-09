@@ -374,6 +374,36 @@ export type FarColumnRunner = (columns: ReadonlyArray<readonly [number, number]>
  * into place last, so a cache folder is always whole.
  */
 export async function buildFarCache(worldDir: string, cacheDir: string, opts: { minLevel?: number; run?: FarColumnRunner } = {}): Promise<FarBuildReport> {
+  const fresh = farCacheBuildDir(cacheDir);
+  const report = await buildFarCacheInto(worldDir, fresh, opts);
+  swapFarCache(fresh, cacheDir);
+  return report;
+}
+
+/** The folder a full build of `cacheDir` writes into before it is moved into place. */
+export function farCacheBuildDir(cacheDir: string): string {
+  return `${cacheDir}.building`;
+}
+
+/**
+ * Moves a whole cache built in `fresh` into `cacheDir`. The old folder is
+ * renamed aside first and removed last, so there is no moment without a
+ * cache folder for a reader to find.
+ */
+export function swapFarCache(fresh: string, cacheDir: string): void {
+  const old = `${cacheDir}.old`;
+  rmSync(old, { recursive: true, force: true });
+  if (existsSync(cacheDir)) renameSync(cacheDir, old);
+  renameSync(fresh, cacheDir);
+  rmSync(old, { recursive: true, force: true });
+}
+
+/**
+ * Builds a world's whole far cache into `fresh` (emptied first), leaving
+ * the cache in use untouched: what a worker thread runs while the backend
+ * serves the old cache and commands go on.
+ */
+export async function buildFarCacheInto(worldDir: string, fresh: string, opts: { minLevel?: number; run?: FarColumnRunner } = {}): Promise<FarBuildReport> {
   const t0 = performance.now();
   const world = new FarWorldSource(worldDir);
   const minLevel = opts.minLevel ?? FAR_MIN_LEVEL;
@@ -421,7 +451,6 @@ export async function buildFarCache(worldDir: string, cacheDir: string, opts: { 
     // Only the level just built is read by the next one.
     for (const k of [...memo.keys()]) if (!k.startsWith(`${l}:`)) memo.delete(k);
   }
-  const fresh = `${cacheDir}.building`;
   rmSync(fresh, { recursive: true, force: true });
   mkdirSync(fresh, { recursive: true });
   const levels: FarCacheLevel[] = [];
@@ -429,8 +458,6 @@ export async function buildFarCache(worldDir: string, cacheDir: string, opts: { 
   for (let l = minLevel; l <= maxLevel; l++) levels.push(writeLevel(join(fresh, farLevelFolder(l)), world.grid, id, world.manifest.footprint, l, byLevel.get(l)!.values()));
   const manifest: FarCacheManifest = { format: FAR_CACHE_FORMAT, worldId: world.manifest.worldId, edge: world.manifest.edge, footprint: world.manifest.footprint, minLevel, maxLevel, revision: world.manifest.revision, levels };
   writeFileSync(join(fresh, FAR_CACHE_MANIFEST), manifestBytes(manifest));
-  rmSync(cacheDir, { recursive: true, force: true });
-  renameSync(fresh, cacheDir);
   const nodes: number[] = [];
   for (let l = 0; l <= maxLevel; l++) nodes.push(levels.find((x) => x.level === l)?.nodes ?? 0);
   return { manifest, nodes, bytes: levels.reduce((s, l) => s + l.bytes, 0), ms: performance.now() - t0 };
@@ -591,3 +618,37 @@ export function yieldingFarRunner(worldDir: string): FarColumnRunner {
     }
   };
 }
+
+/**
+ * Where a world's far cache work runs. The backend gives it a worker
+ * thread, so a full build (minutes for a world of kilometres) and the
+ * rebuild after each edit (a few hundred milliseconds) never hold its
+ * event loop; from source both run in this thread.
+ */
+export interface FarCacheJobs {
+  /** A whole cache built into `fresh` ({@link buildFarCacheInto}); the cache in use is left as it is. */
+  build(worldDir: string, fresh: string): Promise<void>;
+  /** The kept ancestors of `chunks` built again in place ({@link rebuildFarCache}). */
+  rebuild(worldDir: string, cacheDir: string, chunks: ReadonlyArray<{ readonly cx: number; readonly cy: number; readonly cz: number }>): Promise<FarRebuildReport>;
+  /** Stops what it started (its worker threads). */
+  close(): void;
+}
+
+/** Far cache work in this thread: a full build gives the event loop back between region columns. */
+export function inProcessFarJobs(): FarCacheJobs {
+  return {
+    build: async (worldDir, fresh) => {
+      await buildFarCacheInto(worldDir, fresh, { run: yieldingFarRunner(worldDir) });
+    },
+    rebuild: (worldDir, cacheDir, chunks) => Promise.resolve(rebuildFarCache(worldDir, cacheDir, chunks)),
+    close: () => undefined,
+  };
+}
+
+/**
+ * How long an export waits for a world's far cache that is being built
+ * before it ships the world without one (and says so in its warnings):
+ * long enough for a world of a few km² built in the background, short of
+ * the editor's wait for an export's answer.
+ */
+export const FAR_EXPORT_WAIT_MS = 120_000;

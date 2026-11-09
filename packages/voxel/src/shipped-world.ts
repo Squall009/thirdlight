@@ -17,6 +17,7 @@ import { chunkGrid, CHUNK_EDGES, isRegionFootprint, REGION_FOOTPRINTS, type Chun
 import { parseRegionFileName, VOXEL_WORLD_NAME_RE, WORLD_GRID_ID, WORLD_ID_BYTES, type RegionByteSource, type RegionLayout } from './region-file';
 import { RegionChunkSource } from './region-source';
 import { regionFarSource, type FarNodeSource } from './far-field';
+import { FAR_MAX_LEVEL } from './far-tree';
 import { hexToBytes } from '@thirdlight/shared';
 
 /** One shipped region file: its name in the world grid's folder, and the digest and length of its bytes. */
@@ -87,7 +88,7 @@ const FAR_FILE_RE = /^L(\d{1,2})\/([^/]+)$/;
 /** A shipped far cache file's level and region file name (null: not one). */
 export function shippedFarFile(name: string): { level: number; region: string } | null {
   const m = FAR_FILE_RE.exec(name);
-  if (m === null || parseRegionFileName('stacked', m[2]!) === null) return null;
+  if (m === null || Number(m[1]) > FAR_MAX_LEVEL || parseRegionFileName('stacked', m[2]!) === null) return null;
   return { level: Number(m[1]), region: m[2]! };
 }
 
@@ -118,7 +119,7 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
       const f = w.far as Record<string, unknown> | null;
       if (typeof f !== 'object' || f === null || Object.keys(f).join(',') !== 'minLevel,maxLevel,files') return `voxelWorlds[${i}].far has the keys minLevel, maxLevel, files`;
       const lo = f.minLevel, hi = f.maxLevel;
-      if (typeof lo !== 'number' || typeof hi !== 'number' || !Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi < lo || hi > 30) return `voxelWorlds[${i}].far levels are whole numbers 1 ≤ minLevel ≤ maxLevel`;
+      if (typeof lo !== 'number' || typeof hi !== 'number' || !Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi < lo || hi > FAR_MAX_LEVEL) return `voxelWorlds[${i}].far levels are whole numbers 1 ≤ minLevel ≤ maxLevel ≤ ${FAR_MAX_LEVEL}`;
       const levelOk = (name: string): boolean => {
         const at = shippedFarFile(name);
         return at !== null && at.level >= lo && at.level <= hi;

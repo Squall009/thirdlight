@@ -41,6 +41,13 @@ export const FAR_CACHE_FORMAT = 1;
 /** The lowest level the far tree keeps (2 m cells, 64 m nodes at the 32-cell edge): the near rings draw what is finer. */
 export const FAR_MIN_LEVEL = 2;
 
+/**
+ * The highest level a far tree may have: a node's coordinates are chunk
+ * coordinates shifted right by its level, and past 30 a 32-bit chunk
+ * coordinate has no bits left to shift.
+ */
+export const FAR_MAX_LEVEL = 30;
+
 /** Default on-screen error (pixels) a drawn node's cell may make before it opens into its children. */
 export const FAR_ERROR_PIXELS = 2;
 
@@ -158,6 +165,7 @@ export function farTopLevel(spanChunks: number, minLevel = FAR_MIN_LEVEL): numbe
   if (!Number.isInteger(spanChunks) || spanChunks < 1) throw new RangeError(`world span ${spanChunks} chunks`);
   let l = minLevel;
   while (Math.ceil(spanChunks / 2 ** l) > 2) l++;
+  if (l > FAR_MAX_LEVEL) throw new RangeError(`world span ${spanChunks} chunks needs far level ${l}, above ${FAR_MAX_LEVEL}`);
   return l;
 }
 
@@ -170,7 +178,7 @@ export class FarNodeIndex {
     readonly minLevel: number,
     readonly maxLevel: number,
   ) {
-    if (!Number.isInteger(minLevel) || minLevel < 1 || maxLevel < minLevel) throw new RangeError(`far levels ${minLevel} … ${maxLevel}`);
+    if (!Number.isInteger(minLevel) || minLevel < 1 || maxLevel < minLevel || maxLevel > FAR_MAX_LEVEL) throw new RangeError(`far levels ${minLevel} … ${maxLevel}`);
     for (let l = minLevel; l <= maxLevel; l++) this.levels.set(l, new Map());
   }
 

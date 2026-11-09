@@ -5,7 +5,7 @@
  *
  *   node tools/voxel-bench/run.mjs textures [--size 4096] [--out DIR]
  *       every set at the authored size (1024 px/m on a 4 m tile) into DIR
- *       (default ~/.cache/thirdlight-phase46/work/46d.4a/textures): bytes a
+ *       (default dist/voxel-bench/textures, beside the build output): bytes a
  *       map and the ms it took
  *   node tools/voxel-bench/run.mjs textures --encode 4096 [--sets stone,grass]
  *       each map of the sets (default all) at that size encoded as one layer
@@ -28,6 +28,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { REPO } from './stream-node';
 import { PLACEHOLDER_MAPS, PLACEHOLDER_SETS, placeholderLook, placeholderPng, placeholderSet, type PlaceholderSet } from './texture-sets';
 
 function arg(name: string, fallback: string): string {
@@ -134,7 +135,7 @@ if (encodeSize !== '') {
   console.log(`[encode] ${sets.length * PLACEHOLDER_MAPS.length} maps in ${(total / 1000).toFixed(1)} s (one thread), stripes of ${rows} rows`);
 } else if (importSize === '') {
   const size = Number(arg('size', '4096'));
-  const dir = arg('out', join(homedir(), '.cache', 'thirdlight-phase46', 'work', '46d.4a', 'textures'));
+  const dir = arg('out', join(REPO, 'dist', 'voxel-bench', 'textures'));
   const { files, ms } = writeSets(dir, size);
   for (const set of PLACEHOLDER_SETS) {
     const l = placeholderLook(set);

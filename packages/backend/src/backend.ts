@@ -36,10 +36,16 @@ import { makeProjectRoutes } from './project-routes';
 import { createExternalEdits } from './external-edits';
 import { makeDecalAtlasRoutes } from './decal-atlas';
 import { createErosionRunner } from './erosion-runner';
+import { createFarCacheJobs } from './far-cache-runner';
 
 /** The script type check's worker beside the bundle (null from source: checks run in process). */
 const TYPE_CHECK_WORKER: URL | null = (() => {
   const url = new URL('./type-check-worker.mjs', import.meta.url);
+  return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
+})();
+/** The voxel far cache worker beside the bundle (null from source: far caches build in process). */
+const FAR_CACHE_WORKER: URL | null = (() => {
+  const url = new URL('./far-cache-worker.mjs', import.meta.url);
   return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
 })();
 /** The terrain erosion worker script beside the bundle (null from source: erosion runs in process). */
@@ -333,7 +339,8 @@ export function createBackend(
 
   const { behaviorSourceRoute } = makeBehaviorSourceRoutes({ service, sessions, behaviorCompiler, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, notifyMutationApplied });
   // A project's voxel worlds: region files served by range, edited by the voxel world commands; read again once their project is released or unregistered.
-  const voxelWorlds = new VoxelWorlds({ projectDir: (projectId) => service.projectDir(projectId) });
+  const farJobs = createFarCacheJobs(FAR_CACHE_WORKER);
+  const voxelWorlds = new VoxelWorlds({ projectDir: (projectId) => service.projectDir(projectId), farJobs });
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs, resolveExternal: external.resolve, onProjectClosed: (projectId) => voxelWorlds.close(projectId), voxelWorlds: { files: (projectId, world) => voxelWorlds.shippedFiles(projectId, world) } });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
@@ -437,6 +444,7 @@ export function createBackend(
         contentRoutes.dispose();
         playContent.dispose();
         voxelWorlds.close();
+        farJobs.close();
         channel.close(() => {
           authoringServer.close(() => {
             previewServer.close(() => {

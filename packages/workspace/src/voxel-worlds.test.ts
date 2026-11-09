@@ -221,6 +221,10 @@ describe('a voxel world served on demand', () => {
     expect(await send('undoVoxels')).toMatchObject({ ok: true, revision: 4, undoable: 0 });
     await expectFilesHold(worldDir, groundStore());
     expect(worlds.residency('p', 'w')).toMatchObject({ residentBytes: 0, loaded: 0 });
+    // A file an edit creates (a region nothing was in) is counted once written, and dropped as any clean file is.
+    const drops = worlds.residency('p', 'w')!.drops;
+    expect(await send('editVoxels', { ...AWAY, cells: [700, 3, 0], voxel: { material: 2, role: VOXEL_ROLE.terrain, wetness: 0, shape: 15 } })).toMatchObject({ ok: true, revision: 5 });
+    expect(worlds.residency('p', 'w')).toMatchObject({ residentBytes: 0, loaded: 0, listed: 5, drops: drops + 1 });
   });
 
   it('keeps the files used last within its budget, and refuses an edit of a file that changed since the world was opened', async () => {
@@ -230,6 +234,10 @@ describe('a voxel world served on demand', () => {
     // The default budget keeps the saved file: the next edit there reads nothing again.
     expect(kept.loaded).toBe(1);
     expect(kept.residentBytes).toBeGreaterThan(0);
+    // A file an edit creates counts its bytes once written.
+    expect(await send('editVoxels', { ...AWAY, cells: [700, 3, 0], voxel: { material: 2, role: VOXEL_ROLE.terrain, wetness: 0, shape: 15 } })).toMatchObject({ ok: true });
+    expect(worlds.residency('p', 'w')!.residentBytes).toBeGreaterThan(kept.residentBytes);
+    expect(await send('undoVoxels')).toMatchObject({ ok: true });
     expect(await send('editVoxels', { ...AWAY, cells: [21, 3, 0] })).toMatchObject({ ok: true });
     expect(worlds.residency('p', 'w')!.loads).toBe(1);
     // A file nobody loaded yet replaced on disk: the next command finds the stamp moved and reads the world again first.

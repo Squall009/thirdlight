@@ -398,6 +398,7 @@ export {
   FAR_ERROR_PIXELS,
   FAR_HYSTERESIS,
   FAR_MIN_LEVEL,
+  FAR_MAX_LEVEL,
   farAncestors,
   farCellsDense,
   FarNodeIndex,

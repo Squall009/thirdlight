@@ -55,8 +55,6 @@ describe('public surface', () => {
         'AUDIO_TOOLCHAIN',
         // Standalone textures
         'IMAGE_TOOLCHAIN',
-        'TEXTURE_EDGE_MAX',
-        'TEXTURE_SOURCE_BYTES_MAX',
         'inspectImage',
         // A KTX2's facts (the backend's encoder tests read them)
         'ktx2Info',

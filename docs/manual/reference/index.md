@@ -63,7 +63,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Room program](graph-room-program.md) | Room program, Program, Rooms |
 | [Graph: Furnishing set](graph-furnishing-set.md) | Furnishing set, Furnishing, Props |
 | [Limits and defaults](limits.md) | By package |
-| [Limits and defaults: asset-pipeline](limits-asset-pipeline.md) | `inspect-font.ts`, `inspect-image.ts`, `limits.ts`, `simplify.ts` |
+| [Limits and defaults: asset-pipeline](limits-asset-pipeline.md) | `inspect-font.ts`, `limits.ts`, `simplify.ts` |
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |

@@ -43,8 +43,9 @@ export const RELIEF_STEPS: readonly number[] = Object.freeze([0, ...RELIEF_SUBDI
 export const RELIEF_STEPS_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 0, medium: 2, high: 4 });
 
 /**
- * How a tier scales the relief distance by default (a level's own ring scale, `voxelRings`, wins): its own, not the
- * ring scale, because the relief ring was sized by what is seen (medium 16 m, high 24 m), not by the budget's area.
+ * How a tier scales the relief distance: its own, not the ring scale, because the relief ring was sized by what is
+ * seen (medium 16 m, high 24 m), not by the budget's area. A level's own ring scale, `voxelRings`, moves it by the
+ * same factor against the tier's ring scale.
  */
 export const RELIEF_RING_SCALES: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: VOXEL_RING_SCALES.low, medium: 1, high: 1.5 });
 

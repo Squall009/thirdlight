@@ -247,7 +247,8 @@ export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelR
   const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
   return {
     ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier],
-    reliefScale: level.voxelRings ?? RELIEF_RING_SCALES[tier],
+    // A level's own ring scale moves relief by the same factor against its tier's, keeping relief's own tier scale.
+    reliefScale: level.voxelRings !== undefined ? (level.voxelRings / VOXEL_RING_SCALES[tier]) * RELIEF_RING_SCALES[tier] : RELIEF_RING_SCALES[tier],
     budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier],
     texelDensity: level.voxelTexelDensity ?? VOXEL_TEXEL_DENSITY_BY_TIER[tier],
     relief: level.voxelRelief ?? RELIEF_STEPS_BY_TIER[tier],
