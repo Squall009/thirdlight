@@ -215,7 +215,7 @@ describe('the voxelWorld component', () => {
     expect(at({ world: 'w', quality: { high: { scale: 4 } } }, medium!)).toEqual(scaled(1));
     // A quality level's voxel ring scale is range-checked like its other fields.
     const errs: ModelErrorV2[] = [];
-    validateQualityLevels([{ id: 'a', voxelRings: 0.1 }, { id: 'b', voxelRings: 1.5, voxelRelief: 4 }, { id: 'c', voxelRelief: 3 }, { id: 'd', voxelFarField: 'bricks' as never, voxelFarError: 0.1 }], '/q', errs);
+    validateQualityLevels([{ id: 'a', voxelRings: 0.1 }, { id: 'b', voxelRings: 1.5, voxelRelief: 4 }, { id: 'c', voxelRelief: 3 }, { id: 'd', voxelFarField: 'hybrid' as never, voxelFarError: 0.1 }], '/q', errs);
     expect(errs.map((e) => `${e.code} ${e.path}`)).toEqual(['field_value /q/0/voxelRings', 'field_value /q/2/voxelRelief', 'field_value /q/3/voxelFarField', 'field_value /q/3/voxelFarError']);
   });
 });
