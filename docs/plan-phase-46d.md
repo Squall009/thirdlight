@@ -244,7 +244,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.9 | done: full gate GREEN (35 min vs 34, 8.0 GB, 868 vitest files, 392 e2e). Review 0H 3M 8L: D559 traced + fixed (column waits for every section), D552 fixed (far builds in workers, commands go on, export waits ≤ 2 min then warns), acc46d lists all 116 defaults; L1–L7 fixed (D561–D564), L8 deferred (D560). voxel e2e 70.7 → 71.1 s |
 | 46d.10 | done (f05807ba): height in the albedo's A (layout v1 amendment 1); albedo array a height array (brightness height for an opaque albedo, the layered rule); shader, relief vertex stage, placeholders, kit sheets (OPAQUE GLB, Blender keeps A) moved; normal A unused. Shipped A error 4.4/255 at 256² (ETC1S), 0.2–0.4 at 4096² UASTC. Fast gate GREEN; e2e 71.1 → 70.8 s |
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
-| 46d.12 | not started |
+| 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.13 | not started |
 | 46d.14 | not started |
 | 46d.15 | not started |
@@ -1510,6 +1510,117 @@ a wide ragged height-blended edge), `blend0-*` (hard cell line); the default 0.2
 WebGL 2 show the same pictures. The per-material override is not pictured (tested in vitest through the draws);
 the Scene view's and Play's live edit of the world's object is tested through the draws, not pictured.
 
+### 46d.12 the brick far field's mush: a measured spike and the verdict for 46d.13
+
+**What Enshrouded is known to do** (searched 2026-11-09). *Verified* (Keen Games' 1.0 changelog, October 2026, on
+enshrouded.com and quoted by GamingOnLinux): "Thanks to a new rendering method called brick rendering, voxel terrain
+and buildings now have a much higher level of detail at large distances, drastically improving the look of vistas
+and far away points of interest"; the same release lists "improved performance on handheld devices, low-end graphics
+cards and the Steam Deck" and is Steam Deck Verified. *Not found in any Keen source* (search summaries and settings
+guides only, so unverified): that the brick renderer replaces their voxel-to-triangle conversion; that it is
+ray-marched; that its bricks are sparse signed distance fields in an atlas with a page table (46d.7d's comparison
+said Keen had said so publicly: that was an overstatement, corrected here); that it runs on the Steam Deck (an
+RDNA 2 iGPU of the Iris Xe's class) rather than only on desktop GPUs. A settings guide says their global
+illumination uses a low-resolution SDF of the scene (inferred). No talk, paper or interview with technical detail
+was found. So "it is possible" holds for "a brick renderer with far detail shipping in a game that also targets an
+iGPU handheld"; everything about how is ours to find.
+
+**The lead's diagnosis, tested** (Node, `work/46d.12/analyse.mts` over 12 real nodes of the 8 km world's far cache:
+the town's at levels 4 and 5 and 8 hill nodes; each build's surface found by a ray straight down every 2 m column,
+against the finest kept level's (L2) top cell; selection from the shot poses at medium 4 px):
+
+- (a) *Sample spacing doubles per level, ≈32 m at a 256 m node — refuted.* A node is 32³ cells as 4³ bricks, so its
+  samples are its cell size apart: 8 m at a 256 m node (level 4), 16 m at level 5. The selection already ties that
+  to the screen: the median drawn node's sample covers 2.2–2.8 px from the town, 2.0–3.8 px from 1.7 km up
+  (`analyse4.out` POSE lines). The meshes draw the same nodes and keep houses as lumps.
+- (b) *Built from downsampled mips, detail lost twice — confirmed.* Mean height error against L2 (m): town L4
+  1.56 → 1.09 with the faces field from the children (`faces x2`), roofs ("built" columns) 3.58 → 1.73; town L5
+  1.52 → 1.26, roofs 9.05 → 3.59; hills L4 1.62 → 1.40, L5 4.88 → 3.78 (p95 13.4 → 12.0). The faces field from the
+  node's own cells (`x1`) is no better than occupancy (roofs 3.84 / 9.58): the loss is the mip, not the corner
+  averaging. Grandchildren (`x4`) gain ≤ 0.4 m more on terrain and nothing on roofs at 7× the build (378–404 ms a
+  node against 51–72 ms for x2, 11–34 ms occupancy).
+- (c) *One dominant material a coarse sample — partly.* The topmost solid of 8 cells paints roof over the gaps
+  between houses (51–60 % of the town's columns show their L2 top material; the "red slab"), and the draw read the
+  nearest sample, so colour came in sample-sized blocks. A neighbourhood vote (shown cells round the sample, tops
+  twice) gives 61–68 % and the draw now blends the 8 samples. The town stays a red patch from above the peak:
+  its 8–10 m houses are under one 16 m sample there; no field fixes that, only a finer error at that distance.
+- (d) *Cost: every box marched per pixel, no early depth test — confirmed, not fixed.* Tight bounds (each brick's
+  marched box shrunk to the cells the surface crosses: 20–60 % of the brick's volume) bring WebGL 2's misses
+  31 → 18 a round and WebGPU's 18 → 17 (same hour, below): the pixels a box covers, not its depth, are the cost.
+
+**Built** (0c1be6cb; occupancy stays the default, the rest behind the switch). `@thirdlight/voxel`
+`far-bricks-faces.ts`: `farBricksFromFaces` (the exact signed distance at each corner to the solid cells' faces, by
+the separable transform over the corner lattice; a surface corner moved by ½ − the mean fill of its 8 cells, so
+partial terrain cells still move it), read from cells `scale` times finer; a sample's look the most-shown material
+round it; per brick the cells the surface can be in (`FarBricks.bounds`, 6 bytes; the occupancy build gives the whole
+brick); a surface on a brick face drawn by its solid side. `brickFarNodeBy` (the worker's job) builds by
+`FarBrickBuild`; `FarField` reads a node's children (a 4³ block a level down) for `faces2` and sends them with the
+job; `FAR_BRICK_BUILDS` (`occupancy`, `faces`, `faces2`). Three-adapter: the box from the bounds (lip only where they
+reach a node face), and the fine shading (a uniform branch): colour blended over the 8 samples, ambient occlusion
+from the field one and two cells out, a march stopping at half a pixel. Page `?farBricks=`, `?farShade=fine|flat`,
+hook `setFar({ bricks, shade })`, `state().far.brickBuild`.
+
+**Tested.** `far-bricks-faces.test.ts` (3): a one-cell block built from cells twice finer keeps more height than the
+occupancy field (8.44 against 8.30 of 9), a surface half a node cell up sits at 8.5 within 0.1 and a ¾-full finer
+layer lifts it 0.375 within 0.12, the ground brick's bounds are its bottom cell row only, looks (grass ground, the
+block's own material); a job carrying uniform finer entries as the far field sends them equals the build from a
+store, and a node without finer cells of its own draws nothing. `voxel-far-view.test.ts`: the instance bytes with
+the bounds, the occupancy build's whole-brick bounds; the program with both shadings builds on WGSL and GLSL.
+Fast gate gate-fast-20261109-220108 GREEN (16 min, 4.9 GB; `tools/voxel-bench/stream.test.ts` "refreshes chunks another writer
+changed" timed out once at 5 s under load and passed alone, as D454's neighbour; perf 0 missed both renderers);
+`voxel-world.e2e.ts` not changed, 71.8 → 72.7 s.
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, medium, the 8 km world from the town square, 46d.7d's
+orbit (3 × 8 s) and flight (2.4 km at 60 m/s); all in one hour, 21:46–22:00, load 2.8–5.2, uptime 17.2 d;
+`work/46d.12/perf-*.json`, `perf-uptime.txt`):
+
+| | bricks | far GPU MB | page heap | brick job p50 / p95 | far fill | orbit missed (of ~480) | flight missed (max ms) |
+|---|---|---|---|---|---|---|---|
+| WebGPU occupancy (v1) | 36,888 | 99.1 | 703 MB | 20 / 33 ms | 16.2 s | 20 / 17 / 18 | 22 (233) |
+| WebGPU faces2 + fine (v2) | 42,628 | 99.4 | 842 MB | 73 / 109 ms | 49.0 s | 22 / 23 / 23 | 36 (250) |
+| WebGPU faces2, flat | 42,628 | 99.4 | 793 MB | 78 / 125 ms | 55.4 s | 19 / 16 / 16 | 23 (167) |
+| WebGL 2 occupancy (v1) | 36,888 | 99.1 | 793 MB | 21 / 34 ms | 16.8 s | 42 / 24 / 26 | 20 (100) |
+| WebGL 2 faces2 + fine (v2) | 42,628 | 99.4 | 894 MB | 77 / 124 ms | 54.6 s | 97 / 64 / 121 | 29 (183) |
+| WebGL 2 faces2, flat | 42,628 | 99.4 | 793 MB | — | 49.3 s | 25 / 9 / 20 | 27 (433) |
+| WebGPU meshes (reference) | 4.97 M tris | 105.7 | 1,440 MB | — | 14.0 s | 0 / 0 / 0 | 24 (183) |
+
+Read: v2 makes 16 % more bricks; the atlas holds the same GPU MB (it grows in steps). The page reads 3.2× the far
+cache bytes (entries 2.8 → 8.9 MB) and the job is 3.5× slower (its 76³ cells read one `voxelAt` at a time), so the
+fill triples. The fine shading costs ~5 missed a round on WebGPU and 40–100 on WebGL 2 (the 8 colour reads, each a
+table and an array lookup, and two more field reads; D568). The flight's misses stay the far field's commits on the
+page's thread (D550, D551), more with longer jobs. GPU timestamps not usable at the cap (D544).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/bricks-v2/` at 46d.7c's poses, both renderers; pairs v1 left,
+v2 right, 4× horizon crop below, in `far-field/side-by-side-v2/`, `work/46d.12/compose.mts`): `peak-to-town` — slopes
+show their terraces as crisp, shaded steps where v1 melted them, the green/grey bands softer and blended (less
+pixel-noise, a little blur), the town a smaller red patch with some relief, still not houses (14 % of pixels
+differ by > 60); `sight-5km` — the cliff face shows its layered steps, its grass flecks gone (the vote), fine
+horizontal banding on the steepest face (D569); `town-west` and `town-peak-4.5km` — the dark strip along the near
+field's edge (D556) is gone; WebGL 2 `peak-to-town` — the grazing material stripes (D558) are gone; `sight-1km`,
+`sight-3km`, `town-north` — nearly the same (1–3 %). WebGPU and WebGL 2 pictures match. Motion and pop not looked
+at (unverified).
+
+**VERDICT for 46d.13.** The brick direction holds: the mush was the source data and the colour, both fixable without
+more GPU memory, and v2 looks clearly better at every pose. Build as the default far field:
+1. **The faces field from the children** (`faces2`), with the page job made cheap: read the decoded children as
+   dense arrays instead of `voxelAt` per cell (expected 73 → ~20–30 ms, fill back near 20 s; unmeasured), and
+   keep the far entry cache's budget (16 MiB) above the 9 MB the children need from the town. Baking bricks into the
+   far cache instead is not advised: ~1.6 M bricks × 2.2 KB ≈ 3.5 GB raw for the 8 km world (estimate, compression
+   unmeasured) against its 48.5 MB cache.
+2. **Shading at build, not per pixel:** bake the occlusion into a sample byte and the colour blend into the look (two
+   words and a weight a sample, one read), so the fine look costs what the flat one does (removes D568).
+3. **The pixel cost (D555) is the open risk:** box-per-brick overdraw, not march depth, misses 17–23 frames a round
+   on WebGPU. Try, in order, measured: one fragment a pixel per node (front faces of the node's box, a DDA through its
+   4³ page table, skipping empty and inside bricks), then the march at half resolution with a depth-aware upsample.
+4. Edges: the solid-side rule and tight bounds keep D556/D558 away; keep the lip only at node faces. Then retire
+   the occupancy build and the nearest-sample colour.
+
+*Expected cost:* far GPU memory ~100 MB at medium (unchanged), page heap +0.05–0.15 GB against today's bricks
+(meshes +0.74 GB), +16 % bricks, fill ≤ 2× today's once the reads are dense (to be measured). *Unknown:* whether any
+draw change reaches 0 missed on the Iris Xe; how Enshrouded draws its bricks (not published); the town's houses
+under one sample at 4–5 km (needs a finer error there, ~4× bricks, or a building colour cue); pop in motion; the
+high tier.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1990,6 +2101,20 @@ the Scene view's and Play's live edit of the world's object is tested through th
 - 2026-11-09 (46d.11, default chosen, owner to confirm): **the world's blend is a draw setting** read from the scene's
   `voxelWorld` object as its decal layers are (first object naming the world), never part of the resolved streaming
   settings, so changing it reloads nothing; the voxel world page (no object) keeps `?blend=` and the `setBlend` hook.
+- 2026-11-09 (46d.12, default chosen, owner to confirm): **the far bricks' best build is the faces field from the
+  node's children** (`faces2`): grandchildren gain ≤ 0.4 m at 7× the build; the node's own cells (`faces`) are no
+  better than occupancy. Occupancy stays the default until 46d.13; `faces`/`faces2` are switches only (page, hook).
+- 2026-11-09 (46d.12, default chosen, owner to confirm): **a surface corner is moved by ½ − the mean fill of its 8
+  cells** (as the occupancy build moves a cell next to air): against "out by the solid cells' missing fill, in by the
+  air cells' fill" it gave roofs 3.59 against 5.07 m and fewer holes, at the price of rounding a lone cell's convex
+  corners by up to ⅜ of a finer cell.
+- 2026-11-09 (46d.12, default chosen, owner to confirm): **a surface lying on a brick face is drawn by its solid
+  side** (faces build): a node of only air is not kept, so the air side may not exist; the occupancy build keeps the
+  air side (unchanged).
+- 2026-11-09 (46d.12, default chosen, owner to confirm): **a sample's look is the material most shown cells round it
+  show**, over the finer cells its trilinear reach covers, tops counted twice; **the fine shading** blends the 8
+  samples' colours, darkens by the field one and two cells out along the normal (to half at most), and ends a march
+  at half a pixel. All three are switches for the spike; 46d.13 moves occlusion and blend to the build.
 
 ## 10. Open questions for the owner
 
