@@ -242,7 +242,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.8a | done: §4 again at the cap, both renderers, per tier (§8): town `render()` 9.1 → 2.8–3.0 ms, 0–1 missed every tier; village 0 missed; 8 km world 0 missed orbit low/medium, high 2–13 (D550), flights 15–36 missed (D550/D551); arrays 24/96/96–384 MiB. `voxel-world.e2e.ts` 88.5 → 70.7 s (assembly proof merged, export once at high, …). Render/format spec, manual. D559 |
 | 46d.8b | done: requirement trace (render spec §5; R88/R89/R111/R112/R27/R28 rows re-pointed), material-set guide (`voxel-kits.md` §1), art-factory request update; acc46d: 62 shots × 2 renderers (WebGL 2 ≤ 0.4 % px apart but Scene view orbits), README + approve-46d.md, published. Seen wrong: D560 (town edge gap), D542, D533, D553, D556, D558 again. D539 pictured dry |
 | 46d.9 | done: full gate GREEN (35 min vs 34, 8.0 GB, 868 vitest files, 392 e2e). Review 0H 3M 8L: D559 traced + fixed (column waits for every section), D552 fixed (far builds in workers, commands go on, export waits ≤ 2 min then warns), acc46d lists all 116 defaults; L1–L7 fixed (D561–D564), L8 deferred (D560). voxel e2e 70.7 → 71.1 s |
-| 46d.10 | not started |
+| 46d.10 | done (f05807ba): height in the albedo's A (layout v1 amendment 1); albedo array a height array (brightness height for an opaque albedo, the layered rule); shader, relief vertex stage, placeholders, kit sheets (OPAQUE GLB, Blender keeps A) moved; normal A unused. Shipped A error 4.4/255 at 256² (ETC1S), 0.2–0.4 at 4096² UASTC. Fast gate GREEN; e2e 71.1 → 70.8 s |
 | 46d.11 | not started |
 | 46d.12 | not started |
 | 46d.13 | not started |
@@ -1415,6 +1415,31 @@ ready, once; 5 of 5 alone; D567, watch) and `edge-cases.test.ts`' 5 s timeout ag
 gate-rerun-20261109-071516 GREEN (village perf 0 missed both renderers); `voxel-world.e2e.ts` 70.7 → 71.1 s
 (21.0 / 11.4 / 9.2 / 10.8 / 7.3 / 11.4 s: WebGL 2's Play switches to `high` at the start, +0.5 s).
 
+### 46d.10 height in the albedo's alpha
+
+**Built** (f05807ba). The owner's convention (§9, 2026-11-09): a voxel texture set's height is the **albedo's A**,
+the normal map keeps none. `voxel-surface-textures.ts`: the albedo array is a height array again
+(`TextureSlotSet.height`, key `color+height:…`), so the backend's slot assembly gives a layer whose albedo has no
+height a brightness one, the layered surfaces' rule (Play, export, Scene view and the voxel page all pass the flag
+through). `voxel-surface-sets.ts`: `textureSetAt`'s height and `textureHeightAt` (relief's vertex stage, explicit
+level) read the albedo array; the height edge uniform takes the albedo array's width. Blend in metres, crevice water,
+wet look and the debug program unchanged. Placeholder sets and kit sheets: height in the albedo's A, normal A 255;
+the kit GLB's material stays OPAQUE; `kit_templates.py` channel-packs the albedo (Blender 5.2.2's export of a 512²
+sheet: the GLB's albedo pixels equal the PNG's, A 31–247, no `alphaMode`). Texture layout v1 amendment 1 (owner
+note, add-only, §9 of that page), render spec §2, manual (voxel worlds, kit guide), art-factory request,
+reference regenerated.
+
+**Tested.** `voxel-relief.test.ts` (new: the TSL graphs of `textureSetAt` and `textureHeightAt` sample only the
+albedo array for the height, the normal array for the normal, construction and terrain); `voxel-surface-textures`
+(the albedo set carries `height`, the others none); `kit-sheets.test.ts` (height in the albedo's A, normal A 255,
+no `alphaMode`); integration export (the shipped albedo array transcoded by three's Basis transcoder: the stone
+wall's layer is the stone's height, mean error 4.4/255 at 256², which is ETC1S as every small colour array, bound
+1 mm at the stone's 4 cm depth, a tenth of the blend's 1 cm contrast; the opaque timber albedo got a brightness
+height, range > 60; the normal array's A is 255 in both layers). At the authored size the UASTC stripes keep it:
+`run.mjs textures --encode 4096` (A error now printed) stone albedo mean A error 0.20/255, grass 0.42. Fast gate
+gate-fast-20261109-193846 GREEN (14 min, 5.1 GB; `scan-bounded-log.test.ts` failed once under load, passed alone;
+village perf 0 missed both renderers); `voxel-world.e2e.ts` 71.1 → 70.8 s.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1859,12 +1884,25 @@ gate-rerun-20261109-071516 GREEN (village perf 0 missed both renderers); `voxel-
   map stays), bevelled near edges come with relief's return after bricks work; **blend distance per material with a
   world default** (where two materials meet the smaller value wins); **follow-ups first** as 46d-b (§6d) before 46e.
 
+- 2026-11-09 (46d.10, default chosen, owner to confirm): **the record's map keeps the name `albedo`** (not
+  `albedoHeight` again): records and builds made since 46d.4d stay valid and nothing stored changes; the map is still
+  the albedo, its A documented as the height, as a layered surface's albedo is.
+- 2026-11-09 (46d.10, default chosen, owner to confirm): **the layered surfaces' brightness rule applies to voxel
+  albedos too**: the voxel albedo array is a height array (`TextureSlotSet.height`), so an albedo without a height
+  (opaque or one value) gets one from its brightness at assembly instead of reading flat (46d.4d: a normal without A
+  read height 1). One convention, one assembled array for a texture both kinds of surface name.
+- 2026-11-09 (46d.10, default chosen, owner to confirm): **a kit sheet's glTF material stays `OPAQUE`** (no
+  `alphaMode`) with the height in the albedo's A; three's opaque materials force alpha 1, so pieces are never cut
+  out. The Blender template marks the albedo image channel-packed and leaves its Alpha unlinked (checked: Blender
+  5.2.2's export keeps the PNG's pixels, A included, byte-equal in pixels).
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
   65.3 MiB (a 4096² RGBA PNG uncompressed, D535 fixed in 46d.4d): confirm the bound.
-- The voxel texture set's maps are `albedo`, `normal` (height in A), `orm` (46d.4d, D531): confirm the rename and the
-  wetness look (numbers in §9; pictures in `work/46d.4d/shots`).
+- The voxel texture set's maps are `albedo` (height in A since 46d.10, owner 2026-11-09), `normal`, `orm`: confirm
+  the name `albedo` kept, the brightness height for an albedo without one, and the wetness look (numbers in §9;
+  pictures in `work/46d.4d/shots`, `work/46d.10/shots`).
 
 - **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — read
   `~/.cache/thirdlight-phase46/far-field-comparison.md` (46d.7d; lead: meshes default, bricks kept, no hybrid).

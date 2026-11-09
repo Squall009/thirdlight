@@ -129,7 +129,11 @@ if (encodeSize !== '') {
         return d / a.length;
       };
       const half = halveRgba(src, size, size, modeOf[map]).data;
-      console.log(`[encode] ${set} ${map} ${size}² ${modeOf[map]}: ${(ms / 1000).toFixed(1)} s, ${(r.ktx2.length / 1e6).toFixed(2)} MB KTX2 (PNG ${(png.length / 1e6).toFixed(2)} MB), ${head.levels.length} levels, ${levels[0]!.width}×${levels[0]!.height} decoded by three in ${(decodeMs / 1000).toFixed(1)} s; mean error level 0 ${mean(levels[0]!.data, src).toFixed(2)}, level 1 vs the box halving ${mean(levels[1]!.data, half).toFixed(2)}, worst 3×3 mean at ${probes.length} stripe-edge texels ${worst.toFixed(1)} (/255)`);
+      // The A alone: the albedo's carries the height (the blend, the water and relief read it).
+      let alpha = 0;
+      for (let i = 3; i < src.length; i += 4) alpha += Math.abs(levels[0]!.data[i]! - src[i]!);
+      alpha /= src.length / 4;
+      console.log(`[encode] ${set} ${map} ${size}² ${modeOf[map]}: ${(ms / 1000).toFixed(1)} s, ${(r.ktx2.length / 1e6).toFixed(2)} MB KTX2 (PNG ${(png.length / 1e6).toFixed(2)} MB), ${head.levels.length} levels, ${levels[0]!.width}×${levels[0]!.height} decoded by three in ${(decodeMs / 1000).toFixed(1)} s; mean error level 0 ${mean(levels[0]!.data, src).toFixed(2)}, level 1 vs the box halving ${mean(levels[1]!.data, half).toFixed(2)}, worst 3×3 mean at ${probes.length} stripe-edge texels ${worst.toFixed(1)}, mean A error level 0 ${alpha.toFixed(2)} (/255)`);
     }
   }
   console.log(`[encode] ${sets.length * PLACEHOLDER_MAPS.length} maps in ${(total / 1000).toFixed(1)} s (one thread), stripes of ${rows} rows`);
