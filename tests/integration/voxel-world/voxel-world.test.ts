@@ -24,7 +24,8 @@
  * their pieces' model, each with the material ids it binds), the materials
  * with their parts and resolved physics, the voxel surfaces' texture arrays
  * (assembled from the voxel materials' surface sets, the same bytes the
- * editor's route answers, the height in the normal array's A), or refusing
+ * editor's route answers, the height in the albedo array's A, an opaque
+ * albedo given its brightness, the normal array's A unused), or refusing
  * a damaged world.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
@@ -70,7 +71,7 @@ import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client'
 import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
 import { caseAt } from '../../../tools/voxel-bench/case-probe';
 import { flatGround, placeWallBeamBanister } from '../../../tools/voxel-bench/scenes';
-import { placeholderPng, placeholderSet } from '../../../tools/voxel-bench/texture-sets';
+import { placeholderLook, placeholderPng, placeholderSet } from '../../../tools/voxel-bench/texture-sets';
 import { transcodeKtx2Levels } from '../../../tools/voxel-bench/three-basis';
 
 const ORIGIN = 'http://127.0.0.1:8501';
@@ -834,12 +835,14 @@ describe('voxel world routes', () => {
     for (const e of listed.entities) if ((e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD) expect((await send('deleteEntity', { entityId: e.id })).status).toBe(200);
 
     // Texture sets for the clay's surfaces: placeholder images (256², PNG: a level past the mip tail, so the arrays
-    // stream) imported as every texture is.
+    // stream) imported as every texture is. The timber's albedo is written opaque: an albedo without a height.
     const texDir = join(backend._test.service.projectDir(PROJECT)!, 'assets', 'voxel-textures');
     mkdirSync(texDir, { recursive: true });
+    const opaqueTimber = placeholderSet('timber', 256).albedo.slice();
+    for (let i = 3; i < opaqueTimber.length; i += 4) opaqueTimber[i] = 255;
     for (const set of ['stone', 'timber'] as const) {
       const maps = placeholderSet(set, 256);
-      for (const map of ['albedo', 'normal'] as const) writeFileSync(join(texDir, `${set}-${map}.png`), placeholderPng(maps[map], 256));
+      for (const map of ['albedo', 'normal'] as const) writeFileSync(join(texDir, `${set}-${map}.png`), placeholderPng(set === 'timber' && map === 'albedo' ? opaqueTimber : maps[map], 256));
     }
     expect((await send('importAssets', { folder: 'assets/voxel-textures' })).status).toBe(200);
     const texAssets = ((await query('queryAssets', { limit: 100 })) as { assets: Array<{ assetId: string; sourcePath?: string }> }).assets;
@@ -897,25 +900,37 @@ describe('voxel world routes', () => {
       expect(layout.ok && layout.layout.width, map).toBe(256);
       // The editor's views draw the very array: the backend's route answers the same bytes for the same slot list.
       const set = sets.sets[map as 'albedo' | 'normal']!;
-      const viewed = await fetch(`${base()}/api/v1/projects/${PROJECT}/content/textures/slots`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ layers: set.layers, mode: set.mode }) });
+      const viewed = await fetch(`${base()}/api/v1/projects/${PROJECT}/content/textures/slots`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ layers: set.layers, mode: set.mode, ...(set.height === true ? { height: true } : {}) }) });
       expect(viewed.status, `${map}: ${textureSlotSetKey(set)}`).toBe(200);
       expect(Buffer.from(await viewed.arrayBuffer()).equals(Buffer.from(bytes)), map).toBe(true);
-      if (map !== 'normal') continue;
-      // The height lives in the normal map's A (texture layout v1), kept through the import and the assembly and read
-      // back by three's transcoder: the stone wall's layer holds the stone's height; the timber floor's set names no
-      // normal map, so its layer is the flat normal at height 1 (no relief, no crevice to fill).
       const top = (await transcodeKtx2Levels(bytes)).levels[0]!;
-      const source = placeholderSet('stone', 256).normal;
+      const alphas = (layer: number): number[] => Array.from({ length: 256 * 256 }, (_, i) => top.data[(layer * 256 * 256 + i) * 4 + 3]!);
+      if (map === 'normal') {
+        // The normal map carries no height: its A is opaque in the stone wall's layer and the floor's flat normal.
+        expect(sets.sets.normal!.height).toBeUndefined();
+        for (const layer of [0, 1]) expect(Math.min(...alphas(layer)), `normal layer ${layer}`).toBe(255);
+        continue;
+      }
+      // The height lives in the albedo's A (texture layout v1 as amended, the layered surfaces' convention), kept
+      // through the import and the assembly and read back by three's transcoder: the stone wall's layer holds the
+      // stone's height; the timber floor's albedo has none (opaque), so the assembly gave it one from its brightness.
+      expect(sets.sets.albedo.height).toBe(true);
+      const source = placeholderSet('stone', 256).albedo;
+      const wall = alphas(0);
       let err = 0;
       let spread = 0;
       for (let i = 0; i < 256 * 256; i++) {
-        err += Math.abs(top.data[i * 4 + 3]! - source[i * 4 + 3]!);
+        err += Math.abs(wall[i]! - source[i * 4 + 3]!);
         spread = Math.max(spread, Math.abs(source[i * 4 + 3]! - source[3]!));
       }
       expect(spread, 'the stone has a height range').toBeGreaterThan(60);
-      expect(err / (256 * 256), 'mean height error (/255)').toBeLessThan(3);
-      const floor = top.data.subarray(256 * 256 * 4);
-      for (let i = 3; i < floor.length; i += 4 * 97) expect(floor[i]).toBe(255);
+      // A colour array this small is ETC1S (the colour arrays' encoding within the encoder's limit, the layered
+      // surfaces' height arrays' too; an authored 4096² set encodes in UASTC stripes), coarser in A than the UASTC
+      // normal array that held the height before: the bound is what the blend needs, under 1 mm at the stone's
+      // depth (a tenth of the height blend's 1 cm contrast).
+      expect(err / (256 * 256), 'mean height error (/255)').toBeLessThan((255 * 0.001) / placeholderLook('stone').depthMetres);
+      const floor = alphas(1);
+      expect(Math.max(...floor) - Math.min(...floor), 'the opaque timber albedo got a brightness height').toBeGreaterThan(60);
     }
     expect([...sets.layers]).toEqual([[14, [0, 1, 0]]]);
     const kitMesh = (shippedKits![0]!['slots'] as Record<string, { meshes: Array<{ mesh: { digest: string } }> }>)['edge-out-top']!.meshes[0]!.mesh;

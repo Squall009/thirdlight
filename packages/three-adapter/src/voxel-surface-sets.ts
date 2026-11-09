@@ -23,7 +23,7 @@ const LEVEL_FACE_NORMAL_Y = 0.95;
 
 /**
  * The neutral texels of the maps (RGBA bytes) a program samples before its arrays arrive, and a layerless material
- * reads: white albedo, a flat normal at height 1 (the surface: no relief, no crevice), the absent ORM (AO 1,
+ * reads: white albedo at height 1 (the surface: no relief, no crevice), a flat normal, the absent ORM (AO 1,
  * roughness 0.8, no metal).
  */
 export const NEUTRAL_TEXELS = { albedo: [255, 255, 255, 255], normal: [128, 128, 255, 255], orm: [255, 204, 0, 0] } as const;
@@ -117,7 +117,7 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint): SetPro
  * A material's texture set at the pixel (`m`: the key material + construction · 2^materialBits): its layer for the
  * face (floor looking up, ceiling looking down, wall otherwise on construction; the wall's on terrain), each map read
  * on the material's projection, the normal map turned into the surface by that projection's frame, and the height
- * (0–1, 1 the surface) from the normal map's A, where texture layout v1 keeps it. Every sample is taken whether the
+ * (0–1, 1 the surface) from the albedo's A, where the engine's texture sets keep it. Every sample is taken whether the
  * material has a layer or not (uniform control flow), the result picked after; without a layer the height is 1.
  */
 export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint): { albedo: N; normal: N; orm: N; height: N } {
@@ -125,8 +125,7 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint): 
   const { n, bn } = at;
   const { l, built, onBuilt, has, gt, read, weighted } = setProjection(src, m, at);
   const a = read(maps.albedo);
-  const raw = read(maps.normal);
-  const t = raw.map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
+  const t = read(maps.normal).map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
   const o = read(maps.orm);
   // The grid projection: tangent U, bitangent V (voxel-surface-projection.ts), the face normal.
   const frame = gridFrame(NODE_OPS, [n.x, n.y, n.z]);
@@ -141,15 +140,15 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint): 
     albedo: band === null ? textured : select(built, mix(l.rgb, band.rgb, band.a), textured),
     normal: select(has, mix(onAxes, onGrid, onBuilt).normalize(), n),
     orm: select(has, weighted(o).xyz, vec3(NEUTRAL_TEXELS.orm[0] / 255, NEUTRAL_TEXELS.orm[1] / 255, NEUTRAL_TEXELS.orm[2] / 255)),
-    height: select(has, weighted(raw).a, float(1)),
+    height: select(has, weighted(a).a, float(1)),
   };
 }
 
 /**
- * A material's height alone (0–1, the normal map's A) at an explicit mip level: what the vertex stage displaces by
+ * A material's height alone (0–1, the albedo's A) at an explicit mip level: what the vertex stage displaces by
  * (it has no screen derivatives), read on the same layer and projection as the pixel's.
  */
 export function textureHeightAt(src: TextureSetSource, m: N, at: TextureSetPoint, level: N): N {
   const { has, read, weighted } = setProjection(src, m, at);
-  return select(has, weighted(read(src.maps.normal, level)).a, float(1));
+  return select(has, weighted(read(src.maps.albedo, level)).a, float(1));
 }

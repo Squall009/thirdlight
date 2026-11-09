@@ -141,7 +141,7 @@ const levelsParam = params.get('levels');
  * `?relief=n` (0, 2, 4, 8) or `?relief=tier` (the default, as Play: the quality level's steps, none on low): the streamer's relief ring (its
  * sections within `?reliefRadius=` metres of the focus, default the quality level's distance, re-planned as the
  * focus moves, inside its share of the stream budget) derives the relief mesh n lattice steps a cell, drawn in place
- * of the surfaces and moved in the vertex stage by their materials' heights (the normal maps' A) and height depths;
+ * of the surfaces and moved in the vertex stage by their materials' heights (the albedos' A) and height depths;
  * under `?patterns=1` by the engine's relief test heights (`voxelTestRelief`), which there also bend every surface's
  * lighting normal (`?bump=0` off). The displacement fades to none over the 4 m up to where the ring displaces now
  * (`?reliefFade=a,b` metres instead). `?displace=0` and `?bump=0` start with either off (the hook's `setRelief`

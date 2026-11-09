@@ -84,7 +84,7 @@ describe('the voxel surface program', () => {
     const patterns = program('blend');
     const sets = program('blend', false, false, false);
     // The arrays: 3 maps × 3 samples × 2 materials, against the patterns' 6; each material's layers one table load,
-    // its height depth one more (the height blend and the water in its crevices; the height is the normal map's A).
+    // its height depth one more (the height blend and the water in its crevices; the height is the albedo's A).
     expect(reads(sets) - reads(flat)).toBe(reads(patterns) - reads(flat) - 6 + 18 + 2 + 2);
     expect((sets.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(20);
     expect((sets.match(/:\s*texture_2d_array<f32>\s*;/g) ?? []).length).toBe(4);

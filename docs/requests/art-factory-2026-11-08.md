@@ -22,10 +22,14 @@ The engine now draws voxel materials with real texture sets (sub-phase 46d,
 on its branch, not yet merged or released). Everything below still holds;
 four points are new or more precise:
 
-- **Height lives only in the normal map's alpha** (§1, §5 as written): the
-  engine reads no height from the albedo's alpha, and a normal map without
-  alpha draws no relief. White is the surface, black is the material's height
-  depth below it.
+- **Height lives in the albedo's alpha** (owner 2026-11-09, correcting
+  this page's first update and §1, §2, §5: the texture layout's "normal +
+  height" was a drafting slip). It is the convention the Designer already
+  exports for layered surfaces (albedo + height); the normal map's alpha is
+  not read, write it opaque. White is the surface, black is the material's
+  height depth below it. An albedo without a height gets one from its
+  brightness, so a real height is always better. A kit sheet's glTF material
+  stays opaque (no alpha mode), so the height is never read as cut-out.
 - **The height depth is a field of the material record**: `voxel.heightDepth`,
   0–0.25 m (default 0.02). Please keep writing it in the export report; an
   artist copies it into the record (the engine's test sets: rock 0.10, stone
@@ -69,7 +73,7 @@ material's own parameters (colour, wear, course height, seed), rendering:
 | Size | **4096 × 4096 px = 4 × 4 m (1024 px/m)**; the engine picks the resident mip per device, so one size is enough |
 | Tiling | seamless both ways; **the bottom edge is the 0 m line** of the grid |
 | Grid features | courses, boards, log lines, joints at **multiples of 0.5 m** (0.25 m inside a cell) by default, so they meet the voxel edges and the kit pieces; an exposed parameter may move them (the engine recommends, never checks) |
-| Maps | **albedo** (sRGB RGB), **normal + height** (normal RGB, OpenGL / green up; **height in A**, linear 0–1), **ORM** (R AO, G roughness, B metalness) |
+| Maps | **albedo + height** (sRGB RGB; **height in A**, linear 0–1; corrected 2026-11-09, see the update above), **normal** (RGB, OpenGL / green up; A opaque), **ORM** (R AO, G roughness, B metalness) |
 | Height | **0–1 normalised per material**, and the material's **height depth in metres** written beside it (sand shallow, jagged rock deep): the engine blends heights in metres, so no material is crushed to a shared scale |
 | No marks | no dirt, moss or soot painted in (the engine puts them on as decals) and no single eye-catching feature (it repeats every 4 m) |
 
@@ -109,8 +113,8 @@ tile. This is the sample kit's layout in the engine repository.
   artist pastes it into the kit unchanged.
 - **Defaults for a voxel kit sheet:** 2048² at **1024 px/m** (the base
   tile's density), **32 px gutters** (clean to mip 5), unused space neutral
-  (height 0.5, flat normal), the same three maps as §1 (albedo, normal +
-  height in A, ORM). Cap ids end in `a` (the kit check reads the first cap
+  (height 0.5, flat normal), the same three maps as §1 (albedo + height in
+  A, normal, ORM). Cap ids end in `a` (the kit check reads the first cap
   cell of a size).
 - **One sheet a kit.** Two kits may share a graph, never need to share a
   sheet; whether they share UVs is the game's choice.
@@ -160,14 +164,14 @@ art-factory's design.
 
 | Item | Format | Size | Name (suggested) |
 |---|---|---|---|
-| Construction tile | albedo sRGB RGB8, normal + height RGBA8 (A linear), ORM RGB8 | 4096², power of two | `<material>_albedo`, `<material>_normal_height`, `<material>_orm` |
+| Construction tile | albedo + height RGBA8 (RGB sRGB, A linear height; corrected 2026-11-09), normal RGB8, ORM RGB8 | 4096², power of two | `<material>_albedo_height`, `<material>_normal`, `<material>_orm` |
 | Kit sheet | the same three maps | the declared `size` | `<kit>_sheet_albedo`, … |
 | Crack map | R8 linear | 1024² (512² min) | `<kit>_cracks` |
 | Height depth | a number in metres in the export report (and later the material record) | — | — |
 
 - **Containers:** PNG (lossless, the source) plus KTX2 for shipping, UASTC
-  for the normal + height map (BC7-class quality), ETC1S acceptable for
-  albedo and ORM; mips filtered with wrap (all three tile), normals
+  for the albedo + height and the normal map (BC7-class quality; the height
+  in A needs it), ETC1S acceptable for ORM; mips filtered with wrap (all three tile), normals
   renormalised per mip, alpha straight. Each KTX2 records its PNG's digest
   (`thirdlight.sourceSha256`, request 1 of `art-factory-2026-10-22.md`).
 - **Names:** lower case, digits, `-` and `_` (the engine's id syntax).

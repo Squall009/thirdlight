@@ -194,7 +194,12 @@ def use_sheet(bpy, mat, folder):
         tex.image.colorspace_settings.name = 'sRGB' if colour else 'Non-Color'
         return tex
 
-    links.new(image('albedo', True).outputs['Color'], bsdf.inputs['Base Color'])
+    albedo = image('albedo', True)
+    # The albedo's A is the height (texture layout v1 as amended), not a coverage: channel-packed so Blender never
+    # premultiplies the colour by it, and its Alpha is left unlinked so the exporter writes an OPAQUE material with
+    # the image as it is.
+    albedo.image.alpha_mode = 'CHANNEL_PACKED'
+    links.new(albedo.outputs['Color'], bsdf.inputs['Base Color'])
     nm = nodes.new('ShaderNodeNormalMap')
     links.new(image('normal', False).outputs['Color'], nm.inputs['Color'])
     links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])

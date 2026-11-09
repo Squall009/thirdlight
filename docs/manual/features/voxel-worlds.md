@@ -204,7 +204,7 @@ player characters, so a large view costs a fraction of drawing every cell:
 
 Near the focus, surfaces are drawn **with relief**: their mesh is made finer
 (per 8 m section of the world) so the vertex stage can move it inward by each
-material's height (the normal map's alpha) times its **height depth**
+material's height (the albedo's alpha) times its **height depth**
 (see [Voxel materials](#voxel-materials)), fading to none toward the relief
 distance. What collides, what characters stand on and what scripts read stay
 the plain surfaces: relief only ever recesses.
@@ -618,11 +618,12 @@ the same record dresses a prop and a wall, so there is one oak, not an
   metres shows (rock tops break through sand, sand fills rock's cracks), so
   a deep material wins over a shallow one with the same map values.
 - **`voxel.surfaces`**: `{wall, floor, ceiling}` texture sets, each
-  `{albedo, normal, orm}` (plain texture assets: the albedo, its alpha
-  unused; a tangent-space normal map with green up and the **height in its
-  alpha** (white the surface, black `heightDepth` below it; a normal map
-  without alpha has no height); occlusion, roughness and metalness in R, G
-  and B); floor and ceiling use the wall's when left out. A set needs its albedo; a normal or ORM map left out is
+  `{albedo, normal, orm}` (plain texture assets: the albedo with the
+  **height in its alpha** (white the surface, black `heightDepth` below it;
+  an albedo without one gets a height from its brightness, as on
+  [layered surfaces](../guides/height-in-alpha.md)); a tangent-space normal
+  map with green up, its alpha unused; occlusion, roughness and metalness in
+  R, G and B); floor and ceiling use the wall's when left out. A set needs its albedo; a normal or ORM map left out is
   flat. All textures of the sets should be one size (the engine joins them
   into arrays): a construction tile is authored at 4096 × 4096 for its
   4 × 4 m wall, the image's top up the wall.

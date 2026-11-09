@@ -46,10 +46,10 @@ export function kitSheetMaps(layout: TrimLayout, size: number, set: PlaceholderS
   });
 }
 
-/** A kit sheet's maps as PNG files (albedo sRGB; normal with the height in A; ORM). */
+/** A kit sheet's maps as PNG files (albedo sRGB with the height in A; normal; ORM). */
 export function kitSheetPngs(layout: TrimLayout, size: number, set: PlaceholderSet): { albedo: Uint8Array; normal: Uint8Array; orm: Uint8Array } {
-  // The albedo is opaque (an alpha below 1 would read as cut-out or blended in a glTF material); the height is the
-  // normal map's A (texture layout v1).
+  // The height is the albedo's A (texture layout v1 as amended). The GLB's material stays OPAQUE (no alphaMode), so
+  // a glTF reader ignores that A rather than cutting the piece out or blending it.
   const m = kitSheetMaps(layout, size, set);
   return { albedo: placeholderPng(m.albedo, size), normal: placeholderPng(m.normal, size), orm: placeholderPng(m.orm, size) };
 }

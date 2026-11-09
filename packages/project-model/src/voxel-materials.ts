@@ -47,8 +47,9 @@ export const VOXEL_SURFACES = ['wall', 'floor', 'ceiling'] as const;
 export type VoxelSurface = (typeof VOXEL_SURFACES)[number];
 
 /**
- * The maps of a texture set (texture layout v1): albedo (its alpha unused), the tangent-space normal with the height
- * 0–1 in its alpha (1 the surface; a normal map without one, or none, draws no height), occlusion/roughness/metal.
+ * The maps of a texture set (texture layout v1 as amended): albedo with the height 0–1 in its alpha (1 the surface;
+ * an albedo without one gets a height from its brightness, as a layered surface's does), the tangent-space normal
+ * (its alpha unused), occlusion/roughness/metal.
  */
 export const VOXEL_TEXTURE_MAPS = ['albedo', 'normal', 'orm'] as const;
 export type VoxelTextureMap = (typeof VOXEL_TEXTURE_MAPS)[number];

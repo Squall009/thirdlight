@@ -37,13 +37,14 @@ describe('the voxel surface texture arrays', () => {
     ]);
     const flat = fillLayerId(FLAT_NORMAL_TEXEL);
     const orm = fillLayerId(TEXTURE_ABSENT_VALUES.orm);
-    // No height rule on any array: the height is the normal's A (texture layout v1), a flat layer's 1.
-    expect(t.sets.albedo).toEqual({ layers: ['grass-a', 'timber-a', 'plaster-a'], mode: 'color' });
+    // The albedo array is a height array (its A the height, a brightness height where a texture has none); the
+    // normal and ORM arrays carry no height.
+    expect(t.sets.albedo).toEqual({ layers: ['grass-a', 'timber-a', 'plaster-a'], mode: 'color', height: true });
     expect(t.sets.normal).toEqual({ layers: [flat, 'timber-n', 'plaster-n'], mode: 'normal' });
     expect(t.sets.orm).toEqual({ layers: ['grass-o', orm, 'plaster-o'], mode: 'data' });
     expect(t.dropped).toEqual([]);
     // The keys the arrays go by (the same layers and encoding are one assembled array everywhere).
-    expect(textureSlotSetKey(t.sets.albedo)).toBe('color:grass-a,timber-a,plaster-a');
+    expect(textureSlotSetKey(t.sets.albedo)).toBe('color+height:grass-a,timber-a,plaster-a');
     expect(textureSlotSetKey(t.sets.normal!)).toBe(`normal:${flat},timber-n,plaster-n`);
   });
 

@@ -11,7 +11,7 @@
  * distance across the face between two cells, air cells left out. The two
  * heaviest materials are looked up (their texture sets, or a flat colour)
  * and mixed by their weights and heights: each material's height (0–1, in
- * its normal map's A) times its own height depth in metres decides which
+ * its albedo's A) times its own height depth in metres decides which
  * shows where they meet (`voxel-surface-wetness.ts`). Wetness, averaged the
  * same way, darkens the colour, lowers the roughness, flattens the normal
  * detail and fills the crevices with standing water first, by height. A
@@ -58,8 +58,8 @@
  * passes the entry instead.
  *
  * **Texture sets.** A material's surfaces draw from three texture arrays
- * (`setTextures`; one a map: albedo, tangent-space normal with the height in
- * A, ORM; texture layout v1), a layer per texture set; the table holds each material's wall,
+ * (`setTextures`; one a map: albedo with the height in A, tangent-space
+ * normal, ORM; texture layout v1), a layer per texture set; the table holds each material's wall,
  * floor and ceiling layer. Construction picks the floor layer on a face
  * looking up, the ceiling layer on one looking down and the wall layer on
  * every other (a roof plane included); terrain draws its one set (the
@@ -385,7 +385,7 @@ export interface VoxelMaterialLook {
    * crevices fill with water, how far relief moves it (absent: the material record's default).
    */
   readonly heightDepthMetres?: number;
-  /** Under `patterns`, its layer of the relief test heights (absent: flat): the debug program has no normal maps. */
+  /** Under `patterns`, its layer of the relief test heights (absent: flat): the debug program has no texture sets. */
   readonly testHeightLayer?: number;
 }
 
@@ -512,14 +512,14 @@ export interface VoxelSurfaceOptions {
   /**
    * Relief: a draw carrying crease weights ({@link VOXEL_CREASE_ATTRIBUTE},
    * the relief mesh) is displaced in the vertex stage by its materials'
-   * heights (the normal maps' A) and height depths, blended as the pixels
+   * heights (the albedos' A) and height depths, blended as the pixels
    * blend them, its shadow too. Absent: none of it is built.
    */
   relief?: boolean;
   /**
    * Under `patterns`: relief test heights (`size`² bytes a layer, 1 the
    * surface, 0 a material's depth below it; the looks name a layer), what
-   * the debug program has in place of normal maps: its heights blend, its
+   * the debug program has in place of texture sets: its heights blend, its
    * lighting normal follows them, and with `relief` they displace.
    */
   heights?: { readonly size: number; readonly layers: readonly Uint8Array[] };
@@ -782,7 +782,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   fill(opts.look);
   let tableUploads = 0;
   let tableMs = 0;
-  // The relief test heights: the debug program's only heights (the texture sets carry theirs in the normal maps).
+  // The relief test heights: the debug program's only heights (the texture sets carry theirs in the albedos' A).
   const heights = opts.heights === undefined || textured || opts.shading === 'flat' ? null : fresh(reliefHeightTexture(opts.heights.layers, opts.heights.size));
   const patterns = textured ? null : patternTexture();
   const neutral = textured ? neutralArrays() : null;
@@ -817,7 +817,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   const matMask = 2 ** layout.materialBits;
   // Relief: the vertex spacing (lattice steps a cell), switches, and the ring's centre in the object's own metres.
   const reliefN = uniform(4);
-  // Texels along a height layer's side (the normal array's, set with the arrays; the test heights'): the vertex
+  // Texels along a height layer's side (the albedo array's, set with the arrays; the test heights'): the vertex
   // stage's level of detail.
   const heightEdgeU = uniform(textured ? 1 : (opts.heights?.size ?? 1));
   const displaceU = uniform(1);
@@ -1035,7 +1035,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     setTextures(arrays, layers) {
       if (arrayNodes === null || neutral === null) return;
       bindArrays(arrayNodes, neutral, arrays);
-      heightEdgeU.value = (arrays?.normal?.image as { width?: number } | undefined)?.width ?? 1;
+      heightEdgeU.value = (arrays?.albedo?.image as { width?: number } | undefined)?.width ?? 1;
       for (let m = 1; m < ids; m++) tdata.set((arrays === null ? null : layers(m)) ?? [-1, -1, -1], (LAYER_BLOCK + m) * 4);
       bound = arrays === null ? [] : VOXEL_TEXTURE_MAPS.flatMap((map) => (arrays[map] !== undefined ? [arrays[map]] : []));
       mapTextures();

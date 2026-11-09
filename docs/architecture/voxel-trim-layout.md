@@ -4,6 +4,11 @@ Status: **v1 — APPROVED by the owner on 2026-11-06.** It is written to the own
 2026-11-05 and 2026-11-06) and acc46c-r2 answers (O1, 2026-11-06), and describes the code as built through 46c.16k
 (branch `phase-45` at 3a078a94).
 
+**Owner note (2026-11-09, amendment 1, add-only):** a texture set's **height lives in the albedo's alpha**, as on
+the engine's layered surfaces; the normal map keeps no height (its alpha unused). The v1 row "normal + height
+(height in alpha …)" in §2 was a drafting slip carried into the approval; §9 holds the amendment, every other v1
+number stands.
+
 **Owner note (2026-11-06, acc46c-r2 S2):** "The role spec and texture layout are fine, no more changes for now." The
 page froze as v1 with the role spec, once the 4 m crack map and a kit's own sheet layout (O1) were built (46c.16k);
 the freeze commit is in plan 46c's 46c.16 progress row. From here a change is a new version with an owner note; kit
@@ -53,7 +58,7 @@ As built:
 | Grid features | **recommendation, not a rule** (owner B2): courses, boards, log lines and joints at multiples of **0.5 m** (or 0.25 m inside a cell) meet the voxel edges and the edge pieces; the tile's bottom edge is the 0 m line of the grid. The kit check does not test it |
 | Floors and ceilings | the same 4 × 4 m tile on the same grid |
 | Roof planes | the roof material's tile laid up the slope (above) |
-| Maps | albedo (sRGB), normal + height (height in alpha; OpenGL green up), ORM (AO, roughness, metalness) |
+| Maps | albedo (sRGB), normal + height (height in alpha; OpenGL green up), ORM (AO, roughness, metalness). **Amended 2026-11-09 (§9): the height is the albedo's alpha; the normal map's alpha is unused** |
 | Height | **0–1 in the map; each material declares its own height depth in metres** (owner B8: sand shallow, jagged rock deep), so no texture is crushed to a shared scale and height blending compares in metres. The field belongs to 46d's material model (not built) |
 | Dirt, moss, soot | **decals** (projected or clipped) and whole-voxel material swaps, never painted into the tile or an overlay layer (owner B3 correction; role spec §11) |
 | Anti-tiling | one repeat per 4 m wall already avoids per-cell repetition; avoid a single eye-catching mark in the tile. Macro variation and stochastic sampling are 46d proposals |
@@ -192,3 +197,20 @@ Numbers this page carries that no owner answer set. 1–9 were put to the owner 
 approved (owner review model): region kinds as `detail-trim`'s (field, strip, profiled strip, cap); a sheet
 16–16,384 px a side; regions must not overlap; a kit has a named layout or its own, not both; its trim rows are not
 marked draft (the kit owns its numbers).
+
+## 9. Amendments
+
+**Amendment 1 (owner 2026-11-09, add-only; built in 46d.10).** The maps of a base texture set and of a kit's sheet:
+
+| Map | Channels |
+|---|---|
+| albedo | RGB colour (sRGB), **A the height 0–1** (linear; 1 the surface, 0 the material's height depth below it) |
+| normal | RGB tangent-space normal (OpenGL, green up); A unused (write it opaque) |
+| ORM | R ambient occlusion, G roughness, B metalness |
+
+Why: the engine's layered surfaces and the owner's convention read the height from the albedo's alpha; one
+convention for every texture set. An albedo without a height (opaque, or one value) gets a height from its
+brightness when its array is assembled, the layered surfaces' rule. A kit's glTF material stays `OPAQUE` (no
+`alphaMode`), so a glTF reader ignores that alpha instead of cutting the piece out; in Blender the albedo image is
+channel-packed with its Alpha output unlinked (`kit_templates.py`). The gutters' neutral height 0.5 (§3) is now the
+albedo's alpha there.

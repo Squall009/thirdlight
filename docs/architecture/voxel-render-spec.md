@@ -11,7 +11,7 @@ on 2026-11-02) is not grown further; the derived steps 28 → 31 are also rows o
 | Step | Item | What | Stored formats |
 |---|---|---|---|
 | material record parts | 46d.3a | `physical`, `gameData`, `voxel` on a material; `content.materialProfiles` | schema 8, add-only |
-| texture sets | 46d.4a, 46d.4d | catalog `voxelTextures`, the table's fourth block; height in the normal map's A | manifest v5, add-only |
+| texture sets | 46d.4a, 46d.4d, 46d.10 | catalog `voxelTextures`, the table's fourth block; height in the albedo's A (46d.10, the normal's A in 46d.4d) | manifest v5, add-only |
 | derived 28 → 29 | 46d.5a | the relief part | none (derived) |
 | derived 29 → 30 | 46d.6c | owned faces merged (format spec §3.7) | none (derived) |
 | derived 30 → 31, far cache 1 | 46d.7a | openings closed at coarse levels; the far cache | none (derived, cache) |
@@ -114,8 +114,9 @@ runtime texture, not a file). A build or project without voxel texture sets read
 before. Nothing in the approved format spec, the role spec, the texture layout or kit format 1 changes. Default
 chosen, owner to confirm (plan 46d §9).
 
-**The arrays.** Per map type one texture array: `albedo` (sRGB, its A unused), `normal` (tangent-space,
-OpenGL green up, **the height 0–1 in A**, texture layout v1), `orm` (occlusion, roughness, metalness). A layer is one distinct texture set of
+**The arrays.** Per map type one texture array: `albedo` (sRGB, **the height 0–1 in A**, linear; texture layout v1
+as amended 2026-11-09), `normal` (tangent-space, OpenGL green up, its A unused), `orm` (occlusion, roughness,
+metalness). A layer is one distinct texture set of
 the voxel materials' `voxel.surfaces` (`project-model` `voxel-surface-textures.ts`, `voxelSurfaceTextures`):
 layers numbered in ascending voxel id, wall then floor then ceiling; equal sets share a layer (a floor falling back
 to its wall, two materials on the same textures). A set without an albedo has no layer (its surfaces draw the
@@ -194,18 +195,28 @@ read as they are. Default chosen, owner to confirm (plan 46d §9).
   array's layer (512²) by the brightest texel of each, so a map authored at the base tile's 1024 px/m (4096²) keeps
   its one-pixel cracks; laid on walls and roof planes as before.
 
-### Height, height depth and wetness (46d.4d)
+### Height, height depth and wetness (46d.4d, 46d.10)
 
-**Owner note (46d.4d, 2026-11-08):** D531 resolved toward the approved texture layout v1 and R111: **a voxel
+**Owner note (46d.10, 2026-11-09):** the owner moved the height to **the albedo's A** (the engine's layered
+surfaces and the owner's convention); the normal map keeps no height. Texture layout v1 is amended add-only
+([voxel-trim-layout.md](voxel-trim-layout.md) §9: the v1 row's "normal + height" was a drafting slip). The record's
+map keeps the name **`albedo`** (no rename back to `albedoHeight`: records and builds made since 46d.4d stay valid,
+and the map is still the albedo; its A is documented as the height, as a layered surface's albedo is), so nothing
+stored changes. The albedo array is a height array (`TextureSlotSet.height`, the layered surface's rule): a layer
+whose albedo has no height in A (opaque or one value) gets one from its brightness at assembly, so it never blends
+by a constant. This replaces the 46d.4d note below where they differ. Default chosen, owner to confirm (plan 46d §9).
+
+**Owner note (46d.4d, 2026-11-08; superseded on the height's home by the 46d.10 note above):** D531 resolved toward the approved texture layout v1 and R111: **a voxel
 texture set's height lives in its normal map's A**, nowhere else. Two changes to this page's unapproved 46d steps,
 not to any approved spec: the material record's map `albedoHeight` is renamed **`albedo`** (its A is unused) and the
 catalog block's key with it (nothing of this branch is merged or shipped; a record or build naming `albedoHeight` is
 refused as an unknown field), and no voxel array derives a brightness height any more (the layered surface's albedo
 convention stays the layered surface's). Default chosen, owner to confirm (plan 46d §9).
 
-- **Height.** The normal array's A, 0–1 (1 the surface, 0 the material's `heightDepth` below it), read on the same
-  layer and projection as the colour. A normal map without alpha (opaque), the neutral flat normal layer and a
-  material without a set read height 1: no relief, no crevice.
+- **Height.** The albedo array's A, 0–1 (1 the surface, 0 the material's `heightDepth` below it), read on the same
+  layer and projection as the colour, in the pixel (blend, water, lighting) and at an explicit level in the vertex
+  stage (relief). An albedo without a height in A reads its brightness height (above); a material without a set
+  reads height 1: no relief, no crevice. The normal array's A is never read.
 - **Height depth** (`voxel.heightDepth`, metres; absent `VOXEL_MATERIAL_LIMITS.heightDepthDefault`, 0.02) is in the
   surface's material table (third block, g) for every material; the r channel is the debug program's test height
   layer (−1 none).

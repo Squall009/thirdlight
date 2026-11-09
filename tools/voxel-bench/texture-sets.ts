@@ -2,11 +2,11 @@
  * Placeholder texture sets for voxel materials (engine-owned test data, not
  * art): stone, plaster and timber for construction (one 4 × 4 m wall a
  * tile), earth, grass and rock for terrain (2 m a tile). Each is the set a
- * voxel material's surface names (`MaterialVoxel.surfaces`): albedo (opaque),
- * a tangent-space normal map (OpenGL, green up) made from the height at the
- * material's depth with the height in its A (texture layout v1's one place
- * for it), and ORM (occlusion from the height, roughness, no metal), every
- * map seamless left–right and top–bottom.
+ * voxel material's surface names (`MaterialVoxel.surfaces`): albedo with the
+ * height in A (where the engine's texture sets keep it), a tangent-space
+ * normal map (OpenGL, green up, A opaque) made from that height at the
+ * material's depth, and ORM (occlusion from the height, roughness, no
+ * metal), every map seamless left–right and top–bottom.
  *
  * Construction tiles keep their features on the build grid as the texture
  * layout recommends (courses every 0.5 m, block joints every metre, boards
@@ -197,8 +197,8 @@ export function placeholderShade(name: PlaceholderSet): { tileMetres: number; de
 
 /**
  * Three maps at `size`² (RGBA 8-bit, first row the image's top) from a shade over the image (u across, v up from its
- * foot; `metres` the image covers): albedo (opaque), the normal map made from the height at `depthMetres` (OpenGL,
- * green up) with the height in A, and ORM (occlusion from the height, `roughness`, no metal).
+ * foot; `metres` the image covers): albedo with the height in A, the normal map made from that height at
+ * `depthMetres` (OpenGL, green up; A opaque) and ORM (occlusion from the height, `roughness`, no metal).
  */
 export function placeholderMaps(size: number, metres: number, depthMetres: number, roughness: number, shade: SetLook['shade']): Record<(typeof PLACEHOLDER_MAPS)[number], Uint8Array> {
   const n = size * size;
@@ -212,7 +212,7 @@ export function placeholderMaps(size: number, metres: number, depthMetres: numbe
       const { h, rgb } = shade((x + 0.5) / size, v);
       const i = y * size + x;
       height[i] = h;
-      albedo.set([byte(rgb[0]), byte(rgb[1]), byte(rgb[2]), 255], i * 4);
+      albedo.set([byte(rgb[0]), byte(rgb[1]), byte(rgb[2]), byte(h)], i * 4);
     }
   }
   const normal = new Uint8Array(n * 4);
@@ -226,7 +226,7 @@ export function placeholderMaps(size: number, metres: number, depthMetres: numbe
     const dy = (at(x, y - 1) - at(x, y + 1)) * k;
     const l = Math.hypot(dx, dy, 1);
     const i = y * size + x;
-    normal.set([byte(0.5 - (dx / l) * 0.5), byte(0.5 - (dy / l) * 0.5), byte(0.5 + 0.5 / l), byte(height[i]!)], i * 4);
+    normal.set([byte(0.5 - (dx / l) * 0.5), byte(0.5 - (dy / l) * 0.5), byte(0.5 + 0.5 / l), 255], i * 4);
     const h = height[i]!;
     orm.set([byte(0.55 + 0.45 * h), byte(roughness - 0.1 * h), 0, 255], i * 4);
   }

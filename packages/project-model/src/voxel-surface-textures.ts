@@ -1,6 +1,6 @@
 /**
- * The voxel surfaces' texture arrays: per map type one array (albedo, the
- * normal with the height in A, ORM), a layer per distinct texture set the voxel
+ * The voxel surfaces' texture arrays: per map type one array (albedo with
+ * the height in A, normal, ORM), a layer per distinct texture set the voxel
  * materials dress their wall, floor and ceiling surfaces with, and each
  * voxel id's layer per surface (what the surface shader's material table
  * holds).
@@ -59,11 +59,13 @@ export function voxelArrayTopLevel(layerEdge: number, texelsPerMetre: number): n
 const MIN_ARRAY_LAYERS = 2;
 
 /**
- * How each map's array is encoded and read. The height is the normal map's A (texture layout v1): a normal layer
- * whose texture has none (an opaque A) reads as height 1, flat, as does the neutral flat normal layer.
+ * How each map's array is encoded and read. The height is the albedo's A, as on the engine's layered surfaces: the
+ * albedo array is a height array (`TextureSlotSet.height`), so the assembly gives a layer whose albedo has no height
+ * in A (opaque or one value) a height from its brightness, the same rule and the same assembled array as a layered
+ * surface naming that texture. The normal and ORM arrays carry no height.
  */
-const MAP_SLOTS: Readonly<Record<VoxelTextureMap, { readonly mode: TextureSlotSet['mode']; readonly fill: string | null }>> = {
-  albedo: { mode: 'color', fill: null },
+const MAP_SLOTS: Readonly<Record<VoxelTextureMap, { readonly mode: TextureSlotSet['mode']; readonly height?: true; readonly fill: string | null }>> = {
+  albedo: { mode: 'color', height: true, fill: null },
   normal: { mode: 'normal', fill: fillLayerId(FLAT_NORMAL_TEXEL) },
   orm: { mode: 'data', fill: fillLayerId(TEXTURE_ABSENT_VALUES.orm) },
 };
@@ -135,7 +137,7 @@ export function voxelSurfaceTextures(materials: readonly VoxelTexturedMaterial[]
       if (!ordered.some((s) => s[map] !== undefined)) return [];
       // An albedo is always there (a set without one has no layer); another map left out is its neutral constant.
       const list = ordered.map((s) => s[map] ?? how.fill!);
-      return [[map, { layers: list, mode: how.mode }]];
+      return [[map, { layers: list, mode: how.mode, ...(how.height === true ? { height: true as const } : {}) }]];
     }),
   ) as unknown as VoxelSurfaceTextures['sets'];
   return { sets, layers, dropped };

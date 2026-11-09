@@ -4,7 +4,7 @@
  * chunk view carries its crease weights as an attribute and culling bounds
  * grown by the deepest height depth; its vertex program (WGSL and GLSL)
  * reads the heights at an explicit level (no sharper than the vertex
- * spacing) from the normal maps' A (texture layout v1), or under the debug
+ * spacing) from the albedos' A (texture layout v1 as amended), or under the debug
  * patterns from the test heights; a plain chunk's program reads none;
  * where shadows are drawn a relief chunk casts from its plain surfaces (a
  * caster only the shadow cameras see) and looks its shadow up at its plain
@@ -13,6 +13,7 @@
  * heights themselves: deterministic, tileable, using the 0–1 range.
  */
 import * as THREE from 'three';
+import * as TSLTyped from 'three/tsl';
 import { describe, expect, it } from 'vitest';
 import {
   buildApron,
@@ -40,6 +41,8 @@ import { VOXEL_CASTER_KEY, VoxelChunkView, voxelStandInLook } from './voxel-chun
 import { OFF_VIEW_LAYER } from './view-hidden';
 import { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, reliefTestHeights, voxelTestRelief } from './voxel-relief';
 import { createVoxelSurface, VOXEL_CREASE_ATTRIBUTE, type VoxelGridRenderer, type VoxelMaterialLook } from './voxel-surface';
+import { textureHeightAt, textureSetAt, type TextureSetPoint, type TextureSetSource } from './voxel-surface-sets';
+import type { N } from './effects-tsl';
 import { VoxelWorldDraws } from './voxel-world-draws';
 
 const grid = chunkGrid(32);
@@ -96,7 +99,7 @@ const stage = (src: string, which: 'vertex' | 'fragment'): string => {
 };
 
 describe('relief displacement', () => {
-  it('draws a relief chunk with its crease weights and bounds grown by the deepest height depth; its vertex stage reads the normal maps\' heights at an explicit level on both backends (the patterns: the test heights), a plain chunk\'s reads none', async () => {
+  it('draws a relief chunk with its crease weights and bounds grown by the deepest height depth; its vertex stage reads the albedos\' heights at an explicit level on both backends (the patterns: the test heights), a plain chunk\'s reads none', async () => {
     await settle();
     const s = world();
     const d = joined(s, 4);
@@ -117,7 +120,7 @@ describe('relief displacement', () => {
     const scene = new THREE.Scene().add(new THREE.HemisphereLight(0xffffff, 0x444444, 1), new THREE.DirectionalLight(0xffffff, 2), mesh);
     const wgsl = wgslOf(wgslRenderer(), scene, mesh);
     const vs = stage(wgsl, 'vertex');
-    // Two materials, three projections each of the normal array (its A), every one at an explicit level (the vertex
+    // Two materials, three projections each of the albedo array (its A), every one at an explicit level (the vertex
     // stage has no derivatives).
     expect((vs.match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
     expect(vs).toMatch(/texture_2d_array<f32>/);
@@ -252,11 +255,31 @@ describe('relief displacement', () => {
     });
     expect(mesh).not.toBeNull();
     const vs = stage(wgslOf(wgslRenderer(), scene, mesh!), 'vertex');
-    // The texture sets' program: the normal array's heights read at an explicit level for the two materials' three projections.
+    // The texture sets' program: the albedo array's heights read at an explicit level for the two materials' three projections.
     expect((vs.match(/\btextureSampleLevel\s*\(/g) ?? []).length).toBe(6);
     draws.setRelief({ displace: false });
     expect(draws.stats().worlds['w']!.relief!.displace).toBe(false);
     draws.dispose();
+  });
+
+  it("reads a texture set's height from the albedo array's A alone (pixel and vertex stage), its lighting normal from the normal array, and the height nowhere from the normal array", () => {
+    const TSL: N = TSLTyped;
+    const array = (name: string): THREE.DataArrayTexture => Object.assign(new THREE.DataArrayTexture(new Uint8Array(8), 1, 1, 2), { name });
+    const src: TextureSetSource = { maps: { albedo: TSL.texture(array('albedo')), normal: TSL.texture(array('normal')), orm: TSL.texture(array('orm')) }, look: () => TSL.vec4(0, 0, 0, 0), matMask: 2 ** MATERIAL_BITS };
+    const at: TextureSetPoint = { n: TSL.vec3(0, 1, 0), p: TSL.vec3(0, 0, 0), gu: TSL.float(0), gv: TSL.float(0), bn: TSL.vec3(0, 1, 0) };
+    // The arrays a node graph samples (the names of the textures behind its texture nodes).
+    const sampled = (node: N): string[] => {
+      const names = new Set<string>();
+      node.traverse((x: N) => x.isTextureNode === true && names.add(x.value.name));
+      return [...names].sort();
+    };
+    for (const m of [1, 2 ** MATERIAL_BITS + 1]) {
+      const set = textureSetAt(src, TSL.float(m), at);
+      expect(sampled(set.height)).toEqual(['albedo']);
+      expect(sampled(set.albedo)).toEqual(['albedo']);
+      expect(sampled(set.normal)).toEqual(['normal']);
+      expect(sampled(textureHeightAt(src, TSL.float(m), at, TSL.float(2)))).toEqual(['albedo']);
+    }
   });
 
   it('builds nothing of relief without it (programs as before), and refuses a look naming a test layer the heights lack or a negative depth', () => {

@@ -18,21 +18,23 @@ import { glbWithKitMaterial, kitSheetMaps, kitSheetPngs } from './kit-sheets';
 const KITS = join(__dirname, 'kits');
 
 describe('placeholder kit sheets', () => {
-  it('lays a placeholder material into the layout\'s regions and leaves gutters neutral (height 0.5, flat normal)', () => {
+  it('lays a placeholder material into the layout\'s regions and leaves gutters neutral (height 0.5, flat normal); the height is the albedo\'s A, the normal\'s A opaque', () => {
     const size = 512;
     const m = kitSheetMaps(DRAFT_TRIM_LAYOUT, size, 'stone');
     const at = (map: Uint8Array, u: number, v: number): number[] => [...map.subarray((Math.floor(v * size) * size + Math.floor(u * size)) * 4, (Math.floor(v * size) * size + Math.floor(u * size)) * 4 + 4)];
     // The gutter between the field (rows 32–1056 of 4096) and the 0.5 m strip.
     const gutter = 1088 / 4096;
-    expect(at(m.normal, 0.5, gutter)).toEqual([128, 128, 255, 128]);
-    // Inside the field: the stone's relief, not neutral.
+    expect(at(m.normal, 0.5, gutter)).toEqual([128, 128, 255, 255]);
+    expect(at(m.albedo, 0.5, gutter)[3]).toBe(128);
+    // Inside the field: the stone's relief in the albedo's A, not neutral; the normal map carries no height.
     const field: number[] = [];
-    for (let u = 0.1; u < 0.9; u += 0.05) for (const y of [300, 520, 740, 960]) field.push(at(m.normal, u, y / 4096)[3]!);
+    for (let u = 0.1; u < 0.9; u += 0.05) for (const y of [300, 520, 740, 960]) field.push(at(m.albedo, u, y / 4096)[3]!);
     expect(Math.max(...field) - Math.min(...field)).toBeGreaterThan(20);
+    for (let i = 3; i < m.normal.length; i += 4 * 97) expect(m.normal[i]).toBe(255);
     // A kit's own layout: its strip filled, everything else neutral.
     const own = kitTrimLayout({ voxelKitId: 'k', sheetLayout: { size: 1024, pxPerMetre: 1024, regions: [{ id: 'S25', kind: 'strip', metres: 0.25, y: [32, 288] }] } })!;
     const o = kitSheetMaps(own, 256, 'timber');
-    const row = (y: number): number => o.normal[(y * 256 + 128) * 4 + 3]!;
+    const row = (y: number): number => o.albedo[(y * 256 + 128) * 4 + 3]!;
     expect(row(200)).toBe(128);
     expect([row(30), row(40), row(50), row(60)].every((h) => h !== 128)).toBe(true);
   });
@@ -56,9 +58,9 @@ describe('placeholder kit sheets', () => {
     const was = readGlb(glb);
     if (typeof was === 'string') throw new Error(was);
     expect(Buffer.from(parts.bin!.subarray(0, was.bin!.length)).equals(Buffer.from(was.bin!))).toBe(true);
-    // The albedo is opaque (the height lives in the normal map's A).
-    const png = pngs.albedo;
-    expect(png.length).toBeGreaterThan(100);
+    // The material stays opaque: the albedo's A is a height, not a coverage a glTF reader should cut or blend by.
+    expect(json.materials[0]).not.toHaveProperty('alphaMode');
+    expect(pngs.albedo.length).toBeGreaterThan(100);
   });
 
   it("reads a kit's crack map authored at 1024 px/m (4096², cracks a pixel wide) into the crack layer without losing them", () => {

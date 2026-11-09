@@ -62,18 +62,23 @@ The owner-approved texture layout, v1:
 
 | Map | Channels | Notes |
 |---|---|---|
-| `albedo` | sRGB RGB; alpha unused | no lighting or AO baked in; opaque |
-| `normal` | tangent-space RGB, OpenGL (green up); **height in A**, linear | A white = the surface, black = `heightDepth` below it; a normal map without alpha has no height |
+| `albedo` | sRGB RGB; **height in A**, linear | no lighting or AO baked in; A white = the surface, black = `heightDepth` below it |
+| `normal` | tangent-space RGB, OpenGL (green up); alpha unused | write it opaque |
 | `orm` | R ambient occlusion, G roughness, B metalness | linear |
 
-**Height is 0–1 in the normal map's alpha** (it has no other home; the
-albedo's alpha is not read). Use the whole range: the engine moves the
+**Height is 0–1 in the albedo's alpha**, as on every layered surface of
+the engine (see [Height in alpha](height-in-alpha.md)); the normal map's
+alpha is not read. Use the whole range: the engine moves the
 surface by it near the camera (relief), blends neighbouring materials by it
 and fills it with water from the bottom as a cell gets wet, so the joints,
 cracks and gaps between stones should be the darkest values and the tops
-of stones, boards and pebbles the brightest. A map left out is flat (a
-normal map without alpha draws no relief and blends by share only); a set
-needs its albedo.
+of stones, boards and pebbles the brightest. An albedo without a height
+(opaque, or one value) gets a height from its brightness when the arrays
+are assembled, so it still blends along its light and dark parts, only
+less well than a real height; a set needs its albedo. A kit's sheet carries
+its height the same way: keep its glTF material opaque (no alpha mode; in
+Blender leave the albedo's Alpha unlinked), so the height is never read as
+cut-out.
 
 Images are imported as PNG, 8-bit RGBA, up to **65.3 MiB** a file (a 4096²
 RGBA PNG even stored without compression fits; a 16-bit 4096² PNG may not).
@@ -295,7 +300,7 @@ uses:
 
 on a 2048² sheet at 1024 px/m (the base tile's density, so a piece and the
 wall behind it are equally sharp), 32 px gutters (clean to mip 5), unused
-space neutral (height 0.5, flat normal).
+space neutral (height 0.5 in the albedo's alpha, flat normal).
 
 - **Faces along the run** take a **world-anchored U**: U = (x + 0.25) ×
   pxPerMetre / size, from 0 on the cell's −X face (0.5 a metre on the
