@@ -422,3 +422,4 @@ export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS,
 export { PROP_COVERAGE_PART, PropLightChannel, type PropChannelHost } from './prop-channel';
 export { VoxelOverlay } from './voxel-overlay';
 export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedFarFile, shippedFarSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedFarCache, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';
+export { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample, sampleOfDistance } from './distance-brick-format';

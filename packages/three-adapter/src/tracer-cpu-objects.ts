@@ -6,17 +6,16 @@
  * the same way.
  */
 import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE } from '@thirdlight/project-model';
+import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS } from '@thirdlight/voxel';
 
 import { mapRay, packUnorm2, rayTriangle, safeDir, worldNormal, type SceneView, type TraceState, type V3 } from './tracer-cpu-math';
 import { ARCH_BOX, brickAtlasOrigin, type BrickAtlas } from './tracer-objects';
 import { HEADER, TRACE_ARCH, TRACE_BRICKS, TRACE_STEPS } from './tracer-scene';
 
-/** Sphere tracing stops this close to the surface (voxels). */
-export const BRICK_HIT_VOXELS = 0.05;
+export { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS } from '@thirdlight/voxel';
+
 /** Slack (relative to the distance) on whether a ray enters an instance's box in this grid cell: a tie is tested twice, never skipped. */
 export const ENTRY_EPS = 1e-4;
-/** The shortest sphere-tracing step (voxels): thinner features than this may be stepped over. */
-export const BRICK_MIN_STEP_VOXELS = 0.25;
 
 /** Test one item over [tmin, …) from the grid cell spanning [tlo, tcell] along the ray. */
 type ItemTest = (s: SceneView, item: number, at: number, o: readonly number[], d: readonly number[], tmin: number, st: TraceState, tlo: number, tcell: number) => void;

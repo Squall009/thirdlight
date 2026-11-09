@@ -26,23 +26,14 @@
  * Pure and deterministic. This module is the format (what a game reads);
  * `distance-bricks-build.ts` makes the fields at import.
  */
+import { DISTANCE_BRICK_SAMPLES } from '@thirdlight/voxel';
+
 import { decodeSurfelSet, encodeSurfelSet, surfelSetBytes, type SurfelSet } from './surfels';
 
+export { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample } from '@thirdlight/voxel';
 
-/** Cells per brick side. */
-export const DISTANCE_BRICK_CELLS = 8;
-/** Samples per brick side (its corners included). */
-export const DISTANCE_BRICK_SIDE = DISTANCE_BRICK_CELLS + 1;
-/** Samples per brick. */
-export const DISTANCE_BRICK_SAMPLES = DISTANCE_BRICK_SIDE ** 3;
-/** A brick the surface does not pass through, outside the model. */
-export const DISTANCE_BRICK_OUTSIDE = -1;
-/** A brick wholly inside the model. */
-export const DISTANCE_BRICK_INSIDE = -2;
 /** The format's version (raised when a blob made before would read differently). */
 export const DISTANCE_BRICKS_VERSION = 2;
-/** Band of the stored distances, in voxels: a sample farther than this from the surface stores the band. */
-export const DISTANCE_BRICK_BAND_VOXELS = 2;
 
 /** One piece's field. */
 export interface DistanceBrickSet {
@@ -70,11 +61,6 @@ export interface DistanceBricks {
 /** Sample spacing for a model whose longest side is `longest` metres. */
 export function distanceBrickVoxel(longest: number): number {
   return Math.min(longest / 32, Math.max(longest / 128, 0.1));
-}
-
-/** A stored byte as a distance (metres). */
-export function distanceOfSample(q: number, band: number): number {
-  return ((q / 255) * 2 - 1) * band;
 }
 
 const MAGIC = 0x46444c54; // "TLDF"
