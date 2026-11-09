@@ -225,7 +225,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.7a | done: `run.mjs far-world`: 8.2 km mountain world (peaks 1.51 km, cliffs, overhangs, town at centre) written per region column in 4 workers, 476 MB (7.1 MB/km²), 249 s; far cache L2–L8 (`far-tree.ts`, region files) 48.5 MB (0.72 MB/km²), 255 s; peak 2.2 GB. Selection by screen error + hysteresis + budget; edit rebuilds exactly its ancestors; doors/windows close at L1+ (v31) |
 | 46d.7b | done: D548 fixed (backend opens worlds on demand: 8 km world 0.65 s, 264 MB). Far field as meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`): cache served, rebuilt per command (190–350 ms), shipped; 40 draws (D549 fixed), no cut-off (D463, D516 fixed). Medium 4 px: 5.0 M tris, 0 missed orbit, flight 16–18 missed; high 3 px 8.1 M. D550–D553 |
 | 46d.7c | done: `farField=bricks`: far nodes as sparse 8³ distance bricks in workers (13.9 of 64 a node), one shared atlas, a box a brick marched in the fragment with its own depth; one path both renderers, switched at run time. Medium: 36.9 k bricks, 98.8 MB GPU, fill 16 s, orbit 18–39 missed (GPU-bound, D555; hidden 0), flight 21–26. D555–D557 |
-| 46d.7d | not started |
+| 46d.7d | done: `far-field-comparison.md` for the owner; same-hour re-measure, medium, both renderers: meshes 0 missed orbit, heap +0.74 GB, fill 13 s; bricks 17–24 missed (GPU march), heap +0.1–0.2 GB, fill 16 s; flight 18–22 both. Silhouettes 1–5 km alike (1–4 % px). Side-by-side pictures. Lead pick: meshes default, bricks kept; no hybrid. D558 |
 | 46d.8a | not started |
 | 46d.8b | not started |
 | 46d.9 | not started |
@@ -1231,6 +1231,38 @@ boxes and a blank view from 1.7 km up: three shares one node build between mater
 material per group read the first group's atlas) and the boxes past the far plane were clipped; both fixed before
 these pictures.
 
+### 46d.7d the far-field comparison; D558
+
+**Written.** `~/.cache/thirdlight-phase46/far-field-comparison.md` (for the owner: the two methods, one table, the
+pictures, what Enshrouded is known to do, a hybrid, the lead recommendation and what changes with the other pick).
+No code changed (no gate). Side-by-side pictures `~/.cache/thirdlight-phase46/far-field/side-by-side/<pose>-<renderer>.png`
+(meshes left, bricks right, a 4× crop of the horizon band below), made from 46d.7b/7c's pictures by a scratch Node
+script (`work/46d.7d/compose.mts`: `tests/e2e/png.ts`'s decoder, a zlib PNG writer; nothing in /tmp).
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, medium, the 8 km world from the town square, 46d.7c's
+scripts; both modes and renderers interleaved in one hour, 03:53–04:02, load 2.5–3.6, uptime 16.5 d;
+`work/46d.7d/perf-*.json`):
+
+| | fill | orbit missed (3 × 8 s) | render() p50 | flight missed of ~2,350 (max ms) | page heap | far GPU MB |
+|---|---|---|---|---|---|---|
+| WebGPU meshes | 12.7 s | 0 / 0 / 0 | 2.1–2.3 | 19 (150) | 1,440 MB | 105.7 |
+| WebGPU bricks | 16.3 s | 19 / 17 / 17 | 2.2 | 18 (317) | 793 MB | 98.8 |
+| WebGL 2 meshes | 13.1 s | 0 / 0 / 0 | 2.5–2.6 | 19 (200) | 1,440 MB | 105.7 |
+| WebGL 2 bricks | 16.6 s | 24 / 23 / 18 | 2.3 | 22 (200) | 894 MB | 98.8 |
+| WebGPU off | — | 0 / 0 / 0 | 1.9 | 9 (83) | 703 MB | 0 |
+
+The same picture as 46d.7b/7c's separate hours: the bricks' orbit misses are their march (D555), the flight's misses
+are the far field's commits on the page's thread for both (D550, D551). GPU timestamps again unusable (off 8.8–9.3,
+meshes 5.5–7.0, bricks 0.7–1.4 ms: the clock, D544). Far job p50 13 ms (meshes) / 20 ms (bricks).
+
+**Looked at** (every 46d.7b/7c picture, through the side-by-side pairs, both renderers): silhouettes at 1, 3 and
+5 km are practically the same (0.9 / 2.2 / 3.7 % of pixels differ by more than 60; WebGPU against WebGL 2 under
+0.5 % within a mode); meshes show the 2–8 m terraces and keep the town's houses as lumps from above the peak, bricks
+smooth the slopes and melt the town into a flat slab; meshes show sky-coloured pixels between far nodes in the
+town-west crop (D553's specks); bricks show the near-edge strip (D556), thin dark slivers on crests, and streaky
+material stripes on ground at grazing angles, strong on WebGL 2 and slight on WebGPU (D558; crops
+`work/46d.7d/crop-*.png`). Pop in motion not looked at (unverified for both).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1596,6 +1628,14 @@ these pictures.
   medium 4, high 3 px) so the comparison measures the draw, not the selection; at most 32 steps a ray through one
   brick. No hybrid built (46d.7d decides whether one is needed).
 
+- 2026-11-09 (46d.7d, lead recommendation, owner to pick): **meshes as the far-field default on every tier, bricks
+  kept behind the switch, no hybrid now**: meshes hold the cap orbiting on the Iris Xe (0 missed, both renderers),
+  bricks miss 17–24 of ~480 from their march; silhouettes are alike, edits/export/build are shared; meshes cost
+  +0.74 GB page heap (bricks +0.1–0.2). Bricks are re-measured after D555 and on the high tier.
+- 2026-11-09 (46d.7d, default chosen, owner to confirm): **the plan's D479 (shader-only far derive) is not part of
+  46d.7d** (its row names none); it stays open as re-recorded in 46d.7b. The comparison is at medium in one hour;
+  high numbers come from 46d.7b/7c's hours.
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
@@ -1603,8 +1643,9 @@ these pictures.
 - The voxel texture set's maps are `albedo`, `normal` (height in A), `orm` (46d.4d, D531): confirm the rename and the
   wetness look (numbers in §9; pictures in `work/46d.4d/shots`).
 
-- **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — after 46d.7d's comparison
-  (`~/.cache/thirdlight-phase46/far-field-comparison.md`). Both stay until then.
+- **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — read
+  `~/.cache/thirdlight-phase46/far-field-comparison.md` (46d.7d; lead: meshes default, bricks kept, no hybrid).
+  Both stay until then.
 - The relief verdict (46d.1b, §8): low normal only, medium n = 2 in 16 m, high n = 4 in 24 m, n = 8 rejected; and
   whether walls should get parallax occlusion instead of mesh relief.
 - Whether relief should also push outward (proud stones) where the collision shape allows it, against the inward-only
