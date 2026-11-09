@@ -243,7 +243,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.8b | done: requirement trace (render spec §5; R88/R89/R111/R112/R27/R28 rows re-pointed), material-set guide (`voxel-kits.md` §1), art-factory request update; acc46d: 62 shots × 2 renderers (WebGL 2 ≤ 0.4 % px apart but Scene view orbits), README + approve-46d.md, published. Seen wrong: D560 (town edge gap), D542, D533, D553, D556, D558 again. D539 pictured dry |
 | 46d.9 | done: full gate GREEN (35 min vs 34, 8.0 GB, 868 vitest files, 392 e2e). Review 0H 3M 8L: D559 traced + fixed (column waits for every section), D552 fixed (far builds in workers, commands go on, export waits ≤ 2 min then warns), acc46d lists all 116 defaults; L1–L7 fixed (D561–D564), L8 deferred (D560). voxel e2e 70.7 → 71.1 s |
 | 46d.10 | done (f05807ba): height in the albedo's A (layout v1 amendment 1); albedo array a height array (brightness height for an opaque albedo, the layered rule); shader, relief vertex stage, placeholders, kit sheets (OPAQUE GLB, Blender keeps A) moved; normal A unused. Shipped A error 4.4/255 at 256² (ETC1S), 0.2–0.4 at 4096² UASTC. Fast gate GREEN; e2e 71.1 → 70.8 s |
-| 46d.11 | done: relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
+| 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | not started |
 | 46d.13 | not started |
 | 46d.14 | not started |
@@ -1449,7 +1449,7 @@ renderers (`work/46d.10/diff.txt`); wet 7 still fills the rock's low parts first
 
 ### 46d.11 relief off on every tier; blend distance per material with a world default
 
-**Built.** Relief: `RELIEF_STEPS_BY_TIER` is 0 on low, medium and high (`relief-ring.ts`), the one switch: with no
+**Built** (ee2ba690). Relief: `RELIEF_STEPS_BY_TIER` is 0 on low, medium and high (`relief-ring.ts`), the one switch: with no
 steps the streamer plans no relief ring, its budget share is 0, no relief part is derived or streamed and no
 shadow caster made (bounds grow only for geometry carrying crease weights, so nothing changes there). The quality
 field `voxelRelief`, the ring, the derive part, the draws' displacing program and the page's `?relief=n` and
