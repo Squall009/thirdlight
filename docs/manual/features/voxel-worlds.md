@@ -546,12 +546,13 @@ in view, and each pass (the view, a shadow map) draws only the chunks it
 sees; they draw after the world's surfaces, so a piece behind a wall is not
 shaded. With [occlusion culling](occlusion.md) on, WebGPU also leaves out
 each piece the walls in front hide (in the town about seven in ten);
-WebGL 2 draws every piece of the chunks in view. Kit pieces draw with
-a stand-in material a kit and a labelled debug UV texture until materials
-arrive; a kit naming a trim layout draws with that layout's debug set
-instead (each region its own colour and id, a 3 cm checker, a tick every
-0.125 m along U), so a face mapped to the wrong region or stretched shows
-at once. A kit mesh still loading draws when it arrives; one that fails
+WebGL 2 draws every piece of the chunks in view. Kit pieces wear their
+kit's one texture set: the material of the kit's GLB (base colour, normal,
+occlusion/roughness/metal), its images imported as texture assets; a kit
+naming a trim layout reads them at the world-anchored U of its run faces. A
+kit without images draws a stand-in colour. To check UVs, the voxel world
+page's `?trimDebug=1` draws the layout's debug set instead (each region its
+own colour and id, a 3 cm checker, a tick every 0.125 m along U). A kit mesh still loading draws when it arrives; one that fails
 draws nothing (the page's status names it). In the Scene view an open
 world follows a kit edit and a change of the voxel detail seed as they
 are made.
@@ -701,9 +702,8 @@ triangle).
 These come later; worlds made now keep working when they arrive:
 
 - **Kits**: a kit page in the editor (slots assigned by drag and drop; for
-  now through `setVoxelKit`), and a kit's own textures drawn (pieces show the
-  debug set of their sheet layout until materials arrive); the fringe where
-  buildings meet the ground and ground scatter come with the terrain tools.
+  now through `setVoxelKit`); the fringe where buildings meet the ground and
+  ground scatter come with the terrain tools.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
 - **Materials**: texture sets in the material Inspector (set over the API),
   and the physical section in the Inspector (profiles are set over the API).

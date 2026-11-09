@@ -1489,6 +1489,7 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 27 → 28 | 46c.16k | roof polygons merge across cells again (D525: rows along the level line, supported floors, side pieces; by geometry and crack, never material), a merged polygon's owner offsets 0 along its row; a body's face owned only where its read reaches a plane cell | layout unchanged | **owner 2026-11-06** (performance first; D519 kept: wall and roof never blend) |
 | 28 → 29 | 46d.5a | the relief part a derived output: a level-0 section in the relief ring carries its ground and base subdivided n steps a cell with a crease byte a vertex, edges toward plain sections whole; outside the canonical bytes ([render spec §3](voxel-render-spec.md#3-relief-part)) | canonical bytes v28's | default (46d.1b verdict) |
 | 29 → 30 | 46d.6c | a body's faces next to a plane cell merge with its other faces by geometry and crack alone (D526): the rectangle holding an owned face is owned whole (each pixel its own body cell, unblended), owned rectangles of a direction share vertices | layout unchanged | default chosen, owner to confirm (D519 kept: no wall face reads a plane cell) |
+| 30 → 31 | 46d.7a | the downsample at every level ≥ 1 closes an opening narrower than two parent cells in the body round it, and a parent of opening cells only is an opening (no door/window "legs" at level 1); a new derived store, the far cache (format 1, never committed; [render spec §4](voxel-render-spec.md#4-far-field-data)) | layout unchanged; level-0 results v30's | default chosen, owner to confirm |
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1570,11 +1571,12 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 28 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 31 | refused | rebuilt, never upgraded |
+| Far cache ([render spec §4](voxel-render-spec.md#4-far-field-data)) | `far.json` `format` | 1 | built again | rebuilt, never upgraded (and when its world's revision differs) |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 5 | refused | rebuilt from the kits, never stored |
 | Voxel kit record ([kit page](voxel-kit-format.md) §3.9, final) | `kitFormat` | 1 | any other refused whole | add-only fields (v1 has none to lift) |
 
-**Derived data 3 → 9 (46b) and 9 → 28 (46c and its revision):** the steps and their owner notes are in §3.7, *Derived version history* (one table). Kits, edges, roofs and damage changed no stored format.
+**Derived data 3 → 9 (46b), 9 → 28 (46c and its revision) and 28 → 31 (46d):** the steps and their owner notes are in §3.7, *Derived version history* (one table); 46d's owner notes are on the [render spec](voxel-render-spec.md). Kits, edges, roofs and damage changed no stored format.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules

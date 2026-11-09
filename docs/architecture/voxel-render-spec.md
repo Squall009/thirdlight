@@ -1,11 +1,25 @@
 # Voxel rendering and materials — format page (46d additions)
 
-Status: **skeleton** (46d.2, D496); §1 written by 46d.3a and 46d.3b, §2 by 46d.4a–46d.4d, §3 by 46d.5a, §4 (far tree and far cache) by 46d.7a. This page receives every format addition of 46d (rendering and materials), each
-as a versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the
-owner on 2026-11-02) is not grown further. Nothing here is approved yet: a section is filled by the 46d item that
-builds it ([plan 46d](../plan-phase-46d.md) §6), and every section stays empty until then. § numbers name the format
-spec's sections unless marked as this page's. Kits are on [voxel-kit-format.md](voxel-kit-format.md), the role spec
-on [voxel-role-spec.md](voxel-role-spec.md), the texture layout on [voxel-trim-layout.md](voxel-trim-layout.md).
+Status: **complete for 46d** (checked against the code in 46d.8a): §1 material record (46d.3a, 46d.3b), §2 texture
+sets (46d.4a–46d.4d), §3 relief part (46d.5a, drawn 46d.5b, shadows 46d.6d), §4 far tree, far cache and both far
+draw modes (46d.7a–46d.7c). This page holds every format addition of 46d (rendering and materials), each as a
+versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the owner
+on 2026-11-02) is not grown further; the derived steps 28 → 31 are also rows of its §3.7 history and its §3.8 table.
+**Nothing here is approved yet:** every step is "default chosen, owner to confirm" ([plan 46d](../plan-phase-46d.md)
+§9), and which far draw mode is the default is the owner's pick (§4). Steps:
+
+| Step | Item | What | Stored formats |
+|---|---|---|---|
+| material record parts | 46d.3a | `physical`, `gameData`, `voxel` on a material; `content.materialProfiles` | schema 8, add-only |
+| texture sets | 46d.4a, 46d.4d | catalog `voxelTextures`, the table's fourth block; height in the normal map's A | manifest v5, add-only |
+| derived 28 → 29 | 46d.5a | the relief part | none (derived) |
+| derived 29 → 30 | 46d.6c | owned faces merged (format spec §3.7) | none (derived) |
+| derived 30 → 31, far cache 1 | 46d.7a | openings closed at coarse levels; the far cache | none (derived, cache) |
+| far serving and modes | 46d.7b, 46d.7c | far routes, catalog `far` rows, `voxelFarField` / `voxelFarError` | manifest v5, schema 8, add-only |
+
+§ numbers name the format spec's sections unless marked as this page's. Kits are on
+[voxel-kit-format.md](voxel-kit-format.md), the role spec on [voxel-role-spec.md](voxel-role-spec.md), the texture
+layout on [voxel-trim-layout.md](voxel-trim-layout.md).
 
 ---
 
@@ -252,6 +266,12 @@ batch's `relief`: steps, where it displaces now and the ring's centre, cells; ag
 that radius. Play, exports and the Scene view draw through `VoxelWorldDraws`; the Scene view derives the ring at
 its quality level round the point it orbits. `ctx.voxels.setRings({levels: {relief}})` changes the
 distance at run time; `rings()` reports it and `reliefSteps`.
+
+**Shadows (46d.6d, D545; no format change).** A relief chunk sends its plain surfaces with its relief meshes
+(`ChunkDrawWire.caster`); with shadows on they are a shadow-only mesh (`VOXEL_CASTER_KEY`, on the off-view layer the
+shadow cameras see), the relief meshes cast none and read the shadow map at their plain, undisplaced place
+(`receivedShadowPositionNode`). So relief casts exactly the shadow the plain world casts; its own micro-shadows are
+lost. One draw path on both renderers. Play, exports and the Scene view cast no voxel shadows yet (46d.5b default).
 
 **Budget (D528).** Relief has its own share of the stream budget, `RELIEF_BUDGET_SHARE` (1/8: low 32, medium 64,
 high 128 MiB) while the ring is on: the base world's eviction counts the budget less that share and the base bytes

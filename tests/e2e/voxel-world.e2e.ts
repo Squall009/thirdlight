@@ -248,11 +248,13 @@ async function shot(page: Page): Promise<ReturnType<typeof decodePng>> {
   return decodePng(await page.screenshot());
 }
 
-test('assembly proof: runtime set/dig turn a banister into a wall and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips', async ({ page }) => {
-  test.setTimeout(180_000);
-  await page.setViewportSize({ width: 960, height: 540 });
-  const errors = consoleErrors(page);
-  await open(page, 'webgpu');
+/**
+ * The assembly proof, on a page `open` left at the scene's view (WebGPU): runtime set/dig turn a banister into a wall
+ * and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips. It leaves the
+ * world as the generator wrote it but for one dug pad cell, and the page at the same view; its one refused command
+ * (409) is in `errors`.
+ */
+async function assemblyProof(page: Page, errors: string[]): Promise<void> {
   const [ox, oy, oz] = scene;
   const centre = scene.map((v) => Math.floor(v / section)) as Cell;
   const hashes = (): Promise<Record<string, number | null>> => hook(page, 'windowHashes', ...centre, 2);
@@ -317,7 +319,7 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
 
   // Stored intent survives the save and the codec: a fresh page from the files derives the same, the cells are construction.
   await page.reload();
-  await open(page, 'webgpu');
+  await open(page, 'webgpu', '&bands=1');
   expect(await hashes()).toEqual(h1);
   expect((await cellAt(page, gap)).voxel).toMatchObject({ material: MAT.timber, role: VOXEL_ROLE.wall });
 
@@ -391,15 +393,17 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   // The refused command's HTTP 409 is the one console error.
   expect(errors.filter((e) => !/status of 409/.test(e))).toEqual([]);
   expect(errors).toHaveLength(1);
-});
+}
 
 for (const renderer of ['webgpu', 'webgl2'] as const) {
-  test(`streams, draws and edits the voxel world through commands; the edit is in the files after a reload (${renderer})`, async ({ page }) => {
-    test.setTimeout(180_000);
+  // One page a renderer: on WebGPU the assembly proof runs first on the same page load.
+  test(renderer === 'webgpu' ? 'assembly proof (runtime set/dig turn a banister into a wall and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips), then streams, draws and edits the voxel world through commands (webgpu)' : 'streams, draws and edits the voxel world through commands; the edit is in the files after a backend restart and a reload (webgl2)', async ({ page }) => {
+    test.setTimeout(renderer === 'webgpu' ? 300_000 : 180_000);
     await page.setViewportSize({ width: 960, height: 540 });
     const errors = consoleErrors(page);
     // Construction drawn with the band test texture (the pictures below compare with each other, a reload's too).
     await open(page, renderer, '&bands=1');
+    if (renderer === 'webgpu') await assemblyProof(page, errors);
     const state = await hook<{ drawn: number; triangles: number; pieces: number; counters: { damaged: number } }>(page, 'state');
     expect(state.drawn).toBeGreaterThan(20);
     // The material picker lists the project's voxel materials only (not the mesh-only one); shift-click adds the stone.
@@ -574,13 +578,15 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     }
     expect(await hook<{ material: number; wetness: number }>(page, 'voxelAt', ...wallCell)).toMatchObject({ material, wetness: 7 });
 
-    if (renderer === 'webgl2') await be.restart();
-    await page.reload();
-    await open(page, renderer, '&bands=1');
-    expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).toBe(0);
-    const again = await shot(page);
-    // The same picture as before the reload, from the region files (the view and the world are the same).
-    expect(changedPixels(shown, again)).toBeLessThan(200);
+    // A restarted backend and a reload (on one renderer: the assembly proof reloads WebGPU's page and compares every
+    // derived hash): the same picture as before, from the region files (the view and the world are the same).
+    if (renderer === 'webgl2') {
+      await be.restart();
+      await page.reload();
+      await open(page, renderer, '&bands=1');
+      expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).toBe(0);
+      expect(changedPixels(shown, await shot(page))).toBeLessThan(200);
+    }
 
     // Detail levels in this small world: level 0 within 4 m, level 1 within 24 m, level 2 past it (the change is
     // one swap). Every level is drawn, with seams between them, and a grazing view across the level boundaries
@@ -637,7 +643,8 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(await hook<number | null>(page, 'levelAt', ...pit!)).toBe(1);
     expect(changedPixels(levelBefore, await shot(page)), 'a dig at level 1').toBeGreaterThan(300);
     await hook(page, 'reread');
-    expect(errors).toEqual([]);
+    // The assembly proof's refused command (its HTTP 409) is the one console error.
+    expect(errors).toHaveLength(renderer === 'webgpu' ? 1 : 0);
   });
 }
 
@@ -895,10 +902,13 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect.poll(async () => again.y - ((await observe()).player?.y ?? again.y), { timeout: 10_000, message: 'the character falls into the restored pit' }).toBeGreaterThan(1);
     const restored = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('restored.png') }));
     expect(changedPixels(restarted, restored)).toBeGreaterThan(500);
-    // The high tier: the relief ring round the camera draws the pad's grass moved by its heights.
-    await control({ command: 'setQuality', level: 'high' });
-    const shot = async (name: string): Promise<ReturnType<typeof decodePng>> => decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath(`${name}.png`) }));
-    expect(await reliefMoves(canvas, shot, `play-${renderer}`)).toBeGreaterThan(2000);
+    // The high tier switched at run time: the relief ring round the camera draws the pad's grass moved by its heights.
+    // On WebGL 2 here; WebGPU's relief, with the simulation in its worker, is read in the export below (it plays the same way).
+    if (renderer === 'webgl2') {
+      await control({ command: 'setQuality', level: 'high' });
+      const shot = async (name: string): Promise<ReturnType<typeof decodePng>> => decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath(`${name}.png`) }));
+      expect(await reliefMoves(canvas, shot, `play-${renderer}`)).toBeGreaterThan(2000);
+    }
     expect((await observe()).state).toBe('running');
     expect(errors).toEqual([]);
     await groundRelief(false);
@@ -1015,25 +1025,11 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   expect(Math.abs(hueCount(await sceneViewStill(page, 'scene-view-stone-back'), 'blue') - blue[0])).toBeLessThan(200);
   console.log(`[voxel-scene-view] material table: ${JSON.stringify(await table())}, last upload ${(await voxels())!.worlds['slice']!.tableMs.toFixed(2)} ms; blue pixels ${blue.join(' → ')}`);
 
-  // The renderer's CPU ms a frame while the view orbits (60 frames), with the world and, once its object goes, without.
-  const orbit = async (): Promise<string | null> => {
-    const box = (await view.boundingBox())!;
-    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.15);
-    await page.mouse.down();
-    for (let i = 1; i <= 61; i++) {
-      await page.mouse.move(box.x + box.width * 0.2 + i * 4, box.y + box.height * 0.15);
-      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(ok)));
-    }
-    await page.mouse.up();
-    return view.getAttribute('data-render-ms');
-  };
-  const withWorld = await orbit();
   // The object goes: so does the world's draw (and the project is as the other tests left it; Play's world, 8 km out
   // and all air round this view, may still stream).
   await playCmd('deleteEntity', { entityId: id });
   await expect.poll(async () => { const v = await voxels(); return v === null || (v.worlds['slice'] === undefined && v.states['slice'] === undefined); }, { timeout: 10_000 }).toBe(true);
-  const without = await orbit();
-  console.log(`[voxel-scene-view] render() CPU ms p50 p95 (orbit, 30 frames): with the world ${withWorld}, without ${without}; drawn ${JSON.stringify(drawn.worlds)}`);
+  console.log(`[voxel-scene-view] drawn ${JSON.stringify(drawn.worlds)}`);
   expect(errors).toEqual([]);
 });
 
@@ -1078,7 +1074,8 @@ test('Export: the Play project exported and served statically with the backend s
   page.context().on('request', (r) => requests.push(r.url()));
   try {
     const t0 = Date.now();
-    await game.goto(`${site.url}${exportQueryFor('webgpu')}`);
+    // At the high tier (its URL's level), so the relief ring draws too.
+    await game.goto(`${site.url}${exportQueryFor('webgpu')}&quality=high`);
     const canvas = game.locator('canvas#game');
     await expectRendererBackend(canvas, 'webgpu');
     type Obs = { state?: string; counters?: Record<string, number>; player?: { x: number; y: number; z: number } } | null;
@@ -1086,15 +1083,9 @@ test('Export: the Play project exported and served statically with the backend s
     const drawn = (): Promise<number> => game.evaluate(() => (window as unknown as { __tlVoxelPlay?: { stats(): { worlds: Record<string, { chunks: number }> } } }).__tlVoxelPlay?.stats().worlds['far']?.chunks ?? 0);
     await expect.poll(async () => (await observe())?.counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident in the export' }).toBe(1);
     const residentMs = Date.now() - t0;
-    // The cold fill: until the drawn chunks stop growing for a second.
-    let chunks = 0;
-    let grewAt = Date.now();
-    await expect.poll(async () => {
-      const n = await drawn();
-      if (n !== chunks) [chunks, grewAt] = [n, Date.now()];
-      return chunks > 20 && Date.now() - grewAt > 1000;
-    }, { timeout: 60_000, intervals: [100], message: 'the world is drawn round the camera' }).toBe(true);
-    const fillMs = grewAt - t0;
+    // The world is drawn round the camera (the checks below wait for what they read: the wall's marks, the relief).
+    await expect.poll(drawn, { timeout: 60_000, intervals: [100], message: 'the world is drawn round the camera' }).toBeGreaterThan(20);
+    const [fillMs, chunks] = [Date.now() - t0, await drawn()];
     await expect.poll(async () => { const y = (await observe())?.player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     // The kit's GLB came with the build's content files (the backend is stopped) and draws; the default kit's pieces too.
     const play = (): Promise<{ kits: Record<string, string>; kitInstances: number }> => game.evaluate(() => { const h = (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay; return { kits: h.kits(), kitInstances: h.stats().worlds['far']?.kitInstances ?? 0 }; });
@@ -1102,7 +1093,7 @@ test('Export: the Play project exported and served statically with the backend s
     await expect.poll(async () => Object.values((await play()).kits), { timeout: 20_000 }).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
     expect((await play()).kitInstances).toBeGreaterThan(5);
     const threading = await game.evaluate(() => (window as unknown as { __thirdlightThreading?: { mode: string } }).__thirdlightThreading?.mode ?? null);
-    console.log(`[voxel-export] cold fill (page load → drawn chunks steady): ${fillMs} ms, ${chunks} chunks; pit resident at ${residentMs} ms; simulation ${String(threading)}`);
+    console.log(`[voxel-export] drawn (page load → over 20 chunks): ${fillMs} ms, ${chunks} chunks; pit resident at ${residentMs} ms; simulation ${String(threading)}`);
     const standing = (await observe())!.player!;
     // Both wall marks in the export too: the decal materials from the build, the clipped one cut from the wall's chunk.
     let marks = [0, 0];
@@ -1133,8 +1124,7 @@ test('Export: the Play project exported and served statically with the backend s
     expect(regionReads.length).toBeGreaterThan(0);
     expect(new Set(regionReads).size).toBe(regionReads.length);
     expect((await observe())?.state).toBe('running');
-    // The export at the high tier (its URL's level): relief drawn moved by the shipped grass set's heights.
-    await game.goto(`${site.url}${exportQueryFor('webgpu')}&quality=high`);
+    // Relief drawn moved by the shipped grass set's heights.
     expect(await reliefMoves(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')).toBeGreaterThan(2000);
     expect(errors).toEqual([]);
   } finally {

@@ -226,7 +226,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.7b | done: D548 fixed (backend opens worlds on demand: 8 km world 0.65 s, 264 MB). Far field as meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`): cache served, rebuilt per command (190–350 ms), shipped; 40 draws (D549 fixed), no cut-off (D463, D516 fixed). Medium 4 px: 5.0 M tris, 0 missed orbit, flight 16–18 missed; high 3 px 8.1 M. D550–D553 |
 | 46d.7c | done: `farField=bricks`: far nodes as sparse 8³ distance bricks in workers (13.9 of 64 a node), one shared atlas, a box a brick marched in the fragment with its own depth; one path both renderers, switched at run time. Medium: 36.9 k bricks, 98.8 MB GPU, fill 16 s, orbit 18–39 missed (GPU-bound, D555; hidden 0), flight 21–26. D555–D557 |
 | 46d.7d | done: `far-field-comparison.md` for the owner; same-hour re-measure, medium, both renderers: meshes 0 missed orbit, heap +0.74 GB, fill 13 s; bricks 17–24 missed (GPU march), heap +0.1–0.2 GB, fill 16 s; flight 18–22 both. Silhouettes 1–5 km alike (1–4 % px). Side-by-side pictures. Lead pick: meshes default, bricks kept; no hybrid. D558 |
-| 46d.8a | not started |
+| 46d.8a | in progress: `voxel-world.e2e.ts` 88.5 → 70.7 s (assembly proof merged into the WebGPU streams test, export opened once at high, Play relief on WebGL 2 only, Scene view orbit log dropped; §8); render spec, format spec version table, manual kit text brought to the code. D559. Measurement next |
 | 46d.8b | not started |
 | 46d.9 | not started |
 
@@ -1262,6 +1262,36 @@ smooth the slopes and melt the town into a flat slab; meshes show sky-coloured p
 town-west crop (D553's specks); bricks show the near-edge strip (D556), thin dark slivers on crests, and streaky
 material stripes on ground at grazing angles, strong on WebGL 2 and slight on WebGPU (D558; crops
 `work/46d.7d/crop-*.png`). Pop in motion not looked at (unverified for both).
+
+### 46d.8a the 46d measurement against §4; `voxel-world.e2e.ts` trimmed; D559
+
+**`voxel-world.e2e.ts` trimmed** (it grew 64.6 s → 88.5 s in 46d: relief pixel checks +18 s in 46d.5b, far field +5 s
+in 46d.7b/7c, the Scene view and export checks +4 s). Timed step by step in capped runs first (scratch
+`work/46d.8a/e2e-t*.log`), then cut where a step repeated what another already proved; every product behaviour stays
+covered. What moved where:
+- **Assembly proof merged into the WebGPU streams test** (one page load instead of two): it runs first on the page
+  the streams checks then use (`assemblyProof(page, errors)`), its refused 409 the one console error.
+- **WebGPU streams test: no backend-less reload** of its own: the assembly proof's reload on WebGPU (every derived
+  hash of the window from the files) and the WebGL 2 test's restart + reload (the same picture, the dug cell) keep
+  "the edit is in the files" covered.
+- **Play relief only on WebGL 2** (the runtime `setQuality` switch, sim in the page); WebGPU relief with the
+  simulation in its worker is read in the export, which plays the same way.
+- **Export opens once, at `&quality=high`** (was a second page load at high for the relief check); its fill wait is
+  "over 20 chunks drawn" instead of "no growth for a second" (the later checks wait for what they read).
+- **Scene view orbit dropped**: two 60-frame orbits that only logged `render()` ms with and without the world (no
+  assertion); the deletion check (the world's draw goes with its object) stays.
+- Nothing moved to vitest: the remaining browser-free checks (the export's catalog rows) cost milliseconds and need
+  the export the browser part makes anyway.
+
+Seven tests → six; fast gate gate-fast-20261109-041528: `voxel-world.e2e.ts` **88.5 → 70.7 s** (21.5 / 11.7 / 8.9 /
+10.3 / 7.1 / 11.2 s), vitest and lint green; the smoke set's `rendering.e2e.ts` render-scale test failed (D320,
+watch) and passed alone: gate-rerun-20261109-042940 GREEN (village perf 0 missed both renderers). Capped local runs:
+80.9 → 64.4 s.
+
+**D559.** A trial that switched Play to `high` right after the world became resident (to overlap the relief derive
+with the rest of the test) failed: WebGPU drew the stone wall oversized and sheared with the projected mark gone,
+WebGL 2 never stood the character on the pad; the same switch after the restore (as the test keeps it) passes. Seen
+once each, not traced (D559).
 
 ## 9. Decision log
 
