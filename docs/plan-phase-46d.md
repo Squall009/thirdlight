@@ -226,7 +226,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.7b | done: D548 fixed (backend opens worlds on demand: 8 km world 0.65 s, 264 MB). Far field as meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`): cache served, rebuilt per command (190–350 ms), shipped; 40 draws (D549 fixed), no cut-off (D463, D516 fixed). Medium 4 px: 5.0 M tris, 0 missed orbit, flight 16–18 missed; high 3 px 8.1 M. D550–D553 |
 | 46d.7c | done: `farField=bricks`: far nodes as sparse 8³ distance bricks in workers (13.9 of 64 a node), one shared atlas, a box a brick marched in the fragment with its own depth; one path both renderers, switched at run time. Medium: 36.9 k bricks, 98.8 MB GPU, fill 16 s, orbit 18–39 missed (GPU-bound, D555; hidden 0), flight 21–26. D555–D557 |
 | 46d.7d | done: `far-field-comparison.md` for the owner; same-hour re-measure, medium, both renderers: meshes 0 missed orbit, heap +0.74 GB, fill 13 s; bricks 17–24 missed (GPU march), heap +0.1–0.2 GB, fill 16 s; flight 18–22 both. Silhouettes 1–5 km alike (1–4 % px). Side-by-side pictures. Lead pick: meshes default, bricks kept; no hybrid. D558 |
-| 46d.8a | in progress: `voxel-world.e2e.ts` 88.5 → 70.7 s (assembly proof merged into the WebGPU streams test, export opened once at high, Play relief on WebGL 2 only, Scene view orbit log dropped; §8); render spec, format spec version table, manual kit text brought to the code. D559. Measurement next |
+| 46d.8a | done: §4 again at the cap, both renderers, per tier (§8): town `render()` 9.1 → 2.8–3.0 ms, 0–1 missed every tier; village 0 missed; 8 km world 0 missed orbit low/medium, high 2–13 (D550), flights 15–36 missed (D550/D551); arrays 24/96/96–384 MiB. `voxel-world.e2e.ts` 88.5 → 70.7 s (assembly proof merged, export once at high, …). Render/format spec, manual. D559 |
 | 46d.8b | not started |
 | 46d.9 | not started |
 
@@ -1293,6 +1293,55 @@ with the rest of the test) failed: WebGPU drew the stone wall oversized and shea
 WebGL 2 never stood the character on the pad; the same switch after the restore (as the test keeps it) passes. Seen
 once each, not traced (D559).
 
+**Measured: 46d against the §4 baseline** (staging from this tree, Iris Xe, 1280 × 720 at the 60 Hz cap, both
+renderers, a tier at a time through the page's `setQuality` (town, village) or `?quality=` (8 km world); one ~480-frame
+orbit a tier (two on the 8 km world), 04:32–04:52, load 1.3–3.9, uptime 16.5 d; scripts and JSON
+`work/46d.8a/perf.mjs`, `m-*.json`, `h-far-webgpu.json`). Village = 46d.6d's three houses on the slice (46d.1a had
+two). GPU ms from timestamps are **not usable** (the clock follows the load at the cap, D544: the village reads 9.4–9.9
+ms on WebGPU, more than the town): listed for the record only.
+
+| What (WebGPU / WebGL 2) | §4 baseline (46d.1a) | low | medium | high |
+|---|---|---|---|---|
+| Town `render()` p50/p95 ms | 9.1/10.2 / 9.2/10.6 | 2.9/4.3 / 2.9/3.4 | 2.8/3.5 / 3.0/3.9 | 2.8/4.0 / 3.0/5.1 |
+| Town missed of ~480 | 0 / 0 | 0 / 0 | 0 / 1 (33 ms) | 0 / 0 |
+| Town draw calls, piece draws, triangles | 1,319, 1,466, 842 k | 299, 49, 802 k | 299, 49, 1.25 M (relief 279 k vertices) | 299, 49, 3.17 M (relief 1.28 M) |
+| Town stream MB; voxel arrays MiB (level) | 124.8; — (pattern 64 KB) | 116.4; 24 (L2) | 134.0; 96 (L1) | 221.4; 96 (L1: the 60 m view needs no more) |
+| Town GPU ms (clock, D544) | 3.4 / 4.7 | 5.7 / 4.9 | 5.7 / 5.2 | 7.0 / 5.4 |
+| Village `render()` p50/p95 | 1.7/1.9 / 1.6/2.0 | 1.5/2.5 / 1.5/1.8 | 1.5/2.4 / 1.6/1.9 | 1.5/2.4 / 1.6/2.7 |
+| Village missed; calls, piece draws, triangles; stream MB | 0 / 0; 177, 110, 380 k; 79.0 | 0 / 0; 142, 45, 370 k; 73.0 | 0 / 0; 142, 45, 510 k; 79.1 | 0 / 0; 142, 45, 1.26 M; 109.3; arrays 384 MiB (L0) |
+| 8 km world: far nodes, triangles, draws, GPU MB | nothing past the 192 m load box | 892, 2.13 M, 20, 41.7 | 2,131, 4.97 M, 40, 105.7 | 3,490, 8.08 M, 52, 172.2 |
+| 8 km world: far fill after open | — | 4.5 / 4.9 s | 12.5 / 12.8 s | 24.1 / 24.4 s |
+| 8 km world: orbit missed (2 × ~480), `render()` p50 | — | 0, 0 / 0, 0; 1.9 / 2.0 | 0, 0 / 0, 0; 2.1–2.2 / 2.5–2.7 | 8, 13 / 2, 3 (one 817 ms); 2.6 / 2.8 |
+| 8 km flight (2.4 km at 60 m/s) missed of ~2,350 (max ms) | hilly 2 × 2 km, 40 m/s: 1 / 1 of 3,600 | 15 (100) / 17 (50) | 17 (233) / 15 (217) | 32 (117) / 36 (333) |
+| Grid textures; kit textures | 23.1 MB; 5.94 MB debug set | 23.1 MB (town, 8 km), 19.8 (village); kits: the GLB sheets | same | same |
+| Mesher µs a 16³ section p50/p95 (`run.mjs mesher`) | slice 217/313, town 239/332, hilly 226/488, caves 349/662 | slice 220/331, town 240/318, hilly 215/327, caves 374/685 (no mesher change in 46d) | | |
+| Roofs (`cases --roofs --fill`, town) | roof pass 287/737 µs, derive 997/1,564, base 468,872 tris | 210/520 µs, derive 960/1,503, base **415,636** tris (46d.6c) | | |
+| `voxel-world.e2e.ts` | 64.6 s (88.5 at the end of 46d.7c) | 70.7 s | | |
+
+**Causes of the misses.** The 8 km flights' misses are the far field's commits and selection on the page's thread
+while thousands of nodes land (D550, D551; with the far field off 46d.7d's flight missed 9, the near world's own);
+they grow with the tier's node count. High's orbit misses on the 8 km world: 8.1 M far triangles drawn whole every
+frame (no view culling of far draws, D550) beside 1.48 M relief vertices; the one 817 ms WebGL 2 frame was not traced
+(the L0 texture levels, 384 MiB, stream in at high). Town and village hold the cap on every tier and renderer (one
+33 ms frame in one run). **Memory at high on the 8 km world (WebGPU):** the 6 GiB scope reached its cap (peak 6.44 GB
+measured by the scope; page heap 2.79 GB, as 46d.7b); in the run that opened low, medium and high one after another in
+one browser, the browser closed on opening high, so high was measured again alone (`h-far-webgpu.json`): D550's page
+memory, now with the high tier's textures. The page heap read by `performance.memory` is coarse (Chrome caches it):
+46d.7d's 1.44 GB at medium stands. The hilly 2 × 2 km world of the §4 flight is no longer on disk (deleted for space);
+the 8 km world's flight replaces it (default chosen, owner to confirm). Full gate time and peak: 46d.9 (lead).
+
+**What 46d bought against the baseline** (same views): `render()` 9.1 → 2.8–3.0 ms on the town (pieces instanced
+across chunks, 46d.6a: 1,466 → 49 piece draws, 1,319 → 299 calls); base triangles 468,872 → 415,636 (46d.6c); real
+texture arrays at 24 / 96 / 96–384 MiB by tier in place of the 64 KB pattern; relief at medium and high (0.28 / 1.28 M
+vertices in the town); a far field drawing the whole 8 km world with nothing cut off. Not yet better: the far field's
+page memory and flight hitches (D550, D551), high on the floor GPU with an 8 km world (orbit 2–13 missed).
+
+**Docs (the lead's 46d.8a scope).** Render spec status and its step table (complete for 46d: §1–§4, 46d.6d's shadows
+added), format spec §3.8 (derived 31, far cache 1) and §3.7's history (30 → 31) with their owner notes, the manual's
+kit texture text (pieces wear their kit's sheet; `?trimDebug=1`), the reference checked current (`gen-reference
+--check`: up to date). Left for 46d.8b: requirement traceability (R88, R89, R111, R112), the authoring package's
+material guide, the acceptance shots and README.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1665,6 +1714,15 @@ once each, not traced (D559).
 - 2026-11-09 (46d.7d, default chosen, owner to confirm): **the plan's D479 (shader-only far derive) is not part of
   46d.7d** (its row names none); it stays open as re-recorded in 46d.7b. The comparison is at medium in one hour;
   high numbers come from 46d.7b/7c's hours.
+
+- 2026-11-09 (46d.8a, default chosen, owner to confirm): **the §4 flight on the 8 km world** (2.4 km at 60 m/s, per
+  tier) in place of the hilly 2 × 2 km world's 60 s flight, whose world was deleted for disk space; the village is
+  46d.6d's three houses (46d.1a had two). Each tier measured on its own page state (town, village) or a fresh page
+  (8 km world), one round (two orbits on the 8 km world), ≤ 3 rounds kept.
+- 2026-11-09 (46d.8a, default chosen, owner to confirm): **`voxel-world.e2e.ts` keeps one page a renderer for the
+  voxel world page** (the assembly proof first on WebGPU's), relief by pixels in Play on WebGL 2 and in the export on
+  WebGPU (not twice on WebGPU), and no logged-only measurements (the Scene view orbit); a test that only logs a number
+  belongs in the staging scripts, not the gate.
 
 ## 10. Open questions for the owner
 
