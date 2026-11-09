@@ -836,6 +836,12 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const voxelStatus = async (world: string): Promise<number> => (await fetch(`${preview}${answer.playContent.path}voxels/${world}`)).status;
     expect([await voxelStatus('far'), await voxelStatus('slice')]).toEqual([200, 404]);
     const observe = async (): Promise<PlayObservation> => (await projectApi(`play/${psid}/observe`)).json as PlayObservation;
+    // WebGL 2 plays at the high tier from the start, switched at run time before the world streams in: the world
+    // streams, collides and draws at the new tier (a body is let go only on a column whose sections all derived).
+    if (renderer === 'webgl2') {
+      const q = await projectApi(`play/${psid}/control`, { command: 'setQuality', level: 'high' });
+      expect(q.status, JSON.stringify(q.json)).toBe(200);
+    }
     const drawn = (): Promise<ReturnType<VoxelPlayHook['stats']>> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats());
     await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
     // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
@@ -902,10 +908,9 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect.poll(async () => again.y - ((await observe()).player?.y ?? again.y), { timeout: 10_000, message: 'the character falls into the restored pit' }).toBeGreaterThan(1);
     const restored = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('restored.png') }));
     expect(changedPixels(restarted, restored)).toBeGreaterThan(500);
-    // The high tier switched at run time: the relief ring round the camera draws the pad's grass moved by its heights.
+    // The high tier, switched at the start: the relief ring round the camera draws the pad's grass moved by its heights.
     // On WebGL 2 here; WebGPU's relief, with the simulation in its worker, is read in the export below (it plays the same way).
     if (renderer === 'webgl2') {
-      await control({ command: 'setQuality', level: 'high' });
       const shot = async (name: string): Promise<ReturnType<typeof decodePng>> => decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath(`${name}.png`) }));
       expect(await reliefMoves(canvas, shot, `play-${renderer}`)).toBeGreaterThan(2000);
     }

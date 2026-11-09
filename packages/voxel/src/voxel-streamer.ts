@@ -548,6 +548,15 @@ export class VoxelStreamer {
     this.plan.moved(this.focus, performance.now());
   }
 
+  /**
+   * Whether every derive section of a chunk has its result, or waits for a chunk that is not coming (the load ring's
+   * edge; without derives: whether it is resident). A chunk's `chunk` event comes with its first sections' results,
+   * its body then built from those; what stands on it waits for this.
+   */
+  chunkReady(cx: number, cy: number, cz: number): boolean {
+    return this.derives?.chunkReady(cx, cy, cz) ?? this.isResident(cx, cy, cz);
+  }
+
   /** Whether a chunk's content is in the store (loaded, uniform or known air). */
   isResident(cx: number, cy: number, cz: number): boolean {
     if (!chunkInWorld(this.grid, cx, cy, cz)) return false;

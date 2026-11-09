@@ -449,7 +449,10 @@ export class VoxelWorldHost {
     if (ring === null) return true;
     const grid = this.conn!.grid;
     const sh = grid.shift;
-    return ring.columnSettled(Math.floor(x / VOXEL_SIZE_M) >> sh, Math.floor(z / VOXEL_SIZE_M) >> sh, (cx, cy, cz) => this.derived.has(chunkKey(grid, cx, cy, cz)));
+    // A chunk counts once every section has its result: its first `chunk` event may carry only some of them (a
+    // section waits while a chunk its apron reaches is still loading), and a body let go then falls through.
+    const streamer = this.streamer;
+    return ring.columnSettled(Math.floor(x / VOXEL_SIZE_M) >> sh, Math.floor(z / VOXEL_SIZE_M) >> sh, (cx, cy, cz) => this.derived.has(chunkKey(grid, cx, cy, cz)) && streamer.chunkReady(cx, cy, cz));
   }
 
   /** A new run: the game's changes are dropped (the world reads as its files again, rebuilt in one swap). */

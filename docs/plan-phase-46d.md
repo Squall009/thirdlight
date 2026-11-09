@@ -228,7 +228,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.7d | done: `far-field-comparison.md` for the owner; same-hour re-measure, medium, both renderers: meshes 0 missed orbit, heap +0.74 GB, fill 13 s; bricks 17–24 missed (GPU march), heap +0.1–0.2 GB, fill 16 s; flight 18–22 both. Silhouettes 1–5 km alike (1–4 % px). Side-by-side pictures. Lead pick: meshes default, bricks kept; no hybrid. D558 |
 | 46d.8a | done: §4 again at the cap, both renderers, per tier (§8): town `render()` 9.1 → 2.8–3.0 ms, 0–1 missed every tier; village 0 missed; 8 km world 0 missed orbit low/medium, high 2–13 (D550), flights 15–36 missed (D550/D551); arrays 24/96/96–384 MiB. `voxel-world.e2e.ts` 88.5 → 70.7 s (assembly proof merged, export once at high, …). Render/format spec, manual. D559 |
 | 46d.8b | done: requirement trace (render spec §5; R88/R89/R111/R112/R27/R28 rows re-pointed), material-set guide (`voxel-kits.md` §1), art-factory request update; acc46d: 62 shots × 2 renderers (WebGL 2 ≤ 0.4 % px apart but Scene view orbits), README + approve-46d.md, published. Seen wrong: D560 (town edge gap), D542, D533, D553, D556, D558 again. D539 pictured dry |
-| 46d.9 | not started |
+| 46d.9 | done: full gate GREEN (35 min vs 34, 8.0 GB, 868 vitest files, 392 e2e). Review 0H 3M 8L: D559 traced + fixed (column waits for every section), D552 fixed (far builds in workers, commands go on, export waits ≤ 2 min then warns), acc46d lists all 116 defaults; L1–L7 fixed (D561–D564), L8 deferred (D560). voxel e2e 70.7 → 71.1 s |
 
 ## 8. Results
 
@@ -1363,6 +1363,39 @@ WebGPU looked at whole; WebGL 2 by pixel difference (0.00–0.36 %, `lowsun-show
 each looked at). **D560:** the town world from outside its edge misses a strip of its side wall (both renderers).
 Owner questions: `~/.cache/thirdlight-phase46/approve-46d.md`.
 
+### 46d.9 the close: full gate, review, fixes
+
+**Full gate** gate-full-20261109-051432 at f83a2ff4 (lead): GREEN, 35 min (46c's 34), peak 8.0 GB, 868 vitest files,
+392 e2e tests. **Review** `~/.cache/thirdlight-phase46/review-46d.md`: 0 High, 3 Medium, 8 Low (decision log).
+
+**D559 traced.** The trial switched Play to `high` right after the play started (before the world streamed in;
+46d.8a's log marks the switch 0.15 s after the start). Re-run in capped Playwright runs on staging-free e2e backends
+(scripts and pictures `work/46d.9/t1`–`t8`): WebGL 2 failed 2 of 19 runs: the character fell through the pad to y
+−46 m (pad 51.5 m). The world host counts a collision column settled once each chunk in it has had a `chunk` event
+and is in the ring; a chunk's first event carries only the sections that could derive, and a section whose apron
+reaches a chunk still loading waits, so the body built from that first join can lack the ground under the
+character. The fix asks the streamer whether every section of the chunk has its result (or waits on a chunk past
+the load ring, as it is drawn): `VoxelStreamer.chunkReady`; 10 of 10 runs stand, and `collision-ready.test.ts`
+(real workers, region files on disk, Rapier) holds a neighbour's load and fails on the old rule. WebGPU: 2 of 6 runs
+showed the wall coarse with no projected mark at the first probe after the stand (as in 46d.8a's trial picture),
+then right at every probe 1 s apart for 11 s (`t4/*/probe-*.png`): the new tier's sections and draws landing. Not
+traced further (D566, watch). The kept e2e switches WebGL 2 at the start (10.3 → 10.8 s); WebGPU keeps its relief
+check in the export.
+
+**D552 fixed** (re-rated M): full builds and edit rebuilds in worker threads (`packages/backend/src/far-cache-runner.ts`);
+`voxel-far-jobs.test.ts` holds a build after it read the world, sends a dig and an export meanwhile (answered;
+the export ships without the far cache and says why) and checks the landed cache equals a full build of the edited
+world byte for byte; `far-cache-runner.test.ts` runs the built worker (same bytes as this thread, timers keep
+running, the export warning through `shipVoxelWorlds`).
+
+Fast gates: gate-fast-20261109-061300 RED in vitest (two tests pinned the old relief scale, the role spec test
+refuses "owner to confirm" in the approved spec; fixed) and `edge-cases.test.ts` timed out under load (passed
+alone), gate-rerun-20261109-062500 GREEN (village perf 0 missed both renderers); `voxel-world.e2e.ts` 69.7 s. With
+the D559 fix: gate-fast-20261109-065936 RED in e2e (the export test read 0 kit pieces right after the kit turned
+ready, once; 5 of 5 alone; D567, watch) and `edge-cases.test.ts`' 5 s timeout again under load (passed alone),
+gate-rerun-20261109-071516 GREEN (village perf 0 missed both renderers); `voxel-world.e2e.ts` 70.7 → 71.1 s
+(21.0 / 11.4 / 9.2 / 10.8 / 7.3 / 11.4 s: WebGL 2's Play switches to `high` at the start, +0.5 s).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1752,6 +1785,38 @@ Owner questions: `~/.cache/thirdlight-phase46/approve-46d.md`.
 - 2026-11-09 (46d.8b, default chosen, owner to confirm): **proposed for the owner, not built**: occlusion culling on by
   default at medium/high on WebGPU for scenes with a voxel world; voxel shadows in Play/exports stay off until 46e.
 
+- 2026-11-09 (lead, 46d.9): **closing full gate GREEN** gate-full-20261109-051432 at f83a2ff4: 35 min (46c's 34), peak
+  8.0 GB (8.0), 868 vitest files, 392 e2e tests; `voxel-world.e2e.ts` 70.7 s in the fast gates. **Independent review**
+  (fresh agent, read-only, 774dd6a9..f83a2ff4, `~/.cache/thirdlight-phase46/review-46d.md`): 0 High, 3 Medium, 8 Low;
+  every owner requirement of §2 found built. Findings and what 46d.9 did:
+  - M1 D559 (Play switched to `high` at first residency): traced and fixed. WebGL 2: the collision column counted a chunk settled at its
+    first `chunk` event, which carries only the sections that could derive; a section still waiting on a neighbour
+    being loaded (more of them at high's larger rings) left the ground missing under the character, which was let
+    go and fell through (y −46 m, pad 51.5 m; 2 of 19 runs). Now a column waits until every section of its chunks
+    has its result (`VoxelStreamer.chunkReady`): 0 of 10; `collision-ready.test.ts` fails on the old rule. WebGPU:
+    the missing mark and the coarse wall last ≤ 1 s after the switch (2 of 6 runs at the first probe, every later
+    probe right); not traced further (D566, watch). The kept e2e switches WebGL 2 to `high` before the world streams.
+  - M2 D552 (far cache build held the world's commands and exports; per-edit rebuild on the event loop): fixed, re-rated
+    M: builds and rebuilds in worker threads (`far-cache-runner.ts`), a full build outside the world's queue with the
+    meanwhile edits built in when it lands, exports wait ≤ 2 min then ship without it and warn (D565 split off).
+  - M3 (approve page listed ~48 of the defaults): approve-46d.md §6 now lists all 112 (+4 of 46d.9) in 12 groups, and
+    a §5 *Not as planned* (D479 open, D559, D560, 64 km far depth, `off`, D550); acc46d republished.
+  - L1 residency under-counted (D561), L2 far cache swap gap (D562), L3 relief scale overridden by `voxelRings`
+    (D563), L4–L7 item id in a comment, personal default path, far level literals, second names of texture limits,
+    unmarked role spec rule (D564): fixed. L8 (stranded sections at a finite world's edge, D560; D543 unmeasured):
+    deferred: D560 stays open with its candidate (a chunk with no region file as
+    air rather than "not coming") for 46e or the performance phase, D543 unmeasured (plan note in §10).
+- 2026-11-09 (46d.9, default chosen, owner to confirm): **a far cache build runs outside the world's queue** in a
+  worker thread of its own; commands go on and their chunks are built into the new cache in the queued step that
+  swaps it in; a change by someone else meanwhile leaves it stale (built again when next read). An edit's rebuild
+  runs in one kept worker, still before the command is answered (the page re-reads its far nodes on the answer).
+- 2026-11-09 (46d.9, default chosen, owner to confirm): **an export waits at most `FAR_EXPORT_WAIT_MS` (2 min) for a
+  far cache being built**, then ships the world without it and says so in the export's warnings
+  (`voxel_far_cache_building`): a game without a far field beats an export that times out after 300 s.
+- 2026-11-09 (46d.9, default chosen, owner to confirm): **a level's `voxelRings` moves relief by its factor against
+  the tier's ring scale** (`voxelRings / VOXEL_RING_SCALES[tier] × RELIEF_RING_SCALES[tier]`), so relief keeps its
+  own tier scale (D563); a scene's per-level `scale` still sets every distance alike.
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
@@ -1777,3 +1842,6 @@ Owner questions: `~/.cache/thirdlight-phase46/approve-46d.md`.
 - The high tier (RTX 5090): run the harness page on the workstation against staging (§5c); until then high-tier
   numbers are unverified.
 - Whether the 8 km test world (scratch: 476 MB on disk, its far cache 48.5 MB) is kept after 46d for 46e's measurements.
+- D560 (a finite world seen from outside its edge misses a strip of its side wall) and D543 (derives at the load
+  ring's edge) were deferred by 46d.9: proposed to treat a chunk with no region file as air rather than "not
+  coming", and to measure D543 on the flight bench before the far-field pick is built on.
