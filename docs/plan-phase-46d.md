@@ -1167,7 +1167,13 @@ thread while thousands of nodes land (3.7 k still unmeshed at its end), and the 
 field off); high's orbit misses with 8 M far triangles drawn whole every frame (no culling, D550). GPU ms at the
 cap follow the clock (D544): the far-off run reads more than with it on.
 
-**Looked at** (`~/.cache/thirdlight-phase46/far-field/meshes/`, both renderers, medium): `town-peak-4.5km`,
+Re-measured after the near cover's fix (its texels were read as 1/255 and hid nothing; found by the gate's
+`voxel-world.e2e.ts`, where far 2 m blocks covered the slice's wall; 02:40–02:44, load 3.0–4.3): medium WebGPU 0 / 0 /
+0 missed, GPU 7.8–8.4 ms, flight 25 missed (max 200 ms); WebGL 2 0 / 0 / 0, 5.4–5.5 ms, flight 23 (167). Fast gate
+gate-fast-20261109-022117 GREEN (15 min, 5.2 GB; village perf 0 missed both); `voxel-world.e2e.ts` 82 → 87 s (the
+far field settled on the slice, the export's far files).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/meshes/`, retaken after that fix, both renderers, medium): `town-peak-4.5km`,
 `town-west`, `town-north` (the town's roofs, the valley and the 1.5 km massif behind; no cut-off, no floating roofs
 at the ring's edge), `sight-1km`, `sight-3km`, `sight-5km` (the massif from 1.7 km up at those distances: terraced
 cliffs as stepped 2–8 m voxels, grass and rock), `peak-to-town` (the whole world from above the peak, the town a
