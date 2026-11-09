@@ -144,8 +144,8 @@ invalidation.
 | R85 | A changed chunk marks its tree ancestors stale; runtime rebuilds only nearby low levels, high levels at export | §2 | owner | job, derived |
 | R86 | Separate run models of 0.5/1/2/4 m | §2 | superseded → §7a merge-compatible sections (renderer instancing vs merged cache measured) | derived |
 | R87 | One standard trim UV layout for every kit, no unique-UV exceptions | §1, §1d | superseded → §7a: trim optional; detail meshes may use own bakes | derived |
-| R88 | No displacement tessellation | §1 | superseded → §7a: shader displacement of worker-generated topology is a pending prototype | derived |
-| R89 | Surface subdivision LOD is separate from voxel shape LOD; displacement never updates collision/occupancy | §7a | proposal (prototype) | derived |
+| R88 | No displacement tessellation | §1 | superseded → §7a: shader displacement of worker-generated topology, built in 46d (relief ring; [render spec](voxel-render-spec.md) §3, §5) | derived |
+| R89 | Surface subdivision LOD is separate from voxel shape LOD; displacement never updates collision/occupancy | §7a | built in 46d (relief ring beside the level rings; plain collision and occupancy; [render spec](voxel-render-spec.md) §5) | derived |
 | R90 | Authored high/low detail meshes, then voxel-derived fallback (revised by the owner 2026-11-05: two detail states, one authored mesh a piece drawn in the near ring, plain voxels from the middle ring out) | §7a | owner direction | derived |
 | R91 | Mesh output: per vertex up to 4 overlay ids + weights; material id → slot table on GPU | §2 | owner (replaced 2026-11-02, 45.10b: vertices carry no material; the shader blends from the derived shader data) | derived |
 | R92 | Paint overlays blend in world space across kits and terrain | §1 | owner (O16 closed 2026-11-02: no paint layer; material blending moves to the shader, which reads a derived per-chunk material and wetness grid) | store, derived |
@@ -173,7 +173,7 @@ invalidation.
 | R86 | Runs from merge-compatible sections | 46c.4, 46c R3, R3b | **Holds:** beams and banisters keep single/start/body/end/corner/junction sections with world-anchored U; edges are one instance a 0.5 m lattice edge (no run geometry), one draw a (kit piece, variant, mirror, level) a chunk. **Misses:** the town with the log + stone kits sits just under the 60 Hz frame (3,203 piece draws, `render()` CPU 14.6–15.3 ms, orbit 0–2 of ~480 missed; was 31–65; D485): cross-chunk batching is 46d's |
 | R87 | Trim optional per kit; detail meshes may use their own bakes | 46c.8, 46c R3b, R5, R7 | **Holds:** `trimLayout` optional in the kit record; trim rows T1–T10 only for kits naming a layout; aliases (24 cube rotations) let one mesh serve several cases; U along an edge's world axis (vertical edges up y). **Open:** the texture layout is a DRAFT (owner hard stop); D507 (trim rows judge vertical edges on the mesh's x) |
 | R90 | Authored pieces, then voxel fallback (two detail states, owner 2026-11-05) | 46b.9, 46c.6, 46c R3, R6b, 46c.16a | **Holds:** level 0 draws a piece's one mesh, from level 1 flat square voxels (46c.16a: the kit's `low` mesh removed; town L1 instances 7.7 k → 0 with the default kit, L0 unchanged); coarse levels re-lay sloped roofs one cell thick (`relayRoofs`); D505 superseded. **Open:** level-1 nodes derive whole on any edit (D479); L2 not walked (unverified) |
-| R112 | No trim sheet for terrain and construction voxels; trim layout for detail pieces only | 46c R4, R7 | **Holds:** base surfaces and roof planes are mapped from the build grid in metres (construction 4 × 4 m tile, owner 2026-11-04; terrain triplanar 2 m; roofs up the slope), never from a trim sheet; the texture layout draft covers pieces only. **Open:** the draft awaits the owner (hard stop); texture arrays are 46d's |
+| R112 | No trim sheet for terrain and construction voxels; trim layout for detail pieces only | 46c R4, R7 | **Holds:** base surfaces and roof planes are mapped from the build grid in metres (construction 4 × 4 m tile, owner 2026-11-04; terrain triplanar 2 m; roofs up the slope), never from a trim sheet; the texture layout (v1, approved) covers pieces only. 46d: wall / floor / ceiling sets in texture arrays, terrain triplanar ([render spec](voxel-render-spec.md) §2, §5) |
 | R110 | Lighting storage decided by the 46e A/B (phase-42 surface cache vs voxel light volume) with performance first; the owner leans to removing lightmaps, surfel caches and their texture reads even at a quality cost | §4 46e, §5c, §7 2026-11-02 | owner (direction; the measurement decides) | derived |
 | R111 | Wetness drives the surface shader beyond darkening: lower roughness and filled-in normals (crevices fill first by height) as wetness rises | owner 2026-11-02 | owner | derived (shader data) |
 | R112 | No trim sheet for terrain and construction voxels: tileable texture arrays with wall, floor and ceiling surfaces, triplanar; the trim layout spec covers detail pieces only | owner 2026-11-02 | owner | derived (mesh/instances) |
@@ -298,11 +298,11 @@ rebuilt, none stale.
 
 ## 4. Proposals not treated as requirements
 
-Recorded so they are not mistaken for specs (§7a): surface subdivision/displacement levels (R88/R89 prototype);
+Recorded so they are not mistaken for specs (§7a): surface subdivision/displacement levels (R88/R89: built in 46d, the per-tier verdict awaits the owner);
 Kit Designer in art-factory; construction-specific painted atlases and sculpt bakes; 2 × 2 variation sections
 (unit unconfirmed; not a chunk-size proposal); macro noise, hashed piece variants, per-run jitter, hex-tile
 sampling (§1d "for now"); material-driven terrain dressing (R71, deferred); solid-material physics block (§8);
-the brick ray-marched far field (§2, measured in 46d).
+the brick ray-marched far field (§2: built and measured in 46d beside the meshes, the owner picks).
 
 ## 5. Traceability (skeleton)
 

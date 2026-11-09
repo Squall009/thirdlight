@@ -227,7 +227,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.7c | done: `farField=bricks`: far nodes as sparse 8³ distance bricks in workers (13.9 of 64 a node), one shared atlas, a box a brick marched in the fragment with its own depth; one path both renderers, switched at run time. Medium: 36.9 k bricks, 98.8 MB GPU, fill 16 s, orbit 18–39 missed (GPU-bound, D555; hidden 0), flight 21–26. D555–D557 |
 | 46d.7d | done: `far-field-comparison.md` for the owner; same-hour re-measure, medium, both renderers: meshes 0 missed orbit, heap +0.74 GB, fill 13 s; bricks 17–24 missed (GPU march), heap +0.1–0.2 GB, fill 16 s; flight 18–22 both. Silhouettes 1–5 km alike (1–4 % px). Side-by-side pictures. Lead pick: meshes default, bricks kept; no hybrid. D558 |
 | 46d.8a | done: §4 again at the cap, both renderers, per tier (§8): town `render()` 9.1 → 2.8–3.0 ms, 0–1 missed every tier; village 0 missed; 8 km world 0 missed orbit low/medium, high 2–13 (D550), flights 15–36 missed (D550/D551); arrays 24/96/96–384 MiB. `voxel-world.e2e.ts` 88.5 → 70.7 s (assembly proof merged, export once at high, …). Render/format spec, manual. D559 |
-| 46d.8b | not started |
+| 46d.8b | done: requirement trace (render spec §5; R88/R89/R111/R112/R27/R28 rows re-pointed), material-set guide (`voxel-kits.md` §1), art-factory request update; acc46d: 62 shots × 2 renderers (WebGL 2 ≤ 0.4 % px apart but Scene view orbits), README + approve-46d.md, published. Seen wrong: D560 (town edge gap), D542, D533, D553, D556, D558 again. D539 pictured dry |
 | 46d.9 | not started |
 
 ## 8. Results
@@ -1342,6 +1342,27 @@ kit texture text (pieces wear their kit's sheet; `?trimDebug=1`), the reference 
 --check`: up to date). Left for 46d.8b: requirement traceability (R88, R89, R111, R112), the authoring package's
 material guide, the acceptance shots and README.
 
+### 46d.8b docs and the acceptance pack acc46d; D560
+
+**Docs.** [voxel-render-spec.md](architecture/voxel-render-spec.md) §5: requirement traceability for 46d (R88, R89,
+R111, R112, R27/R28, R64 and every owner row of §2 → where built, tested, status); the format spec's §4 rows and the
+requirements page's R88/R89/R112 rows point at it. The authoring package's material guide:
+`docs/manual/guides/voxel-kits.md` §1 *The material set first* (base tiles at 4096² / 1024 px/m, terrain 4096² on its
+2 m tile, the three maps with height in the normal map's alpha, import bound and encoding, height depth per material
+with the test sets' values, wall / floor / ceiling sets, the record with an example, physical profiles, variants, kit
+binding, what each tier keeps, wetness, how to check). `docs/requests/art-factory-2026-11-08.md`: an update section
+(height only in the normal alpha, `voxel.heightDepth`, terrain sets at 4096², import bounds, the set checks not built).
+No code change (no gate).
+
+**Acceptance pack** `~/.cache/thirdlight-phase46/acceptance/46d/` (README, `final/` 62 × 2 pictures; review page
+acc46d): relief per tier (wall, roof, cliff, seam), low-sun relief displaced vs flat and shadows, textured materials
+near/mid, the floor set, kit pieces with their sheets, wetness 0/3/5/7 (wall with pieces, ground, seam), cracks, the
+showcase, decals in Play and the Scene view over the real sets (D539: dry only), town near/mid/far, the far-field
+pairs of 46d.7d (copied, not re-shot). Scripts `work/46d.8b/` (staging, 6 GB scopes, 04:54–05:12, load 0.5–7.6).
+WebGPU looked at whole; WebGL 2 by pixel difference (0.00–0.36 %, `lowsun-showcase` 1.25 %, Scene view orbits 2.6–2.9 %,
+each looked at). **D560:** the town world from outside its edge misses a strip of its side wall (both renderers).
+Owner questions: `~/.cache/thirdlight-phase46/approve-46d.md`.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1723,6 +1744,13 @@ material guide, the acceptance shots and README.
   voxel world page** (the assembly proof first on WebGPU's), relief by pixels in Play on WebGL 2 and in the export on
   WebGPU (not twice on WebGPU), and no logged-only measurements (the Scene view orbit); a test that only logs a number
   belongs in the staging scripts, not the gate.
+
+- 2026-11-09 (46d.8b, default chosen, owner to confirm): **the 46d traceability lives on the render spec (§5)**, the
+  page holding 46d's formats, with the format spec's §4 and the requirements page pointing at it (the approved format
+  spec stays under 2,000 lines); **the material guide extends the kit guide's §1** (its title already promises a
+  material set) instead of a new manual page.
+- 2026-11-09 (46d.8b, default chosen, owner to confirm): **proposed for the owner, not built**: occlusion culling on by
+  default at medium/high on WebGPU for scenes with a voxel world; voxel shadows in Play/exports stay off until 46e.
 
 ## 10. Open questions for the owner
 

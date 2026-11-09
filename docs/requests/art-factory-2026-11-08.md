@@ -16,6 +16,41 @@ texture arrays, a material's height depth) are the engine's next sub-phase:
 the formats below are what that work will read, so the earlier the
 Designer writes them the fewer conversions later.
 
+## Update 2026-11-09: what the engine's material work changed
+
+The engine now draws voxel materials with real texture sets (sub-phase 46d,
+on its branch, not yet merged or released). Everything below still holds;
+four points are new or more precise:
+
+- **Height lives only in the normal map's alpha** (§1, §5 as written): the
+  engine reads no height from the albedo's alpha, and a normal map without
+  alpha draws no relief. White is the surface, black is the material's height
+  depth below it.
+- **The height depth is a field of the material record**: `voxel.heightDepth`,
+  0–0.25 m (default 0.02). Please keep writing it in the export report; an
+  artist copies it into the record (the engine's test sets: rock 0.10, stone
+  and brick 0.04, sand and soil 0.03, grass 0.02, timber 0.015, plaster
+  0.008 m).
+- **Terrain materials are 4096² too.** Terrain repeats every 2 m and is
+  projected from three axes; all voxel materials' maps join one texture array
+  a map whose layers are one size, so a terrain tile at 4096² carries
+  2048 px/m. A graph per terrain type (grass, rock, sand, soil, gravel …) at
+  4096², seamless, bottom edge the 0 m line, the same three maps.
+- **Sources the engine imports:** 8-bit RGBA PNG up to 65.3 MiB a file (a
+  4096² PNG fits even uncompressed; a 16-bit 4096² PNG may not). The engine
+  makes its own KTX2 from the PNG (images over 12 Mpix in UASTC), so a KTX2
+  next to the PNG is optional.
+
+**Not built yet** (the "checked when voxel materials land" list in §5): the
+engine does not yet check a construction tile's size, maps, normal
+convention, seamless edges or the crack map, nor the kit check's T9 row
+(sheet against its layout). They remain planned; a set is drawn as given.
+
+The artist's workflow for a material set is now in
+`docs/manual/guides/voxel-kits.md` §1 (base tiles, the three maps, height
+depth, wall / floor / ceiling sets, the material record, physical profiles,
+variants, kit binding, what each quality level keeps).
+
 ## 1. A graph per material type that makes the 4 × 4 m construction tile
 
 **Engine.** Walls, floors, ceilings and flat roofs of a voxel world are plain

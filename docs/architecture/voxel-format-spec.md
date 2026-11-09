@@ -1669,7 +1669,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R84, R85 | §3.7 mips | 45.6; `derived.test.ts` | served (no paint layer, O16 closed) |
 | R86 | [kit page](voxel-kit-format.md) edge pieces | 45.6, 46c.4, 46c R3, 46c.16b | served: edges one instance a lattice edge, no merged runs; beams/banisters moved out of the voxel phases by the owner (2026-11-05/06), run sections removed; D485 (draws) open |
 | R87 | [kit page](voxel-kit-format.md) §3.9 `trimLayout` / `sheetLayout` (optional), slot rotation, kit check T1–T7, T9, T10 | 46c.8, 46c R3b, R5, R7, 46c.16b, 46c.16k | served: trim optional per kit, U along an edge's world axis (the mesh axis its slot rotation turns onto it); texture layout v1 (owner 2026-11-06); D507 fixed |
-| R88, R89 | — | — | later: 46d |
+| R88, R89, R111 | [render spec](voxel-render-spec.md) §3 relief part, §2 wetness, §5 trace | 46d.1a–46d.6d | served in 46d (relief ring, plain collision; wetness R111); per-tier relief verdict awaits the owner |
 | R90 | §3.7 levels (pieces at L0 only); [kit page](voxel-kit-format.md) levels (`relayRoofs`) | 46b.9, 46c.6, 46c R6b, 46c.16a; `kit-pieces.test.ts`, `roof-mesher.test.ts` | served as revised (owner 2026-11-05: two detail states): pieces at L0, flat voxels from L1, no low meshes; coarse roofs re-laid; D479 open |
 | R91 | §3.7 surface vertex v2, shader data on the GPU | 45.6, 45.10b; `voxel-surface.test.ts`, `voxel-world.e2e.ts` | replaced (owner 2026-11-02): vertices carry no material; the shader blends from the shader data |
 | R92 | §3.7 shader data, surface shader | 45.10a, 45.10b; `derived.test.ts`, `stream.test.ts` | served: blending in the shader, triplanar in world space for terrain, construction from the build grid in metres (4 m repeat, 46c R4); no paint layer (O16 closed) |
@@ -1685,13 +1685,13 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R108 | §3.7 terrain rule set, terrain mesher | 46b.1–46b.5, 46b.10; `mesh-cases.test.ts` (the `features` hard-case world, goldens), `derived.test.ts` (conformance), `collision.test.ts` | served: rules with radius 2 and conformance, the hard cases closed with every probe kept; D463 (tall far terrain) open |
 | R109 | §3.7 terrain, levels, seams and LOD selection | 46b.6a–46b.9; `mesh-cases.test.ts`, `derived.test.ts`, `stream.test.ts`, `lod-select.test.ts`, `level-materials.test.ts`, `voxel-chunk-view.test.ts`, `voxel-world.e2e.ts` | served with limits: rings, seams, one blend, pieces at level 0 only (46c.16a); D462 (a cave saddle) and D463 (level 2 not drawn, tall far terrain) open |
 | R110 | — | — | later: 46e |
-| R112 | §3.7 projection (4 m grid tile), [kit page](voxel-kit-format.md) §3.9 `trimLayout` | 46c R4, R7 | served: faces and roofs grid-mapped (construction 4 m, terrain 2 m), trim only for pieces that opt in; texture layout v1 |
+| R112 | §3.7 projection (4 m grid tile), [kit page](voxel-kit-format.md) §3.9 `trimLayout`, [render spec](voxel-render-spec.md) §2 | 46c R4, R7, 46d.4a | served: faces and roofs grid-mapped (construction 4 m, terrain 2 m) from wall / floor / ceiling texture arrays, trim only for pieces that opt in; texture layout v1 |
 
 **Not served yet, and where each goes:**
 - **46a:** R10 (with 48), R30–R32, R40, R43, R45 and R65, together with 47a/47c.
 - **46a / 46d:** R66 browser cache, R105 Rapier churn.
-- **46b / 46c:** R14 (R73, R74, R86, R87, R90 served in 46c with the v1 edge catalogue; R88, R89 → 46d).
-- **46d:** R27 and R28 (the material model; the id width is set).
+- **46b / 46c:** R14 (R73, R74, R86, R87, R90 served in 46c with the v1 edge catalogue; R88, R89 served in 46d).
+- **46d:** R27 and R28 served (material record, 46d.3a; [render spec](voxel-render-spec.md) §1, §5).
 - **46e:** R97–R101, R103, R104 and R110.
 - **46b.11 / performance phase:** R107's remaining frames and the mesher budget; D462, D463 for R108/R109.
 - **48a:** R106.

@@ -2,7 +2,7 @@
 
 Status: **complete for 46d** (checked against the code in 46d.8a): §1 material record (46d.3a, 46d.3b), §2 texture
 sets (46d.4a–46d.4d), §3 relief part (46d.5a, drawn 46d.5b, shadows 46d.6d), §4 far tree, far cache and both far
-draw modes (46d.7a–46d.7c). This page holds every format addition of 46d (rendering and materials), each as a
+draw modes (46d.7a–46d.7c), §5 requirement traceability (46d.8b). This page holds every format addition of 46d (rendering and materials), each as a
 versioned, add-only step with its owner note, so the [format spec](voxel-format-spec.md) v1 (APPROVED by the owner
 on 2026-11-02) is not grown further; the derived steps 28 → 31 are also rows of its §3.7 history and its §3.8 table.
 **Nothing here is approved yet:** every step is "default chosen, owner to confirm" ([plan 46d](../plan-phase-46d.md)
@@ -406,3 +406,36 @@ at most `FAR_BRICK_STEPS` (32) a brick; a miss is discarded. Normal: the samples
 entered face where the samples are clamped (deep under the surface); colour: the material table's far colour of the
 nearest sample's look, as the meshes; depth: the hit's own (`depthNode`), the same mapping as the meshes, and the
 boxes placed with that depth so none is clipped at the far plane. `marchFarBrick` is the march on the CPU.
+
+---
+
+## 5. Requirement traceability (46d)
+
+Where each requirement 46d answers is built, where it is tested, and what is still open. Requirement numbers are
+[voxel-format-requirements.md](voxel-format-requirements.md); the owner rows are [plan 46d](../plan-phase-46d.md) §2
+(quoted there). "Seen" means pictures looked at (the item's, and the acceptance pack acc46d); every default below is
+"default chosen, owner to confirm" until the owner answers acc46d.
+
+| Requirement | Built (item: code) | Tested | Status |
+|---|---|---|---|
+| R88 displacement (superseded "no displacement tessellation": shader displacement of worker topology) | 46d.1a/1b spike, 46d.5a/5b product: `@thirdlight/voxel` `relief-mesh.ts`, `relief-ring.ts`, `stream-relief.ts`; three-adapter `voxel-relief.ts`, `voxel-surface-sets.ts` (`textureHeightAt`); derived 29 (§3) | `relief-mesh.test.ts`, `tools/voxel-bench/relief.test.ts`, both `relief-ring.test.ts`, `voxel-relief.test.ts`, `voxel-world.e2e.ts` (Play and export: displaced vs flat pixels) | served; per-tier verdict (low off, medium 2 steps to 16 m, high 4 to 24 m, 8 rejected) awaits the owner |
+| R89 subdivision LOD separate from voxel shape LOD; displacement never touches collision/occupancy | relief ring `levels.relief` beside the level rings; relief only recesses; collision, occupancy, nav and light from the plain derive; shadows from plain casters (46d.6d) | `relief.test.ts` (every other output byte-equal relief on/off), `relief-ring.test.ts` (canonical bytes equal, `reliefOnly` swaps keep bodies), `voxel-relief.test.ts` (plain caster) | served |
+| R111 wetness beyond darkening | 46d.4d `voxel-surface-wetness.ts` (`wetLook`: darker, smoother, flatter normals, water in the low parts by height); 46d.6a pieces wear their cell's wetness | `voxel-surface-wetness.test.ts` (levels 0–7 ordered), `voxel-piece-batches.test.ts` (wetness rider, no mesh) | served; seen (acc46d `wet0…7`); water reads dark, not mirror-like, until 46e's environment light |
+| R112 no trim sheet for terrain/construction voxels; wall/floor/ceiling arrays, triplanar | 46d.4a `voxel-surface-textures.ts`, `voxel-surface-sets.ts` (floor y > 0.95, ceiling < −0.95, wall else; terrain its wall set triplanar), Play/export `closure-texture-slots.ts` | `voxel-surface-textures.test.ts`, `voxel-surface.test.ts`, integration export (`voxelTextures` block) | served; trim layout only for kit sheets |
+| R27, R28 material id space and the material record | 46d.3a `voxel-materials.ts` (`voxel.id` 1–4,095 on the material record, `voxel_id_taken`) | `voxel-materials.test.ts`, `material-profile-ops.test.ts`, integration voxel-world | served |
+| R64 textures inside the memory budget | 46d.4b `voxelTexelDensity` cap + the page's `texture_budget_mb` (`StreamedArrayTexture`, `texture-budget.ts`) | `tests/voxel-texture-residency.test.ts` | served: 24 / 96 / 96–384 MiB by tier (46d.8a) |
+| Owner 2026-11-06: near-ring denser mesh for displacement, measured first | 46d.1a (topology, measured), 46d.1b (displacement, verdict) | as R88 | done; numbers plan 46d §8 |
+| Owner 2026-11-04 (6): far field, no draw cut-off, mountains from several km, cheap stand-ins | 46d.7a far tree + far cache (`far-tree.ts`, workspace `voxel-far-cache.ts`, derived 31), 46d.7b meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`), 46d.7c bricks (`far-bricks.ts`, `voxel-far-bricks.ts`) | `far-tree.test.ts`, `tools/voxel-bench/far-world.test.ts`, `far-bricks.test.ts`, `voxel-far-view.test.ts`, `voxel-world.e2e.ts` (far field on the slice, both modes, export ships the cache) | served (D463, D516 fixed); open D550–D553, D555–D558 |
+| Owner 2026-11-08: build both far modes behind a switch, the owner picks | `voxelFarField` `mesh` \| `bricks` \| `off`, runtime switch | as above | both kept; comparison `far-field-comparison.md` (46d.7d); **owner's pick open** |
+| Owner 2026-11-04: construction tile 4 × 4 m, grid-anchored | `voxel-surface-projection.ts` (grid U/V in metres), `tileMetres` | `voxel-surface.test.ts`, `voxel-material-looks.test.ts` | served; seen (courses line up round corners, 46d.4a) |
+| Owner B1: author 4096² at 1024 px/m; resident mip by tier and budget | 46d.4b residency; 46d.4c D532 (4096² in UASTC stripes, `ktx2-striped.ts`); D535 (import bound 65.3 MiB) | `voxel-texture-residency.test.ts`, `ktx2-striped.test.ts`, `folder-import.test.ts` | served |
+| Owner 2026-11-02: tileable arrays wall/floor/ceiling, terrain triplanar 2 m | as R112 | as R112 | served |
+| Owner B8: per-material height depth in metres, blend in metres | `voxel.heightDepth` (46d.3a), `heightBlend` (46d.4d), relief depth | `voxel-surface-wetness.test.ts`, `voxel-material-looks.test.ts` | served; seen (grass/rock seam) |
+| Owner B5: one texture set per kit | kit check (46c); 46d.4c pieces draw the kit's GLB material (`voxel-kit-look.ts`), debug set only under `?trimDebug=1` | `voxel-kit-look.test.ts`, `voxel-world.e2e.ts` (sheet pixels on page, Play, export) | served |
+| Owner R111 | as R111 | as R111 | served |
+| Owner B3: dirt/moss = decals + material swaps, no overlay | decals on voxel surfaces (46c.16f), now over real sets; the 9 reserved bits unused | `voxel-decals.test.ts`, `voxel-world.e2e.ts` | served; decals over real sets seen in acc46d |
+| Owner 2026-11-06: L1 door/window "legs" to the far-field work | derived 31: openings narrower than two of a level's cells close in the wall's material (`voxel-mips.ts`) | `far-tree.test.ts`, `far-world.test.ts` (1,000+ opening cells) | served; seen (46d.7a) |
+| Owner A5: detail-piece ring = level-0 ring, unchanged | not changed; relief has its own ring | `world-host.test.ts` | held |
+| Owner 2026-11-05: every distance per scene, runtime, quality-scaled | `levels.relief` (scaled by `RELIEF_RING_SCALES`), `setRings`; the far field has no distance (screen error `voxelFarError` per level) | `world-host.test.ts`, `voxel-world.test.ts`, project-model level tests | served |
+| §1c one material record, families, variants, profiles, badges | 46d.3a/3b (`MaterialDef` parts, `material-profiles.ts`, `materialFamilyOf`, `materialBadges`, Inspector voxel section) | `voxel-materials.test.ts`, `material-profile-ops.test.ts`, `voxel-material-looks.test.ts`, `voxel-world.e2e.ts` | served; texture sets and physics in the Inspector not built (API only) |
+| Iris Xe floor, measured at the cap | 46d.8a | staging scripts (`work/46d.8a`) | measured; misses with causes D550, D551, D555 |

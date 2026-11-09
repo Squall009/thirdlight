@@ -25,41 +25,170 @@ fine detail in baked normals, one texture set for the whole kit. Report for
 every kit: triangles a mesh and in all, texture sizes, file size (the kit
 check prints all three).
 
-## 1. Textures on plain voxels first
+## 1. The material set first
 
 A material without a kit draws plain voxel faces, and every slot of a kit is
-optional (an empty slot draws the plain square edge). So start with the base
-tiles and no pieces at all, and add pieces one slot at a time.
+optional (an empty slot draws the plain square edge). So start with the
+material's texture set and no pieces at all, and add pieces one slot at a
+time.
 
-**Base tiles** (the owner-approved texture layout, v1):
+### Base tiles
+
+The owner-approved texture layout, v1:
 
 - **4096 × 4096 px for a 4 × 4 m wall, 1024 px/m.** One repeat covers exactly
   a 4 m wide, 4 m high wall, anchored to the build grid in metres: a band at
   2 m sits at 2 m on every wall. Floors and ceilings use the same tile on the
   same grid; a sloped roof lays its material's tile up the slope (4 m of
-  slope a repeat). The device loads the mip level its quality level and
-  texture budget allow; you make one set.
+  slope a repeat). You make one set; the device keeps the mip level its
+  quality level and texture budget allow (below).
+- **Terrain** materials repeat every **2 m** (`tileMetres`), projected from
+  the three axes (no UVs, no seams on cliffs). Author them at **4096²** as
+  well: every voxel material's maps are joined into one texture array a map,
+  and an array's layers are one size, so a terrain tile carries 2048 px/m.
 - **Seamless** left–right and top–bottom; the tile's **bottom edge is the 0 m
-  line** of the grid.
+  line** of the grid (the image's top row is the top of the wall).
 - **Grid features at 0.5 m** (a recommendation, not a rule): courses, boards,
   log lines and joints at multiples of 0.5 m (or 0.25 m inside a cell) meet
   the voxel edges and the edge pieces.
-- **Maps:** albedo (sRGB), normal + height (height in alpha; OpenGL, green
-  up), ORM (AO, roughness, metalness). Height is **0–1 in the map**; each
-  material states its own height depth in metres (sand shallow, jagged rock
-  deep) in its material record.
 - **Dirt, moss and soot are decals** and whole-voxel material swaps, never
   painted into the tile ([decals](decals.md)).
-- **Avoid one eye-catching mark** in the tile: it shows once every 4 m.
+- **Avoid one eye-catching mark** in the tile: it shows once every 4 m. Far
+  away the world draws each material as one colour, its albedo's **mean**
+  (times the material's `color`), so keep the tile's overall colour the one
+  the material should read as from a hill.
 
-**Where you see them.** A voxel material's `voxel.surfaces` names the three
-maps ([voxel materials](../features/voxel-worlds.md#voxel-materials)); the
-world draws them on the build grid, blends neighbouring materials by height
-in metres and fills the low parts with water as cells get wet. Check a tile
-in Blender on the template's `wall-tile-4m` plane (4 × 4 m with its 0.5 m
-grid, UV 0–1 over the plane) or in the Texture Designer's preview, and see
-the grid it follows on the voxel world page with `?bands=1` (a line every
-0.5 m, thick lines at 0 and 2 m, a tick every metre).
+### The three maps
+
+| Map | Channels | Notes |
+|---|---|---|
+| `albedo` | sRGB RGB; alpha unused | no lighting or AO baked in; opaque |
+| `normal` | tangent-space RGB, OpenGL (green up); **height in A**, linear | A white = the surface, black = `heightDepth` below it; a normal map without alpha has no height |
+| `orm` | R ambient occlusion, G roughness, B metalness | linear |
+
+**Height is 0–1 in the normal map's alpha** (it has no other home; the
+albedo's alpha is not read). Use the whole range: the engine moves the
+surface by it near the camera (relief), blends neighbouring materials by it
+and fills it with water from the bottom as a cell gets wet, so the joints,
+cracks and gaps between stones should be the darkest values and the tops
+of stones, boards and pebbles the brightest. A map left out is flat (a
+normal map without alpha draws no relief and blends by share only); a set
+needs its albedo.
+
+Images are imported as PNG, 8-bit RGBA, up to **65.3 MiB** a file (a 4096²
+RGBA PNG even stored without compression fits; a 16-bit 4096² PNG may not).
+The engine encodes them to KTX2 itself: images over 12 Mpix (4096² is 16.8)
+go UASTC in stripes, mips made with wrap, normals renormalized. The first
+time a world asks for the arrays they are assembled once (minutes for a
+handful of 4096² sets), then cached by their content.
+
+### Height depth: one number a material
+
+Each material states how deep its height map is in **metres**
+(`voxel.heightDepth`, 0–0.25 m, default 0.02): the distance from the map's
+white to its black. There is no shared scale, so sand stays shallow and
+jagged rock deep without crushing either map. Where two materials meet, the
+one whose surface stands **higher in metres** shows (rock tops break
+through sand, sand fills the rock's cracks), so the boundary follows the
+shapes in both maps instead of a straight blend. The engine's test sets use:
+
+| Material | Height depth |
+|---|---|
+| rock, gravel | 0.10 m |
+| cut stone, brick | 0.04 m |
+| sand, soil | 0.03 m |
+| grass | 0.02 m |
+| timber, planks, roof tiles | 0.015 m |
+| plaster | 0.008 m |
+
+Relief only ever **recesses** the surface (what characters stand on stays
+the voxel's face), and the deepest material of a world sets how far every
+chunk's bounds grow, so keep depths realistic rather than large.
+
+### Wall, floor and ceiling sets
+
+One material carries up to three texture sets (`voxel.surfaces`): **wall**,
+**floor** and **ceiling**. On construction, faces whose normal points up
+draw the floor set, faces pointing down the ceiling set, and every other
+face (walls, roof slopes) the wall set; floor and ceiling fall back to the
+wall's when left out. A voxel stays one material id: a plastered room with
+a plank floor is one material ("plaster" with a timber floor set), not
+three. Terrain draws its wall set only, from the three axes.
+
+### The material record
+
+Every part goes on one ordinary project material through `setMaterial`
+(the editor's Inspector, MCP's `tl_command` and scripts send the same
+command; one undo). Import the PNGs as texture assets first, then:
+
+```json
+{"material": {"materialId": "plaster", "name": "Plaster", "shader": "standard",
+  "params": {"color": "#ffffff"}, "textures": {},
+  "physical": {"profile": "stone"},
+  "voxel": {"id": 12, "use": "construction", "kit": "plaster-trim", "heightDepth": 0.008,
+    "surfaces": {
+      "wall": {"albedo": "plaster-albedo", "normal": "plaster-normal", "orm": "plaster-orm"},
+      "floor": {"albedo": "planks-albedo", "normal": "planks-normal", "orm": "planks-orm"}}},
+  "gameData": {"footstep": "plaster"}}}
+```
+
+- **`voxel.id`** 1–4,095, unique in the project (every world shares it);
+  **`use`** `construction` (4 m grid tile), `terrain` (2 m, triplanar) or
+  `liquid`; **`tileMetres`** changes the repeat (0.5–64 m).
+- **`color`** tints the sets (white draws them as authored).
+- **Kit binding:** `voxel.kit` names the voxel kit whose pieces dress this
+  material's edges (§6); several materials may wear one kit.
+- **Physical profiles:** `physical.profile` names shared numbers: the
+  engine's `earth` (density 1,500 kg/m³, friction 0.8, restitution 0.05),
+  `glass` (2,500, 0.3, 0.3), `lava` (3,100, 0, 0, flow 0.05), `metal`
+  (7,850, 0.4, 0.15), `stone` (2,500, 0.7, 0.1), `water` (1,000, 0, 0,
+  flow 1), `wood` (700, 0.6, 0.2), or the project's own
+  (`setMaterialProfile`; one with an engine id overrides it field by field).
+  A material may override any number. The engine's colliders keep one
+  friction; games read the rest (and `gameData`) with
+  `ctx.voxels.materialAt` / `materialOf`.
+- **Variants** are material instances (`instanceOf`): "mossy stone" takes
+  the stone's sets, depth, kit and physics and changes what it names (a
+  set map by map, the colour, the depth). A voxel variant gives its **own**
+  `voxel.id` (an id is never inherited); without one it is a mesh-only
+  variant.
+
+The Inspector's **Voxel use** section sets use, id, kit, tile and depth; the
+texture sets and the physical block are set over the API for now.
+
+### What each quality level keeps
+
+| | low | medium | high |
+|---|---|---|---|
+| Texel density kept (`voxelTexelDensity`) | 256 px/m (the 1024² level) | 512 px/m (2048²) | 1024 px/m (4096²) |
+| Relief mesh (`voxelRelief`, steps a 0.5 m cell) | none: normal maps only | 2 (25 cm vertices) to 16 m | 4 (12.5 cm) to 24 m |
+| Far field | one colour a material (mean albedo × `color`), wetness darkened | same | same |
+
+All three draw the normal map everywhere, so a material reads as itself on
+the low tier too; the mesh relief adds a moving silhouette only near (rock
+and terrain show it most; flat walls little). Within the tier's cap the
+texture budget streams levels by on-screen need.
+
+### Wetness
+
+A cell's wetness (0–7) changes how your maps draw: the albedo darkens, the
+roughness falls, the normal detail flattens, and from level 3 water fills
+the material's **low parts by height** (level 7: standing water below 60 %
+of the height range). A good height map is what makes wet stone show
+puddles in its joints rather than a uniform darkening; kit pieces darken and
+shine with their cell but never hold water.
+
+### Check it
+
+Open the voxel world page on a test world with the material painted on a
+wall and on the ground: `?quality=low|medium|high` shows each tier,
+`?relief=0` none, the **relief** switch (bottom right) the relief mesh flat,
+`?sun=12` a low sun that shows relief and normals, `?bands=1` the grid a
+tile follows (a line every 0.5 m, thick lines at 0 and 2 m, a tick every
+metre). Check in Blender on the template's `wall-tile-4m` plane (4 × 4 m
+with its 0.5 m grid, UV 0–1 over the plane) or in the Texture Designer's
+preview. **Report with every set:** the maps and their sizes, file sizes,
+the height depth, and the tile in metres.
 
 ## 2. The Blender templates
 
