@@ -926,8 +926,15 @@ describe('voxel world routes', () => {
     const manifest = JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { worldId: string; regions: string[]; revision: number };
     expect(content.voxelWorlds?.length).toBe(1);
     const shipped = content.voxelWorlds![0]!;
-    expect({ ...shipped, files: undefined }).toEqual({ world: FEED_WORLD, worldId: manifest.worldId, edge: 32, layout: 'stacked', footprint: 512, revision: manifest.revision, files: undefined });
+    expect({ ...shipped, files: undefined, far: undefined }).toEqual({ world: FEED_WORLD, worldId: manifest.worldId, edge: 32, layout: 'stacked', footprint: 512, revision: manifest.revision, files: undefined, far: undefined });
     expect(shipped.files.map((f) => f.name)).toEqual(manifest.regions);
+    // Its far cache ships beside it, built by the export (the world had none) at the world's revision, each file whole.
+    const farDir = join(backend._test.service.projectDir(PROJECT)!, 'cache', 'voxel-far', FEED_WORLD);
+    const farManifest = JSON.parse(readFileSync(join(farDir, 'far.json'), 'utf8')) as { revision: number; minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }> };
+    expect(farManifest.revision).toBe(manifest.revision);
+    expect(shipped.far?.files.map((f) => f.name)).toEqual(farManifest.levels.flatMap((l) => l.regions.map((r) => `L${l.level}/${r}`)).sort());
+    expect([shipped.far!.minLevel, shipped.far!.maxLevel]).toEqual([farManifest.minLevel, farManifest.maxLevel]);
+    for (const f of shipped.far!.files) expect(readFileSync(join(out, 'content', 'sha256', f.digest)).equals(readFileSync(join(farDir, f.name)))).toBe(true);
     let regionBytes = 0;
     for (const f of shipped.files) {
       const source = readFileSync(join(worldDir, 'grid-0', f.name));

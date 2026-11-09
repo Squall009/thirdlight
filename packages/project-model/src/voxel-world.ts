@@ -45,7 +45,7 @@
  */
 import { isPlainObject } from '@thirdlight/shared';
 import { DEFAULT_QUALITY_LEVELS, levelVoxels, QUALITY_LEVEL_ID_RE, qualityLevelOf, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, type QualityLevelConfig } from './quality-levels';
-import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_RELIEF_RADIUS_CELLS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
+import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_RELIEF_RADIUS_CELLS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type FarFieldMode, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
 import { validateDecalLayerMask } from './decals';
 import type { ModelErrorV2 } from './errors';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
@@ -153,6 +153,8 @@ export interface ResolvedVoxelWorld {
   readonly budgetBytes: number | null;
   /** Relief lattice steps a cell in the relief ring (the level's `voxelRelief`; 0: none, and with no level known). */
   readonly reliefSteps: number;
+  /** How the world is drawn past its near rings and the far nodes' on-screen error (the level's `voxelFarField`, `voxelFarError`; with no level known, the medium tier's). */
+  readonly far: { readonly mode: FarFieldMode; readonly errorPixels: number };
 }
 
 /** The planes of a `PLANE_BIT` mask, in the voxel planes' order. */
@@ -220,8 +222,12 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
     quality: level?.id ?? null,
     budgetBytes: at?.budgetBytes ?? null,
     reliefSteps: at?.relief ?? 0,
+    far: Object.freeze({ mode: (at ?? NO_LEVEL_VOXELS).farField, errorPixels: (at ?? NO_LEVEL_VOXELS).farError }),
   });
 }
+
+/** What a world is drawn with past its near rings when no quality level is known: the medium tier's. */
+const NO_LEVEL_VOXELS = levelVoxels({ lighting: 'medium' });
 
 /** The engine's quality level named `id` (else its highest): what a view without a project's own levels resolves a world at. */
 export function engineQualityLevel(id: string | null): QualityLevelConfig {

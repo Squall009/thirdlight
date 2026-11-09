@@ -33,16 +33,19 @@ export interface PreviewRoutesContext {
   readonly voxels?: {
     info(res: ServerResponse, projectId: string, world: string): Promise<void>;
     region(req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void>;
+    farInfo(res: ServerResponse, projectId: string, world: string): Promise<void>;
+    farFile(req: IncomingMessage, res: ServerResponse, projectId: string, world: string, level: string, file: string): Promise<void>;
   };
 }
 
 /**
  * A play's voxel world routes on the preview origin: `/play-content/<contentId>/voxels/<world>` (the
- * manifest and file list) and `…/voxels/<world>/regions/<file>` (read by range). Play's simulation streams
- * the worlds its scenes name from there as the backend has them now; another world of the project is not
- * served under the locator.
+ * manifest and file list) and `…/voxels/<world>/regions/<file>` (read by range), and its far cache under
+ * `…/voxels/<world>/far` (manifest) and `…/far/L<level>/<file>`. Play's simulation streams the worlds its
+ * scenes name from there as the backend has them now; another world of the project is not served under the
+ * locator.
  */
-const PLAY_VOXELS_RE = /^\/play-content\/([^/]+)\/voxels\/([^/]+)(?:\/regions\/([^/]+))?$/;
+const PLAY_VOXELS_RE = /^\/play-content\/([^/]+)\/voxels\/([^/]+)(?:\/regions\/([^/]+)|\/(far)(?:\/(L\d{1,2})\/([^/]+))?)?$/;
 
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile, onFileChanged, voxels } = ctx;
@@ -208,9 +211,11 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
     }
     let world: string;
     let file: string | undefined;
+    let farFile: string | undefined;
     try {
       world = decodeURIComponent(m[2]!);
       file = m[3] !== undefined ? decodeURIComponent(m[3]) : undefined;
+      farFile = m[6] !== undefined ? decodeURIComponent(m[6]) : undefined;
     } catch {
       locatorError(res, sessionError('path_rejected', 'validation', 'the voxel world path is not valid'), 400);
       return;
@@ -220,7 +225,8 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
       return;
     }
     locatorBaseHeaders(res);
-    const sent = file === undefined ? voxels!.info(res, set.projectId, world) : voxels!.region(req, res, set.projectId, world, file);
+    const far = m[4] !== undefined;
+    const sent = far ? (farFile === undefined ? voxels!.farInfo(res, set.projectId, world) : voxels!.farFile(req, res, set.projectId, world, m[5]!, farFile)) : file === undefined ? voxels!.info(res, set.projectId, world) : voxels!.region(req, res, set.projectId, world, file);
     sent.catch((e: unknown) => {
       logStartup(`play voxels: ${e instanceof Error ? e.message : String(e)}`);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: sessionError('invalid_request', 'internal', 'internal error') });

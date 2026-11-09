@@ -1,8 +1,58 @@
-# Types (SurfaceRule to WindOctave)
+# Types (SurfaceBake to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-surface-bake"></a>
+### SurfaceBake
+
+Declared in `packages/project-model/src/lighting.ts`.
+
+```ts
+/**
+ * The saved result of the live lighting: what WebGL 2, the low tier and
+ * exports draw, and what live tiers start from.
+ *
+ * `files` are texture assets, each a 16-bit RGBA PNG used as a byte
+ * container (the three-adapter's `surface-bake-file.ts` writes and reads
+ * it): concatenated, their bytes are one saved file holding the tiles'
+ * places, the cache's pages (RGBA half floats) and the probes' tiles as the
+ * probe lighting draws them. The rest is a summary for the editor and the
+ * stale check.
+ */
+interface SurfaceBake {
+  /** ISO-8601 time of the bake. */
+  createdAt: string;
+  files: string[];
+  /** The cache level its tiles were saved at (0: 10 cm texels, each level doubles). */
+  level: number;
+  /** Cache tiles, pages and texels saved, probes saved, and the files' bytes. */
+  tiles: number;
+  pages: number;
+  probes: number;
+  bytes: number;
+  /** The run's time to settle (ms). */
+  millis: number;
+  /** Hashes of the baked/mixed lights and the static objects at bake time (stale check). */
+  lightsHash: string;
+  staticsHash: string;
+  /** The texture sky's turn the probes saw (degrees; absent: 0). */
+  skyRotation?: number;
+  /** Terrain rings saved (absent: none, or a bake made before terrain was saved). */
+  rings?: number;
+}
+```
+
+<a id="type-surface-preset-name"></a>
+### SurfacePresetName
+
+Declared in `packages/commands/src/change-types.ts`.
+
+```ts
+/** The three built-in surface-preset names. */
+type SurfacePresetName = 'matte-ground' | 'signal-red' | 'emissive-accent';
+```
 
 <a id="type-surface-rule"></a>
 ### SurfaceRule

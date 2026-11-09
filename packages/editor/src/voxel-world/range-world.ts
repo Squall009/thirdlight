@@ -12,7 +12,7 @@
  * missed, files restored) is read again whole (`readAgain`).
  */
 import { hexToBytes } from '@thirdlight/shared';
-import { chunkGrid, defaultVoxelWorkers, eventTargetWorker, OPEN_REGION_FILES, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type VoxelStreamer } from '@thirdlight/voxel';
+import { chunkGrid, defaultVoxelWorkers, eventTargetWorker, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type VoxelStreamer } from '@thirdlight/voxel';
 import { rangeByteSource, type RangeReadStats } from './range-reads';
 
 export interface VoxelWorldManifest {
@@ -56,6 +56,52 @@ export interface RangeWorldOptions {
   readonly stats?: RangeReadStats;
 }
 
+/** How often a far cache the backend is still building is asked for again (ms). */
+export const FAR_CACHE_POLL_MS = 2000;
+
+/** What the far cache's route answers. */
+interface FarInfo {
+  ok: boolean;
+  manifest?: { minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }> };
+  error?: { code: string; message: string };
+}
+
+/**
+ * A world's far cache read by range from its route (`<url>/far`, its files
+ * under `<url>/far/L<level>/<file>`): the manifest is asked for when the far
+ * field first reads its index, and again every {@link FAR_CACHE_POLL_MS}
+ * while the backend is still building it.
+ */
+function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footprint: VoxelWorldManifest['footprint'], headers: Readonly<Record<string, string>>, stats?: RangeReadStats): FarNodeSource {
+  let inner: FarNodeSource | null = null;
+  const ready = (async (): Promise<FarNodeSource> => {
+    for (;;) {
+      const res = await fetch(`${url}/far`, { headers });
+      const info = (await res.json()) as FarInfo;
+      if (info.ok && info.manifest !== undefined) {
+        const m = info.manifest;
+        inner = regionFarSource({ worldId, grid, footprint, minLevel: m.minLevel, maxLevel: m.maxLevel, levels: m.levels, maxOpen: OPEN_REGION_FILES, open: (level, name) => rangeByteSource(`${url}/far/L${level}/${encodeURIComponent(name)}`, headers, stats) });
+        return inner;
+      }
+      if (info.error?.code !== 'far_cache_building') throw new Error(info.error?.message ?? `far cache: HTTP ${res.status}`);
+      await new Promise((ok) => setTimeout(ok, FAR_CACHE_POLL_MS));
+    }
+  })();
+  return {
+    grid,
+    get minLevel() {
+      return inner?.minLevel ?? 0;
+    },
+    get maxLevel() {
+      return inner?.maxLevel ?? 0;
+    },
+    index: async () => (await ready).index(),
+    read: async (level, nodes) => (await ready).read(level, nodes),
+    invalidate: (level, nodes) => inner?.invalidate(level, nodes),
+    memoryBytes: () => inner?.memoryBytes() ?? 0,
+  };
+}
+
 async function readInfo(url: string, headers: Readonly<Record<string, string>>): Promise<{ manifest: VoxelWorldManifest; files: NonNullable<WorldInfo['files']> }> {
   const res = await fetch(url, { headers });
   const info = (await res.json()) as WorldInfo;
@@ -67,6 +113,8 @@ export class RangeWorld {
   readonly grid: ChunkGrid;
   readonly worldId: Uint8Array;
   readonly source: RegionChunkSource;
+  /** The world's far cache (its index read when the far field first asks). */
+  readonly far: FarNodeSource;
   readonly pool: WorkerPool;
   /** The listed region files and their tags (null: listed but unreadable, so its chunks are damaged). */
   readonly files = new Map<string, string | null>();
@@ -84,6 +132,7 @@ export class RangeWorld {
     const headers = o.headers ?? {};
     const open = (name: string): ReturnType<typeof rangeByteSource> | null => (this.files.has(name) ? rangeByteSource(`${o.url}/regions/${encodeURIComponent(name)}`, headers, o.stats) : null);
     this.source = new RegionChunkSource({ worldId: this.worldId, gridId: WORLD_GRID_ID, grid: this.grid, layout: manifest.layout, footprint: manifest.footprint, open, maxOpen: OPEN_REGION_FILES });
+    this.far = rangeFarSource(o.url, this.grid, this.worldId, manifest.footprint, headers, o.stats);
     const options: WorkerOptions = { type: 'module', ...(o.workerName !== undefined ? { name: o.workerName } : {}) };
     this.pool = new WorkerPool({ size: o.workers ?? defaultVoxelWorkers(), create: () => eventTargetWorker(new Worker(o.workerUrl, options)), ...STREAM_POOL_SETTINGS });
   }

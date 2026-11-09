@@ -558,3 +558,36 @@ export function farCacheFiles(cacheDir: string): string[] {
   for (const l of m.levels) for (const name of l.regions) out.push(`${farLevelFolder(l.level)}/${name}`);
   return out;
 }
+
+/**
+ * Whether a far cache is current for a world (its manifest of this format,
+ * the world's id, edge and footprint, and the world's revision): null when
+ * it is, else why not (it is then built again).
+ */
+export function farCacheStale(cacheDir: string, world: Pick<VoxelWorldManifest, 'worldId' | 'edge' | 'footprint' | 'revision'>): string | null {
+  let m: FarCacheManifest;
+  try {
+    m = readFarCacheManifest(cacheDir);
+  } catch (e) {
+    return existsSync(join(cacheDir, FAR_CACHE_MANIFEST)) ? `unreadable: ${e instanceof Error ? e.message : String(e)}` : 'not built';
+  }
+  if (m.worldId !== world.worldId || m.edge !== world.edge || m.footprint !== world.footprint) return 'of another world';
+  if (m.revision !== world.revision) return `built at revision ${m.revision}, the world is at ${world.revision}`;
+  return null;
+}
+
+/**
+ * A full build's region columns in this thread, one at a time, giving the
+ * event loop back between columns: what a backend that serves other
+ * requests meanwhile runs (a column of a mountain world takes about a
+ * second).
+ */
+export function yieldingFarRunner(worldDir: string): FarColumnRunner {
+  return async function* run(columns, minLevel) {
+    const world = new FarWorldSource(worldDir);
+    for (const [rx, rz] of columns) {
+      yield farColumnNodes(world, rx, rz, minLevel);
+      await new Promise<void>((ok) => setImmediate(ok));
+    }
+  };
+}

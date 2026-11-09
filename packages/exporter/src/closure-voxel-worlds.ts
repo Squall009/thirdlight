@@ -5,8 +5,9 @@
  * region files whole, each as a content-addressed file
  * (`content/sha256/<digest>`), and the build's catalog lists the world
  * (`voxelWorlds`: its manifest fields and every file's name, digest and
- * length). The exported game reads them through its content reader, never
- * by range (it has no backend). A world a scene names that the project
+ * length), and its far cache's files beside them (the far field's nodes,
+ * as built at the world's revision). The exported game reads them through
+ * its content reader, never by range (it has no backend). A world a scene names that the project
  * does not hold, or whose listed file is missing, fails the export.
  *
  * The files are found here, not read: the output copies them one at a
@@ -27,7 +28,13 @@ export interface ExportVoxelFile {
 
 /** A world as the backend holds it now. */
 export type ExportVoxelWorldAnswer =
-  | { readonly ok: true; readonly world: Omit<ShippedVoxelWorld, 'files'>; readonly files: readonly ExportVoxelFile[] }
+  | {
+      readonly ok: true;
+      readonly world: Omit<ShippedVoxelWorld, 'files' | 'far'>;
+      readonly files: readonly ExportVoxelFile[];
+      /** The world's far cache at that revision (`L<level>/<name>` files): shipped beside its region files, for the far field. */
+      readonly far?: { readonly minLevel: number; readonly maxLevel: number; readonly files: readonly ExportVoxelFile[] };
+    }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 /** The backend's voxel worlds, for an export (injected; the exporter never opens a world folder itself). */
@@ -75,8 +82,9 @@ export async function shipVoxelWorlds(
   for (const name of names) {
     const got = await port.files(projectId, name);
     if (!got.ok) return { ok: false, message: `voxel world ${name}: ${got.message} (${got.code})` };
-    worlds.push({ ...got.world, world: name, files: got.files.map((f) => ({ name: f.name, digest: f.digest, byteLength: f.byteLength })) });
-    for (const f of got.files) if (!files.has(f.digest)) files.set(f.digest, { path: `content/sha256/${f.digest}`, digest: f.digest, byteLength: f.byteLength, source: f.path });
+    const row = (f: ExportVoxelFile): { name: string; digest: string; byteLength: number } => ({ name: f.name, digest: f.digest, byteLength: f.byteLength });
+    worlds.push({ ...got.world, world: name, files: got.files.map(row), ...(got.far !== undefined ? { far: { minLevel: got.far.minLevel, maxLevel: got.far.maxLevel, files: got.far.files.map(row) } } : {}) });
+    for (const f of [...got.files, ...(got.far?.files ?? [])]) if (!files.has(f.digest)) files.set(f.digest, { path: `content/sha256/${f.digest}`, digest: f.digest, byteLength: f.byteLength, source: f.path });
   }
   return { ok: true, worlds, files: [...files.values()].sort((a, b) => (a.path < b.path ? -1 : 1)) };
 }

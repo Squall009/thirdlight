@@ -52,7 +52,7 @@
  *
  * Pure: no I/O.
  */
-import { RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
+import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
 import type { PostConfig } from './materials';
 import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
 
@@ -232,6 +232,10 @@ export interface QualityLevelConfig {
   voxelTexelDensity?: number;
   /** Relief lattice steps a voxel cell in the relief ring, one of `RELIEF_STEPS` (0: no relief mesh; absent: the tier's, `RELIEF_STEPS_BY_TIER`). */
   voxelRelief?: number;
+  /** How voxel worlds are drawn past their near rings, one of `FAR_FIELD_MODES` (absent: the tier's, `FAR_FIELD_BY_TIER`). */
+  voxelFarField?: FarFieldMode;
+  /** The on-screen error (pixels) a far node's cell may make before finer nodes are drawn, `FAR_ERROR_PIXELS_RANGE` (absent: the tier's, `FAR_ERROR_PIXELS_BY_TIER`). */
+  voxelFarError?: number;
 }
 
 /**
@@ -239,9 +243,17 @@ export interface QualityLevelConfig {
  * most texels a metre their surfaces keep resident and the relief lattice steps a cell in their relief rings, each by
  * its tier unless the level sets it.
  */
-export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity' | 'voxelRelief'>): { readonly ringScale: number; readonly reliefScale: number; readonly budgetBytes: number; readonly texelDensity: number; readonly relief: number } {
+export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity' | 'voxelRelief' | 'voxelFarField' | 'voxelFarError'>): { readonly ringScale: number; readonly reliefScale: number; readonly budgetBytes: number; readonly texelDensity: number; readonly relief: number; readonly farField: FarFieldMode; readonly farError: number } {
   const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
-  return { ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier], reliefScale: level.voxelRings ?? RELIEF_RING_SCALES[tier], budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier], texelDensity: level.voxelTexelDensity ?? VOXEL_TEXEL_DENSITY_BY_TIER[tier], relief: level.voxelRelief ?? RELIEF_STEPS_BY_TIER[tier] };
+  return {
+    ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier],
+    reliefScale: level.voxelRings ?? RELIEF_RING_SCALES[tier],
+    budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier],
+    texelDensity: level.voxelTexelDensity ?? VOXEL_TEXEL_DENSITY_BY_TIER[tier],
+    relief: level.voxelRelief ?? RELIEF_STEPS_BY_TIER[tier],
+    farField: level.voxelFarField ?? FAR_FIELD_BY_TIER[tier],
+    farError: level.voxelFarError ?? FAR_ERROR_PIXELS_BY_TIER[tier],
+  };
 }
 
 /**

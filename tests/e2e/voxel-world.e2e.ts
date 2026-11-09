@@ -82,7 +82,7 @@
  * the edit.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { glbBytes, pngBytes } from '@thirdlight/shared';
 import { deflateSync } from 'node:zlib';
@@ -594,6 +594,12 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(lv.levels[1], 'level 1 drawn').toBeGreaterThan(0);
     expect(lv.seams).toBeGreaterThan(0);
     expect(lv.seamTriangles).toBeGreaterThan(0);
+    // The far field: the backend built the world's far cache on the first read, and its nodes draw under the near field.
+    await hook(page, 'settleFar');
+    const far = (await hook<{ far: { problem: string | null; drawnNodes: number; draws: number } | null }>(page, 'state')).far;
+    expect(far, 'the far field').not.toBeNull();
+    expect(far!.problem).toBeNull();
+    expect(far!.drawnNodes).toBeGreaterThan(0);
     const grazing = await shot(page);
     let sky = 0;
     // Below the horizon everywhere across the picture (it sits at 0.55–0.57 of the height at the left edge).
@@ -1034,6 +1040,10 @@ test('Export: the Play project exported and served statically with the backend s
   // The catalog lists the world and its region files, each shipped whole at its content path.
   const shipped = (exportedContent(out) as unknown as { voxelWorlds?: Array<{ world: string; files: Array<{ name: string; digest: string; byteLength: number }> }> }).voxelWorlds ?? [];
   expect(shipped.map((w) => w.world)).toEqual(['far']);
+  // Its far cache ships beside it (the far field's nodes, level by level).
+  const farFiles = (shipped[0] as { far?: { files: Array<{ name: string; digest: string }> } }).far?.files ?? [];
+  expect(farFiles.length).toBeGreaterThan(0);
+  expect(farFiles.every((f) => /^L\d+\//.test(f.name) && existsSync(join(out, 'content', 'sha256', f.digest)))).toBe(true);
   // The stone's record ships though only the world's cells name it; the mesh-only material nothing wears does not.
   const shippedMaterials = ((exportedContent(out) as unknown as { materials?: Array<{ materialId: string; voxel?: unknown }> }).materials ?? []);
   expect(shippedMaterials.find((m) => m.materialId === 'mat-stone-voxel')?.voxel).toEqual(STONE_MATERIAL.voxel);

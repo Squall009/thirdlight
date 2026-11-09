@@ -16,6 +16,7 @@
 import { chunkGrid, CHUNK_EDGES, isRegionFootprint, REGION_FOOTPRINTS, type ChunkEdge, type RegionFootprint } from './coords';
 import { parseRegionFileName, VOXEL_WORLD_NAME_RE, WORLD_GRID_ID, WORLD_ID_BYTES, type RegionByteSource, type RegionLayout } from './region-file';
 import { RegionChunkSource } from './region-source';
+import { regionFarSource, type FarNodeSource } from './far-field';
 import { hexToBytes } from '@thirdlight/shared';
 
 /** One shipped region file: its name in the world grid's folder, and the digest and length of its bytes. */
@@ -38,6 +39,19 @@ export interface ShippedVoxelWorld {
   readonly revision: number;
   /** Its listed region files, by name; any other region is air. */
   readonly files: readonly ShippedVoxelFile[];
+  /**
+   * Its far cache as built at that revision (absent: none shipped, nothing
+   * drawn past the near rings): the kept levels and the cache's level files,
+   * named `L<level>/<region file name>` (sorted).
+   */
+  readonly far?: ShippedFarCache;
+}
+
+/** A shipped world's far cache. */
+export interface ShippedFarCache {
+  readonly minLevel: number;
+  readonly maxLevel: number;
+  readonly files: readonly ShippedVoxelFile[];
 }
 
 /** A shipped world's fields, in their canonical order. */
@@ -58,8 +72,23 @@ export function canonicalShippedVoxelWorld(w: ShippedVoxelWorld): ShippedVoxelWo
     layout: w.layout,
     footprint: w.footprint,
     revision: w.revision,
-    files: [...w.files].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map((f) => ({ name: f.name, digest: f.digest, byteLength: f.byteLength })),
+    files: sortedFiles(w.files),
+    ...(w.far !== undefined ? { far: { minLevel: w.far.minLevel, maxLevel: w.far.maxLevel, files: sortedFiles(w.far.files) } } : {}),
   };
+}
+
+function sortedFiles(files: readonly ShippedVoxelFile[]): ShippedVoxelFile[] {
+  return [...files].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map((f) => ({ name: f.name, digest: f.digest, byteLength: f.byteLength }));
+}
+
+/** A shipped far cache file's name: a kept level's folder and a stacked region file name. */
+const FAR_FILE_RE = /^L(\d{1,2})\/([^/]+)$/;
+
+/** A shipped far cache file's level and region file name (null: not one). */
+export function shippedFarFile(name: string): { level: number; region: string } | null {
+  const m = FAR_FILE_RE.exec(name);
+  if (m === null || parseRegionFileName('stacked', m[2]!) === null) return null;
+  return { level: Number(m[1]), region: m[2]! };
 }
 
 /**
@@ -73,7 +102,8 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
   for (const [i, raw] of v.entries()) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return `voxelWorlds[${i}] is not an object`;
     const w = raw as Record<string, unknown>;
-    if (Object.keys(w).join(',') !== WORLD_KEYS) return `voxelWorlds[${i}] has the keys ${WORLD_KEYS.replace(/,/g, ', ')}`;
+    const keys = Object.keys(w).join(',');
+    if (keys !== WORLD_KEYS && keys !== `${WORLD_KEYS},far`) return `voxelWorlds[${i}] has the keys ${WORLD_KEYS.replace(/,/g, ', ')} (and far)`;
     if (typeof w.world !== 'string' || !VOXEL_WORLD_NAME_RE.test(w.world)) return `voxelWorlds[${i}].world is not a world name`;
     if (i > 0 && !(last < w.world)) return 'voxelWorlds are in ascending world name order, each once';
     last = w.world;
@@ -82,17 +112,36 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
     if (w.layout !== 'stacked' && w.layout !== 'column') return `voxelWorlds[${i}].layout is stacked or column`;
     if (!isRegionFootprint(w.footprint)) return `voxelWorlds[${i}].footprint is one of ${REGION_FOOTPRINTS.join(', ')}`;
     if (typeof w.revision !== 'number' || !Number.isSafeInteger(w.revision) || w.revision < 0) return `voxelWorlds[${i}].revision is a whole number ≥ 0`;
-    if (!Array.isArray(w.files)) return `voxelWorlds[${i}].files is a list`;
-    let lastName = '';
-    for (const [k, f] of (w.files as unknown[]).entries()) {
-      if (typeof f !== 'object' || f === null || Object.keys(f).join(',') !== FILE_KEYS) return `voxelWorlds[${i}].files[${k}] has the keys name, digest, byteLength`;
-      const r = f as Record<string, unknown>;
-      if (typeof r.name !== 'string' || parseRegionFileName(w.layout, r.name) === null) return `voxelWorlds[${i}].files[${k}].name is not a ${w.layout} region file name`;
-      if (k > 0 && !(lastName < r.name)) return `voxelWorlds[${i}].files are in ascending name order, each once`;
-      lastName = r.name;
-      if (typeof r.digest !== 'string' || !DIGEST.test(r.digest)) return `voxelWorlds[${i}].files[${k}].digest is 64 lowercase hex`;
-      if (typeof r.byteLength !== 'number' || !Number.isSafeInteger(r.byteLength) || r.byteLength < 1) return `voxelWorlds[${i}].files[${k}].byteLength is a positive whole number`;
+    const files = filesProblem(`voxelWorlds[${i}].files`, w.files, (name) => parseRegionFileName(w.layout as RegionLayout, name) !== null, `a ${w.layout} region file name`);
+    if (files !== null) return files;
+    if (w.far !== undefined) {
+      const f = w.far as Record<string, unknown> | null;
+      if (typeof f !== 'object' || f === null || Object.keys(f).join(',') !== 'minLevel,maxLevel,files') return `voxelWorlds[${i}].far has the keys minLevel, maxLevel, files`;
+      const lo = f.minLevel, hi = f.maxLevel;
+      if (typeof lo !== 'number' || typeof hi !== 'number' || !Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi < lo || hi > 30) return `voxelWorlds[${i}].far levels are whole numbers 1 ≤ minLevel ≤ maxLevel`;
+      const levelOk = (name: string): boolean => {
+        const at = shippedFarFile(name);
+        return at !== null && at.level >= lo && at.level <= hi;
+      };
+      const p = filesProblem(`voxelWorlds[${i}].far.files`, f.files, levelOk, 'L<level>/<stacked region file name> of a kept level');
+      if (p !== null) return p;
     }
+  }
+  return null;
+}
+
+/** Why a list of shipped files is not one (null: it is): names that pass `nameOk`, ascending, each once, with a digest and a length. */
+function filesProblem(at: string, list: unknown, nameOk: (name: string) => boolean, what: string): string | null {
+  if (!Array.isArray(list)) return `${at} is a list`;
+  let lastName = '';
+  for (const [k, f] of (list as unknown[]).entries()) {
+    if (typeof f !== 'object' || f === null || Object.keys(f).join(',') !== FILE_KEYS) return `${at}[${k}] has the keys name, digest, byteLength`;
+    const r = f as Record<string, unknown>;
+    if (typeof r.name !== 'string' || !nameOk(r.name)) return `${at}[${k}].name is not ${what}`;
+    if (k > 0 && !(lastName < r.name)) return `${at} are in ascending name order, each once`;
+    lastName = r.name;
+    if (typeof r.digest !== 'string' || !DIGEST.test(r.digest)) return `${at}[${k}].digest is 64 lowercase hex`;
+    if (typeof r.byteLength !== 'number' || !Number.isSafeInteger(r.byteLength) || r.byteLength < 1) return `${at}[${k}].byteLength is a positive whole number`;
   }
   return null;
 }
@@ -124,6 +173,37 @@ export function wholeFileByteSource(load: () => Promise<Uint8Array>): RegionByte
       return all.slice(Math.min(offset, all.length), Math.min(offset + length, all.length));
     },
   };
+}
+
+/**
+ * The far field's source of a shipped world (null: it ships no far cache):
+ * each far cache file read whole through `readFile` the first time its
+ * region is opened.
+ */
+export function shippedFarSource(w: ShippedVoxelWorld, readFile: (file: ShippedVoxelFile) => Promise<Uint8Array>): FarNodeSource | null {
+  const far = w.far;
+  if (far === undefined) return null;
+  const byLevel = new Map<number, Map<string, ShippedVoxelFile>>();
+  for (const f of far.files) {
+    const at = shippedFarFile(f.name)!;
+    let m = byLevel.get(at.level);
+    if (m === undefined) byLevel.set(at.level, (m = new Map()));
+    m.set(at.region, f);
+  }
+  const levels = [...byLevel].sort((a, b) => a[0] - b[0]).map(([level, m]) => ({ level, regions: [...m.keys()].sort() }));
+  return regionFarSource({
+    worldId: hexToBytes(w.worldId),
+    grid: chunkGrid(w.edge),
+    footprint: w.footprint,
+    minLevel: far.minLevel,
+    maxLevel: far.maxLevel,
+    levels,
+    maxOpen: OPEN_REGION_FILES,
+    open: (level, name) => {
+      const f = byLevel.get(level)?.get(name);
+      return f === undefined ? null : wholeFileByteSource(() => readFile(f));
+    },
+  });
 }
 
 /**

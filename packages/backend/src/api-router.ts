@@ -54,6 +54,8 @@ export interface ApiRoutes {
   readonly voxels: {
     readonly info: Route<[projectId: string, world: string]>;
     readonly region: Route<[projectId: string, world: string, file: string]>;
+    readonly farInfo: Route<[projectId: string, world: string]>;
+    readonly farRegion: Route<[projectId: string, world: string, level: string, file: string]>;
   };
   readonly lighting: {
     readonly bake: Route<[projectId: string]>;
@@ -209,6 +211,14 @@ export function makeApiRouter(r: ApiRoutes) {
     // GET /api/v1/projects/:projectId/voxels/:world — a voxel world's manifest and region files (with their tags)
     if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'voxels') {
       return only('GET', () => voxels.info(req, res, parts[3]!, decodeURIComponent(parts[5]!)));
+    }
+    // GET /api/v1/projects/:projectId/voxels/:world/far — the world's far cache: its manifest and files (with their tags)
+    if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'voxels' && parts[6] === 'far') {
+      return only('GET', () => voxels.farInfo(req, res, parts[3]!, decodeURIComponent(parts[5]!)));
+    }
+    // GET /api/v1/projects/:projectId/voxels/:world/far/:level/:file — a far cache file, whole or one byte range
+    if (parts.length === 9 && parts[2] === 'projects' && parts[4] === 'voxels' && parts[6] === 'far') {
+      return only('GET', () => voxels.farRegion(req, res, parts[3]!, decodeURIComponent(parts[5]!), decodeURIComponent(parts[7]!), decodeURIComponent(parts[8]!)));
     }
     // GET /api/v1/projects/:projectId/voxels/:world/regions/:file — a region file, whole or one byte range
     if (parts.length === 8 && parts[2] === 'projects' && parts[4] === 'voxels' && parts[6] === 'regions') {

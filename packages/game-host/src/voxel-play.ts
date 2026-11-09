@@ -53,6 +53,7 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           source: conn.source,
           pool: conn.pool,
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),
+          ...(conn.far !== undefined ? { far: conn.far } : {}),
           pieces: (table ??= worldPieceTable(kits, seed)),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);

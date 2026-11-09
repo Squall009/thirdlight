@@ -172,6 +172,19 @@ export class RegionChunkSource implements ChunkSource {
     }
   }
 
+  /**
+   * A region file's table, opened as a read would open it (null: the world
+   * does not list the file; throws when it cannot be read): what lists the
+   * chunks a file holds without reading them.
+   */
+  async table(rx: number, ry: number, rz: number): Promise<RegionIndex | null> {
+    const at = { cx: rx * this.side, cy: this.opts.layout === 'stacked' ? ry * this.side : 0, cz: rz * this.side };
+    const r = this.region(this.nameOf(at), at);
+    const index = await r.index;
+    if (r.error !== null) throw new Error(r.error);
+    return index;
+  }
+
   /** Forgets the tables of the regions holding these chunks: their files were replaced, so they are opened again. */
   invalidate(chunks: readonly ChunkCoord[]): void {
     for (const c of chunks) this.regions.delete(this.nameOf(c));

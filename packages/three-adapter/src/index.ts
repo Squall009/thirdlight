@@ -408,6 +408,7 @@ export { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels, browserCrackDec
 export { createVoxelSurface, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_GRID_MAX_EDGE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelReliefSettings, type VoxelSurfaceObject, type VoxelSurfaceOptions, type VoxelSurfaceTextureArrays } from './voxel-surface';
 export { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, RELIEF_TEST_SIZE, reliefTestHeights, voxelTestRelief, type VoxelReliefLook } from './voxel-relief';
 export { shadowSeesCutaways } from './block-cutaway-view';
+export { VOXEL_FAR_LOOK_ATTRIBUTE, VoxelFarView, type VoxelFarViewOptions } from './voxel-far-mesh';
 export { applyChunkDrawBatch, VOXEL_CASTER_KEY, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelBatchApplied, type VoxelChunkDraw, type VoxelChunkViewOptions, type VoxelSeamPiece } from './voxel-chunk-view';
 export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 export { kitLookMaterial, kitLookOf, kitLookTextures, type VoxelKitLook } from './voxel-kit-look';

@@ -310,3 +310,46 @@ would pass the byte budget (`FAR_BUDGET_BYTES`, 48 MiB of stored node bytes) kee
 opened first. Nodes wholly inside the box the near rings load are not drawn; nodes reaching into it open down to
 the lowest kept level and are marked (`nearOverlap`) for the draw modes to meet the near field. The top level
 covers the world, so nothing is cut off at any distance.
+
+**Owner note (46d.7b, 2026-11-09):** the far field drawn as voxel-mip meshes. No stored or derived format changes
+(derived 31, far cache format 1 as above); added: the far cache's serving routes, the export catalog's optional
+`far` rows of a voxel world (add-only: a catalog without them draws nothing past the near rings), the far mesh job
+and its wire, and two quality-level fields. Default chosen, owner to confirm (plan 46d §9, the 46d.7b defaults);
+the ray-marched bricks (46d.7c) join as a second mode behind the same switch, and which is the default is the
+owner's pick.
+
+**Served and shipped.** The backend serves a world's far cache beside it: `GET …/voxels/<world>/far` (the
+manifest and its files `L<level>/<name>` with their tags; `far_cache_building` while it is built) and
+`GET …/voxels/<world>/far/L<level>/<file>` by byte range, the same under a play's locator. A missing or stale cache
+(another revision, world or format) is built in the backend, in the world's command queue, a region column at a
+time with the event loop given back between columns. Every applied voxel command rebuilds the cache's ancestors of
+the chunks it changed (`rebuildFarCache`) before it answers (`far: { nodes, ms }`, or `{ stale }` when the cache was
+not current and is built again whole on its next read). An export ships the cache's files as content files beside
+the world's region files; the catalog row's `far` is `{ minLevel, maxLevel, files: [{ name: 'L<level>/<file>',
+digest, byteLength }] }`, files in name order.
+
+**Selection.** As above, from the stream focus, with no near box: the far field draws under the near field
+everywhere (see the near cover), so a chunk the near field has not drawn yet still shows its far stand-in. The
+on-screen error is the quality level's `voxelFarError` (pixels at 720 rows and 60°; tiers low 8, medium 4, high 2,
+`FAR_ERROR_PIXELS_BY_TIER`), the mode its `voxelFarField` (`mesh` | `off`, `FAR_FIELD_BY_TIER`: `mesh` on every tier).
+
+**Far mesh job** (`far-mesh`, `@thirdlight/voxel` `far-mesh.ts`): a node's cells and its 26 same-level neighbours
+as the cache stores them (27 entries, index `(dx + 1)·9 + (dz + 1)·3 + (dy + 1)`, null for air), meshed by the
+world rules' mesher at the node's level (an apron from the neighbours, so same-level neighbours meet exactly), ground
+and base surfaces in one buffer. A vertex is 12 bytes (`FAR_VERTEX_BYTES`): position `uint16x3` in 1/1024 cells
+from 16 cells below the node's corner (`FAR_POSITION_ORIGIN_CELLS`), `uint16` look word (material bits 0–11,
+wetness 12–14: the first solid cell behind the vertex along its inward normal, then below it, then round it),
+normal `snorm8x3`, one byte 0. Every edge where the surface leaves the node's box hangs a skirt of
+`FAR_SKIRT_CELLS` (2) of the node's cells along the inward normal, both windings, its triangles last
+(`skirtTriangles`).
+
+**Draw batches.** A batch (`ChunkDrawBatch`) may carry `far` (`added`: nodes with their meshes, drawn or drawn
+again; `removed`: nodes) and `nearCover` (`min`, `size` in storage chunks and one byte a chunk, index
+`x + size₀·(y + size₁·z)`: 1 where the near field's drawn levels cover the chunk and every chunk round it). A node
+replacing others goes in with their removal in one batch once every new node of its group is meshed.
+
+**Drawn** (three-adapter `voxel-far-mesh.ts`): one draw per level and 8 × 8 node columns (`FAR_GROUP_NODES`);
+colour from the material table and the wall set's mean albedo (the array's coarsest level), darkened by wetness;
+lit, no shadows. Depth: the camera's perspective depth of the distance × 1.05 up to half the far plane, past it
+the logarithm of the distance up to 64 km in what remains of the depth range, so far nodes are never clipped at the
+far plane and lose to the near field where both cover a pixel; a far fragment in a covered chunk is discarded.

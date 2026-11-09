@@ -34,7 +34,7 @@ import { canonicalJsonValue, isPlainObject } from '@thirdlight/shared';
 import { canonicalMaterialPhysical, mergeGameData, validateMaterialPhysical, type MaterialGameData, type MaterialPhysical } from './material-profiles';
 import { canonicalMaterialVoxel, mergeMaterialVoxel, validateMaterialVoxel, voxelTextureRefs, type MaterialVoxel } from './voxel-materials';
 import { validateGameData } from './game-data';
-import { RELIEF_STEPS } from '@thirdlight/voxel';
+import { FAR_ERROR_PIXELS_RANGE, FAR_FIELD_MODES, RELIEF_STEPS } from '@thirdlight/voxel';
 export { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, materialParameterPortType, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
 
 /**
@@ -951,7 +951,7 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
 /** `environment.qualityLevels`: at least one level, unique ids, each field in its range (quality-levels.ts). */
 export function validateQualityLevels(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length === 0) {
-    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, lighting?, surfaceCacheMiB?, surfaceLightMs?, contactShadows?, reflections?, shadowAtlas?, voxelRings?, voxelTexelDensity?, voxelRelief? }, lowest first', value);
+    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, lighting?, surfaceCacheMiB?, surfaceLightMs?, contactShadows?, reflections?, shadowAtlas?, voxelRings?, voxelTexelDensity?, voxelRelief?, voxelFarField?, voxelFarError? }, lowest first', value);
     return;
   }
   const seen = new Set<string>();
@@ -981,6 +981,8 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
         voxelRings: { kind: 'num', min: VOXEL_RING_SCALE_MIN, max: VOXEL_RING_SCALE_MAX },
         voxelTexelDensity: { kind: 'other' },
         voxelRelief: { kind: 'other' },
+        voxelFarField: { kind: 'enum', values: FAR_FIELD_MODES },
+        voxelFarError: { kind: 'num', min: FAR_ERROR_PIXELS_RANGE.min, max: FAR_ERROR_PIXELS_RANGE.max },
       },
       ['id'],
       errors,

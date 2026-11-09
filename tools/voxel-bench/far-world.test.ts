@@ -11,11 +11,13 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, farAncestors, FarSelection, localIndex, mipNodeKey, valueRole, VOXEL_ROLE, type FarCells, type MipNode } from '@thirdlight/voxel';
-import { buildFarCache, FarCacheReader, FarWorldSource, openShippedWorld, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
+import { buildFarNode, farAncestors, FarField, farVertexLook, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarCache, farCacheDir, FarCacheReader, FarWorldSource, openShippedWorld, readFarCacheManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
+import { hexToBytes } from '@thirdlight/shared';
 import { farWorldColumns, farWorldDirs, writeFarWorldColumn, FAR_WORLD_GRID } from './far-world';
 import { buildFarCacheInPool, FarPool, PIXELS_PER_RADIAN_720P, writeFarWorld } from './far-world-run';
-import { bundleWorker, REPO } from './stream-node';
+import { bundleWorker, DiskRegions, nodePoolWorker, REPO } from './stream-node';
+import { MAT } from './world-kit';
 
 const root = join(tmpdir(), `tl-far-world-${process.pid}-${Date.now().toString(36)}`);
 const projectDir = join(root, 'p');
@@ -157,5 +159,145 @@ describe('the far cache', () => {
     expect(openings).toBeGreaterThan(1000);
     expect(gaps1).toBe(0);
     expect(gaps2).toBe(0);
+  }, 120_000);
+});
+
+/** A far node's mesh triangles without its skirts (the skirts are the last ones), as world-cell edges on one axis plane. */
+function planeEdges(d: FarNodeDraw, axis: 0 | 1 | 2, plane: number, which: 'crossing' | 'lying' | 'all' = 'crossing'): Set<string> {
+  const m = d.mesh;
+  const view = new DataView(m.vertices.buffer, m.vertices.byteOffset, m.vertices.byteLength);
+  const scale = 2 ** d.level;
+  const corner = [d.nx * 32, d.ny * 32, d.nz * 32];
+  // World cells × 1024 of the level, exact integers.
+  const at = (v: number): number[] => [0, 1, 2].map((a) => (corner[a]! - FAR_POSITION_ORIGIN_CELLS) * POSITION_STEPS_PER_CELL + view.getUint16(v * FAR_VERTEX_BYTES + a * 2, true)).map((x) => x * scale);
+  const out = new Set<string>();
+  const plain = m.indices.length - m.skirtTriangles * 3;
+  const want = plane * POSITION_STEPS_PER_CELL * scale;
+  for (let t = 0; t < plain; t += 3) {
+    // A face lying in the plane is one side's own (a wall on the boundary, toward air on the other side): faces crossing the plane end on it or on the other side's crossing faces.
+    const lying = [0, 1, 2].every((k) => at(m.indices[t + k]!)[axis] === want);
+    if ((which === 'crossing' && lying) || (which === 'lying' && !lying)) continue;
+    for (let k = 0; k < 3; k++) {
+      const a = at(m.indices[t + k]!), b = at(m.indices[t + ((k + 1) % 3)]!);
+      if (a[axis] !== want || b[axis] !== want) continue;
+      const ka = a.join(','), kb = b.join(',');
+      out.add(ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`);
+    }
+  }
+  return out;
+}
+
+/** The largest distance (world cells of the level) from an end of an edge in `from` to the nearest edge of `to`. */
+function farthestEnd(from: ReadonlySet<string>, to: ReadonlySet<string>, scale: number): number {
+  const seg = [...to].map((e) => e.split('|').map((p) => p.split(',').map(Number)));
+  const gap = (p: number[]): number =>
+    Math.min(
+      ...seg.map(([a, b]) => {
+        const ab = [0, 1, 2].map((k) => b![k]! - a![k]!);
+        const ap = [0, 1, 2].map((k) => p[k]! - a![k]!);
+        const len2 = ab.reduce((s, v) => s + v * v, 0);
+        const t = Math.max(0, Math.min(1, ap.reduce((s, v, k) => s + v * ab[k]!, 0) / len2));
+        return Math.hypot(...[0, 1, 2].map((k) => ap[k]! - ab[k]! * t));
+      }),
+    );
+  let worst = 0;
+  for (const e of from) for (const p of e.split('|')) worst = Math.max(worst, gap(p.split(',').map(Number)));
+  return worst / (POSITION_STEPS_PER_CELL * scale);
+}
+
+describe('the far field drawn as meshes', () => {
+  it('meshes the selection in workers from the cache on disk, swaps whole, meets same-level neighbours exactly, colours from the cells, and meshes an edit again', async () => {
+    // The world in a project the workspace's voxel worlds serve, its far cache where they keep it.
+    const p = join(root, 'field');
+    cpSync(projectDir, p, { recursive: true });
+    const world = join(p, 'voxels', 'far');
+    const cacheDir = farCacheDir(p, 'far');
+    await buildFarCacheInPool(pool, world, cacheDir);
+    const m = readFarCacheManifest(cacheDir);
+    // A file opened again after an edit is read afresh (the cache's rewritten files are new files, as a range read sees them).
+    const opened: DiskRegions[] = [];
+    const open = (level: number, name: string) => {
+      const d = new DiskRegions(join(cacheDir, `L${level}`));
+      opened.push(d);
+      return d.open(name);
+    };
+    const source = regionFarSource({ worldId: hexToBytes(m.worldId), grid: FAR_WORLD_GRID, footprint: m.footprint, minLevel: m.minLevel, maxLevel: m.maxLevel, levels: m.levels, maxOpen: 16, open });
+    const file = await bundleWorker('stream-worker-node', join(REPO, 'dist', 'voxel-bench', `far-field-worker-${process.pid}.mjs`));
+    const workers = new WorkerPool({ size: 2, create: () => nodePoolWorker(file), ...STREAM_POOL_SETTINGS });
+    try {
+      const far = new FarField({ source, errorPixels: 2 }, { grid: FAR_WORLD_GRID, pool: workers, rules: WORLD_RULES });
+      const shown = new Map<string, FarNodeDraw>();
+      const events: FarEvent[] = [];
+      far.on((e) => {
+        events.push(e);
+        for (const n of e.removed) shown.delete(mipNodeKey(n));
+        for (const a of e.added) shown.set(mipNodeKey(a), a);
+        // Never two drawn nodes over one place: no drawn node has a drawn ancestor.
+        for (const a of shown.values()) for (let l = a.level + 1; l <= m.maxLevel; l++) expect(shown.has(mipNodeKey({ level: l, nx: a.nx >> (l - a.level), ny: a.ny >> (l - a.level), nz: a.nz >> (l - a.level) })), mipNodeKey(a)).toBe(false);
+      });
+      far.setEye(0, 8, 0);
+      far.update();
+      await far.settle();
+      const metrics = far.metrics();
+      expect(metrics.problem).toBeNull();
+      expect(metrics.pending).toBe(0);
+      expect(metrics.drawn).toBe(metrics.nodes);
+      expect(shown.size).toBeGreaterThan(8);
+      // Nearest at the lowest level, coarser away from the eye.
+      expect(Math.min(...[...shown.values()].map((d) => d.level))).toBe(m.minLevel);
+      let skirts = 0;
+      const looks = new Set<number>();
+      for (const d of shown.values()) {
+        skirts += d.mesh.skirtTriangles;
+        const view = new DataView(d.mesh.vertices.buffer, d.mesh.vertices.byteOffset, d.mesh.vertices.byteLength);
+        for (let v = 0; v < d.mesh.vertexCount; v++) looks.add(farVertexLook(view.getUint16(v * FAR_VERTEX_BYTES + 6, true)).material);
+      }
+      expect(skirts).toBeGreaterThan(0);
+      // Every vertex has the material of a cell of the world behind it (the ground's and the town's), never air.
+      expect(looks.has(0), `${[...looks]}`).toBe(false);
+      for (const mat of [MAT.grass, MAT.rock]) expect(looks.has(mat), `${[...looks]}`).toBe(true);
+      // Two drawn neighbours of one level meet edge for edge on the face between them (without skirts): no crack.
+      let faces = 0;
+      let worstGap = 0;
+      for (const a of shown.values()) {
+        const b = shown.get(mipNodeKey({ level: a.level, nx: a.nx + 1, ny: a.ny, nz: a.nz }));
+        if (b === undefined) continue;
+        const ea = planeEdges(a, 0, (a.nx + 1) * 32);
+        const eb = planeEdges(b, 0, b.nx * 32);
+        if (ea.size === 0 && eb.size === 0) continue;
+        faces++;
+        // The same boundary line from both sides: every end of one side's edges lies on an edge of the other's (a merged
+        // face on one side may span what the other splits, never leaving a gap).
+        // What one side's edges on the plane end on: the other side's edges there (its nodes above and below too: the
+        // surface may cross into them right at the plane) and its own faces lying in the plane.
+        const column = (y: FarNodeDraw): FarNodeDraw[] => [y, ...[-1, 1].flatMap((dy) => shown.get(mipNodeKey({ level: y.level, nx: y.nx, ny: y.ny + dy, nz: y.nz })) ?? [])];
+        const meets = (x: FarNodeDraw, y: FarNodeDraw, px: number, py: number): Set<string> => new Set([...column(y).flatMap((c) => [...planeEdges(c, 0, py, 'all')]), ...column(x).flatMap((c) => [...planeEdges(c, 0, px, 'lying')])]);
+        const s = 2 ** a.level;
+        worstGap = Math.max(worstGap, farthestEnd(ea, meets(a, b, (a.nx + 1) * 32, b.nx * 32), s), farthestEnd(eb, meets(b, a, b.nx * 32, (a.nx + 1) * 32), s));
+      }
+      expect(faces).toBeGreaterThan(0);
+      expect(worstGap).toBe(0);
+      // An edit through the workspace's commands: the backend rebuilds the cache's ancestors, the far field reads them again.
+      const worlds = new VoxelWorlds({ projectDir: (id) => (id === 'p' ? p : null) });
+      const r = await worlds.command('p', { op: 'editVoxels', projectId: 'p', args: { world: 'far', command: { v: 2, grid: 0, kind: 'fill', min: [-40, -30, -40], max: [-8, 40, -8], mode: 'dig' } } });
+      expect(r.ok && r.far).toMatchObject({ nodes: expect.any(Number) });
+      const chunks = r.ok ? r.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })) : [];
+      const l2 = farAncestors(chunks, m.minLevel, m.minLevel).map(mipNodeKey);
+      const before = new Map([...shown].filter(([k]) => l2.includes(k)).map(([k, d]) => [k, d.mesh.vertices.slice()]));
+      expect(before.size).toBeGreaterThan(0);
+      const seen = events.length;
+      far.refresh(chunks);
+      await far.settle();
+      const again = events.slice(seen).flatMap((e) => e.added.map(mipNodeKey));
+      for (const k of before.keys()) {
+        expect(again, k).toContain(k);
+        expect(Buffer.from(shown.get(k)!.mesh.vertices).equals(Buffer.from(before.get(k)!)), k).toBe(false);
+      }
+      far.close();
+    } finally {
+      for (const d of opened) await d.close();
+      workers.close();
+      rmSync(file, { force: true });
+    }
   }, 120_000);
 });

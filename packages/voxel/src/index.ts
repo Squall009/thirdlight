@@ -246,7 +246,7 @@ export { faceLevels, StreamSeams, type LevelSelection, type SeamEvent, type Seam
 export { COLLISION_ADD_MS_PER_UPDATE, COLLISION_PART, COLLISION_RING_HYSTERESIS_CELLS, CollisionRing, collisionRingBounds, type CollisionBodies, type CollisionRingBounds, type CollisionRingFeed, type CollisionRingOptions, type CollisionRingUpdate } from './collision-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { joinCollision, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
-export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkReliefWire, type ChunkSwapWire, type DrawSurface, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
+export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkReliefWire, type ChunkSwapWire, type DrawSurface, type FarDrawWire, type NearCoverWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
 export { applyWorldRings, worldLevelRings, worldPieceTable, worldReliefRing, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres, type WorldRingSettings } from './world-streamer';
@@ -414,9 +414,11 @@ export {
   type FarSource,
   type FarView,
 } from './far-tree';
+export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, type FarMesh, type FarMeshInput } from './far-mesh';
+export { FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_BY_TIER, FAR_FIELD_MODES, FAR_JOBS_IN_FLIGHT, FAR_RESELECT_CELLS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, farEventBytes, regionFarSource, type FarCacheLevelFiles, type FarEvent, type FarFieldHost, type FarFieldMode, type FarFieldOptions, type FarNodeDraw, type FarNodeSource, type RegionFarSourceOptions } from './far-field';
 export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
 export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, SEAM_RIM_CELLS, SEAM_WALK_STEPS, type FaceSeam, type NodeFace, type SeamCounts, type SeamFaceInput, type SeamPiece, type SeamSurface } from './lod-seam';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';
 export { PROP_COVERAGE_PART, PropLightChannel, type PropChannelHost } from './prop-channel';
 export { VoxelOverlay } from './voxel-overlay';
-export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';
+export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedFarFile, shippedFarSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedFarCache, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';

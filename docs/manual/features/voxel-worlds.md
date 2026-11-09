@@ -243,18 +243,44 @@ the plain surfaces: relief only ever recesses.
   surface's normals still shade it. `?reliefShadow=relief` casts from the
   relief meshes instead, to compare.
 
+### The far field
+
+Past the load ring the world is drawn by its **far field**, as far as the
+world reaches: there is no distance past which nothing is drawn, and a
+mountain kilometres away shows above the horizon. The far field draws the
+world's coarser voxels (2 m cells and up, coarser with distance) meshed from
+the world's **far cache**, which the backend builds beside the world (in the
+project's `cache/` folder, never committed), keeps current with every edit
+command, and an export ships with the world.
+
+- **Mode and detail, by quality level.** A quality level's **Voxel far
+  field** is `mesh` (default on every tier) or `off` (nothing past the load
+  ring); its **Voxel far detail** is how many pixels a far voxel may cover
+  before finer ones are drawn (low 8, medium 4, high 2; smaller is sharper
+  and draws more). A second mode, ray-marched bricks, comes next; which mode
+  is the default is decided once both are measured.
+- **Where it meets the near field.** The far field draws under the near
+  field and is hidden wherever the near field draws, chunk by chunk, so
+  ground the near rings have not streamed in yet shows its far stand-in,
+  never a hole; along the near field's edge both draw for one chunk, the near
+  field in front.
+- **What it shows.** Each far voxel takes its material's colour (its texture
+  set's mean colour where it has one) and its wetness; kit pieces, relief
+  and openings narrower than 1 m are not drawn there. A game's runtime edits
+  (`ctx.voxels`) show in the near field only; edit commands reach the far
+  field too.
+- On the voxel world page, `?farField=off|mesh` and `?farError=` (pixels)
+  override the quality level's; `?farShow=0` keeps the far draws hidden.
+
 Limits today:
 
-- **Tall ground far away.** The load ring reaches 96 m above and below the
-  focus, and the coarse rings stop short of its top and bottom. A mountain or
-  cliff rising more than about 64 m above the camera loses its top beyond
-  about 96 m. The 2 m ring is not drawn with the default 192 m load ring:
-  the 1 m ring stands in to its edge.
 - **A rare gap between levels.** Where two caves meet in a saddle that the
   two levels join differently, a small hole (about 1 × 5 m) can show at a
   level boundary inside the cave.
-- Nothing is drawn past the load ring. At its edge the world ends per 8 m
-  section: a section that reads a chunk past the ring is not drawn.
+- **Far field cost.** A far field of thousands of nodes takes several million
+  triangles at medium (5 M from the 8 km test world's town) and meshes for
+  tens of seconds after a world opens; a larger **Voxel far detail** draws
+  fewer.
 
 ## In the editor
 
@@ -340,7 +366,8 @@ The voxel object's **Decal layers** choose which decals mark the world.
 ## Exports
 
 An export ships each world its scenes name with all of the world's region
-files, whole (about 4–6 MB per km² for the test world). Each file is checked
+files, whole (about 4–6 MB per km² for the test world), and its far cache's
+files (about a tenth of that). Each file is checked
 against its digest when the game reads it. The exported game needs no
 backend and makes no range requests. An export is refused when a world it
 names is missing or has a missing or damaged region file. The project's
@@ -665,8 +692,7 @@ triangle).
 
 These come later; worlds made now keep working when they arrive:
 
-- **The far field**: the world past the load ring, and tall ground far
-  away (above).
+- **The far field as ray-marched bricks**, the second far field mode.
 - **Kits**: a kit page in the editor (slots assigned by drag and drop; for
   now through `setVoxelKit`), and a kit's own textures drawn (pieces show the
   debug set of their sheet layout until materials arrive); the fringe where

@@ -62,6 +62,12 @@
  * pyramid; WebGL 2 has no such path and draws what the CPU culling keeps);
  * `?occlusion=off` draws through the same scene pass without it, to compare.
  *
+ * Past the load ring the world's far field draws the far cache's nodes as
+ * meshes (the backend builds the cache on the first read and keeps it current
+ * with every command), under the near field and hidden where it draws:
+ * `?farField=off|mesh` and `?farError=` (pixels) override the quality
+ * level's; `?farShow=0` keeps the far draws hidden.
+ *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
  * the catalogue built from voxels, `writeKitTestScene`: the same command MCP
  * sends; a scene already there is left as it is) and labels each exhibit
@@ -99,7 +105,7 @@ import {
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
-import { bindViewInput, cellPicker, pageLevel, pageOcclusion, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
+import { bindViewInput, cellPicker, pageFar, pageFarHooks, pageFarState, pageLevel, pageOcclusion, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { backendArrays, PageMaterials } from './page-materials';
 import { kitSceneHooks } from './kit-scene-labels';
@@ -261,13 +267,16 @@ async function main(): Promise<void> {
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { ...reliefOptions, look: materials.look(), blendMetres: blendM, shading, bands, patterns });
   materials.attach(surface);
   const level = pageLevel(textureResidency.quality, relief.params);
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const far = pageFar(params, level);
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, errorPixels: far.errorPixels }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   relief.attach(surface, streamer.relief, level.relief);
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters });
   const gpu = createGpuTiming();
   // `?occlusion=`: drawn through the engine's culler and a scene pass (none: the page draws the scene itself).
   const occlusion = pageOcclusion(renderer, backendName, scene, camera);
   scene.add(meshes.root);
+  // `?farShow=0`: the far field selects and meshes but its draws stay hidden (the hook's `showFar` shows them).
+  if (params.get('farShow') === '0') meshes.far.setVisible(false);
   const ring = params.get('collision') === '0' ? null : await PageCollisionRing.create(grid, origin, streamer, params.get('heightfields') === 'level' ? 'level' : params.get('heightfields') !== '0', params.get('collisionRing') !== '0');
   const collision = ring?.collision ?? null;
   origin.onRebase(() => meshes.rebase());
@@ -298,7 +307,7 @@ async function main(): Promise<void> {
     levelLog.batch(b, frames, ms);
     const drawnChunks = done.chunkBytes.length / 4;
     if (drawnChunks > 0) meshMs.add(ms / drawnChunks);
-    batcher.drawn(done.chunkBytes, done.coarseBytes, kits.meshes.gpuBytes());
+    batcher.drawn(done.chunkBytes, done.coarseBytes, kits.meshes.gpuBytes(), done.farBytes);
   }, {
     inPlace: true,
     onJoined: (cx, cy, cz, joined, shaderOnly, drawn) => {
@@ -489,7 +498,7 @@ async function main(): Promise<void> {
     frames++;
     if (frames % 15 === 0) {
       const m = streamer.metrics();
-      hud.textContent = `${backendName} · ${worldName} r${world.revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${notice === '' ? '' : `${notice}\n`}${m.resident} chunks (${meshes.levelCounts().join(' / ')} drawn by level, ${meshes.seamCount} seams), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
+      hud.textContent = `${backendName} · ${worldName} r${world.revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${notice === '' ? '' : `${notice}\n`}${m.resident} chunks (${meshes.levelCounts().join(' / ')} drawn by level, ${meshes.seamCount} seams), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces · far ${meshes.far.nodes} nodes, ${meshes.far.triangles} tris\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
     }
     requestAnimationFrame(frame);
   }
@@ -526,6 +535,7 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
+    ...pageFarHooks(streamer, meshes.far),
     /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);
@@ -559,7 +569,7 @@ async function main(): Promise<void> {
     /** The picker's voxel materials, the one shift-click adds, picking one, and reading the records again. */
     materials: () => ({ entries: materials.entries, picked: materials.material, options: [...materials.select.options].map((o) => o.text) }),
     ...materials.hooks(),
-    setQuality: pageQualityHook(materials.hooks()['setQuality'] as (id: string) => unknown, streamer, relief),
+    setQuality: pageQualityHook(materials.hooks()['setQuality'] as (id: string) => unknown, streamer, relief, far.pinned),
     tableEntry: (m: number) => surface.tableEntry(m),
     async settle(): Promise<void> {
       await kits.loaded;
@@ -599,6 +609,7 @@ async function main(): Promise<void> {
         mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, gpuBytes: mips.gpuBytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         relief: relief.state(m.relief),
+        far: pageFarState(streamer, meshes.far),
         shadows,
         reliefCasters,
         textures: { ...materials.textures, current: materials.texturesCurrent, textured: surface.textured },

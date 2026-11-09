@@ -53,6 +53,7 @@ import {
   writeSave,
   type ChunkGrid,
   type ChunkSource,
+  type FarNodeSource,
   type CollisionBodies,
   type CollisionSource,
   type Focus,
@@ -104,6 +105,8 @@ export interface VoxelWorldConnection {
   readonly budgetBytes?: number;
   /** The kit piece table its derives choose detail pieces from (the project's kits and piece seed, `worldPieceTable`; absent: no pieces). */
   readonly pieces?: PieceTable | null;
+  /** The world's far cache (absent: nothing is drawn past the near rings). */
+  readonly far?: FarNodeSource;
   /** Lets go of what the source holds (open files, connections); called once when the world unloads. */
   close?(): void;
   /**

@@ -8,9 +8,9 @@
  * move, click to pick, Z to undo).
  */
 import * as THREE from 'three';
-import { createOcclusionFrame, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
-import { reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FloatingOrigin, type ReliefRingSettings, type StreamRelief } from '@thirdlight/voxel';
-import { engineQualityLevel, resolveVoxelWorld } from '@thirdlight/project-model/voxel-world';
+import { createOcclusionFrame, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
+import { reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
+import { engineQualityLevel, resolveVoxelWorld, type ResolvedVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
 const SHADOW_SPAN_M = 80;
@@ -40,21 +40,50 @@ export function reliefParams(params: URLSearchParams): ReliefParams {
 }
 
 /** What a quality level gives the page's world, as a scene with no distances of its own resolves it: the stream budget and the relief ring (cells). */
-export function pageLevel(quality: string, p: ReliefParams): { readonly id: string; readonly budgetBytes: number; readonly relief: ReliefRingSettings } {
+export function pageLevel(quality: string, p: ReliefParams): { readonly id: string; readonly budgetBytes: number; readonly relief: ReliefRingSettings; readonly far: ResolvedVoxelWorld['far'] } {
   const level = engineQualityLevel(quality);
   const s = resolveVoxelWorld({ world: 'page' }, level);
   const radiusM = p.radiusM ?? s.levels.relief;
   const n = p.n === null ? 0 : p.n === 'tier' ? s.reliefSteps : p.n;
-  return { id: level.id, budgetBytes: s.budgetBytes ?? VOXEL_STREAM_BUDGET_BYTES.low, relief: { n, radius: n === 0 ? 0 : radiusM / VOXEL_SIZE_M } };
+  return { id: level.id, budgetBytes: s.budgetBytes ?? VOXEL_STREAM_BUDGET_BYTES.low, relief: { n, radius: n === 0 ? 0 : radiusM / VOXEL_SIZE_M }, far: s.far };
 }
 
-/** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, and with `?relief=tier` its relief ring. */
-export function pageQualityHook(textures: (id: string) => unknown, streamer: { budgetBytes: number }, relief: PageRelief): (id: string) => unknown {
+/**
+ * The page's far field switch (`?farField=mesh|off`, default the quality level's mode) and detail
+ * (`?farError=` pixels, default the level's): what the streamer's far field is made with.
+ */
+export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; errorPixels: number; pinned: boolean } {
+  const mode = params.get('farField');
+  const error = params.get('farError');
+  return { enabled: (mode ?? level.far.mode) === 'mesh', errorPixels: error === null ? level.far.errorPixels : Number(error), pinned: mode !== null || error !== null };
+}
+
+/** The hook's far field controls: on or off and its detail (pixels a far node's cell may cover), and a wait until it draws its selection. */
+export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): { setFar(o: { enabled?: boolean; errorPixels?: number }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
+  return {
+    setFar: (o) => streamer.far?.setView(o),
+    settleFar: async () => {
+      await streamer.far?.settle();
+    },
+    // Hides the far draws without changing what the far field selects (a picture of the near field alone).
+    showFar: (on) => view.setVisible(on),
+  };
+}
+
+/** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
+export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
+  if (streamer.far === null) return null;
+  return { ...streamer.far.metrics(), gpuBytes: view.bytes, triangles: view.triangles, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+}
+
+/** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */
+export function pageQualityHook(textures: (id: string) => unknown, streamer: { budgetBytes: number; readonly far: { setView(o: { enabled?: boolean; errorPixels?: number }): void } | null }, relief: PageRelief, farPinned = false): (id: string) => unknown {
   return (id) => {
     const out = textures(id);
     const l = pageLevel(id, relief.params);
     streamer.budgetBytes = l.budgetBytes;
     relief.setRing(l.relief);
+    if (!farPinned) streamer.far?.setView({ enabled: l.far.mode === 'mesh', errorPixels: l.far.errorPixels });
     return out;
   };
 }

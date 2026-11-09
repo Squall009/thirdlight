@@ -11,6 +11,10 @@
  * have that. One `bytes=` range per request (what the chunk source sends);
  * anything else gets the whole file, as RFC 9110 lets a server do.
  *
+ * A world's far cache (the far field's nodes, rebuilt by the workspace on
+ * every change and built whole when missing) is served the same way under
+ * `…/far`: its manifest and files, each file by range.
+ *
  * Play reads the same worlds on the preview origin under its play's
  * locator (`reads`, see preview-routes.ts): the locator is the permission
  * there, as for the play's other files, and no token reaches that origin.
@@ -67,7 +71,23 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
 
   /** A region file, whole or one byte range (the caller checked who may read it). */
   const sendRegion = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void> => {
-    const r = await worlds.regionFile(projectId, world, file);
+    sendFile(req, res, await worlds.regionFile(projectId, world, file), file);
+  };
+
+  /** The far cache's manifest and files with their tags (the caller checked who may read them). */
+  const sendFarInfo = async (res: ServerResponse, projectId: string, world: string): Promise<void> => {
+    const r = await worlds.farInfo(projectId, world);
+    // A cache being built is not a failure: 202 (the client asks again), so a page's console stays clean meanwhile.
+    sendJson(res, r.ok ? 200 : r.error.code === 'far_cache_building' ? 202 : statusFor(r.error.cls), r);
+  };
+
+  /** A far cache file (`L<level>/<name>`), whole or one byte range (the caller checked who may read it). */
+  const sendFarFile = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, level: string, file: string): Promise<void> => {
+    sendFile(req, res, await worlds.farFile(projectId, world, level, file), `${level}/${file}`);
+  };
+
+  /** A world file the workspace answered for, whole or one byte range, with its tag. */
+  const sendFile = (req: IncomingMessage, res: ServerResponse, r: Awaited<ReturnType<VoxelWorlds['regionFile']>>, file: string): void => {
     if (!r.ok) {
       sendJson(res, statusFor(r.error.cls), r);
       return;
@@ -119,6 +139,20 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     else await sendRegion(req, res, projectId, world, file);
   };
 
+  /** GET …/voxels/:world/far — the far cache's manifest and files with their tags. */
+  const farInfo = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string): Promise<void> => {
+    const auth = requireAuth(req, projectId, false);
+    if (auth !== null) sendError(res, auth);
+    else await sendFarInfo(res, projectId, world);
+  };
+
+  /** GET …/voxels/:world/far/:level/:file — a far cache file, whole or one byte range. */
+  const farRegion = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, level: string, file: string): Promise<void> => {
+    const auth = requireAuth(req, projectId, false);
+    if (auth !== null) sendError(res, auth);
+    else await sendFarFile(req, res, projectId, world, level, file);
+  };
+
   /** A voxel world command from the command route (envelope already parsed as strict JSON). */
   const command = async (res: ServerResponse, projectId: string, envelope: Record<string, unknown>): Promise<void> => {
     const r = await worlds.command(projectId, envelope);
@@ -131,5 +165,5 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     sendJson(res, statusFor(r.error.cls), r);
   };
 
-  return { info, region, command, reads: { info: sendInfo, region: sendRegion } };
+  return { info, region, farInfo, farRegion, command, reads: { info: sendInfo, region: sendRegion, farInfo: sendFarInfo, farFile: sendFarFile } };
 }

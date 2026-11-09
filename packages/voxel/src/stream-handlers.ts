@@ -33,6 +33,7 @@ import { stampShapeHash, type StampResolver } from './stamp-shape';
 import { encodeUndoRecord } from './undo-store';
 import { downsampleMip } from './voxel-mips';
 import { buildFaceSeam, type SeamFaceInput } from './lod-seam';
+import { farMeshTransfer, meshFarNode, type FarMeshInput } from './far-mesh';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
 
 export interface StreamHandlerOptions {
@@ -351,6 +352,18 @@ function seam(raw: unknown): JobResult {
   return { output, transfer };
 }
 
+/** A far node's mesh (far-mesh.ts) from its cells and its neighbours' as the far cache stores them. */
+function farMesh(opts: StreamHandlerOptions, raw: unknown): JobResult {
+  const input = raw as FarMeshInput;
+  const store = storeFor(input.edge);
+  try {
+    const output = meshFarNode(store, input, opts.decompress);
+    return { output, transfer: farMeshTransfer(output) };
+  } finally {
+    clear(store);
+  }
+}
+
 /** The stream job handlers ({@link serveJobs} serves them). */
 export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
   return {
@@ -360,6 +373,7 @@ export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
     derive: (input) => derive(input),
     mip: (input) => mip(input),
     seam: (input) => seam(input),
+    'far-mesh': (input) => farMesh(opts, input),
   };
 }
 

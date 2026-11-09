@@ -41,6 +41,7 @@ import {
   chunkGrid,
   CHUNK_EDGES,
   editBounds,
+  editChunks,
   fieldsFeed,
   materialSwap,
   swapFrom,
@@ -73,8 +74,9 @@ import { isVoxelWorldOp, type VoxelWorldOp } from '@thirdlight/commands/mutation
 import { parseOrigin } from '@thirdlight/commands';
 import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
-import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
+import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, REGION_WORLD_RESIDENT_BYTES, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
 import { writeAtomic, type WriteOps } from './write';
+import { buildFarCache, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, readFarCacheManifest, rebuildFarCache, yieldingFarRunner, type FarCacheManifest } from './voxel-far-cache';
 
 /** The project folder holding its voxel worlds, one folder each. */
 export const VOXEL_WORLDS_FOLDER = 'voxels';
@@ -230,10 +232,26 @@ export type VoxelWorldInfo = { ok: true; world: string; manifest: VoxelWorldMani
 
 /** A world's files as an export ships them (`VoxelWorlds.shippedFiles`). */
 export type ShippedWorldFiles =
-  | { ok: true; world: { world: string; worldId: string; edge: ChunkEdge; layout: RegionLayout; footprint: RegionFootprint; revision: number }; files: Array<{ name: string; path: string; digest: string; byteLength: number }> }
+  | {
+      ok: true;
+      world: { world: string; worldId: string; edge: ChunkEdge; layout: RegionLayout; footprint: RegionFootprint; revision: number };
+      files: Array<{ name: string; path: string; digest: string; byteLength: number }>;
+      /** The world's far cache, current with its revision: what the far field draws (its files named `L<level>/<name>`). */
+      far: { minLevel: number; maxLevel: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }> };
+    }
   | { ok: false; code: string; message: string };
 
 export type RegionFileAnswer = { ok: true; path: string; etag: string } | { ok: false; error: VoxelWorldError };
+
+/**
+ * A world's far cache as served: its manifest and its files (`L<level>/<name>`)
+ * with their tags, current with the world's revision. While it is being
+ * built (missing, or of an older revision) the answer is `far_cache_building`.
+ */
+export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest; files: Array<{ name: string; etag: string }> } | { ok: false; error: VoxelWorldError };
+
+/** A far cache's level file folder name (`L<level>`). */
+const FAR_LEVEL_RE = /^L(\d{1,2})$/;
 
 /** What an applied voxel command answers. */
 export interface VoxelCommandApplied {
@@ -243,6 +261,12 @@ export interface VoxelCommandApplied {
   readonly world: string;
   /** The world's revision after the change. */
   readonly revision: number;
+  /**
+   * The far cache after the change: the nodes rebuilt (the changed chunks'
+   * ancestors) and the ms it took, or why it was not (it is then built
+   * again whole when next read); null when the world has none yet.
+   */
+  readonly far: { readonly nodes: number; readonly ms: number } | { readonly stale: string } | null;
   /** Cells whose voxel changed. */
   readonly cells: number;
   /** The chunks whose content changed ([cx, cy, cz] each): what a client re-reads. */
@@ -310,6 +334,10 @@ interface OpenWorld extends WorldState {
   readonly projectId: string;
   readonly name: string;
   readonly dir: string;
+  /** The world's far cache folder. */
+  readonly farDir: string;
+  /** Far cache file tags by path, with the stamp they were taken at. */
+  readonly farTags: Map<string, { stamp: string; hash: string }>;
   readonly answers: Map<string, VoxelCommandApplied>;
   queue: Promise<unknown>;
 }
@@ -321,6 +349,8 @@ export interface VoxelWorldsOptions {
   projectDir(projectId: string): string | null;
   /** The file operations of region and manifest writes (tests inject failures here). */
   readonly writeOps?: WriteOps;
+  /** Store bytes each open world keeps of its clean region files (default {@link REGION_WORLD_RESIDENT_BYTES}). */
+  readonly residentBytes?: number;
 }
 
 function fileStamp(path: string): string {
@@ -343,6 +373,10 @@ function fileStamp(path: string): string {
  */
 export class VoxelWorlds {
   private readonly open = new Map<string, Promise<OpenWorld | { ok: false; error: VoxelWorldError }>>();
+  /** The worlds opened, by their pending open (what {@link residency} reads without waiting). */
+  private readonly known = new WeakMap<Promise<unknown>, OpenWorld>();
+  /** Far cache builds queued or running, by world. */
+  private readonly farBuilds = new Map<string, Promise<void>>();
 
   constructor(private readonly opts: VoxelWorldsOptions) {}
 
@@ -353,6 +387,10 @@ export class VoxelWorlds {
     if (p === undefined) {
       p = this.openWorld(projectId, name);
       this.open.set(key, p);
+      const opened = p;
+      void opened.then((w) => {
+        if (!('ok' in w)) this.known.set(opened, w);
+      });
       // A world that could not be opened is tried again next time (it may be written meanwhile).
       void p.then((w) => {
         if ('ok' in w && this.open.get(key) === p) this.open.delete(key);
@@ -367,7 +405,7 @@ export class VoxelWorlds {
     const dir = join(projectDir, VOXEL_WORLDS_FOLDER, name);
     const state = await this.readState(projectDir, dir, name);
     if ('ok' in state) return state;
-    return { projectId, name, dir, ...state, answers: new Map(), queue: Promise.resolve() };
+    return { projectId, name, dir, farDir: farCacheDir(projectDir, name), farTags: new Map(), ...state, answers: new Map(), queue: Promise.resolve() };
   }
 
   /** Reads a world folder: manifest, region files, a fresh undo store and the files' stamps. */
@@ -389,7 +427,8 @@ export class VoxelWorlds {
     const stamps = new Map<string, string>([[manifestPath, manifestStamp]]);
     // Stamped before the read: a change while reading moves the stamp, and the next check reads the world again.
     for (const file of manifest.regions) stamps.set(join(gridDir, file), fileStamp(join(gridDir, file)));
-    const { world } = await RegionWorld.open(gridDir, opts, manifest.regions);
+    // Opened on demand: a file's chunks load when an edit reaches them, so a world of any size is served in bounded memory.
+    const world = RegionWorld.scan(gridDir, opts, manifest.regions, this.opts.residentBytes);
     // Undo records of an earlier run (or of the files before someone else changed them) are gone: the folder starts empty.
     const spillDir = join(projectDir, 'cache', 'voxel-undo', name);
     rmSync(spillDir, { recursive: true, force: true });
@@ -468,6 +507,22 @@ export class VoxelWorlds {
   }
 
   /**
+   * What an open world holds in this process: the store bytes of its loaded
+   * region files, how many of its listed files are loaded, and the loads
+   * and drops since it opened (null: not open).
+   */
+  residency(projectId: string, name: string): { residentBytes: number; loaded: number; listed: number; loads: number; drops: number } | null {
+    const p = this.open.get(`${projectId}\u0000${name}`);
+    if (p === undefined) return null;
+    const known = this.known.get(p);
+    if (known === undefined) return null;
+    const world = known.world;
+    let loaded = 0;
+    for (const f of world.files.values()) if (f.loaded && f.hash !== null) loaded++;
+    return { residentBytes: world.residentBytes, loaded, listed: world.listedRegions().length, loads: world.counters.loads, drops: world.counters.drops };
+  }
+
+  /**
    * Where a region file is and its entity tag (the hash of its bytes as
    * this process wrote or read them). A region the world does not list is
    * not found: a client reads its chunks as air. A listed region that is
@@ -487,6 +542,96 @@ export class VoxelWorlds {
       if (f === undefined || f.hash === null) return refuse('region_not_found', 'not_found', `voxel world ${name} has no region ${file}`);
       return { ok: true, path: join(w.world.dir, file), etag: f.hash };
     });
+  }
+
+  /**
+   * The world's far cache, current with its revision: built first when it
+   * is missing or stale (in this thread, a region column at a time with the
+   * event loop given back between columns, inside the world's queue so no
+   * command changes the world under it), answered `far_cache_building`
+   * meanwhile.
+   */
+  async farInfo(projectId: string, name: string): Promise<VoxelFarInfo> {
+    const w = await this.load(projectId, name);
+    if ('ok' in w) return w;
+    const stale = farCacheStale(w.farDir, w.manifest);
+    if (stale !== null) {
+      void this.buildFar(w);
+      return refuse('far_cache_building', 'conflict', `voxel world ${name}'s far cache is being built (${stale}); ask again shortly`);
+    }
+    return this.queued(w, async (): Promise<VoxelFarInfo> => {
+      const fresh = await this.refresh(w);
+      if (!Array.isArray(fresh)) return fresh;
+      const now = farCacheStale(w.farDir, w.manifest);
+      if (now !== null) {
+        void this.buildFar(w);
+        return refuse('far_cache_building', 'conflict', `voxel world ${name}'s far cache is being built (${now}); ask again shortly`);
+      }
+      const files = farCacheFiles(w.farDir).slice(1).map((f) => ({ name: f, etag: this.farTag(w, f) }));
+      return { ok: true, world: name, manifest: readFarCacheManifest(w.farDir), files };
+    });
+  }
+
+  /** Builds a world's far cache in its queue unless a build is queued already. */
+  private buildFar(w: OpenWorld): Promise<void> {
+    const key = `${w.projectId}\u0000${w.name}`;
+    let p = this.farBuilds.get(key);
+    if (p !== undefined) return p;
+    p = this.queued(w, async () => {
+      if (farCacheStale(w.farDir, w.manifest) === null) return;
+      w.farTags.clear();
+      await buildFarCache(w.dir, w.farDir, { run: yieldingFarRunner(w.dir) });
+    })
+      .catch(() => undefined)
+      .finally(() => this.farBuilds.delete(key));
+    this.farBuilds.set(key, p);
+    return p;
+  }
+
+  /** A far cache file's tag (the hash of its bytes), taken again only when its stamp moved. */
+  private farTag(w: OpenWorld, file: string): string {
+    const path = join(w.farDir, file);
+    const stamp = fileStamp(path);
+    const had = w.farTags.get(path);
+    if (had !== undefined && had.stamp === stamp) return had.hash;
+    const hash = sha256HexNative(readFileSync(path));
+    w.farTags.set(path, { stamp, hash });
+    return hash;
+  }
+
+  /** Where a far cache file is and its tag (`level`: `L<n>`), when the cache lists it (a stale one is built again meanwhile). */
+  async farFile(projectId: string, name: string, level: string, file: string): Promise<RegionFileAnswer> {
+    if (!FAR_LEVEL_RE.test(level) || !REGION_FILE_NAME_RE.test(file)) return refuse('invalid_request', 'validation', 'not a far cache file name', '/file');
+    const w = await this.load(projectId, name);
+    if ('ok' in w) return w;
+    return this.queued(w, async (): Promise<RegionFileAnswer> => {
+      // A stale cache (the world changed on disk) is served as it is while it is built again: a page drawing it
+      // keeps the old far field rather than a hole, and the build replaces the folder whole.
+      if (farCacheStale(w.farDir, w.manifest) !== null) void this.buildFar(w);
+      const rel = `${level}/${file}`;
+      if (!farCacheFiles(w.farDir).includes(rel)) return refuse('region_not_found', 'not_found', `voxel world ${name}'s far cache has no ${rel}`);
+      return { ok: true, path: join(w.farDir, level, file), etag: this.farTag(w, rel) };
+    });
+  }
+
+  /**
+   * After a change written in full: the far cache's ancestors of the
+   * changed chunks rebuilt (it was current before the change), else the
+   * reason it is now stale (built again whole when next read).
+   */
+  private farAfter(w: OpenWorld, before: number, chunks: ReadonlyArray<readonly [number, number, number]>): VoxelCommandApplied['far'] {
+    const stale = farCacheStale(w.farDir, { ...w.manifest, revision: before });
+    if (stale === 'not built') return null;
+    if (stale !== null) return { stale };
+    try {
+      const r = rebuildFarCache(w.dir, w.farDir, chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })));
+      return { nodes: r.rebuilt.length, ms: r.ms };
+    } catch (e) {
+      // A cache that could not be rebuilt is dropped: the next read builds it whole.
+      rmSync(w.farDir, { recursive: true, force: true });
+      w.farTags.clear();
+      return { stale: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   /**
@@ -510,7 +655,18 @@ export class VoxelWorlds {
         const path = join(w.world.dir, file);
         files.push({ name: file, path, digest: f.hash, byteLength: statSync(path).size });
       }
-      return { ok: true, world: { world: name, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, revision: m.revision }, files };
+      if (farCacheStale(w.farDir, m) !== null) {
+        w.farTags.clear();
+        await buildFarCache(w.dir, w.farDir, { run: yieldingFarRunner(w.dir) });
+      }
+      const far = readFarCacheManifest(w.farDir);
+      const farFiles = farCacheFiles(w.farDir)
+        .slice(1)
+        .map((f) => {
+          const path = join(w.farDir, f);
+          return { name: f, path, digest: this.farTag(w, f), byteLength: statSync(path).size };
+        });
+      return { ok: true, world: { world: name, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, revision: m.revision }, files, far: { minLevel: far.minLevel, maxLevel: far.maxLevel, files: farFiles } };
     });
   }
 
@@ -568,6 +724,7 @@ export class VoxelWorlds {
     if (op === 'editVoxels') {
       try {
         const cmd = canonicalEditCommand(a.command);
+        await w.world.ensure(editChunks(w.world.opts.grid, cmd));
         const out = w.world.edit(cmd);
         if (out.cells === 0) return refuse('no_change', 'validation', 'the stroke changes no voxel');
         record = out.chunks;
@@ -581,7 +738,7 @@ export class VoxelWorlds {
         throw e;
       }
     } else if (op === 'writeKitTestScene') {
-      const made = this.writeScene(w, a);
+      const made = await this.writeScene(w, a);
       if (!made.ok) return made;
       ({ record, cells, box, parts, materialSwaps } = made);
       scene = made.scene;
@@ -589,6 +746,7 @@ export class VoxelWorlds {
       undone = w.history.pop() ?? null;
       if (undone === null) return refuse('nothing_to_undo', 'validation', `voxel world ${w.name} has no edit to undo`);
       record = await w.undo.take(undone.id);
+      await w.world.ensure(record);
       const store = w.world.store;
       redo = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: store.encodeChunk(u.cx, u.cy, u.cz) } }));
       w.world.undo(record);
@@ -600,6 +758,8 @@ export class VoxelWorlds {
     }
     const t1 = performance.now();
     const saved = this.save(w);
+    // Saved files are clean: they may be dropped again (the next edit reaching them reads them back).
+    w.world.trim();
     if (!saved.ok && saved.kind === 'external') {
       // Someone else's files: read the world again (memory and history describe the old ones).
       const again = await this.refresh(w);
@@ -622,8 +782,9 @@ export class VoxelWorlds {
     }
     // A scene's record names a chunk once an edit of it: each chunk is answered once.
     const chunks = [...new Map(record.map((u) => [`${u.cx},${u.cy},${u.cz}`, [u.cx, u.cy, u.cz] as const])).values()];
+    const far = this.farAfter(w, w.manifest.revision - 1, chunks);
     const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
-    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 }, ...(scene !== undefined ? { scene } : {}) };
+    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, far, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 }, ...(scene !== undefined ? { scene } : {}) };
     if (requestId !== null) {
       w.answers.set(requestId, answer);
       if (w.answers.size > ANSWERS_KEPT) w.answers.delete(w.answers.keys().next().value!);
@@ -638,7 +799,7 @@ export class VoxelWorlds {
    * scene written over itself changes nothing and is refused as any such
    * edit is. Nothing stays applied when a step is refused.
    */
-  private writeScene(w: OpenWorld, a: Record<string, unknown>): { ok: true; record: ChunkUndo[]; cells: number; box: CellBox; parts: number; materialSwaps: number[]; scene: NonNullable<VoxelCommandApplied['scene']> } | { ok: false; error: VoxelWorldError } {
+  private async writeScene(w: OpenWorld, a: Record<string, unknown>): Promise<{ ok: true; record: ChunkUndo[]; cells: number; box: CellBox; parts: number; materialSwaps: number[]; scene: NonNullable<VoxelCommandApplied['scene']> } | { ok: false; error: VoxelWorldError }> {
     const origin = a.origin;
     if (!Array.isArray(origin) || origin.length !== 3 || !origin.every((v) => Number.isSafeInteger(v))) return refuse('invalid_args', 'validation', 'origin is [x, y, z], whole world cells', '/args/origin');
     const material = a.material;
@@ -647,6 +808,10 @@ export class VoxelWorlds {
     const [x0, y0, z0] = made.min;
     const [x1, y1, z1] = made.max;
     const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+    const s = w.world.opts.grid.shift;
+    const chunks: ChunkCoord[] = [];
+    for (let cx = x0 >> s; cx <= x1 >> s; cx++) for (let cy = y0 >> s; cy <= y1 >> s; cy++) for (let cz = z0 >> s; cz <= z1 >> s; cz++) chunks.push({ cx, cy, cz });
+    await w.world.ensure(chunks);
     const store = w.world.store;
     const before: number[] = [];
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) before.push(valueOf(store.voxelAt(x, y, z, v)));

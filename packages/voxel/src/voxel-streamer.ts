@@ -77,6 +77,7 @@ import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sec
 import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
 import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, mipRingsFor, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
+import { FarField, type FarFieldOptions } from './far-field';
 import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
@@ -163,6 +164,12 @@ export interface VoxelStreamerOptions {
    * (`RELIEF_BUDGET_SHARE`), shrinking to fit; the base world keeps the rest.
    */
   readonly relief?: ReliefRingSettings;
+  /**
+   * The far field as voxel-mip meshes, with `rules` (far-field.ts; absent:
+   * nothing is drawn past the near rings): the far cache's nodes selected by
+   * screen error from the focus, meshed in this pool after everything else.
+   */
+  readonly far?: FarFieldOptions;
 }
 
 /**
@@ -340,9 +347,8 @@ export class VoxelStreamer {
   /** Refresh load jobs in flight. */
   private refreshing = 0;
   private refreshSeq = 0;
-  private bytesChunks = 0;
-  private bytesDerived = 0;
-  private bytesOverlay = 0;
+  /** Bytes the stream holds by part: chunk payloads, derived results, the runtime overlay. */
+  private readonly held = { chunks: 0, derived: 0, overlay: 0 };
   /** Payloads, worker results and save bases with the overlay laid over the base. */
   private readonly merged: OverlayMerge;
   private readonly heldOutside = new Set<number>();
@@ -359,6 +365,8 @@ export class VoxelStreamer {
   readonly relief: StreamRelief | null;
   /** The kit piece table the derives choose pieces from ({@link StreamPieces.set} changes it). */
   readonly pieces: StreamPieces;
+  /** The far field (null: none): its events go to the draws beside the stream's. */
+  readonly far: FarField | null;
 
   constructor(opts: VoxelStreamerOptions) {
     this.opts = opts;
@@ -454,6 +462,8 @@ export class VoxelStreamer {
             opts.levels ?? DEFAULT_LEVEL_RINGS,
           )
         : null;
+    if (opts.far !== undefined && opts.rules === undefined) throw new RangeError('the far field needs a streamer deriving with assembly rules');
+    this.far = opts.far !== undefined && opts.rules !== undefined ? new FarField(opts.far, { grid: this.grid, pool: opts.pool, rules: opts.rules }) : null;
     const chunks = this.chunks;
     const merged = this.merged;
     this.pieces = new StreamPieces(
@@ -512,7 +522,7 @@ export class VoxelStreamer {
       if (this.isResident(e.cx, e.cy, e.cz)) this.restoreInto(e, group);
       else this.restoring.put(chunkKey(this.grid, e.cx, e.cy, e.cz), e);
     }
-    this.bytesOverlay = this.overlay.memoryBytes() + this.restoring.bytes;
+    this.held.overlay = this.overlay.memoryBytes() + this.restoring.bytes;
     this.settleRebuild(group);
     return group;
   }
@@ -598,7 +608,7 @@ export class VoxelStreamer {
     if (bytes > 0) c.parts.set(part, bytes);
     else c.parts.delete(part);
     c.bytes += bytes - old;
-    this.bytesDerived += bytes - old;
+    this.held.derived += bytes - old;
     if (this.relief !== null && StreamRelief.isPart(part)) this.relief.bytes += bytes - old;
     return true;
   }
@@ -628,7 +638,7 @@ export class VoxelStreamer {
       decoding,
       damaged,
       deriving,
-      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables + mips + kits, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, mips, kits, budget: this.budgetBytes, relief: this.relief?.bytes ?? 0, reliefShare: this.relief?.share(this.budgetBytes) ?? 0 },
+      bytes: { total: this.held.chunks + this.held.derived + this.held.overlay + tables + mips + kits, chunks: this.held.chunks, derived: this.held.derived, overlay: this.held.overlay, tables, mips, kits, budget: this.budgetBytes, relief: this.relief?.bytes ?? 0, reliefShare: this.relief?.share(this.budgetBytes) ?? 0 },
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
       evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },
@@ -697,6 +707,9 @@ export class VoxelStreamer {
     this.requestLoads();
     this.derives?.request(this.opts.deriveMsPerUpdate ?? 2);
     this.mips?.request(this.opts.deriveMsPerUpdate ?? 2);
+    // The far field selects from the focus too; its jobs go last in the pool.
+    this.far?.setEye(this.focus.x, this.focus.y, this.focus.z);
+    this.far?.update();
     for (const [key, at] of this.unloadedAt) {
       if (t0 - at <= CHURN_WINDOW_MS) break;
       this.unloadedAt.delete(key);
@@ -761,8 +774,8 @@ export class VoxelStreamer {
       this.store.dropChunk(c.cx, c.cy, c.cz);
       this.mips?.chunkDropped(c.cx, c.cy, c.cz);
       this.tracker.unload(ref);
-      this.bytesChunks -= c.bytes - partBytes(c);
-      this.bytesDerived -= partBytes(c);
+      this.held.chunks -= c.bytes - partBytes(c);
+      this.held.derived -= partBytes(c);
       if (this.relief !== null) this.relief.bytes -= reliefPartBytes(c);
       this.unloadedAt.delete(c.key);
       this.unloadedAt.set(c.key, performance.now());
@@ -786,7 +799,7 @@ export class VoxelStreamer {
     const budget = this.budgetBytes - (this.relief?.share(this.budgetBytes) ?? 0);
     // The overlay counts but is never evicted: it is the game's changes, not a copy of the files.
     // Mip nodes count too; they leave with the chunks under them. The kit meshes stay as long as the kits do.
-    let total = this.bytesChunks + this.bytesDerived - (this.relief?.bytes ?? 0) + this.bytesOverlay + tables + (this.mips?.bytes ?? 0) + this.pieces.gpuBytes;
+    let total = this.held.chunks + this.held.derived - (this.relief?.bytes ?? 0) + this.held.overlay + tables + (this.mips?.bytes ?? 0) + this.pieces.gpuBytes;
     if (total <= budget) {
       if (total < budget * RESUME_BELOW && this.horizon !== Infinity) {
         this.horizon = Infinity;
@@ -940,13 +953,13 @@ export class VoxelStreamer {
     const restored = this.restoring.take(c.key);
     if (restored !== undefined) {
       hash = this.restoreInto(restored, 0);
-      this.bytesOverlay = this.overlay.memoryBytes() + this.restoring.bytes;
+      this.held.overlay = this.overlay.memoryBytes() + this.restoring.bytes;
     }
     c.phase = 'resident';
     c.job = 0;
     c.hash = hash;
     c.bytes = this.store.chunkBytes(c.cx, c.cy, c.cz) + RESIDENT_CHUNK_OVERHEAD_BYTES;
-    this.bytesChunks += c.bytes;
+    this.held.chunks += c.bytes;
     this.counters.loads++;
     if (payload.form === 'stored') this.counters.loadsStored++;
     else if (payload.form === 'uniform') this.counters.loadsUniform++;
@@ -971,7 +984,7 @@ export class VoxelStreamer {
    */
   private afterEdit(changed: readonly ChunkCoord[], box: CellBox, parts: number): number {
     for (const ch of changed) this.tracker.invalidated(jobRef(this, ch));
-    this.bytesOverlay = this.overlay.memoryBytes();
+    this.held.overlay = this.overlay.memoryBytes();
     const d = this.derives;
     if (d === null) return 0;
     const group = d.newGroup();
@@ -1062,6 +1075,7 @@ export class VoxelStreamer {
   refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS, materialSwaps?: readonly number[]): number {
     parts = this.pieces.feeds(parts, materialSwaps);
     this.opts.source.invalidate?.(chunks);
+    this.far?.refresh(chunks);
     const list: Chunk[] = [];
     const token = ++this.refreshSeq;
     const group = this.derives?.newGroup() ?? 0;
@@ -1149,7 +1163,7 @@ export class VoxelStreamer {
     this.store.adoptPayload(c.cx, c.cy, c.cz, payload);
     this.adoptMs.add(performance.now() - t0);
     const bytes = this.store.chunkBytes(c.cx, c.cy, c.cz) + RESIDENT_CHUNK_OVERHEAD_BYTES + partBytes(c);
-    this.bytesChunks += bytes - c.bytes;
+    this.held.chunks += bytes - c.bytes;
     c.bytes = bytes;
     this.tracker.loaded(ref);
     this.counters.refreshed++;
@@ -1177,7 +1191,7 @@ export class VoxelStreamer {
     for (const c of this.overlay.changedChunks()) if (this.isResident(c.cx, c.cy, c.cz)) this.rebuildOverrides(c, group);
     this.overlay.clear();
     this.restoring.clear();
-    this.bytesOverlay = 0;
+    this.held.overlay = 0;
     if (settle) this.settleRebuild(group);
     return group;
   }

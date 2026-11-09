@@ -96,6 +96,7 @@ import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { PIECE_DATA_FLOATS, PIECE_WET_FLOAT, pieceU, runAxisOf } from './voxel-trim-u';
 import { VoxelPieceBatches, type PieceRun } from './voxel-piece-batches';
+import { VoxelFarView } from './voxel-far-mesh';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
 import { PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
@@ -293,6 +294,8 @@ export class VoxelChunkView {
   private readonly seams = new Map<string, SeamDraw>();
   /** The kit pieces of every chunk, drawn per kind across them. */
   readonly pieces: VoxelPieceBatches;
+  /** The far field's draws (voxel-far-mesh.ts): past the near rings, under them. */
+  readonly far: VoxelFarView;
   /** Inside {@link applyChunkDrawBatch}: the piece draws are written at its end. */
   private batching = false;
   private kitSet: VoxelKitSet | null;
@@ -340,6 +343,8 @@ export class VoxelChunkView {
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows });
     this.root.add(this.pieces.root);
+    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface });
+    this.root.add(this.far.root);
     this.kitSet = null;
     this.setKits(opts.kits ?? null);
   }
@@ -525,6 +530,7 @@ export class VoxelChunkView {
     for (const m of this.levels) if (m !== undefined) for (const d of m.values()) this.place(d.group, d.cell);
     for (const s of this.seams.values()) this.place(s.mesh, s.cell);
     this.pieces.rebase();
+    this.far.rebase();
     for (const m of this.surfaceMeshes()) {
       m.updateWorldMatrix(true, false, true);
       this.decalSurfaces?.moved(m);
@@ -841,6 +847,7 @@ export class VoxelChunkView {
     }
     for (const s of [...this.seams.values()]) this.removeSeam(s.level, ...s.node);
     this.pieces.dispose();
+    this.far.dispose();
     this.caster?.dispose();
     this.caster = null;
   }
@@ -881,6 +888,8 @@ export interface VoxelBatchApplied {
   /** Chunk and node entries applied (shader-only and removals included), and seams. */
   readonly replaced: number;
   readonly seams: number;
+  /** GPU bytes of the far field's draws after the batch. */
+  readonly farBytes: number;
 }
 
 /**
@@ -914,5 +923,6 @@ function applyBatch(view: VoxelChunkView, b: ChunkDrawBatch): VoxelBatchApplied 
     if (s.kind === 'remove') view.removeSeam(s.level, s.nx, s.ny, s.nz, s.face);
     else view.setSeam(s.level, s.nx, s.ny, s.nz, s.face, s.pieces ?? null);
   }
-  return { chunkBytes, coarseBytes: view.coarseBytes(), replaced, seams };
+  view.far.apply(b.far, b.nearCover);
+  return { chunkBytes, coarseBytes: view.coarseBytes(), replaced, seams, farBytes: view.far.bytes };
 }

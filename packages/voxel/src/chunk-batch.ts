@@ -27,8 +27,10 @@
  * and the seams rebuilt from it come in one task too, and the nodes an edit
  * changes on screen come in its swap's task, with its chunks.
  */
-import { wallClock } from '@thirdlight/shared';
-import { chunkKey, type ChunkGrid } from './coords';
+import { crc32, wallClock } from '@thirdlight/shared';
+import { chunkKey, chunkOfKey, type ChunkGrid } from './coords';
+import type { FarEvent, FarNodeDraw } from './far-field';
+import type { MipNode } from './voxel-mips';
 import type { JoinedDraw, JoinTimes } from './chunk-join';
 import type { DerivedData } from './derived-data';
 import type { InstanceList, SurfaceBuffer } from './derived-mesh';
@@ -105,6 +107,27 @@ export interface ChunkReliefWire {
   readonly focus: readonly [number, number, number];
 }
 
+/**
+ * Where the near field draws, for the far field to leave to it: a box of
+ * storage chunks (`min`, `size` in chunks) and one byte a chunk (index
+ * `x + size[0] * (y + size[1] * z)`), 1 where the near field draws that
+ * chunk and every chunk round it. The ring of chunks just inside its edge
+ * reads 0, so the far field overlaps the near field by one chunk there and
+ * closes any gap between the two levels' surfaces; the near field is drawn
+ * over it wherever both are.
+ */
+export interface NearCoverWire {
+  readonly min: readonly [number, number, number];
+  readonly size: readonly [number, number, number];
+  readonly cells: Uint8Array;
+}
+
+/** The far field's change in a batch (far-field.ts): nodes drawn (or drawn again) and nodes no longer drawn. */
+export interface FarDrawWire {
+  readonly added: readonly FarNodeDraw[];
+  readonly removed: readonly MipNode[];
+}
+
 export interface ChunkDrawBatch {
   readonly world: string;
   /** The storage chunks' edge (cells). */
@@ -117,6 +140,10 @@ export interface ChunkDrawBatch {
   readonly swaps: readonly ChunkSwapWire[];
   /** The relief ring changed (its centre moved, its steps or radius): what the draws displace by from now on. */
   readonly relief?: ChunkReliefWire;
+  /** The far field's draws changed (applied after `chunks` and `seams`). */
+  readonly far?: FarDrawWire;
+  /** Where the near field draws changed (with a far field only). */
+  readonly nearCover?: NearCoverWire;
   /** Wall-clock ms (`performance.timeOrigin + performance.now()`) when the batch left. */
   readonly sentAt: number;
   /** ms the batch's joins took where the world runs. */
@@ -126,7 +153,7 @@ export interface ChunkDrawBatch {
 /** What the batcher reads of a streamer's mip levels (`VoxelStreamer.mips`). */
 export interface ChunkDrawLevels {
   /** The level choice: what is drawn now. */
-  readonly lod: { readonly drawn: { drawn(level: number, nx: number, ny: number, nz: number): boolean } };
+  readonly lod: { readonly drawn: { drawn(level: number, nx: number, ny: number, nz: number): boolean; nodes?(): Iterable<{ readonly level: number; readonly nx: number; readonly ny: number; readonly nz: number }> } };
   derivedOf(level: number, nx: number, ny: number, nz: number): DerivedData | null;
   readonly seams: { seamOf(level: number, nx: number, ny: number, nz: number, face: NodeFace): FaceSeam | null };
   /** The page's GPU bytes of every node and seam it draws, counted in the mip share of the budget. */
@@ -143,6 +170,8 @@ export interface ChunkDrawFeed {
   setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean;
   /** The kit pieces (`VoxelStreamer.pieces`): the page's GPU bytes of the kit meshes and textures they draw from, counted in the budget. */
   readonly pieces?: { gpuBytes: number };
+  /** The far field (`VoxelStreamer.far`; null or absent: none). */
+  readonly far?: { on(listener: (e: FarEvent) => void): void; gpuBytes: number } | null;
 }
 
 export interface ChunkDrawBatcherOptions {
@@ -190,6 +219,11 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(p.base.vertices);
     add(p.base.indices);
   }
+  for (const a of b.far?.added ?? []) {
+    add(a.mesh.vertices);
+    add(a.mesh.indices);
+  }
+  add(b.nearCover?.cells);
   return [...out];
 }
 
@@ -218,6 +252,11 @@ export class ChunkDrawBatcher {
   private seams: SeamDrawWire[] = [];
   private swaps: ChunkSwapWire[] = [];
   private relief: ChunkReliefWire | null = null;
+  private farAdded: FarNodeDraw[] = [];
+  private farRemoved: MipNode[] = [];
+  /** The near field's draws changed since the cover last went (with a far field). */
+  private coverDirty = false;
+  private coverSent = '';
   private joinMs = 0;
   private queued = false;
   private closed = false;
@@ -237,10 +276,21 @@ export class ChunkDrawBatcher {
     const side = shaderGridSide(feed.grid.edge);
     this.scratch = new Uint16Array(side * side * side);
     feed.on((e) => this.onStream(e));
+    feed.far?.on((e) => {
+      if (this.closed) return;
+      this.farAdded.push(...e.added);
+      this.farRemoved.push(...e.removed);
+      this.queue();
+    });
   }
 
   private onStream(e: StreamEvent): void {
     if (this.closed) return;
+    // What the near field draws changes with the levels drawn (and, without mip levels, with each chunk drawn or gone).
+    if (this.feed.far != null && (e.type === 'unloaded' || e.type === 'levels' || (e.type === 'chunk' && this.feed.mips == null))) {
+      this.coverDirty = true;
+      this.queue();
+    }
     if (e.type === 'unloaded') {
       const key = chunkKey(this.grid, e.cx, e.cy, e.cz);
       this.reliefSent.delete(key);
@@ -383,8 +433,13 @@ export class ChunkDrawBatcher {
 
   private flush(): void {
     this.queued = false;
-    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    const cover = this.coverDirty ? this.nearCover() : null;
+    this.coverDirty = false;
+    const far = this.farAdded.length > 0 || this.farRemoved.length > 0 ? { added: this.farAdded, removed: this.farRemoved } : null;
+    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null)) return;
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    this.farAdded = [];
+    this.farRemoved = [];
     this.relief = null;
     this.chunks = [];
     this.seams = [];
@@ -394,9 +449,71 @@ export class ChunkDrawBatcher {
     this.send(b);
   }
 
+  /**
+   * Where the near field draws now, eroded by one chunk ({@link NearCoverWire}),
+   * or null when it is what was sent last: the drawn levels' nodes (empty
+   * chunks included: the near field is what shows there), else the chunks
+   * whose draws were sent.
+   */
+  private nearCover(): NearCoverWire | null {
+    const boxes: Array<readonly [number, number, number, number]> = [];
+    const drawnNodes = this.feed.mips?.lod.drawn.nodes?.();
+    if (drawnNodes !== undefined) {
+      for (const n of drawnNodes) boxes.push([n.nx << n.level, n.ny << n.level, n.nz << n.level, 1 << n.level]);
+    } else {
+      const c = { cx: 0, cy: 0, cz: 0 };
+      for (const key of this.sent) {
+        chunkOfKey(this.grid, key, c);
+        boxes.push([c.cx, c.cy, c.cz, 1]);
+      }
+    }
+    let wire: NearCoverWire;
+    if (boxes.length === 0) wire = { min: [0, 0, 0], size: [1, 1, 1], cells: new Uint8Array(1) };
+    else {
+      const lo = [Infinity, Infinity, Infinity];
+      const hi = [-Infinity, -Infinity, -Infinity];
+      for (const [x, y, z, s] of boxes) {
+        lo[0] = Math.min(lo[0]!, x);
+        lo[1] = Math.min(lo[1]!, y);
+        lo[2] = Math.min(lo[2]!, z);
+        hi[0] = Math.max(hi[0]!, x + s - 1);
+        hi[1] = Math.max(hi[1]!, y + s - 1);
+        hi[2] = Math.max(hi[2]!, z + s - 1);
+      }
+      const size: [number, number, number] = [hi[0]! - lo[0]! + 1, hi[1]! - lo[1]! + 1, hi[2]! - lo[2]! + 1];
+      const [sx, sy, sz] = size;
+      let cells = new Uint8Array(sx * sy * sz);
+      for (const [x, y, z, s] of boxes) {
+        for (let dz = 0; dz < s; dz++) for (let dy = 0; dy < s; dy++) {
+          const row = x - lo[0]! + sx * (y + dy - lo[1]! + sy * (z + dz - lo[2]!));
+          cells.fill(1, row, row + s);
+        }
+      }
+      // Eroded by one chunk (a chunk counts when it and every chunk round it is drawn): a minimum over three
+      // along each axis in turn is the minimum over the 27.
+      const strides = [1, sx, sx * sy];
+      for (let a = 0; a < 3; a++) {
+        const out = new Uint8Array(cells.length);
+        const st = strides[a]!;
+        const n = size[a]!;
+        for (let i = 0; i < cells.length; i++) {
+          const k = Math.floor(i / st) % n;
+          out[i] = k > 0 && k < n - 1 && cells[i]! !== 0 && cells[i - st]! !== 0 && cells[i + st]! !== 0 ? 1 : 0;
+        }
+        cells = out;
+      }
+      wire = { min: [lo[0]!, lo[1]!, lo[2]!], size, cells };
+    }
+    const sig = `${wire.min.join(',')}/${wire.size.join(',')}/${wire.cells.length}:${crc32(wire.cells)}`;
+    if (sig === this.coverSent) return null;
+    this.coverSent = sig;
+    return wire;
+  }
+
   /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated): each chunk's `mesh` part; `coarse`: every node's and seam's, summed; `kits`: the kit meshes and textures. */
-  drawn(bytes: readonly number[], coarse: number, kits = 0): void {
+  drawn(bytes: readonly number[], coarse: number, kits = 0, far = 0): void {
     if (this.closed) return;
+    if (this.feed.far != null) this.feed.far.gpuBytes = far;
     // Nothing draws nodes or seams without mip levels.
     if (this.feed.mips != null) this.feed.mips.gpuBytes = coarse;
     if (this.feed.pieces != null) this.feed.pieces.gpuBytes = kits;
@@ -421,6 +538,8 @@ export class ChunkDrawBatcher {
     this.chunks = [];
     this.seams = [];
     this.swaps = [];
+    this.farAdded = [];
+    this.farRemoved = [];
     this.sent.clear();
     this.reliefSent.clear();
     this.nodesSent.clear();
@@ -428,3 +547,4 @@ export class ChunkDrawBatcher {
     this.send({ world: this.world, edge: this.grid.edge, closed: true, chunks: [], swaps: [], sentAt: wallClock(), joinMs: 0 });
   }
 }
+

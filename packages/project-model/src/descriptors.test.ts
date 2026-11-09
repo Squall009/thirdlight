@@ -645,6 +645,8 @@ const ENV_BASES: J[] = [
         voxelRings: 0.75,
         voxelTexelDensity: 512,
         voxelRelief: 2,
+        voxelFarField: 'mesh',
+        voxelFarError: 2,
       },
       { id: 'high' },
     ],
@@ -1082,8 +1084,9 @@ describe('descriptor registry', () => {
     // and the voxel detail seed setting, about 0.6 KB; a voxel world's decal layers, about 0.3 KB; a voxel kit's
     // wall-top fill, about 0.3 KB; a voxel kit's own sheet layout and its slot meshes' mirror, about 0.45 KB; the
     // material record's physics, game data and voxel use, and the physical profiles, about 4.7 KB; a quality level's
-    // voxel texel density, about 0.35 KB; a voxel world's relief distance and a quality level's voxel relief, about 1 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(375_800);
+    // voxel texel density, about 0.35 KB; a voxel world's relief distance and a quality level's voxel relief, about 1 KB;
+    // a quality level's voxel far field mode and detail, about 0.65 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(376_500);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

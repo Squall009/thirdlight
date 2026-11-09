@@ -119,6 +119,9 @@ export const VOXEL_OWNER_ATTRIBUTE = 'voxelOwner';
  */
 export const VOXEL_CREASE_ATTRIBUTE = 'voxelCrease';
 
+/** A level past any texture array's last (a 4096² set has 13): sampled there, a far draw reads a set's mean colour. */
+const FAR_MEAN_LEVEL = 16;
+
 /** How much a crack darkens the face under it (0 … 1). */
 const CRACK_DARKEN = 0.7;
 
@@ -128,7 +131,7 @@ import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
 import { BAND_TEXELS, bandTexels, gridUv, tileUv } from './voxel-surface-projection';
 import { NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt } from './voxel-surface-sets';
-import { heightBlend, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
+import { heightBlend, WET_DARKEN, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
 
 const TSL: N = TSLTyped;
 const { Fn, abs, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, modelWorldMatrix, normalLocal, normalView, positionGeometry, positionLocal, positionView, positionWorld, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, varying, vec2, vec3, vec4 } = TSL;
@@ -560,6 +563,12 @@ export interface VoxelSurface {
   readonly reliefDepthM: number;
   /** The values an object passes (made once per surface object; `slot.w` −1 until it is given a grid or an entry), its grid's cells `cellMetres` (default the layout's). */
   objectValues(cellMetres?: number): VoxelSurfaceObject;
+  /**
+   * A far draw's colour (linear) of material `m` (a node): its table colour, times its wall set's albedo as the
+   * array's coarsest level holds it (the set's mean colour) where it has one, darkened by wetness `wet` (0 … max).
+   * Read from the same table and arrays as the surface, so a record's change reaches far draws with no mesh change.
+   */
+  farColour(m: N, wet: N): N;
   dispose(): void;
 }
 
@@ -1035,6 +1044,17 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       fresh(table);
     },
     objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), slope5Phase: new THREE.Vector3(), cellMetres }),
+    farColour(m, wet) {
+      const base = look(m, 0).rgb.toVar();
+      const layer = look(m, 3).x.toVar();
+      let colour: N = base;
+      if (arrayNodes !== null) {
+        // Sampled whatever the layer (uniform control flow), then picked: the coarsest level is the set's mean.
+        const mean = texture(arrayNodes.albedo, vec2(0.5, 0.5)).depth(int(max(layer, 0))).level(float(FAR_MEAN_LEVEL)).rgb;
+        colour = select(layer.greaterThan(-0.5), base.mul(mean), base);
+      }
+      return colour.mul(float(1).sub(wet.div(layout.wetnessMax).mul(WET_DARKEN)));
+    },
     dispose() {
       grids.dispose();
       table.dispose();

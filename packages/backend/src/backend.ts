@@ -375,7 +375,7 @@ export function createBackend(
       missingFiles: missingFilesRoute,
       externalResolve: external.resolveRoute,
     },
-    voxels: { info: voxels.info, region: voxels.region },
+    voxels: { info: voxels.info, region: voxels.region, farInfo: voxels.farInfo, farRegion: voxels.farRegion },
     lighting: { bake: lightingBake.start, bakeJob: async (req, res, projectId, jobId) => lightingBake.read(req, res, projectId, jobId) },
     play: { start: playStartRoute, stop: playStopRoute, snapshot: playSnapshotRoute, relay: relayRoute, input: inputRelayRoute, control: gameControlRoute, observe: gameObserveRoute },
     admin: { createProject: adminCreateProject, registerProject: adminRegisterProject, unregisterProject: adminUnregisterProject, projectOp: adminProjectOp, exportProject: adminExportRoute },

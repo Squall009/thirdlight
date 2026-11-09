@@ -263,6 +263,10 @@ interface RegionFileState {
   entries: Map<number, RegionEntry>;
   /** Hash of the bytes on disk as this process last wrote or read them (null: no file). */
   hash: string | null;
+  /** Whether its chunks are in the store (a world opened on demand loads a file when an edit reaches it). */
+  loaded: boolean;
+  /** The store bytes its chunks took when loaded (what dropping it frees). */
+  residentBytes: number;
 }
 
 /** A save job with its file's bytes, prepared off the live state. */
@@ -281,11 +285,20 @@ export interface DamagedChunk {
 }
 
 /**
- * One grid's region files in a folder, loaded whole into the picked store
- * (a project's worlds are small so far; the browser streams by range, the
- * backend does not yet),
- * edited through edit commands and saved by rewriting only files with dirty
- * chunks, re-packing only those chunks.
+ * Store bytes a world opened on demand keeps of its clean region files
+ * (least recently used dropped first), per open world: files with chunks
+ * not saved yet are kept whatever this says, so an edit never loses cells.
+ */
+export const REGION_WORLD_RESIDENT_BYTES = 256 * 1024 * 1024;
+
+/**
+ * One grid's region files in a folder, edited through edit commands and
+ * saved by rewriting only files with dirty chunks, re-packing only those
+ * chunks. Opened whole ({@link RegionWorld.open}: every chunk in the store,
+ * what tools and tests read) or on demand ({@link RegionWorld.scan}: every
+ * listed file checked and hashed, its chunks loaded only when an edit
+ * reaches them and dropped again once saved, within a byte budget), which
+ * is how the backend serves worlds of any size in bounded memory.
  */
 export class RegionWorld {
   readonly store: PaletteStore;
@@ -301,6 +314,13 @@ export class RegionWorld {
   readonly damagedRegions = new Map<string, string>();
   /** Files of regions that became all air: removed once the world no longer lists them ({@link flushRemovals}). */
   private readonly removals = new Set<string>();
+  /** Opened on demand: the store bytes of clean files kept (null: opened whole, every file loaded). */
+  private budget: number | null = null;
+  /** Loaded files, least recently used first (opened on demand only). */
+  private readonly order = new Set<string>();
+  private sources: readonly RepairSource[] = [];
+  /** Files loaded and dropped since opening (opened on demand). */
+  readonly counters = { loads: 0, drops: 0 };
 
   private constructor(
     readonly dir: string,
@@ -340,66 +360,183 @@ export class RegionWorld {
    */
   static async open(dir: string, opts: WorldDirOptions, listed: readonly string[], sources: readonly RepairSource[] = []): Promise<{ world: RegionWorld; repairs: RepairOutcome[] }> {
     const w = new RegionWorld(dir, opts);
-    const grid = opts.grid;
     const broken: { c: ChunkCoord; file: string; entry: RegionEntry | null }[] = [];
-    const names = [...listed].sort();
-    for (const name of names) {
+    for (const name of [...listed].sort()) {
       let bytes: Uint8Array;
       let index: RegionIndex;
       try {
-        const at = parseRegionFileName(opts.layout, name);
-        if (at === null) throw new Error(`not a ${opts.layout} region file name`);
-        const expect: RegionExpect = { worldId: opts.worldId, gridId: w.gridId, layout: opts.layout, grid, footprint: opts.footprint, ...at };
-        bytes = new Uint8Array(readFileSync(join(dir, name)));
-        index = RegionIndex.parse(bytes, { expect });
+        ({ index, bytes } = w.readFile(name));
       } catch (e) {
         // A listed file that cannot be read is reported, never read as air.
         w.damagedRegions.set(name, e instanceof Error ? e.message : String(e));
         continue;
       }
       const h = index.header;
-      const f: RegionFileState = { address: { layout: h.layout, footprint: opts.footprint, rx: h.rx, ry: h.ry, rz: h.rz }, entries: new Map(), hash: sha256HexNative(bytes) };
+      const f: RegionFileState = { address: { layout: h.layout, footprint: opts.footprint, rx: h.rx, ry: h.ry, rz: h.rz }, entries: new Map(), hash: sha256HexNative(bytes), loaded: true, residentBytes: 0 };
       w.files.set(name, f);
-      for (let i = 0; i < index.size; i++) {
-        const read = index.read(i, bytes);
-        const key = chunkKey(grid, read.cx, read.cy, read.cz);
-        const entry = index.entry(i, bytes);
-        if (read.kind !== 'damaged') {
-          try {
-            importRead(w.store, read);
-            f.entries.set(key, entry!);
-            continue;
-          } catch {
-            // Bytes that pass their checksum but do not decode are damage too.
-          }
-        }
-        broken.push({ c: { cx: read.cx, cy: read.cy, cz: read.cz }, file: name, entry });
+      w.importFile(name, f, index, bytes, broken);
+    }
+    const repairs = await w.repair(broken, sources);
+    return { world: w, repairs };
+  }
+
+  /**
+   * Opens a world folder on demand: every file the world lists is read once
+   * to check it holds its tile and to take its hash (one file at a time, so
+   * opening holds no more than one file), and its chunks are loaded only
+   * when an edit reaches them ({@link ensure}). Clean files are dropped
+   * again past `budgetBytes` of store memory ({@link trim}). A listed file
+   * that is missing, unreadable or of another tile is a damaged region, as
+   * when opened whole; a damaged chunk is found when its file loads.
+   */
+  static scan(dir: string, opts: WorldDirOptions, listed: readonly string[], budgetBytes = REGION_WORLD_RESIDENT_BYTES, sources: readonly RepairSource[] = []): RegionWorld {
+    const w = new RegionWorld(dir, opts);
+    w.budget = budgetBytes;
+    w.sources = sources;
+    for (const name of [...listed].sort()) {
+      try {
+        const { index, bytes } = w.readFile(name);
+        const h = index.header;
+        w.files.set(name, { address: { layout: h.layout, footprint: opts.footprint, rx: h.rx, ry: h.ry, rz: h.rz }, entries: new Map(), hash: sha256HexNative(bytes), loaded: false, residentBytes: 0 });
+      } catch (e) {
+        w.damagedRegions.set(name, e instanceof Error ? e.message : String(e));
       }
     }
-    const repairs = await repairChunks(grid, w.gridId, broken.map((b) => b.c), sources);
+    return w;
+  }
+
+  /** A listed file's bytes and table, checked against the tile its name gives. Throws when it cannot be read. */
+  private readFile(name: string): { index: RegionIndex; bytes: Uint8Array } {
+    const at = parseRegionFileName(this.opts.layout, name);
+    if (at === null) throw new Error(`not a ${this.opts.layout} region file name`);
+    const expect: RegionExpect = { worldId: this.opts.worldId, gridId: this.gridId, layout: this.opts.layout, grid: this.opts.grid, footprint: this.opts.footprint, ...at };
+    const bytes = new Uint8Array(readFileSync(join(this.dir, name)));
+    return { index: RegionIndex.parse(bytes, { expect }), bytes };
+  }
+
+  /** A file's chunks into the store and its entries; chunks that do not read or decode go to `broken`. */
+  private importFile(name: string, f: RegionFileState, index: RegionIndex, bytes: Uint8Array, broken: { c: ChunkCoord; file: string; entry: RegionEntry | null }[]): void {
+    const grid = this.opts.grid;
+    let resident = 0;
+    for (let i = 0; i < index.size; i++) {
+      const read = index.read(i, bytes);
+      const key = chunkKey(grid, read.cx, read.cy, read.cz);
+      const entry = index.entry(i, bytes);
+      if (read.kind !== 'damaged') {
+        try {
+          importRead(this.store, read);
+          f.entries.set(key, entry!);
+          resident += this.store.chunkBytes(read.cx, read.cy, read.cz);
+          continue;
+        } catch {
+          // Bytes that pass their checksum but do not decode are damage too.
+        }
+      }
+      broken.push({ c: { cx: read.cx, cy: read.cy, cz: read.cz }, file: name, entry });
+    }
+    f.residentBytes = resident;
+  }
+
+  /** Repairs broken chunks from the sources, or keeps them damaged (unloaded, edits refused). */
+  private async repair(broken: { c: ChunkCoord; file: string; entry: RegionEntry | null }[], sources: readonly RepairSource[]): Promise<RepairOutcome[]> {
+    const grid = this.opts.grid;
+    const repairs = await repairChunks(grid, this.gridId, broken.map((b) => b.c), sources);
     repairs.forEach((r, k) => {
       const b = broken[k]!;
       const key = chunkKey(grid, b.c.cx, b.c.cy, b.c.cz);
-      const f = w.files.get(b.file)!;
+      const f = this.files.get(b.file)!;
       if (r.repaired) {
-        if (r.bytes === null) w.store.dropChunk(b.c.cx, b.c.cy, b.c.cz);
-        else w.store.decodeChunk(b.c.cx, b.c.cy, b.c.cz, r.bytes);
+        if (r.bytes === null) this.store.dropChunk(b.c.cx, b.c.cy, b.c.cz);
+        else this.store.decodeChunk(b.c.cx, b.c.cy, b.c.cz, r.bytes);
         // The file still holds the damaged bytes: dirty, so the next save writes the repaired chunk.
         f.entries.delete(key);
-        w.tracker.edited({ grid: w.gridId, key });
+        this.tracker.edited({ grid: this.gridId, key });
       } else {
         if (b.entry !== null) f.entries.set(key, b.entry);
-        w.damaged.set(key, { file: b.file, reasons: r.reasons });
+        this.damaged.set(key, { file: b.file, reasons: r.reasons });
       }
     });
-    return { world: w, repairs };
+    return repairs;
+  }
+
+  /**
+   * Loads the region files holding these chunks that are not loaded yet
+   * (opened on demand; opened whole, everything already is) and marks the
+   * files used most recently. A file that cannot be read now is a damaged
+   * region: its chunks are refused, never edited as air.
+   */
+  async ensure(chunks: Iterable<Readonly<ChunkCoord>>): Promise<void> {
+    if (this.budget === null) return;
+    const names = new Set<string>();
+    for (const c of chunks) names.add(addressName(addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, c)));
+    const broken: { c: ChunkCoord; file: string; entry: RegionEntry | null }[] = [];
+    for (const name of names) {
+      const f = this.files.get(name);
+      if (f === undefined || this.damagedRegions.has(name)) continue;
+      this.order.delete(name);
+      this.order.add(name);
+      if (f.loaded) continue;
+      try {
+        const { index, bytes } = this.readFile(name);
+        if (sha256HexNative(bytes) !== f.hash) throw new Error('changed on disk since the world was opened');
+        f.entries = new Map();
+        f.loaded = true;
+        this.counters.loads++;
+        this.importFile(name, f, index, bytes, broken);
+      } catch (e) {
+        this.damagedRegions.set(name, e instanceof Error ? e.message : String(e));
+      }
+    }
+    if (broken.length > 0) await this.repair(broken, this.sources);
+  }
+
+  /** Store bytes of the files loaded now (opened on demand; 0 when opened whole). */
+  get residentBytes(): number {
+    let n = 0;
+    for (const name of this.order) n += this.files.get(name)?.residentBytes ?? 0;
+    return n;
+  }
+
+  /**
+   * Drops clean loaded files, least recently used first, until their store
+   * bytes fit the budget (opened on demand). A file with a dirty chunk or a
+   * save running stays: its cells exist only here until written.
+   */
+  trim(): void {
+    if (this.budget === null) return;
+    let total = this.residentBytes;
+    if (total <= this.budget) return;
+    const grid = this.opts.grid;
+    const dirtyFiles = new Set<string>();
+    const c: ChunkCoord = { cx: 0, cy: 0, cz: 0 };
+    for (const d of this.tracker.dirty()) {
+      if (d.grid !== this.gridId) continue;
+      chunkOfKey(grid, d.key, c);
+      dirtyFiles.add(addressName(addressOf(grid, this.opts.layout, this.opts.footprint, c)));
+    }
+    for (const name of [...this.order]) {
+      if (total <= this.budget) break;
+      const f = this.files.get(name);
+      if (f === undefined || dirtyFiles.has(name) || f.hash === null) continue;
+      for (const key of f.entries.keys()) {
+        chunkOfKey(grid, key, c);
+        this.store.dropChunk(c.cx, c.cy, c.cz);
+        this.damaged.delete(key);
+      }
+      f.entries = new Map();
+      f.loaded = false;
+      total -= f.residentBytes;
+      f.residentBytes = 0;
+      this.order.delete(name);
+      this.counters.drops++;
+    }
   }
 
   private fileOf(c: ChunkCoord): RegionFileState {
     const address = addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, c);
     const name = addressName(address);
     let f = this.files.get(name);
-    if (f === undefined) this.files.set(name, (f = { address, entries: new Map(), hash: null }));
+    if (f === undefined) this.files.set(name, (f = { address, entries: new Map(), hash: null, loaded: true, residentBytes: 0 }));
     return f;
   }
 
@@ -417,8 +554,12 @@ export class RegionWorld {
   }
 
   /** Whether a chunk can be edited (its data is sound and loaded). */
-  readonly loaded = (gridId: number, cx: number, cy: number, cz: number): boolean =>
-    gridId === this.gridId && !this.damaged.has(chunkKey(this.opts.grid, cx, cy, cz)) && !this.damagedRegions.has(addressName(addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, { cx, cy, cz })));
+  readonly loaded = (gridId: number, cx: number, cy: number, cz: number): boolean => {
+    if (gridId !== this.gridId || this.damaged.has(chunkKey(this.opts.grid, cx, cy, cz))) return false;
+    const name = addressName(addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, { cx, cy, cz }));
+    // A file the world lists but has not loaded is not air: its chunks wait for {@link ensure}.
+    return !this.damagedRegions.has(name) && this.files.get(name)?.loaded !== false;
+  };
 
   /** Applies an edit command (refused before any write when it reaches a damaged chunk). */
   edit(cmd: VoxelEditCommand, stamps?: StampResolver): EditOutcome {

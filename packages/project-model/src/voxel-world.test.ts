@@ -165,11 +165,15 @@ describe('the voxelWorld component', () => {
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
     // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
-    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 2 });
-    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 4 });
+    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 2, farField: 'mesh', farError: 4 });
+    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 4, farField: 'mesh', farError: 3 });
     // Relief steps by tier (none on low), a level's own beating its tier's.
     expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).reliefSteps)).toEqual([0, 2, 4]);
     expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelRelief: 8 }).reliefSteps).toBe(8);
+    // The far field: meshes on every tier, coarser on low; a level's own mode and detail beat its tier's; no level known draws medium's.
+    expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).far)).toEqual([{ mode: 'mesh', errorPixels: 8 }, { mode: 'mesh', errorPixels: 4 }, { mode: 'mesh', errorPixels: 3 }]);
+    expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'high', voxelFarField: 'off', voxelFarError: 8 }).far).toEqual({ mode: 'off', errorPixels: 8 });
+    expect(resolveVoxelWorld({ world: 'w' }).far).toEqual({ mode: 'mesh', errorPixels: 4 });
     const base = resolveVoxelWorld({ world: 'w' });
     // The relief distance scales by its tier's own (`kRelief`, absent: as every distance).
     const scaled = (k: number, kRelief = k) => ({
@@ -211,8 +215,8 @@ describe('the voxelWorld component', () => {
     expect(at({ world: 'w', quality: { high: { scale: 4 } } }, medium!)).toEqual(scaled(1));
     // A quality level's voxel ring scale is range-checked like its other fields.
     const errs: ModelErrorV2[] = [];
-    validateQualityLevels([{ id: 'a', voxelRings: 0.1 }, { id: 'b', voxelRings: 1.5, voxelRelief: 4 }, { id: 'c', voxelRelief: 3 }], '/q', errs);
-    expect(errs.map((e) => `${e.code} ${e.path}`)).toEqual(['field_value /q/0/voxelRings', 'field_value /q/2/voxelRelief']);
+    validateQualityLevels([{ id: 'a', voxelRings: 0.1 }, { id: 'b', voxelRings: 1.5, voxelRelief: 4 }, { id: 'c', voxelRelief: 3 }, { id: 'd', voxelFarField: 'bricks' as never, voxelFarError: 0.1 }], '/q', errs);
+    expect(errs.map((e) => `${e.code} ${e.path}`)).toEqual(['field_value /q/0/voxelRings', 'field_value /q/2/voxelRelief', 'field_value /q/3/voxelFarField', 'field_value /q/3/voxelFarError']);
   });
 });
 

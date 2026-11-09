@@ -1,4 +1,4 @@
-# Types (CreateEntityArgs to MaterialParamValue)
+# Types (CreateEntityArgs to MaterialParameterType)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -687,6 +687,30 @@ interface EventCue {
   /** How late (ms) it may still start when its file is not ready yet; later it is dropped (absent: the engine's default). */
   maxLateMs?: number;
 }
+```
+
+<a id="type-far-field-modes"></a>
+### FAR_FIELD_MODES
+
+Declared in `packages/voxel/src/far-field.ts`.
+
+```ts
+/**
+ * How a voxel world is drawn past its near rings: `mesh` (the far tree's
+ * nodes meshed from their voxel mips, this module) or `off` (nothing past
+ * the load ring). The default draws meshes; the ray-marched bricks join as
+ * a mode of their own, and which is the default is the owner's pick.
+ */
+const FAR_FIELD_MODES: readonly ["off", "mesh"];
+```
+
+<a id="type-far-field-mode"></a>
+### FarFieldMode
+
+Declared in `packages/voxel/src/far-field.ts`.
+
+```ts
+type FarFieldMode = (typeof FAR_FIELD_MODES)[number];
 ```
 
 <a id="type-fill-edit"></a>
@@ -1580,23 +1604,4 @@ Declared in `packages/project-model/src/material-graph-kinds.ts`.
 
 ```ts
 type MaterialParameterType = (typeof MATERIAL_PARAMETER_TYPES)[number];
-```
-
-<a id="type-material-parameter-value"></a>
-### MaterialParameterValue
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-/** The value an object stores to override a public parameter (see `MaterialParameter.default`; never per-layer slots). */
-type MaterialParameterValue = number | number[] | string;
-```
-
-<a id="type-material-param-value"></a>
-### MaterialParamValue
-
-Declared in `packages/project-model/src/material-schema.ts`.
-
-```ts
-type MaterialParamValue = number | boolean | string | [number, number];
 ```

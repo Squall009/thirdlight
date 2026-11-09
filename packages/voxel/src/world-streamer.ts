@@ -10,6 +10,9 @@
  * table of its kits and its piece seed ({@link worldPieceTable}; a material
  * no kit binds draws no pieces), built where the streamer runs and again
  * where the pieces are drawn (the same kits and seed give the same bytes).
+ *
+ * A world whose connection has a far cache (`far`) draws its far field as
+ * the quality level says (`far.mode`, its error), switched without a reload.
  */
 import type { ChunkSource } from './region-source';
 import { VOXEL_SIZE_M, type ChunkGrid, type SectionEdge } from './coords';
@@ -23,6 +26,7 @@ import type { ReliefRingSettings } from './relief-ring';
 import { VoxelStreamer } from './voxel-streamer';
 import type { WorkerPool } from './worker-pool';
 import { buildPieceTable, type PieceKitSource, type PieceTable } from './piece-table';
+import type { FarFieldMode, FarNodeSource } from './far-field';
 
 /**
  * The piece table a world streamed with the world rules draws `kits` with,
@@ -82,6 +86,8 @@ export interface WorldRingSettings {
   readonly collision?: { readonly radius: number };
   readonly budgetBytes?: number | null;
   readonly reliefSteps?: number;
+  /** How the world is drawn past its near rings (absent: meshes at the default error, where the connection has a far cache). */
+  readonly far?: { readonly mode: FarFieldMode; readonly errorPixels: number };
 }
 
 /** The relief ring of a world's settings: its lattice steps and where it displaces (cells; none without both). */
@@ -103,10 +109,11 @@ export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSett
   streamer.mips?.lod.setRings(worldLevelRings(settings.levels, settings.collision?.radius));
   if (settings.budgetBytes !== undefined && settings.budgetBytes !== null) streamer.budgetBytes = settings.budgetBytes;
   streamer.relief?.set(worldReliefRing(settings));
+  if (settings.far !== undefined) streamer.far?.setView({ enabled: settings.far.mode === 'mesh', errorPixels: settings.far.errorPixels });
 }
 
 /** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: no kit, plain voxel faces). */
-export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
+export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null; readonly far?: FarNodeSource }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
   return new VoxelStreamer({
     store: createWorldStore(conn.grid),
     source: conn.source,
@@ -120,5 +127,7 @@ export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source:
     levels: worldLevelRings(settings.levels, settings.collision?.radius),
     relief: worldReliefRing(settings),
     ...(conn.pieces !== undefined ? { pieces: conn.pieces } : {}),
+    // The far field is made wherever the world has a far cache, so a level switching it on needs no reload.
+    ...(conn.far !== undefined ? { far: { source: conn.far, enabled: (settings.far?.mode ?? 'mesh') === 'mesh', ...(settings.far !== undefined ? { errorPixels: settings.far.errorPixels } : {}) } } : {}),
   });
 }
