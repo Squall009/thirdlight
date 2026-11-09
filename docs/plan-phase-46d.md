@@ -1823,6 +1823,19 @@ gate-rerun-20261109-071516 GREEN (village perf 0 missed both renderers); `voxel-
   now. Owner asked why height sits in the normal map's alpha rather than the albedo's (the engine's layered surfaces
   and the owner's convention use the albedo alpha) — answer and proposal in the next entry once decided.
 
+- 2026-11-09 (OWNER, after acc46d):
+  - **Height moves to the albedo's alpha** (the engine's layered surfaces and the owner's convention); the normal map
+    keeps no height. An add-only, owner-noted amendment to texture layout v1 (the v1 text said normal alpha — a
+    drafting slip carried into the approval).
+  - **Close-ring relief displacement is disabled for now** (keep it simple; fewer triangles, lighter mesher) until
+    the brick far field works; then reconsider (or bevelled edges near, plain geometry past the ring).
+  - **Far field: ~8 M triangles is too many**; keep silhouette and colour approximation at about a quarter.
+  - **Brick renderer: ours turns to mush where Enshrouded's does not** — much room for improvement; it must be
+    solved before relief returns.
+  - **Performance role:** the owner's new "demo" project pushes the engine at real-game scale and feeds back; engine
+    runs keep measuring but are no longer the go/no-go validator except for obvious regressions.
+  - Material blend distance asked about: today fixed at 0.25 m in Play/export (only the voxel page has a switch).
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
