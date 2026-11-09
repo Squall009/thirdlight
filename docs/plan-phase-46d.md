@@ -223,7 +223,7 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.6c | done (0c85d3a8): D526 fixed. Owned body faces merge with blended ones, the rectangle owned whole (derived 30); roof mesher scans plane cells once, typed vertex table. Town roofs: base 468,872 → 415,636 tris (46c.16d 417,396), mesher p50/p95 296/728 → 213/545 µs (238/577). D519 holds. Town at cap 0 missed, GPU within drift. D545 proposal in its row |
 | 46d.6d | done (4635510e): D545 fixed. Relief chunks cast from their plain surfaces (shadow-only draws, 46.9 k tris for ~2.4 M at high), relief meshes cast none and read shadows at their plain place; one draw path. Town high + shadows missed 13–15 / 4–8 of ~430 (relief casters same hour 27–30 / 38–39); pictures equal (0.00 %). D547 |
 | 46d.7a | done: `run.mjs far-world`: 8.2 km mountain world (peaks 1.51 km, cliffs, overhangs, town at centre) written per region column in 4 workers, 476 MB (7.1 MB/km²), 249 s; far cache L2–L8 (`far-tree.ts`, region files) 48.5 MB (0.72 MB/km²), 255 s; peak 2.2 GB. Selection by screen error + hysteresis + budget; edit rebuilds exactly its ancestors; doors/windows close at L1+ (v31) |
-| 46d.7b | not started |
+| 46d.7b | done: D548 fixed (backend opens worlds on demand: 8 km world 0.65 s, 264 MB). Far field as meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`): cache served, rebuilt per command (190–350 ms), shipped; 40 draws (D549 fixed), no cut-off (D463, D516 fixed). Medium 4 px: 5.0 M tris, 0 missed orbit, flight 16–18 missed; high 3 px 8.1 M. D550–D553 |
 | 46d.7c | not started |
 | 46d.7d | not started |
 | 46d.8a | not started |
@@ -1115,6 +1115,65 @@ staging needs D548 first (the backend loads a world whole). Not wired yet, by de
 on an edit (the function is built and tested at the workspace boundary), the export shipping the cache, the page
 streaming it; nodes need batching (D549).
 
+### 46d.7b the far field as voxel-mip meshes; D548, D549
+
+**Built.** D548 first: the backend's voxel worlds open on demand (`RegionWorld.scan`: every listed file read once,
+one at a time, to check its tile and take its hash; a file's chunks load when an edit reaches them (`ensure`) and
+clean files drop past `REGION_WORLD_RESIDENT_BYTES`, 256 MiB, least recently used first). The far field
+(`@thirdlight/voxel` `far-field.ts`): beside the streamer (`far` option; `VoxelStreamer.far`), selection by screen
+error from the focus over every node the far cache keeps, neighbourhoods read ahead from the cache (64 nodes a
+read), `far-mesh` jobs in the stream's workers last in the `mip` lane (8 in flight, 64 queue places left to the near
+field), changes swapped whole per group (a parent and its children in one batch), an edit re-reads its ancestors
+and meshes them and their neighbours again. `far-mesh.ts`: the node meshed by the world rules at its level with a
+same-level apron, a material/wetness word per vertex, skirts 2 cells along the inward normal at every box edge.
+Batches carry `far` and `nearCover` (the near field's drawn chunks eroded by one). Three-adapter
+`voxel-far-mesh.ts`: one draw per level and 8 × 8 node columns, colour from the material table × the wall set's
+mean albedo in the vertex stage, a depth of its own (perspective × 1.05 to half the far plane, logarithmic past it
+to 64 km), discarded inside the near cover. Backend: `…/voxels/<world>/far` (+ files by range; Play's locator
+too), a missing or stale cache built in the world's queue, every command rebuilds its ancestors before it answers
+(`far`). Export: the cache's files ship as content, the catalog row's `far` (add-only), read whole by
+`shippedFarSource`. Hosts: the voxel world page (`?farField=`, `?farError=`, `?farShow=0`, hooks `setFar`,
+`settleFar`, `showFar`, `state().far`), Play and the Scene view (`RangeWorld.far`), exports; quality fields
+`voxelFarField` (`mesh` | `off`) and `voxelFarError` (low 8, medium 4, high 3 px). Spec: `voxel-render-spec.md` §4.
+
+**Tested.** `workspace/voxel-worlds.test.ts` (+2): a world served on demand holds no chunk until an edit, loads only
+the files an edit names and drops them once saved (undo reads them back), keeps the files used last, refuses an edit
+over a file changed since opening. `far-world.test.ts` (+1, 7 s): the selection meshed in Node workers from the
+cache on disk, no drawn node over another, same-level neighbours meet exactly on their shared face (82 faces, gap 0,
+nodes above and below included), every vertex a solid cell's material, skirts present, a dig through
+`VoxelWorlds` (which rebuilds the cache) meshes the changed level-2 nodes again with new vertices.
+`chunk-batch.test.ts` (+1): the near cover by chunk, eroded by one, sent only when it changes. Project-model
+tests: tiers, a level's own mode and detail, validation. `voxel-world.e2e.ts` extended (no new test): the page's
+far field settles with nodes drawn on the slice world (the backend built its cache on the first read); the export
+ships the far files at their content paths.
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, the 8 km world from the town square looking at the
+peak; 01:43–01:53, load 0.9–3.0, uptime 16.4 d; GPU ms from timestamps; `work/46d.7b/perf-*.json`):
+
+| | far nodes / tris / GPU MB / draws | fill after open | orbit missed (3 × 8 s) | GPU ms | render() p50 | flight 2.4 km at 60 m/s, missed of ~2,350 (max ms) |
+|---|---|---|---|---|---|---|
+| WebGPU medium | 2,648 / 4.97 M / 106 / 40 | 14.5 s | 0 / 0 / 0 | 7.0–8.5 | 2.2–2.3 | 18 (217) |
+| WebGL 2 medium | same | 13.3 s | 0 / 0 / 0 | 5.2–5.3 | 2.6–2.7 | 16 (150) |
+| WebGPU high (3 px) | 8.08 M / 172 | 23.7 s | 1 / 6 / 11 | 5.3 (later rounds unusable) | 2.5–2.8 | 29 (133) |
+| WebGL 2 high (3 px) | same | 24.7 s | 0 / 0 / 6 | 4.6 (later unusable) | 2.7–2.9 | 36 (183) |
+| WebGPU medium, `farField=off` | 0 | — | 0 / 0 / 0 | 9.2–9.4 (clock) | 1.9 | 8 (50) |
+
+Near field there: 1.03 M triangles, ~150 draws. Page heap 1.36–1.44 GB at medium (0.70 off), 2.79 GB at high; at
+2 px the high page closed in the 6 GB browser scope (Node: 8,969 nodes, 14.1 M triangles, meshed in 310 s by 3
+workers), hence high 3 px (D550). Far mesh job 13–37 ms p50. Selection 7–31 ms (D551). Backend: the 8 km world
+(476 MB, 2,917 files) opens in 0.65 s; after a dig, its undo and two far rebuilds (14 nodes, 351 / 189 ms) the
+staging backend holds 264 MB (D548). Misses' causes: the flight's are far meshing and group rebuilds on the page's
+thread while thousands of nodes land (3.7 k still unmeshed at its end), and the near field's own (8 with the far
+field off); high's orbit misses with 8 M far triangles drawn whole every frame (no culling, D550). GPU ms at the
+cap follow the clock (D544): the far-off run reads more than with it on.
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/meshes/`, both renderers, medium): `town-peak-4.5km`,
+`town-west`, `town-north` (the town's roofs, the valley and the 1.5 km massif behind; no cut-off, no floating roofs
+at the ring's edge), `sight-1km`, `sight-3km`, `sight-5km` (the massif from 1.7 km up at those distances: terraced
+cliffs as stepped 2–8 m voxels, grass and rock), `peak-to-town` (the whole world from above the peak, the town a
+dark patch 4.5 km away, the world's edge visible). A few light specks on a hillside in `town-north` (D553). The
+pictures are 46d.7d's input.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1431,6 +1490,29 @@ streaming it; nodes need batching (D549).
   of the cache and the page's streaming of it come with the draw modes (46d.7b)**: before them nothing in the
   backend or a game reads the cache, so shipping or rebuilding it would only cost; the rebuild and file list are
   built and tested now.
+
+- 2026-11-09 (46d.7b, default chosen, owner to confirm): **the far field draws under the near field everywhere**
+  (no near box in its selection) and is discarded per storage chunk where the near field draws, one chunk in from the
+  near field's edge; along that ring both draw and the near field wins on depth. A chunk the near field has not
+  streamed yet shows its far stand-in (no hole while flying); the price is the far field's nodes under the town.
+- 2026-11-09 (46d.7b, default chosen, owner to confirm): **far depth is written in the vertex stage**: the camera's
+  depth of 1.05 × the distance up to half its far plane, logarithmic past it to 64 km, so no camera's far plane
+  changes in any host and far nodes are never clipped there (D553 has the limit).
+- 2026-11-09 (46d.7b, default chosen, owner to confirm): **far colour = the material's table colour × its wall
+  set's mean albedo** (the array's coarsest level), per vertex from the cell behind it, darkened by wetness; no far
+  texture detail, no macro normal map (the mesh's normals light it).
+- 2026-11-09 (46d.7b, default chosen, owner to confirm): **detail by tier: low 8, medium 4, high 3 px**
+  (`FAR_ERROR_PIXELS_BY_TIER`); 2 px (46d.7a's default) is 14 M triangles from the town and closed the high page.
+  Mode `mesh` on every tier until the owner picks between meshes and bricks.
+- 2026-11-09 (46d.7b, default chosen, owner to confirm): **one far draw per level and 8 × 8 node columns**, rebuilt
+  whole when a node in it changes, changes gathered every 250 ms (`FAR_COMMIT_MS`); far draws are not frustum culled
+  (three's frustum ends at the far plane; D550).
+- 2026-11-09 (46d.7b, default chosen, owner to confirm): **the backend opens worlds on demand** (D548) with 256 MiB
+  of clean region files kept per open world; it builds a missing far cache itself, in the world's queue (D552),
+  and rebuilds the ancestors of every command's chunks before answering; runtime edits (`ctx.voxels`) do not reach
+  the far field.
+- 2026-11-09 (46d.7b): the 8 km world and its cache moved into the staging project (`voxel-slice/voxels/far`,
+  `cache/voxel-far/far`); `work/46d.7a/project` links to them.
 
 ## 10. Open questions for the owner
 
