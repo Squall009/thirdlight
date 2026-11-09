@@ -240,7 +240,7 @@ describe('clipped decals on a voxel world', () => {
   it('a scene\'s link gives each world its first object\'s decal layers and tells the draws when they change', () => {
     const link = new VoxelWorldDecals(null);
     const told: string[] = [];
-    link.onLayers((w) => told.push(w));
+    link.onChange((w) => told.push(w));
     link.set('a', { voxelWorld: { world: 'town', decalLayers: 4 } });
     link.set('b', { voxelWorld: { world: 'town', decalLayers: 1 } });
     link.set('c', { box: {} });

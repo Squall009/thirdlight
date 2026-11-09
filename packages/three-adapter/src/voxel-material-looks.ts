@@ -8,8 +8,9 @@
  * (`params.color`; it tints the record's texture sets, white when it has a
  * set and names none), its tile (`voxel.tileMetres`, on both the construction
  * and the terrain projection, so one repeat is what the record names however
- * a cell is projected) and its height depth (`voxel.heightDepth`: how its
- * heights blend, fill with water and displace). What a record does not say stays the
+ * a cell is projected), its height depth (`voxel.heightDepth`: how its
+ * heights blend, fill with water and displace) and its blend distance
+ * (`voxel.blendMetres`; absent: the world's). What a record does not say stays the
  * base look's (by default the per-id stand-in, `voxelStandInLook`), as do
  * ids no record has. A record's surface texture sets draw from the texture
  * arrays (`voxelRecordTextures`: the arrays to assemble and each id's
@@ -53,11 +54,13 @@ export function voxelRecordLooks(materials: readonly VoxelLookRecord[], base: (m
     const colour = named ?? (VOXEL_SURFACES.some((s) => voxelSurfaceSet(m.voxel!, s)?.albedo !== undefined) ? 'ffffff' : undefined);
     const tile = m.voxel!.tileMetres;
     const depth = m.voxel!.heightDepth;
+    const blend = m.voxel!.blendMetres;
     return {
       ...look,
       ...(colour !== undefined ? { colour: parseInt(colour, 16) } : {}),
       ...(tile !== undefined ? { constructionTileMetres: phaseTileMetres(tile), terrainTileMetres: phaseTileMetres(tile) } : {}),
       ...(depth !== undefined ? { heightDepthMetres: depth } : {}),
+      ...(blend !== undefined ? { blendMetres: blend } : {}),
     };
   };
 }

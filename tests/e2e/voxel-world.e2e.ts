@@ -96,6 +96,7 @@ import { chooseItem, inspector } from './ui';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-sets';
+import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
@@ -650,9 +651,11 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
 
 // ---- Play: the world runs with the simulation ----------------------------------------------------------------
 
-async function playCmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+/** `sameIsFine`: an edit that changes nothing (`no_change`, e.g. after a test that stopped before undoing it) is done. */
+async function playCmd(op: string, args: Record<string, unknown>, sameIsFine = false): Promise<Record<string, unknown>> {
   const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
   const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-play' }, args });
+  if (sameIsFine && (res as { error?: { code?: string } }).error?.code === 'no_change') return res;
   expect(res['ok'], JSON.stringify(res)).toBe(true);
   return res;
 }
@@ -711,7 +714,7 @@ async function playProject(): Promise<[number, number, number]> {
   if (standAt !== null) return standAt;
   const [ox, oy, oz] = farScene;
   const at: [number, number, number] = [(ox + 9.5) / 2, oy / 2, (oz + 10.5) / 2];
-  const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far' } } }))['createdId']);
+  const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far', blendMetres: PLAY_BLEND_M } } }))['createdId']);
   await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: playCamera(at), components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
   // A projected and a clipped decal on the wall's front face (facing +z: a decal projects along its −z), plain colours.
   await playCmd('setMaterial', { material: { materialId: 'mark-red', name: 'Red mark', shader: 'decal', params: { color: '#e01010' }, textures: {} } });
@@ -758,19 +761,26 @@ async function playProject(): Promise<[number, number, number]> {
   return (standAt = at);
 }
 
+/** The Play world's material blend (its `voxelWorld` object's, not the engine's default): Play and the export draw with it. */
+const PLAY_BLEND_M = 0.2;
+
 /** The ground's texture set (its albedo and normal map assets, imported once). */
 let groundSet: { albedo: string; normal: string } | null = null;
 
 /**
  * The pad's grass as a voxel material with a texture set whose normal map carries heights (the placeholder grass set,
  * 256²) at the deepest height depth, so relief near the camera moves visibly (Play and the export draw it at the
- * medium and high tiers); `false` deletes the record again, so the Scene view's test sees the stone alone.
+ * high tier). No tier displaces by default, so the project's levels are the engine's with relief asked for at high
+ * (`voxelRelief`, 4 steps a cell); `false` deletes the record and the levels again, so the Scene view's test sees
+ * the stone alone at the engine's levels.
  */
 async function groundRelief(on: boolean): Promise<void> {
   if (!on) {
     await playCmd('deleteMaterial', { materialId: 'mat-grass-voxel' });
+    await playCmd('setEnvironment', { environment: {} }, true);
     return;
   }
+  await playCmd('setEnvironment', { environment: { qualityLevels: DEFAULT_QUALITY_LEVELS.map((l) => (l.id === 'high' ? { ...l, voxelRelief: 4 } : { ...l })) } }, true);
   if (groundSet === null) {
     const texDir = join(be.projectDir, 'assets', 'voxel-textures');
     mkdirSync(texDir, { recursive: true });
@@ -785,7 +795,7 @@ async function groundRelief(on: boolean): Promise<void> {
 }
 
 interface PlayObservation { state?: string; stepIndex?: number; counters?: Record<string, number>; player?: { x: number; y: number; z: number } }
-interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void }
+interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; blendM: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void }
 
 /**
  * Relief at the high tier, by pixels: once the ring's relief meshes are drawn and stand still, the frame with them
@@ -846,6 +856,8 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
     // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
     await expect.poll(async () => (await drawn()).worlds['far']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
+    // Drawn at its object's blend distance.
+    expect((await drawn()).worlds['far']?.blendM).toBe(PLAY_BLEND_M);
     // Kit pieces drawn: the stone kit's GLB read from the build's content and parsed on the page, the default kit's elsewhere.
     await expect.poll(async () => Object.values(await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.kits())), { timeout: 20_000 }).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
     // The pieces come with their chunks' draws, which may land after the kit's meshes.
@@ -1091,6 +1103,8 @@ test('Export: the Play project exported and served statically with the backend s
     // The world is drawn round the camera (the checks below wait for what they read: the wall's marks, the relief).
     await expect.poll(drawn, { timeout: 60_000, intervals: [100], message: 'the world is drawn round the camera' }).toBeGreaterThan(20);
     const [fillMs, chunks] = [Date.now() - t0, await drawn()];
+    // The shipped scene's world draws at its object's blend distance.
+    expect(await game.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats().worlds['far']?.blendM)).toBe(PLAY_BLEND_M);
     await expect.poll(async () => { const y = (await observe())?.player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     // The kit's GLB came with the build's content files (the backend is stopped) and draws; the default kit's pieces too.
     const play = (): Promise<{ kits: Record<string, string>; kitInstances: number }> => game.evaluate(() => { const h = (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay; return { kits: h.kits(), kitInstances: h.stats().worlds['far']?.kitInstances ?? 0 }; });

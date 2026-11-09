@@ -35,12 +35,15 @@ import { VOXEL_RING_SCALES, type Focus } from './stream-ring';
 export const RELIEF_STEPS: readonly number[] = Object.freeze([0, ...RELIEF_SUBDIVISIONS]);
 
 /**
- * Relief lattice steps by quality tier: none on the low tier (an integrated
- * GPU: the normal from the heights only), 2 (25 cm vertices) on medium, 4
- * (12.5 cm) on high. 8 is allowed but no tier's default: nothing in the
- * measured pictures needed 6 cm vertices next to a normal map.
+ * Relief lattice steps by quality tier: none on any tier, so no relief mesh
+ * is derived, streamed or drawn unless a quality level asks for it with its
+ * own `voxelRelief` (2: 25 cm vertices, 4: 12.5 cm). The owner turned the
+ * displacement off until the far field's bricks work (fewer triangles, a
+ * lighter mesher); the heights still shade every surface through its normal.
+ * Measured before that: 2 on medium and 4 on high were what the pictures
+ * gained from; 8 never paid next to a normal map.
  */
-export const RELIEF_STEPS_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 0, medium: 2, high: 4 });
+export const RELIEF_STEPS_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 0, medium: 0, high: 0 });
 
 /**
  * How a tier scales the relief distance: its own, not the ring scale, because the relief ring was sized by what is

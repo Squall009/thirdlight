@@ -25,7 +25,7 @@
  *   voxel package widens it. `relief`: surfaces within it of a focus are
  *   drawn with relief (meshed finer per derive section and moved by their
  *   materials' heights, fading to none at it; 0: none); how fine is the
- *   quality level's (`voxelRelief`, its tier's: none on low), so a level
+ *   quality level's (`voxelRelief`, no tier draws any unless the level sets it), so a level
  *   without relief draws none at any distance. Never past `level0`.
  * - `quality`: per quality level id, how the distances above change at that
  *   level: `scale` (every distance times it, in place of the level's own
@@ -40,6 +40,10 @@
  * - `decalLayers`: the decal layers the world's surfaces and kit pieces are
  *   in, as any drawn object's (absent: every layer). A draw setting only:
  *   it never changes how the world streams.
+ * - `blendMetres`: metres over which neighbouring voxel materials blend
+ *   where neither sets its own `voxel.blendMetres` (absent: the engine's,
+ *   `VOXEL_MATERIAL_LIMITS.blendMetresDefault`); where two meet the smaller
+ *   wins. A draw setting too: shader data, no remesh.
  *
  * Pure data.
  */
@@ -47,6 +51,7 @@ import { isPlainObject } from '@thirdlight/shared';
 import { DEFAULT_QUALITY_LEVELS, levelVoxels, QUALITY_LEVEL_ID_RE, qualityLevelOf, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, type QualityLevelConfig } from './quality-levels';
 import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_RELIEF_RADIUS_CELLS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type FarFieldMode, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
 import { validateDecalLayerMask } from './decals';
+import { isVoxelBlendMetres, VOXEL_MATERIAL_LIMITS } from './voxel-materials';
 import type { ModelErrorV2 } from './errors';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
 
@@ -113,9 +118,11 @@ export interface VoxelWorldComponent extends VoxelWorldRings {
   savedFields?: VoxelPlane[];
   /** The decal layers its draws are in (absent: every layer). */
   decalLayers?: number;
+  /** Metres neighbouring voxel materials blend over where neither sets its own (absent: the engine's default). */
+  blendMetres?: number;
 }
 
-export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields', 'decalLayers']);
+export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields', 'decalLayers', 'blendMetres']);
 export const VOXEL_WORLD_QUALITY_FIELDS = ['scale', 'ring', 'collision', 'levels'] as const;
 export const VOXEL_WORLD_RING_FIELDS = ['loadRadius', 'unloadRadius', 'loadHeight', 'unloadHeight'] as const;
 export const VOXEL_WORLD_COLLISION_FIELDS = ['radius', 'height'] as const;
@@ -137,7 +144,14 @@ export const VOXEL_WORLD_DEFAULTS = Object.freeze({
   levels: Object.freeze({ level0: cellsToMetres(DEFAULT_LEVEL_RINGS.radii[0]!), level1: cellsToMetres(DEFAULT_LEVEL_RINGS.radii[1]!), relief: cellsToMetres(DEFAULT_RELIEF_RADIUS_CELLS) }),
   sectionEdge: DEFAULT_SECTION_EDGE,
   savedFields: Object.freeze(planesOf(DEFAULT_SAVED_FIELDS)),
+  blendMetres: VOXEL_MATERIAL_LIMITS.blendMetresDefault,
 });
+
+/** The blend metres a world's `voxelWorld` value draws with where no material sets its own (absent or out of range: the default). */
+export function voxelWorldBlendMetres(c: unknown): number {
+  const v = (c as { blendMetres?: unknown } | null | undefined)?.blendMetres;
+  return isVoxelBlendMetres(v) ? v : VOXEL_WORLD_DEFAULTS.blendMetres;
+}
 
 /** Every voxel world setting resolved: metres, and the saved fields as the voxel planes' bit mask. */
 export interface ResolvedVoxelWorld {
@@ -273,7 +287,7 @@ function validateQuality(value: unknown, path: string, errors: ModelErrorV2[]): 
 }
 
 export function validateVoxelWorldComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields?, decalLayers? }', value);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields?, decalLayers?, blendMetres? }', value);
   for (const k of Object.keys(value)) if (!VOXEL_WORLD_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown voxelWorld field "${k}" (${VOXEL_WORLD_FIELDS.join(', ')})`, k);
   const world = value['world'];
   if (world === undefined) err(errors, 'field_missing', `${path}/world`, "voxelWorld needs its world's name");
@@ -293,6 +307,8 @@ export function validateVoxelWorldComponent(value: unknown, path: string, errors
     }
   }
   validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
+  const blend = value['blendMetres'];
+  if (blend !== undefined && !isVoxelBlendMetres(blend)) err(errors, 'field_value', `${path}/blendMetres`, `blendMetres is 0-${VOXEL_MATERIAL_LIMITS.blendMetresMax} m`, blend);
 }
 
 /** Ring distance groups in canonical form, field by field (into `out`). */
@@ -332,5 +348,6 @@ export function canonicalVoxelWorld(c: VoxelWorldComponent): VoxelWorldComponent
   if (c.sectionEdge !== undefined) out.sectionEdge = c.sectionEdge;
   if (c.savedFields !== undefined) out.savedFields = planesOf(planeMaskOf(c.savedFields));
   if (c.decalLayers !== undefined) out.decalLayers = c.decalLayers;
+  if (c.blendMetres !== undefined) out.blendMetres = c.blendMetres;
   return out;
 }

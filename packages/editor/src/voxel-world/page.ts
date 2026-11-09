@@ -104,7 +104,7 @@ import {
   WETNESS_MAX,
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
-import { textureBudgetBytesOf } from '@thirdlight/project-model/limits';
+import { textureBudgetBytesOf, VOXEL_MATERIAL_LIMITS } from '@thirdlight/project-model/limits';
 import { bindViewInput, cellPicker, pageFar, pageFarHooks, pageFarState, pageLevel, pageOcclusion, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { backendArrays, PageMaterials } from './page-materials';
@@ -123,8 +123,8 @@ const worldName = params.get('world') ?? 'slice';
 const at = (params.get('at') ?? '0,64,0').split(',').map(Number) as [number, number, number];
 const rebaseM = Number(params.get('rebase') ?? DEFAULT_REBASE_DISTANCE_M);
 const workers = Number(params.get('workers') ?? defaultVoxelWorkers());
-/** Metres two neighbouring cells' materials blend over. */
-const blendM = Number(params.get('blend') ?? VOXEL_SIZE_M / 2);
+/** Metres two neighbouring cells' materials blend over where neither material sets its own (a world's default; the page has no `voxelWorld` object). */
+const blendM = Number(params.get('blend') ?? VOXEL_MATERIAL_LIMITS.blendMetresDefault);
 const shading = params.get('shading') === 'flat' ? 'flat' : 'blend';
 /** `bands=1`: construction drawn with the band test texture (bands at fixed heights in the 4 m tile). */
 const bands = params.get('bands') === '1';
@@ -138,7 +138,7 @@ const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionP
 /** `?levels=a,b`: level 0 drawn within a metres, level 1 within b (default the engine's rings). */
 const levelsParam = params.get('levels');
 /**
- * `?relief=n` (0, 2, 4, 8) or `?relief=tier` (the default, as Play: the quality level's steps, none on low): the streamer's relief ring (its
+ * `?relief=n` (0, 2, 4, 8) or `?relief=tier` (the default, as Play: the quality level's steps, none unless the level sets `voxelRelief`): the streamer's relief ring (its
  * sections within `?reliefRadius=` metres of the focus, default the quality level's distance, re-planned as the
  * focus moves, inside its share of the stream budget) derives the relief mesh n lattice steps a cell, drawn in place
  * of the surfaces and moved in the vertex stage by their materials' heights (the albedos' A) and height depths;
@@ -540,7 +540,7 @@ async function main(): Promise<void> {
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);
     },
-    /** Metres two neighbouring cells' materials blend over (no new program). */
+    /** Metres two neighbouring cells' materials blend over where neither sets its own (a uniform: no new program, mesh or table upload). */
     setBlend(m: number): void {
       surface.setBlendMetres(m);
     },
@@ -613,7 +613,7 @@ async function main(): Promise<void> {
         shadows,
         reliefCasters,
         textures: { ...materials.textures, current: materials.texturesCurrent, textured: surface.textured },
-        surface: { shading, blendM, tableUploads: surface.tableUploads, tableMs: surface.tableMs, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
+        surface: { shading, blendM: surface.blendMetres, tableUploads: surface.tableUploads, tableMs: surface.tableMs, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,
         section: sectionEdge,
         editSwaps: streamer.counters.swaps,

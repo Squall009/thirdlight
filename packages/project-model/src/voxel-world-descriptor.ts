@@ -11,6 +11,7 @@ import type { ComponentDescriptor } from './descriptor-types';
 import { decalLayersField } from './decal-descriptor';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
 import { VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN } from './quality-levels';
+import { VOXEL_MATERIAL_LIMITS } from './voxel-materials';
 import { VOXEL_WORLD_DEFAULTS } from './voxel-world';
 
 const D = VOXEL_WORLD_DEFAULTS;
@@ -39,7 +40,7 @@ const rings = (withDefaults: boolean): ReturnType<typeof obj>[] => {
     obj('levels', 'Detail levels', 'Where the world is drawn coarser, from full detail near the camera and characters to 2 m voxels far out (level 0 always covers the collision ring).', [
       metres('level0', 'Full detail', `Metres across the ground within which the world is drawn at full detail (0.5 m voxels) with its kit pieces; at least the collision radius + ${colliderKeep} m.`, d(D.levels.level0)),
       metres('level1', 'Level 1', 'Metres across the ground within which 1 m voxels are drawn; past it, 2 m voxels to the load ring (below full detail: taken as it).', d(D.levels.level1)),
-      num('relief', 'Relief', "Metres from the focus within which surfaces are drawn with relief: meshed finer and moved by their materials' heights, fading out toward it (0: none; past full detail: taken as it). How fine is the quality level's voxel relief; the low tier draws none.", { min: 0, max: STREAMING_RADIUS_LIMITS.max, step: 1, unit: 'm', ...(withDefaults ? { default: D.levels.relief } : {}) }),
+      num('relief', 'Relief', "Metres from the focus within which surfaces are drawn with relief: meshed finer and moved by their materials' heights, fading out toward it (0: none; past full detail: taken as it). How fine is the quality level's voxel relief; no tier draws any unless its level sets one.", { min: 0, max: STREAMING_RADIUS_LIMITS.max, step: 1, unit: 'm', ...(withDefaults ? { default: D.levels.relief } : {}) }),
     ]),
   ];
 };
@@ -59,6 +60,7 @@ export const voxelWorld: ComponentDescriptor = {
     int('sectionEdge', 'Section edge', 'Voxels along the edge of the sections a chunk is rebuilt in after an edit: smaller rebuilds less per edit, larger draws fewer pieces.', { values: SECTION_EDGES, default: D.sectionEdge }),
     list('savedFields', 'Saved fields', "The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again).", enm('field', 'Field', 'A voxel field.', VOXEL_PLANES), { unique: true, default: [...D.savedFields] }),
     decalLayersField(false),
+    num('blendMetres', 'Material blend', 'Metres over which neighbouring voxel materials blend where neither sets its own blend (0: hard cell lines; the smaller wins where two meet). Changes live, no remesh.', { min: 0, max: VOXEL_MATERIAL_LIMITS.blendMetresMax, step: 0.05, unit: 'm', default: D.blendMetres }),
   ]),
   add: { kind: 'menu', value: { world: 'world' } },
   handles: [],

@@ -40,7 +40,7 @@ const bindings = (wgsl: string): number => (wgsl.match(/:\s*texture_(?:2d|3d|cub
 const reads = (wgsl: string): number => (wgsl.match(/\btexture(?:Load|Sample\w*)\s*\(/g) ?? []).length;
 
 describe('the voxel surface program', () => {
-  it('reads ten grid texels (the eight round the pixel, the one under them for a pixel above its roof, an owned face\'s owner cell), five table texels, six pattern samples and one crack sample a pixel, and binds four textures (the bands: two samples and a texture more)', async () => {
+  it('reads ten grid texels (the eight round the pixel, the one under them for a pixel above its roof, an owned face\'s owner cell), thirteen table texels (the eight cells\' blend distances among them), six pattern samples and one crack sample a pixel, and binds four textures (the bands: two samples and a texture more)', async () => {
     await settle();
     // Both programs also read three's BRDF table (the standard material's environment term): one read, one binding.
     const flat = program('flat');
@@ -49,9 +49,10 @@ describe('the voxel surface program', () => {
     const blend = program('blend');
     // The crack overlay (a cracked block's faces): the material's crack layer from the table, one crack read (the
     // crack texture is nearest-filtered, so three reads it with a load).
-    // An owned face (a roof plane, a wall under or beside a roof) reads its owner cell: one grid texel more.
-    expect(reads(blend) - reads(flat)).toBe(22);
-    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(16);
+    // An owned face (a roof plane, a wall under or beside a roof) reads its owner cell: one grid texel more. Each of the
+    // eight cells' materials says how wide the blend is (the smallest wins): eight table texels.
+    expect(reads(blend) - reads(flat)).toBe(30);
+    expect((blend.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(24);
     // The grid is a 3D texture read at whole 3D texel coordinates (no flip, no transform).
     expect(blend).toMatch(/:\s*texture_3d<f32>\s*;/);
     expect((blend.match(/\btextureLoad\(\s*\w+,\s*vec3<i32>\(/g) ?? []).length).toBe(10);
@@ -73,7 +74,7 @@ describe('the voxel surface program', () => {
     // nearest-filtered crack texture with texture()).
     for (const bandsOn of [false, true]) {
       const glsl = program('blend', bandsOn, true);
-      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(15);
+      expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(23);
       expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (program('flat', false, true).match(/\btexture\s*\(/g) ?? []).length, `bands ${bandsOn}`).toBe(bandsOn ? 9 : 7);
     }
   });
@@ -86,7 +87,7 @@ describe('the voxel surface program', () => {
     // The arrays: 3 maps × 3 samples × 2 materials, against the patterns' 6; each material's layers one table load,
     // its height depth one more (the height blend and the water in its crevices; the height is the albedo's A).
     expect(reads(sets) - reads(flat)).toBe(reads(patterns) - reads(flat) - 6 + 18 + 2 + 2);
-    expect((sets.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(20);
+    expect((sets.match(/\btextureLoad\s*\(/g) ?? []).length).toBe(28);
     expect((sets.match(/:\s*texture_2d_array<f32>\s*;/g) ?? []).length).toBe(4);
     expect(bindings(sets) - bindings(flat)).toBe(6);
     // The band test texture draws on construction here too: a binding and a sample a material more. With the relief
@@ -100,7 +101,7 @@ describe('the voxel surface program', () => {
     // WebGL 2 builds it too: the same fetches, 18 array samples in place of 6 pattern samples.
     const glsl = program('blend', false, true, false);
     const glslPatterns = program('blend', false, true);
-    expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length).toBe(19);
+    expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length).toBe(27);
     expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (glslPatterns.match(/\btexture\s*\(/g) ?? []).length).toBe(12);
     expect((glsl.match(/uniform\s+(?:highp\s+|mediump\s+|lowp\s+)?sampler2DArray\b/g) ?? []).length).toBe(4);
   });

@@ -243,7 +243,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.8b | done: requirement trace (render spec §5; R88/R89/R111/R112/R27/R28 rows re-pointed), material-set guide (`voxel-kits.md` §1), art-factory request update; acc46d: 62 shots × 2 renderers (WebGL 2 ≤ 0.4 % px apart but Scene view orbits), README + approve-46d.md, published. Seen wrong: D560 (town edge gap), D542, D533, D553, D556, D558 again. D539 pictured dry |
 | 46d.9 | done: full gate GREEN (35 min vs 34, 8.0 GB, 868 vitest files, 392 e2e). Review 0H 3M 8L: D559 traced + fixed (column waits for every section), D552 fixed (far builds in workers, commands go on, export waits ≤ 2 min then warns), acc46d lists all 116 defaults; L1–L7 fixed (D561–D564), L8 deferred (D560). voxel e2e 70.7 → 71.1 s |
 | 46d.10 | done (f05807ba): height in the albedo's A (layout v1 amendment 1); albedo array a height array (brightness height for an opaque albedo, the layered rule); shader, relief vertex stage, placeholders, kit sheets (OPAQUE GLB, Blender keeps A) moved; normal A unused. Shipped A error 4.4/255 at 256² (ETC1S), 0.2–0.4 at 4096² UASTC. Fast gate GREEN; e2e 71.1 → 70.8 s |
-| 46d.11 | not started |
+| 46d.11 | done: relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | not started |
 | 46d.13 | not started |
 | 46d.14 | not started |
@@ -1447,6 +1447,69 @@ stepped, the stone back wall in low sun, grass and a kit corner near. Same look 
 difference 0.25–1.16/255, ≤ 0.39 % of pixels over 8/255 (the low-sun cliff steps 1.88 %, its far edge), on both
 renderers (`work/46d.10/diff.txt`); wet 7 still fills the rock's low parts first on WebGPU and WebGL 2.
 
+### 46d.11 relief off on every tier; blend distance per material with a world default
+
+**Built.** Relief: `RELIEF_STEPS_BY_TIER` is 0 on low, medium and high (`relief-ring.ts`), the one switch: with no
+steps the streamer plans no relief ring, its budget share is 0, no relief part is derived or streamed and no
+shadow caster made (bounds grow only for geometry carrying crease weights, so nothing changes there). The quality
+field `voxelRelief`, the ring, the derive part, the draws' displacing program and the page's `?relief=n` and
+switch stay: a level that sets 2/4/8 draws relief as before. The heights still light every surface (normal and
+height blend from the albedo's A). Blend: `voxel.blendMetres?` on the material record and `blendMetres?` on
+`voxelWorld` (0–0.5 m, default 0.25 m, limits once in `VOXEL_MATERIAL_LIMITS`), validated and canonical field by
+field, inherited along instance chains; descriptors (Inspector rows for both; the material's voxel section gets
+**blend m**, placeholder "world"), MCP docs. The material table's third block carries each material's own value
+(b; −1 none); the surface reads the eight cells round a pixel once, then takes the narrowest blend any solid cell
+asks for (`voxel-surface-blend.ts` `seamBlendMetres`, written over the projection ops so the program and the tests
+run the same function; an optional `hold` op keeps the node graph linear). The world's value is a draw setting:
+Play, exports and the Scene view read it from the scene's `voxelWorld` object through the link that already carried
+its decal layers (`VoxelWorldDecals.blendOf`, `onChange`), and an edit sets the surface's uniform; a record edit
+re-uploads the table (existing path). The voxel world page (no object) keeps `?blend=` (default the engine's) and
+`setBlend`, its records' own values as the hosts; state reports the live value. Render spec (two owner notes,
+add-only), manual (world table row, material field, Relief section), reference regenerated.
+
+**Tested.** `voxel-surface-blend.test.ts` (new): the min rule on numbers (crisp beats soft from both sides, a soft
+material alone keeps its own, a material without one takes the world's, 0 wins, air ignored, none solid → the
+world's); the surface's table holds a record's blend (−1 without), `setBlendMetres` uploads nothing, `setLooks` one
+table upload, the material's version (three's program rebuild trigger) unchanged by either, the program builds on
+WGSL and GLSL, a NaN refused; `VoxelWorldDraws` over a real derive and join in a scene with the link: drawn at the
+object's 0.1 m, an object edit to 0 and its removal (→ 0.25) set only the uniform (mesh builds and table uploads
+unchanged), a record edit one table upload and no mesh build. `voxel-materials.test.ts` / `voxel-world.test.ts`
+(canonical round trip with the new fields in order, ranges refused, 0 and one cell accepted), descriptors
+(registry reached; size bound 376.5 → 377.2 KB with its reason), `voxel-surface.test.ts` (program reads: 13 table
+texels, was 5), `voxel-world.test.ts` / `world-host.test.ts` (tiers resolve 0 steps; a level's own `voxelRelief`
+4 still drives the real streamer's ring). `voxel-world.e2e.ts`: the relief checks (Play WebGL 2, export WebGPU) now
+turn relief on explicitly (the project's levels = the engine's with `voxelRelief: 4` at high, removed after); Play
+and the export assert the world draws at its object's `blendMetres` (0.2 m).
+Fast gate gate-fast-20261109-203353 (vitest red: the script access digest, re-pinned for the added optional field
+as its test says; `dedup-retry.test.ts` timed out under load and `edge-cases.test.ts` (D523 watch) failed once, both
+passed alone) → gate-rerun-20261109-204534 GREEN (4 min, 5.1 GB; perf 0 missed both renderers).
+`voxel-world.e2e.ts` 70.8 → 71.8 s (21.9 / 11.5 / 9.2 / 11.5 / 6.8 / 10.9 s; relief still moves 4,268 px in Play,
+57,312 px in the export).
+
+**Measured** (staging, Iris Xe, 1280 × 720 at the 60 Hz cap, town R9 view 60 m out, ~480-frame orbit a tier, one
+round each, before = the tree at cd29ca3a 20:17–20:19 load 1.2–2.6, after 20:29–20:31 load 4.4–6.0 (another
+project busy), uptime 17.1 d; `work/46d.11/perf.mjs`, `b-town-*.json`, `a-town-*.json`). Low is unchanged by
+construction (it drew no relief); medium and high lose the relief mesh:
+
+| Town, WebGPU / WebGL 2 | triangles | relief vertices | relief mesher a section p50/p95 | stream MB (relief) | `render()` p50/p95 ms | missed of ~479 |
+|---|---|---|---|---|---|---|
+| low before → after | 802 k → 802 k | 0 | — | 116.4 (0) → 116.4 | 2.8/4.5 → 3.0/5.1 / 3.2/4.1 → 3.2/5.5 | 0 → 0 / 0 → 0 |
+| medium before → after | 1.25 M → 802 k | 279 k → 0 | 2.0–2.4/20–22 ms → none | 134.0 (12.8) → 116.4 | 2.8/4.8 → 2.9/5.0 / 3.3/4.9 → 3.2/5.8 | 0 → 0 / 2 → 3 |
+| high before → after | 3.17 M → 802 k | 1.28 M → 0 | 2.2–2.3/31–34 ms → none | 221.4 (77.1) → 116.4 | 2.8/4.6 → 2.8/4.8 / 3.3/4.5 → 3.2/5.8 | 0 → 0 / 0 → 0 |
+
+Derived bytes 188.4 → 83.4 MB at high, 101.0 → 83.4 MB at medium; JS heap 624 / 588–624 MB both. GPU timestamps
+(not usable at the cap, D544) low 5.81 → 5.61 / 4.98 → 5.03 ms: the eight extra table texels a pixel show no
+cost above that noise. p95 `render()` rose 0.2–1.3 ms with the host's load (4–6 against 1–3); the WebGL 2 misses
+(2 → 3 at medium) are within the runs' spread. No obvious regression.
+
+**Looked at** (`work/46d.11/shots/`, village at high, both renderers, `shots.mjs`): `off-high-stone-wall-*`
+(stone wall, door and window frames, foundation: plain faces, normal-mapped joints, no relief vertices),
+`off-high-seam-grass-rock-*`, `off-high-rock-cliff-*` (relief ring 0 sections, triangles 366–399 k), and the
+grass/rock seam at the world blend `blend005-*` (0.05 m: a straight hard edge along the cells), `blend05-*` (0.5 m:
+a wide ragged height-blended edge), `blend0-*` (hard cell line); the default 0.25 m is `off-high-seam-*`. WebGPU and
+WebGL 2 show the same pictures. The per-material override is not pictured (tested in vitest through the draws);
+the Scene view's and Play's live edit of the world's object is tested through the draws, not pictured.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -1910,6 +1973,23 @@ renderers (`work/46d.10/diff.txt`); wet 7 still fills the rock's low parts first
   renderer is the chosen far-field direction; making it usable (detail, cost on the Iris Xe, no mush) is the work.
   The mesh far field stays only as the fallback behind the switch: no mesh revision before the bricks work, and the
   "~1/4 triangles" cut applies to the mesh fallback only if it is still needed then. §6d reordered accordingly.
+
+- 2026-11-09 (46d.11, default chosen, owner to confirm): **relief off = `RELIEF_STEPS_BY_TIER` 0 on every tier**, the
+  one switch: no relief part is derived, streamed or budgeted (its share is 0 with no steps) and no caster made; the
+  quality field `voxelRelief`, the ring, the part and the page's `?relief=n` stay, so a level that sets 2/4/8 gets
+  relief as before. Tests that need relief turn it on explicitly (the e2e: the project's levels = the engine's with
+  `voxelRelief: 4` at high; the bench host test: its level's own 4).
+- 2026-11-09 (46d.11, default chosen, owner to confirm): **blend distance fields**: `voxel.blendMetres` on the
+  material record and `blendMetres` on the `voxelWorld` component, 0–0.5 m (one cell, the shader's reach between
+  cell centres; 0 a hard cell line), world default 0.25 m (what every host drew), limits once in
+  `VOXEL_MATERIAL_LIMITS` (`blendMetresMax`, `blendMetresDefault`); inherited along instance chains like the other
+  voxel fields.
+- 2026-11-09 (46d.11, default chosen, owner to confirm): **"the smaller wins" = the narrowest of the eight cells
+  round a pixel** (solid cells only; a material without its own asks for the world's), so both sides of a seam read
+  the same width; costs eight table texels a pixel more (13 in all).
+- 2026-11-09 (46d.11, default chosen, owner to confirm): **the world's blend is a draw setting** read from the scene's
+  `voxelWorld` object as its decal layers are (first object naming the world), never part of the resolved streaming
+  settings, so changing it reloads nothing; the voxel world page (no object) keeps `?blend=` and the `setBlend` hook.
 
 ## 10. Open questions for the owner
 

@@ -75,7 +75,7 @@ import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
-import { DEFAULT_QUALITY_LEVELS, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
+import { DEFAULT_QUALITY_LEVELS, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, voxelWorldBlendMetres, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
 import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
@@ -172,6 +172,8 @@ export interface VoxelWorldDrawStats {
   /** Material table uploads (a record changed) and the ms the last one took. */
   readonly tableUploads: number;
   readonly tableMs: number;
+  /** Metres its materials blend over where none sets its own (its `voxelWorld` object's, else the default). */
+  readonly blendM: number;
   /** Layers of the texture arrays drawn (0: none yet), and whether the program draws texture sets. */
   readonly textureLayers: number;
   readonly textured: boolean;
@@ -380,7 +382,7 @@ export class VoxelWorldDraws {
     let w = this.worlds.get(name);
     if (w !== undefined) return w;
     const grid = chunkGrid(edge as ChunkEdge);
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: VOXEL_SIZE_M / 2, relief: true });
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: voxelWorldDecalsOf(scene)?.blendOf(name) ?? voxelWorldBlendMetres(null), relief: true });
     // Nothing is displaced until the ring is told (a relief mesh arrives only with or after it).
     surface.setRelief({ displace: this.displace, fadeStartM: 0, fadeEndM: 0 });
     if (this.arrays !== null) this.giveArrays(surface);
@@ -391,9 +393,11 @@ export class VoxelWorldDraws {
     const decals = voxelWorldDecalsOf(scene);
     view.setDecalLayers(decals?.layersOf(name));
     view.setDecalSurfaces(decals?.surfaces ?? null);
-    const unlink = decals?.onLayers((world) => {
+    // The world's object changed its layers or blend: both are draw data (no remesh; the blend a uniform).
+    const unlink = decals?.onChange((world) => {
       if (world !== name) return;
       view.setDecalLayers(decals.layersOf(name));
+      surface.setBlendMetres(decals.blendOf(name));
       this.opts.applied?.();
     }) ?? ((): void => undefined);
     this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0, relief: null, unlink }));
@@ -442,7 +446,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 

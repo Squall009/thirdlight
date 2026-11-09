@@ -131,6 +131,7 @@ import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
 import { BAND_TEXELS, bandTexels, gridUv, tileUv } from './voxel-surface-projection';
 import { NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt } from './voxel-surface-sets';
+import { seamBlendMetres, type BlendCell } from './voxel-surface-blend';
 import { heightBlend, WET_DARKEN, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
 
 const TSL: N = TSLTyped;
@@ -385,6 +386,8 @@ export interface VoxelMaterialLook {
    * crevices fill with water, how far relief moves it (absent: the material record's default).
    */
   readonly heightDepthMetres?: number;
+  /** Metres over which it blends into a neighbouring material (absent: the surface's, {@link VoxelSurface.setBlendMetres}); the smaller of two wins. */
+  readonly blendMetres?: number;
   /** Under `patterns`, its layer of the relief test heights (absent: flat): the debug program has no texture sets. */
   readonly testHeightLayer?: number;
 }
@@ -483,7 +486,8 @@ function bandTexture(): THREE.DataTexture {
  * index in a; a second block of rows below it the tiles (construction
  * metres in r, terrain metres in g) and its crack layer in b (0: the
  * engine's; voxel-crack-texture.ts); a third its relief (height layer in r,
- * −1 none; depth in metres in g); a fourth its texture layers (wall, floor,
+ * −1 none; depth in metres in g) and its own blend metres in b (−1: the
+ * surface's); a fourth its texture layers (wall, floor,
  * ceiling in r, g, b; −1 none).
  */
 function tableTexture(): THREE.DataTexture {
@@ -501,7 +505,7 @@ function tableTexture(): THREE.DataTexture {
 export interface VoxelSurfaceOptions {
   /** The look of material id `m` (ids 1 … 2^materialBits − 1). */
   look(material: number): VoxelMaterialLook;
-  /** Metres over which two neighbouring cells' materials blend (0 … one cell). */
+  /** Metres over which two neighbouring cells' materials blend (0 … one cell) where neither material sets its own. */
   blendMetres: number;
   /** `flat`: one colour, no reads (to measure what the blend costs). */
   shading?: 'blend' | 'flat';
@@ -543,8 +547,13 @@ export interface VoxelReliefSettings {
 export interface VoxelSurface {
   readonly material: THREE.MeshStandardNodeMaterial;
   readonly grids: VoxelShaderGrids;
-  /** Metres the blend runs over (a uniform: changing it needs no new program). */
+  /**
+   * Metres the blend runs over where no material of a seam sets its own (a uniform: changing it needs no new
+   * program, mesh or table upload). Where materials meet, the smallest of theirs wins.
+   */
   setBlendMetres(m: number): void;
+  /** The blend metres in use where no material sets its own. */
+  readonly blendMetres: number;
   /**
    * The crack textures the kits replace the engine's with ({@link CRACK_TEXELS}² bytes each, layer k + 1 of the
    * array) and each material's layer (0: the engine's): what a cracked face of that material draws.
@@ -570,7 +579,7 @@ export interface VoxelSurface {
   readonly tableUploads: number;
   readonly tableMs: number;
   /** What the table holds for a material (diagnostics): linear colour, pattern, tiles in metres, crack layer, relief layer (−1 none) and depth. */
-  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number; layers: [number, number, number] };
+  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number; blendM: number; layers: [number, number, number] };
   /**
    * The deepest relief of any material (metres; 0 without heights): how far a displaced vertex can move, what culling
    * bounds grow by. A geometry keeps the bound it was placed with until it is placed again.
@@ -619,6 +628,8 @@ interface BlendInputs {
   readonly layout: VoxelSurfaceLayout;
   readonly cellU: N;
   readonly blendM: N;
+  /** A material's own blend metres (negative: none, the surface's). */
+  blendOf(mat: N): N;
   readonly gridNode: N;
   readonly slotU: N;
   readonly phaseU: N;
@@ -633,23 +644,40 @@ interface BlendInputs {
  * calls it too (relief), so a vertex moves by the very blend its pixels show.
  */
 function surfaceBlend(ctx: BlendInputs, pos: N, n: N): Blend {
-  const { layout, cellU, blendM, gridNode, slotU, phaseU, slopePhaseU, slope5PhaseU, decode } = ctx;
+  const { layout, cellU, blendM, blendOf, gridNode, slotU, phaseU, slopePhaseU, slope5PhaseU, decode } = ctx;
   // Cells of the object's grid from its corner, read into the surface by a depth in metres (not a share of the
   // object's cells: a coarse cell's share would reach under a thin surface layer), kept on the grid (border included).
   const edge = layout.side - 2 * layout.border;
   const q = clamp(pos.sub(n.mul(layout.readDepthCells * layout.cellMetres)).div(cellU), -0.5, edge + 0.5);
   const t = q.sub(0.5);
   const c0 = floor(t);
-  // The blend's metres in this grid's cells (at most one cell): the same width at every level.
-  const blendCells = clamp(blendM.div(cellU), 1e-3, 1);
   const f = t.sub(c0);
-  const w1 = clamp(f.sub(0.5).div(blendCells).add(0.5), 0, 1);
-  const w0 = vec3(1).sub(w1);
   const f0 = vec3(1).sub(f);
   const g0 = ivec3(c0).add(layout.border);
   const hi = int(layout.side - 1);
   const slot = slotU;
   const o = ivec3(slot.xyz);
+  // The eight cells round the point, read once: their materials say how wide the blend between them is.
+  const cells: { mat: N; wet: N }[] = [];
+  const asks: BlendCell<N, N>[] = [];
+  for (let k = 0; k < 8; k++) {
+    const gx = min(g0.x.add(k & 1), hi);
+    const gy = min(g0.y.add((k >> 1) & 1), hi);
+    const gz = min(g0.z.add((k >> 2) & 1), hi);
+    // Texture x, y, z are grid y, z, x (the grid's memory order).
+    const texel = gridNode.load(ivec3(o.x.add(gy), o.y.add(gz), o.z.add(gx)));
+    const lo = floor(texel.r.mul(255).add(0.5));
+    const hiB = floor(texel.g.mul(255).add(0.5));
+    const e = decode(lo.add(hiB.mul(256)));
+    const cell = { mat: e.mat.toVar(), wet: e.wet.toVar() };
+    cells.push(cell);
+    asks.push({ own: blendOf(cell.mat).toVar(), solid: cell.mat.greaterThan(0.5) });
+  }
+  // Where materials meet the smallest blend wins (voxel-surface-blend.ts); in this grid's cells (at most one cell):
+  // the same width in metres at every level.
+  const blendCells = clamp(seamBlendMetres(NODE_OPS, asks, blendM).toVar().div(cellU), 1e-3, 1);
+  const w1 = clamp(f.sub(0.5).div(blendCells).add(0.5), 0, 1);
+  const w0 = vec3(1).sub(w1);
   const m1 = float(-1).toVar();
   const v1 = float(0).toVar();
   const m2 = float(-1).toVar();
@@ -664,14 +692,7 @@ function surfaceBlend(ctx: BlendInputs, pos: N, n: N): Blend {
     const dx = k & 1;
     const dy = (k >> 1) & 1;
     const dz = (k >> 2) & 1;
-    const gx = min(g0.x.add(dx), hi);
-    const gy = min(g0.y.add(dy), hi);
-    const gz = min(g0.z.add(dz), hi);
-    // Texture x, y, z are grid y, z, x (the grid's memory order).
-    const texel = gridNode.load(ivec3(o.x.add(gy), o.y.add(gz), o.z.add(gx)));
-    const lo = floor(texel.r.mul(255).add(0.5));
-    const hiB = floor(texel.g.mul(255).add(0.5));
-    const { mat, wet } = decode(lo.add(hiB.mul(256)));
+    const { mat, wet } = cells[k]!;
     const isSolid = select(mat.greaterThan(0.5), float(1), float(0));
     const w = (dx ? w1.x : w0.x).mul(dy ? w1.y : w0.y).mul(dz ? w1.z : w0.z).mul(isSolid).toVar();
     wetSum.addAssign(w.mul(wet));
@@ -773,7 +794,9 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       if (!(depth >= 0) || !Number.isFinite(depth)) throw new RangeError(`voxel material ${m}: a height depth of ${depth} m`);
       const layer = opts.heights === undefined ? undefined : l.testHeightLayer;
       if (layer !== undefined && (!Number.isInteger(layer) || layer < 0 || layer >= opts.heights!.layers.length)) throw new RangeError(`voxel material ${m}: relief layer ${layer}`);
-      tdata.set([layer ?? -1, depth, 0, 0], (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4);
+      const blend = l.blendMetres;
+      if (blend !== undefined && !(blend >= 0 && Number.isFinite(blend))) throw new RangeError(`voxel material ${m}: a blend of ${blend} m`);
+      tdata.set([layer ?? -1, depth, blend ?? -1, 0], (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4);
       // Under the patterns only a material with a test layer has a height; with texture sets any may.
       if (textured || layer !== undefined) deepest = Math.max(deepest, depth);
     }
@@ -841,7 +864,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     material.colorNode = vec4(0.55, 0.52, 0.47, 1);
     material.roughnessNode = float(0.85);
   } else {
-    const blendCtx: BlendInputs = { layout, cellU, blendM, gridNode, slotU, phaseU, slopePhaseU, slope5PhaseU, decode };
+    const blendOf = (m: N): N => look(mod(m, matMask), 2).z;
+    const blendCtx: BlendInputs = { layout, cellU, blendM, blendOf, gridNode, slotU, phaseU, slopePhaseU, slope5PhaseU, decode };
     const blendAt = (pos: N, n: N): Blend => surfaceBlend(blendCtx, pos, n);
     /** A point's materials as the texture sets read them (the projection's inputs from the blend). */
     const setPoint = (b: Blend, n: N) => ({ n, p: b.p, gu: b.gu, gv: b.gv, bn: b.bn });
@@ -1004,6 +1028,9 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     setBlendMetres(m) {
       blendM.value = Math.max(0, m);
     },
+    get blendMetres() {
+      return blendM.value as number;
+    },
     get reliefDepthM() {
       return reliefDepthM;
     },
@@ -1027,7 +1054,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
       const r = (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4;
       const ly = (LAYER_BLOCK + m) * 4;
-      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]!, layers: [tdata[ly]!, tdata[ly + 1]!, tdata[ly + 2]!] };
+      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]!, blendM: tdata[r + 2]!, layers: [tdata[ly]!, tdata[ly + 1]!, tdata[ly + 2]!] };
     },
     get textured() {
       return textured;

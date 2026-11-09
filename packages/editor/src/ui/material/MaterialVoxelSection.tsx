@@ -153,6 +153,10 @@ export function MaterialVoxelSection(p: { material: MaterialDef; resolved: Mater
             <span className="tl-field__label">height depth m</span>
             <NumberField aria="voxel height depth" value={own.heightDepth} placeholder={String(inherited?.heightDepth ?? L.heightDepthDefault)} min={0} max={L.heightDepthMax} step={0.005} onCommit={(v) => set({ heightDepth: v })} />
           </label>
+          <label className="tl-field">
+            <span className="tl-field__label">blend m</span>
+            <NumberField aria="voxel blend metres" value={own.blendMetres} placeholder={inherited?.blendMetres !== undefined ? String(inherited.blendMetres) : 'world'} min={0} max={L.blendMetresMax} step={0.05} onCommit={(v) => set({ blendMetres: v })} />
+          </label>
           <p className="tl-hint">
             {surfaces === 0 ? 'Wall, floor and ceiling draw with the material’s own look.' : `${surfaces} surface texture set${surfaces === 1 ? '' : 's'} named (wall, floor, ceiling).`} The colour above tints its voxels.
           </p>

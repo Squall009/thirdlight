@@ -16,6 +16,10 @@
  * - `heightDepth`: metres the height map's 0 lies below its 1, the
  *   material's own (sand shallow, rock deep), so no shared height scale
  *   crushes a texture;
+ * - `blendMetres`: metres over which it blends into a neighbouring
+ *   material (absent: its world's `voxelWorld.blendMetres`, else
+ *   {@link VOXEL_MATERIAL_LIMITS.blendMetresDefault}); where two meet the
+ *   smaller one's wins, so a crisp material stays crisp beside a soft one;
  * - `surfaces`: wall, floor and ceiling texture sets (role and face
  *   direction pick one; floor and ceiling fall back to wall, wall to the
  *   material's own look), so a voxel stays one material id.
@@ -33,7 +37,7 @@
  * Pure value rules: no I/O.
  */
 import { isPlainObject, isPlainObjectStrict } from '@thirdlight/shared';
-import { CONSTRUCTION_TILE_METRES, MATERIAL_AIR, MATERIAL_ID_MAX, TERRAIN_TILE_METRES } from '@thirdlight/voxel';
+import { CONSTRUCTION_TILE_METRES, MATERIAL_AIR, MATERIAL_ID_MAX, TERRAIN_TILE_METRES, VOXEL_SIZE_M } from '@thirdlight/voxel';
 import type { ModelErrorV2 } from './errors';
 import { PHYSICAL_DEFAULTS, type MaterialGameData, type ResolvedPhysical } from './material-profiles';
 import { ID_RE } from './validate';
@@ -68,6 +72,8 @@ export interface MaterialVoxel {
   tileMetres?: number;
   /** Metres between the height map's 1 (the surface) and 0 (absent: {@link VOXEL_MATERIAL_LIMITS.heightDepthDefault}). */
   heightDepth?: number;
+  /** Metres over which it blends into a neighbouring material, 0–{@link VOXEL_MATERIAL_LIMITS.blendMetresMax} (absent: its world's; the smaller of two wins where they meet). */
+  blendMetres?: number;
   /** Texture sets per surface (absent: the material's own look on every surface). */
   surfaces?: Partial<Record<VoxelSurface, VoxelTextureSet>>;
 }
@@ -86,9 +92,21 @@ export const VOXEL_MATERIAL_LIMITS = Object.freeze({
   heightDepthMax: 0.25,
   /** A material that says nothing: shallow, like packed earth. */
   heightDepthDefault: 0.02,
+  /**
+   * The widest material blend: one 0.5 m cell (the shader blends between neighbouring cells' centres, so a wider one
+   * would reach past the next cell). 0 is a hard cell line.
+   */
+  blendMetresMax: VOXEL_SIZE_M,
+  /** A world that says nothing: half a cell, a soft seam that still keeps each cell's material readable. */
+  blendMetresDefault: VOXEL_SIZE_M / 2,
 });
 
-const VOXEL_FIELDS = ['id', 'use', 'kit', 'tileMetres', 'heightDepth', 'surfaces'];
+const VOXEL_FIELDS = ['id', 'use', 'kit', 'tileMetres', 'heightDepth', 'blendMetres', 'surfaces'];
+
+/** Whether `v` is a blend distance in range (metres, 0–{@link VOXEL_MATERIAL_LIMITS.blendMetresMax}). */
+export function isVoxelBlendMetres(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= VOXEL_MATERIAL_LIMITS.blendMetresMax;
+}
 
 /** Metres one repeat covers when a material sets none: the derive's tile for its use. */
 export function voxelTileMetresDefault(use: VoxelMaterialUse): number {
@@ -112,7 +130,7 @@ function textureSet(v: unknown, path: string, errors: ModelErrorV2[]): void {
  * whole list: {@link validateVoxelMaterialRules}). `instance`: an instance may leave `use` to its chain.
  */
 export function validateMaterialVoxel(v: unknown, path: string, errors: ModelErrorV2[], instance: boolean): void {
-  if (!isPlainObjectStrict(v)) return err(errors, 'field_type', path, 'voxel is {id, use, kit?, tileMetres?, heightDepth?, surfaces?}', v, 'object');
+  if (!isPlainObjectStrict(v)) return err(errors, 'field_type', path, 'voxel is {id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?}', v, 'object');
   for (const k of Object.keys(v)) if (!VOXEL_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown voxel field "${k}"`, k, VOXEL_FIELDS.join(', '));
   const L = VOXEL_MATERIAL_LIMITS;
   const id = v['id'];
@@ -127,6 +145,8 @@ export function validateMaterialVoxel(v: unknown, path: string, errors: ModelErr
   if (tile !== undefined && (typeof tile !== 'number' || !Number.isFinite(tile) || tile < L.tileMetresMin || tile > L.tileMetresMax)) err(errors, 'field_value', `${path}/tileMetres`, `tileMetres is ${L.tileMetresMin}-${L.tileMetresMax} m`, tile);
   const depth = v['heightDepth'];
   if (depth !== undefined && (typeof depth !== 'number' || !Number.isFinite(depth) || depth < 0 || depth > L.heightDepthMax)) err(errors, 'field_value', `${path}/heightDepth`, `heightDepth is 0-${L.heightDepthMax} m`, depth);
+  const blend = v['blendMetres'];
+  if (blend !== undefined && !isVoxelBlendMetres(blend)) err(errors, 'field_value', `${path}/blendMetres`, `blendMetres is 0-${L.blendMetresMax} m`, blend);
   const surfaces = v['surfaces'];
   if (surfaces !== undefined) {
     if (!isPlainObjectStrict(surfaces)) err(errors, 'field_type', `${path}/surfaces`, `surfaces is {${VOXEL_SURFACES.map((s) => `${s}?`).join(', ')}}`, surfaces, 'object');
@@ -160,6 +180,7 @@ export function canonicalMaterialVoxel(v: MaterialVoxel): MaterialVoxel {
     ...(v.kit !== undefined ? { kit: v.kit } : {}),
     ...(v.tileMetres !== undefined ? { tileMetres: v.tileMetres } : {}),
     ...(v.heightDepth !== undefined ? { heightDepth: v.heightDepth } : {}),
+    ...(v.blendMetres !== undefined ? { blendMetres: v.blendMetres } : {}),
     ...(Object.keys(surfaces).length > 0 ? { surfaces } : {}),
   };
 }
@@ -176,6 +197,7 @@ export function mergeMaterialVoxel(chain: readonly (MaterialVoxel | undefined)[]
     if (v.kit !== undefined) out.kit = v.kit;
     if (v.tileMetres !== undefined) out.tileMetres = v.tileMetres;
     if (v.heightDepth !== undefined) out.heightDepth = v.heightDepth;
+    if (v.blendMetres !== undefined) out.blendMetres = v.blendMetres;
     for (const s of VOXEL_SURFACES) if (v.surfaces?.[s] !== undefined) surfaces[s] = { ...surfaces[s], ...v.surfaces[s] };
   }
   if (Object.keys(surfaces).length > 0) out.surfaces = surfaces;

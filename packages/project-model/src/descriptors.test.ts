@@ -497,7 +497,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
   windZone: [{ shape: 'box', size: [20, 10, 20], blend: 2, priority: 3, direction: [0, 1], strength: 2, gust: 1, turbulence: 0.5, speed: 8, scale: 30 }, { shape: 'sphere', radius: 10 }],
   foliageBend: [{ radius: 0.8, strength: 1.5, recovery: 2 }, {}],
-  voxelWorld: [{ world: 'town_1', ring: { loadRadius: 120, unloadRadius: 150, loadHeight: 60, unloadHeight: 80 }, collision: { radius: 40, height: 20 }, levels: { level0: 50, level1: 100, relief: 12 }, quality: { low: { scale: 0.5, ring: { loadRadius: 60, unloadRadius: 80, loadHeight: 30, unloadHeight: 40 }, collision: { radius: 20, height: 10 }, levels: { level0: 24, level1: 48, relief: 0 } }, high: { scale: 2 } }, sectionEdge: 32, savedFields: ['wetness'], decalLayers: 3 }, { world: 'w' }],
+  voxelWorld: [{ world: 'town_1', ring: { loadRadius: 120, unloadRadius: 150, loadHeight: 60, unloadHeight: 80 }, collision: { radius: 40, height: 20 }, levels: { level0: 50, level1: 100, relief: 12 }, quality: { low: { scale: 0.5, ring: { loadRadius: 60, unloadRadius: 80, loadHeight: 30, unloadHeight: 40 }, collision: { radius: 20, height: 10 }, levels: { level0: 24, level1: 48, relief: 0 } }, high: { scale: 2 } }, sectionEdge: 32, savedFields: ['wetness'], decalLayers: 3, blendMetres: 0.125 }, { world: 'w' }],
   vertexPaint: [{ meshes: [{ mesh: 'Body/Hull#0', vertices: 120, positions: 'a'.repeat(16), paint: 'b'.repeat(64) }], paths: [{ path: 'spline', side: 'top', origin: [-4, -8], size: [40, 16], paint: 'c'.repeat(64) }] }],
   decal: [{ size: [2, 1, 0.5], mode: 'clipped', material: 'mat-a', opacity: { albedo: 0.5, normal: 1, roughness: 0, metalness: 0.2, occlusion: 0.7, emission: 0.1 }, normalFade: 60, edgeFade: [0.1, 0.4], fadeDistance: 40, sortOrder: -3, layers: 6 }],
   architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' , decalLayers: 1, kitId: 'town', seeThrough: false, furnishing: 'starter-furnishing' }],
@@ -731,7 +731,7 @@ const MATERIAL_BASES: J[] = [
   // A decal material drawing a trim sheet's cell (no texture slots of its own).
   [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
   // A material with the material model's parts: physics, game data and a voxel use with its texture sets.
-  [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, surfaces: { wall: { albedo: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedo: 'tex-f' }, ceiling: { orm: 'tex-c' } } } }],
+  [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, blendMetres: 0.1, surfaces: { wall: { albedo: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedo: 'tex-f' }, ceiling: { orm: 'tex-c' } } } }],
   // A layered material naming its layers for the palette.
   [{ materialId: 'mat-l', name: 'Layers', shader: 'standard', params: {}, textures: {}, layerNames: ['Grass', 'Dirt'] }],
   // A layered material whose first layer follows a trim sheet.
@@ -1085,8 +1085,9 @@ describe('descriptor registry', () => {
     // wall-top fill, about 0.3 KB; a voxel kit's own sheet layout and its slot meshes' mirror, about 0.45 KB; the
     // material record's physics, game data and voxel use, and the physical profiles, about 4.7 KB; a quality level's
     // voxel texel density, about 0.35 KB; a voxel world's relief distance and a quality level's voxel relief, about 1 KB;
-    // a quality level's voxel far field mode and detail, about 0.65 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(376_500);
+    // a quality level's voxel far field mode and detail, about 0.65 KB; a voxel material's and a voxel world's blend
+    // distance, about 0.7 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(377_200);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

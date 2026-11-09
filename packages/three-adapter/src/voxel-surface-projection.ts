@@ -32,6 +32,8 @@ export interface ProjectionOps<F, B> {
   less(a: F, b: F): B;
   /** `c ? a : b`. */
   pick(c: B, a: F, b: F): F;
+  /** A value read more than once, held (a shader variable; numbers need none). */
+  hold?(a: F): F;
 }
 
 export type Vec<F> = readonly [F, F, F];

@@ -491,7 +491,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
 
   it("changes a world's rings while it runs: a script's setRings re-plans the load ring, the collision ring and the levels drawn (one swap, no reload), and the quality level the page reports scales them and sets the budget", async () => {
     // The project's levels go to the runtime with the world ports (the game host's presentation); the page reports one with its stats.
-    const levels: QualityLevelConfig[] = [{ id: 'small', lighting: 'low', voxelRings: 0.5 }, { id: 'big', lighting: 'high', voxelRings: 2 }];
+    const levels: QualityLevelConfig[] = [{ id: 'small', lighting: 'low', voxelRings: 0.5 }, { id: 'big', lighting: 'high', voxelRings: 2, voxelRelief: 4 }];
     let stream: VoxelStreamer | null = null;
     const levelEvents: Extract<StreamEvent, { type: 'levels' }>[] = [];
     const h = await harness(
@@ -581,7 +581,7 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(h.rt.setStats!(pageStats('big'))).toBe(true);
     const big = await h.inStep((v) => v.rings());
     expect(big).toEqual({ ring: { loadRadius: 32, unloadRadius: 32, loadHeight: 64, unloadHeight: 128 }, collision: { radius: 40, height: 32 }, levels: { level0: 20, level1: 200, relief: 20 }, quality: 'big', budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, reliefSteps: 4 });
-    // The high tier: relief 4 steps a cell to the scene's 16 m doubled, within level 0; a script's own distance re-plans the ring.
+    // The big level's own relief (no tier draws any by default): 4 steps a cell to the scene's 16 m doubled, within level 0; a script's own distance re-plans the ring.
     expect([s().relief!.ring.n, s().relief!.radius]).toEqual([4, cells(20)]);
     // A script's relief distance scales by the level's ring scale against its tier's, times relief's own tier scale.
     const rel = await h.inStep((v) => v.setRings({ levels: { relief: 6 } }));

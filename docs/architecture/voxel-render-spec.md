@@ -44,7 +44,8 @@ is refused whole), unknown fields at every level are refused, and later steps on
   An empty block is left out canonically.
 - `gameData?`: any JSON nested at most 32 deep (`game-data.ts`, the kit format's rule), object keys sorted, never
   read by the engine.
-- `voxel?` `{id, use, kit?, tileMetres?, heightDepth?, surfaces?}`, in that order:
+- `voxel?` `{id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?}`, in that order (`blendMetres?`
+  added by 46d.11, owner note below):
   - `id` 1–4,095 (the voxel value's 12 material bits; 0 is air), **unique in the project** (`voxel_id_taken`);
     every world of the project shares the ids.
   - `use` `construction` | `terrain` | `liquid` (required on a material; an instance may leave it to its chain).
@@ -54,6 +55,9 @@ is refused whole), unknown fields at every level are refused, and later steps on
     `TERRAIN_TILE_METRES` 2 for terrain and liquid, the derive's own constants).
   - `heightDepth` 0–0.25 m between the height map's 1 (the surface) and 0 (absent: 0.02 m). Relief only recesses,
     and half a 0.5 m cell keeps both sides of a one-cell wall apart.
+  - `blendMetres` 0–0.5 m (`VOXEL_MATERIAL_LIMITS.blendMetresMax`, one cell; 0 a hard cell line) over which it
+    blends into a neighbouring material (absent: its world's, below). Inherited along an instance chain as the
+    other fields.
   - `surfaces` `{wall?, floor?, ceiling?}`, each a texture set `{albedo?, normal?, orm?}` of plain texture
     assets (not arrays: each becomes one layer of its map's array in 46d.4a). Floor and ceiling fall back to wall,
     wall to the material's own look (`voxelSurfaceSet`). Empty sets are left out canonically.
@@ -105,6 +109,21 @@ no friction per triangle, so per-material friction is game logic over these read
 **Measured** (vitest, Node): a record with every part 414 bytes compact (79 without them); a project with all
 4,095 voxel ids given a material loads (validate + canonical) in 63 ms, one material edit on the trusted block
 5.5 ms, the list 1.65 MB compact.
+
+**Owner note (46d.11, 2026-11-09): material blend distance.** The owner asked for the blend distance per material
+with a world default, the smaller winning where two meet. An add-only step inside project schema 8, not a new
+format: two optional fields, nothing else changes, an older project loads unchanged and draws as before (the
+default is the 0.25 m the hosts drew with). `MaterialDef.voxel.blendMetres?` (above) and the `voxelWorld`
+component's `blendMetres?` (0–0.5 m; absent: `VOXEL_MATERIAL_LIMITS.blendMetresDefault` 0.25 m, half a cell), both
+canonical field by field (the world's after `decalLayers`). Drawn: the material table's third block carries each
+material's own value in b (−1: none); the world's is the surface's uniform. Of the eight cells round a pixel the
+narrowest blend any solid cell asks for (its material's own, else the world's) is the blend there
+(three-adapter `voxel-surface-blend.ts`, `seamBlendMetres`), so both sides of a seam blend alike; air asks for
+nothing. Shader data only (the feeds rule): a record edit uploads the table, a world's object edit sets the
+uniform; no derive, mesh, grid upload or new program. Play, exports and the Scene view read the world's value from
+the scene's `voxelWorld` object (the same link as its decal layers); the voxel world page has no object and takes
+`?blend=` (default the engine's), its records' own values as the hosts. Cost: eight more table texels a pixel (13
+in all; a 4,096-texel float table, cache-resident).
 
 ## 2. Texture sets
 
@@ -265,9 +284,17 @@ moved a cell, or new settings) derives again, in **one group** (one atomic swap,
 changed and every relief section round one; the swap's `chunk` events say `reliefOnly` when only relief meshes
 changed (the canonical bytes are equal), so bodies stand. New lattice steps mesh every relief section again.
 
+**Owner note (46d.11, 2026-11-09): relief displacement off on every tier.** The owner turned the close-ring relief
+displacement off for now (fewer triangles, a lighter mesher) until the brick far field works; then it is
+reconsidered (or bevelled near edges). No format change: `RELIEF_STEPS_BY_TIER` is 0 on low, medium and high, so no
+relief part is derived, streamed, budgeted or drawn and no shadow caster is made; the relief part, the ring, the
+quality field `voxelRelief` (a level that sets 2, 4 or 8 still gets it) and the voxel world page's `?relief=n`
+switch stay. The heights still light every surface (the normal and the height blend from the albedo's A).
+
 **Settings.** `voxelWorld.levels.relief` (metres, 0: none; default 16 m = `DEFAULT_RELIEF_RADIUS_CELLS`, scaled per
 quality level like every distance, never past `level0`); a quality level's `voxelRelief` (lattice steps a cell,
-`RELIEF_STEPS` 0 | 2 | 4 | 8; absent its tier's `RELIEF_STEPS_BY_TIER`: low 0, medium 2, high 4). A world resolved
+`RELIEF_STEPS` 0 | 2 | 4 | 8; absent its tier's `RELIEF_STEPS_BY_TIER`: 0 on every tier since 46d.11, owner note
+below; until then low 0, medium 2, high 4). A world resolved
 without a quality level has steps 0. The relief distance scales by its tier's own `RELIEF_RING_SCALES` (low 0.71,
 medium 1, high 1.5: 16 m and 24 m by default), or by the level's `voxelRings` when it sets one.
 

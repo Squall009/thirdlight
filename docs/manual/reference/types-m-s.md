@@ -86,6 +86,8 @@ interface MaterialVoxel {
   tileMetres?: number;
   /** Metres between the height map's 1 (the surface) and 0 (absent: {@link VOXEL_MATERIAL_LIMITS.heightDepthDefault}). */
   heightDepth?: number;
+  /** Metres over which it blends into a neighbouring material, 0–{@link VOXEL_MATERIAL_LIMITS.blendMetresMax} (absent: its world's; the smaller of two wins where they meet). */
+  blendMetres?: number;
   /** Texture sets per surface (absent: the material's own look on every surface). */
   surfaces?: Partial<Record<VoxelSurface, VoxelTextureSet>>;
 }

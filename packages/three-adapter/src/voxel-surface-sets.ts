@@ -40,6 +40,7 @@ export const NODE_OPS: ProjectionOps<N, N> = {
   sqrt: (a) => sqrt(a),
   less: (a, b) => a.lessThan(b),
   pick: (c, a, b) => select(c, a, b),
+  hold: (a) => a.toVar(),
 };
 
 /** What the read needs of the surface: the three arrays' nodes, its table read and the material id's bits. */

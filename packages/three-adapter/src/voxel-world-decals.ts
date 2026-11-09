@@ -1,7 +1,8 @@
 /**
- * What a scene's voxel worlds take from its decals: the decal layers each
- * world's `voxelWorld` object puts it in, and the scene's clipped decals,
- * told of the worlds' chunk surfaces.
+ * What a scene's voxel worlds take from its objects' draw settings: the
+ * decal layers each world's `voxelWorld` object puts it in and the metres
+ * its materials blend over (`blendMetres`, where no material sets its own),
+ * and the scene's clipped decals, told of the worlds' chunk surfaces.
  *
  * The worlds' draws hang under the scene outside the render graph (one
  * object a chunk, replaced by the stream; voxel-world-draws.ts), so the
@@ -10,15 +11,16 @@
  * the editor's Scene view, Play and an exported game: each draws through a
  * scene adapter.
  *
- * A world named by several objects takes the first one's layers, as it
- * streams with the first one's settings (runtime voxel-worlds.ts).
+ * A world named by several objects takes the first one's settings, as it
+ * streams with the first one's (runtime voxel-worlds.ts).
  */
+import { voxelWorldBlendMetres } from '@thirdlight/project-model';
 import { decalLayersField } from './projected-decals';
 import type { VoxelDecalSurfaces } from './voxel-chunk-view';
 
 export class VoxelWorldDecals {
-  /** Objects naming each world, in arrival order, with the layers each sets. */
-  private readonly byWorld = new Map<string, { id: string; layers: number | undefined }[]>();
+  /** Objects naming each world, in arrival order, with the layers and blend each sets. */
+  private readonly byWorld = new Map<string, { id: string; layers: number | undefined; blend: number }[]>();
   private readonly worldOf = new Map<string, string>();
   private readonly listeners = new Set<(world: string) => void>();
 
@@ -30,23 +32,30 @@ export class VoxelWorldDecals {
     return this.byWorld.get(world)?.[0]?.layers;
   }
 
-  /** Call `fn` with a world whose layers changed; returns the unsubscribe. */
-  onLayers(fn: (world: string) => void): () => void {
+  /** The metres world `world`'s materials blend over where none sets its own (the engine's default with no object). */
+  blendOf(world: string): number {
+    return this.byWorld.get(world)?.[0]?.blend ?? voxelWorldBlendMetres(null);
+  }
+
+  /** Call `fn` with a world whose layers or blend changed; returns the unsubscribe. */
+  onChange(fn: (world: string) => void): () => void {
     this.listeners.add(fn);
     return () => void this.listeners.delete(fn);
   }
 
   /** Object `entityId` was realized with `components` (its `voxelWorld`, if any), or released (null). */
   set(entityId: string, components: unknown): void {
-    const c = (components as { voxelWorld?: { world?: unknown; decalLayers?: unknown } } | null)?.voxelWorld;
+    const c = (components as { voxelWorld?: { world?: unknown; decalLayers?: unknown; blendMetres?: unknown } } | null)?.voxelWorld;
     const world = typeof c?.world === 'string' ? c.world : null;
     const layers = decalLayersField(c?.decalLayers);
+    const blend = voxelWorldBlendMetres(c);
     const was = this.worldOf.get(entityId);
-    const before = new Map<string, number | undefined>();
-    for (const w of [was, world]) if (w !== undefined && w !== null) before.set(w, this.layersOf(w));
+    const key = (w: string): string => `${this.layersOf(w) ?? '*'}|${this.blendOf(w)}`;
+    const before = new Map<string, string>();
+    for (const w of [was, world]) if (w !== undefined && w !== null) before.set(w, key(w));
     const list = was === undefined ? undefined : this.byWorld.get(was)!;
     const at = list?.findIndex((o) => o.id === entityId) ?? -1;
-    if (was !== undefined && was === world) list![at]!.layers = layers;
+    if (was !== undefined && was === world) Object.assign(list![at]!, { layers, blend });
     else {
       if (was !== undefined) {
         list!.splice(at, 1);
@@ -55,12 +64,12 @@ export class VoxelWorldDecals {
       }
       if (world !== null) {
         const into = this.byWorld.get(world);
-        if (into === undefined) this.byWorld.set(world, [{ id: entityId, layers }]);
-        else into.push({ id: entityId, layers });
+        if (into === undefined) this.byWorld.set(world, [{ id: entityId, layers, blend }]);
+        else into.push({ id: entityId, layers, blend });
         this.worldOf.set(entityId, world);
       }
     }
-    for (const [w, l] of before) if (this.layersOf(w) !== l) for (const fn of this.listeners) fn(w);
+    for (const [w, k] of before) if (key(w) !== k) for (const fn of this.listeners) fn(w);
   }
 }
 

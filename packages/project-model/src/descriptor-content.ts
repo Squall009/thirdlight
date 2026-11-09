@@ -360,6 +360,7 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
     str('kit', 'Kit', 'The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid).', ID),
     num('tileMetres', 'Tile', 'Metres one texture repeat covers (absent: 4 construction, 2 terrain and liquid).', { min: VOXEL_MATERIAL_LIMITS.tileMetresMin, max: VOXEL_MATERIAL_LIMITS.tileMetresMax, step: 0.5, unit: 'm' }),
     num('heightDepth', 'Height depth', `Metres between its height map's 1 (the surface) and 0 (absent: ${VOXEL_MATERIAL_LIMITS.heightDepthDefault}): sand shallow, rock deep.`, { min: 0, max: VOXEL_MATERIAL_LIMITS.heightDepthMax, step: 0.005, unit: 'm' }),
+    num('blendMetres', 'Blend', `Metres over which it blends into a neighbouring voxel material (0: a hard cell line; absent: its world's blend, else ${VOXEL_MATERIAL_LIMITS.blendMetresDefault}); where two meet, the smaller wins.`, { min: 0, max: VOXEL_MATERIAL_LIMITS.blendMetresMax, step: 0.05, unit: 'm' }),
     json('surfaces', 'Surfaces', `Texture sets by surface: {${VOXEL_SURFACES.join('?, ')}?: {${VOXEL_TEXTURE_MAPS.join('?, ')}?: a plain texture asset}} (role and face direction pick one; floor and ceiling fall back to wall, wall to the material's own look).`, { shape: 'Partial<Record<VoxelSurface, VoxelTextureSet>>' }),
   ]),
 ]);

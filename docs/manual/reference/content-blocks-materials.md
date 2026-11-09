@@ -177,6 +177,7 @@ Project materials.
 | `materials[].voxel.kit` | string, id, 1–64 chars |  |  | **Kit.** The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid). (format id) |
 | `materials[].voxel.tileMetres` | number |  | 0.5 – 64, step 0.5, m | **Tile.** Metres one texture repeat covers (absent: 4 construction, 2 terrain and liquid). |
 | `materials[].voxel.heightDepth` | number |  | 0 – 0.25, step 0.005, m | **Height depth.** Metres between its height map's 1 (the surface) and 0 (absent: 0.02): sand shallow, rock deep. |
+| `materials[].voxel.blendMetres` | number |  | 0 – 0.5, step 0.05, m | **Blend.** Metres over which it blends into a neighbouring voxel material (0: a hard cell line; absent: its world's blend, else 0.25); where two meet, the smaller wins. |
 | `materials[].voxel.surfaces` | JSON: `Partial<Record<VoxelSurface, VoxelTextureSet>>` ([VoxelSurface](types-s-w.md#type-voxel-surface), [VoxelTextureSet](types-s-w.md#type-voxel-texture-set)) |  |  | **Surfaces.** Texture sets by surface: {wall?, floor?, ceiling?: {albedo?, normal?, orm?: a plain texture asset}} (role and face direction pick one; floor and ceiling fall back to wall, wall to the material's own look). |
 
 <a id="content-animators"></a>

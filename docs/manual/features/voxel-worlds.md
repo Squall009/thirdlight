@@ -81,6 +81,7 @@ how a game changes levels). All its fields:
 | **Section edge** (`sectionEdge`) | 16 | Cells along the edge of the pieces a chunk is rebuilt in after a change (8, 16 or 32): smaller rebuilds less a change, larger draws fewer pieces. Leave it at 16 unless you measure. |
 | **Saved fields** (`savedFields`) | material, role, shape | Which fields of the game's changes a save keeps. Wetness is left out by default: weather sets it again. A script can change it for a run (`ctx.voxels.setSavedFields`). |
 | **Decal layers** (`decalLayers`) | every layer | The [decal layers](decals.md#decal-layers) the world's surfaces and kit pieces are in: a decal marks them when its layers share one. A draw setting: changing it reloads nothing. |
+| **Material blend** (`blendMetres`) | 0.25 m | Metres over which neighbouring voxel materials blend where neither sets its own (`voxel.blendMetres`, below), 0 (hard cell lines) to 0.5 m (one cell); where two meet the smaller wins. A draw setting: it changes live, nothing is remeshed. |
 
 Settings you leave empty follow the engine's defaults, so a later default
 reaches every world that did not set its own. The component is not allowed
@@ -202,6 +203,13 @@ player characters, so a large view costs a fraction of drawing every cell:
 
 ### Relief
 
+**Off by default on every quality level** (the owner's choice for now: fewer
+triangles and a lighter mesher until the far field's bricks are done). No
+relief mesh is made, streamed or drawn unless a quality level asks for it
+with its own **Voxel relief**; the heights still shade every surface through
+the normal maps and the height blend. What follows is what a level that sets
+it gets.
+
 Near the focus, surfaces are drawn **with relief**: their mesh is made finer
 (per 8 m section of the world) so the vertex stage can move it inward by each
 material's height (the albedo's alpha) times its **height depth**
@@ -210,10 +218,9 @@ distance. What collides, what characters stand on and what scripts read stay
 the plain surfaces: relief only ever recesses.
 
 - **How fine, by quality level.** A quality level's **Voxel relief**
-  (`voxelRelief`: 0, 2, 4 or 8 steps a cell; absent: its tier's, low 0, medium
-  2 = 25 cm, high 4 = 12.5 cm). At 0 (the low tier, an integrated GPU's floor)
-  no relief mesh is made at any distance; the normal maps still shade the
-  heights everywhere.
+  (`voxelRelief`: 0, 2 = 25 cm, 4 = 12.5 cm or 8 steps a cell; absent: its
+  tier's, 0 on every tier). At 0 no relief mesh is made at any distance; the
+  normal maps still shade the heights everywhere.
 - **How far.** The world's `levels.relief` (default 16 m, scaled by the quality
   level's own relief scale: medium 16 m, high 24 m; a level's **Voxel ring
   scale** scales it like every distance when the level sets one), changed at run time with
@@ -230,7 +237,7 @@ the plain surfaces: relief only ever recesses.
   depths are shader data.
 - **Where it is drawn.** Play (the simulation in its worker or on the page),
   exports, the editor's Scene view (at the view's quality level, round the
-  point it orbits) and the voxel world page (the quality level's by default;
+  point it orbits) and the voxel world page (the quality level's by default, none; `?relief=2` or `?relief=4` turns it on;
   `?relief=0` none; its **relief** switch, bottom right, draws the relief
   mesh flat to compare).
 - **Shadows.** Where the world casts shadows (the voxel world page's
@@ -617,6 +624,11 @@ the same record dresses a prop and a wall, so there is one oak, not an
   deep). Where two materials meet, the one whose surface stands higher in
   metres shows (rock tops break through sand, sand fills rock's cracks), so
   a deep material wins over a shallow one with the same map values.
+- **`voxel.blendMetres`** (0–0.5 m; absent: the world's **Material blend**,
+  0.25 m by default): how far it blends into a neighbouring material. Where
+  two meet the smaller wins, from both sides, so cut stone stays crisp beside
+  soft grass; 0 draws hard cell lines. The Inspector's voxel section has it
+  as **blend m**. A change is live and remeshes nothing.
 - **`voxel.surfaces`**: `{wall, floor, ceiling}` texture sets, each
   `{albedo, normal, orm}` (plain texture assets: the albedo with the
   **height in its alpha** (white the surface, black `heightDepth` below it;
