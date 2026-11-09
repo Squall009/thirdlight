@@ -1440,6 +1440,13 @@ height, range > 60; the normal array's A is 255 in both layers). At the authored
 gate-fast-20261109-193846 GREEN (14 min, 5.1 GB; `scan-bounded-log.test.ts` failed once under load, passed alone;
 village perf 0 missed both renderers); `voxel-world.e2e.ts` 71.1 → 70.8 s.
 
+**Looked at** (staging regenerated: `run.mjs textures --import 4096`, 18 PNGs 145.1 MB, materials unchanged; the
+arrays reassembled on first ask in 421 s). 14 of the acc46d poses a renderer (`work/46d.10/shots/`, script
+`shots.mjs`): the grass/rock height seam, the stone wall dry and wet 5/7, the rock cliff at 12° sun displaced and
+stepped, the stone back wall in low sun, grass and a kit corner near. Same look as `acceptance/46d/final/`: mean
+difference 0.25–1.16/255, ≤ 0.39 % of pixels over 8/255 (the low-sun cliff steps 1.88 %, its far edge), on both
+renderers (`work/46d.10/diff.txt`); wet 7 still fills the rock's low parts first on WebGPU and WebGL 2.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
