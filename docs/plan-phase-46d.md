@@ -1817,6 +1817,12 @@ gate-rerun-20261109-071516 GREEN (village perf 0 missed both renderers); `voxel-
   the tier's ring scale** (`voxelRings / VOXEL_RING_SCALES[tier] × RELIEF_RING_SCALES[tier]`), so relief keeps its
   own tier scale (D563); a scene's per-level `scale` still sets every distance alike.
 
+- 2026-11-09 (OWNER, first look at acc46d): **far field undecided.** The owner does not like that the mesh mode
+  makes rings of joined materials (contour bands) where the brick renderer keeps material coherence better, and
+  sees room for improvement in both; both modes stay behind the switch, no pick yet, no further far-field work for
+  now. Owner asked why height sits in the normal map's alpha rather than the albedo's (the engine's layered surfaces
+  and the owner's convention use the albedo alpha) — answer and proposal in the next entry once decided.
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
