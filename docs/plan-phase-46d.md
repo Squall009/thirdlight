@@ -203,6 +203,19 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.8b | **Docs and acceptance page:** `voxel-render-spec.md` complete (material record, texture sets, relief part, far data, each step with its owner note), requirement traceability (R88, R89, R111, R112 and the 46d rows), manual (`features/voxel-worlds.md`: materials, texture sets, relief, far field switch, tiers; the material guide of the authoring package updated for heights, depth and surfaces), reference regenerated (`node tools/gen-reference.mjs`); acceptance shots and README in `~/.cache/thirdlight-phase46/acceptance/46d` for review page acc46d (both renderers; near relief, wetness, kit pieces textured, mountains at 1/3/5 km both modes). | check-docs, `tools/manual-links.test.mjs` | — | pages match the code; acc46d ready |
 | 46d.9 | **Close (lead):** full gate once (detached, `TL_VITEST_WORKERS=4`), independent review (fresh agent), High/Medium fixes on fast gates, acceptance page acc46d to the owner, STATUS row; then 46e only on the owner's word. | full gate | gate time and peak vs 34 min / 8.0 GB; voxel e2e time | review in the decision log |
 
+## 6d. 46d-b follow-ups (owner 2026-11-09)
+
+Before 46e. One agent each, fast gate per item, one closing full gate + review at the end of 46d-b.
+
+| Item | Builds |
+|---|---|
+| 46d.10 | Height in the albedo's alpha (arrays, shaders, relief/height lighting, placeholder generator, kit sheets, import, docs); texture layout v1 amended add-only with an owner note; the normal map keeps no height. |
+| 46d.11 | Relief displacement off on every tier (switch kept, height-map lighting stays); blend distance: world default + per-material override, smaller value wins where two meet, live without remesh. |
+| 46d.12 | Far mesh field cut to about a quarter of its triangles keeping silhouette and colour (simplification of far node meshes, culling far draws to the view, D550); measured against 46d.7b. |
+| 46d.13 | Brick far field quality spike: why it turns to mush (resolution tied to node size, built from mips, one material a coarse sample); bricks from full-detail surfaces, brick resolution by screen size, colour per sample; pictures vs 46d.7c at the same poses. |
+| 46d.14 | Brick far field built on 46d.13's verdict, measured; comparison updated for the owner's pick. |
+| 46d.15 | 46d-b close (lead): full gate, review, fixes, acceptance acc46d-b. |
+
 ## 7. Progress
 
 | Item | Status |
@@ -229,6 +242,12 @@ quality-scaled like the 46c.16a rings; every new limit is defined once in its ow
 | 46d.8a | done: §4 again at the cap, both renderers, per tier (§8): town `render()` 9.1 → 2.8–3.0 ms, 0–1 missed every tier; village 0 missed; 8 km world 0 missed orbit low/medium, high 2–13 (D550), flights 15–36 missed (D550/D551); arrays 24/96/96–384 MiB. `voxel-world.e2e.ts` 88.5 → 70.7 s (assembly proof merged, export once at high, …). Render/format spec, manual. D559 |
 | 46d.8b | done: requirement trace (render spec §5; R88/R89/R111/R112/R27/R28 rows re-pointed), material-set guide (`voxel-kits.md` §1), art-factory request update; acc46d: 62 shots × 2 renderers (WebGL 2 ≤ 0.4 % px apart but Scene view orbits), README + approve-46d.md, published. Seen wrong: D560 (town edge gap), D542, D533, D553, D556, D558 again. D539 pictured dry |
 | 46d.9 | done: full gate GREEN (35 min vs 34, 8.0 GB, 868 vitest files, 392 e2e). Review 0H 3M 8L: D559 traced + fixed (column waits for every section), D552 fixed (far builds in workers, commands go on, export waits ≤ 2 min then warns), acc46d lists all 116 defaults; L1–L7 fixed (D561–D564), L8 deferred (D560). voxel e2e 70.7 → 71.1 s |
+| 46d.10 | not started |
+| 46d.11 | not started |
+| 46d.12 | not started |
+| 46d.13 | not started |
+| 46d.14 | not started |
+| 46d.15 | not started |
 
 ## 8. Results
 
@@ -1835,6 +1854,10 @@ gate-rerun-20261109-071516 GREEN (village perf 0 missed both renderers); `voxel-
   - **Performance role:** the owner's new "demo" project pushes the engine at real-game scale and feeds back; engine
     runs keep measuring but are no longer the go/no-go validator except for obvious regressions.
   - Material blend distance asked about: today fixed at 0.25 m in Play/export (only the voxel page has a switch).
+
+- 2026-11-09 (OWNER choices): relief **off now on every tier** (code kept behind the switch; lighting from the height
+  map stays), bevelled near edges come with relief's return after bricks work; **blend distance per material with a
+  world default** (where two materials meet the smaller value wins); **follow-ups first** as 46d-b (§6d) before 46e.
 
 ## 10. Open questions for the owner
 
