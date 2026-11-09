@@ -211,9 +211,9 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 |---|---|
 | 46d.10 | Height in the albedo's alpha (arrays, shaders, relief/height lighting, placeholder generator, kit sheets, import, docs); texture layout v1 amended add-only with an owner note; the normal map keeps no height. |
 | 46d.11 | Relief displacement off on every tier (switch kept, height-map lighting stays); blend distance: world default + per-material override, smaller value wins where two meet, live without remesh. |
-| 46d.12 | Far mesh field cut to about a quarter of its triangles keeping silhouette and colour (simplification of far node meshes, culling far draws to the view, D550); measured against 46d.7b. |
-| 46d.13 | Brick far field quality spike: why it turns to mush (resolution tied to node size, built from mips, one material a coarse sample); bricks from full-detail surfaces, brick resolution by screen size, colour per sample; pictures vs 46d.7c at the same poses. |
-| 46d.14 | Brick far field built on 46d.13's verdict, measured; comparison updated for the owner's pick. |
+| 46d.12 | Brick far field quality spike (the chosen direction): why it turns to mush (resolution tied to node size, built from mips, one material a coarse sample); bricks from full-detail surfaces, brick resolution by screen size, colour per sample, cost on the Iris Xe; pictures vs 46d.7c at the same poses; a verdict for 46d.13. |
+| 46d.13 | Brick far field built on 46d.12's verdict as the default far field (cost, detail, edges D556/D558, memory D557), measured; the mesh field stays only as the fallback behind the switch. |
+| 46d.14 | Mesh fallback revision (the ~1/4 triangle cut, view culling D550) — only if the fallback is still needed after 46d.13; else deferred with a note. |
 | 46d.15 | 46d-b close (lead): full gate, review, fixes, acceptance acc46d-b. |
 
 ## 7. Progress
@@ -1895,6 +1895,14 @@ village perf 0 missed both renderers); `voxel-world.e2e.ts` 71.1 → 70.8 s.
   `alphaMode`) with the height in the albedo's A; three's opaque materials force alpha 1, so pieces are never cut
   out. The Blender template marks the albedo image channel-packed and leaves its Alpha unlinked (checked: Blender
   5.2.2's export keeps the PNG's pixels, A included, byte-equal in pixels).
+
+- 2026-11-09 (OWNER, relayed by the owner's session "thirdlight-e8"): **the far field goes the brick way.** Owner:
+  "I want to move towards the brick far renderer. If Enshrouded is using it and they are getting fantastic detail
+  and far draws then we should trust their judgement. We may need to work on improving this to be usable since they
+  don't publish how, but we know it is possible and that is the direction I wish to go." The ray-marched brick
+  renderer is the chosen far-field direction; making it usable (detail, cost on the Iris Xe, no mush) is the work.
+  The mesh far field stays only as the fallback behind the switch: no mesh revision before the bricks work, and the
+  "~1/4 triangles" cut applies to the mesh fallback only if it is still needed then. §6d reordered accordingly.
 
 ## 10. Open questions for the owner
 
