@@ -31,6 +31,7 @@ import { jobRadius, type AssemblyRulesRef } from './assembly';
 import type { ChunkEdge, ChunkGrid } from './coords';
 import { deriveWithApron } from './derive-assembly';
 import { POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
+import type { FarBrickBuild } from './far-bricks';
 import type { PaletteStore } from './palette-store';
 import { MATERIAL_AIR, MATERIAL_BITS, type VoxelRecord } from './record';
 import { regionChunkCodecBytes } from './region-file';
@@ -60,6 +61,14 @@ export interface FarMeshInput {
    */
   readonly cells: ReadonlyArray<StoredChunk | null>;
   readonly rules: AssemblyRulesRef;
+  /** A brick job's build (far-bricks.ts; none: the occupancy build). */
+  readonly build?: FarBrickBuild;
+  /**
+   * A brick job's finer cells (a `faces` build of scale > 1): the nodes `scale`
+   * times finer covering the node and one of theirs round it, x outermost,
+   * then z, then y, each from −1 to `scale` (null: air or not kept).
+   */
+  readonly fine?: { readonly level: number; readonly scale: number; readonly cells: ReadonlyArray<StoredChunk | null> };
 }
 
 /** A far node's mesh: positions, material and normal a vertex ({@link FAR_VERTEX_BYTES}), triangles, skirts included. */

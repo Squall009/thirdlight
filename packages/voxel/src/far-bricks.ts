@@ -68,7 +68,43 @@ export interface FarBricks {
   readonly looks: Uint16Array;
   /** Per sample block: its brick within the node (x, y, z, one byte each) and the node box faces it lies on (bits −x +x −y +y −z +z). */
   readonly blocks: Uint8Array;
+  /**
+   * Per sample block: the cells of the brick the surface can be in (low x, y, z, then high x, y, z, brick cells
+   * 0–8), so the draw's box and its march start there instead of at the brick's own box.
+   */
+  readonly bounds: Uint8Array;
 }
+
+/** Bytes a block's entry in {@link FarBricks.bounds} takes. */
+export const FAR_BRICK_BOUNDS_BYTES = 6;
+
+/**
+ * How a far node's bricks are made from cells:
+ * - `occupancy`: each node cell's distance to the other kind from its
+ *   centre, a corner sample the mean of its eight cells (smooth slopes, but
+ *   a feature a cell or two across is averaged away);
+ * - `faces`: the exact signed distance at each corner to the faces of the
+ *   solid cells (their union of cubes), read from cells `scale` times finer
+ *   than the node's (its descendants that many levels down), so the surface
+ *   sits where the finer cells put it and one-cell features keep a body.
+ *   Each sample's look is the material the most surface cells round it show
+ *   (faces up counted twice), so a sample's colour is its neighbourhood's.
+ */
+export interface FarBrickBuild {
+  readonly field: 'occupancy' | 'faces';
+  /** Source cells a node cell an axis: 1, 2 or 4 (the node's own cells, its children's, its grandchildren's). */
+  readonly scale: number;
+}
+
+/** The far bricks as first built: the node's own cells, occupancy distances. */
+export const FAR_BRICK_BUILD_OCCUPANCY: FarBrickBuild = Object.freeze({ field: 'occupancy', scale: 1 });
+
+/** The brick builds by name (a page's or a level's switch): occupancy, faces from the node's cells, faces from its children's. */
+export const FAR_BRICK_BUILDS: Readonly<Record<string, FarBrickBuild>> = Object.freeze({
+  occupancy: FAR_BRICK_BUILD_OCCUPANCY,
+  faces: Object.freeze({ field: 'faces', scale: 1 }),
+  faces2: Object.freeze({ field: 'faces', scale: 2 }),
+} as const);
 
 /** Bytes a block's entry in {@link FarBricks.blocks} takes. */
 export const FAR_BRICK_BLOCK_BYTES = 4;
@@ -80,16 +116,16 @@ export function farBrickCount(b: FarBricks): number {
 
 /** Bytes a far node's bricks hold. */
 export function farBricksBytes(b: FarBricks): number {
-  return b.bricks.byteLength + b.samples.byteLength + b.looks.byteLength + b.blocks.byteLength;
+  return b.bricks.byteLength + b.samples.byteLength + b.looks.byteLength + b.blocks.byteLength + b.bounds.byteLength;
 }
 
 /** The buffers a far node's bricks can hand over. */
 export function farBricksTransfer(b: FarBricks, out: ArrayBuffer[] = []): ArrayBuffer[] {
-  for (const a of [b.bricks, b.samples, b.looks, b.blocks]) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
+  for (const a of [b.bricks, b.samples, b.looks, b.blocks, b.bounds]) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
   return out;
 }
 
-const emptyBricks = (side: number): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(DISTANCE_BRICK_OUTSIDE), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0) });
+const emptyBricks = (side: number): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(DISTANCE_BRICK_OUTSIDE), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0), bounds: new Uint8Array(0) });
 
 /**
  * A far node's bricks from `store` (a scratch store: the job's 27 entries
@@ -188,7 +224,9 @@ export function farBricksOf(g: ChunkGrid, store: PaletteStore, node: readonly [n
   const outLooks = new Uint16Array(samples.length * DISTANCE_BRICK_SAMPLES);
   samples.forEach((s, i) => out.set(s, i * DISTANCE_BRICK_SAMPLES));
   looks.forEach((s, i) => outLooks.set(s, i * DISTANCE_BRICK_SAMPLES));
-  return { side, bricks, samples: out, looks: outLooks, blocks: Uint8Array.from(blocks) };
+  const bounds = new Uint8Array((blocks.length / FAR_BRICK_BLOCK_BYTES) * FAR_BRICK_BOUNDS_BYTES);
+  for (let i = 0; i < bounds.length; i += FAR_BRICK_BOUNDS_BYTES) bounds.set([0, 0, 0, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_CELLS], i);
+  return { side, bricks, samples: out, looks: outLooks, blocks: Uint8Array.from(blocks), bounds };
 }
 
 /** The look of the corner whose eight cells start at padded (x, y, z): the topmost solid of them, else the nearest solid within reach (−1: none). */

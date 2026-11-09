@@ -28,7 +28,7 @@
 import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import type { ChunkCoord, ChunkGrid, RegionFootprint } from './coords';
-import { farBricksBytes, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BUILD_OCCUPANCY, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, FarNodeIndex, FarSelection, type FarDrawn } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
@@ -202,6 +202,8 @@ export interface FarFieldOptions {
   readonly enabled?: boolean;
   /** What nodes are made as (default `mesh`); a change makes every drawn node again, swapped in node by node. */
   readonly draw?: FarDrawKind;
+  /** How bricks are made (default {@link FAR_BRICK_BUILD_OCCUPANCY}); a change makes every drawn brick node again. */
+  readonly brickBuild?: FarBrickBuild;
   /** On-screen error a drawn node's cell may make (pixels; {@link FAR_ERROR_PIXELS}). */
   readonly errorPixels?: number;
   /** Pixels a radian of the view ({@link FAR_VIEW_PIXELS_PER_RADIAN}). */
@@ -300,10 +302,11 @@ export class FarField {
   }
 
   /** The selection's settings changed (a quality level): selects again. */
-  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'pixelsPerRadian' | 'draw'>): void {
+  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'pixelsPerRadian' | 'draw' | 'brickBuild'>): void {
     const drawWas = this.opts.draw ?? 'mesh';
+    const buildWas = JSON.stringify(this.brickBuild);
     Object.assign(this.opts as { -readonly [K in keyof FarFieldOptions]: FarFieldOptions[K] }, o);
-    if ((this.opts.draw ?? 'mesh') !== drawWas) this.remakeAll();
+    if ((this.opts.draw ?? 'mesh') !== drawWas || (this.draw === 'bricks' && JSON.stringify(this.brickBuild) !== buildWas)) this.remakeAll();
     this.reselect = true;
     this.update();
   }
@@ -323,6 +326,37 @@ export class FarField {
   /** What nodes are made as now. */
   get draw(): FarDrawKind {
     return this.opts.draw ?? 'mesh';
+  }
+
+  /** How bricks are made now. */
+  get brickBuild(): FarBrickBuild {
+    return this.opts.brickBuild ?? FAR_BRICK_BUILD_OCCUPANCY;
+  }
+
+  /**
+   * The nodes a node's job reads: itself and its 26 neighbours, and for bricks
+   * built from finer cells the block of descendants that many levels down
+   * covering it and one of theirs round it (none below the lowest kept level).
+   */
+  private reads(n: MipNode): MipNode[] {
+    const out: MipNode[] = [];
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) out.push({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
+    const f = this.fineOf(n);
+    if (f !== null) for (const m of f.nodes) out.push(m);
+    return out;
+  }
+
+  /** The finer nodes a brick job of `n` reads (null: it reads its own level only). */
+  private fineOf(n: MipNode): { level: number; scale: number; nodes: MipNode[] } | null {
+    const b = this.brickBuild;
+    if (this.draw !== 'bricks' || b.field !== 'faces' || b.scale <= 1 || this.index === null) return null;
+    const down = Math.log2(b.scale);
+    const level = n.level - down;
+    if (level < this.index.minLevel) return null;
+    const S = b.scale;
+    const nodes: MipNode[] = [];
+    for (let dx = -1; dx <= S; dx++) for (let dz = -1; dz <= S; dz++) for (let dy = -1; dy <= S; dy++) nodes.push({ level, nx: n.nx * S + dx, ny: n.ny * S + dy, nz: n.nz * S + dz });
+    return { level, scale: S, nodes };
   }
 
   /** Selects again if the eye moved far enough, and starts the meshes the selection needs. */
@@ -439,10 +473,7 @@ export class FarField {
 
   /** Whether a node's 27 cells are read (a mesh job can be sent). */
   private neighbourhoodRead(n: MipNode): boolean {
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-      const m = { level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz };
-      if (!this.entries.has(mipNodeKey(m)) && this.index!.has(m)) return false;
-    }
+    for (const m of this.reads(n)) if (!this.entries.has(mipNodeKey(m)) && this.index!.has(m)) return false;
     return true;
   }
 
@@ -450,12 +481,11 @@ export class FarField {
   private async readNeighbourhoods(nodes: readonly MipNode[]): Promise<void> {
     const byLevel = new Map<number, Map<string, ChunkCoord>>();
     for (const n of nodes) {
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-        const m = { level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz };
+      for (const m of this.reads(n)) {
         const key = mipNodeKey(m);
         if (this.entries.has(key)) continue;
-        let l = byLevel.get(n.level);
-        if (l === undefined) byLevel.set(n.level, (l = new Map()));
+        let l = byLevel.get(m.level);
+        if (l === undefined) byLevel.set(m.level, (l = new Map()));
         if (!this.index!.has(m)) {
           this.keep(key, null);
           continue;
@@ -510,9 +540,12 @@ export class FarField {
       // A copy: the stored bytes stay here for the neighbours' meshes while the job takes its own across.
       cells[farNeighbourIndex(dx, dy, dz)] = c === null ? null : 'uniform' in c ? c : { stored: c.stored.slice(), raw: c.raw };
     }
-    const input: FarMeshInput = { edge: this.host.grid.edge, level: n.level, node: [n.nx, n.ny, n.nz], cells, rules: rulesRef(this.host.rules) };
+    const f = this.fineOf(n);
+    const fine = f === null ? undefined : { level: f.level, scale: f.scale, cells: f.nodes.map((m) => copyCells(this.cellsOf(m))) };
+    const build = this.draw === 'bricks' ? this.brickBuild : undefined;
+    const input: FarMeshInput = { edge: this.host.grid.edge, level: n.level, node: [n.nx, n.ny, n.nz], cells, rules: rulesRef(this.host.rules), ...(build !== undefined ? { build } : {}), ...(fine !== undefined ? { fine } : {}) };
     const transfer: ArrayBuffer[] = [];
-    for (const c of cells) if (c !== null && 'stored' in c) transfer.push(c.stored.buffer as ArrayBuffer);
+    for (const c of [...cells, ...(fine?.cells ?? [])]) if (c !== null && 'stored' in c) transfer.push(c.stored.buffer as ArrayBuffer);
     const id = this.nextId--;
     const stamp = this.stamps.get(key) ?? 0;
     this.jobs.set(key, { id, stamp });
@@ -752,6 +785,11 @@ export class FarField {
     this.entries.clear();
     for (const w of this.waiters.splice(0)) w();
   }
+}
+
+/** A node's stored cells as a job's own copy (the stored bytes stay here for the jobs that read them again). */
+function copyCells(c: StoredChunk | null): StoredChunk | null {
+  return c === null ? null : 'uniform' in c ? c : { stored: c.stored.slice(), raw: c.raw };
 }
 
 /** Bytes of the meshes and bricks in a far event. */

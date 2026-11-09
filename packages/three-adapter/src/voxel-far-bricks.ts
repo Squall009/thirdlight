@@ -31,7 +31,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, VOXEL_SIZE_M, type FarBricks, type FarNodeDraw } from '@thirdlight/voxel';
+import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, VOXEL_SIZE_M, type FarBricks, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
 import type { N } from './effects-tsl';
@@ -40,13 +40,22 @@ import { farClipPosition, farFragmentDepth, type FarCover } from './voxel-far-co
 import { VoxelShaderGrids, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
-const { Break, Discard, Fn, If, Loop, abs, attribute, cameraPosition, clamp, float, floor, int, ivec3, length, max, min, mod, modelWorldMatrix, modelWorldMatrixInverse, normalize, positionGeometry, property, round, select, sign, texture3D, uniform, varying, vec3, vec4 } = TSL;
+const { Break, Discard, Fn, If, Loop, abs, attribute, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, max, min, mix, mod, modelWorldMatrix, modelWorldMatrixInverse, normalize, positionGeometry, property, round, screenSize, select, sign, texture3D, uniform, varying, vec3, vec4 } = TSL;
 
 /** The brick draws' per-instance attribute: the brick's corner (metres from the group's corner) and its node-face bits. */
 export const FAR_BRICK_ATTRIBUTE = 'voxelFarBrick';
 
 /** The brick draws' second per-instance attribute: the brick's region in the atlas (texels) and its cell size (metres). */
 export const FAR_BRICK_BLOCK_ATTRIBUTE = 'voxelFarBrickBlock';
+
+/** The brick draws' third per-instance attribute: the cells of the brick the surface can be in, low and high corner packed (x + 16 y + 256 z). */
+export const FAR_BRICK_BOUNDS_ATTRIBUTE = 'voxelFarBrickBounds';
+
+/** A hit's distance from the surface may be this share of the pixel it covers (the fine shading): no step finer than the pixel shows. */
+export const FAR_BRICK_HIT_PIXELS = 0.5;
+
+/** How dark a fully occluded hit gets under the fine shading's ambient occlusion (its colour times this). */
+const AO_FLOOR = 0.5;
 
 /** The gradient (cells a cell) below which a hit's normal is the face it entered by: samples clamped to the band. */
 const GRADIENT_MIN = 0.05;
@@ -125,6 +134,7 @@ export function farBrickGeometry(edge: number, g: { readonly level: number; read
   for (const d of nodes) if (d.bricks !== undefined) count += farBrickCount(d.bricks);
   const inst = new Float32Array(count * 4);
   const block = new Float32Array(count * 4);
+  const bounds = new Float32Array(count * 2);
   const cellM = 2 ** g.level * VOXEL_SIZE_M;
   const brickM = DISTANCE_BRICK_CELLS * cellM;
   let k = 0;
@@ -140,11 +150,16 @@ export function farBrickGeometry(edge: number, g: { readonly level: number; read
       const o = i * FAR_BRICK_BLOCK_BYTES;
       inst.set([ox + b.blocks[o]! * brickM, oy + b.blocks[o + 1]! * brickM, oz + b.blocks[o + 2]! * brickM, b.blocks[o + 3]!], k * 4);
       block.set([at[i]!.x, at[i]!.y, at[i]!.z, cellM], k * 4);
+      const q = i * FAR_BRICK_BOUNDS_BYTES;
+      const bb = b.bounds;
+      bounds[k * 2] = bb[q]! + 16 * bb[q + 1]! + 256 * bb[q + 2]!;
+      bounds[k * 2 + 1] = bb[q + 3]! + 16 * bb[q + 4]! + 256 * bb[q + 5]!;
     }
   }
   const geometry = unitBox();
   geometry.setAttribute(FAR_BRICK_ATTRIBUTE, new THREE.InstancedBufferAttribute(inst, 4));
   geometry.setAttribute(FAR_BRICK_BLOCK_ATTRIBUTE, new THREE.InstancedBufferAttribute(block, 4));
+  geometry.setAttribute(FAR_BRICK_BOUNDS_ATTRIBUTE, new THREE.InstancedBufferAttribute(bounds, 2));
   geometry.instanceCount = count;
   // Never culled by three (its frustum ends at the far plane): no bounds needed past what the GPU clips.
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
@@ -160,6 +175,17 @@ export class FarBrickMaterial {
   private readonly distanceNode: N;
   private readonly looksNode: N;
   private readonly invSideU = uniform(new THREE.Vector3(1, 1, 1));
+  /** 1: the fine shading (colour blended over the eight samples, ambient occlusion from the field, hits to the pixel); 0: the nearest sample's colour, flat. */
+  private readonly shadeU = uniform(0);
+
+  /** The shading: fine (see {@link shadeU}) or the nearest sample's. */
+  setFineShading(on: boolean): void {
+    this.shadeU.value = on ? 1 : 0;
+  }
+
+  get fineShading(): boolean {
+    return this.shadeU.value === 1;
+  }
 
   constructor(atlas: FarBrickAtlas, surface: VoxelSurface, cover: FarCover) {
     const m = cameraRelative(new MeshStandardNodeMaterial());
@@ -183,8 +209,15 @@ export class FarBrickMaterial {
     const inst = attribute(FAR_BRICK_ATTRIBUTE, 'vec4');
     // The node-face bits as the box's growth on each side (cells).
     const bit = (b: number): N => mod(floor(inst.w.div(b)), 2);
-    const lo = vec3(bit(1), bit(4), bit(16)).mul(-L);
-    const hi = vec3(bit(2), bit(8), bit(32)).mul(L).add(C);
+    // The cells the surface can be in (the build's bounds), grown by the lip where they reach a node face.
+    const packed = attribute(FAR_BRICK_BOUNDS_ATTRIBUTE, 'vec2');
+    const unpack = (v: N): N => vec3(mod(v, 16), mod(floor(v.div(16)), 16), floor(v.div(256)));
+    const bLo = unpack(packed.x);
+    const bHi = unpack(packed.y);
+    const atLo = vec3(select(bLo.x.lessThan(0.5), float(1), float(0)), select(bLo.y.lessThan(0.5), float(1), float(0)), select(bLo.z.lessThan(0.5), float(1), float(0)));
+    const atHi = vec3(select(bHi.x.greaterThan(C - 0.5), float(1), float(0)), select(bHi.y.greaterThan(C - 0.5), float(1), float(0)), select(bHi.z.greaterThan(C - 0.5), float(1), float(0)));
+    const lo = bLo.sub(vec3(bit(1), bit(4), bit(16)).mul(atLo).mul(L));
+    const hi = bHi.add(vec3(bit(2), bit(8), bit(32)).mul(atHi).mul(L));
     const block = attribute(FAR_BRICK_BLOCK_ATTRIBUTE, 'vec4');
     const cellM = block.w;
     m.positionNode = inst.xyz.add(lo.add(positionGeometry.mul(hi.sub(lo))).mul(cellM));
@@ -220,6 +253,9 @@ export class FarBrickMaterial {
     const modelView: N = cameraRelativeModelView;
     const hitNormal = property('vec3', 'farBrickNormal');
     const hitColour = property('vec3', 'farBrickColour');
+    const fine = this.shadeU.greaterThan(0.5);
+    // Radians a pixel covers at the screen's centre: how big a pixel is at a distance.
+    const pixelAngle = float(2).div(cameraProjectionMatrix.element(1).y.mul(screenSize.y));
     m.depthNode = Fn(() => {
       const camLocal = modelWorldMatrixInverse.mul(vec4(cameraPosition, 1)).xyz.toVar();
       const dir = normalize(vLocal.sub(camLocal)).toVar();
@@ -232,10 +268,12 @@ export class FarBrickMaterial {
       const t1 = min(min(far.x, far.y), far.z).toVar();
       const t = max(max(max(near.x, near.y), near.z), float(0)).toVar();
       const hit = float(0).toVar();
+      // Cells a pixel covers a cell along the ray (the camera sits at t = 0 in the brick's frame).
+      const pixelCells = select(fine, pixelAngle.mul(FAR_BRICK_HIT_PIXELS), float(0));
       Loop(FAR_BRICK_STEPS, () => {
         const p = o.add(dir.mul(t)).toVar();
         const f = field(p).toVar();
-        If(f.lessThan(BRICK_HIT_VOXELS), () => {
+        If(f.lessThan(max(float(BRICK_HIT_VOXELS), t.mul(pixelCells))), () => {
           hit.assign(1);
           Break();
         });
@@ -264,11 +302,31 @@ export class FarBrickMaterial {
       const facing = vec3(select(entryX, sign(dir.x).negate(), float(0)), select(entryY, sign(dir.y).negate(), float(0)), select(entryZ, sign(dir.z).negate(), float(0)));
       const n = select(length(g).greaterThan(GRADIENT_MIN), normalize(g), facing);
       hitNormal.assign(normalize(modelView.mul(vec4(n, 0)).xyz));
-      // The nearest sample's material word: low byte, high byte.
-      const at = vBlock.add(round(clamp(p, vec3(0), vec3(C))));
-      const lw = looksNode.load(ivec3(int(at.x), int(at.y), int(at.z)));
-      const word = round(lw.r.mul(255)).add(round(lw.g.mul(255)).mul(256));
-      hitColour.assign(surface.farColour(mod(word, 4096), floor(word.div(4096))));
+      // A sample's material word (low byte, high byte) as its far colour.
+      const colourAt = (cell: N): N => {
+        const at = vBlock.add(cell);
+        const lw = looksNode.load(ivec3(int(at.x), int(at.y), int(at.z)));
+        const word = round(lw.r.mul(255)).add(round(lw.g.mul(255)).mul(256));
+        return surface.farColour(mod(word, 4096), floor(word.div(4096)));
+      };
+      const q = clamp(p, vec3(0), vec3(C)).toVar();
+      If(fine, () => {
+        // The eight samples round the hit, blended as the distances are: a sample's colour fades into its neighbours'.
+        const c0 = min(floor(q), vec3(C - 1)).toVar();
+        const w = q.sub(c0).toVar();
+        const sum = vec3(0).toVar();
+        for (let k = 0; k < 8; k++) {
+          const dx = k & 1, dy = (k >> 1) & 1, dz = (k >> 2) & 1;
+          const wk = (dx ? w.x : float(1).sub(w.x)).mul(dy ? w.y : float(1).sub(w.y)).mul(dz ? w.z : float(1).sub(w.z));
+          sum.addAssign(colourAt(c0.add(vec3(dx, dy, dz))).mul(wk));
+        }
+        // Ambient occlusion from the field: how far the surface stays clear one and two cells out along the normal.
+        const a1 = clamp(field(p.add(n.mul(1))), 0, 1);
+        const a2 = clamp(field(p.add(n.mul(2))).div(2), 0, 1);
+        hitColour.assign(sum.mul(mix(float(AO_FLOOR), float(1), a1.add(a2).mul(0.5))));
+      }).Else(() => {
+        hitColour.assign(colourAt(round(q)));
+      });
       const view = modelView.mul(vec4(local, 1));
       return farFragmentDepth(view.z);
     })();

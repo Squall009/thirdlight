@@ -66,7 +66,9 @@
  * meshes or as ray-marched distance bricks (the backend builds the cache on the first read and keeps it current
  * with every command), under the near field and hidden where it draws:
  * `?farField=off|mesh|bricks` and `?farError=` (pixels) override the quality
- * level's; `?farShow=0` keeps the far draws hidden.
+ * level's; `?farBricks=occupancy|faces|faces2` and `?farShade=fine|flat` pick
+ * how bricks are built and shaded (comparing builds); `?farShow=0` keeps the
+ * far draws hidden.
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
  * the catalogue built from voxels, `writeKitTestScene`: the same command MCP
@@ -268,7 +270,7 @@ async function main(): Promise<void> {
   materials.attach(surface);
   const level = pageLevel(textureResidency.quality, relief.params);
   const far = pageFar(params, level);
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels, brickBuild: far.brickBuild }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   relief.attach(surface, streamer.relief, level.relief);
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters });
   const gpu = createGpuTiming();
@@ -535,7 +537,7 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
-    ...pageFarHooks(streamer, meshes.far),
+    ...pageFarHooks(streamer, meshes.far, far.fineShading),
     /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);

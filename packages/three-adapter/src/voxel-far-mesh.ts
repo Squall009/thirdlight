@@ -90,6 +90,8 @@ export class VoxelFarView {
   /** Each brick node's atlas regions, by node key. */
   private readonly regions = new Map<string, THREE.Vector3[]>();
   private hidden = false;
+  /** The bricks' fine shading (`FarBrickMaterial.setFineShading`), kept for a material made later. */
+  private fineShading = false;
   triangles = 0;
   /** Bricks drawn (the bricks mode). */
   bricks = 0;
@@ -122,6 +124,16 @@ export class VoxelFarView {
     let n = 0;
     for (const g of this.groups.values()) if (g.mesh !== null) n++;
     return n;
+  }
+
+  /** The bricks' shading: fine (colour blended over the samples, occlusion from the field, hits to the pixel) or the nearest sample's. */
+  setBrickShading(fine: boolean): void {
+    this.fineShading = fine;
+    this.brickMaterial?.setFineShading(fine);
+  }
+
+  get fineBrickShading(): boolean {
+    return this.fineShading;
   }
 
   /** Shows or hides every far draw (a page's switch; nothing is rebuilt). */
@@ -217,7 +229,10 @@ export class VoxelFarView {
     if (g.kind === 'bricks') {
       const atlas = this.brickAtlas();
       const geo = farBrickGeometry(this.opts.grid.edge, g, [...g.nodes.values()], (n) => this.regions.get(mipNodeKey(n)) ?? []);
-      this.brickMaterial ??= new FarBrickMaterial(atlas, this.opts.surface, this.cover);
+      if (this.brickMaterial === null) {
+        this.brickMaterial = new FarBrickMaterial(atlas, this.opts.surface, this.cover);
+        this.brickMaterial.setFineShading(this.fineShading);
+      }
       g.triangles = 0;
       g.brickCount = geo.instanceCount;
       g.bytes = geometryBytes(geo);

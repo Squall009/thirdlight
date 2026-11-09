@@ -12,7 +12,7 @@ import { chunkGrid, createWorldStore, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SID
 
 import { fragmentWgslOf, glslRenderer, litScene, wgslRenderer } from './test-wgsl';
 import { voxelStandInLook } from './voxel-chunk-view';
-import { FAR_BRICK_ATTRIBUTE, FAR_BRICK_BLOCK_ATTRIBUTE } from './voxel-far-bricks';
+import { FAR_BRICK_ATTRIBUTE, FAR_BRICK_BLOCK_ATTRIBUTE, FAR_BRICK_BOUNDS_ATTRIBUTE } from './voxel-far-bricks';
 import { VoxelFarView } from './voxel-far-mesh';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
 
@@ -67,9 +67,12 @@ describe('the far view', () => {
     expect(first.map((u) => u.bytes.length).sort((p, q) => p - q)).toEqual([DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SAMPLES * 2]);
     expect([...first.find((u) => u.bytes.length === DISTANCE_BRICK_SAMPLES)!.bytes]).toEqual([...a.bricks!.samples.subarray(0, DISTANCE_BRICK_SAMPLES)]);
     expect(blocks[3]).toBe(4 * VOXEL_SIZE_M);
-    // The atlas (4³ regions to start, 1 + 2 bytes a texel) and the instances' two vec4s and the box.
+    // The atlas (4³ regions to start, 1 + 2 bytes a texel) and the instances' two vec4s and packed bounds, and the box.
     const atlasBytes = (4 * DISTANCE_BRICK_SIDE) ** 3 * 3;
-    expect(v.bytes).toBe(atlasBytes + 32 * 32 + 24 * 4 + 36 * 2);
+    expect(v.bytes).toBe(atlasBytes + 32 * (32 + 8) + 24 * 4 + 36 * 2);
+    // The occupancy build's bricks are marched over their whole box: bounds 0–8 on every axis.
+    const bounds = geo.getAttribute(FAR_BRICK_BOUNDS_ATTRIBUTE).array as Float32Array;
+    expect([bounds[0], bounds[1]]).toEqual([0, 8 + 16 * 8 + 256 * 8]);
     const scene = litScene();
     scene.add(v.root);
     const wgsl = fragmentWgslOf(wgslRenderer(), scene, mesh);

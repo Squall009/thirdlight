@@ -33,7 +33,8 @@ import { stampShapeHash, type StampResolver } from './stamp-shape';
 import { encodeUndoRecord } from './undo-store';
 import { downsampleMip } from './voxel-mips';
 import { buildFaceSeam, type SeamFaceInput } from './lod-seam';
-import { brickFarNode, farBricksTransfer } from './far-bricks';
+import { farBricksTransfer } from './far-bricks';
+import { brickFarNodeBy } from './far-bricks-faces';
 import { farMeshTransfer, meshFarNode, type FarMeshInput } from './far-mesh';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
 
@@ -370,7 +371,7 @@ function farBricks(opts: StreamHandlerOptions, raw: unknown): JobResult {
   const input = raw as FarMeshInput;
   const store = storeFor(input.edge);
   try {
-    const output = brickFarNode(store, input, opts.decompress);
+    const output = brickFarNodeBy(store, input, opts.decompress);
     return { output, transfer: farBricksTransfer(output) };
   } finally {
     clear(store);
