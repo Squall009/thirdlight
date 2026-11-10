@@ -73,6 +73,8 @@ export interface FarMeshInput {
    * then z, then y, each from −1 to `scale` (null: air or not kept).
    */
   readonly fine?: { readonly level: number; readonly scale: number; readonly cells: ReadonlyArray<StoredChunk | null> };
+  /** A brick job's node baked with the far cache, as stored (far-bricks-baked.ts): only decoded (null: none stored, nothing drawn). */
+  readonly baked?: StoredChunk | null;
 }
 
 /** A far node's mesh: positions, material and normal a vertex ({@link FAR_VERTEX_BYTES}), triangles, skirts included. */

@@ -6,7 +6,7 @@
  */
 import { statfsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
-import { buildFarCache, FarCacheReader, type FarBuildReport, type FarColumnResult } from '@thirdlight/workspace';
+import { buildFarCache, FarCacheReader, type FarBakeResult, type FarBuildReport, type FarColumnResult } from '@thirdlight/workspace';
 import { FarSelection, type FarSelected } from '@thirdlight/voxel';
 import { farWorldColumns, farWorldDirs, finishFarWorld, type FarColumnWrite, type FarWorldOptions } from './far-world';
 import type { FarWorkerTask } from './far-worker-node';
@@ -129,10 +129,45 @@ export async function writeFarWorld(pool: FarPool, projectDir: string, opts: Far
   return { dir, columns: done, files: files.length, bytes, uniform, stored, ms: performance.now() - t0, stopped };
 }
 
-/** Builds a world's far cache with the region columns in the pool. */
+/** A pool's run as an async stream of its answers, in the order they land. */
+function poolStream<T>(pool: FarPool, tasks: ReadonlyArray<Omit<FarWorkerTask, 'id'>>, each?: () => void): AsyncIterable<T> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const out: T[] = [];
+      let wake: (() => void) | null = null;
+      let finished = false;
+      let failed: unknown = null;
+      void pool.run<T>(tasks, (r) => {
+        out.push(r);
+        each?.();
+        wake?.();
+      }).then(
+        () => {
+          finished = true;
+          wake?.();
+        },
+        (e: unknown) => {
+          failed = e;
+          finished = true;
+          wake?.();
+        },
+      );
+      for (;;) {
+        while (out.length > 0) yield out.shift()!;
+        if (failed !== null) throw failed;
+        if (finished) return;
+        await new Promise<void>((r) => (wake = r));
+        wake = null;
+      }
+    },
+  };
+}
+
+/** Builds a world's far cache with the region columns and the bricks' bake jobs in the pool. */
 export function buildFarCacheInPool(pool: FarPool, worldDir: string, cacheDir: string, minLevel?: number, onColumn?: (done: number, of: number) => void): Promise<FarBuildReport> {
   return buildFarCache(worldDir, cacheDir, {
     ...(minLevel !== undefined ? { minLevel } : {}),
+    bake: (tasks) => poolStream<FarBakeResult>(pool, tasks.map((task) => ({ kind: 'bake' as const, task }))),
     run: (columns, min) => ({
       async *[Symbol.asyncIterator]() {
         const out: FarColumnResult[] = [];

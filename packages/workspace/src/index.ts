@@ -153,6 +153,9 @@ export {
   FarWorldSource,
   readFarCacheManifest,
   rebuildFarCache,
+  runFarBakeFromCache,
+  type FarBuildOptions,
+  type FarCacheBricks,
   buildFarCacheInto,
   farCacheBuildDir,
   FAR_EXPORT_WAIT_MS,
@@ -167,3 +170,4 @@ export {
   type FarColumnRunner,
   type FarRebuildReport,
 } from './voxel-far-cache';
+export { bakeFarBricks, farBrickContentKey, farBricksFolder, FAR_REBUILT_FOLDER, FAR_REBUILT_STORE_BYTES, FarRebuiltStore, type FarBakeResult, type FarBakeRunner, type FarBakeTask, type FarBricksRebuild } from './voxel-far-bake';

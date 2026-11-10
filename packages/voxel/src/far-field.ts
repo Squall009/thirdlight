@@ -35,6 +35,7 @@ import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import { VOXEL_SIZE_M, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
 import { FAR_BRICK_BUILD, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
+import { farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
@@ -132,6 +133,13 @@ export interface FarCacheLevelFiles {
   readonly regions: readonly string[];
 }
 
+/**
+ * A far source's reads at this level and past it name the baked bricks of
+ * kept level `level − FAR_BAKED_LEVELS` (the far tree has at most
+ * `FAR_MAX_LEVEL` levels, so the two never meet).
+ */
+export const FAR_BAKED_LEVELS = 64;
+
 /** Where a far field reads the far cache's nodes. */
 export interface FarNodeSource {
   readonly grid: ChunkGrid;
@@ -139,8 +147,13 @@ export interface FarNodeSource {
   readonly maxLevel: number;
   /** Every kept node that holds anything, with its stored bytes. */
   index(): Promise<FarNodeIndex>;
-  /** Nodes of one level as stored (one result each, in the order asked). */
+  /**
+   * Nodes of one level as stored (one result each, in the order asked); a level of
+   * {@link FAR_BAKED_LEVELS} and more reads that kept level's baked bricks.
+   */
   read(level: number, nodes: readonly ChunkCoord[]): Promise<RegionChunkRead[]>;
+  /** Whether the cache holds a kept level's bricks baked (absent or false: they are built here, from the nodes). */
+  baked?(level: number): boolean;
   /** Forgets what it holds of these nodes' files (they were rewritten). */
   invalidate(level: number, nodes: readonly ChunkCoord[]): void;
   memoryBytes(): number;
@@ -153,7 +166,9 @@ export interface RegionFarSourceOptions {
   readonly minLevel: number;
   readonly maxLevel: number;
   readonly levels: readonly FarCacheLevelFiles[];
-  /** A level's region file by name (null: not listed, all air). */
+  /** The kept levels whose bricks the cache holds baked, and their region files (none: built from the nodes). */
+  readonly bricks?: readonly FarCacheLevelFiles[];
+  /** A level's region file by name (null: not listed, all air); `level` past {@link FAR_BAKED_LEVELS}: a baked bricks file. */
   open(level: number, name: string): RegionByteSource | null;
   /** Region tables kept open a level. */
   readonly maxOpen: number;
@@ -167,11 +182,13 @@ export interface RegionFarSourceOptions {
 export function regionFarSource(o: RegionFarSourceOptions): FarNodeSource {
   const sources = new Map<number, RegionChunkSource>();
   const listed = new Map<number, Set<string>>();
-  for (const l of o.levels) {
-    const names = new Set(l.regions);
-    listed.set(l.level, names);
-    sources.set(l.level, new RegionChunkSource({ worldId: o.worldId, gridId: WORLD_GRID_ID, grid: o.grid, layout: 'stacked', footprint: o.footprint, maxOpen: o.maxOpen, open: (name) => (names.has(name) ? o.open(l.level, name) : null) }));
-  }
+  const addLevel = (level: number, regions: readonly string[]): Set<string> => {
+    const names = new Set(regions);
+    sources.set(level, new RegionChunkSource({ worldId: o.worldId, gridId: WORLD_GRID_ID, grid: o.grid, layout: 'stacked', footprint: o.footprint, maxOpen: o.maxOpen, open: (name) => (names.has(name) ? o.open(level, name) : null) }));
+    return names;
+  };
+  for (const l of o.levels) listed.set(l.level, addLevel(l.level, l.regions));
+  for (const l of o.bricks ?? []) addLevel(FAR_BAKED_LEVELS + l.level, l.regions);
   const levelSource = (level: number): RegionChunkSource => {
     const s = sources.get(level);
     if (s === undefined) throw new RangeError(`far level ${level} is not kept`);
@@ -202,6 +219,7 @@ export function regionFarSource(o: RegionFarSourceOptions): FarNodeSource {
       return idx;
     },
     read: (level, nodes) => levelSource(level).read(nodes),
+    baked: (level) => sources.has(FAR_BAKED_LEVELS + level),
     invalidate: (level, nodes) => levelSource(level).invalidate(nodes),
     memoryBytes: () => {
       let n = 0;
@@ -440,6 +458,8 @@ export class FarField {
    * kept level) itself and its 26 neighbours.
    */
   private reads(n: MipNode): MipNode[] {
+    const b = bakedRead(this.opts.source, this.draw, n);
+    if (b !== null) return [b];
     const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
     if (f !== null) return f.nodes;
     const out: MipNode[] = [];
@@ -698,7 +718,7 @@ export class FarField {
 
   /** Whether a node's 27 cells are read (a mesh job can be sent). */
   private neighbourhoodRead(n: MipNode): boolean {
-    for (const m of this.reads(n)) if (!this.entries.has(mipNodeKey(m)) && this.index!.has(m)) return false;
+    for (const m of this.reads(n)) if (!this.entries.has(mipNodeKey(m)) && holdsRead(this.index!, m)) return false;
     return true;
   }
 
@@ -711,7 +731,7 @@ export class FarField {
         if (this.entries.has(key)) continue;
         let l = byLevel.get(m.level);
         if (l === undefined) byLevel.set(m.level, (l = new Map()));
-        if (!this.index!.has(m)) {
+        if (!holdsRead(this.index!, m)) {
           this.keep(key, null);
           continue;
         }
@@ -759,19 +779,19 @@ export class FarField {
 
   private submit(n: MipNode): void {
     const key = mipNodeKey(n);
-    const cells: Array<StoredChunk | null> = new Array<StoredChunk | null>(27).fill(null);
-    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
-    // A build from finer cells reads only those: the node's own level is neither copied nor sent.
-    if (f === null) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-      const c = this.cellsOf({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
-      // A copy: the stored bytes stay here for the neighbours' meshes while the job takes its own across.
-      cells[farNeighbourIndex(dx, dy, dz)] = c === null ? null : 'uniform' in c ? c : { stored: c.stored.slice(), raw: c.raw };
-    }
-    const fine = f === null ? undefined : { level: f.level, scale: f.scale, cells: f.nodes.map((m) => copyCells(this.cellsOf(m))) };
-    const build = this.draw === 'bricks' ? this.brickBuild : undefined;
-    const input: FarMeshInput = { edge: this.host.grid.edge, level: n.level, node: [n.nx, n.ny, n.nz], cells, rules: rulesRef(this.host.rules), ...(build !== undefined ? { build } : {}), ...(fine !== undefined ? { fine } : {}) };
+    const baked = bakedRead(this.opts.source, this.draw, n);
+    const rules = rulesRef(this.host.rules);
+    const edge = this.host.grid.edge;
+    // A copy of each entry: the stored bytes stay here for the neighbours' jobs while the job takes its own across.
+    // Baked bricks are only decoded there; else the builder gets the cells the bake gave it (farBrickJobCells).
+    const input: FarMeshInput =
+      baked !== null
+        ? { edge, level: n.level, node: [n.nx, n.ny, n.nz], cells: [], rules, baked: copyCells(this.cellsOf(baked)) }
+        : this.draw === 'bricks'
+          ? { edge, rules, ...farBrickJobCells(n, this.brickBuild, this.index?.minLevel ?? Infinity, (m) => copyCells(this.cellsOf(m))) }
+          : { edge, rules, level: n.level, node: [n.nx, n.ny, n.nz], cells: farMeshCells(n, (m) => copyCells(this.cellsOf(m))) };
     const transfer: ArrayBuffer[] = [];
-    for (const c of [...cells, ...(fine?.cells ?? [])]) if (c !== null && 'stored' in c) transfer.push(c.stored.buffer as ArrayBuffer);
+    for (const c of [...input.cells, ...(input.fine?.cells ?? []), ...(input.baked != null ? [input.baked] : [])]) if (c !== null && 'stored' in c) transfer.push(c.stored.buffer as ArrayBuffer);
     const id = this.nextId--;
     const stamp = this.stamps.get(key) ?? 0;
     this.jobs.set(key, { id, stamp });
@@ -975,6 +995,22 @@ export class FarField {
       byLevel.set(a.level, l);
     }
     for (const [level, nodes] of byLevel) src.invalidate(level, nodes);
+    // Baked bricks the edit made stale (the backend baked them again with the rebuild): read again when sent. Their
+    // drawn nodes are made again below with the ancestors' neighbours, which hold every one of them.
+    if (this.draw === 'bricks' && src.baked !== undefined) {
+      const dirty = farBrickDirty(chunks, this.host.grid.edge, this.brickBuild, src.minLevel, src.maxLevel).filter((n) => src.baked!(n.level));
+      const bakedByLevel = new Map<number, ChunkCoord[]>();
+      for (const n of dirty) {
+        const b = { level: FAR_BAKED_LEVELS + n.level, nx: n.nx, ny: n.ny, nz: n.nz };
+        const old = this.entries.get(mipNodeKey(b));
+        if (old !== undefined) {
+          this.entries.delete(mipNodeKey(b));
+          this.entryBytes -= old.bytes;
+        }
+        bakedByLevel.set(b.level, [...(bakedByLevel.get(b.level) ?? []), { cx: n.nx, cy: n.ny, cz: n.nz }]);
+      }
+      for (const [level, nodes] of bakedByLevel) src.invalidate(level, nodes);
+    }
     this.rereads++;
     this.reread(ancestors).then(
       () => {
@@ -1073,15 +1109,6 @@ export class FarField {
   }
 }
 
-/** The finer nodes a brick job of `n` built `scale` times finer reads (null: it reads its own level only). */
-function farFineOf(n: MipNode, scale: number, minLevel: number): { level: number; scale: number; nodes: MipNode[] } | null {
-  if (scale <= 1) return null;
-  const level = n.level - Math.log2(scale);
-  if (level < minLevel) return null;
-  const nodes: MipNode[] = [];
-  for (let dx = -1; dx <= scale; dx++) for (let dz = -1; dz <= scale; dz++) for (let dy = -1; dy <= scale; dy++) nodes.push({ level, nx: n.nx * scale + dx, ny: n.ny * scale + dy, nz: n.nz * scale + dz });
-  return { level, scale, nodes };
-}
 
 /** The key of a node's nearest ancestor in `set` (null: none), walking up to level `top`. */
 function ancestorIn(set: ReadonlyMap<string, unknown>, n: MipNode, top: number): string | null {
@@ -1157,6 +1184,23 @@ function sumOf(r: SampleRing): number {
 }
 
 /** A node's stored cells as a job's own copy (the stored bytes stay here for the jobs that read them again). */
+/** A brick node's baked entry (a read at {@link FAR_BAKED_LEVELS} past its level), when the cache holds it baked. */
+function bakedRead(source: FarNodeSource, draw: FarDrawKind, n: MipNode): MipNode | null {
+  return draw === 'bricks' && source.baked?.(n.level) === true ? { level: FAR_BAKED_LEVELS + n.level, nx: n.nx, ny: n.ny, nz: n.nz } : null;
+}
+
+/** Whether a read node holds anything (a baked entry: whether its node does). */
+function holdsRead(index: FarNodeIndex, m: MipNode): boolean {
+  return index.has(m.level >= FAR_BAKED_LEVELS ? { level: m.level - FAR_BAKED_LEVELS, nx: m.nx, ny: m.ny, nz: m.nz } : m);
+}
+
+/** A mesh job's cells: the node and its 26 neighbours (index {@link farNeighbourIndex}). */
+function farMeshCells(n: MipNode, cellsOf: (m: MipNode) => StoredChunk | null): Array<StoredChunk | null> {
+  const cells = new Array<StoredChunk | null>(27).fill(null);
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) cells[farNeighbourIndex(dx, dy, dz)] = cellsOf({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
+  return cells;
+}
+
 function copyCells(c: StoredChunk | null): StoredChunk | null {
   return c === null ? null : 'uniform' in c ? c : { stored: c.stored.slice(), raw: c.raw };
 }

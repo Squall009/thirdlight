@@ -10,7 +10,7 @@
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildFarCache, farCacheDir, gridFolder, VoxelWorlds, writeVoxelWorldManifest } from '@thirdlight/workspace';
+import { buildFarCache, farCacheDir, FAR_REBUILT_FOLDER, gridFolder, VoxelWorlds, writeVoxelWorldManifest } from '@thirdlight/workspace';
 import { afterAll, describe, expect, it } from 'vitest';
 import { shipVoxelWorlds } from '@thirdlight/exporter';
 import { createFarCacheJobs } from './far-cache-runner';
@@ -27,6 +27,8 @@ function filesOf(dir: string, sub = ''): Record<string, string> {
   const out: Record<string, string> = {};
   for (const e of readdirSync(join(dir, sub), { withFileTypes: true })) {
     const rel = sub === '' ? e.name : `${sub}/${e.name}`;
+    // The rebuilt store remembers edits' bricks by content; it is not part of the cache a build makes.
+    if (rel === FAR_REBUILT_FOLDER) continue;
     if (e.isDirectory()) Object.assign(out, filesOf(dir, rel));
     else out[rel] = readFileSync(join(dir, rel)).toString('base64');
   }

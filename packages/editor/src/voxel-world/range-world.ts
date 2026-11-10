@@ -12,7 +12,7 @@
  * missed, files restored) is read again whole (`readAgain`).
  */
 import { hexToBytes } from '@thirdlight/shared';
-import { chunkGrid, defaultVoxelWorkers, eventTargetWorker, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type VoxelStreamer } from '@thirdlight/voxel';
+import { chunkGrid, defaultVoxelWorkers, FAR_BAKED_LEVELS, eventTargetWorker, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type VoxelStreamer } from '@thirdlight/voxel';
 import { rangeByteSource, type RangeReadStats } from './range-reads';
 
 export interface VoxelWorldManifest {
@@ -62,7 +62,7 @@ export const FAR_CACHE_POLL_MS = 2000;
 /** What the far cache's route answers. */
 interface FarInfo {
   ok: boolean;
-  manifest?: { minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }> };
+  manifest?: { minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }>; bricks?: { levels: Array<{ level: number; regions: string[] }> } };
   error?: { code: string; message: string };
 }
 
@@ -80,7 +80,9 @@ function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footp
       const info = (await res.json()) as FarInfo;
       if (info.ok && info.manifest !== undefined) {
         const m = info.manifest;
-        inner = regionFarSource({ worldId, grid, footprint, minLevel: m.minLevel, maxLevel: m.maxLevel, levels: m.levels, maxOpen: OPEN_REGION_FILES, open: (level, name) => rangeByteSource(`${url}/far/L${level}/${encodeURIComponent(name)}`, headers, stats) });
+        // Baked bricks files open at their level past FAR_BAKED_LEVELS (the far source's reads of them).
+        const folder = (level: number): string => (level >= FAR_BAKED_LEVELS ? `B${level - FAR_BAKED_LEVELS}` : `L${level}`);
+        inner = regionFarSource({ worldId, grid, footprint, minLevel: m.minLevel, maxLevel: m.maxLevel, levels: m.levels, ...(m.bricks !== undefined ? { bricks: m.bricks.levels } : {}), maxOpen: OPEN_REGION_FILES, open: (level, name) => rangeByteSource(`${url}/far/${folder(level)}/${encodeURIComponent(name)}`, headers, stats) });
         return inner;
       }
       if (info.error?.code !== 'far_cache_building') throw new Error(info.error?.message ?? `far cache: HTTP ${res.status}`);
@@ -97,6 +99,7 @@ function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footp
     },
     index: async () => (await ready).index(),
     read: async (level, nodes) => (await ready).read(level, nodes),
+    baked: (level) => inner?.baked?.(level) === true,
     invalidate: (level, nodes) => inner?.invalidate(level, nodes),
     memoryBytes: () => inner?.memoryBytes() ?? 0,
   };

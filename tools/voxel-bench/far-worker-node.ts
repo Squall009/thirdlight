@@ -6,12 +6,13 @@
  * so a pool of these writes and builds a large world side by side.
  */
 import { parentPort } from 'node:worker_threads';
-import { farColumnNodes, FarWorldSource } from '@thirdlight/workspace';
+import { farColumnNodes, FarWorldSource, runFarBakeFromCache, type FarBakeTask } from '@thirdlight/workspace';
 import { writeFarWorldColumn, type FarWorldOptions } from './far-world';
 
 export type FarWorkerTask =
   | { readonly id: number; readonly kind: 'world'; readonly gridDir: string; readonly rx: number; readonly rz: number; readonly opts: FarWorldOptions }
-  | { readonly id: number; readonly kind: 'far'; readonly worldDir: string; readonly rx: number; readonly rz: number; readonly minLevel: number };
+  | { readonly id: number; readonly kind: 'far'; readonly worldDir: string; readonly rx: number; readonly rz: number; readonly minLevel: number }
+  | { readonly id: number; readonly kind: 'bake'; readonly task: FarBakeTask };
 
 let source: FarWorldSource | null = null;
 
@@ -19,6 +20,12 @@ parentPort!.on('message', (t: FarWorkerTask) => {
   try {
     if (t.kind === 'world') {
       parentPort!.postMessage({ id: t.id, ok: true, result: writeFarWorldColumn(t.gridDir, t.rx, t.rz, t.opts) });
+      return;
+    }
+    if (t.kind === 'bake') {
+      const t0 = performance.now();
+      const result = runFarBakeFromCache(t.task);
+      parentPort!.postMessage({ id: t.id, ok: true, result, ms: performance.now() - t0 }, result.entries.flatMap((e) => ('stored' in e ? [e.stored.buffer as ArrayBuffer] : [])));
       return;
     }
     if (source === null || source.worldDir !== t.worldDir) source = new FarWorldSource(t.worldDir);

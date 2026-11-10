@@ -10,12 +10,13 @@
  * result byte for byte a full build), and the town's doors and windows
  * closed at levels 1 and 2 (no "legs" under far front walls).
  */
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { zstdDecompressSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, createDenseChunk, farBricksGpuBytes, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, FAR_ENTRY_CACHE_BYTES, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
-import { buildFarCache, farCacheDir, FarCacheReader, FarWorldSource, openShippedWorld, readFarCacheManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
+import { buildFarNode, decodeFarBricks, encodeFarBricks, FAR_BAKED_LEVELS, FAR_BRICK_BUILD, farBrickDirty, createDenseChunk, farBricksGpuBytes, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, FAR_ENTRY_CACHE_BYTES, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarCache, farCacheDir, farCacheFiles, FarCacheReader, farCacheStale, FAR_REBUILT_FOLDER, FarWorldSource, openShippedWorld, readFarCacheManifest, readVoxelWorldManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
 import { hexToBytes } from '@thirdlight/shared';
 import { computeFarDrainage, PEAK } from './far-drainage';
 import { farLandscape, farSurfaceHeight, farWorldColumns, farWorldDirs, finishFarWorld, writeFarWorldColumn, FAR_WORLD_GRID } from './far-world';
@@ -31,13 +32,25 @@ const SIZE_KM = 0.5;
 let pool: FarPool;
 let worldDir: string;
 
-/** Every file under a folder, relative path → base64. */
+/** Every file under a folder, relative path → base64 (a far cache's rebuilt store left out: a memory of edits, not the cache). */
 function filesOf(dir: string, sub = ''): Record<string, string> {
   const out: Record<string, string> = {};
   for (const e of readdirSync(join(dir, sub), { withFileTypes: true })) {
     const rel = sub === '' ? e.name : `${sub}/${e.name}`;
+    if (rel === FAR_REBUILT_FOLDER) continue;
     if (e.isDirectory()) Object.assign(out, filesOf(dir, rel));
     else out[rel] = readFileSync(join(dir, rel)).toString('base64');
+  }
+  return out;
+}
+
+/** A far cache's baked entries by node key (base64 of the stored bytes). */
+function bakedOf(cacheDir: string): Map<string, string> {
+  const r = new FarCacheReader(cacheDir);
+  const out = new Map<string, string>();
+  for (let l = r.manifest.minLevel; l <= r.manifest.maxLevel; l++) for (const n of r.index().nodes(l)) {
+    const e = r.bricksEntry(n);
+    if (e !== null && 'stored' in e) out.set(mipNodeKey(n), Buffer.from(e.stored).toString('base64'));
   }
   return out;
 }
@@ -227,6 +240,7 @@ describe('the far cache', () => {
     const chunks = r.ok ? r.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })) : [];
     expect(chunks.length).toBeGreaterThan(1);
     const before = filesOf(cache);
+    const bakedBefore = bakedOf(cache);
     const editedWorld = join(p, 'voxels', 'far');
     const report = rebuildFarCache(editedWorld, cache, chunks);
     const ancestors = farAncestors(chunks, built.manifest.minLevel, built.manifest.maxLevel);
@@ -234,13 +248,120 @@ describe('the far cache', () => {
     // One level-2 to level-5 chain per distinct ancestor; only the files holding them were written.
     const after = filesOf(cache);
     for (const f of Object.keys(after)) if (f !== 'far.json' && !report.files.includes(f)) expect(after[f], f).toBe(before[f]);
-    expect(report.files.length).toBeLessThanOrEqual(ancestors.length);
+    expect(report.files.filter((f) => f.startsWith('L')).length).toBeLessThanOrEqual(ancestors.length);
     expect(report.files.some((f) => after[f] !== before[f])).toBe(true);
-    // The rebuilt cache equals one built from scratch from the edited world.
+    // The bricks: exactly the dirty set (the node over the change at each level and its border neighbours), each built
+    // again by the builder; the bricks files written are those holding them.
+    const dirty = farBrickDirty(chunks, FAR_WORLD_GRID.edge, FAR_BRICK_BUILD, built.manifest.minLevel, built.manifest.maxLevel);
+    const reader = new FarCacheReader(cache);
+    const held = dirty.filter((n) => reader.entry(n) !== null);
+    expect(report.bricks).toMatchObject({ dirty: dirty.length, built: held.length, reused: 0 });
+    for (const l of [2, 3, 4]) expect(dirty.some((n) => n.level === l), `L${l}`).toBe(true);
+    // Every other node's baked bricks are the bytes they were.
+    const dirtyKeys = new Set(dirty.map(mipNodeKey));
+    const bakedAfter = bakedOf(cache);
+    let kept = 0;
+    for (const [k, v] of bakedBefore) if (!dirtyKeys.has(k)) {
+      expect(bakedAfter.get(k), k).toBe(v);
+      kept++;
+    }
+    expect(kept).toBeGreaterThan(dirty.length);
+    const bricksFiles = report.files.filter((f) => f.startsWith('B'));
+    for (const n of held) expect(bricksFiles.some((f) => f.startsWith(`B${n.level}/`))).toBe(true);
+    // The rebuilt cache equals one built from scratch from the edited world, bricks and all: the bricks built again
+    // meet their baked neighbours as a full bake would.
     const fresh = join(root, 'cache-fresh');
     await buildFarCache(editedWorld, fresh);
     expect(after).toEqual(filesOf(fresh));
-  }, 120_000);
+    // Undone, then done again: the redo's cells are the edit's, so every brick comes from the rebuilt store by its
+    // content key (a store opened afresh, as on the next load), none is built.
+    const undo = await worlds.command('p', { op: 'undoVoxels', projectId: 'p', args: { world: 'far' } });
+    expect(undo.ok).toBe(true);
+    const back = rebuildFarCache(editedWorld, cache, chunks);
+    expect(back.bricks!.built).toBeGreaterThan(0);
+    const redo = await worlds.command('p', { op: 'editVoxels', projectId: 'p', args: { world: 'far', command: dig } });
+    expect(redo.ok).toBe(true);
+    const again = rebuildFarCache(editedWorld, cache, chunks);
+    expect(again.bricks).toMatchObject({ dirty: dirty.length, built: 0, reused: held.length });
+    // Every file as the full build of the edited world has it; the manifest only names the revision the redo made.
+    const { 'far.json': _m1, ...redone } = filesOf(cache);
+    const { 'far.json': _m2, ...full } = filesOf(fresh);
+    expect(redone).toEqual(full);
+    expect(readFarCacheManifest(cache).revision).toBe(readVoxelWorldManifest(editedWorld).revision);
+  }, 180_000);
+
+  it('bakes bricks byte for byte as the far field builds them in its workers, and draws a format-1 cache (no bricks) by building them', async () => {
+    const p = join(root, 'baked');
+    cpSync(projectDir, p, { recursive: true });
+    const world = join(p, 'voxels', 'far');
+    const cacheDir = farCacheDir(p, 'far');
+    const b = await buildFarCacheInPool(pool, world, cacheDir);
+    expect(b.manifest.format).toBe(2);
+    expect(b.manifest.bricks!.levels.map((l) => l.nodes)).toEqual(b.manifest.levels.map((l) => l.nodes));
+    expect(b.brickBytes).toBeGreaterThan(0);
+    // The same cache as format 1: its nodes only, as a cache built before bricks were baked.
+    const old = join(root, 'baked-v1');
+    cpSync(cacheDir, old, { recursive: true });
+    for (const l of b.manifest.bricks!.levels) rmSync(join(old, `B${l.level}`), { recursive: true, force: true });
+    const { bricks: _baked, ...nodesOnly } = b.manifest;
+    writeFileSync(join(old, 'far.json'), `${JSON.stringify({ ...nodesOnly, format: 1 }, null, 2)}\n`);
+    expect(readFarCacheManifest(old).bricks).toBeUndefined();
+    expect(farCacheStale(old, readVoxelWorldManifest(world))).toMatch(/format 1/);
+    expect(farCacheStale(cacheDir, readVoxelWorldManifest(world))).toBeNull();
+    expect(farCacheFiles(cacheDir).filter((f) => f.startsWith('B')).length).toBeGreaterThan(0);
+    const file = await bundleWorker('stream-worker-node', join(REPO, 'dist', 'voxel-bench', `far-baked-worker-${process.pid}.mjs`));
+    const workers = new WorkerPool({ size: 2, create: () => nodePoolWorker(file), ...STREAM_POOL_SETTINGS });
+    const opened: DiskRegions[] = [];
+    const drawn = async (dir: string): Promise<{ bricks: Map<string, Uint8Array>; baked: boolean }> => {
+      const m = readFarCacheManifest(dir);
+      const open = (level: number, name: string) => {
+        const d = new DiskRegions(join(dir, level >= FAR_BAKED_LEVELS ? `B${level - FAR_BAKED_LEVELS}` : `L${level}`));
+        opened.push(d);
+        return d.open(name);
+      };
+      const source = regionFarSource({ worldId: hexToBytes(m.worldId), grid: FAR_WORLD_GRID, footprint: m.footprint, minLevel: m.minLevel, maxLevel: m.maxLevel, levels: m.levels, ...(m.bricks !== undefined ? { bricks: m.bricks.levels } : {}), maxOpen: 16, open });
+      const far = new FarField({ source, draw: 'bricks', errorPixels: 64 }, { grid: FAR_WORLD_GRID, pool: workers, rules: WORLD_RULES });
+      const shown = new Map<string, FarNodeDraw>();
+      far.on((e) => {
+        for (const n of e.removed) shown.delete(mipNodeKey(n));
+        for (const a of e.added) shown.set(mipNodeKey(a), a);
+      });
+      for (const [x, z] of [[0, 0], [-200, 200]] as const) {
+        far.setEye(x, 40, z);
+        far.update();
+        await far.settle();
+      }
+      expect(far.metrics().problem).toBeNull();
+      far.close();
+      return { bricks: new Map([...shown].map(([k, d]) => [k, encodeFarBricks(d.bricks!)])), baked: source.baked?.(2) === true };
+    };
+    try {
+      const fromBake = await drawn(cacheDir);
+      const fromBuild = await drawn(old);
+      expect(fromBake.baked).toBe(true);
+      expect(fromBuild.baked).toBe(false);
+      expect(fromBake.bricks.size).toBeGreaterThan(8);
+      expect([...fromBake.bricks.keys()].sort()).toEqual([...fromBuild.bricks.keys()].sort());
+      const levels = new Set<number>();
+      for (const [k, bytes] of fromBake.bricks) {
+        expect(Buffer.from(bytes).equals(Buffer.from(fromBuild.bricks.get(k)!)), k).toBe(true);
+        levels.add(Number(k.split(':')[0]));
+      }
+      expect(levels.size).toBeGreaterThan(1);
+      // And every baked node decodes to what the builder gives for its cells now (the bake's bytes as stored).
+      const reader = new FarCacheReader(cacheDir);
+      for (const n of reader.index().nodes(3)) {
+        const e = reader.bricksEntry(n)!;
+        const stored = 'stored' in e ? (e.raw ? e.stored : new Uint8Array(zstdDecompressSync(e.stored))) : null;
+        expect(stored, mipNodeKey(n)).not.toBeNull();
+        expect(Buffer.from(encodeFarBricks(decodeFarBricks(stored!))).equals(Buffer.from(stored!))).toBe(true);
+      }
+    } finally {
+      for (const d of opened) await d.close();
+      workers.close();
+      rmSync(file, { force: true });
+    }
+  }, 180_000);
 
   it('closes the town houses’ doors and windows at levels 1 and 2 (no legs)', () => {
     const world = new FarWorldSource(worldDir);

@@ -77,6 +77,7 @@ import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
 import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, REGION_WORLD_RESIDENT_BYTES, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
 import { writeAtomic, type WriteOps } from './write';
+import type { FarBricksRebuild } from './voxel-far-bake';
 import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, inProcessFarJobs, readFarCacheManifest, swapFarCache, type FarCacheJobs, type FarCacheManifest } from './voxel-far-cache';
 
 /** The project folder holding its voxel worlds, one folder each. */
@@ -253,8 +254,8 @@ export type RegionFileAnswer = { ok: true; path: string; etag: string } | { ok: 
  */
 export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest; files: Array<{ name: string; etag: string }> } | { ok: false; error: VoxelWorldError };
 
-/** A far cache's level file folder name (`L<level>`). */
-const FAR_LEVEL_RE = /^L(\d{1,2})$/;
+/** A far cache's level file folder name (`L<level>`: its nodes; `B<level>`: their baked bricks). */
+const FAR_LEVEL_RE = /^[LB](\d{1,2})$/;
 const isFarLevel = (level: string): boolean => {
   const m = FAR_LEVEL_RE.exec(level);
   return m !== null && Number(m[1]) <= FAR_MAX_LEVEL;
@@ -284,7 +285,7 @@ export interface VoxelCommandApplied {
    * ancestors) and the ms it took, or why it was not (it is then built
    * again whole when next read); null when the world has none yet.
    */
-  readonly far: { readonly nodes: number; readonly ms: number } | { readonly stale: string } | null;
+  readonly far: { readonly nodes: number; readonly ms: number; readonly bricks?: FarBricksRebuild } | { readonly stale: string } | null;
   /** Cells whose voxel changed. */
   readonly cells: number;
   /** The chunks whose content changed ([cx, cy, cz] each): what a client re-reads. */
@@ -651,7 +652,7 @@ export class VoxelWorlds {
   private async farRebuild(w: OpenWorld, chunks: readonly ChunkCoord[]): Promise<VoxelCommandApplied['far']> {
     try {
       const r = await this.farJobs.rebuild(w.dir, w.farDir, chunks);
-      return { nodes: r.rebuilt.length, ms: r.ms };
+      return { nodes: r.rebuilt.length, ms: r.ms, ...(r.bricks !== undefined ? { bricks: r.bricks } : {}) };
     } catch (e) {
       rmSync(w.farDir, { recursive: true, force: true });
       w.farTags.clear();

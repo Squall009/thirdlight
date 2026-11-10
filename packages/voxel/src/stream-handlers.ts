@@ -34,6 +34,7 @@ import { encodeUndoRecord } from './undo-store';
 import { downsampleMip } from './voxel-mips';
 import { buildFaceSeam, type SeamFaceInput } from './lod-seam';
 import { farBricksTransfer } from './far-bricks';
+import { bakedFarBricks } from './far-bricks-baked';
 import { brickFarNodeBy } from './far-bricks-faces';
 import { farMeshTransfer, meshFarNode, type FarMeshInput } from './far-mesh';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
@@ -369,6 +370,10 @@ function farMesh(opts: StreamHandlerOptions, raw: unknown): JobResult {
 /** A far node's distance bricks (far-bricks.ts), from the same cells a far mesh reads. */
 function farBricks(opts: StreamHandlerOptions, raw: unknown): JobResult {
   const input = raw as FarMeshInput;
+  if (input.baked !== undefined) {
+    const output = bakedFarBricks(input.edge, input.baked, opts.decompress);
+    return { output, transfer: farBricksTransfer(output) };
+  }
   const store = storeFor(input.edge);
   try {
     const output = brickFarNodeBy(store, input, opts.decompress);

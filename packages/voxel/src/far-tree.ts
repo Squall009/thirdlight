@@ -35,8 +35,15 @@ import { copyDenseChunk, createDenseChunk, type DenseChunk } from './dense-chunk
 import { fillLevel, readValue, recordValue, SHAPE_FULL, VOXEL_ROLE, type VoxelRecord } from './record';
 import { downsampleMip, MIP_ROLE_PRIORITY, mipChildren, mipNodeKey, MipStaleSet, type MipNode } from './voxel-mips';
 
-/** The far cache's format; a cache of another format is built again (it is derived data). */
-export const FAR_CACHE_FORMAT = 1;
+/**
+ * The far cache's format; a cache of another format is built again (it is derived data). Format 2 adds the kept
+ * nodes' baked bricks beside them (add-only: a format-1 cache is a format-2 cache without them, and a page reading
+ * one builds its bricks itself).
+ */
+export const FAR_CACHE_FORMAT = 2;
+
+/** The far cache formats a reader takes: 1 (no baked bricks) and {@link FAR_CACHE_FORMAT}. */
+export const FAR_CACHE_FORMATS_READ: readonly number[] = [1, FAR_CACHE_FORMAT];
 
 /** The lowest level the far tree keeps (2 m cells, 64 m nodes at the 32-cell edge): the near rings draw what is finer. */
 export const FAR_MIN_LEVEL = 2;

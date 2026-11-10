@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildFarCache, farCacheDir, inProcessFarJobs, swapFarCache, type FarCacheJobs } from './voxel-far-cache';
+import { FAR_REBUILT_FOLDER } from './voxel-far-bake';
 import { VoxelWorlds, writeVoxelWorld } from './voxel-worlds';
 
 const grid = chunkGrid(32);
@@ -24,6 +25,8 @@ function filesOf(dir: string, sub = ''): Record<string, string> {
   const out: Record<string, string> = {};
   for (const e of readdirSync(join(dir, sub), { withFileTypes: true })) {
     const rel = sub === '' ? e.name : `${sub}/${e.name}`;
+    // The rebuilt store remembers edits' bricks by content; it is not part of the cache a build makes.
+    if (rel === FAR_REBUILT_FOLDER) continue;
     if (e.isDirectory()) Object.assign(out, filesOf(dir, rel));
     else out[rel] = readFileSync(join(dir, rel)).toString('base64');
   }

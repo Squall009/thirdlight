@@ -16,7 +16,7 @@
 import { chunkGrid, CHUNK_EDGES, isRegionFootprint, REGION_FOOTPRINTS, type ChunkEdge, type RegionFootprint } from './coords';
 import { parseRegionFileName, VOXEL_WORLD_NAME_RE, WORLD_GRID_ID, WORLD_ID_BYTES, type RegionByteSource, type RegionLayout } from './region-file';
 import { RegionChunkSource } from './region-source';
-import { regionFarSource, type FarNodeSource } from './far-field';
+import { FAR_BAKED_LEVELS, regionFarSource, type FarNodeSource } from './far-field';
 import { FAR_MAX_LEVEL } from './far-tree';
 import { hexToBytes } from '@thirdlight/shared';
 
@@ -82,14 +82,14 @@ function sortedFiles(files: readonly ShippedVoxelFile[]): ShippedVoxelFile[] {
   return [...files].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map((f) => ({ name: f.name, digest: f.digest, byteLength: f.byteLength }));
 }
 
-/** A shipped far cache file's name: a kept level's folder and a stacked region file name. */
-const FAR_FILE_RE = /^L(\d{1,2})\/([^/]+)$/;
+/** A shipped far cache file's name: a kept level's folder (`L`: its nodes, `B`: their baked bricks) and a stacked region file name. */
+const FAR_FILE_RE = /^([LB])(\d{1,2})\/([^/]+)$/;
 
-/** A shipped far cache file's level and region file name (null: not one). */
-export function shippedFarFile(name: string): { level: number; region: string } | null {
+/** A shipped far cache file's level, region file name and whether it holds the level's baked bricks (null: not one). */
+export function shippedFarFile(name: string): { level: number; region: string; bricks: boolean } | null {
   const m = FAR_FILE_RE.exec(name);
-  if (m === null || Number(m[1]) > FAR_MAX_LEVEL || parseRegionFileName('stacked', m[2]!) === null) return null;
-  return { level: Number(m[1]), region: m[2]! };
+  if (m === null || Number(m[2]) > FAR_MAX_LEVEL || parseRegionFileName('stacked', m[3]!) === null) return null;
+  return { level: Number(m[2]), region: m[3]!, bricks: m[1] === 'B' };
 }
 
 /**
@@ -124,7 +124,7 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
         const at = shippedFarFile(name);
         return at !== null && at.level >= lo && at.level <= hi;
       };
-      const p = filesProblem(`voxelWorlds[${i}].far.files`, f.files, levelOk, 'L<level>/<stacked region file name> of a kept level');
+      const p = filesProblem(`voxelWorlds[${i}].far.files`, f.files, levelOk, 'L<level>/ or B<level>/<stacked region file name> of a kept level');
       if (p !== null) return p;
     }
   }
@@ -184,14 +184,22 @@ export function wholeFileByteSource(load: () => Promise<Uint8Array>): RegionByte
 export function shippedFarSource(w: ShippedVoxelWorld, readFile: (file: ShippedVoxelFile) => Promise<Uint8Array>): FarNodeSource | null {
   const far = w.far;
   if (far === undefined) return null;
+  // Baked bricks files open at their level past FAR_BAKED_LEVELS (the far source's reads of them).
   const byLevel = new Map<number, Map<string, ShippedVoxelFile>>();
   for (const f of far.files) {
     const at = shippedFarFile(f.name)!;
-    let m = byLevel.get(at.level);
-    if (m === undefined) byLevel.set(at.level, (m = new Map()));
+    const key = at.bricks ? FAR_BAKED_LEVELS + at.level : at.level;
+    let m = byLevel.get(key);
+    if (m === undefined) byLevel.set(key, (m = new Map()));
     m.set(at.region, f);
   }
-  const levels = [...byLevel].sort((a, b) => a[0] - b[0]).map(([level, m]) => ({ level, regions: [...m.keys()].sort() }));
+  const listOf = (bricks: boolean): Array<{ level: number; regions: string[] }> =>
+    [...byLevel]
+      .filter(([k]) => k >= FAR_BAKED_LEVELS === bricks)
+      .sort((a, b) => a[0] - b[0])
+      .map(([k, m]) => ({ level: bricks ? k - FAR_BAKED_LEVELS : k, regions: [...m.keys()].sort() }));
+  const levels = listOf(false);
+  const bricks = listOf(true);
   return regionFarSource({
     worldId: hexToBytes(w.worldId),
     grid: chunkGrid(w.edge),
@@ -199,6 +207,7 @@ export function shippedFarSource(w: ShippedVoxelWorld, readFile: (file: ShippedV
     minLevel: far.minLevel,
     maxLevel: far.maxLevel,
     levels,
+    ...(bricks.length > 0 ? { bricks } : {}),
     maxOpen: OPEN_REGION_FILES,
     open: (level, name) => {
       const f = byLevel.get(level)?.get(name);
