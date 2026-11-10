@@ -28,9 +28,9 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 94 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
-| [Types (CreateEntityArgs to MaterialParameterType)](types-c-m.md) | 88 sections |
-| [Types (MaterialParameterValue to StrokeSurfaceSample)](types-m-s.md) | 104 sections |
-| [Types (SurfaceBake to WindOctave)](types-s-w.md) | 76 sections |
+| [Types (CreateEntityArgs to MaterialGameData)](types-c-m.md) | 88 sections |
+| [Types (MaterialParameter to SkyConfig)](types-m-s.md) | 103 sections |
+| [Types (StampEdit to WindOctave)](types-s-w.md) | 79 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 19 sections |
 | [Script API types (from `BehaviorRandom`)](script-types-behavior-random.md) | 23 sections |

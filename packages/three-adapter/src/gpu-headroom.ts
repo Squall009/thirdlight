@@ -142,6 +142,8 @@ export class GpuLoad {
   private frames = 0;
   private copyCpuMs = 0;
   private size: [number, number] = [0, 0];
+  /** The times (ms) of the frames presented while a {@link record} runs (null: none runs). */
+  private stamps: number[] | null = null;
   /** Lights this load stopped casting (given back when shadows are shown again). */
   private readonly hidden = new Set<THREE.Light>();
   /** Roots and lights put in {@link HEADROOM_LAYER}, taken out when the copies stop. */
@@ -162,6 +164,28 @@ export class GpuLoad {
     this.hideShadows = s.hideShadows === true;
     this.bypassPost = s.bypassPost === true;
     this.frames = 0;
+  }
+
+  /** A frame was presented at `t` (ms, `performance.now()`): every frame the page draws, load or not. */
+  presented(t: number): void {
+    this.stamps?.push(t);
+  }
+
+  /**
+   * The intervals (ms) between the frames presented over the next `seconds`.
+   * A page under a frame-rate cap skips animation frames, so a meter times
+   * the frames it draws, not the browser's callbacks (at a 30 cap on a 60 Hz
+   * display every other one draws nothing).
+   */
+  record(seconds: number): Promise<number[]> {
+    const stamps: number[] = [];
+    this.stamps = stamps;
+    return new Promise((done) => {
+      setTimeout(() => {
+        if (this.stamps === stamps) this.stamps = null;
+        done(stamps.slice(1).map((t, i) => t - stamps[i]!));
+      }, seconds * 1000);
+    });
   }
 
   /** Whether the frame draws without its post stack ({@link drawPlain} instead). */

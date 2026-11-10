@@ -21,7 +21,7 @@ interface MeterDraws<R> {
 
 /** What of the scene adapter the meter drives (its GPU load and the player's render settings). */
 interface MeterAdapter<R> {
-  gpuLoad?(): { set(s: { ballast: number; copies: number; copyOf: () => readonly R[]; hideShadows: boolean; bypassPost: boolean }): void; state(): object };
+  gpuLoad?(): { set(s: { ballast: number; copies: number; copyOf: () => readonly R[]; hideShadows: boolean; bypassPost: boolean }): void; state(): object; record(seconds: number): Promise<number[]> };
   setRenderSettings?(settings: { renderScale?: number; dynamicResolution?: boolean }, layer?: 'project' | 'player'): void;
 }
 
@@ -44,6 +44,8 @@ export interface VoxelMeter {
   set(s: VoxelMeterSettings): boolean;
   /** The load's state (three-adapter's GpuLoadState) with the settings given; null without a load. */
   state(): (object & { readonly settings: VoxelMeterSettings }) | null;
+  /** The intervals (ms) between the frames the page presents over the next `seconds` (a capped page skips animation frames); empty without a load. */
+  record(seconds: number): Promise<number[]>;
 }
 
 export function voxelMeter<R>(draws: MeterDraws<R>, adapter: () => MeterAdapter<R> | null): VoxelMeter {
@@ -69,6 +71,9 @@ export function voxelMeter<R>(draws: MeterDraws<R>, adapter: () => MeterAdapter<
     state() {
       const load = adapter()?.gpuLoad?.() ?? null;
       return load === null ? null : { ...load.state(), settings };
+    },
+    record(seconds) {
+      return adapter()?.gpuLoad?.()?.record(seconds) ?? Promise.resolve([]);
     },
   };
 }

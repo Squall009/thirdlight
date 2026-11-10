@@ -1520,9 +1520,9 @@ export class RuntimeInstance implements Runtime {
     return this.loop.pacer.frameRateCap;
   }
 
-  /** Set the game's frame-rate cap (false: not a cap). */
-  setFrameRateCap(fps: unknown): boolean {
-    return this.sim.stateName !== 'disposed' && this.loop.pacer.setCap(fps);
+  /** Set the game's frame-rate cap, or the quality level's (`level`: the frames follow the lower one); false: not a cap. */
+  setFrameRateCap(fps: unknown, source: 'game' | 'level' = 'game'): boolean {
+    return this.sim.stateName !== 'disposed' && (source === 'level' ? this.loop.pacer.setLevelCap(fps) : this.loop.pacer.setCap(fps));
   }
 
   /** Pace at this cap whatever the game sets (undefined: the game's again). */

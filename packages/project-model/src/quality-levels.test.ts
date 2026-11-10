@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateEnvironment, type PostConfig } from './materials';
-import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, MEDIUM_RENDER_SCALE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
+import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_CEILING_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
 import { validateQualityBindings } from './save-schema';
 
 const errorsOf = (v: unknown): ModelErrorV2[] => {
@@ -33,13 +33,16 @@ describe('quality levels', () => {
     expect(qualityLevelOf(own, 'low').id).toBe('ultra');
   });
 
-  it('the engine\'s levels draw as the fixed profile did: low no bloom/AO/DOF/AA, medium no AO/DOF, high the look; medium and high anti-alias by temporal upscaling', () => {
+  it('the engine\'s levels: low no bloom/AO/DOF, medium no AO/DOF, high the look; every level anti-aliases by temporal upscaling', () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS;
     const atLow = levelPost(LOOK, low!.post)!;
     expect(atLow.bloom?.enabled).toBe(false);
     expect(atLow.ssao?.enabled).toBe(false);
-    expect(atLow.antialias).toBe('none');
-    expect(low!.msaa).toBe(0);
+    // Low upscales by TAAU too (it draws at two thirds of the screen); a look without anti-aliasing keeps none.
+    expect(atLow.antialias).toBe('taau');
+    expect(levelPost({ ...LOOK, antialias: 'none' }, low!.post)!.antialias).toBe('none');
+    // Like medium, MSAA where no post stack anti-aliases (the upscale wants an anti-aliased input).
+    expect(low!.msaa).toBeUndefined();
     const atMedium = levelPost(LOOK, medium!.post)!;
     expect(atMedium.bloom).toEqual(LOOK.bloom);
     expect(atMedium.ssao?.enabled).toBe(false);
@@ -105,6 +108,28 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'a', post: { exposure: 2 } }] })).toContain('/qualityLevels/0/post/exposure');
     expect(paths({ qualityLevels: [{ id: 'a', post: { ssao: { radius: 99 } } }] })).toEqual(['/qualityLevels/0/post/ssao/radius']);
     expect(paths({ qualityLevels: [{ id: 'a', fps: 60 }] })).toEqual(['/qualityLevels/0/fps']);
+    // A level's frame-rate cap is one of the caps a game may set.
+    expect(paths({ qualityLevels: [{ id: 'a', frameRateCap: 30 }, { id: 'b', frameRateCap: 120 }] })).toEqual([]);
+    expect(paths({ qualityLevels: [{ id: 'a', frameRateCap: 45 }] })).toEqual(['/qualityLevels/0/frameRateCap']);
+    expect(paths({ qualityLevels: [{ id: 'a', frameRateCap: '30' }] })).toEqual(['/qualityLevels/0/frameRateCap']);
+  });
+
+  it('the engine\'s low level is the integrated-GPU target: capped at 30 fps, held to a memory ceiling; the others have neither', () => {
+    const [low, medium, high] = DEFAULT_QUALITY_LEVELS;
+    expect(LOW_FRAME_RATE_CAP).toBe(30);
+    expect([low!.frameRateCap, medium!.frameRateCap, high!.frameRateCap]).toEqual([30, undefined, undefined]);
+    // Cheaper than medium in every voxel and lighting budget it shares.
+    expect(levelVoxels(low!).farGpuBudget).toBeLessThan(levelVoxels(medium!).farGpuBudget);
+    expect(levelVoxels(low!).budgetBytes).toBeLessThan(levelVoxels(medium!).budgetBytes);
+    expect(levelVoxels(low!).farError).toBeGreaterThan(levelVoxels(medium!).farError);
+    expect(levelVoxels(low!).texelDensity).toBeLessThan(levelVoxels(medium!).texelDensity);
+    expect(low!.shadowMapSize).toBe(2048);
+    // The ceiling holds the tier's own GPU budgets with room for the frame's targets and the page's.
+    const budgets = (levelVoxels(low!).farGpuBudget + levelVoxels(low!).budgetBytes) / 2 ** 20 + levelLighting(low!).surfaceCacheMiB;
+    expect(budgets).toBeLessThan(LOW_MEMORY_CEILING_MIB.gpu);
+    expect(LOW_MEMORY_CEILING_MIB.pageHeap).toBeGreaterThan(0);
+    // The cap survives the canonical form a project stores.
+    expect(JSON.stringify(canonicalEnvironment({ qualityLevels: [{ id: 'low', frameRateCap: 30 }] }))).toBe('{"qualityLevels":[{"frameRateCap":30,"id":"low"}]}');
   });
 
   it('the engine\'s levels are one per lighting tier; a tier sets the lighting a level leaves out, a level\'s own value wins', () => {
@@ -113,8 +138,9 @@ describe('quality levels', () => {
     expect(levelLighting(low!)).toEqual({ tier: 'low', ...LIGHTING_TIER_SETTINGS.low });
     expect(levelLighting(low!)).toMatchObject({ surfaceLightMs: 0, contactShadows: false, reflections: 'off' });
     expect(levelLighting(high!)).toMatchObject({ surfaceCacheMiB: 128, surfaceLightMs: 3, reflections: 'high', surfaceRays: 2, surfaceReach: 2 });
-    // Medium upscales from about 720p with dynamic resolution; high draws at the project's scale.
-    expect([medium!.renderScale, medium!.dynamicResolution]).toEqual([MEDIUM_RENDER_SCALE, true]);
+    // Low and medium upscale from two thirds of the screen with TAAU and dynamic resolution; high draws at the project's scale.
+    expect([medium!.renderScale, medium!.dynamicResolution, medium!.post?.antialias]).toEqual([UPSCALED_RENDER_SCALE, true, 'taau']);
+    expect([low!.renderScale, low!.dynamicResolution, low!.post?.antialias]).toEqual([UPSCALED_RENDER_SCALE, true, 'taau']);
     expect([high!.renderScale, high!.dynamicResolution]).toEqual([undefined, undefined]);
     // A level that names no tier is medium; its own values lay over its tier's.
     expect(levelLighting({})).toEqual({ tier: 'medium', ...LIGHTING_TIER_SETTINGS.medium });

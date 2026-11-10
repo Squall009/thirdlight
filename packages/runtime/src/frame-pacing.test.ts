@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { displayControlOf, FramePacer, frameRateCapFromUrl, frameTargetMs } from './frame-pacing';
+import { displayControlOf, FramePacer, frameRateCapFromUrl, frameTargetMs, pacedFrameRateCap } from './frame-pacing';
 
 /** A seeded jitter in [-1, 1) (the same run every time). */
 function jitter(seed: number): () => number {
@@ -171,5 +171,38 @@ describe('frame pacing', () => {
     expect(frameTargetMs({ frameRateCap: 120, displayMs: 1000 / 60 })).toBeCloseTo(1000 / 60);
     expect(frameTargetMs({ frameRateCap: null, displayMs: 20 })).toBe(20);
     expect(frameTargetMs({ frameRateCap: 120, displayMs: 1000 / 144 })).toBeCloseTo(1000 / 120);
+  });
+
+  it('a quality level\'s cap paces with the game\'s: the lower one holds, a pin wins over both, and the frame budget follows', () => {
+    const p = new FramePacer(null);
+    expect(p.setLevelCap(30)).toBe(true);
+    // A game with no cap at a level capped at 30: 60 Hz display, every other refresh drawn.
+    expect(run(p, 60, 2).length).toBe(60);
+    expect(p.pacingCap).toBe(30);
+    expect(p.stats()).toMatchObject({ frameRateCap: null, levelCap: 30 });
+    expect(frameTargetMs(p.stats())).toBeCloseTo(1000 / 30);
+    // The game's own 60 does not lift the level's 30; a game at 30 under a level at 60 keeps its own.
+    p.setCap(60);
+    expect(p.pacingCap).toBe(30);
+    expect(p.frameRateCap).toBe(60);
+    p.setCap(30);
+    p.setLevelCap(60);
+    expect(p.pacingCap).toBe(30);
+    // A level without a cap: the game's alone; not a cap: refused, nothing changes.
+    expect(p.setLevelCap(null)).toBe(true);
+    expect(p.stats().levelCap).toBeUndefined();
+    expect(p.setLevelCap(45)).toBe(false);
+    p.setCap(null);
+    expect(p.pacingCap).toBeNull();
+    // A measurement's pin wins over the level's cap.
+    p.setLevelCap(30);
+    p.pinCap(60);
+    expect(p.pacingCap).toBe(60);
+    expect(run(p, 60, 2).length).toBe(120);
+    expect(pacedFrameRateCap(p.stats())).toBe(60);
+    p.pinCap(undefined);
+    expect(pacedFrameRateCap(p.stats())).toBe(30);
+    expect(pacedFrameRateCap({ frameRateCap: 120, levelCap: 60 })).toBe(60);
+    expect(pacedFrameRateCap({ frameRateCap: null, pinned: 'none', levelCap: 30 })).toBeNull();
   });
 });

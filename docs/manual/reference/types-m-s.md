@@ -1,8 +1,54 @@
-# Types (MaterialParameterValue to StrokeSurfaceSample)
+# Types (MaterialParameter to SkyConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-material-parameter"></a>
+### MaterialParameter
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+/** An exposed parameter of a graph material. */
+interface MaterialParameter {
+  /** The name Parameter nodes and overrides use (an identifier). */
+  key: string;
+  type: MaterialParameterType;
+  /**
+   * float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none),
+   * or per-layer slots — one single-layer texture asset id per array layer (`texture-slots.ts`);
+   * data: the RGBA bytes (4 integers 0–255) every cell starts with.
+   */
+  default: MaterialValue;
+  /** Data only (required there): the grid's cells [width, height], 1–64 each. */
+  size?: [number, number];
+  /** float / vec2–4: the range the value (every component) stays in. */
+  min?: number;
+  max?: number;
+  /** Like script properties: public (absent) = objects may override it; private = the material's own value only. */
+  visibility?: 'public' | 'private';
+  /**
+   * vec4 only, a per-layer setting (one component per layer of a layered
+   * material): the values of texture-array layers 4, 5, … — a terrain draws
+   * any number of layers through four slots and reads each layer's own value
+   * (absent, or past its end: layer L takes component L % 4).
+   */
+  extraLayers?: number[];
+  label?: string;
+  group?: string;
+  tooltip?: string;
+}
+```
+
+<a id="type-material-parameter-type"></a>
+### MaterialParameterType
+
+Declared in `packages/project-model/src/material-graph-kinds.ts`.
+
+```ts
+type MaterialParameterType = (typeof MATERIAL_PARAMETER_TYPES)[number];
+```
 
 <a id="type-material-parameter-value"></a>
 ### MaterialParameterValue
@@ -919,6 +965,8 @@ interface QualityLevelConfig {
   voxelFarField?: FarFieldMode;
   /** The on-screen error (pixels) a far node's cell may make before finer nodes are drawn, `FAR_ERROR_PIXELS_RANGE` (absent: the tier's, `FAR_ERROR_PIXELS_BY_TIER`). */
   voxelFarError?: number;
+  /** The most frames a second drawn at the level, one of `FRAME_RATE_CAPS` (absent: none; the game's cap, where it sets one, still holds). */
+  frameRateCap?: FrameRateCap;
 }
 ```
 
@@ -1577,48 +1625,4 @@ interface SkyConfig {
   /** Image-based lighting strength from the sky (0 = none). */
   environmentIntensity?: number;
 }
-```
-
-<a id="type-stamp-edit"></a>
-### StampEdit
-
-Declared in `packages/voxel/src/edit-command.ts`.
-
-```ts
-/**
- * A voxelized mesh placed with a transform: world = origin + scale × yaw(local),
- * yaw about the vertical axis given as [cos, sin] (resolved by the tool).
- * `stamp.hash` names the exact shape (stampShapeHash), so a changed stamp
- * asset is refused rather than silently giving different voxels.
- */
-interface StampEdit extends EditBase {
-  readonly kind: 'stamp';
-  readonly stamp: { readonly id: string; readonly hash: string };
-  readonly origin: readonly [number, number, number];
-  readonly yaw: readonly [number, number];
-  readonly scale: number;
-  readonly mode: EditMode;
-  readonly voxel?: EditVoxel;
-  readonly smooth: boolean;
-}
-```
-
-<a id="type-stored-vertex-colors"></a>
-### StoredVertexColors
-
-Declared in `packages/project-model/src/types-v3.ts`.
-
-```ts
-/** A model's stored COLOR_0 setting (absent: data); see `AssetRecordV3.vertexColors`. */
-type StoredVertexColors = 'tint' | 'trim';
-```
-
-<a id="type-stroke-surface-sample"></a>
-### StrokeSurfaceSample
-
-Declared in `packages/project-model/src/instance-brush.ts`.
-
-```ts
-/** The surface under one candidate: its height and the normal's X and Z (Y follows); null: nothing there. */
-type StrokeSurfaceSample = [number, number, number] | null;
 ```

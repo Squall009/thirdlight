@@ -1,4 +1,4 @@
-# Types (CreateEntityArgs to MaterialParameterType)
+# Types (CreateEntityArgs to MaterialGameData)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -743,6 +743,29 @@ interface FogConfig {
   far?: number;
   density?: number;
 }
+```
+
+<a id="type-frame-rate-caps"></a>
+### FRAME_RATE_CAPS
+
+Declared in `packages/project-model/src/frame-rate-cap.ts`.
+
+```ts
+/**
+ * The caps a game may set (frames per second). 30 and 60 divide the common
+ * 60, 120 and 240 Hz displays evenly; 120 keeps a 240 Hz display at half its
+ * rate. None (null) is the display's own rate.
+ */
+const FRAME_RATE_CAPS: readonly [30, 60, 120];
+```
+
+<a id="type-frame-rate-cap"></a>
+### FrameRateCap
+
+Declared in `packages/project-model/src/frame-rate-cap.ts`.
+
+```ts
+type FrameRateCap = (typeof FRAME_RATE_CAPS)[number];
 ```
 
 <a id="type-game-data-json"></a>
@@ -1559,50 +1582,4 @@ Declared in `packages/project-model/src/material-profiles.ts`.
 ```ts
 /** Opaque game data (any JSON within the kit format's depth bound). */
 type MaterialGameData = GameDataJson;
-```
-
-<a id="type-material-parameter"></a>
-### MaterialParameter
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-/** An exposed parameter of a graph material. */
-interface MaterialParameter {
-  /** The name Parameter nodes and overrides use (an identifier). */
-  key: string;
-  type: MaterialParameterType;
-  /**
-   * float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none),
-   * or per-layer slots — one single-layer texture asset id per array layer (`texture-slots.ts`);
-   * data: the RGBA bytes (4 integers 0–255) every cell starts with.
-   */
-  default: MaterialValue;
-  /** Data only (required there): the grid's cells [width, height], 1–64 each. */
-  size?: [number, number];
-  /** float / vec2–4: the range the value (every component) stays in. */
-  min?: number;
-  max?: number;
-  /** Like script properties: public (absent) = objects may override it; private = the material's own value only. */
-  visibility?: 'public' | 'private';
-  /**
-   * vec4 only, a per-layer setting (one component per layer of a layered
-   * material): the values of texture-array layers 4, 5, … — a terrain draws
-   * any number of layers through four slots and reads each layer's own value
-   * (absent, or past its end: layer L takes component L % 4).
-   */
-  extraLayers?: number[];
-  label?: string;
-  group?: string;
-  tooltip?: string;
-}
-```
-
-<a id="type-material-parameter-type"></a>
-### MaterialParameterType
-
-Declared in `packages/project-model/src/material-graph-kinds.ts`.
-
-```ts
-type MaterialParameterType = (typeof MATERIAL_PARAMETER_TYPES)[number];
 ```

@@ -639,11 +639,11 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       command({ op: 'setUiView', width, height, pixelRatio });
       return true;
     },
-    // The frame-rate cap: paced here, held for scripts by the worker's runtime (a change on the page goes there too).
+    // The frame-rate cap: paced here, held for scripts by the worker's runtime (a change goes there; a level's cap only paces).
     frameRateCap: () => pacer.frameRateCap,
-    setFrameRateCap: (fps: unknown): boolean => {
+    setFrameRateCap: (fps: unknown, source?: 'game' | 'level'): boolean => {
       const cap = frameRateCapOf(fps);
-      if (gone() || cap === undefined) return false;
+      if (gone() || cap === undefined || source === 'level') return !gone() && cap !== undefined && pacer.setLevelCap(cap);
       pacer.setCap(cap);
       command({ op: 'setFrameRateCap', fps: cap });
       return true;

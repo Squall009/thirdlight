@@ -45,6 +45,9 @@
  *   its own per level, `voxelWorld.quality`). Absent: the tier's
  *   (`VOXEL_RING_SCALES`: the area loaded grows as the tier's stream budget
  *   does). The voxel stream budget is the tier's (`VOXEL_STREAM_BUDGET_BYTES`).
+ * - `frameRateCap`: the most frames a second the page draws at the level
+ *   (frame-rate-cap.ts). Under a game's own cap the lower of the two paces
+ *   the frames; dynamic resolution budgets from it.
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -53,6 +56,7 @@
  * Pure: no I/O.
  */
 import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
+import type { FrameRateCap } from './frame-rate-cap';
 import type { PostConfig } from './materials';
 import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
 
@@ -236,6 +240,8 @@ export interface QualityLevelConfig {
   voxelFarField?: FarFieldMode;
   /** The on-screen error (pixels) a far node's cell may make before finer nodes are drawn, `FAR_ERROR_PIXELS_RANGE` (absent: the tier's, `FAR_ERROR_PIXELS_BY_TIER`). */
   voxelFarError?: number;
+  /** The most frames a second drawn at the level, one of `FRAME_RATE_CAPS` (absent: none; the game's cap, where it sets one, still holds). */
+  frameRateCap?: FrameRateCap;
 }
 
 /**
@@ -266,28 +272,48 @@ export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelR
 export const SAVED_SURFACE_CACHE_MIB = LIGHTING_TIER_SETTINGS.low.surfaceCacheMiB;
 
 /**
- * The render scale of the engine's medium level: a 1080p screen drawn from
- * 1280 × 720 and upscaled by TAAU, with dynamic resolution below it (on an
- * integrated GPU every measured scene class holds 60 Hz there, and the
- * interior misses it at full resolution).
+ * The render scale of the engine's low and medium levels: a 1080p screen
+ * drawn from 1280 × 720 (a 720p one from 853 × 480) and upscaled by TAAU,
+ * with dynamic resolution below it (on an integrated GPU every measured
+ * scene class holds 60 Hz there at medium, and the interior misses it at
+ * full resolution).
  */
-export const MEDIUM_RENDER_SCALE = 0.667;
+export const UPSCALED_RENDER_SCALE = 0.667;
+
+/**
+ * The engine's low level's frame-rate cap: low is the integrated-GPU target
+ * (an Iris Xe at 720p upscaled), and 30 frames a second leaves it the room a
+ * 60 Hz frame does not.
+ */
+export const LOW_FRAME_RATE_CAP: FrameRateCap = 30;
+
+/**
+ * The memory the engine's low level is held to, MiB: the page's JavaScript
+ * heap and the GPU memory the browser's GPU process holds (the driver's
+ * resident count), measured in Play on the 8 km voxel world at the town and
+ * after a 2.4 km flight. A ceiling the low tier's budgets (voxel stream, far
+ * field, textures, surface cache) must fit under together, reported by the
+ * headroom bench against what it measures; the other tiers have none yet.
+ */
+export const LOW_MEMORY_CEILING_MIB: Readonly<{ readonly pageHeap: number; readonly gpu: number }> = Object.freeze({ pageHeap: 1024, gpu: 1280 });
 
 /**
  * The engine's levels, for a project that lists none, one per lighting
- * tier: low draws no bloom, ambient occlusion, depth of field or
- * anti-aliasing (no MSAA either); medium drops ambient occlusion and depth
- * of field and draws at `MEDIUM_RENDER_SCALE` with dynamic resolution
- * (defaults under the project's own `render_scale` and `dynamic_resolution`,
- * where it sets them: the adapter's quality control); high
- * draws the look as authored at the project's render scale. Medium and high
- * anti-alias with temporal upscaling where the look anti-aliases
- * (`ANTIALIAS_KINDS`: the look's own FXAA or SMAA in its place on WebGL 2 and
- * in the editor's Scene view).
+ * tier: low draws no bloom, ambient occlusion or depth of field, at
+ * `UPSCALED_RENDER_SCALE` with dynamic resolution (and, like medium, MSAA
+ * where no post stack anti-aliases: an upscale wants an anti-aliased input), capped at
+ * `LOW_FRAME_RATE_CAP`, its largest shadow map 2048; medium drops ambient
+ * occlusion and depth of field and draws at `UPSCALED_RENDER_SCALE` with
+ * dynamic resolution (the scale and dynamic resolution are defaults under the
+ * project's own `render_scale` and `dynamic_resolution`, where it sets them:
+ * the adapter's quality control); high draws the look as authored at the
+ * project's render scale. Every level anti-aliases with temporal upscaling
+ * where the look anti-aliases (`ANTIALIAS_KINDS`: the look's own FXAA or
+ * SMAA in its place on WebGL 2 and in the editor's Scene view).
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
-  Object.freeze({ id: 'low', name: 'Low', lighting: 'low' as const, post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const }),
-  Object.freeze({ id: 'medium', name: 'Medium', lighting: 'medium' as const, post: { ssao: { enabled: false }, dof: { enabled: false }, antialias: 'taau' as const }, renderScale: MEDIUM_RENDER_SCALE, dynamicResolution: true }),
+  Object.freeze({ id: 'low', name: 'Low', lighting: 'low' as const, post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'taau' as const }, renderScale: UPSCALED_RENDER_SCALE, dynamicResolution: true, shadowMapSize: 2048, frameRateCap: LOW_FRAME_RATE_CAP }),
+  Object.freeze({ id: 'medium', name: 'Medium', lighting: 'medium' as const, post: { ssao: { enabled: false }, dof: { enabled: false }, antialias: 'taau' as const }, renderScale: UPSCALED_RENDER_SCALE, dynamicResolution: true }),
   Object.freeze({ id: 'high', name: 'High', lighting: 'high' as const, post: { antialias: 'taau' as const } }),
 ]);
 

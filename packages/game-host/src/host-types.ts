@@ -128,6 +128,8 @@ export interface HostRenderAdapter {
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
   /** The quality level drawn. */
   qualityLevel?(): string;
+  /** The frame-rate cap of the quality level drawn (null: none). */
+  qualityFrameRateCap?(): number | null;
   /** A player's render settings (AO kind, render scale, dynamic resolution; unset parts keep their value). */
   setRenderSettings?(settings: { readonly ambientOcclusion?: 'off' | 'ssao' | 'gtao'; readonly renderScale?: number; readonly dynamicResolution?: boolean }): void;
 }

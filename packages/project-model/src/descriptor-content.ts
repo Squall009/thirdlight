@@ -43,7 +43,8 @@ import { ANTIALIAS_KINDS, BLOOM_DEFAULTS, BLOOM_LIMITS, DEFAULT_WIND, HEIGHT_FOG
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
-import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN, levelVoxels, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, VOXEL_TEXEL_DENSITIES } from './quality-levels';
+import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, LOW_FRAME_RATE_CAP, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, UPSCALED_RENDER_SCALE, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN, levelVoxels, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, VOXEL_TEXEL_DENSITIES } from './quality-levels';
+import { FRAME_RATE_CAPS } from './frame-rate-cap';
 import { VOXEL_AUTHORED_TEXEL_DENSITY } from './voxel-surface-textures';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { LIGHT_TYPES, MAX_TAGS } from './types-v3';
@@ -221,11 +222,12 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   int('voxelRelief', 'Voxel relief', `Relief lattice steps a voxel cell in each voxel world's relief ring (its \`levels.relief\`): surfaces there are meshed that much finer and moved by their materials' heights; 0 draws no relief mesh, the normal maps still shade the heights (absent: the tier's, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).relief}`).join(', ')}).`, { values: [...RELIEF_STEPS] }),
   enm('voxelFarField', 'Voxel far field', `How each voxel world is drawn past its near rings, as far as the world reaches: bricks ray-marches the far tree's nodes as distance bricks built from their children's cells (the far field); mesh draws them meshed from their voxel mips (the fallback); off draws nothing past the load ring (absent: the tier's, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).farField}`).join(', ')}).`, [...FAR_FIELD_MODES], { labels: { off: 'Off', mesh: 'Meshes', bricks: 'Bricks' } }),
   num('voxelFarError', 'Voxel far detail (px)', `How large a far node's cell may look on screen before finer nodes are drawn; smaller is sharper and costs more nodes (absent: the tier's, ${LIGHTING_TIERS.map((t) => `${t} ${levelVoxels({ lighting: t }).farError}`).join(', ')}).`, { min: FAR_ERROR_PIXELS_RANGE.min, max: FAR_ERROR_PIXELS_RANGE.max, step: 0.5, unit: 'px' }),
+  int('frameRateCap', 'Frame-rate cap', 'The most frames a second drawn at this level; under a game\'s own cap the lower one holds (absent: none).', { values: [...FRAME_RATE_CAPS] }),
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [
   str('quality', 'Quality', 'The quality level a game starts at, one of the levels\' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, an untiered level counting as medium).', { minLength: 1 }),
-  list('qualityLevels', 'Quality levels', `The project's quality levels, lowest first (absent: the engine's low, medium and high, one per lighting tier: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field, at a ${MEDIUM_RENDER_SCALE} render scale with dynamic resolution).`, QUALITY_LEVEL, { minItems: 1 }),
+  list('qualityLevels', 'Quality levels', `The project's quality levels, lowest first (absent: the engine's low, medium and high, one per lighting tier: low draws no bloom, capped at ${LOW_FRAME_RATE_CAP} fps; low and medium no AO or depth of field, at a ${UPSCALED_RENDER_SCALE} render scale with dynamic resolution and temporal upscaling).`, QUALITY_LEVEL, { minItems: 1 }),
   list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene\'s look.', PRESET),
 ]);
 

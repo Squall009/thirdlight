@@ -1761,7 +1761,9 @@ export {
   levelLighting,
   lightingTierRank,
   lightingTierValues,
-  MEDIUM_RENDER_SCALE,
+  LOW_FRAME_RATE_CAP,
+  LOW_MEMORY_CEILING_MIB,
+  UPSCALED_RENDER_SCALE,
   type LightingTier,
   type LightingTierSettings,
 } from './quality-levels';

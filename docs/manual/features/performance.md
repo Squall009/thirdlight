@@ -393,8 +393,8 @@ page needs no extra headers for this (no SharedArrayBuffer is used).
   the next frame. A Scene view lent to an editor window's preview pane keeps
   drawing there.
 - *MSAA is the quality level's choice.* The environment's (or the player's)
-  quality level decides: the engine's low draws without MSAA, medium and high
-  with it, and a project's level says with `msaa` (a post stack uses its own
+  quality level decides: the engine's levels draw with it where no post
+  stack anti-aliases, and a project's level says with `msaa` (a post stack uses its own
   anti-aliasing instead). The Scene view follows the project's level with the
   editor lighting too, and Play applies a player's level also in projects
   without an environment.

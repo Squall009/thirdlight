@@ -730,16 +730,17 @@ test('the export draws the box field instanced and looks the same as without ins
   }
 });
 
-test('quality levels: the engine\'s low draws without MSAA in the Scene view and Play; a project\'s levels switch in a running Play by game control (both renderers, no leak)', async ({ page }) => {
+test('quality levels: a level without MSAA draws without it in the Scene view and Play; a project\'s levels switch in a running Play by game control (both renderers, no leak)', async ({ page }) => {
   test.skip(test.info().project.name === 'webgpu', 'both renderers run in the default project');
   test.setTimeout(360_000);
   await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'ground', transform: { position: [0, -0.5, 0] }, box: { size: [20, 1, 20], material: { color: '#9a9a9a' } } });
   await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  // The default (no level set: high) keeps the renderer's MSAA; the engine's low level draws without it.
+  // The default (no level set: high) keeps the renderer's MSAA; a level with `msaa: 0` draws without it (the engine's
+  // low keeps MSAA where no post stack anti-aliases: it upscales from two thirds of the screen, as medium does).
   await expect.poll(async () => Number(await attr(page, 'data-msaa')), { timeout: 30_000 }).toBeGreaterThan(0);
-  await command('setEnvironment', { environment: { quality: 'low' } });
+  await command('setEnvironment', { environment: { quality: 'lean', qualityLevels: [{ id: 'lean', msaa: 0 }, { id: 'high' }] } });
   await expect.poll(async () => attr(page, 'data-msaa'), { timeout: 30_000 }).toBe('0');
   await page.getByTitle('Start an isolated play preview').click();
   const msaaCanvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();

@@ -501,6 +501,8 @@ export interface SceneAdapter {
   qualityLevel?(): QualityLevel;
   /** The settings of the quality level drawn (what {@link qualityLevel} names, as the project or the engine lists it). */
   qualityLevelSettings?(): QualityLevelConfig;
+  /** The frame-rate cap of the quality level drawn (its `frameRateCap`; null: none). */
+  qualityFrameRateCap?(): number | null;
   /**
    * The lighting drawn: the level's tier (`low` on WebGL 2), whether the
    * static surfaces' light runs live, and whether it has settled (live:

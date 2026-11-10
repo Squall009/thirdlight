@@ -481,6 +481,7 @@ export class AdapterFrame {
     p.probes.frameDrawn();
     p.gpuTiming.afterFrame(renderer);
     const drawnAt = performance.now();
+    p.gpuLoad.presented(drawnAt);
     p.renderControl.frameDrawn(env(), drawnAt, drawnAt - frameStart, p.gpuTiming);
     const scenes = p.scenes;
     scenes.presentedRevision = scenes.realizedRevision;

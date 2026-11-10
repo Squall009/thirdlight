@@ -282,7 +282,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.18 | not started |
 | 46d.19 | not started |
 | 46d.20 | not started |
-| 46d.21 | not started |
+| 46d.21 | done (52caccdc, LOWCOMMIT): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | not started |
 | 46d.15 | not started |
 
@@ -2389,6 +2389,78 @@ side: the standard material's environment term (the sky's blue-grey light) is go
 the sky covers only a slanted quad, black outside it (D590). *Unverified:* WebGL 2 pictures (unchanged code path;
 the e2e's smoke covers it), motion at full size, popping in a flight, the high tier's pictures.
 
+### 46d.21 the low tier as the Iris Xe target; D590
+
+**D590 traced and fixed** (52caccdc). The physical sky is three's `SkyMesh` box scaled to 4.5 km and the gradient
+dome a 4 km sphere, both at the world's origin; the peak poses stand 1.6 km up and 4.6 km out, outside the box, so
+one face showed as a slanted quad over the black clear. Every sky mesh (the physical sky, the gradient dome, the
+cross-fade layers) is now centred on the camera that draws it (`followCamera` in `environment-nodes.ts`, an
+`onBeforeRender` that moves the mesh before three reads its matrices); both shade by view direction and draw on the
+far plane, so nothing inside changes and the sky has a camera's motion only (rotation) for TAAU. vitest
+(`environment.test.ts`): a camera at 4 far poses up to 6 km up / 12.7 km out lies inside both meshes when they draw.
+Seen: `far-field/46d.21/peak-to-town-after.png` sky over the whole frame (before: the quad, `-before.png`). The fix
+changed one e2e assumption: `voxel-world.e2e.ts`'s far-ground check read black as "the background" because the
+world 8 km out stood outside the sky box (D590 itself); it now reads the sky or black (`background()`).
+
+**Low built** (LOWCOMMIT). The engine's low level (`DEFAULT_QUALITY_LEVELS`, project-model): `renderScale`
+`UPSCALED_RENDER_SCALE` (0.667, renamed from `MEDIUM_RENDER_SCALE`: low and medium share it) with dynamic resolution,
+anti-aliasing `taau` where the look anti-aliases (the same post-taau.ts / post-upscale.ts path medium takes; on
+WebGL 2 and in the Scene view the look's FXAA/SMAA in its place, as for medium), MSAA where no post stack
+anti-aliases (the renderer's 4: an upscale wants an anti-aliased input; it had `msaa: 0`), bloom/AO/DOF off as before,
+`shadowMapSize` 2048 (no effect on the 8 km world: its sun's map is 1024), and a new level field **`frameRateCap`**
+(30; validated against `FRAME_RATE_CAPS`, descriptor, canonical form). What low already cut stays: lighting tier
+low (saved light, atlas 2048, no SSR/contact shadows), voxel texels 256 px/m, stream 256 MiB, rings × 0.71, far
+error 8 px, far GPU 96 MiB. The cap reuses 28c's `FramePacer`: it takes the level's cap beside the game's
+(`setLevelCap`), paces by the lower one, a page pin (`?frameRateCap=`) still wins; the host tells it each drawn
+frame (`setFrameRateCap(fps, 'level')` on the runtime / remote simulation, read from the adapter's
+`qualityFrameRateCap`); `frameTargetMs` and `ctx.stats.frameRateCap` follow the paced cap, so dynamic resolution
+budgets 33 ms at low. **WebGL 2 low** draws the same level (render scale + FSR 1, MSAA; no TAAU there, which is
+WebGPU-only): no new WebGL 2 code, the medium path it already had. **Memory ceiling** `LOW_MEMORY_CEILING_MIB`
+(project-model, low only): page heap 1024 MiB, GPU 1280 MiB (the GPU process's DRM resident count), reported by
+the headroom bench against its town reading (not enforced). **Meter** (`headroom.ts`, `headroom-cli.ts`):
+`frameCap(fps)` gives the budget, the miss interval (budget + half a refresh: 25 ms at 60, 41.7 ms at 30) and the
+deep load (1.8 budgets); `--cap` defaults to the level's `frameRateCap`; frames are timed as the page presents them
+(`GpuLoad.record`, `__tlVoxelPlay.meter.record`), since at a 30 cap every other animation frame draws nothing; town
+memory read after the fill; an orbit behaviour record that exists is reused.
+
+**Tested.** vitest: `quality-levels.test.ts` (low's fields, the cap 30 only on low, low cheaper than medium in every
+shared voxel budget, its GPU budgets under the ceiling, `frameRateCap` validated and kept canonical);
+`frame-pacing.test.ts` (a level cap paces with the game's: the lower holds, a pin wins, the budget follows, 30 at
+60 Hz draws every other refresh); `headroom.test.ts` (30 Hz windows: two vsyncs hold, three miss, saturation, the
+edge's GPU ms); `environment.test.ts` (D590); `environment-nodes.test.ts` and `descriptors.test.ts` moved to the new
+low (TAAU / SMAA in its place, a level with `msaa: 0` for the plain-pass case); `rendering.e2e.ts` now checks "a level
+without MSAA" with a project level (the engine's low keeps MSAA by design). Fast gate gate-fast-20261110-222020
+red on those tests (fixed) and D523/D554 once (passed alone); reruns gate-rerun-20261110-223451 (e2e: the
+rendering test, D590's e2e assumption); a rerun's full e2e set was OOM-killed in its 7 GB scope (the rerun list was lost: my mistake), it showed env-parity `quality-low` (the old low's picture; the case now names that level itself, the engine's low upscales and a still harness cannot compare it) and two unrelated files fail under that load; fresh fast gate gate-fast-20261110-231443 with voxel-world, env-parity, cameras, resource-manager GREEN (15 min, 5.5 GB; 879 vitest files, 66 e2e; village perf 0 missed both renderers). `voxel-world.e2e.ts` ~99 → 89.3 s (its tests' sum; nothing added).
+
+**Measured** (staging, Iris Xe, Play in the editor, WebGPU, 1280 × 720, the realistic 8 km world, town orbit; uptime
+18.2 d, load 4.8 before / 6.7 after (1-min); `work/46d.21/headroom-low-{before,after}.json`, `low-perf-*.json`).
+
+| low | cap | room at the cap | frame GPU | near / far / shadows / post (hidden, ms) | orbit missed | flight 2.4 km | page heap town → after flight | GPU MiB town → after flight |
+|---|---|---|---|---|---|---|---|---|
+| before (full res, no AA) | 60 | 30 ballast × 0.119 = 3.6 ms | 12.9–13.1 (edge) | 1.6 / 7.4 / 2.2 / (−4.6) | 0–1 / 480 ×3 | 3 / 2394 | 672 → 752–831 | 1000 → 1089 |
+| after (0.667 + MSAA + FSR 1) | 30 | 120–176 × 0.128–0.132 = 15.4–23.2 ms | 8.0–12.1 (line; 1 of 2 rounds agree) | 1.7–2.2 / 6.6–6.8 / 0.8–3.1 / 3.1–6.1 | 0–3 / 239 ×3 | 12 / 1197 (1 over 100 ms) | 607–614 → 802–834 | 880–883 → 1053–1105 |
+
+Shares of the four (after): far 38–52 %, post (FSR 1 + MSAA resolve + output) 24–35 %, near 10–17 %, shadows 6–17 %;
+at no load each pass hidden holds the cap, render scale 0.833 and 1.0 hold it too (0–2 / 89). Memory includes the
+editor's page (Play runs inside it); under the ceiling at the town and after the flight. **Medium / high** are
+unchanged by this item: their shares and scaling are 46d.17's (medium far 49 %, frame ~12 ms at the busy clock;
+high GPU-bound, D583), frame times **unverified on target hardware**, and (D591) medium on this world is FSR 1 +
+MSAA 4, not TAAU.
+
+**Looked at** (`far-field/46d.21/`: `<pose>-{before,after,taau}.png`; `side-by-side/<pose>.png` before | after |
+after under an anti-aliased look (TAAU), a 2× crop below; `side-by-side/orbit-strip.png` rows before / after / taau;
+`strip-crops-<tag>.png` full-size crops of the 8 orbit frames ~0.25 s apart; every picture opened). After vs
+before: the same scene, colours and far field; peak-to-town now all sky above the ridge (17.8 % of pixels by > 60,
+the quad gone); town-west / town-peak-4.5km / near-ground 0.2–1.4 % by > 60. Edges: before hard and stair-stepped;
+after smoother but FSR 1's sharpening puts light rims on roof edges and makes the far green slopes' fine contour
+bands stand out more (D592). TAAU: softest of the three, roof tiles and far slopes blurred, the bands faint; the
+look's post also tones it a little darker. **Ghosting:** none seen in the TAAU orbit strip (roof edges against the
+far slopes and the ridge against the sky single in every frame); the orbit turns slowly (0.15 rad/s) and mostly
+rotates, where a far box's motion equals its hit's, so the hit's motion was not written. *Unverified:* ghosting in a
+fast or translating shot (the flight under TAAU not pictured), WebGL 2 low pictures (the e2e's smoke draws it),
+medium/high on target hardware, the meter's ms (±40 %, D588).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3036,6 +3108,26 @@ the e2e's smoke covers it), motion at full size, popping in a flight, the high t
   standard material's environment light and darkens every far slope (30–52 % of pixels by > 60). One sun term,
   ambient and fog are left to 46d.20's far shade pass, which can take the environment term once a pixel.
 - 2026-11-10 (46d.17): F7 (three writes a brick, the palette bake in JS) unchanged; 46d.18 removes the runtime bake.
+
+- 2026-11-10 (46d.21, default chosen, owner to confirm): **low = render scale 0.667 with dynamic resolution, TAAU
+  where the look anti-aliases, MSAA + FSR 1 where it does not** (exactly medium's path), bloom/AO/DOF off, largest
+  shadow map 2048, the low lighting and voxel budgets as they were. Low had `msaa: 0`; an upscale from 853 × 480
+  without anti-aliased input stair-steps, so low keeps the renderer's MSAA like medium.
+- 2026-11-10 (46d.21, default chosen, owner to confirm): **a quality level's `frameRateCap`, low 30**; the frames
+  follow the lower of the level's and the game's cap, a page pin over both; dynamic resolution budgets from it.
+- 2026-11-10 (46d.21, default chosen, owner to confirm): **WebGL 2 low draws the same level** (render scale, FSR 1,
+  MSAA; TAAU is WebGPU-only, the look's FXAA/SMAA in its place): no WebGL 2 code changed, the medium path it had.
+- 2026-11-10 (46d.21, default chosen, owner to confirm): **low's memory ceiling: page heap 1024 MiB, GPU 1280 MiB**
+  (the browser GPU process's DRM resident memory), measured in Play in the editor (so with the editor page):
+  low reads 614 / 880 MiB at the town, 834 / 1105 after the 2.4 km flight. Reported by the headroom bench, not
+  enforced; medium/high have none.
+- 2026-11-10 (46d.21, default chosen, owner to confirm): **the meter times presented frames and scales its miss rule
+  with the cap** (budget + half a refresh), so `headroom --quality low` measures at 30 Hz.
+- 2026-11-10 (46d.21, default chosen, owner to confirm): **the sky follows the camera** (D590): every sky mesh is
+  centred on the drawing camera; the far-ground e2e check reads the sky (or black) as the background.
+- 2026-11-10 (46d.21): medium/high not re-measured (unchanged by the item; 46d.17's shares stand, "unverified on
+  target hardware"). The far bricks' own motion output not written: no ghosting seen in the orbit (D591: TAAU runs on
+  the 8 km world only with an anti-aliased look).
 
 ## 10. Open questions for the owner
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CAP_MS, fitLine, frameGpu, frameWindow, misses, passShare, saturated, searchLimit, spread, type FrameWindow } from './headroom';
+import { CAP_MS, frameCap, fitLine, frameGpu, frameWindow, misses, passShare, saturated, searchLimit, spread, type FrameWindow } from './headroom';
 
 /**
  * A GPU at a 60 Hz cap: a frame of `work` ms within the budget shows one
@@ -93,5 +93,24 @@ describe('the headroom meter’s arithmetic', () => {
     expect(passShare('post', 'hidden', at, capped(base - 20 + 90 * unit), line.slope, 26)).toMatchObject({ lowerBound: true });
     expect(spread([3.1, 2.9, Number.NaN, 3.4])).toEqual({ min: 2.9, max: 3.4, range: 0.5 });
     expect(spread([])).toBeNull();
+  });
+
+  it('measures against a 30 Hz cap: a frame of two vsyncs holds it, three miss it; the budget sets the edge and the deep load', () => {
+    const cap = frameCap(30);
+    expect(cap.budgetMs).toBeCloseTo(33.333, 3);
+    expect(cap.missMs).toBeCloseTo(41.667, 3);
+    expect(cap.deepMs).toBeCloseTo(60, 9);
+    expect(frameCap(60).missMs).toBeCloseTo(25, 9);
+    // 30 Hz pacing on a 60 Hz display: every drawn frame two vsyncs apart, with jitter.
+    const held = frameWindow(Array.from({ length: 90 }, (_, i) => 33.3 + (i % 3) * 0.1), cap);
+    expect([held.missed, misses(held, cap), misses(held)]).toEqual([0, false, true]);
+    // A frame that took three vsyncs (50 ms) missed the 30 cap; four in 90 miss the window.
+    const late = frameWindow(Array.from({ length: 90 }, (_, i) => (i % 22 === 0 ? 50 : 33.3)), cap);
+    expect([late.missed, misses(late, cap)]).toEqual([5, true]);
+    expect(saturated(frameWindow(Array.from({ length: 30 }, () => 45), cap), cap)).toBe(true);
+    expect(saturated(frameWindow(Array.from({ length: 30 }, () => 34), cap), cap)).toBe(false);
+    // The frame's GPU ms from the edge is the 30 Hz budget less the room.
+    const line = fitLine([{ n: 100, ms: 40 }, { n: 200, ms: 50 }])!;
+    expect(frameGpu(line, 150, 160, cap).fromEdge).toEqual([17.33, 18.33]);
   });
 });

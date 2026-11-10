@@ -1,8 +1,52 @@
-# Types (SurfaceBake to WindOctave)
+# Types (StampEdit to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-stamp-edit"></a>
+### StampEdit
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/**
+ * A voxelized mesh placed with a transform: world = origin + scale × yaw(local),
+ * yaw about the vertical axis given as [cos, sin] (resolved by the tool).
+ * `stamp.hash` names the exact shape (stampShapeHash), so a changed stamp
+ * asset is refused rather than silently giving different voxels.
+ */
+interface StampEdit extends EditBase {
+  readonly kind: 'stamp';
+  readonly stamp: { readonly id: string; readonly hash: string };
+  readonly origin: readonly [number, number, number];
+  readonly yaw: readonly [number, number];
+  readonly scale: number;
+  readonly mode: EditMode;
+  readonly voxel?: EditVoxel;
+  readonly smooth: boolean;
+}
+```
+
+<a id="type-stored-vertex-colors"></a>
+### StoredVertexColors
+
+Declared in `packages/project-model/src/types-v3.ts`.
+
+```ts
+/** A model's stored COLOR_0 setting (absent: data); see `AssetRecordV3.vertexColors`. */
+type StoredVertexColors = 'tint' | 'trim';
+```
+
+<a id="type-stroke-surface-sample"></a>
+### StrokeSurfaceSample
+
+Declared in `packages/project-model/src/instance-brush.ts`.
+
+```ts
+/** The surface under one candidate: its height and the normal's X and Z (Y follows); null: nothing there. */
+type StrokeSurfaceSample = [number, number, number] | null;
+```
 
 <a id="type-surface-bake"></a>
 ### SurfaceBake

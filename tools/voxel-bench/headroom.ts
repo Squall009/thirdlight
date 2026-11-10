@@ -1,6 +1,7 @@
 /**
  * The GPU headroom meter's arithmetic (the `headroom` bench, headroom-cli.ts):
- * frame windows read at the display's cap, the search for the load at which
+ * frame windows read at a frame-rate cap (the display's 60 Hz, or a quality
+ * level's own, low's 30), the search for the load at which
  * the frames start to miss, and the line through the frame intervals once the
  * GPU is the bottleneck.
  *
@@ -19,8 +20,34 @@
  * reader can tell). Numbers carry the spread of their windows.
  */
 
+/** The display's refresh rate the bench runs at (this host's panel; Chrome's vsync). */
+export const DISPLAY_HZ = 60;
+
+/**
+ * A frame-rate cap's numbers: its budget (ms a frame), the interval over
+ * which a frame missed it (its budget and half a display refresh: at a 60
+ * cap 25 ms, one and a half vsyncs; at a 30 cap 41.7 ms, a frame that took
+ * three vsyncs instead of two), and the mean interval the bench loads the
+ * frame to past the edge (1.8 budgets, so a pass of several ms hidden still
+ * leaves the frame past it).
+ */
+export interface FrameCap {
+  readonly fps: number;
+  readonly budgetMs: number;
+  readonly missMs: number;
+  readonly deepMs: number;
+}
+
+export function frameCap(fps: number, displayHz = DISPLAY_HZ): FrameCap {
+  const budgetMs = 1000 / fps;
+  return { fps, budgetMs, missMs: budgetMs + 500 / displayHz, deepMs: 1.8 * budgetMs };
+}
+
+/** The display's own cap (60 Hz). */
+export const CAP_60 = frameCap(DISPLAY_HZ);
+
 /** A frame longer than this missed the 60 Hz cap (one and a half vsyncs). */
-export const MISS_MS = 25;
+export const MISS_MS = CAP_60.missMs;
 
 /** A window misses when more than this share of its frames missed. */
 export const MISS_SHARE = 0.02;
@@ -29,7 +56,7 @@ export const MISS_SHARE = 0.02;
 export const STALL_MS = 100;
 
 /** The 60 Hz cap's frame budget. */
-export const CAP_MS = 1000 / 60;
+export const CAP_MS = CAP_60.budgetMs;
 
 export interface FrameWindow {
   readonly frames: number;
@@ -41,22 +68,22 @@ export interface FrameWindow {
   readonly max: number;
 }
 
-/** A window from its frame intervals (ms). */
-export function frameWindow(intervals: readonly number[]): FrameWindow {
+/** A window from its frame intervals (ms), its misses against `cap`. */
+export function frameWindow(intervals: readonly number[], cap: FrameCap = CAP_60): FrameWindow {
   const s = [...intervals].sort((a, b) => a - b);
   const q = (p: number): number => (s.length === 0 ? 0 : round2(s[Math.min(s.length - 1, Math.floor(p * s.length))]!));
   const sum = s.reduce((a, b) => a + b, 0);
-  return { frames: s.length, missed: s.filter((d) => d > MISS_MS).length, stalls: s.filter((d) => d > STALL_MS).length, meanMs: s.length === 0 ? 0 : round2(sum / s.length), p50: q(0.5), p95: q(0.95), max: q(1) };
+  return { frames: s.length, missed: s.filter((d) => d > cap.missMs).length, stalls: s.filter((d) => d > STALL_MS).length, meanMs: s.length === 0 ? 0 : round2(sum / s.length), p50: q(0.5), p95: q(0.95), max: q(1) };
 }
 
 /**
  * Whether a window missed the cap: more than {@link MISS_SHARE} of its frames
- * over {@link MISS_MS}, or a mean interval over the budget by more than 3 %
+ * over the cap's miss interval, or a mean interval over the budget by more than 3 %
  * (a browser that presents a busy GPU's frames as they come, not on whole
  * vsyncs, shows 20 ms frames, none of them over 25 ms).
  */
-export function misses(w: FrameWindow): boolean {
-  return w.frames === 0 || w.missed / w.frames > MISS_SHARE || w.meanMs > CAP_MS * 1.03;
+export function misses(w: FrameWindow, cap: FrameCap = CAP_60): boolean {
+  return w.frames === 0 || w.missed / w.frames > MISS_SHARE || w.meanMs > cap.budgetMs * 1.03;
 }
 
 export interface LimitProbe {
@@ -79,11 +106,11 @@ export interface LimitResult {
  * `precision` of the load held (at least 1). Few rounds: about
  * log2(limit) + log2(1 / precision) windows.
  */
-export async function searchLimit(probe: (n: number) => Promise<FrameWindow>, o: { readonly max: number; readonly start?: number; readonly precision?: number }): Promise<LimitResult> {
+export async function searchLimit(probe: (n: number) => Promise<FrameWindow>, o: { readonly max: number; readonly start?: number; readonly precision?: number; readonly cap?: FrameCap }): Promise<LimitResult> {
   const probes: LimitProbe[] = [];
   const run = async (n: number): Promise<boolean> => {
     const window = await probe(n);
-    const missed = misses(window);
+    const missed = misses(window, o.cap);
     probes.push({ n, window, missed });
     return missed;
   };
@@ -139,8 +166,8 @@ export function fitLine(points: readonly { readonly n: number; readonly ms: numb
 }
 
 /** Whether a window is well past the edge, where the GPU sets the interval: a mean a quarter over the budget. */
-export function saturated(w: FrameWindow): boolean {
-  return w.frames > 0 && w.meanMs > CAP_MS * 1.25;
+export function saturated(w: FrameWindow, cap: FrameCap = CAP_60): boolean {
+  return w.frames > 0 && w.meanMs > cap.budgetMs * 1.25;
 }
 
 export interface PassRow {
@@ -164,10 +191,10 @@ export interface PassRow {
  * `roomUnits`: the ballast the frame held at the cap. A window that is no
  * longer well past the edge gives only a lower bound.
  */
-export function passShare(pass: string, by: 'hidden' | 'copy', baseMs: number, withWindow: FrameWindow, slope: number, roomUnits: number): PassRow {
+export function passShare(pass: string, by: 'hidden' | 'copy', baseMs: number, withWindow: FrameWindow, slope: number, roomUnits: number, cap: FrameCap = CAP_60): PassRow {
   const ms = round2(by === 'hidden' ? baseMs - withWindow.meanMs : withWindow.meanMs - baseMs);
   const units = slope > 0 ? round2(ms / slope) : Number.NaN;
-  return { pass, by, units, ms, headroomX: roomUnits > 0 && units > 0 ? round2(1 + roomUnits / units) : null, lowerBound: !saturated(withWindow) };
+  return { pass, by, units, ms, headroomX: roomUnits > 0 && units > 0 ? round2(1 + roomUnits / units) : null, lowerBound: !saturated(withWindow, cap) };
 }
 
 /**
@@ -176,10 +203,10 @@ export function passShare(pass: string, by: 'hidden' | 'copy', baseMs: number, w
  * They agree when the interval past the edge is the GPU's own time: then the
  * ms are given; when they do not, only ballast units are.
  */
-export function frameGpu(line: LineFit, held: number, missedAt: number | null): { readonly fromEdge: readonly [number, number] | null; readonly fromLine: number; readonly agree: boolean } {
+export function frameGpu(line: LineFit, held: number, missedAt: number | null, cap: FrameCap = CAP_60): { readonly fromEdge: readonly [number, number] | null; readonly fromLine: number; readonly agree: boolean } {
   if (held < 0) return { fromEdge: null, fromLine: line.intercept, agree: false };
-  const lo = round2(CAP_MS - (missedAt ?? held) * line.slope);
-  const hi = round2(CAP_MS - held * line.slope);
+  const lo = round2(cap.budgetMs - (missedAt ?? held) * line.slope);
+  const hi = round2(cap.budgetMs - held * line.slope);
   const tolerance = Math.max(1, 0.1 * hi);
   return { fromEdge: [lo, hi], fromLine: line.intercept, agree: line.intercept >= lo - tolerance && line.intercept <= hi + tolerance };
 }

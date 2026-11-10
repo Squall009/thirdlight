@@ -173,8 +173,9 @@ const CASES: Record<string, Case> = {
   fxaa: { env: { sky: colour, post: { antialias: 'fxaa' } } },
   // A sky brighter than the bloom threshold (no reference: bloom on against off, at two exposures).
   'bloom-sky': { env: { sky: { mode: 'texture', texture: 'equirect', intensity: 4, environmentIntensity: 0.8 }, post: { bloom: { enabled: true, strength: 1.2, radius: 0.5, threshold: 1 } } } },
-  // Low quality leaves bloom, AO and depth of field out (and anti-aliasing): the plain picture.
-  'quality-low': { env: { sky: colour, quality: 'low', post: { bloom: { enabled: true, threshold: 0 }, ssao: { enabled: true }, dof: { enabled: true, focus: 2 }, antialias: 'smaa' } } },
+  // A low level that leaves bloom, AO, depth of field and anti-aliasing out (the engine's low before it upscaled):
+  // the plain picture. The engine's own low now draws at a render scale this still harness cannot compare.
+  'quality-low': { env: { sky: colour, quality: 'low', qualityLevels: [{ id: 'low', lighting: 'low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' }, msaa: 0 }], post: { bloom: { enabled: true, threshold: 0 }, ssao: { enabled: true }, dof: { enabled: true, focus: 2 }, antialias: 'smaa' } } },
 };
 
 /**
@@ -182,7 +183,7 @@ const CASES: Record<string, Case> = {
  * this still harness, drawn by hand, cannot run: the look's own kind is drawn) without the two effects the
  * archived stack never had and its references cannot hold — contact shadows (both renderers, with any post
  * effect) and reflections (WebGPU). Pinned, so the references compare like with like whatever the engine's
- * levels or the device choose. A case that names its own level (`quality-low`) keeps the engine's levels.
+ * levels or the device choose. A case that names its own level (`quality-low`) draws at it.
  */
 const REFERENCE_LEVEL = { id: 'reference', lighting: 'high', contactShadows: false, reflections: 'off', post: { antialias: 'taau' } } as const;
 const pinned = (env: EnvironmentLike): EnvironmentLike => (env.quality !== undefined ? env : { ...env, qualityLevels: [REFERENCE_LEVEL], quality: REFERENCE_LEVEL.id });

@@ -46,6 +46,7 @@ import {
   createBehaviorModuleSpec,
   createSimulationRegistry,
   instantiateRuntime,
+  pacedFrameRateCap,
   registerSimulationModule,
   type ActionSource,
   type CameraViewInfo,
@@ -399,11 +400,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     ...(config.textureStreaming !== undefined ? { textureStreaming: config.textureStreaming } : {}),
     ...(config.resources !== undefined ? { resources: config.resources } : {}),
     worker: config.runtimeFactory !== undefined,
-    frameRateCap: () => {
-      const p = runtime?.framePacing?.();
-      if (p === undefined) return null;
-      return p.pinned !== undefined ? (p.pinned === 'none' ? null : p.pinned) : p.frameRateCap;
-    },
+    frameRateCap: () => (runtime?.framePacing !== undefined ? pacedFrameRateCap(runtime.framePacing()) : null),
     published: (s) => {
       runtime?.setStats?.(s);
       statsOverlay?.update(s);
@@ -788,6 +785,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
     hostStats.begin();
+    // The quality level drawn may cap the frames (a player's or the game's choice of level changes it any frame).
+    runtime.setFrameRateCap?.(adapter?.qualityFrameRateCap?.() ?? null, 'level');
     serviceSceneRequests(runtime);
     serviceReadAhead(runtime);
     debugConsole?.frame();

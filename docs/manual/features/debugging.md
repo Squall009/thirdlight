@@ -214,11 +214,20 @@ A project lists its own quality levels in **Project
 Settings → Quality → Quality levels** (`environment.qualityLevels`, lowest
 first; *Customize levels* starts from the engine's three); a project that
 lists none has the engine's three, one per [lighting tier](#lighting-tiers):
-low (no bloom, ambient occlusion, depth of field, anti-aliasing or MSAA),
-medium (no ambient occlusion or depth of field; drawn at render scale 0.667,
-a 1080p screen from 1280 × 720, with dynamic resolution — both only where the
-project sets no `render_scale` or `dynamic_resolution` of its own) and high
-(the look as authored, at the project's render scale). *Starting level* is
+low (the integrated-GPU target: no bloom, ambient occlusion or depth of
+field; drawn at render scale 0.667 with dynamic resolution, a 720p screen
+from 853 × 480, anti-aliased as medium is — temporal upscaling where the look
+anti-aliases, else MSAA and FSR 1; capped at 30 frames a second
+(`frameRateCap`); voxel worlds at the tier's smaller rings, far detail and
+budgets; largest shadow map 2048), medium (no ambient occlusion or depth of
+field; drawn at render scale 0.667, a 1080p screen from 1280 × 720, with
+dynamic resolution — for low and medium both only where the project sets no
+`render_scale` or `dynamic_resolution` of its own) and high (the look as
+authored, at the project's render scale). A level's `frameRateCap` (30, 60
+or 120) paces the frames with the game's own cap: the lower one holds, and
+dynamic resolution budgets from it. Low is also held to a memory ceiling
+(`LOW_MEMORY_CEILING_MIB`: page heap and GPU memory), which the voxel
+headroom bench reports against; the other levels have none yet. *Starting level* is
 `environment.quality` (absent: the device's level, below). Each level has an
 `id` (what a player's setting and game control name), a `name`, and changes
 only what it sets:

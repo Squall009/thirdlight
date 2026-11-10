@@ -150,8 +150,11 @@ export interface Runtime {
   setStats?(stats: unknown): boolean;
   /** The game's frame-rate cap (`ctx.display.frameRateCap`): 30, 60 or 120 fps, null for none. */
   frameRateCap?(): number | null;
-  /** Set the game's frame-rate cap (30, 60, 120, or null for none; a player's setting, the UI); false for another value. */
-  setFrameRateCap?(fps: unknown): boolean;
+  /**
+   * Set the game's frame-rate cap (30, 60, 120, or null for none; a player's setting, the UI), or with `level`
+   * the cap of the quality level drawn (the frames follow the lower of the two); false for another value.
+   */
+  setFrameRateCap?(fps: unknown, source?: 'game' | 'level'): boolean;
   /**
    * Pace the frames at this cap whatever the game sets (null: uncapped — a
    * measurement), or follow the game's again (undefined); false for another value.

@@ -17,6 +17,11 @@
  *
  * Game time is not paced: the simulation steps by the clock whenever a frame
  * runs, and a skipped frame's steps run in the next drawn one.
+ *
+ * The quality level drawn may cap the frames too (its `frameRateCap`, the
+ * host tells it): the lower of the game's cap and the level's paces them, so
+ * a player on an integrated GPU's low level draws at its 30 whatever the
+ * game asks, and a game capped lower keeps its own.
  */
 import { frameRateCapOf, type FrameRateCap } from '@thirdlight/project-model';
 
@@ -40,6 +45,8 @@ export interface FramePacingStats {
   readonly frameRateCap: FrameRateCap | null;
   /** A cap the page pins whatever the game sets (`?frameRateCap=`; absent: none pinned). */
   readonly pinned?: FrameRateCap | 'none';
+  /** The quality level's cap (absent: the level sets none). */
+  readonly levelCap?: FrameRateCap;
   /** Animation frames drawn and skipped (early for the cap) since the start. */
   readonly drawnFrames: number;
   readonly skippedFrames: number;
@@ -52,6 +59,8 @@ export class FramePacer {
   private cap: FrameRateCap | null;
   /** A cap the page pins for pacing whatever the game sets (undefined: the game's applies). */
   private pin: FrameRateCap | null | undefined = undefined;
+  /** The quality level's cap (null: none). */
+  private level: FrameRateCap | null = null;
   private drawn = 0;
   private skipped = 0;
   /** The grid time (ms) the next drawn frame is due at (NaN: anchor at the next frame). */
@@ -92,14 +101,22 @@ export class FramePacer {
     return true;
   }
 
-  /** The cap the frames are paced by now (a pinned one, else the game's). */
+  /** The quality level's cap (30, 60, 120, or null/0/'none' for none); false for another value (nothing changes). */
+  setLevelCap(fps: unknown): boolean {
+    const cap = frameRateCapOf(fps);
+    if (cap === undefined) return false;
+    this.level = cap;
+    return true;
+  }
+
+  /** The cap the frames are paced by now (a pinned one, else the lower of the game's and the level's). */
   get pacingCap(): FrameRateCap | null {
     return this.effective();
   }
 
   /** The cap pacing follows now. */
   private effective(): FrameRateCap | null {
-    return this.pin !== undefined ? this.pin : this.cap;
+    return this.pin !== undefined ? this.pin : lowerCap(this.cap, this.level);
   }
 
   /** The display's refresh interval (ms) from the callbacks so far (0: not known yet). */
@@ -165,6 +182,7 @@ export class FramePacer {
     return {
       frameRateCap: this.cap,
       ...(this.pin !== undefined ? { pinned: this.pin ?? 'none' } : {}),
+      ...(this.level !== null ? { levelCap: this.level } : {}),
       drawnFrames: this.drawn,
       skippedFrames: this.skipped,
       displayMs: Math.round(this.displayMs * 1000) / 1000,
@@ -172,19 +190,31 @@ export class FramePacer {
   }
 }
 
+/** The lower of two caps (null: none). */
+function lowerCap(a: FrameRateCap | null, b: FrameRateCap | null): FrameRateCap | null {
+  return a === null ? b : b === null ? a : (Math.min(a, b) as FrameRateCap);
+}
+
+/** The cap a pacing's stats say the frames follow: a pinned one (null: pinned uncapped), else the lower of the game's and the level's. */
+export function pacedFrameRateCap(stats: Pick<FramePacingStats, 'frameRateCap' | 'pinned' | 'levelCap'>): FrameRateCap | null {
+  if (stats.pinned !== undefined) return stats.pinned === 'none' ? null : stats.pinned;
+  return lowerCap(stats.frameRateCap, stats.levelCap ?? null);
+}
+
 /** The frame rate a frame's time is measured against when nothing caps it (and the display's rate is not known). */
 export const UNCAPPED_TARGET_FPS = 60;
 
 /**
  * The time a drawn frame has (ms) under the pacing: the interval of the cap
- * the frames are paced by (a pinned one over the game's; none: 60 fps), and
+ * the frames are paced by (a pinned one, else the lower of the game's and the
+ * level's; none: 60 fps), and
  * never less than the display's refresh (a 50 Hz display, or a cap of 120 on
  * a 60 Hz one, draws no faster than the display). Dynamic resolution budgets
  * from it: measured against a shorter one, every frame of a capped or slower
  * display would look slow.
  */
-export function frameTargetMs(stats: Pick<FramePacingStats, 'frameRateCap' | 'pinned' | 'displayMs'> | null | undefined): number {
-  const cap = stats === null || stats === undefined ? null : stats.pinned !== undefined ? (stats.pinned === 'none' ? null : stats.pinned) : stats.frameRateCap;
+export function frameTargetMs(stats: Pick<FramePacingStats, 'frameRateCap' | 'pinned' | 'levelCap' | 'displayMs'> | null | undefined): number {
+  const cap = stats === null || stats === undefined ? null : pacedFrameRateCap(stats);
   return Math.max(1000 / (cap ?? UNCAPPED_TARGET_FPS), stats?.displayMs ?? 0);
 }
 

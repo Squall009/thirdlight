@@ -142,13 +142,14 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(env.diagnostics()).toMatchObject({ post: true, passes: ['render', 'gtao', 'dof', 'bloom', 'output', 'grading', 'smaa'], fallback: null });
     expect(renderer.toneMapping).toBe(THREE.ACESFilmicToneMapping);
 
-    // Low quality: bloom, AO, depth of field and anti-aliasing drop out; grading stays.
+    // Low quality: bloom, AO and depth of field drop out; grading and the anti-aliasing stay (SMAA where no
+    // temporal upscale draws, as in this view drawn on demand).
     env.setQuality('low');
     env.render(camera);
     expect(built).toHaveLength(2);
     expect(built[0]!.disposed).toBe(true);
-    expect(built[1]!.plan).toMatchObject({ bloom: null, ao: null, dof: null, aa: 'none' });
-    expect(env.diagnostics().passes).toEqual(['render', 'output', 'grading']);
+    expect(built[1]!.plan).toMatchObject({ bloom: null, ao: null, dof: null, aa: 'smaa' });
+    expect(env.diagnostics().passes).toEqual(['render', 'output', 'grading', 'smaa']);
     env.dispose();
   });
 
@@ -165,14 +166,14 @@ describe('environment renderer on WebGPURenderer', () => {
     env.setRender({ temporal: false });
     env.render(camera);
     expect(built.at(-1)!.plan.aa).toBe('smaa');
-    // A look without anti-aliasing gets none (a level never turns it on), and low has none.
+    // A look without anti-aliasing gets none (a level never turns it on); low upscales by TAAU as medium does.
     env.setRender({ temporal: true });
     env.set({ quality: 'medium', post: {} });
     env.render(camera);
     expect(built.at(-1)!.plan.aa).toBe('none');
     env.set({ quality: 'low', post: { antialias: 'smaa' } });
     env.render(camera);
-    expect(built.at(-1)!.plan.aa).toBe('none');
+    expect(built.at(-1)!.plan.aa).toBe('taau');
     env.dispose();
     // WebGL 2 keeps SMAA.
     const webgl2 = Object.assign(nodeRenderer(), { backend: { isWebGPUBackend: false } });
@@ -380,8 +381,9 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(built[0]!.disposed).toBe(true);
     expect(built).toHaveLength(1);
     expect(renderer.render).toHaveBeenCalledWith(scene, camera);
-    // The low level has no anti-aliasing: a plain scene pass without MSAA.
-    env.setQuality('low');
+    // A level without MSAA: a plain scene pass without it.
+    env.set({ sky: { mode: 'color', color: '#7ec8ff' }, post: { toneMapping: 'none' }, qualityLevels: [{ id: 'lean', msaa: 0 }, { id: 'high' }] });
+    env.setQuality('lean');
     env.render(camera);
     expect(built).toHaveLength(2);
     expect(built[1]!.plan).toMatchObject({ samples: 0, displayBackground: null });
