@@ -277,6 +277,17 @@ export function farNodeBox(grid: ChunkGrid, n: MipNode): FarBox {
   return { min: [n.nx * s, n.ny * s, n.nz * s], max: [(n.nx + 1) * s, (n.ny + 1) * s, (n.nz + 1) * s] };
 }
 
+/** A node's cell (2^level cells) on screen from `distance` cells away, in pixels: what drawing it there costs in detail. */
+export function farCellPixels(level: number, distance: number, pixelsPerRadian: number): number {
+  const cell = 2 ** level;
+  return (cell * pixelsPerRadian) / Math.max(distance, cell);
+}
+
+/** Distance (cells) from a point to a node's box (0 inside it). */
+export function farNodeDistance(grid: ChunkGrid, n: MipNode, p: readonly [number, number, number]): number {
+  return boxDistance(farNodeBox(grid, n), p);
+}
+
 function boxDistance(b: FarBox, p: readonly [number, number, number]): number {
   let d2 = 0;
   for (let a = 0; a < 3; a++) {
@@ -330,9 +341,8 @@ export class FarSelection {
     const info = (n: MipNode) => {
       const box = farNodeBox(grid, n);
       const distance = boxDistance(box, view.eye);
-      const cell = 2 ** n.level;
       const bytes = index.bytesOf(n);
-      return { node: n, box, distance, errorPixels: (cell * view.pixelsPerRadian) / Math.max(distance, cell), bytes, gpu: gpuOf === undefined ? 0 : gpuOf(n, bytes), nearOverlap: view.near !== null && overlaps(box, view.near) };
+      return { node: n, box, distance, errorPixels: farCellPixels(n.level, distance, view.pixelsPerRadian), bytes, gpu: gpuOf === undefined ? 0 : gpuOf(n, bytes), nearOverlap: view.near !== null && overlaps(box, view.near) };
     };
     type Info = ReturnType<typeof info>;
     const visible = (i: Info): boolean => view.near === null || !inside(i.box, view.near);

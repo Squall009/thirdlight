@@ -511,6 +511,44 @@ describe('the far field drawn as meshes and as bricks', () => {
         expect(mm.gpu.held).toBeGreaterThan(0);
       }
       expect(peak).toBeLessThan(budget * 1.25);
+      // Asked for much finer nodes than it draws, with the near field drawing a cylinder round the eye: the nodes
+      // round the cylinder's edge are made first and those wholly under the near field last, and a coarse node gives
+      // way one level at a time (its children, then theirs), never straight to nodes two or more levels finer.
+      far.setView({ gpuBudgetBytes: 2 ** 40, errorPixels: 64 });
+      await far.settle();
+      const ring = { radius: 300, height: 200, drawn: () => true };
+      const eye = [0, 40, 0] as const;
+      const under = (n: MipNode): boolean => {
+        const s = 32 << n.level;
+        const lo = [n.nx * s, n.ny * s, n.nz * s], hi = lo.map((v) => v + s);
+        if (lo[1]! < eye[1] - ring.height || hi[1]! > eye[1] + ring.height) return false;
+        const dx = Math.max(Math.abs(lo[0]! - eye[0]), Math.abs(hi[0]! - eye[0])), dz = Math.max(Math.abs(lo[2]! - eye[2]), Math.abs(hi[2]! - eye[2]));
+        return dx * dx + dz * dz <= ring.radius ** 2;
+      };
+      const steps: FarEvent[] = [];
+      far.on((e) => steps.push(e));
+      far.setEye(...eye, ring);
+      far.setView({ errorPixels: 2 });
+      for (let i = 0; i < 200 && far.metrics().pending === 0; i++) await new Promise((ok) => setTimeout(ok, 10));
+      const order = far.next(1 << 20);
+      const hiddenAt = order.map(under);
+      expect(hiddenAt.some((h) => h)).toBe(true);
+      expect(hiddenAt.some((h) => !h)).toBe(true);
+      expect(hiddenAt.indexOf(true)).toBeGreaterThan(hiddenAt.lastIndexOf(false));
+      const first = order[0]!;
+      const s0 = 32 << first.level;
+      const d0 = Math.hypot(Math.max(0, Math.abs(first.nx * s0 + s0 / 2) - s0 / 2), Math.max(0, Math.abs(first.nz * s0 + s0 / 2) - s0 / 2));
+      expect(d0).toBeLessThanOrEqual(ring.radius + s0);
+      await far.settle();
+      let refined = 0;
+      for (const e of steps) for (const r of e.removed) for (const a of e.added) {
+        if (a.level >= r.level || a.nx >> (r.level - a.level) !== r.nx || a.ny >> (r.level - a.level) !== r.ny || a.nz >> (r.level - a.level) !== r.nz) continue;
+        refined++;
+        expect(r.level - a.level, `${mipNodeKey(r)} -> ${mipNodeKey(a)}`).toBe(1);
+      }
+      expect(refined).toBeGreaterThan(0);
+      expect(far.metrics().drawn).toBe(far.metrics().nodes);
+      expect(far.metrics().standIns.pending).toBe(0);
       far.close();
     } finally {
       for (const d of opened) await d.close();

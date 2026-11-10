@@ -150,10 +150,15 @@ interface Entry {
 
 const EMPTY_SURFACE: SurfaceBuffer = Object.freeze({ vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) });
 
+/** ms a seam build the pool's full queue refused waits before it is sent again. */
+const SEAM_REQUEUE_MS = 20;
+
 const keyOf = (level: number, nx: number, ny: number, nz: number, face: number): string => `${level}:${nx},${ny},${nz}:${face}`;
 
 export class StreamSeams {
-  readonly counters = { built: 0, holds: 0, superseded: 0, failed: 0 };
+  readonly counters = { built: 0, holds: 0, superseded: 0, failed: 0, requeued: 0 };
+  /** Seam builds waiting to be asked again (the pool's queue was full). */
+  private requeued = 0;
   /** Worker µs a face. */
   readonly seamUs = new SampleRing();
   private selection: LevelSelection;
@@ -230,7 +235,7 @@ export class StreamSeams {
 
   /** Whether seam work can go on now (for the streamer's idle check). */
   pending(): boolean {
-    if (this.jobs.size > 0 || this.stale) return true;
+    if (this.jobs.size > 0 || this.requeued > 0 || this.stale) return true;
     for (const id of this.dirty) {
       const e = this.entries.get(id);
       if (e !== undefined && !e.leaving && this.input(e.key) !== null) return true;
@@ -447,6 +452,18 @@ export class StreamSeams {
     return host.pool.submit<FaceSeam>({ id, kind: 'seam', lane, distance: 0, input: k, transfer: [] }).then((o: JobOutcome<FaceSeam>) => {
       this.jobs.delete(id);
       host.poke();
+      // A full queue (a fast flight's loads fill it) is asked again a little later: a swap built without the seam
+      // would draw its faces toward the finer level open.
+      if (o.status === 'queue_full') {
+        this.counters.requeued++;
+        this.requeued++;
+        return new Promise<FaceSeam | undefined>((ok) =>
+          setTimeout(() => {
+            this.requeued--;
+            ok(this.send(input, lane));
+          }, SEAM_REQUEUE_MS),
+        );
+      }
       if (o.status !== 'done') {
         if (o.status !== 'cancelled') this.counters.failed++;
         return undefined;

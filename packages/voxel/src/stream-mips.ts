@@ -390,6 +390,16 @@ export class StreamMips {
 
   /** Sends what can go: node rebuilds lowest level first, then derives, within `ms` of main-thread time and the pool's room. */
   request(ms: number): void {
+    this.sendNodes(ms);
+    // The level choice and its seams go on whatever the pool's room: with a full pool or more nodes than one
+    // update's time, they would otherwise wait for the node work to run dry, and in a fast flight it never did
+    // (the drawn levels stayed where the flight started, then went as their chunks left: nothing near drawn).
+    this.lod.update();
+    this.seams.request();
+  }
+
+  /** Node rebuilds lowest level first, then derives, within `ms` of main-thread time and the pool's room. */
+  private sendNodes(ms: number): void {
     const t0 = performance.now();
     this.advanceEdits();
     for (const g of this.openGroups()) this.stepGroup(g);
@@ -406,8 +416,6 @@ export class StreamMips {
       }
       if (this.derivable(n)) room -= this.derive(n);
     }
-    this.lod.update();
-    this.seams.request();
   }
 
   /**

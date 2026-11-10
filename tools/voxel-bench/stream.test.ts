@@ -1845,7 +1845,7 @@ describe('streamer (workers, region files on disk)', () => {
     // The default load ring over the whole height (past the hilly square the chunks are air); the levels at half the default distances.
     const ring: StreamRing = { loadRadius: 384, unloadRadius: 448, loadHeight: half, unloadHeight: half + 32, nearRadius: 192 };
     const levels = { radii: [64, 128], hysteresis: 16 };
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, mips: [{ level: 1, radius: 384 }, { level: 2, radius: 384 }], levels });
+    const workers = pool(4), s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: workers, ring, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, mips: [{ level: 1, radius: 384 }, { level: 2, radius: 384 }], levels });
     const lod = s.mips!.lod;
     const seams = s.mips!.seams;
     const stats = { events: 0, swaps: 0, lost: 0, doubled: 0, unbalanced: 0, around: 0, silent: 0, uncovered: 0, pastReach: 0, bare: 0, seamsBefore: 0, notResident: 0, flips: 0, standInsLeft: 0 };
@@ -1940,15 +1940,20 @@ describe('streamer (workers, region files on disk)', () => {
     const cold = { ...stats };
     const c0 = { ...lod.counters };
     // A 160 m flight along x at about 40 m/s: a 2 m step every ~50 ms of updates (the work streams behind it, as in a game).
+    // Its second half with the queue kept full by other work (a fast flight's loads): the levels still swap, with seams.
+    let busy = 0, sleeperId = 5e7, full = 0;
+    const fill = setInterval(() => { for (let n = busy && workers.room(); n > 0; n--) void workers.submit({ id: sleeperId++, kind: 'test-sleep', lane: 'mip', distance: 0, input: { ms: 5 }, transfer: [] }); }, 2);
     const t0 = performance.now();
     for (let step = 1; step <= 160; step++) {
       focus.x = -160 + 2 * step;
       move(focus.x, focus.y, focus.z);
-      for (let k = 0; k < 6; k++) {
+      if (step === 81) busy = lod.counters.swaps;
+      for (let k = 0; k < 6; k++, full += busy && workers.room() === 0 ? 1 : 0) {
         s.update();
         await sleep(8);
       }
     }
+    clearInterval(fill), expect([full > 200, lod.counters.swaps - busy > 2]).toEqual([true, true]);
     const flightMs = performance.now() - t0;
     await s.settle();
     expect(expectSettledCover(focus)).toBeGreaterThan(20);

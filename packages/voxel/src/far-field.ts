@@ -33,12 +33,12 @@
  */
 import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
-import type { ChunkCoord, ChunkGrid, RegionFootprint } from './coords';
+import { VOXEL_SIZE_M, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
 import { FAR_BRICK_BUILD, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
-import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
+import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, farCellPixels, farNodeBox, farNodeDistance, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
 import { RegionChunkSource } from './region-source';
 import type { StoredChunk } from './stream-job';
@@ -245,6 +245,30 @@ export interface FarFieldOptions {
   readonly gpuBudgetBytes?: number;
 }
 
+/**
+ * Where the near field draws: the cylinder round the focus it loads (cells: horizontal radius, vertical
+ * half-height) and whether it draws a chunk now. A far node it draws every chunk of is hidden under it, so making
+ * that node can wait; in a fast flight the near field draws little, and the far field there is all there is.
+ */
+export interface FarNearRing {
+  readonly radius: number;
+  readonly height: number;
+  drawn(cx: number, cy: number, cz: number): boolean;
+}
+
+/**
+ * Wanted nodes outside the near field's cylinder still drawn by a coarser stand-in: how many (`coarse`: two or more
+ * levels coarser), the nearest of those (metres from the eye), and the largest error a stand-in makes in pixels
+ * with the error its wanted node would make there.
+ */
+export interface FarStandIns {
+  readonly pending: number;
+  readonly coarse: number;
+  readonly nearestCoarseM: number | null;
+  readonly worstPx: number;
+  readonly wantedPx: number;
+}
+
 /** What the far field takes from the world it draws for. */
 export interface FarFieldHost {
   readonly grid: ChunkGrid;
@@ -275,8 +299,16 @@ export class FarField {
   private eye: [number, number, number] = [0, 0, 0];
   private selectedAt: [number, number, number] | null = null;
   private reselect = true;
-  /** The latest selection, by node key. */
+  /** The latest selection, by node key: what the far field draws once everything is made. */
+  private wanted = new Map<string, FarDrawn>();
+  /**
+   * The nodes made and put in next on the way to {@link wanted}: a wanted node whose drawn stand-in is two or more
+   * levels coarser is reached one level at a time (the stand-in's children first, then theirs), so a coarse node
+   * gives way within a few jobs instead of waiting for every finer node under it.
+   */
   private target = new Map<string, FarDrawn>();
+  /** The near field's load cylinder (null: none known); nodes wholly inside it are made after the rest. */
+  private near: FarNearRing | null = null;
   /** Nodes drawn now (null mesh: drawn as nothing, a node of air surfaces). */
   private readonly shown = new Map<string, MipNode>();
   /** The drawn and made nodes' GPU bytes, and the budget's bookkeeping. */
@@ -358,9 +390,10 @@ export class FarField {
     return this.failed;
   }
 
-  /** Where the far field is looked at from (world cells). */
-  setEye(x: number, y: number, z: number): void {
+  /** Where the far field is looked at from (world cells), and the near field's load cylinder round it. */
+  setEye(x: number, y: number, z: number, near: FarNearRing | null = this.near): void {
     this.eye = [x, y, z];
+    this.near = near;
     const at = this.selectedAt;
     if (at === null || Math.hypot(x - at[0], y - at[1], z - at[2]) >= FAR_RESELECT_CELLS) {
       this.reselect = true;
@@ -380,7 +413,7 @@ export class FarField {
 
   /** Every node is made again (the draw kind changed): each drawn one stays until its new draw replaces it. */
   private remakeAll(): void {
-    for (const key of new Set([...this.shown.keys(), ...this.target.keys(), ...this.jobs.keys()])) {
+    for (const key of new Set([...this.shown.keys(), ...this.wanted.keys(), ...this.target.keys(), ...this.jobs.keys()])) {
       this.stamps.set(key, (this.stamps.get(key) ?? 0) + 1);
       if (this.shown.has(key)) this.stale.add(key);
     }
@@ -408,23 +441,11 @@ export class FarField {
   private reads(n: MipNode): MipNode[] {
     const out: MipNode[] = [];
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) out.push({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
-    const f = this.fineOf(n);
+    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
     if (f !== null) for (const m of f.nodes) out.push(m);
     return out;
   }
 
-  /** The finer nodes a brick job of `n` reads (null: it reads its own level only). */
-  private fineOf(n: MipNode): { level: number; scale: number; nodes: MipNode[] } | null {
-    const b = this.brickBuild;
-    if (this.draw !== 'bricks' || b.scale <= 1 || this.index === null) return null;
-    const down = Math.log2(b.scale);
-    const level = n.level - down;
-    if (level < this.index.minLevel) return null;
-    const S = b.scale;
-    const nodes: MipNode[] = [];
-    for (let dx = -1; dx <= S; dx++) for (let dz = -1; dz <= S; dz++) for (let dy = -1; dy <= S; dy++) nodes.push({ level, nx: n.nx * S + dx, ny: n.ny * S + dy, nz: n.nz * S + dz });
-    return { level, scale: S, nodes };
-  }
 
   /** Selects again if the eye moved far enough, and starts the meshes the selection needs. */
   update(): void {
@@ -474,7 +495,38 @@ export class FarField {
     this.counters.selections++;
     this.gpu.selected = sel?.gpuBytes ?? 0;
     this.gpu.held = sel?.heldByBudget ?? 0;
-    this.target = new Map((sel?.drawn ?? []).map((d) => [mipNodeKey(d.node), d]));
+    this.wanted = new Map((sel?.drawn ?? []).map((d) => [mipNodeKey(d.node), d]));
+    this.restep();
+    this.commitSoon();
+    void this.pump();
+  }
+
+  /**
+   * The next nodes toward the selection from what is drawn ({@link target}): a wanted node is made itself when it is
+   * drawn, nothing is drawn over it, its stand-in is one level coarser, or the step between is not kept; else the
+   * stand-in's child over it is made first. Jobs and made nodes no step needs go.
+   */
+  private restep(): void {
+    const next = new Map<string, FarDrawn>();
+    const ppr = this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN;
+    for (const [key, d] of this.wanted) {
+      const a = this.shown.has(key) ? null : drawnAbove(this.shown, d.node, this.index?.maxLevel ?? d.node.level);
+      if (a === null || a - d.node.level < 2 || this.index === null) {
+        next.set(key, d);
+        continue;
+      }
+      const up = a - 1 - d.node.level;
+      const step: MipNode = { level: a - 1, nx: d.node.nx >> up, ny: d.node.ny >> up, nz: d.node.nz >> up };
+      const sk = mipNodeKey(step);
+      if (next.has(sk)) continue;
+      if (!this.index.has(step)) {
+        next.set(key, d);
+        continue;
+      }
+      const distance = farNodeDistance(this.host.grid, step, this.eye);
+      next.set(sk, { node: step, errorPixels: farCellPixels(step.level, distance, ppr), distance, bytes: this.index.bytesOf(step), nearOverlap: false });
+    }
+    this.target = next;
     for (const [key, j] of this.jobs) {
       if (this.target.has(key)) continue;
       this.host.pool.cancel(j.id);
@@ -482,9 +534,8 @@ export class FarField {
     }
     for (const key of [...this.ready.keys()]) if (!this.target.has(key)) this.ready.delete(key);
     this.todo = null;
-    this.commitSoon();
-    void this.pump();
   }
+
 
   /** GPU bytes the drawn nodes may hold. */
   get gpuBudget(): number {
@@ -512,13 +563,15 @@ export class FarField {
    * selection or an edit): where nothing is drawn yet, then where a coarse ancestor stands in (its cell's error
    * at the node's distance, in pixels), then where finer nodes are drawn than the selection wants (a node behind
    * the eye closing over its children: the threshold's worth, so it gives memory back before the small refinements;
-   * over the GPU budget before every refinement); nearest first among equals.
+   * over the GPU budget before every refinement); nearest first among equals. Nodes wholly inside the near field's
+   * load cylinder go after all others: the near field draws over them once its chunks are in, so the far work goes
+   * to the nodes round its edge first.
    */
   private todoList(): FarDrawn[] {
     if (this.todo === null) {
       const ppr = this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN;
       const coarsen = this.opts.errorPixels ?? FAR_ERROR_PIXELS;
-      const list: Array<{ d: FarDrawn; error: number }> = [];
+      const list: Array<{ d: FarDrawn; error: number; hidden: boolean }> = [];
       // Over the GPU budget, nodes closing over finer ones go before refinements: they give memory back.
       const over = this.liveGpu > this.gpuBudget;
       this.todoOver = over;
@@ -528,16 +581,16 @@ export class FarField {
         let error: number;
         if (this.shown.has(key)) error = d.errorPixels;
         else {
-          const a = this.ancestorLevel(d.node);
+          const a = drawnAbove(this.shown, d.node, this.index?.maxLevel ?? d.node.level);
           if (a !== null) {
             const cell = 2 ** a;
             error = (cell * ppr) / Math.max(d.distance, cell);
             this.refines.add(key);
-          } else error = this.childShown(d.node) ? (over ? Number.MAX_VALUE : coarsen) : Infinity;
+          } else error = childDrawn(this.shown, d.node) ? (over ? Number.MAX_VALUE : coarsen) : Infinity;
         }
-        list.push({ d, error });
+        list.push({ d, error, hidden: underNear(this.host.grid, d.node, this.eye, this.near) });
       }
-      list.sort((a, b) => b.error - a.error || a.d.distance - b.d.distance);
+      list.sort((a, b) => Number(a.hidden) - Number(b.hidden) || b.error - a.error || a.d.distance - b.d.distance);
       this.todo = list.map((e) => e.d);
       this.rank = new Map(this.todo.map((d, i) => [mipNodeKey(d.node), i]));
       this.cursor = 0;
@@ -545,21 +598,18 @@ export class FarField {
     return this.todo;
   }
 
-  /** The level of the drawn node over `n` (null: none is drawn over it). */
-  private ancestorLevel(n: MipNode): number | null {
-    const top = this.index?.maxLevel ?? n.level;
-    for (let l = n.level + 1; l <= top; l++) {
-      const d = l - n.level;
-      if (this.shown.has(mipNodeKey({ level: l, nx: n.nx >> d, ny: n.ny >> d, nz: n.nz >> d }))) return l;
+  /** The next `count` nodes the far field makes, in its order (diagnostics and tests: where the work goes first). */
+  next(count: number): MipNode[] {
+    if (this.index === null) return [];
+    const out: MipNode[] = [];
+    for (const d of this.todoList()) {
+      if (out.length >= count) break;
+      if (this.needs(mipNodeKey(d.node))) out.push(d.node);
     }
-    return null;
+    return out;
   }
 
-  /** Whether one of `n`'s children is drawn (the node closes over finer ones). */
-  private childShown(n: MipNode): boolean {
-    for (let i = 0; i < 8; i++) if (this.shown.has(mipNodeKey({ level: n.level - 1, nx: n.nx * 2 + (i & 1), ny: n.ny * 2 + ((i >> 1) & 1), nz: n.nz * 2 + (i >> 2) }))) return true;
-    return false;
-  }
+
 
   /** Whether a target node needs a mesh it does not have yet. */
   private needs(key: string): boolean {
@@ -570,6 +620,7 @@ export class FarField {
   get pending(): number {
     let n = 0;
     for (const key of this.target.keys()) if ((!this.shown.has(key) || this.stale.has(key)) && !this.ready.has(key)) n++;
+    for (const key of this.wanted.keys()) if (!this.target.has(key)) n++;
     return n;
   }
 
@@ -713,7 +764,7 @@ export class FarField {
       // A copy: the stored bytes stay here for the neighbours' meshes while the job takes its own across.
       cells[farNeighbourIndex(dx, dy, dz)] = c === null ? null : 'uniform' in c ? c : { stored: c.stored.slice(), raw: c.raw };
     }
-    const f = this.fineOf(n);
+    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
     const fine = f === null ? undefined : { level: f.level, scale: f.scale, cells: f.nodes.map((m) => copyCells(this.cellsOf(m))) };
     const build = this.draw === 'bricks' ? this.brickBuild : undefined;
     const input: FarMeshInput = { edge: this.host.grid.edge, level: n.level, node: [n.nx, n.ny, n.nz], cells, rules: rulesRef(this.host.rules), ...(build !== undefined ? { build } : {}), ...(fine !== undefined ? { fine } : {}) };
@@ -776,16 +827,6 @@ export class FarField {
     void this.pump();
   }
 
-  /** The drawn level-and-node ancestor (or self) of a node in `set`, walking up. */
-  private ancestorIn(set: ReadonlyMap<string, unknown>, n: MipNode, self: boolean): string | null {
-    const top = this.index?.maxLevel ?? n.level;
-    for (let l = self ? n.level : n.level + 1; l <= top; l++) {
-      const d = l - n.level;
-      const key = mipNodeKey({ level: l, nx: n.nx >> d, ny: n.ny >> d, nz: n.nz >> d });
-      if (set.has(key)) return key;
-    }
-    return null;
-  }
 
   /** Puts in every group of changes whose new nodes are all meshed, and takes out what they replace. */
   private commit(): void {
@@ -806,7 +847,7 @@ export class FarField {
       if (this.shown.has(key)) continue;
       fresh.push(key);
       find(key);
-      const a = this.ancestorIn(this.shown, d.node, false);
+      const a = ancestorIn(this.shown, d.node, this.index?.maxLevel ?? d.node.level);
       if (a !== null) join(key, a);
     }
     const gone: string[] = [];
@@ -814,7 +855,7 @@ export class FarField {
       if (this.target.has(key)) continue;
       gone.push(key);
       find(key);
-      const a = this.ancestorIn(this.target, n, false);
+      const a = ancestorIn(this.target, n, this.index?.maxLevel ?? n.level);
       if (a !== null) join(key, a);
     }
     const blocked = new Set<string>();
@@ -840,12 +881,14 @@ export class FarField {
     const removed: MipNode[] = [];
     let bytes = 0;
     let cut = false;
+    let moved = false;
     for (const g of [...groups.values()].sort((a, b) => a.rank - b.rank)) {
       if (bytes > 0 && bytes + g.bytes > FAR_COMMIT_BYTES) {
         cut = true;
         continue;
       }
       bytes += g.bytes;
+      moved = true;
       for (const key of g.gone) {
         removed.push(this.shown.get(key)!);
         this.shown.delete(key);
@@ -879,12 +922,14 @@ export class FarField {
       const e: FarEvent = { type: 'far', added, removed };
       for (const l of this.listeners) l(e);
     }
+    // What is drawn moved toward the selection: the next steps are made from it.
+    if (moved) this.restep();
     this.commitMs.add(performance.now() - tc);
     // Over the budget or back under it: the todo's order changes (nodes closing over finer ones first, or not).
     if (this.liveGpu > this.gpuBudget !== this.todoOver) this.todo = null;
     // All in, yet over the budget: the selection foresaw nodes it had not made smaller than they came. It selects
     // again with the drawn nodes' own bytes (a few times at most before the eye moves on).
-    if (this.gpu.drawn > this.gpuBudget && this.ready.size === 0 && this.jobs.size === 0 && !this.reselect && this.selecting === null && this.gpu.overReselects < FAR_OVER_BUDGET_RESELECTS && [...this.target.keys()].every((k) => this.shown.has(k))) {
+    if (this.gpu.drawn > this.gpuBudget && this.ready.size === 0 && this.jobs.size === 0 && !this.reselect && this.selecting === null && this.gpu.overReselects < FAR_OVER_BUDGET_RESELECTS && [...this.wanted.keys()].every((k) => this.shown.has(k))) {
       this.gpu.overReselects++;
       this.reselect = true;
       setTimeout(() => this.update(), 0);
@@ -893,6 +938,7 @@ export class FarField {
       this.counters.commitsCut++;
       this.commitSoon(FAR_COMMIT_AGAIN_MS);
     }
+    if (moved) void this.pump();
     this.wake();
   }
 
@@ -983,10 +1029,10 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; index: number[] | null } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null } {
     return {
       draw: this.draw,
-      nodes: this.target.size,
+      nodes: this.wanted.size,
       drawn: this.shown.size,
       pending: this.pending,
       jobs: this.jobs.size,
@@ -1002,9 +1048,11 @@ export class FarField {
       problem: this.failed,
       counters: { ...this.counters },
       gpu: { budget: this.gpuBudget, drawn: this.gpu.drawn, live: this.liveGpu, selected: this.gpu.selected, held: this.gpu.held, reselects: this.gpu.overReselects, perStored: this.gpu.ratio },
+      standIns: farStandIns(this.wanted, this.shown, this.index?.maxLevel ?? 0, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, (n) => underNear(this.host.grid, n, this.eye, this.near)),
       index: this.index?.counts() ?? null,
     };
   }
+
 
   /** Bytes the far field holds where the world runs (its read nodes and the source's tables). */
   get bytes(): number {
@@ -1021,6 +1069,77 @@ export class FarField {
     this.entries.clear();
     for (const w of this.waiters.splice(0)) w();
   }
+}
+
+/** The finer nodes a brick job of `n` built `scale` times finer reads (null: it reads its own level only). */
+function farFineOf(n: MipNode, scale: number, minLevel: number): { level: number; scale: number; nodes: MipNode[] } | null {
+  if (scale <= 1) return null;
+  const level = n.level - Math.log2(scale);
+  if (level < minLevel) return null;
+  const nodes: MipNode[] = [];
+  for (let dx = -1; dx <= scale; dx++) for (let dz = -1; dz <= scale; dz++) for (let dy = -1; dy <= scale; dy++) nodes.push({ level, nx: n.nx * scale + dx, ny: n.ny * scale + dy, nz: n.nz * scale + dz });
+  return { level, scale, nodes };
+}
+
+/** The key of a node's nearest ancestor in `set` (null: none), walking up to level `top`. */
+function ancestorIn(set: ReadonlyMap<string, unknown>, n: MipNode, top: number): string | null {
+  for (let l = n.level + 1; l <= top; l++) {
+    const d = l - n.level;
+    const key = mipNodeKey({ level: l, nx: n.nx >> d, ny: n.ny >> d, nz: n.nz >> d });
+    if (set.has(key)) return key;
+  }
+  return null;
+}
+
+/** The level of the drawn node over `n` (null: none is drawn over it). */
+function drawnAbove(shown: ReadonlyMap<string, MipNode>, n: MipNode, top: number): number | null {
+  for (let l = n.level + 1; l <= top; l++) {
+    const d = l - n.level;
+    if (shown.has(mipNodeKey({ level: l, nx: n.nx >> d, ny: n.ny >> d, nz: n.nz >> d }))) return l;
+  }
+  return null;
+}
+
+/** Whether one of `n`'s children is drawn (the node closes over finer ones). */
+function childDrawn(shown: ReadonlyMap<string, MipNode>, n: MipNode): boolean {
+  for (let i = 0; i < 8; i++) if (shown.has(mipNodeKey({ level: n.level - 1, nx: n.nx * 2 + (i & 1), ny: n.ny * 2 + ((i >> 1) & 1), nz: n.nz * 2 + (i >> 2) }))) return true;
+  return false;
+}
+
+/** Whether the near field draws every chunk of a node now (it lies inside its load cylinder round the eye). */
+function underNear(grid: ChunkGrid, n: MipNode, eye: readonly [number, number, number], r: FarNearRing | null): boolean {
+  if (r === null) return false;
+  const b = farNodeBox(grid, n);
+  const [ex, ey, ez] = eye;
+  if (b.min[1] < ey - r.height || b.max[1] > ey + r.height) return false;
+  const dx = Math.max(Math.abs(b.min[0] - ex), Math.abs(b.max[0] - ex));
+  const dz = Math.max(Math.abs(b.min[2] - ez), Math.abs(b.max[2] - ez));
+  if (dx * dx + dz * dz > r.radius * r.radius) return false;
+  const side = 1 << n.level;
+  const x0 = n.nx * side, y0 = n.ny * side, z0 = n.nz * side;
+  for (let x = x0; x < x0 + side; x++) for (let y = y0; y < y0 + side; y++) for (let z = z0; z < z0 + side; z++) if (!r.drawn(x, y, z)) return false;
+  return true;
+}
+
+/** How much coarser than the selection the far field is drawn now outside the near field ({@link FarStandIns}). */
+function farStandIns(wanted: ReadonlyMap<string, FarDrawn>, shown: ReadonlyMap<string, MipNode>, top: number, ppr: number, hidden: (n: MipNode) => boolean): FarStandIns {
+  const out = { pending: 0, coarse: 0, nearestCoarseM: null as number | null, worstPx: 0, wantedPx: 0 };
+  for (const [key, d] of wanted) {
+    if (shown.has(key) || hidden(d.node)) continue;
+    const a = drawnAbove(shown, d.node, top);
+    if (a === null) continue;
+    out.pending++;
+    const px = farCellPixels(a, d.distance, ppr);
+    if (px > out.worstPx) {
+      out.worstPx = px;
+      out.wantedPx = d.errorPixels;
+    }
+    if (a - d.node.level < 2) continue;
+    out.coarse++;
+    const m = d.distance * VOXEL_SIZE_M;
+    if (out.nearestCoarseM === null || m < out.nearestCoarseM) out.nearestCoarseM = m;
+  }
+  return out;
 }
 
 /** Bytes of a made node (what its event carries). */

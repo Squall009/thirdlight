@@ -717,7 +717,7 @@ export class VoxelStreamer {
     this.derives?.request(this.opts.deriveMsPerUpdate ?? 2);
     this.mips?.request(this.opts.deriveMsPerUpdate ?? 2);
     // The far field selects from the focus too; its jobs go last in the pool.
-    this.far?.setEye(this.focus.x, this.focus.y, this.focus.z);
+    this.far?.setEye(this.focus.x, this.focus.y, this.focus.z, { radius: this.ring.loadRadius, height: this.ring.loadHeight, drawn: (cx, cy, cz) => nearDrawn(this.mips, cx, cy, cz, () => this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.phase === 'resident') });
     this.far?.update();
     for (const [key, at] of this.unloadedAt) {
       if (t0 - at <= CHURN_WINDOW_MS) break;
@@ -1307,6 +1307,14 @@ function defaultSectionEdge(grid: ChunkGrid, rules: AssemblyRuleSet | undefined,
 
 function unionBox(a: CellBox, b: CellBox): CellBox {
   return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), minZ: Math.min(a.minZ, b.minZ), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY), maxZ: Math.max(a.maxZ, b.maxZ) };
+}
+
+/** Whether the near field draws a chunk now: a drawn level covers it (without levels: `resident`). */
+function nearDrawn(mips: StreamMips | null, cx: number, cy: number, cz: number, resident: () => boolean): boolean {
+  if (mips === null) return resident();
+  const d = mips.lod.drawn;
+  for (let l = 0; l <= mips.maxLevel; l++) if (d.drawn(l, cx >> l, cy >> l, cz >> l)) return true;
+  return false;
 }
 
 /** The job lane of a chunk's load: near inside the ring's near radius, far past it. */
