@@ -806,11 +806,16 @@ interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Rec
 const FAR_TEST_RINGS = { ring: { loadRadius: 40, unloadRadius: 48 }, collision: { radius: 32 } };
 
 /** Whether no background pixel (black) lies within 2 pixels of (x, y). */
+/** The background behind every draw: black where no sky draws, else the sky (bright, blue at least as strong as red and green). */
+function background(r: number, g: number, b: number): boolean {
+  return r + g + b < 30 || (r + g + b > 450 && b >= r && b >= g);
+}
+
 function nearInside(p: ReturnType<typeof decodePng>, x: number, y: number): boolean {
   for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
     const u = Math.min(p.width - 1, Math.max(0, x + dx)), v = Math.min(p.height - 1, Math.max(0, y + dy));
     const [r, g, b] = p.pixel(u, v);
-    if (r + g + b < 30) return false;
+    if (background(r, g, b)) return false;
   }
   return true;
 }
@@ -844,11 +849,13 @@ async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Pro
     for (let y = 0; y < both.height; y++) for (let x = 0; x < both.width; x++) {
       const [r0, g0, b0] = near.pixel(x, y);
       const [r, g, b] = both.pixel(x, y);
-      // The background (black here) with the far draws hidden, ground with them shown.
-      if (r0 + g0 + b0 < 30 && r + g + b > 60 && b < Math.max(r, g) + 16) n++;
+      const moved = Math.abs(r - r0) + Math.abs(g - g0) + Math.abs(b - b0);
+      // The background (the sky, which follows the camera however far out it is) with the far draws hidden, ground
+      // with them shown.
+      if (background(r0, g0, b0) && moved > 60 && r + g + b > 60 && b < Math.max(r, g) + 16) n++;
       // The near field's own pixel drawn over by the far field (away from its silhouette, whose edge pixels blend
       // with what is behind them).
-      else if (r0 + g0 + b0 >= 30 && Math.abs(r - r0) + Math.abs(g - g0) + Math.abs(b - b0) > 48 && nearInside(near, x, y)) covered++;
+      else if (!background(r0, g0, b0) && moved > 48 && nearInside(near, x, y)) covered++;
     }
     // A pair taken while the exposure still moved is taken again.
     return covered < 200 ? n : -covered;

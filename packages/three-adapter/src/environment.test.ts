@@ -4,9 +4,11 @@
  * editor's Scene view share. (The post pipeline's lifetime — no rebuild on a
  * same-size frame — is covered by environment-nodes.test.ts.)
  */
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { environmentHasLook, layerEnvironment, type EnvironmentLike } from './environment';
+import { cloudDriftUniform, createSkyMesh, followCamera } from './environment-nodes';
 
 const BASE: EnvironmentLike & { wind?: unknown } = {
   sky: { mode: 'procedural', turbidity: 6 },
@@ -44,5 +46,31 @@ describe('layerEnvironment', () => {
     expect(environmentHasLook(out)).toBe(true);
     expect(environmentHasLook(layerEnvironment({}, null))).toBe(false);
     expect(environmentHasLook(null)).toBe(false);
+  });
+});
+
+describe('the sky round the camera', () => {
+  const contains = (mesh: THREE.Mesh, at: THREE.Vector3): boolean => {
+    mesh.geometry.computeBoundingBox();
+    return mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld).containsPoint(at);
+  };
+  it('a camera high over a large world and far from its origin is inside the physical sky and the gradient dome when it draws them', () => {
+    const sky = createSkyMesh({ turbidity: 6, rayleigh: 1.5, mieCoefficient: 0.005, mieDirectionalG: 0.8, sun: new THREE.Vector3(0, 1, 0), cloudCoverage: 0, cloudDensity: 0 }, cloudDriftUniform());
+    const dome = followCamera(new THREE.Mesh(new THREE.SphereGeometry(4000, 8, 4)));
+    const draw = (mesh: THREE.Mesh, cam: THREE.Camera): void => (mesh.onBeforeRender as unknown as (r: unknown, s: unknown, c: THREE.Camera) => void)(null, null, cam);
+    const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 100);
+    for (const at of [[-2048, 1640, -4110], [0, 6000, 0], [9000, 20, -9000], [0, 1.7, 0]] as Array<[number, number, number]>) {
+      camera.position.set(...at);
+      camera.updateMatrixWorld();
+      for (const mesh of [sky, dome]) {
+        mesh.updateMatrixWorld();
+        // What the renderer calls before it reads the draw's matrices.
+        draw(mesh, camera);
+        expect(contains(mesh, camera.position)).toBe(true);
+        expect(mesh.matrixWorld.elements.slice(12, 15)).toEqual([...at]);
+      }
+    }
+    // The sky's own size is unchanged: it is drawn on the far plane, so the far plane never clips it.
+    expect(sky.scale.x).toBe(4500);
   });
 });

@@ -54,7 +54,7 @@ import { taauFlag, type TaauFlag } from './post-taau';
 import type { ScenePasses } from './occlusion-passes';
 import { applySkyRotation, skyRotationRadians } from './sky-rotation';
 import { createHeightFog, type HeightFogLike } from './height-fog';
-import { buildPostPipeline, cloudDriftUniform, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan, type SkyParams } from './environment-nodes';
+import { buildPostPipeline, cloudDriftUniform, compileIntoTarget, createSkyMesh, followCamera, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan, type SkyParams } from './environment-nodes';
 import type { PhysicalSky } from './physical-sky';
 import { EnvironmentExposure, type ExposureDiagnostics } from './environment-exposure';
 import type { ExposureLook } from '@thirdlight/runtime';
@@ -295,6 +295,13 @@ function fogVolumeBoxes(volumes: readonly FogVolumeLike[]): FogVolumeBox[] {
     falloff: v.falloff ?? 0.5,
     heightFalloff: v.heightFalloff ?? 0,
   }));
+}
+
+/** The gradient (or a cross-fading colour) sky's dome: never culled, round the camera. */
+function gradientDome(material: THREE.Material): THREE.Mesh {
+  const dome = followCamera(new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), material));
+  dome.frustumCulled = false;
+  return dome;
 }
 
 /** A sky's structure (its mode and images): skies with the same one blend field by field. */
@@ -708,8 +715,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       // On the far plane: a camera whose far plane is nearer than the dome still sees the sky.
       const mat = gradientSkyMaterial(top, horizon, bottom);
       gradientMat = mat;
-      skyDome = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), mat);
-      skyDome.frustumCulled = false;
+      skyDome = gradientDome(mat);
       scene.background = null;
       scene.add(skyDome);
       const tmp = new THREE.Scene();
@@ -834,8 +840,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       material.transparent = true;
       material.opacity = 0;
       rec.material = material;
-      rec.mesh = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), material);
-      rec.mesh.frustumCulled = false;
+      rec.mesh = gradientDome(material);
       scene.add(rec.mesh);
     };
     if (sky.mode === 'gradient') {

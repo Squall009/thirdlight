@@ -97,9 +97,28 @@ export interface SkyParams {
   cloudDensity: number;
 }
 
+/**
+ * Puts a sky mesh round the camera. The physical sky's box and the gradient dome are finite meshes (a few km): a
+ * camera outside one (high over a large world, or far from its origin) sees it as a slanted quad with nothing
+ * round it. Both shade by view direction alone and draw on the far plane, so centring them on the eye changes no
+ * pixel inside and leaves no outside; it also gives the sky a camera's own motion (none from translation) for the
+ * temporal upscale.
+ */
+export function centreSkyOn(mesh: THREE.Object3D, camera: THREE.Camera): void {
+  camera.getWorldPosition(mesh.position);
+  mesh.updateMatrixWorld();
+}
+
+/** A sky mesh kept round whichever camera draws it (before its matrices are read for the draw). */
+export function followCamera<T extends THREE.Object3D>(mesh: T): T {
+  mesh.onBeforeRender = (_renderer, _scene, camera) => centreSkyOn(mesh, camera);
+  return mesh;
+}
+
 /** The physical sky with the project's parameters; its clouds travel by `drift` (`cloudDriftUniform`, shared by every sky a renderer draws). */
 export function createSkyMesh(p: SkyParams, drift: unknown): PhysicalSky {
-  const s = new PhysicalSky(drift);
+  // A box of 4.5 km round the camera that draws it (on the far plane, so its size clips nothing).
+  const s = followCamera(new PhysicalSky(drift));
   s.scale.setScalar(4500);
   s.turbidity.value = p.turbidity;
   s.rayleigh.value = p.rayleigh;
