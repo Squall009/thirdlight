@@ -365,6 +365,11 @@ export function farBrickBox(faces: number): { lo: [number, number, number]; hi: 
 /** A ray's march through one brick: where it hits (cells along the unit direction from the origin) and the steps taken; null: it leaves the box (or runs out of steps) first. */
 export function marchFarBrick(samples: Uint8Array, block: number, faces: number, o: readonly number[], d: readonly number[]): { t: number; steps: number } | null {
   const { lo, hi } = farBrickBox(faces);
+  return marchBrickBox(samples, block, lo, hi, o, d);
+}
+
+/** {@link marchFarBrick} over a box of the brick's cells (`lo`–`hi`, the draw's marched box) from where the ray enters it. */
+export function marchBrickBox(samples: Uint8Array, block: number, lo: readonly number[], hi: readonly number[], o: readonly number[], d: readonly number[]): { t: number; steps: number } | null {
   let t0 = 0;
   let t1 = Infinity;
   for (let a = 0; a < 3; a++) {

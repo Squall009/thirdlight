@@ -67,7 +67,7 @@
  * with every command), under the near field and hidden where it draws:
  * `?farField=off|mesh|bricks` and `?farError=` (pixels) override the quality
  * level's; `?farBricks=occupancy|faces|faces2` and `?farShade=fine|flat|baked` pick
- * how bricks are built and shaded (comparing builds); `?farShow=0` keeps the
+ * how bricks are built and shaded (comparing builds), `?farMarch=brick|node` how they are marched; `?farShow=0` keeps the
  * far draws hidden.
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
@@ -537,7 +537,7 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
-    ...pageFarHooks(streamer, meshes.far, far.shading),
+    ...pageFarHooks(streamer, meshes.far, far.shading, far.march),
     /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);

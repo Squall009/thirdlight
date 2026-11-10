@@ -8,11 +8,11 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { chunkGrid, createWorldStore, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_VERTEX_BYTES, farBricksOf, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SHAPE_FULL, VOXEL_ROLE, VOXEL_SIZE_M, WETNESS_MAX, type FarNodeDraw } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_VERTEX_BYTES, farBricksOf, farNodeMarchedBox, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SHAPE_FULL, VOXEL_ROLE, VOXEL_SIZE_M, WETNESS_MAX, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { fragmentWgslOf, glslRenderer, litScene, wgslRenderer } from './test-wgsl';
 import { voxelStandInLook } from './voxel-chunk-view';
-import { FAR_BRICK_ATTRIBUTE, FAR_BRICK_BLOCK_ATTRIBUTE, FAR_BRICK_BOUNDS_ATTRIBUTE } from './voxel-far-bricks';
+import { FAR_BRICK_ATTRIBUTE, FAR_BRICK_BLOCK_ATTRIBUTE, FAR_BRICK_BOUNDS_ATTRIBUTE, FAR_NODE_HI_ATTRIBUTE, FAR_NODE_LO_ATTRIBUTE, FAR_NODE_PAGE_ATTRIBUTE } from './voxel-far-bricks';
 import { VoxelFarView } from './voxel-far-mesh';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
 
@@ -127,6 +127,47 @@ describe('the far view', () => {
     expect(reads(fine) - reads(wgsl)).toBeGreaterThanOrEqual(30);
     v.setBrickShading('fine');
     expect(v.bytes).toBe((4 * DISTANCE_BRICK_SIDE) ** 3 * 3 + 16 * (32 + 8) + 24 * 4 + 36 * 2);
+    v.dispose();
+  });
+
+  it('marches a box a node over its brick table: one instance a node holding its bricks, the pages where its bricks are, a program on both backends', () => {
+    const r = recorder();
+    const v = view(r);
+    const a = brickNode(0);
+    const b = brickNode(1);
+    v.apply({ added: [a, b], removed: [] }, undefined);
+    const atlasBytes = v.bytes;
+    v.setBrickMarch('node');
+    expect(v.bricks).toBe(32);
+    const mesh = v.root.children[0] as THREE.Mesh;
+    const geo = mesh.geometry as THREE.InstancedBufferGeometry;
+    expect(geo.instanceCount).toBe(2);
+    // The node's box is its bricks' union: the flat ground's bricks (y 0–8 of the node's second brick row) and the lip.
+    const lo = geo.getAttribute(FAR_NODE_LO_ATTRIBUTE).array as Float32Array;
+    const hi = geo.getAttribute(FAR_NODE_HI_ATTRIBUTE).array as Float32Array;
+    const box = farNodeMarchedBox(a.bricks!)!;
+    expect([...lo.subarray(0, 3)]).toEqual(box.lo);
+    expect([...hi.subarray(0, 3)]).toEqual(box.hi);
+    // Each node's page (4³ texels, two stores) names its stored bricks' regions, the others 0.
+    const pages = r.uploads.filter((u) => u.bytes.length === 64 * 4);
+    expect(pages.length).toBe(4);
+    const page = geo.getAttribute(FAR_NODE_PAGE_ATTRIBUTE).array as Float32Array;
+    const table = pages.find((u) => u.at.x === page[0] && u.at.y === page[1] && u.at.z === page[2] && u.bytes.some((x, i) => i % 4 === 3 && x === 255))!.bytes;
+    let stored = 0;
+    for (let i = 0; i < 64; i++) if (table[i * 4 + 3] === 255) stored++;
+    expect(stored).toBe(16);
+    // The draw: 2 instances of two vec4s and two vec3s for 32 of two vec4s and a vec2; the two page stores (4³ pages of 4³ texels, 4 bytes).
+    expect(v.bytes).toBe(atlasBytes - 32 * (32 + 8) + 2 * (16 + 16 + 12 + 12) + 2 * (4 * 4) ** 3 * 4);
+    const scene = litScene();
+    scene.add(v.root);
+    const wgsl = fragmentWgslOf(wgslRenderer(), scene, mesh);
+    expect(wgsl).toContain('frag_depth');
+    expect(wgsl).toContain('discard');
+    const glsl = fragmentWgslOf(glslRenderer(), scene, mesh);
+    expect(glsl).toContain('gl_FragDepth');
+    // Back to a box a brick: the same nodes, an instance a brick again.
+    v.setBrickMarch('brick');
+    expect(((v.root.children[0] as THREE.Mesh).geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(32);
     v.dispose();
   });
 });

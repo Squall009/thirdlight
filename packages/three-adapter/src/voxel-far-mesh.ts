@@ -35,10 +35,10 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
+import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farBrickCount, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
-import { FarBrickAtlas, farBrickGeometry, FarBrickMaterial, type FarBrickShading } from './voxel-far-bricks';
+import { FarBrickAtlas, farBrickGeometry, FarBrickMaterial, farNodeGeometry, type FarBrickMarch, type FarBrickShading } from './voxel-far-bricks';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
@@ -90,6 +90,10 @@ export class VoxelFarView {
   private brickMaterial: FarBrickMaterial | null = null;
   /** Each brick node's atlas regions, by node key. */
   private readonly regions = new Map<string, THREE.Vector3[]>();
+  /** Each brick node's page (its brick table, the node march's), by node key. */
+  private readonly pages = new Map<string, THREE.Vector3>();
+  /** How brick groups' pixels find the surface (a box a brick or a node). */
+  private march: FarBrickMarch = 'brick';
   private hidden = false;
   /** The bricks' shading, kept for a material made later. */
   private shading: FarBrickShading = 'flat';
@@ -145,6 +149,25 @@ export class VoxelFarView {
     this.brickMaterial?.setFineShading(next === 'fine');
   }
 
+  /** How brick groups march ({@link FarBrickMarch}): a change makes the brick draws and their program again (to the node march: each node's brick table uploaded once). */
+  setBrickMarch(march: FarBrickMarch): void {
+    if (march === this.march) return;
+    this.march = march;
+    this.brickMaterial?.dispose();
+    this.brickMaterial = null;
+    // Pages are made only for the node march (a brick march never reads them); once made they stay with their node.
+    for (const g of this.groups.values()) {
+      if (g.kind !== 'bricks') continue;
+      if (march === 'node') for (const [key, d] of g.nodes) if (d.bricks !== undefined) this.addPage(key, d.bricks);
+      g.dirty = true;
+    }
+    for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
+  }
+
+  get brickMarch(): FarBrickMarch {
+    return this.march;
+  }
+
   get brickShading(): FarBrickShading {
     return this.shading;
   }
@@ -182,7 +205,7 @@ export class VoxelFarView {
     for (const a of far.added) {
       const key = mipNodeKey(a);
       this.dropRegions(key);
-      if (a.bricks !== undefined) this.regions.set(key, this.brickAtlas().add(this.uploader(), a.bricks, this.palette?.palette ?? null));
+      if (a.bricks !== undefined) this.upload(key, a.bricks);
       const old = this.groupOf.get(key);
       if (old !== undefined) {
         this.groups.get(old)!.nodes.delete(key);
@@ -202,11 +225,30 @@ export class VoxelFarView {
     if (r === undefined) return;
     this.atlas!.remove(r);
     this.regions.delete(key);
+    const page = this.pages.get(key);
+    if (page !== undefined) this.atlas!.removePage(page);
+    this.pages.delete(key);
+  }
+
+  /** A brick node's bricks and brick table into the atlas. */
+  private upload(key: string, b: FarBricks): void {
+    const atlas = this.brickAtlas();
+    const regions = atlas.add(this.uploader(), b, this.palette?.palette ?? null);
+    this.regions.set(key, regions);
+    if (this.march === 'node') this.addPage(key, b);
+  }
+
+  /** A brick node's brick table (the node march's) into the atlas, once. */
+  private addPage(key: string, b: FarBricks): void {
+    const regions = this.regions.get(key);
+    if (regions === undefined || this.pages.has(key)) return;
+    const page = this.brickAtlas().addPage(this.uploader(), b, regions);
+    if (page !== null) this.pages.set(key, page);
   }
 
   private brickAtlas(): FarBrickAtlas {
     if (this.atlas === null) {
-      this.atlas = new FarBrickAtlas(this.shading === 'baked');
+      this.atlas = new FarBrickAtlas(this.shading === 'baked', this.opts.grid.edge / DISTANCE_BRICK_CELLS);
       if (this.atlas.baked) this.palette ??= new FarBrickPalette(this.opts.surface);
     }
     return this.atlas;
@@ -217,12 +259,12 @@ export class VoxelFarView {
     const old = this.atlas;
     this.atlas = null;
     this.regions.clear();
+    this.pages.clear();
     this.brickMaterial?.dispose();
     this.brickMaterial = null;
-    const atlas = this.brickAtlas();
     for (const g of this.groups.values()) {
       if (g.kind !== 'bricks') continue;
-      for (const [key, d] of g.nodes) if (d.bricks !== undefined) this.regions.set(key, atlas.add(this.uploader(), d.bricks, this.palette?.palette ?? null));
+      for (const [key, d] of g.nodes) if (d.bricks !== undefined) this.upload(key, d.bricks);
       g.dirty = true;
     }
     for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
@@ -304,13 +346,14 @@ export class VoxelFarView {
     let mesh: THREE.Mesh;
     if (g.kind === 'bricks') {
       const atlas = this.brickAtlas();
-      const geo = farBrickGeometry(this.opts.grid.edge, g, [...g.nodes.values()], (n) => this.regions.get(mipNodeKey(n)) ?? []);
+      const nodes = [...g.nodes.values()];
+      const geo = this.march === 'node' ? farNodeGeometry(this.opts.grid.edge, g, nodes, (n) => this.pages.get(mipNodeKey(n))) : farBrickGeometry(this.opts.grid.edge, g, nodes, (n) => this.regions.get(mipNodeKey(n)) ?? []);
       if (this.brickMaterial === null) {
-        this.brickMaterial = new FarBrickMaterial(atlas, this.opts.surface, this.cover);
+        this.brickMaterial = new FarBrickMaterial(atlas, this.opts.surface, this.cover, this.march, this.opts.grid.edge / DISTANCE_BRICK_CELLS);
         this.brickMaterial.setFineShading(this.shading === 'fine');
       }
       g.triangles = 0;
-      g.brickCount = geo.instanceCount;
+      g.brickCount = nodes.reduce((n, d) => n + (d.bricks !== undefined ? farBrickCount(d.bricks) : 0), 0);
       g.bytes = geometryBytes(geo);
       mesh = new THREE.Mesh(geo, this.brickMaterial.material);
       mesh.onBeforeRender = () => this.checkPalette();
@@ -377,6 +420,7 @@ export class VoxelFarView {
     this.groups.clear();
     this.groupOf.clear();
     this.regions.clear();
+    this.pages.clear();
     this.root.clear();
     this.material?.dispose();
     this.brickMaterial?.dispose();
