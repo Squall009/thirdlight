@@ -247,7 +247,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | 13a done (ea5a0542): D571 fixed both modes, thin tops are the look (non-grass on grass tops L2–L6: meshes 55–62 → 0.6–2.4 %, faces2 2–23 → 0–0.3 %, occupancy 2–35 → 0 %), rings gone in the pictures; D570 dense reads + lattice-only transforms: job 71/108 → 45/78 ms, fill 55 → 44 s. 13b (bake-off) next |
+| 46d.13 | 13a done (ea5a0542): D571 fixed (thin tops the look, rings gone), D570 job 71 → 45 ms. 13b-1 done (d116bf13, fab6bf4f, HALF): faces2 + baked shading (D568 fixed) + node march + half-res, switches only: orbit missed WebGPU 23 → 14 → 0–3 → 0, WebGL 2 26–75 → 10–14 → 0–1 → 0; far GPU 99 → 164 MB; v3 ≤ 0.03 % px off ref (§8). 13b-2 next |
 | 46d.14 | not started |
 | 46d.15 | not started |
 
@@ -1779,6 +1779,86 @@ in the meshes' `peak-to-town` far lowland, scattered pale grey flecks (likely bo
 now shows; unverified); a few sky-blue pixel specks on the meshes' rock face in `peak-sight-5km` (geometry, which
 this change does not touch: the 46d.12b dotted cliff lines' kind). Motion and pop not looked at (unverified).
 
+### 46d.13b-1 the ray-marched bricks improved: baked shading, the node march, half resolution
+
+**Built** (d116bf13, fab6bf4f, and the half-resolution commit; every step a switch, nothing made the default;
+`faces2` + fine stays selectable as the reference). *a. Baked shading (D568)*, `?farShade=baked` /
+`setFar({ shade: 'baked' })`: `@thirdlight/voxel` `far-bricks-shade.ts` (each sample's occlusion as the fine
+shading had it at the hit, baked in the far job when the build asks: `FarBrickBuild.occlusion`, `FarBricks.occlusion`;
+`bakeFarBrick`, `farBrickFineShade` the old per-pixel blend on the CPU). Three-adapter `voxel-far-palette.ts`: the far
+colour of every look word drawn on the GPU with the surface's own `farColour` (256² RGBA8, a first draw of each
+texel's word measures the read-back order) and read back, drawn again when the surface's table uploads; the atlas
+then holds each sample's colour and occlusion (RGBA8, filtered: one read is the eight samples' blend) instead of
+its look word, and resident bricks holding a changed word are baked again. *b. The node march (D555)*,
+`?farMarch=node` / `setFar({ march: 'node' })`: a node is one instance of its stored bricks' marched boxes' union,
+its fragment walks the node's 4³ brick table in ray order (a page in two atlas page stores: region and bounds +
+faces, made only for the node march) and marches only stored bricks over their own boxes (`far-bricks-node.ts`
+`marchFarNode`, the CPU port). The skip map is the build's own brick table (empty and inside bricks are skipped in
+one DDA step); no finer coarse map was needed (below). *c. Half resolution*, `?farRes=half` /
+`setFar({ res: 'half' })`: `voxel-far-half.ts`: the brick draws go into the pass's own scene, marched before the
+frame (`VoxelFarView.prepare`, called by the page) into a half-size RGBA float target holding packed colour, octahedral
+view normal and view depth; a full-screen composite in the frame upsamples (bilinear weights × depth similarity to
+the nearest hit texel, under half the weight on hits → behind), is lit by the scene's lights and writes the far
+depth. One path both renderers. The reuse of the last frame (reprojection) is **not built** (D574). Page only:
+Play, Scene view and exports draw the full-resolution bricks (no `prepare`). Upgrade checklist row added.
+
+**Tested.** `far-bricks-shade.test.ts` (2): faces2 bricks from a real store (rough ground of four materials and
+wetness, a roof block), 11,732 surface points: the baked read against the per-pixel fine shading: blend identical
+(< 1e-6), mean 1.2 % of the colour, p90 3.3 %, p99 5.7 % (the occlusion taken at the samples); the far job bakes
+the same occlusion, samples unchanged. `far-bricks-node.test.ts` (1): 6,000 rays from all bearings and heights into
+a node of rough ground, a roof block and an overhang: the node march meets exactly what the nearest brick-by-brick
+march meets (2,914 hits, worst |Δt| 0), never a hit where none is (3,086 misses), ≤ 8 bricks walked; the node box
+holds every brick box. `voxel-far-view.test.ts` (+3): baked switch uploads every brick again (4 bytes a sample),
+the baked program reads ≥ 30 fewer textures than the fine one; node instances, boxes, pages; the half pass and the
+composite built on WGSL and GLSL; back again. Fast gates gate-fast-20261110-061054 (D567 once, GREEN on rerun
+gate-rerun-20261110-062449) gate-fast-20261110-064526 and gate-fast-20261110-073410 GREEN (D523/D554 failed once, passed alone);
+`voxel-world.e2e.ts` not changed.
+
+**Measured** (staging, Iris Xe, 1280 × 720, the 60 Hz cap, medium, the realistic 8 km world from the town square,
+46d.7d's orbit (3 × 8 s) and flight; one run each per renderer, 06:27–07:10, load 3.5–4.6, uptime 17.6 d;
+`work/46d.13b-1/perf-*.json`, `perf-uptime.txt`; the reference's WebGPU run had a vitest run beside it):
+
+| | far GPU MB | page heap | job p50 / p95 | fill | orbit missed (of ~480), p95 ms | flight missed (max ms) |
+|---|---|---|---|---|---|---|
+| WebGPU `faces2` + fine (ref) | 99.4 | 588 MB | 46 / 79 | 44.3 s | 23 / 24 / 24, 150 | 34 (233) |
+| WebGPU a. baked | 164.5 | 624 MB | 52 / 94 | 49.3 s | 16 / 14 / 12, 16.8 | 18 (233) |
+| WebGPU b. + node march | 164.3 | 624 MB | 51 / 90 | 48.3 s | 1 / 3 / 0, 16.7 | 14 (67) |
+| WebGPU c. + half resolution | 164.3 | 624 MB | 50 / 89 | 47.6 s | 0 / 0 / 0, 16.8 | 17 (67) |
+| WebGL 2 ref | 99.4 | 747 MB | 49 / 91 | 48.2 s | 75 / 26 / 59, 33.4 | 25 (283) |
+| WebGL 2 a. baked | 164.5 | 662 MB | 52 / 92 | 48.9 s | 13 / 14 / 10, 16.8 | 23 (333) |
+| WebGL 2 b. + node march | 164.3 | 624 MB | 51 / 90 | 48.2 s | 0 / 0 / 1, 16.7 | 15 (67) |
+| WebGL 2 c. + half resolution | 164.3 | 747 MB | 49 / 88 | 47.4 s | 0 / 0 / 0, 16.8 | 13 (83) |
+
+Read: baking removes the per-pixel colour reads (WebGL 2's misses ÷ 4; WebGPU's long stalls gone, p95 150 → 16.8 ms)
+at +65 MB of GPU memory (RGBA8 a sample for the 2-byte look words). The node march takes the overdraw away (D555's
+cause): from 12–16 to 0–3 a round, the meshes' level (46d.12b: 0). Half resolution takes the last few, within one
+run's noise. The flights' misses are the far commits on the page's thread (D550/D551) as before, their longest
+frames 233–333 → 67–83 ms. The job's occlusion costs ~5 ms p50 (fill 44–48 → 48–49 s). 43,581 bricks every run;
+the brick-table pages are 2 × 256 B a node (inside the MB above, as allocated). GPU timestamps not usable (D544).
+Why no finer skip map: with the node march the 0–3 left are within noise, and a stored brick's tight bounds
+(46d.12) already start the march at its surface's cells.
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/13b-1/`: `ref/`, `v3/` (baked + node), `v3-half/` (+ half
+resolution) at `town-west`, `town-peak-4.5km`, `peak-to-town`, `peak-sight-5km`, `beyond-peak-to-town`, both renderers;
+`side-by-side/` ref left, variant right, a 4× crop below (`work/46d.13b-1/compose.mts`); every picture opened).
+*v3 against ref:* the same picture at every pose: 0.00–0.03 % of pixels differ by > 60, 0.03–0.63 % by > 20
+(most on `peak-to-town` / `beyond-peak-to-town`: the lowland's step-shading contour lines a little softer where the
+occlusion is the samples' blend); crops alike (rock steps, snow edges, grass flecks, town roofs against the far
+slope). *v3-half against ref:* 0.19–0.47 % by > 60, 0.9–4.7 % by > 20: silhouettes against the sky step in 2-pixel
+stairs (`peak-sight-5km`, `town-peak-4.5km` crop, `peak-to-town` horizon), surfaces softer (rock step texture and
+grass flecks blurred), and on the slope left of the valley in `town-west` the step shading turns into a moiré of
+wavy bands not in ref. No holes, no bleeding across silhouettes, no dark fringes at the near field's edge seen.
+WebGPU against WebGL 2: ≤ 0.03 % (> 60) for every variant. *Motion* (`motion/v3-strip.png`, `v3-half-strip.png`:
+8 frames ~0.2 s apart during the orbit at `town-west`, WebGPU): v3 steady; v3-half's moiré bands on that slope
+change from frame to frame (shimmer), silhouettes crawl in 2-pixel steps. Ghosting: none possible (no reuse of the
+last frame). WebGL 2 in motion and the high tier: unverified. A material record's edit re-baking the bricks: unverified
+in a browser (the palette's first draw and read-back are seen right on both renderers: v3 matches ref).
+
+**For 13b-2.** Select the variant by URL `?farField=bricks&farBricks=faces2&farShade=baked&farMarch=node` (add
+`&farRes=half` for the half-resolution march) or the hook `setFar({ mode: 'bricks', bricks: 'faces2', shade: 'baked',
+march: 'node', res: 'half' | 'full' })`; `state().far` reports `shading`, `march`, `half`. The reference is
+`farShade=fine` with the brick march (the defaults).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2292,6 +2372,18 @@ this change does not touch: the 46d.12b dotted cliff lines' kind). Motion and po
   facing more up than sideways** (else along its inward normal first, as before).
 - 2026-11-10 (46d.13a): D570's fix stops at dense reads and lattice-only transforms (job −37 %, fill −21 %); the
   fill is still ~44 s at medium from the town, left to 13b/13c's build choice (bake-off) rather than tuned here.
+
+- 2026-11-10 (46d.13b-1, default chosen, owner to confirm): **baked colour from a palette drawn on the GPU**: every
+  look word's far colour by the surface's own `farColour`, read back and redrawn when the table uploads, so far meshes
+  and bricks keep one colour function and a record's look still reaches the bricks without a far rebuild (resident
+  bricks using a changed word are baked again). Price: an RGBA8 atlas beside the distances (+65 MB at medium);
+  occlusion is baked in the far job (a build flag), not on the page's thread.
+- 2026-11-10 (46d.13b-1, default chosen, owner to confirm): **the skip map is the build's brick table**, walked by a
+  DDA a node: no per-cell distance map was added; the node box is the union of its stored bricks' boxes.
+- 2026-11-10 (46d.13b-1, default chosen, owner to confirm): **13b-1's variant for the bake-off is baked + node march at
+  full resolution** (`v3`): it misses 0–3 a round, looks like ref within 0.03 % of pixels and steady in motion. Half
+  resolution stays a switch: it takes the last 0–3 but steps silhouettes at 2 px and shimmers on the stepped slopes
+  without a reuse of the last frame (D574); worth measuring again on the high tier or a weaker GPU.
 
 ## 10. Open questions for the owner
 

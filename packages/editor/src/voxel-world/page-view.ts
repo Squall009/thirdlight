@@ -52,12 +52,12 @@ export function pageLevel(quality: string, p: ReliefParams): { readonly id: stri
  * The page's far field switch (`?farField=mesh|bricks|off`, default the quality level's mode) and detail
  * (`?farError=` pixels, default the level's): what the streamer's far field is made with.
  */
-export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean; brickBuild: FarBrickBuild; shading: FarBrickShading; march: FarBrickMarch } {
+export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean; brickBuild: FarBrickBuild; shading: FarBrickShading; march: FarBrickMarch; half: boolean } {
   const asked = params.get('farField');
   const mode = (FAR_FIELD_MODES as readonly string[]).includes(asked ?? '') ? (asked as FarFieldMode) : null;
   const error = params.get('farError');
   const b = pageBricks(params.get('farBricks'), params.get('farShade'));
-  return { ...farViewOf(mode ?? level.far.mode), errorPixels: error === null ? level.far.errorPixels : Number(error), pinned: mode !== null || error !== null, ...b, march: pageMarch(params.get('farMarch')) };
+  return { ...farViewOf(mode ?? level.far.mode), errorPixels: error === null ? level.far.errorPixels : Number(error), pinned: mode !== null || error !== null, ...b, march: pageMarch(params.get('farMarch')), half: params.get('farRes') === 'half' };
 }
 
 /**
@@ -71,6 +71,16 @@ export function pageBricks(build: string | null | undefined, shade: string | nul
   return { brickBuild: shading === 'baked' ? { ...named, occlusion: true } : named, shading };
 }
 
+/** WASD walks the view's target over the ground at 30 m/s along the view's yaw (`dt` ms). */
+export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: number }, target: { x: number; z: number }, dt: number): void {
+  if (!(keys.has('w') || keys.has('s') || keys.has('a') || keys.has('d'))) return;
+  const step = (dt / 1000) * 30;
+  const f = (keys.has('w') ? -1 : 0) + (keys.has('s') ? 1 : 0);
+  const s = (keys.has('d') ? 1 : 0) + (keys.has('a') ? -1 : 0);
+  target.x += (Math.sin(view.yaw) * f + Math.cos(view.yaw) * s) * step;
+  target.z += (Math.cos(view.yaw) * f - Math.sin(view.yaw) * s) * step;
+}
+
 /** How the page's far bricks march (`?farMarch=brick|node`, default brick): a box a brick or a box a node. */
 export function pageMarch(march: string | null | undefined): FarBrickMarch {
   return (FAR_BRICK_MARCHES as readonly string[]).includes(march ?? '') ? (march as FarBrickMarch) : 'brick';
@@ -79,14 +89,16 @@ export function pageMarch(march: string | null | undefined): FarBrickMarch {
 /**
  * The hook's far field controls: on or off, its mode (`mode`: off, mesh or bricks, switched without a reload), its
  * detail (pixels a far node's cell may cover) and its bricks' build and shading (`bricks`, `shade`: as
- * {@link pageBricks}; `march` as {@link pageMarch}), and a wait until it draws its selection; the bricks start with `shading` and `march`.
+ * {@link pageBricks}; `march` as {@link pageMarch}; `res` `half` or `full`, as `?farRes=half`), and a wait until it draws its selection; the bricks start with `shading` and `march`.
  */
-export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView, shading: FarBrickShading = 'flat', march: FarBrickMarch = 'brick'): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; bricks?: string; shade?: string; march?: string }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
+export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView, shading: FarBrickShading = 'flat', march: FarBrickMarch = 'brick', half = false): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; bricks?: string; shade?: string; march?: string; res?: string }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
   view.setBrickShading(shading);
   view.setBrickMarch(march);
+  view.setBrickHalf(half);
   return {
-    setFar: ({ mode, bricks, shade, march: m, ...o }) => {
+    setFar: ({ mode, bricks, shade, march: m, res, ...o }) => {
       if (m !== undefined) view.setBrickMarch(pageMarch(m));
+      if (res !== undefined) view.setBrickHalf(res === 'half');
       // A shading alone keeps the build the field has (its occlusion asked for or not with it).
       const b = bricks !== undefined || shade !== undefined ? pageBricks(bricks ?? buildName(streamer.far?.brickBuild), shade ?? null) : null;
       if (b !== null) view.setBrickShading(b.shading);
@@ -110,7 +122,7 @@ function buildName(b: FarBrickBuild | undefined): string | null {
 /** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
 export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
   if (streamer.far === null) return null;
-  return { ...streamer.far.metrics(), brickBuild: streamer.far.brickBuild, fineShading: view.fineBrickShading, shading: view.brickShading, march: view.brickMarch, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+  return { ...streamer.far.metrics(), brickBuild: streamer.far.brickBuild, fineShading: view.fineBrickShading, shading: view.brickShading, march: view.brickMarch, half: view.brickHalf, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
 }
 
 /** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */

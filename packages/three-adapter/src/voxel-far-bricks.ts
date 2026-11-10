@@ -36,7 +36,7 @@
  *   against each other per pixel; hits under the near cover are discarded.
  */
 import * as THREE from 'three';
-import { MeshStandardNodeMaterial } from 'three/webgpu';
+import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GRADIENT_MIN, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
@@ -44,6 +44,7 @@ import { cameraRelative, cameraRelativeModelView } from './camera-relative';
 import type { N } from './effects-tsl';
 import { texelTexture3D } from './texel-texture-node';
 import { farClipPosition, farFragmentDepth, type FarCover } from './voxel-far-common';
+import { farHalfOutput } from './voxel-far-half';
 import { VoxelShaderGrids, type RegionTexels, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
@@ -326,11 +327,14 @@ export class FarBrickMaterial {
   /** Whether the program shades from the atlas's baked samples (made for a baked atlas; never switched). */
   readonly baked: boolean;
 
-  /** `nodeBricks`: bricks a side of a node (the node march walks that many an axis). */
-  constructor(atlas: FarBrickAtlas, surface: VoxelSurface, cover: FarCover, readonly march: FarBrickMarch = 'brick', nodeBricks = 4) {
+  /**
+   * `nodeBricks`: bricks a side of a node (the node march walks that many an axis). `half`: the program draws into
+   * the half-resolution target (voxel-far-half.ts: colour, normal and depth packed, unlit) instead of the frame.
+   */
+  constructor(atlas: FarBrickAtlas, surface: VoxelSurface, cover: FarCover, readonly march: FarBrickMarch = 'brick', nodeBricks = 4, readonly half = false) {
     this.baked = atlas.baked;
-    const m = cameraRelative(new MeshStandardNodeMaterial());
-    m.name = `voxel far bricks (${march})`;
+    const m = cameraRelative(half ? (new NodeMaterial() as MeshStandardNodeMaterial) : new MeshStandardNodeMaterial());
+    m.name = `voxel far bricks (${march}${half ? ', half resolution' : ''})`;
     m.metalness = 0;
     m.roughness = 1;
     m.side = THREE.BackSide;
@@ -389,6 +393,7 @@ export class FarBrickMaterial {
     const modelView: N = cameraRelativeModelView;
     const hitNormal = property('vec3', 'farBrickNormal');
     const hitColour = property('vec3', 'farBrickColour');
+    const hitViewZ = property('float', 'farBrickViewZ');
     const baked = this.baked;
     // A baked program shades as the fine one does (its samples hold the fine blend's inputs).
     const fine = baked ? TSL.bool(true) : this.shadeU.greaterThan(0.5);
@@ -569,10 +574,12 @@ export class FarBrickMaterial {
           hitColour.assign(colourAt(round(q)));
         });
       const view = modelView.mul(vec4(local, 1));
+      hitViewZ.assign(view.z);
       return farFragmentDepth(view.z);
     })();
     m.colorNode = vec4(hitColour, 1);
     m.normalNode = hitNormal;
+    if (half) m.outputNode = farHalfOutput(hitColour, hitNormal, hitViewZ);
     // The boxes reach past the camera's far plane: placed with the far depth, never clipped there (the fragment writes its own).
     m.vertexNode = farClipPosition();
   }

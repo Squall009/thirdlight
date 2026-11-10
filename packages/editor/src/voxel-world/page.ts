@@ -67,7 +67,7 @@
  * with every command), under the near field and hidden where it draws:
  * `?farField=off|mesh|bricks` and `?farError=` (pixels) override the quality
  * level's; `?farBricks=occupancy|faces|faces2` and `?farShade=fine|flat|baked` pick
- * how bricks are built and shaded (comparing builds), `?farMarch=brick|node` how they are marched; `?farShow=0` keeps the
+ * how bricks are built and shaded (comparing builds), `?farMarch=brick|node` how they are marched and `?farRes=half` marches them at half resolution; `?farShow=0` keeps the
  * far draws hidden.
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
@@ -107,7 +107,7 @@ import {
 } from '@thirdlight/voxel';
 import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { textureBudgetBytesOf, VOXEL_MATERIAL_LIMITS } from '@thirdlight/project-model/limits';
-import { bindViewInput, cellPicker, pageFar, pageFarHooks, pageFarState, pageLevel, pageOcclusion, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
+import { bindViewInput, cellPicker, walkByKeys, pageFar, pageFarHooks, pageFarState, pageLevel, pageOcclusion, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
 import { backendArrays, PageMaterials } from './page-materials';
 import { kitSceneHooks } from './kit-scene-labels';
@@ -476,13 +476,7 @@ async function main(): Promise<void> {
       if (dt > MISSED_MS) missed++;
       longestMs = Math.max(longestMs, dt);
       recording?.push(dt);
-      const step = (dt / 1000) * 30;
-      if (keys.has('w') || keys.has('s') || keys.has('a') || keys.has('d')) {
-        const f = (keys.has('w') ? -1 : 0) + (keys.has('s') ? 1 : 0);
-        const s = (keys.has('d') ? 1 : 0) + (keys.has('a') ? -1 : 0);
-        target.x += (Math.sin(view.yaw) * f + Math.cos(view.yaw) * s) * step;
-        target.z += (Math.cos(view.yaw) * f - Math.sin(view.yaw) * s) * step;
-      }
+      walkByKeys(keys, view, target, dt);
       view.yaw += orbit * (dt / 1000);
     }
     last = t;
@@ -491,6 +485,7 @@ async function main(): Promise<void> {
     ring?.update();
     materials.streamer.update(scene, camera, renderer.domElement.height);
     const r0 = performance.now();
+    meshes.far.prepare(renderer, camera);
     if (occlusion !== null) occlusion.render();
     else renderer.render(scene, camera);
     renderMs.add(performance.now() - r0);
@@ -537,7 +532,7 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
-    ...pageFarHooks(streamer, meshes.far, far.shading, far.march),
+    ...pageFarHooks(streamer, meshes.far, far.shading, far.march, far.half),
     /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);

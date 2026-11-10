@@ -39,6 +39,7 @@ import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farB
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { FarBrickAtlas, farBrickGeometry, FarBrickMaterial, farNodeGeometry, type FarBrickMarch, type FarBrickShading } from './voxel-far-bricks';
+import { FarHalfRes, type FarHalfRenderer } from './voxel-far-half';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
@@ -97,6 +98,8 @@ export class VoxelFarView {
   private hidden = false;
   /** The bricks' shading, kept for a material made later. */
   private shading: FarBrickShading = 'flat';
+  /** The bricks' half-resolution pass (null: they draw in the frame). */
+  private half: FarHalfRes | null = null;
   /** The far colours by look word the baked shading's samples take (made with a baked atlas). */
   private palette: FarBrickPalette | null = null;
   private paletteBusy = false;
@@ -147,6 +150,46 @@ export class VoxelFarView {
     this.shading = next;
     if (rebake && this.atlas !== null) this.reupload();
     this.brickMaterial?.setFineShading(next === 'fine');
+  }
+
+  /**
+   * Whether the bricks are marched at half resolution (voxel-far-half.ts): their draws move to the pass's own scene
+   * and a composite draws them in the frame; the host calls {@link prepare} before each frame. A change makes the
+   * brick draws and their program again (no upload).
+   */
+  setBrickHalf(on: boolean): void {
+    if (on === (this.half !== null)) return;
+    if (on) {
+      this.half = new FarHalfRes();
+      this.root.add(this.half.composite);
+    } else {
+      this.half!.composite.removeFromParent();
+      this.half!.dispose();
+      this.half = null;
+    }
+    this.remakeBrickDraws();
+  }
+
+  get brickHalf(): boolean {
+    return this.half !== null;
+  }
+
+  /** The half-resolution pass's own scene, which holds the brick draws while it is on (null: off). */
+  get halfScene(): THREE.Scene | null {
+    return this.half?.scene ?? null;
+  }
+
+  /** Before a frame (half resolution only): the brick draws marched into their target for `camera`. */
+  prepare(renderer: FarHalfRenderer, camera: THREE.Camera): void {
+    if (this.half === null || this.hidden) return;
+    this.half.prepare(renderer, camera, this.root);
+  }
+
+  private remakeBrickDraws(): void {
+    this.brickMaterial?.dispose();
+    this.brickMaterial = null;
+    for (const g of this.groups.values()) if (g.kind === 'bricks') g.dirty = true;
+    for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
   }
 
   /** How brick groups march ({@link FarBrickMarch}): a change makes the brick draws and their program again (to the node march: each node's brick table uploaded once). */
@@ -331,7 +374,7 @@ export class VoxelFarView {
     g.dirty = false;
     this.rebuilds++;
     if (g.mesh !== null) {
-      this.root.remove(g.mesh);
+      g.mesh.removeFromParent();
       g.mesh.geometry.dispose();
       g.mesh = null;
       this.triangles -= g.triangles;
@@ -349,7 +392,7 @@ export class VoxelFarView {
       const nodes = [...g.nodes.values()];
       const geo = this.march === 'node' ? farNodeGeometry(this.opts.grid.edge, g, nodes, (n) => this.pages.get(mipNodeKey(n))) : farBrickGeometry(this.opts.grid.edge, g, nodes, (n) => this.regions.get(mipNodeKey(n)) ?? []);
       if (this.brickMaterial === null) {
-        this.brickMaterial = new FarBrickMaterial(atlas, this.opts.surface, this.cover, this.march, this.opts.grid.edge / DISTANCE_BRICK_CELLS);
+        this.brickMaterial = new FarBrickMaterial(atlas, this.opts.surface, this.cover, this.march, this.opts.grid.edge / DISTANCE_BRICK_CELLS, this.half !== null);
         this.brickMaterial.setFineShading(this.shading === 'fine');
       }
       g.triangles = 0;
@@ -377,7 +420,7 @@ export class VoxelFarView {
     mesh.userData['voxelFar'] = g.key;
     this.place(mesh, g.cell);
     g.mesh = mesh;
-    this.root.add(mesh);
+    (g.kind === 'bricks' && this.half !== null ? this.half.root : this.root).add(mesh);
   }
 
   private place(o3: THREE.Object3D, cell: readonly number[]): void {
@@ -426,6 +469,8 @@ export class VoxelFarView {
     this.brickMaterial?.dispose();
     this.atlas?.dispose();
     this.palette?.dispose();
+    this.half?.dispose();
+    this.half = null;
     this.cover.dispose();
     this.triangles = this.bricks = this.drawBytes = this.nodes = 0;
   }
