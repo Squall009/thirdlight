@@ -30,6 +30,7 @@
 import { occludeeClassOf, OCCLUSION_MIN_TRIANGLES } from '@thirdlight/runtime';
 
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
+import { farNdcDepthCpu } from './far-depth';
 import { fartherDepth, type PyramidLayout } from './occlusion-pyramid-rule';
 
 /**
@@ -240,9 +241,11 @@ export function sphereMayShow(t: SphereTest, cx: number, cy: number, cz: number,
 /**
  * Whether a world-space box (min xyz, max xyz) may show a pixel: the same
  * test over its eight corners (a flat terrain node or a long wall is far
- * tighter as a box than as its sphere).
+ * tighter as a box than as its sphere). `farDepth`: the box's draw writes
+ * the far draws' depth (far-depth.ts), so its nearest point is compared in
+ * that mapping.
  */
-export function boxMayShow(t: SphereTest, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): boolean {
+export function boxMayShow(t: SphereTest, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, farDepth = false): boolean {
   const corners: [number, number, number][] = [];
   let nearest = -Infinity;
   for (const x of [x0, x1]) {
@@ -254,16 +257,17 @@ export function boxMayShow(t: SphereTest, x0: number, y0: number, z0: number, x1
       }
     }
   }
-  return rectMayShow(t, corners, nearest);
+  return rectMayShow(t, corners, nearest, farDepth);
 }
 
 /**
  * The test both bounds share: `corners` (view space) bound what may be drawn,
  * `nearest` is the view-space z of its nearest point (negative ahead). Hidden
- * only when that point, moved a margin nearer, is past the pyramid's farthest
+ * when its projection lies wholly off the screen (the frustum's sides), or
+ * when that point, moved a margin nearer, is past the pyramid's farthest
  * depth over every pixel the corners' projection covers.
  */
-function rectMayShow(t: SphereTest, corners: readonly (readonly [number, number, number])[], nearest: number): boolean {
+function rectMayShow(t: SphereTest, corners: readonly (readonly [number, number, number])[], nearest: number, farDepth = false): boolean {
   const nearZ = nearest + HIDDEN_NEAR_MARGIN_M - nearest * HIDDEN_NEAR_MARGIN_SHARE;
   if (-nearZ <= t.near) return true;
   let x0 = Infinity;
@@ -279,6 +283,8 @@ function rectMayShow(t: SphereTest, corners: readonly (readonly [number, number,
     y0 = Math.min(y0, ny);
     y1 = Math.max(y1, ny);
   }
+  // Every corner is ahead of the near plane here, so the projection bounds the bounds' pixels.
+  if (x1 < -1 || x0 > 1 || y1 < -1 || y0 > 1) return false;
   const clamp = (v: number): number => Math.min(1, Math.max(0, v));
   const W = t.layout.sourceWidth;
   const H = t.layout.sourceHeight;
@@ -294,6 +300,6 @@ function rectMayShow(t: SphereTest, corners: readonly (readonly [number, number,
   const ty1 = Math.min(py1 >> (l + 1), lv.height - 1);
   const at = (x: number, y: number): number => t.pyramid[lv.offset + y * lv.width + x]!;
   const far = fartherDepth(fartherDepth(at(tx0, ty0), at(tx1, ty0), t.reversed), fartherDepth(at(tx0, ty1), at(tx1, ty1), t.reversed), t.reversed);
-  const d = depthOfViewZ(nearZ, t);
+  const d = farDepth ? farNdcDepthCpu(nearZ, t.projection, t.far) : depthOfViewZ(nearZ, t);
   return t.reversed ? !(d < far - HIDDEN_DEPTH_MARGIN) : !(d > far + HIDDEN_DEPTH_MARGIN);
 }

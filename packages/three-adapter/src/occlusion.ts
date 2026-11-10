@@ -38,7 +38,7 @@ import { type OcclusionCulling } from '@thirdlight/project-model';
 
 import { OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY, standinFollowsSurfaces, standinMaterialOf } from './occluders';
-import { TwoPassFrame, type ScenePasses } from './occlusion-passes';
+import { pyramidPathWanted, TwoPassFrame, type ScenePasses } from './occlusion-passes';
 import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
 import { OcclusionKeep, type OcclusionKeepHost } from './occlusion-keep';
 import { OcclusionOverlay } from './occlusion-overlay';
@@ -339,7 +339,7 @@ export class OcclusionCuller implements OcclusionSwitch {
   private choose(): { path: OcclusionPath; source: 'page' | 'setting' } {
     const setting = this.deps.setting();
     const renderer = this.deps.renderer();
-    const next = occlusionPathOf(setting, renderer, this.pinned);
+    const next = occlusionPathOf(setting, renderer, this.pinned, pyramidPathWanted(this.deps.scene));
     // WebGL 2 has no culling path (its occlusion queries answered frames late and saved too little): `on` draws
     // everything there, and the author hears it once rather than measuring a path that is not taken.
     if (setting === 'on' && renderer === 'webgl2' && !this.reportedNoPath) {

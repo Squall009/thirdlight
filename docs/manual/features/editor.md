@@ -392,7 +392,7 @@ each draw culled now (the view keeps drawing while it shows), **Depth
 pyramid** draws the depth the culling tests against instead of the picture
 (WebGPU). The selected object and the object an edit mode edits are never
 culled, nor is anything the view draws itself (gizmos, outlines, handles,
-brush cursors). The project's `auto` culls nothing for now; with the
+brush cursors). The project's `auto` culls only where a voxel world's far field draws; with the
 setting on the view culls with the depth pyramid on WebGPU (WebGL 2 culls
 nothing), and the editor page's `?occlusion=hiz` pins it whatever the
 setting (in Play too).

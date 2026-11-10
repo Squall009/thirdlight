@@ -11,19 +11,11 @@ import * as TSLTyped from 'three/tsl';
 import { NEAR_COVER_EDGE, NEAR_COVER_HIDDEN, VOXEL_SIZE_M, type ChunkGrid, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 
 import type { N } from './effects-tsl';
+import { farNdcDepthOf } from './far-depth';
 import { texelTexture3D } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, log, max, min, mix, positionView, positionWorld, select, uniform, vec3, vec4 } = TSL;
-
-/** How far behind its distance a far fragment's depth is (near the camera): where it meets the near field, the near field is in front. */
-export const FAR_DEPTH_PUSH = 1.05;
-
-/** The share of the camera's far plane up to which far depth is the camera's own (past it, logarithmic). */
-export const FAR_DEPTH_SPLIT = 0.5;
-
-/** The distance (metres) the far depth range ends at: a far node past it sorts as if there. */
-export const FAR_DEPTH_MAX_M = 64_000;
+const { Fn, abs, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, max, min, positionView, positionWorld, select, uniform, vec3, vec4 } = TSL;
 
 /** The camera's own normalized depth (NDC z) of a distance `x` along the view axis (standard, reversed and either range alike). */
 function cameraNdc(x: N): N {
@@ -32,20 +24,9 @@ function cameraNdc(x: N): N {
   return A.negate().add(B.div(x));
 }
 
-/**
- * A far draw's normalized depth (NDC z) of a point `viewZ` metres along the
- * view axis (negative in front): the camera's own depth of the distance
- * pushed back by {@link FAR_DEPTH_PUSH} up to {@link FAR_DEPTH_SPLIT} of the
- * far plane, and past it the distance's logarithm up to
- * {@link FAR_DEPTH_MAX_M} in what remains of the depth range.
- */
+/** A far draw's normalized depth (NDC z) of a point `viewZ` metres along the view axis (negative in front): far-depth.ts. */
 export function farNdcDepth(viewZ: N): N {
-  const x = viewZ.negate().mul(FAR_DEPTH_PUSH).max(1e-3).toVar();
-  const split = cameraFar.mul(FAR_DEPTH_SPLIT);
-  const zSplit = cameraNdc(split);
-  const zEnd = mix(zSplit, cameraNdc(cameraFar), 0.9999);
-  const t = clamp(log(x.div(split)).div(log(float(FAR_DEPTH_MAX_M).div(split))), 0, 1);
-  return select(x.lessThan(split), cameraNdc(x), mix(zSplit, zEnd, t));
+  return farNdcDepthOf(viewZ, cameraProjectionMatrix.element(2).z, cameraProjectionMatrix.element(3).z, cameraFar);
 }
 
 /**
@@ -85,6 +66,10 @@ export class FarCover {
   private readonly size = uniform(new THREE.Vector3(1, 1, 1));
   /** The cover now: its corner and size (chunks), the chunks it hides the far field in, and its edge ring's. */
   state = { min: [0, 0, 0] as number[], size: [1, 1, 1] as number[], covered: 0, edge: 0 };
+  /** The cover's chunks as sent (the CPU's copy, for {@link hides}). */
+  private cells: Uint8Array = new Uint8Array(1);
+  /** Changes when the cover or its place changes (what {@link hides} answers may have). */
+  version = 0;
 
   constructor(
     private readonly grid: ChunkGrid,
@@ -100,6 +85,7 @@ export class FarCover {
     (this.node as unknown as { value: THREE.Texture }).value = this.texture;
     old.dispose();
     this.min = [c.min[0], c.min[1], c.min[2]];
+    this.cells = c.cells;
     let covered = 0;
     let edge = 0;
     for (let i = 0; i < c.cells.length; i++) {
@@ -116,6 +102,29 @@ export class FarCover {
     const o = this.origin.origin;
     const e = this.grid.edge;
     (this.at.value as THREE.Vector3).set((this.min[0] * e - o.x) * VOXEL_SIZE_M, (this.min[1] * e - o.y) * VOXEL_SIZE_M, (this.min[2] * e - o.z) * VOXEL_SIZE_M);
+    this.version++;
+  }
+
+  /**
+   * Whether a world box (metres, min xyz and max xyz) lies wholly in chunks where the near field hides the far
+   * field: every far fragment of a node in it would be discarded there (the CPU twin of {@link covered}).
+   */
+  hides(lo: ArrayLike<number>, hi: ArrayLike<number>): boolean {
+    if (this.state.covered === 0) return false;
+    const at = this.at.value as THREE.Vector3;
+    const chunkM = this.grid.edge * VOXEL_SIZE_M;
+    const size = this.state.size;
+    const from = [0, 0, 0];
+    const to = [0, 0, 0];
+    const origin = [at.x, at.y, at.z];
+    for (let a = 0; a < 3; a++) {
+      from[a] = Math.floor((lo[a]! - origin[a]!) / chunkM);
+      // A box ending on a chunk's face reaches no further.
+      to[a] = Math.ceil((hi[a]! - origin[a]!) / chunkM) - 1;
+      if (from[a]! < 0 || to[a]! >= size[a]! || to[a]! < from[a]!) return false;
+    }
+    for (let z = from[2]!; z <= to[2]!; z++) for (let y = from[1]!; y <= to[1]!; y++) for (let x = from[0]!; x <= to[0]!; x++) if (this.cells[x + size[0]! * (y + size[1]! * z)] !== NEAR_COVER_HIDDEN) return false;
+    return true;
   }
 
   /** The cover's value at a world position (metres): 0 outside, ½ in the edge ring, 1 where the far field is hidden. */

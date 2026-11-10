@@ -278,7 +278,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.13 | done (ea5a0542 … 2ce43208): v3 bricks the default far field, meshes the fallback; D569/D577 fixed; Play fill 142 → 79 s, far GPU budget per tier. 13c-4: D582 was a camera inside the massif; the near field's level choice no longer freezes in a fast flight (0 chunks drawn → back 8 s after), far refines a level a step, ring first. D582 fixed; D583 open (high: GPU), D584–D586 |
 | 46d.14 | deferred (lead 2026-11-10): bricks are the default; the mesh fallback is not revised. Its flight OOM stays D581. The vista note's §5 gate replaces it: if 46d.16's meter shows the bricks cannot reach their budget, the top levels become a simplified height-field mesh |
 | 46d.16 | done (ba27e91c): headroom meter at the 60 Hz cap without timestamps (ballast to the edge, passes hidden/copied past it; `run.mjs headroom`). Iris Xe 720p town orbit: medium room 0.7–2.5 ms of ~14–16; far 39–50 %, near 28–33 %, post 19–24 %, shadows 2–4 %; ms ±40 %. High ~23–31 ms: D583 = GPU-bound, far hidden holds the cap. D587, D588 |
-| 46d.17 | not started |
+| 46d.17 | partial: a–c built (far node boxes rows of the culled table, frustum + pyramid in compute in the far depth, drawn after the pyramid; covered nodes left out; entry depth reject before the march); occlusion `auto` on where a far field draws. Medium room 0.7–1.6 ms base vs 0.3–0.4 after a (within D588's noise). d–f, pictures, docs follow |
 | 46d.18 | not started |
 | 46d.19 | not started |
 | 46d.20 | not started |

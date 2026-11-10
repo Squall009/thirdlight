@@ -22,9 +22,10 @@
  */
 import * as THREE from 'three';
 import { RenderObjectRefreshType } from 'three';
-import { attribute, Fn, instanceIndex, mat4, normalLocal, positionLocal, positionPrevious, storage, transformNormal, uint, uniform, type vec3 } from 'three/tsl';
+import { attribute, Fn, instanceIndex, mat4, normalLocal, positionLocal, positionPrevious, storage, transformNormal, uint, uniform, vec3 } from 'three/tsl';
 import { NodeMaterial, StorageBufferAttribute, type NodeBuilder } from 'three/webgpu';
 import { disposeSharingGeometry } from './dispose';
+import type { N } from './effects-tsl';
 import { instanceSphereBounds } from './instance-prepare';
 import { addRefreshRule, type NeedsRefresh } from './observer-refresh';
 import { SEE_THROUGH_MEMBERS_KEY, type SeeThroughMembers } from './see-through-occluders';
@@ -117,6 +118,21 @@ export interface CulledCopies {
    * the second), written by the culling dispatches, so a draw's uniforms stay the same in both passes.
    */
   readonly list: number;
+  /**
+   * This frame's depth pyramid's finest level, for a draw drawn after it that rejects its pixels by it (the far
+   * field's march, {@link culledDepthAt}); null: none to read (any other pass, or not culled now).
+   */
+  readonly depth?: CulledDepth | null;
+}
+
+/** A frame's depth pyramid's finest level (the farthest depth over each 2 × 2 pixels of the first pass's depth). */
+export interface CulledDepth {
+  readonly storage: THREE.BufferAttribute;
+  /** Its texels a row and its rows (the first pass's target, halved and rounded up). */
+  readonly width: number;
+  readonly height: number;
+  /** Reversed depth: smaller is farther. */
+  readonly reversed: boolean;
 }
 
 /** Bound where a draw has no pools (never read: its list is 0). */
@@ -136,6 +152,31 @@ const culledList = uniform(0, 'uint').onObjectUpdate(({ object }) => {
 });
 const culledBase = uniform(0, 'uint').onObjectUpdate(({ object }) => (object?.userData[CULLED_COPIES_KEY] as CulledCopies | undefined)?.base ?? 0);
 const culledCap = uniform(0, 'uint').onObjectUpdate(({ object }) => (object?.userData[CULLED_COPIES_KEY] as CulledCopies | undefined)?.cap ?? 0);
+const NO_DEPTH = new StorageBufferAttribute(new Float32Array(4), 1);
+const culledDepthLevel = storage(NO_DEPTH, 'float', 1).toReadOnly();
+const depthShape = new THREE.Vector4();
+/** The pyramid level's width, height, depth's sign (−1 reversed) and whether there is one (1), and on the way its buffer. */
+const culledDepthShape = uniform(depthShape).onObjectUpdate(({ object }) => {
+  const d = (object?.userData[CULLED_COPIES_KEY] as CulledCopies | undefined)?.depth ?? null;
+  culledDepthLevel.value = (d?.storage as StorageBufferAttribute | undefined) ?? NO_DEPTH;
+  return d === null ? depthShape.set(1, 1, 1, 0) : depthShape.set(d.width, d.height, d.reversed ? -1 : 1, 1);
+});
+
+/**
+ * Fragment stage: the first pass's farthest depth over the 2 × 2 pixels round `pixel` (the frame's pyramid, read
+ * where a culled draw is drawn after it) times the depth's sign (z: −1 reversed) in x, and in y 1 when there is one
+ * to read (0: none; x is then 0). A depth whose signed value is past x is hidden at that pixel by the first pass.
+ */
+export function culledDepthAt(pixel: N): N {
+  return Fn((builder: NodeBuilder) => {
+    if (!buildReadsCulledCopies(builder)) return vec3(0, 0, 1);
+    const shape: N = culledDepthShape;
+    const x: N = uint(pixel.x.mul(0.5).floor().min(shape.x.sub(1)));
+    const y: N = uint(pixel.y.mul(0.5).floor().min(shape.y.sub(1)));
+    const at: N = culledDepthLevel.element(y.mul(uint(shape.x)).add(x));
+    return vec3(at.mul(shape.w), shape.w, shape.z);
+  })() as N;
+}
 type U = ReturnType<typeof uint>;
 /** The copy's place in the draw's drawn order: the instance itself, or the list's entry for it. */
 const culledPlace = (): U => {
@@ -197,7 +238,7 @@ const applyColumns = Fn((builder: NodeBuilder) => {
 }, 'void');
 
 /** What a culled draw's vertex stage last read, per render object (each camera's draw has its own). */
-const culledSeen = new WeakMap<object, { list: number; base: number; cap: number; matrices: unknown; slots: unknown; lists: unknown }>();
+const culledSeen = new WeakMap<object, { list: number; base: number; cap: number; matrices: unknown; slots: unknown; lists: unknown; depth: unknown }>();
 
 /** A full refresh whenever what the render object's culled draw reads changed since its last draw, else three's own answer. */
 function refreshOnCulledChange(base: NeedsRefresh): NeedsRefresh {
@@ -210,10 +251,11 @@ function refreshOnCulledChange(base: NeedsRefresh): NeedsRefresh {
     const matrices = c?.matrices ?? NO_MATRICES;
     const slots = c?.slots ?? NO_SLOTS;
     const lists = c?.lists ?? NO_LISTS;
+    const depth = c?.depth ?? null;
     const was = culledSeen.get(renderObject);
-    if (was !== undefined && was.list === list && was.base === base0 && was.cap === cap && was.matrices === matrices && was.slots === slots && was.lists === lists) return refresh;
-    if (was === undefined) culledSeen.set(renderObject, { list, base: base0, cap, matrices, slots, lists });
-    else Object.assign(was, { list, base: base0, cap, matrices, slots, lists });
+    if (was !== undefined && was.list === list && was.base === base0 && was.cap === cap && was.matrices === matrices && was.slots === slots && was.lists === lists && was.depth === depth) return refresh;
+    if (was === undefined) culledSeen.set(renderObject, { list, base: base0, cap, matrices, slots, lists, depth });
+    else Object.assign(was, { list, base: base0, cap, matrices, slots, lists, depth });
     return RenderObjectRefreshType.FULL;
   };
 }
@@ -349,6 +391,13 @@ export interface CullableCopies {
    * lists from the scene: it is listed from its adoption on, every frame it is in the scene and shown.
    */
   readonly nested?: boolean;
+  /**
+   * Its cost is its fragments, not its triangles (a box ray-marched per pixel, the far field's): worth testing
+   * whatever its triangle count (a draw of few triangles is otherwise drawn whole).
+   */
+  readonly fragmentBound?: boolean;
+  /** Its fragments write the far draws' depth (far-depth.ts): its boxes are tested in that mapping. */
+  readonly farDepth?: boolean;
 }
 
 /** `mesh.userData[CULLABLE_COPIES_KEY]`: the {@link CullableCopies} of a draw not culled inside by the view (a terrain page). */

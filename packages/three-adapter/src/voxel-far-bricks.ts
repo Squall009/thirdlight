@@ -38,15 +38,25 @@ import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_AO_FLOOR, FAR_BRICK_NORMAL_SPAN_CELLS, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GRADIENT_MIN, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
+import { culledCopyVec4, culledDepthAt } from './attribute-instancing';
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
 import type { N } from './effects-tsl';
 import { texelTexture3D } from './texel-texture-node';
 import { farClipPosition, farFragmentDepth, type FarCover } from './voxel-far-common';
+import { COPY_BOX_FLOAT, HIDDEN_DEPTH_MARGIN } from './occlusion-instances-rule';
+import { declareVertexReach } from './vertex-reach';
+import { FAR_BOX_FROM, FAR_BOX_STEPS, FAR_NODE_CORNER_FLOAT, FAR_NODE_FLOATS, FAR_NODE_HI_FLOAT, FAR_NODE_LO_FLOAT, FAR_NODE_PAGE_FLOAT, packFarBoxCorner } from './voxel-far-cull';
 import { farHalfOutput } from './voxel-far-half';
 import { VoxelShaderGrids, type RegionTexels, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
-const { Break, Discard, Fn, If, Loop, abs, attribute, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, max, min, mix, mod, modelWorldMatrix, modelWorldMatrixInverse, normalize, positionGeometry, property, round, screenSize, select, sign, texture3D, uniform, varying, vec3, vec4 } = TSL;
+const { Break, Discard, Fn, If, Loop, abs, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, max, min, mix, mod, modelWorldMatrix, modelWorldMatrixInverse, normalize, positionGeometry, property, round, screenCoordinate, screenSize, select, sign, texture3D, uniform, varying, vec3, vec4 } = TSL;
+
+/** A packed box corner (voxel-far-cull.ts) in node cells. */
+function unpackCorner(v: N): N {
+  const byte = (k: number): N => mod(floor(v.div(256 ** k)), 256).div(FAR_BOX_STEPS).add(FAR_BOX_FROM);
+  return vec3(byte(0), byte(1), byte(2));
+}
 
 /** A hit's distance from the surface may be this share of the pixel it covers: no step finer than the pixel shows. */
 export const FAR_BRICK_HIT_PIXELS = 0.5;
@@ -193,42 +203,60 @@ function unitBox(): THREE.InstancedBufferGeometry {
   return geo;
 }
 
-/** The node draws' per-instance attributes: the node's corner (metres from the group's corner) and cell size; its page's origin; its box (node cells). */
+/**
+ * The node draws' per-instance vec4s (views of one buffer, voxel-far-cull.ts's layout): the node's corner (metres
+ * from the group's corner) and cell size; its page's origin and its box's packed low corner (node cells); its world
+ * box's low half (the culler's) and the box's packed high corner.
+ */
 export const FAR_NODE_ATTRIBUTE = 'voxelFarNode';
 export const FAR_NODE_PAGE_ATTRIBUTE = 'voxelFarNodePage';
-export const FAR_NODE_LO_ATTRIBUTE = 'voxelFarNodeLo';
-export const FAR_NODE_HI_ATTRIBUTE = 'voxelFarNodeHi';
+export const FAR_NODE_BOX_ATTRIBUTE = 'voxelFarNodeBox';
+
+/** A brick group's draw and the culler's view of its nodes. */
+export interface FarNodeDraws {
+  readonly geometry: THREE.InstancedBufferGeometry;
+  /** The nodes' {@link FAR_NODE_FLOATS} each. */
+  readonly buffer: THREE.InstancedInterleavedBuffer;
+  /** Each node's box, metres from the group's corner (min xyz, max xyz). */
+  readonly boxes: Float32Array;
+  readonly count: number;
+}
 
 /**
  * A brick group's draw as an instance a node (the node march): its corner and cell size, its page in the atlas's
  * page stores, and its box (the union of its stored bricks' marched boxes, node cells).
  */
-export function farNodeGeometry(edge: number, g: { readonly level: number; readonly cell: readonly [number, number, number] }, nodes: readonly FarNodeDraw[], pages: (n: FarNodeDraw) => THREE.Vector3 | undefined): THREE.InstancedBufferGeometry {
+export function farNodeGeometry(edge: number, g: { readonly level: number; readonly cell: readonly [number, number, number] }, nodes: readonly FarNodeDraw[], pages: (n: FarNodeDraw) => THREE.Vector3 | undefined): FarNodeDraws {
   const drawn: Array<{ d: FarNodeDraw; page: THREE.Vector3; box: FarCellBox }> = [];
   for (const d of nodes) {
     const page = pages(d);
     const box = d.bricks !== undefined ? farNodeMarchedBox(d.bricks) : null;
     if (page !== undefined && box !== null) drawn.push({ d, page, box });
   }
-  const inst = new Float32Array(drawn.length * 4);
-  const page = new Float32Array(drawn.length * 4);
-  const lo = new Float32Array(drawn.length * 3);
-  const hi = new Float32Array(drawn.length * 3);
+  const data = new Float32Array(Math.max(1, drawn.length) * FAR_NODE_FLOATS);
+  const boxes = new Float32Array(drawn.length * 6);
   const cellM = 2 ** g.level * VOXEL_SIZE_M;
   drawn.forEach(({ d, page: p, box }, k) => {
-    inst.set([(d.nx * edge * 2 ** g.level - g.cell[0]) * VOXEL_SIZE_M, (d.ny * edge * 2 ** g.level - g.cell[1]) * VOXEL_SIZE_M, (d.nz * edge * 2 ** g.level - g.cell[2]) * VOXEL_SIZE_M, cellM], k * 4);
-    page.set([p.x, p.y, p.z, 0], k * 4);
-    lo.set(box.lo, k * 3);
-    hi.set(box.hi, k * 3);
+    const o = k * FAR_NODE_FLOATS;
+    const corner = [(d.nx * edge * 2 ** g.level - g.cell[0]) * VOXEL_SIZE_M, (d.ny * edge * 2 ** g.level - g.cell[1]) * VOXEL_SIZE_M, (d.nz * edge * 2 ** g.level - g.cell[2]) * VOXEL_SIZE_M];
+    data.set([corner[0]!, corner[1]!, corner[2]!, cellM], o + FAR_NODE_CORNER_FLOAT);
+    data.set([p.x, p.y, p.z], o + FAR_NODE_PAGE_FLOAT);
+    data[o + FAR_NODE_LO_FLOAT] = packFarBoxCorner(box.lo);
+    data[o + FAR_NODE_HI_FLOAT] = packFarBoxCorner(box.hi);
+    for (let a = 0; a < 3; a++) {
+      boxes[k * 6 + a] = corner[a]! + box.lo[a]! * cellM;
+      boxes[k * 6 + 3 + a] = corner[a]! + box.hi[a]! * cellM;
+    }
   });
   const geometry = unitBox();
-  geometry.setAttribute(FAR_NODE_ATTRIBUTE, new THREE.InstancedBufferAttribute(inst, 4));
-  geometry.setAttribute(FAR_NODE_PAGE_ATTRIBUTE, new THREE.InstancedBufferAttribute(page, 4));
-  geometry.setAttribute(FAR_NODE_LO_ATTRIBUTE, new THREE.InstancedBufferAttribute(lo, 3));
-  geometry.setAttribute(FAR_NODE_HI_ATTRIBUTE, new THREE.InstancedBufferAttribute(hi, 3));
+  // Static usage: written once (a group's nodes change by a new draw).
+  const buffer = new THREE.InstancedInterleavedBuffer(data, FAR_NODE_FLOATS, 1);
+  geometry.setAttribute(FAR_NODE_ATTRIBUTE, new THREE.InterleavedBufferAttribute(buffer, 4, FAR_NODE_CORNER_FLOAT));
+  geometry.setAttribute(FAR_NODE_PAGE_ATTRIBUTE, new THREE.InterleavedBufferAttribute(buffer, 4, FAR_NODE_PAGE_FLOAT));
+  geometry.setAttribute(FAR_NODE_BOX_ATTRIBUTE, new THREE.InterleavedBufferAttribute(buffer, 4, COPY_BOX_FLOAT));
   geometry.instanceCount = drawn.length;
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
-  return geometry;
+  return { geometry, buffer, boxes, count: drawn.length };
 }
 
 /**
@@ -236,7 +264,7 @@ export function farNodeGeometry(edge: number, g: { readonly level: number; reado
  * baked shading and the hit's depth, over the atlas.
  */
 export class FarBrickMaterial {
-  readonly material: MeshStandardNodeMaterial;
+  readonly material: NodeMaterial;
   private readonly distanceNode: N;
   /** The atlas's baked colours. */
   private readonly coloursNode: N;
@@ -252,6 +280,8 @@ export class FarBrickMaterial {
     m.metalness = 0;
     m.roughness = 1;
     m.side = THREE.BackSide;
+    // Its vertices stay inside each node's box (the culler's): the box's own corners, placed by the instance.
+    declareVertexReach(m, () => 0);
     this.material = m;
     this.distanceNode = texture3D(atlas.distance.texture);
     this.coloursNode = texture3D(atlas.colours.texture);
@@ -343,13 +373,15 @@ export class FarBrickMaterial {
       });
     };
 
-    // The instance's frame: its corner (metres from the group's corner), cell size, box (cells) and its page.
-    const inst = attribute(FAR_NODE_ATTRIBUTE, 'vec4');
+    // The instance's frame: its corner (metres from the group's corner), cell size, box (cells) and its page, read
+    // through the culled list where the GPU culls the draw.
+    const inst = culledCopyVec4(FAR_NODE_ATTRIBUTE, FAR_NODE_CORNER_FLOAT / 4);
+    const pageLo = culledCopyVec4(FAR_NODE_PAGE_ATTRIBUTE, FAR_NODE_PAGE_FLOAT / 4);
     const corner = inst.xyz;
     const cellM = inst.w;
-    const lo = attribute(FAR_NODE_LO_ATTRIBUTE, 'vec3');
-    const hi = attribute(FAR_NODE_HI_ATTRIBUTE, 'vec3');
-    const nodePage = varying(attribute(FAR_NODE_PAGE_ATTRIBUTE, 'vec4').xyz);
+    const lo = unpackCorner(pageLo.w);
+    const hi = unpackCorner(culledCopyVec4(FAR_NODE_BOX_ATTRIBUTE, COPY_BOX_FLOAT / 4).w);
+    const nodePage = varying(pageLo.xyz);
     m.positionNode = corner.add(lo.add(positionGeometry.mul(hi.sub(lo))).mul(cellM));
     const vCellM = varying(cellM);
     const vCorner = varying(corner);
@@ -375,6 +407,16 @@ export class FarBrickMaterial {
         const tFar = max(ta, tb);
         const t0 = max(max(max(min(ta.x, tb.x), min(ta.y, tb.y)), min(ta.z, tb.z)), float(0));
         const t1 = min(min(tFar.x, tFar.y), tFar.z).toVar();
+        // Where the GPU culls the draw it is drawn after the pyramid of everything drawn before it (the near field):
+        // a ray whose entry into the node's box lies behind that already, meets nothing in front of it, so it is
+        // discarded before its march (its hits are farther along the ray, their depths larger).
+        const before = culledDepthAt(screenCoordinate);
+        If(before.y.greaterThan(0.5), () => {
+          const entry = modelView.mul(vec4(vCorner.add(o.add(dir.mul(t0)).mul(vCellM)), 1));
+          If(farFragmentDepth(entry.z).mul(before.z).greaterThan(before.x.add(HIDDEN_DEPTH_MARGIN)), () => {
+            Discard();
+          });
+        });
         const side = float(nodeBricks);
         const cell = clamp(floor(o.add(dir.mul(t0)).div(C)), vec3(0), vec3(side.sub(1))).toVar();
         const stepV = vec3(select(dir.x.lessThan(0), float(-1), float(1)), select(dir.y.lessThan(0), float(-1), float(1)), select(dir.z.lessThan(0), float(-1), float(1))).toVar();

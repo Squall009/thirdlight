@@ -37,11 +37,12 @@ import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { IndirectStorageBufferAttribute, ReadbackBuffer, StorageBufferAttribute, type WebGPURenderer } from 'three/webgpu';
 
-import { CULLABLE_COPIES_KEY, CULLED_COPIES_KEY, culledCopiesSupported, INSTANCE_CULLER_KEY, type CullableCopies, type CulledCopies, type InstanceCullerHost, type InstanceViewDraw } from './attribute-instancing';
+import { CULLABLE_COPIES_KEY, CULLED_COPIES_KEY, culledCopiesSupported, INSTANCE_CULLER_KEY, type CullableCopies, type CulledCopies, type CulledDepth, type InstanceCullerHost, type InstanceViewDraw } from './attribute-instancing';
 import { releaseStorage } from './dispose';
 import type { N } from './effects-tsl';
 import { drawTrianglesOf, OCCLUDEE_KIND_KEY } from './occludees';
 import { COPY_BOX_FLOAT, COPY_FLOATS, copiesInViewWorthCulling, copiesWorthCulling, HIDDEN_DEPTH_MARGIN, HIDDEN_NEAR_MARGIN_M, HIDDEN_NEAR_MARGIN_SHARE, RangeAllocator } from './occlusion-instances-rule';
+import { farNdcDepthOf } from './far-depth';
 import { depthOfViewZNode, type DepthPyramid } from './occlusion-pyramid';
 import { vertexReachOf } from './vertex-reach';
 import { VIEW_CULL_KEY } from './view-cull';
@@ -67,6 +68,8 @@ const FLAG_FIRST_PASS = 1;
 const FLAG_FRESH = 2;
 const FLAG_WHOLE = 4;
 const FLAG_BOX = 8;
+/** Its copies' boxes are tested in the far draws' depth mapping (far-depth.ts). */
+const FLAG_FAR_DEPTH = 16;
 /** Copies the pools hold at first (they grow as draws come). */
 const POOL_COPIES = 4096;
 /** Frames between read-backs of the drawn counts (diagnostics only). */
@@ -114,6 +117,8 @@ interface Draw extends CulledCopies {
   firstPass: boolean;
   n: number;
   seen: number;
+  /** This frame's pyramid while the draw reads it (a draw whose cost is its fragments, in the second pass). */
+  depth: CulledDepth | null;
 }
 
 /** What the culling of instanced copies reports (the counts read back from the GPU, a few frames late). */
@@ -209,6 +214,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
   private disposed = false;
   /** Why the culling of copies stopped (null: it runs). */
   private failed: string | null = null;
+  /** This frame's pyramid's finest level as culled draws drawn after it read it (null: none built yet). */
+  private frameDepth: CulledDepth | null = null;
 
   constructor(
     private readonly renderer: WebGPURenderer,
@@ -292,7 +299,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const triangles = drawTrianglesOf(mesh.geometry);
     // Vertices moved with no known bound (a graph's vertex offset, a billboard): never culled (terrain pages bound their own).
     const bounded = mesh.userData[OCCLUDEE_KIND_KEY] === 'terrain' || vertexReachOf(mesh) !== null;
-    const worth = bounded && copiesWorthCulling(triangles, items, materials.some((m) => m.transparent));
+    const transparent = materials.some((m) => m.transparent);
+    const worth = bounded && (handle.fragmentBound === true ? !transparent : copiesWorthCulling(triangles, items, transparent));
     if (!worth) {
       this.passed.set(handle, mesh.material);
       return;
@@ -313,6 +321,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
       firstPass: false,
       n: 0,
       seen: this.stamp,
+      depth: null,
       get matrices() {
         return self.pools.matrices;
       },
@@ -382,7 +391,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
     if (camera === null || !occlusionMayTest(m, camera)) return;
     const vd = d.handle.viewDraw();
     // Too few triangles in view to win back the draw's second encode and upkeep: drawn whole this frame.
-    if (vd === null || !copiesInViewWorthCulling(vd.count, d.triangles)) return;
+    // A draw whose cost is its fragments is listed even with none in view (it draws none then, not all).
+    if (vd === null || (d.handle.fragmentBound !== true && !copiesInViewWorthCulling(vd.count, d.triangles))) return;
     // How far wind moves its copies now (asked each frame: the wind changes); no known bound: drawn whole.
     const reach = d.box ? 0 : vertexReachOf(m);
     if (reach === null) return;
@@ -472,11 +482,13 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const perspective = (camera as THREE.PerspectiveCamera).isPerspectiveCamera === true;
     // The box test only where a row needs it (draws culled whole, terrain nodes): the sphere-only kernel is lighter.
     const boxes = this.frameRows.some((d) => d.whole === true || d.box);
-    const key = `${this.generation}|${pyramid.generation}|${reversed}|${logarithmic}|${perspective}|${boxes}`;
+    // The far draws' depth mapping only where a row needs it (far field boxes).
+    const farDepth = boxes && this.frameRows.some((d) => d.whole !== true && d.box && d.handle.farDepth === true);
+    const key = `${this.generation}|${pyramid.generation}|${reversed}|${logarithmic}|${perspective}|${boxes}|${farDepth}`;
     const fresh = key !== this.lateKey;
     if (fresh) {
       this.late?.dispose?.();
-      this.late = this.kernel('late', pyramid, reversed, logarithmic, perspective, boxes);
+      this.late = this.kernel('late', pyramid, reversed, logarithmic, perspective, boxes, farDepth);
       this.lateKey = key;
     }
     const c = camera as THREE.PerspectiveCamera;
@@ -487,6 +499,11 @@ export class InstanceOcclusion implements InstanceCullerHost {
     this.source.width.value = layout.sourceWidth;
     this.source.height.value = layout.sourceHeight;
     this.source.levels.value = layout.levels.length;
+    const level = layout.levels[0]!;
+    const storage = pyramid.storage()!;
+    const fd = this.frameDepth;
+    // One object while it holds (a culled draw's refresh compares it), a new one when the pyramid changes.
+    if (fd === null || fd.storage !== storage || fd.width !== level.width || fd.height !== level.height || fd.reversed !== reversed) this.frameDepth = { storage, width: level.width, height: level.height, reversed };
     this.late.dispatchSize = this.dispatchSize();
     this.freshLate = fresh;
     this.ranLate = true;
@@ -537,6 +554,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     d.base = -1;
     d.row = -1;
     d.list = 0;
+    d.depth = null;
     if (d.handle.mesh.userData[CULLED_COPIES_KEY] === d) delete d.handle.mesh.userData[CULLED_COPIES_KEY];
     d.handle.mesh.geometry.indirect = null;
   }
@@ -553,6 +571,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
       geometry.indirect = null;
       d.list = 0;
     }
+    // Only a draw whose cost is its fragments reads the pyramid (its program rejects hidden pixels before its work).
+    d.depth = d.list > 0 && pass === 2 && d.handle.fragmentBound === true ? this.frameDepth : null;
   }
 
   private place(d: Draw): void {
@@ -679,7 +699,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
       put(o, d.base);
       put(o + 1, d.n);
       put(o + 2, d.cap);
-      put(o + 3, (d.firstPass ? FLAG_FIRST_PASS : 0) | (d.fresh ? FLAG_FRESH : 0) | (d.box ? FLAG_BOX : 0));
+      put(o + 3, (d.firstPass ? FLAG_FIRST_PASS : 0) | (d.fresh ? FLAG_FRESH : 0) | (d.box ? FLAG_BOX : 0) | (d.box && d.handle.farDepth === true ? FLAG_FAR_DEPTH : 0));
       put(o + 4, count);
       put(o + 5, first);
     }
@@ -707,7 +727,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     return [Math.min(rows, DISPATCH_ROW), Math.ceil(rows / DISPATCH_ROW), 1];
   }
 
-  private kernel(phase: 'early' | 'late', pyramid: DepthPyramid | null, reversed: boolean, logarithmic: boolean, perspective: boolean, boxes = false): N {
+  private kernel(phase: 'early' | 'late', pyramid: DepthPyramid | null, reversed: boolean, logarithmic: boolean, perspective: boolean, boxes = false, farDepth = false): N {
     const p = this.pools;
     const table: N = TSL.storage(this.table, 'uint', this.table.count).toReadOnly();
     const args: N = TSL.storage(this.args, 'uint', this.args.count);
@@ -736,6 +756,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
         const fresh = flags.bitAnd(FLAG_FRESH).notEqual(0);
         const whole = flags.bitAnd(FLAG_WHOLE).notEqual(0);
         const boxed = flags.bitAnd(FLAG_BOX).notEqual(0);
+        const farRow = farDepth ? flags.bitAnd(FLAG_FAR_DEPTH).notEqual(0) : null;
         const out = phase === 'early' ? base.mul(2).add(1).toVar() : base.mul(2).add(1).add(cap).toVar();
         // The pass the vertex stages read their list for (one write a dispatch; nothing in it reads the flag).
         TSL.If(d.equal(0).and(lid.equal(0)), () => {
@@ -754,7 +775,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
               if (boxes) {
                 TSL.If(boxed, () => {
                   const v = base.add(slot).mul(COPY_FLOATS / 4).add(COPY_BOX_FLOAT / 4);
-                  now.assign(bounds!.box(copies.element(v).xyz, copies.element(v.add(1)).xyz));
+                  now.assign(bounds!.box(copies.element(v).xyz, copies.element(v.add(1)).xyz, farRow));
                 }).Else(() => {
                   now.assign(bounds!.sphere(spheres.element(base.add(slot))));
                 });
@@ -796,7 +817,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
   }
 
   /** Whether a world sphere (vec4: centre, radius) or box (min, max) may show a pixel against the pyramid (the rule's `sphereMayShow` and `boxMayShow`, in TSL). */
-  private boundsTests(levels: N, reversed: boolean, logarithmic: boolean, perspective: boolean): { sphere(s: N): N; box(lo: N, hi: N): N } {
+  private boundsTests(levels: N, reversed: boolean, logarithmic: boolean, perspective: boolean): { sphere(s: N): N; box(lo: N, hi: N, farRow: N | null): N } {
     const { viewMatrix } = this;
     const rect = this.rectTest(levels, reversed, logarithmic, perspective);
     return {
@@ -807,22 +828,22 @@ export class InstanceOcclusion implements InstanceCullerHost {
         for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) corners.push(vc.add(TSL.vec3(sx, sy, sz).mul(r)));
         return rect(corners, vc.z.add(r));
       },
-      box: (lo: N, hi: N): N => {
+      box: (lo: N, hi: N, farRow: N | null): N => {
         const corners: N[] = [];
         for (const x of [lo.x, hi.x]) for (const y of [lo.y, hi.y]) for (const z of [lo.z, hi.z]) corners.push(viewMatrix.mul(TSL.vec4(x, y, z, 1)).xyz.toVar());
         let nearest: N = corners[0]!.z;
         for (const c of corners.slice(1)) nearest = TSL.max(nearest, c.z);
-        return rect(corners, nearest);
+        return rect(corners, nearest, farRow);
       },
     };
   }
 
   /** The rule's `rectMayShow` in TSL: `corners` (view space) bound what may be drawn, `nearest` is the view-space z of its nearest point. */
-  private rectTest(levels: N, reversed: boolean, logarithmic: boolean, perspective: boolean): (corners: N[], nearest: N) => N {
+  private rectTest(levels: N, reversed: boolean, logarithmic: boolean, perspective: boolean): (corners: N[], nearest: N, farRow?: N | null) => N {
     const { projection, near, far } = this;
     const { width: W, height: H, levels: levelCount } = this.source;
     const farther = reversed ? (a: N, b: N) => TSL.min(a, b) : (a: N, b: N) => TSL.max(a, b);
-    return (corners: N[], nearest: N): N => {
+    return (corners: N[], nearest: N, farRow: N | null = null): N => {
       const show = TSL.bool(true).toVar();
       const nearZ = TSL.float(nearest).add(HIDDEN_NEAR_MARGIN_M).sub(TSL.float(nearest).mul(HIDDEN_NEAR_MARGIN_SHARE)).toVar();
       // Bounds reaching the near plane are kept; else every corner is ahead of the camera.
@@ -839,6 +860,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
           y0.assign(TSL.min(y0, ndc.y));
           y1.assign(TSL.max(y1, ndc.y));
         }
+        // Every corner is ahead of the near plane here, so a projection wholly off the screen is outside the frustum.
+        const inside = x1.greaterThanEqual(-1).and(x0.lessThanEqual(1)).and(y1.greaterThanEqual(-1)).and(y0.lessThanEqual(1));
         const fw = TSL.float(W);
         const fh = TSL.float(H);
         const px = (v: N, size: N, f: N): N => TSL.min(TSL.uint(TSL.floor(TSL.clamp(v, 0, 1).mul(f))), size.sub(1));
@@ -868,9 +891,10 @@ export class InstanceOcclusion implements InstanceCullerHost {
         const ty1 = TSL.min(py1.shiftRight(l.add(1)), lh.sub(1));
         const at = (x: N, y: N): N => levels.element(offset.add(y.mul(lw)).add(x));
         const farthest = farther(farther(at(tx0, ty0), at(tx1, ty0)), farther(at(tx0, ty1), at(tx1, ty1)));
-        const depth = depthOfViewZNode(nearZ, near, far, { perspective, reversed, logarithmic });
+        const own = depthOfViewZNode(nearZ, near, far, { perspective, reversed, logarithmic });
+        const depth = farRow === null ? own : TSL.select(farRow, farNdcDepthOf(nearZ, projection.element(2).z, projection.element(3).z, far), own);
         const hidden = reversed ? depth.lessThan(farthest.sub(HIDDEN_DEPTH_MARGIN)) : depth.greaterThan(farthest.add(HIDDEN_DEPTH_MARGIN));
-        show.assign(hidden.not());
+        show.assign(hidden.not().and(inside));
       });
       return show;
     };

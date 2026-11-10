@@ -42,6 +42,7 @@ import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farB
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { FarBrickAtlas, FarBrickMaterial, farNodeGeometry } from './voxel-far-bricks';
+import { FarNodeCopies } from './voxel-far-cull';
 import { FarHalfRes, type FarHalfRenderer } from './voxel-far-half';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
@@ -64,6 +65,8 @@ interface FarGroup {
   readonly cell: readonly [number, number, number];
   readonly nodes: Map<string, FarNodeDraw>;
   mesh: THREE.Mesh | null;
+  /** A brick group's nodes as the GPU culler sees them (null: a mesh group). */
+  copies: FarNodeCopies | null;
   dirty: boolean;
   triangles: number;
   bytes: number;
@@ -112,6 +115,13 @@ export class VoxelFarView {
   private drawBytes = 0;
   /** Far nodes drawn (with anything to draw). */
   nodes = 0;
+
+  /** Far nodes the view's culled draws leave out because the near field hides them whole (as last packed). */
+  get coveredNodes(): number {
+    let n = 0;
+    for (const g of this.groups.values()) n += g.copies?.covered ?? 0;
+    return n;
+  }
   /** Groups rebuilt (draws replaced) since made. */
   rebuilds = 0;
   /** Times the brick atlas gave space back. */
@@ -308,7 +318,7 @@ export class VoxelFarView {
     let g = this.groups.get(key);
     if (g === undefined) {
       const span = FAR_GROUP_NODES * this.opts.grid.edge * 2 ** level;
-      g = { key, kind, level, cell: [gx * span, 0, gz * span], nodes: new Map(), mesh: null, dirty: false, triangles: 0, bytes: 0, brickCount: 0, drawnNodes: 0 };
+      g = { key, kind, level, cell: [gx * span, 0, gz * span], nodes: new Map(), mesh: null, copies: null, dirty: false, triangles: 0, bytes: 0, brickCount: 0, drawnNodes: 0 };
       this.groups.set(key, g);
     }
     return g;
@@ -318,6 +328,8 @@ export class VoxelFarView {
     g.dirty = false;
     this.rebuilds++;
     if (g.mesh !== null) {
+      g.copies?.dispose();
+      g.copies = null;
       g.mesh.removeFromParent();
       g.mesh.geometry.dispose();
       g.mesh = null;
@@ -333,13 +345,20 @@ export class VoxelFarView {
     let mesh: THREE.Mesh;
     if (g.kind === 'bricks') {
       const nodes = [...g.nodes.values()];
-      const geo = farNodeGeometry(this.opts.grid.edge, g, nodes, (n) => this.pages.get(mipNodeKey(n)));
+      const draws = farNodeGeometry(this.opts.grid.edge, g, nodes, (n) => this.pages.get(mipNodeKey(n)));
       this.brickMaterial ??= new FarBrickMaterial(this.brickAtlas(), this.cover, this.opts.grid.edge / DISTANCE_BRICK_CELLS, this.half !== null);
       g.triangles = 0;
       g.brickCount = nodes.reduce((n, d) => n + (d.bricks !== undefined ? farBrickCount(d.bricks) : 0), 0);
-      g.bytes = geometryBytes(geo);
-      mesh = new THREE.Mesh(geo, this.brickMaterial.material);
-      mesh.onBeforeRender = () => this.checkPalette();
+      g.bytes = geometryBytes(draws.geometry);
+      mesh = new THREE.Mesh(draws.geometry, this.brickMaterial.material);
+      // Culled node by node on the GPU where the frame has the pyramid path, drawn after it (voxel-far-cull.ts); the
+      // half-resolution pass draws its own scene, whole.
+      const copies = this.half === null && draws.count > 0 ? new FarNodeCopies(mesh, draws.buffer, draws.boxes, draws.count, this.cover) : null;
+      g.copies = copies;
+      mesh.onBeforeRender = (_r, scene) => {
+        this.checkPalette();
+        copies?.beforeDraw(scene, scene.overrideMaterial === null);
+      };
     } else {
       const geo = groupGeometry(this.opts.grid, g, [...g.nodes.values()]);
       g.triangles = (geo.index?.count ?? 0) / 3;
@@ -400,7 +419,10 @@ export class VoxelFarView {
   }
 
   dispose(): void {
-    for (const g of this.groups.values()) g.mesh?.geometry.dispose();
+    for (const g of this.groups.values()) {
+      g.copies?.dispose();
+      g.mesh?.geometry.dispose();
+    }
     this.groups.clear();
     this.groupOf.clear();
     this.regions.clear();
@@ -469,6 +491,13 @@ export function groupGeometry(grid: ChunkGrid, g: { readonly level: number; read
 
 function geometryBytes(geo: THREE.BufferGeometry): number {
   let n = geo.index?.array.byteLength ?? 0;
-  for (const a of Object.values(geo.attributes)) n += (a as THREE.BufferAttribute).array.byteLength;
+  // Views of one interleaved buffer count it once.
+  const seen = new Set<ArrayBufferLike>();
+  for (const a of Object.values(geo.attributes)) {
+    const arr = (a as THREE.BufferAttribute).array;
+    if (seen.has(arr.buffer)) continue;
+    seen.add(arr.buffer);
+    n += arr.byteLength;
+  }
   return n;
 }

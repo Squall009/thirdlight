@@ -4,12 +4,16 @@ import { engineStatsOf, ENGINE_STATS_NONE } from './engine-stats';
 import { occludeeClassOf, occludeeScreenShare, occluderRoleOf, type OccluderFacts, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, occlusionPathFrom, occlusionPathOf } from './occlusion';
 
 describe('occlusion culling rules', () => {
-  it('on takes the depth pyramid on WebGPU and culls nothing on WebGL 2; auto culls nothing for now; off and an unknown renderer draw everything', () => {
+  it('on takes the depth pyramid on WebGPU and culls nothing on WebGL 2; auto culls only where a voxel far field asks for it; off and an unknown renderer draw everything', () => {
     expect(occlusionPathOf('on', 'webgpu')).toEqual({ path: 'hiz', source: 'setting' });
     expect(occlusionPathOf('on', 'webgl2')).toEqual({ path: 'off', source: 'setting' });
     expect(occlusionPathOf('on', null).path).toBe('off');
     expect(occlusionPathOf('auto', 'webgpu')).toEqual({ path: 'off', source: 'setting' });
     expect(occlusionPathOf('auto', 'webgl2')).toEqual({ path: 'off', source: 'setting' });
+    // A scene drawing something whose pixels the path saves (a voxel far field) wants it on auto, on WebGPU only.
+    expect(occlusionPathOf('auto', 'webgpu', null, true)).toEqual({ path: 'hiz', source: 'setting' });
+    expect(occlusionPathOf('auto', 'webgl2', null, true).path).toBe('off');
+    expect(occlusionPathOf('off', 'webgpu', null, true).path).toBe('off');
     expect(occlusionPathOf('off', 'webgpu').path).toBe('off');
   });
 

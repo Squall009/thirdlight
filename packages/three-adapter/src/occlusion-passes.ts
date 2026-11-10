@@ -43,6 +43,29 @@ import { InstanceOcclusion } from './occlusion-instances';
 import { DepthPyramid } from './occlusion-pyramid';
 import { WholeOcclusion } from './occlusion-whole';
 
+/**
+ * `object.userData[AFTER_PYRAMID_KEY] = true`: a draw below the scene's drawables (so no occludee) that hides
+ * nothing the pyramid needs and costs most per pixel (the far field's ray-marched boxes): drawn in the second
+ * pass only, so its copies are tested against this frame's pyramid of everything drawn before it.
+ */
+export const AFTER_PYRAMID_KEY = '__tlAfterPyramid';
+
+/** `scene.userData[PYRAMID_WANTED_KEY]`: when (ms, `performance.now()`) a draw last asked for the pyramid path. */
+const PYRAMID_WANTED_KEY = '__tlPyramidWanted';
+/** How long a draw's ask holds after its last draw (a hidden far field gives the path back after it). */
+const PYRAMID_WANTED_MS = 2000;
+
+/** Right before its draw: `scene` draws something the pyramid path saves pixels on (occlusion `auto` turns it on). */
+export function wantPyramidPath(scene: THREE.Object3D): void {
+  scene.userData[PYRAMID_WANTED_KEY] = performance.now();
+}
+
+/** Whether a draw of `scene` asked for the pyramid path lately. */
+export function pyramidPathWanted(scene: THREE.Object3D): boolean {
+  const t = scene.userData[PYRAMID_WANTED_KEY] as number | undefined;
+  return t !== undefined && performance.now() - t < PYRAMID_WANTED_MS;
+}
+
 /** What the environment renderer's scene pass asks of a frame drawn in two passes. */
 export interface ScenePasses {
   /**
@@ -108,9 +131,9 @@ export class TwoPassFrame implements ScenePasses {
     this.r = renderer as unknown as PassRenderer;
   }
 
-  /** Whether `object` draws in the second pass: an occludee that is no occluder (its role is `none`), or a draw culled whole that was hidden at its last answer. */
+  /** Whether `object` draws in the second pass: one marked to draw after the pyramid, an occludee that is no occluder (its role is `none`), or a draw culled whole that was hidden at its last answer. */
   secondPass(object: THREE.Object3D): boolean {
-    return this.registry.get(object)?.role === 'none' || this.wholes.second(object);
+    return object.userData[AFTER_PYRAMID_KEY] === true || this.registry.get(object)?.role === 'none' || this.wholes.second(object);
   }
 
   private readonly first: RenderObjectFunction = (object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) => {

@@ -7,7 +7,7 @@
  * `off` draws everything in view. WebGL 2 has no path: its occlusion
  * queries answered frames late and saved too little to pay for themselves.
  * The project's `occlusion_culling` (or its quality level's) says off, auto
- * or on: on takes the depth pyramid on WebGPU; auto culls nothing for now.
+ * or on: on takes the depth pyramid on WebGPU; auto culls only where a voxel far field draws (the scene asks for it).
  * The pyramid's two-pass frame costs an open view more than it saves at the
  * scene sizes measured; a project that measures a gain turns it on. A page
  * flag may pin a path for a comparison.
@@ -48,10 +48,13 @@ export function occlusionPathAvailable(path: OcclusionPath, renderer: OcclusionR
 /**
  * The path a frame culls on. A pinned path the renderer does not have draws
  * with none: a comparison never measures another path than the one it named.
+ * `auto` culls only where the scene draws something whose cost is its pixels
+ * and that is culled on the path (`wanted`: a voxel world's far field, whose
+ * boxes are ray-marched): there the path saves more than its passes cost.
  */
-export function occlusionPathOf(setting: OcclusionCulling, renderer: OcclusionRenderer, pinned: OcclusionPath | null = null): OcclusionPathChoice {
+export function occlusionPathOf(setting: OcclusionCulling, renderer: OcclusionRenderer, pinned: OcclusionPath | null = null, wanted = false): OcclusionPathChoice {
   if (pinned !== null) return { path: occlusionPathAvailable(pinned, renderer) ? pinned : 'off', source: 'page' };
-  return { path: setting === 'on' && renderer === 'webgpu' ? 'hiz' : 'off', source: 'setting' };
+  return { path: (setting === 'on' || (setting === 'auto' && wanted)) && renderer === 'webgpu' ? 'hiz' : 'off', source: 'setting' };
 }
 
 /** A path from a page flag's value (null: not a path). */

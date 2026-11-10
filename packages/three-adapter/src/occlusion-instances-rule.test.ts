@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { boxMayShow, copiesWorthCulling, depthOfViewZ, firstPassList, levelFor, listedCopy, RangeAllocator, secondPassList, sphereMayShow, type CopyStep, type SphereTest } from './occlusion-instances-rule';
+import { FAR_DEPTH_MAX_M, FAR_DEPTH_PUSH, farNdcDepthCpu } from './far-depth';
 import { pyramidLayout, reducePyramid } from './occlusion-pyramid-rule';
 
 describe('the pools of culled copies', () => {
@@ -112,6 +113,34 @@ describe('a copy\'s sphere against the depth pyramid', () => {
     });
   }
 
+  it('hides a box wholly off the screen (the frustum\'s sides), never one the screen\'s edge cuts', () => {
+    for (const reversed of [false, true]) {
+      const t = sceneWith(reversed);
+      // The camera looks down −z with a 60° vertical field: at 20 m the screen's half height is ~11.5 m, its half width ~23 m.
+      expect(boxMayShow(t, 30, -1, -21, 40, 1, -19), 'right of the screen').toBe(false);
+      expect(boxMayShow(t, -3, 15, -21, 3, 20, -19), 'above it').toBe(false);
+      expect(boxMayShow(t, 20, -1, -21, 40, 1, -19), 'cut by its right edge').toBe(true);
+      expect(sphereMayShow(t, 0, -30, -20, 2), 'a sphere below it').toBe(false);
+    }
+  });
+
+  it('tests a far draw\'s box in the far depth mapping: kilometres past the far plane it shows under the sky and hides behind the wall', () => {
+    for (const reversed of [false, true]) {
+      // The far depth is the projection's own: a reversed depth buffer's camera projects reversed.
+      const flipped = camera.clone() as THREE.PerspectiveCamera & { _reversedDepth: boolean };
+      flipped._reversedDepth = reversed;
+      flipped.updateProjectionMatrix();
+      const t = { ...sceneWith(reversed), projection: flipped.projectionMatrix.elements };
+      // 3 km ahead, the camera's far plane at 100 m: in the camera's own depth past its far plane, hidden by the sky.
+      expect(boxMayShow(t, 1000, -5, -3010, 2000, 5, -3000), 'own depth: lost to the sky').toBe(false);
+      expect(boxMayShow(t, 1000, -5, -3010, 2000, 5, -3000, true), 'far depth: under the sky').toBe(true);
+      expect(boxMayShow(t, -2000, -5, -3010, -1000, 5, -3000, true), 'far depth: behind the wall').toBe(false);
+      // Just behind the wall, where the far depth's push (5 %) already puts it behind: hidden; well in front: shown.
+      expect(boxMayShow(t, -6, -1, -10.2, -4, 1, -10.1, true)).toBe(false);
+      expect(boxMayShow(t, -6, -1, -8, -4, 1, -7, true)).toBe(true);
+    }
+  });
+
   it('reads the level whose 2 × 2 texels cover the box', () => {
     expect(levelFor(5, 5, 9, 9, 8)).toBe(0);
     // Four pixels on two level-0 texels read level 0; across a level-0 texel border (three texels) level 1.
@@ -124,6 +153,25 @@ describe('a copy\'s sphere against the depth pyramid', () => {
     expect(levelFor(947, 967, 216, 233, 12)).toBe(3);
     expect(levelFor(940, 967, 216, 233, 12)).toBe(4);
     expect(levelFor(0, 1000, 0, 0, 4)).toBe(3);
+  });
+});
+
+describe('the far draws\' depth', () => {
+  it('is the camera\'s own depth of the pushed distance up to the split, then rises with the distance\'s logarithm and stays under the far plane\'s', () => {
+    const camera = new THREE.PerspectiveCamera(60, 2, 0.1, 1000);
+    camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+    camera.updateProjectionMatrix();
+    const p = camera.projectionMatrix.elements;
+    const own = (z: number): number => depthOfViewZ(z, { near: 0.1, far: 1000, perspective: true, reversed: false, logarithmic: false });
+    expect(farNdcDepthCpu(-100, p, 1000)).toBeCloseTo(own(-100 * FAR_DEPTH_PUSH), 6);
+    let last = 0;
+    for (const x of [10, 400, 600, 2000, 10_000, 60_000]) {
+      const d = farNdcDepthCpu(-x, p, 1000);
+      expect(d).toBeGreaterThan(last);
+      expect(d).toBeLessThan(1);
+      last = d;
+    }
+    expect(farNdcDepthCpu(-200_000, p, 1000)).toBe(farNdcDepthCpu(-FAR_DEPTH_MAX_M / FAR_DEPTH_PUSH, p, 1000));
   });
 });
 
