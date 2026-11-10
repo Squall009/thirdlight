@@ -95,6 +95,20 @@ not edited (an art-factory request doc may be written). three.js is not updated 
   new voxel feature, no parity). Replaces the 2026-10-26 one-shared-path preference.
 - 2026-11-10 (OWNER): vista pass steps 1–4 (46d.17–46d.20) in 46d-b; goal an order of magnitude of headroom on the
   Iris Xe at 720p30 with fidelity kept, room for foliage, weather and fog later.
+- 2026-11-10 (OWNER, after 46d.16, relayed by session thirdlight-65): **the Iris Xe target is the LOW tier: 720p
+  upscaled, capped at 30 Hz.** Low renders at about 0.667 render scale with the temporal upscaler (as medium does)
+  and everything else cheaper; the headroom meter measures low against its 30 Hz cap. "No room at 60 Hz on medium"
+  is not a blocker; medium and high cannot be judged on this host: report their pass shares and scaling, frame
+  times labelled "unverified on target hardware" (a workstation meter run is still wanted, §10).
+- 2026-11-10 (OWNER): **travel at 150 m/s** (racing-game class). Streaming "need not be perfect, but we need to make
+  sure a world is maintained around the camera while moving even if things are still streaming in at various
+  quality levels": the pass criterion at speed is coverage (no hole, no missing ground or collision under the
+  camera), not zero missed frames or full detail.
+- 2026-11-10 (OWNER): a page + GPU **memory ceiling for the low tier only** for now; no budgets for medium/high
+  until they can be tested properly. The post stack (19–24 % of medium's frame) gets its own later phase, not 46d.
+  A fuller frame budget (GPU and CPU per thread) is drafted with the owner once low's numbers exist; nothing to
+  build yet. No stand-in forest: the owner's demo project is the stress scene; the 8 km world stays for
+  like-for-like numbers.
 
 ## 3. three.js check
 
@@ -224,9 +238,11 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.14 | Mesh fallback revision (the ~1/4 triangle cut, view culling D550) — only if the fallback is still needed after 46d.13; else deferred with a note. |
 | 46d.16 | (owner 2026-11-10, vista pass step 0; WebGPU) A GPU headroom meter that works at the 60 Hz cap (D544 rules out timestamps): load a chosen pass N times or raise the render scale in steps until the orbit misses; a frame-budget table per pass (near surfaces, far march, shadows, post) on the Iris Xe at 720p — the baseline 46d.17–46d.20 report against. |
 | 46d.17 | (vista step 1, compute, WebGPU) Stop the far field's wasted work: far node boxes as rows of the existing culled-instance table (`occlusion-instances.ts`; frustum + depth pyramid in compute, indirect draws), no nodes wholly under the near cover, depth reject before the march (F2), normal baked into the atlas (F4), a cheap far shading (sun, ambient, fog), unused reads (F6) and uploads (F7) — each re-checked against 46d.13c-3 first. |
-| 46d.18 | (vista step 2) Bricks baked at world-bake time into the far cache (distance, colour, normal per node; edited nodes re-baked only); the runtime job becomes decode + upload; a compute brick build for edited nodes tried and measured against the CPU job. Far cache version bump, add-only, with the owner's note (instruction 2026-11-10). Target fill < 10 s (today 48–80 s). |
-| 46d.19 | (vista step 3, WebGPU) Near surface shader and submission: near chunks and seams as rows of the same culled table, one indirect draw a level (N4); fast paths per chunk/draw (single material, one projection, cheap levels 1–2; N1), a position-only depth prepass (N2), packed vertices read directly (N3), mip nodes without collision/nav/light and a cheap hash (N5). May split a/b. |
+| 46d.18 | (vista step 2) Bricks baked at world-bake time into the far cache (distance, colour, normal per node; edited nodes re-baked only); the runtime job becomes decode + upload. Edits (owner design 2026-11-10): the bake is the same builder code run ahead of time (identical bricks from identical voxels, or edited nodes seam against baked neighbours); an edit dirties its node at each level plus border neighbours, workers rebuild those while the old brick keeps drawing; rebuilt bricks stored beside the save, keyed by their source voxels' content, so a much-edited save does not rebuild every load. A compute brick build for edited nodes tried and measured against the CPU job. Far cache version bump, add-only, with the owner's note (instruction 2026-11-10). Target fill < 10 s (today 48–80 s). |
+| 46d.19 | (vista step 3, WebGPU) Near surface shader and submission (also: measure near voxel chunks as static casters in `cached-shadow.ts` and whether its reach and invalidation fit chunks and edits — terrain shadows are an owner proposal, not decided): near chunks and seams as rows of the same culled table, one indirect draw a level (N4); fast paths per chunk/draw (single material, one projection, cheap levels 1–2; N1), a position-only depth prepass (N2), packed vertices read directly (N3), mip nodes without collision/nav/light and a cheap hash (N5). May split a/b. |
 | 46d.20 | (vista step 4) The far pass shaped like Enshrouded's: the march writes a visibility target (brick id, depth), one far shade with fog (full-screen pass or compute, by the meter); culling and visibility feedback in compute (per-node seen/error in a storage buffer, read back a frame or two late); half resolution with reuse (D574) only if 46d.16 asks; far motion output for TAAU checked in a moving shot. The largest item; starts on 46d.17's numbers. |
+| 46d.21 | (owner 2026-11-10) The low tier as the Iris Xe target: render scale ~0.667 + the temporal upscaler, everything else cheaper, capped at 30 Hz; the meter measures low against that cap (`headroom --quality low`); a stated page + GPU memory ceiling for low only; medium/high reported as shares and scaling, frame times "unverified on target hardware". Runs right after 46d.17. |
+| 46d.22 | (owner 2026-11-10) Coverage at 150 m/s: a world is kept round the moving camera at some quality (no hole, ground and collision under the camera). Candidates: top far levels of the whole world kept resident, motion prefetch scaled with speed, near levels 1–2 before 0 at speed, collision along the velocity first; a 150 m/s bench that asserts coverage (D584, D585). After 46d.18 (baked bricks). |
 | 46d.15 | 46d-b close (lead), after 46d.20: full gate, review, fixes, acceptance acc46d-b (pictures and numbers on WebGPU; WebGL 2 a load-and-draw smoke). |
 
 ## 7. Progress
@@ -266,6 +282,8 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.18 | not started |
 | 46d.19 | not started |
 | 46d.20 | not started |
+| 46d.21 | not started |
+| 46d.22 | not started |
 | 46d.15 | not started |
 
 ## 8. Results
@@ -2914,6 +2932,18 @@ for their windows, not looked at); the high tier's ms from one round; low not me
 - 2026-11-10 (46d.16): **D583 is GPU pixel cost at high's full resolution**, mostly the far march: with the far
   field hidden the high orbit holds the cap; it stays open for the vista steps. Medium has almost no GPU room on
   the floor GPU (D587): the half-resolution far march (D574) is worth its trial in 46d.20, as the note said.
+
+- 2026-11-10 (OWNER, after reading 46d.16; relayed by session thirdlight-65): low tier = the Iris Xe target (720p
+  upscaled, 30 Hz cap; render scale ~0.667 + temporal upscaler); 150 m/s with coverage as the criterion; a memory
+  ceiling for low only; post stack a later phase; fuller frame budget later with the owner; no stand-in forest (the
+  owner's demo project). Also asked: low's headroom at 30 Hz; the edited-node rebuild design for the baked far
+  cache (folded into 46d.18); terrain shadows proposal (near chunks as static casters in the cached key-light map,
+  lamps through atlas tiles near only, far terrain from a compute horizon-shadow texture) — not decided; the near
+  part measured in 46d.19, the rest waits for the owner / 46e.
+- 2026-11-10 (lead, placement): order 46d.17 → **46d.21** (low tier; the meter's baseline on the target) → 46d.18
+  (baked bricks, edits as designed) → **46d.22** (150 m/s coverage) → 46d.19 → 46d.20 → 46d.15 close. 46d.21 comes
+  early because every later item should report against low at 30 Hz; 46d.22 after 46d.18 because baked bricks
+  make far coverage cheap at speed.
 
 ## 10. Open questions for the owner
 
