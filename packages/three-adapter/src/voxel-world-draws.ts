@@ -318,6 +318,18 @@ export class VoxelWorldDraws {
     this.opts.applied?.();
   }
 
+  /** Shows or hides every world's near field draws (chunks, seams, kit pieces; nothing is rebuilt). */
+  showNear(on: boolean): void {
+    for (const w of this.worlds.values()) w.view.showNear(on);
+    this.opts.applied?.();
+  }
+
+  /** Every world's near field and far field draws now (a measuring run draws them again, gpu-headroom.ts). */
+  roots(): { readonly near: THREE.Object3D[]; readonly far: THREE.Object3D[] } {
+    const worlds = [...this.worlds.values()];
+    return { near: worlds.flatMap((w) => w.view.nearObjects()), far: worlds.map((w) => w.view.far.root) };
+  }
+
   /** Shows or hides every world's far field draws (a picture of the near field alone; nothing is rebuilt). */
   showFar(on: boolean): void {
     for (const w of this.worlds.values()) w.view.far.setVisible(on);

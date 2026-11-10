@@ -298,6 +298,8 @@ export class VoxelChunkView {
   readonly far: VoxelFarView;
   /** Inside {@link applyChunkDrawBatch}: the piece draws are written at its end. */
   private batching = false;
+  /** Whether the near field (everything under {@link root} but the far field) is drawn; draws added while hidden come hidden. */
+  private nearShown = true;
   private kitSet: VoxelKitSet | null;
   /** Kits' own crack layers the surface has now. */
   private crackLayers = 0;
@@ -588,6 +590,7 @@ export class VoxelChunkView {
       return 0;
     }
     this.place(group, cell);
+    group.visible = this.nearShown;
     this.root.add(group);
     if (decalSurface !== null) this.tellAdded(decalSurface);
     let map = this.levels[level];
@@ -816,6 +819,7 @@ export class VoxelChunkView {
     // The node's draw is replaced on its own (a new result, a shader change): the seam reads whichever is drawn.
     Object.defineProperty(mesh.userData, VOXEL_SURFACE_KEY, { get: () => map()?.get(key)?.surface ?? NO_SURFACE, enumerable: false });
     this.place(mesh, cell);
+    mesh.visible = this.nearShown;
     this.root.add(mesh);
     const triangles = (geo.index?.count ?? 0) / 3;
     const bytes = geometryBytes(geo);
@@ -823,6 +827,17 @@ export class VoxelChunkView {
     this.triangles += triangles;
     this.seamTriangles += triangles;
     return bytes;
+  }
+
+  /** The near field's draws: chunks, mip nodes, seams and the kit pieces (every child of {@link root} but the far field's). */
+  nearObjects(): THREE.Object3D[] {
+    return this.root.children.filter((c) => c !== this.far.root);
+  }
+
+  /** Shows or hides the near field (a measuring run's pass hidden; nothing is rebuilt). */
+  showNear(on: boolean): void {
+    this.nearShown = on;
+    for (const c of this.nearObjects()) c.visible = on;
   }
 
   removeSeam(level: number, nx: number, ny: number, nz: number, face: number): void {

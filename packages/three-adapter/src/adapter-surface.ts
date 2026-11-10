@@ -68,6 +68,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     state.disposed = true;
     channelView?.dispose();
     p.isolation.dispose();
+    p.gpuLoad.dispose();
     models.disposePlayers();
     p.effects.dispose();
     state.lightmaps?.dispose();
@@ -133,6 +134,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       return { tier: p.qualityControl.tier(), live: light?.live === true, settled: !starting && (light === null || light.settled) };
     },
     takeGpuTime: () => p.gpuTiming.take(),
+    gpuLoad: () => p.gpuLoad,
     projectToScreen(target, out): boolean {
       const camera = state.camera;
       if (state.disposed || camera === null) return false;

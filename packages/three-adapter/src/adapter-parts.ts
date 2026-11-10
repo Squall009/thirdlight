@@ -32,6 +32,7 @@ import type { AdapterSurfaceLight } from './adapter-surface-light';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import type { AnyRenderer } from './renderer-factory';
 import type { ViewCuller } from './view-cull';
+import type { GpuLoad } from './gpu-headroom';
 
 /** What the parts share and change. */
 export interface AdapterState {
@@ -77,6 +78,8 @@ export interface AdapterParts {
   readonly qualityControl: QualityControl;
   readonly renderControl: RenderControl;
   readonly gpuTiming: GpuTiming;
+  /** A measuring run's GPU load (gpu-headroom.ts; off unless a host sets it). */
+  readonly gpuLoad: GpuLoad;
   /** The page clock's start (material and effect time). */
   readonly clockStart: number;
   /** The loaded scenes' lights picked again (the most recent scene's, the local ones within the budget). */

@@ -510,6 +510,8 @@ export interface SceneAdapter {
   lightingState?(): { readonly tier: LightingTier; readonly live: boolean; readonly settled: boolean };
   /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
+  /** A measuring run's GPU load added to every frame (gpu-headroom.ts): ballast, copies of chosen roots, shadows hidden, the post stack bypassed. */
+  gpuLoad?(): import('./gpu-headroom').GpuLoad;
   /**
    * Show an environment preset blend instead of the running
    * game's (an editor preview; null: the game's again).

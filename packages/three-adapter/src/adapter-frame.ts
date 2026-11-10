@@ -78,6 +78,7 @@ export class AdapterFrame {
   private readonly viewPos: number[] = [0, 0, 0];
   private readonly viewRot: number[] = [0, 0, 0, 1];
   private readonly tmpSize = new THREE.Vector2();
+  private readonly passSize = new THREE.Vector2();
   /** The transform sync for `forEachInterpolated` (one function for the adapter's life): into the world table. */
   private readonly applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
     this.p.graph.world.setLocal(id, position, rotation, scale);
@@ -425,6 +426,19 @@ export class AdapterFrame {
     if (batcher?.pending() === true) p.opts.onChange?.();
   }
 
+  /** The size the scene pass draws at: the canvas's at the render scale drawn now. */
+  private scenePassSize(renderer: AnyRenderer): [number, number] {
+    const size = (renderer as unknown as { getDrawingBufferSize(v: THREE.Vector2): THREE.Vector2 }).getDrawingBufferSize(this.passSize);
+    const s = this.p.renderControl.diagnostics().scale;
+    return [size.x * s, size.y * s];
+  }
+
+  /** A measuring run's frame without the post stack (gpu-headroom.ts), at the stack's size. */
+  private drawPlain(renderer: AnyRenderer, camera: THREE.PerspectiveCamera): void {
+    const [w, h] = this.scenePassSize(renderer);
+    this.p.gpuLoad.drawPlain(renderer as never, this.p.scene, camera, w, h);
+  }
+
   /** The draw, its counts on the canvas, and what follows a drawn frame. */
   private present(renderer: AnyRenderer, camera: THREE.PerspectiveCamera, probing: boolean, frameStart: number, renderStart: number): FrameResult {
     const p = this.p;
@@ -440,7 +454,8 @@ export class AdapterFrame {
         const e = env();
         const view = this.rt.cameraView?.() ?? null;
         e?.setExposure(view?.exposure ?? null, view?.autoExposureLoaded === true);
-        if (e !== null) e.render(camera);
+        if (p.gpuLoad.bypassesPost) this.drawPlain(renderer, camera);
+        else if (e !== null) e.render(camera);
         else renderer.render(p.scene, camera);
       };
       if (job !== null) job.aside(render);
@@ -455,6 +470,10 @@ export class AdapterFrame {
         draw();
       }
       this.markFrame(renderer, frameInfo.drawCalls - drawsBefore, frameInfo.triangles - trianglesBefore);
+      if (p.gpuLoad.active && job === null) {
+        const [w, h] = this.scenePassSize(renderer);
+        p.gpuLoad.afterDraw(renderer as never, p.scene, camera, w, h);
+      }
     } catch (e) {
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }

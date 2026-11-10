@@ -49,6 +49,7 @@ import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { materialParamsOf } from './entity-refs';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { createGpuTiming } from './gpu-timing';
+import { GpuLoad } from './gpu-headroom';
 import { drawOwner, IsolationView } from './isolation-view';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { createSceneLights } from './lights-shadows';
@@ -136,6 +137,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   const effects = new AdapterEffects(scene, resources, opts, materialLibrary);
   const gpuTiming = createGpuTiming();
+  const gpuLoad = new GpuLoad();
   // AO kind, render scale and dynamic resolution, applied to the environment renderer.
   const renderControl = createRenderControl(opts.render);
   // Where the view starts (the runtime's camera brain resolved it before the first frame; the shots move it from there).
@@ -348,7 +350,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   clustersNow = clusters;
   clusters.syncLight();
   const parts: AdapterParts = {
-    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, clusters, probes, level, surfaceCache, surfaceLight, liveLighting, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
+    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, clusters, probes, level, surfaceCache, surfaceLight, liveLighting, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming, gpuLoad,
     clockStart, selectLights, regroupEntity,
     environmentFrame: {
       needed: () => qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment(),
