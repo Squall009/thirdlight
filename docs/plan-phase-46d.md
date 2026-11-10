@@ -261,7 +261,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
 | 46d.13 | done (ea5a0542 … 2ce43208): v3 bricks the default far field, meshes the fallback; D569/D577 fixed; Play fill 142 → 79 s, far GPU budget per tier. 13c-4: D582 was a camera inside the massif; the near field's level choice no longer freezes in a fast flight (0 chunks drawn → back 8 s after), far refines a level a step, ring first. D582 fixed; D583 open (high: GPU), D584–D586 |
 | 46d.14 | deferred (lead 2026-11-10): bricks are the default; the mesh fallback is not revised. Its flight OOM stays D581. The vista note's §5 gate replaces it: if 46d.16's meter shows the bricks cannot reach their budget, the top levels become a simplified height-field mesh |
-| 46d.16 | not started |
+| 46d.16 | done (ba27e91c): headroom meter at the 60 Hz cap without timestamps (ballast to the edge, passes hidden/copied past it; `run.mjs headroom`). Iris Xe 720p town orbit: medium room 0.7–2.5 ms of ~14–16; far 39–50 %, near 28–33 %, post 19–24 %, shadows 2–4 %; ms ±40 %. High ~23–31 ms: D583 = GPU-bound, far hidden holds the cap. D587, D588 |
 | 46d.17 | not started |
 | 46d.18 | not started |
 | 46d.19 | not started |
@@ -2227,6 +2227,74 @@ front, the massif's ridge and the green valley with its channels past it; no gre
 shards at the seam; both renderers alike; `end*-nofar-`: the near field alone covers the slope in front. *Unverified:*
 motion (frames saved while moving only), the high tier's pictures, the seam at a camera low over flat ground.
 
+### 46d.16 the GPU headroom meter at the cap; D583 traced
+
+**Built** (ba27e91c). A load a measuring run adds to every frame at the 60 Hz cap, never uncapped and without
+timestamps (D544): `GpuLoad` (three-adapter `gpu-headroom.ts`, the adapter's `gpuLoad()`, applied after the
+frame's draw): a **ballast** of N copies of one fixed fragment load (32 dependent ALU steps over a 640 × 360
+target) in one instanced draw, so its CPU cost does not grow with N; **copies** of chosen roots' drawables drawn
+again into a target of the scene pass's size with the same camera, lights and programs (meter layer 29; their
+CPU ms reported); **shadows hidden** (the shadow-casting lights stop casting); **post bypassed** (the scene drawn
+at the stack's size, then copied to the canvas so the frame is still presented). The game page's
+`__tlVoxelPlay.meter` (game-host `voxel-meter.ts`) drives it with the near field (`VoxelChunkView.showNear`) or
+the far field hidden, and pins the tier's render scale with dynamic resolution off (it would draw smaller under
+the load). The bench `node tools/voxel-bench/run.mjs headroom --quality medium --rounds 2` (`headroom-cli.ts`, how-to
+in its comment; arithmetic `headroom.ts`) runs Play in the editor on staging's 8 km world, the town-square orbit
+(the project's "Perf far camera"), WebGPU, 1280 × 720, and per round: (1) a window with no load; (2) **the edge**:
+the ballast the frame holds before it misses (> 2 % of frames over 25 ms, or a mean interval 3 % over the budget),
+doubling then halving the gap; (3) **past the edge**, where the GPU sets the interval, a load doubled until the
+mean interval is ~30 ms and two lighter ones: their line; (4) at that load each pass hidden and near/far copied
+once: the interval it moves; (5) copies held at no load, each pass hidden at no load, render scales at no load.
+
+**Tested.** `headroom.test.ts` (search and line on a capped-GPU model: a window holds or misses, the edge within
+its precision in ≤ 11 windows, no room, the line's slope and intercept, a hidden pass's share, a lower bound when
+hiding takes the frame under the cap); `gpu-headroom.test.ts` (real three objects, a recording renderer: copies draw
+only the roots' layer-0 drawables with both lights into a target of the pass's size, later arrivals too, and give
+back the camera mask, target, MRT, auto-clear, sky and every layer bit; the ballast one draw clamped to its maximum,
+its WGSL runs the steps; shadows off and back; the bypass draws at the stack's size then to the canvas). The bench
+runs are the browser proof (staging, the hook in a real Play page). No e2e touched. Fast gate
+gate-fast-20261110-182332 red on 4 vitest files (the first `near` group broke tests that read the view's root;
+replaced by a visibility switch), rerun gate-rerun-20261110-183705 red once on D567 (Export `kitInstances` 0),
+GREEN on rerun gate-rerun-20261110-184129 (village perf 0 missed both renderers).
+
+**Measured** (staging, Iris Xe, Play 1280 × 720 at the 60 Hz cap, WebGPU, the realistic 8 km world settled
+(fill 81 s medium); medium three rounds 18:17–18:52 (one session of two, one before), high one round 18:53–19:01,
+load 1.4–5.5 (1-min), uptime 18.1 d; `work/46d.16/headroom-{medium,high}-*.json`, combined
+`work/46d.16/headroom-baseline.json`, `table.mjs`). Room = the ballast held at the edge × its ms past the edge.
+Pass ms: the interval fall with the pass hidden past the edge, given as its share of the four passes' falls
+(range over rounds) × the frame's GPU ms from the edge; raw falls in brackets.
+
+| tier | no load | room at the cap | frame GPU (busy clock) | near surfaces | far bricks march | post stack | shadows |
+|---|---|---|---|---|---|---|---|
+| medium (0.667 + TAAU) | 0 / 180 missed ×3 | 7–16 ballast (0.7–2.5 ms) | 14.2–15.9 ms | 28–33 %: 4.0–5.3 ms (4.2–6.9), × 1.14–1.6 | 39–50 %: 5.5–7.9 ms (7.3–8.1), × 1.09–1.5 | 19–24 %: 2.7–3.9 ms (2.8–5.0), × 1.2–1.9 | 2–4 %: 0.2–0.6 ms (0.25–0.75) |
+| high (1.0 + TAAU) | 8 / 97 missed, 8 stalls, mean 30.9 ms | none (misses at no load) | ~23–31 ms | ≥ 12.7 ms hidden (copy 7.9) | ≥ 13.2 ms hidden (copy 11.9) | 7.3 ms | 0.7 ms |
+
+"×" = how many times the pass could be drawn before the frame misses (1 + room / pass). Copies (cross-check,
+medium): far 5.4–7.3 ms (agrees with its hidden share), near 2.0–7.3 ms (does not: per-draw work or the copy's own
+target; not traced, D588); one more copy of either misses at no load; a near copy costs 1.7–2.4 ms of page-thread
+CPU (high 4.4), a far one 0.6–1.0. Render scale at no load (medium): 0.75 held in 2 of 3 rounds (0 / 0 / 8 missed),
+0.833 missed 6–32, 1.0 missed with stalls (mean 22–25 ms). Shadows: one light stops casting (the key light's map;
+Play's voxel surfaces cast none).
+
+**How stable.** The edge moved 7 → 7 → 16 ballast between rounds (0.7–2.5 ms of room), the ballast's slope past the
+edge 0.105–0.14 ms (high 0.46 from 4-unit steps, residual 1.6 ms: not used), the frame's GPU ms from the line
+agreed with the edge in 1 of 3 medium rounds (13.7 vs 14.2–14.4; the others 17.6 vs 15.8–15.9): past the edge the
+interval bends with the load (the clock and Chrome's queue: frames at vsync, then a 50–100 ms block), so a pass's
+raw fall moves by up to 60 % between rounds while its share of the four moves by ≤ 11 points. The same round's
+base twice: 30.61 / 30.68 ms. **The method gives:** the room in ballast units, which passes fit and their ratios,
+ms to about ±40 %; **it does not give** a pass's ms to better than that, nor any pass under ~0.3 ms.
+
+**D583 (which pass).** At high with no load the orbit misses with stalls (mean 30.9 ms, 8 frames over 100 ms in
+3 s: the 46d.13c-4 pattern). Hidden one at a time at no load: **far → 0 / 180 missed, no stall**; near → 3 / 171,
+no stall; post → 8 / 140, 1 stall; shadows → 8 / 127, 7 stalls; render scale 0.667 → 11 / 163, 1 stall. The long
+frames are how a GPU-bound WebGPU frame shows at this cap (Chrome draws at vsync until its queue is full, then
+blocks; the mean interval is the GPU's time): the high frame needs ~23–31 ms of GPU, the far march at full
+resolution its largest pass (≥ 13 ms), near next (≥ 12.7 hidden; 7.9 as a copy). Not the far field's jobs or
+uploads (idle in 13c-4). The vista steps (46d.17, 46d.20) are its fix; D583 stays open with the cause.
+
+*Unverified:* no picture taken (the loads draw off screen; the bypass's frames show the scene untone-mapped
+for their windows, not looked at); the high tier's ms from one round; low not measured; the Iris Xe only.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2830,6 +2898,22 @@ motion (frames saved while moving only), the high tier's pictures, the seam at a
 - 2026-11-10 (46d.13c-4, default chosen, owner to confirm): **a camera inside the ground draws what the bricks give**
   (the grid seen from inside, D585): not hidden by a shader rule yet; discarding a node whose solid holds the eye would
   show holes to the sky instead. Proposed: refine the eye's own node first (done) and decide with the owner.
+- 2026-11-10 (46d.16, default chosen, owner to confirm): **the headroom meter loads the GPU to the edge of the cap
+  and reads passes past it**, not by timestamps (D544) and never uncapped: a fixed ballast in one instanced draw
+  finds the room; each pass's ms is the interval it saves hidden where the GPU sets the interval, quoted as its
+  share of the four passes × the frame's GPU ms from the edge (raw falls move up to 60 % between rounds, shares
+  ≤ 11 points); ms are ±40 %. Copies of a pass are a cross-check only (near's disagrees, D588).
+- 2026-11-10 (46d.16, default chosen, owner to confirm): **measured in Play in the editor**, the town-square orbit
+  on the 8 km world, WebGPU, 1280 × 720, the tier's render scale pinned and dynamic resolution off (it would hide
+  the load); "missed" = more than 2 % of frames over 25 ms or a mean interval 3 % over the budget (a busy GPU
+  shows 20 ms frames that are not over 25). Hidden shadows = the casting lights stop casting (programs rebuilt,
+  the run waits for it); hidden post = the scene at the stack's size copied to the canvas (that copy stays in).
+- 2026-11-10 (46d.16, default chosen, owner to confirm): **the baseline 46d.17–46d.20 report against** is
+  `work/46d.16/headroom-baseline.json` (medium three rounds, high one); a later item runs the same command
+  before and after its change in the same hour (at most 3 rounds) and quotes room, shares and the D583 check.
+- 2026-11-10 (46d.16): **D583 is GPU pixel cost at high's full resolution**, mostly the far march: with the far
+  field hidden the high orbit holds the cap; it stays open for the vista steps. Medium has almost no GPU room on
+  the floor GPU (D587): the half-resolution far march (D574) is worth its trial in 46d.20, as the note said.
 
 ## 10. Open questions for the owner
 
