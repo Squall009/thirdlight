@@ -282,7 +282,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.18 | not started |
 | 46d.19 | not started |
 | 46d.20 | not started |
-| 46d.21 | done (52caccdc, LOWCOMMIT): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
+| 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | not started |
 | 46d.15 | not started |
 
@@ -2402,7 +2402,7 @@ Seen: `far-field/46d.21/peak-to-town-after.png` sky over the whole frame (before
 changed one e2e assumption: `voxel-world.e2e.ts`'s far-ground check read black as "the background" because the
 world 8 km out stood outside the sky box (D590 itself); it now reads the sky or black (`background()`).
 
-**Low built** (LOWCOMMIT). The engine's low level (`DEFAULT_QUALITY_LEVELS`, project-model): `renderScale`
+**Low built** (c6d0925e). The engine's low level (`DEFAULT_QUALITY_LEVELS`, project-model): `renderScale`
 `UPSCALED_RENDER_SCALE` (0.667, renamed from `MEDIUM_RENDER_SCALE`: low and medium share it) with dynamic resolution,
 anti-aliasing `taau` where the look anti-aliases (the same post-taau.ts / post-upscale.ts path medium takes; on
 WebGL 2 and in the Scene view the look's FXAA/SMAA in its place, as for medium), MSAA where no post stack
