@@ -14,7 +14,7 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, createDenseChunk, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarNode, createDenseChunk, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, FAR_ENTRY_CACHE_BYTES, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
 import { buildFarCache, farCacheDir, FarCacheReader, FarWorldSource, openShippedWorld, readFarCacheManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
 import { hexToBytes } from '@thirdlight/shared';
 import { computeFarDrainage, PEAK } from './far-drainage';
@@ -455,6 +455,39 @@ describe('the far field drawn as meshes and as bricks', () => {
         }
       }
       expect(shared).toBeGreaterThan(0);
+      // The eye moves across the world while other work keeps the pool's queue full (a flight's near field): the far
+      // field's background share still makes nodes, swaps them in where the error is largest, closes nodes behind the
+      // eye, and settles with nothing held but what it draws.
+      // A coarse error, so the small test world's selection changes with the eye (at 2 px it is all the lowest level).
+      far.setView({ errorPixels: 64 });
+      await far.settle();
+      const c0 = far.metrics().counters;
+      let busy = true;
+      let nearId = 1_000_000;
+      const nearStream = (async () => {
+        while (busy) {
+          const batch = Array.from({ length: 16 }, () => workers.submit({ id: nearId++, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 5 }, transfer: [] }));
+          await Promise.all(batch);
+        }
+      })();
+      for (const [x, z] of [[-300, -300], [300, -300], [300, 300], [-300, 300], [0, 0]] as const) {
+        far.setEye(x, 40, z);
+        far.update();
+        await far.settle();
+        const mm = far.metrics();
+        expect(mm.problem).toBeNull();
+        expect(mm.drawn).toBe(mm.nodes);
+        expect(mm.jobs).toBe(0);
+      }
+      busy = false;
+      await nearStream;
+      const c1 = far.metrics().counters;
+      expect(c1.swappedIn - c0.swappedIn).toBeGreaterThan(0);
+      expect(c1.swappedOut - c0.swappedOut).toBeGreaterThan(0);
+      // What is drawn is the selection, nothing left from the way (the listener checked no place is drawn twice), and the
+      // read nodes stay within their cache.
+      expect(shown.size).toBe(far.metrics().nodes);
+      expect(far.metrics().entryBytes).toBeLessThanOrEqual(FAR_ENTRY_CACHE_BYTES);
       far.close();
     } finally {
       for (const d of opened) await d.close();

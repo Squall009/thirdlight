@@ -7,6 +7,11 @@
  * - **Priority.** Jobs wait in one {@link JobQueue} (edit, near, far, mip, then
  *   distance) and go to a worker as one frees up; a queued job can be moved
  *   (the focus moved) or cancelled.
+ * - **Background.** A job marked `background` (the far field's) waits in a
+ *   queue of its own, bounded the same way, and goes to a worker when no
+ *   other job waits or while fewer than `backgroundWorkers` workers run one:
+ *   the near field's work goes first, yet a steady stream of it (a fast
+ *   flight) never stops the background's.
  * - **Back-pressure.** At most `maxQueued` jobs wait; past that a submit is
  *   answered `queue_full` at once, and `room()` tells a producer how many
  *   more it may queue, so a fast flight never queues the whole ring.
@@ -53,6 +58,9 @@ export function eventTargetWorker(w: {
  */
 export const STREAM_POOL_SETTINGS = Object.freeze({ timeoutMs: 5000, maxQueued: 256 });
 
+/** The share of a pool's workers kept for background jobs while they wait (at least one worker). */
+export const BACKGROUND_WORKER_SHARE = 0.25;
+
 /** Derive workers a world uses by default: leave two cores to the page and the simulation, at most four. */
 export function defaultVoxelWorkers(): number {
   const cores = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency;
@@ -72,6 +80,8 @@ export interface WorkerPoolOptions {
   readonly maxQueued: number;
   /** Jobs sent to one worker before its first answer (default 1). */
   readonly perWorker?: number;
+  /** Workers background jobs may hold while other jobs wait (default {@link BACKGROUND_WORKER_SHARE} of `size`, at least 1). */
+  readonly backgroundWorkers?: number;
 }
 
 export interface PoolJob {
@@ -81,6 +91,8 @@ export interface PoolJob {
   readonly distance: number;
   readonly input: unknown;
   readonly transfer: ArrayBuffer[];
+  /** A background job: its own queue and share of the workers (see the module's comment). */
+  readonly background?: boolean;
 }
 
 export type JobOutcome<O = unknown> =
@@ -155,6 +167,9 @@ interface Slot {
 export class WorkerPool {
   private readonly opts: Required<WorkerPoolOptions>;
   private readonly queue = new JobQueue<Pending>();
+  private readonly back = new JobQueue<Pending>();
+  /** Background jobs sent and not yet answered. */
+  private backRunning = 0;
   private readonly live = new Map<number, Pending>();
   private readonly slots: Slot[] = [];
   private closed = false;
@@ -176,7 +191,7 @@ export class WorkerPool {
   constructor(opts: WorkerPoolOptions) {
     if (!Number.isInteger(opts.size) || opts.size < 1) throw new RangeError(`pool size ${opts.size}`);
     if (!(opts.timeoutMs > 0) || !Number.isInteger(opts.maxQueued) || opts.maxQueued < 1) throw new RangeError('pool timeout and queue bound must be positive');
-    this.opts = { hangMs: opts.timeoutMs * 4, perWorker: 1, ...opts };
+    this.opts = { hangMs: opts.timeoutMs * 4, perWorker: 1, backgroundWorkers: Math.max(1, Math.round(opts.size * BACKGROUND_WORKER_SHARE)), ...opts };
     for (let i = 0; i < opts.size; i++) this.slots.push(this.start(i, 0));
   }
 
@@ -199,9 +214,19 @@ export class WorkerPool {
     return this.slots.length;
   }
 
-  /** Jobs waiting. */
+  /** Jobs waiting (background ones apart). */
   get queued(): number {
     return this.queue.size;
+  }
+
+  /** Background jobs waiting. */
+  get backgroundQueued(): number {
+    return this.back.size;
+  }
+
+  /** How many more background jobs may be queued now. */
+  backgroundRoom(): number {
+    return Math.max(0, this.opts.maxQueued - this.back.size);
   }
 
   /** Jobs sent and not yet answered (timed-out jobs still running not counted). */
@@ -226,7 +251,8 @@ export class WorkerPool {
   submit<O = unknown>(job: PoolJob): Promise<JobOutcome<O>> {
     if (this.closed) return Promise.resolve({ status: 'worker_lost' });
     if (this.live.has(job.id)) throw new RangeError(`job ${job.id} is already live`);
-    if (this.queue.size >= this.opts.maxQueued) {
+    const queue = job.background === true ? this.back : this.queue;
+    if (queue.size >= this.opts.maxQueued) {
       this.stats.queueFull++;
       return Promise.resolve({ status: 'queue_full' });
     }
@@ -234,21 +260,21 @@ export class WorkerPool {
     return new Promise<JobOutcome<O>>((resolve) => {
       const p: Pending = { job, resolve: resolve as (o: JobOutcome) => void, queuedAt: performance.now(), sentAt: 0, worker: -1, settled: false, timer: null, hang: null };
       this.live.set(job.id, p);
-      this.queue.push(job.id, job.lane, job.distance, p);
+      queue.push(job.id, job.lane, job.distance, p);
       this.pump();
     });
   }
 
   /** Moves a queued job to a new lane and distance; false when it is not queued. */
   reprioritize(id: number, lane: JobLane, distance: number): boolean {
-    return this.queue.update(id, lane, distance);
+    return this.queue.update(id, lane, distance) || this.back.update(id, lane, distance);
   }
 
   /** Cancels a job: a queued one is dropped unsent, a sent one answered now (its reply is ignored). */
   cancel(id: number): boolean {
     const p = this.live.get(id);
     if (p === undefined || p.settled) return false;
-    if (this.queue.remove(id) !== undefined) {
+    if (this.queue.remove(id) !== undefined || this.back.remove(id) !== undefined) {
       this.live.delete(id);
       this.stats.cancelledQueued++;
     } else {
@@ -268,14 +294,15 @@ export class WorkerPool {
 
   /** Sends queued jobs to workers with room. */
   private pump(): void {
-    while (this.queue.size > 0) {
+    while (this.queue.size > 0 || this.back.size > 0) {
       let best = -1;
       for (let i = 0; i < this.slots.length; i++) {
         const n = this.slots[i]!.sent.size;
         if (n < this.opts.perWorker && (best < 0 || n < this.slots[best]!.sent.size)) best = i;
       }
       if (best < 0) return;
-      const next = this.queue.pop()!;
+      const background = this.back.size > 0 && (this.queue.size === 0 || this.backRunning < this.opts.backgroundWorkers);
+      const next = (background ? this.back : this.queue).pop()!;
       this.send(best, next.value);
     }
   }
@@ -284,6 +311,7 @@ export class WorkerPool {
     const slot = this.slots[index]!;
     p.worker = index;
     p.sentAt = performance.now();
+    if (p.job.background === true) this.backRunning++;
     this.stats.queueMs.add(p.sentAt - p.queuedAt);
     slot.sent.add(p.job.id);
     const req: JobRequest = { v: STREAM_JOB_VERSION, id: p.job.id, kind: p.job.kind, input: p.job.input };
@@ -308,7 +336,7 @@ export class WorkerPool {
 
   /** Forgets a sent job on its worker. */
   private finish(slot: Slot, p: Pending): void {
-    slot.sent.delete(p.job.id);
+    if (slot.sent.delete(p.job.id) && p.job.background === true) this.backRunning--;
     this.live.delete(p.job.id);
     if (p.hang !== null) clearTimeout(p.hang);
     p.hang = null;
@@ -364,6 +392,7 @@ export class WorkerPool {
     this.closed = true;
     for (const p of [...this.live.values()]) {
       this.queue.remove(p.job.id);
+      this.back.remove(p.job.id);
       if (p.hang !== null) clearTimeout(p.hang);
       this.settle(p, { status: 'cancelled' });
     }

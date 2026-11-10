@@ -51,6 +51,9 @@ export const FAR_MAX_LEVEL = 30;
 /** Default on-screen error (pixels) a drawn node's cell may make before it opens into its children. */
 export const FAR_ERROR_PIXELS = 2;
 
+/** Nodes a selection step looks at before it yields ({@link FarSelection.steps}). */
+export const FAR_SELECT_STEP_NODES = 256;
+
 /** Hysteresis of the selection: an open node closes again only below (1 − this) × the error threshold. */
 export const FAR_HYSTERESIS = 0.25;
 
@@ -297,6 +300,20 @@ export class FarSelection {
 
   /** Selects the drawn nodes of `index` seen from `view`. */
   select(index: FarNodeIndex, view: FarView): FarSelected {
+    const steps = this.steps(index, view);
+    for (;;) {
+      const r = steps.next();
+      if (r.done === true) return r.value;
+    }
+  }
+
+  /**
+   * The selection in steps: it yields after every {@link FAR_SELECT_STEP_NODES} nodes looked at and returns the
+   * selection, so a host spreads it over several updates (a frame's time apiece) instead of holding its thread for
+   * the whole of it. Its open set is taken only when it returns; another selection meanwhile starts from the last
+   * one's.
+   */
+  *steps(index: FarNodeIndex, view: FarView): Generator<void, FarSelected, void> {
     const threshold = view.errorPixels ?? FAR_ERROR_PIXELS;
     const h = view.hysteresis ?? FAR_HYSTERESIS;
     const budget = view.budgetBytes ?? FAR_BUDGET_BYTES;
@@ -352,7 +369,9 @@ export class FarSelection {
     for (const i of drawn.values()) push(i);
     const nextOpen = new Set<string>();
     let held = 0;
+    let looked = 0;
     while (heap.length > 0) {
+      if (++looked % FAR_SELECT_STEP_NODES === 0) yield;
       const i = pop();
       const key = i.key;
       if (i.node.level <= index.minLevel) continue;

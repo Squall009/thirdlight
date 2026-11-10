@@ -230,6 +230,32 @@ describe('worker pool (real module workers)', () => {
     expect(order).toEqual([106, 103, 104, 102, 105, 101, 107]);
   });
 
+  it('keeps a share of the workers for background jobs under a steady stream of others, and gives them every idle worker', async () => {
+    const p = pool(4, { backgroundWorkers: 1 });
+    const sleep = (id: number, ms: number, background = false) => p.submit({ id, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms }, transfer: [], ...(background ? { background } : {}) });
+    // 40 near jobs of 30 ms fill the queue for ~300 ms; 6 background jobs of 30 ms run meanwhile on the one kept worker.
+    const ends: Array<{ id: number; at: number }> = [];
+    const t0 = performance.now();
+    const near = Array.from({ length: 40 }, (_, i) => sleep(i, 30).then(() => ends.push({ id: i, at: performance.now() - t0 })));
+    const back = Array.from({ length: 6 }, (_, i) => sleep(1000 + i, 30, true).then(() => ends.push({ id: 1000 + i, at: performance.now() - t0 })));
+    expect(p.backgroundQueued + p.queued).toBeGreaterThan(30);
+    expect(p.room()).toBe(256 - p.queued);
+    await Promise.all([...near, ...back]);
+    const lastNear = Math.max(...ends.filter((e) => e.id < 1000).map((e) => e.at));
+    // Every background job ended before the near stream did (a strict priority would have run them all after it).
+    for (const e of ends.filter((x) => x.id >= 1000)) expect(e.at).toBeLessThan(lastNear);
+    // With the near work gone, background jobs take every worker: 8 of 40 ms run 4 at a time, ~2 rounds.
+    const t1 = performance.now();
+    await Promise.all(Array.from({ length: 8 }, (_, i) => sleep(2000 + i, 40, true)));
+    expect(performance.now() - t1).toBeLessThan(8 * 40 * 0.75);
+    // A background job cancelled while queued never runs.
+    const blockers = Array.from({ length: 4 }, (_, i) => sleep(3000 + i, 60));
+    const c = sleep(3100, 0, true);
+    expect(p.cancel(3100)).toBe(true);
+    expect((await c).status).toBe('cancelled');
+    await Promise.all(blockers);
+  });
+
   it('cancels a queued job unsent and a sent one at once (its late reply ignored); back-pressure answers queue_full', async () => {
     const p = pool(1, { maxQueued: 2 });
     const sent = p.submit({ id: 1, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 100 }, transfer: [] });

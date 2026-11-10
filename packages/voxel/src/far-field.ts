@@ -6,10 +6,16 @@
  * the same for both.
  *
  * - **Where it runs.** Beside the world's streamer, with its pool (far jobs
- *   go last, in the `mip` lane, a few at a time so they never fill the
- *   queue the near field needs) and the far cache as its source (region
- *   files of the world's format a level, read by range in Play and the
- *   editor, whole in an export).
+ *   are the pool's background jobs, a few at a time: the near field's go
+ *   first, yet a share of the workers stays the far field's, so it follows
+ *   the eye during a fast flight too) and the far cache as its source
+ *   (region files of the world's format a level, read by range in Play and
+ *   the editor, whole in an export).
+ * - **Order.** Nodes are made where the error drawn now is largest (nothing
+ *   yet, then a coarse stand-in, then over-fine nodes behind the eye), and
+ *   put in by the same order, whole groups up to a byte budget a commit, so
+ *   the page's uploads between two frames stay small. The selection runs in
+ *   slices of a couple of milliseconds.
  * - **What is drawn.** The selection by screen error ({@link FarSelection},
  *   from the stream focus) over every node the cache keeps: nothing is cut
  *   off at any distance. The near field is not left out of the selection:
@@ -30,7 +36,7 @@ import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import type { ChunkCoord, ChunkGrid, RegionFootprint } from './coords';
 import { FAR_BRICK_BUILD, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
-import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, FarNodeIndex, FarSelection, type FarDrawn } from './far-tree';
+import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
 import { RegionChunkSource } from './region-source';
 import type { StoredChunk } from './stream-job';
@@ -73,14 +79,12 @@ export const FAR_RESELECT_CELLS = 16;
 /** Far mesh jobs in the pool at once: the near field's jobs keep the queue. */
 export const FAR_JOBS_IN_FLIGHT = 8;
 
-/** Added to a far job's queue distance (squared cells), past any near job's in the same lane. */
-const FAR_JOB_DISTANCE_OFFSET = 2 ** 52;
+/** ms of selection one task runs before the rest waits for a later task. */
+export const FAR_SELECT_SLICE_MS = 2;
 
 /** ms a far field waits after the pool sent a job back unrun before it sends again. */
 const FAR_RETRY_MS = 100;
 
-/** Queue places far jobs leave free in the pool for the near field's. */
-const FAR_POOL_ROOM_KEPT = 64;
 
 /** ms between pumps an update asks for when nothing came back meanwhile (a job, a read): the pool's room is all that changed. */
 const FAR_PUMP_MS = 50;
@@ -93,6 +97,16 @@ const FAR_PUMP_SCAN = 512;
 
 /** ms meshes that land are gathered before they go in together (one walk of the selection for all of them). */
 export const FAR_COMMIT_MS = 250;
+
+/**
+ * Bytes of made nodes one commit puts in (whole groups; at least one): what the page uploads between two frames
+ * stays a small part of a frame (bricks ~3.6 kB of GPU texels a brick, ~1 kB of them sent), the rest goes in
+ * {@link FAR_COMMIT_AGAIN_MS} later.
+ */
+export const FAR_COMMIT_BYTES = 1024 * 1024;
+
+/** ms to the next commit when one was cut at {@link FAR_COMMIT_BYTES}. */
+export const FAR_COMMIT_AGAIN_MS = 50;
 
 /** Nodes whose neighbourhoods one read gathers (the files' runs read together). */
 export const FAR_READ_BATCH = 64;
@@ -254,12 +268,16 @@ export class FarField {
   private readonly entries = new Map<string, { cells: StoredChunk | null; bytes: number }>();
   private entryBytes = 0;
   private reading = false;
+  /** A selection under way ({@link selectStep}) and the ms it took so far. */
+  private selecting: { readonly steps: Generator<void, FarSelected, void>; ms: number } | null = null;
   /** Nodes whose neighbourhoods were read (checked again when sent: the read cache may have dropped some). */
   private readonly readDone = new Set<string>();
   /** When the last pump ran (an update between events pumps at most every {@link FAR_PUMP_MS}). */
   private pumpedAt = -Infinity;
   /** Target nodes to mesh, nearest first, and how far {@link pump} got through them. */
   private todo: FarDrawn[] | null = null;
+  /** Each todo node's place in the list (its job's order among the far field's). */
+  private rank = new Map<string, number>();
   private cursor = 0;
   /** A job came back unrun (a busy pool): nothing is sent for {@link FAR_RETRY_MS}. */
   private waitUpdate = false;
@@ -279,7 +297,7 @@ export class FarField {
   /** ms the far field's own work took on the world's thread: a pump's scan, a commit's walk. */
   readonly pumpMs = new SampleRing();
   readonly commitMs = new SampleRing();
-  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0, unrun: 0, swappedIn: 0, swappedOut: 0 };
+  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0, unrun: 0, swappedIn: 0, swappedOut: 0, commitsCut: 0 };
   /** When (ms since the far field was made) its stages first happened: the index read, a job sent, a node drawn. */
   readonly firsts: { index: number | null; job: number | null; drawn: number | null } = { index: null, job: null, drawn: null };
   private readonly made = performance.now();
@@ -380,48 +398,116 @@ export class FarField {
   /** Selects again if the eye moved far enough, and starts the meshes the selection needs. */
   update(): void {
     if (this.closed || this.index === null) return;
-    if (this.reselect) {
+    if (this.reselect && this.selecting === null) {
       this.reselect = false;
       this.selectedAt = [...this.eye];
-      const t0 = performance.now();
-      const sel = this.opts.enabled === false ? null : this.selection.select(this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, near: null });
-      this.selectMs.add(performance.now() - t0);
-      this.counters.selections++;
-      this.target = new Map((sel?.drawn ?? []).map((d) => [mipNodeKey(d.node), d]));
-      for (const [key, j] of this.jobs) {
-        if (this.target.has(key)) continue;
-        this.host.pool.cancel(j.id);
-        this.jobs.delete(key);
+      if (this.opts.enabled === false) this.selected(null);
+      else {
+        this.selecting = { steps: this.selection.steps(this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, near: null }), ms: 0 };
+        this.selectStep();
       }
-      for (const key of [...this.ready.keys()]) if (!this.target.has(key)) this.ready.delete(key);
-      this.todo = null;
-      this.commitSoon();
-      void this.pump();
       return;
     }
     // Between events (a job back, a read done, a selection) the pool's room is all that can change: looked at now and then.
     if (performance.now() - this.pumpedAt >= FAR_PUMP_MS) void this.pump();
   }
 
+  /**
+   * Runs the selection for at most {@link FAR_SELECT_SLICE_MS} and goes on in a later task until it is done (a
+   * selection of thousands of nodes takes 10–30 ms: whole, it held the world's thread for frames at a time while the
+   * eye moved). The drawn nodes and the jobs follow the last finished selection meanwhile.
+   */
+  private selectStep(): void {
+    const s = this.selecting;
+    if (s === null || this.closed) return;
+    const t0 = performance.now();
+    for (;;) {
+      const r = s.steps.next();
+      if (r.done === true) {
+        s.ms += performance.now() - t0;
+        this.selectMs.add(s.ms);
+        this.selecting = null;
+        this.selected(r.value);
+        // The eye moved on meanwhile: the next selection starts at the next update.
+        return;
+      }
+      if (performance.now() - t0 >= FAR_SELECT_SLICE_MS) break;
+    }
+    s.ms += performance.now() - t0;
+    setTimeout(() => this.selectStep(), 0);
+  }
+
+  /** A selection finished: it is the target; jobs for nodes it no longer holds go. */
+  private selected(sel: FarSelected | null): void {
+    this.counters.selections++;
+    this.target = new Map((sel?.drawn ?? []).map((d) => [mipNodeKey(d.node), d]));
+    for (const [key, j] of this.jobs) {
+      if (this.target.has(key)) continue;
+      this.host.pool.cancel(j.id);
+      this.jobs.delete(key);
+    }
+    for (const key of [...this.ready.keys()]) if (!this.target.has(key)) this.ready.delete(key);
+    this.todo = null;
+    this.commitSoon();
+    void this.pump();
+  }
+
   /** Puts in what is ready a little later, once for everything that lands meanwhile (a commit walks the whole selection). */
-  private commitSoon(): void {
+  private commitSoon(ms = FAR_COMMIT_MS): void {
     if (this.commitTimer !== null || this.closed) return;
     this.commitTimer = setTimeout(() => {
       this.commitTimer = null;
       if (!this.closed) this.commit();
-    }, FAR_COMMIT_MS);
+    }, ms);
   }
 
-  /** The target nodes still to mesh, nearest first (made again after a selection or an edit). */
+  /**
+   * The target nodes still to make, the largest error drawn in their place now first (made again after a
+   * selection or an edit): where nothing is drawn yet, then where a coarse ancestor stands in (its cell's error
+   * at the node's distance, in pixels), then where finer nodes are drawn than the selection wants (a node behind
+   * the eye closing over its children: the threshold's worth, so it gives memory back before the small refinements);
+   * nearest first among equals.
+   */
   private todoList(): FarDrawn[] {
     if (this.todo === null) {
-      const list: FarDrawn[] = [];
-      for (const [key, d] of this.target) if (this.needs(key)) list.push(d);
-      list.sort((a, b) => a.distance - b.distance);
-      this.todo = list;
+      const ppr = this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN;
+      const coarsen = this.opts.errorPixels ?? FAR_ERROR_PIXELS;
+      const list: Array<{ d: FarDrawn; error: number }> = [];
+      for (const [key, d] of this.target) {
+        if (!this.needs(key)) continue;
+        let error: number;
+        if (this.shown.has(key)) error = d.errorPixels;
+        else {
+          const a = this.ancestorLevel(d.node);
+          if (a !== null) {
+            const cell = 2 ** a;
+            error = (cell * ppr) / Math.max(d.distance, cell);
+          } else error = this.childShown(d.node) ? coarsen : Infinity;
+        }
+        list.push({ d, error });
+      }
+      list.sort((a, b) => b.error - a.error || a.d.distance - b.d.distance);
+      this.todo = list.map((e) => e.d);
+      this.rank = new Map(this.todo.map((d, i) => [mipNodeKey(d.node), i]));
       this.cursor = 0;
     }
     return this.todo;
+  }
+
+  /** The level of the drawn node over `n` (null: none is drawn over it). */
+  private ancestorLevel(n: MipNode): number | null {
+    const top = this.index?.maxLevel ?? n.level;
+    for (let l = n.level + 1; l <= top; l++) {
+      const d = l - n.level;
+      if (this.shown.has(mipNodeKey({ level: l, nx: n.nx >> d, ny: n.ny >> d, nz: n.nz >> d }))) return l;
+    }
+    return null;
+  }
+
+  /** Whether one of `n`'s children is drawn (the node closes over finer ones). */
+  private childShown(n: MipNode): boolean {
+    for (let i = 0; i < 8; i++) if (this.shown.has(mipNodeKey({ level: n.level - 1, nx: n.nx * 2 + (i & 1), ny: n.ny * 2 + ((i >> 1) & 1), nz: n.nz * 2 + (i >> 2) }))) return true;
+    return false;
   }
 
   /** Whether a target node needs a mesh it does not have yet. */
@@ -445,7 +531,7 @@ export class FarField {
   /** Nothing left to read, mesh or put in (or nothing can be: closed, or the cache failed). */
   private get idle(): boolean {
     if (this.closed || this.failed !== null) return true;
-    return this.index !== null && !this.reselect && !this.waitUpdate && this.rereads === 0 && !this.reading && this.jobs.size === 0 && this.commitTimer === null && this.pending === 0;
+    return this.index !== null && !this.reselect && this.selecting === null && !this.waitUpdate && this.rereads === 0 && !this.reading && this.jobs.size === 0 && this.commitTimer === null && this.pending === 0;
   }
 
   private wake(): void {
@@ -454,7 +540,7 @@ export class FarField {
   }
 
   /**
-   * Starts mesh jobs for target nodes without one, nearest first, a few at
+   * Starts mesh jobs for target nodes without one, in the todo's order, a few at
    * a time; their neighbourhoods are read ahead in batches of
    * {@link FAR_READ_BATCH} nodes (one coalesced request a file run), so
    * reading never waits on one node at a time.
@@ -466,8 +552,8 @@ export class FarField {
     const todo = this.todoList();
     while (this.cursor < todo.length && !this.needs(mipNodeKey(todo[this.cursor]!.node))) this.cursor++;
     if (this.cursor >= todo.length && this.jobs.size === 0) return this.wake();
-    // The pool's queue is shared: far jobs leave the near field room in it.
-    let room = Math.min(FAR_JOBS_IN_FLIGHT - this.jobs.size, this.host.pool.room() - FAR_POOL_ROOM_KEPT);
+    // Background jobs: the near field's go first, yet a share of the workers is the far field's while it waits.
+    let room = Math.min(FAR_JOBS_IN_FLIGHT - this.jobs.size, this.host.pool.backgroundRoom());
     const unread: MipNode[] = [];
     // A node is looked at once a scan by key alone: whether its neighbourhood was read (or asked for) is remembered,
     // and its 27 + fine reads are checked again only when it is sent. A scan of every node's reads at every update
@@ -582,12 +668,11 @@ export class FarField {
     const id = this.nextId--;
     const stamp = this.stamps.get(key) ?? 0;
     this.jobs.set(key, { id, stamp });
-    const d = this.target.get(key);
-    // After every near job of the lane (theirs count squared cells from the focus): the far field never holds the near field back.
-    const distance = FAR_JOB_DISTANCE_OFFSET + (d?.distance ?? 0) ** 2;
+    // Its place in the todo list (by the error drawn there now) orders it among the far field's jobs.
+    const distance = this.rank.get(key) ?? 0;
     const kind = this.draw;
     this.firsts.job ??= performance.now() - this.made;
-    void this.host.pool.submit<FarMesh | FarBricks>({ id, kind: kind === 'bricks' ? 'far-bricks' : 'far-mesh', lane: 'mip', distance, input, transfer }).then((o) => this.meshed(n, key, id, stamp, kind, o));
+    void this.host.pool.submit<FarMesh | FarBricks>({ id, kind: kind === 'bricks' ? 'far-bricks' : 'far-mesh', lane: 'mip', distance, input, transfer, background: true }).then((o) => this.meshed(n, key, id, stamp, kind, o));
   }
 
   private meshed(n: MipNode, key: string, id: number, stamp: number, kind: FarDrawKind, o: JobOutcome<FarMesh | FarBricks>): void {
@@ -672,17 +757,38 @@ export class FarField {
     }
     const blocked = new Set<string>();
     for (const key of fresh) if (!this.ready.has(key)) blocked.add(find(key));
+    // The groups that can go in, in the todo's order (the largest error drawn first), up to the commit's bytes.
+    const groups = new Map<string, { fresh: string[]; gone: string[]; rank: number; bytes: number }>();
+    const groupOf = (key: string): { fresh: string[]; gone: string[]; rank: number; bytes: number } | null => {
+      const root = find(key);
+      if (blocked.has(root)) return null;
+      let g = groups.get(root);
+      if (g === undefined) groups.set(root, (g = { fresh: [], gone: [], rank: Infinity, bytes: 0 }));
+      return g;
+    };
+    for (const key of fresh) {
+      const g = groupOf(key);
+      if (g === null) continue;
+      g.fresh.push(key);
+      g.rank = Math.min(g.rank, this.rank.get(key) ?? Infinity);
+      g.bytes += readyBytes(this.ready.get(key)!);
+    }
+    for (const key of gone) groupOf(key)?.gone.push(key);
     const added: FarNodeDraw[] = [];
     const removed: MipNode[] = [];
-    for (const key of gone) {
-      if (blocked.has(find(key))) continue;
-      const n = this.shown.get(key)!;
-      this.shown.delete(key);
-      removed.push(n);
-    }
-    for (const key of fresh) {
-      if (blocked.has(find(key))) continue;
-      this.show(key, added);
+    let bytes = 0;
+    let cut = false;
+    for (const g of [...groups.values()].sort((a, b) => a.rank - b.rank)) {
+      if (bytes > 0 && bytes + g.bytes > FAR_COMMIT_BYTES) {
+        cut = true;
+        continue;
+      }
+      bytes += g.bytes;
+      for (const key of g.gone) {
+        removed.push(this.shown.get(key)!);
+        this.shown.delete(key);
+      }
+      for (const key of g.fresh) this.show(key, added);
     }
     // Nodes an edit made stale: replaced alone (their place is drawn either way).
     for (const key of [...this.stale]) {
@@ -691,6 +797,11 @@ export class FarField {
         continue;
       }
       if (!this.ready.has(key)) continue;
+      if (bytes > 0 && bytes + readyBytes(this.ready.get(key)!) > FAR_COMMIT_BYTES) {
+        cut = true;
+        continue;
+      }
+      bytes += readyBytes(this.ready.get(key)!);
       this.stale.delete(key);
       removed.push(this.shown.get(key)!);
       this.shown.delete(key);
@@ -705,6 +816,10 @@ export class FarField {
       for (const l of this.listeners) l(e);
     }
     this.commitMs.add(performance.now() - tc);
+    if (cut) {
+      this.counters.commitsCut++;
+      this.commitSoon(FAR_COMMIT_AGAIN_MS);
+    }
     this.wake();
   }
 
@@ -831,6 +946,11 @@ export class FarField {
     this.entries.clear();
     for (const w of this.waiters.splice(0)) w();
   }
+}
+
+/** Bytes of a made node (what its event carries). */
+function readyBytes(r: Ready): number {
+  return r.made === null ? 0 : (r.made.mesh !== undefined ? farMeshBytes(r.made.mesh) : 0) + (r.made.bricks !== undefined ? farBricksBytes(r.made.bricks) : 0);
 }
 
 /** The kept samples' sum. */
