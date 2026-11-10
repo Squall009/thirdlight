@@ -1665,6 +1665,47 @@ deleted, 00:45, load 1.4):
 
 Far selection at 2 px: 11,979 nodes from the town (7.1 MB), 3,439 from the corner. Disk free stayed ≥ 19 GiB.
 
+**Pictures on the regenerated world** (staging, Iris Xe, 1280 × 720, medium, 04:30–04:50, load 1.3–5.8; the 00:34
+set was of the world before the material tune and is replaced). `~/.cache/thirdlight-phase46/far-field/realistic/`:
+`meshes/` and `bricks/` (`faces2` + fine shading) at 46d.7c's poses (`town-*`, `sight-*`, `peak-to-town`) and the new
+peak's (`peak-sight-1/3/5km`, `beyond-peak-to-town`), both renderers; `side-by-side/` meshes left, bricks right, a
+4× horizon crop below (`work/46d.12b/r2-compose.mts`); `near/` ground-level poses (`r2-plan-near.json`, picked by
+`near.mts`/`nearplan.mts` from the landscape: river bed, boulders on scree, outcrop, grass/rock border, valley floor,
+escarpment). The near poses ran one browser each after the third (an outcrop on a 970 m flank) filled the browser's
+6 GB scope (5.9 GB RSS, 8.2 M far triangles while two selections were held; the shot run in one browser died there).
+
+**Looked at** (every PNG opened). *Rings:* meshes paint every gentle grass slope and valley as alternating
+grass/grey contour bands of about equal width (`peak-to-town`, `beyond-peak-to-town`, `sight-5km`, the town's
+surroundings in `town-*`); bricks keep those slopes mostly grass with thinner grey/brown contour lines, still plain on
+the far lowland in `peak-to-town`, `beyond-peak-to-town` and `sight-5km` (coarse nodes, numbers below), and none on
+the near slopes of `town-west`/`town-north`. *Mush:* none in either mode at these poses; the bricks' rock faces show
+a fine scaly ripple (the steps, D569), the meshes' a smoother fine banding. *Seams/specks:* meshes show white dotted
+lines down cliff faces (`peak-to-town` right, `beyond-peak-to-town`, `sight-3km`); not seen in the bricks.
+*Strips:* horizontal strips of colour across the valley floor seen from the town in both (4× crops of
+`town-west`/`town-north`), fainter in the bricks. *River and town:* the dry gravel channels read as winding grey
+paths below the town in both modes, crisper in the bricks; from the peaks the town is a red patch ringed by its
+plain (bricks a cleaner rectangle). Snow caps read in both (bricks as solid patches, meshes speckled). Meshes against
+bricks differ in 0.2–14 % of pixels (> 60), most at `peak-to-town` (14 %) and `beyond-peak-to-town` (10.7 %).
+*Renderers:* WebGPU against WebGL 2 0.0–0.2 % of pixels in every far and near pair (`r2-rdiff.out`). *Near:*
+`near-river` — the channel a stepped gravel trench with a soil bank patch, small boulders on the grass, and soil
+strips on the far slopes; `near-boulders` — boulders sit on a gravel scree, but the cliff beside it is a regular
+lattice of 0.5 m steps with pale ledge tops (reads as a grid, not rock), dark slits where rock meets gravel, and
+rows of soil dots in the gravel; the outcrop, border, valley and escarpment poses follow below. `sight-1km`/`sight-3km` look at sky and a flank (46d.7c's terraced peak
+is not in this world); the `peak-sight-*` poses replace them. Motion and pop not looked at (unverified).
+
+**Rings, measured** (`work/46d.12b/ringmesh.mts`, `ringbrick.mts`, `r2-thin.mts`; the far cache's nodes over a
+256 m grass valley at (−2048, −1536) cells, and a grass/rock flank at (2960, 2320); `r2-*.out`). The cause is one in
+both modes: **a top cell under half full is not the surface** — 52–58 % of grass top cells at L2–L6 are filled
+under half (the ½ m roughness and slopes mipped), and the cell under them is grass at L2, rock at L4–L6.
+- Meshes (D571 confirmed): upward vertices over grass top cells taking another look — L2 56 % (soil 49), L3 56 %
+  (rock 37, soil 20), L4 55 % (rock 52), L5 55 %, L6 62 % (rock 54–60); the flank the same (L2 57, L3 58, L4 55 %).
+- Bricks, upward surface samples within a cell of the surface over grass top columns, non-grass, occupancy /
+  `faces2`: L2 2 / 18 %, L3 3 / 6 %, L4 2 / 3 %, L5 14 / 11 %, L6 35 / 18 % (valley); flank L2 4 / 23 %, L3 6 / 6 %,
+  L4 8 / 4 %. As drawn at the surface hit (colour weight not grass, fine ≈ flat): `faces2` L2 12–15 %, L3 4–9 %,
+  L4 1–9 %, L5 10 %, L6 18 %. Occupancy's topmost-of-8 rule keeps a thin top's look at fine levels, but at L5–L6 its
+  thin tops are dropped too; `faces2` at L2 has no L1 to read (built from its own cells) and its vote also counts the
+  soil a step's riser shows. Fix for 46d.13 in D571 (not fixed here).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
