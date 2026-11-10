@@ -247,7 +247,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | 13a (ea5a0542): D570/D571 fixed. 13b (d116bf13, fab6bf4f, 434cc33e, f99af3cb): baked, node march, half-res, raster; pick v3. 13c-1 done (40fe19d0, 1cd4be9a): v3 default in Play, export, Scene view, page; meshes the fallback; other variants retired. Play at the cap, medium: v3 missed 0–1 a round, flight 1–3; meshes 0–1, their flight OOM in 6 GB (§8). 13c-2 next |
+| 46d.13 | 13a (ea5a0542): D570/D571. 13b: pick v3. 13c-1 (40fe19d0, 1cd4be9a): v3 the default everywhere, meshes the fallback. 13c-2 (c0ca48b3, 46731dbe): part-full cells as heights, normal over ±1 cell: slope normals 5.2 → 1.5–1.9° rms, contour rings gone (seen); far behind near in the edge ring (D569, D577 fixed); Play 0–2 missed a round both. 13c-3 next |
 | 46d.14 | not started |
 | 46d.15 | not started |
 
@@ -2006,6 +2006,78 @@ first e2e pictures at a 20 m test ring showed the far field drawing over the nea
 uncovered outer chunk ring, the mesh fallback too (D577). Motion in Play not looked at (unverified); the high tier's
 pictures and an edit re-baking the palette in a browser unverified.
 
+### 46d.13c-2 the far slopes' contour lines (D569) and the near field's edge ring (D577)
+
+**Cause (numbers; `work/46d.13c-2/slope.mts`, `real.mts`).** The faces field took a finer cell under half full as
+air and moved only a corner touching both kinds (by ½ − the mean fill). A gentle slope's tops are part-full cells
+whose solid steps one finer cell every few columns; the node's samples, two finer cells apart, made those steps flat
+treads and steep risers: on a synthetic 6° slope at the children's resolution the draw's normal (the hit brick's
+gradient, ±½ cell) swung −6° … +15° about the true slope (sd 5.6°), the height 0.08 node cells rms off, the tread
+period one finer cell of rise, i.e. a contour every 0.5 · 2^(L−1) m of height (L3: 2 m, L4: 4 m). On 22 real far-cache
+nodes along the town–peak line (L3–L5; 52 % of the children's top cells part-full) the normal against its local
+median (±1.5 node cells, ground under 30°) was 4.8–5.2° rms, p95 10–11°. The Play sun at a low angle and the grazing
+view turn that into the bands. Not aliasing of the sample spacing: the same field read at ¼-cell columns shows it.
+A second, smaller part: the trilinear blend's slope changes from cell to cell where the surface is not a plane, so
+even an exact field swung the ±½-cell normal by ~2–3° a cell (the fine lines left after the first fix).
+
+**Built** (c0ca48b3 the spans and the edge ring, 46731dbe the ±1-cell normal). `@thirdlight/voxel` `far-bricks-faces.ts` `spanDistances`: a part-full
+cell is solid up to its fill as a height (from the side of its fuller vertical neighbour, below on a tie; the near
+terrain mesher reads the fill as a height too); each corner's distance is exact to that solid: the distance along y
+to each vertical corner line's solid or air spans (one pass up, one down), then the separable transform's x and z
+passes (`squaredDistanceLines`, split out of `squaredDistances`); a surface corner whose 8 finer cells are all whole
+keeps the old ½ − mean rounding, so whole-cell worlds and buildings build byte-equal to before. `far-bricks-shade.ts`
+`FAR_BRICK_NORMAL_SPAN_CELLS` = 1: the normal's central differences a cell either side (CPU and both shaders; same six
+reads, no per-pixel cost); the baked occlusion follows it. D577: the near cover's wire marks its edge ring
+(`NEAR_COVER_EDGE` 1, hidden `NEAR_COVER_HIDDEN` 2); `FarCover.behindNear` gives a far point in the ring at least the
+distance of the cover box's farthest corner from the camera, so every near fragment is in front of it and the far
+field there only fills gaps: bricks per fragment (also the half-resolution target's depth), the mesh fallback per
+vertex (its depth is written in the vertex stage; a triangle across the ring's outer edge blends, not looked at).
+
+**Tested.** `far-bricks-faces.test.ts` (+1): a 6° slope of part-full finer tops: heights within 0.06 node cells and
+the normal within 3° of the slope over 720 columns (old build: 0.19 cells, fails); a 15 m scarp at level 3 keeps its
+3.75-cell step within a node cell, its face > 60°, the terraces < 2° up to it. `chunk-batch.test.ts`: the cover's
+hidden chunks, its edge ring and nothing else. `voxel-world.e2e.ts` (`farBeyondNear`, Play both renderers and the
+export): no near-field pixel away from its silhouette drawn over when the far field shows (< 200). At the e2e's 40 m
+ring this held before too; at a 20 m ring (a scratch copy, not committed) the old build fails it with 895 (Play
+WebGPU) and 8,490 px (export: the grey wedge in front of the wall, far slabs over the ground, `far-field/13c-2/ring20/`),
+the new one passes. Fast gates: gate-fast-20261110-111027 GREEN (14 min, 5.1 GB; `scan-bounded-log` once, D307/D418's
+watch, passed alone; village perf 0 missed both); gate-fast-20261110-115630 (the normal) red on the export's new check,
+146 k "drawn over" pixels: the pair was taken while the camera's auto exposure still adapted to the far draws hidden
+(the whole frame shifted, nothing drawn over, picture opened), so each shot now waits for it (3 s hidden, 1.2 s
+shown) and a pair taken meanwhile is taken again; GREEN on rerun gate-rerun-20261110-121245, the Play tests passed
+alone with it (`scan-bounded-log` and `edge-cases.test.ts` once, passed alone). `voxel-world.e2e.ts` 75.3–77.3 →
+~83 s (the exposure waits, +6 s in the three far checks).
+
+**Measured.** Synthetic slopes (normal − true, sd; old → spans → spans + ±1 cell): 3° 4.6 → 0.66 → 0.30°, 6° 5.6 →
+0.72 → 0.51°, 10° 6.7 → 1.9 → 1.2°, 20° 5.3 → 3.6 → 2.1°, 35° 5.0 → 3.9 → 1.9°; whole-cell slopes unchanged (their steps
+are the data). Real nodes (rms against the local median): L3 5.23 → 2.32 → 1.48°, L4 5.15 → 2.91 → 1.86°, L5 4.76 →
+3.37 → 1.89°; p95 10.4–11.1 → 3.3–4.3°. Far brick job (Node, the 433 town jobs L3–L6): p50 / p95 48.6–49.2 / 65–67 →
+50.8 / 71 ms (+4 %; a first version's per-corner scan upward was +16 ms, made linear). Play (staging, Iris Xe, editor
+Play frame 1280 × 720, 60 Hz cap, medium, the realistic 8 km world, town square, orbit 3 × 8 s, one round a renderer;
+before 11:25–11:34, load 1.4–4.7; after 11:46–11:55, load 1.6–5.6; uptime 17.8 d; `work/46d.13c-2/play-*.json`,
+`perf-uptime.txt`): WebGPU missed 0/0/0 → 2/0/0 (max 83 ms), WebGL 2 1/0/0 → 1/0/0 (max 150 → 67 ms) of ~480; far
+2,598 → 2,600 nodes, 43,681 → 43,698 bricks, 164.3 MB both; fill from page load 136–143 → 140–145 s (D550/D551's,
+13c-3); frame heap 1.07–1.13 GB both. Within one round's noise: no cost change seen.
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/13c-2/`: `side-by-side/<pose>-<renderer>.png` before left, after
+right, a 4× crop of the most banded rows below, poses `town0`, `town1` (13c-1's town-0/1 as static poses), `west`,
+`peak` (13c-1's peak-to-town), `sight5` (peak-sight-5km), both renderers; `motion/before-strip.png`,
+`after-strip.png`; `ring20/`; every picture opened). *town1, west:* the valley's wide curved contour rings on the
+gentle slopes before the massif are gone, the lowland reads as one smooth green slope; the gravel channels, the rock
+patches and the massif's ridges unchanged. Faint thin horizontal lines are left on the steeper grass slopes in the
+distance (much weaker; visible in the 3–4× crops, hard to see at 1:1). *town0:* the slope behind the town loses its
+treads; the rock face is smoother than before (the first fix alone made it speckled, which the ±1-cell normal took
+away). *peak:* the lowland's dense contour maze round the town is gone; cliffs, scarps, crags and the ridge lines keep
+their shape and shading. *sight5:* the massif alike, its faces a little smoother, the grass below free of the fine
+contours. Pixels changed by > 60: 0.6–3.9 % (> 20: 7–20 %); vertical-over-horizontal gradient in the far band 2.21–2.71
+→ 1.90–2.23 at the town poses, ~1.1 unchanged from above. WebGPU against WebGL 2 ≤ 0.23 % (> 60), as before. *Strip*
+(8 frames in the orbit from town-west, WebGPU, ~0.3 s apart): steady, no crawling bands seen at the strip's half size
+(the camera turns a lot between frames; fine shimmer at full size unverified). *ring20:* the export's grey wedge in
+front of the wall and the far slabs over the near ground are gone, the Play pit view the same as with the far field
+hidden; a small grey far spike past the near field's back edge remains where the near field draws nothing.
+*Unverified:* WebGL 2 in motion, the high tier, the mesh fallback's ring in pictures, the faint lines' cause (not
+traced further: the slope's fill rounding, 1/15 cell a column, or the march's half-pixel stop).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2551,6 +2623,17 @@ pictures and an edit re-baking the palette in a browser unverified.
 - 2026-11-10 (46d.13c-1, default chosen, owner to confirm): **Play and the export prove the far field in the e2e at
   the low tier with the play world's own 40 m load ring** (`quality.low`): the other tiers load the whole 128 m test
   world, so nothing is far there; a 20 m ring put the near cover's uncovered outer ring in view (D577).
+
+- 2026-11-10 (46d.13c-2, default chosen, owner to confirm): **a part-full far cell is solid up to its fill as a
+  height**, from its fuller vertical neighbour's side (below on a tie), in the brick build's distance; whole-cell
+  configurations keep the old corner rounding (buildings and whole-cell terrain build as before). Gentle slopes are
+  smooth; real steps (scarps, terraces of whole cells, cliffs) stay steps.
+- 2026-11-10 (46d.13c-2, default chosen, owner to confirm): **the far bricks' normal is taken over a cell either side**
+  (was half a cell): half the residual slope banding, no per-pixel cost; edges round over ±1 node cell in shading only
+  (silhouettes and the march are the field's). The faint thin lines left on far grass slopes are not traced further.
+- 2026-11-10 (46d.13c-2, default chosen, owner to confirm): **in the near field's edge ring the far field draws behind
+  all of the near field** (depth at least the near cover's farthest corner), both far modes; the ring still fills
+  gaps between the two. Clipping the far field there was not chosen: the ring is what closes the near/far gap.
 
 ## 10. Open questions for the owner
 

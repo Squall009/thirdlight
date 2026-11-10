@@ -469,7 +469,7 @@ drawn; the fragment enters the node's box, walks its 4³ bricks in ray order (a 
 × the distance outside it, hit under the larger of `BRICK_HIT_VOXELS` (0.05 cells) and half a pixel
 (`FAR_BRICK_HIT_PIXELS`), step the field (÷ 5 in the skirt), at least `BRICK_MIN_STEP_VOXELS` (0.25), at most
 `FAR_BRICK_STEPS` (32) a brick; a ray that leaves the node first is discarded. Normal: the samples' gradient inside
-the brick, or the entered face where the samples are clamped (deep under the surface); colour: one filtered read of
+the brick by central differences a cell either side (`FAR_BRICK_NORMAL_SPAN_CELLS`), or the entered face where the samples are clamped (deep under the surface); colour: one filtered read of
 the baked samples (the eight samples' colours and occlusions blended by the hit's weights), the occlusion darkening
 to `FAR_BRICK_AO_FLOOR` (½) at most; depth: the hit's own (`depthNode`), the same mapping as the meshes, and the boxes
 placed with that depth so none is clipped at the far plane. **Half resolution** (`voxel-far-half.ts`, the voxel world
