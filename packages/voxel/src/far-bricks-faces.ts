@@ -1,13 +1,14 @@
 /**
- * Far bricks from the faces of finer cells (far-bricks.ts `faces` build):
+ * Far bricks from the faces of finer cells (far-bricks.ts `FarBrickBuild`):
  * a far node's bricks whose samples are the exact signed distance to the
  * solid cells' faces, read from the node's descendants `scale` times finer
  * than its own cells.
  *
  * Why: the node's own cells are a mip, each one standing for 8^k finer
- * cells, and the occupancy field (far-bricks.ts) averages each corner over
- * eight of them, so a roof or a rock a cell or two across is averaged away
- * and a slope sits up to a cell off where the finer cells put it. Here a
+ * cells, and a field of cell-centre distances averaged into each corner
+ * over eight of them (the first build) averaged a roof or a rock a cell or
+ * two across away and set a slope up to a cell off where the finer cells
+ * put it. Here a
  * corner touching both a solid and an air cell is on the surface (0), any
  * other corner takes its Euclidean distance to the nearest corner of the
  * other kind (the nearest point of a union of whole cells from a lattice
@@ -25,7 +26,7 @@ import { decodeDenseChunk } from './cell-delta';
 import { chunkInWorld, type ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { BRICK_HIT_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, sampleOfDistance } from './distance-brick-format';
-import { brickFarNode, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, squaredDistances, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, squaredDistances, type FarBricks } from './far-bricks';
 import { farBrickOcclusion } from './far-bricks-shade';
 import { withFarNeighbourhood, type FarMeshInput } from './far-mesh';
 import type { PaletteStore } from './palette-store';
@@ -59,10 +60,9 @@ function surfaceOnFace(values: Float32Array): boolean {
 }
 
 /**
- * A far brick job: the node's bricks by its build (the occupancy build, or
- * faces from its own cells or from the finer cells it carries), from
- * `store` (a scratch store: the job's entries are put in and taken out
- * again before it returns).
+ * A far brick job: the node's bricks from the finer cells it carries (the
+ * build's scale), else from its own cells, from `store` (a scratch store:
+ * the job's entries are put in and taken out again before it returns).
  */
 export function brickFarNodeBy(store: PaletteStore, input: Pick<FarMeshInput, 'cells' | 'level' | 'node' | 'build' | 'fine'>, decompress: (b: Uint8Array) => Uint8Array): FarBricks {
   const out = bricksBy(store, input, decompress);
@@ -71,8 +71,6 @@ export function brickFarNodeBy(store: PaletteStore, input: Pick<FarMeshInput, 'c
 }
 
 function bricksBy(store: PaletteStore, input: Pick<FarMeshInput, 'cells' | 'level' | 'node' | 'build' | 'fine'>, decompress: (b: Uint8Array) => Uint8Array): FarBricks {
-  const b = input.build;
-  if (b === undefined || b.field === 'occupancy') return brickFarNode(store, input, decompress);
   const g = store.grid;
   const side = g.edge / DISTANCE_BRICK_CELLS;
   const none = (): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(DISTANCE_BRICK_OUTSIDE), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0), bounds: new Uint8Array(0) });

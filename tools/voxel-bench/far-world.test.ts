@@ -14,7 +14,7 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, createDenseChunk, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, farVertexLook, marchFarBrick, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarNode, createDenseChunk, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
 import { buildFarCache, farCacheDir, FarCacheReader, FarWorldSource, openShippedWorld, readFarCacheManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
 import { hexToBytes } from '@thirdlight/shared';
 import { computeFarDrainage, PEAK } from './far-drainage';
@@ -431,7 +431,10 @@ describe('the far field drawn as meshes and as bricks', () => {
         for (let i = 0; i < b.looks.length; i += 37) brickLooks.add(farVertexLook(b.looks[i]!).material);
         // A ray straight down each stored brick's middle column meets its surface or leaves through its floor (the
         // surface may lie in a neighbour); some do meet it.
-        for (let k = 0; k < b.samples.length / DISTANCE_BRICK_SAMPLES; k++) if (marchFarBrick(b.samples, k, b.blocks[k * 4 + 3]!, [4, 7.9, 4], [0, -1, 0]) !== null) surfaceHits++;
+        for (let k = 0; k < b.samples.length / DISTANCE_BRICK_SAMPLES; k++) {
+          const box = farBrickMarchedBox(b, k);
+          if (marchBrickBox(b.samples, k, box.lo, box.hi, [4, 7.9, 4], [0, -1, 0]) !== null) surfaceHits++;
+        }
       }
       expect(surfaceHits).toBeGreaterThan(shown.size);
       for (const mat of [MAT.grass, MAT.rock]) expect(brickLooks.has(mat), `${[...brickLooks]}`).toBe(true);

@@ -63,11 +63,10 @@
  * `?occlusion=off` draws through the same scene pass without it, to compare.
  *
  * Past the load ring the world's far field draws the far cache's nodes as
- * meshes or as ray-marched distance bricks (the backend builds the cache on the first read and keeps it current
+ * ray-marched distance bricks or, as the fallback, meshes (the backend builds the cache on the first read and keeps it current
  * with every command), under the near field and hidden where it draws:
- * `?farField=off|mesh|bricks` and `?farError=` (pixels) override the quality
- * level's; `?farBricks=occupancy|faces|faces2` and `?farShade=fine|flat|baked` pick
- * how bricks are built and shaded (comparing builds), `?farMarch=brick|node` how they are marched and `?farRes=half` marches them at half resolution; `?farShow=0` keeps the
+ * `?farField=bricks|mesh|off` and `?farError=` (pixels) override the quality
+ * level's; `?farRes=half` marches the bricks at half resolution; `?farShow=0` keeps the
  * far draws hidden.
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
@@ -270,7 +269,7 @@ async function main(): Promise<void> {
   materials.attach(surface);
   const level = pageLevel(textureResidency.quality, relief.params);
   const far = pageFar(params, level);
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels, brickBuild: far.brickBuild }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   relief.attach(surface, streamer.relief, level.relief);
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters });
   const gpu = createGpuTiming();
@@ -532,7 +531,7 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
-    ...pageFarHooks(streamer, meshes.far, far.shading, far.march, far.half),
+    ...pageFarHooks(streamer, meshes.far, far.half),
     /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);
@@ -560,8 +559,6 @@ async function main(): Promise<void> {
     ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, levelLog, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
     swaps: () => swaps.slice(),
-    /** The raster far draw's faces as merged runs would be (a count, not drawn). */
-    farRuns: () => meshes.far.rasterRuns(),
     ...assemblyProbes({ streamer, grid, origin, collision, scene, files, kitPiece: (material, piece, variant) => meshes.kits?.describe(material, piece, variant) ?? null }),
     /** A dab at the cell under a screen point. */
     pickAndEdit,

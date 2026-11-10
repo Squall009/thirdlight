@@ -65,10 +65,10 @@ export interface FarMeshInput {
    */
   readonly cells: ReadonlyArray<StoredChunk | null>;
   readonly rules: AssemblyRulesRef;
-  /** A brick job's build (far-bricks.ts; none: the occupancy build). */
+  /** A brick job's build (far-bricks.ts; none: faces from the node's own cells, no occlusion). */
   readonly build?: FarBrickBuild;
   /**
-   * A brick job's finer cells (a `faces` build of scale > 1): the nodes `scale`
+   * A brick job's finer cells (a build of scale > 1): the nodes `scale`
    * times finer covering the node and one of theirs round it, x outermost,
    * then z, then y, each from −1 to `scale` (null: air or not kept).
    */

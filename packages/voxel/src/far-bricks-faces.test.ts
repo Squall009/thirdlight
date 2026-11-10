@@ -1,6 +1,7 @@
 /**
- * Far bricks from the faces of finer cells against the occupancy build:
- * a one-cell body keeps more of its height than in the occupancy field, a
+ * Far bricks from the faces of finer cells: a one-cell body keeps more of
+ * its height than from the node's own cells (which keep about a third, as
+ * the first build's corner-averaged field did), a
  * surface between the node's cells sits where the finer cells put it, a
  * partial top cell moves it, the bounds hold the cells the surface
  * crosses, a sample's look is its neighbourhood's, and a job carrying its
@@ -9,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { chunkGrid } from './coords';
 import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample } from './distance-brick-format';
-import { FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILDS, farBricksOf, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, type FarBricks } from './far-bricks';
 import { brickFarNodeBy, farBricksFromFaces } from './far-bricks-faces';
 import { farNeighbourIndex } from './far-mesh';
 import { createWorldStore, type PaletteStore } from './palette-store';
@@ -55,23 +56,24 @@ function ground(s: PaletteStore, lo: number, hi: number, top: number, partial?: 
 }
 
 describe('far bricks from faces', () => {
-  it('keeps more of a one-cell body than the occupancy field, which averages it away', () => {
+  it('keeps more of a one-cell body from the finer cells than from the node\'s own, which average it away', () => {
     // Node (0, 1, 0): cells y 32–63, ground top at y 40 (node y 8); a one-cell block on it at node (12, 8, 12). The faces
     // build reads the same scene from cells twice finer (a node cell is 2³ of them), as it reads a node's children.
     const s = ground(createWorldStore(grid), -40, 72, 40);
     s.setVoxel(12, 40, 12, { material: ROOF, role: VOXEL_ROLE.wall, shape: SHAPE_FULL, wetness: 0 });
     const f = ground(createWorldStore(grid), -40, 140, 80);
     for (let x = 24; x < 26; x++) for (let y = 80; y < 82; y++) for (let z = 24; z < 26; z++) f.setVoxel(x, y, z, { material: ROOF, role: VOXEL_ROLE.wall, shape: SHAPE_FULL, wetness: 0 });
-    const occupancy = farBricksOf(grid, s, [0, 1, 0]);
+    const own = farBricksFromFaces(grid, s, [0, 1, 0], 1);
     const faces = farBricksFromFaces(grid, f, [0, 1, 0], 2);
-    const occupancyTop = surfaceBelow(occupancy, 12.5, 12.5);
+    const ownTop = surfaceBelow(own, 12.5, 12.5);
     const facesTop = surfaceBelow(faces, 12.5, 12.5);
-    // The block's top is node y 9: the occupancy field (corners the mean of 8 cells) leaves under a third of it, the
-    // faces field from the finer cells more (its convex corners still round off between the node's samples).
-    expect(occupancyTop).toBeLessThan(8.35);
-    expect(facesTop).toBeGreaterThan(occupancyTop + 0.1);
+    // The block's top is node y 9: from the node's own cells the faces field keeps about a third of it, as the first
+    // build (corners the mean of 8 cell-centre distances, 8.30) did; from the finer cells, as the far field builds,
+    // more (its convex corners still round off between the node's samples).
+    expect(ownTop).toBeLessThan(8.35);
+    expect(facesTop).toBeGreaterThan(8.4);
     // The flat ground away from it is where it is in both.
-    expect(surfaceBelow(occupancy, 4.5, 4.5)).toBeCloseTo(8, 1);
+    expect(surfaceBelow(own, 4.5, 4.5)).toBeCloseTo(8, 1);
     expect(surfaceBelow(faces, 4.5, 4.5)).toBeCloseTo(8, 1);
     // The roof block's samples show the roof (most of the shown cells round its top corners), the ground's grass.
     const T = DISTANCE_BRICK_SIDE;
@@ -117,7 +119,7 @@ describe('far bricks from faces', () => {
       const dy = (k % 4) - 1;
       return dy < 2 ? { uniform: rock } : null;
     });
-    const job = brickFarNodeBy(createWorldStore(grid), { level: 3, node: [0, -1, 0], cells: own, build: FAR_BRICK_BUILDS['faces2']!, fine: { level: 2, scale: 2, cells: low } }, decompress);
+    const job = brickFarNodeBy(createWorldStore(grid), { level: 3, node: [0, -1, 0], cells: own, build: FAR_BRICK_BUILD, fine: { level: 2, scale: 2, cells: low } }, decompress);
     const direct = createWorldStore(grid);
     for (let x = -32; x < 96; x++) for (let z = -32; z < 96; z++) for (let y = -100; y < 0; y++) direct.setVoxel(x, y, z, { material: ROCK, role: VOXEL_ROLE.terrain, shape: SHAPE_FULL, wetness: 0 });
     const want = farBricksFromFaces(grid, direct, [0, -1, 0], 2);
@@ -129,7 +131,7 @@ describe('far bricks from faces', () => {
     expect(job.bricks.filter((k) => k >= 0).length).toBe(16);
     expect(surfaceBelow(job, 7.5, 7.5)).toBeCloseTo(32, 1);
     // A job with no finer cells of its own: nothing drawn.
-    const empty = brickFarNodeBy(createWorldStore(grid), { level: 3, node: [0, 0, 0], cells: own, build: FAR_BRICK_BUILDS['faces2']!, fine: { level: 2, scale: 2, cells } }, decompress);
+    const empty = brickFarNodeBy(createWorldStore(grid), { level: 3, node: [0, 0, 0], cells: own, build: FAR_BRICK_BUILD, fine: { level: 2, scale: 2, cells } }, decompress);
     expect(empty.samples.length).toBe(0);
   });
 });

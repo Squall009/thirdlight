@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { chunkGrid } from './coords';
 import { BRICK_HIT_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
-import { FAR_BRICK_BUILDS, farBrickCount, farBrickField, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BUILD, farBrickCount, farBrickField, type FarBricks } from './far-bricks';
 import { brickFarNodeBy, farBricksFromFaces } from './far-bricks-faces';
 import { bakeFarBrick, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYTES, FAR_PALETTE_WORDS, farBakedAt, farBrickFineShade, farBrickOcclusion, farBrickOcclusionAt } from './far-bricks-shade';
 import { farNeighbourIndex } from './far-mesh';
@@ -115,8 +115,8 @@ describe('far bricks baked shading', () => {
       throw new Error('no stored entries here');
     };
     const input = { level: 3, node: [0, -1, 0] as [number, number, number], cells: own, fine: { level: 2, scale: 2, cells } };
-    const plain = brickFarNodeBy(createWorldStore(grid), { ...input, build: FAR_BRICK_BUILDS['faces2']! }, decompress);
-    const job = brickFarNodeBy(createWorldStore(grid), { ...input, build: { ...FAR_BRICK_BUILDS['faces2']!, occlusion: true } }, decompress);
+    const plain = brickFarNodeBy(createWorldStore(grid), { ...input, build: { ...FAR_BRICK_BUILD, occlusion: false } }, decompress);
+    const job = brickFarNodeBy(createWorldStore(grid), { ...input, build: FAR_BRICK_BUILD }, decompress);
     expect(plain.occlusion).toBeUndefined();
     expect(farBrickCount(job)).toBeGreaterThan(0);
     expect([...job.samples]).toEqual([...plain.samples]);

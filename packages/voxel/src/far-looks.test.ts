@@ -4,7 +4,7 @@
  * brick fields put the surface under such a cell, in the soil), built at a
  * coarse level through the far jobs' own inputs (encoded entries, as the far
  * cache serves them). Every upward vertex of the far mesh and every upward
- * surface sample of both brick builds must show the grass, never the soil
+ * surface sample of the far bricks must show the grass, never the soil
  * (else the slope reads as rings, one at each height step); a real rock face
  * beside it keeps its rock.
  */
@@ -14,7 +14,7 @@ import { encodeDenseChunk } from './cell-delta';
 import { chunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample } from './distance-brick-format';
-import { FAR_BRICK_BUILDS, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BUILD, type FarBricks } from './far-bricks';
 import { brickFarNodeBy, farBricksFromFaces } from './far-bricks-faces';
 import { FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farNeighbourIndex, farVertexLook, meshFarNode } from './far-mesh';
 import { POSITION_STEPS_PER_CELL } from './derived-mesh';
@@ -133,24 +133,14 @@ describe('far looks over thin top cells', () => {
     expect([...face.keys()]).toEqual([ROCK]);
   });
 
-  it('the occupancy bricks show the grass on every upward surface sample, the rock on the cliff face', () => {
-    const s = scene(1);
-    const b = brickFarNodeBy(createWorldStore(grid), { level: LEVEL, node: NODE, cells: neighbourhood(s, NODE), build: FAR_BRICK_BUILDS['occupancy']! }, decompress);
-    const { up, face } = brickLooks(b);
-    expect(up.get(GRASS) ?? 0).toBeGreaterThan(100);
-    expect([...up.keys()]).toEqual([GRASS]);
-    expect(face.get(ROCK) ?? 0).toBeGreaterThan(10);
-    expect([...face.keys()]).toEqual([ROCK]);
-  });
-
-  it('the bricks from the children’s faces show the same, and the job decoding its entries equals the build from a store', () => {
+  it('the bricks from the children’s faces show the grass on every upward surface sample, the rock on the cliff face, and the job decoding its entries equals the build from a store', () => {
     // The job's finer cells: the scene at twice the resolution, the node's children and one of theirs round them.
     const fine = scene(2);
     const S = 2;
     const cells: Array<StoredChunk | null> = [];
     for (let dx = -1; dx <= S; dx++) for (let dz = -1; dz <= S; dz++) for (let dy = -1; dy <= S; dy++) cells.push(entry(fine, NODE[0] * S + dx, NODE[1] * S + dy, NODE[2] * S + dz));
     const own = neighbourhood(scene(1), NODE);
-    const b = brickFarNodeBy(createWorldStore(grid), { level: LEVEL, node: NODE, cells: own, build: FAR_BRICK_BUILDS['faces2']!, fine: { level: LEVEL - 1, scale: S, cells } }, decompress);
+    const b = brickFarNodeBy(createWorldStore(grid), { level: LEVEL, node: NODE, cells: own, build: FAR_BRICK_BUILD, fine: { level: LEVEL - 1, scale: S, cells } }, decompress);
     const { up, face } = brickLooks(b);
     expect(up.get(GRASS) ?? 0).toBeGreaterThan(100);
     expect([...up.keys()]).toEqual([GRASS]);

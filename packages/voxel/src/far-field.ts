@@ -203,8 +203,6 @@ export interface FarFieldOptions {
   readonly enabled?: boolean;
   /** What nodes are made as (default `mesh`); a change makes every drawn node again, swapped in node by node. */
   readonly draw?: FarDrawKind;
-  /** How bricks are made (default {@link FAR_BRICK_BUILD}); a change makes every drawn brick node again. */
-  readonly brickBuild?: FarBrickBuild;
   /** On-screen error a drawn node's cell may make (pixels; {@link FAR_ERROR_PIXELS}). */
   readonly errorPixels?: number;
   /** Pixels a radian of the view ({@link FAR_VIEW_PIXELS_PER_RADIAN}). */
@@ -303,11 +301,10 @@ export class FarField {
   }
 
   /** The selection's settings changed (a quality level): selects again. */
-  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'pixelsPerRadian' | 'draw' | 'brickBuild'>): void {
+  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'pixelsPerRadian' | 'draw'>): void {
     const drawWas = this.opts.draw ?? 'mesh';
-    const buildWas = JSON.stringify(this.brickBuild);
     Object.assign(this.opts as { -readonly [K in keyof FarFieldOptions]: FarFieldOptions[K] }, o);
-    if ((this.opts.draw ?? 'mesh') !== drawWas || (this.draw === 'bricks' && JSON.stringify(this.brickBuild) !== buildWas)) this.remakeAll();
+    if ((this.opts.draw ?? 'mesh') !== drawWas) this.remakeAll();
     this.reselect = true;
     this.update();
   }
@@ -329,9 +326,9 @@ export class FarField {
     return this.opts.draw ?? 'mesh';
   }
 
-  /** How bricks are made now. */
+  /** How bricks are made (one build: {@link FAR_BRICK_BUILD}). */
   get brickBuild(): FarBrickBuild {
-    return this.opts.brickBuild ?? FAR_BRICK_BUILD;
+    return FAR_BRICK_BUILD;
   }
 
   /**
@@ -350,7 +347,7 @@ export class FarField {
   /** The finer nodes a brick job of `n` reads (null: it reads its own level only). */
   private fineOf(n: MipNode): { level: number; scale: number; nodes: MipNode[] } | null {
     const b = this.brickBuild;
-    if (this.draw !== 'bricks' || b.field !== 'faces' || b.scale <= 1 || this.index === null) return null;
+    if (this.draw !== 'bricks' || b.scale <= 1 || this.index === null) return null;
     const down = Math.log2(b.scale);
     const level = n.level - down;
     if (level < this.index.minLevel) return null;

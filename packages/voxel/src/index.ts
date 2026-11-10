@@ -416,9 +416,8 @@ export {
   type FarView,
 } from './far-tree';
 export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
-export { brickFarNode, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_BRICK_BUILD_OCCUPANCY, FAR_BRICK_BUILDS, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickBox, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksOf, farBricksTransfer, marchBrickBox, marchFarBrick, squaredDistances, type FarBrickBuild, type FarBricks } from './far-bricks';
+export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks } from './far-bricks';
 export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromFaces } from './far-bricks-faces';
-export { FAR_FACE_CLIP_SHIFT, FAR_FACE_DIRECTION_MASK, FAR_FACE_SHADE_SHIFT, FAR_FACE_SKIRT, farRasterFaces, farRasterFacesBytes, farRasterRuns, type FarRasterFaces } from './far-bricks-raster';
 export { farBrickMarchedBox, farNodeMarchedBox, marchFarNode, rayBox, type FarCellBox } from './far-bricks-node';
 export { bakeFarBrick, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GRADIENT_MIN, FAR_PALETTE_WORDS, farBakedAt, farBrickFineShade, farBrickGradient, farBrickOcclusion, farBrickOcclusionAt, type FarPalette } from './far-bricks-shade';
 export { FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_BY_TIER, FAR_FIELD_MODES, FAR_JOBS_IN_FLIGHT, FAR_RESELECT_CELLS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, farEventBytes, farViewOf, regionFarSource, type FarCacheLevelFiles, type FarDrawKind, type FarEvent, type FarFieldHost, type FarFieldMode, type FarFieldOptions, type FarNodeDraw, type FarNodeSource, type RegionFarSourceOptions } from './far-field';
