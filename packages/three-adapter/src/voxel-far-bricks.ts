@@ -29,7 +29,8 @@
  *   lights like the meshes.
  * - **Depth.** The hit's own depth is written (the far draws' mapping,
  *   voxel-far-common.ts), so bricks, far meshes and the near field sort
- *   against each other per pixel; hits under the near cover are discarded.
+ *   against each other per pixel; hits under the near cover are discarded,
+ *   and in its edge ring put behind the near field.
  */
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
@@ -407,7 +408,8 @@ export class FarBrickMaterial {
       // The hit in its brick's cells, and in the group's metres.
       const p = o.sub(brick).add(dir.mul(t)).toVar();
       const local = vCorner.add(brick.add(p).mul(vCellM));
-      If(cover.covered(modelWorldMatrix.mul(vec4(local, 1)).xyz), () => {
+      const world = modelWorldMatrix.mul(vec4(local, 1)).xyz.toVar();
+      If(cover.covered(world), () => {
         Discard();
       });
       // Deep under the surface (the samples clamped to the band) there is no gradient: a ray hits there only where a
@@ -424,8 +426,8 @@ export class FarBrickMaterial {
       const c = coloursNode.sample(region.add(q).add(0.5).mul(invSide)).level(float(0));
       hitColour.assign(c.rgb.mul(mix(float(FAR_BRICK_AO_FLOOR), float(1), c.a)));
       const view = modelView.mul(vec4(local, 1));
-      hitViewZ.assign(view.z);
-      return farFragmentDepth(view.z);
+      hitViewZ.assign(cover.behindNear(world, view.z));
+      return farFragmentDepth(hitViewZ);
     })();
     m.colorNode = vec4(hitColour, 1);
     m.normalNode = hitNormal;

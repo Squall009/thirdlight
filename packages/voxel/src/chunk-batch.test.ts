@@ -4,7 +4,7 @@
  * stays resident takes its part with it.
  */
 import { describe, expect, it } from 'vitest';
-import { ChunkDrawBatcher, MESH_PART, type ChunkDrawBatch, type ChunkDrawFeed } from './chunk-batch';
+import { ChunkDrawBatcher, MESH_PART, NEAR_COVER_EDGE, NEAR_COVER_HIDDEN, type ChunkDrawBatch, type ChunkDrawFeed } from './chunk-batch';
 import type { JoinedDraw } from './chunk-join';
 import { chunkGrid } from './coords';
 import type { StreamEvent } from './voxel-streamer';
@@ -82,9 +82,19 @@ describe('ChunkDrawBatcher', () => {
     const at = (x: number, y: number, z: number): number => c.cells[x + c.size[0] * (y + c.size[1] * z)]!;
     // Only chunks drawn with every chunk round them drawn too: the edge ring is the far field's to overlap.
     const inner: string[] = [];
-    for (let x = 0; x < 6; x++) for (let y = 0; y < 4; y++) for (let z = 0; z < 4; z++) if (at(x, y, z) === 1) inner.push(`${x},${y},${z}`);
+    const edge: string[] = [];
+    for (let x = 0; x < 6; x++) for (let y = 0; y < 4; y++) for (let z = 0; z < 4; z++) {
+      if (at(x, y, z) === NEAR_COVER_HIDDEN) inner.push(`${x},${y},${z}`);
+      else if (at(x, y, z) === NEAR_COVER_EDGE) edge.push(`${x},${y},${z}`);
+      else expect(at(x, y, z), `${x},${y},${z} not drawn`).toBe(0);
+    }
     // The level-1 node's chunks are only two high, so the block's x = 3 layer has undrawn chunks round it.
     expect(inner).toEqual(['1,1,1', '1,1,2', '1,2,1', '1,2,2', '2,1,1', '2,1,2', '2,2,1', '2,2,2']);
+    // The rest of the drawn chunks are the edge ring, where the far field draws behind the near field: the block's
+    // 64 and the node's 8, less the 8 inside.
+    expect(edge.length).toBe(64 + 8 - 8);
+    expect(edge).toContain('5,1,1');
+    expect(edge).not.toContain('5,2,1');
     // Nothing changed: no cover again; a far event goes out in a batch of its own.
     f.emit({ type: 'levels', reason: 'swap', added: [], removed: [] });
     const mesh = { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0), skirtTriangles: 0 };

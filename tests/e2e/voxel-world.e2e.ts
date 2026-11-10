@@ -805,10 +805,21 @@ interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Rec
  */
 const FAR_TEST_RINGS = { ring: { loadRadius: 40, unloadRadius: 48 }, collision: { radius: 32 } };
 
+/** Whether no background pixel (black) lies within 2 pixels of (x, y). */
+function nearInside(p: ReturnType<typeof decodePng>, x: number, y: number): boolean {
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const u = Math.min(p.width - 1, Math.max(0, x + dx)), v = Math.min(p.height - 1, Math.max(0, y + dy));
+    const [r, g, b] = p.pixel(u, v);
+    if (r + g + b < 30) return false;
+  }
+  return true;
+}
+
 /**
  * The far field in a game page (Play or an export) once its world streams at {@link FAR_TEST_RINGS}: drawn as
  * ray-marched bricks (no triangles), and pixels past the near field that show the background with the far draws
- * hidden and ground (not the background, not sky-blue) with them shown. Returns those pixels.
+ * hidden and ground (not the background, not sky-blue) with them shown, while every pixel the near field draws stays
+ * as it was (the far field is behind it, its edge ring too). Returns the pixels past the near field.
  */
 async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Promise<R> }, shot: (name: string) => Promise<ReturnType<typeof decodePng>>, label: string): Promise<number> {
   const far = () => frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: VoxelPlayHook }).__tlVoxelPlay?.stats().worlds['far']?.far ?? { nodes: 0, bricks: 0, triangles: -1, draws: 0 });
@@ -816,6 +827,7 @@ async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Pro
   expect((await far()).triangles, 'bricks draw no triangles').toBe(0);
   const show = (on: boolean) => frame.evaluate(`window.__tlVoxelPlay.showFar(${on})`);
   let n = 0;
+  let covered = 0;
   // The near field may still be dropping its outer chunks: poll until the far field's ground shows past it.
   await expect.poll(async () => {
     await show(false);
@@ -825,14 +837,19 @@ async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Pro
     await frame.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
     const both = await shot(`${label}-far-shown`);
     n = 0;
+    covered = 0;
     for (let y = 0; y < both.height; y++) for (let x = 0; x < both.width; x++) {
       const [r0, g0, b0] = near.pixel(x, y);
       const [r, g, b] = both.pixel(x, y);
       // The background (black here) with the far draws hidden, ground with them shown.
       if (r0 + g0 + b0 < 30 && r + g + b > 60 && b < Math.max(r, g) + 16) n++;
+      // The near field's own pixel drawn over by the far field (away from its silhouette, whose edge pixels blend
+      // with what is behind them).
+      else if (r0 + g0 + b0 >= 30 && Math.abs(r - r0) + Math.abs(g - g0) + Math.abs(b - b0) > 48 && nearInside(near, x, y)) covered++;
     }
     return n;
   }, { timeout: 30_000, message: 'far ground past the near field' }).toBeGreaterThan(2000);
+  expect(covered, `${label}: near-field pixels the far field draws over`).toBeLessThan(200);
   return n;
 }
 

@@ -107,14 +107,23 @@ export interface ChunkReliefWire {
   readonly focus: readonly [number, number, number];
 }
 
+/** A {@link NearCoverWire} chunk the far field is hidden in. */
+export const NEAR_COVER_HIDDEN = 2;
+
+/** A {@link NearCoverWire} chunk of the near field's edge ring: the far field draws there, behind the near field. */
+export const NEAR_COVER_EDGE = 1;
+
 /**
  * Where the near field draws, for the far field to leave to it: a box of
  * storage chunks (`min`, `size` in chunks) and one byte a chunk (index
- * `x + size[0] * (y + size[1] * z)`), 1 where the near field draws that
- * chunk and every chunk round it. The ring of chunks just inside its edge
- * reads 0, so the far field overlaps the near field by one chunk there and
- * closes any gap between the two levels' surfaces; the near field is drawn
- * over it wherever both are.
+ * `x + size[0] * (y + size[1] * z)`): {@link NEAR_COVER_HIDDEN} where the
+ * near field draws that chunk and every chunk round it (the far field is
+ * not drawn there), {@link NEAR_COVER_EDGE} in the ring of drawn chunks
+ * just inside its edge, 0 elsewhere. In the edge ring the far field
+ * overlaps the near field by one chunk and closes any gap between the two
+ * levels' surfaces, but its depth goes behind all of the near field, so the
+ * near field wins wherever it has geometry, even where the coarser far
+ * surface lies above it.
  */
 export interface NearCoverWire {
   readonly min: readonly [number, number, number];
@@ -454,7 +463,7 @@ export class ChunkDrawBatcher {
   }
 
   /**
-   * Where the near field draws now, eroded by one chunk ({@link NearCoverWire}),
+   * Where the near field draws now, eroded by one chunk, and its edge ring ({@link NearCoverWire}),
    * or null when it is what was sent last: the drawn levels' nodes (empty
    * chunks included: the near field is what shows there), else the chunks
    * whose draws were sent.
@@ -494,7 +503,8 @@ export class ChunkDrawBatcher {
         }
       }
       // Eroded by one chunk (a chunk counts when it and every chunk round it is drawn): a minimum over three
-      // along each axis in turn is the minimum over the 27.
+      // along each axis in turn is the minimum over the 27. What erosion takes off is the edge ring.
+      const drawn = cells;
       const strides = [1, sx, sx * sy];
       for (let a = 0; a < 3; a++) {
         const out = new Uint8Array(cells.length);
@@ -506,6 +516,7 @@ export class ChunkDrawBatcher {
         }
         cells = out;
       }
+      for (let i = 0; i < cells.length; i++) cells[i] = cells[i] !== 0 ? NEAR_COVER_HIDDEN : drawn[i] !== 0 ? NEAR_COVER_EDGE : 0;
       wire = { min: [lo[0]!, lo[1]!, lo[2]!], size, cells };
     }
     const sig = `${wire.min.join(',')}/${wire.size.join(',')}/${wire.cells.length}:${crc32(wire.cells)}`;

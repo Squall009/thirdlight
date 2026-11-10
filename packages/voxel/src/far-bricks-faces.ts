@@ -26,7 +26,7 @@ import { decodeDenseChunk } from './cell-delta';
 import { chunkInWorld, type ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { BRICK_HIT_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, sampleOfDistance } from './distance-brick-format';
-import { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, squaredDistances, type FarBricks } from './far-bricks';
+import { DISTANCE_NONE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, squaredDistanceLines, type FarBricks } from './far-bricks';
 import { farBrickOcclusion } from './far-bricks-shade';
 import { withFarNeighbourhood, type FarMeshInput } from './far-mesh';
 import type { PaletteStore } from './palette-store';
@@ -134,7 +134,6 @@ function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [n
   const n = F + 2 * A;
   const n2 = n * n;
   const m = n + 1;
-  const m2 = m * m;
   const base = [node[0] * F - A, node[1] * F - A, node[2] * F - A];
   const solid = new Uint8Array(n2 * n);
   const density = new Float32Array(n2 * n);
@@ -169,17 +168,7 @@ function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [n
   const empty = (fill: number): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(fill), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0), bounds: new Uint8Array(0) });
   if (count === 0) return empty(DISTANCE_BRICK_OUTSIDE);
   if (count === solid.length) return empty(DISTANCE_BRICK_INSIDE);
-  // Corners touching a solid cell, and corners touching an air cell (a corner touches the up to 8 cells round it).
-  const touchSolid = new Uint8Array(m2 * m);
-  const touchAir = new Uint8Array(m2 * m);
-  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    const into = solid[(z * n + y) * n + x] === 1 ? touchSolid : touchAir;
-    const c = (z * m + y) * m + x;
-    into[c] = into[c + 1] = into[c + m] = into[c + m + 1] = into[c + m2] = into[c + m2 + 1] = into[c + m2 + m] = into[c + m2 + m + 1] = 1;
-  }
-  // Read only at the node's corners (every S-th fine corner from A).
-  const toSolid = squaredDistances(touchSolid, m, 1, S, A % S);
-  const toAir = squaredDistances(touchAir, m, 1, S, A % S);
+  const { toSolid, toAir } = spanDistances(density, n, S, A % S);
   // Cells by how they show: 2 a top (air above; a thin top cell too, which is not solid but is what the ground shows,
   // while the solid cell under it is not a top), 1 a solid cell with a non-solid cell at a side or below (a riser, a
   // wall, an underside), 0 hidden or air.
@@ -191,18 +180,27 @@ function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [n
     else if (solid[i] === 1 && (solid[i + n] === 0 || solid[i - n] === 0 || solid[i + 1] === 0 || solid[i - 1] === 0 || solid[i + n2] === 0 || solid[i - n2] === 0)) shown[i] = 1;
   }
   /**
-   * A surface corner's offset by the fill of the 8 cells round it (lowest at `i`): ½ less their mean fill, as the
-   * occupancy build moves a cell next to air, so a ¾-full top layer's surface sits ¾ up it (a whole cell's convex
-   * edges and corners round off by up to ⅜ of a finer cell, which the finer source makes small).
+   * The signed distance (node cells) at node corner (cx, cy, cz), 0–e an axis. A corner on the surface whose 8 cells
+   * are all whole (solid or air) is moved by ½ less their mean fill, so a staircase of whole cells (blocks, terraces
+   * built of them) rounds its edges by up to ⅜ of a finer cell instead of drawing every step's edge sharp; part-full
+   * cells are already where their fill puts them.
    */
-  const fillOffset = (i: number): number => 0.5 - (density[i]! + density[i + 1]! + density[i + n]! + density[i + n + 1]! + density[i + n2]! + density[i + n2 + 1]! + density[i + n2 + n]! + density[i + n2 + n + 1]!) / 8;
-  /** The signed distance (node cells) at node corner (cx, cy, cz), 0–e an axis. */
   const at = (cx: number, cy: number, cz: number): number => {
-    const c = ((cz * S + A) * m + cy * S + A) * m + cx * S + A;
-    if (touchSolid[c] === 1 && touchAir[c] === 1) {
-      return fillOffset(((cz * S + A - 1) * n + cy * S + A - 1) * n + cx * S + A - 1) / S;
+    const c = ((cy + ((A / S) | 0)) * m + cz * S + A) * m + cx * S + A;
+    const out = Math.sqrt(toSolid[c]!);
+    const inside = Math.sqrt(toAir[c]!);
+    if (out === 0 && inside === 0) {
+      const i = ((cz * S + A - 1) * n + cy * S + A - 1) * n + cx * S + A - 1;
+      let sum = 0;
+      let whole = true;
+      for (const k of [i, i + 1, i + n, i + n + 1, i + n2, i + n2 + 1, i + n2 + n, i + n2 + n + 1]) {
+        const d = density[k]!;
+        sum += d;
+        if (d > 0 && d < 1) whole = false;
+      }
+      if (whole) return (0.5 - sum / 8) / S;
     }
-    return (touchSolid[c] === 1 ? -Math.sqrt(toAir[c]!) : Math.sqrt(toSolid[c]!)) / S;
+    return (out > 0 ? out : -inside) / S;
   };
   const words: number[] = [];
   const weights: number[] = [];
@@ -318,4 +316,114 @@ function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [n
   looks.forEach((s, i) => outLooks.set(s, i * DISTANCE_BRICK_SAMPLES));
   if (blocks.length / FAR_BRICK_BLOCK_BYTES !== bounds.length / FAR_BRICK_BOUNDS_BYTES) throw new Error('far bricks: blocks and bounds parted');
   return { side, bricks, samples: out, looks: outLooks, blocks: Uint8Array.from(blocks), bounds: Uint8Array.from(bounds) };
+}
+
+/**
+ * Squared distances (finer cells) from the corners of an n³ block of finer
+ * cells (`density` 0–1 a cell, y stride n, z stride n²) to its solid and
+ * to its air, at the corners whose y is `from` plus a multiple of `every`
+ * (all x and z; index `(k · (n + 1) + z) · (n + 1) + x` for the k-th such
+ * y), exact at the corners whose x and z are on that lattice too.
+ *
+ * A part-full cell's solid is its fill as a height, laid from its fuller
+ * vertical neighbour's side (from below on a tie), the rest of the cell
+ * air: so a gentle slope's tops are a ramp of heights and its field a
+ * slope, where whole-cell solids (fill over half) put a step of one finer
+ * cell every few columns that the node's samples, twice as far apart,
+ * turned into flat terraces and risers (light and dark bands on the slope).
+ *
+ * Why exact: the solid is a union of boxes whose x and z sides lie on the
+ * corner lattice, so from a corner the nearest point of any of them has
+ * lattice x and z and lies on one of the box's four vertical corner lines;
+ * the distance along y to those lines' spans comes first (per corner line,
+ * analytically), then the separable transform's x and z passes over it.
+ */
+export function spanDistances(density: Float32Array, n: number, every: number, from: number): { toSolid: Float32Array; toAir: Float32Array } {
+  const m = n + 1;
+  const n2 = n * n;
+  // Each finer cell's solid span (cell units from its bottom): lowest and highest point, and its air's; none: NaN.
+  const sLo = new Float32Array(n2 * n), sHi = new Float32Array(n2 * n), aLo = new Float32Array(n2 * n), aHi = new Float32Array(n2 * n);
+  for (let i = 0; i < density.length; i++) {
+    const d = density[i]!;
+    if (d <= 0) {
+      sLo[i] = sHi[i] = NaN;
+      aLo[i] = 0;
+      aHi[i] = 1;
+    } else if (d >= 1) {
+      sLo[i] = 0;
+      sHi[i] = 1;
+      aLo[i] = aHi[i] = NaN;
+    } else {
+      const y = ((i / n) | 0) % n;
+      const above = y < n - 1 ? density[i + n]! : 0;
+      const below = y > 0 ? density[i - n]! : 0;
+      if (above > below) {
+        sLo[i] = 1 - d;
+        sHi[i] = 1;
+        aLo[i] = 0;
+        aHi[i] = 1 - d;
+      } else {
+        sLo[i] = 0;
+        sHi[i] = d;
+        aLo[i] = d;
+        aHi[i] = 1;
+      }
+    }
+  }
+  const ks = Math.max(0, Math.floor((m - 1 - from) / every) + 1);
+  const toSolid = new Float32Array(ks * m * m).fill(DISTANCE_NONE);
+  const toAir = new Float32Array(ks * m * m).fill(DISTANCE_NONE);
+  const lowS = new Float32Array(n), highS = new Float32Array(n), lowA = new Float32Array(n), highA = new Float32Array(n);
+  const nearBelow = new Float64Array(ks);
+  const cells = new Int32Array(4);
+  for (let z = 0; z < m; z++) for (let x = 0; x < m; x++) {
+    // The corner line's spans a cell: the union over the up to four cells round it.
+    let count = 0;
+    for (let cz = z - 1; cz <= z; cz++) for (let cx = x - 1; cx <= x; cx++) if (cx >= 0 && cx < n && cz >= 0 && cz < n) cells[count++] = cz * n2 + cx;
+    for (let y = 0; y < n; y++) {
+      let ls = Infinity, hs = -Infinity, la = Infinity, ha = -Infinity;
+      for (let j = 0; j < count; j++) {
+        const i = cells[j]! + y * n;
+        if (sHi[i]! >= 0) {
+          ls = Math.min(ls, sLo[i]!);
+          hs = Math.max(hs, sHi[i]!);
+        }
+        if (aHi[i]! >= 0) {
+          la = Math.min(la, aLo[i]!);
+          ha = Math.max(ha, aHi[i]!);
+        }
+      }
+      lowS[y] = y + ls;
+      highS[y] = y + hs;
+      lowA[y] = y + la;
+      highA[y] = y + ha;
+    }
+    // Along the line: the nearest span below (the highest point of the cells under the corner) and above.
+    const line = z * m + x;
+    for (const [lo, hi, out] of [[lowS, highS, toSolid], [lowA, highA, toAir]] as const) {
+      // A span's points lie inside its cell, so the nearest below a corner is the last cell under it holding one, the
+      // nearest above the first over it: one pass up, one down.
+      let below = -Infinity;
+      let y = 0;
+      for (let k = 0; k < ks; k++) {
+        const Y = from + k * every;
+        for (; y < Y; y++) if (hi[y]! > below) below = hi[y]!;
+        nearBelow[k] = Y - below;
+      }
+      let above = Infinity;
+      y = n - 1;
+      for (let k = ks - 1; k >= 0; k--) {
+        const Y = from + k * every;
+        for (; y >= Y; y--) if (lo[y]! < above) above = lo[y]!;
+        const dy = Math.min(nearBelow[k]!, above - Y);
+        if (dy < Infinity) out[k * m * m + line] = dy * dy;
+      }
+    }
+  }
+  const lines = squaredDistanceLines(m);
+  for (const out of [toSolid, toAir]) for (let k = 0; k < ks; k++) {
+    for (let z = 0; z < m; z++) lines(out, (k * m + z) * m, 1); // x
+    for (let x = from; x < m; x += every) lines(out, k * m * m + x, m); // z, on the lattice's x only
+  }
+  return { toSolid, toAir };
 }

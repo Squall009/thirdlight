@@ -8,13 +8,13 @@
  */
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
-import { VOXEL_SIZE_M, type ChunkGrid, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
+import { NEAR_COVER_EDGE, NEAR_COVER_HIDDEN, VOXEL_SIZE_M, type ChunkGrid, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 
 import type { N } from './effects-tsl';
 import { texelTexture3D } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
-const { Fn, cameraFar, cameraNear, cameraProjectionMatrix, clamp, float, floor, int, ivec3, log, mix, positionView, select, uniform, vec3, vec4 } = TSL;
+const { Fn, abs, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, log, max, min, mix, positionView, positionWorld, select, uniform, vec3, vec4 } = TSL;
 
 /** How far behind its distance a far fragment's depth is (near the camera): where it meets the near field, the near field is in front. */
 export const FAR_DEPTH_PUSH = 1.05;
@@ -53,10 +53,11 @@ export function farNdcDepth(viewZ: N): N {
  * projection with {@link farNdcDepth} as its depth, so a far vertex is never
  * clipped by the camera's far plane.
  */
-export function farClipPosition(): N {
+export function farClipPosition(cover?: FarCover): N {
   return Fn(() => {
     const clip = cameraProjectionMatrix.mul(vec4(positionView, 1)).toVar();
-    return vec4(clip.x, clip.y, farNdcDepth(positionView.z).mul(clip.w), clip.w);
+    const viewZ = cover === undefined ? positionView.z : cover.behindNear(positionWorld, positionView.z);
+    return vec4(clip.x, clip.y, farNdcDepth(viewZ).mul(clip.w), clip.w);
   })();
 }
 
@@ -70,9 +71,9 @@ export function farFragmentDepth(viewZ: N): N {
 }
 
 /**
- * The near cover (where the near field draws, by storage chunk, its edge
- * ring left out): a small 3D texture and its corner and size, which a far
- * draw's fragments test their world position against.
+ * The near cover (where the near field draws, by storage chunk: hidden
+ * inside, its edge ring apart): a small 3D texture and its corner and
+ * size, which a far draw's fragments test their world position against.
  */
 export class FarCover {
   private texture: THREE.Data3DTexture;
@@ -82,8 +83,8 @@ export class FarCover {
   private min: [number, number, number] = [0, 0, 0];
   private readonly at = uniform(new THREE.Vector3(0, 0, 0));
   private readonly size = uniform(new THREE.Vector3(1, 1, 1));
-  /** The cover now: its corner and size (chunks), and the chunks it hides the far field in. */
-  state = { min: [0, 0, 0] as number[], size: [1, 1, 1] as number[], covered: 0 };
+  /** The cover now: its corner and size (chunks), the chunks it hides the far field in, and its edge ring's. */
+  state = { min: [0, 0, 0] as number[], size: [1, 1, 1] as number[], covered: 0, edge: 0 };
 
   constructor(
     private readonly grid: ChunkGrid,
@@ -100,8 +101,12 @@ export class FarCover {
     old.dispose();
     this.min = [c.min[0], c.min[1], c.min[2]];
     let covered = 0;
-    for (let i = 0; i < c.cells.length; i++) covered += c.cells[i]!;
-    this.state = { min: [...c.min], size: [...c.size], covered };
+    let edge = 0;
+    for (let i = 0; i < c.cells.length; i++) {
+      if (c.cells[i] === NEAR_COVER_HIDDEN) covered++;
+      else if (c.cells[i] === NEAR_COVER_EDGE) edge++;
+    }
+    this.state = { min: [...c.min], size: [...c.size], covered, edge };
     (this.size.value as THREE.Vector3).set(c.size[0], c.size[1], c.size[2]);
     this.place();
   }
@@ -113,14 +118,33 @@ export class FarCover {
     (this.at.value as THREE.Vector3).set((this.min[0] * e - o.x) * VOXEL_SIZE_M, (this.min[1] * e - o.y) * VOXEL_SIZE_M, (this.min[2] * e - o.z) * VOXEL_SIZE_M);
   }
 
-  /** Whether a world position (metres) lies in a chunk the near field draws (a bool node). */
-  covered(world: N): N {
+  /** The cover's value at a world position (metres): 0 outside, ½ in the edge ring, 1 where the far field is hidden. */
+  private value(world: N): N {
     const node = this.node;
     const chunkM = float(this.grid.edge * VOXEL_SIZE_M);
     const c = floor(world.sub(this.at).div(chunkM)).toVar();
     const inside = c.x.greaterThanEqual(0).and(c.y.greaterThanEqual(0)).and(c.z.greaterThanEqual(0)).and(c.x.lessThan(this.size.x)).and(c.y.lessThan(this.size.y)).and(c.z.lessThan(this.size.z));
     const at = clamp(c, vec3(0), this.size.sub(1));
-    return inside.and(node.load(ivec3(int(at.x), int(at.y), int(at.z))).r.greaterThan(0.5));
+    return select(inside, node.load(ivec3(int(at.x), int(at.y), int(at.z))).r, float(0));
+  }
+
+  /** Whether a world position (metres) lies where the near field hides the far field (a bool node). */
+  covered(world: N): N {
+    return this.value(world).greaterThan(0.75);
+  }
+
+  /**
+   * A far point's view z (negative in front) for its depth: in the near field's edge ring, at least as far as the
+   * near field's farthest corner from the camera, so every near fragment (no farther than that) is in front of
+   * it and the far field shows there only through a gap, though its coarser surface may lie above the near one.
+   */
+  behindNear(world: N, viewZ: N): N {
+    const chunkM = float(this.grid.edge * VOXEL_SIZE_M);
+    const lo = this.at;
+    const hi = this.at.add(this.size.mul(chunkM));
+    const reach = length(max(abs(cameraPosition.sub(lo)), abs(cameraPosition.sub(hi))));
+    const v = this.value(world);
+    return select(v.greaterThan(0.25).and(v.lessThan(0.75)), min(viewZ, reach.negate()), viewZ);
   }
 
   dispose(): void {
@@ -129,8 +153,8 @@ export class FarCover {
 }
 
 function coverTexture(cells: Uint8Array, size: readonly [number, number, number]): THREE.Data3DTexture {
-  // Read normalized (r8unorm): a covered chunk is 1, stored as 255.
-  const t = new THREE.Data3DTexture(cells.map((c) => (c === 0 ? 0 : 255)), size[0], size[1], size[2]);
+  // Read normalized (r8unorm): a hidden chunk is 1 (255), an edge chunk ½ (128).
+  const t = new THREE.Data3DTexture(cells.map((c) => (c === NEAR_COVER_HIDDEN ? 255 : c === NEAR_COVER_EDGE ? 128 : 0)), size[0], size[1], size[2]);
   t.format = THREE.RedFormat;
   t.type = THREE.UnsignedByteType;
   t.minFilter = t.magFilter = THREE.NearestFilter;

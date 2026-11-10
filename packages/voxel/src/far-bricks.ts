@@ -111,22 +111,34 @@ export function farBricksTransfer(b: FarBricks, out: ArrayBuffer[] = []): ArrayB
  * lines, which is all a caller reading a coarser lattice needs.
  */
 export function squaredDistances(mask: Uint8Array, n: number, kind: 0 | 1, every = 1, from = 0): Float32Array {
-  const INF = 1e12;
   const d = new Float32Array(n * n * n);
-  for (let i = 0; i < d.length; i++) d[i] = mask[i] === kind ? 0 : INF;
+  for (let i = 0; i < d.length; i++) d[i] = mask[i] === kind ? 0 : DISTANCE_NONE;
+  const lines = squaredDistanceLines(n);
+  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) lines(d, (z * n + y) * n, 1); // x: rows of (y, z)
+  for (let z = 0; z < n; z++) for (let x = from; x < n; x += every) lines(d, z * n * n + x, n); // y: (x, z)
+  for (let y = from; y < n; y += every) for (let x = from; x < n; x += every) lines(d, y * n + x, n * n); // z: (x, y)
+  return d;
+}
+
+/** A squared distance standing for "none on the grid" in {@link squaredDistances} and {@link squaredDistanceLines}. */
+export const DISTANCE_NONE = 1e12;
+
+/**
+ * One axis pass of the separable transform over lines of `n` values:
+ * `pass(d, start, stride)` replaces the line's values (squared distances so
+ * far, {@link DISTANCE_NONE} for none) by the least of value + squared
+ * offset along it, in place.
+ */
+export function squaredDistanceLines(n: number): (d: Float32Array, start: number, stride: number) => void {
   const f = new Float64Array(n);
   const out = new Float64Array(n);
   const v = new Int32Array(n);
   const zz = new Float64Array(n + 1);
-  const line = (s: number, stride: number): void => {
+  return (d, s, stride) => {
     for (let q = 0; q < n; q++) f[q] = d[s + q * stride]!;
-    lowerEnvelope(f, n, out, v, zz, INF);
+    lowerEnvelope(f, n, out, v, zz, DISTANCE_NONE);
     for (let q = 0; q < n; q++) d[s + q * stride] = out[q]!;
   };
-  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) line((z * n + y) * n, 1); // x: rows of (y, z)
-  for (let z = 0; z < n; z++) for (let x = from; x < n; x += every) line(z * n * n + x, n); // y: (x, z)
-  for (let y = from; y < n; y += every) for (let x = from; x < n; x += every) line(y * n + x, n * n); // z: (x, y)
-  return d;
 }
 
 function lowerEnvelope(f: Float64Array, n: number, out: Float64Array, v: Int32Array, z: Float64Array, INF: number): void {

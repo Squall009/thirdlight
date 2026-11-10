@@ -28,10 +28,12 @@
  *   They are never frustum culled by three (its frustum ends at the far
  *   plane); the GPU clips what lies off screen.
  * - **Near field.** The batches' near cover (where the near field draws, by
- *   storage chunk, its edge ring left out) is a small 3D texture; a far
+ *   storage chunk, its edge ring apart) is a small 3D texture; a far
  *   fragment inside a covered chunk is discarded. Where the near field has
  *   not drawn a chunk yet the far node shows, and along the near field's
- *   edge both draw (the near in front), so no gap opens between them.
+ *   edge both draw, the far one's depth behind all of the near field (the
+ *   coarser far surface may lie above the near one), so no gap opens
+ *   between them and the near field wins wherever it has geometry.
  */
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
@@ -383,7 +385,8 @@ export class VoxelFarView {
       });
       return vec4(colour, 1);
     })();
-    m.vertexNode = farClipPosition();
+    // The edge ring's push behind the near field is taken a vertex at a time: the mesh writes no depth of its own.
+    m.vertexNode = farClipPosition(cover);
     this.material = m;
     return m;
   }

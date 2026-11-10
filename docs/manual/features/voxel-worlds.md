@@ -270,8 +270,10 @@ are built into it when it lands, and the far field appears once it is there.
 - **Bricks.** Each far node is kept as a sparse distance field (8³-cell
   bricks where its surface passes), built from the faces of the next finer
   level's voxels so roofs, rocks and ledges a voxel or two across keep a
-  body; each sample carries its colour and a soft ambient occlusion, baked
-  when the node is built. The GPU draws a box a node and marches each
+  body, and part-full ground cells count by their fill, so a gentle slope
+  stays a smooth slope instead of contour bands of the voxel steps while a
+  cliff or a scarp keeps its edge; each sample carries its colour and a soft
+  ambient occlusion, baked when the node is built. The GPU draws a box a node and marches each
   pixel's ray through the node's bricks to the surface: smooth slopes, no
   triangles, and it writes the surface's own depth.
 - **Meshes (the fallback).** `mesh` draws each far node as triangles
@@ -282,8 +284,9 @@ are built into it when it lands, and the far field appears once it is there.
 - **Where it meets the near field.** The far field draws under the near
   field and is hidden wherever the near field draws, chunk by chunk, so
   ground the near rings have not streamed in yet shows its far stand-in,
-  never a hole; along the near field's edge both draw for one chunk, the near
-  field in front.
+  never a hole; along the near field's edge both draw for one chunk, the far
+  field behind all of the near field there, so the near ground always wins
+  where it has geometry and the far field only fills gaps.
 - **What it shows.** Each far voxel takes its material's colour (its texture
   set's mean colour where it has one) and its wetness; kit pieces, relief
   and openings narrower than 1 m are not drawn there. A game's runtime edits

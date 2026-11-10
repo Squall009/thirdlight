@@ -403,14 +403,19 @@ normal `snorm8x3`, one byte 0. Every edge where the surface leaves the node's bo
 
 **Draw batches.** A batch (`ChunkDrawBatch`) may carry `far` (`added`: nodes with their meshes, drawn or drawn
 again; `removed`: nodes) and `nearCover` (`min`, `size` in storage chunks and one byte a chunk, index
-`x + size₀·(y + size₁·z)`: 1 where the near field's drawn levels cover the chunk and every chunk round it). A node
+`x + size₀·(y + size₁·z)`: 2 (`NEAR_COVER_HIDDEN`) where the near field's drawn levels cover the chunk and every
+chunk round it, 1 (`NEAR_COVER_EDGE`) in the drawn chunks of its edge ring, else 0; the edge ring is new in
+46d.13c-2). A node
 replacing others goes in with their removal in one batch once every new node of its group is meshed.
 
 **Drawn** (three-adapter `voxel-far-mesh.ts`): one draw per level and 8 × 8 node columns (`FAR_GROUP_NODES`);
 colour from the material table and the wall set's mean albedo (the array's coarsest level), darkened by wetness;
 lit, no shadows. Depth: the camera's perspective depth of the distance × 1.05 up to half the far plane, past it
 the logarithm of the distance up to 64 km in what remains of the depth range, so far nodes are never clipped at the
-far plane and lose to the near field where both cover a pixel; a far fragment in a covered chunk is discarded.
+far plane and lose to the near field where both cover a pixel; a far fragment in a covered chunk is discarded, and
+one in the near field's edge ring takes at least the distance of the near cover's farthest corner from the camera
+(meshes a vertex at a time, bricks a fragment at a time), so it shows only through a gap in the near field and
+never in front of near ground, though a coarser far surface may lie above it (D577).
 
 **Owner note (46d.7c, 2026-11-09):** the far field drawn as ray-marched distance bricks, the second mode behind the
 same switch (`voxelFarField` gains `bricks`, add-only; a level without the field still draws meshes). No stored or
@@ -431,10 +436,13 @@ nothing new since 46d.12/13b (`build`, `fine`). Default chosen, owner to confirm
 `occlusion`) the node's children and one of theirs round them (`fine`: (2 + 2)³ entries of the level below, y
 fastest; none below the far tree's lowest kept level, where the node's own cells are read at scale 1). The node's
 32³ cells are 4³ bricks of 8³ cells (`DISTANCE_BRICK_CELLS`). Each corner sample is the exact signed distance (node
-cells) to the faces of the solid cells (fill level at least half; liquid and air are not) read `scale` times finer:
-a corner touching both kinds is 0, any other the Euclidean distance to the nearest corner of the other kind (the
-separable transform over the corner lattice), a surface corner moved by ½ − the mean fill of its 8 finer cells (so
-partial terrain cells still move it); quantized to a byte over ± `DISTANCE_BRICK_BAND_VOXELS` (2) cells
+cells) to the solid read `scale` times finer, a part-full cell solid up to its fill as a height (from the side of its
+fuller vertical neighbour, below on a tie; liquid and air are not solid): the distance along y to each vertical
+corner line's solid or air spans, then the separable transform's x and z passes (exact: the solid's boxes have
+their sides on the corner lattice), negative inside; a surface corner whose 8 finer cells are all whole moved by
+½ − their mean fill (whole-cell steps round off by up to ⅜ of a finer cell). A gentle slope of part-full tops is
+then a smooth slope, not terraces of the finer cells' steps (46d.13c-2; before, cells under half full were air and
+the steps showed as contour bands, D569); quantized to a byte over ± `DISTANCE_BRICK_BAND_VOXELS` (2) cells
 (`sampleOfDistance`: 0 is −2, 255 is +2). Read from an apron of the neighbours, so same-level neighbours share their
 face's samples exactly. A brick whose samples are all > 0 is `DISTANCE_BRICK_OUTSIDE`, all ≤ 0
 `DISTANCE_BRICK_INSIDE`, else stored; a surface lying on a brick face is drawn by its solid side. Output
@@ -486,7 +494,7 @@ Where each requirement 46d answers is built, where it is tested, and what is sti
 | R27, R28 material id space and the material record | 46d.3a `voxel-materials.ts` (`voxel.id` 1–4,095 on the material record, `voxel_id_taken`) | `voxel-materials.test.ts`, `material-profile-ops.test.ts`, integration voxel-world | served |
 | R64 textures inside the memory budget | 46d.4b `voxelTexelDensity` cap + the page's `texture_budget_mb` (`StreamedArrayTexture`, `texture-budget.ts`) | `tests/voxel-texture-residency.test.ts` | served: 24 / 96 / 96–384 MiB by tier (46d.8a) |
 | Owner 2026-11-06: near-ring denser mesh for displacement, measured first | 46d.1a (topology, measured), 46d.1b (displacement, verdict) | as R88 | done; numbers plan 46d §8 |
-| Owner 2026-11-04 (6): far field, no draw cut-off, mountains from several km, cheap stand-ins | 46d.7a far tree + far cache (`far-tree.ts`, workspace `voxel-far-cache.ts`, derived 31), 46d.7b meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`), 46d.7c bricks (`far-bricks.ts`, `voxel-far-bricks.ts`) | `far-tree.test.ts`, `tools/voxel-bench/far-world.test.ts`, `far-bricks*.test.ts`, `far-looks.test.ts`, `voxel-far-view.test.ts`, `voxel-world.e2e.ts` (bricks on the slice page, the mesh fallback, bricks past the near field in Play both renderers and the export with the backend stopped) | served (D463, D516, D555, D556, D558 fixed); open D550, D551, D553, D557, D573, D574, D577 |
+| Owner 2026-11-04 (6): far field, no draw cut-off, mountains from several km, cheap stand-ins | 46d.7a far tree + far cache (`far-tree.ts`, workspace `voxel-far-cache.ts`, derived 31), 46d.7b meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`), 46d.7c bricks (`far-bricks.ts`, `voxel-far-bricks.ts`) | `far-tree.test.ts`, `tools/voxel-bench/far-world.test.ts`, `far-bricks*.test.ts`, `far-looks.test.ts`, `voxel-far-view.test.ts`, `voxel-world.e2e.ts` (bricks on the slice page, the mesh fallback, bricks past the near field in Play both renderers and the export with the backend stopped) | served (D463, D516, D555, D556, D558, D569, D577 fixed); open D550, D551, D553, D557, D573, D574 |
 | Owner 2026-11-08: build both far modes behind a switch, the owner picks | `voxelFarField` `bricks` \| `mesh` \| `off`, runtime switch; owner 2026-11-09: the brick way | as above | bricks v3 the default everywhere, meshes the fallback (46d.13c-1, after the 46d.13b bake-off); default chosen, owner to confirm |
 | Owner 2026-11-04: construction tile 4 × 4 m, grid-anchored | `voxel-surface-projection.ts` (grid U/V in metres), `tileMetres` | `voxel-surface.test.ts`, `voxel-material-looks.test.ts` | served; seen (courses line up round corners, 46d.4a) |
 | Owner B1: author 4096² at 1024 px/m; resident mip by tier and budget | 46d.4b residency; 46d.4c D532 (4096² in UASTC stripes, `ktx2-striped.ts`); D535 (import bound 65.3 MiB) | `voxel-texture-residency.test.ts`, `ktx2-striped.test.ts`, `folder-import.test.ts` | served |

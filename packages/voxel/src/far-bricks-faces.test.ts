@@ -3,15 +3,18 @@
  * its height than from the node's own cells (which keep about a third, as
  * the first build's corner-averaged field did), a
  * surface between the node's cells sits where the finer cells put it, a
- * partial top cell moves it, the bounds hold the cells the surface
- * crosses, a sample's look is its neighbourhood's, and a job carrying its
- * finer cells (as the far field sends them) makes the same bricks.
+ * partial top cell moves it, a gentle slope of part-full tops is a smooth
+ * slope (no terraces of the finer cells' steps) while a scarp keeps its
+ * step, the bounds hold the cells the surface crosses, a sample's look is
+ * its neighbourhood's, and a job carrying its finer cells (as the far field
+ * sends them) makes the same bricks.
  */
 import { describe, expect, it } from 'vitest';
 import { chunkGrid } from './coords';
 import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample } from './distance-brick-format';
 import { FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, type FarBricks } from './far-bricks';
 import { brickFarNodeBy, farBricksFromFaces } from './far-bricks-faces';
+import { farBrickGradient } from './far-bricks-shade';
 import { farNeighbourIndex } from './far-mesh';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { MATERIAL_BITS, recordValue, SHAPE_FULL, VOXEL_ROLE } from './record';
@@ -44,6 +47,39 @@ function fieldAt(b: FarBricks, p: readonly number[]): number {
 function surfaceBelow(b: FarBricks, x: number, z: number): number {
   for (let y = 32; y >= 0; y -= 0.01) if (fieldAt(b, [x, y, z]) < 0.05) return y;
   return NaN;
+}
+
+/** The draw's normal tilt from up (degrees) at a point of the node: the gradient of the brick holding it, read inside it. */
+function tiltAt(b: FarBricks, p: readonly number[]): number {
+  const C = DISTANCE_BRICK_CELLS;
+  const bi = p.map((c) => Math.min(b.side - 1, Math.max(0, Math.floor((c - 1e-6) / C))));
+  const blk = b.bricks[(bi[2]! * b.side + bi[1]!) * b.side + bi[0]!]!;
+  expect(blk, `a stored brick at ${p.join(', ')}`).toBeGreaterThanOrEqual(0);
+  const g = farBrickGradient(b.samples, blk, p.map((c, a) => c - bi[a]! * C));
+  return (Math.acos(g[1]! / Math.hypot(g[0]!, g[1]!, g[2]!)) * 180) / Math.PI;
+}
+
+/** Where a ray straight down at (x, z) first meets the surface, in small steps (a ray may start over a brick drawn as outside). */
+function surfaceDown(b: FarBricks, x: number, z: number): number {
+  for (let y = 31.99; y > 0; ) {
+    const f = fieldAt(b, [x, y, z]);
+    if (f < 0.01) return y;
+    y -= Math.max(Math.min(f * 0.5, 0.05), 0.002);
+  }
+  return NaN;
+}
+
+/** Terrain over finer x, z in [-24, 88) at height `h(x, z)` (finer cells, at each column's middle): whole cells under a part-full top, as the mips carry it. */
+function terrain(h: (x: number, z: number) => number): PaletteStore {
+  const s = createWorldStore(grid);
+  for (let x = -24; x < 88; x++) for (let z = -24; z < 88; z++) {
+    const top = h(x + 0.5, z + 0.5);
+    const y0 = Math.floor(top);
+    for (let y = y0 - 16; y < y0; y++) s.setVoxel(x, y, z, { material: ROCK, role: VOXEL_ROLE.terrain, shape: SHAPE_FULL, wetness: 0 });
+    const fill = Math.round((top - y0) * SHAPE_FULL);
+    if (fill > 0) s.setVoxel(x, y0, z, { material: GRASS, role: VOXEL_ROLE.terrain, shape: fill, wetness: 0 });
+  }
+  return s;
 }
 
 /** Ground over x, z in [lo, hi) up to `top` (exclusive, rock under a grass layer), with an optional partial layer on top. */
@@ -101,6 +137,35 @@ describe('far bricks from faces', () => {
     expect(blk).toBeGreaterThanOrEqual(0);
     const o = blk * FAR_BRICK_BOUNDS_BYTES;
     expect([...b.bounds.subarray(o, o + 6)]).toEqual([0, 0, 0, 8, 1, 8]);
+  });
+
+  it('makes a gentle slope of part-full finer tops a smooth slope, and keeps a scarp\'s step', () => {
+    // A 6° slope across x in the finer cells (a step of one finer cell every ~9.5 columns, each top part-full), its
+    // middle at node y 16 of node (0, 1, 0). The surface follows the true slope and the draw's normal leans as it does
+    // everywhere: the finer cells' steps, two to a node cell, made terraces of flat treads and steep risers (normals
+    // swinging −6° … +15° about the slope's, light and dark contour bands on far hillsides).
+    const tan = Math.tan((6 * Math.PI) / 180);
+    const slope = farBricksFromFaces(grid, terrain((x) => 96 + (x - 32) * tan), [0, 1, 0], 2);
+    let worst = 0;
+    let worstHeight = 0;
+    for (let x = 4; x < 28; x += 0.1) for (const z of [5.3, 10.37, 21.8]) {
+      const y = surfaceDown(slope, x, z);
+      worstHeight = Math.max(worstHeight, Math.abs(y - (96 + (2 * x - 32) * tan - 64) / 2));
+      worst = Math.max(worst, Math.abs(tiltAt(slope, [x, y, z]) - 6));
+    }
+    expect(worstHeight, 'height off the true slope (node cells)').toBeLessThan(0.06);
+    expect(worst, 'normal off the true slope (°)').toBeLessThan(3);
+    // A 15 m scarp at level 3 (node cells 4 m, finer cells 2 m): 7.5 finer cells straight down at node x 16 between
+    // two flat terraces. Its step stays a step: the two terraces 3.75 node cells apart, the drop over within a node
+    // cell of the scarp, its face drawn steep, the terraces flat up to it.
+    const scarp = farBricksFromFaces(grid, terrain((x) => (x < 32 ? 99.75 : 92.25)), [0, 1, 0], 2);
+    for (const z of [6.2, 17.9]) {
+      expect(surfaceDown(scarp, 12, z) - surfaceDown(scarp, 20, z)).toBeCloseTo(3.75, 1);
+      expect(surfaceDown(scarp, 15, z), 'the upper terrace a node cell before the scarp').toBeCloseTo(17.875, 1);
+      expect(surfaceDown(scarp, 17, z), 'the lower terrace a node cell after it').toBeCloseTo(14.125, 1);
+      expect(tiltAt(scarp, [16, 16, z]), 'the scarp face').toBeGreaterThan(60);
+      for (const x of [8, 14.5, 17.5, 24]) expect(tiltAt(scarp, [x, surfaceDown(scarp, x, z), z]), `terrace at ${x}`).toBeLessThan(2);
+    }
   });
 
   it('makes the same bricks from a job carrying its finer cells as the far field sends them', () => {
