@@ -10,13 +10,14 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { chunkGrid, createWorldStore, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BAKED_BYTES, FAR_VERTEX_BYTES, farBricksFromFaces, farNodeMarchedBox, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SHAPE_FULL, VOXEL_ROLE, VOXEL_SIZE_M, WETNESS_MAX, type FarNodeDraw } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GPU_BYTES, FAR_BRICK_TABLE_GPU_BYTES, farBricksGpuBytes, FAR_VERTEX_BYTES, farBricksFromFaces, farNodeMarchedBox, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SHAPE_FULL, VOXEL_ROLE, VOXEL_SIZE_M, WETNESS_MAX, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { fragmentWgslOf, glslRenderer, litScene, wgslRenderer } from './test-wgsl';
 import { voxelStandInLook } from './voxel-chunk-view';
 import { FAR_NODE_ATTRIBUTE, FAR_NODE_HI_ATTRIBUTE, FAR_NODE_LO_ATTRIBUTE, FAR_NODE_PAGE_ATTRIBUTE } from './voxel-far-bricks';
 import { VoxelFarView } from './voxel-far-mesh';
-import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
+import { createVoxelSurface, GRID_TRIM_SLACK, VoxelShaderGrids, type VoxelGridRenderer } from './voxel-surface';
+import { FarBrickAtlas } from './voxel-far-bricks';
 
 const grid = chunkGrid(32);
 
@@ -148,6 +149,75 @@ describe('the far view', () => {
     expect(v.root.children.length).toBe(1);
     expect((v.root.children[0] as THREE.Mesh).name).not.toContain('composite');
     v.dispose();
+  });
+
+  it('reuses released bricks\' regions and gives the atlas\'s emptied end back after many moves; a brick\'s GPU bytes are the far field\'s count', () => {
+    // The far field budgets by these bytes: they must be what the atlas keeps a brick and a brick table in.
+    const atlas = new FarBrickAtlas(4);
+    expect(atlas.distance.regionBytes + atlas.colours.regionBytes).toBe(FAR_BRICK_GPU_BYTES);
+    expect((atlas.pages.regionBytes + atlas.pageBounds.regionBytes) / 64).toBe(FAR_BRICK_TABLE_GPU_BYTES);
+    atlas.dispose();
+    const r = recorder();
+    const v = view(r);
+    const nodes = new Map<number, FarNodeDraw>();
+    const node = (nx: number): FarNodeDraw => {
+      let n = nodes.get(nx % 12);
+      if (n === undefined) nodes.set(nx % 12, (n = brickNode(nx % 12)));
+      return { ...n, nx };
+    };
+    // A window of 8 nodes slides 60 nodes along: each move one node in ahead, one out behind (a flight's turnover).
+    v.apply({ added: Array.from({ length: 8 }, (_, i) => node(i)), removed: [] }, undefined);
+    const held = v.atlasBytes;
+    for (let x = 0; x < 60; x++) v.apply({ added: [node(x + 8)], removed: [{ level: 2, nx: x, ny: 1, nz: 0 }] }, undefined);
+    // The regions the leaving nodes gave back were used again: the atlas held its size.
+    expect(v.bricks).toBe(8 * 16);
+    expect(v.atlasBytes).toBe(held);
+    // 32 more at once grow it; the window and the last 28 going give its grown end back, the first 4 of the 32 (in
+    // the space the window left and the first growths after it) drawn where they were.
+    v.apply({ added: Array.from({ length: 32 }, (_, i) => node(100 + i)), removed: [] }, undefined);
+    const grown = v.atlasBytes;
+    expect(grown).toBeGreaterThan(2 * held);
+    v.apply({ added: [], removed: [...Array.from({ length: 8 }, (_, i) => ({ level: 2, nx: 60 + i, ny: 1, nz: 0 })), ...Array.from({ length: 28 }, (_, i) => ({ level: 2, nx: 104 + i, ny: 1, nz: 0 }))] }, undefined);
+    expect(v.bricks).toBe(4 * 16);
+    expect(v.trims).toBeGreaterThan(0);
+    expect(v.atlasBytes).toBeLessThan(grown / 2);
+    // Nodes added since come into the space kept (the store grows a step at most, not back to its old size).
+    v.apply({ added: Array.from({ length: 4 }, (_, i) => node(200 + i)), removed: [] }, undefined);
+    expect(v.bricks).toBe(8 * 16);
+    expect(v.atlasBytes).toBeLessThan(grown / 2);
+    expect(farBricksGpuBytes(nodes.get(0)!.bricks!)).toBe(16 * FAR_BRICK_GPU_BYTES + 64 * FAR_BRICK_TABLE_GPU_BYTES);
+    v.dispose();
+  });
+
+  it('region stores hand out their oldest part first and shrink only past regions in use, keeping each one where it was', () => {
+    const copies: THREE.Box3[] = [];
+    const r: VoxelGridRenderer = { ...recorder(), copyTextureToTexture: (_s, _d, box) => void copies.push(box!.clone()) };
+    const g = new VoxelShaderGrids({ side: 2 }, { format: THREE.RedFormat, bytes: 1, filter: THREE.NearestFilter });
+    const at = Array.from({ length: 200 }, () => g.allocate(r));
+    const cap = g.capacity;
+    expect(g.grown).toBeGreaterThan(3);
+    // Every region but the first 10 and the last one handed out given back: the last keeps the grown end in use.
+    for (const o of at.slice(10, 199)) g.release(o);
+    expect(g.trim(r)).toBe(false);
+    expect(g.capacity).toBe(cap);
+    // Freed regions go out again from the first size on, not from the end.
+    const again = g.allocate(r);
+    expect(Math.max(again.x, again.y, again.z)).toBeLessThan(4 * 2);
+    g.release(again);
+    g.release(at[199]!);
+    expect(g.trim(r)).toBe(true);
+    expect(g.count).toBe(10);
+    expect(g.capacity).toBeLessThan(cap);
+    expect(g.count).toBeLessThanOrEqual(g.capacity * (1 - GRID_TRIM_SLACK));
+    // The copy kept the smaller size's box from the corner, and the regions left lie in it.
+    const box = copies[copies.length - 1]!;
+    expect(box.min.toArray()).toEqual([0, 0, 0]);
+    for (const o of at.slice(0, 10)) expect(o.x < box.max.x && o.y < box.max.y && o.z < box.max.z).toBe(true);
+    expect([box.max.x, box.max.y, box.max.z]).toEqual([g.texture.image.width, g.texture.image.height, g.texture.image.depth]);
+    // And it grows again from there.
+    for (let i = 0; i < 300; i++) g.allocate(r);
+    expect(g.count).toBe(310);
+    g.dispose();
   });
 
 });

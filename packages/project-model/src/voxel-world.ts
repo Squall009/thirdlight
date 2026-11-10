@@ -167,8 +167,8 @@ export interface ResolvedVoxelWorld {
   readonly budgetBytes: number | null;
   /** Relief lattice steps a cell in the relief ring (the level's `voxelRelief`; 0: none, and with no level known). */
   readonly reliefSteps: number;
-  /** How the world is drawn past its near rings and the far nodes' on-screen error (the level's `voxelFarField`, `voxelFarError`; with no level known, the medium tier's). */
-  readonly far: { readonly mode: FarFieldMode; readonly errorPixels: number };
+  /** How the world is drawn past its near rings, the far nodes' on-screen error (the level's `voxelFarField`, `voxelFarError`) and the GPU bytes they may hold (the tier's); with no level known, the medium tier's. */
+  readonly far: { readonly mode: FarFieldMode; readonly errorPixels: number; readonly gpuBudgetBytes: number };
 }
 
 /** The planes of a `PLANE_BIT` mask, in the voxel planes' order. */
@@ -236,7 +236,7 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
     quality: level?.id ?? null,
     budgetBytes: at?.budgetBytes ?? null,
     reliefSteps: at?.relief ?? 0,
-    far: Object.freeze({ mode: (at ?? NO_LEVEL_VOXELS).farField, errorPixels: (at ?? NO_LEVEL_VOXELS).farError }),
+    far: Object.freeze({ mode: (at ?? NO_LEVEL_VOXELS).farField, errorPixels: (at ?? NO_LEVEL_VOXELS).farError, gpuBudgetBytes: (at ?? NO_LEVEL_VOXELS).farGpuBudget }),
   });
 }
 

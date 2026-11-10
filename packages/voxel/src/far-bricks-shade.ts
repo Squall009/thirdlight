@@ -35,6 +35,21 @@ export const FAR_BRICK_AO_FLOOR = 0.5;
 /** Bytes a baked sample takes: linear red, green, blue and the occlusion (0 shut … 255 open). */
 export const FAR_BRICK_BAKED_BYTES = 4;
 
+/**
+ * GPU bytes a drawn brick holds: its samples' distances (a byte each) and their baked colour and occlusion
+ * ({@link FAR_BRICK_BAKED_BYTES}), the two regions the far view's atlas keeps a brick in.
+ */
+export const FAR_BRICK_GPU_BYTES = DISTANCE_BRICK_SAMPLES * (1 + FAR_BRICK_BAKED_BYTES);
+
+/** GPU bytes an entry of a drawn node's brick table holds (its region and its bounds, a 4-byte texel each). */
+export const FAR_BRICK_TABLE_GPU_BYTES = 8;
+
+/** GPU bytes a node's bricks hold where they are drawn: its stored bricks and its brick table (none: no brick stored). */
+export function farBricksGpuBytes(b: FarBricks): number {
+  const n = farBrickCount(b);
+  return n === 0 ? 0 : n * FAR_BRICK_GPU_BYTES + b.bricks.length * FAR_BRICK_TABLE_GPU_BYTES;
+}
+
 /** Far colours by look word (material | wetness << 12): linear RGBA bytes, the alpha unused. */
 export type FarPalette = Uint8Array;
 

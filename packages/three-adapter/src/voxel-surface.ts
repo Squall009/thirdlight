@@ -221,6 +221,9 @@ export interface RegionTexels {
 /** The shader grids' texels: an entry's two bytes, read texel by texel. */
 const GRID_TEXELS: RegionTexels = { format: THREE.RGFormat, bytes: 2, filter: THREE.NearestFilter };
 
+/** The share of a region store's smaller size that must stay free for {@link VoxelShaderGrids.trim} to shrink to it. */
+export const GRID_TRIM_SLACK = 1 / 8;
+
 function gridTexture(width: number, height: number, depth: number, data: Uint8Array | null, texels: RegionTexels = GRID_TEXELS): THREE.Data3DTexture {
   const tex = new THREE.Data3DTexture(data, width, height, depth);
   tex.format = texels.format;
@@ -242,19 +245,29 @@ function gridTexture(width: number, height: number, depth: number, data: Uint8Ar
  * order (x, z, y with y fastest) is the texture's memory order, so a grid
  * uploads as it is. The same store with other texels (`texels`) keeps the
  * far field's distance bricks, a brick a region.
+ *
+ * Regions are handed out from the oldest part of the texture first (the
+ * size it had before each growth), so what a later growth added empties as
+ * its holders go; {@link trim} then gives that part back.
  */
 export class VoxelShaderGrids {
   texture: THREE.Data3DTexture;
   /** Regions along each axis of the texture. */
   private dims: [number, number, number] = [0, 0, 0];
-  private readonly free: Array<[number, number, number]> = [];
+  /** The regions along each axis after each growth (the last is {@link dims}). */
+  private steps: Array<[number, number, number]> = [];
+  /** Free regions by the growth that added them, each handed out lowest first. */
+  private free: Array<Array<[number, number, number]>> = [];
+  /** Regions in use by the growth that added them. */
+  private usedIn: number[] = [];
   private used = 0;
   private retired: { texture: THREE.Texture; frames: number }[] = [];
   /** Uploads since made, and their bytes. */
   uploads = 0;
   uploadedBytes = 0;
-  /** Times the texture grew. */
+  /** Times the texture grew, and shrank. */
   grown = 0;
+  shrunk = 0;
 
   constructor(
     readonly layout: Pick<VoxelSurfaceLayout, 'side'>,
@@ -269,10 +282,14 @@ export class VoxelShaderGrids {
     return this.used;
   }
 
+  /** Regions the texture holds. */
+  get capacity(): number {
+    return this.dims[0] * this.dims[1] * this.dims[2];
+  }
+
   /** Bytes the texture holds on the GPU. */
   get gpuBytes(): number {
-    const s = this.layout.side;
-    return this.dims[0] * this.dims[1] * this.dims[2] * s * s * s * this.texels.bytes;
+    return this.capacity * this.regionBytes;
   }
 
   /** Bytes one region holds. */
@@ -282,8 +299,13 @@ export class VoxelShaderGrids {
 
   /** A free region's origin (texels), the texture grown when none is left. */
   allocate(renderer: VoxelGridRenderer): THREE.Vector3 {
-    if (this.free.length === 0) this.grow(renderer);
-    const [x, y, z] = this.free.pop()!;
+    let g = this.free.findIndex((f) => f.length > 0);
+    if (g < 0) {
+      this.grow(renderer);
+      g = this.free.length - 1;
+    }
+    const [x, y, z] = this.free[g]!.pop()!;
+    this.usedIn[g]!++;
     this.used++;
     const s = this.layout.side;
     return new THREE.Vector3(x * s, y * s, z * s);
@@ -292,8 +314,46 @@ export class VoxelShaderGrids {
   /** Gives a region back. */
   release(origin: THREE.Vector3): void {
     const s = this.layout.side;
-    this.free.push([origin.x / s, origin.y / s, origin.z / s]);
+    const r: [number, number, number] = [origin.x / s, origin.y / s, origin.z / s];
+    const g = this.stepOf(r);
+    this.free[g]!.push(r);
+    this.usedIn[g]!--;
     this.used--;
+  }
+
+  /** The growth that added a region: the first size that holds it. */
+  private stepOf(r: readonly [number, number, number]): number {
+    const g = this.steps.findIndex((d) => r[0] < d[0] && r[1] < d[1] && r[2] < d[2]);
+    if (g < 0) throw new Error(`voxel grid texture: region ${r.join(', ')} is not one of its regions`);
+    return g;
+  }
+
+  /**
+   * Gives back the part of the texture later growths added once none of its regions is in use (a copy on the GPU
+   * into a texture of the earlier size; the regions in use keep their origins), as long as a share
+   * ({@link GRID_TRIM_SLACK}) of the smaller texture stays free, so a store at its size does not shrink and grow
+   * again by turns. True when it shrank.
+   */
+  trim(renderer: VoxelGridRenderer): boolean {
+    let k = this.steps.length - 1;
+    while (k > 0 && this.usedIn[k] === 0) {
+      const d = this.steps[k - 1]!;
+      if (this.used > d[0] * d[1] * d[2] * (1 - GRID_TRIM_SLACK)) break;
+      k--;
+    }
+    if (k === this.steps.length - 1) return false;
+    const s = this.layout.side;
+    const next = this.steps[k]!;
+    const tex = gridTexture(next[0] * s, next[1] * s, next[2] * s, null, this.texels);
+    renderer.initTexture(tex);
+    renderer.copyTextureToTexture(this.texture, tex, new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(next[0] * s, next[1] * s, next[2] * s)), new THREE.Vector3(0, 0, 0));
+    this.steps.length = this.free.length = this.usedIn.length = k + 1;
+    this.retired.push({ texture: this.texture, frames: 2 });
+    this.texture = tex;
+    this.dims = [next[0], next[1], next[2]];
+    this.shrunk++;
+    this.onTexture?.(tex);
+    return true;
   }
 
   /** Uploads a grid (side³ entries, grid order; or side³ texels of the store's own) into its region. */
@@ -354,10 +414,14 @@ export class VoxelShaderGrids {
     renderer.initTexture(tex);
     if (old[0] > 0) renderer.copyTextureToTexture(this.texture, tex, new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(old[0] * s, old[1] * s, old[2] * s)), new THREE.Vector3(0, 0, 0));
     // The new regions, handed out lowest first.
+    const added: Array<[number, number, number]> = [];
     for (let z = next[2] - 1; z >= 0; z--) for (let y = next[1] - 1; y >= 0; y--) for (let x = next[0] - 1; x >= 0; x--) {
       if (x < old[0] && y < old[1] && z < old[2]) continue;
-      this.free.push([x, y, z]);
+      added.push([x, y, z]);
     }
+    this.free.push(added);
+    this.usedIn.push(0);
+    this.steps.push([next[0], next[1], next[2]]);
     this.retired.push({ texture: this.texture, frames: 2 });
     this.texture = tex;
     this.dims = next;

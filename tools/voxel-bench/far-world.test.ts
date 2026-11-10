@@ -14,7 +14,7 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, createDenseChunk, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, FAR_ENTRY_CACHE_BYTES, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarNode, createDenseChunk, farBricksGpuBytes, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, FAR_ENTRY_CACHE_BYTES, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
 import { buildFarCache, farCacheDir, FarCacheReader, FarWorldSource, openShippedWorld, readFarCacheManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
 import { hexToBytes } from '@thirdlight/shared';
 import { computeFarDrainage, PEAK } from './far-drainage';
@@ -488,6 +488,29 @@ describe('the far field drawn as meshes and as bricks', () => {
       // read nodes stay within their cache.
       expect(shown.size).toBe(far.metrics().nodes);
       expect(far.metrics().entryBytes).toBeLessThanOrEqual(FAR_ENTRY_CACHE_BYTES);
+      // A GPU budget of half what is drawn: the selection opens nodes by error while they fit, and after every move
+      // what is drawn (the bricks' own GPU bytes, as the view's atlas keeps them) stays within it. On the way a
+      // commit puts groups in whole while the nodes that close over finer ones behind are still being made: what
+      // stands drawn passes the budget by a little then, never by a quarter.
+      const drawnGpu = (): number => [...shown.values()].reduce((n, d) => n + farBricksGpuBytes(d.bricks!), 0);
+      expect(far.metrics().gpu.drawn).toBe(drawnGpu());
+      const budget = Math.floor(drawnGpu() / 2);
+      let peak = 0;
+      far.on(() => (peak = Math.max(peak, drawnGpu())));
+      far.setView({ gpuBudgetBytes: budget });
+      await far.settle();
+      for (const [x, z] of [[-300, -300], [300, -300], [300, 300], [-300, 300], [0, 0], [200, 0], [0, 200], [-200, -200]] as const) {
+        far.setEye(x, 40, z);
+        far.update();
+        await far.settle();
+        const mm = far.metrics();
+        expect(mm.problem).toBeNull();
+        expect(mm.drawn).toBe(mm.nodes);
+        expect(drawnGpu()).toBeLessThanOrEqual(budget);
+        expect(mm.gpu.drawn).toBe(drawnGpu());
+        expect(mm.gpu.held).toBeGreaterThan(0);
+      }
+      expect(peak).toBeLessThan(budget * 1.25);
       far.close();
     } finally {
       for (const d of opened) await d.close();

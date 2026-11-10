@@ -114,6 +114,8 @@ export class VoxelFarView {
   nodes = 0;
   /** Groups rebuilt (draws replaced) since made. */
   rebuilds = 0;
+  /** Times the brick atlas gave space back. */
+  trims = 0;
   /** ms the last batch's group rebuilds took. */
   lastBuildMs = 0;
   constructor(private readonly opts: VoxelFarViewOptions) {
@@ -125,6 +127,11 @@ export class VoxelFarView {
   /** GPU bytes the far field holds: its draws' buffers and the brick atlas. */
   get bytes(): number {
     return this.drawBytes + (this.atlas?.gpuBytes ?? 0);
+  }
+
+  /** GPU bytes of the brick atlas alone. */
+  get atlasBytes(): number {
+    return this.atlas?.gpuBytes ?? 0;
   }
 
   /** The near cover now: its corner and size (chunks), and the chunks it hides the far field in. */
@@ -220,6 +227,7 @@ export class VoxelFarView {
       this.groupOf.set(key, g.key);
     }
     for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
+    if (this.atlas !== null && this.atlas.trim(this.uploader())) this.trims++;
     this.lastBuildMs = performance.now() - t0;
   }
 

@@ -12,7 +12,8 @@
  *   region store (`VoxelShaderGrids`): a node's bricks are uploaded alone
  *   when it arrives (`queue.writeTexture` on WebGPU, `texSubImage3D` on
  *   WebGL 2) and their regions given back when it goes; the atlas grows by
- *   a copy on the GPU. Each node's brick table is a page of two more stores.
+ *   a copy on the GPU and gives back what its released bricks left at its
+ *   end ({@link VoxelShaderGrids.trim}). Each node's brick table is a page of two more stores.
  * - **Draw.** A node is one instance of its stored bricks' marched boxes'
  *   union, all of a group in one instanced draw with one material for every
  *   group. The box's back faces are drawn (the camera may be inside one),
@@ -149,7 +150,19 @@ export class FarBrickAtlas {
     }
   }
 
-  /** Textures replaced by a growth are disposed once no frame binds them. */
+  /**
+   * Gives back the atlas's space its released bricks and pages left at its end (the stores in step: they hand out
+   * and give back alike). True when a store shrank.
+   */
+  trim(renderer: VoxelGridRenderer): boolean {
+    const bricks = this.distance.trim(renderer);
+    if (this.colours.trim(renderer) !== bricks || this.colours.capacity !== this.distance.capacity) throw new Error('far brick atlas: the two region stores parted');
+    const pages = this.pages.trim(renderer);
+    if (this.pageBounds.trim(renderer) !== pages || this.pageBounds.capacity !== this.pages.capacity) throw new Error('far brick atlas: the two page stores parted');
+    return bricks || pages;
+  }
+
+  /** Textures replaced by a growth or a trim are disposed once no frame binds them. */
   frame(): void {
     this.distance.frame();
     this.colours.frame();

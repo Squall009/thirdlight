@@ -35,6 +35,8 @@ import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import type { ChunkCoord, ChunkGrid, RegionFootprint } from './coords';
 import { FAR_BRICK_BUILD, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
+import { farBricksGpuBytes } from './far-bricks-shade';
+import { FarGpuLedger } from './far-gpu-ledger';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
@@ -66,6 +68,16 @@ export const FAR_FIELD_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', FarFi
 
 /** The on-screen error (pixels) a far node's cell may make at each tier (more nodes, sharper horizons, higher up). */
 export const FAR_ERROR_PIXELS_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 8, medium: 4, high: 3 });
+
+/**
+ * GPU bytes each tier's far field may hold in the nodes it draws (bricks: their atlas regions and brick tables;
+ * meshes: their buffers). The selection opens nodes by screen error, largest first, while they fit; at the town of
+ * the 8 km test world medium draws ~155 MiB and high ~255 MiB, so neither is cut there, and travel cannot pile up.
+ */
+export const FAR_GPU_BUDGET_BYTES_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 96 * 2 ** 20, medium: 176 * 2 ** 20, high: 288 * 2 ** 20 });
+
+/** Selections a far field makes again for one eye when what came in was over its GPU budget. */
+const FAR_OVER_BUDGET_RESELECTS = 3;
 
 /** The range a level's far field error may take (pixels). */
 export const FAR_ERROR_PIXELS_RANGE = Object.freeze({ min: 0.5, max: 16 });
@@ -229,6 +241,8 @@ export interface FarFieldOptions {
   readonly pixelsPerRadian?: number;
   /** Stored bytes of the nodes drawn at once ({@link FAR_BUDGET_BYTES}). */
   readonly budgetBytes?: number;
+  /** GPU bytes the drawn nodes may hold (default the medium tier's, {@link FAR_GPU_BUDGET_BYTES_BY_TIER}). */
+  readonly gpuBudgetBytes?: number;
 }
 
 /** What the far field takes from the world it draws for. */
@@ -241,6 +255,13 @@ export interface FarFieldHost {
 interface Ready {
   /** Null: the node draws nothing. */
   readonly made: { readonly mesh?: FarMesh; readonly bricks?: FarBricks } | null;
+  /** Its GPU bytes where it is drawn. */
+  readonly gpu: number;
+}
+
+/** GPU bytes a made node holds where it is drawn. */
+function madeGpuBytes(made: Ready['made']): number {
+  return made === null ? 0 : (made.mesh !== undefined ? farMeshBytes(made.mesh) : 0) + (made.bricks !== undefined ? farBricksGpuBytes(made.bricks) : 0);
 }
 
 /**
@@ -258,6 +279,12 @@ export class FarField {
   private target = new Map<string, FarDrawn>();
   /** Nodes drawn now (null mesh: drawn as nothing, a node of air surfaces). */
   private readonly shown = new Map<string, MipNode>();
+  /** The drawn and made nodes' GPU bytes, and the budget's bookkeeping. */
+  private readonly gpu = new FarGpuLedger();
+  /** Todo nodes that refine a drawn coarser node (more GPU bytes for detail); held while over the budget. */
+  private refines = new Set<string>();
+  /** Whether the drawn and made nodes were over the GPU budget when the todo was made. */
+  private todoOver = false;
   /** Meshes made for target nodes, waiting for their group. */
   private readonly ready = new Map<string, Ready>();
   /** Nodes whose draw must be made again (an edit): replaced alone when ready. */
@@ -335,13 +362,17 @@ export class FarField {
   setEye(x: number, y: number, z: number): void {
     this.eye = [x, y, z];
     const at = this.selectedAt;
-    if (at === null || Math.hypot(x - at[0], y - at[1], z - at[2]) >= FAR_RESELECT_CELLS) this.reselect = true;
+    if (at === null || Math.hypot(x - at[0], y - at[1], z - at[2]) >= FAR_RESELECT_CELLS) {
+      this.reselect = true;
+      this.gpu.overReselects = 0;
+    }
   }
 
   /** The selection's settings changed (a quality level): selects again. */
-  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'pixelsPerRadian' | 'draw'>): void {
+  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'gpuBudgetBytes' | 'pixelsPerRadian' | 'draw'>): void {
     const drawWas = this.opts.draw ?? 'mesh';
     Object.assign(this.opts as { -readonly [K in keyof FarFieldOptions]: FarFieldOptions[K] }, o);
+    this.gpu.overReselects = 0;
     if ((this.opts.draw ?? 'mesh') !== drawWas) this.remakeAll();
     this.reselect = true;
     this.update();
@@ -403,7 +434,8 @@ export class FarField {
       this.selectedAt = [...this.eye];
       if (this.opts.enabled === false) this.selected(null);
       else {
-        this.selecting = { steps: this.selection.steps(this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, near: null }), ms: 0 };
+        const gpuBytesOf = this.gpu.foresee();
+        this.selecting = { steps: this.selection.steps(this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, gpuBudgetBytes: this.gpuBudget, gpuBytesOf, near: null }), ms: 0 };
         this.selectStep();
       }
       return;
@@ -440,6 +472,8 @@ export class FarField {
   /** A selection finished: it is the target; jobs for nodes it no longer holds go. */
   private selected(sel: FarSelected | null): void {
     this.counters.selections++;
+    this.gpu.selected = sel?.gpuBytes ?? 0;
+    this.gpu.held = sel?.heldByBudget ?? 0;
     this.target = new Map((sel?.drawn ?? []).map((d) => [mipNodeKey(d.node), d]));
     for (const [key, j] of this.jobs) {
       if (this.target.has(key)) continue;
@@ -450,6 +484,18 @@ export class FarField {
     this.todo = null;
     this.commitSoon();
     void this.pump();
+  }
+
+  /** GPU bytes the drawn nodes may hold. */
+  get gpuBudget(): number {
+    return this.opts.gpuBudgetBytes ?? FAR_GPU_BUDGET_BYTES_BY_TIER.medium;
+  }
+
+  /** GPU bytes of the drawn nodes and of those made and waiting to go in. */
+  private get liveGpu(): number {
+    let n = this.gpu.drawn;
+    for (const r of this.ready.values()) n += r.gpu;
+    return n;
   }
 
   /** Puts in what is ready a little later, once for everything that lands meanwhile (a commit walks the whole selection). */
@@ -465,14 +511,18 @@ export class FarField {
    * The target nodes still to make, the largest error drawn in their place now first (made again after a
    * selection or an edit): where nothing is drawn yet, then where a coarse ancestor stands in (its cell's error
    * at the node's distance, in pixels), then where finer nodes are drawn than the selection wants (a node behind
-   * the eye closing over its children: the threshold's worth, so it gives memory back before the small refinements);
-   * nearest first among equals.
+   * the eye closing over its children: the threshold's worth, so it gives memory back before the small refinements;
+   * over the GPU budget before every refinement); nearest first among equals.
    */
   private todoList(): FarDrawn[] {
     if (this.todo === null) {
       const ppr = this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN;
       const coarsen = this.opts.errorPixels ?? FAR_ERROR_PIXELS;
       const list: Array<{ d: FarDrawn; error: number }> = [];
+      // Over the GPU budget, nodes closing over finer ones go before refinements: they give memory back.
+      const over = this.liveGpu > this.gpuBudget;
+      this.todoOver = over;
+      this.refines = new Set();
       for (const [key, d] of this.target) {
         if (!this.needs(key)) continue;
         let error: number;
@@ -482,7 +532,8 @@ export class FarField {
           if (a !== null) {
             const cell = 2 ** a;
             error = (cell * ppr) / Math.max(d.distance, cell);
-          } else error = this.childShown(d.node) ? coarsen : Infinity;
+            this.refines.add(key);
+          } else error = this.childShown(d.node) ? (over ? Number.MAX_VALUE : coarsen) : Infinity;
         }
         list.push({ d, error });
       }
@@ -554,6 +605,9 @@ export class FarField {
     if (this.cursor >= todo.length && this.jobs.size === 0) return this.wake();
     // Background jobs: the near field's go first, yet a share of the workers is the far field's while it waits.
     let room = Math.min(FAR_JOBS_IN_FLIGHT - this.jobs.size, this.host.pool.backgroundRoom());
+    // Over the GPU budget refinements wait while other jobs (nodes closing over finer ones first) are out: those give
+    // memory back. With none out they go, so a far field over its budget with nothing to close still fills.
+    const hold = this.jobs.size > 0 && this.liveGpu > this.gpuBudget;
     const unread: MipNode[] = [];
     // A node is looked at once a scan by key alone: whether its neighbourhood was read (or asked for) is remembered,
     // and its 27 + fine reads are checked again only when it is sent. A scan of every node's reads at every update
@@ -561,7 +615,7 @@ export class FarField {
     for (let i = this.cursor, seen = 0; i < todo.length && seen < FAR_PUMP_SCAN && (room > 0 || (!this.reading && unread.length < FAR_READ_BATCH)); i++, seen++) {
       const n = todo[i]!.node;
       const key = mipNodeKey(n);
-      if (!this.needs(key) || this.jobs.has(key)) continue;
+      if (!this.needs(key) || this.jobs.has(key) || (hold && this.refines.has(key))) continue;
       if (this.readDone.has(key)) {
         if (room <= 0) continue;
         if (this.neighbourhoodRead(n)) {
@@ -703,12 +757,20 @@ export class FarField {
     this.meshUs.add(o.workerUs);
     this.queueMs.add(o.queueMs);
     this.counters.meshes++;
+    let made: Ready['made'];
     if (kind === 'bricks') {
       const b = o.output as FarBricks;
-      this.ready.set(key, { made: b.samples.length === 0 ? null : { bricks: b } });
+      made = b.samples.length === 0 ? null : { bricks: b };
     } else {
       const m = o.output as FarMesh;
-      this.ready.set(key, { made: m.indices.length === 0 ? null : { mesh: m } });
+      made = m.indices.length === 0 ? null : { mesh: m };
+    }
+    const gpu = madeGpuBytes(made);
+    this.ready.set(key, { made, gpu });
+    // The foreseen bytes were off: the selection is made again with the made nodes' ratio.
+    if (this.gpu.made(key, gpu, this.target.get(key)?.bytes ?? 0) && !this.reselect) {
+      this.reselect = true;
+      setTimeout(() => this.update(), 0);
     }
     this.commitSoon();
     void this.pump();
@@ -787,6 +849,7 @@ export class FarField {
       for (const key of g.gone) {
         removed.push(this.shown.get(key)!);
         this.shown.delete(key);
+        this.gpu.unshow(key);
       }
       for (const key of g.fresh) this.show(key, added);
     }
@@ -805,6 +868,7 @@ export class FarField {
       this.stale.delete(key);
       removed.push(this.shown.get(key)!);
       this.shown.delete(key);
+      this.gpu.unshow(key);
       this.show(key, added);
     }
     if (added.length > 0 || removed.length > 0) {
@@ -816,6 +880,15 @@ export class FarField {
       for (const l of this.listeners) l(e);
     }
     this.commitMs.add(performance.now() - tc);
+    // Over the budget or back under it: the todo's order changes (nodes closing over finer ones first, or not).
+    if (this.liveGpu > this.gpuBudget !== this.todoOver) this.todo = null;
+    // All in, yet over the budget: the selection foresaw nodes it had not made smaller than they came. It selects
+    // again with the drawn nodes' own bytes (a few times at most before the eye moves on).
+    if (this.gpu.drawn > this.gpuBudget && this.ready.size === 0 && this.jobs.size === 0 && !this.reselect && this.selecting === null && this.gpu.overReselects < FAR_OVER_BUDGET_RESELECTS && [...this.target.keys()].every((k) => this.shown.has(k))) {
+      this.gpu.overReselects++;
+      this.reselect = true;
+      setTimeout(() => this.update(), 0);
+    }
     if (cut) {
       this.counters.commitsCut++;
       this.commitSoon(FAR_COMMIT_AGAIN_MS);
@@ -828,6 +901,7 @@ export class FarField {
     const r = this.ready.get(key)!;
     this.ready.delete(key);
     this.shown.set(key, d.node);
+    this.gpu.show(key, r.gpu);
     if (r.made !== null) {
       if (r.made.mesh !== undefined) this.counters.triangles += r.made.mesh.indices.length / 3;
       if (r.made.bricks !== undefined) this.counters.bricks += r.made.bricks.samples.length / DISTANCE_BRICK_SAMPLES;
@@ -909,7 +983,7 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; index: number[] | null } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; index: number[] | null } {
     return {
       draw: this.draw,
       nodes: this.target.size,
@@ -927,6 +1001,7 @@ export class FarField {
       firsts: { ...this.firsts },
       problem: this.failed,
       counters: { ...this.counters },
+      gpu: { budget: this.gpuBudget, drawn: this.gpu.drawn, live: this.liveGpu, selected: this.gpu.selected, held: this.gpu.held, reselects: this.gpu.overReselects, perStored: this.gpu.ratio },
       index: this.index?.counts() ?? null,
     };
   }

@@ -241,6 +241,10 @@ export interface FarView {
   readonly hysteresis?: number;
   /** Stored bytes of the nodes drawn at once ({@link FAR_BUDGET_BYTES}). */
   readonly budgetBytes?: number;
+  /** GPU bytes the nodes drawn at once may hold where they are drawn (absent: no such bound), by {@link gpuBytesOf}. */
+  readonly gpuBudgetBytes?: number;
+  /** A node's GPU bytes where it is drawn, made or foreseen from its stored bytes (absent: 0). */
+  readonly gpuBytesOf?: (n: MipNode, storedBytes: number) => number;
   /** The cells the near rings draw (null: none); nodes wholly inside are not drawn here. */
   readonly near: FarBox | null;
 }
@@ -261,7 +265,9 @@ export interface FarSelected {
   /** Drawn nodes, by level then key. */
   readonly drawn: readonly FarDrawn[];
   readonly bytes: number;
-  /** Nodes kept closed only because opening them would pass the budget. */
+  /** Their GPU bytes ({@link FarView.gpuBytesOf}). */
+  readonly gpuBytes: number;
+  /** Nodes kept closed only because opening them would pass a budget. */
   readonly heldByBudget: number;
 }
 
@@ -317,23 +323,28 @@ export class FarSelection {
     const threshold = view.errorPixels ?? FAR_ERROR_PIXELS;
     const h = view.hysteresis ?? FAR_HYSTERESIS;
     const budget = view.budgetBytes ?? FAR_BUDGET_BYTES;
-    if (!(threshold > 0) || !(h >= 0 && h < 1) || !(budget >= 0) || !(view.pixelsPerRadian > 0)) throw new RangeError('far view: error, hysteresis, budget or projection out of range');
+    const gpuBudget = view.gpuBudgetBytes ?? Infinity;
+    if (!(threshold > 0) || !(h >= 0 && h < 1) || !(budget >= 0) || !(gpuBudget >= 0) || !(view.pixelsPerRadian > 0)) throw new RangeError('far view: error, hysteresis, budget or projection out of range');
+    const gpuOf = view.gpuBytesOf;
     const grid = index.grid;
     const info = (n: MipNode) => {
       const box = farNodeBox(grid, n);
       const distance = boxDistance(box, view.eye);
       const cell = 2 ** n.level;
-      return { node: n, box, distance, errorPixels: (cell * view.pixelsPerRadian) / Math.max(distance, cell), bytes: index.bytesOf(n), nearOverlap: view.near !== null && overlaps(box, view.near) };
+      const bytes = index.bytesOf(n);
+      return { node: n, box, distance, errorPixels: (cell * view.pixelsPerRadian) / Math.max(distance, cell), bytes, gpu: gpuOf === undefined ? 0 : gpuOf(n, bytes), nearOverlap: view.near !== null && overlaps(box, view.near) };
     };
     type Info = ReturnType<typeof info>;
     const visible = (i: Info): boolean => view.near === null || !inside(i.box, view.near);
     const drawn = new Map<string, Info>();
     let bytes = 0;
+    let gpu = 0;
     for (const n of index.nodes(index.maxLevel)) {
       const i = info(n);
       if (!visible(i)) continue;
       drawn.set(mipNodeKey(n), i);
       bytes += i.bytes;
+      gpu += i.gpu;
     }
     // Largest error first, so a tight budget is spent where it shows most; ties by key (deterministic).
     const before = (a: Info & { key: string }, b: Info & { key: string }): boolean => a.errorPixels > b.errorPixels || (a.errorPixels === b.errorPixels && a.key < b.key);
@@ -380,14 +391,16 @@ export class FarSelection {
       if (!wants) continue;
       const kids = index.children(i.node).map(info).filter(visible);
       const cost = kids.reduce((s, k) => s + k.bytes, 0) - i.bytes;
+      const gpuCost = kids.reduce((s, k) => s + k.gpu, 0) - i.gpu;
       // The near field's edge opens whatever the budget: a coarse node there would cover what the near rings draw.
-      if (!i.nearOverlap && bytes + cost > budget) {
+      if (!i.nearOverlap && (bytes + cost > budget || gpu + gpuCost > gpuBudget)) {
         held++;
         continue;
       }
       drawn.delete(key);
       nextOpen.add(key);
       bytes += cost;
+      gpu += gpuCost;
       for (const k of kids) {
         drawn.set(mipNodeKey(k.node), k);
         push(k);
@@ -398,6 +411,7 @@ export class FarSelection {
     return {
       drawn: list.map((i) => ({ node: i.node, errorPixels: i.errorPixels, distance: i.distance, bytes: i.bytes, nearOverlap: i.nearOverlap })),
       bytes,
+      gpuBytes: gpu,
       heldByBudget: held,
     };
   }
