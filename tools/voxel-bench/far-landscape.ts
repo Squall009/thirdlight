@@ -324,10 +324,11 @@ export class LandscapeColumn {
       const curve = at(1, 0) + at(-1, 0) + at(0, 1) + at(0, -1) - 4 * h0;
       const look = looks[(lx + 1) * n + (lz + 1)]!;
       const n1 = valueNoise01(x / 64, z / 64, seed + 41);
-      const n2 = valueNoise01(x / 7, z / 7, seed + 42);
+      // Borders wander at 11 m and 32 m: patches of a few metres read as speckle, not as ground, from any distance.
+      const n2 = valueNoise01(x / 22, z / 22, seed + 42);
       const k = lx * e + lz;
       // Bare rock past a slope that wanders with the noise and drops with height; sharp ridges (convex) bare sooner.
-      const rockAt = 1.0 + 0.5 * (n1 - 0.5) + 0.3 * (n2 - 0.5) - 0.3 * smoothstep(1500, 2800, h0) + Math.max(-0.25, Math.min(0.15, curve * 0.6));
+      const rockAt = 1.2 + 0.5 * (n1 - 0.5) + 0.3 * (n2 - 0.5) - 0.45 * smoothstep(1400, 2800, h0) + Math.max(-0.25, Math.min(0.15, curve * 0.6));
       const rock = smoothstep(rockAt - 0.25, rockAt + 0.15, slope);
       let top: number = MAT.grass;
       let soil = 2 + Math.round(4 * n1);

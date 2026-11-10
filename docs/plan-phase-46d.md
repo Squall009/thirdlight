@@ -246,7 +246,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.10 | done (f05807ba): height in the albedo's A (layout v1 amendment 1); albedo array a height array (brightness height for an opaque albedo, the layered rule); shader, relief vertex stage, placeholders, kit sheets (OPAQUE GLB, Blender keeps A) moved; normal A unused. Shipped A error 4.4/255 at 256² (ETC1S), 0.2–0.4 at 4096² UASTC. Fast gate GREEN; e2e 71.1 → 70.8 s |
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
-| 46d.12b | done: `far-world --style realistic` (default): stream-power drainage on a 32 m grid (same in every worker, seams exact), gullies, scarps, crags, river channels + floodplains, outcrops/overhangs, boulders, 31 arches, snow (id 7); 642 MB (9.6 MB/km²), 489 s; far cache 54.3 MB, 248 s; peak 2.6 GB. On staging; shots in `far-field/realistic/` |
+| 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
 | 46d.13 | not started |
 | 46d.14 | not started |
 | 46d.15 | not started |
@@ -1623,6 +1623,48 @@ draw change reaches 0 missed on the Iris Xe; how Enshrouded draws its bricks (no
 under one sample at 4–5 km (needs a finer error there, ~4× bricks, or a building colour cue); pop in motion; the
 high tier.
 
+### 46d.12b the realistic far test world
+
+**Built** (55ad23cf, then a material tune). `tools/voxel-bench/far-drainage.ts`: the world's drainage on a 32 m
+node grid (261² for 8 km, ~1 MB): massifs from domain-warped ridged noise drive an uplift; 90 steps of implicit
+stream-power erosion (erodibility varied ±45 % for soft and hard rock) with hillslope creep (4 × 0.2 a step), pits
+filled by priority flood (a filled basin drains as a tree to its spill point, so it becomes a flat floor), water
+leaving at the world's edge; relief scaled so the top peak is 1.5 km. Every worker computes the same grid (4 s), so
+no tile needs a guard band and region columns meet exactly. `far-landscape.ts`: the grid read with a Catmull-Rom
+cubic, then gullies down the slope (three slope-aligned stripe octaves, 36/15/6.5 m, furrows narrower than spurs),
+crags on steep ground, winding escarpments (one domain-warped step of 15–55 m where a mask allows), rolling ground,
+river channels along the drainage's reaches (area ≥ 90 nodes; width, depth and floodplain from the area and the
+reach's slope; meandering by a warp), floodplains levelling only ground near the bank; materials per column from
+slope, height, curvature, river distance, scree (steep ground just uphill, scarp feet) and noise at 32 and 11 m
+(grass, soil, gravel, rock, sand on banks and plains, snow over ~1.1 km), wet river beds; 3D near the surface:
+outcrops (rock pushed ±3 m in and out: overhangs), boulders (0.5–2.3 m, more on scree), 31 arches; 0.5 m roughness
+by bareness. `far-world.ts` `style` (`realistic` default, `terraced`), `farSurfaceHeight`, CLI `--style`; snow is
+bench voxel id 7 (`textures-cli.ts`, plaster set tinted, imported on staging).
+
+**Tested** (`far-world.test.ts`, 5 → 8 tests, ~34 → ~65 s): the drainage computed twice is byte-equal, another seed
+differs; heights over the whole 8 km world every 48 m are finite, within the base and 1.1 × the peak, the town at 0,
+>0.5 % over 1 km, arches placed; two region columns written apart (a flank and its river) equal a chunk column
+straddling their seam written from the landscape alone, cell for cell (>10 k cells: material, role, shape, wetness),
+the same column twice is byte-equal, the columns hold rock, soil, grass, gravel, wet beds (>1,000 cells) and ground
+over air; the terraced style is still written the same every time. The existing far cache, legs and far field tests
+pass on the realistic default. Fast gates gate-fast-20261110-001721 (D567 once, GREEN on rerun) and
+gate-fast-20261110-011544 (`start.e2e.ts` D417/D453 and `rendering.e2e.ts` "the export draws the box field instanced"
+timed out at 240 s once under load; both GREEN on rerun gate-rerun-20261110-042538).
+
+**Measured** (Node, 4 workers, 6 GB scope; written straight into the staging project after the old world was
+deleted, 00:45, load 1.4):
+
+| | realistic (seed 97) | terraced (46d.7a) |
+|---|---|---|
+| World | 644.2 MB, 3,056 files (9.6 MB/km²); 563 k stored + 5.25 M uniform chunks | 476 MB (7.1 MB/km²) |
+| Generation | 463 s (6.9 s/km²; 489 s with a vitest run beside it) | 249 s |
+| Far cache | 54.1 MB (L2 101,572 nodes 40.5 MB), 253 s | 48.5 MB, 255 s |
+| Peak memory | 2.64 GB (scope) | 2.2 GB |
+| Heights | peak 1.50 km, 20 % over 500 m, 3.8 % over 1 km (drainage grid) | 1.51 km, 14.8 %, 3.9 % |
+| Top materials (576 sampled chunk columns) | grass 69 %, rock 18 %, soil 7 %, gravel 3.5 %, sand 2 %, snow 0.1 % | — |
+
+Far selection at 2 px: 11,979 nodes from the town (7.1 MB), 3,439 from the corner. Disk free stayed ≥ 19 GiB.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2117,6 +2159,16 @@ high tier.
   show**, over the finer cells its trilinear reach covers, tops counted twice; **the fine shading** blends the 8
   samples' colours, darkens by the field one and two cells out along the normal (to half at most), and ends a march
   at half a pixel. All three are switches for the spike; 46d.13 moves occlusion and blend to the build.
+- 2026-11-10 (46d.12b, default chosen, owner to confirm): **the realistic far world's erosion is a whole-world
+  drainage grid at 32 m computed the same in every worker** (stream power with uplift, creep, filled pits), not a
+  per-tile droplet pass with guard bands: a tile's result would depend on its band and not match its neighbour's
+  exactly; the grid is 1 MB and 4 s. Finer erosion look comes from slope-aligned gullies, analytic, so it is seamless.
+- 2026-11-10 (46d.12b, default chosen, owner to confirm): **rivers are dry, wet-gravel channels** (wetness 5, banks
+  3), no water: the bench has no water material record and liquid in the far field is untested. Snow is a bench
+  material (id 7, the plaster set tinted near white). The town keeps its flat at the centre; valleys that reach it
+  end on its plain.
+- 2026-11-10 (46d.12b): the realistic world is the far world's default; `--style terraced` writes the 46d.7a world
+  for measurements against it. The 8 km staging world is the realistic one; 46d.7a/46d.12 pictures are of the old.
 
 ## 10. Open questions for the owner
 
@@ -2143,7 +2195,7 @@ high tier.
   setting? With shadows at high it misses more (D545).
 - The high tier (RTX 5090): run the harness page on the workstation against staging (§5c); until then high-tier
   numbers are unverified.
-- Whether the 8 km test world (scratch: 476 MB on disk, its far cache 48.5 MB) is kept after 46d for 46e's measurements.
+- Whether the 8 km test world (now the realistic one: 644 MB on disk, its far cache 54 MB) is kept after 46d for 46e's measurements; whether it looks real enough (`far-field/realistic/`).
 - D560 (a finite world seen from outside its edge misses a strip of its side wall) and D543 (derives at the load
   ring's edge) were deferred by 46d.9: proposed to treat a chunk with no region file as air rather than "not
   coming", and to measure D543 on the flight bench before the far-field pick is built on.
