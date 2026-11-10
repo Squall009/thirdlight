@@ -247,7 +247,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | 13a done (ea5a0542): D571 fixed (thin tops the look, rings gone), D570 job 71 → 45 ms. 13b-1 done (d116bf13, fab6bf4f, HALF): faces2 + baked shading (D568 fixed) + node march + half-res, switches only: orbit missed WebGPU 23 → 14 → 0–3 → 0, WebGL 2 26–75 → 10–14 → 0–1 → 0; far GPU 99 → 164 MB; v3 ≤ 0.03 % px off ref (§8). 13b-2 next |
+| 46d.13 | 13a done (ea5a0542): D571 fixed (thin tops the look, rings gone), D570 job 71 → 45 ms. 13b-1 done (d116bf13, fab6bf4f, 434cc33e): faces2 + baked shading (D568 fixed) + node march + half-res, switches only: orbit missed WebGPU 23 → 14 → 0–3 → 0, WebGL 2 26–75 → 10–14 → 0–1 → 0; far GPU 99 → 164 MB; v3 ≤ 0.03 % px off ref (§8). 13b-2 next |
 | 46d.14 | not started |
 | 46d.15 | not started |
 
@@ -1781,7 +1781,7 @@ this change does not touch: the 46d.12b dotted cliff lines' kind). Motion and po
 
 ### 46d.13b-1 the ray-marched bricks improved: baked shading, the node march, half resolution
 
-**Built** (d116bf13, fab6bf4f, and the half-resolution commit; every step a switch, nothing made the default;
+**Built** (d116bf13, fab6bf4f, 434cc33e; every step a switch, nothing made the default;
 `faces2` + fine stays selectable as the reference). *a. Baked shading (D568)*, `?farShade=baked` /
 `setFar({ shade: 'baked' })`: `@thirdlight/voxel` `far-bricks-shade.ts` (each sample's occlusion as the fine
 shading had it at the hit, baked in the far job when the build asks: `FarBrickBuild.occlusion`, `FarBricks.occlusion`;
