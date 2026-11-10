@@ -259,7 +259,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | done (ea5a0542 … 7a27b8a9): v3 ray-marched bricks the default far field everywhere, meshes the fallback, variants retired; contour lines + edge ring fixed (D569, D577); Play fill 142 → 79 s, flight swaps 0 → 543, far GPU budget per tier (medium flight end 315 → 204 MB, town unchanged). D550/D551/D557/D573 fixed; D579–D583 |
+| 46d.13 | done (ea5a0542 … 2ce43208): v3 bricks the default far field, meshes the fallback; D569/D577 fixed; Play fill 142 → 79 s, far GPU budget per tier. 13c-4: D582 was a camera inside the massif; the near field's level choice no longer freezes in a fast flight (0 chunks drawn → back 8 s after), far refines a level a step, ring first. D582 fixed; D583 open (high: GPU), D584–D586 |
 | 46d.14 | deferred (lead 2026-11-10): bricks are the default; the mesh fallback is not revised. Its flight OOM stays D581. The vista note's §5 gate replaces it: if 46d.16's meter shows the bricks cannot reach their budget, the top levels become a simplified height-field mesh |
 | 46d.16 | not started |
 | 46d.17 | not started |
@@ -2158,6 +2158,75 @@ read as coarse stepped cubes (2–4 m, snow, grass, rock), with a few black cell
 along the near/far seam (end2); farther out the massif's slope and the green valley with its channels smooth (D582).
 *Unverified:* WebGL 2 at the flight's end, the high tier's pictures, motion during the flight, a trim in a browser.
 
+### 46d.13c-4 the flight's end traced (D582), the near field in a fast flight, the high orbit (D583)
+
+**What the pictures showed (numbers; `work/46d.13c-4/heights.mts`, `probe.mjs`, `play.mjs`).** The 13c-3 flight
+climbed 40 → 240 m over 2.4 km while the ground rises to 419 m there: from 0.7–0.95 km and again from 2.0 km on the
+camera flew 9–17 m and then up to 180 m *inside* the massif (end pose: camera y 240.8 m, ground 419 m). (a) The flat
+grey grid with square holes is not terrain and not the near field (with the far draws hidden the page and Play show
+only sky there): it is the far bricks seen from inside solid rock: a ray starting inside a node's solid stops at the
+first stored brick's box (a flat, unlit-looking face; the unstored solid bricks between read as square recesses, 16 m
+chunk lines as the thicker ribs). Not a correct picture of anything; a camera inside the ground has nothing right to
+show. (b) The stepped cubes with black cells and shards past it are the same view of the mountain's inner bricks
+(their box faces and lips from inside). Above the ground (a new flight 30 m over the highest ground 60 m behind to
+120 m ahead, the far cache's level-2 heights, 46–492 m) neither shows at the end. Two real faults came out of it:
+- *The near field drew nothing during a fast flight and after it* (D584 new): in Play's flight the page drew 0 near
+  chunks from 4 s in, the pool's queue full (253 of 256), and still 0 for 50+ s after the end with the queue empty
+  (resident 7,394–7,616 chunks). The level choice ran only at the end of an update's node work, which returned early
+  whenever the pool had no room or the work ran over its 2 ms: choices froze at 690 for the whole flight and after.
+  Fixed (2ce43208): the choice and its seams run every update; a seam build the full queue refused is sent again
+  20 ms later (else the swap draws its faces toward the finer level open: 487 bare faces in the test without it).
+  After the fix the near field is back 8 s after the end (227 chunks); during the flight it still draws ~0 from 6 s
+  on: at 60 m/s the load ring takes ~1,000 chunks a second and the loads keep the queue full (D584 stays open for that).
+- *Coarse stand-ins next to the eye while travelling*: a refinement went in only once every wanted node under its
+  stand-in was made (one group), and the nodes under the near field were made first (nearest first among equal
+  errors). Fixed (2ce43208): a wanted node two or more levels finer than its stand-in is reached one level at a time
+  (the stand-in's children first), and nodes whose every chunk the near field draws are made last. The far field
+  remains the only thing drawn near the eye in a fast flight, at one worker's share (~15 nodes a second against
+  ~35 the eye's band wants at 60 m/s); a camera inside a coarse stand-in's solid still shows the grid (D585 new).
+
+**Tested.** `far-world.test.ts` (extended, real cache and workers): asked for nodes much finer than drawn with a near
+field drawing a cylinder round the eye, every node wholly under it comes after every other in the work order, the
+first is at the cylinder's edge, and every refinement swap replaces a node by nodes one level finer, never two (the
+old order fails it: 0 hidden-last). `stream.test.ts` (the lod flight): its second half with the pool's queue kept
+full by other jobs still swaps levels (> 2) with every seam (`bare` 0). Fast gate gate-fast-20261110-163707 GREEN
+(16 min, 5.1 GB; village perf 0 missed both renderers). `voxel-world.e2e.ts` 91.2 → 93.7 s (not changed; noise).
+Not done: a vitest of "no face-aligned cube surfaces on a smooth slope at a coarse level": the cubes were the
+inside-solid view, not the brick build (above the ground no cube look was seen at any level).
+
+**Measured** (staging, Iris Xe, Play 1280 × 720 at the 60 Hz cap, the realistic 8 km world, orbit 3 × 8 s, then the
+new 2.4 km flight at 60 m/s; one round each, 15:50–17:43, load 2.1–9.3 (1-min), uptime 18.0 d;
+`work/46d.13c-4/play-*.json`, `perf-uptime.txt`). In the flight (WebGPU / WebGL 2, at 30 s and 38 s): far nodes two
+or more levels coarser than wanted outside the near field 2,107–2,162 / 3,175–3,248 before → 1,668–1,784 /
+2,771–2,915 after; worst stand-in error 96–111 px before, 80–127 px after (noisy).
+
+| medium unless named | fill from load | orbit missed (max ms) | flight missed (max) | flight swaps in / out, pending at end | far GPU town → end | page heap |
+|---|---|---|---|---|---|---|
+| WebGPU after | 84.7 s | 11 / 0 / 0 (50) | 4 (117) | 394 / 1,041, 4,944 | 164.3 → 204.1 MB | 894 MB |
+| WebGL 2 after | 87.1 s | 8 / 1 / 0 (400) | 4 (233) | 263 / 1,002, 4,833 | 164.3 → 204.1 MB | 894 MB |
+| high WebGPU after (7 GB scope) | 167.7 s | 20 / 24 / 17 (400) | 6 (183) | — | 315.2 → 315.3 MB | 1,070 MB |
+| high, lighting medium | — | 24 / 26 / 26 (283) | 8 (167) | — | — | — |
+| high, render scale 0.667 | — | 57 / 37 / 37 (133) | 8 (133) | — | — | — |
+
+D583 (high orbit at load < 3): still 17–26 missed a round, a 117–150 ms frame every ~0.32 s while the far field and
+the pool are idle (no job, no trim, no upload) and the near field swaps ~2 batches a second. Not the page's main thread
+(0 long tasks ≥ 50 ms in the frame), not GC (heap flat at 1,130 MB), not the high lighting (same with medium
+lighting); at render scale 0.667 the long frames go (1–3 a round) and 33 ms frames come (32–53): pixel cost at the
+high tier's full resolution on the floor GPU. Left to 46d.16's meter (D583 open). Twice the editor + Play browser at
+high closed mid-fill in its 6 GB scope (~114 s, 17.6 k resident chunks); in a 7 GB scope it ran (D586 new).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/13c-4/`; every picture opened). `page-end0-*-a` (the old end
+pose in the page): the grey grid and the cubes with the far field shown, sky only with it hidden (the camera inside
+rock). `fly10/20/30/38-*-before*` and `-nofar-`: the valley and massif smooth, the near field absent (sky only with
+the far hidden) at every point; at 30 s a grey slab with square recesses in the foreground (the camera inside a coarse
+stand-in's solid). `fly*-{webgpu,webgl2}-after`: 10 s and 20 s the green lowland, the channels and the massif with no
+slab; 30 s a smooth green slope up to the rock (both renderers, no slab); 38 s WebGPU at the cliff: the grid and
+blocky cubes on the left third again (inside a stand-in's solid at the steep face, D585), the rest smooth.
+`end0/1/2-{webgpu,webgl2}-after` (65 m over the slope, settled): the near field's textured rock and grass patches in
+front, the massif's ridge and the green valley with its channels past it; no grey grid, no cubes, no black cells, no
+shards at the seam; both renderers alike; `end*-nofar-`: the near field alone covers the slope in front. *Unverified:*
+motion (frames saved while moving only), the high tier's pictures, the seam at a camera low over flat ground.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2748,6 +2817,19 @@ along the near/far seam (end2); farther out the massif's slope and the green val
   `--both-renderers` as already instructed (it is the last both-renderer run of the old e2e passes); 46d.15's
   pictures and numbers are WebGPU only. The compute mappings are designs to verify against three r187 and the
   WebGPU docs, not tested code.
+- 2026-11-10 (46d.13c-4, default chosen, owner to confirm): **a coarse far node gives way one level at a time**: a
+  wanted node two or more levels finer than its drawn stand-in is made after the stand-in's children (then theirs),
+  each step a small group swapped whole; costs ~1/7 more jobs where a refinement is deep, and the drawn field is never
+  held at the stand-in until hundreds of nodes under it are made.
+- 2026-11-10 (46d.13c-4, default chosen, owner to confirm): **far nodes the near field draws every chunk of are made
+  last** (the near field's drawn levels, not its load ring: in a fast flight the near field draws little, and the far
+  field there is all there is).
+- 2026-11-10 (46d.13c-4, default chosen, owner to confirm): **the near field's level choice runs every update** and a
+  seam build a full queue refused is sent again 20 ms later (`SEAM_REQUEUE_MS`); the far worker share stays ¼ (raising
+  it while the near field cannot follow a flight is left to the vista pass, D584).
+- 2026-11-10 (46d.13c-4, default chosen, owner to confirm): **a camera inside the ground draws what the bricks give**
+  (the grid seen from inside, D585): not hidden by a shader rule yet; discarding a node whose solid holds the eye would
+  show holes to the sky instead. Proposed: refine the eye's own node first (done) and decide with the owner.
 
 ## 10. Open questions for the owner
 
