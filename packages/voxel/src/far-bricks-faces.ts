@@ -14,18 +14,30 @@
  * point is a lattice point), so a one-cell body keeps a body and the field
  * stays a true distance at the node's sample spacing.
  *
- * A sample's look is the material most surface cells round it show (a
- * cell with air above counted twice, so tops win over the sides of steps),
- * read over the finer cells the sample's trilinear footprint covers: the
- * colour of a sample is its neighbourhood's, not one cell's.
+ * A sample's look is the material most top cells round it show (a top
+ * under half full included: it is not solid, but it is what the ground
+ * shows), else, with no top in reach, the one most other surface cells
+ * show, read over the finer cells the sample's trilinear footprint covers:
+ * the colour of a sample is its neighbourhood's, not one cell's, and a
+ * slope's step risers do not paint it the subsoil's.
  */
-import type { ChunkGrid } from './coords';
+import { decodeDenseChunk } from './cell-delta';
+import { chunkInWorld, type ChunkGrid } from './coords';
+import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { BRICK_HIT_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, sampleOfDistance } from './distance-brick-format';
 import { brickFarNode, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, squaredDistances, type FarBricks } from './far-bricks';
 import { withFarNeighbourhood, type FarMeshInput } from './far-mesh';
 import type { PaletteStore } from './palette-store';
-import { fillLevel, MATERIAL_AIR, MATERIAL_BITS, SHAPE_FULL, VOXEL_ROLE, type VoxelRecord } from './record';
+import { fillLevel, MATERIAL_AIR, MATERIAL_BITS, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
 import { regionChunkCodecBytes } from './region-file';
+
+/**
+ * A shown cell's vote by how it shows (none, side, top) in a corner's footprint, and a top's a node cell above or
+ * below it: the footprint's tops outweigh every top beyond it, and those every side (a footprint and its rows above
+ * and below hold at most (2 · 4)³ = 512 finer cells each, so each step is over 512 times the one below).
+ */
+const TOP_VOTE = [0, 1, 1 << 20] as const;
+const NEAR_TOP_VOTE = 1 << 10;
 
 /** The finest source a `faces` build reads: cells this many times finer than the node's an axis. */
 export const FAR_BRICK_SCALE_MAX = 4;
@@ -54,34 +66,45 @@ function surfaceOnFace(values: Float32Array): boolean {
 export function brickFarNodeBy(store: PaletteStore, input: Pick<FarMeshInput, 'cells' | 'level' | 'node' | 'build' | 'fine'>, decompress: (b: Uint8Array) => Uint8Array): FarBricks {
   const b = input.build;
   if (b === undefined || b.field === 'occupancy') return brickFarNode(store, input, decompress);
-  const side = store.grid.edge / DISTANCE_BRICK_CELLS;
+  const g = store.grid;
+  const side = g.edge / DISTANCE_BRICK_CELLS;
   const none = (): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(DISTANCE_BRICK_OUTSIDE), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0), bounds: new Uint8Array(0) });
   const f = input.fine;
-  if (f === undefined || f.scale === 1) return withFarNeighbourhood(store, input, decompress, () => farBricksFromFaces(store.grid, store, input.node, 1), none);
+  if (f === undefined || f.scale === 1) return withFarNeighbourhood(store, input, decompress, () => farBricksFromFaces(g, store, input.node, 1), none);
   const S = f.scale;
   if (f.cells.length !== (S + 2) ** 3) throw new RangeError(`far bricks: ${f.cells.length} finer cells for scale ${S}`);
-  const g = store.grid;
-  const placed: Array<[number, number, number]> = [];
-  try {
-    let any = false;
-    let k = 0;
-    for (let dx = -1; dx <= S; dx++) for (let dz = -1; dz <= S; dz++) for (let dy = -1; dy <= S; dy++, k++) {
-      const c = f.cells[k];
-      if (c == null) continue;
-      const at: [number, number, number] = [input.node[0] * S + dx, input.node[1] * S + dy, input.node[2] * S + dz];
-      const read = 'uniform' in c ? (c.uniform === 0 ? null : ({ cx: at[0], cy: at[1], cz: at[2], kind: 'uniform', value: c.uniform } as const)) : ({ cx: at[0], cy: at[1], cz: at[2], kind: 'stored', bytes: c.stored, raw: c.raw } as const);
-      if (read === null) continue;
-      const codec = regionChunkCodecBytes(g, read, decompress);
-      if (codec === null) continue;
-      store.decodeChunk(at[0], at[1], at[2], codec);
-      placed.push(at);
-      if (dx >= 0 && dx < S && dy >= 0 && dy < S && dz >= 0 && dz < S) any = true;
-    }
-    return any ? farBricksFromFaces(g, store, input.node, S) : none();
-  } finally {
-    for (const [x, y, z] of placed) store.dropChunk(x, y, z);
+  // The finer entries are decoded straight to dense cells as the build reads them, never put in a store: a store
+  // read a cell at a time was most of the job.
+  const [nx, ny, nz] = input.node;
+  let any = false;
+  for (let dx = 0; dx < S && !any; dx++) for (let dz = 0; dz < S && !any; dz++) for (let dy = 0; dy < S && !any; dy++) {
+    const c = f.cells[((dx + 1) * (S + 2) + dz + 1) * (S + 2) + dy + 1];
+    if (c != null && !('uniform' in c && c.uniform === 0)) any = true;
   }
+  if (!any) return none();
+  const chunkCells: ChunkCells = (cx, cy, cz, out) => {
+    const dx = cx - nx * S, dy = cy - ny * S, dz = cz - nz * S;
+    if (dx < -1 || dx > S || dy < -1 || dy > S || dz < -1 || dz > S) return false;
+    const c = f.cells[((dx + 1) * (S + 2) + dz + 1) * (S + 2) + dy + 1];
+    if (c == null) return false;
+    if ('uniform' in c) {
+      if (c.uniform === 0) return false;
+      out.material.fill(valueMaterial(c.uniform));
+      out.role.fill(valueRole(c.uniform));
+      out.shape.fill(valueShape(c.uniform));
+      out.wetness.fill(valueWetness(c.uniform));
+      return true;
+    }
+    const codec = regionChunkCodecBytes(g, { cx, cy, cz, kind: 'stored', bytes: c.stored, raw: c.raw }, decompress);
+    if (codec === null) return false;
+    decodeDenseChunk(g, codec, out);
+    return true;
+  };
+  return facesFromChunks(g, chunkCells, input.node, S);
 }
+
+/** A job's cells a chunk at a time: chunk (cx, cy, cz) into `out`; false when it holds none (air, absent, not kept). */
+type ChunkCells = (cx: number, cy: number, cz: number, out: DenseChunk) => boolean;
 
 /**
  * The bricks of the node at `node` (its level's coordinates) from `store`,
@@ -89,6 +112,11 @@ export function brickFarNodeBy(store: PaletteStore, input: Pick<FarMeshInput, 'c
  * theirs round it, at least one fine node deep on every side).
  */
 export function farBricksFromFaces(g: ChunkGrid, store: PaletteStore, node: readonly [number, number, number], scale: number): FarBricks {
+  return facesFromChunks(g, (cx, cy, cz, out) => chunkInWorld(g, cx, cy, cz) && store.exportChunk(cx, cy, cz, out), node, scale);
+}
+
+/** {@link farBricksFromFaces} from cells read a chunk at a time. */
+function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number): FarBricks {
   if (!Number.isInteger(scale) || scale < 1 || scale > FAR_BRICK_SCALE_MAX || (scale & (scale - 1)) !== 0) throw new RangeError(`far bricks: scale ${scale}`);
   const e = g.edge;
   if (e % DISTANCE_BRICK_CELLS !== 0) throw new RangeError(`far bricks: a chunk edge of ${e} cells is not whole bricks`);
@@ -106,17 +134,32 @@ export function farBricksFromFaces(g: ChunkGrid, store: PaletteStore, node: read
   const solid = new Uint8Array(n2 * n);
   const density = new Float32Array(n2 * n);
   const word = new Uint16Array(n2 * n);
-  const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
   let count = 0;
-  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    store.voxelAt(base[0]! + x, base[1]! + y, base[2]! + z, v);
-    if (v.material === MATERIAL_AIR || v.role === VOXEL_ROLE.liquid) continue;
-    const i = (z * n + y) * n + x;
-    density[i] = fillLevel(v.role, v.shape) / SHAPE_FULL;
-    if (density[i]! < 0.5) continue;
-    solid[i] = 1;
-    word[i] = v.material | (v.wetness << MATERIAL_BITS);
-    count++;
+  const sh = g.shift;
+  const mask = e - 1;
+  const cell = createDenseChunk(g);
+  const [bx0, by0, bz0] = base as [number, number, number];
+  for (let cx = bx0 >> sh; cx <= (bx0 + n - 1) >> sh; cx++) for (let cz = bz0 >> sh; cz <= (bz0 + n - 1) >> sh; cz++) for (let cy = by0 >> sh; cy <= (by0 + n - 1) >> sh; cy++) {
+    if (!chunkCells(cx, cy, cz, cell)) continue;
+    const { material, role, shape, wetness } = cell;
+    const x1 = Math.min(bx0 + n, (cx + 1) * e), y1 = Math.min(by0 + n, (cy + 1) * e), z1 = Math.min(bz0 + n, (cz + 1) * e);
+    const y0 = Math.max(by0, cy * e);
+    for (let x = Math.max(bx0, cx * e); x < x1; x++) for (let z = Math.max(bz0, cz * e); z < z1; z++) {
+      const column = (((x & mask) << sh) | (z & mask)) << sh;
+      const row = (z - bz0) * n2 + (x - bx0);
+      for (let y = y0; y < y1; y++) {
+        const li = column | (y & mask);
+        const m = material[li]!;
+        const r = role[li]!;
+        if (m === MATERIAL_AIR || r === VOXEL_ROLE.liquid) continue;
+        const i = row + (y - by0) * n;
+        density[i] = fillLevel(r, shape[li]!) / SHAPE_FULL;
+        word[i] = m | (wetness[li]! << MATERIAL_BITS);
+        if (density[i]! < 0.5) continue;
+        solid[i] = 1;
+        count++;
+      }
+    }
   }
   const empty = (fill: number): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(fill), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0), bounds: new Uint8Array(0) });
   if (count === 0) return empty(DISTANCE_BRICK_OUTSIDE);
@@ -129,15 +172,18 @@ export function farBricksFromFaces(g: ChunkGrid, store: PaletteStore, node: read
     const c = (z * m + y) * m + x;
     into[c] = into[c + 1] = into[c + m] = into[c + m + 1] = into[c + m2] = into[c + m2 + 1] = into[c + m2 + m] = into[c + m2 + m + 1] = 1;
   }
-  const toSolid = squaredDistances(touchSolid, m, 1);
-  const toAir = squaredDistances(touchAir, m, 1);
-  // Surface cells by how they show: 2 with air above, 1 with air at a side or below, 0 hidden or air.
+  // Read only at the node's corners (every S-th fine corner from A).
+  const toSolid = squaredDistances(touchSolid, m, 1, S, A % S);
+  const toAir = squaredDistances(touchAir, m, 1, S, A % S);
+  // Cells by how they show: 2 a top (air above; a thin top cell too, which is not solid but is what the ground shows,
+  // while the solid cell under it is not a top), 1 a solid cell with a non-solid cell at a side or below (a riser, a
+  // wall, an underside), 0 hidden or air.
   const shown = new Uint8Array(n2 * n);
   for (let z = 1; z < n - 1; z++) for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
     const i = (z * n + y) * n + x;
-    if (solid[i] !== 1) continue;
-    if (solid[i + n] === 0) shown[i] = 2;
-    else if (solid[i - n] === 0 || solid[i + 1] === 0 || solid[i - 1] === 0 || solid[i + n2] === 0 || solid[i - n2] === 0) shown[i] = 1;
+    if (density[i] === 0) continue;
+    if (density[i + n] === 0) shown[i] = 2;
+    else if (solid[i] === 1 && (solid[i + n] === 0 || solid[i - n] === 0 || solid[i + 1] === 0 || solid[i - 1] === 0 || solid[i + n2] === 0 || solid[i - n2] === 0)) shown[i] = 1;
   }
   /**
    * A surface corner's offset by the fill of the 8 cells round it (lowest at `i`): ½ less their mean fill, as the
@@ -155,14 +201,20 @@ export function farBricksFromFaces(g: ChunkGrid, store: PaletteStore, node: read
   };
   const words: number[] = [];
   const weights: number[] = [];
-  /** The look of node corner (cx, cy, cz): the material most shown cells round it show; −1 when none shows. */
+  /**
+   * The look of node corner (cx, cy, cz): the material most tops round it show, else (no top in reach: a cliff, a
+   * wall) the one most other shown cells show; −1 when none shows. Tops first so a slope's step risers, which show
+   * the subsoil, do not colour the slope.
+   */
   const look = (cx: number, cy: number, cz: number): number => {
     words.length = 0;
     weights.length = 0;
     const x0 = cx * S + A - S, y0 = cy * S + A - S, z0 = cz * S + A - S;
-    for (let z = z0; z < z0 + 2 * S; z++) for (let y = y0; y < y0 + 2 * S; y++) for (let x = x0; x < x0 + 2 * S; x++) {
+    // Tops a node cell above and below the footprint vote too, under the footprint's own tops: a sample a cell off
+    // the surface (it still colours the hit by its weight) would otherwise see only a riser's or nothing's.
+    for (let z = z0; z < z0 + 2 * S; z++) for (let y = y0 - S; y < y0 + 3 * S; y++) for (let x = x0; x < x0 + 2 * S; x++) {
       const i = (z * n + y) * n + x;
-      const w = shown[i]!;
+      const w = y < y0 || y >= y0 + 2 * S ? (shown[i] === 2 ? NEAR_TOP_VOTE : 0) : TOP_VOTE[shown[i]!]!;
       if (w === 0) continue;
       const k = words.indexOf(word[i]!);
       if (k < 0) {

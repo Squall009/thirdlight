@@ -20,9 +20,10 @@
  *   node's 26 neighbours at its level give the distances near its faces, so
  *   two neighbours drawn at one level meet exactly.
  * - **Material.** Each sample carries the material and wetness word (as a
- *   far vertex does, `material | wetness << 12`) of the solid cell the
- *   surface there belongs to: the topmost solid one of its eight cells,
- *   else the nearest within two cells. The draw colours a hit from the
+ *   far vertex does, `material | wetness << 12`) of the cell the surface
+ *   there shows: the topmost of its eight cells with air above (a thin top
+ *   included), else the topmost solid one, else the nearest within two
+ *   cells. The draw colours a hit from the
  *   material table, so a record's look reaches the far field with no
  *   brick rebuilt.
  * - **Skirts.** Neighbours drawn at different levels do not meet exactly,
@@ -52,6 +53,9 @@ export const FAR_BRICK_STEPS = 32;
 
 /** Cells an air sample's material is looked for round it when none of its eight cells is solid. */
 const LOOK_REACH_CELLS = 2;
+
+/** Rows of cells (from a corner's lower four) a sample's look takes a top from, in order: its own two, then one above and one below. */
+const TOP_ROWS = [1, 0, 2, -1] as const;
 
 /** Cells read round the node: the band, and one more for the cells next to the band's edge. */
 const APRON_CELLS = DISTANCE_BRICK_BAND_VOXELS + 1;
@@ -87,8 +91,9 @@ export const FAR_BRICK_BOUNDS_BYTES = 6;
  *   solid cells (their union of cubes), read from cells `scale` times finer
  *   than the node's (its descendants that many levels down), so the surface
  *   sits where the finer cells put it and one-cell features keep a body.
- *   Each sample's look is the material the most surface cells round it show
- *   (faces up counted twice), so a sample's colour is its neighbourhood's.
+ *   Each sample's look is the material the most top cells round it show
+ *   (thin tops included; other surface cells only where no top is in
+ *   reach), so a sample's colour is its neighbourhood's.
  */
 export interface FarBrickBuild {
   readonly field: 'occupancy' | 'faces';
@@ -210,7 +215,7 @@ export function farBricksOf(g: ChunkGrid, store: PaletteStore, node: readonly [n
     const look = new Uint16Array(DISTANCE_BRICK_SAMPLES);
     let last = 0;
     for (let sz = 0; sz < S; sz++) for (let sy = 0; sy < S; sy++) for (let sx = 0; sx < S; sx++) {
-      const w = sampleLook(solid, word, n, bx * DISTANCE_BRICK_CELLS + sx + A - 1, by * DISTANCE_BRICK_CELLS + sy + A - 1, bz * DISTANCE_BRICK_CELLS + sz + A - 1);
+      const w = sampleLook(solid, density, word, n, bx * DISTANCE_BRICK_CELLS + sx + A - 1, by * DISTANCE_BRICK_CELLS + sy + A - 1, bz * DISTANCE_BRICK_CELLS + sz + A - 1);
       if (w >= 0) last = w;
       look[(sz * S + sy) * S + sx] = w >= 0 ? w : last;
     }
@@ -229,8 +234,18 @@ export function farBricksOf(g: ChunkGrid, store: PaletteStore, node: readonly [n
   return { side, bricks, samples: out, looks: outLooks, blocks: Uint8Array.from(blocks), bounds };
 }
 
-/** The look of the corner whose eight cells start at padded (x, y, z): the topmost solid of them, else the nearest solid within reach (−1: none). */
-function sampleLook(solid: Uint8Array, word: Uint16Array, n: number, x: number, y: number, z: number): number {
+/**
+ * The look of the corner whose eight cells start at padded (x, y, z): the topmost of them with air above (however
+ * thin: a top cell under half full is not solid, yet it is what the ground shows), else such a top a cell above or
+ * below them (a sample a cell off the surface still colours the hit by its weight), else the topmost solid, else the
+ * nearest solid within reach (−1: none). Tops first so a step's riser, which shows the subsoil, does not colour the
+ * slope it is part of.
+ */
+function sampleLook(solid: Uint8Array, density: Float32Array, word: Uint16Array, n: number, x: number, y: number, z: number): number {
+  for (const dy of TOP_ROWS) for (let dz = 0; dz <= 1; dz++) for (let dx = 0; dx <= 1; dx++) {
+    const i = ((z + dz) * n + y + dy) * n + x + dx;
+    if (density[i]! > 0 && density[i + n] === 0) return word[i]!;
+  }
   for (let dy = 1; dy >= 0; dy--) for (let dz = 0; dz <= 1; dz++) for (let dx = 0; dx <= 1; dx++) {
     const i = ((z + dz) * n + y + dy) * n + x + dx;
     if (solid[i] === 1) return word[i]!;
@@ -256,8 +271,11 @@ function sampleLook(solid: Uint8Array, word: Uint16Array, n: number, x: number, 
  * Squared Euclidean distances (cells) from every cell of an n³ grid to the
  * nearest cell whose mask is `kind` (Felzenszwalb and Huttenlocher's
  * separable transform, an axis at a time); none on the grid: a large value.
+ * With `every` > 1 the result holds only where x and y are `from` plus a
+ * multiple of `every` (any z): the y and z passes then run only along those
+ * lines, which is all a caller reading a coarser lattice needs.
  */
-export function squaredDistances(mask: Uint8Array, n: number, kind: 0 | 1): Float32Array {
+export function squaredDistances(mask: Uint8Array, n: number, kind: 0 | 1, every = 1, from = 0): Float32Array {
   const INF = 1e12;
   const d = new Float32Array(n * n * n);
   for (let i = 0; i < d.length; i++) d[i] = mask[i] === kind ? 0 : INF;
@@ -265,17 +283,14 @@ export function squaredDistances(mask: Uint8Array, n: number, kind: 0 | 1): Floa
   const out = new Float64Array(n);
   const v = new Int32Array(n);
   const zz = new Float64Array(n + 1);
-  const pass = (stride: number, starts: (k: number) => number): void => {
-    for (let k = 0; k < n * n; k++) {
-      const s = starts(k);
-      for (let q = 0; q < n; q++) f[q] = d[s + q * stride]!;
-      lowerEnvelope(f, n, out, v, zz, INF);
-      for (let q = 0; q < n; q++) d[s + q * stride] = out[q]!;
-    }
+  const line = (s: number, stride: number): void => {
+    for (let q = 0; q < n; q++) f[q] = d[s + q * stride]!;
+    lowerEnvelope(f, n, out, v, zz, INF);
+    for (let q = 0; q < n; q++) d[s + q * stride] = out[q]!;
   };
-  pass(1, (k) => k * n); // x: rows of (y, z)
-  pass(n, (k) => (k % n) + Math.floor(k / n) * n * n); // y: (x, z)
-  pass(n * n, (k) => k); // z: (x, y)
+  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) line((z * n + y) * n, 1); // x: rows of (y, z)
+  for (let z = 0; z < n; z++) for (let x = from; x < n; x += every) line(z * n * n + x, n); // y: (x, z)
+  for (let y = from; y < n; y += every) for (let x = from; x < n; x += every) line(y * n + x, n * n); // z: (x, y)
   return d;
 }
 

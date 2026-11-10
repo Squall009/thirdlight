@@ -9,10 +9,11 @@
  *   every node of the level, drawn or not), so two neighbours drawn at one
  *   level meet without a crack. Ground and base surfaces become one buffer.
  * - **Material.** Vertices carry the material and wetness of the cell
- *   behind them (one value a vertex, read where the surface's normal points
- *   in): the far draw colours a vertex from the material table, so a far
- *   node needs no shader grid, and a material record's look reaches it
- *   without a mesh derive.
+ *   the surface shows (one value a vertex: a thin top cell lying over the
+ *   surface, else the cell behind it along the inward normal): the far
+ *   draw colours a vertex from the material table, so a far node needs no
+ *   shader grid, and a material record's look reaches it without a mesh
+ *   derive.
  * - **Skirts.** Neighbours drawn at different levels do not meet exactly
  *   (a coarser node's surface lies up to one of its cells off the finer
  *   one's), so every edge a node's surface leaves its box through hangs a
@@ -33,13 +34,16 @@ import { deriveWithApron } from './derive-assembly';
 import { POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
 import type { FarBrickBuild } from './far-bricks';
 import type { PaletteStore } from './palette-store';
-import { MATERIAL_AIR, MATERIAL_BITS, type VoxelRecord } from './record';
+import { fillLevel, MATERIAL_AIR, MATERIAL_BITS, SHAPE_FULL, type VoxelRecord } from './record';
 import { regionChunkCodecBytes } from './region-file';
 import { assemblyRules } from './rule-registry';
 import type { StoredChunk } from './stream-job';
 
 /** Cells a vertex's material is looked for behind it (the projected ground lies within a cell or two of its cells). */
 const LOOK_REACH_CELLS = 3;
+
+/** Cells out along a vertex's normal a thin top cell over its surface is looked for (the surface lies under such a cell, within it or at its floor). */
+const THIN_TOP_REACH_CELLS = 1.5;
 
 /** Bytes a far vertex takes. */
 export const FAR_VERTEX_BYTES = 12;
@@ -238,7 +242,10 @@ export function farMeshOf(g: ChunkGrid, store: PaletteStore, node: readonly [num
   };
   const looks = new Map<number, number>();
   let lastWord = 0;
-  /** The material and wetness behind a vertex: the first solid cell along its inward normal, else any solid cell round it. */
+  /**
+   * The material and wetness a vertex shows: a thin exposed top over it, else the first solid cell along its inward
+   * normal and straight down (down first for ground facing up), else any solid cell round it.
+   */
   const look = (src: number): number => {
     const known = looks.get(id[src]!);
     if (known !== undefined) return known;
@@ -247,15 +254,37 @@ export function farMeshOf(g: ChunkGrid, store: PaletteStore, node: readonly [num
     const pz = pos[src * 3 + 2]! / step - FAR_POSITION_ORIGIN_CELLS;
     const n = [nor[src * 3]! / 127, nor[src * 3 + 1]! / 127, nor[src * 3 + 2]! / 127];
     let word = 0;
-    const at = (x: number, y: number, z: number): boolean => {
+    /** Whether the cell at (x, y, z) is not air (its record in `v`). */
+    const cellAt = (x: number, y: number, z: number): boolean => {
       store.voxelAt(base[0]! + Math.floor(x), base[1]! + Math.floor(y), base[2]! + Math.floor(z), v);
-      if (v.material === MATERIAL_AIR) return false;
+      return v.material !== MATERIAL_AIR;
+    };
+    const at = (x: number, y: number, z: number): boolean => {
+      if (!cellAt(x, y, z)) return false;
       word = v.material | (v.wetness << MATERIAL_BITS);
       return true;
     };
     // The ground's projected surface may lie up to a cell above its solid cells (and a wall's face on its cells' side):
     // along the inward normal, then straight down, then the cells round the vertex.
     let found = false;
+    // A thin exposed top (filled under half: the mesher puts the surface under it, in the cell below) is what the
+    // ground shows: out along the normal from the vertex, the outermost such cell before air; for ground facing up
+    // also straight up (a slope's normal leans downhill, into the lower neighbour's air). Without it a coarse
+    // slope's vertices take the subsoil at every other height step (material rings).
+    const thinTop = (ax: number, ay: number, az: number): void => {
+      for (let d = 0; d <= THIN_TOP_REACH_CELLS; d += 0.5) {
+        if (!cellAt(px + ax * d, py + ay * d, pz + az * d)) break;
+        if (fillLevel(v.role, v.shape) * 2 >= SHAPE_FULL) continue;
+        word = v.material | (v.wetness << MATERIAL_BITS);
+        found = true;
+      }
+    };
+    thinTop(n[0]!, n[1]!, n[2]!);
+    if (!found && n[1]! > 0) thinTop(0, 1, 0);
+    // Ground facing more up than sideways is looked for straight down first: its inward normal leans uphill, into
+    // the higher neighbour's subsoil.
+    const ground = n[1]! * n[1]! > n[0]! * n[0]! + n[2]! * n[2]!;
+    for (let d = 0.5; d <= LOOK_REACH_CELLS && !found && ground; d += 0.5) found = at(px, py - d, pz);
     for (let d = 0.5; d <= LOOK_REACH_CELLS && !found; d += 0.5) found = at(px - n[0]! * d, py - n[1]! * d, pz - n[2]! * d);
     for (let d = 0.5; d <= LOOK_REACH_CELLS && !found; d += 0.5) found = at(px, py - d, pz);
     for (let k = 0; k < 125 && !found; k++) found = at(px + (k % 5) - 2, py + (Math.floor(k / 5) % 5) - 2, pz + Math.floor(k / 25) - 2);
