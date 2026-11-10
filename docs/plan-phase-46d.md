@@ -215,7 +215,12 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.12b | done (55ad23cf + tune 81b291a9): realistic `far-world` default (terraced behind `--style`), 644 MB, on staging. Pictures both modes/renderers + 6 near (§8, seen): mesh rings everywhere, bricks only on far lowland; D571 both modes (thin top cells: mesh 55–62 %, bricks 2–35 % non-grass L2–L6). Baseline: meshes 0 missed orbit, bricks 22–24 / 56–71 |
 | 46d.13 | Brick far field built on 46d.12's verdict as the default far field (cost, detail, edges D556/D558, memory D557), measured; the mesh field stays only as the fallback behind the switch. |
 | 46d.14 | Mesh fallback revision (the ~1/4 triangle cut, view culling D550) — only if the fallback is still needed after 46d.13; else deferred with a note. |
-| 46d.15 | 46d-b close (lead): full gate, review, fixes, acceptance acc46d-b. |
+| 46d.16 | (owner 2026-11-10, vista pass step 0) A GPU headroom meter that works at the 60 Hz cap (D544 rules out timestamps): load a chosen pass N times or raise the render scale in steps until the orbit misses; a frame-budget table per pass (near surfaces, far march, shadows, post) on the Iris Xe at 720p — the baseline 46d.17–46d.20 report against. |
+| 46d.17 | (vista step 1) Stop the far field's wasted work: frustum cull of node instances, no nodes wholly under the near cover, depth reject before the march (F2), normal baked into the atlas (F4), a cheap far shading (sun, ambient, fog), unused reads (F6) and uploads (F7) — each re-checked against 46d.13c-3 first. |
+| 46d.18 | (vista step 2) Bricks baked at world-bake time into the far cache (distance, colour, normal per node; edited nodes re-baked only); the runtime job becomes decode + upload. Far cache version bump, add-only, with the owner's note (instruction 2026-11-10). Target fill < 10 s (today 48–80 s). |
+| 46d.19 | (vista step 3) Near surface shader and submission: fast paths per chunk/draw (single material, one projection, cheap levels 1–2; N1), a position-only depth prepass (N2), packed vertices read directly (N3), same-level chunks merged into few draws (N4), mip nodes without collision/nav/light and a cheap hash (N5). May split a/b. |
+| 46d.20 | (vista step 4) The far pass shaped like Enshrouded's: the march writes a visibility target (brick id, depth), one full-screen far shade with fog; depth-pyramid culling of boxes in the vertex stage (both renderers); half resolution with reuse (D574) if 46d.16 says it is needed; streaming by visibility feedback. The largest item; starts on 46d.17's numbers. |
+| 46d.15 | 46d-b close (lead), after 46d.20: full gate, review, fixes, acceptance acc46d-b. |
 
 ## 7. Progress
 
@@ -248,7 +253,12 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
 | 46d.13 | done (ea5a0542 … 7a27b8a9): v3 ray-marched bricks the default far field everywhere, meshes the fallback, variants retired; contour lines + edge ring fixed (D569, D577); Play fill 142 → 79 s, flight swaps 0 → 543, far GPU budget per tier (medium flight end 315 → 204 MB, town unchanged). D550/D551/D557/D573 fixed; D579–D583 |
-| 46d.14 | not started |
+| 46d.14 | deferred (lead 2026-11-10): bricks are the default; the mesh fallback is not revised. Its flight OOM stays D581. The vista note's §5 gate replaces it: if 46d.16's meter shows the bricks cannot reach their budget, the top levels become a simplified height-field mesh |
+| 46d.16 | not started |
+| 46d.17 | not started |
+| 46d.18 | not started |
+| 46d.19 | not started |
+| 46d.20 | not started |
 | 46d.15 | not started |
 
 ## 8. Results
@@ -2709,6 +2719,17 @@ along the near/far seam (end2); farther out the massif's slope and the green val
   would rewrite every moved node's brick table). Under the budget the atlas stops growing, so compaction was not needed.
 - 2026-11-10 (46d.13c-3): the 2-byte palette index (D573's option) not built: the budget bounds the colour atlas.
   `spanDistances` left as it is (performance phase).
+
+- 2026-11-10 (OWNER, relayed by session thirdlight-65 with the research note `docs/research/voxel-vista-performance.md`):
+  the goal is an order of magnitude over today with fidelity kept or improved, leaving room on the Iris Xe at 720p30
+  for detail, foliage, weather and volumetric fog at low quality. **Steps 1–4 of the note's §4 are wanted in the
+  phase being worked on now** (46d-b), as a focus. Steps 5–6 (foliage, fog/weather) come later.
+- 2026-11-10 (lead, placement): the vista pass is 46d.16 (step 0, the headroom meter — first, because it makes 1–4
+  measurable), 46d.17–46d.20 (steps 1–4), after 46d.13 and before the 46d-b close (46d.15 moves to the end).
+  46d.14 is deferred: the note's §5 gate (bricks unless the meter says otherwise, then a height-field mesh past
+  ~2 km) replaces it. The note's findings are not requirements; each item re-checks them against the code at its
+  start (46d.13c-3 already closed D550, D551, D557, D573). 46d.18 changes the far cache format: an add-only
+  version step whose owner note is the instruction above. Still one closing full gate for all of 46d-b.
 
 ## 10. Open questions for the owner
 
