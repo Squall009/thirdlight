@@ -667,7 +667,7 @@ function relayedInput(relay: RelayActionSource, browserInput: BrowserInput, r: {
   };
 }
 
-/** The test hook on a game page with voxel worlds: what is drawn, each edit's way to the screen, the kit meshes' states, and relief drawn flat or moved. */
+/** The test hook on a game page with voxel worlds: what is drawn, each edit's way to the screen, the kit meshes' states, relief drawn flat or moved, and the far field shown or hidden. */
 const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
 
 /** The build's voxel kits (the catalog's `voxelKits` block) and where their GLBs' verified bytes come from. */
@@ -711,7 +711,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
     report: (world, bytes, coarse, kitBytes) => report(world, bytes, coarse, kitBytes),
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s) };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on) };
   return {
     draws,
     kitMeshes,

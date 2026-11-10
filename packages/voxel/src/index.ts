@@ -416,7 +416,7 @@ export {
   type FarView,
 } from './far-tree';
 export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
-export { brickFarNode, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD_OCCUPANCY, FAR_BRICK_BUILDS, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickBox, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksOf, farBricksTransfer, marchBrickBox, marchFarBrick, squaredDistances, type FarBrickBuild, type FarBricks } from './far-bricks';
+export { brickFarNode, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_BRICK_BUILD_OCCUPANCY, FAR_BRICK_BUILDS, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickBox, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksOf, farBricksTransfer, marchBrickBox, marchFarBrick, squaredDistances, type FarBrickBuild, type FarBricks } from './far-bricks';
 export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromFaces } from './far-bricks-faces';
 export { FAR_FACE_CLIP_SHIFT, FAR_FACE_DIRECTION_MASK, FAR_FACE_SHADE_SHIFT, FAR_FACE_SKIRT, farRasterFaces, farRasterFacesBytes, farRasterRuns, type FarRasterFaces } from './far-bricks-raster';
 export { farBrickMarchedBox, farNodeMarchedBox, marchFarNode, rayBox, type FarCellBox } from './far-bricks-node';

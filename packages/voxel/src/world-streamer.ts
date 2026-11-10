@@ -26,7 +26,7 @@ import type { ReliefRingSettings } from './relief-ring';
 import { VoxelStreamer } from './voxel-streamer';
 import type { WorkerPool } from './worker-pool';
 import { buildPieceTable, type PieceKitSource, type PieceTable } from './piece-table';
-import { farViewOf, type FarFieldMode, type FarNodeSource } from './far-field';
+import { FAR_FIELD_BY_TIER, farViewOf, type FarFieldMode, type FarNodeSource } from './far-field';
 
 /**
  * The piece table a world streamed with the world rules draws `kits` with,
@@ -128,6 +128,6 @@ export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source:
     relief: worldReliefRing(settings),
     ...(conn.pieces !== undefined ? { pieces: conn.pieces } : {}),
     // The far field is made wherever the world has a far cache, so a level switching it on needs no reload.
-    ...(conn.far !== undefined ? { far: { source: conn.far, ...farViewOf(settings.far?.mode ?? 'mesh'), ...(settings.far !== undefined ? { errorPixels: settings.far.errorPixels } : {}) } } : {}),
+    ...(conn.far !== undefined ? { far: { source: conn.far, ...farViewOf(settings.far?.mode ?? FAR_FIELD_BY_TIER.medium), ...(settings.far !== undefined ? { errorPixels: settings.far.errorPixels } : {}) } } : {}),
   });
 }

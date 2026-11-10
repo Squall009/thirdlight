@@ -31,9 +31,15 @@ function recorder(): VoxelGridRenderer & { uploads: Array<{ at: THREE.Vector3; b
   };
 }
 
-function view(renderer: VoxelGridRenderer): VoxelFarView {
+function view(renderer: VoxelGridRenderer, old = false): VoxelFarView {
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
-  return new VoxelFarView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer });
+  const v = new VoxelFarView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } }), surface, renderer });
+  // `old`: a box a brick, flat shading (the variants measured against the default before it).
+  if (old) {
+    v.setBrickShading('flat');
+    v.setBrickMarch('brick');
+  }
+  return v;
 }
 
 /** A level-2 node of flat ground (its top at cell 44 of node row 1) as bricks. */
@@ -44,9 +50,15 @@ function brickNode(nx: number): FarNodeDraw {
 }
 
 describe('the far view', () => {
+  it('marches a node a box with baked shading by default', () => {
+    const v = view(recorder());
+    expect([v.brickMarch, v.brickShading, v.brickHalf]).toEqual(['node', 'baked', false]);
+    v.dispose();
+  });
+
   it('draws brick nodes as instanced boxes over the shared atlas, builds a marching program with its own depth on both backends, and swaps kinds per node', () => {
     const r = recorder();
-    const v = view(r);
+    const v = view(r, true);
     const a = brickNode(0);
     const b = brickNode(1);
     v.apply({ added: [a, b], removed: [] }, undefined);
@@ -106,7 +118,7 @@ describe('the far view', () => {
 
   it('shades baked bricks from one colour atlas: a switch uploads every node again, the program reads far fewer textures, and back again', () => {
     const r = recorder();
-    const v = view(r);
+    const v = view(r, true);
     const a = brickNode(0);
     v.apply({ added: [a], removed: [] }, undefined);
     v.setBrickShading('fine');
@@ -134,7 +146,7 @@ describe('the far view', () => {
 
   it('marches a box a node over its brick table: one instance a node holding its bricks, the pages where its bricks are, a program on both backends', () => {
     const r = recorder();
-    const v = view(r);
+    const v = view(r, true);
     const a = brickNode(0);
     const b = brickNode(1);
     v.apply({ added: [a, b], removed: [] }, undefined);

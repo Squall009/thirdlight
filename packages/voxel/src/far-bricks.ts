@@ -115,6 +115,12 @@ export const FAR_BRICK_BUILDS: Readonly<Record<string, FarBrickBuild>> = Object.
   faces2: Object.freeze({ field: 'faces', scale: 2 }),
 } as const);
 
+/**
+ * The far field's brick build: faces from the node's children (cells twice finer: the mip's detail kept), each
+ * sample's occlusion baked in the job so the draw shades with one read.
+ */
+export const FAR_BRICK_BUILD: FarBrickBuild = Object.freeze({ field: 'faces', scale: 2, occlusion: true });
+
 /** Bytes a block's entry in {@link FarBricks.blocks} takes. */
 export const FAR_BRICK_BLOCK_BYTES = 4;
 

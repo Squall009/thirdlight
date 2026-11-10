@@ -28,7 +28,7 @@
 import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import type { ChunkCoord, ChunkGrid, RegionFootprint } from './coords';
-import { FAR_BRICK_BUILD_OCCUPANCY, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BUILD, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, FarNodeIndex, FarSelection, type FarDrawn } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
@@ -40,8 +40,9 @@ import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
 /**
  * How a voxel world is drawn past its near rings: `mesh` (the far tree's
  * nodes meshed from their voxel mips), `bricks` (the same nodes as distance
- * bricks, ray marched) or `off` (nothing past the load ring). Both draw
- * modes stay until the owner picks one; meshes are the default meanwhile.
+ * bricks, ray marched) or `off` (nothing past the load ring). Bricks are
+ * the far field (the owner's chosen direction, held at the cap on the floor
+ * GPU); meshes stay as the fallback a level or a page can switch to.
  */
 export const FAR_FIELD_MODES = Object.freeze(['off', 'mesh', 'bricks'] as const);
 export type FarFieldMode = (typeof FAR_FIELD_MODES)[number];
@@ -55,7 +56,7 @@ export function farViewOf(mode: FarFieldMode): { readonly enabled: boolean; read
 }
 
 /** The far field mode each tier draws when a level leaves it out. */
-export const FAR_FIELD_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', FarFieldMode>> = Object.freeze({ low: 'mesh', medium: 'mesh', high: 'mesh' });
+export const FAR_FIELD_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', FarFieldMode>> = Object.freeze({ low: 'bricks', medium: 'bricks', high: 'bricks' });
 
 /** The on-screen error (pixels) a far node's cell may make at each tier (more nodes, sharper horizons, higher up). */
 export const FAR_ERROR_PIXELS_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 8, medium: 4, high: 3 });
@@ -202,7 +203,7 @@ export interface FarFieldOptions {
   readonly enabled?: boolean;
   /** What nodes are made as (default `mesh`); a change makes every drawn node again, swapped in node by node. */
   readonly draw?: FarDrawKind;
-  /** How bricks are made (default {@link FAR_BRICK_BUILD_OCCUPANCY}); a change makes every drawn brick node again. */
+  /** How bricks are made (default {@link FAR_BRICK_BUILD}); a change makes every drawn brick node again. */
   readonly brickBuild?: FarBrickBuild;
   /** On-screen error a drawn node's cell may make (pixels; {@link FAR_ERROR_PIXELS}). */
   readonly errorPixels?: number;
@@ -330,7 +331,7 @@ export class FarField {
 
   /** How bricks are made now. */
   get brickBuild(): FarBrickBuild {
-    return this.opts.brickBuild ?? FAR_BRICK_BUILD_OCCUPANCY;
+    return this.opts.brickBuild ?? FAR_BRICK_BUILD;
   }
 
   /**

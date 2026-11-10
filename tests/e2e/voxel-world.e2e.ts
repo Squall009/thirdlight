@@ -601,12 +601,15 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(lv.levels[1], 'level 1 drawn').toBeGreaterThan(0);
     expect(lv.seams).toBeGreaterThan(0);
     expect(lv.seamTriangles).toBeGreaterThan(0);
-    // The far field: the backend built the world's far cache on the first read, and its nodes draw under the near field.
+    // The far field: the backend built the world's far cache on the first read, and its nodes draw under the near
+    // field, as ray-marched bricks by default (no triangles).
     await hook(page, 'settleFar');
-    const far = (await hook<{ far: { problem: string | null; drawnNodes: number; draws: number } | null }>(page, 'state')).far;
+    const far = (await hook<{ far: { problem: string | null; draw: string; drawnNodes: number; draws: number; bricks: number; triangles: number } | null }>(page, 'state')).far;
     expect(far, 'the far field').not.toBeNull();
     expect(far!.problem).toBeNull();
     expect(far!.drawnNodes).toBeGreaterThan(0);
+    expect([far!.draw, far!.triangles]).toEqual(['bricks', 0]);
+    expect(far!.bricks).toBeGreaterThan(0);
     // Background pixels below the horizon everywhere across the picture (it sits at 0.55–0.57 of the height at the left edge).
     const skyBelow = (p: Awaited<ReturnType<typeof shot>>): number => {
       let n = 0;
@@ -617,16 +620,15 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
       return n;
     };
     expect(skyBelow(await shot(page)), 'background pixels below the horizon').toBe(0);
-    // The far field switched to ray-marched bricks at run time: the same nodes made again as bricks, swapped in, and
+    // The far field switched to its mesh fallback at run time: the same nodes made again as meshes, swapped in, and
     // still no background below the horizon.
-    await hook(page, 'setFar', { mode: 'bricks' });
+    await hook(page, 'setFar', { mode: 'mesh' });
     await hook(page, 'settleFar');
-    const bricks = (await hook<{ far: { problem: string | null; draw: string; bricks: number; triangles: number } }>(page, 'state')).far;
-    expect(bricks.problem).toBeNull();
-    expect(bricks.draw).toBe('bricks');
-    expect(bricks.bricks).toBeGreaterThan(0);
-    expect(bricks.triangles).toBe(0);
-    expect(skyBelow(await shot(page)), 'background pixels below the horizon (bricks)').toBe(0);
+    const meshes = (await hook<{ far: { problem: string | null; draw: string; bricks: number; triangles: number } }>(page, 'state')).far;
+    expect(meshes.problem).toBeNull();
+    expect([meshes.draw, meshes.bricks]).toEqual(['mesh', 0]);
+    expect(meshes.triangles).toBeGreaterThan(0);
+    expect(skyBelow(await shot(page)), 'background pixels below the horizon (meshes)').toBe(0);
     // A runtime dig in the level-1 ring (on the line from the target to the camera, in view) shows: the node over
     // it is derived again and its draw replaced, still at level 1.
     let pit: Cell | null = null;
@@ -714,7 +716,7 @@ async function playProject(): Promise<[number, number, number]> {
   if (standAt !== null) return standAt;
   const [ox, oy, oz] = farScene;
   const at: [number, number, number] = [(ox + 9.5) / 2, oy / 2, (oz + 10.5) / 2];
-  const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far', blendMetres: PLAY_BLEND_M } } }))['createdId']);
+  const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far', blendMetres: PLAY_BLEND_M, quality: { low: FAR_TEST_RINGS } } } }))['createdId']);
   await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: playCamera(at), components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
   // A projected and a clipped decal on the wall's front face (facing +z: a decal projects along its −z), plain colours.
   await playCmd('setMaterial', { material: { materialId: 'mark-red', name: 'Red mark', shader: 'decal', params: { color: '#e01010' }, textures: {} } });
@@ -795,7 +797,44 @@ async function groundRelief(on: boolean): Promise<void> {
 }
 
 interface PlayObservation { state?: string; stepIndex?: number; counters?: Record<string, number>; player?: { x: number; y: number; z: number } }
-interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; blendM: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void }
+interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; blendM: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null; far: { nodes: number; bricks: number; triangles: number; draws: number } }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void; showFar(on: boolean): void }
+
+/**
+ * The play world's distances at the low tier: a load ring well inside the 128 m world, so the pit camera's upper
+ * frame looks past the near field at ground only the far field draws (the other tiers load the whole world).
+ */
+const FAR_TEST_RINGS = { ring: { loadRadius: 40, unloadRadius: 48 }, collision: { radius: 32 } };
+
+/**
+ * The far field in a game page (Play or an export) once its world streams at {@link FAR_TEST_RINGS}: drawn as
+ * ray-marched bricks (no triangles), and pixels past the near field that show the background with the far draws
+ * hidden and ground (not the background, not sky-blue) with them shown. Returns those pixels.
+ */
+async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Promise<R> }, shot: (name: string) => Promise<ReturnType<typeof decodePng>>, label: string): Promise<number> {
+  const far = () => frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: VoxelPlayHook }).__tlVoxelPlay?.stats().worlds['far']?.far ?? { nodes: 0, bricks: 0, triangles: -1, draws: 0 });
+  await expect.poll(async () => (await far()).bricks, { timeout: 30_000, message: 'far bricks drawn' }).toBeGreaterThan(0);
+  expect((await far()).triangles, 'bricks draw no triangles').toBe(0);
+  const show = (on: boolean) => frame.evaluate(`window.__tlVoxelPlay.showFar(${on})`);
+  let n = 0;
+  // The near field may still be dropping its outer chunks: poll until the far field's ground shows past it.
+  await expect.poll(async () => {
+    await show(false);
+    await frame.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    const near = await shot(`${label}-far-hidden`);
+    await show(true);
+    await frame.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    const both = await shot(`${label}-far-shown`);
+    n = 0;
+    for (let y = 0; y < both.height; y++) for (let x = 0; x < both.width; x++) {
+      const [r0, g0, b0] = near.pixel(x, y);
+      const [r, g, b] = both.pixel(x, y);
+      // The background (black here) with the far draws hidden, ground with them shown.
+      if (r0 + g0 + b0 < 30 && r + g + b > 60 && b < Math.max(r, g) + 16) n++;
+    }
+    return n;
+  }, { timeout: 30_000, message: 'far ground past the near field' }).toBeGreaterThan(2000);
+  return n;
+}
 
 /**
  * Relief at the high tier, by pixels: once the ring's relief meshes are drawn and stand still, the frame with them
@@ -926,6 +965,11 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
       const shot = async (name: string): Promise<ReturnType<typeof decodePng>> => decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath(`${name}.png`) }));
       expect(await reliefMoves(canvas, shot, `play-${renderer}`)).toBeGreaterThan(2000);
     }
+    // The far field at the low tier (the world's own short load ring there): ray-marched bricks draw the ground past
+    // the near field.
+    await control({ command: 'setQuality', level: 'low' });
+    const playShot = async (name: string): Promise<ReturnType<typeof decodePng>> => decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath(`${name}.png`) }));
+    console.log(`[voxel-play] ${renderer} far bricks: ${await farBeyondNear(canvas, playShot, `play-${renderer}`)} px of ground past the near field`);
     expect((await observe()).state).toBe('running');
     expect(errors).toEqual([]);
     await groundRelief(false);
@@ -1145,6 +1189,9 @@ test('Export: the Play project exported and served statically with the backend s
     expect((await observe())?.state).toBe('running');
     // Relief drawn moved by the shipped grass set's heights.
     expect(await reliefMoves(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')).toBeGreaterThan(2000);
+    // The far field from the shipped far cache, the export opened again at the low tier: bricks past the near field.
+    await game.goto(`${site.url}${exportQueryFor('webgpu')}&quality=low`);
+    console.log(`[voxel-export] far bricks: ${await farBeyondNear(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')} px of ground past the near field`);
     expect(errors).toEqual([]);
   } finally {
     await game.close();

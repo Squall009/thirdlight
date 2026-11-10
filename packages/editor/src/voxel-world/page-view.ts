@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { createOcclusionFrame, FAR_BRICK_MARCHES, FAR_BRICK_SHADINGS, type FarBrickMarch, type FarBrickShading, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
-import { FAR_BRICK_BUILD_OCCUPANCY, FAR_BRICK_BUILDS, FAR_FIELD_MODES, farViewOf, reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarBrickBuild, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
+import { FAR_BRICK_BUILD, FAR_BRICK_BUILDS, FAR_FIELD_MODES, farViewOf, reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarBrickBuild, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld, type ResolvedVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
@@ -66,8 +66,8 @@ export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof p
  * asks the build for each sample's occlusion too (the job bakes it) and shades from baked samples.
  */
 export function pageBricks(build: string | null | undefined, shade: string | null | undefined): { brickBuild: FarBrickBuild; shading: FarBrickShading } {
-  const named = FAR_BRICK_BUILDS[build ?? ''] ?? FAR_BRICK_BUILD_OCCUPANCY;
-  const shading: FarBrickShading = (FAR_BRICK_SHADINGS as readonly string[]).includes(shade ?? '') ? (shade as FarBrickShading) : named.field === 'faces' ? 'fine' : 'flat';
+  const named = FAR_BRICK_BUILDS[build ?? ''] ?? FAR_BRICK_BUILD;
+  const shading: FarBrickShading = (FAR_BRICK_SHADINGS as readonly string[]).includes(shade ?? '') ? (shade as FarBrickShading) : build == null ? 'baked' : named.field === 'faces' ? 'fine' : 'flat';
   return { brickBuild: shading === 'baked' ? { ...named, occlusion: true } : named, shading };
 }
 
@@ -83,7 +83,7 @@ export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: numb
 
 /** How the page's far bricks march (`?farMarch=brick|node|raster`, default brick): a box a brick, a box a node, or no march (rasterized faces). */
 export function pageMarch(march: string | null | undefined): FarBrickMarch {
-  return (FAR_BRICK_MARCHES as readonly string[]).includes(march ?? '') ? (march as FarBrickMarch) : 'brick';
+  return (FAR_BRICK_MARCHES as readonly string[]).includes(march ?? '') ? (march as FarBrickMarch) : 'node';
 }
 
 /**
@@ -91,7 +91,7 @@ export function pageMarch(march: string | null | undefined): FarBrickMarch {
  * detail (pixels a far node's cell may cover) and its bricks' build and shading (`bricks`, `shade`: as
  * {@link pageBricks}; `march` as {@link pageMarch}; `res` `half` or `full`, as `?farRes=half`), and a wait until it draws its selection; the bricks start with `shading` and `march`.
  */
-export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView, shading: FarBrickShading = 'flat', march: FarBrickMarch = 'brick', half = false): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; bricks?: string; shade?: string; march?: string; res?: string }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
+export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView, shading: FarBrickShading = 'baked', march: FarBrickMarch = 'node', half = false): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; bricks?: string; shade?: string; march?: string; res?: string }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
   view.setBrickShading(shading);
   view.setBrickMarch(march);
   view.setBrickHalf(half);

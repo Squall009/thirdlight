@@ -97,7 +97,7 @@ export class VoxelFarView {
   /** Each brick node's page (its brick table, the node march's), by node key. */
   private readonly pages = new Map<string, THREE.Vector3>();
   /** How brick groups' pixels find the surface (a box a brick or a node, or rasterized faces). */
-  private march: FarBrickMarch = 'brick';
+  private march: FarBrickMarch = 'node';
   /** Each brick node's faces (the raster draw's), by node key. */
   private readonly faces = new Map<string, FarRasterFaces>();
   private rasterMaterial: THREE.Material | null = null;
@@ -107,7 +107,7 @@ export class VoxelFarView {
   faceCount = 0;
   private hidden = false;
   /** The bricks' shading, kept for a material made later. */
-  private shading: FarBrickShading = 'flat';
+  private shading: FarBrickShading = 'baked';
   /** The bricks' half-resolution pass (null: they draw in the frame). */
   private half: FarHalfRes | null = null;
   /** The far colours by look word the baked shading's samples take (made with a baked atlas). */
