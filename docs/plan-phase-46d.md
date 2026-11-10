@@ -247,7 +247,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | not started |
+| 46d.13 | 13a done (ea5a0542): D571 fixed both modes, thin tops are the look (non-grass on grass tops L2–L6: meshes 55–62 → 0.6–2.4 %, faces2 2–23 → 0–0.3 %, occupancy 2–35 → 0 %), rings gone in the pictures; D570 dense reads + lattice-only transforms: job 71/108 → 45/78 ms, fill 55 → 44 s. 13b (bake-off) next |
 | 46d.14 | not started |
 | 46d.15 | not started |
 
@@ -1723,6 +1723,62 @@ not 33 ms ones: p95 150 ms), WebGL 2 in more, shorter ones with 1.2–1.3 s spik
 orbit. Both flights miss on the far commits (D550/D551), the bricks more with 5.6× longer jobs. The meshes' page heap
 is 0.5–0.6 GB over the bricks'. GPU timestamps not usable at the cap (D544).
 
+### 46d.13a the shared foundation: thin tops as the look (D571), the faces job's reads (D570)
+
+**Built** (ea5a0542). *Looks* (`@thirdlight/voxel`): a top cell under half full is not the surface in any build,
+yet it is what the ground shows. `far-mesh.ts` `look`: first a thin top over the vertex (out along its normal to
+1.5 cells, the outermost cell under half full before air; for ground facing up also straight up, since a slope's
+normal leans downhill into the lower neighbour's air), then for ground facing more up than sideways straight down
+before along the inward normal (which leans uphill into the higher neighbour's subsoil), then as before.
+`far-bricks.ts` (occupancy) `sampleLook`: the topmost of the corner's 8 cells with air above (thin included), then
+such a top one cell above or below, then the topmost solid, then the nearest. `far-bricks-faces.ts`: thin cells keep
+their word; a cell is a top when it is not air and the cell above is; the vote is lexicographic: tops in the
+footprint, then tops a node cell above or below it, then side cells (risers, walls) only where no top is in reach.
+*Job* (D570): the `faces2` job decodes its finer entries straight to dense chunks and copies the cells it reads
+(no store, no `voxelAt` per cell); the two distance transforms run their y and z passes only along the node's
+sample lattice (`squaredDistances(…, every, from)`), exact. Output byte-equal to the old build before the look
+change (digest over 433 town jobs).
+
+**Tested.** `far-looks.test.ts` (3, new): a gentle slope of soil under a grass skin 3/16–7/16 full and a rock
+cliff, built at level 3 through the jobs' own inputs (encoded entries): every upward vertex of the far mesh, every
+upward surface sample of the occupancy and the `faces2` bricks is grass, every cliff-face vertex/sample is rock;
+the `faces2` job decoding its entries equals `farBricksFromFaces` from a store. All three fail on the old code (the
+bricks showed no grass at all). The far tests (21) pass; `far-bricks-faces.test.ts` caught a first vote that let
+the ground's tops a cell below outvote a one-cell roof block (fixed by the lexicographic order).
+
+**Measured.** *Rings* (`work/46d.13a/rings-run.sh`, the 46d.12b scripts on the staging far cache; valley at
+(−2048, −1536), flank at (2960, 2320); non-grass share over grass top cells, before → after; `rings-summary.txt`):
+
+| | meshes (upward vertices) | occupancy (upward samples / drawn) | `faces2` (upward samples / drawn) |
+|---|---|---|---|
+| valley L2 | 56.5 → 2.4 % | 1.8 → 0.0 / 1.6 → 1.1 % | 18.2 → 0.0 / 11.5 → 0.4 % |
+| valley L3 | 56.3 → 1.8 % | 3.0 → 0.0 / 3.6 → 2.0 % | 5.9 → 0.1 / 4.1 → 0.7 % |
+| valley L4 | 54.8 → 1.8 % | 2.3 → 0.0 / 3.8 → 1.9 % | 2.5 → 0.0 / 1.3 → 0.5 % |
+| valley L5 | 55.2 → 1.2 % | 14.1 → 0.0 / 14.6 → 2.2 % | 11.4 → 0.0 / 10.0 → 0.6 % |
+| valley L6 | 61.5 → 0.6 % | 35.1 → 0.0 / 32.6 → 2.0 % | 17.5 → 0.0 / 17.6 → 0.2 % |
+| flank L2–L4 | 55–58 → 5.1–5.8 % | 4–8 → 0.0 / 7–13 → 5–8 % | 4–23 → 0–0.3 / 9–15 → 3–5 % |
+
+The rest is material borders (a vertex or sample shared with a soil, rock or gravel top; on the flank most of it).
+*Job* (Node, 433 town jobs L3–L6): 56.8 / 71.6 → 39.7 / 53.1 ms p50 / p95 (dense reads 49.8, then the lattice-only
+transforms 35.0; the top vote adds ~5). *Page* (staging, Iris Xe, 1280 × 720, 60 Hz cap, medium, town square,
+WebGPU, `faces2` + fine, 05:31, load 3.0–3.5; 46d.12b's baseline at 04:50, another hour): job 71 / 108 → 45 / 78 ms,
+far fill 55.1 → 43.7 s, 43,581 bricks, 99.4 MB, heap 588 MB (same); orbit missed 24/22/24 → 21/24/24 (p95 150 ms,
+D555), flight 32 → 27. The fill stays well above the ~20 s 46d.12 expected: the transforms and the decode of 64
+entries a job remain (35 ms in Node), and the fill is bounded by the job queue too; for 13b/13c.
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/13a/`: `mesh/`, `bricks/` at 46d.12b's poses, `side-by-side/`
+46d.12b left, 13a right, a 4× crop below; `work/46d.13a/compose13a.mts`, every picture opened). *Rings:* gone in
+both modes at every pose. `peak-to-town` (both renderers, WebGPU and WebGL 2 alike): the meshes' grey/green contour
+maze is now a green plain with the gravel channels as brown/grey lines and the town a red patch; the bricks' grey
+contour lines are gone, faint darker contour lines of the steps' shading remain on the lowland (shade, not
+material). `beyond-peak-to-town`: both green lowlands; the meshes' snow caps now solid white instead of a white/grey
+maze. `peak-sight-5km`: the grass on the massif's flanks reads as grass in both (meshes were rings). `town-west`:
+the valley floor's horizontal strips (46d.12b) are gone in the meshes and nearly in the bricks (very faint thin
+lines left): they were the rings seen at a grazing angle, and what is left in the bricks is the step shading. *New:*
+in the meshes' `peak-to-town` far lowland, scattered pale grey flecks (likely boulders' rock tops a coarse vertex
+now shows; unverified); a few sky-blue pixel specks on the meshes' rock face in `peak-sight-5km` (geometry, which
+this change does not touch: the 46d.12b dotted cliff lines' kind). Motion and pop not looked at (unverified).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2227,6 +2283,15 @@ is 0.5–0.6 GB over the bricks'. GPU timestamps not usable at the cap (D544).
   end on its plain.
 - 2026-11-10 (46d.12b): the realistic world is the far world's default; `--style terraced` writes the 46d.7a world
   for measurements against it. The 8 km staging world is the realistic one; 46d.7a/46d.12 pictures are of the old.
+
+- 2026-11-10 (46d.13a, default chosen, owner to confirm): **the far look of ground is its exposed top, however
+  thin**, in both far modes and every brick build; side cells (step risers, which show the subsoil) colour a sample
+  only where no top is within a node cell of it, so a cliff keeps its rock and a slope its grass. A one-cell body on
+  the ground (a roof) still keeps its own look (its tops are in the footprint; the ground's a cell below rank lower).
+- 2026-11-10 (46d.13a, default chosen, owner to confirm): **the far mesh looks straight down first for a vertex
+  facing more up than sideways** (else along its inward normal first, as before).
+- 2026-11-10 (46d.13a): D570's fix stops at dense reads and lattice-only transforms (job −37 %, fill −21 %); the
+  fill is still ~44 s at medium from the town, left to 13b/13c's build choice (bake-off) rather than tuned here.
 
 ## 10. Open questions for the owner
 
