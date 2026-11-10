@@ -20,6 +20,10 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`
 
 - Work on the current phase item in `docs/STATUS.md`. Keep changes small and
   complete; no placeholder code that pretends to meet a goal.
+- WebGPU first (owner 2026-11-10): new rendering work is designed, built, tested and measured on
+  WebGPU; WebGL 2 is a fallback that keeps what it draws today and gets one smoke check per area (loads,
+  draws, no console error), no new features and no parity. Cut both-renderer test passes and measurement
+  rounds as each area is next touched.
 - Test observable behavior at real boundaries (HTTP/WS, filesystem, browser).
   Editor/UI changes need a Playwright test that drives the real page against
   a real backend. Mocks alone do not prove integration.

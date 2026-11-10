@@ -3,7 +3,8 @@
 A review of the voxel branch's near and far pipelines, what Keen Games has published about Enshrouded, and a
 proposed order of work. Written by a session that did not build 46d. **Not a plan and not authoritative:** the
 phase plan decides what is built. Nothing here was measured anew; numbers are quoted from
-`docs/plan-phase-46d.md` or derived from reading code.
+`docs/plan-phase-46d.md` or derived from reading code. **§6 (same day) supersedes parts of §3 and §4:** WebGPU
+first, steps 1–4 on compute, upscaling.
 
 **Reviewed at:** commit 47cfbde4 plus the then-uncommitted far-field work (since landed as 3dff0720, 7a27b8a9;
 46d.13c-3 closed D550, D551, D557, D573). Findings about selection, commits, uploads and atlas memory must be
@@ -174,3 +175,65 @@ dynamic resolution with a spatial upscale as the safety valve.
   mesh, as plan 45 first said.
 - **A frame budget** per pass at 720p30 on the Iris Xe, set from step 0's numbers.
 - **Upscaling** as an accepted part of the low tier (Enshrouded on the Deck relies on it).
+
+## 6. Addendum — WebGPU first, compute, upscaling (owner 2026-11-10, later the same day)
+
+**Owner decision (2026-11-10):** "we keep webgl2 as a fallback for weird drivers but we move to a webgpu
+everything and eventually clean up the gates as we get to them so we cut all the extra double passes out. Move
+the steps 1-4 to compute shaders."
+
+What it changes:
+
+- **WebGPU is the renderer the voxel work is designed, built and measured for.** WebGL 2 stays as a fallback
+  for drivers where WebGPU fails: it keeps what it draws today and must still load and draw a voxel world; it
+  gets no new voxel feature and no parity requirement. This replaces the 2026-10-26 preference for one shared
+  path on both renderers; it fits the charter's "WebGPU enhancements with a supported WebGL 2 baseline".
+- **Gates and measurements:** new items measure and test on WebGPU only. Existing both-renderer e2e passes and
+  "WebGPU / WebGL 2" measurement rounds are cut as each area is next touched (not in one sweep), down to one
+  WebGL 2 smoke check per area: the world loads, draws, no console error.
+- **Reach, for the record:** WebGPU works for roughly 74 % of web visitors (web3dsurvey: API present and an
+  adapter created; ~69 % on Android), 76 % to the low 80s by caniuse as quoted second hand. The rest are mostly
+  devices below the Iris Xe floor; a desktop build that ships its own Chromium loses almost none.
+  https://web3dsurvey.com/webgpu · https://web.dev/blog/webgpu-supported-major-browsers
+
+**The engine already has the compute pieces.** `three-adapter/src/occlusion-pyramid.ts` reduces the scene depth
+to a pyramid in compute; `occlusion-instances.ts` tests instanced copies and whole draws against it and writes
+indirect draws' instance counts (`geometry.setIndirect`), already used for kit pieces and terrain nodes. Steps
+1–4 should extend these, not add a second culling path. Check each WebGPU and three r187 API against its docs
+before building on it; §3's WebGL 2 workarounds (vertex-stage pyramid reads, by-hand depth reject as the only
+option) no longer bind the design.
+
+**Steps 1–4 on compute** (supersedes the matching bullets in §4; plan items 46d.17–46d.20):
+
+- **Step 1 (46d.17).** Far node boxes become rows of the existing culled-instance table: frustum and
+  depth-pyramid tests in compute, the far draws indirect. With the near field drawn first, the pyramid holds
+  its depth, so boxes behind near geometry never reach the fragment stage; the per-pixel depth read before the
+  march stays for boxes only partly hidden. Baked normal, cheap far shading, unused reads and uploads as
+  written.
+- **Step 2 (46d.18).** Bake at world-bake time as written (the bake itself may stay on the CPU: it runs once).
+  For edited nodes at runtime, try the brick build in compute (distance field from the node's cells, colour and
+  normal in the same pass, written straight into the atlas): it would remove the worker job, the transfer and
+  the page-thread upload for edits. Unproven here; measure against the CPU job before choosing.
+- **Step 3 (46d.19).** Near chunks and seams as rows of the same culled table (frustum + pyramid in compute,
+  indirect draws), which also gives the merged draws of N4 a home: same-level chunks in shared buffers, one
+  indirect draw a level. The shader fast paths, prepass and packed vertices are fragment and vertex work and
+  stay as written. Meshing itself stays in workers: compute meshing of the rule-based surface is a research
+  item, not part of this pass.
+- **Step 4 (46d.20).** Culling in compute, not the vertex stage. Feedback in compute: a pass over the
+  visibility target reduces it to per-node "seen, at this error" in a storage buffer the tree reads back a
+  frame or two late (versioned, as Enshrouded's water does). The far shade may be a full-screen fragment pass
+  or compute over the visibility target, whichever the meter favours. Half resolution only if 46d.16 asks.
+- **Later steps** gain the same way: foliage placement and culling per cell in compute (step 5), froxel fog in
+  compute (step 6).
+
+**Upscaling is already in the engine** (`three-adapter/src/post-upscale.ts`: render scale + FSR 1, dynamic
+resolution; `post-taau.ts`: temporal upscaling; medium renders below 720p with TAAU, low has no render scale
+and no anti-aliasing). FSR 2/3 proper are native compute libraries with no browser build; TAAU is the
+equivalent here. Two things for the voxel work:
+
+- **Low tier:** a render scale with an upscale on the low tier is a settings change and the cheapest relief on
+  the floor GPU; FSR 1 wants an anti-aliased input, so low would need FXAA with it, or TAAU as medium has.
+- **Far bricks under TAAU:** no motion or velocity output was found in the far brick shaders, so reprojection
+  would take the box's motion, not the marched hit's: possible ghosting on far terrain in motion. Inferred
+  from code, not observed; check in a moving shot and write the hit's motion if it shows. With the whole frame
+  at a render scale, the far field's own half-resolution path (D574) may not be needed.

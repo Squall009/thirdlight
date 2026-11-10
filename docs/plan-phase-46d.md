@@ -88,6 +88,13 @@ not edited (an art-factory request doc may be written). three.js is not updated 
   instead of copies, shared physical profiles, capabilities as derived badges, tools list only materials that fit.
 - 2026-10-28 (owner): the Iris Xe is the floor; 720p60 the goal, 720p30 acceptable in 45–49; measure at the display
   cap, never uncapped; record misses with their cause, never block on a threshold.
+- 2026-11-10 (OWNER, relayed by session thirdlight-65; vista note §6): "**we keep webgl2 as a fallback for weird
+  drivers but we move to a webgpu everything and eventually clean up the gates as we get to them so we cut all the
+  extra double passes out. Move the steps 1-4 to compute shaders.**" WebGPU is the renderer the voxel work is
+  designed, built and measured for; WebGL 2 keeps what it draws today and must still load and draw a voxel world (no
+  new voxel feature, no parity). Replaces the 2026-10-26 one-shared-path preference.
+- 2026-11-10 (OWNER): vista pass steps 1–4 (46d.17–46d.20) in 46d-b; goal an order of magnitude of headroom on the
+  Iris Xe at 720p30 with fidelity kept, room for foliage, weather and fog later.
 
 ## 3. three.js check
 
@@ -215,12 +222,12 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.12b | done (55ad23cf + tune 81b291a9): realistic `far-world` default (terraced behind `--style`), 644 MB, on staging. Pictures both modes/renderers + 6 near (§8, seen): mesh rings everywhere, bricks only on far lowland; D571 both modes (thin top cells: mesh 55–62 %, bricks 2–35 % non-grass L2–L6). Baseline: meshes 0 missed orbit, bricks 22–24 / 56–71 |
 | 46d.13 | Brick far field built on 46d.12's verdict as the default far field (cost, detail, edges D556/D558, memory D557), measured; the mesh field stays only as the fallback behind the switch. |
 | 46d.14 | Mesh fallback revision (the ~1/4 triangle cut, view culling D550) — only if the fallback is still needed after 46d.13; else deferred with a note. |
-| 46d.16 | (owner 2026-11-10, vista pass step 0) A GPU headroom meter that works at the 60 Hz cap (D544 rules out timestamps): load a chosen pass N times or raise the render scale in steps until the orbit misses; a frame-budget table per pass (near surfaces, far march, shadows, post) on the Iris Xe at 720p — the baseline 46d.17–46d.20 report against. |
-| 46d.17 | (vista step 1) Stop the far field's wasted work: frustum cull of node instances, no nodes wholly under the near cover, depth reject before the march (F2), normal baked into the atlas (F4), a cheap far shading (sun, ambient, fog), unused reads (F6) and uploads (F7) — each re-checked against 46d.13c-3 first. |
-| 46d.18 | (vista step 2) Bricks baked at world-bake time into the far cache (distance, colour, normal per node; edited nodes re-baked only); the runtime job becomes decode + upload. Far cache version bump, add-only, with the owner's note (instruction 2026-11-10). Target fill < 10 s (today 48–80 s). |
-| 46d.19 | (vista step 3) Near surface shader and submission: fast paths per chunk/draw (single material, one projection, cheap levels 1–2; N1), a position-only depth prepass (N2), packed vertices read directly (N3), same-level chunks merged into few draws (N4), mip nodes without collision/nav/light and a cheap hash (N5). May split a/b. |
-| 46d.20 | (vista step 4) The far pass shaped like Enshrouded's: the march writes a visibility target (brick id, depth), one full-screen far shade with fog; depth-pyramid culling of boxes in the vertex stage (both renderers); half resolution with reuse (D574) if 46d.16 says it is needed; streaming by visibility feedback. The largest item; starts on 46d.17's numbers. |
-| 46d.15 | 46d-b close (lead), after 46d.20: full gate, review, fixes, acceptance acc46d-b. |
+| 46d.16 | (owner 2026-11-10, vista pass step 0; WebGPU) A GPU headroom meter that works at the 60 Hz cap (D544 rules out timestamps): load a chosen pass N times or raise the render scale in steps until the orbit misses; a frame-budget table per pass (near surfaces, far march, shadows, post) on the Iris Xe at 720p — the baseline 46d.17–46d.20 report against. |
+| 46d.17 | (vista step 1, compute, WebGPU) Stop the far field's wasted work: far node boxes as rows of the existing culled-instance table (`occlusion-instances.ts`; frustum + depth pyramid in compute, indirect draws), no nodes wholly under the near cover, depth reject before the march (F2), normal baked into the atlas (F4), a cheap far shading (sun, ambient, fog), unused reads (F6) and uploads (F7) — each re-checked against 46d.13c-3 first. |
+| 46d.18 | (vista step 2) Bricks baked at world-bake time into the far cache (distance, colour, normal per node; edited nodes re-baked only); the runtime job becomes decode + upload; a compute brick build for edited nodes tried and measured against the CPU job. Far cache version bump, add-only, with the owner's note (instruction 2026-11-10). Target fill < 10 s (today 48–80 s). |
+| 46d.19 | (vista step 3, WebGPU) Near surface shader and submission: near chunks and seams as rows of the same culled table, one indirect draw a level (N4); fast paths per chunk/draw (single material, one projection, cheap levels 1–2; N1), a position-only depth prepass (N2), packed vertices read directly (N3), mip nodes without collision/nav/light and a cheap hash (N5). May split a/b. |
+| 46d.20 | (vista step 4) The far pass shaped like Enshrouded's: the march writes a visibility target (brick id, depth), one far shade with fog (full-screen pass or compute, by the meter); culling and visibility feedback in compute (per-node seen/error in a storage buffer, read back a frame or two late); half resolution with reuse (D574) only if 46d.16 asks; far motion output for TAAU checked in a moving shot. The largest item; starts on 46d.17's numbers. |
+| 46d.15 | 46d-b close (lead), after 46d.20: full gate, review, fixes, acceptance acc46d-b (pictures and numbers on WebGPU; WebGL 2 a load-and-draw smoke). |
 
 ## 7. Progress
 
@@ -2730,6 +2737,17 @@ along the near/far seam (end2); farther out the massif's slope and the green val
   ~2 km) replaces it. The note's findings are not requirements; each item re-checks them against the code at its
   start (46d.13c-3 already closed D550, D551, D557, D573). 46d.18 changes the far cache format: an add-only
   version step whose owner note is the instruction above. Still one closing full gate for all of 46d-b.
+
+- 2026-11-10 (OWNER, relayed by session thirdlight-65; `docs/research/voxel-vista-performance.md` §6): **WebGPU
+  first, WebGL 2 a fallback; vista steps 1–4 on compute.** Lead applied it: 46d.16–46d.20 are designed, built and
+  measured on WebGPU and reuse the engine's compute depth pyramid (`occlusion-pyramid.ts`) and culled-instance
+  table with indirect draws (`occlusion-instances.ts`), no second culling path; new items test and measure on
+  WebGPU only; existing both-renderer e2e passes and two-renderer measurement rounds are cut as each area is next
+  touched (not one sweep), down to one WebGL 2 smoke per area (loads, draws, no console error). Recorded in
+  AGENTS.md (branch) and the agent brief. Lead default, owner to confirm: the 46d-b closing full gate keeps
+  `--both-renderers` as already instructed (it is the last both-renderer run of the old e2e passes); 46d.15's
+  pictures and numbers are WebGPU only. The compute mappings are designs to verify against three r187 and the
+  WebGPU docs, not tested code.
 
 ## 10. Open questions for the owner
 
