@@ -20,6 +20,15 @@ import { FAR_BRICK_SKIRT_SLOPE, farBrickCount, type FarBricks } from './far-bric
 /** The gradient (cells a cell) below which a hit's normal is not the field's (samples clamped to the band). */
 export const FAR_BRICK_GRADIENT_MIN = 0.05;
 
+/**
+ * Half the span (cells) of the central differences a hit's normal is taken over. A cell either side, not half a
+ * cell: the field between samples is their trilinear blend, whose slope changes from cell to cell where the surface
+ * is not a plane, and a gentle slope's normal then swung by a few degrees a cell, which the low sun and the grazing
+ * view turn into fine light and dark lines along the slope; over two cells it varies about half as much (and costs
+ * the same six reads).
+ */
+export const FAR_BRICK_NORMAL_SPAN_CELLS = 1;
+
 /** How dark a fully occluded hit gets under the fine shading's ambient occlusion (its colour times this). */
 export const FAR_BRICK_AO_FLOOR = 0.5;
 
@@ -64,8 +73,8 @@ export function farBrickGradient(samples: Uint8Array, block: number, p: readonly
   for (let axis = 0; axis < 3; axis++) {
     const a = [p[0]!, p[1]!, p[2]!];
     const b = [p[0]!, p[1]!, p[2]!];
-    a[axis] = Math.min(C, Math.max(0, a[axis]! + 0.5));
-    b[axis] = Math.min(C, Math.max(0, b[axis]! - 0.5));
+    a[axis] = Math.min(C, Math.max(0, a[axis]! + FAR_BRICK_NORMAL_SPAN_CELLS));
+    b[axis] = Math.min(C, Math.max(0, b[axis]! - FAR_BRICK_NORMAL_SPAN_CELLS));
     for (const q of [a, b]) for (let k = 0; k < 3; k++) q[k] = Math.min(C, Math.max(0, q[k]!));
     const len = Math.max(Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!), 1e-3);
     out[axis] = (sampleAt(samples, o, a[0]!, a[1]!, a[2]!) - sampleAt(samples, o, b[0]!, b[1]!, b[2]!)) / len;

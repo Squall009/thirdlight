@@ -830,11 +830,14 @@ async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Pro
   let covered = 0;
   // The near field may still be dropping its outer chunks: poll until the far field's ground shows past it.
   await expect.poll(async () => {
+    // The camera's auto exposure follows the picture's brightness (until it settles every pixel shifts): it opens up
+    // in about 3 s once the far draws are hidden (the frame darker), turns down in about 1 s once they show.
+    const settled = (ms: number) => frame.evaluate(`new Promise((ok) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(ok)), ${ms}))`);
     await show(false);
-    await frame.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    await settled(3000);
     const near = await shot(`${label}-far-hidden`);
     await show(true);
-    await frame.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    await settled(1200);
     const both = await shot(`${label}-far-shown`);
     n = 0;
     covered = 0;
@@ -847,9 +850,9 @@ async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Pro
       // with what is behind them).
       else if (r0 + g0 + b0 >= 30 && Math.abs(r - r0) + Math.abs(g - g0) + Math.abs(b - b0) > 48 && nearInside(near, x, y)) covered++;
     }
-    return n;
-  }, { timeout: 30_000, message: 'far ground past the near field' }).toBeGreaterThan(2000);
-  expect(covered, `${label}: near-field pixels the far field draws over`).toBeLessThan(200);
+    // A pair taken while the exposure still moved is taken again.
+    return covered < 200 ? n : -covered;
+  }, { timeout: 45_000, message: `${label}: far ground past the near field, no near-field pixel drawn over (negative: those drawn over)` }).toBeGreaterThan(2000);
   return n;
 }
 

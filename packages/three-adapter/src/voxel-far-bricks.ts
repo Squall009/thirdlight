@@ -35,7 +35,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GRADIENT_MIN, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
+import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_AO_FLOOR, FAR_BRICK_NORMAL_SPAN_CELLS, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GRADIENT_MIN, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
 import type { N } from './effects-tsl';
@@ -279,7 +279,8 @@ export class FarBrickMaterial {
         const b = inBrick(p.sub(e));
         return sampled(region, a).sub(sampled(region, b)).div(max(length(a.sub(b)), float(1e-3)));
       };
-      return vec3(axis(vec3(0.5, 0, 0)), axis(vec3(0, 0.5, 0)), axis(vec3(0, 0, 0.5)));
+      const h = FAR_BRICK_NORMAL_SPAN_CELLS;
+      return vec3(axis(vec3(h, 0, 0)), axis(vec3(0, h, 0)), axis(vec3(0, 0, h)));
     };
     const safe = (c: N): N => select(abs(c).lessThan(1e-8), select(c.lessThan(0), float(-1e-8), float(1e-8)), c);
     // A box's growth by the lip on the node faces a brick lies on (`faces` the face bits), where its bounds reach them.
