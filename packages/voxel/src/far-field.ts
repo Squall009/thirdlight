@@ -434,15 +434,16 @@ export class FarField {
   }
 
   /**
-   * The nodes a node's job reads: itself and its 26 neighbours, and for bricks
-   * built from finer cells the block of descendants that many levels down
-   * covering it and one of theirs round it (none below the lowest kept level).
+   * The nodes a node's job reads: for bricks built from finer cells the block
+   * of descendants that many levels down covering it and one of theirs round
+   * it (the build reads nothing else), else (meshes, and bricks at the lowest
+   * kept level) itself and its 26 neighbours.
    */
   private reads(n: MipNode): MipNode[] {
+    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
+    if (f !== null) return f.nodes;
     const out: MipNode[] = [];
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) out.push({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
-    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
-    if (f !== null) for (const m of f.nodes) out.push(m);
     return out;
   }
 
@@ -759,12 +760,13 @@ export class FarField {
   private submit(n: MipNode): void {
     const key = mipNodeKey(n);
     const cells: Array<StoredChunk | null> = new Array<StoredChunk | null>(27).fill(null);
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
+    // A build from finer cells reads only those: the node's own level is neither copied nor sent.
+    if (f === null) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
       const c = this.cellsOf({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
       // A copy: the stored bytes stay here for the neighbours' meshes while the job takes its own across.
       cells[farNeighbourIndex(dx, dy, dz)] = c === null ? null : 'uniform' in c ? c : { stored: c.stored.slice(), raw: c.raw };
     }
-    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
     const fine = f === null ? undefined : { level: f.level, scale: f.scale, cells: f.nodes.map((m) => copyCells(this.cellsOf(m))) };
     const build = this.draw === 'bricks' ? this.brickBuild : undefined;
     const input: FarMeshInput = { edge: this.host.grid.edge, level: n.level, node: [n.nx, n.ny, n.nz], cells, rules: rulesRef(this.host.rules), ...(build !== undefined ? { build } : {}), ...(fine !== undefined ? { fine } : {}) };

@@ -278,7 +278,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.13 | done (ea5a0542 … 2ce43208): v3 bricks the default far field, meshes the fallback; D569/D577 fixed; Play fill 142 → 79 s, far GPU budget per tier. 13c-4: D582 was a camera inside the massif; the near field's level choice no longer freezes in a fast flight (0 chunks drawn → back 8 s after), far refines a level a step, ring first. D582 fixed; D583 open (high: GPU), D584–D586 |
 | 46d.14 | deferred (lead 2026-11-10): bricks are the default; the mesh fallback is not revised. Its flight OOM stays D581. The vista note's §5 gate replaces it: if 46d.16's meter shows the bricks cannot reach their budget, the top levels become a simplified height-field mesh |
 | 46d.16 | done (ba27e91c): headroom meter at the 60 Hz cap without timestamps (ballast to the edge, passes hidden/copied past it; `run.mjs headroom`). Iris Xe 720p town orbit: medium room 0.7–2.5 ms of ~14–16; far 39–50 %, near 28–33 %, post 19–24 %, shadows 2–4 %; ms ±40 %. High ~23–31 ms: D583 = GPU-bound, far hidden holds the cap. D587, D588 |
-| 46d.17 | partial: a–c built (far node boxes rows of the culled table, frustum + pyramid in compute in the far depth, drawn after the pyramid; covered nodes left out; entry depth reject before the march); occlusion `auto` on where a far field draws. Medium room 0.7–1.6 ms base vs 0.3–0.4 after a (within D588's noise). d–f, pictures, docs follow |
+| 46d.17 | done (73adedac + NEXT): far node boxes rows of the culled table (frustum + pyramid in compute, far depth, drawn after the pyramid; auto culling on with a far field), covered nodes left out, depth reject before the march, F6. Medium room 0.7–1.8 → 4.5 ms, frame GPU 15–16 → 12 ms, far 6–8 → 4.4 ms; high 17/127 missed (D583). d, e measured, not kept; pictures 0.00 % >60 |
 | 46d.18 | not started |
 | 46d.19 | not started |
 | 46d.20 | not started |
@@ -2313,6 +2313,82 @@ uploads (idle in 13c-4). The vista steps (46d.17, 46d.20) are its fix; D583 stay
 *Unverified:* no picture taken (the loads draw off screen; the bypass's frames show the scene untone-mapped
 for their windows, not looked at); the high tier's ms from one round; low not measured; the Iris Xe only.
 
+### 46d.17 the far field's wasted work stopped (vista step 1, WebGPU)
+
+**Findings re-checked** (against cf009500). F1: selection still screen error only (`near: null`), no frustum; the
+frustum and occlusion now act at the draw (below), residency unchanged. F2: the cover test ran after the march:
+still so for the cover, but a pyramid reject now runs before it (c). F3: D555's overdraw was already fixed by the
+node march (46d.13c-1); fragment depth still disables early-Z. F4: 6 distance reads + standard material a hit
+pixel: present (d, e tried, not kept). F5: job cost: 46d.18. F6: present (the 27 same-level cells read, copied and
+sent, unused at scale 2): fixed. F7: three texture writes a brick (two regions + pages) and the JS palette bake on
+the page thread: present, not changed (46d.18 bakes bricks at world-bake time). F8, F9: not this item.
+
+**Built** (73adedac a–c, then f and the test fix). *a.* Far node boxes are rows of the existing culled-instance table
+(`voxel-far-cull.ts` `FarNodeCopies`: 16 floats a node in one interleaved buffer, the brick program reads them with
+`culledCopyVec4`), tested as world boxes in the late dispatch in the far draws' own depth mapping (`far-depth.ts`,
+the mapping the far fragments write, shared with `voxel-far-common.ts`: the camera's own depth puts a box past the
+far plane behind the sky) and against the frustum's sides (new in the shared rule, `rectMayShow`: a projection
+wholly off screen is hidden, every culled copy); the far groups draw in the second pass only, after the pyramid of
+the first pass (near field, pieces), indirect. Rows of fragment-bound draws are listed whatever their triangles
+(`fragmentBound`). The pyramid path was **off** in Play (`occlusion_culling` auto = off): auto now takes it on
+WebGPU while a far field draws (`wantPyramidPath`). *b.* Nodes wholly in the near cover's hidden chunks are left out
+of the view's list (`FarCover.hides`), resident. *c.* Before the node march a pixel whose box entry lies behind the
+pyramid's farthest depth over its 2 × 2 texels is discarded (`culledDepthAt`, the pyramid's level 0 bound per draw;
+the culled-copies refresh rule also compares it). *d.* Octahedral normals baked a sample (RG8 third atlas store,
+one filtered read for six): built, measured, **not kept** (patch in `work/46d.17/d-and-e-and-f6.patch`). *e.* Lambert
+far shading (diffuse, the scene's lights, fog): built, pictured, **not kept**. *f.* F6: a brick job built from finer
+cells reads, copies and sends only those (`far-field.ts` `reads`, `submit`).
+
+**Tested.** `occlusion-instances-rule.test.ts` (+3): boxes off the screen's sides hidden (both depth kinds), a box 3 km
+past a 100 m far plane lost to the sky in the camera's depth and shown in the far depth, hidden behind a wall in it;
+the far depth's CPU form (own depth of the pushed distance to the split, then monotone, under the far plane's).
+`voxel-far-view.test.ts` (+2): the culled table's row for a far group (box + far-depth flags, second pass only,
+listed with 12 triangles a node, the pool holding the node floats and the world box, moved boxes follow, no culler
+= no change and GLSL builds), the culled WGSL reads the list and the pyramid in its fragment stage; nodes the cover
+hides left out and back. `occlusion.test.ts`: auto with a far field. *d*'s vitest (baked normal vs the gradient over
+11,732 surface points: p50 1.25°, p90 4.33°, p99 12.2°) went with d. `stream.test.ts`: D589 fixed (the queue is topped
+up before each update). Fast gates gate-fast-20261110-201002 / gate-rerun-20261110-202529 (red on D589 only, which
+failed at 2ce43208 and cf009500 too) and gate-fast-20261110-211514 GREEN (18 min, 6.0 GB; D523 and D554 once, passed alone; village perf 0 missed both renderers; a first start red on the file size of `stream.test.ts`). `voxel-world.e2e.ts` not changed
+(93.7 → ~99 s, its tests' sum: the Play checks now draw with the pyramid path on); its far checks already run Play WebGPU and one WebGL 2 smoke each.
+
+**Measured** (staging, Iris Xe, Play 1280 × 720 at the 60 Hz cap, WebGPU, the 8 km world's town orbit,
+`node tools/voxel-bench/run.mjs headroom`, one round each in turn 19:08–21:05, load 1.7–4.8, uptime 18.1 d;
+`work/46d.17/headroom-*.json`, `sum.mjs`). Room = ballast held × its ms; far = hidden far's share of the four × frame GPU.
+
+| medium | room at the cap | far share, ms | frame GPU (edge) | orbit missed (no load) | far GPU MB |
+|---|---|---|---|---|---|
+| base (19:08) | 1.6–1.8 ms | 41 %, 6.2 | 14.9–15.1 | 0 / 180 | 164.3 |
+| base again (20:00) | 0.7–0.9 ms | 48 %, 7.6 | 15.8–15.9 | 0 / 180 | 164.3 |
+| a (path off: layout only) | 0.4–0.5 ms | 47 %, 7.6 | 16.2–16.3 | 0 / 180 | 164.3 |
+| a (path on) | 0.3–0.5 ms | 50 %, 8.2 | 16.2–16.3 | 0 / 181 | 164.3 |
+| a + b + c | **4.5–4.7 ms** | 49 %, 5.9–6.0 | **11.9–12.2** | 2 / 177 | 164.3 |
+| + d (not kept) | 3.8–4.2 ms | (line disagrees) | 12.4–12.9 | 0 / 180 | 229.4 |
+| c + e + f (e not kept) | 3.4–3.7 ms | 55 %, 7.1–7.3 | 13.0–13.3 | 0 / 180 | 164.3 |
+
+Read: a alone changes nothing measurable in the town orbit (the meter's edge moved 11 → 7 between two baseline runs,
+D588): from the square the far slopes are seen over the roofs, so few boxes are hidden whole (the town poses test
+~24 k copies, pieces included; at the far poses 35–36 % of the far nodes are culled: 388 / 1,107, 576 / 1,593,
+417 / 1,278). b leaves 10–13 nodes out at the town (48 at high), 0 at the far poses: moot after 13c-4's order. c is
+the gain: the frame's GPU time 15–16 → 12 ms, room ×3–6 (0.3–1.8 → 4.5 ms), far hidden 7.0–8.0 → 4.4 ms: most far
+pixels at the town lie behind the near ground and the houses, and now stop before their march. d's six reads saved
+nothing the meter sees (far 4.4 → 4.2 ms) for +65 MB (+40 %); e's far copy fell 4.0 → 2.5 ms but the pictures changed
+(below). f is worker and page memory (the 27 copies a job), no GPU change. **High** (final code, one round, 7 GB
+scope): 17 / 127 missed, 1 stall, mean 23.6 ms at no load (46d.16: 8 / 97, 8 stalls, mean 30.9): better, still
+GPU-bound; far hidden or near hidden at no load each hold the cap (0 / 180), render scale 0.8: 2 / 178, 0.667: 0 / 180;
+315 MB far, 4,392 nodes (D583).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/46d.17/`: Play, WebGPU, medium, the five 46d.12b far poses
+before (cf009500) and after (final), `side-by-side/<pose>.png` before left, a 4× crop below; `side-by-side/orbit-strip.png`
+8 frames ~0.25 s apart in the town orbit, before above, after below; `lambert-e/` e's pictures; every picture opened).
+After = before: 0.00 % of pixels differ by > 60 at every pose, ≤ 0.06 % by > 20, ≤ 0.83 % by > 8 (the far slopes'
+fine shading, frame timing). Colour, light and silhouettes the same; no hole, no box missing at the screen's edges
+or behind the roofs, no seam at the near field's edge. Strip: steady, no node popping in or out while the camera
+turns (at half size). e (Lambert): every far slope much darker and greener-grey, rock faces near black on the shade
+side: the standard material's environment term (the sky's blue-grey light) is gone; 30–52 % of pixels differ by
+> 60, so not kept. Seen in before and after alike: at the poses 1.6–1.7 km up (peak-to-town, beyond-peak-to-town)
+the sky covers only a slanted quad, black outside it (D590). *Unverified:* WebGL 2 pictures (unchanged code path;
+the e2e's smoke covers it), motion at full size, popping in a flight, the high tier's pictures.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2944,6 +3020,22 @@ for their windows, not looked at); the high tier's ms from one round; low not me
   (baked bricks, edits as designed) → **46d.22** (150 m/s coverage) → 46d.19 → 46d.20 → 46d.15 close. 46d.21 comes
   early because every later item should report against low at 30 Hz; 46d.22 after 46d.18 because baked bricks
   make far coverage cheap at speed.
+
+- 2026-11-10 (46d.17, default chosen, owner to confirm): **far groups draw after the pyramid** (second pass only), culled
+  by the near field and every other first-pass draw; far boxes do not hide other far boxes (no far depth in the
+  pyramid). The per-pixel reject before the march reads the same pyramid. WebGL 2 draws as before.
+- 2026-11-10 (46d.17, default chosen, owner to confirm): **occlusion culling's `auto` takes the depth pyramid path on
+  WebGPU while a voxel far field draws** (it was off everywhere on auto, so the culled table never ran in Play); kit
+  pieces are culled with it. `off` still turns it off; elsewhere auto is unchanged.
+- 2026-11-10 (46d.17, default chosen, owner to confirm): **the culling rule hides a copy whose projection is wholly off
+  the screen** (the frustum's sides, in compute) for every culled copy, not only the far field's.
+- 2026-11-10 (46d.17, default chosen, owner to confirm): **baked normals (d) not kept**: +40 % far GPU bytes (164 → 229
+  MB, or the budget's nodes cut by 2/7) for no gain the meter sees after c; the per-pixel gradient stays. The patch
+  is in `work/46d.17/`; 46d.18's bake at world-bake time may store normals instead of colour-side bytes.
+- 2026-11-10 (46d.17, default chosen, owner to confirm): **the cheap far shading (e) not kept**: Lambert drops the
+  standard material's environment light and darkens every far slope (30–52 % of pixels by > 60). One sun term,
+  ambient and fog are left to 46d.20's far shade pass, which can take the environment term once a pixel.
+- 2026-11-10 (46d.17): F7 (three writes a brick, the palette bake in JS) unchanged; 46d.18 removes the runtime bake.
 
 ## 10. Open questions for the owner
 

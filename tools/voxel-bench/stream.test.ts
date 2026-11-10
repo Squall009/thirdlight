@@ -1942,16 +1942,15 @@ describe('streamer (workers, region files on disk)', () => {
     // A 160 m flight along x at about 40 m/s: a 2 m step every ~50 ms of updates (the work streams behind it, as in a game).
     // Its second half with the queue kept full by other work (a fast flight's loads): the levels still swap, with seams.
     let busy = 0, sleeperId = 5e7, full = 0;
-    const fill = setInterval(() => { for (let n = busy && workers.room(); n > 0; n--) void workers.submit({ id: sleeperId++, kind: 'test-sleep', lane: 'mip', distance: 0, input: { ms: 5 }, transfer: [] }); }, 2);
+    // Topped up right before each update too (a 2 ms timer alone fell behind the workers on a busy host).
+    const topUp = (): void => { for (let n = busy && workers.room(); n > 0; n--) void workers.submit({ id: sleeperId++, kind: 'test-sleep', lane: 'mip', distance: 0, input: { ms: 5 }, transfer: [] }); };
+    const fill = setInterval(topUp, 2);
     const t0 = performance.now();
     for (let step = 1; step <= 160; step++) {
       focus.x = -160 + 2 * step;
       move(focus.x, focus.y, focus.z);
       if (step === 81) busy = lod.counters.swaps;
-      for (let k = 0; k < 6; k++, full += busy && workers.room() === 0 ? 1 : 0) {
-        s.update();
-        await sleep(8);
-      }
+      for (let k = 0; k < 6; k++, topUp(), full += busy && workers.room() === 0 ? 1 : 0, s.update(), await sleep(8));
     }
     clearInterval(fill), expect([full > 200, lod.counters.swaps - busy > 2]).toEqual([true, true]);
     const flightMs = performance.now() - t0;

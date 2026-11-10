@@ -476,6 +476,20 @@ placed with that depth so none is clipped at the far plane. **Half resolution** 
 page only, `?farRes=half`, off by default): the brick draws marched into a half-size target before the frame and a
 lit, depth-aware composite in it (no reuse of the last frame: D574).
 
+**Culled on the GPU** (46d.17; WebGPU, where the frame takes the depth pyramid path; three-adapter
+`voxel-far-cull.ts`): a brick group's nodes are rows of the engine's one culled-instance table
+(`occlusion-instances.ts`), 16 floats a node in the group's instance buffer (corner + cell size, page + the box's
+low corner packed a byte an axis in quarter cells, the world box from `COPY_BOX_FLOAT`, its spare float the packed
+high corner). The groups draw in the second pass only (`AFTER_PYRAMID_KEY`), so the pyramid holds the near field
+and everything else the first pass drew; the late dispatch tests each node's world box against the frustum's sides
+and that pyramid, its nearest point in the far draws' own depth mapping (`far-depth.ts`), and the group's indirect
+draw draws the nodes it lists. Nodes wholly inside the near cover's hidden chunks are left out of the view's list
+(they stay resident and every other pass draws them). In the fragment, before the node march, a pixel whose ray
+enters the node's box behind the pyramid's farthest depth there is discarded (`culledDepthAt`). Occlusion culling's
+`auto` takes the pyramid path on WebGPU while a far field draws (the scene asks through `wantPyramidPath`). WebGL 2
+and every pass but the view's draw every node as before. Not built (measured, not kept): normals baked per sample
+(+40 % far GPU bytes, no measured gain) and a Lambert far shading (darker without the environment term).
+
 ---
 
 ## 5. Requirement traceability (46d)
