@@ -247,7 +247,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | 13a (ea5a0542): D570/D571. 13b: pick v3. 13c-1 (40fe19d0, 1cd4be9a): v3 the default everywhere, meshes the fallback. 13c-2 (c0ca48b3, 46731dbe): part-full cells as heights, normal over ±1 cell: slope normals 5.2 → 1.5–1.9° rms, contour rings gone (seen); far behind near in the edge ring (D569, D577 fixed); Play 0–2 missed a round both. 13c-3 next |
+| 46d.13 | done (ea5a0542 … 7a27b8a9): v3 ray-marched bricks the default far field everywhere, meshes the fallback, variants retired; contour lines + edge ring fixed (D569, D577); Play fill 142 → 79 s, flight swaps 0 → 543, far GPU budget per tier (medium flight end 315 → 204 MB, town unchanged). D550/D551/D557/D573 fixed; D579–D583 |
 | 46d.14 | not started |
 | 46d.15 | not started |
 
@@ -2078,6 +2078,69 @@ hidden; a small grey far spike past the near field's back edge remains where the
 *Unverified:* WebGL 2 in motion, the high tier, the mesh fallback's ring in pictures, the faint lines' cause (not
 traced further: the slope's fill rounding, 1/15 cell a column, or the march's half-pixel stop).
 
+### 46d.13c-3 the far field follows the flight; its GPU memory bounded
+
+**Built.** *Step 1* (47cfbde4): the pump looks at a todo node once a scan by key (its reads remembered, checked when
+sent) at most every 50 ms (pump 10 → 0.3 ms); diagnostics carry the stream, pool and far stages. *Step 2* (3dff0720):
+far jobs are the pool's background jobs (`PoolJob.background`): their own queue, sent when nothing else waits or
+while fewer than `BACKGROUND_WORKER_SHARE` (¼, at least one) of the workers run one; the selection is a generator
+(`FarSelection.steps`, 256 nodes a step) the far field runs in 2 ms slices; nodes are made where the error drawn now
+is largest (nothing drawn, then a coarse stand-in by its error, then nodes closing over finer ones) and a commit puts
+in whole groups in that order up to 1 MiB of event bytes, the rest 50 ms later. *Step 3* (7a27b8a9):
+`FAR_GPU_BUDGET_BYTES_BY_TIER` (`@thirdlight/voxel`; low 96, medium 176, high 288 MiB, through `levelVoxels` →
+`resolveVoxelWorld().far.gpuBudgetBytes` to Play, exports, the Scene view and the page; a level cannot set it).
+The selection opens nodes by error, largest first, while their GPU bytes fit (`FarView.gpuBudgetBytes`,
+`gpuBytesOf`); `FarGpuLedger` counts a made node's bytes as they came (`farBricksGpuBytes`: `FAR_BRICK_GPU_BYTES`
+3,645 a brick + 8 a table entry, the atlas's own regions, pinned by a test) and foresees the others from their stored
+bytes by the made nodes' ratio (prior `FAR_GPU_PER_STORED_BYTE` 70: measured 66.5–71.2 on the 8 km world); it
+selects again when that ratio moves 25 %, or (≤ 3 times an eye) when all came in over the budget. Over the budget,
+nodes closing over finer ones go first and refinements wait while jobs are out. `VoxelShaderGrids` (the atlas's
+stores and the near grids) hands out its oldest part first and `trim` gives back growths no region uses (a GPU copy
+of the smaller box; regions keep their origins). `spanDistances` (~42 % of a far job) not made cheaper: not cheap
+without a profile, left for the performance phase.
+
+**Tested.** `stream.test.ts` (+1): a background share under a steady stream of near jobs; idle workers all theirs;
+a queued one cancelled. `far-world.test.ts` (extended; real cache, workers): moves under a full pool swap in and out
+and settle drawing exactly the selection; then a budget of half what is drawn held after 8 moves (drawn GPU bytes ≤
+budget, nodes held), the way's peak < 1.25 × budget. `voxel-far-view.test.ts` (+2): a window of 8 nodes slid 60 nodes
+keeps the atlas's size; 32 more grow it and their going trims it below half; a region store shrinks only past regions
+in use and keeps their origins; the brick bytes equal the atlas's regions. `voxel-world.test.ts`: the tiers' budgets.
+Fast gates gate-fast-20261110-141550 (step 2) GREEN (16 min, 5.0 GB; `edge-cases` D523 and far-world's "on disk"
+test D579 timed out once, passed alone) and gate-fast-20261110-150057 (step 3) red on one e2e (the export's
+`exportRoot is not a directory`, before anything ran), GREEN on rerun gate-rerun-20261110-151832 (`v4-limits` D416,
+`edge-cases` D523, `stream` D554 once, passed alone; village perf 0 missed both). `voxel-world.e2e.ts` 88.5 (step 1)
+→ 92.6 (step 2) → 91.2 s (step 3).
+
+**Measured** in Play (staging, Iris Xe, editor Play frame 1280 × 720, 60 Hz cap, the realistic 8 km world, town
+square orbit 3 × 8 s, then 2.4 km at 60 m/s; one round each, 14:57–15:36, load 4.9–10.6 (1-min), uptime 17.9 d;
+`work/46d.13c-3/play-*.json`, `perf-uptime.txt`, `sum.mjs`). Far GPU = the atlas's texture bytes (MB = 10⁶ B).
+
+| medium WebGPU unless named | fill from load | orbit missed (max ms) | flight missed (max) | flight swaps in / out, pending at end | far GPU town → flight end → settled | page heap |
+|---|---|---|---|---|---|---|
+| before (13c-2 code) | 142.5 s | 0 / 1 / 0 (50) | 1 (67) | 0 / 0, 5,214 | 164.3 → 164.3 → 315.2 | 1,070 MB |
+| step 2 | 72.4 s | 1 / 1 / 0 (33) | 1 (117) | 255 / 558, 4,935 | 164.3 → 204.1 → 315.2 | 949 MB |
+| step 3 | 79.0–80.0 s | 0 / 1 / 0 (33) | 2 (50–117) | 531–543 / 1,001–1,047, 4,322–4,392 | 164.3 → 204.1 → 204.1 | 894 MB |
+| step 3, WebGL 2 | 80.8 s | 0 / 0 / 0 (17) | 0 (17) | 538 / 1,042, 4,393 | 164.3 → 204.1 → 204.1 | 842 MB |
+| step 3, high | 128.7 s | 18 / 25 / 25 (417) | 8 (200) | 273 / 1,010, 7,713 | 315.2 → 315.2 → 315.7 | 1,070 MB |
+
+Read: the town draws the same set as before at medium (2,600 nodes, 43,698 bricks, 153 MiB live, nothing held) and
+high (4,392 nodes, 72,722 bricks, 255 MiB live). Settled at the flight's end medium draws ~2,940 nodes, 48.5 k
+bricks, 170 MiB live with 3–6 nodes held by the budget (before: 3,448 nodes, 56.8 k bricks, ~198 MiB live in a 315 MB
+atlas); the live peak 176.2–176.9 MiB (the budget 176: one commit's groups over), high 286.5 of 288 MiB. The atlas
+did not trim in these runs (its last growth stayed in use; it stops at the budget instead); settling at the end 98 →
+55–56 s (high 120 s). ~4,400 nodes are still pending at the flight's end (the far field's ~1 worker of 4 while the
+near field streams). The high orbit's misses came while the far field was idle (no job, nothing pending, drawn set
+unchanged, the near field streaming 821–866 chunks); not traced (D583); the first high run's browser closed mid-fill.
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/13c-3/`; every picture opened). `town-webgpu-medium-s3b.png`,
+`town-webgl2-medium-s3b.png` (the orbit's start, a few degrees apart): the town's roofs in front, the far grass slopes
+and the massif past it, the gravel channel; no gap or strip at the near field's edge; the faint thin lines on the
+slopes (D578) still there; both renderers alike. `end0/1/2-webgpu-s3b.png` (the flight's end, ahead, left, right,
+settled): the near field in front a light grey surface with a grid of square recesses; right behind it the far bricks
+read as coarse stepped cubes (2–4 m, snow, grass, rock), with a few black cells (end1) and thin shards and a dark box
+along the near/far seam (end2); farther out the massif's slope and the green valley with its channels smooth (D582).
+*Unverified:* WebGL 2 at the flight's end, the high tier's pictures, motion during the flight, a trim in a browser.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2634,6 +2697,18 @@ traced further: the slope's fill rounding, 1/15 cell a column, or the march's ha
 - 2026-11-10 (46d.13c-2, default chosen, owner to confirm): **in the near field's edge ring the far field draws behind
   all of the near field** (depth at least the near cover's farthest corner), both far modes; the ring still fills
   gaps between the two. Clipping the far field there was not chosen: the ring is what closes the near/far gap.
+- 2026-11-10 (46d.13c-3, default chosen, owner to confirm): **far jobs are background jobs with at least a quarter
+  of the workers** while the near field's wait; with none waiting they take every worker. Strict near-first left the
+  far field still during a flight (0 swaps in 40 s).
+- 2026-11-10 (46d.13c-3, default chosen, owner to confirm): **a far GPU budget per tier, low 96 / medium 176 / high
+  288 MiB, not a level field**: sized to hold the town's set at each tier unchanged (153 / 255 MiB live) and to stop
+  travel piling up (medium flight end 315 → 204 MB). The selection spends it by screen error; nodes closing over finer
+  ones go first while over it. A level setting can be added later if a game needs one.
+- 2026-11-10 (46d.13c-3, default chosen, owner to confirm): **the atlas gives memory back only from its end** (oldest
+  regions handed out first, emptied growths trimmed by one GPU copy, 1/8 slack); no compaction that moves bricks (it
+  would rewrite every moved node's brick table). Under the budget the atlas stops growing, so compaction was not needed.
+- 2026-11-10 (46d.13c-3): the 2-byte palette index (D573's option) not built: the budget bounds the colour atlas.
+  `spanDistances` left as it is (performance phase).
 
 ## 10. Open questions for the owner
 
