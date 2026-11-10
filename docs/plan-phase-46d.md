@@ -247,7 +247,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | 13a done (ea5a0542): D571 fixed (thin tops the look, rings gone), D570 job 71 → 45 ms. 13b-1 done (d116bf13, fab6bf4f, 434cc33e): faces2 + baked shading (D568 fixed) + node march + half-res, switches only: orbit missed WebGPU 23 → 14 → 0–3 → 0, WebGL 2 26–75 → 10–14 → 0–1 → 0; far GPU 99 → 164 MB; v3 ≤ 0.03 % px off ref (§8). 13b-2 next |
+| 46d.13 | 13a done (ea5a0542): D571, D570 fixed. 13b-1 done (d116bf13, fab6bf4f, 434cc33e): baked + node march + half-res (switches). 13b-2 done (f99af3cb): raster bricks; bake-off medium missed a round meshes 0, v3 0–2, v3 half 0, raster 16–38 (7.3 M tris); far GPU 101/164/164/44 MB; heap 1.2/0.62/0.59/1.36 GB. Pick v3 full (§8, D575–D576). 13c next |
 | 46d.14 | not started |
 | 46d.15 | not started |
 
@@ -1859,6 +1859,86 @@ in a browser (the palette's first draw and read-back are seen right on both rend
 march: 'node', res: 'half' | 'full' })`; `state().far` reports `shading`, `march`, `half`. The reference is
 `farShade=fine` with the brick march (the defaults).
 
+### 46d.13b the bake-off: ray-marched bricks (v3) against rasterized bricks, meshes as reference
+
+**Built (13b-2, f99af3cb; a switch, not the default).** `?farMarch=raster` / `setFar({ march: 'raster' })` with any
+brick build (bake-off: `faces2` + `farShade=baked` for the occlusion). `@thirdlight/voxel` `far-bricks-raster.ts`:
+each brick sample the centre of a cube one node cell across, solid below 0; a face between two neighbouring samples
+of opposite signs, half way, facing out of the solid one, with its look word (a neighbour's where it is 0) and baked
+occlusion; a node owns its samples 0–32 an axis, each cube clipped to its box (same-level neighbours draw a shared
+sample half each, nothing twice; nodes of any level cover their boxes, so no gap across the ground); skirts on the
+box faces for solid samples within `FAR_SKIRT_CELLS` of the surface (the lip rule), lit as the field's steepest
+direction (first lit as the box face: downward skirts read as black dots along node seams; without skirts sky holes
+opened at level seams; both seen and fixed before the runs). Three-adapter `voxel-far-raster.ts`: one instanced
+square draw a group, 12 bytes a face (cell, kind, shading direction, look, occlusion; positions in whole cells, the
+object scaled, so shared corners are bit-equal); colour as the meshes' times the occlusion; far depth from the vertex
+stage; the near cover tested per face in the vertex stage (moved off screen). No atlas, no march, no fragment depth
+or discard. Faces are made on the page when a node arrives (0.3 / 0.7 ms p50 / p95 a node). Merged runs (one
+tangent, same look) were counted, not built: 2.34 M instances for 3.65 M faces (−36 %), at the price of T-junction
+cracks. *Tested:* `far-bricks-raster.test.ts` (3, real `faces2` bricks from stores): flat ground gives exactly its
+33² top faces covering 32² cells once, skirts only on the four sides; a block in the air its six 3 × 3 sides; over
+rough ground across bricks and two nodes no face lies between two solid samples, none is missing between solid and
+air, the shared samples are equal and each node draws half of every face there. `voxel-far-view.test.ts` (+1): an
+instance a face, no atlas (bytes = faces × 12 + the square), programs built on WGSL and GLSL with no `frag_depth` /
+`gl_FragDepth`, no `discard`, no loop; back to the node march. Fast gate gate-fast-20261110-081703 GREEN (15 min,
+5.0 GB; D307/D418 `scan-bounded-log` once, passed alone); `voxel-world.e2e.ts` not changed.
+
+**Measured** (staging, Iris Xe, 1280 × 720, 60 Hz cap, the realistic 8 km world from the town square, 46d.7d's orbit
+(3 × 8 s) and flight (2.4 km at 60 m/s); one run each, back to back, 08:32–08:50, load 3.0–3.8 (1-min), uptime
+17.7 d; high 08:50–08:55, load 4.4–5.7; `work/46d.13b-2/perf-*.json`, `perf-uptime.txt`). Far job p50 / p95 the
+same far brick job for all brick rows (50 / 90 ms); the meshes' 13 / 23 ms.
+
+| medium | far draw | far GPU MB | page heap | fill | orbit missed (of ~480), p95 ms | flight missed (max ms) |
+|---|---|---|---|---|---|---|
+| WebGPU meshes | 4.80 M tris, 40 draws | 101.4 | 1,200 MB | 14.1 s | 0 / 0 / 0, 16.8 | 9 (67) |
+| WebGPU v3 full | 43,581 bricks | 164.3 | 624 MB | 48.3 s | 1 / 2 / 0, 16.8 | 16 (100) |
+| WebGPU v3 half | same | 164.3 | 588 MB | 48.6 s | 0 / 0 / 0, 16.8 | 14 (83) |
+| WebGPU raster | 3.65 M faces, 7.30 M tris | 43.8 | 1,360 MB | 48.8 s | 18 / 17 / 16, 16.8 | 23 (250) |
+| WebGL 2 meshes | 4.80 M tris | 101.4 | 1,280 MB | 15.4 s | 0 / 0 / 0, 16.7 | 13 (83) |
+| WebGL 2 v3 full | 43,581 bricks | 164.3 | 703 MB | 48.8 s | 1 / 1 / 0, 16.8 | 19 (83) |
+| WebGL 2 v3 half | same | 164.3 | 747 MB | 48.2 s | 0 / 0 / 0, 16.7 | 16 (67) |
+| WebGL 2 raster | 3.65 M faces, 7.30 M tris | 43.8 | 1,360 MB | 49.8 s | 38 / 24 / 26, 33.4 | 20 (283) |
+| high, WebGPU v3 full | 72,691 bricks, 52 draws | 315.2 | 747 MB | 81.1 s | 8 / 7 / 7, 16.8 | 26 (100) |
+| high, WebGPU raster | 6.07 M faces, 12.1 M tris | 72.8 | 2,620 MB | 83.8 s | 23 / 23 / 24, 166.6 | 188 (383) |
+
+Read: draws 40 (52 at high) and ~192 frame draw calls in every row; `render()` p50 2.2–2.5 ms everywhere. The raster
+faces are 12 bytes each (43.8 MB: a quarter of v3's atlas), but 3.65 M of them are 1.5× the meshes' triangles:
+1.14 M face up, 1.14 M face down (undersides: back-facing from the town, culled only after the vertex stage; where
+they lie not traced), 0.74 M sideways, 0.73 M skirts (20 %; counts from the probe run before the bake-off). The orbit misses are vertex work (the meshes' 4.8 M triangles miss 0; no
+fragment cost is left to cut); WebGL 2's p95 33 ms is a steady half rate. The page heap +0.74 GB over v3 (the faces
+and instance arrays held on the page, plus the rebuilds' garbage; not split further) and 2.6 GB at high, where the
+flight missed 188 frames with ~150 ms stalls. v3 full holds the cap at medium on both renderers (0–2), half
+resolution takes the rest (0), and at high misses 7–8 a round with far GPU 315 MB (D573). WebGL 2 raster runs logged
+ANGLE's "Running out of reserved outsideRenderPass queueSerial" (instance buffers rebuilt per group, D557's kind).
+GPU timestamps not usable at the cap (D544).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/13b-2/`: `raster/` both renderers at the five 46d.12b poses;
+`side-by-side/` raster left, v3 full right (13b-1's v3 pictures: its draw is unchanged since), a 4× crop below;
+`motion/raster-strip.png`, `v3-strip.png`, 8 frames ~0.2 s apart in the orbit at `town-west`, WebGPU; every picture
+opened). *Raster:* silhouettes keep the massif's outline but step in visible cubes against the sky (`peak-to-town`,
+`beyond-peak-to-town`, `peak-sight-5km`); gentle slopes and the lowland become a dense maze of terrace contours
+(lit tops against dark risers: the step pattern the old mesh rings had, now from shading, `peak-to-town`); rock faces
+a grid of light/dark specks (`peak-sight-5km`, `beyond-peak-to-town` crops); the whole far field reads darker and more
+saturated than v3 (faces lit by their cube normal, not the field's gradient); a few pale flecks where skirts show at
+level seams (`town-peak-4.5km` peak); snow caps and gravel channels thinner; the town a red patch, as in v3. No sky
+cracks, no black dots, no strips at the near edge seen. WebGPU against WebGL 2: 0.1–0.6 % of pixels (> 60). Against
+v3 17–36 % of pixels differ by > 60, partly the near town framed a few pixels apart (the orbit's start), mostly the
+far field's darker step shading. *v3 full:* smooth slopes, soft rock, snow caps whole, as 13b-1 described.
+*Motion:* the raster strip's slopes show step-edge moiré arcs that change from frame to frame (shimmer); v3's strip is
+steady. Pop at level changes not seen in either strip; WebGL 2 in motion and the high tier's pictures unverified.
+
+**Verdict (recommendation for 13c's default, owner to confirm).** **Ray-marched bricks v3 at full resolution**
+(`faces2` + baked + node march): it holds the cap at medium on both renderers with the meshes' smooth look kept, uses
+half the meshes' page heap, and is the owner's chosen direction. Rasterized bricks lose on the floor GPU on every
+count but GPU memory: 1.5× the meshes' triangles at medium (16–38 missed a round), 2.5× at high (stalls), +0.7 GB
+page heap, a terraced, speckled look that shimmers. They stay behind the switch for a measurement on a dedicated GPU
+(where vertex rate is cheap) or are retired in 13c (owner). Half resolution stays a switch (not needed at medium;
+D574 before it is used). **13c must still fix:** far GPU memory (164 MB medium, 315 MB high: D573's palette index,
+D557's atlas growth and give-back); the fill (48 s against the meshes' 14 s; the far job 50 ms) and the flight
+(14–19 missed against the meshes' 9–13: D550/D551, commits off the page's thread); the high tier's 7–8 misses (try
+half resolution there with D574's reuse); Play, the Scene view and exports drawing v3 (today only the page selects
+it); pop at level changes (unverified); then make it the default and the mesh field the fallback (46d.14).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2384,6 +2464,14 @@ march: 'node', res: 'half' | 'full' })`; `state().far` reports `shading`, `march
   full resolution** (`v3`): it misses 0–3 a round, looks like ref within 0.03 % of pixels and steady in motion. Half
   resolution stays a switch: it takes the last 0–3 but steps silhouettes at 2 px and shimmers on the stepped slopes
   without a reuse of the last frame (D574); worth measuring again on the high tier or a weaker GPU.
+- 2026-11-10 (46d.13b-2, default chosen, owner to confirm): **13c's default far field is the ray-marched bricks v3 at
+  full resolution** (`faces2` + baked shading + node march): at medium it holds the cap on both renderers (0–2 missed
+  a round) with the smooth look; rasterized bricks miss 16–38 (vertex-bound, 7.3 M triangles) and look terraced and
+  speckled. Raster and half resolution stay switches until 13c; the mesh field becomes the fallback (46d.14).
+- 2026-11-10 (46d.13b-2, default chosen, owner to confirm): **rasterized bricks draw one square a face, not merged
+  runs**: runs along a tangent would be 36 % fewer instances but put T-junctions in the surface (pixel cracks);
+  cubes are clipped to their node's box and skirts lit as the surface's steepest direction (lit as their own face
+  they read as black dots along node seams).
 
 ## 10. Open questions for the owner
 
@@ -2395,7 +2483,9 @@ march: 'node', res: 'half' | 'full' })`; `state().far` reports `shading`, `march
 
 - **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — read
   `~/.cache/thirdlight-phase46/far-field-comparison.md` (46d.7d; lead: meshes default, bricks kept, no hybrid).
-  Both stay until then.
+  Both stay until then. Owner 2026-11-09 chose the brick direction; 46d.13b's bake-off (§8, the
+  comparison's new top section) recommends ray-marched bricks v3 at full resolution as 13c's default over rasterized
+  bricks: confirm, and whether the raster switch is kept for a dedicated-GPU measurement or retired.
 - The relief verdict (46d.1b, §8): low normal only, medium n = 2 in 16 m, high n = 4 in 24 m, n = 8 rejected; and
   whether walls should get parallax occlusion instead of mesh relief.
 - Whether relief should also push outward (proud stones) where the collision shape allows it, against the inward-only
