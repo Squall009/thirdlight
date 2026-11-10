@@ -35,13 +35,14 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farBrickCount, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
+import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farBrickCount, farRasterFaces, farRasterRuns, mipNodeKey, type FarRasterFaces, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { FarBrickAtlas, farBrickGeometry, FarBrickMaterial, farNodeGeometry, type FarBrickMarch, type FarBrickShading } from './voxel-far-bricks';
 import { FarHalfRes, type FarHalfRenderer } from './voxel-far-half';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
+import { farRasterGeometry, farRasterMaterial } from './voxel-far-raster';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
@@ -68,6 +69,8 @@ interface FarGroup {
   brickCount: number;
   /** Nodes its draw holds. */
   drawnNodes: number;
+  /** Faces drawn (rasterized brick groups). */
+  faces: number;
 }
 
 export interface VoxelFarViewOptions {
@@ -93,8 +96,15 @@ export class VoxelFarView {
   private readonly regions = new Map<string, THREE.Vector3[]>();
   /** Each brick node's page (its brick table, the node march's), by node key. */
   private readonly pages = new Map<string, THREE.Vector3>();
-  /** How brick groups' pixels find the surface (a box a brick or a node). */
+  /** How brick groups' pixels find the surface (a box a brick or a node, or rasterized faces). */
   private march: FarBrickMarch = 'brick';
+  /** Each brick node's faces (the raster draw's), by node key. */
+  private readonly faces = new Map<string, FarRasterFaces>();
+  private rasterMaterial: THREE.Material | null = null;
+  /** ms each node's faces took to find (the raster draw), since the draw was chosen. */
+  readonly faceMs: number[] = [];
+  /** Faces drawn (the raster draw). */
+  faceCount = 0;
   private hidden = false;
   /** The bricks' shading, kept for a material made later. */
   private shading: FarBrickShading = 'flat';
@@ -137,6 +147,13 @@ export class VoxelFarView {
   get draws(): number {
     let n = 0;
     for (const g of this.groups.values()) if (g.mesh !== null) n++;
+    return n;
+  }
+
+  /** The raster draw's faces as runs along a tangent would be ({@link farRasterRuns}; counted when asked, not drawn). */
+  rasterRuns(): number {
+    let n = 0;
+    for (const f of this.faces.values()) n += farRasterRuns(f);
     return n;
   }
 
@@ -195,9 +212,16 @@ export class VoxelFarView {
   /** How brick groups march ({@link FarBrickMarch}): a change makes the brick draws and their program again (to the node march: each node's brick table uploaded once). */
   setBrickMarch(march: FarBrickMarch): void {
     if (march === this.march) return;
+    const raster = this.march === 'raster' || march === 'raster';
     this.march = march;
     this.brickMaterial?.dispose();
     this.brickMaterial = null;
+    // To or from the raster draw every brick node is uploaded again: into an atlas, or as faces with no atlas kept.
+    if (raster) {
+      this.faceMs.length = 0;
+      this.reupload();
+      return;
+    }
     // Pages are made only for the node march (a brick march never reads them); once made they stay with their node.
     for (const g of this.groups.values()) {
       if (g.kind !== 'bricks') continue;
@@ -264,6 +288,7 @@ export class VoxelFarView {
   }
 
   private dropRegions(key: string): void {
+    this.faces.delete(key);
     const r = this.regions.get(key);
     if (r === undefined) return;
     this.atlas!.remove(r);
@@ -275,6 +300,12 @@ export class VoxelFarView {
 
   /** A brick node's bricks and brick table into the atlas. */
   private upload(key: string, b: FarBricks): void {
+    if (this.march === 'raster') {
+      const t0 = performance.now();
+      this.faces.set(key, farRasterFaces(b));
+      this.faceMs.push(performance.now() - t0);
+      return;
+    }
     const atlas = this.brickAtlas();
     const regions = atlas.add(this.uploader(), b, this.palette?.palette ?? null);
     this.regions.set(key, regions);
@@ -303,6 +334,7 @@ export class VoxelFarView {
     this.atlas = null;
     this.regions.clear();
     this.pages.clear();
+    this.faces.clear();
     this.brickMaterial?.dispose();
     this.brickMaterial = null;
     for (const g of this.groups.values()) {
@@ -364,7 +396,7 @@ export class VoxelFarView {
     let g = this.groups.get(key);
     if (g === undefined) {
       const span = FAR_GROUP_NODES * this.opts.grid.edge * 2 ** level;
-      g = { key, kind, level, cell: [gx * span, 0, gz * span], nodes: new Map(), mesh: null, dirty: false, triangles: 0, bytes: 0, brickCount: 0, drawnNodes: 0 };
+      g = { key, kind, level, cell: [gx * span, 0, gz * span], nodes: new Map(), mesh: null, dirty: false, triangles: 0, bytes: 0, brickCount: 0, drawnNodes: 0, faces: 0 };
       this.groups.set(key, g);
     }
     return g;
@@ -378,6 +410,7 @@ export class VoxelFarView {
       g.mesh.geometry.dispose();
       g.mesh = null;
       this.triangles -= g.triangles;
+      this.faceCount -= g.faces;
       this.bricks -= g.brickCount;
       this.drawBytes -= g.bytes;
       this.nodes -= g.drawnNodes;
@@ -387,7 +420,19 @@ export class VoxelFarView {
       return;
     }
     let mesh: THREE.Mesh;
-    if (g.kind === 'bricks') {
+    g.faces = 0;
+    if (g.kind === 'bricks' && this.march === 'raster') {
+      const nodes = [...g.nodes.values()];
+      const geo = farRasterGeometry(this.opts.grid.edge, g, nodes, (n) => this.faces.get(mipNodeKey(n)));
+      this.rasterMaterial ??= farRasterMaterial(this.opts.surface, this.cover);
+      g.faces = geo.instanceCount;
+      g.triangles = 2 * g.faces;
+      g.brickCount = nodes.reduce((n, d) => n + (d.bricks !== undefined ? farBrickCount(d.bricks) : 0), 0);
+      g.bytes = geometryBytes(geo);
+      mesh = new THREE.Mesh(geo, this.rasterMaterial);
+      // Positions are the level's cells: the draw is scaled to metres.
+      mesh.scale.setScalar(2 ** g.level * VOXEL_SIZE_M);
+    } else if (g.kind === 'bricks') {
       const atlas = this.brickAtlas();
       const nodes = [...g.nodes.values()];
       const geo = this.march === 'node' ? farNodeGeometry(this.opts.grid.edge, g, nodes, (n) => this.pages.get(mipNodeKey(n))) : farBrickGeometry(this.opts.grid.edge, g, nodes, (n) => this.regions.get(mipNodeKey(n)) ?? []);
@@ -408,6 +453,7 @@ export class VoxelFarView {
       mesh = new THREE.Mesh(geo, this.farMaterial());
     }
     g.drawnNodes = g.nodes.size;
+    this.faceCount += g.faces;
     this.triangles += g.triangles;
     this.bricks += g.brickCount;
     this.drawBytes += g.bytes;
@@ -420,7 +466,7 @@ export class VoxelFarView {
     mesh.userData['voxelFar'] = g.key;
     this.place(mesh, g.cell);
     g.mesh = mesh;
-    (g.kind === 'bricks' && this.half !== null ? this.half.root : this.root).add(mesh);
+    (g.kind === 'bricks' && this.half !== null && this.march !== 'raster' ? this.half.root : this.root).add(mesh);
   }
 
   private place(o3: THREE.Object3D, cell: readonly number[]): void {
@@ -464,15 +510,17 @@ export class VoxelFarView {
     this.groupOf.clear();
     this.regions.clear();
     this.pages.clear();
+    this.faces.clear();
     this.root.clear();
     this.material?.dispose();
+    this.rasterMaterial?.dispose();
     this.brickMaterial?.dispose();
     this.atlas?.dispose();
     this.palette?.dispose();
     this.half?.dispose();
     this.half = null;
     this.cover.dispose();
-    this.triangles = this.bricks = this.drawBytes = this.nodes = 0;
+    this.triangles = this.bricks = this.drawBytes = this.nodes = this.faceCount = 0;
   }
 }
 

@@ -81,7 +81,7 @@ export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: numb
   target.z += (Math.cos(view.yaw) * f - Math.sin(view.yaw) * s) * step;
 }
 
-/** How the page's far bricks march (`?farMarch=brick|node`, default brick): a box a brick or a box a node. */
+/** How the page's far bricks march (`?farMarch=brick|node|raster`, default brick): a box a brick, a box a node, or no march (rasterized faces). */
 export function pageMarch(march: string | null | undefined): FarBrickMarch {
   return (FAR_BRICK_MARCHES as readonly string[]).includes(march ?? '') ? (march as FarBrickMarch) : 'brick';
 }
@@ -122,7 +122,14 @@ function buildName(b: FarBrickBuild | undefined): string | null {
 /** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
 export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
   if (streamer.far === null) return null;
-  return { ...streamer.far.metrics(), brickBuild: streamer.far.brickBuild, fineShading: view.fineBrickShading, shading: view.brickShading, march: view.brickMarch, half: view.brickHalf, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+  return { ...streamer.far.metrics(), brickBuild: streamer.far.brickBuild, fineShading: view.fineBrickShading, shading: view.brickShading, march: view.brickMarch, half: view.brickHalf, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState, ...(view.brickMarch === 'raster' ? { faces: view.faceCount, faceMs: percentiles(view.faceMs), faceNodes: view.faceMs.length } : {}) };
+}
+
+/** A list's p50 and p95 (the raster draw's face ms a node). */
+function percentiles(v: readonly number[]): { p50: number; p95: number } | null {
+  if (v.length === 0) return null;
+  const s = [...v].sort((a, b) => a - b);
+  return { p50: s[Math.floor(s.length / 2)]!, p95: s[Math.min(s.length - 1, Math.floor(s.length * 0.95))]! };
 }
 
 /** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */

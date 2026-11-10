@@ -445,6 +445,18 @@ entered face where the samples are clamped (deep under the surface); colour: the
 nearest sample's look, as the meshes; depth: the hit's own (`depthNode`), the same mapping as the meshes, and the
 boxes placed with that depth so none is clipped at the far plane. `marchFarBrick` is the march on the CPU.
 
+**Drawn as cubes** (switch `?farMarch=raster` / `setFar({ march: 'raster' })`, any brick build; no format change):
+`@thirdlight/voxel` `far-bricks-raster.ts` makes each node's faces on the page from the same bricks: each sample the
+centre of a cube one node cell across, solid where its distance is below 0; a face between two neighbouring samples
+of opposite signs, half way, facing out of the solid one, with its look word (a neighbour's where the sample's is 0)
+and baked occlusion. A node owns all its samples 0–32 an axis, each cube clipped to its box (a shared sample drawn
+half by each same-level neighbour, nothing twice; nodes of any levels cover their boxes); a solid sample on a box
+face within `FAR_SKIRT_CELLS` (2) of the surface puts a skirt on that face, lit as the field's steepest direction.
+Three-adapter `voxel-far-raster.ts`: one instanced square draw per group, 12 bytes a face (cell, kind, shading
+direction, look, occlusion), the object scaled by the cell; colour as the meshes' times the occlusion; the far depth
+from the vertex stage; a face whose cube lies in the near cover is moved off screen in the vertex stage. No atlas, no
+march, no fragment depth or discard (early depth test).
+
 ---
 
 ## 5. Requirement traceability (46d)

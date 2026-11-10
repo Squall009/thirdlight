@@ -258,11 +258,13 @@ export function farBrickGeometry(edge: number, g: { readonly level: number; read
  * (each marched alone; a pixel pays a fragment for every brick box its ray
  * crosses), `node` a box a node (its bricks' boxes' union) and a walk over
  * the node's brick table in ray order, marching only stored bricks
- * (`@thirdlight/voxel` `marchFarNode`; a pixel pays a fragment a node).
+ * (`@thirdlight/voxel` `marchFarNode`; a pixel pays a fragment a node);
+ * `raster` no march: each sample a cube, its faces open to air drawn as
+ * squares (voxel-far-raster.ts; no atlas).
  */
-export type FarBrickMarch = 'brick' | 'node';
+export type FarBrickMarch = 'brick' | 'node' | 'raster';
 
-export const FAR_BRICK_MARCHES: readonly FarBrickMarch[] = ['brick', 'node'];
+export const FAR_BRICK_MARCHES: readonly FarBrickMarch[] = ['brick', 'node', 'raster'];
 
 /** The node draws' per-instance attributes: the node's corner (metres from the group's corner) and cell size; its page's origin; its box (node cells). */
 export const FAR_NODE_ATTRIBUTE = 'voxelFarNode';

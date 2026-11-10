@@ -4,15 +4,17 @@
  * looks uploaded into a region of the shared atlas), their program marches
  * and writes its own depth on WebGPU (WGSL) and WebGL 2 (GLSL) alike, a node
  * that comes back as a mesh leaves its brick group and gives its regions
- * back, and removals free the groups.
+ * back, and removals free the groups. Rasterized, the same nodes are an
+ * instanced square a face with no atlas and no depth or discard of its own.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { chunkGrid, createWorldStore, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_VERTEX_BYTES, farBricksOf, farNodeMarchedBox, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SHAPE_FULL, VOXEL_ROLE, VOXEL_SIZE_M, WETNESS_MAX, type FarNodeDraw } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, DISTANCE_BRICK_SAMPLES, farRasterFaces, DISTANCE_BRICK_SIDE, FAR_VERTEX_BYTES, farBricksOf, farNodeMarchedBox, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SHAPE_FULL, VOXEL_ROLE, VOXEL_SIZE_M, WETNESS_MAX, type FarNodeDraw } from '@thirdlight/voxel';
 
-import { fragmentWgslOf, glslRenderer, litScene, wgslRenderer } from './test-wgsl';
+import { fragmentWgslOf, glslRenderer, litScene, wgslOf, wgslRenderer } from './test-wgsl';
 import { voxelStandInLook } from './voxel-chunk-view';
 import { FAR_BRICK_ATTRIBUTE, FAR_BRICK_BLOCK_ATTRIBUTE, FAR_BRICK_BOUNDS_ATTRIBUTE, FAR_NODE_HI_ATTRIBUTE, FAR_NODE_LO_ATTRIBUTE, FAR_NODE_PAGE_ATTRIBUTE } from './voxel-far-bricks';
+import { FAR_FACE_ATTRIBUTE, FAR_FACE_INSTANCE_BYTES, FAR_FACE_Y_BIAS } from './voxel-far-raster';
 import { VoxelFarView } from './voxel-far-mesh';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
 
@@ -207,6 +209,53 @@ describe('the far view', () => {
     expect(v.halfScene).toBeNull();
     expect(v.root.children.length).toBe(1);
     expect((v.root.children[0] as THREE.Mesh).name).not.toContain('composite');
+    v.dispose();
+  });
+
+  it('rasterizes bricks: an instance a face of each node, no atlas, a program with no march, depth write or discard on both backends, and back', () => {
+    const r = recorder();
+    const v = view(r);
+    const a = brickNode(0);
+    const b = brickNode(1);
+    v.apply({ added: [a, b], removed: [] }, undefined);
+    v.setBrickMarch('raster');
+    const want = farRasterFaces(a.bricks!).count + farRasterFaces(b.bricks!).count;
+    expect(v.faceCount).toBe(want);
+    expect(v.triangles).toBe(2 * want);
+    expect(v.bricks).toBe(32);
+    expect(v.faceMs.length).toBe(2);
+    const mesh = v.root.children[0] as THREE.Mesh;
+    const geo = mesh.geometry as THREE.InstancedBufferGeometry;
+    expect(geo.instanceCount).toBe(want);
+    // Positions in the level's cells (2 m at level 2), the draw scaled to metres.
+    expect(mesh.scale.x).toBe(4 * VOXEL_SIZE_M);
+    // No atlas: the GPU holds the instances (three floats a face) and the square.
+    expect(v.bytes).toBe(want * FAR_FACE_INSTANCE_BYTES + 4 * 3 * 4 + 6 * 2);
+    // The second node's faces start one node (32 cells) along x; the flat ground's tops at node row 1's y 12 (cell 44).
+    const inst = geo.getAttribute(FAR_FACE_ATTRIBUTE).array as Float32Array;
+    const xs = new Set<number>();
+    const ys = new Set<number>();
+    for (let i = 0; i < want; i++) {
+      xs.add(inst[i * 3]! % 512);
+      // y, the kind byte (an unclipped top face: 3), and the direction it is lit as above it.
+      if (Math.floor(inst[i * 3 + 1]! / 8192) % 256 === 3) ys.add((inst[i * 3 + 1]! % 8192) - FAR_FACE_Y_BIAS);
+    }
+    expect(Math.min(...xs)).toBe(0);
+    expect(Math.max(...xs)).toBe(64);
+    expect([...ys]).toEqual([32 + 11]);
+    const scene = litScene();
+    scene.add(v.root);
+    const wgsl = wgslOf(wgslRenderer(), scene, mesh);
+    expect(wgsl).not.toContain('frag_depth');
+    expect(wgsl).not.toContain('discard');
+    expect(wgsl).not.toMatch(/for \(|loop/);
+    const glsl = wgslOf(glslRenderer(), scene, mesh);
+    expect(glsl).not.toContain('gl_FragDepth');
+    expect(glsl).not.toContain('discard');
+    // Back to the node march: the atlas again, an instance a node.
+    v.setBrickMarch('node');
+    expect(v.faceCount).toBe(0);
+    expect(((v.root.children[0] as THREE.Mesh).geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(2);
     v.dispose();
   });
 });

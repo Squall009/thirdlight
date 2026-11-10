@@ -560,6 +560,8 @@ async function main(): Promise<void> {
     ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, levelLog, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
     swaps: () => swaps.slice(),
+    /** The raster far draw's faces as merged runs would be (a count, not drawn). */
+    farRuns: () => meshes.far.rasterRuns(),
     ...assemblyProbes({ streamer, grid, origin, collision, scene, files, kitPiece: (material, piece, variant) => meshes.kits?.describe(material, piece, variant) ?? null }),
     /** A dab at the cell under a screen point. */
     pickAndEdit,
