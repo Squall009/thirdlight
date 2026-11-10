@@ -38,7 +38,8 @@ import * as TSLTyped from 'three/tsl';
 import { FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
-import { FarBrickAtlas, farBrickGeometry, FarBrickMaterial } from './voxel-far-bricks';
+import { FarBrickAtlas, farBrickGeometry, FarBrickMaterial, type FarBrickShading } from './voxel-far-bricks';
+import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
 
@@ -90,8 +91,14 @@ export class VoxelFarView {
   /** Each brick node's atlas regions, by node key. */
   private readonly regions = new Map<string, THREE.Vector3[]>();
   private hidden = false;
-  /** The bricks' fine shading (`FarBrickMaterial.setFineShading`), kept for a material made later. */
-  private fineShading = false;
+  /** The bricks' shading, kept for a material made later. */
+  private shading: FarBrickShading = 'flat';
+  /** The far colours by look word the baked shading's samples take (made with a baked atlas). */
+  private palette: FarBrickPalette | null = null;
+  private paletteBusy = false;
+  /** Bricks baked again after a palette change, and the ms the last change's took. */
+  recoloured = 0;
+  recolourMs = 0;
   triangles = 0;
   /** Bricks drawn (the bricks mode). */
   bricks = 0;
@@ -126,14 +133,24 @@ export class VoxelFarView {
     return n;
   }
 
-  /** The bricks' shading: fine (colour blended over the samples, occlusion from the field, hits to the pixel) or the nearest sample's. */
-  setBrickShading(fine: boolean): void {
-    this.fineShading = fine;
-    this.brickMaterial?.setFineShading(fine);
+  /**
+   * The bricks' shading ({@link FarBrickShading}). Between `flat` and `fine` a uniform changes; to or from `baked`
+   * every brick node is uploaded again into an atlas of the other kind (no node is rebuilt).
+   */
+  setBrickShading(shading: FarBrickShading | boolean): void {
+    const next: FarBrickShading = shading === true ? 'fine' : shading === false ? 'flat' : shading;
+    const rebake = (next === 'baked') !== (this.shading === 'baked');
+    this.shading = next;
+    if (rebake && this.atlas !== null) this.reupload();
+    this.brickMaterial?.setFineShading(next === 'fine');
+  }
+
+  get brickShading(): FarBrickShading {
+    return this.shading;
   }
 
   get fineBrickShading(): boolean {
-    return this.fineShading;
+    return this.shading !== 'flat';
   }
 
   /** Shows or hides every far draw (a page's switch; nothing is rebuilt). */
@@ -165,7 +182,7 @@ export class VoxelFarView {
     for (const a of far.added) {
       const key = mipNodeKey(a);
       this.dropRegions(key);
-      if (a.bricks !== undefined) this.regions.set(key, this.brickAtlas().add(this.uploader(), a.bricks));
+      if (a.bricks !== undefined) this.regions.set(key, this.brickAtlas().add(this.uploader(), a.bricks, this.palette?.palette ?? null));
       const old = this.groupOf.get(key);
       if (old !== undefined) {
         this.groups.get(old)!.nodes.delete(key);
@@ -188,7 +205,66 @@ export class VoxelFarView {
   }
 
   private brickAtlas(): FarBrickAtlas {
-    return (this.atlas ??= new FarBrickAtlas());
+    if (this.atlas === null) {
+      this.atlas = new FarBrickAtlas(this.shading === 'baked');
+      if (this.atlas.baked) this.palette ??= new FarBrickPalette(this.opts.surface);
+    }
+    return this.atlas;
+  }
+
+  /** Every brick node into a new atlas of the shading's kind, and the draws made again over it. */
+  private reupload(): void {
+    const old = this.atlas;
+    this.atlas = null;
+    this.regions.clear();
+    this.brickMaterial?.dispose();
+    this.brickMaterial = null;
+    const atlas = this.brickAtlas();
+    for (const g of this.groups.values()) {
+      if (g.kind !== 'bricks') continue;
+      for (const [key, d] of g.nodes) if (d.bricks !== undefined) this.regions.set(key, atlas.add(this.uploader(), d.bricks, this.palette?.palette ?? null));
+      g.dirty = true;
+    }
+    for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
+    old?.dispose();
+  }
+
+  /** Before a brick draw: when the surface's looks changed, the palette is drawn again after this frame. */
+  private checkPalette(): void {
+    const p = this.palette;
+    if (p === null || !p.stale || this.paletteBusy || this.atlas?.baked !== true) return;
+    this.paletteBusy = true;
+    setTimeout(() => void this.refreshPalette(p), 0);
+  }
+
+  /** The palette again, and every resident brick node holding a word whose colour changed baked again. */
+  private async refreshPalette(p: FarBrickPalette): Promise<void> {
+    try {
+      const changed = await p.update(this.uploader() as unknown as FarPaletteRenderer);
+      const atlas = this.atlas;
+      if (atlas === null || !atlas.baked || p !== this.palette || p.palette === null) return;
+      const t0 = performance.now();
+      let n = 0;
+      for (const g of this.groups.values()) {
+        if (g.kind !== 'bricks') continue;
+        for (const [key, d] of g.nodes) {
+          const b = d.bricks;
+          const r = this.regions.get(key);
+          if (b === undefined || r === undefined) continue;
+          let hit = false;
+          for (let i = 0; i < b.looks.length && !hit; i++) hit = changed[b.looks[i]!] === 1;
+          if (!hit) continue;
+          atlas.recolour(this.uploader(), b, r, p.palette);
+          n += r.length;
+        }
+      }
+      this.recoloured += n;
+      this.recolourMs = performance.now() - t0;
+    } catch (e) {
+      console.warn('far bricks: the palette could not be drawn', e);
+    } finally {
+      this.paletteBusy = false;
+    }
   }
 
   private uploader(): VoxelGridRenderer {
@@ -231,12 +307,13 @@ export class VoxelFarView {
       const geo = farBrickGeometry(this.opts.grid.edge, g, [...g.nodes.values()], (n) => this.regions.get(mipNodeKey(n)) ?? []);
       if (this.brickMaterial === null) {
         this.brickMaterial = new FarBrickMaterial(atlas, this.opts.surface, this.cover);
-        this.brickMaterial.setFineShading(this.fineShading);
+        this.brickMaterial.setFineShading(this.shading === 'fine');
       }
       g.triangles = 0;
       g.brickCount = geo.instanceCount;
       g.bytes = geometryBytes(geo);
       mesh = new THREE.Mesh(geo, this.brickMaterial.material);
+      mesh.onBeforeRender = () => this.checkPalette();
     } else {
       const geo = groupGeometry(this.opts.grid, g, [...g.nodes.values()]);
       g.triangles = (geo.index?.count ?? 0) / 3;
@@ -304,6 +381,7 @@ export class VoxelFarView {
     this.material?.dispose();
     this.brickMaterial?.dispose();
     this.atlas?.dispose();
+    this.palette?.dispose();
     this.cover.dispose();
     this.triangles = this.bricks = this.drawBytes = this.nodes = 0;
   }

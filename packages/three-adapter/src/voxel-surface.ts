@@ -213,8 +213,8 @@ function fresh<T extends THREE.Texture>(tex: T): T {
 
 /** What a region store's texels are: their format, bytes a texel, and how they are filtered when sampled. */
 export interface RegionTexels {
-  readonly format: typeof THREE.RedFormat | typeof THREE.RGFormat;
-  readonly bytes: 1 | 2;
+  readonly format: typeof THREE.RedFormat | typeof THREE.RGFormat | typeof THREE.RGBAFormat;
+  readonly bytes: 1 | 2 | 4;
   readonly filter: typeof THREE.NearestFilter | typeof THREE.LinearFilter;
 }
 

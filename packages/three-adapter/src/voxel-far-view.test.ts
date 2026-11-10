@@ -101,4 +101,32 @@ describe('the far view', () => {
     expect(v.bytes).toBe(atlasBytes);
     v.dispose();
   });
+
+  it('shades baked bricks from one colour atlas: a switch uploads every node again, the program reads far fewer textures, and back again', () => {
+    const r = recorder();
+    const v = view(r);
+    const a = brickNode(0);
+    v.apply({ added: [a], removed: [] }, undefined);
+    v.setBrickShading('fine');
+    const scene = litScene();
+    scene.add(v.root);
+    const reads = (src: string): number => (src.match(/texture(Sample|Load)[A-Za-z]*\(|texelFetch\(|texture\(/g) ?? []).length;
+    const fine = fragmentWgslOf(wgslRenderer(), scene, v.root.children[0] as THREE.Mesh);
+    const before = r.uploads.length;
+    v.setBrickShading('baked');
+    // Every brick again: its distances and its baked samples (four bytes a sample), no rebuild of the node.
+    expect(r.uploads.length - before).toBe(32);
+    const sizes = r.uploads.slice(before).map((u) => u.bytes.length);
+    expect(new Set(sizes)).toEqual(new Set([DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SAMPLES * 4]));
+    expect(v.bytes).toBe((4 * DISTANCE_BRICK_SIDE) ** 3 * 5 + 16 * (32 + 8) + 24 * 4 + 36 * 2);
+    const mesh = v.root.children[0] as THREE.Mesh;
+    const wgsl = fragmentWgslOf(wgslRenderer(), scene, mesh);
+    expect(wgsl).toContain('frag_depth');
+    expect(fragmentWgslOf(glslRenderer(), scene, mesh)).toContain('gl_FragDepth');
+    // The fine shading read 8 look words, 16 table texels and 8 array texels, plus 2 field reads, a hit; baked one.
+    expect(reads(fine) - reads(wgsl)).toBeGreaterThanOrEqual(30);
+    v.setBrickShading('fine');
+    expect(v.bytes).toBe((4 * DISTANCE_BRICK_SIDE) ** 3 * 3 + 16 * (32 + 8) + 24 * 4 + 36 * 2);
+    v.dispose();
+  });
 });

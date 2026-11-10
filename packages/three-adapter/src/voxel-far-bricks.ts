@@ -31,7 +31,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, VOXEL_SIZE_M, type FarBricks, type FarNodeDraw } from '@thirdlight/voxel';
+import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GRADIENT_MIN, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, VOXEL_SIZE_M, type FarBricks, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
 import type { N } from './effects-tsl';
@@ -54,58 +54,93 @@ export const FAR_BRICK_BOUNDS_ATTRIBUTE = 'voxelFarBrickBounds';
 /** A hit's distance from the surface may be this share of the pixel it covers (the fine shading): no step finer than the pixel shows. */
 export const FAR_BRICK_HIT_PIXELS = 0.5;
 
-/** How dark a fully occluded hit gets under the fine shading's ambient occlusion (its colour times this). */
-const AO_FLOOR = 0.5;
 
-/** The gradient (cells a cell) below which a hit's normal is the face it entered by: samples clamped to the band. */
-const GRADIENT_MIN = 0.05;
+/**
+ * How far bricks are shaded: `flat` the nearest sample's colour; `fine` the eight samples' colours blended and the
+ * field's occlusion, both per pixel, hits to the pixel; `baked` the same look from samples baked with their colour and
+ * occlusion ({@link FarBrickAtlas}), one filtered read a pixel.
+ */
+export type FarBrickShading = 'flat' | 'fine' | 'baked';
 
-/** The far bricks on the GPU: two region stores filled in step, a brick a region in each. */
+export const FAR_BRICK_SHADINGS: readonly FarBrickShading[] = ['flat', 'fine', 'baked'];
+
+/**
+ * The far bricks on the GPU: the distances and, beside them in step, each
+ * sample's look word (`flat`, `fine`) or its baked colour and occlusion
+ * (`baked`, from the palette), a brick a region in each store.
+ */
 export class FarBrickAtlas {
   readonly distance = new VoxelShaderGrids({ side: DISTANCE_BRICK_SIDE }, { format: THREE.RedFormat, bytes: 1, filter: THREE.LinearFilter });
-  readonly looks = new VoxelShaderGrids({ side: DISTANCE_BRICK_SIDE });
+  /** The look words (unbaked shadings). */
+  readonly looks: VoxelShaderGrids | null;
+  /** The baked samples: linear colour and occlusion, filtered so one read is the eight samples' blend. */
+  readonly colours: VoxelShaderGrids | null;
+  private readonly scratch = new Uint8Array(DISTANCE_BRICK_SAMPLES * FAR_BRICK_BAKED_BYTES);
+
+  constructor(readonly baked = false) {
+    this.looks = baked ? null : new VoxelShaderGrids({ side: DISTANCE_BRICK_SIDE });
+    this.colours = baked ? new VoxelShaderGrids({ side: DISTANCE_BRICK_SIDE }, { format: THREE.RGBAFormat, bytes: 4, filter: THREE.LinearFilter }) : null;
+  }
+
+  private get twin(): VoxelShaderGrids {
+    return (this.looks ?? this.colours)!;
+  }
+
   /** Bricks resident. */
   get count(): number {
     return this.distance.count;
   }
 
   get gpuBytes(): number {
-    return this.distance.gpuBytes + this.looks.gpuBytes;
+    return this.distance.gpuBytes + this.twin.gpuBytes;
   }
 
-  /** Uploads a node's bricks, one region each; their regions (texel origins), in block order. */
-  add(renderer: VoxelGridRenderer, b: FarBricks): THREE.Vector3[] {
+  /** Uploads a node's bricks, one region each (baked from `palette`); their regions (texel origins), in block order. */
+  add(renderer: VoxelGridRenderer, b: FarBricks, palette: FarPalette | null = null): THREE.Vector3[] {
     const out: THREE.Vector3[] = [];
     const n = farBrickCount(b);
     for (let i = 0; i < n; i++) {
       const at = this.distance.allocate(renderer);
-      const twin = this.looks.allocate(renderer);
+      const twin = this.twin.allocate(renderer);
       // Both stores hand out and grow alike, so a brick's two regions share an origin.
       if (!at.equals(twin)) throw new Error('far brick atlas: the two region stores parted');
       this.distance.upload(renderer, at, b.samples.subarray(i * DISTANCE_BRICK_SAMPLES, (i + 1) * DISTANCE_BRICK_SAMPLES));
-      this.looks.upload(renderer, at, b.looks.subarray(i * DISTANCE_BRICK_SAMPLES, (i + 1) * DISTANCE_BRICK_SAMPLES));
+      if (this.looks !== null) this.looks.upload(renderer, at, b.looks.subarray(i * DISTANCE_BRICK_SAMPLES, (i + 1) * DISTANCE_BRICK_SAMPLES));
+      else this.bake(renderer, b, i, at, palette);
       out.push(at);
     }
     return out;
+  }
+
+  /** A node's baked samples again from a new palette (its regions as {@link add} gave them). */
+  recolour(renderer: VoxelGridRenderer, b: FarBricks, regions: readonly THREE.Vector3[], palette: FarPalette): void {
+    if (this.colours === null) return;
+    for (let i = 0; i < regions.length; i++) this.bake(renderer, b, i, regions[i]!, palette);
+  }
+
+  private bake(renderer: VoxelGridRenderer, b: FarBricks, i: number, at: THREE.Vector3, palette: FarPalette | null): void {
+    if (palette === null) this.scratch.fill(0);
+    else bakeFarBrick(b, i, palette, this.scratch);
+    this.colours!.upload(renderer, at, this.scratch);
   }
 
   /** Gives a node's regions back. */
   remove(regions: readonly THREE.Vector3[]): void {
     for (const r of regions) {
       this.distance.release(r);
-      this.looks.release(r);
+      this.twin.release(r);
     }
   }
 
   /** Textures replaced by a growth are disposed once no frame binds them. */
   frame(): void {
     this.distance.frame();
-    this.looks.frame();
+    this.twin.frame();
   }
 
   dispose(): void {
     this.distance.dispose();
-    this.looks.dispose();
+    this.twin.dispose();
   }
 }
 
@@ -173,6 +208,7 @@ export function farBrickGeometry(edge: number, g: { readonly level: number; read
 export class FarBrickMaterial {
   readonly material: MeshStandardNodeMaterial;
   private readonly distanceNode: N;
+  /** The atlas's second store: look words, or baked colours. */
   private readonly looksNode: N;
   private readonly invSideU = uniform(new THREE.Vector3(1, 1, 1));
   /** 1: the fine shading (colour blended over the eight samples, ambient occlusion from the field, hits to the pixel); 0: the nearest sample's colour, flat. */
@@ -187,7 +223,11 @@ export class FarBrickMaterial {
     return this.shadeU.value === 1;
   }
 
+  /** Whether the program shades from the atlas's baked samples (made for a baked atlas; never switched). */
+  readonly baked: boolean;
+
   constructor(atlas: FarBrickAtlas, surface: VoxelSurface, cover: FarCover) {
+    this.baked = atlas.baked;
     const m = cameraRelative(new MeshStandardNodeMaterial());
     m.name = 'voxel far bricks';
     m.metalness = 0;
@@ -195,13 +235,14 @@ export class FarBrickMaterial {
     m.side = THREE.BackSide;
     this.material = m;
     this.distanceNode = texture3D(atlas.distance.texture);
-    this.looksNode = texelTexture3D(atlas.looks.texture);
+    const twin = (atlas.looks ?? atlas.colours)!;
+    this.looksNode = this.baked ? texture3D(twin.texture) : texelTexture3D(twin.texture);
     this.sides(atlas.distance.texture);
     atlas.distance.onTexture = (tex) => {
       (this.distanceNode as unknown as { value: THREE.Texture }).value = tex;
       this.sides(tex);
     };
-    atlas.looks.onTexture = (tex) => {
+    twin.onTexture = (tex) => {
       (this.looksNode as unknown as { value: THREE.Texture }).value = tex;
     };
     const C = DISTANCE_BRICK_CELLS;
@@ -253,7 +294,9 @@ export class FarBrickMaterial {
     const modelView: N = cameraRelativeModelView;
     const hitNormal = property('vec3', 'farBrickNormal');
     const hitColour = property('vec3', 'farBrickColour');
-    const fine = this.shadeU.greaterThan(0.5);
+    const baked = this.baked;
+    // A baked program shades as the fine one does (its samples hold the fine blend's inputs).
+    const fine = baked ? TSL.bool(true) : this.shadeU.greaterThan(0.5);
     // Radians a pixel covers at the screen's centre: how big a pixel is at a distance.
     const pixelAngle = float(2).div(cameraProjectionMatrix.element(1).y.mul(screenSize.y));
     m.depthNode = Fn(() => {
@@ -300,7 +343,7 @@ export class FarBrickMaterial {
       const entryY = entryX.not().and(near.y.greaterThanEqual(near.z));
       const entryZ = entryX.not().and(entryY.not());
       const facing = vec3(select(entryX, sign(dir.x).negate(), float(0)), select(entryY, sign(dir.y).negate(), float(0)), select(entryZ, sign(dir.z).negate(), float(0)));
-      const n = select(length(g).greaterThan(GRADIENT_MIN), normalize(g), facing);
+      const n = select(length(g).greaterThan(FAR_BRICK_GRADIENT_MIN), normalize(g), facing);
       hitNormal.assign(normalize(modelView.mul(vec4(n, 0)).xyz));
       // A sample's material word (low byte, high byte) as its far colour.
       const colourAt = (cell: N): N => {
@@ -310,7 +353,11 @@ export class FarBrickMaterial {
         return surface.farColour(mod(word, 4096), floor(word.div(4096)));
       };
       const q = clamp(p, vec3(0), vec3(C)).toVar();
-      If(fine, () => {
+      if (baked) {
+        // One filtered read: the eight samples' colours and occlusions blended by the hit's weights.
+        const c = looksNode.sample(vBlock.add(q).add(0.5).mul(invSide)).level(float(0));
+        hitColour.assign(c.rgb.mul(mix(float(FAR_BRICK_AO_FLOOR), float(1), c.a)));
+      } else If(fine, () => {
         // The eight samples round the hit, blended as the distances are: a sample's colour fades into its neighbours'.
         const c0 = min(floor(q), vec3(C - 1)).toVar();
         const w = q.sub(c0).toVar();
@@ -323,7 +370,7 @@ export class FarBrickMaterial {
         // Ambient occlusion from the field: how far the surface stays clear one and two cells out along the normal.
         const a1 = clamp(field(p.add(n.mul(1))), 0, 1);
         const a2 = clamp(field(p.add(n.mul(2))).div(2), 0, 1);
-        hitColour.assign(sum.mul(mix(float(AO_FLOOR), float(1), a1.add(a2).mul(0.5))));
+        hitColour.assign(sum.mul(mix(float(FAR_BRICK_AO_FLOOR), float(1), a1.add(a2).mul(0.5))));
       }).Else(() => {
         hitColour.assign(colourAt(round(q)));
       });

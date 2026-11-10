@@ -77,6 +77,8 @@ export interface FarBricks {
    * 0–8), so the draw's box and its march start there instead of at the brick's own box.
    */
   readonly bounds: Uint8Array;
+  /** Per sample (as {@link samples}): its ambient occlusion, 0 shut … 255 open, made by a build asking for it ({@link FarBrickBuild.occlusion}). */
+  readonly occlusion?: Uint8Array;
 }
 
 /** Bytes a block's entry in {@link FarBricks.bounds} takes. */
@@ -99,6 +101,8 @@ export interface FarBrickBuild {
   readonly field: 'occupancy' | 'faces';
   /** Source cells a node cell an axis: 1, 2 or 4 (the node's own cells, its children's, its grandchildren's). */
   readonly scale: number;
+  /** Whether the job also bakes each sample's ambient occlusion ({@link FarBricks.occlusion}), for a draw that shades from baked samples. */
+  readonly occlusion?: boolean;
 }
 
 /** The far bricks as first built: the node's own cells, occupancy distances. */
@@ -121,12 +125,12 @@ export function farBrickCount(b: FarBricks): number {
 
 /** Bytes a far node's bricks hold. */
 export function farBricksBytes(b: FarBricks): number {
-  return b.bricks.byteLength + b.samples.byteLength + b.looks.byteLength + b.blocks.byteLength + b.bounds.byteLength;
+  return b.bricks.byteLength + b.samples.byteLength + b.looks.byteLength + b.blocks.byteLength + b.bounds.byteLength + (b.occlusion?.byteLength ?? 0);
 }
 
 /** The buffers a far node's bricks can hand over. */
 export function farBricksTransfer(b: FarBricks, out: ArrayBuffer[] = []): ArrayBuffer[] {
-  for (const a of [b.bricks, b.samples, b.looks, b.blocks, b.bounds]) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
+  for (const a of [b.bricks, b.samples, b.looks, b.blocks, b.bounds, ...(b.occlusion !== undefined ? [b.occlusion] : [])]) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
   return out;
 }
 

@@ -66,7 +66,7 @@
  * meshes or as ray-marched distance bricks (the backend builds the cache on the first read and keeps it current
  * with every command), under the near field and hidden where it draws:
  * `?farField=off|mesh|bricks` and `?farError=` (pixels) override the quality
- * level's; `?farBricks=occupancy|faces|faces2` and `?farShade=fine|flat` pick
+ * level's; `?farBricks=occupancy|faces|faces2` and `?farShade=fine|flat|baked` pick
  * how bricks are built and shaded (comparing builds); `?farShow=0` keeps the
  * far draws hidden.
  *
@@ -537,7 +537,7 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
-    ...pageFarHooks(streamer, meshes.far, far.fineShading),
+    ...pageFarHooks(streamer, meshes.far, far.shading),
     /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);

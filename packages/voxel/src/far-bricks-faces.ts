@@ -26,6 +26,7 @@ import { chunkInWorld, type ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { BRICK_HIT_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, sampleOfDistance } from './distance-brick-format';
 import { brickFarNode, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, squaredDistances, type FarBricks } from './far-bricks';
+import { farBrickOcclusion } from './far-bricks-shade';
 import { withFarNeighbourhood, type FarMeshInput } from './far-mesh';
 import type { PaletteStore } from './palette-store';
 import { fillLevel, MATERIAL_AIR, MATERIAL_BITS, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
@@ -64,6 +65,12 @@ function surfaceOnFace(values: Float32Array): boolean {
  * again before it returns).
  */
 export function brickFarNodeBy(store: PaletteStore, input: Pick<FarMeshInput, 'cells' | 'level' | 'node' | 'build' | 'fine'>, decompress: (b: Uint8Array) => Uint8Array): FarBricks {
+  const out = bricksBy(store, input, decompress);
+  // The occlusion is the field's alone, so it is baked here, off the page's thread, for a draw that shades from baked samples.
+  return input.build?.occlusion === true ? { ...out, occlusion: farBrickOcclusion(out) } : out;
+}
+
+function bricksBy(store: PaletteStore, input: Pick<FarMeshInput, 'cells' | 'level' | 'node' | 'build' | 'fine'>, decompress: (b: Uint8Array) => Uint8Array): FarBricks {
   const b = input.build;
   if (b === undefined || b.field === 'occupancy') return brickFarNode(store, input, decompress);
   const g = store.grid;

@@ -8,7 +8,7 @@
  * move, click to pick, Z to undo).
  */
 import * as THREE from 'three';
-import { createOcclusionFrame, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
+import { createOcclusionFrame, FAR_BRICK_SHADINGS, type FarBrickShading, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
 import { FAR_BRICK_BUILD_OCCUPANCY, FAR_BRICK_BUILDS, FAR_FIELD_MODES, farViewOf, reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarBrickBuild, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld, type ResolvedVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
@@ -52,7 +52,7 @@ export function pageLevel(quality: string, p: ReliefParams): { readonly id: stri
  * The page's far field switch (`?farField=mesh|bricks|off`, default the quality level's mode) and detail
  * (`?farError=` pixels, default the level's): what the streamer's far field is made with.
  */
-export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean; brickBuild: FarBrickBuild; fineShading: boolean } {
+export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean; brickBuild: FarBrickBuild; shading: FarBrickShading } {
   const asked = params.get('farField');
   const mode = (FAR_FIELD_MODES as readonly string[]).includes(asked ?? '') ? (asked as FarFieldMode) : null;
   const error = params.get('farError');
@@ -62,11 +62,13 @@ export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof p
 
 /**
  * How the page's far bricks are made and shaded (`?farBricks=occupancy|faces|faces2`, default occupancy;
- * `?farShade=fine|flat`, default fine for a faces build): a switch for comparing the brick builds.
+ * `?farShade=fine|flat|baked`, default fine for a faces build): a switch for comparing the brick builds. `baked`
+ * asks the build for each sample's occlusion too (the job bakes it) and shades from baked samples.
  */
-export function pageBricks(build: string | null | undefined, shade: string | null | undefined): { brickBuild: FarBrickBuild; fineShading: boolean } {
-  const brickBuild = FAR_BRICK_BUILDS[build ?? ''] ?? FAR_BRICK_BUILD_OCCUPANCY;
-  return { brickBuild, fineShading: shade === 'fine' || (shade !== 'flat' && brickBuild.field === 'faces') };
+export function pageBricks(build: string | null | undefined, shade: string | null | undefined): { brickBuild: FarBrickBuild; shading: FarBrickShading } {
+  const named = FAR_BRICK_BUILDS[build ?? ''] ?? FAR_BRICK_BUILD_OCCUPANCY;
+  const shading: FarBrickShading = (FAR_BRICK_SHADINGS as readonly string[]).includes(shade ?? '') ? (shade as FarBrickShading) : named.field === 'faces' ? 'fine' : 'flat';
+  return { brickBuild: shading === 'baked' ? { ...named, occlusion: true } : named, shading };
 }
 
 /**
@@ -74,13 +76,14 @@ export function pageBricks(build: string | null | undefined, shade: string | nul
  * detail (pixels a far node's cell may cover) and its bricks' build and shading (`bricks`, `shade`: as
  * {@link pageBricks}), and a wait until it draws its selection; the bricks start with `fineShading`.
  */
-export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView, fineShading = false): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; bricks?: string; shade?: string }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
-  view.setBrickShading(fineShading);
+export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView, shading: FarBrickShading = 'flat'): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; bricks?: string; shade?: string }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
+  view.setBrickShading(shading);
   return {
     setFar: ({ mode, bricks, shade, ...o }) => {
-      const b = bricks !== undefined || shade !== undefined ? pageBricks(bricks ?? null, shade ?? null) : null;
-      if (b !== null) view.setBrickShading(b.fineShading);
-      streamer.far?.setView({ ...o, ...(mode !== undefined ? farViewOf(mode) : {}), ...(b !== null && bricks !== undefined ? { brickBuild: b.brickBuild } : {}) });
+      // A shading alone keeps the build the field has (its occlusion asked for or not with it).
+      const b = bricks !== undefined || shade !== undefined ? pageBricks(bricks ?? buildName(streamer.far?.brickBuild), shade ?? null) : null;
+      if (b !== null) view.setBrickShading(b.shading);
+      streamer.far?.setView({ ...o, ...(mode !== undefined ? farViewOf(mode) : {}), ...(b !== null ? { brickBuild: b.brickBuild } : {}) });
     },
     settleFar: async () => {
       await streamer.far?.settle();
@@ -90,10 +93,17 @@ export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFa
   };
 }
 
+/** A build's name in {@link FAR_BRICK_BUILDS} (its occlusion aside). */
+function buildName(b: FarBrickBuild | undefined): string | null {
+  if (b === undefined) return null;
+  for (const [name, v] of Object.entries(FAR_BRICK_BUILDS)) if (v.field === b.field && v.scale === b.scale) return name;
+  return null;
+}
+
 /** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
 export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
   if (streamer.far === null) return null;
-  return { ...streamer.far.metrics(), brickBuild: streamer.far.brickBuild, fineShading: view.fineBrickShading, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+  return { ...streamer.far.metrics(), brickBuild: streamer.far.brickBuild, fineShading: view.fineBrickShading, shading: view.brickShading, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
 }
 
 /** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */
