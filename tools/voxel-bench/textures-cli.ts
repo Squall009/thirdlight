@@ -37,7 +37,7 @@ function arg(name: string, fallback: string): string {
 }
 
 /**
- * The benchmark worlds' voxel ids (the world kit's: rock 1, soil 2, grass 3, sand 4, gravel 6, stone 10, timber 11,
+ * The benchmark worlds' voxel ids (the world kit's: rock 1, soil 2, grass 3, sand 4, gravel 6, snow 7, stone 10, timber 11,
  * plaster 12, roof tile 13, plank 14, brick 15) as voxel materials: the set each surface wears, a tint (the record's
  * colour, multiplying the albedo) for the ids that reuse another's textures, and the placeholder kit (`run.mjs kits`)
  * whose test list binds the id, kept on the record (left out where the project has no such kit).
@@ -48,6 +48,8 @@ const BENCH_MATERIALS: ReadonlyArray<{ id: number; name: string; use: 'construct
   { id: 3, name: 'Grass', use: 'terrain', wall: 'grass' },
   { id: 4, name: 'Sand', use: 'terrain', wall: 'earth', color: '#f2dcae' },
   { id: 6, name: 'Gravel', use: 'terrain', wall: 'rock', color: '#d8d0c4' },
+  // The far world's high peaks: the smooth plaster set, near white.
+  { id: 7, name: 'Snow', use: 'terrain', wall: 'plaster', color: '#eef2f7' },
   { id: 10, name: 'Stone', use: 'construction', wall: 'stone', kit: 'stone' },
   { id: 11, name: 'Timber', use: 'construction', wall: 'timber', kit: 'log' },
   { id: 12, name: 'Plaster', use: 'construction', wall: 'plaster', floor: 'timber', ceiling: 'plaster' },

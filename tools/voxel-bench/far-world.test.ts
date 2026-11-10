@@ -1,5 +1,8 @@
 /**
- * The far world and its far cache at real boundaries: region files written
+ * The far world and its far cache at real boundaries: the realistic
+ * landscape (deterministic, heights in range, region columns written apart
+ * meeting cell for cell, its features in the cells on disk) and the terraced
+ * style kept beside it; region files written
  * column by column in `worker_threads` workers and read back from disk, the
  * far cache built from them in workers and in one thread (byte for byte the
  * same), far data over every part of the world, an edit through the
@@ -11,10 +14,12 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, farVertexLook, marchFarBrick, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarNode, createDenseChunk, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, farVertexLook, marchFarBrick, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
 import { buildFarCache, farCacheDir, FarCacheReader, FarWorldSource, openShippedWorld, readFarCacheManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
 import { hexToBytes } from '@thirdlight/shared';
-import { farWorldColumns, farWorldDirs, writeFarWorldColumn, FAR_WORLD_GRID } from './far-world';
+import { computeFarDrainage, PEAK } from './far-drainage';
+import { farLandscape, farSurfaceHeight, farWorldColumns, farWorldDirs, finishFarWorld, writeFarWorldColumn, FAR_WORLD_GRID } from './far-world';
+import { LANDSCAPE_BASE } from './far-landscape';
 import { buildFarCacheInPool, FarPool, PIXELS_PER_RADIAN_720P, writeFarWorld } from './far-world-run';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO } from './stream-node';
 import { MAT } from './world-kit';
@@ -67,6 +72,123 @@ describe('the far world on disk', () => {
     const world = new FarWorldSource(worldDir);
     expect(typeof world.chunk(-16, -4, -16)).toBe('number');
   });
+});
+
+/** Two region columns of the 8 km world side by side along x (seed 97: a mountain flank with a river below it). */
+const SEAM_COLUMNS: ReadonlyArray<readonly [number, number]> = [
+  [-14, -4],
+  [-13, -4],
+];
+
+describe('the realistic landscape', () => {
+  it('is the same drainage every time, with heights in range and no NaN over the whole 8 km world', () => {
+    const half = 8192;
+    const a = computeFarDrainage(half, 97);
+    const b = computeFarDrainage(half, 97);
+    expect(Buffer.from(a.height.buffer).equals(Buffer.from(b.height.buffer))).toBe(true);
+    expect(Buffer.from(a.receiver.buffer).equals(Buffer.from(b.receiver.buffer))).toBe(true);
+    // Another seed is another world (a 2 km one: quicker).
+    expect(Buffer.from(computeFarDrainage(1024, 98).height.buffer).equals(Buffer.from(computeFarDrainage(1024, 97).height.buffer))).toBe(false);
+    let max = -Infinity;
+    let min = Infinity;
+    let over1km = 0;
+    let n = 0;
+    for (let x = -half; x < half; x += 96) for (let z = -half; z < half; z += 96) {
+      const h = farSurfaceHeight(x, z, { sizeKm: 8 });
+      expect(Number.isFinite(h), `${x},${z}`).toBe(true);
+      max = Math.max(max, h);
+      min = Math.min(min, h);
+      if (h > 2000) over1km++;
+      n++;
+    }
+    // Mountains to about 1.5 km (gullies and crags may add a little), nothing under the world's base, the town flat at 0.
+    expect(max).toBeGreaterThan(0.8 * PEAK);
+    expect(max).toBeLessThan(1.1 * PEAK);
+    expect(min).toBeGreaterThan(LANDSCAPE_BASE);
+    expect(over1km / n).toBeGreaterThan(0.005);
+    expect(farSurfaceHeight(0, 0, { sizeKm: 8 })).toBe(0);
+    expect(farLandscape(8).archCount).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('writes region columns apart that meet cell for cell, with rock, scree, grass, wet river beds and overhangs on disk', () => {
+    const { dir, gridDir } = farWorldDirs(join(root, 'realistic'));
+    const files: string[] = [];
+    for (const [rx, rz] of SEAM_COLUMNS) files.push(...writeFarWorldColumn(gridDir, rx, rz, { sizeKm: 8 }).files);
+    // The same column again: the same bytes.
+    const again = join(root, 'realistic-again');
+    for (const f of writeFarWorldColumn(again, SEAM_COLUMNS[0]![0], SEAM_COLUMNS[0]![1], { sizeKm: 8 }).files) {
+      expect(readFileSync(join(again, f)).equals(readFileSync(join(gridDir, f))), f).toBe(true);
+    }
+    finishFarWorld(dir, files);
+    const world = new FarWorldSource(dir);
+    const g = FAR_WORLD_GRID;
+    const e = g.edge;
+    // The seam: x = −13 × 512 cells. A chunk column straddling it, written here from the landscape alone, holds exactly
+    // the cells the two region columns wrote on both sides of it.
+    const seam = SEAM_COLUMNS[1]![0] * 512;
+    const z0 = SEAM_COLUMNS[1]![1] * 512;
+    const land = farLandscape(8);
+    const cells = createDenseChunk(g);
+    let compared = 0;
+    for (let cz = z0 / e; cz < z0 / e + 16; cz += 3) {
+      const col = land.plan(g, seam - e / 2, cz * e);
+      for (let cy = LANDSCAPE_BASE >> g.shift; cy <= Math.floor(col.high) >> g.shift; cy++) {
+        const y0 = cy * e;
+        if (y0 + e + 8 <= col.low) continue;
+        col.fill(cells, y0);
+        for (const lx of [e / 2 - 2, e / 2 - 1, e / 2, e / 2 + 1]) {
+          const wx = seam - e / 2 + lx;
+          const c = world.chunk(wx >> g.shift, cy, cz);
+          for (let lz = 0; lz < e; lz++) for (let ly = 0; ly < e; ly++) {
+            const here = localIndex(g, lx, ly, lz);
+            const there = localIndex(g, wx & (e - 1), ly, lz);
+            const want = c === null ? [0, 0, 0, 0] : typeof c === 'number' ? null : [c.material[there], c.role[there], c.shape[there], c.wetness[there]];
+            if (want === null) continue;
+            expect([cells.material[here], cells.role[here], cells.shape[here], cells.wetness[here]], `${wx},${y0 + ly},${cz * e + lz}`).toEqual(want);
+            compared++;
+          }
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(10_000);
+    // What the columns hold: the materials of a flank and a valley, wet beds, and ground over air (outcrops, boulders).
+    const seen = new Set<number>();
+    let wet = 0;
+    let overhangs = 0;
+    for (const [rx, rz] of SEAM_COLUMNS) for (let cx = rx * 16; cx < rx * 16 + 16; cx += 1) for (let cz = rz * 16; cz < rz * 16 + 16; cz += 1) {
+      for (let cy = -4; cy < 48; cy++) {
+        const c = world.chunk(cx, cy, cz);
+        if (c === null || typeof c === 'number') continue;
+        for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
+          let below = -1;
+          for (let y = 0; y < e; y++) {
+            const i = localIndex(g, x, y, z);
+            const solid = c.shape[i]! > 0;
+            if (solid) {
+              seen.add(c.material[i]!);
+              if (c.wetness[i]! > 0) wet++;
+              if (below === 0) overhangs++;
+            }
+            below = solid ? 1 : 0;
+          }
+        }
+      }
+    }
+    for (const m of [MAT.rock, MAT.soil, MAT.grass, MAT.gravel]) expect(seen.has(m), `${[...seen]}`).toBe(true);
+    expect(wet).toBeGreaterThan(1000);
+    expect(overhangs).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('keeps the terraced style: written the same every time and not the realistic ground', () => {
+    const a = join(root, 'terraced-a');
+    const b = join(root, 'terraced-b');
+    const [rx, rz] = SEAM_COLUMNS[0]!;
+    const fa = writeFarWorldColumn(a, rx, rz, { sizeKm: 8, style: 'terraced' }).files;
+    writeFarWorldColumn(b, rx, rz, { sizeKm: 8, style: 'terraced' });
+    expect(fa.length).toBeGreaterThan(0);
+    for (const f of fa) expect(readFileSync(join(a, f)).equals(readFileSync(join(b, f))), f).toBe(true);
+    expect(farSurfaceHeight(rx * 512 + 100, rz * 512 + 100, { sizeKm: 8, style: 'terraced' })).not.toBe(farSurfaceHeight(rx * 512 + 100, rz * 512 + 100, { sizeKm: 8 }));
+  }, 60_000);
 });
 
 describe('the far cache', () => {

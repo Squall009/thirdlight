@@ -383,7 +383,7 @@ The voxel object's **Decal layers** choose which decals mark the world.
 ## Exports
 
 An export ships each world its scenes name with all of the world's region
-files, whole (about 4–6 MB per km² for the test world), and its far cache's
+files, whole (about 4–10 MB per km² for the test worlds), and its far cache's
 files (about a tenth of that). An export waits up to two minutes for a far
 cache still being built; past that it ships the world without one (the game
 draws nothing past the load ring) and its warnings say so: export again once

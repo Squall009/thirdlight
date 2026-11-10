@@ -18,6 +18,7 @@ export const MAT = Object.freeze({
   sand: 4,
   water: 5,
   gravel: 6,
+  snow: 7,
   stone: 10,
   timber: 11,
   plaster: 12,
@@ -59,6 +60,12 @@ export interface TestWorld {
 /** The chunk index range [lo, hi) covering cells [min, max). */
 export function chunkRange(grid: ChunkGrid, min: number, max: number): [number, number] {
   return [min >> grid.shift, ((max - 1) >> grid.shift) + 1];
+}
+
+/** Hermite step of v from a to b (0 below a, 1 above b). */
+export function smoothstep(a: number, b: number, v: number): number {
+  const t = clamp01((v - a) / (b - a));
+  return t * t * (3 - 2 * t);
 }
 
 /** Clamp to [0, 1]. */

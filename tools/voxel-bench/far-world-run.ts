@@ -110,7 +110,7 @@ export async function writeFarWorld(pool: FarPool, projectDir: string, opts: Far
   const cols = opts.limit === undefined ? all : all.filter((_, i) => i % Math.max(1, Math.floor(all.length / opts.limit!)) === 0).slice(0, opts.limit);
   const files: string[] = [];
   let bytes = 0, uniform = 0, stored = 0, done = 0;
-  const tasks = cols.map(([rx, rz]) => ({ kind: 'world' as const, gridDir, rx, rz, opts: { ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(opts.sizeKm !== undefined ? { sizeKm: opts.sizeKm } : {}) } }));
+  const tasks = cols.map(([rx, rz]) => ({ kind: 'world' as const, gridDir, rx, rz, opts: { ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(opts.sizeKm !== undefined ? { sizeKm: opts.sizeKm } : {}), ...(opts.style !== undefined ? { style: opts.style } : {}) } }));
   const { mkdirSync } = await import('node:fs');
   mkdirSync(gridDir, { recursive: true });
   const stopped = await pool.run<FarColumnWrite>(

@@ -1,17 +1,25 @@
 /**
  * The multi-km mountain test world for the far field: a square of 8 km by
- * default, mountains to ~1.5 km with terraced cliffs, overhangs where the
- * cliffs are, ridges and the valleys between them, rolling ground in the
- * middle and the bench's dense town (town.ts) at its centre on flat ground.
+ * default with the bench's dense town (town.ts) at its centre on flat ground,
+ * in one of two styles:
+ *
+ * - `realistic` (the default; far-landscape.ts): eroded massifs to ~1.5 km
+ *   with ridgelines, branching valleys and river channels from a drainage
+ *   simulation, floodplains, escarpments, crags, outcrops with overhangs,
+ *   boulders and scree, a few arches, snow on the high peaks, half-metre
+ *   detail at the surface;
+ * - `terraced`: the first far world, kept for measurements against it:
+ *   ridged noise mountains with regular terraced cliffs, overhangs where the
+ *   cliffs are, material by slope and height.
  *
  * Engine-owned test data for measuring the far field, not a product feature
  * and not world generation for games. Every cell is a pure function of the
- * seed and the cell's position, and the world is written one region column
- * (256 m × the world's height) at a time straight to region files, each
- * column holding only its own chunks, so a world of any size is never held
- * in memory; columns are independent, so workers write them side by side.
- * Chunks wholly under the ground are uniform rock entries (12 bytes each),
- * so the cost on disk follows the surface.
+ * seed, the size and the cell's position, and the world is written one region
+ * column (256 m × the world's height) at a time straight to region files,
+ * each column holding only its own chunks, so a world of any size is never
+ * held in memory; columns are independent, so workers write them side by
+ * side. Chunks wholly under the ground are uniform rock entries (12 bytes
+ * each), so the cost on disk follows the surface.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,7 +44,9 @@ import {
 import { gridFolder, pickStore, VOXEL_WORLDS_FOLDER, writeVoxelWorldManifest, zstdCompress } from '@thirdlight/workspace';
 import { TEST_WORLD_ID } from './test-world-id';
 import { townWorld } from './town';
-import { CoarseField, MAT, fillGroundColumn, shapeByte, type GroundColumn } from './world-kit';
+import { CoarseField, MAT, fillGroundColumn, shapeByte, smoothstep, type GroundColumn } from './world-kit';
+import { FLAT_RADIUS, RISEN_RADIUS } from './far-drainage';
+import { FarLandscape, LANDSCAPE_BASE } from './far-landscape';
 
 /** The far world's folder name in a project. */
 export const FAR_WORLD_NAME = 'far';
@@ -46,13 +56,10 @@ export const FAR_WORLD_KM = 8;
 export const FAR_WORLD_FOOTPRINT: RegionFootprint = 512;
 const grid = chunkGrid(32);
 /** The world's base (cells): 64 m under the valley floor. */
-const BASE = -128;
+const BASE = LANDSCAPE_BASE;
 /** Town footprint (cells) and the chunks it is moved by so its middle is the world's origin. */
 const TOWN_CELLS = 512;
 const TOWN_SHIFT_CHUNKS = TOWN_CELLS / 2 / grid.edge;
-/** Radius (cells) of flat ground round the town, and where the mountains have fully risen. */
-const FLAT_RADIUS = 420;
-const RISEN_RADIUS = 2600;
 /** Height (cells) of the mountains' tallest peaks: ~1.5 km. */
 const PEAK = 3000;
 /** Terraced cliffs: the step (cells) and the share of each step its riser takes. */
@@ -67,10 +74,16 @@ const ROCK_SLOPE = 1.1;
 const BARE_HEIGHT = 2200;
 const SOIL = 4;
 
+/** The world's styles; the first is the default. */
+export const FAR_WORLD_STYLES = ['realistic', 'terraced'] as const;
+export type FarWorldStyle = (typeof FAR_WORLD_STYLES)[number];
+
 export interface FarWorldOptions {
   readonly seed?: number;
   /** Side in km (default {@link FAR_WORLD_KM}). */
   readonly sizeKm?: number;
+  /** Default `realistic`. */
+  readonly style?: FarWorldStyle;
 }
 
 /** The world's cell span on x and z: [−half, half), half a whole number of regions. */
@@ -79,17 +92,12 @@ export function farWorldHalf(sizeKm = FAR_WORLD_KM): number {
   return cells / 2;
 }
 
-function smoothstep(a: number, b: number, v: number): number {
-  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-}
-
 /** How much a column is cliff country (0 … 1): terraces and overhangs there. */
 function cliffMask(x: number, z: number, seed: number): number {
   return smoothstep(0.52, 0.62, valueNoise01(x / 1400, z / 1400, seed + 7)) * smoothstep(FLAT_RADIUS * 2, RISEN_RADIUS, Math.hypot(x, z));
 }
 
-/** Surface height (cells) of column (x, z). */
+/** Surface height (cells) of column (x, z) in the terraced style. */
 export function farHeight(x: number, z: number, seed: number): number {
   const r = Math.hypot(x, z);
   const risen = smoothstep(FLAT_RADIUS, RISEN_RADIUS, r);
@@ -144,6 +152,22 @@ export interface FarColumnWrite {
 
 const ROCK_VALUE = recordValue(MAT.rock, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
 
+const landscapes = new Map<string, FarLandscape>();
+
+/** The realistic landscape of a world (made once a thread: its drainage takes a few seconds). */
+export function farLandscape(sizeKm = FAR_WORLD_KM, seed = 97): FarLandscape {
+  const key = `${sizeKm}:${seed}`;
+  let l = landscapes.get(key);
+  if (l === undefined) landscapes.set(key, (l = new FarLandscape(farWorldHalf(sizeKm), seed)));
+  return l;
+}
+
+/** The ground's surface height (cells) at column (x, z) before its half-metre roughness, in a style. */
+export function farSurfaceHeight(x: number, z: number, opts: FarWorldOptions = {}): number {
+  const seed = opts.seed ?? 97;
+  return (opts.style ?? 'realistic') === 'terraced' ? farHeight(x, z, seed) : farLandscape(opts.sizeKm, seed).heightAt(x, z, null, null);
+}
+
 /**
  * Writes region column (rx, rz) of the far world into `gridDir` (the world
  * grid's folder): every stacked region file of the column that holds
@@ -174,6 +198,7 @@ export function writeFarWorldColumn(gridDir: string, rx: number, rz: number, opt
   const heights = new Float32Array((e + 2) * (e + 2));
   const cols: GroundColumn[] = [];
   const warp = new CoarseField(grid, 4);
+  const land = (opts.style ?? 'realistic') === 'realistic' ? farLandscape(opts.sizeKm, seed) : null;
   let uniform = 0;
   for (let lcx = 0; lcx < side; lcx++) for (let lcz = 0; lcz < side; lcz++) {
     const cx = rx * side + lcx;
@@ -185,6 +210,21 @@ export function writeFarWorldColumn(gridDir: string, rx: number, rz: number, opt
     if (x0 >= -TOWN_CELLS / 2 && x0 < TOWN_CELLS / 2 && z0 >= -TOWN_CELLS / 2 && z0 < TOWN_CELLS / 2) {
       for (let cy = town.bounds.min[1] >> grid.shift; cy <= (town.bounds.max[1] - 1) >> grid.shift; cy++) {
         if (town.fill(grid, cx + TOWN_SHIFT_CHUNKS, cy, cz + TOWN_SHIFT_CHUNKS, cells)) encode(cx, cy, cz);
+      }
+      continue;
+    }
+    if (land !== null) {
+      // The realistic ground: its column plans the span, then each chunk in it.
+      const col = land.plan(grid, x0, z0);
+      for (let cy = LANDSCAPE_BASE >> grid.shift; cy <= Math.floor(col.high) >> grid.shift; cy++) {
+        const y0 = cy * e;
+        // Under every cell's layers (top, soil, the outcrops' reach): whole rock.
+        if (y0 + e + 8 <= col.low) {
+          add({ cx, cy, cz, uniform: ROCK_VALUE });
+          uniform++;
+          continue;
+        }
+        if (col.fill(cells, y0)) encode(cx, cy, cz);
       }
       continue;
     }
