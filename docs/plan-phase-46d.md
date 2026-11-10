@@ -212,7 +212,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.10 | Height in the albedo's alpha (arrays, shaders, relief/height lighting, placeholder generator, kit sheets, import, docs); texture layout v1 amended add-only with an owner note; the normal map keeps no height. |
 | 46d.11 | Relief displacement off on every tier (switch kept, height-map lighting stays); blend distance: world default + per-material override, smaller value wins where two meet, live without remesh. |
 | 46d.12 | Brick far field quality spike (the chosen direction): why it turns to mush (resolution tied to node size, built from mips, one material a coarse sample); bricks from full-detail surfaces, brick resolution by screen size, colour per sample, cost on the Iris Xe; pictures vs 46d.7c at the same poses; a verdict for 46d.13. |
-| 46d.12b | (lead-added, owner 2026-11-09) Realistic far test world: the 8 km world's authored terraces replaced by eroded massifs, drainage-cut valleys and rivers, cliffs, outcrops, boulders, natural material borders, 0.5 m surface detail; per tile in workers, deterministic; `--style terraced` keeps the old one; installed on staging, pictures. |
+| 46d.12b | done (55ad23cf + tune 81b291a9): realistic `far-world` default (terraced behind `--style`), 644 MB, on staging. Pictures both modes/renderers + 6 near (§8, seen): mesh rings everywhere, bricks only on far lowland; D571 both modes (thin top cells: mesh 55–62 %, bricks 2–35 % non-grass L2–L6). Baseline: meshes 0 missed orbit, bricks 22–24 / 56–71 |
 | 46d.13 | Brick far field built on 46d.12's verdict as the default far field (cost, detail, edges D556/D558, memory D557), measured; the mesh field stays only as the fallback behind the switch. |
 | 46d.14 | Mesh fallback revision (the ~1/4 triangle cut, view culling D550) — only if the fallback is still needed after 46d.13; else deferred with a note. |
 | 46d.15 | 46d-b close (lead): full gate, review, fixes, acceptance acc46d-b. |
@@ -1690,7 +1690,7 @@ bricks differ in 0.2–14 % of pixels (> 60), most at `peak-to-town` (14 %) and 
 `near-river` — the channel a stepped gravel trench with a soil bank patch, small boulders on the grass, and soil
 strips on the far slopes; `near-boulders` — boulders sit on a gravel scree, but the cliff beside it is a regular
 lattice of 0.5 m steps with pale ledge tops (reads as a grid, not rock), dark slits where rock meets gravel, and
-rows of soil dots in the gravel; the outcrop, border, valley and escarpment poses follow below. `sight-1km`/`sight-3km` look at sky and a flank (46d.7c's terraced peak
+rows of soil dots in the gravel; `near-outcrop` — a steep rock flank from 45 m: the near ring's face is a diagonal lattice of pale 0.5 m ledge squares between dark vertical slabs (stair-stepped, no overhang visible from here); `near-border` — a clean grass slope with soil patches, a rock strip along a gully down-slope, and past ~200 m the far meshes' grass/grey rings begin at once (the near/far edge reads as a change of pattern); `near-valley` — a flat grass floor with scattered boulders, soil banks and the stepped gravel channel, the far hills ringed; `near-escarpment` — boulders on a soil slope in front, the scarp face a stepped lattice with pale ledges, a white speck line on the mountain behind (far mesh). WebGPU and WebGL 2 near pictures differ in 0.0 % of pixels. `sight-1km`/`sight-3km` look at sky and a flank (46d.7c's terraced peak
 is not in this world); the `peak-sight-*` poses replace them. Motion and pop not looked at (unverified).
 
 **Rings, measured** (`work/46d.12b/ringmesh.mts`, `ringbrick.mts`, `r2-thin.mts`; the far cache's nodes over a
@@ -1705,6 +1705,23 @@ under half (the ½ m roughness and slopes mipped), and the cell under them is gr
   L4 1–9 %, L5 10 %, L6 18 %. Occupancy's topmost-of-8 rule keeps a thin top's look at fine levels, but at L5–L6 its
   thin tops are dropped too; `faces2` at L2 has no L1 to read (built from its own cells) and its vote also counts the
   soil a step's riser shows. Fix for 46d.13 in D571 (not fixed here).
+
+**Baseline for 46d.13** (this world, staging, Iris Xe, 1280 × 720, the 60 Hz cap, medium, from the town square;
+46d.7d's orbit (3 × 8 s) and flight (2.4 km at 60 m/s); one run each, 04:50–04:58, load 2.8–4.0, uptime 17.5 d;
+`work/46d.12b/r2-perf-*.json`, `r2-perf-uptime.txt`):
+
+| | far draw | far GPU MB | page heap | job p50 / p95 | far fill | orbit missed (of ~480), p95 / max ms | flight missed (max ms) |
+|---|---|---|---|---|---|---|---|
+| WebGPU meshes | 4.80 M tris | 101.4 | 1,200 MB | 12.7 / 22.5 ms | 14.2 s | 0 / 0 / 0, 16.8 / 16.8 | 19 (67) |
+| WebGPU bricks `faces2` + fine | 43,581 bricks | 99.4 | 588 MB | 71 / 108 ms | 55.1 s | 24 / 22 / 24, 150 / 350 | 32 (267) |
+| WebGL 2 meshes | 4.80 M tris | 101.4 | 1,200 MB | 12.6 / 22.4 ms | 14.2 s | 0 / 0 / 0, 16.8 / 16.8 | 11 (83) |
+| WebGL 2 bricks `faces2` + fine | 43,581 bricks | 99.4 | 703 MB | 71 / 109 ms | 55.7 s | 71 / 68 / 56, 33 / 1,333 | 27 (500) |
+
+Read: against the terraced world (46d.12, same build) the bricks are 2 % more (43.6 k against 42.6 k), the fill and
+job the same, the far entries 10.6 MB (8.9). The WebGPU bricks miss in long stalls (the misses are ~150 ms frames,
+not 33 ms ones: p95 150 ms), WebGL 2 in more, shorter ones with 1.2–1.3 s spikes; the meshes hold the cap in the
+orbit. Both flights miss on the far commits (D550/D551), the bricks more with 5.6× longer jobs. The meshes' page heap
+is 0.5–0.6 GB over the bricks'. GPU timestamps not usable at the cap (D544).
 
 ## 9. Decision log
 
