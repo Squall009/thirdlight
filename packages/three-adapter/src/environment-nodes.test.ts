@@ -153,7 +153,7 @@ describe('environment renderer on WebGPURenderer', () => {
     env.dispose();
   });
 
-  it('temporal upscaling: the engine levels\' kind where the look anti-aliases, on WebGPU in a view drawn frame after frame; SMAA elsewhere', () => {
+  it('temporal upscaling: the engine levels\' kind where the look anti-aliases or the level upscales, on WebGPU in a view drawn frame after frame; SMAA or the spatial upscale elsewhere', () => {
     const webgpu = Object.assign(nodeRenderer(), { backend: { isWebGPUBackend: true } });
     const env = createEnvironmentRenderer(webgpu, new THREE.Scene(), { loadTexture: async () => null });
     const camera = new THREE.PerspectiveCamera();
@@ -166,22 +166,35 @@ describe('environment renderer on WebGPURenderer', () => {
     env.setRender({ temporal: false });
     env.render(camera);
     expect(built.at(-1)!.plan.aa).toBe('smaa');
-    // A look without anti-aliasing gets none (a level never turns it on); low upscales by TAAU as medium does.
+    // A look without anti-aliasing: an upscaled level that names TAAU upscales by it (low as medium), with no
+    // MSAA under it and no contact shadows or reflections the look does not draw; at the full resolution none.
     env.setRender({ temporal: true });
     env.set({ quality: 'medium', post: {} });
     env.render(camera);
-    expect(built.at(-1)!.plan.aa).toBe('none');
+    expect(built.at(-1)!.plan).toMatchObject({ aa: 'taau', samples: 0, contactShadows: false, reflections: null, upscale: { scale: 0.6 } });
+    env.set({ quality: 'low', post: {} });
+    env.render(camera);
+    expect(built.at(-1)!.plan).toMatchObject({ aa: 'taau', samples: 0 });
+    expect(env.diagnostics().render).toMatchObject({ upscale: 'taau' });
     env.set({ quality: 'low', post: { antialias: 'smaa' } });
     env.render(camera);
     expect(built.at(-1)!.plan.aa).toBe('taau');
+    env.setRender({ scale: 1, dynamic: false });
+    env.set({ quality: 'medium', post: {} });
+    env.render(camera);
+    expect(env.diagnostics().passes).not.toContain('taau');
     env.dispose();
-    // WebGL 2 keeps SMAA.
+    // WebGL 2 keeps SMAA, and an upscaled look without anti-aliasing keeps the spatial upscale (no SMAA added).
     const webgl2 = Object.assign(nodeRenderer(), { backend: { isWebGPUBackend: false } });
     const env2 = createEnvironmentRenderer(webgl2, new THREE.Scene(), { loadTexture: async () => null });
     env2.set({ quality: 'high', post: { antialias: 'smaa' } });
     env2.setRender({ temporal: true });
     env2.render(camera);
     expect(built.at(-1)!.plan.aa).toBe('smaa');
+    env2.set({ quality: 'low', post: {} });
+    env2.setRender({ temporal: true, scale: 0.6 });
+    env2.render(camera);
+    expect(built.at(-1)!.plan).toMatchObject({ aa: 'none', upscale: { filter: 'fsr1', scale: 0.6 } });
     env2.dispose();
   });
 

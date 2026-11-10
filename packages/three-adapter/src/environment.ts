@@ -440,13 +440,33 @@ function taauFromUrl(): TaauFlag {
  * own kind (`own`: what the look names before its level laid TAAU over it),
  * so WebGL 2 and the Scene view keep the look's FXAA or SMAA; SMAA for a look
  * that names TAAU itself.
+ *
+ * A level that draws below the full resolution and names TAAU upscales by it
+ * even where the look has no anti-aliasing (`aa` none): the spatial upscale
+ * in its place sharpens the far field's fine contour bands and rims every
+ * edge, where the temporal one resolves them. Where TAAU cannot draw such a
+ * frame keeps the spatial upscale over MSAA it had (no FXAA or SMAA added).
  */
-function drawnAntialias(aa: NonNullable<PostLike['antialias']>, own: PostLike['antialias'], renderer: WebGPURenderer, temporal: boolean): 'none' | 'fxaa' | 'smaa' | 'taau' {
-  if (aa !== 'taau') return aa;
+function drawnAntialias(aa: NonNullable<PostLike['antialias']>, own: PostLike['antialias'], renderer: WebGPURenderer, render: RenderOptions, level: QualityLevelConfig): 'none' | 'fxaa' | 'smaa' | 'taau' {
+  const upscaleTaau = aa === 'none' && level.post?.antialias === 'taau' && upscaled(render);
+  if (aa !== 'taau' && !upscaleTaau) return aa;
   const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
-  if (webgpu && temporal && taauFromUrl() !== 'off') return 'taau';
+  if (webgpu && render.temporal && taauFromUrl() !== 'off') return 'taau';
+  if (upscaleTaau) return 'none';
   return own === 'fxaa' ? 'fxaa' : 'smaa';
 }
+
+/** The passes and effects a look at a level wants drawn (the post stack's key). */
+interface PostWanted { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa' | 'taau'; contact: boolean; reflections: 'medium' | 'high' | null; traced: boolean; meter: boolean }
+
+const anyPost = (w: PostWanted): boolean => w.bloom || w.ssao || w.dof || w.fogVolumes || w.grading || w.aa !== 'none';
+
+/**
+ * Whether the look itself post-processes: the temporal upscale a level lays on
+ * a look without anti-aliasing draws through the stack but is no look effect,
+ * so it brings no contact shadows or reflections the look would not draw.
+ */
+const lookPost = (w: PostWanted, post: PostLike | undefined): boolean => w.bloom || w.ssao || w.dof || w.fogVolumes || w.grading || (w.aa !== 'none' && (post?.antialias ?? 'none') !== 'none');
 
 let contactOff: boolean | null = null;
 /** `?contactShadows=0`: none at any level (a comparison of what they cost and change). */
@@ -978,7 +998,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
 
   // ---- post ----------------------------------------------------------------------
-  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa' | 'taau'; contact: boolean; reflections: 'medium' | 'high' | null; traced: boolean; meter: boolean } => {
+  const wanted = (): PostWanted => {
     const p = postNow();
     const g = p?.grading;
     return {
@@ -987,7 +1007,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       dof: p?.dof?.enabled === true,
       fogVolumes: volumes.length > 0,
       grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
-      aa: drawnAntialias(p?.antialias ?? 'none', env?.post?.antialias, renderer, render.temporal),
+      aa: drawnAntialias(p?.antialias ?? 'none', env?.post?.antialias, renderer, render, level()),
       // Not a post effect of its own: drawn with the look's post effects (it needs the scene pass's depth).
       contact: !contactShadowsOff() && levelLighting(level()).contactShadows,
       // As contact shadows: drawn with the look's post effects. WebGL 2 keeps the environment and probes.
@@ -998,7 +1018,6 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     };
   };
 
-  const anyPost = (w: ReturnType<typeof wanted>): boolean => w.bloom || w.ssao || w.dof || w.fogVolumes || w.grading || w.aa !== 'none';
 
   // ---- The post stack (a RenderPipeline) ----------------------------------
   const disposePipeline = (): void => {
@@ -1040,8 +1059,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     samplesNow = renderer.samples;
     const perspective = camera instanceof THREE.PerspectiveCamera;
     // With a post effect only: a frame through the stack for another reason (render scale, culling, no MSAA) looks as without.
-    const contact = w.contact && perspective && isPost;
-    const reflections = w.reflections !== null && perspective && isPost ? w.reflections : null;
+    const contact = w.contact && perspective && lookPost(w, post);
+    const reflections = w.reflections !== null && perspective && lookPost(w, post) ? w.reflections : null;
     screenLights.keep(w.ssao && perspective, contact, reflections !== null, contact && w.ssao && render.ao !== 'off');
     if (!isPost && !noMsaa && displayBackground === null && !upscaling && scenePasses === null && !w.meter) return;
     const g = post?.grading;
