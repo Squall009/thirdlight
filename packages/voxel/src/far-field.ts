@@ -82,6 +82,12 @@ const FAR_RETRY_MS = 100;
 /** Queue places far jobs leave free in the pool for the near field's. */
 const FAR_POOL_ROOM_KEPT = 64;
 
+/** ms between pumps an update asks for when nothing came back meanwhile (a job, a read): the pool's room is all that changed. */
+const FAR_PUMP_MS = 50;
+
+/** Nodes remembered as read before the memory is cleared (each is read again when next wanted). */
+const FAR_READ_DONE_KEPT = 8192;
+
 /** Todo entries one pump looks through (the rest wait for the next). */
 const FAR_PUMP_SCAN = 512;
 
@@ -248,6 +254,10 @@ export class FarField {
   private readonly entries = new Map<string, { cells: StoredChunk | null; bytes: number }>();
   private entryBytes = 0;
   private reading = false;
+  /** Nodes whose neighbourhoods were read (checked again when sent: the read cache may have dropped some). */
+  private readonly readDone = new Set<string>();
+  /** When the last pump ran (an update between events pumps at most every {@link FAR_PUMP_MS}). */
+  private pumpedAt = -Infinity;
   /** Target nodes to mesh, nearest first, and how far {@link pump} got through them. */
   private todo: FarDrawn[] | null = null;
   private cursor = 0;
@@ -263,7 +273,16 @@ export class FarField {
   /** Selection ms and mesh worker µs. */
   readonly selectMs = new SampleRing();
   readonly meshUs = new SampleRing();
-  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0 };
+  /** ms a far job waited in the pool's queue, and ms a batch of neighbourhoods took to read. */
+  readonly queueMs = new SampleRing();
+  readonly readMs = new SampleRing();
+  /** ms the far field's own work took on the world's thread: a pump's scan, a commit's walk. */
+  readonly pumpMs = new SampleRing();
+  readonly commitMs = new SampleRing();
+  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0, unrun: 0, swappedIn: 0, swappedOut: 0 };
+  /** When (ms since the far field was made) its stages first happened: the index read, a job sent, a node drawn. */
+  readonly firsts: { index: number | null; job: number | null; drawn: number | null } = { index: null, job: null, drawn: null };
+  private readonly made = performance.now();
   /** GPU bytes of the far draws, as the page reports them. */
   gpuBytes = 0;
 
@@ -274,6 +293,7 @@ export class FarField {
     opts.source.index().then(
       (idx) => {
         this.index = idx;
+        this.firsts.index = performance.now() - this.made;
         this.reselect = true;
         this.update();
       },
@@ -376,8 +396,11 @@ export class FarField {
       for (const key of [...this.ready.keys()]) if (!this.target.has(key)) this.ready.delete(key);
       this.todo = null;
       this.commitSoon();
+      void this.pump();
+      return;
     }
-    void this.pump();
+    // Between events (a job back, a read done, a selection) the pool's room is all that can change: looked at now and then.
+    if (performance.now() - this.pumpedAt >= FAR_PUMP_MS) void this.pump();
   }
 
   /** Puts in what is ready a little later, once for everything that lands meanwhile (a commit walks the whole selection). */
@@ -438,33 +461,45 @@ export class FarField {
    */
   private async pump(): Promise<void> {
     if (this.closed || this.index === null || this.waitUpdate) return;
+    const tp = performance.now();
+    this.pumpedAt = tp;
     const todo = this.todoList();
     while (this.cursor < todo.length && !this.needs(mipNodeKey(todo[this.cursor]!.node))) this.cursor++;
     if (this.cursor >= todo.length && this.jobs.size === 0) return this.wake();
     // The pool's queue is shared: far jobs leave the near field room in it.
     let room = Math.min(FAR_JOBS_IN_FLIGHT - this.jobs.size, this.host.pool.room() - FAR_POOL_ROOM_KEPT);
     const unread: MipNode[] = [];
-    for (let i = this.cursor, seen = 0; i < todo.length && seen < FAR_PUMP_SCAN && (room > 0 || unread.length < FAR_READ_BATCH); i++, seen++) {
+    // A node is looked at once a scan by key alone: whether its neighbourhood was read (or asked for) is remembered,
+    // and its 27 + fine reads are checked again only when it is sent. A scan of every node's reads at every update
+    // took the world's thread whole (10 ms a pump, ~90 pumps a second in Play).
+    for (let i = this.cursor, seen = 0; i < todo.length && seen < FAR_PUMP_SCAN && (room > 0 || (!this.reading && unread.length < FAR_READ_BATCH)); i++, seen++) {
       const n = todo[i]!.node;
       const key = mipNodeKey(n);
       if (!this.needs(key) || this.jobs.has(key)) continue;
-      if (this.neighbourhoodRead(n)) {
-        if (room > 0) {
+      if (this.readDone.has(key)) {
+        if (room <= 0) continue;
+        if (this.neighbourhoodRead(n)) {
+          this.readDone.delete(key);
           this.submit(n);
           room--;
-        }
-      } else if (unread.length < FAR_READ_BATCH) unread.push(n);
+        } else this.readDone.delete(key);
+      } else if (!this.reading && unread.length < FAR_READ_BATCH) unread.push(n);
     }
+    this.pumpMs.add(performance.now() - tp);
     if (this.reading || unread.length === 0) return;
     this.reading = true;
+    const t0 = performance.now();
     try {
       await this.readNeighbourhoods(unread);
+      this.readMs.add(performance.now() - t0);
     } catch (e) {
       this.failed = e instanceof Error ? e.message : String(e);
       this.reading = false;
       this.wake();
       return;
     }
+    if (this.readDone.size > FAR_READ_DONE_KEPT) this.readDone.clear();
+    for (const n of unread) this.readDone.add(mipNodeKey(n));
     this.reading = false;
     if (!this.closed) void this.pump();
   }
@@ -551,6 +586,7 @@ export class FarField {
     // After every near job of the lane (theirs count squared cells from the focus): the far field never holds the near field back.
     const distance = FAR_JOB_DISTANCE_OFFSET + (d?.distance ?? 0) ** 2;
     const kind = this.draw;
+    this.firsts.job ??= performance.now() - this.made;
     void this.host.pool.submit<FarMesh | FarBricks>({ id, kind: kind === 'bricks' ? 'far-bricks' : 'far-mesh', lane: 'mip', distance, input, transfer }).then((o) => this.meshed(n, key, id, stamp, kind, o));
   }
 
@@ -560,6 +596,7 @@ export class FarField {
     this.jobs.delete(key);
     if (this.closed) return;
     if (o.status !== 'done') {
+      if (o.status !== 'cancelled') this.counters.unrun++;
       // Cancelled with its node, or the pool was busy: the next pump asks again while the node is still wanted.
       if (o.status !== 'cancelled' && o.status !== 'queue_full' && o.status !== 'timeout' && o.status !== 'worker_lost') this.failed = `far node ${key}: ${o.status}${'message' in o ? `: ${o.message}` : ''}`;
       // Asked again at the next update, never in this task: a busy pool answers at once, and asking again at once
@@ -579,6 +616,7 @@ export class FarField {
       return;
     }
     this.meshUs.add(o.workerUs);
+    this.queueMs.add(o.queueMs);
     this.counters.meshes++;
     if (kind === 'bricks') {
       const b = o.output as FarBricks;
@@ -604,6 +642,7 @@ export class FarField {
 
   /** Puts in every group of changes whose new nodes are all meshed, and takes out what they replace. */
   private commit(): void {
+    const tc = performance.now();
     const parent = new Map<string, string>();
     const find = (k: string): string => {
       let r = k;
@@ -659,9 +698,13 @@ export class FarField {
     }
     if (added.length > 0 || removed.length > 0) {
       this.counters.events++;
+      this.counters.swappedIn += added.length;
+      this.counters.swappedOut += removed.length;
+      this.firsts.drawn ??= performance.now() - this.made;
       const e: FarEvent = { type: 'far', added, removed };
       for (const l of this.listeners) l(e);
     }
+    this.commitMs.add(performance.now() - tc);
     this.wake();
   }
 
@@ -751,7 +794,7 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; problem: string | null; counters: FarField['counters']; index: number[] | null } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; index: number[] | null } {
     return {
       draw: this.draw,
       nodes: this.target.size,
@@ -762,6 +805,11 @@ export class FarField {
       sourceBytes: this.opts.source.memoryBytes(),
       selectMs: { p50: this.selectMs.quantile(0.5), p95: this.selectMs.quantile(0.95) },
       meshUs: { p50: this.meshUs.quantile(0.5), p95: this.meshUs.quantile(0.95) },
+      queueMs: { p50: this.queueMs.quantile(0.5), p95: this.queueMs.quantile(0.95) },
+      readMs: { p50: this.readMs.quantile(0.5), p95: this.readMs.quantile(0.95), n: this.readMs.count },
+      pumpMs: { p50: this.pumpMs.quantile(0.5), p95: this.pumpMs.quantile(0.95), n: this.pumpMs.count, sum: sumOf(this.pumpMs) },
+      commitMs: { p50: this.commitMs.quantile(0.5), p95: this.commitMs.quantile(0.95), n: this.commitMs.count },
+      firsts: { ...this.firsts },
       problem: this.failed,
       counters: { ...this.counters },
       index: this.index?.counts() ?? null,
@@ -783,6 +831,13 @@ export class FarField {
     this.entries.clear();
     for (const w of this.waiters.splice(0)) w();
   }
+}
+
+/** The kept samples' sum. */
+function sumOf(r: SampleRing): number {
+  let n = 0;
+  for (const v of r.sorted()) n += v;
+  return n;
 }
 
 /** A node's stored cells as a job's own copy (the stored bytes stay here for the jobs that read them again). */

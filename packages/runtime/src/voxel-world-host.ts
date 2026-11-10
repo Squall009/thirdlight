@@ -211,6 +211,19 @@ export interface VoxelHostEvents {
   warn(message: string): void;
 }
 
+/** What a world's host holds and does (diagnostics): its stream, its pool and its far field. */
+export interface VoxelHostStats {
+  readonly world: string;
+  readonly open: boolean;
+  readonly resident: number;
+  readonly bytes: number;
+  readonly overlayBytes: number;
+  readonly bodies: number;
+  readonly propChannelBytes: number;
+  readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
+  readonly far?: Readonly<Record<string, unknown>> & { readonly selected: number; readonly drawn: number; readonly pending: number };
+}
+
 export class VoxelWorldHost {
   readonly name: string;
   /** The distances and settings in use: the scene's (as a script changed them) at the quality level. */
@@ -498,9 +511,21 @@ export class VoxelWorldHost {
   }
 
   /** What the host holds (diagnostics). */
-  stats(): { world: string; open: boolean; resident: number; bytes: number; overlayBytes: number; bodies: number; propChannelBytes: number } {
+  stats(): VoxelHostStats {
     const m = this.streamer?.metrics();
-    return { world: this.name, open: this.streamer !== null, resident: m?.resident ?? 0, bytes: m?.bytes.total ?? 0, overlayBytes: m?.bytes.overlay ?? 0, bodies: this.bodies?.count ?? 0, propChannelBytes: this.channel?.stats().bytes ?? 0 };
+    const pool = this.conn?.pool;
+    const far = this.streamer?.far?.metrics();
+    return {
+      world: this.name,
+      open: this.streamer !== null,
+      resident: m?.resident ?? 0,
+      bytes: m?.bytes.total ?? 0,
+      overlayBytes: m?.bytes.overlay ?? 0,
+      bodies: this.bodies?.count ?? 0,
+      propChannelBytes: this.channel?.stats().bytes ?? 0,
+      ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
+      ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters } } : {}),
+    };
   }
 
   /** The streamer (null until the world is open): what the presentation joins draws from. */

@@ -1787,6 +1787,8 @@ export class RuntimeInstance implements Runtime {
     if (architecture !== null) m2.architecture = architecture;
     const worldStream = this.grid.stream.diagnostics();
     if (worldStream !== null) m2.worldStream = { ...worldStream, suspended: this.chars.suspension.diagnostics() };
+    const voxelWorlds = this.entities.voxels.stats();
+    if (voxelWorlds.length > 0) m2.voxelWorlds = voxelWorlds;
     return Object.assign(m2, this.faults.failure());
   }
 }
