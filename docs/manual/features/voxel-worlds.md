@@ -256,24 +256,27 @@ Past the load ring the world is drawn by its **far field**, as far as the
 world reaches: there is no distance past which nothing is drawn, and a
 mountain kilometres away shows above the horizon. The far field draws the
 world's coarser voxels (2 m cells and up, coarser with distance) from the
-world's **far cache**, either meshed or as ray-marched distance bricks, which the backend builds beside the world (in the
+world's **far cache** as ray-marched distance bricks (or, as a fallback, meshed), which the backend builds beside the world (in the
 project's `cache/` folder, never committed), keeps current with every edit
 command, and an export ships with the world. A world's first build (minutes
 for a world of kilometres) runs in the background: edits go on meanwhile and
 are built into it when it lands, and the far field appears once it is there.
 
 - **Mode and detail, by quality level.** A quality level's **Voxel far
-  field** is `mesh` (default on every tier), `bricks` or `off` (nothing past
-  the load ring); its **Voxel far detail** is how many pixels a far voxel
-  may cover before finer ones are drawn (low 8, medium 4, high 3; smaller is
-  sharper and draws more). Which of the two modes is the default is decided
-  once both are compared.
-- **Meshes and bricks.** `mesh` draws each far node as triangles (terraced,
-  like the near ground). `bricks` keeps each far node as a sparse distance
-  field (8³-cell bricks where its surface passes) and draws a box a brick,
-  in which the GPU marches each pixel's ray to the surface: smoother slopes,
-  no triangles, and it writes the surface's own depth. Both take the
-  material's colour, light the same way, and hand over to the near field
+  field** is `bricks` (default on every tier), `mesh` (the fallback) or
+  `off` (nothing past the load ring); its **Voxel far detail** is how many
+  pixels a far voxel may cover before finer ones are drawn (low 8, medium 4,
+  high 3; smaller is sharper and draws more).
+- **Bricks.** Each far node is kept as a sparse distance field (8³-cell
+  bricks where its surface passes), built from the faces of the next finer
+  level's voxels so roofs, rocks and ledges a voxel or two across keep a
+  body; each sample carries its colour and a soft ambient occlusion, baked
+  when the node is built. The GPU draws a box a node and marches each
+  pixel's ray through the node's bricks to the surface: smooth slopes, no
+  triangles, and it writes the surface's own depth.
+- **Meshes (the fallback).** `mesh` draws each far node as triangles
+  (terraced, like the near ground) from its coarse voxels. Both modes take
+  the material's colour, light the same way and hand over to the near field
   the same way; a mode switch makes every far node again and swaps it in
   node by node.
 - **Where it meets the near field.** The far field draws under the near
@@ -286,18 +289,25 @@ are built into it when it lands, and the far field appears once it is there.
   and openings narrower than 1 m are not drawn there. A game's runtime edits
   (`ctx.voxels`) show in the near field only; edit commands reach the far
   field too.
-- On the voxel world page, `?farField=off|mesh|bricks` and `?farError=` (pixels)
-  override the quality level's; `?farShow=0` keeps the far draws hidden.
+- On the voxel world page, `?farField=bricks|mesh|off` and `?farError=` (pixels)
+  override the quality level's; `?farRes=half` marches the bricks at half
+  resolution (a trial: silhouettes step and slopes shimmer); `?farShow=0`
+  keeps the far draws hidden.
 
 Limits today:
 
 - **A rare gap between levels.** Where two caves meet in a saddle that the
   two levels join differently, a small hole (about 1 × 5 m) can show at a
   level boundary inside the cave.
-- **Far field cost.** A far field of thousands of nodes takes several million
-  triangles at medium (5 M from the 8 km test world's town) and meshes for
-  tens of seconds after a world opens; a larger **Voxel far detail** draws
-  fewer.
+- **Far field cost.** From the 8 km test world's town at medium the bricks
+  hold about 44 k bricks in ~164 MB of GPU memory, which grows as the view
+  travels and is not given back yet; they take about 50 s to fill after a
+  world opens (the meshes ~15 s, with ~5 M triangles), and a fast flight
+  drops a few frames while new nodes land. A larger **Voxel far detail**
+  draws fewer.
+- **Where the near field ends.** Within the near field's outermost chunk
+  the far field draws too, and where its coarser surface lies higher it can
+  show in front of the near ground there.
 
 ## In the editor
 

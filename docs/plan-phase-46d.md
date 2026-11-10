@@ -247,7 +247,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.11 | done (ee2ba690): relief off on every tier (`RELIEF_STEPS_BY_TIER` 0; `voxelRelief`, ring, page switch kept): town high 3.17 M → 802 k tris, stream 221 → 116 MB, no relief mesher; medium 1.25 M → 802 k. Blend: `voxel.blendMetres` + `voxelWorld.blendMetres` (0–0.5 m, default 0.25), narrowest of the 8 cells wins, live (uniform / table only). e2e 70.8 → 71.8 s |
 | 46d.12 | done (0c1be6cb, spike): mush traced — bricks built from the node's own mips (town roofs 9.0 m low at 512 m nodes; from children 3.6 m), not sample spacing (2.2–2.8 px/sample already). `?farBricks=faces2`: children's face field, tight bounds, colour blend + field AO; D556/D558 gone. Fill 16 → 49–55 s, orbit 17–23 (WebGPU) / 64–121 (WebGL 2) missed. Verdict §8 |
 | 46d.12b | done (55ad23cf + tuning): `far-world` style `realistic` (default; `--style terraced` keeps the old): stream-power drainage (32 m grid, same in every worker: seams exact), gullies, scarps, crags, rivers + floodplains, outcrops, boulders, 31 arches, snow (id 7). 644 MB (9.6 MB/km²), 463 s; cache 54.1 MB, 253 s; peak 2.6 GB. On staging. Mesh rings = D571 |
-| 46d.13 | 13a done (ea5a0542): D571, D570 fixed. 13b-1 done (d116bf13, fab6bf4f, 434cc33e): baked + node march + half-res (switches). 13b-2 done (f99af3cb): raster bricks; bake-off medium missed a round meshes 0, v3 0–2, v3 half 0, raster 16–38 (7.3 M tris); far GPU 101/164/164/44 MB; heap 1.2/0.62/0.59/1.36 GB. Pick v3 full (§8, D575–D576). 13c next |
+| 46d.13 | 13a (ea5a0542): D570/D571 fixed. 13b (d116bf13, fab6bf4f, 434cc33e, f99af3cb): baked, node march, half-res, raster; pick v3. 13c-1 done (40fe19d0, 1cd4be9a): v3 default in Play, export, Scene view, page; meshes the fallback; other variants retired. Play at the cap, medium: v3 missed 0–1 a round, flight 1–3; meshes 0–1, their flight OOM in 6 GB (§8). 13c-2 next |
 | 46d.14 | not started |
 | 46d.15 | not started |
 
@@ -1939,6 +1939,73 @@ D557's atlas growth and give-back); the fill (48 s against the meshes' 14 s; the
 half resolution there with D574's reuse); Play, the Scene view and exports drawing v3 (today only the page selects
 it); pop at level changes (unverified); then make it the default and the mesh field the fallback (46d.14).
 
+### 46d.13c-1 bricks v3 the default far field; the losing variants retired
+
+**Built** (40fe19d0 the default, 1cd4be9a the retirement). *Default:* `FAR_FIELD_BY_TIER` draws `bricks` on every
+tier (low, medium, high); the far field builds `FAR_BRICK_BUILD` (`@thirdlight/voxel` `far-bricks.ts`: faces from the
+children, `scale` 2, occlusion baked in the job), the one place the build is defined; the three-adapter far view has
+one shading (baked) and one march (a node a box over its brick table), so every host that draws a voxel world draws v3:
+Play (worker and single thread), exports, the Scene view and the voxel world page, both renderers. The mesh far field
+stays selectable: the quality field `voxelFarField: 'mesh'`, the page's `?farField=mesh`, the hook's
+`setFar({ mode: 'mesh' })`. Play's voxel hook (`__tlVoxelPlay`) now reports each world's far draws (`far`: nodes,
+bricks, triangles, draws, GPU bytes) and can hide them (`showFar`). *Retired* (one path to maintain): the occupancy
+build (`brickFarNode`, `farBricksOf`, `FAR_BRICK_BUILD_OCCUPANCY`, `FAR_BRICK_BUILDS`), the flat and per-pixel fine
+shadings (`FarBrickShading`, the look-word atlas), the box-a-brick march (`farBrickGeometry`, its three attributes,
+`marchFarBrick`, `farBrickBox`), the rasterized bricks (`far-bricks-raster.ts`, `voxel-far-raster.ts` and their
+tests, the page's `farRuns`). Their code is in git: ad8b9da3 (occupancy, flat, box a brick), 0c1be6cb (faces builds,
+fine), d116bf13 (baked), fab6bf4f (node march), f99af3cb (raster); a0de93e3 is the last tree holding all of them.
+The page's `?farBricks`, `?farShade`, `?farMarch` are ignored with a console warning naming them; the hook's `bricks`,
+`shade`, `march` throw (nothing applied). *Kept:* half resolution as the page's off-by-default switch (`?farRes=half`,
+`setFar({ res })`): one module and one flag, and the planned path for the high tier's misses (13c-2, with D574's reuse).
+Lines: 1,399 removed, 319 added in the retirement. Render spec §4 and the manual's far field section rewritten; the
+reference regenerated (the field's description).
+
+**Tested.** `voxel-world.e2e.ts` (extended, no new file): the page's far field settles as bricks by default (draw
+`bricks`, bricks > 0, no triangles, no background below the horizon) and switches to the mesh fallback (triangles,
+no bricks, no background) on both renderers; Play (WebGPU worker, WebGL 2 single) and the export served with the
+backend stopped switch to the low tier, where the play world's own load ring is 40 m (`quality.low`, so the pit
+camera's upper frame looks past the near field), and prove far bricks drawn (no triangles) and pixels past the near
+field that are the background with the far draws hidden and ground with them shown (Play 2,854 / 2,495 px, export
+25,674 px). Time 72.1 → 75.3–77.3 s (two gates). Vitest: the tiers' far mode (`voxel-world.test.ts`), the far view's
+one path (`voxel-far-view.test.ts`: a node an instance over its pages, baked uploads, programs on WGSL and GLSL,
+kind swaps, half resolution), the faces build from the node's own cells as the lowest level reads it
+(`far-bricks.test.ts`, the box march on fixed rays with the lip), the page's defaults and refused switches
+(`page-view.test.ts`, new). Fast gates gate-fast-20261110-092005 (red: the far view test assumed the old defaults;
+GREEN on rerun gate-rerun-20261110-093122) and gate-fast-20261110-094844 GREEN (15 min, 5.1 GB; D523/D554's two
+tests timed out once under load and passed alone; village perf 0 missed both renderers).
+
+**Measured** in Play (staging, Iris Xe, the editor's Play frame pinned to 1280 × 720, the 60 Hz cap, medium pinned
+by the project's level, the realistic 8 km world; a camera script orbits the town square at 0.15 rad/s as the page's
+perf does and flies 2.4 km toward the peak at 60 m/s; one round each, 10:32–10:43, load 2.0–7.4, uptime 17.7 d;
+`work/46d.13c-1/play-perf-*.json`, `perf-uptime.txt`, `play-perf.mjs`):
+
+| medium, Play | far draw | far GPU MB | fill from page load | orbit missed (of ~480), max ms | flight missed (of ~2,390), max ms | frame heap |
+|---|---|---|---|---|---|---|
+| WebGPU v3 (worker) | 2,598 nodes, 43,681 bricks, 40 draws | 164.3 | 138 s | 0 / 0 / 0, 16.8 | 3, 133 | 1.13 GB |
+| WebGL 2 v3 | same | 164.3 | 137 s | 1 / 0 / 0, 66.6 | 1, 50 | 1.07 GB |
+| WebGPU meshes | 2,290 nodes, 4.81 M tris, 40 draws | 101.6 | 38 s | 1 / 0 / 0, 33.4 | browser OOM-killed in its 6 GB scope | 1.83 GB |
+| WebGL 2 meshes | same | 101.6 | 38 s | 0 / 1 / 0, 33.3 | browser OOM-killed in its 6 GB scope | 1.83 GB |
+
+Read: v3 holds the cap in Play as on the page (13b: 0–2); the mesh fallback too, at +0.7 GB of frame heap, and its
+flight ran the editor + Play browser out of its 6 GB cap on both renderers (the bricks' did not). The fill is 3.6×
+the meshes' (the page: 48 vs 14 s); counted here from the editor's page load, near field and far field together.
+During the flight the drawn far set did not change (2,598 nodes before and after, the camera 2.4 km on at its end):
+no far group was swapped in within 40 s while the near field streamed (its jobs go first; D550/D551, 13c-2). A run
+before the level was pinned started at the device's high tier and filled 4,298 nodes, 71,189 bricks, 315 MB in 217 s
+with 0 missed a round. From above the peak side the atlas held 204 MB (D557's growth). GPU timestamps not used (D544).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/13c-1/`, Play, medium, both renderers: `town-0` the town
+square toward the massif, `town-1` a third of the orbit on, `peak-to-town` from 1.8 km up 3.6 km toward the peak;
+every picture opened). The town's near field in front, the far field past it with no cut-off, no dark strip or gap
+along the near field's edge; the valley floor and the grass slopes carry fine horizontal step-shading lines (the
+terraces' shading, strongest on the gentle slopes before the massif: the look 13a/13b described, D569's kind), the
+massif's rock and grass patches and the gravel channels read clearly, snowless peaks smooth. `peak-to-town`: the green
+lowland with contour-like shading, the channels as brown/grey lines, the town a small red patch, the massif's peaks
+behind, a rocky ridge in front; WebGPU and WebGL 2 pictures alike (the town poses differ by the orbit's timing). The
+first e2e pictures at a 20 m test ring showed the far field drawing over the near field in the near cover's
+uncovered outer chunk ring, the mesh fallback too (D577). Motion in Play not looked at (unverified); the high tier's
+pictures and an edit re-baking the palette in a browser unverified.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -2473,6 +2540,18 @@ it); pop at level changes (unverified); then make it the default and the mesh fi
   cubes are clipped to their node's box and skirts lit as the surface's steepest direction (lit as their own face
   they read as black dots along node seams).
 
+- 2026-11-10 (46d.13c-1, lead on the owner's "build the winner as the default far field"; default chosen, owner to
+  confirm): **ray-marched bricks v3 are the far field on every tier and in every host**, meshes the fallback behind
+  `voxelFarField: 'mesh'`; one build (`FAR_BRICK_BUILD`, faces from the children, baked occlusion), one shading
+  (baked), one march (a node a box).
+- 2026-11-10 (46d.13c-1, default chosen, owner to confirm): **the losing variants are retired, not kept behind
+  switches** (occupancy, flat, fine, box a brick, raster; code in ad8b9da3 … f99af3cb, last tree a0de93e3); the old
+  page parameters warn and are ignored, the hook's refuse. **Half resolution stays** as an off-by-default page switch:
+  small to keep and the planned trial for the high tier (D574 open).
+- 2026-11-10 (46d.13c-1, default chosen, owner to confirm): **Play and the export prove the far field in the e2e at
+  the low tier with the play world's own 40 m load ring** (`quality.low`): the other tiers load the whole 128 m test
+  world, so nothing is far there; a 20 m ring put the near cover's uncovered outer ring in view (D577).
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
@@ -2484,8 +2563,8 @@ it); pop at level changes (unverified); then make it the default and the mesh fi
 - **The far-field pick:** voxel-mip meshes, ray-marched bricks, or a hybrid — read
   `~/.cache/thirdlight-phase46/far-field-comparison.md` (46d.7d; lead: meshes default, bricks kept, no hybrid).
   Both stay until then. Owner 2026-11-09 chose the brick direction; 46d.13b's bake-off (§8, the
-  comparison's new top section) recommends ray-marched bricks v3 at full resolution as 13c's default over rasterized
-  bricks: confirm, and whether the raster switch is kept for a dedicated-GPU measurement or retired.
+  comparison's new top section) recommended ray-marched bricks v3 at full resolution; 46d.13c-1 made it the default
+  everywhere (meshes the fallback) and retired the raster and other variants (in git, f99af3cb …): confirm.
 - The relief verdict (46d.1b, §8): low normal only, medium n = 2 in 16 m, high n = 4 in 24 m, n = 8 rejected; and
   whether walls should get parallax occlusion instead of mesh relief.
 - Whether relief should also push outward (proud stones) where the collision shape allows it, against the inward-only

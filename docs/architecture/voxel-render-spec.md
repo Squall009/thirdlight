@@ -389,7 +389,7 @@ digest, byteLength }] }`, files in name order.
 **Selection.** As above, from the stream focus, with no near box: the far field draws under the near field
 everywhere (see the near cover), so a chunk the near field has not drawn yet still shows its far stand-in. The
 on-screen error is the quality level's `voxelFarError` (pixels at 720 rows and 60°; tiers low 8, medium 4, high 3,
-`FAR_ERROR_PIXELS_BY_TIER`), the mode its `voxelFarField` (`mesh` | `bricks` | `off`, `FAR_FIELD_BY_TIER`: `mesh` on every tier).
+`FAR_ERROR_PIXELS_BY_TIER`), the mode its `voxelFarField` (`bricks` | `mesh` | `off`, `FAR_FIELD_BY_TIER`: `bricks` on every tier since 46d.13c-1; `mesh` is the fallback).
 
 **Far mesh job** (`far-mesh`, `@thirdlight/voxel` `far-mesh.ts`): a node's cells and its 26 same-level neighbours
 as the cache stores them (27 entries, index `(dx + 1)·9 + (dz + 1)·3 + (dy + 1)`, null for air), meshed by the
@@ -419,43 +419,54 @@ constants (`DISTANCE_BRICK_*`, the tracer's hit and shortest step) moved into `@
 (`distance-brick-format.ts`) with project-model and the tracer re-exporting them unchanged. Default chosen, owner
 to confirm (plan 46d §9, the 46d.7c defaults); which mode is the default stays the owner's pick (46d.7d).
 
-**Far bricks job** (`far-bricks`, `@thirdlight/voxel` `far-bricks.ts`): the same 27 entries as the far mesh job.
-The node's 32³ cells are 4³ bricks of 8³ cells (`DISTANCE_BRICK_CELLS`). A cell is solid where its fill level is at
-least half (liquid and air are not); a cell centre's value is its Euclidean distance (cells) to the nearest cell of
-the other kind less ½, negative inside, except a cell with a face neighbour of the other kind, which takes
-½ − its fill (so a partial terrain cell moves the surface inside it); a corner sample is the mean of its 8 cells,
-quantized to a byte over ± `DISTANCE_BRICK_BAND_VOXELS` (2) cells (`sampleOfDistance`: 0 is −2, 255 is +2). Read
-from a 3-cell apron of the neighbours, so same-level neighbours share their face's samples exactly. A brick whose
-samples are all > 0 is `DISTANCE_BRICK_OUTSIDE`, all ≤ 0 `DISTANCE_BRICK_INSIDE`, else stored. Output
+**Owner note (46d.13c-1, 2026-11-10):** the ray-marched bricks are the far field on every tier and in every host
+(Play, exports, the Scene view, the voxel world page); the meshes stay as the fallback behind the same switch. One
+build, one shading and one march are kept (below); the first build (occupancy distances from the node's own cells),
+the flat and per-pixel fine shadings, the box-a-brick march and the rasterized bricks are retired (their last tree
+is a0de93e3). No stored or derived format changes (derived 31, far cache format 1); the far bricks job's wire gains
+nothing new since 46d.12/13b (`build`, `fine`). Default chosen, owner to confirm (plan 46d §9).
+
+**Far bricks job** (`far-bricks`, `@thirdlight/voxel` `far-bricks-faces.ts` `brickFarNodeBy`, format in
+`far-bricks.ts`): the same 27 entries as the far mesh job, and with the build `FAR_BRICK_BUILD` (`scale` 2,
+`occlusion`) the node's children and one of theirs round them (`fine`: (2 + 2)³ entries of the level below, y
+fastest; none below the far tree's lowest kept level, where the node's own cells are read at scale 1). The node's
+32³ cells are 4³ bricks of 8³ cells (`DISTANCE_BRICK_CELLS`). Each corner sample is the exact signed distance (node
+cells) to the faces of the solid cells (fill level at least half; liquid and air are not) read `scale` times finer:
+a corner touching both kinds is 0, any other the Euclidean distance to the nearest corner of the other kind (the
+separable transform over the corner lattice), a surface corner moved by ½ − the mean fill of its 8 finer cells (so
+partial terrain cells still move it); quantized to a byte over ± `DISTANCE_BRICK_BAND_VOXELS` (2) cells
+(`sampleOfDistance`: 0 is −2, 255 is +2). Read from an apron of the neighbours, so same-level neighbours share their
+face's samples exactly. A brick whose samples are all > 0 is `DISTANCE_BRICK_OUTSIDE`, all ≤ 0
+`DISTANCE_BRICK_INSIDE`, else stored; a surface lying on a brick face is drawn by its solid side. Output
 (`FarBricks`): `side` (4), `bricks` (`Int32Array` 64, x fastest then y then z: block index or a code), `samples`
-(729 bytes a block, x fastest), `looks` (`Uint16Array`, a word a sample: the topmost solid of its 8 cells, else the
-nearest solid within 2 cells, else the block's last), `blocks` (4 bytes a block: brick x, y, z in the node and the
-node box faces it lies on, bits −x +x −y +y −z +z). Draw batches carry a node's `bricks` instead of its `mesh`.
+(729 bytes a block, x fastest), `looks` (`Uint16Array`, a word a sample: the material most top cells in its
+trilinear footprint show, thin tops included, then tops a node cell above or below, then side cells only where no
+top is in reach), `blocks` (4 bytes a block: brick x, y, z in the node and the node box faces it lies on, bits −x +x
+−y +y −z +z), `bounds` (6 bytes a block: the brick cells the surface can be in, low x y z then high), `occlusion`
+(a byte a sample: the field's ambient occlusion one and two cells out along the gradient, 0 shut … 255 open). Draw
+batches carry a node's `bricks` instead of its `mesh`.
 
-**Drawn as bricks** (three-adapter `voxel-far-bricks.ts`): every stored brick's samples and looks are a 9³ region
-of a shared r8 (filtered) and rg8 (texel) 3D texture, uploaded per brick, given back when its node goes, the atlas
-grown by a GPU copy (the voxel surface's region store). One instanced box draw per group (as the meshes' groups),
-an instance a brick (corner, faces, region, cell size), one material for all. Each box's back faces are drawn and
-the fragment marches the camera ray from where it enters the box: field = the trilinear sample at the point
-clamped into the brick plus `FAR_BRICK_SKIRT_SLOPE` (4) × the distance outside it; the box grows by
-`FAR_BRICK_LIP_CELLS` (0.5) on the node faces it lies on, so a brick there hangs a steep skirt past its node; hit
-under `BRICK_HIT_VOXELS` (0.05 cells), step the field (÷ 5 in the skirt), at least `BRICK_MIN_STEP_VOXELS` (0.25),
-at most `FAR_BRICK_STEPS` (32) a brick; a miss is discarded. Normal: the samples' gradient inside the brick, or the
-entered face where the samples are clamped (deep under the surface); colour: the material table's far colour of the
-nearest sample's look, as the meshes; depth: the hit's own (`depthNode`), the same mapping as the meshes, and the
-boxes placed with that depth so none is clipped at the far plane. `marchFarBrick` is the march on the CPU.
-
-**Drawn as cubes** (switch `?farMarch=raster` / `setFar({ march: 'raster' })`, any brick build; no format change):
-`@thirdlight/voxel` `far-bricks-raster.ts` makes each node's faces on the page from the same bricks: each sample the
-centre of a cube one node cell across, solid where its distance is below 0; a face between two neighbouring samples
-of opposite signs, half way, facing out of the solid one, with its look word (a neighbour's where the sample's is 0)
-and baked occlusion. A node owns all its samples 0–32 an axis, each cube clipped to its box (a shared sample drawn
-half by each same-level neighbour, nothing twice; nodes of any levels cover their boxes); a solid sample on a box
-face within `FAR_SKIRT_CELLS` (2) of the surface puts a skirt on that face, lit as the field's steepest direction.
-Three-adapter `voxel-far-raster.ts`: one instanced square draw per group, 12 bytes a face (cell, kind, shading
-direction, look, occlusion), the object scaled by the cell; colour as the meshes' times the occlusion; the far depth
-from the vertex stage; a face whose cube lies in the near cover is moved off screen in the vertex stage. No atlas, no
-march, no fragment depth or discard (early depth test).
+**Drawn as bricks** (three-adapter `voxel-far-bricks.ts`): every stored brick's samples are a 9³ region of a shared
+r8 (filtered) 3D texture and its baked samples a region of a twin RGBA8 (filtered) one, uploaded per brick, given
+back when its node goes, the atlas grown by a GPU copy (the voxel surface's region store); a baked sample is the
+look word's far colour from a palette the GPU draws with the surface's own `farColour` (`voxel-far-palette.ts`,
+256² RGBA8, read back once and again when the material table uploads; resident bricks holding a changed word are
+baked again) and its occlusion. Each node's brick table is a page of two more stores (a stored brick's region, its
+bounds and node faces). One instanced box draw per group (as the meshes' groups), an instance a node (corner, cell
+size, page, box = the union of its stored bricks' marched boxes), one material for all. Each box's back faces are
+drawn; the fragment enters the node's box, walks its 4³ bricks in ray order (a 3D DDA over the page, at most
+3 × 4 steps, `marchFarNode`) and marches each stored brick over its own box (its bounds, grown by
+`FAR_BRICK_LIP_CELLS` (0.5) on the node faces it lies on, so a brick there hangs a steep skirt past its node;
+`marchBrickBox`): field = the trilinear sample at the point clamped into the brick plus `FAR_BRICK_SKIRT_SLOPE` (4)
+× the distance outside it, hit under the larger of `BRICK_HIT_VOXELS` (0.05 cells) and half a pixel
+(`FAR_BRICK_HIT_PIXELS`), step the field (÷ 5 in the skirt), at least `BRICK_MIN_STEP_VOXELS` (0.25), at most
+`FAR_BRICK_STEPS` (32) a brick; a ray that leaves the node first is discarded. Normal: the samples' gradient inside
+the brick, or the entered face where the samples are clamped (deep under the surface); colour: one filtered read of
+the baked samples (the eight samples' colours and occlusions blended by the hit's weights), the occlusion darkening
+to `FAR_BRICK_AO_FLOOR` (½) at most; depth: the hit's own (`depthNode`), the same mapping as the meshes, and the boxes
+placed with that depth so none is clipped at the far plane. **Half resolution** (`voxel-far-half.ts`, the voxel world
+page only, `?farRes=half`, off by default): the brick draws marched into a half-size target before the frame and a
+lit, depth-aware composite in it (no reuse of the last frame: D574).
 
 ---
 
@@ -475,8 +486,8 @@ Where each requirement 46d answers is built, where it is tested, and what is sti
 | R27, R28 material id space and the material record | 46d.3a `voxel-materials.ts` (`voxel.id` 1–4,095 on the material record, `voxel_id_taken`) | `voxel-materials.test.ts`, `material-profile-ops.test.ts`, integration voxel-world | served |
 | R64 textures inside the memory budget | 46d.4b `voxelTexelDensity` cap + the page's `texture_budget_mb` (`StreamedArrayTexture`, `texture-budget.ts`) | `tests/voxel-texture-residency.test.ts` | served: 24 / 96 / 96–384 MiB by tier (46d.8a) |
 | Owner 2026-11-06: near-ring denser mesh for displacement, measured first | 46d.1a (topology, measured), 46d.1b (displacement, verdict) | as R88 | done; numbers plan 46d §8 |
-| Owner 2026-11-04 (6): far field, no draw cut-off, mountains from several km, cheap stand-ins | 46d.7a far tree + far cache (`far-tree.ts`, workspace `voxel-far-cache.ts`, derived 31), 46d.7b meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`), 46d.7c bricks (`far-bricks.ts`, `voxel-far-bricks.ts`) | `far-tree.test.ts`, `tools/voxel-bench/far-world.test.ts`, `far-bricks.test.ts`, `voxel-far-view.test.ts`, `voxel-world.e2e.ts` (far field on the slice, both modes, export ships the cache) | served (D463, D516 fixed); open D550–D553, D555–D558 |
-| Owner 2026-11-08: build both far modes behind a switch, the owner picks | `voxelFarField` `mesh` \| `bricks` \| `off`, runtime switch | as above | both kept; comparison `far-field-comparison.md` (46d.7d); **owner's pick open** |
+| Owner 2026-11-04 (6): far field, no draw cut-off, mountains from several km, cheap stand-ins | 46d.7a far tree + far cache (`far-tree.ts`, workspace `voxel-far-cache.ts`, derived 31), 46d.7b meshes (`far-field.ts`, `far-mesh.ts`, `voxel-far-mesh.ts`), 46d.7c bricks (`far-bricks.ts`, `voxel-far-bricks.ts`) | `far-tree.test.ts`, `tools/voxel-bench/far-world.test.ts`, `far-bricks*.test.ts`, `far-looks.test.ts`, `voxel-far-view.test.ts`, `voxel-world.e2e.ts` (bricks on the slice page, the mesh fallback, bricks past the near field in Play both renderers and the export with the backend stopped) | served (D463, D516, D555, D556, D558 fixed); open D550, D551, D553, D557, D573, D574, D577 |
+| Owner 2026-11-08: build both far modes behind a switch, the owner picks | `voxelFarField` `bricks` \| `mesh` \| `off`, runtime switch; owner 2026-11-09: the brick way | as above | bricks v3 the default everywhere, meshes the fallback (46d.13c-1, after the 46d.13b bake-off); default chosen, owner to confirm |
 | Owner 2026-11-04: construction tile 4 × 4 m, grid-anchored | `voxel-surface-projection.ts` (grid U/V in metres), `tileMetres` | `voxel-surface.test.ts`, `voxel-material-looks.test.ts` | served; seen (courses line up round corners, 46d.4a) |
 | Owner B1: author 4096² at 1024 px/m; resident mip by tier and budget | 46d.4b residency; 46d.4c D532 (4096² in UASTC stripes, `ktx2-striped.ts`); D535 (import bound 65.3 MiB) | `voxel-texture-residency.test.ts`, `ktx2-striped.test.ts`, `folder-import.test.ts` | served |
 | Owner 2026-11-02: tileable arrays wall/floor/ceiling, terrain triplanar 2 m | as R112 | as R112 | served |
