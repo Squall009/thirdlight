@@ -4,8 +4,11 @@
  * on disk, a hilly test world with the world's rules derived. At speed the
  * load ring narrows (stream-ring.ts `speedRing`) and the pool takes the
  * chunks under and ahead of the focus first (stream-reads.ts
- * `motionDistance2`), so the ground under a fast camera is resident and
- * derived (what its collision is made of) soon after it arrives.
+ * `motionDistance2`). Checked in counts: the ring narrows in flight, every
+ * update counts the ground under the focus, and once stopped the ground
+ * under it (what its collision is made of) is resident and derived after a
+ * small share of the jobs that refill the ring. How often the ground is
+ * missing while flying is the coverage bench's to report (`run.mjs coverage`).
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -70,7 +73,7 @@ describe('streaming at racing speed', () => {
     expect(motionDistance2(grid, f, f, 2, 0, 0)).toBe(64 * 64);
   });
 
-  it('keeps the ground under a focus flying at 150 m/s resident and derived (real workers): the ring narrows in flight and widens when it stops, the ground under it is known within a second of stopping', async () => {
+  it('narrows the ring in flight at 150 m/s and counts the ground under the focus every update (real workers); stopped, the ground under it is known before a tenth of the refill\'s work, then the ring widens back', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     closers.push(() => disk.close());
     const pool = new WorkerPool({ size: 4, create: () => nodePoolWorker(workerFile), timeoutMs: 10_000, maxQueued: 256 });
@@ -82,12 +85,16 @@ describe('streaming at racing speed', () => {
     s.setFocus(x0, yAt(x0), 0);
     await s.settle();
     const radii: number[] = [];
+    const c0 = s.metrics().coverage;
+    let updates = 0;
+    // The flight runs in real time: the focus's speed is read from it, and the workers run beside it.
     const t0 = performance.now();
     let x = x0;
     while (x < x1) {
       x = Math.min(x1, x0 + (SPEED * (performance.now() - t0)) / 1000);
       s.setFocus(x, yAt(x), 0);
       s.update();
+      updates++;
       radii.push(s.ring.loadRadius);
       await sleep(8);
     }
@@ -96,22 +103,32 @@ describe('streaming at racing speed', () => {
     expect(Math.min(...radii)).toBe(STREAM_MIN_SPEED_RADIUS);
     expect(radii.slice(-20).every((r) => r === STREAM_MIN_SPEED_RADIUS)).toBe(true);
     expect(flight.counters.speedRings).toBeGreaterThan(0);
-    // Stopped: the ground under the focus is known within a second (updates every 8 ms); the ring is the base again once still.
-    const missedBefore = s.metrics().coverage.groundMissing;
-    const stop = performance.now();
-    let knownAfterMs = -1;
-    let lastMissed = missedBefore;
-    while (performance.now() - stop < 3000) {
+    // Every update counted the ground under the focus and its lead point. How often it was missing in flight is the
+    // coverage bench's to report (`run.mjs coverage`): the share reads how fast this host's workers ran beside it.
+    const inFlight = { updates: flight.coverage.updates - c0.updates, groundMissing: flight.coverage.groundMissing - c0.groundMissing, aheadMissing: flight.coverage.aheadMissing - c0.aheadMissing, outOfReach: flight.coverage.outOfReach - c0.outOfReach };
+    expect(inFlight.updates).toBe(updates);
+    expect(inFlight.groundMissing + inFlight.outOfReach).toBeLessThanOrEqual(inFlight.updates);
+    expect(inFlight.aheadMissing).toBeLessThanOrEqual(inFlight.updates);
+    // Stopped: the chunks under the focus come before the rest of the ring (nearest first along no motion), so the
+    // ground under it is known after a small share of the work that fills the widened ring. Counted in jobs done
+    // (loads and derives), not in time.
+    const work = (): number => s.counters.loads + s.counters.derives;
+    const w0 = work();
+    let knownAt = -1;
+    // Until the focus has no speed left (its smoothing reads the clock) and the ring is the base again; the count of
+    // updates only guards a hang.
+    for (let i = 0; i < 5000 && (knownAt < 0 || s.ring.loadRadius !== RING.loadRadius); i++) {
+      const missed = s.metrics().coverage.groundMissing;
       s.update();
-      const m = s.metrics().coverage.groundMissing;
-      if (m === lastMissed && knownAfterMs < 0) knownAfterMs = performance.now() - stop;
-      if (m !== lastMissed) knownAfterMs = -1;
-      lastMissed = m;
+      if (knownAt < 0 && s.metrics().coverage.groundMissing === missed) knownAt = work() - w0;
       await sleep(8);
     }
-    expect(knownAfterMs).toBeGreaterThanOrEqual(0);
-    expect(knownAfterMs).toBeLessThan(1000);
     expect(s.ring.loadRadius).toBe(RING.loadRadius);
-    console.log(`speed ${JSON.stringify({ updates: flight.coverage.updates, groundMissing: flight.coverage.groundMissing, aheadMissing: flight.coverage.aheadMissing, knownAfterMs: Math.round(knownAfterMs), speedRings: flight.counters.speedRings })}`);
+    await s.settle();
+    const refill = work() - w0;
+    expect(knownAt, 'the ground under the stopped focus is known').toBeGreaterThanOrEqual(0);
+    expect(refill).toBeGreaterThan(0);
+    expect(knownAt, `ground known after ${knownAt} of the refill's ${refill} jobs`).toBeLessThan(refill / 10);
+    console.log(`speed ${JSON.stringify({ ...inFlight, knownAfterJobs: knownAt, refillJobs: refill, speedRings: flight.counters.speedRings })}`);
   }, 120_000);
 });
