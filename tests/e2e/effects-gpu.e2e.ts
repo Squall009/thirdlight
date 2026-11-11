@@ -2,7 +2,7 @@
  * The effect executors (harness `effects-gpu/harness.ts`, the
  * real three-adapter player and executors):
  *
- * - `webgpu` project: the WebGPU compute executor and the CPU reference agree
+ * - WebGPU (on a GPU host, else the `webgpu` project): the WebGPU compute executor and the CPU reference agree
  *   particle by particle on neutral graphs covering every GPU block and value
  *   node (the same particles are alive, positions, colours and sizes within
  *   float precision) — the GPU buffers are read back;
@@ -17,6 +17,8 @@
 import { join, resolve } from 'node:path';
 
 import { expect, test, type Page } from './pw';
+
+import { gpuAvailable } from './browser-env.mjs';
 
 import { serveHarness } from './parity';
 import { decodePng, type Image } from './png';
@@ -34,7 +36,7 @@ test.afterAll(async () => {
   await harness?.close();
 });
 
-const isWebGPU = (): boolean => test.info().project.name === 'webgpu';
+const isWebGPU = (): boolean => test.info().project.name === 'webgpu' || gpuAvailable();
 
 async function run(page: Page, name: string, backend: string): Promise<{ result: Record<string, unknown>; errors: string[] }> {
   const errors: string[] = [];
@@ -63,7 +65,7 @@ interface ParityRow {
 }
 
 test('WebGPU compute and the CPU reference agree particle by particle', async ({ page }) => {
-  test.skip(!isWebGPU(), 'WebGPU only (the webgpu project)');
+  test.skip(!isWebGPU(), 'WebGPU only');
   test.setTimeout(240_000);
   const { result, errors } = await run(page, 'parity', 'webgpu');
   expect(result['backend']).toBe('webgpu');

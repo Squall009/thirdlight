@@ -1,9 +1,10 @@
 /**
- * Pixel parity helpers shared by the shader parity spec
- * (`shader-parity.e2e.ts`) and the environment/post parity spec
- * (`env-parity.e2e.ts`): the comparison, the tolerance rules (logged in
- * archive/plans/plan-phase-17.md), a visual diff for failure reports, and a tiny
- * localhost server for a bundled browser harness.
+ * Pixel comparison helpers for the specs that compare two pictures (a view
+ * against another, a frame before and after): the comparison, the tolerance
+ * rules (logged in archive/plans/plan-phase-17.md), a visual diff for failure
+ * reports, and a tiny localhost server for a bundled browser harness. The
+ * WebGL 2 / WebGPU parity specs that started it are archived in
+ * archive/webgl2-parity/.
  */
 import { createServer, type Server } from 'node:http';
 

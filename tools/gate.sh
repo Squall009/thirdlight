@@ -6,12 +6,10 @@
 #                                             one) + the smoke set + the e2e files named (the ones for the
 #                                             area you changed) + on a GPU host the village perf class at
 #                                             the 60 Hz cap against its baseline
-#   tools/gate.sh full [--both-renderers]     per phase item / before STATUS says done: build +
+#   tools/gate.sh full                        per phase item / before STATUS says done: build +
 #                                             lint + vitest + every e2e spec, the leak test included
-#                                             (TL_MEMORY=1). On a GPU one pass in the
-#                                             product's own renderer; --both-renderers (for shader /
-#                                             rendering changes) adds the forced WebGL 2 variants and
-#                                             the webgpu project
+#                                             (TL_MEMORY=1), once on the product's renderer (WebGPU on a
+#                                             GPU; WebGL 2's coverage is webgl2-smoke.e2e.ts)
 #   tools/gate.sh rerun                       the fix loop: the build, then the step the last RED gate
 #                                             stopped at (lint, the vitest files that failed, the e2e
 #                                             tests that failed, the perf check) and the steps after it
@@ -35,10 +33,7 @@
 # above a 5G cap with them all, so a gate started under 5G sets about 4.
 # On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
 # 4.7 and 5.6 GB of anonymous memory (6.5 GB with the page cache the cap reclaims), each test
-# about 5 % slower than on 2: the cap holds 3, not 4 (+0.9 GB a worker). With --both-renderers
-# (every test in both renderers' browsers, the leak test on) 3 workers reached the 7 G cap and were
-# OOM-killed 18 min in, the terrain CDLOD file (the landscape class, 3.6 min alone) among the files
-# in flight; 2 workers ran those files at a 5.4 GB peak: FULL_WORKERS_BOTH.
+# about 5 % slower than on 2: the cap holds 3, not 4 (+0.9 GB a worker).
 set -u
 mode=${1:-}
 shift || true
@@ -49,7 +44,6 @@ SMOKE=(tests/e2e/start.e2e.ts tests/e2e/authoring-loop.e2e.ts tests/e2e/play-exp
 # The full gate has no fixed time budget (AGENTS.md): its summary gives its time beside the previous green full
 # gate's (the previous phase's end), so a phase's growth is seen and questioned in its review.
 FULL_WORKERS=3
-FULL_WORKERS_BOTH=2
 # A worker count the caller set wins in every mode.
 workers_set=${TL_E2E_WORKERS:+1}
 export TL_E2E_WORKERS=${TL_E2E_WORKERS:-2}
@@ -257,17 +251,24 @@ e2e() { # e2e <log> [playwright args…]
 }
 
 # The village perf class's export at the display's 60 Hz cap against its recorded baseline
-# (tests/perf/village-baseline.json): refreshes missed and the main thread's CPU time per frame, both renderers,
-# alone after the e2e step. Never uncapped: uncapped frame times read the host's load. Only on a GPU host:
-# SwiftShader frame times say nothing about the product. Re-record: docs/manual/features/performance.md.
+# (tests/perf/village-baseline.json): refreshes missed and the main thread's CPU time per frame on WebGPU (the
+# product's renderer), alone after the e2e step. Never uncapped: uncapped frame times read the host's load. Only on
+# a GPU host: SwiftShader frame times say nothing about the product. Only when a package that draws or runs the
+# frame changed (or there is no base to compare with). Re-record: docs/manual/features/performance.md.
+PERF_PATHS='^(packages/(three-adapter|runtime|game-host|voxel|effects)|tools/perf|tests/perf)/'
+perf_needed() {
+  [ -z "$BASE" ] && return 0
+  printf '%s\n' "${CHANGED[@]}" | grep -qE "$PERF_PATHS"
+}
 perf_check() {
+  if ! perf_needed; then say "perf: not run (nothing that draws or runs the frame changed since ${BASE:0:8})"; return 0; fi
   if ! node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
     # Not a pass: the gate's last line says the village class went unmeasured.
     PERF_SKIPPED=" — perf SKIPPED: no usable GPU, the village class was NOT measured"
     say "perf: SKIPPED (no usable GPU): the village class was NOT measured"; return 0
   fi
   local t=$(date +%s) rc
-  node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json > "$L/perf.log" 2>&1
+  node tools/perf/run.mjs village --gate --renderers webgpu --check tests/perf/village-baseline.json > "$L/perf.log" 2>&1
   rc=$?
   say "perf: $(grep -E '^village: (REGRESSION|webgpu|webgl2|the baseline)' "$L/perf.log" | sed 's/^village: //' | tr '\n' ';') ($(( $(date +%s) - t )) s)"
   return $rc
@@ -279,16 +280,14 @@ fast_e2e() { # fast_e2e [e2e files…]: the smoke set and the named files
 fast_perf() {
   perf_check || { fail_at perf; done_ "RED perf (the village class at the cap; fix, then: tools/gate.sh rerun)"; }
 }
-full_e2e() { # full_e2e [--both-renderers]
+full_e2e() {
   # Measured on the GPU: a CPU-rendered host keeps 2 (SwiftShader slows every test past ~cores/3).
   if [ -z "$workers_set" ] && node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
     export TL_E2E_WORKERS=$FULL_WORKERS
-    [ "${1:-}" = "--both-renderers" ] && export TL_E2E_WORKERS=$FULL_WORKERS_BOTH
   fi
   export TL_MEMORY=1
   PROJECTS=(--project=default)
-  if [ "${1:-}" = "--both-renderers" ]; then export TL_E2E_ALL_VARIANTS=1; PROJECTS=(); fi
-  say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]:-both projects, all variants}, ${TL_E2E_WORKERS} workers"
+  say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]}, ${TL_E2E_WORKERS} workers"
   if e2e e2e.log "${PROJECTS[@]}"; then done_ GREEN; fi
   fail_at e2e
   grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
@@ -333,5 +332,5 @@ case "$mode" in
     esac
     [ "$was" = fast ] && fast_perf
     done_ "GREEN${PERF_SKIPPED:-}" ;;
-  *) echo "usage: tools/gate.sh fast [--all] [e2e files…] | full [--both-renderers] | rerun | start <mode> [args…] | wait"; exit 2 ;;
+  *) echo "usage: tools/gate.sh fast [--all] [e2e files…] | full | rerun | start <mode> [args…] | wait"; exit 2 ;;
 esac

@@ -20,8 +20,12 @@ three-adapter renderer factory with its `legacy` backend, the
 `onBeforeCompile` project shaders and lightmap hook, the EffectComposer post
 stack with the WebGL sky/PMREM/fog-volume passes, the WebGL lightmap baker,
 and the shader-parity reference capture script. The shader and environment
-parity reference images it drew stay in `tests/e2e/*-parity/refs/` as the
-contract the TSL shading is compared with.
+parity reference images it drew are in `webgl2-parity/*-parity/refs/`.
+
+`webgl2-parity/` holds the WebGL 2 / WebGPU parity specs (shader, environment,
+Scene view against Play) with their harnesses and reference images, archived
+when WebGPU became the one renderer tested (2026-11-11): WebGL 2 is a fallback
+covered by `tests/e2e/webgl2-smoke.e2e.ts` only.
 
 `spike-22-render-worker/` holds the phase 22.2 spike, which was not adopted:
 the exported game drawn by a render worker on an OffscreenCanvas, fed

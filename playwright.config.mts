@@ -6,25 +6,17 @@
  * On hosts without the system libraries Chromium needs, point
  * TL_BROWSER_LIBS at an extracted library tree (see tests/e2e/browser-env.mjs).
  *
- * GPU (2026-09-27): where the render node is usable (see `gpuAvailable` in
- * tests/e2e/browser-env.mjs) every project runs on the host's GPU — WebGL 2
- * through ANGLE on Vulkan and a real WebGPU adapter — so `default` runs the
- * product's own default renderer (`auto` → WebGPU). Without a GPU (or with
- * TL_E2E_SOFTWARE=1) everything falls back to SwiftShader as before.
+ * GPU: where the render node is usable (see `gpuAvailable` in
+ * tests/e2e/browser-env.mjs) the browser runs on the host's GPU and every
+ * spec runs once, in `default`, on the product's own renderer (`auto` →
+ * WebGPU). WebGL 2 is a fallback: `webgl2-smoke.e2e.ts` forces it and is its
+ * whole coverage.
  *
- * Projects (phase 17.1, archive/plans/plan-phase-17.md §6):
- *  - `default` — every spec. On a GPU: `auto` takes WebGPU; the forced
- *    `webgl2` variants run only with TL_E2E_ALL_VARIANTS=1 (the gate's
- *    `--both-renderers`). On SwiftShader (no WebGPU adapter): `auto` takes
- *    the WebGL 2 backend, so the whole suite covers the fallback.
- *  - `webgpu` — the renderer-sensitive specs again with headless WebGPU
- *    (Dawn's SwiftShader adapter through Vulkan): renderer, shader parity
- *    (17.2), environment parity (17.3) and the materials/textures/lightmaps
- *    and environment/lights/sky-texture and (17.4) shadows specs, which force the
- *    WebGPU backend there (`?renderer=webgpu`). Slower; run it as its own
- *    step: `npx playwright test --project=webgpu`.
- *    On a GPU it runs only the specs that pick WebGL 2 in `default` by
- *    project name (WEBGPU_BY_PROJECT); the rest would repeat `default`.
+ * Without a GPU (or with TL_E2E_SOFTWARE=1) everything falls back to
+ * SwiftShader: `default` has no WebGPU adapter (`auto` takes WebGL 2), and
+ * the `webgpu` project runs the renderer-sensitive specs (WEBGPU_SPECS) again
+ * on headless WebGPU (Dawn's SwiftShader adapter), as its own step:
+ * `npx playwright test --project=webgpu`.
  */
 import { defineConfig } from '@playwright/test';
 
@@ -33,16 +25,14 @@ import { browserLaunchEnv, GPU_ARGS, gpuAvailable, SOFTWARE_GL_ARGS, SOFTWARE_WE
 const GPU = gpuAvailable();
 /** The default project's flags: the GPU when usable, else WebGL 2 on SwiftShader. */
 const GL_ARGS = GPU ? GPU_ARGS : SOFTWARE_GL_ARGS;
-/** The webgpu project's extra flags (none on a GPU: GPU_ARGS already give WebGPU). */
-const WEBGPU_ARGS = GPU ? [] : SOFTWARE_WEBGPU_ARGS;
+/** The webgpu project's extra flags (it exists only without a GPU). */
+const WEBGPU_ARGS = SOFTWARE_WEBGPU_ARGS;
 
 /** The renderer-sensitive specs the `webgpu` project runs again on a host without a GPU. */
 const WEBGPU_SPECS = [
   '**/renderer.e2e.ts',
   // Phase 23.4: a virtual camera's far plane and the depth precision setting on WebGPU.
   '**/camera-depth.e2e.ts',
-  '**/shader-parity.e2e.ts',
-  '**/env-parity.e2e.ts',
   '**/materials.e2e.ts',
   '**/textures.e2e.ts',
   '**/lightmaps.e2e.ts',
@@ -112,13 +102,6 @@ const WEBGPU_SPECS = [
   // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.
   '**/extract-textures.e2e.ts',
 ];
-/**
- * On a GPU `default` already draws with WebGPU (`auto` takes it), so running WEBGPU_SPECS again
- * in `webgpu` repeats the same renderer test for test. Only these specs pick their backend from
- * the project name (WebGL 2 in `default`), so `webgpu` is their one WebGPU run there.
- */
-const WEBGPU_BY_PROJECT = ['**/env-parity.e2e.ts', '**/shader-parity.e2e.ts', '**/effects-gpu.e2e.ts', '**/material-graph-render.e2e.ts'];
-
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.e2e.ts',
@@ -143,10 +126,11 @@ export default defineConfig({
       name: 'default',
       use: { launchOptions: { env: browserLaunchEnv(), args: GL_ARGS } },
     },
-    {
+    // On a GPU `default` already draws with WebGPU: the project would only repeat it.
+    ...(GPU ? [] : [{
       name: 'webgpu',
-      testMatch: GPU ? WEBGPU_BY_PROJECT : WEBGPU_SPECS,
+      testMatch: WEBGPU_SPECS,
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
-    },
+    }]),
   ],
 });

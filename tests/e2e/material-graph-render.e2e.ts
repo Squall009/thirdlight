@@ -25,11 +25,14 @@
  *   one box), the main light's
  *   colour (the shadow-casting sun, not a brighter fill) and fog.
  *
- * `default` runs WebGL 2, `webgpu` runs WebGPU.
+ * WebGPU on a GPU host (the product's renderer); without a GPU `default` runs
+ * WebGL 2 and `webgpu` runs WebGPU on SwiftShader.
  */
 import { resolve, join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
+
+import { gpuAvailable } from './browser-env.mjs';
 
 import { serveHarness } from './parity';
 import { decodePng, type Image } from './png';
@@ -46,7 +49,7 @@ test.afterAll(async () => {
   await harness?.close();
 });
 
-const backendOf = (): string => (test.info().project.name === 'webgpu' ? 'webgpu' : 'webgl2');
+const backendOf = (): string => (test.info().project.name === 'webgpu' || gpuAvailable() ? 'webgpu' : 'webgl2');
 
 interface CaseResult {
   ok: boolean;

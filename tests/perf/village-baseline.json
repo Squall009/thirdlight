@@ -11,11 +11,9 @@
  "version": 2,
  "capHz": 60,
  "mainCpuMsPerFrame": {
-  "webgpu": 5.64,
-  "webgl2": 4.9
+  "webgpu": 5.64
  },
  "mainTaskMsPerFrame": {
-  "webgpu": 5.45,
-  "webgl2": 4.89
+  "webgpu": 5.45
  }
 }
