@@ -52,6 +52,36 @@ export const COLLISION_ADD_MS_PER_UPDATE = 4;
 /** The budget part a chunk's body is counted as. */
 export const COLLISION_PART = 'collision';
 
+/**
+ * Seconds of a moving body's travel its collision is asked for ahead of it: a collision-only derive and its body
+ * take a few frames, so a body at speed finds its ground made before it gets there.
+ */
+export const COLLISION_LEAD_SECONDS = 0.5;
+
+/** Bodies slower than this (cells a second: 2 m/s) get no points ahead: a walk stays inside the ring's hysteresis. */
+export const COLLISION_LEAD_MIN_SPEED = 4;
+
+/** Faster than this (cells a second: 600 m/s) a body's step is a placement, not travel: no points ahead. */
+export const COLLISION_LEAD_MAX_SPEED = 1200;
+
+/**
+ * The points ahead of a body (cells) its collision is asked for: along its velocity (cells a second) over
+ * {@link COLLISION_LEAD_SECONDS}, spaced no farther apart than the ring's radius so the ring's discs join into a
+ * corridor; none for a body slower than {@link COLLISION_LEAD_MIN_SPEED} or faster than {@link COLLISION_LEAD_MAX_SPEED}.
+ */
+export function collisionLeadPoints(at: Focus, velocity: Focus, radius: number): Focus[] {
+  const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+  if (!(speed >= COLLISION_LEAD_MIN_SPEED) || speed > COLLISION_LEAD_MAX_SPEED || !(radius > 0)) return [];
+  const reach = speed * COLLISION_LEAD_SECONDS;
+  const n = Math.ceil(reach / radius);
+  const out: Focus[] = [];
+  for (let i = 1; i <= n; i++) {
+    const t = (COLLISION_LEAD_SECONDS * i) / n;
+    out.push({ x: at.x + velocity.x * t, y: at.y + velocity.y * t, z: at.z + velocity.z * t });
+  }
+  return out;
+}
+
 /** The bounds for a collision radius and height (cells; default {@link DEFAULT_COLLISION_RING}) with the hysteresis. */
 export function collisionRingBounds(r: Readonly<{ radius: number; height: number }> = DEFAULT_COLLISION_RING, hysteresis = COLLISION_RING_HYSTERESIS_CELLS): CollisionRingBounds {
   for (const v of [r.radius, r.height, hysteresis]) if (!(v >= 0) || !Number.isFinite(v)) throw new RangeError('collision ring bounds must be finite and ≥ 0');

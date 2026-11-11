@@ -55,7 +55,7 @@ import { baseCreaseRule, baseSurface } from './base-surface';
 import { detailInstances, levelDrawsPieces, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { cellPieces, NO_PIECES, type DerivePieces, type PieceInputs } from './derive-pieces';
 import { integrityCoverage } from './damage-stages';
-import { crackStrengthOf } from './piece-table';
+import { crackStrengthOf, type PieceTable } from './piece-table';
 import { damagedIntegrity } from './record';
 export type { DerivePieces } from './derive-pieces';
 import { createEdgeMasks, type EdgeMasks } from './edge-cases';
@@ -556,7 +556,15 @@ function countsOf(n: Neighbourhood, classes: Uint8Array): DerivedCounts {
  * and wetness do not decide it (only the shader data reads them), so a
  * material change never moves a chunk between the two paths.
  */
-function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array, level: number): DerivedData | null {
+/** A region of one class and one shape ({@link uniformRegion}): its class byte, its class, its shape. */
+interface UniformRegion {
+  readonly k0: number;
+  readonly k: number;
+  readonly s0: number;
+}
+
+/** The evaluated region's one class and shape, or null when it is not uniform (what {@link uniformDerived} is made from). */
+function uniformRegion(n: Neighbourhood, classes: Uint8Array): UniformRegion | null {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -578,6 +586,22 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
       for (let y = p; y < p + e; y++) if (damagedIntegrity(n.values[row + y]!) !== 0) return null;
     }
   }
+  return { k0, k, s0 };
+}
+
+/** A uniform region's collision: one box for a body mass, nothing for the rest (no ground surface, no ramps). */
+function uniformCollision(e: number, u: UniformRegion): CollisionOut {
+  let boxes = new Uint16Array(0);
+  if (u.k === ASSEMBLY_CLASS.wall) {
+    const S = COLLISION_STEPS_PER_CELL;
+    boxes = Uint16Array.of(0, 0, 0, e * S, e * S, e * S);
+  }
+  return { boxes, fullBoxes: boxes.length / 6, ramps: emptySurface() };
+}
+
+function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, u: UniformRegion, level: number): DerivedData {
+  const e = n.edge;
+  const { k0, k, s0 } = u;
   const cells = e * e * e;
   // A uniform region holds no case of another form than its class's (deriveChunk checks a body region's cases).
   const form = classForm(k0);
@@ -588,11 +612,6 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
   const nb = e / BRICK_EDGE;
   const bricks = new Uint8Array(Math.ceil((nb * nb * nb) / 4)).fill(flag * 0x55);
   const empty: SurfaceBuffer = { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) };
-  let boxes = new Uint16Array(0);
-  if (k === ASSEMBLY_CLASS.wall) {
-    const S = COLLISION_STEPS_PER_CELL;
-    boxes = Uint16Array.of(0, 0, 0, e * S, e * S, e * S);
-  }
   const count = (c: number): number => (k === c ? cells : 0);
   return {
     v: DERIVED_FORMAT_VERSION,
@@ -601,7 +620,7 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
     level,
     occupancy: { flag, bricks, mask: null },
     light: { uniform: k === ASSEMBLY_CLASS.ground ? s0 : formCoverage(form), full: null, partialCells: new Uint16Array(0), partialCover: new Uint8Array(0) },
-    collision: { boxes, fullBoxes: boxes.length / 6, ramps: { ...empty, vertices: new Uint8Array(0), indices: new Uint16Array(0) } },
+    collision: uniformCollision(e, u),
     nav: { blocking: blocks ? OCCUPANCY.solid : OCCUPANCY.empty, blocks: null, standable: new Uint16Array(0), clearance: new Uint8Array(0) },
     ground: empty,
     base: { ...empty, vertices: new Uint8Array(0), indices: new Uint16Array(0) },
@@ -654,6 +673,75 @@ export interface DeriveTimes {
   reliefUs?: number;
 }
 
+/** The one assembly evaluation of a unit: its classes (in `classes`), then its cases and forms, or the uniform region it is. */
+function evaluateUnit(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array, level: number, table: PieceTable | null): { readonly uniform: UniformRegion | null; readonly cases: Uint16Array; readonly forms: Uint8Array } {
+  evaluateAssembly(n, rules, classes);
+  const uniform = uniformRegion(n, classes);
+  const cases = u16Scratch(caseScratches, classes.length);
+  let forms = formScratches.get(classes.length);
+  if (forms === undefined) formScratches.set(classes.length, (forms = new Uint8Array(classes.length)));
+  // A uniform region (one class and shape: deep ground, open sky, the inside of a mass) draws no piece, so it
+  // resolves no cases, unless it is a body whose cells could still have cases of another form than the box
+  // (a margin cell's case reads cells past the region): those are checked, and any such form takes the general path.
+  if (uniform !== null && (uniform.k !== ASSEMBLY_CLASS.wall || rules.resolveCases === undefined || bodyFormsOnly(n, rules, classes, cases, forms, level))) return { uniform, cases, forms };
+  // Cases and forms stay in this job, read by the consumers beside the classes.
+  evaluateCases(n, rules, level, cases);
+  evaluateForms(n, rules, classes, cases, forms, table);
+  return { uniform: null, cases, forms };
+}
+
+/** The ground surface and the roofs (their cell words and ramp planes) of an evaluated unit: what collision is made of. */
+function groundAndRamps(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array, table: PieceTable | null, pieced: boolean, creases?: TerrainCreases): { ground: SurfaceBuffer; roofs: Uint32Array; crackOf: ((v: number) => number) | null; ramps: SurfaceBuffer } {
+  const ground = terrainSurface(n, classes, creases);
+  let roofs = roofScratches.get(classes.length);
+  if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
+  // Cracks (damage stage 1) show where pieces do: a coarser node's construction is intact.
+  const crackOf = pieced && rulesDrawDamage(rules) ? (v: number): number => crackStrengthOf(table, v) : null;
+  const ramps = classifyRoofs(n, roofs, table, rulesDrawDamage(rules)) === 0 ? emptySurface() : roofSurface(n, roofs, crackOf);
+  return { ground, roofs, crackOf, ramps };
+}
+
+/**
+ * A unit's collision alone (what a physics body is made of: its boxes, its roof ramps, its ground surface), from
+ * the same evaluation and the same code as {@link deriveChunk}, so its arrays are byte for byte the full derive's
+ * `collision` and `ground`. It builds no base surface, pieces, relief, light, navigation, occupancy or shader data:
+ * the streaming's collision-only path round moving bodies, where nothing else of the unit is wanted yet.
+ */
+export function deriveCollision(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: Uint8Array, times?: DeriveTimes, level = 0, pieces: DerivePieces = NO_PIECES): CollisionPart {
+  if (!Number.isInteger(level) || level < 0) throw new RangeError(`derive: level ${level}`);
+  const table = pieces.table;
+  if (table !== null && (table.rules.id !== rules.id || table.rules.version !== rules.version)) throw new RangeError(`derive: a piece table of rules ${table.rules.id} v${table.rules.version} for rules ${rules.id} v${rules.version}`);
+  const classes = scratch !== undefined && scratch.length === n.values.length ? scratch : new Uint8Array(n.values.length);
+  const t0 = performance.now();
+  const ev = evaluateUnit(n, rules, classes, level, table);
+  const t1 = performance.now();
+  if (times !== undefined) times.evaluateUs += (t1 - t0) * 1000;
+  if (ev.uniform !== null) return { edge: n.edge, level, collision: uniformCollision(n.edge, ev.uniform), ground: emptySurface() };
+  const { ground, roofs, ramps } = groundAndRamps(n, rules, classes, table, levelDrawsPieces(level));
+  const collision = collisionOf(n, ev.forms, roofs, ramps);
+  if (times !== undefined) times.meshUs += (performance.now() - t1) * 1000;
+  return { edge: n.edge, level, collision, ground };
+}
+
+/** A unit's collision alone ({@link deriveCollision}): the full derive's `collision` and `ground`, nothing else. */
+export interface CollisionPart {
+  readonly edge: number;
+  readonly level: number;
+  readonly collision: CollisionOut;
+  readonly ground: SurfaceBuffer;
+}
+
+/** A collision part's buffers, for a postMessage transfer list. */
+export function collisionPartTransfer(c: CollisionPart, out: ArrayBuffer[] = []): ArrayBuffer[] {
+  for (const a of [c.collision.boxes, c.collision.ramps.vertices, c.collision.ramps.indices, c.ground.vertices, c.ground.indices]) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
+  return out;
+}
+
+/** Bytes a collision part holds in memory (what the streaming budget counts). */
+export function collisionPartBytes(c: CollisionPart): number {
+  return c.collision.boxes.byteLength + c.collision.ramps.vertices.byteLength + c.collision.ramps.indices.byteLength + c.ground.vertices.byteLength + c.ground.indices.byteLength;
+}
+
 /**
  * Derives a chunk from its filled neighbourhood (pad = jobRadius(rules)):
  * the one assembly evaluation, then every consumer's output from it.
@@ -668,30 +756,16 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   if (table !== null && (table.rules.id !== rules.id || table.rules.version !== rules.version)) throw new RangeError(`derive: a piece table of rules ${table.rules.id} v${table.rules.version} for rules ${rules.id} v${rules.version}`);
   const classes = scratch !== undefined && scratch.length === n.values.length ? scratch : new Uint8Array(n.values.length);
   const t0 = performance.now();
-  evaluateAssembly(n, rules, classes);
-  const uniform = uniformDerived(n, rules, classes, level);
-  const cases = u16Scratch(caseScratches, classes.length);
-  let forms = formScratches.get(classes.length);
-  if (forms === undefined) formScratches.set(classes.length, (forms = new Uint8Array(classes.length)));
-  // A uniform region (one class and shape: deep ground, open sky, the inside of a mass) draws no piece, so it
-  // resolves no cases, unless it is a body whose cells could still have cases of another form than the box
-  // (a margin cell's case reads cells past the region): those are checked, and any such form takes the general path.
-  if (uniform !== null && (uniform.counts.wall === 0 || rules.resolveCases === undefined || bodyFormsOnly(n, rules, classes, cases, forms, level))) {
+  const ev = evaluateUnit(n, rules, classes, level, table);
+  if (ev.uniform !== null) {
     if (times !== undefined) times.evaluateUs += (performance.now() - t0) * 1000;
-    return uniform;
+    return uniformDerived(n, rules, ev.uniform, level);
   }
-  // Cases and forms stay in this job, read by the consumers beside the classes.
-  evaluateCases(n, rules, level, cases);
-  evaluateForms(n, rules, classes, cases, forms, table);
+  const { cases, forms } = ev;
   const t1 = performance.now();
   const pieced = levelDrawsPieces(level);
   const creases: TerrainCreases | undefined = relief !== null && pieced ? { flags: null } : undefined;
-  const ground = terrainSurface(n, classes, creases);
-  let roofs = roofScratches.get(classes.length);
-  if (roofs === undefined) roofScratches.set(classes.length, (roofs = new Uint32Array(classes.length)));
-  // Cracks (damage stage 1) show where pieces do: a coarser node's construction is intact.
-  const crackOf = pieced && rulesDrawDamage(rules) ? (v: number): number => crackStrengthOf(table, v) : null;
-  const ramps = classifyRoofs(n, roofs, table, rulesDrawDamage(rules)) === 0 ? emptySurface() : roofSurface(n, roofs, crackOf);
+  const { ground, roofs, crackOf, ramps } = groundAndRamps(n, rules, classes, table, pieced, creases);
   const base = appendSurface(baseSurface(n, classes, forms, !pieced, roofs, crackOf), ramps);
   let edges = edgeScratches.get(classes.length);
   if (edges === undefined) edgeScratches.set(classes.length, (edges = createEdgeMasks(n)));

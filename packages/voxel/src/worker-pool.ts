@@ -236,6 +236,11 @@ export class WorkerPool {
     return n;
   }
 
+  /** How many jobs may wait at most (the back-pressure bound). */
+  get capacity(): number {
+    return this.opts.maxQueued;
+  }
+
   /** How many more jobs may be queued now. */
   room(): number {
     return Math.max(0, this.opts.maxQueued - this.queue.size);

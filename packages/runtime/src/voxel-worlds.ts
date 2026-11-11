@@ -33,6 +33,8 @@ export interface VoxelWorldsView {
   positionOf(entityId: string): readonly number[] | undefined;
   /** The characters' objects (the player controllers). */
   characters(): readonly string[];
+  /** An object's velocity over the last step (m/s; undefined: not known): bodies get their collision ahead of them. */
+  velocityOf?(entityId: string): readonly number[] | undefined;
   /** An object's world transform this step (undefined: not loaded). */
   worldTransform(entityId: string): WorldTransform | undefined;
   /** An object's lighting shape where it is (null: it has neither a collider nor recorded model bounds). */
@@ -203,15 +205,19 @@ export class RuntimeVoxels {
     if (this.worlds.size === 0) return;
     const v = this.view;
     const characters: (readonly [number, number, number])[] = [];
+    const velocities: (readonly [number, number, number])[] = [];
     for (const id of v.characters()) {
       const p = v.positionOf(id);
-      if (p !== undefined) characters.push([p[0]!, p[1]!, p[2]!]);
+      if (p === undefined) continue;
+      characters.push([p[0]!, p[1]!, p[2]!]);
+      const u = v.velocityOf?.(id);
+      velocities.push(u === undefined ? [0, 0, 0] : [u[0]!, u[1]!, u[2]!]);
     }
     this.stampProps();
     const camera = v.camera();
     for (const held of this.worlds.values()) {
       const at = camera ?? v.positionOf(held.objects[0]!) ?? [0, 0, 0];
-      held.host.step({ stream: [at[0]!, at[1]!, at[2]!], collide: characters });
+      held.host.step({ stream: [at[0]!, at[1]!, at[2]!], collide: characters, collideVelocity: velocities });
     }
   }
 

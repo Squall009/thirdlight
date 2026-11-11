@@ -238,17 +238,18 @@ export { JobQueue } from './job-queue';
 export { defaultVoxelWorkers, eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { StreamDetail } from './stream-detail';
+export { COLLISION_ALONE_PART, CollisionDerives, type CollisionDeriveHost, type CollisionEvent } from './stream-collision';
 export { DEFAULT_STREAM_READS, FocusMotion, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, STREAM_WIDEN_AFTER_MS, type WantedChunk } from './stream-reads';
 export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_LEVELS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, mipRingsFor, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, speedRing, STREAM_DETAIL_SPEED, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
 export { StreamMips, type MipEvent, type MipHost } from './stream-mips';
 export { checkLevelRings, chooseLevels, DrawnLevels, levelNodeDistance, type LevelChoice, type LevelChoiceStats, type LevelNode, type LevelRings } from './lod-select';
 export { StreamLod, type LevelEvent, type LodHost } from './stream-lod';
 export { faceLevels, StreamSeams, type LevelSelection, type SeamEvent, type SeamHold, type SeamHost, type SeamKey } from './stream-seams';
-export { chunkNearFoci, COLLISION_ADD_MS_PER_UPDATE, COLLISION_PART, COLLISION_RING_HYSTERESIS_CELLS, CollisionRing, collisionRingBounds, type CollisionBodies, type CollisionRingBounds, type CollisionRingFeed, type CollisionRingOptions, type CollisionRingUpdate } from './collision-ring';
+export { chunkNearFoci, COLLISION_ADD_MS_PER_UPDATE, COLLISION_LEAD_MAX_SPEED, COLLISION_LEAD_MIN_SPEED, COLLISION_LEAD_SECONDS, collisionLeadPoints, COLLISION_PART, COLLISION_RING_HYSTERESIS_CELLS, CollisionRing, collisionRingBounds, type CollisionBodies, type CollisionRingBounds, type CollisionRingFeed, type CollisionRingOptions, type CollisionRingUpdate } from './collision-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
-export { joinCollision, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
+export { joinCollision, joinCollisionParts, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, NEAR_COVER_EDGE, NEAR_COVER_HIDDEN, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkReliefWire, type ChunkSwapWire, type DrawSurface, type FarDrawWire, type NearCoverWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
-export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
+export { STREAM_DERIVE_RESERVE_SHARE, VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
 export { applyWorldRings, worldLevelRings, worldPieceTable, worldReliefRing, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres, type WorldRingSettings } from './world-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
@@ -278,9 +279,12 @@ export { appendSurface, roofSurface } from './roof-mesher';
 export { classifyRoofs, isRoofGapCell, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
 export {
   cellBit,
+  collisionPartBytes,
+  collisionPartTransfer,
   COLLISION_STEPS_PER_CELL,
   DERIVED_FORMAT_VERSION,
   deriveChunk,
+  deriveCollision,
   derivedBytes,
   derivedPartBytes,
   derivedTransfer,
@@ -289,6 +293,7 @@ export {
   NAV_CLEARANCE_CONTINUES,
   OCCUPANCY,
   type CollisionOut,
+  type CollisionPart,
   type DerivedData,
   type DerivedCounts,
   type DerivePieces,
@@ -324,7 +329,7 @@ export {
   type PieceTable,
   type PieceTableKit,
 } from './piece-table';
-export { cropNeighbourhood, type ChunkPieces, deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
+export { cropNeighbourhood, type ChunkPieces, deriveFromStore, deriveSectionCollisionsWithApron, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
 export { CONSTRUCTION_TILE_METRES, encodeShader, SHADER_BORDER_CELLS, SHADER_CONSTRUCTION_BIT, SHADER_READ_DEPTH_CELLS, TERRAIN_TILE_METRES, shaderBytes, shaderEntry, shaderEntryAt, shaderEntryWetness, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export {
   applyFold,

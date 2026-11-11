@@ -1,38 +1,29 @@
 /**
- * Level 0 held back at speed: what the streamer derives level 0 for while
- * its focus moves faster than {@link STREAM_DETAIL_SPEED} (the read plan
- * holds it, with the ring's widening delay): only the chunks bodies are made
- * of, those within the collision ring's keep bounds of a focus (the stream
- * focus and the level choice's other foci, the characters). The bounds are
- * the collision ring's own (its host sets them), so a body never loses the
- * ground under it to the hold.
+ * Level 0 held back at speed. While the streamer's focus moves faster than
+ * {@link STREAM_DETAIL_SPEED} no streaming level-0 derive goes out (and those
+ * waiting in the pool are cancelled): what is built is left behind within a
+ * second. The levels drawn leave level 0 out until the speed has stayed under
+ * it for the ring's widening delay (`held`), but derives resume as soon as
+ * the focus is slow again (`fast` cleared), nearest it first, so a stopped
+ * focus's ground does not wait for the delay. Bodies keep their ground at
+ * speed through the collision-only derives round them (stream-collision.ts);
+ * an edit's rebuilds always go.
  */
-import { chunkNearFoci, collisionRingBounds, type CollisionRingBounds } from './collision-ring';
-import type { ChunkGrid } from './coords';
-import type { Focus } from './stream-ring';
-
 export class StreamDetail {
-  /** The collision ring's bounds (cells; default {@link collisionRingBounds}). */
-  bounds: CollisionRingBounds = collisionRingBounds();
+  constructor(private readonly plan: { readonly detailHeld: boolean; readonly detailFast: boolean }) {}
 
-  constructor(
-    private readonly grid: ChunkGrid,
-    private readonly plan: { readonly detailHeld: boolean },
-    private readonly foci: () => readonly Focus[],
-  ) {}
-
-  /** Whether level 0 is held back for the focus's speed now. */
+  /** Whether the levels drawn leave level 0 out for the focus's speed now (set at once, cleared after the delay). */
   get held(): boolean {
     return this.plan.detailHeld;
   }
 
-  /** Whether a chunk lies within the collision ring's keep bounds of a focus. */
-  collides(cx: number, cy: number, cz: number): boolean {
-    return chunkNearFoci(this.grid, this.foci(), cx, cy, cz, this.bounds.keepRadius, this.bounds.keepHeight);
+  /** Whether the focus is faster than {@link STREAM_DETAIL_SPEED} now. */
+  get fast(): boolean {
+    return this.plan.detailFast;
   }
 
-  /** Whether a chunk's level-0 streaming derive goes out now: always, unless held back and outside the collision ring. */
-  deriveNow(cx: number, cy: number, cz: number): boolean {
-    return !this.held || this.collides(cx, cy, cz);
+  /** Whether streaming level-0 derives go out now: not while the focus is fast. */
+  deriveNow(): boolean {
+    return !this.plan.detailFast;
   }
 }

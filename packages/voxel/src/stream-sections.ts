@@ -339,6 +339,30 @@ export class SectionDerives {
     return list !== undefined && list.every((s) => s.derived !== null || this.stranded(s));
   }
 
+  /** A chunk's section input stamps by section id (null: it has no sections): what a result derived from it is checked against. */
+  stampsOf(cx: number, cy: number, cz: number): number[] | null {
+    if (!chunkInWorld(this.host.grid, cx, cy, cz)) return null;
+    const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
+    if (list === undefined) return null;
+    const out = new Array<number>(list.length).fill(0);
+    for (const s of list) out[s.id] = s.stamp;
+    return out;
+  }
+
+  /** Whether every section of a chunk has its result of its inputs as they are now (none being rebuilt). */
+  chunkCurrent(cx: number, cy: number, cz: number): boolean {
+    if (!chunkInWorld(this.host.grid, cx, cy, cz)) return false;
+    const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
+    return list !== undefined && list.every((s) => s.derive === 'no' && (s.derived !== null || this.stranded(s)));
+  }
+
+  /** Whether every section of a chunk can derive now: the chunk and every chunk its sections reach are resident. */
+  chunkDerivable(cx: number, cy: number, cz: number): boolean {
+    if (!chunkInWorld(this.host.grid, cx, cy, cz)) return false;
+    const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
+    return list !== undefined && list.every((s) => this.canDerive(s));
+  }
+
   /** Whether a section of a chunk without a result yet waits for a neighbour chunk that is not resident (the coverage bench's reason). */
   chunkBlocked(cx: number, cy: number, cz: number): boolean {
     const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));

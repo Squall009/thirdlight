@@ -432,6 +432,14 @@ export class RuntimeInstance implements Runtime {
       },
       positionOf: (id) => this.sim.curr.get(id)?.position,
       characters: () => this.controllers.ids,
+      // The last step's displacement over its length (a placement reads as a jump, which the lead points ignore).
+      velocityOf: (id) => {
+        const a = this.sim.prev.get(id)?.position;
+        const b = this.sim.curr.get(id)?.position;
+        if (a === undefined || b === undefined) return undefined;
+        const hz = this.sim.hz;
+        return [(b[0]! - a[0]!) * hz, (b[1]! - a[1]!) * hz, (b[2]! - a[2]!) * hz];
+      },
       worldTransform: (id) => worldTransformOf(id, this.sim.curr, (x) => this.sim.parentOf(x)),
       propShape: (id, components, world) => propLightShape(id, components, world, this.chars.colliders.ctx, args.modelBounds)?.shape ?? null,
       warn: (message) => this.faults.log('thirdlight.runtime:voxels', 'warn', message),

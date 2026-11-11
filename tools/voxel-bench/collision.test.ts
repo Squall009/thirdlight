@@ -29,12 +29,15 @@ import {
   collisionGeometry,
   createWorldStore,
   deriveFromStore,
+  deriveSectionCollisionsWithApron,
   deriveSectionsWithApron,
   FloatingOrigin,
   groundHeightfield,
   groundHeightfieldPatches,
   jobRadius,
+  joinCollisionParts,
   joinSections,
+  worldPieceTable,
   WORLD_RULES,
   resolvedClassAt,
   RUN_X,
@@ -55,6 +58,7 @@ import { MAT } from './world-kit';
 import { townWorld } from './town';
 import { hillyWorld } from './worlds';
 import { FEATURE_BASE, FEATURE_PAD, FEATURE_TOP, FEATURE_WIDTH, featureCases, featuresStore } from './features';
+import { fullTestKit } from './test-kits';
 import { physicsMemoryBytes3D } from '@thirdlight/physics-rapier';
 
 const grid = chunkGrid(32);
@@ -89,6 +93,57 @@ function growBanister(s: PaletteStore): void {
     putVoxel(s, x, 3, 7, MAT.timber, C.wall);
   }
 }
+
+/** A surface's or a collision's arrays as plain bytes, in a fixed order (what equal results must share). */
+function collisionBytes(c: { readonly ground: SurfaceBuffer; readonly collision: { readonly boxes: Uint16Array; readonly fullBoxes: number; readonly ramps: SurfaceBuffer } }): number[][] {
+  const b = (a: ArrayBufferView): number[] => [...new Uint8Array(a.buffer, a.byteOffset, a.byteLength)];
+  return [[c.ground.vertexCount, c.collision.fullBoxes, c.collision.ramps.vertexCount], b(c.ground.vertices), b(c.ground.indices), b(c.collision.boxes), b(c.collision.ramps.vertices), b(c.collision.ramps.indices)];
+}
+
+describe('collision alone', () => {
+  it('is the full derive\'s collision and ground byte for byte, per section and joined, on the town (houses, roofs, a kit), hills and the hard cases', () => {
+    const KIT = worldPieceTable([fullTestKit('all', Array.from({ length: 255 }, (_, k) => k + 1), 1)], 0);
+    const town = createWorldStore(grid);
+    loadArea(townWorld({ footprint: 512 }).grids[0]!, town, 32, 32, 128, 128);
+    const hills = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 96 }).grids[0]!, hills, -48, -48, 48, 48);
+    const seen = { chunks: 0, sections: 0, ground: 0, boxes: 0, ramps: 0 };
+    const c = { cx: 0, cy: 0, cz: 0 };
+    for (const [name, s, table] of [['town', town, KIT], ['town without a kit', town, null], ['hills', hills, null], ['hard cases', featuresStore(), null]] as const) {
+      const keys = new Set<string>();
+      for (const key of s.chunkKeys()) {
+        chunkOfKey(grid, key, c);
+        for (let cy = c.cy - 1; cy <= c.cy + 1; cy++) keys.add(`${c.cx},${cy},${c.cz}`);
+      }
+      for (const k of keys) {
+        const [cx, cy, cz] = k.split(',').map(Number) as [number, number, number];
+        const apron = (): ReturnType<typeof buildApron> => buildApron(s, cx, cy, cz, jobRadius(WORLD_RULES));
+        const exportChunk = (out: Parameters<PaletteStore['exportChunk']>[3]): boolean => s.exportChunk(cx, cy, cz, out);
+        const pieces = { table, chunk: [cx, cy, cz] as const };
+        const full = deriveSectionsWithApron(grid, WORLD_RULES, apron(), exportChunk, SECTION, SECTION_IDS, 0, pieces).map((r) => r.assembly!);
+        const alone = deriveSectionCollisionsWithApron(grid, WORLD_RULES, apron(), exportChunk, SECTION, SECTION_IDS, pieces);
+        alone.forEach((r, i) => {
+          expect(r.assembly).toBeNull();
+          expect(collisionBytes(r.collision!), `${name} ${k} section ${i}`).toEqual(collisionBytes(full[i]!));
+          seen.sections++;
+        });
+        const joined = joinSections(grid.edge, SECTION, full);
+        const parts = joinCollisionParts(grid.edge, SECTION, alone.map((r) => r.collision!));
+        expect(collisionBytes(parts), `${name} ${k} joined`).toEqual(collisionBytes(joined));
+        // The body a physics port is handed: the same geometry from either.
+        expect(collisionGeometry(parts)).toEqual(collisionGeometry(joined));
+        seen.chunks++;
+        if (joined.ground.indices.length > 0) seen.ground++;
+        if (joined.collision.boxes.length > 0) seen.boxes++;
+        if (joined.collision.ramps.indices.length > 0) seen.ramps++;
+      }
+    }
+    // Every kind of collision was compared: ground, boxes (walls, beams, rails) and roof ramps.
+    expect(seen.ground).toBeGreaterThan(20);
+    expect(seen.boxes).toBeGreaterThan(10);
+    expect(seen.ramps).toBeGreaterThan(3);
+  }, 120_000);
+});
 
 describe('per-cell outputs of one assembly evaluation', () => {
   it('give the placeholder rules\' beam, rail and post cells what a wall cell gets: plain voxels for render, collision, nav and light', () => {

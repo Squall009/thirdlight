@@ -28,6 +28,8 @@ import {
   createWorldStore,
   derivedBytes,
   derivedPartBytes,
+  deriveSectionCollisionsWithApron,
+  deriveSectionsWithApron,
   deriveWithApron,
   downsampleMip,
   jobRadius,
@@ -35,6 +37,7 @@ import {
   mipChildren,
   mipNodeKey,
   PLACEHOLDER_RULES,
+  WORLD_RULES,
   propCoverageChunk,
   shaderGridEntries,
   shaderSolidEntry,
@@ -53,6 +56,8 @@ const grid = chunkGrid(32);
 const E = grid.edge;
 const CELLS = E * E * E;
 const R = jobRadius(PLACEHOLDER_RULES);
+/** Every 16³ section of a 32³ chunk (the streaming's derive units). */
+const SECTION_IDS = Array.from({ length: 8 }, (_, i) => i);
 
 function arg(name: string, dflt: string): string {
   const i = process.argv.indexOf(name);
@@ -83,6 +88,9 @@ interface Window {
 
 interface ChunkRow {
   applyUs: number;
+  /** The streaming's own path (the world rules, 16³ sections): the full derive, and the collision alone, µs a chunk. */
+  sectionsFullUs: number;
+  sectionsCollisionUs: number;
   apronUs: number;
   evaluateUs: number;
   meshUs: number;
@@ -183,6 +191,12 @@ function deriveGrid(g: TestGrid, w: Window, rows: ChunkRow[]): void {
     t.meshUs = 0;
     const d = deriveWithApron(grid, PLACEHOLDER_RULES, apron, (out) => store.exportChunk(x, y, z, out), t);
     const a2 = performance.now();
+    const wr = buildApron(store, x, y, z, jobRadius(WORLD_RULES));
+    const s0 = performance.now();
+    deriveSectionsWithApron(grid, WORLD_RULES, wr, (out) => store.exportChunk(x, y, z, out), 16, SECTION_IDS);
+    const s1 = performance.now();
+    deriveSectionCollisionsWithApron(grid, WORLD_RULES, wr, (out) => store.exportChunk(x, y, z, out), 16, SECTION_IDS);
+    const s2 = performance.now();
     const cov = lightCoverage(grid, d.light, null);
     let anyCov = false;
     for (let i = 0; i < CELLS && !anyCov; i++) anyCov = cov[i] !== 0;
@@ -192,6 +206,8 @@ function deriveGrid(g: TestGrid, w: Window, rows: ChunkRow[]): void {
     const drawn = d.ground.vertexCount + d.base.vertexCount + d.instances.count > 0;
     rows.push({
       applyUs: (a2 - a1) * 1000,
+      sectionsFullUs: (s1 - s0) * 1000,
+      sectionsCollisionUs: (s2 - s1) * 1000,
       apronUs: (a1 - a0) * 1000,
       evaluateUs: t.evaluateUs,
       meshUs: t.meshUs,
@@ -317,6 +333,8 @@ function summarize(name: string, rows: ChunkRow[]): Record<string, unknown> {
     chunks: rows.length,
     storedChunks: rows.filter((r) => r.stored).length,
     deriveUs: f((r) => r.applyUs),
+    sectionsFullUs: f((r) => r.sectionsFullUs),
+    sectionsCollisionUs: f((r) => r.sectionsCollisionUs),
     apronUs: f((r) => r.apronUs),
     evaluateUs: f((r) => r.evaluateUs),
     meshUs: f((r) => r.meshUs),
@@ -405,6 +423,11 @@ function main(): void {
   for (const r of report as Array<ReturnType<typeof summarize> & Record<string, never>>) {
     const x = r as unknown as { world: string; chunks: number; storedChunks: number; deriveUs: { p50: number; p95: number }; evaluateUs: { mean: number }; meshUs: { mean: number }; consumersUs: { mean: number }; apronUs: { p50: number }; bytes: { mean: number; p95: number }; totalMB: number; parts: Record<string, number> };
     md.push(`| ${x.world} | ${x.chunks} (${x.storedChunks}) | ${x.deriveUs.p50.toFixed(0)} / ${x.deriveUs.p95.toFixed(0)} | ${x.evaluateUs.mean.toFixed(0)} / ${x.meshUs.mean.toFixed(0)} / ${x.consumersUs.mean.toFixed(0)} | ${x.apronUs.p50.toFixed(0)} | ${x.bytes.mean.toFixed(0)} / ${x.bytes.p95.toFixed(0)} | ${x.totalMB.toFixed(2)} | ${['occupancy', 'light', 'collision', 'nav', 'ground', 'base', 'instances'].map((k) => x.parts[k]!.toFixed(0)).join(' / ')} |`);
+  }
+  md.push('', '| World | streaming path (world rules, 16³ sections) µs a chunk mean / p95: full | collision alone |', '|---|---|---|');
+  for (const r of report) {
+    const x = r as unknown as { world: string; sectionsFullUs: { mean: number; p95: number }; sectionsCollisionUs: { mean: number; p95: number } };
+    md.push(`| ${x.world} | ${x.sectionsFullUs.mean.toFixed(0)} / ${x.sectionsFullUs.p95.toFixed(0)} | ${x.sectionsCollisionUs.mean.toFixed(0)} / ${x.sectionsCollisionUs.p95.toFixed(0)} |`);
   }
   md.push('', '```json', JSON.stringify({ worlds: report.map((r) => ({ world: r.world, surface: r.surface, alternatives: r.alternatives, mesh: r.mesh, classes: r.classes, partialShare: r.partialShare })), mips: json.mips, props }, null, 1), '```');
   writeFileSync(join(outDir, 'derive.md'), md.join('\n'));

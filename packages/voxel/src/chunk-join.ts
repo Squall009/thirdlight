@@ -32,7 +32,7 @@
  * A missing section (none derived: air with air around it) adds no
  * triangles and air to the grid.
  */
-import { COLLISION_STEPS_PER_CELL, type CollisionOut, type DerivedData } from './derived-data';
+import { COLLISION_STEPS_PER_CELL, type CollisionOut, type CollisionPart, type DerivedData } from './derived-data';
 import { INSTANCE_BYTES, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 import { shaderGridEntries, shaderGridSide, shaderSolidEntry, SHADER_BORDER_CELLS, type ShaderOut } from './derived-shader';
 import { sectionLocalOrigin } from './derive-assembly';
@@ -283,6 +283,19 @@ export function joinShader(chunkEdge: number, sectionEdge: number, parts: Readon
   }
   for (const e of entries) idOfEntry[e] = -1;
   return { side, palette: Uint16Array.from(entries), width, ids };
+}
+
+/**
+ * A chunk's sections' collision alone (indexed by section id, null: none) joined as {@link joinSections} joins
+ * the full results' `ground` and `collision`: the same code on the same arrays, so a body made from it is the body
+ * the full derive gives.
+ */
+export function joinCollisionParts(chunkEdge: number, sectionEdge: number, sections: ReadonlyArray<CollisionPart | null>): { readonly edge: number; readonly ground: SurfaceBuffer; readonly collision: CollisionOut } {
+  checkSectionCount(chunkEdge, sectionEdge, sections.length);
+  if (sectionEdge === chunkEdge && sections[0] != null) return { edge: chunkEdge, ground: sections[0].ground, collision: sections[0].collision };
+  const ground = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.ground ?? null));
+  const collision = joinCollision(chunkEdge, sectionEdge, sections.map((s) => s?.collision ?? null));
+  return { edge: chunkEdge, ground, collision };
 }
 
 /**

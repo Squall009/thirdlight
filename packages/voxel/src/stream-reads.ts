@@ -246,6 +246,8 @@ export class StreamReadPlan<Held> {
   detailHeld = false;
   /** The last update set or cleared {@link detailHeld}. */
   detailChanged = false;
+  /** The focus is faster than {@link STREAM_DETAIL_SPEED} now (no delay: what the held level 0 is still derived by). */
+  detailFast = false;
   /** Since when the focus's speed has been under {@link STREAM_DETAIL_SPEED} while level 0 is held (NaN: it has not). */
   private slowSince = Number.NaN;
   private motion: FocusMotion;
@@ -356,6 +358,7 @@ export class StreamReadPlan<Held> {
   /** Holds level 0 back at once past {@link STREAM_DETAIL_SPEED}, and lets it go once the speed stayed under it for {@link STREAM_WIDEN_AFTER_MS}. */
   private holdDetail(speed: number, now: number): void {
     const held = this.detailHeld;
+    this.detailFast = speed > STREAM_DETAIL_SPEED;
     if (speed > STREAM_DETAIL_SPEED) {
       this.slowSince = Number.NaN;
       this.detailHeld = true;

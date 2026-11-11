@@ -9,15 +9,17 @@
  * under it (what its collision is made of) is resident and derived after a
  * small share of the jobs that refill the ring. How often the ground is
  * missing while flying is the coverage bench's to report (`run.mjs coverage`).
- * Past STREAM_DETAIL_SPEED level 0 is held back: no level-0 derive is sent for
- * a chunk outside the collision ring of the focus, the levels drawn add level
- * 0 only as a stand-in beside the focus, and once the speed has stayed down
- * level 0 comes back by swaps nearest the focus first.
+ * Past STREAM_DETAIL_SPEED level 0 is held back: no full level-0 derive is
+ * sent, a body flying beside the camera gets collision-only derives round it
+ * and ahead of it (never for the camera's own ground), the levels drawn add
+ * level 0 only as a stand-in beside the focus, and once the speed has stayed
+ * down level 0 comes back by swaps nearest the focus first, its full results
+ * taking the bodies over with the same surface.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chunkGrid, chunkNearFoci, createWorldStore, jobRadius, levelNodeDistance, motionDistance2, speedRing, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VoxelStreamer, WorkerPool, WORLD_RULES, type Focus, type LevelNode, type PaletteStore, type PoolJob, type StreamRing } from '@thirdlight/voxel';
+import { chunkGrid, chunkNearFoci, collisionGeometry, collisionLeadPoints, collisionRingBounds, createWorldStore, DERIVED_PART, jobRadius, levelNodeDistance, motionDistance2, speedRing, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VoxelStreamer, WorkerPool, WORLD_RULES, type Focus, type LevelNode, type PaletteStore, type PoolJob, type StreamRing } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pickStore, surfaceY } from './regions';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
@@ -135,24 +137,37 @@ describe('streaming at racing speed', () => {
     expect(knownAt, `ground known after ${knownAt} of the refill's ${refill} jobs`).toBeLessThan(refill / 10);
     console.log(`speed ${JSON.stringify({ ...inFlight, knownAfterJobs: knownAt, refillJobs: refill, speedRings: flight.counters.speedRings })}`);
   }, 120_000);
-  it('holds level 0 back at 150 m/s: no level-0 derive past the collision ring, level 0 drawn only as a stand-in beside the focus; stopped, it comes back nearest first (real workers)', async () => {
+  it('holds level 0 back at 150 m/s: no full level-0 derive, collision alone round a moving body and ahead of it (not round the camera), level 0 drawn only as a stand-in; stopped, level 0 comes back nearest first and takes over the bodies with the same surface (real workers)', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     closers.push(() => disk.close());
     const pool = new WorkerPool({ size: 4, create: () => nodePoolWorker(workerFile), timeoutMs: 10_000, maxQueued: 256 });
     closers.push(() => pool.close());
     const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool, ring: RING, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES });
     expect(s.mips).not.toBeNull();
+    const bounds = collisionRingBounds();
+    s.collision!.bounds = bounds;
     let focus: Focus = { x: 0, y: 0, z: 0 };
-    // Every level-0 derive job sent while level 0 is held, against the collision ring round the focus it was sent at.
-    let held = 0;
-    let outside = 0;
+    // A body flying with the camera 40 cells to its side, and the points ahead of it its collision is asked for.
+    let body: Focus = { x: 0, y: 0, z: 40 };
+    let ahead: Focus[] = [];
+    // Every level-0 derive job: full ones sent while the focus is fast, and collision-only ones against the foci then.
+    let fullHeld = 0;
+    let alone = 0;
+    let aloneOutside = 0;
+    let aloneAheadOnly = 0;
+    let aloneNearCameraOnly = 0;
     const submit = pool.submit.bind(pool);
     pool.submit = ((job: PoolJob) => {
-      const input = job.input as { chunk?: { cx: number; cy: number; cz: number }; level?: number };
-      if (job.kind === 'derive' && input.level === undefined && s.detail.held && input.chunk !== undefined) {
-        held++;
-        const b = s.detail.bounds;
-        if (!chunkNearFoci(grid, [focus], input.chunk.cx, input.chunk.cy, input.chunk.cz, b.keepRadius, b.keepHeight)) outside++;
+      const input = job.input as { chunk?: { cx: number; cy: number; cz: number }; level?: number; parts?: number };
+      if (job.kind === 'derive' && input.level === undefined && input.chunk !== undefined) {
+        const { cx, cy, cz } = input.chunk;
+        const near = (f: readonly Focus[]): boolean => chunkNearFoci(grid, f, cx, cy, cz, bounds.radius, bounds.height);
+        if (input.parts === DERIVED_PART.collision) {
+          alone++;
+          if (!near([body, ...ahead])) aloneOutside++;
+          if (!near([body]) && near(ahead)) aloneAheadOnly++;
+          if (near([focus]) && !near([body, ...ahead])) aloneNearCameraOnly++;
+        } else if (s.detail.fast) fullHeld++;
       }
       return submit(job);
     }) as typeof pool.submit;
@@ -161,13 +176,23 @@ describe('streaming at racing speed', () => {
     // its level 0 counts as chosen unheld.
     const added: Array<{ held: boolean; d: number }> = [];
     let heldSwaps = 0;
+    // Where a chunk's full result takes over from its collision-only one (the same sections), the body is the same.
+    let handovers = 0;
+    let differ = 0;
     s.on((e) => {
+      if (e.type === 'chunk' && s.collision!.fullCurrent(e.cx, e.cy, e.cz) && s.collision!.fresh(e.cx, e.cy, e.cz)) {
+        handovers++;
+        // A full join of nothing (air round air) collides with nothing, as the collision-only answer for it.
+        const full = s.joinedChunk(e.cx, e.cy, e.cz) ?? { edge: 32, ground: { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) }, collision: { boxes: new Uint16Array(0), fullBoxes: 0, ramps: { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) } } };
+        if (JSON.stringify(collisionGeometry(s.collision!.source(e.cx, e.cy, e.cz)!)) !== JSON.stringify(collisionGeometry(full))) differ++;
+      }
       if (e.type !== 'levels' || e.reason !== 'swap') return;
       const held = s.detail.held && heldSwaps++ > 0;
       for (const n of e.added as readonly LevelNode[]) if (n.level === 0) added.push({ held, d: levelNodeDistance(grid, [focus], n) });
       if (!s.detail.held) heldSwaps = 0;
     });
     const yAt = (x: number) => (surfaceY(oracle, Math.round(x), 0, 600, -200) ?? 0) + 60;
+    const groundAt = (x: number) => (surfaceY(oracle, Math.round(x), 40, 600, -200) ?? 0) + 4;
     const x0 = -HALF + 96, x1 = HALF - 96;
     focus = { x: x0, y: yAt(x0), z: 0 };
     s.setFocus(focus.x, focus.y, focus.z);
@@ -177,9 +202,16 @@ describe('streaming at racing speed', () => {
     const t0 = performance.now();
     let x = x0;
     let heldUpdates = 0;
+    let last = { x: x0, t: t0 };
     while (x < x1) {
-      x = Math.min(x1, x0 + (SPEED * (performance.now() - t0)) / 1000);
+      const now = performance.now();
+      x = Math.min(x1, x0 + (SPEED * (now - t0)) / 1000);
       focus = { x, y: yAt(x), z: 0 };
+      body = { x, y: groundAt(x), z: 40 };
+      const dt = (now - last.t) / 1000;
+      ahead = dt > 0 ? collisionLeadPoints(body, { x: (x - last.x) / dt, y: 0, z: 0 }, bounds.radius) : [];
+      last = { x, t: now };
+      s.collision!.setFoci([body, ...ahead]);
       s.setFocus(focus.x, focus.y, focus.z);
       s.update();
       if (s.detail.held) heldUpdates++;
@@ -187,12 +219,19 @@ describe('streaming at racing speed', () => {
     }
     expect(heldUpdates).toBeGreaterThan(0);
     expect(s.counters.detailHolds).toBe(1);
-    // Held, every level-0 derive went to a chunk bodies are made of; the level choice added level 0 only as the
-    // stand-in for a level-1 node not ready next to the focus (within two chunks, and the hysteresis of one drawn).
-    expect(outside).toBe(0);
+    // Fast, no full level-0 derive went out; collision-only ones went to chunks round the body and ahead of it only,
+    // some to chunks only ahead of it, none to the camera's own ground.
+    expect(fullHeld).toBe(0);
+    expect(alone).toBeGreaterThan(0);
+    expect(aloneOutside).toBe(0);
+    expect(aloneNearCameraOnly).toBe(0);
+    expect(aloneAheadOnly).toBeGreaterThan(0);
+    expect(s.counters.collisionDerives + s.counters.collisionAir).toBeGreaterThan(0);
     const inFlight = added.slice(settled).filter((a) => a.held);
     for (const a of inFlight) expect(a.d).toBeLessThanOrEqual(64 + 16);
     // Stopped: held on until the speed stayed down, then let go once.
+    ahead = [];
+    s.collision!.setFoci([body]);
     for (let i = 0; i < 5000 && s.detail.held; i++) {
       s.update();
       await sleep(8);
@@ -207,6 +246,10 @@ describe('streaming at racing speed', () => {
     const third = Math.floor(after.length / 3);
     const mean = (a: number[]): number => a.reduce((n, v) => n + v, 0) / a.length;
     expect(mean(after.slice(0, third))).toBeLessThan(mean(after.slice(-third)));
-    console.log(`detail ${JSON.stringify({ heldUpdates, heldDerives: held, standIns: inFlight.length, back: after.length, cancelledDerives: s.counters.cancelledDerives, airDerives: s.counters.airDerives, derives: s.counters.derives })}`);
+    // The full results took the bodies over with the same surface, and no collision-only result is left.
+    expect(handovers).toBeGreaterThan(0);
+    expect(differ).toBe(0);
+    expect(s.collision!.count).toBe(0);
+    console.log(`detail ${JSON.stringify({ heldUpdates, fullHeld, alone, aloneAheadOnly, collisionDerives: s.counters.collisionDerives, collisionAir: s.counters.collisionAir, handovers, standIns: inFlight.length, back: after.length, cancelledDerives: s.counters.cancelledDerives, airDerives: s.counters.airDerives, derives: s.counters.derives })}`);
   }, 180_000);
 });

@@ -12,10 +12,10 @@
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
 import { jobRadius } from './assembly';
 import { assemblyRules } from './rule-registry';
-import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type ChunkPieces, type SectionResult } from './derive-assembly';
+import { deriveSectionCollisionsWithApron, deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type ChunkPieces, type SectionResult } from './derive-assembly';
 import type { ReliefOptions } from './relief-mesh';
 import { pieceTableOf } from './piece-table';
-import { derivedTransfer, encodeDerived } from './derived-data';
+import { collisionPartTransfer, derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';
 import { CellDelta } from './cell-delta';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
@@ -204,6 +204,7 @@ function derive(raw: unknown): JobResult {
     if (!Number.isInteger(level) || level < 0) throw new RangeError(`derive job: level ${String(level)}`);
     if (level > 0 && (input.rules === undefined || input.sections !== undefined || parts !== ALL_DERIVED_PARTS)) throw new RangeError('derive job: a chunk-tree node derives whole, with rules');
     if (input.sections !== undefined) return deriveSections(store, input, parts);
+    if (parts === DERIVED_PART.collision) throw new RangeError('derive job: collision alone is derived by sections');
     if (parts === DERIVED_PART.shader) {
       // Material and wetness feed only the shader data, which reads the chunk and its border.
       if (r !== SHADER_BORDER_CELLS) throw new RangeError(`derive job: shader data needs an apron ${SHADER_BORDER_CELLS} deep, not ${r}`);
@@ -248,6 +249,12 @@ function deriveSections(store: PaletteStore, input: DeriveInput, parts: number):
   if (parts === DERIVED_PART.shader) {
     if (input.radius !== SHADER_BORDER_CELLS) throw new RangeError(`derive job: shader data needs an apron ${SHADER_BORDER_CELLS} deep, not ${input.radius}`);
     results = deriveSectionShadersWithApron(g, input.apron, exportChunk, edge, ids);
+  } else if (parts === DERIVED_PART.collision) {
+    // Collision alone (bodies waiting for ground): the same evaluation, none of the draws' outputs.
+    if (input.rules === undefined) throw new RangeError('derive job: collision alone needs assembly rules');
+    const rules = assemblyRules(input.rules);
+    if (jobRadius(rules) !== input.radius) throw new RangeError(`derive job: radius ${input.radius} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
+    results = deriveSectionCollisionsWithApron(g, rules, input.apron, exportChunk, edge, ids, jobPieces(input));
   } else {
     if (input.rules === undefined) throw new RangeError('derive job: sections need assembly rules');
     const rules = assemblyRules(input.rules);
@@ -258,6 +265,7 @@ function deriveSections(store: PaletteStore, input: DeriveInput, parts: number):
   for (const r of results) {
     if (r.assembly !== null) derivedTransfer(r.assembly, transfer);
     if (r.shader !== null) transfer.push(r.shader.palette.buffer as ArrayBuffer, r.shader.ids.buffer as ArrayBuffer);
+    if (r.collision !== undefined) collisionPartTransfer(r.collision, transfer);
   }
   const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null, sections: results };
   return { output, transfer };

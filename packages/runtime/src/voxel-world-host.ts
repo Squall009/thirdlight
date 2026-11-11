@@ -37,6 +37,7 @@ import {
   collisionBodyParts,
   collisionGeometry,
   CollisionRing,
+  collisionLeadPoints,
   collisionRingBounds,
   EditCommandError,
   EditRefused,
@@ -56,6 +57,7 @@ import {
   type FarNodeSource,
   type GroundCoverage,
   type CollisionBodies,
+  type CollisionRingFeed,
   type CollisionSource,
   type Focus,
   type PropShape,
@@ -135,8 +137,10 @@ export type VoxelMaterialSources = Parameters<typeof voxelMaterialInfos>[0];
 export interface VoxelFoci {
   /** Where the world streams around. */
   readonly stream: readonly [number, number, number];
-  /** Where bodies are kept around (the stream focus and the characters). */
+  /** Where bodies are kept around (the characters). */
   readonly collide: readonly (readonly [number, number, number])[];
+  /** Their velocities (m/s, by the same index; absent or short: still): their collision is asked for ahead of them too. */
+  readonly collideVelocity?: readonly (readonly [number, number, number])[];
 }
 
 const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
@@ -321,15 +325,38 @@ export class VoxelWorldHost {
     const port = this.physics;
     if (port !== undefined && typeof port.addStaticColliders === 'function' && typeof port.removeStaticColliders === 'function') {
       this.bodies = new PortBodies(port, conn.grid, `voxel:${this.name}:`);
-      this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: streamer, bounds: this.collisionBounds() });
+      this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: this.collisionFeed(streamer), bounds: this.collisionBounds() });
     }
-    // At speed level 0 is derived only where bodies are made: the ring's bounds, with or without a physics port.
-    streamer.detail.bounds = this.collisionBounds();
+    // The collision-only derives ask within the ring's add bounds, with or without a physics port (a test's ring reads them).
+    if (streamer.collision !== null) streamer.collision.bounds = this.collisionBounds();
     const channel = new PropLightChannel(streamer, VOXEL_SIZE_M);
     channel.apply(this.props);
     this.channel = channel;
     streamer.on((e) => this.onStream(e));
     conn.present?.(streamer, s.sectionEdge);
+  }
+
+  /**
+   * What a chunk's body is made of: its collision-only join while that is of the chunk as it is now (stream-collision.ts:
+   * the same surface the full join gives), else its full sections joined once all have results, else the
+   * collision-only join it has, else the full sections it has.
+   */
+  private collisionFeed(streamer: VoxelStreamer): CollisionRingFeed {
+    return {
+      isResident: (cx, cy, cz) => streamer.isResident(cx, cy, cz),
+      setPart: (cx, cy, cz, part, bytes) => streamer.setPart(cx, cy, cz, part, bytes),
+      joinedChunk: (cx, cy, cz) => {
+        const alone = streamer.collision?.source(cx, cy, cz) ?? null;
+        if (alone !== null && (streamer.collision!.fresh(cx, cy, cz) || !streamer.chunkReady(cx, cy, cz))) return alone;
+        return streamer.joinedChunk(cx, cy, cz);
+      },
+    };
+  }
+
+  /** Whether a chunk's body is its ground: its full result arrived whole, or its collision-only one did. */
+  private chunkCollides(cx: number, cy: number, cz: number): boolean {
+    const s = this.streamer!;
+    return (this.derived.has(chunkKey(this.conn!.grid, cx, cy, cz)) && s.chunkReady(cx, cy, cz)) || s.collision?.source(cx, cy, cz) != null;
   }
 
   /** The collision ring's bounds (cells): never past the load ring, which holds the chunks the bodies are made of. */
@@ -351,7 +378,7 @@ export class VoxelWorldHost {
     if (this.streamer === null || this.disposed) return;
     applyWorldRings(this.streamer, this.settings);
     this.ring?.setBounds(this.collisionBounds());
-    this.streamer.detail.bounds = this.collisionBounds();
+    if (this.streamer.collision !== null) this.streamer.collision.bounds = this.collisionBounds();
   }
 
   private ringsInUse(): VoxelRings {
@@ -398,6 +425,9 @@ export class VoxelWorldHost {
       if (!e.shaderOnly && !e.reliefOnly) this.ring?.changed(e.cx, e.cy, e.cz);
       const id = `${e.cx},${e.cy},${e.cz}`;
       this.shaderOnlyChunks.set(id, (this.shaderOnlyChunks.get(id) ?? true) && e.shaderOnly);
+    } else if (e.type === 'collision') {
+      // A collision-only result: the body stands for the chunk's ground until its full result replaces it (the same surface).
+      this.ring?.changed(e.cx, e.cy, e.cz);
     } else if (e.type === 'mismatch') {
       this.events.mismatch(Object.freeze({ world: this.name, chunk: this.chunkBox(e.cx, e.cy, e.cz), kept: e.applied }));
     } else if (e.type === 'swap') {
@@ -437,11 +467,21 @@ export class VoxelWorldHost {
     if (s === null || this.disposed) return;
     const f = toCells(foci.stream);
     s.setFocus(f.x, f.y, f.z);
+    const bodies = foci.collide.map(toCells);
     // Level 0 is drawn round every collision focus too: what a character touches is what is drawn.
-    s.mips?.lod.setFoci(foci.collide.map(toCells));
+    s.mips?.lod.setFoci(bodies);
+    // Collision follows the bodies and the way they are going; the camera's ground only while it is not travelling fast
+    // (at rest it is what scripts cast rays at near the view), not at speed, where nothing stands on it.
+    const radius = this.collisionBounds().radius;
+    const ahead = bodies.flatMap((b, i) => {
+      const v = foci.collideVelocity?.[i];
+      return v === undefined ? [] : collisionLeadPoints(b, toCells(v), radius);
+    });
+    const collide = [...(s.detail.fast ? [] : [f]), ...bodies, ...ahead];
+    s.collision?.setFoci(collide);
     s.update();
     if (this.ring !== null) {
-      this.ring.setFoci([f, ...foci.collide.map(toCells)]);
+      this.ring.setFoci(collide);
       this.ring.update();
     }
     for (let i = 0; i < this.waits.length; ) {
@@ -468,10 +508,10 @@ export class VoxelWorldHost {
     if (ring === null) return true;
     const grid = this.conn!.grid;
     const sh = grid.shift;
-    // A chunk counts once every section has its result: its first `chunk` event may carry only some of them (a
-    // section waits while a chunk its apron reaches is still loading), and a body let go then falls through.
-    const streamer = this.streamer;
-    return ring.columnSettled(Math.floor(x / VOXEL_SIZE_M) >> sh, Math.floor(z / VOXEL_SIZE_M) >> sh, (cx, cy, cz) => this.derived.has(chunkKey(grid, cx, cy, cz)) && streamer.chunkReady(cx, cy, cz));
+    // A chunk counts once every section has its result (or its collision-only result is in): its first `chunk` event
+    // may carry only some of them (a section waits while a chunk its apron reaches is still loading), and a body let
+    // go then falls through.
+    return ring.columnSettled(Math.floor(x / VOXEL_SIZE_M) >> sh, Math.floor(z / VOXEL_SIZE_M) >> sh, (cx, cy, cz) => this.chunkCollides(cx, cy, cz));
   }
 
   /** A new run: the game's changes are dropped (the world reads as its files again, rebuilt in one swap). */

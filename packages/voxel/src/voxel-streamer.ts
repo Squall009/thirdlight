@@ -21,11 +21,13 @@
  * - with assembly rules, the chunk tree's coarser levels are built from
  *   the resident chunks and derived within their rings, after all level-0
  *   work (stream-mips.ts);
+ * - bodies get their ground on a path of their own (stream-collision.ts):
+ *   collision-only derives round the collision foci its host names, ahead
+ *   of the drawing work;
  * - faster than {@link STREAM_DETAIL_SPEED} level 0 is held back: the
- *   levels drawn leave it out, level-0 derives go out only for chunks in
- *   the collision ring of a focus (what bodies are made of) and those
- *   waiting in the pool for chunks outside it are cancelled; once the speed
- *   has stayed down, the rest are derived nearest the focus first and drawn.
+ *   levels drawn leave it out, no streaming level-0 derive goes out and
+ *   those waiting in the pool are cancelled; once the speed has stayed
+ *   down, they are derived nearest the focus first and drawn.
  *
  * Every job carries a tracker id and the input stamps it read; a result
  * whose chunk was edited, reloaded or had a neighbour within R change
@@ -54,6 +56,7 @@
  * base hashes are of the shipped chunks.
  */
 import { StreamDetail } from './stream-detail';
+import { CollisionDerives, type CollisionEvent } from './stream-collision';
 import { copyCoverage, countGround, emptyCoverage, type GroundCoverage, type GroundQuery } from './stream-coverage';
 import { checkRadius } from './apron';
 import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
@@ -203,7 +206,8 @@ export type StreamEvent =
   | MipEvent
   | SeamEvent
   | LevelEvent
-  | ReliefEvent;
+  | ReliefEvent
+  | CollisionEvent;
 
 type Phase = 'reading' | 'decoding' | 'resident' | 'damaged';
 
@@ -245,6 +249,18 @@ const SETTLE_POLL_MS = 4;
 const EVICT_TO = 0.95;
 const RESUME_BELOW = 0.85;
 
+/** Share of the pool's queue loads leave to derives (64 of the streaming pool's 256), so near derives never wait behind a refill's decodes. */
+export const STREAM_DERIVE_RESERVE_SHARE = 0.25;
+
+/**
+ * Pool room loads may take: all but {@link STREAM_DERIVE_RESERVE_SHARE} of the queue, which stays the derives'
+ * (bodies' ground, then the chunks nearest the focus). A refill reads and decodes in tasks of its own between
+ * updates; without the reserve its decodes fill the queue and the ground under a stopped focus waits behind them.
+ */
+function loadRoom(pool: WorkerPool): number {
+  return pool.room() - Math.floor(pool.capacity * STREAM_DERIVE_RESERVE_SHARE);
+}
+
 export interface StreamCounters {
   /** Times the load ring narrowed or widened for the focus's speed (stream-ring.ts `speedRing`). */
   speedRings: number;
@@ -284,6 +300,10 @@ export interface StreamCounters {
   cancelledDerives: number;
   /** Times level 0 was held back for the focus's speed, and let go again. */
   detailHolds: number;
+  /** Collision-only derives that landed round bodies (stream-collision.ts), air chunks among them answered without a job, and those refused. */
+  collisionDerives: number;
+  collisionAir: number;
+  collisionRefused: number;
 }
 
 export interface StreamMetrics {
@@ -334,7 +354,7 @@ export class VoxelStreamer {
   readonly tracker: DirtyTracker;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, ground: emptyCoverage() };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, collisionDerives: 0, collisionAir: 0, collisionRefused: 0, ground: emptyCoverage() };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -385,11 +405,14 @@ export class VoxelStreamer {
   readonly pieces: StreamPieces;
   /** The far field (null: none): its events go to the draws beside the stream's. */
   readonly far: FarField | null;
-  /**
-   * Level 0 held back at speed (stream-detail.ts): `detail.held` now, and `detail.bounds`, the collision ring's
-   * bounds (cells) level 0 is still derived within (its host sets them), so bodies keep the ground they are made of.
-   */
+  /** Level 0 held back at speed (stream-detail.ts): `detail.held` now. */
   readonly detail: StreamDetail;
+  /**
+   * Collision on its own path (stream-collision.ts; null without derives and rules): its host names the collision
+   * foci (`setFoci`) and the ring's add bounds (`bounds`, cells) each update; `source` is a chunk's collision-only
+   * join until its full result is in.
+   */
+  readonly collision: CollisionDerives | null;
 
   constructor(opts: VoxelStreamerOptions) {
     this.opts = opts;
@@ -400,7 +423,7 @@ export class VoxelStreamer {
     const ring = opts.ring ?? DEFAULT_STREAM_RING;
     checkRing(ring);
     this.plan = new StreamReadPlan(this.grid, ring, opts.prefetchSeconds ?? STREAM_PREFETCH_SECONDS);
-    this.detail = new StreamDetail(this.grid, this.plan, () => [this.focus, ...(this.mips?.lod.extraFoci ?? [])]);
+    this.detail = new StreamDetail(this.plan);
     checkRadius(this.grid.edge, opts.dependencyRadius);
     if (opts.rules !== undefined && jobRadius(opts.rules) !== opts.dependencyRadius) throw new RangeError(`dependency radius ${opts.dependencyRadius} for rules ${opts.rules.id} (needs ${jobRadius(opts.rules)})`);
     this.radius = opts.dependencyRadius;
@@ -447,12 +470,36 @@ export class VoxelStreamer {
                 }
               },
               poke: () => this.poke(),
-              deriveNow: (cx, cy, cz) => this.detail.deriveNow(cx, cy, cz),
+              deriveNow: () => this.detail.deriveNow(),
               seamHold: (groups, chunks, surfaces, ready) => this.mips?.holdEdit(groups, chunks, surfaces, ready) ?? null,
             },
             opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
             opts.editDeriveMsPerUpdate ?? 8,
           )
+        : null;
+    const derives = this.derives;
+    this.collision =
+      derives !== null && opts.rules !== undefined
+        ? new CollisionDerives({
+            store: view,
+            grid: this.grid,
+            gridId: this.gridId,
+            pool: opts.pool,
+            tracker: this.tracker,
+            radius: this.radius,
+            rules: opts.rules,
+            sectionEdge: derives.sections.edge as SectionEdge,
+            pieceTable: () => this.pieces.table,
+            isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
+            fullReady: (cx, cy, cz) => derives.chunkReady(cx, cy, cz),
+            fullCurrent: (cx, cy, cz) => derives.chunkCurrent(cx, cy, cz),
+            stamps: (cx, cy, cz) => derives.stampsOf(cx, cy, cz),
+            derivable: (cx, cy, cz) => derives.chunkDerivable(cx, cy, cz),
+            setPart: (cx, cy, cz, part, bytes) => this.setPart(cx, cy, cz, part, bytes),
+            emit: (e) => this.emit(e),
+            poke: () => this.poke(),
+            counters: this.counters,
+          })
         : null;
     this.relief = this.derives !== null && opts.rules !== undefined ? new StreamRelief(this.derives, this.grid, (cx, cy, cz) => this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.parts ?? null) : null;
     if (opts.relief !== undefined && opts.relief.n !== 0) {
@@ -618,11 +665,6 @@ export class VoxelStreamer {
     if (this.derives !== null) yield* this.derives.derived();
   }
 
-  /** {@link setPart} for a derive section (section coordinates): counted against its chunk. */
-  setSectionPart(sx: number, sy: number, sz: number, part: string, bytes: number): boolean {
-    return this.derives?.setPart(sx, sy, sz, part, bytes) ?? false;
-  }
-
   /** Base hash of a chunk as loaded (null unless the streamer loaded it with a save entry or hashing on). */
   baseHashOf(cx: number, cy: number, cz: number): Uint8Array | null {
     return this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.hash ?? null;
@@ -730,8 +772,8 @@ export class VoxelStreamer {
         else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, laneOf(this.plan, this.focus, c.cx, c.cz), motionDistance2(g, this.focus, this.plan.lead, c.cx, c.cy, c.cz));
       }
       this.mips?.focusMoved();
-      // Held back, the derives waiting in the pool for ground the focus has left are not built for nothing.
-      if (this.detail.held) this.derives?.cancelQueued((cx, cy, cz) => this.detail.collides(cx, cy, cz));
+      // Held back, the level-0 derives still waiting in the pool are not built for nothing (bodies have their own path).
+      if (this.detail.fast) this.derives?.cancelQueued(() => false);
     } else if (this.heldOutside.size > 0) {
       for (const key of [...this.heldOutside]) {
         const c = this.chunks.get(key);
@@ -747,12 +789,14 @@ export class VoxelStreamer {
     // Held stored chunks go to the pool as it has room (a dropped chunk's bytes are let go).
     const held = this.plan.held;
     let n = 0;
-    while (n < held.length && this.opts.pool.room() > 0) {
+    while (n < held.length && loadRoom(this.opts.pool) > 0) {
       const { c, stored } = held[n++]!;
       if (this.chunks.get(c.key) === c && c.phase === 'reading') this.decode(c, stored);
     }
     if (n > 0) held.splice(0, n);
     this.requestLoads();
+    // Bodies' ground before the drawing work: it is what a player waits for, and it is cheap.
+    this.collision?.request(this.opts.deriveMsPerUpdate ?? 2);
     this.derives?.request(this.opts.deriveMsPerUpdate ?? 2);
     this.mips?.request(this.opts.deriveMsPerUpdate ?? 2);
     // The far field selects from the focus too; its jobs go last in the pool.
@@ -804,7 +848,7 @@ export class VoxelStreamer {
   private idle(): boolean {
     if (this.reads > 0 || this.refreshes.live > 0) return false;
     for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding') return false;
-    if (this.derives?.pending() === true || this.mips?.pending() === true) return false;
+    if (this.derives?.pending() === true || this.mips?.pending() === true || this.collision?.pending() === true) return false;
     for (let i = this.cursor; i < this.wanted.length; i++) {
       const w = this.wanted[i]!;
       if (w.d2 >= this.horizon) continue;
@@ -833,6 +877,7 @@ export class VoxelStreamer {
         return false;
       }
       this.derives?.chunkDropped(c.cx, c.cy, c.cz);
+      this.collision?.dropped(c.cx, c.cy, c.cz);
       this.store.dropChunk(c.cx, c.cy, c.cz);
       this.mips?.chunkDropped(c.cx, c.cy, c.cz);
       this.tracker.unload(ref);
@@ -886,7 +931,7 @@ export class VoxelStreamer {
     const batch = this.opts.readBatch ?? 64;
     const maxReads = this.opts.maxReads ?? DEFAULT_STREAM_READS;
     // Most chunks read are air or uniform and need no worker: reads go on while the pool has room for what waits.
-    while (this.reads < maxReads && this.opts.pool.room() > this.plan.held.length && this.cursor < this.wanted.length) {
+    while (this.reads < maxReads && loadRoom(this.opts.pool) > this.plan.held.length && this.cursor < this.wanted.length) {
       const list: Chunk[] = [];
       let column = -1;
       while (this.cursor < this.wanted.length) {
@@ -949,7 +994,7 @@ export class VoxelStreamer {
         return;
       }
       const stored: StoredChunk = { stored: r.bytes.slice(), raw: r.raw };
-      if (this.plan.held.length > 0 || this.opts.pool.room() === 0) {
+      if (this.plan.held.length > 0 || loadRoom(this.opts.pool) <= 0) {
         this.plan.held.push({ c, stored });
         return;
       }
