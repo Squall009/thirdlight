@@ -315,6 +315,7 @@ wide_e2e() { # wide_e2e [e2e files…] (none: every spec)
   say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") --project=default, ${TL_E2E_WORKERS} workers"
   e2e e2e.log --project=default "$@" && return 0
   fail_at e2e
+  area_times e2e.log
   grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
   say "rerunning the failed tests alone"
   TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed --trace=retain-on-failure || done_ "RED e2e (fix, then: tools/gate.sh rerun)"

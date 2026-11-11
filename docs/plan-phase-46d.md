@@ -3320,7 +3320,10 @@ WebGL 2, medium/high, collision bodies in a game with physics, the eye-point sam
   into the `startup` area, D417/D453) and the e2e areas of `tools/gate-areas.json`; WebGPU once on a GPU host,
   WebGL 2 one smoke file, the parity specs archived, `--both-renderers` gone (this supersedes the 2026-11-10 lead
   default that the 46d-b close keeps it); `gate.sh area` and `gate.sh phase <start>`; AGENTS.md rewritten. A fast
-  gate went from 16 min (whole suite) to 2 min for a docs change.
+  gate went from 16 min (whole suite) to 2 min for a docs change. `phase a376c761` once: build + lint + the whole
+  unit suite green in 11 min, then OOM-killed at the 7G cap on 3 e2e workers (wide runs use 2 since); its e2e (core
+  + 8 areas, 103 files) as `area` on 2 workers: 14.8 min + a 3.4 min rerun alone, about 31 min in all against the
+  last full gate's 35. Three tests fail alone that passed at the 46d-b start: D600, to fix before the close.
 
 ## 10. Open questions for the owner
 
