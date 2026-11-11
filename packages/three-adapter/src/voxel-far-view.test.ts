@@ -23,6 +23,10 @@ import { FAR_NODE_FLOATS, FAR_NODE_HI_FLOAT, FAR_NODE_LO_FLOAT, FAR_NODE_PAGE_FL
 import { VoxelFarView } from './voxel-far-mesh';
 import { createVoxelSurface, GRID_TRIM_SLACK, VoxelShaderGrids, type VoxelGridRenderer } from './voxel-surface';
 import { FarBrickAtlas } from './voxel-far-bricks';
+import { FAR_VIS_CELL_FROM, FAR_VIS_CELL_SPAN, FAR_VIS_CELL_STEPS, packFarVisibility, unpackFarVisibility } from './voxel-far-visibility';
+import { installMotionVectors, motionVectorOutput, MOTION_TARGET } from './motion-vectors';
+import { INSTANCE_CULLER_KEY } from './attribute-instancing';
+import { mrt, output } from 'three/tsl';
 
 const grid = chunkGrid(32);
 
@@ -35,6 +39,13 @@ function recorder(): VoxelGridRenderer & { uploads: Array<{ at: THREE.Vector3; b
     initTexture: () => undefined,
     copyTextureToTexture: () => undefined,
   };
+}
+
+/** A WebGPU-like uploader (the far view takes the visibility pass there): each region's write through the device's queue. */
+function gpuRecorder(): ReturnType<typeof recorder> {
+  const r = recorder();
+  const device = { queue: { writeTexture: (dst: { origin: { x: number; y: number; z: number } }, bytes: Uint8Array) => void r.uploads.push({ at: new THREE.Vector3(dst.origin.x, dst.origin.y, dst.origin.z), bytes: bytes.slice() }) } };
+  return { ...r, backend: { isWebGPUBackend: true, device, get: () => ({ texture: {} }), copyTextureToTexture: () => undefined } as VoxelGridRenderer['backend'] };
 }
 
 function view(renderer: VoxelGridRenderer): VoxelFarView {
@@ -265,6 +276,156 @@ describe('the far view', () => {
     expect(v.halfScene).toBeNull();
     expect(v.root.children.length).toBe(1);
     expect((v.root.children[0] as THREE.Mesh).name).not.toContain('composite');
+    v.dispose();
+  });
+
+  it('holds a far hit in one visibility texel and reads it back: its brick, its place in the brick to a 4095th of the span, its depth exactly, its entry face; nothing hit reads as none', () => {
+    const step = FAR_VIS_CELL_SPAN / FAR_VIS_CELL_STEPS;
+    // The atlas's largest region index on its widest axis (2048 texels / 9) and the brick's whole span, lip included.
+    const cases = [
+      { brick: [0, 0, 0], at: [0, 0, 0], viewZ: -12.5, face: 1 },
+      { brick: [227, 3, 201], at: [8, 8, 8], viewZ: -4123.75, face: 6 },
+      { brick: [17, 226, 0], at: [FAR_VIS_CELL_FROM, 3.3333, FAR_VIS_CELL_FROM + FAR_VIS_CELL_SPAN], viewZ: -61_000.125, face: 3 },
+      { brick: [5, 6, 7], at: [-0.5, 8.5, 4.123], viewZ: -0.75, face: 4 },
+    ] as const;
+    for (const h of cases) {
+      const t = packFarVisibility(h);
+      // Every float an integer below 2^24 (exact in a float32) but the depth.
+      for (const k of [0, 1, 3]) {
+        expect(Number.isInteger(t[k]!)).toBe(true);
+        expect(t[k]!).toBeLessThan(2 ** 24);
+        expect(Math.fround(t[k]!)).toBe(t[k]);
+      }
+      const back = unpackFarVisibility(t.map((x) => Math.fround(x)))!;
+      expect(back.brick).toEqual(h.brick);
+      expect(back.face).toBe(h.face);
+      expect(back.viewZ).toBe(Math.fround(h.viewZ));
+      for (let a = 0; a < 3; a++) expect(Math.abs(back.at[a]! - h.at[a]!)).toBeLessThanOrEqual(step / 2 + 1e-9);
+    }
+    // A cleared texel (nothing marched there) is no hit.
+    expect(unpackFarVisibility([0, 0, 0, 0])).toBeNull();
+    expect(() => packFarVisibility({ brick: [0, 0, 0], at: [0, 0, 0], viewZ: -1, face: 0 })).toThrow();
+  });
+
+  it('on WebGPU marches into its visibility target and shades once a pixel: the brick draws move to the pass scene (unlit, the texel and its depth), the frame keeps one full-screen shade, lit, with its depth and the hit\'s own motion; WebGL 2 shades in the frame', () => {
+    const r = gpuRecorder();
+    const v = view(r);
+    v.apply({ added: [brickNode(0)], removed: [] }, undefined);
+    expect(v.brickPass).toBe('visibility');
+    const bricks: THREE.Mesh[] = [];
+    v.visibilityScene!.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) bricks.push(o as THREE.Mesh);
+    });
+    expect(bricks.length).toBe(1);
+    const inFrame = v.root.children as THREE.Mesh[];
+    expect(inFrame.map((m) => m.name)).toEqual(['voxel-far shade']);
+    expect(inFrame[0]!.visible).toBe(true);
+    // The march: its depth, no lights read, no normal's six reads nor the colour's (the shade reads those).
+    const pass = new THREE.Scene();
+    pass.add(v.visibilityScene!);
+    const march = fragmentWgslOf(wgslRenderer(), pass, bricks[0]!);
+    expect(march).toContain('frag_depth');
+    expect(march).toContain('discard');
+    const lit = fragmentWgslOf(wgslRenderer(), litScene(), (() => {
+      const w = view(recorder());
+      w.apply({ added: [brickNode(0)], removed: [] }, undefined);
+      return w.root.children[0] as THREE.Mesh;
+    })());
+    const samples = (w: string): number => (w.match(/textureSampleLevel/g) ?? []).length;
+    expect(samples(lit) - samples(march), 'the six gradient reads and the colour read left to the shade').toBe(7);
+    // The shade: lit by the scene, its depth the hit's, every pixel's own texel read once (no filtering).
+    const scene = litScene();
+    scene.add(v.root);
+    const shade = fragmentWgslOf(wgslRenderer(), scene, inFrame[0]!);
+    expect(shade).toContain('frag_depth');
+    expect(shade).toContain('discard');
+    expect(shade).toContain('textureLoad');
+    expect(samples(shade)).toBe(7);
+    // Under the temporal upscale's motion target the shade writes the hit's motion from its own fragment (the texel's
+    // place), not the full-screen quad's vertices: no motion varying in its vertex stage.
+    installMotionVectors();
+    const g = wgslRenderer();
+    const target = new THREE.RenderTarget(4, 4, { count: 2 });
+    target.textures[0]!.name = 'output';
+    target.textures[1]!.name = MOTION_TARGET;
+    g.setRenderTarget(target);
+    g.setMRT(mrt({ output, [MOTION_TARGET]: motionVectorOutput() }));
+    const vertexOf = (r: ReturnType<typeof wgslRenderer>): string => {
+      const all = wgslOf(r, scene, inFrame[0]!);
+      return all.slice(0, all.length - fragmentWgslOf(r, scene, inFrame[0]!).length);
+    };
+    expect(fragmentWgslOf(g, scene, inFrame[0]!)).toMatch(/@location\(\s*1\s*\)/);
+    const varyings = (w: string): number => (w.match(/@location\(\s*\d+\s*\)/g) ?? []).length;
+    expect(varyings(vertexOf(g)), 'the vertex stage passes what it passes without motion').toBe(varyings(vertexOf(wgslRenderer())));
+    target.dispose();
+    // Half resolution takes the bricks from it, and back.
+    v.setBrickHalf(true);
+    expect(v.brickPass).toBe('half');
+    expect(v.visibilityScene).toBeNull();
+    v.setBrickHalf(false);
+    expect(v.brickPass).toBe('visibility');
+    // Removed, the shade hides (nothing to march).
+    v.apply({ added: [], removed: [{ level: 2, nx: 0, ny: 1, nz: 0 }] }, undefined);
+    expect((v.root.children[0] as THREE.Mesh).visible).toBe(false);
+    v.dispose();
+    // WebGL 2 keeps the march shading itself in the frame.
+    const w = view(recorder());
+    w.apply({ added: [brickNode(0)], removed: [] }, undefined);
+    expect(w.brickPass).toBe('direct');
+    expect(w.visibilityScene).toBeNull();
+    w.dispose();
+  });
+
+  it('draws the visibility pass from the shade inside the frame: into its own target at the frame target\'s size with no MRT, the culler and the clear set for it and put back; a hit\'s last place follows a floating-origin re-base', () => {
+    const r = gpuRecorder();
+    const v = view(r);
+    v.apply({ added: [brickNode(0)], removed: [] }, undefined);
+    const shade = v.root.children[0] as THREE.Mesh;
+    const scene = new THREE.Scene();
+    scene.add(v.root);
+    const culler = { adopt: () => undefined };
+    scene.userData[INSTANCE_CULLER_KEY] = culler;
+    const frameTarget = new THREE.RenderTarget(853, 480);
+    const frameMrt = { mrt: true };
+    const calls: Array<{ scene: THREE.Object3D; target: THREE.RenderTarget | null; mrt: unknown; clear: boolean; alpha: number }> = [];
+    let target: THREE.RenderTarget | null = frameTarget;
+    let mrtNow: unknown = frameMrt;
+    let alpha = 1;
+    const fake = {
+      autoClear: false, autoClearColor: true, autoClearDepth: true, autoClearStencil: true,
+      getRenderTarget: () => target, setRenderTarget: (t: THREE.RenderTarget | null) => void (target = t),
+      getMRT: () => mrtNow, setMRT: (m: unknown) => void (mrtNow = m),
+      getDrawingBufferSize: (s: THREE.Vector2) => s.set(1280, 720),
+      getClearColor: (c: THREE.Color) => c.set(0x336699), getClearAlpha: () => alpha, setClearColor: (_c: unknown, a = 1) => void (alpha = a),
+      render(s: THREE.Object3D) { calls.push({ scene: s, target, mrt: mrtNow, clear: this.autoClear, alpha }); },
+    };
+    const cam = new THREE.PerspectiveCamera(60, 16 / 9, 0.5, 400);
+    shade.onBeforeRender(fake as never, scene, cam, shade.geometry, shade.material as THREE.Material, null as never);
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.scene).toBe(v.visibilityScene);
+    expect(calls[0]!.target).not.toBe(frameTarget);
+    expect([calls[0]!.target!.width, calls[0]!.target!.height]).toEqual([853, 480]);
+    expect(calls[0]!.mrt).toBeNull();
+    expect(calls[0]!.clear).toBe(true);
+    expect(calls[0]!.alpha).toBe(0);
+    expect(v.visibilityScene!.userData[INSTANCE_CULLER_KEY]).toBe(culler);
+    // Put back as it was for the rest of the frame.
+    expect([target, mrtNow, fake.autoClear, fake.autoClearStencil, alpha]).toEqual([frameTarget, frameMrt, false, true, 1]);
+    expect(shade.matrixWorld.equals(cam.matrixWorld)).toBe(true);
+    // The target's bytes are the far field's: a texel and a depth a pixel.
+    expect(v.visibilityBytes).toBe(853 * 480 * 20);
+    // A re-base by one chunk along x moves every far draw 64 m: a point drawn now at x was at x + 64 on the last frame.
+    const origin = (v as unknown as { opts: { origin: FloatingOrigin } }).opts.origin;
+    (origin as unknown as { ox: number }).ox += 32;
+    v.rebase();
+    shade.onBeforeRender(fake as never, scene, cam, shade.geometry, shade.material as THREE.Material, null as never);
+    const m = ((v as unknown as { vis: { lastFromNow: { value: THREE.Matrix4 } } }).vis.lastFromNow.value);
+    const p = new THREE.Vector3(10, 20, 30).applyMatrix4(m);
+    expect(p.toArray()).toEqual([10 + 32 * VOXEL_SIZE_M, 20, 30]);
+    // Still on the next frame: no motion of its own.
+    shade.onBeforeRender(fake as never, scene, cam, shade.geometry, shade.material as THREE.Material, null as never);
+    expect(new THREE.Vector3(10, 20, 30).applyMatrix4(m).toArray()).toEqual([10, 20, 30]);
+    frameTarget.dispose();
     v.dispose();
   });
 

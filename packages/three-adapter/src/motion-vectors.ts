@@ -108,6 +108,20 @@ class ObjectMotionNode extends (THREE.Node as unknown as new (type: string) => {
 /** The motion of the draw being built. */
 export const objectMotion: N = TSL.nodeObject(new ObjectMotionNode());
 
+/**
+ * `material.userData[OWN_MOTION_KEY] = node`: the material knows each pixel's motion itself (a vec2, NDC, this frame's
+ * place minus the last's), where its vertices are not its surface (a full-screen draw shading hits it read from a
+ * target): the motion target takes it in place of the vertices' motion.
+ */
+export const OWN_MOTION_KEY = '__tlOwnMotion';
+
+/** A point's motion on screen (NDC, this frame's place minus the last's) from its world place now and as it was on the last frame (fragment or vertex stage). */
+export function worldMotion(now: N, was: N): N {
+  const a = viewProjection.mul(vec4(now, 1));
+  const b = lastViewProjection.mul(vec4(was, 1));
+  return a.xy.div(a.w).sub(b.xy.div(b.w));
+}
+
 /** Whether a build draws into a target holding motion vectors (three's own test: its MRT has `velocity`). */
 export function needsPreviousPlace(builder: unknown): boolean {
   return (builder as { needsPreviousData?: () => boolean }).needsPreviousData?.() === true;
@@ -141,7 +155,8 @@ class MotionVectorNode extends (THREE.Node as unknown as new (type?: string) => 
   setup(builder: N): N {
     const m = builder.material as THREE.Material | null;
     if (m !== null && blendsOver(m)) return vec4(keepValueOf(m));
-    return vec4(objectMotion, 0, 1);
+    const own = m?.userData[OWN_MOTION_KEY] as N | undefined;
+    return vec4(own ?? objectMotion, 0, 1);
   }
 }
 

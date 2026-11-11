@@ -27,7 +27,10 @@
  * - **Shading.** The normal is the samples' gradient at the hit (inside the
  *   brick: a skirt is shaded like the surface it hangs from), the colour
  *   and occlusion one filtered read of the baked samples, lit by the scene's
- *   lights like the meshes.
+ *   lights like the meshes (voxel-far-brick-field.ts). On WebGPU the march
+ *   writes only the hit (its brick, place and depth) into a visibility
+ *   target and one full-screen draw shades every far pixel once from it
+ *   (voxel-far-visibility.ts); elsewhere each fragment shades its own hit.
  * - **Depth.** The hit's own depth is written (the far draws' mapping,
  *   voxel-far-common.ts), so bricks, far meshes and the near field sort
  *   against each other per pixel; hits under the near cover are discarded,
@@ -36,21 +39,22 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_AO_FLOOR, FAR_BRICK_NORMAL_SPAN_CELLS, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GRADIENT_MIN, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
+import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { culledCopyVec4, culledDepthAt } from './attribute-instancing';
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
 import type { N } from './effects-tsl';
-import { texelTexture3D } from './texel-texture-node';
+import { entryFace, entryFaceCode, type FarBrickTextures } from './voxel-far-brick-field';
 import { farClipPosition, farFragmentDepth, type FarCover } from './voxel-far-common';
 import { COPY_BOX_FLOAT, HIDDEN_DEPTH_MARGIN } from './occlusion-instances-rule';
 import { declareVertexReach } from './vertex-reach';
 import { FAR_BOX_FROM, FAR_BOX_STEPS, FAR_NODE_CORNER_FLOAT, FAR_NODE_FLOATS, FAR_NODE_HI_FLOAT, FAR_NODE_LO_FLOAT, FAR_NODE_PAGE_FLOAT, packFarBoxCorner } from './voxel-far-cull';
 import { farHalfOutput } from './voxel-far-half';
+import { farVisibilityMaterial, farVisibilityOutput } from './voxel-far-visibility';
 import { VoxelShaderGrids, type RegionTexels, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
-const { Break, Discard, Fn, If, Loop, abs, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, max, min, mix, mod, modelWorldMatrix, modelWorldMatrixInverse, normalize, positionGeometry, property, round, screenCoordinate, screenSize, select, sign, texture3D, uniform, varying, vec3, vec4 } = TSL;
+const { Break, Discard, Fn, If, Loop, abs, cameraPosition, cameraProjectionMatrix, clamp, float, floor, int, ivec3, length, max, min, mod, modelWorldMatrix, modelWorldMatrixInverse, normalize, positionGeometry, property, round, screenCoordinate, screenSize, select, varying, vec3, vec4 } = TSL;
 
 /** A packed box corner (voxel-far-cull.ts) in node cells. */
 function unpackCorner(v: N): N {
@@ -260,71 +264,35 @@ export function farNodeGeometry(edge: number, g: { readonly level: number; reado
 }
 
 /**
+ * What a brick draw writes: `lit` its hit shaded and lit in the frame (the march shades each fragment), `half` the
+ * half-resolution target's packed colour, normal and depth (voxel-far-half.ts), `visibility` the visibility target's
+ * texel (voxel-far-visibility.ts: the hit's brick, place, depth and entry face; shaded once a pixel after).
+ */
+export type FarBrickOutput = 'lit' | 'half' | 'visibility';
+
+/**
  * The brick draws' material, one for every brick group: the node march, the
  * baked shading and the hit's depth, over the atlas.
  */
 export class FarBrickMaterial {
   readonly material: NodeMaterial;
-  private readonly distanceNode: N;
-  /** The atlas's baked colours. */
-  private readonly coloursNode: N;
-  private readonly invSideU = uniform(new THREE.Vector3(1, 1, 1));
 
-  /**
-   * `nodeBricks`: bricks a side of a node (the march walks that many an axis). `half`: the program draws into
-   * the half-resolution target (voxel-far-half.ts: colour, normal and depth packed, unlit) instead of the frame.
-   */
-  constructor(atlas: FarBrickAtlas, cover: FarCover, nodeBricks = 4, readonly half = false) {
-    const m = cameraRelative(half ? (new NodeMaterial() as MeshStandardNodeMaterial) : new MeshStandardNodeMaterial());
-    m.name = `voxel far bricks${half ? ' (half resolution)' : ''}`;
+  /** `nodeBricks`: bricks a side of a node (the march walks that many an axis). */
+  constructor(textures: FarBrickTextures, cover: FarCover, nodeBricks = 4, readonly output: FarBrickOutput = 'lit') {
+    const lit = output === 'lit';
+    const m = cameraRelative(output === 'visibility' ? (farVisibilityMaterial() as MeshStandardNodeMaterial) : lit ? new MeshStandardNodeMaterial() : (new NodeMaterial() as MeshStandardNodeMaterial));
+    m.name = `voxel far bricks${output === 'half' ? ' (half resolution)' : output === 'visibility' ? ' (visibility)' : ''}`;
     m.metalness = 0;
     m.roughness = 1;
     m.side = THREE.BackSide;
     // Its vertices stay inside each node's box (the culler's): the box's own corners, placed by the instance.
     declareVertexReach(m, () => 0);
     this.material = m;
-    this.distanceNode = texture3D(atlas.distance.texture);
-    this.coloursNode = texture3D(atlas.colours.texture);
-    const pagesNode = texelTexture3D(atlas.pages.texture);
-    const pageBoundsNode = texelTexture3D(atlas.pageBounds.texture);
-    this.sides(atlas.distance.texture);
-    atlas.distance.onTexture = (tex) => {
-      (this.distanceNode as unknown as { value: THREE.Texture }).value = tex;
-      this.sides(tex);
-    };
-    atlas.colours.onTexture = (tex) => {
-      (this.coloursNode as unknown as { value: THREE.Texture }).value = tex;
-    };
-    atlas.pages.onTexture = (tex) => {
-      (pagesNode as unknown as { value: THREE.Texture }).value = tex;
-    };
-    atlas.pageBounds.onTexture = (tex) => {
-      (pageBoundsNode as unknown as { value: THREE.Texture }).value = tex;
-    };
+    const pagesNode = textures.pages;
+    const pageBoundsNode = textures.pageBounds;
     const C = DISTANCE_BRICK_CELLS;
     const L = FAR_BRICK_LIP_CELLS;
-    const invSide = this.invSideU;
-    const distanceNode = this.distanceNode;
-    const coloursNode = this.coloursNode;
-    // The stored distance (cells) at a point inside a brick (cells 0–8 an axis) at atlas region `region`: one filtered read, the trilinear sample.
-    const sampled = (region: N, q: N): N => distanceNode.sample(region.add(q).add(0.5).mul(invSide)).level(float(0)).r.mul(2).sub(1).mul(DISTANCE_BRICK_BAND_VOXELS);
-    const inBrick = (p: N): N => clamp(p, vec3(0), vec3(C));
-    // The field at a point of a brick (cells): its sample, and past the box its skirt (as `farBrickField`).
-    const field = (region: N, p: N): N => {
-      const q = inBrick(p);
-      return sampled(region, q).add(length(p.sub(q)).mul(FAR_BRICK_SKIRT_SLOPE));
-    };
-    // The surface's normal at a hit: the samples' gradient read inside the brick only (a skirt is shaded as the surface
-    // it hangs from, as a far mesh's skirt takes its edge's normal), one-sided where the brick's side cuts the step.
-    const gradient = (region: N, p: N): N => {
-      const axis = (e: N): N => {
-        const a = inBrick(p.add(e));
-        const b = inBrick(p.sub(e));
-        return sampled(region, a).sub(sampled(region, b)).div(max(length(a.sub(b)), float(1e-3)));
-      };
-      const h = FAR_BRICK_NORMAL_SPAN_CELLS;
-      return vec3(axis(vec3(h, 0, 0)), axis(vec3(0, h, 0)), axis(vec3(0, 0, h)));
-    };
+    const field = (region: N, p: N): N => textures.field(region, p);
     const safe = (c: N): N => select(abs(c).lessThan(1e-8), select(c.lessThan(0), float(-1e-8), float(1e-8)), c);
     // A box's growth by the lip on the node faces a brick lies on (`faces` the face bits), where its bounds reach them.
     const lipped = (bLo: N, bHi: N, faces: N): { lo: N; hi: N } => {
@@ -338,6 +306,7 @@ export class FarBrickMaterial {
     const hitNormal = property('vec3', 'farBrickNormal');
     const hitColour = property('vec3', 'farBrickColour');
     const hitViewZ = property('float', 'farBrickViewZ');
+    const hitPayload = property('vec4', 'farBrickTexel');
     // Radians a pixel covers at the screen's centre: how big a pixel is at a distance.
     const pixelAngle = float(2).div(cameraProjectionMatrix.element(1).y.mul(screenSize.y));
     // Cells a pixel covers a cell along the ray (the camera sits at t = 0 in the node's frame).
@@ -468,32 +437,28 @@ export class FarBrickMaterial {
       If(cover.covered(world), () => {
         Discard();
       });
+      const face = entryFace(near, dir);
+      const view = modelView.mul(vec4(local, 1));
+      if (output === 'visibility') {
+        hitPayload.assign(farVisibilityOutput(region, p, view.z, entryFaceCode(face)));
+        return farFragmentDepth(cover.behindNear(world, view.z));
+      }
       // Deep under the surface (the samples clamped to the band) there is no gradient: a ray hits there only where a
       // node face shows its ground's side (a neighbour drawn at a coarser level lies lower), shaded as that face.
-      const g = gradient(region, p).toVar();
-      const entryX = near.x.greaterThanEqual(near.y).and(near.x.greaterThanEqual(near.z));
-      const entryY = entryX.not().and(near.y.greaterThanEqual(near.z));
-      const entryZ = entryX.not().and(entryY.not());
-      const facing = vec3(select(entryX, sign(dir.x).negate(), float(0)), select(entryY, sign(dir.y).negate(), float(0)), select(entryZ, sign(dir.z).negate(), float(0)));
-      const n = select(length(g).greaterThan(FAR_BRICK_GRADIENT_MIN), normalize(g), facing);
-      hitNormal.assign(normalize(modelView.mul(vec4(n, 0)).xyz));
-      // One filtered read: the eight samples' colours and occlusions blended by the hit's weights.
-      const q = clamp(p, vec3(0), vec3(C));
-      const c = coloursNode.sample(region.add(q).add(0.5).mul(invSide)).level(float(0));
-      hitColour.assign(c.rgb.mul(mix(float(FAR_BRICK_AO_FLOOR), float(1), c.a)));
-      const view = modelView.mul(vec4(local, 1));
+      hitNormal.assign(normalize(modelView.mul(vec4(textures.normal(region, p, face), 0)).xyz));
+      hitColour.assign(textures.colour(region, p));
       hitViewZ.assign(cover.behindNear(world, view.z));
       return farFragmentDepth(hitViewZ);
     })();
-    m.colorNode = vec4(hitColour, 1);
-    m.normalNode = hitNormal;
-    if (half) m.outputNode = farHalfOutput(hitColour, hitNormal, hitViewZ);
+    if (output === 'visibility') {
+      m.outputNode = hitPayload;
+    } else {
+      m.colorNode = vec4(hitColour, 1);
+      m.normalNode = hitNormal;
+      if (output === 'half') m.outputNode = farHalfOutput(hitColour, hitNormal, hitViewZ);
+    }
     // The boxes reach past the camera's far plane: placed with the far depth, never clipped there (the fragment writes its own).
     m.vertexNode = farClipPosition();
-  }
-
-  private sides(tex: THREE.Data3DTexture): void {
-    (this.invSideU.value as THREE.Vector3).set(1 / tex.image.width, 1 / tex.image.height, 1 / tex.image.depth);
   }
 
   dispose(): void {

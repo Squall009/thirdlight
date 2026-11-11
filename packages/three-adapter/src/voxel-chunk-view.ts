@@ -280,6 +280,8 @@ export interface VoxelChunkViewOptions {
   readonly fastPaths?: boolean;
   /** Surfaces (not pieces) cast and receive the key light's shadow as static casters, whatever `shadows` says (a measurement). */
   readonly staticCasters?: boolean;
+  /** Whether the far bricks draw as a visibility pass and one shade on WebGPU (default on; `VoxelFarViewOptions.visibility`). */
+  readonly farVisibility?: boolean;
   /**
    * What casts a relief chunk's shadow: its plain surfaces (`plain`, the
    * default; see {@link VoxelChunkView} `addCaster`) or the displaced relief
@@ -361,7 +363,7 @@ export class VoxelChunkView {
     this.root.add(this.pieces.root);
     // Its chunk, node and seam surfaces are occlusion culling's draws, though they sit below this root.
     markOccludeeGroup(this.root);
-    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer });
+    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer, visibility: opts.farVisibility !== false });
     this.root.add(this.far.root);
     this.kitSet = null;
     this.setKits(opts.kits ?? null);

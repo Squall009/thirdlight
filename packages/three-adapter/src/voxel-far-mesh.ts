@@ -42,11 +42,13 @@ import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farB
 import { cameraRelative } from './camera-relative';
 import { disposeObjectTree } from './dispose';
 import type { N } from './effects-tsl';
-import { FarBrickAtlas, FarBrickMaterial, farNodeGeometry } from './voxel-far-bricks';
+import { FarBrickTextures } from './voxel-far-brick-field';
+import { FarBrickAtlas, FarBrickMaterial, farNodeGeometry, type FarBrickOutput } from './voxel-far-bricks';
 import { FarNodeCopies } from './voxel-far-cull';
 import { FarHalfRes, type FarHalfRenderer } from './voxel-far-half';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
+import { FarVisibility } from './voxel-far-visibility';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
@@ -84,6 +86,11 @@ export interface VoxelFarViewOptions {
   readonly surface: VoxelSurface;
   /** What the bricks are uploaded with (the bricks mode needs it). */
   readonly renderer?: VoxelGridRenderer;
+  /**
+   * Whether the bricks draw as a visibility pass and one shade where the renderer is WebGPU (voxel-far-visibility.ts;
+   * default on). Off, or on WebGL 2, each brick fragment shades its own hit in the frame.
+   */
+  readonly visibility?: boolean;
 }
 
 /** One world's far field draws. */
@@ -103,6 +110,10 @@ export class VoxelFarView {
   private hidden = false;
   /** The bricks' half-resolution pass (null: they draw in the frame). */
   private half: FarHalfRes | null = null;
+  /** The atlas's texture nodes every brick program reads (made with the atlas). */
+  private textures: FarBrickTextures | null = null;
+  /** The bricks' visibility pass and shade (null: they shade in the frame, or at half resolution). */
+  private vis: FarVisibility | null = null;
   /** The far colours by look word the bricks' baked samples take (made with the atlas). */
   private palette: FarBrickPalette | null = null;
   private paletteBusy = false;
@@ -135,9 +146,24 @@ export class VoxelFarView {
     this.cover = new FarCover(opts.grid, opts.origin);
   }
 
-  /** GPU bytes the far field holds: its draws' buffers and the brick atlas. */
+  /** GPU bytes the far field holds: its draws' buffers, the brick atlas and the visibility target. */
   get bytes(): number {
-    return this.drawBytes + (this.atlas?.gpuBytes ?? 0);
+    return this.drawBytes + (this.atlas?.gpuBytes ?? 0) + this.visibilityBytes;
+  }
+
+  /** GPU bytes of the visibility target alone (its size follows the frame's). */
+  get visibilityBytes(): number {
+    return this.vis?.gpuBytes ?? 0;
+  }
+
+  /** How the bricks shade: in the visibility pass's one shade, at half resolution, or each fragment in the frame. */
+  get brickPass(): 'visibility' | 'half' | 'direct' {
+    return this.vis !== null ? 'visibility' : this.half !== null ? 'half' : 'direct';
+  }
+
+  /** The visibility pass's own scene, which holds the brick draws while it is on (null: off). */
+  get visibilityScene(): THREE.Scene | null {
+    return this.vis?.scene ?? null;
   }
 
   /** GPU bytes of the brick atlas alone. */
@@ -191,6 +217,7 @@ export class VoxelFarView {
   }
 
   private remakeBrickDraws(): void {
+    this.setVisibilityPass();
     this.brickMaterial?.dispose();
     this.brickMaterial = null;
     for (const g of this.groups.values()) if (g.kind === 'bricks') g.dirty = true;
@@ -201,6 +228,8 @@ export class VoxelFarView {
   setVisible(on: boolean): void {
     this.hidden = !on;
     this.root.visible = on;
+    // The visibility pass's draws sit in their own scene: hidden with the shade, so the culler lists none of them.
+    if (this.vis !== null) this.vis.root.visible = on;
   }
 
   get visible(): boolean {
@@ -285,9 +314,34 @@ export class VoxelFarView {
   private brickAtlas(): FarBrickAtlas {
     if (this.atlas === null) {
       this.atlas = new FarBrickAtlas(this.opts.grid.edge / DISTANCE_BRICK_CELLS);
+      this.textures = new FarBrickTextures(this.atlas);
       this.palette ??= new FarBrickPalette(this.opts.surface);
     }
     return this.atlas;
+  }
+
+  /**
+   * The visibility pass on or off as the renderer and the half-resolution switch want it (decided when brick draws
+   * are made: three's WebGPU renderer falls back to WebGL 2 only at its first draw).
+   */
+  private setVisibilityPass(): void {
+    const webgpu = (this.opts.renderer as { backend?: { isWebGPUBackend?: boolean } } | undefined)?.backend?.isWebGPUBackend === true;
+    const want = webgpu && this.opts.visibility !== false && this.half === null;
+    if (want === (this.vis !== null)) return;
+    if (want) {
+      this.brickAtlas();
+      this.vis = new FarVisibility(this.textures!, this.cover, this.root, this.opts.origin);
+      this.vis.root.visible = !this.hidden;
+      this.root.add(this.vis.shade);
+    } else {
+      this.vis!.shade.removeFromParent();
+      this.vis!.dispose();
+      this.vis = null;
+    }
+  }
+
+  private brickOutput(): FarBrickOutput {
+    return this.half !== null ? 'half' : this.vis !== null ? 'visibility' : 'lit';
   }
 
   /** Before a brick draw: when the surface's looks changed, the palette is drawn again after this frame. */
@@ -364,13 +418,18 @@ export class VoxelFarView {
     }
     if (g.nodes.size === 0) {
       this.groups.delete(g.key);
+      this.vis?.update();
       return;
     }
     let mesh: THREE.Mesh;
     if (g.kind === 'bricks') {
       const nodes = [...g.nodes.values()];
       const draws = farNodeGeometry(this.opts.grid.edge, g, nodes, (n) => this.pages.get(mipNodeKey(n)));
-      this.brickMaterial ??= new FarBrickMaterial(this.brickAtlas(), this.cover, this.opts.grid.edge / DISTANCE_BRICK_CELLS, this.half !== null);
+      if (this.brickMaterial === null) {
+        this.brickAtlas();
+        this.setVisibilityPass();
+        this.brickMaterial = new FarBrickMaterial(this.textures!, this.cover, this.opts.grid.edge / DISTANCE_BRICK_CELLS, this.brickOutput());
+      }
       g.triangles = 0;
       g.brickCount = nodes.reduce((n, d) => n + (d.bricks !== undefined ? farBrickCount(d.bricks) : 0), 0);
       g.bytes = geometryBytes(draws.geometry);
@@ -401,9 +460,12 @@ export class VoxelFarView {
     mesh.frustumCulled = false;
     mesh.castShadow = mesh.receiveShadow = false;
     mesh.userData['voxelFar'] = g.key;
+    const parent = g.kind !== 'bricks' ? this.root : this.half !== null ? this.half.root : this.vis !== null ? this.vis.root : this.root;
+    parent.add(mesh);
+    this.vis?.sync();
     this.place(mesh, g.cell);
     g.mesh = mesh;
-    (g.kind === 'bricks' && this.half !== null ? this.half.root : this.root).add(mesh);
+    this.vis?.update();
   }
 
   private place(o3: THREE.Object3D, cell: readonly number[]): void {
@@ -415,6 +477,7 @@ export class VoxelFarView {
 
   /** After a floating-origin re-base: every draw's position again, and the cover's corner. */
   rebase(): void {
+    this.vis?.sync();
     for (const g of this.groups.values()) if (g.mesh !== null) this.place(g.mesh, g.cell);
     this.cover.place();
   }
@@ -459,6 +522,8 @@ export class VoxelFarView {
     this.palette?.dispose();
     this.half?.dispose();
     this.half = null;
+    this.vis?.dispose();
+    this.vis = null;
     this.cover.dispose();
     this.triangles = this.bricks = this.drawBytes = this.nodes = 0;
   }

@@ -81,6 +81,7 @@ import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
 import { voxelPathsFromUrl, voxelStaticCastersFromUrl } from './voxel-surface-path';
+import { farVisibilityFromUrl } from './voxel-far-visibility';
 import { pageSearch } from './renderer-factory';
 
 /** One edit's way to the screen, as this page saw it (ms). */
@@ -187,7 +188,7 @@ export interface VoxelWorldDrawStats {
   /** The relief ring as last told (null: not yet): steps, where it displaces (metres), whether it moves; the vertices drawn displaceable. */
   readonly relief: { readonly n: number; readonly radiusM: number; readonly displace: boolean; readonly vertices: number } | null;
   /** The far field as drawn: nodes, bricks and triangles (bricks draw none), draws, GPU bytes and the times the brick atlas gave space back. */
-  readonly far: { readonly nodes: number; readonly bricks: number; readonly triangles: number; readonly draws: number; readonly gpuBytes: number; readonly trims: number; readonly covered: number };
+  readonly far: { readonly nodes: number; readonly bricks: number; readonly triangles: number; readonly draws: number; readonly gpuBytes: number; readonly trims: number; readonly covered: number; readonly pass: 'visibility' | 'half' | 'direct'; readonly visibilityBytes: number };
 }
 
 interface WorldDraw {
@@ -417,7 +418,7 @@ export class VoxelWorldDraws {
     if (this.arrays !== null) this.giveArrays(surface);
     // Per-draw programs on WebGPU only: WebGL 2 keeps the one program it drew with.
     const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), staticCasters: voxelStaticCastersFromUrl(pageSearch()) });
+    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), staticCasters: voxelStaticCastersFromUrl(pageSearch()), farVisibility: farVisibilityFromUrl(pageSearch()) });
     view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);
@@ -477,7 +478,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 
