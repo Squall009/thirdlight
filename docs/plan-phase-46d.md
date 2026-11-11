@@ -291,7 +291,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.20 | not started |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
-| 46d.23 | not started |
+| 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | not started |
 
 ## 8. Results
@@ -2720,6 +2720,68 @@ materials, blends, triplanar ground, wetness and the far slopes the same; no sea
 the square's distance. *Unverified:* a pose where whole culling hides chunks (streets, behind a ridge), motion,
 medium/high pictures, WebGL 2 (unchanged path; the voxel area's smoke), the meter's ms (±40 %, D588).
 
+### 46d.23 low's memory: the 4 GB budget, the raised budgets; D597
+
+**D597 traced and fixed** (dd09676d). The coverage bench gained `--return S` (the camera put back at the line's
+start, memory read again S seconds on), `--heap-profile` (live allocation sites from the start reading on) and
+`--heap-snapshot` (a whole snapshot; `work/46d.23/snap.mjs` groups array buffers' backing stores by retainer path),
+and reads the renderer and GPU processes' RSS. The sampled JS objects grew only 131 MiB of the 737; the rest were
+array buffers. A snapshot after 3 km of the 60 m/s hugging flight (975 MiB live): 138 MiB of geometry arrays held
+by **three's render objects** of meshes already removed. A removed chunk, seam, far group or piece draw disposed its
+geometry only; three's `RenderObject` listens on the object, the material and the lights, and disposes on the
+object's or material's `dispose`, not the geometry's, and the shared surface material and the lights node kept the
+listener — so every voxel mesh ever drawn stayed, with its arrays, for the renderer's lifetime. Each removal now
+also runs `disposeObjectTree` (dispose.ts, as the scene's entities already did). vitest
+(`voxel-chunk-view.test.ts`): three's own `RenderObjects` on a backend that draws nothing, a 2-chunk window slid 12
+moves: only the drawn meshes keep render objects (12 → 1 without the fix), none after `dispose`. **Legitimate
+working set** at 3 km after the fix (673 MiB): textures' CPU mip copies 308 MiB (kit textures twice: D604), far
+brick copies 181 MiB (Play's ~20 k drawn bricks ~58 MiB and the editor's Scene view behind Play; D604), live
+geometry 39 MiB, script source 56 MiB. Events, the far entry cache, worker transfers and chunk payloads were not
+among the holders (they live in the workers; D606 for what the workers hold).
+
+**Budgets** (85428e3f). `LOW_MEMORY_BUDGET_MIB` (project-model, replaces `LOW_MEMORY_CEILING_MIB`): total 4096,
+page heap 1536, GPU 2560. Low: stream 256 → 768 MiB, far GPU 96 → 384 MiB, texels 256 → 512 px/m; medium stream
+512 → 768, far 176 → 384; high far 288 → 384 (stream 1024 and texels 1024 kept); medium/high **unverified on target
+hardware**. `VOXEL_RING_SCALES` are no longer the square roots of the budgets (same values, 0.71 / 1 / 1.41): with
+medium's budget moved they would have shrunk high's rings, and the rings cost GPU and worker time, the budget only
+memory. vitest: `quality-levels.test.ts` (low's budgets inside the GPU share, medium/high ≥ low in every voxel
+budget, far error ≤ low's), `voxel-world.test.ts`, `voxel-texture-residency.test.ts` (4096² at low now level 1).
+Gates: gate-fast-20261111-092458 GREEN (D597; 6 min, 5.5 GB; voxel area 159 s); gate-fast-20261111-101729 (budgets; 12 min, 7.1 GB, 719 vitest files) red only on D603 (`voxel-world.e2e.ts:401`, 752 chunks replaced where 8 were expected), GREEN on rerun gate-rerun-20261111-103052. No e2e file changed; voxel area 152–159 s.
+
+**Measured** (staging, Iris Xe, Play in the editor, WebGPU 1280 × 720, low at 30 Hz, the realistic 8 km world;
+`run.mjs coverage` 150 m/s `high` and 60 m/s `hug`, both with `--return 30`; `run.mjs headroom --quality low
+--hide none --copies none --scales none`; one round a step, one change a step, 09:30–10:15, uptime 18.8 d, load
+1-min 1–6; `work/46d.23/{cov-*,headroom-*}.json`, `sum.py`). Heap = page heap live after a GC (MiB); GPU = the GPU
+process's DRM resident (MiB); RSS = the renderer processes (page + workers + the editor).
+
+| low | 150 high: ground under / ahead missing | holes | 150 heap start → end → home | 150 GPU end | 60 hug: heap start → end → home | 60 GPU end → home | 60 RSS end | far held / coarser (end) | evictions | room at the town |
+|---|---|---|---|---|---|---|---|---|---|---|
+| D597 not fixed (the 46d.22 flight) | — | — | — | — | 395 → 1,132 → 1,093 | 1,102 → 1,080 | 3,465 | 0 / 0 | 0 | — |
+| base (dd09676d) | 15.6 / 45.4 % | 0 | 384 → 487 → 466 | 881 | 399 → 665 → 642 | 1,077 → 1,066 | 2,966 | 0 / 0 | 0 | 192 × 0.131 = 25.2 ms |
+| + stream 768 | 16.4 / 46.7 % | 1 (1 frame, m 6,815) | 381 → 511 → 476 | 869 | 378 → 694 → 636 | 1,108 → 1,092 | 3,045 | 0 / 0 | 0 | — |
+| + far 384 | 15.4 / 44.7 %, again 14.3 / 44.6 | 0, 0 | 372 → 684 → 641, again 368 → 636 → 603 | 1,032–1,038 | 397 → 836 → 764 | 1,203 → 1,189 | 3,154 | 0 / 0 | 0 | — |
+| + texels 512 | 12.0 / 44.7 % | 0 | 395 → 639 → 576 | 931 | 393 → 868 → 800 | 1,210 → 1,206 | 3,230 | 0 / 0 | 0 | 192 × 0.124 = 23.8 ms (first run 5: streaming hitch) |
+
+Missed frames 7–17 of 1,997 (150) and 57–73 of ~4,940 (60) in every row. Read: on this world **none of the three
+budgets binds at low** (D605): the stream never reaches 256 MiB (0 evictions), the far field never reaches 96 MiB
+(50–85 MiB drawn, 0 held, 0 coarser stand-ins; detail is set by low's 8 px error), and the world's texture sets are
+1024² (256 px/m), so 512 px/m keeps the same top level (`textureTops` 0 both). Play draws the same far set in every
+row (2,094–2,137 nodes at the flights' end, 1,200 page nodes, 20,393 bricks). The far step's +150 MiB page heap and
++150 MiB GPU is the **editor's Scene view** behind Play, no longer held by its budget (the snapshot: brick copies
+181 → 317 MiB, page far nodes unchanged; D604). Kept all three: they cost nothing where unused, bound travel, and
+are the room the owner set; what they buy wants a 4096²-set world and a lower far error or wider low rings (D605).
+**The split** page 1.5 / GPU 2.5 GiB confirmed as the default: the most measured was page 868 MiB, GPU 1,210 MiB
+(GPU holds low's far 384 + stream 768 + textures 512 + saved light 32 MiB = 1.7 GiB of budgets, the page only its
+copies); but page + workers + editor (RSS) reach 3.2 GB and with the GPU about 4.4 GB (D606).
+
+**Looked at** (`far-field/46d.23/`: `<pose>-{before,after}.png`, `flight150-{before,after}.png` (t = 20 s), side by
+side in `side-by-side/` with a 2× crop; every one opened; before = the far-384 build at 256 px/m). town-west,
+peak-to-town, near-ground: the same pictures (≤ 0.01 % of pixels by > 60; near-ground's brick wall the same texel
+blur both sides, the town's roofs, walls and the massif identical); town-peak-4.5km 0.24 % (clouds); the 150 m/s
+frame (grass slope, gravel channel, cliff): the same view a few metres apart, no sharper ground. No sharper texture
+and no more far detail, as the numbers say. *Unverified:* sharper textures on a world with 2048²/4096² sets, medium
+and high on target hardware, an export without the editor (D606), WebGL 2.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3458,6 +3520,18 @@ medium/high pictures, WebGL 2 (unchanged path; the voxel area's smoke), the mete
 - 2026-11-11 (46d.19, default chosen, owner to confirm): **D600: a still TAAU view holds once the camera's matrices
   stay within 1e-7 an element** of the pose its stillness began at; the editor ignores a `play.stopped` of a play
   other than the one it runs; two e2e reads pin `taau=0` with the reason written.
+
+- 2026-11-11 (46d.23, default chosen, owner to confirm): **low's memory budget is 4096 MiB = page heap 1536 + GPU
+  2560** (`LOW_MEMORY_BUDGET_MIB`), the lead's starting split kept: measured at most 868 / 1,210 MiB on the 8 km
+  world; the GPU share holds low's budgets (far 384, stream 768, textures 512, saved light) with room for targets.
+  The renderer's workers and the editor are not in the page number (RSS to 3.2 GB, D606).
+- 2026-11-11 (46d.23, default chosen, owner to confirm): **the starting values kept**: low stream 768 MiB, far GPU
+  384 MiB, 512 px/m; medium stream 768, far 384; high far 384 (unverified on target hardware). None binds on the
+  8 km world (D605); they are bounds, not targets.
+- 2026-11-11 (46d.23, default chosen, owner to confirm): **ring scales no longer follow the stream budget**
+  (0.71 / 1 / 1.41 kept as numbers): a budget is memory, a ring is GPU and worker time.
+- 2026-11-11 (46d.23): D597's cause was removed voxel meshes kept alive by three's render objects (fixed); the far
+  brick and texture copies the page keeps are working set (D604), not leaks.
 
 ## 10. Open questions for the owner
 
