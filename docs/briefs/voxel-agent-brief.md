@@ -111,7 +111,8 @@ Gates (owner 2026-11-11: run only what a change affects; tools/gate.sh, AGENTS.m
   - `fast [--all] [e2e files…]` per commit: build, lint, `vitest related` on the files changed since the branch's
     last green gate (~/.cache/thirdlight-logs/last-green-phase-45; whole suite with --all, without a base, or when
     package/config/gate/check files changed), the core smoke (authoring-loop, play-export), the e2e areas the
-    changed files map to (tools/gate-areas.json; voxel = voxel-world + webgl2-smoke) and any files named; the
+    changed files map to (tools/gate-areas.json; voxel = voxel-world + webgl2-smoke; project-model, shared and the
+    backend's plumbing = every area, `everyArea`) and any files named; the
     village perf check (WebGPU only, at the cap) only when three-adapter/runtime/game-host/voxel/effects/perf
     changed. Only a clean tree is recorded as green: commit before you gate.
   - `area <name>…` at the end of an item that changed an area broadly (leak test on).

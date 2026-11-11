@@ -1,8 +1,30 @@
 {
-  "note": "The gate's e2e areas: a change to a file matching an area's sources (and none of its exclude) runs that area's e2e files in the fast gate; `tools/gate.sh area <name>` runs one area; `core` runs in every fast gate; start.e2e.ts is out of it (in `startup`) while its stop's exit code 1 under load (D417/D453) is unexplained: its log now prints with the failure. Every e2e file sits in at least one area (tools/check-gate-areas.mjs, in npm run build). Globs: * stays inside a folder, ** crosses folders.",
+  "note": "The gate's e2e areas: a change to a file matching an area's sources (and none of its exclude) runs that area's e2e files in the fast gate; `tools/gate.sh area <name>` runs one area; `core` runs in every fast gate; start.e2e.ts is out of it (in `startup`) while its stop's exit code 1 under load (D417/D453) is unexplained: its log now prints with the failure. `everyArea`: sources every part of the engine reads (the project model, the shared helpers, the backend's plumbing): a change there runs every area, as wide as a phase gate. Every e2e file sits in at least one area, and every package source file (packages/*/src, tests aside) reaches an area or `everyArea` (tools/check-gate-areas.mjs, in npm run build); a source that somehow reaches none runs every area. Globs: * stays inside a folder, ** crosses folders.",
+  "everyArea": [
+    "packages/project-model/**",
+    "packages/shared/**",
+    "packages/backend/src/api-router.ts",
+    "packages/backend/src/auth.ts",
+    "packages/backend/src/backend.ts",
+    "packages/backend/src/config.ts",
+    "packages/backend/src/engine.ts",
+    "packages/backend/src/full-state.ts",
+    "packages/backend/src/http.ts",
+    "packages/backend/src/index.ts",
+    "packages/backend/src/services/**",
+    "packages/backend/src/session-routes.ts",
+    "packages/backend/src/sessions.ts",
+    "packages/backend/src/static-routes.ts",
+    "packages/backend/src/util.ts",
+    "packages/backend/src/ws-channel.ts"
+  ],
   "areas": {
     "core": {
-      "sources": [],
+      "sources": [
+        "packages/backend/src/test-editor.ts",
+        "packages/backend/src/test-helpers.ts",
+        "packages/backend/src/testing.ts"
+      ],
       "e2e": [
         "authoring-loop",
         "play-export"
@@ -25,9 +47,13 @@
         "packages/runtime/src/voxel-*",
         "packages/editor/src/voxel-world/**",
         "packages/backend/src/voxel-*",
-        "packages/project-model/src/voxel*",
         "packages/game-host/src/voxel*",
-        "tools/voxel-bench/**"
+        "tools/voxel-bench/**",
+        "packages/backend/src/far-cache-*",
+        "packages/backend/src/preview-routes.ts",
+        "packages/backend/src/model-bricks.ts",
+        "packages/backend/src/kit-*",
+        "packages/backend/src/trim-check.ts"
       ],
       "e2e": [
         "voxel-world",
@@ -37,7 +63,10 @@
     "rendering": {
       "sources": [
         "packages/three-adapter/**",
-        "packages/game-host/**"
+        "packages/game-host/**",
+        "packages/backend/src/decal-*",
+        "packages/backend/src/occluder-problems.ts",
+        "packages/backend/src/glb-*"
       ],
       "exclude": [
         "packages/three-adapter/src/voxel-*",
@@ -71,8 +100,14 @@
         "packages/three-adapter/src/*texture*",
         "packages/three-adapter/src/*ktx*",
         "packages/three-adapter/src/*graph*",
-        "packages/project-model/src/*material*",
-        "packages/editor/src/graph/**"
+        "packages/editor/src/graph/**",
+        "packages/backend/src/ktx2-*",
+        "packages/backend/src/texture-*",
+        "packages/backend/src/height-*",
+        "packages/backend/src/material-problems.ts",
+        "packages/backend/src/model-textures.ts",
+        "packages/backend/src/held-images.ts",
+        "packages/backend/src/trim-check.ts"
       ],
       "e2e": [
         "materials",
@@ -100,7 +135,8 @@
         "packages/three-adapter/src/*shadow*",
         "packages/three-adapter/src/*probe*",
         "packages/three-adapter/src/*cluster*",
-        "packages/three-adapter/src/*bake*"
+        "packages/three-adapter/src/*bake*",
+        "packages/backend/src/lighting-bake-route.ts"
       ],
       "e2e": [
         "lights",
@@ -118,8 +154,7 @@
         "packages/three-adapter/src/*fog*",
         "packages/three-adapter/src/*post*",
         "packages/three-adapter/src/*bloom*",
-        "packages/three-adapter/src/*exposure*",
-        "packages/project-model/src/*environment*"
+        "packages/three-adapter/src/*exposure*"
       ],
       "e2e": [
         "environment",
@@ -148,7 +183,9 @@
         "packages/**/*block*",
         "packages/**/*terrain*",
         "packages/**/*cdlod*",
-        "packages/**/*architecture*"
+        "packages/**/*architecture*",
+        "packages/backend/src/erosion-*",
+        "packages/backend/src/paint-problems.ts"
       ],
       "e2e": [
         "block-editor",
@@ -168,7 +205,11 @@
     },
     "editor-ui": {
       "sources": [
-        "packages/editor/**"
+        "packages/editor/**",
+        "packages/backend/src/admin-routes.ts",
+        "packages/backend/src/problems.ts",
+        "packages/backend/src/*-problems.ts",
+        "packages/backend/src/external-edits.ts"
       ],
       "exclude": [
         "packages/editor/src/voxel-world/**"
@@ -208,8 +249,8 @@
         "packages/runtime/src/*scene*",
         "packages/runtime/src/*save*",
         "packages/runtime/src/*shell*",
-        "packages/project-model/src/*scene*",
-        "packages/commands/**"
+        "packages/commands/**",
+        "packages/backend/src/prefab-problems.ts"
       ],
       "e2e": [
         "scenes",
@@ -236,7 +277,22 @@
         "packages/backend/src/*asset*",
         "packages/backend/src/*import*",
         "packages/backend/src/*folder*",
-        "packages/backend/src/*project*"
+        "packages/backend/src/*project*",
+        "packages/backend/src/content*",
+        "packages/backend/src/fbx.ts",
+        "packages/backend/src/emscripten-wasm.d.ts",
+        "packages/backend/src/glb-*",
+        "packages/backend/src/image-*",
+        "packages/backend/src/thumbnails.ts",
+        "packages/backend/src/zip-read.ts",
+        "packages/backend/src/gzip-port.ts",
+        "packages/backend/src/packs.ts",
+        "packages/backend/src/templates.ts",
+        "packages/backend/src/missing-files.ts",
+        "packages/backend/src/external-edits.ts",
+        "packages/backend/src/audio-gaps.ts",
+        "packages/backend/src/problems.ts",
+        "packages/backend/src/migrated-2d-problems.ts"
       ],
       "e2e": [
         "assets",
@@ -266,7 +322,9 @@
         "packages/exporter/**",
         "packages/runtime/**",
         "packages/game-host/**",
-        "packages/backend/src/*play*"
+        "packages/backend/src/*play*",
+        "packages/backend/src/exports.ts",
+        "packages/backend/src/headless.ts"
       ],
       "exclude": [
         "packages/runtime/src/voxel-*",
@@ -292,7 +350,11 @@
         "packages/mcp-adapter/**",
         "packages/protocol/**",
         "packages/backend/src/*socket*",
-        "packages/backend/src/*relay*"
+        "packages/backend/src/*relay*",
+        "packages/backend/src/docs.ts",
+        "packages/backend/src/skill-install.*",
+        "packages/backend/src/trusted.ts",
+        "packages/backend/src/headless.ts"
       ],
       "e2e": [
         "mcp",
@@ -329,7 +391,8 @@
       "sources": [
         "packages/runtime/src/*audio*",
         "packages/runtime/src/*sound*",
-        "packages/game-host/src/*audio*"
+        "packages/game-host/src/*audio*",
+        "packages/backend/src/audio-gaps.ts"
       ],
       "e2e": [
         "audio-kinds",
@@ -357,7 +420,12 @@
         "packages/behavior-build/**",
         "packages/runtime/src/*script*",
         "packages/runtime/src/*ctx*",
-        "packages/runtime/src/*ui*"
+        "packages/runtime/src/*ui*",
+        "packages/backend/src/behavior*",
+        "packages/backend/src/library-routes.ts",
+        "packages/backend/src/type-check-*",
+        "packages/backend/src/script-name-problems.ts",
+        "packages/backend/src/source-locations.ts"
       ],
       "e2e": [
         "script-api",

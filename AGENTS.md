@@ -75,7 +75,9 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
 - A gate's time is recorded per area in its summary; each phase records its phase gate's time against the
   previous phase's, and the phase review questions growth that new coverage doesn't explain. New coverage
   extends or replaces existing tests (one backend per file, browser-free checks in vitest) rather than adding
-  files, and every e2e file belongs to an area (`tools/check-gate-areas.mjs`, in `npm run build`).
+  files, and every e2e file belongs to an area (`tools/check-gate-areas.mjs`, in `npm run build`). Every
+  package source file reaches an area too, or `everyArea` (project-model, shared, the backend's plumbing:
+  a change there runs every area, as wide as `phase`); a new source in neither fails the build.
 - Comments say why the code is the way it is. No phase numbers, item ids, dates or `§` spec references in
   source comments; history lives in git and the phase plans (`docs/plan-phase-*.md`, older ones in
   `archive/plans/`).
