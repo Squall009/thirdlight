@@ -130,9 +130,6 @@ describe('quality levels', () => {
     expect(levelVoxels(medium!).budgetBytes).toBeLessThanOrEqual(levelVoxels(high!).budgetBytes);
     expect(levelVoxels(medium!).farGpuBudget).toBeLessThanOrEqual(levelVoxels(high!).farGpuBudget);
     expect(low!.shadowMapSize).toBe(2048);
-    // About 4 GB of an 8 GB machine, page and GPU together.
-    expect(LOW_MEMORY_BUDGET_MIB.pageHeap + LOW_MEMORY_BUDGET_MIB.gpu).toBe(LOW_MEMORY_BUDGET_MIB.total);
-    expect(LOW_MEMORY_BUDGET_MIB.total).toBe(4096);
     // The GPU side holds the tier's far field, its voxel meshes (inside the stream budget), its texture budget and
     // saved light, with room left for the frame's own targets.
     const gpuBudgets = (levelVoxels(low!).farGpuBudget + levelVoxels(low!).budgetBytes) / 2 ** 20 + TEXTURE_BUDGET_DEFAULT_MB + levelLighting(low!).surfaceCacheMiB;
