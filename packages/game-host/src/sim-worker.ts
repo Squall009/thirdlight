@@ -396,6 +396,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'voxels.drawn':
         voxels?.drawn(m.world, m.bytes, m.coarse, m.kits);
         return;
+      case 'voxels.farSeen':
+        voxels?.farSeen(m.world, m.seen);
+        return;
       case 'dispose':
         dispose();
         return;

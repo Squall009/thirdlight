@@ -24,7 +24,10 @@
  * The simulation's far world reports, every update, whether the ground under
  * the camera and a second ahead of it is in its collision (derived chunks from
  * the camera down to the first solid), and whether the camera is inside a
- * drawn far stand-in's solid (`coverage` in its diagnostics). Also recorded:
+ * drawn far stand-in's solid (`coverage` in its diagnostics); with the
+ * position polls, rays through the lower half of the view entering a far
+ * stand-in's solid at a box face (the view passing under a coarse node's
+ * surface, seen from inside while the eye itself is outside). Also recorded:
  * missed frames at the cap, page heap and GPU process memory against the low
  * tier's memory budget, far swaps and what is pending, and full-size pictures at
  * `--shots` seconds into the flight.
@@ -38,6 +41,7 @@
  *   --heap-profile  sample the page's heap allocations from the start reading on and write, at each later reading,
  *                 what is still live by allocation site (`<out>.heap-<reading>.json`; whole profile beside it)
  *   --heap-snapshot LIST  readings (start,end,return) a full heap snapshot is also written at (`.heapsnapshot`)
+ *   --query Q    more of the editor page's query (`&farFeedback=off`: page flags Play is passed)
  *   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/coverage/<quality>-<speed>-<altitude>-<tag>.json)
  *
  * How to (staging running with the 8 km world, nothing else on the GPU):
@@ -59,8 +63,8 @@ import { FarCacheReader, zstdDecompress } from '@thirdlight/workspace';
 import { decodePng } from '../../tests/e2e/png';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
-import { along, coveragePath, distanceAlong, groundMask, isKey, type CoveragePath } from './coverage';
-import { frameCap, frameWindow } from './headroom';
+import { along, coveragePath, distanceAlong, entersAtFace, groundMask, isKey, viewRayPoints, VIEW_RAYS, type CoveragePath, type FarSample } from './coverage';
+import { FarSettle, frameCap, frameWindow } from './headroom';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -85,6 +89,8 @@ const HEAP_PROFILE = process.argv.includes('--heap-profile');
 const HEAP_SNAPSHOT = arg('heap-snapshot', '').split(',').filter((s) => s !== '');
 const SHOTS = arg('shots', '').split(',').filter((s) => s !== '').map(Number);
 const SHOT_DIR = arg('shot-dir', benchDir('coverage'));
+/** More of the editor page's query (`&farFeedback=off`: page flags Play is passed). */
+const QUERY = arg('query', '');
 const TAG = arg('tag', new Date().toISOString().slice(0, 16).replace(/[:T]/g, ''));
 const OUT = arg('out', join(benchDir('coverage'), `${QUALITY}-${SPEED}-${ALTITUDE}-${TAG}.json`));
 const LEVEL = DEFAULT_QUALITY_LEVELS.find((l) => l.id === QUALITY);
@@ -261,7 +267,7 @@ interface Hook {
 }
 
 async function openPlay(page: Page): Promise<{ canvas: Locator; frame: Locator; psid: string; control: (body: unknown) => Promise<void> }> {
-  await page.goto(`${ORIGIN}/?project=${PROJECT}&renderer=webgpu#token=${TOKEN}`);
+  await page.goto(`${ORIGIN}/?project=${PROJECT}&renderer=webgpu${QUERY}#token=${TOKEN}`);
   await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 60_000 });
   await page.addStyleTag({ content: `iframe.tl-app__preview-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: ${VIEWPORT.width}px !important; height: ${VIEWPORT.height}px !important; z-index: 2147483647 !important; }` });
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 60_000 });
@@ -330,23 +336,16 @@ async function main(): Promise<void> {
       });
       return { pageHeapMiB, pageHeapLiveMiB, gpuMiB, rendererRssMiB, gpuProcessRssMiB, farGpuMiB: Math.round(((await stats())?.far.gpuBytes ?? 0) / 2 ** 20) };
     };
-    // The fill at the line's start: until the far field drawn stays the same for 5 s.
+    // The fill at the line's start: until the far field drawn stays within 2 % for 5 s (FarSettle).
     const T0 = Date.now();
-    let last = '';
-    let since = Date.now();
+    const settle = new FarSettle();
     for (;;) {
       const s = await stats();
-      const key = JSON.stringify(s?.far ?? null);
-      if (s !== null && s.far.nodes > 0 && key === last) {
-        if (Date.now() - since > 5000) break;
-      } else {
-        last = key;
-        since = Date.now();
-      }
+      if (settle.step(s?.far, Date.now())) break;
       if (Date.now() - T0 > 420_000) throw new Error('the far field did not settle in 7 min');
       await page.waitForTimeout(250);
     }
-    out['fillS'] = Number(((since - T0) / 1000).toFixed(1));
+    out['fillS'] = Number(((settle.since - T0) / 1000).toFixed(1));
     out['memoryStart'] = await memory();
     const heapCdp = HEAP_PROFILE ? await context.newCDPSession(page) : null;
     if (heapCdp !== null) await heapCdp.send('HeapProfiler.startSampling', { samplingInterval: 16384 });
@@ -392,7 +391,7 @@ async function main(): Promise<void> {
       checks.push({ t, width: img.width, height: img.height, key });
     });
     // Where the camera is, for the holes' places (the frame's distance from the nearest poll).
-    const polls: Array<{ t: number; m: number; far: { level: number; inside: boolean } | null }> = [];
+    const polls: Array<{ t: number; m: number; far: { level: number; inside: boolean } | null; faceRays: number }> = [];
     const coverageLog: Array<{ t: number; c: unknown }> = [];
     let polling = true;
     const poll = (async () => {
@@ -401,8 +400,25 @@ async function main(): Promise<void> {
         const at = (o.json['camera'] as { position?: readonly number[] } | undefined)?.position;
         const p = at === undefined ? undefined : { x: at[0]!, y: at[1]!, z: at[2]! };
         if (p !== undefined && Number.isFinite(flyAt)) {
-          const far = await canvas.evaluate((_c, a) => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.farSolidAt(a.w, a.x, a.y, a.z), { w: WORLD, x: p.x, y: p.y, z: p.z }).catch(() => null);
-          polls.push({ t: (Date.now() - flyAt) / 1000, m: distanceAlong(path, p.x, p.z), far });
+          const m = distanceAlong(path, p.x, p.z);
+          const dir = along(path.waypoints, Math.min(stopAt, m));
+          // Rays through the lower half of the view: one entering a far stand-in's solid at a box face sees it from inside.
+          const rays = viewRayPoints({ x: p.x, y: p.y, z: p.z, yaw: Math.atan2(-dir.dx, -dir.dz), pitch: PITCH }, FOV_Y, VIEWPORT.width / VIEWPORT.height);
+          const sampled = await canvas
+            .evaluate((_c, a) => {
+              const hook = (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay;
+              const at = (x: number, y: number, z: number) => {
+                const f = hook.farSolidAt(a.w, x, y, z);
+                if (f === null) return null;
+                const span = 16 * 2 ** f.level;
+                return { level: f.level, node: `${f.level}:${Math.floor(x / span)},${Math.floor(y / span)},${Math.floor(z / span)}`, inside: f.inside };
+              };
+              return { eye: at(a.x, a.y, a.z), rays: a.rays.map((r) => Array.from({ length: r.length / 3 }, (_, k) => at(r[k * 3]!, r[k * 3 + 1]!, r[k * 3 + 2]!))) };
+            }, { w: WORLD, x: p.x, y: p.y, z: p.z, rays })
+            .catch(() => null);
+          const eye = sampled?.eye ?? null;
+          const faceRays = sampled === null ? 0 : sampled.rays.filter((r) => entersAtFace(eye as FarSample, r as FarSample[])).length;
+          polls.push({ t: (Date.now() - flyAt) / 1000, m, far: eye === null ? null : { level: eye.level, inside: eye.inside }, faceRays });
         }
         await page.waitForTimeout(250);
       }
@@ -500,6 +516,8 @@ async function main(): Promise<void> {
     // The camera inside the solid of the far node drawn round it (sampled with the position polls).
     const inFlightPolls = polls.filter((p) => p.t <= flightS);
     const inside = inFlightPolls.filter((p) => p.far?.inside === true);
+    const facing = inFlightPolls.filter((p) => p.faceRays > 0);
+    out['viewInStandIn'] = { samples: inFlightPolls.length, rays: VIEW_RAYS.cols * VIEW_RAYS.rows, withRays: facing.length, faceRays: facing.reduce((n, p) => n + p.faceRays, 0), where: facing.slice(0, 30).map((p) => ({ t: Number(p.t.toFixed(2)), m: Math.round(p.m), rays: p.faceRays })) };
     out['inStandIn'] = { samples: inFlightPolls.length, inside: inside.length, where: inside.slice(0, 30).map((p) => ({ t: Number(p.t.toFixed(2)), m: Math.round(p.m), level: p.far!.level })), farLevelAtEye: Object.fromEntries([...new Set(inFlightPolls.map((p) => String(p.far?.level ?? 'none')))].map((k) => [k, inFlightPolls.filter((p) => String(p.far?.level ?? 'none') === k).length])) };
     out['afterChecks'] = checks.filter((c) => c.t > flightS).map((c) => ({ t: Number(c.t.toFixed(2)), holes: c.holes })).filter((_, i, a) => i % Math.max(1, Math.floor(a.length / 40)) === 0);
     out['coverageLog'] = coverageLog;

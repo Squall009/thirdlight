@@ -38,7 +38,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farBrickCount, farBricksInside, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
+import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_SEEN_STRIDE, FAR_VERTEX_BYTES, farBrickCount, farBricksInside, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FarSeenWire, type FloatingOrigin, type MipNode, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import { disposeObjectTree } from './dispose';
 import type { N } from './effects-tsl';
@@ -48,6 +48,7 @@ import { FarNodeCopies } from './voxel-far-cull';
 import { FarHalfRes, type FarHalfRenderer } from './voxel-far-half';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
+import { FarFeedback, farFeedbackMismatch, FarRegionOwners, type FarFeedbackRenderer, type FarFeedbackResult } from './voxel-far-feedback';
 import { FarVisibility } from './voxel-far-visibility';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
 
@@ -91,6 +92,11 @@ export interface VoxelFarViewOptions {
    * default on). Off, or on WebGL 2, each brick fragment shades its own hit in the frame.
    */
   readonly visibility?: boolean;
+  /**
+   * Where the visibility feedback's rounds go (voxel-far-feedback.ts: what the far nodes were seen at, for the far
+   * field's selection); absent, or without the visibility pass, none are made.
+   */
+  readonly onSeen?: (seen: FarSeenWire) => void;
 }
 
 /** One world's far field draws. */
@@ -114,6 +120,13 @@ export class VoxelFarView {
   private textures: FarBrickTextures | null = null;
   /** The bricks' visibility pass and shade (null: they shade in the frame, or at half resolution). */
   private vis: FarVisibility | null = null;
+  /** The visibility pass's feedback (null: off) and who holds each brick region, by version. */
+  private feedback: FarFeedback | null = null;
+  private readonly owners = new FarRegionOwners();
+  /** The last far event applied ({@link FarDrawWire.seq}). */
+  private farSeq = 0;
+  /** The feedback as last read back: rounds sent, regions left out as stale, bricks and nodes seen, the last check. */
+  readonly seenStats = { sent: 0, stale: 0, bricks: 0, nodes: 0, check: null as ReturnType<typeof farFeedbackMismatch> | null };
   /** The far colours by look word the bricks' baked samples take (made with the atlas). */
   private palette: FarBrickPalette | null = null;
   private paletteBusy = false;
@@ -262,6 +275,9 @@ export class VoxelFarView {
     if (cover !== undefined) this.cover.set(cover);
     if (far === undefined) return;
     const t0 = performance.now();
+    // Regions given from here on belong to the new version: a round reduced before it never speaks for them.
+    this.owners.version++;
+    if (far.seq !== undefined) this.farSeq = far.seq;
     this.atlas?.frame();
     for (const n of far.removed) {
       const key = mipNodeKey(n);
@@ -276,7 +292,7 @@ export class VoxelFarView {
     for (const a of far.added) {
       const key = mipNodeKey(a);
       this.dropRegions(key);
-      if (a.bricks !== undefined) this.upload(key, a.bricks);
+      if (a.bricks !== undefined) this.upload(key, a, a.bricks);
       const old = this.groupOf.get(key);
       if (old !== undefined) {
         this.groups.get(old)!.nodes.delete(key);
@@ -295,6 +311,7 @@ export class VoxelFarView {
   private dropRegions(key: string): void {
     const r = this.regions.get(key);
     if (r === undefined) return;
+    this.owners.take(r);
     this.atlas!.remove(r);
     this.regions.delete(key);
     const page = this.pages.get(key);
@@ -303,10 +320,11 @@ export class VoxelFarView {
   }
 
   /** A brick node's bricks and brick table into the atlas. */
-  private upload(key: string, b: FarBricks): void {
+  private upload(key: string, node: MipNode, b: FarBricks): void {
     const atlas = this.brickAtlas();
     const regions = atlas.add(this.uploader(), b, this.palette?.palette ?? null);
     this.regions.set(key, regions);
+    this.owners.give({ level: node.level, nx: node.nx, ny: node.ny, nz: node.nz }, regions);
     const page = atlas.addPage(this.uploader(), b, regions);
     if (page !== null) this.pages.set(key, page);
   }
@@ -333,11 +351,40 @@ export class VoxelFarView {
       this.vis = new FarVisibility(this.textures!, this.cover, this.root, this.opts.origin);
       this.vis.root.visible = !this.hidden;
       this.root.add(this.vis.shade);
+      if (this.opts.onSeen !== undefined) {
+        const feedback = (this.feedback = new FarFeedback((r) => this.seenRound(r)));
+        const atlas = this.atlas!;
+        this.vis.onPass = (r, target) => feedback.frame(r as unknown as FarFeedbackRenderer, target, { dims: atlas.distance.regionDims, version: this.owners.version, farSeq: this.farSeq });
+      }
     } else {
       this.vis!.shade.removeFromParent();
       this.vis!.dispose();
       this.vis = null;
+      this.feedback?.dispose(this.uploader() as unknown as FarFeedbackRenderer);
+      this.feedback = null;
     }
+  }
+
+  /** A round read back: the nodes its regions' holders were seen at, to the far field (regions given since left out). */
+  private seenRound(r: FarFeedbackResult): void {
+    if (this.feedback === null) return;
+    const { wire, stale, bricks } = this.owners.round(r.data, r.atlas.dims, r.atlas.version, this.feedback.step, r.round, r.atlas.farSeq);
+    this.seenStats.stale += stale;
+    this.seenStats.bricks = bricks;
+    this.seenStats.nodes = wire.nodes.length / FAR_SEEN_STRIDE;
+    if (r.cpu !== undefined) this.seenStats.check = farFeedbackMismatch(r.data, r.cpu);
+    this.seenStats.sent++;
+    this.opts.onSeen?.(wire);
+  }
+
+  /** The feedback's rounds and readbacks (null: none made), with the view's counts. */
+  get feedbackStats(): (FarFeedback['stats'] & VoxelFarView['seenStats'] & { readonly bytes: number }) | null {
+    return this.feedback === null ? null : { ...this.feedback.stats, ...this.seenStats, bytes: this.feedback.gpuBytes };
+  }
+
+  /** The next round also reads the visibility target back and reduces it on the CPU (a check of the GPU's reduction). */
+  checkFeedback(): void {
+    if (this.feedback !== null) this.feedback.checkNext = true;
   }
 
   private brickOutput(): FarBrickOutput {
@@ -524,6 +571,8 @@ export class VoxelFarView {
     this.half = null;
     this.vis?.dispose();
     this.vis = null;
+    if (this.feedback !== null && this.opts.renderer !== undefined) this.feedback.dispose(this.opts.renderer as unknown as FarFeedbackRenderer);
+    this.feedback = null;
     this.cover.dispose();
     this.triangles = this.bricks = this.drawBytes = this.nodes = 0;
   }

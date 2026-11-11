@@ -7,15 +7,17 @@
  * far cache built from them in workers and in one thread (byte for byte the
  * same), far data over every part of the world, an edit through the
  * workspace's voxel world commands rebuilding exactly its ancestors (the
- * result byte for byte a full build), and the town's doors and windows
- * closed at levels 1 and 2 (no "legs" under far front walls).
+ * result byte for byte a full build), the town's doors and windows
+ * closed at levels 1 and 2 (no "legs" under far front walls), and the far
+ * field fed visibility feedback: what the eye sees too coarse refined first,
+ * what it left kept for the turn window, then coarser.
  */
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { zstdDecompressSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildFarNode, decodeFarBricks, encodeFarBricks, FAR_BAKED_LEVELS, FAR_BRICK_BUILD, farBrickDirty, createDenseChunk, farBricksGpuBytes, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, FAR_ENTRY_CACHE_BYTES, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
+import { buildFarNode, farCellPixels, farNodeDistance, FAR_VIEW_PIXELS_PER_RADIAN, decodeFarBricks, encodeFarBricks, FAR_BAKED_LEVELS, FAR_BRICK_BUILD, farBrickDirty, createDenseChunk, farBricksGpuBytes, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, farAncestors, FarField, FAR_ENTRY_CACHE_BYTES, farVertexLook, farBrickMarchedBox, marchBrickBox, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, FarSelection, localIndex, mipNodeKey, POSITION_STEPS_PER_CELL, regionFarSource, STREAM_POOL_SETTINGS, valueRole, VOXEL_ROLE, WORLD_RULES, WorkerPool, type FarCells, type FarEvent, type FarNodeDraw, type MipNode } from '@thirdlight/voxel';
 import { buildFarCache, farCacheDir, farCacheFiles, FarCacheReader, farCacheStale, FAR_REBUILT_FOLDER, FarWorldSource, openShippedWorld, readFarCacheManifest, readVoxelWorldManifest, rebuildFarCache, VoxelWorlds } from '@thirdlight/workspace';
 import { hexToBytes } from '@thirdlight/shared';
 import { computeFarDrainage, PEAK } from './far-drainage';
@@ -671,6 +673,7 @@ describe('the far field drawn as meshes and as bricks', () => {
       expect(far.metrics().drawn).toBe(far.metrics().nodes);
       expect(far.metrics().standIns.pending).toBe(0);
       far.close();
+      await seenFirst(source, workers, m.maxLevel);
     } finally {
       for (const d of opened) await d.close();
       workers.close();
@@ -678,3 +681,99 @@ describe('the far field drawn as meshes and as bricks', () => {
     }
   }, 120_000);
 });
+
+/**
+ * A far field fed rounds of visibility feedback (what the page's draws were seen at): asked for finer nodes, what the
+ * eye sees too coarse is refined first; a node no longer seen keeps its detail within the turn window and coarsens
+ * after it (never to nothing); a stale round changes nothing.
+ */
+async function seenFirst(source: ReturnType<typeof regionFarSource>, workers: WorkerPool, maxLevel: number): Promise<void> {
+  const TURN = 600;
+  const far = new FarField({ source, errorPixels: 64, draw: 'bricks', seenTurnMs: TURN }, { grid: FAR_WORLD_GRID, pool: workers, rules: WORLD_RULES });
+  const shown = new Map<string, MipNode>();
+  far.on((e) => {
+    for (const n of e.removed) shown.delete(mipNodeKey(n));
+    for (const a of e.added) shown.set(mipNodeKey(a), { level: a.level, nx: a.nx, ny: a.ny, nz: a.nz });
+  });
+  const under = (n: MipNode, s: MipNode): boolean => n.level <= s.level && n.nx >> (s.level - n.level) === s.nx && n.ny >> (s.level - n.level) === s.ny && n.nz >> (s.level - n.level) === s.nz;
+  const drawnOver = (n: MipNode): MipNode | null => {
+    for (let l = n.level + 1; l <= maxLevel; l++) {
+      const a = shown.get(mipNodeKey({ level: l, nx: n.nx >> (l - n.level), ny: n.ny >> (l - n.level), nz: n.nz >> (l - n.level) }));
+      if (a !== undefined) return a;
+    }
+    return null;
+  };
+  let round = 0;
+  // A round naming these drawn nodes seen at 400 cells (200 m), 50 pixels each.
+  const feed = (nodes: readonly MipNode[]): void => far.feedback({ round: ++round, farSeq: far.metrics().counters.events, nodes: nodes.flatMap((n) => [n.level, n.nx, n.ny, n.nz, 50, 400]) });
+  const wait = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+  try {
+    far.setEye(0, 40, 0);
+    far.update();
+    await far.settle();
+    expect(far.metrics().problem).toBeNull();
+    // The stand-in the eye sees: the coarse drawn node with the largest error (the nearest of them).
+    const ppr = FAR_VIEW_PIXELS_PER_RADIAN;
+    const errorOf = (n: MipNode): number => farCellPixels(n.level, farNodeDistance(FAR_WORLD_GRID, n, [0, 40, 0]), ppr);
+    const coarse = [...shown.values()].filter((n) => n.level > FAR_MIN_TEST_LEVEL).sort((a, b) => errorOf(b) - errorOf(a));
+    expect(coarse.length).toBeGreaterThan(1);
+    const s = coarse[0]!;
+    // Rounds for a whole turn window naming only it: from then on every other drawn node is unseen.
+    const t0 = performance.now();
+    while (performance.now() - t0 < TURN * 1.3) {
+      feed([s]);
+      await wait(50);
+    }
+    expect(far.metrics().seen.rounds).toBeGreaterThan(5);
+    // Asked for the finest nodes everywhere: the refinements under the seen stand-in come before every other.
+    far.setView({ errorPixels: 0.5 });
+    for (let i = 0; i < 300 && far.metrics().pending === 0; i++) await wait(10);
+    const order = far.next(1 << 20);
+    const refines = order.filter((n) => drawnOver(n) !== null);
+    const seenAt = refines.map((n) => under(n, s));
+    expect(seenAt.some((x) => x)).toBe(true);
+    expect(seenAt.some((x) => !x)).toBe(true);
+    expect(seenAt.lastIndexOf(true)).toBeLessThan(seenAt.indexOf(false));
+    // At half the stand-in's error, the eye on its place (rounds naming what is drawn there): it is opened, and what
+    // the eye does not meet stands as at four times that (the stand-in's twice), so closes back over.
+    far.setView({ errorPixels: errorOf(s) / 2 });
+    for (let i = 0; i < 400; i++) {
+      feed([...shown.values()].filter((n) => under(n, s)));
+      await wait(25);
+      const mm = far.metrics();
+      if (i > 20 && mm.pending === 0 && mm.jobs === 0) break;
+    }
+    const fine = (): MipNode[] => [...shown.values()].filter((n) => under(n, s) && n.level < s.level);
+    const kept = fine().length;
+    expect(kept).toBeGreaterThan(1);
+    expect(shown.has(mipNodeKey(s))).toBe(false);
+    // The eye turns away: rounds go on naming nothing. Within the turn window what it left keeps its detail.
+    feed(fine());
+    const left = performance.now();
+    feed([]);
+    await wait(TURN / 4);
+    feed([]);
+    expect(performance.now() - left).toBeLessThan(TURN);
+    expect(far.metrics().seen.unseenWanted).toBeLessThan(far.metrics().nodes);
+    expect(fine().length).toBe(kept);
+    // Past it, the next round selects again: the stand-in drawn again in its place, never nothing.
+    const reselects = far.metrics().counters.seenReselects;
+    await wait(TURN - (performance.now() - left) + 100);
+    feed([]);
+    for (let i = 0; i < 200 && far.metrics().counters.seenReselects === reselects; i++) await wait(10);
+    for (let i = 0; i < 200 && far.metrics().pending === 0; i++) await wait(10);
+    await far.settle();
+    expect(far.metrics().counters.seenReselects).toBeGreaterThan(reselects);
+    expect(fine().length).toBe(0);
+    expect(shown.has(mipNodeKey(s))).toBe(true);
+    // A stale round (a number already taken) is dropped and changes nothing.
+    const stale = far.metrics().seen.stale;
+    far.feedback({ round: 1, farSeq: 0, nodes: [s.level, s.nx, s.ny, s.nz, 50, 400] });
+    expect(far.metrics().seen.stale).toBe(stale + 1);
+  } finally {
+    far.close();
+  }
+}
+
+/** The far tree's lowest kept level in this world (a stand-in is coarser). */
+const FAR_MIN_TEST_LEVEL = 2;

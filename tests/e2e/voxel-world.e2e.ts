@@ -797,7 +797,7 @@ async function groundRelief(on: boolean): Promise<void> {
 }
 
 interface PlayObservation { state?: string; stepIndex?: number; counters?: Record<string, number>; player?: { x: number; y: number; z: number } }
-interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; blendM: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null; far: { nodes: number; bricks: number; triangles: number; draws: number } }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void; showFar(on: boolean): void }
+interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; blendM: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null; far: { nodes: number; bricks: number; triangles: number; draws: number } }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void; showFar(on: boolean): void; checkFarFeedback(): void }
 
 /**
  * The play world's distances at the low tier: a load ring well inside the 128 m world, so the pit camera's upper
@@ -860,6 +860,18 @@ async function farBeyondNear(frame: { evaluate<R>(fn: () => R | Promise<R>): Pro
     // A pair taken while the exposure still moved is taken again.
     return covered < 200 ? n : -covered;
   }, { timeout: 45_000, message: `${label}: far ground past the near field, no near-field pixel drawn over (negative: those drawn over)` }).toBeGreaterThan(2000);
+  // On WebGPU the visibility pass's feedback: rounds read back naming nodes seen, the GPU's reduction of a round equal
+  // region for region to the CPU's of the same target.
+  type Feedback = { sent: number; nodes: number; check: { hits: number; cpuHits: number; differ: number } | null } | null;
+  const feedback = () => frame.evaluate(() => (window as unknown as { __tlVoxelPlay: { stats(): { worlds: Record<string, { far: { pass: string; feedback: unknown } }> } } }).__tlVoxelPlay.stats().worlds['far']?.far ?? null) as Promise<{ pass: string; feedback: Feedback } | null>;
+  if ((await feedback())?.pass === 'visibility') {
+    await expect.poll(async () => (await feedback())?.feedback?.nodes ?? 0, { timeout: 10_000, message: `${label}: far nodes seen in a feedback round` }).toBeGreaterThan(0);
+    await frame.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.checkFarFeedback());
+    await expect.poll(async () => (await feedback())?.feedback?.check?.hits ?? 0, { timeout: 10_000, message: `${label}: a feedback round checked` }).toBeGreaterThan(0);
+    const check = (await feedback())!.feedback!.check!;
+    expect(check.cpuHits, `${label}: the CPU's reduction of the same target`).toBe(check.hits);
+    expect(check.differ, `${label}: regions the GPU and the CPU counted apart`).toBe(0);
+  }
   return n;
 }
 

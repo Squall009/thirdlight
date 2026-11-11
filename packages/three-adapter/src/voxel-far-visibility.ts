@@ -59,8 +59,9 @@ export const FAR_VIS_CELL_FROM = -(FAR_BRICK_LIP_CELLS + 1);
 export const FAR_VIS_CELL_SPAN = DISTANCE_BRICK_CELLS + 2 * (FAR_BRICK_LIP_CELLS + 1);
 /** Steps a hit's cell coordinate is held in (12 bits). */
 export const FAR_VIS_CELL_STEPS = 4095;
-/** A face code's place in the last float (above the third coordinate's 12 bits). */
-const FACE_SCALE = 4096;
+/** A face code's place in the last float (above the third coordinate's 12 bits): a texel whose last float is below it holds no hit. */
+export const FAR_VIS_FACE_SCALE = 4096;
+const FACE_SCALE = FAR_VIS_FACE_SCALE;
 
 /** A far hit as the visibility texel holds it. */
 export interface FarVisibilityHit {
@@ -152,6 +153,8 @@ export class FarVisibility {
   private readonly lastRoot = new THREE.Matrix4();
   private readonly lastOrigin = new THREE.Vector3();
   private seen = false;
+  /** Told after each pass, its target drawn (the visibility feedback reduces it then: voxel-far-feedback.ts). */
+  onPass: ((renderer: FarVisibilityRenderer, target: THREE.RenderTarget) => void) | null = null;
   private readonly scratch = new THREE.Matrix4();
   private readonly scratch2 = new THREE.Matrix4();
   /** Passes drawn. */
@@ -264,6 +267,8 @@ export class FarVisibility {
     r.autoClearStencil = false;
     try {
       r.render(this.scene, camera);
+      // The pass is submitted: what reads its target now runs after it on the GPU.
+      this.onPass?.(r, this.target);
     } finally {
       [r.autoClear, r.autoClearColor, r.autoClearDepth, r.autoClearStencil] = flags;
       r.setRenderTarget(now);

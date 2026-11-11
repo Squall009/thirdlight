@@ -34,10 +34,11 @@
 import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import { VOXEL_SIZE_M, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
-import { FAR_BRICK_BUILD, farBricksBytes, type FarBrickBuild, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BUILD, farBricksBytes, type FarBricks } from './far-bricks';
 import { farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
+import { FAR_SEEN_RESELECT_MS, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, farCellPixels, farNodeBox, farNodeDistance, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
@@ -245,6 +246,8 @@ export interface FarNodeDraw {
 /** The far nodes drawn changed: these go in (a node again: its draw is replaced) and these go, between the same two frames. */
 export interface FarEvent {
   readonly type: 'far';
+  /** The event's number (1 up): a round of visibility feedback names the last one its frame drew ({@link FarSeenWire.farSeq}). */
+  readonly seq: number;
   readonly added: readonly FarNodeDraw[];
   readonly removed: readonly MipNode[];
 }
@@ -263,6 +266,8 @@ export interface FarFieldOptions {
   readonly budgetBytes?: number;
   /** GPU bytes the drawn nodes may hold (default the medium tier's, {@link FAR_GPU_BUDGET_BYTES_BY_TIER}). */
   readonly gpuBudgetBytes?: number;
+  /** ms an unseen node keeps its detail ({@link FAR_SEEN_TURN_MS}); feedback comes through {@link FarField.feedback}. */
+  readonly seenTurnMs?: number;
 }
 
 /**
@@ -367,26 +372,25 @@ export class FarField {
   private closed = false;
   private readonly listeners: Array<(e: FarEvent) => void> = [];
   private readonly waiters: Array<() => void> = [];
-  /** Selection ms and mesh worker µs. */
-  readonly selectMs = new SampleRing();
-  readonly meshUs = new SampleRing();
-  /** ms a far job waited in the pool's queue, and ms a batch of neighbourhoods took to read. */
-  readonly queueMs = new SampleRing();
-  readonly readMs = new SampleRing();
-  /** ms the far field's own work took on the world's thread: a pump's scan, a commit's walk. */
-  readonly pumpMs = new SampleRing();
-  readonly commitMs = new SampleRing();
-  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0, unrun: 0, swappedIn: 0, swappedOut: 0, commitsCut: 0 };
+  /**
+   * Selection ms and mesh worker µs; ms a far job waited in the pool's queue and a batch of neighbourhoods took to
+   * read; ms the far field's own work took on the world's thread (a pump's scan, a commit's walk).
+   */
+  readonly samples = { selectMs: new SampleRing(), meshUs: new SampleRing(), queueMs: new SampleRing(), readMs: new SampleRing(), pumpMs: new SampleRing(), commitMs: new SampleRing() };
+  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0, unrun: 0, swappedIn: 0, swappedOut: 0, commitsCut: 0, seenReselects: 0 };
   /** When (ms since the far field was made) its stages first happened: the index read, a job sent, a node drawn. */
   readonly firsts: { index: number | null; job: number | null; drawn: number | null } = { index: null, job: null, drawn: null };
   private readonly made = performance.now();
   /** GPU bytes of the far draws, as the page reports them. */
   gpuBytes = 0;
+  /** What the draws reported seen (visibility feedback; none: every node counts as seen). */
+  readonly seen: FarSeenLog;
 
   constructor(
     private readonly opts: FarFieldOptions,
     private readonly host: FarFieldHost,
   ) {
+    this.seen = new FarSeenLog(opts.seenTurnMs ?? FAR_SEEN_TURN_MS, opts.source.maxLevel);
     opts.source.index().then(
       (idx) => {
         this.index = idx;
@@ -448,10 +452,6 @@ export class FarField {
     return this.opts.draw ?? 'mesh';
   }
 
-  /** How bricks are made (one build: {@link FAR_BRICK_BUILD}). */
-  get brickBuild(): FarBrickBuild {
-    return FAR_BRICK_BUILD;
-  }
 
   /**
    * The nodes a node's job reads: for bricks built from finer cells the block
@@ -462,7 +462,7 @@ export class FarField {
   private reads(n: MipNode): MipNode[] {
     const b = bakedRead(this.opts.source, this.draw, n);
     if (b !== null) return [b];
-    const f = farFineOf(n, this.draw === 'bricks' ? this.brickBuild.scale : 1, this.index?.minLevel ?? Infinity);
+    const f = farFineOf(n, this.draw === 'bricks' ? FAR_BRICK_BUILD.scale : 1, this.index?.minLevel ?? Infinity);
     if (f !== null) return f.nodes;
     const out: MipNode[] = [];
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) out.push({ level: n.level, nx: n.nx + dx, ny: n.ny + dy, nz: n.nz + dz });
@@ -479,7 +479,9 @@ export class FarField {
       if (this.opts.enabled === false) this.selected(null);
       else {
         const gpuBytesOf = this.gpu.foresee();
-        this.selecting = { steps: this.selection.steps(this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, gpuBudgetBytes: this.gpuBudget, gpuBytesOf, near: null }), ms: 0 };
+        const at = (this.seen.selectingAt = performance.now());
+        const unseen = this.seen.running(at) ? (n: MipNode) => this.seen.unseen(n, at) : undefined;
+        this.selecting = { steps: this.selection.steps(this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, gpuBudgetBytes: this.gpuBudget, gpuBytesOf, near: null, ...(unseen !== undefined ? { unseen, unseenScale: FAR_UNSEEN_ERROR_SCALE } : {}) }), ms: 0 };
         this.selectStep();
       }
       return;
@@ -501,7 +503,7 @@ export class FarField {
       const r = s.steps.next();
       if (r.done === true) {
         s.ms += performance.now() - t0;
-        this.selectMs.add(s.ms);
+        this.samples.selectMs.add(s.ms);
         this.selecting = null;
         this.selected(r.value);
         // The eye moved on meanwhile: the next selection starts at the next update.
@@ -519,6 +521,9 @@ export class FarField {
     this.gpu.selected = sel?.gpuBytes ?? 0;
     this.gpu.held = sel?.heldByBudget ?? 0;
     this.wanted = new Map((sel?.drawn ?? []).map((d) => [mipNodeKey(d.node), d]));
+    const at = this.seen.selectingAt;
+    this.seen.selectedUnseen = new Set();
+    if (this.seen.running(at)) for (const [key, d] of this.wanted) if (this.seen.unseen(d.node, at)) this.seen.selectedUnseen.add(key);
     this.restep();
     this.commitSoon();
     void this.pump();
@@ -588,13 +593,17 @@ export class FarField {
    * the eye closing over its children: the threshold's worth, so it gives memory back before the small refinements;
    * over the GPU budget before every refinement); nearest first among equals. Nodes wholly inside the near field's
    * load cylinder go after all others: the near field draws over them once its chunks are in, so the far work goes
-   * to the nodes round its edge first.
+   * to the nodes round its edge first. With visibility feedback a stand-in seen lately counts by the error it was
+   * seen at (its nearest pixel's), and nodes the eye has not met for a turn window go after the seen ones: what the
+   * eye sees too coarse is refined first.
    */
   private todoList(): FarDrawn[] {
     if (this.todo === null) {
       const ppr = this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN;
       const coarsen = this.opts.errorPixels ?? FAR_ERROR_PIXELS;
-      const list: Array<{ d: FarDrawn; error: number; hidden: boolean }> = [];
+      const now = performance.now();
+      const fed = this.seen.running(now);
+      const list: Array<{ d: FarDrawn; error: number; hidden: boolean; unseen: boolean }> = [];
       // Over the GPU budget, nodes closing over finer ones go before refinements: they give memory back.
       const over = this.liveGpu > this.gpuBudget;
       this.todoOver = over;
@@ -607,18 +616,47 @@ export class FarField {
           const a = drawnAbove(this.shown, d.node, this.index?.maxLevel ?? d.node.level);
           if (a !== null) {
             const cell = 2 ** a;
-            error = (cell * ppr) / Math.max(d.distance, cell);
+            const up = a - d.node.level;
+            const seenPx = fed ? this.seen.seenError({ level: a, nx: d.node.nx >> up, ny: d.node.ny >> up, nz: d.node.nz >> up }, now, ppr) : null;
+            error = seenPx ?? (cell * ppr) / Math.max(d.distance, cell);
             this.refines.add(key);
           } else error = childDrawn(this.shown, d.node) ? (over ? Number.MAX_VALUE : coarsen) : Infinity;
         }
-        list.push({ d, error, hidden: underNear(this.host.grid, d.node, this.eye, this.near) });
+        // Only refinements wait for the eye: nothing drawn in its place is a hole, and a node closing over finer ones
+        // gives memory back (first over the budget).
+        const unseen = fed && this.refines.has(key) && this.seen.unseen(d.node, now);
+        list.push({ d, error, hidden: underNear(this.host.grid, d.node, this.eye, this.near), unseen });
       }
-      list.sort((a, b) => Number(a.hidden) - Number(b.hidden) || b.error - a.error || a.d.distance - b.d.distance);
+      list.sort((a, b) => Number(a.hidden) - Number(b.hidden) || Number(a.unseen) - Number(b.unseen) || b.error - a.error || a.d.distance - b.d.distance);
       this.todo = list.map((e) => e.d);
       this.rank = new Map(this.todo.map((d, i) => [mipNodeKey(d.node), i]));
       this.cursor = 0;
     }
     return this.todo;
+  }
+
+  /**
+   * A round of visibility feedback from the draws ({@link FarSeenWire}; stale rounds are dropped). When it changes
+   * which wanted nodes are unseen, the work's order is made again and, at most every {@link FAR_SEEN_RESELECT_MS},
+   * the selection: what came into view refines, what left it for a turn window coarsens.
+   */
+  feedback(fb: FarSeenWire): void {
+    if (this.closed || this.index === null) return;
+    const now = performance.now();
+    if (!this.seen.apply(fb, now, this.counters.events) || !this.seen.running(now)) return;
+    let moved = false;
+    for (const [key, d] of this.wanted) {
+      if (this.seen.unseen(d.node, now) === this.seen.selectedUnseen.has(key)) continue;
+      moved = true;
+      break;
+    }
+    if (!moved) return;
+    this.todo = null;
+    if (this.reselect || this.selecting !== null || now - this.seen.reselectedAt < FAR_SEEN_RESELECT_MS) return;
+    this.seen.reselectedAt = now;
+    this.counters.seenReselects++;
+    this.reselect = true;
+    setTimeout(() => this.update(), 0);
   }
 
   /** The next `count` nodes the far field makes, in its order (diagnostics and tests: where the work goes first). */
@@ -699,13 +737,13 @@ export class FarField {
         } else this.readDone.delete(key);
       } else if (!this.reading && unread.length < FAR_READ_BATCH) unread.push(n);
     }
-    this.pumpMs.add(performance.now() - tp);
+    this.samples.pumpMs.add(performance.now() - tp);
     if (this.reading || unread.length === 0) return;
     this.reading = true;
     const t0 = performance.now();
     try {
       await this.readNeighbourhoods(unread);
-      this.readMs.add(performance.now() - t0);
+      this.samples.readMs.add(performance.now() - t0);
     } catch (e) {
       this.failed = e instanceof Error ? e.message : String(e);
       this.reading = false;
@@ -790,7 +828,7 @@ export class FarField {
       baked !== null
         ? { edge, level: n.level, node: [n.nx, n.ny, n.nz], cells: [], rules, baked: copyCells(this.cellsOf(baked)) }
         : this.draw === 'bricks'
-          ? { edge, rules, ...farBrickJobCells(n, this.brickBuild, this.index?.minLevel ?? Infinity, (m) => copyCells(this.cellsOf(m))) }
+          ? { edge, rules, ...farBrickJobCells(n, FAR_BRICK_BUILD, this.index?.minLevel ?? Infinity, (m) => copyCells(this.cellsOf(m))) }
           : { edge, rules, level: n.level, node: [n.nx, n.ny, n.nz], cells: farMeshCells(n, (m) => copyCells(this.cellsOf(m))) };
     const transfer: ArrayBuffer[] = [];
     for (const c of [...input.cells, ...(input.fine?.cells ?? []), ...(input.baked != null ? [input.baked] : [])]) if (c !== null && 'stored' in c) transfer.push(c.stored.buffer as ArrayBuffer);
@@ -829,8 +867,8 @@ export class FarField {
       void this.pump();
       return;
     }
-    this.meshUs.add(o.workerUs);
-    this.queueMs.add(o.queueMs);
+    this.samples.meshUs.add(o.workerUs);
+    this.samples.queueMs.add(o.queueMs);
     this.counters.meshes++;
     let made: Ready['made'];
     if (kind === 'bricks') {
@@ -943,12 +981,12 @@ export class FarField {
       this.counters.swappedIn += added.length;
       this.counters.swappedOut += removed.length;
       this.firsts.drawn ??= performance.now() - this.made;
-      const e: FarEvent = { type: 'far', added, removed };
+      const e: FarEvent = { type: 'far', seq: this.counters.events, added, removed };
       for (const l of this.listeners) l(e);
     }
     // What is drawn moved toward the selection: the next steps are made from it.
     if (moved) this.restep();
-    this.commitMs.add(performance.now() - tc);
+    this.samples.commitMs.add(performance.now() - tc);
     // Over the budget or back under it: the todo's order changes (nodes closing over finer ones first, or not).
     if (this.liveGpu > this.gpuBudget !== this.todoOver) this.todo = null;
     // All in, yet over the budget: the selection foresaw nodes it had not made smaller than they came. It selects
@@ -1000,7 +1038,7 @@ export class FarField {
     // Baked bricks the edit made stale (the backend baked them again with the rebuild): read again when sent. Their
     // drawn nodes are made again below with the ancestors' neighbours, which hold every one of them.
     if (this.draw === 'bricks' && src.baked !== undefined) {
-      const dirty = farBrickDirty(chunks, this.host.grid.edge, this.brickBuild, src.minLevel, src.maxLevel).filter((n) => src.baked!(n.level));
+      const dirty = farBrickDirty(chunks, this.host.grid.edge, FAR_BRICK_BUILD, src.minLevel, src.maxLevel).filter((n) => src.baked!(n.level));
       const bakedByLevel = new Map<number, ChunkCoord[]>();
       for (const n of dirty) {
         const b = { level: FAR_BAKED_LEVELS + n.level, nx: n.nx, ny: n.ny, nz: n.nz };
@@ -1069,7 +1107,7 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null; seen: FarSeenLog['counters'] & { unseenWanted: number; turnMs: number } } {
     return {
       draw: this.draw,
       nodes: this.wanted.size,
@@ -1078,18 +1116,19 @@ export class FarField {
       jobs: this.jobs.size,
       entryBytes: this.entryBytes,
       sourceBytes: this.opts.source.memoryBytes(),
-      selectMs: { p50: this.selectMs.quantile(0.5), p95: this.selectMs.quantile(0.95) },
-      meshUs: { p50: this.meshUs.quantile(0.5), p95: this.meshUs.quantile(0.95) },
-      queueMs: { p50: this.queueMs.quantile(0.5), p95: this.queueMs.quantile(0.95) },
-      readMs: { p50: this.readMs.quantile(0.5), p95: this.readMs.quantile(0.95), n: this.readMs.count },
-      pumpMs: { p50: this.pumpMs.quantile(0.5), p95: this.pumpMs.quantile(0.95), n: this.pumpMs.count, sum: sumOf(this.pumpMs) },
-      commitMs: { p50: this.commitMs.quantile(0.5), p95: this.commitMs.quantile(0.95), n: this.commitMs.count },
+      selectMs: { p50: this.samples.selectMs.quantile(0.5), p95: this.samples.selectMs.quantile(0.95) },
+      meshUs: { p50: this.samples.meshUs.quantile(0.5), p95: this.samples.meshUs.quantile(0.95) },
+      queueMs: { p50: this.samples.queueMs.quantile(0.5), p95: this.samples.queueMs.quantile(0.95) },
+      readMs: { p50: this.samples.readMs.quantile(0.5), p95: this.samples.readMs.quantile(0.95), n: this.samples.readMs.count },
+      pumpMs: { p50: this.samples.pumpMs.quantile(0.5), p95: this.samples.pumpMs.quantile(0.95), n: this.samples.pumpMs.count, sum: sumOf(this.samples.pumpMs) },
+      commitMs: { p50: this.samples.commitMs.quantile(0.5), p95: this.samples.commitMs.quantile(0.95), n: this.samples.commitMs.count },
       firsts: { ...this.firsts },
       problem: this.failed,
       counters: { ...this.counters },
       gpu: { budget: this.gpuBudget, drawn: this.gpu.drawn, live: this.liveGpu, selected: this.gpu.selected, held: this.gpu.held, reselects: this.gpu.overReselects, perStored: this.gpu.ratio },
       standIns: farStandIns(this.wanted, this.shown, this.index?.maxLevel ?? 0, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, (n) => underNear(this.host.grid, n, this.eye, this.near)),
       index: this.index?.counts() ?? null,
+      seen: { ...this.seen.counters, unseenWanted: this.seen.selectedUnseen.size, turnMs: this.seen.turnMs },
     };
   }
 

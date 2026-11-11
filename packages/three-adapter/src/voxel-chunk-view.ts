@@ -78,6 +78,7 @@ import {
   VOXEL_SIZE_M,
   type ChunkDrawBatch,
   type ChunkGrid,
+  type FarSeenWire,
   type FloatingOrigin,
   type JoinedDraw,
   type SeamPieceWire,
@@ -282,6 +283,8 @@ export interface VoxelChunkViewOptions {
   readonly staticCasters?: boolean;
   /** Whether the far bricks draw as a visibility pass and one shade on WebGPU (default on; `VoxelFarViewOptions.visibility`). */
   readonly farVisibility?: boolean;
+  /** Where the far field's visibility feedback goes (`VoxelFarViewOptions.onSeen`; absent: none is made). */
+  readonly onFarSeen?: (seen: FarSeenWire) => void;
   /**
    * What casts a relief chunk's shadow: its plain surfaces (`plain`, the
    * default; see {@link VoxelChunkView} `addCaster`) or the displaced relief
@@ -363,7 +366,7 @@ export class VoxelChunkView {
     this.root.add(this.pieces.root);
     // Its chunk, node and seam surfaces are occlusion culling's draws, though they sit below this root.
     markOccludeeGroup(this.root);
-    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer, visibility: opts.farVisibility !== false });
+    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer, visibility: opts.farVisibility !== false, ...(opts.onFarSeen !== undefined ? { onSeen: opts.onFarSeen } : {}) });
     this.root.add(this.far.root);
     this.kitSet = null;
     this.setKits(opts.kits ?? null);

@@ -116,6 +116,55 @@ export function groundMask(width: number, height: number, cam: FlightCamera, fov
 
 
 
+/** Rays a side and steps along each of the view check ({@link viewRayPoints}): the lower half of the view, out to 48 m. */
+export const VIEW_RAYS = Object.freeze({ cols: 5, rows: 3, steps: 48, stepM: 1 });
+
+/**
+ * Points along rays through the lower half of the camera's view (`cols` × `rows` rays from the frame's bottom edge
+ * up to its middle, `steps` points `stepM` apart from the eye), ray by ray: where a camera low over the ground looks
+ * through the far field's coarse stand-ins.
+ */
+export function viewRayPoints(cam: FlightCamera, fovY: number, aspect: number, o: { readonly cols: number; readonly rows: number; readonly steps: number; readonly stepM: number } = VIEW_RAYS): number[][] {
+  const ty = Math.tan(fovY / 2);
+  const tx = ty * aspect;
+  const fx = -Math.sin(cam.yaw) * Math.cos(cam.pitch), fy = -Math.sin(cam.pitch), fz = -Math.cos(cam.yaw) * Math.cos(cam.pitch);
+  const rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
+  const ux = -Math.sin(cam.pitch) * Math.sin(cam.yaw), uy = Math.cos(cam.pitch), uz = -Math.sin(cam.pitch) * Math.cos(cam.yaw);
+  const out: number[][] = [];
+  for (let r = 0; r < o.rows; r++) {
+    const v = -ty * (1 - r / o.rows);
+    for (let c = 0; c < o.cols; c++) {
+      const u = o.cols === 1 ? 0 : ((2 * c) / (o.cols - 1) - 1) * tx;
+      let dx = fx + u * rx + v * ux, dy = fy + v * uy, dz = fz + u * rz + v * uz;
+      const len = Math.hypot(dx, dy, dz);
+      dx /= len;
+      dy /= len;
+      dz /= len;
+      const ray: number[] = [];
+      for (let k = 1; k <= o.steps; k++) ray.push(cam.x + dx * k * o.stepM, cam.y + dy * k * o.stepM, cam.z + dz * k * o.stepM);
+      out.push(ray);
+    }
+  }
+  return out;
+}
+
+/** A point's far node as the view check reads it: its level and node, and whether the point is inside its solid (null: none drawn there). */
+export type FarSample = { readonly level: number; readonly node: string; readonly inside: boolean } | null;
+
+/**
+ * Whether a ray enters a far stand-in's solid at a box face (the grid of box faces seen from inside): its first point inside
+ * a drawn far node's solid follows a point in another node, in none, or the eye itself (inside at once). A ray that
+ * meets the surface inside one node (outside, then inside the same node) is ground seen as it should be.
+ */
+export function entersAtFace(eye: FarSample, ray: readonly FarSample[]): boolean {
+  let prev = eye;
+  for (const p of ray) {
+    if (p !== null && p.inside) return prev === null || prev.inside || prev.node !== p.node;
+    prev = p;
+  }
+  return false;
+}
+
 /** Whether an RGB pixel is the run's key sky (magenta, after tone mapping and an upscaler's blend at its edges). */
 export function isKey(r: number, g: number, b: number): boolean {
   return r > 170 && b > 170 && g < 100 && Math.abs(r - b) < 70;

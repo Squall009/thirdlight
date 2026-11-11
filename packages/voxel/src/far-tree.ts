@@ -254,6 +254,13 @@ export interface FarView {
   readonly gpuBytesOf?: (n: MipNode, storedBytes: number) => number;
   /** The cells the near rings draw (null: none); nodes wholly inside are not drawn here. */
   readonly near: FarBox | null;
+  /**
+   * Whether the eye has not met a node for a while (visibility feedback, far-seen.ts; absent: every node counts as
+   * seen). Such a node opens, and takes the budget, by {@link unseenScale} of its error.
+   */
+  readonly unseen?: (n: MipNode) => boolean;
+  /** The share of its error an unseen node is selected by (default 1: as a seen one). */
+  readonly unseenScale?: number;
 }
 
 /** A drawn far node. */
@@ -342,14 +349,19 @@ export class FarSelection {
     const h = view.hysteresis ?? FAR_HYSTERESIS;
     const budget = view.budgetBytes ?? FAR_BUDGET_BYTES;
     const gpuBudget = view.gpuBudgetBytes ?? Infinity;
-    if (!(threshold > 0) || !(h >= 0 && h < 1) || !(budget >= 0) || !(gpuBudget >= 0) || !(view.pixelsPerRadian > 0)) throw new RangeError('far view: error, hysteresis, budget or projection out of range');
+    const unseenScale = view.unseenScale ?? 1;
+    if (!(threshold > 0) || !(h >= 0 && h < 1) || !(budget >= 0) || !(gpuBudget >= 0) || !(view.pixelsPerRadian > 0) || !(unseenScale > 0 && unseenScale <= 1)) throw new RangeError('far view: error, hysteresis, budget, projection or unseen scale out of range');
     const gpuOf = view.gpuBytesOf;
+    const unseen = unseenScale < 1 ? view.unseen : undefined;
     const grid = index.grid;
     const info = (n: MipNode) => {
       const box = farNodeBox(grid, n);
       const distance = boxDistance(box, view.eye);
       const bytes = index.bytesOf(n);
-      return { node: n, box, distance, errorPixels: farCellPixels(n.level, distance, view.pixelsPerRadian), bytes, gpu: gpuOf === undefined ? 0 : gpuOf(n, bytes), nearOverlap: view.near !== null && overlaps(box, view.near) };
+      const errorPixels = farCellPixels(n.level, distance, view.pixelsPerRadian);
+      // What it is opened and ranked by: an unseen node's error counts for less, so the seen ones refine and take the budget first.
+      const rank = unseen?.(n) === true ? errorPixels * unseenScale : errorPixels;
+      return { node: n, box, distance, errorPixels, rank, bytes, gpu: gpuOf === undefined ? 0 : gpuOf(n, bytes), nearOverlap: view.near !== null && overlaps(box, view.near) };
     };
     type Info = ReturnType<typeof info>;
     const visible = (i: Info): boolean => view.near === null || !inside(i.box, view.near);
@@ -363,8 +375,8 @@ export class FarSelection {
       bytes += i.bytes;
       gpu += i.gpu;
     }
-    // Largest error first, so a tight budget is spent where it shows most; ties by key (deterministic).
-    const before = (a: Info & { key: string }, b: Info & { key: string }): boolean => a.errorPixels > b.errorPixels || (a.errorPixels === b.errorPixels && a.key < b.key);
+    // Largest error first (an unseen node's scaled), so a tight budget is spent where it shows most; ties by key (deterministic).
+    const before = (a: Info & { key: string }, b: Info & { key: string }): boolean => a.rank > b.rank || (a.rank === b.rank && a.key < b.key);
     const heap: Array<Info & { key: string }> = [];
     const push = (i: Info): void => {
       heap.push({ ...i, key: mipNodeKey(i.node) });
@@ -404,7 +416,7 @@ export class FarSelection {
       const key = i.key;
       if (i.node.level <= index.minLevel) continue;
       const wasOpen = this.open.has(key);
-      const wants = i.nearOverlap || i.errorPixels > threshold * (wasOpen ? 1 - h : 1);
+      const wants = i.nearOverlap || i.rank > threshold * (wasOpen ? 1 - h : 1);
       if (!wants) continue;
       const kids = index.children(i.node).map(info).filter(visible);
       const cost = kids.reduce((s, k) => s + k.bytes, 0) - i.bytes;

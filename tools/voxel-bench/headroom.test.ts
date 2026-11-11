@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CAP_MS, frameCap, fitLine, frameGpu, frameWindow, misses, passShare, saturated, searchLimit, spread, type FrameWindow } from './headroom';
+import { CAP_MS, FarSettle, frameCap, fitLine, frameGpu, frameWindow, misses, passShare, saturated, searchLimit, spread, type FrameWindow } from './headroom';
 
 /**
  * A GPU at a 60 Hz cap: a frame of `work` ms within the budget shows one
@@ -112,5 +112,21 @@ describe('the headroom meter’s arithmetic', () => {
     // The frame's GPU ms from the edge is the 30 Hz budget less the room.
     const line = fitLine([{ n: 100, ms: 40 }, { n: 200, ms: 50 }])!;
     expect(frameGpu(line, 150, 160, cap).fromEdge).toEqual([17.33, 18.33]);
+  });
+});
+
+describe('the far field\'s fill', () => {
+  it('ends once what is drawn stays within 2 % for the hold, a larger move starting it again', () => {
+    const f = new FarSettle(5000);
+    expect(f.step({ nodes: 0, bricks: 0 }, 0)).toBe(false);
+    expect(f.step({ nodes: 1000, bricks: 20000 }, 1000)).toBe(false);
+    // A few nodes come and go as a camera turns: still the same field.
+    expect(f.step({ nodes: 1010, bricks: 20100 }, 4000)).toBe(false);
+    expect(f.step({ nodes: 995, bricks: 19900 }, 6500)).toBe(true);
+    expect(f.since).toBe(1000);
+    // A move past 2 %: counted again from there.
+    expect(f.step({ nodes: 1100, bricks: 20000 }, 7000)).toBe(false);
+    expect(f.since).toBe(7000);
+    expect(f.step({ nodes: 1100, bricks: 20000 }, 12500)).toBe(true);
   });
 });

@@ -98,7 +98,7 @@ describe('ChunkDrawBatcher', () => {
     // Nothing changed: no cover again; a far event goes out in a batch of its own.
     f.emit({ type: 'levels', reason: 'swap', added: [], removed: [] });
     const mesh = { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0), skirtTriangles: 0 };
-    for (const l of farListeners) l({ type: 'far', added: [{ level: 2, nx: 5, ny: 0, nz: 0, mesh }], removed: [] });
+    for (const l of farListeners) l({ type: 'far', seq: 1, added: [{ level: 2, nx: 5, ny: 0, nz: 0, mesh }], removed: [] });
     flush();
     expect(sent.at(-1)!.nearCover).toBeUndefined();
     expect(sent.at(-1)!.far!.added.map((a) => [a.level, a.nx])).toEqual([[2, 5]]);

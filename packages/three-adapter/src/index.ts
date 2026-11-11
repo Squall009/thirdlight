@@ -407,6 +407,7 @@ export { markHostDrawing, markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occl
 export { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels, browserCrackDecoder, type CrackImageDecoder } from './voxel-crack-texture';
 export { createVoxelSurface, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_GRID_MAX_EDGE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelReliefSettings, type VoxelSurfaceObject, type VoxelSurfaceOptions, type VoxelSurfaceTextureArrays } from './voxel-surface';
 export { VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM } from './voxel-surface-path';
+export { FAR_FEEDBACK_URL_PARAM } from './voxel-far-feedback';
 export { FAR_PASS_URL_PARAM } from './voxel-far-visibility';
 export { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, RELIEF_TEST_SIZE, reliefTestHeights, voxelTestRelief, type VoxelReliefLook } from './voxel-relief';
 export { shadowSeesCutaways } from './block-cutaway-view';

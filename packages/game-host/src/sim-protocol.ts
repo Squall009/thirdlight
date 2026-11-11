@@ -28,6 +28,7 @@ import type {
   UiOutput,
   ModeView,
 } from '@thirdlight/runtime';
+import type { FarSeenWire } from '@thirdlight/voxel';
 import type { ManifestBehaviorRow } from './host';
 import type { RelayEffect, RelayTestFrame } from './relay-input';
 import type { UiHitTarget } from './ui-hit';
@@ -165,6 +166,8 @@ export type MainToWorker =
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
   /** The page's GPU bytes of a voxel world's drawn chunks (`[cx, cy, cz, bytes]` repeated) and of its nodes and seams summed, for the world's budget. */
   | { readonly t: 'voxels.drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number; readonly kits: number }
+  /** A round of a voxel world's far field visibility feedback (what the far draws were seen at), for its selection. */
+  | { readonly t: 'voxels.farSeen'; readonly world: string; readonly seen: FarSeenWire }
   | { readonly t: 'dispose' };
 
 /** The loaded scenes as the page mirrors them (entities only for a batch the page does not have yet). */

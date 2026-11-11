@@ -30,6 +30,7 @@
 import { crc32, wallClock } from '@thirdlight/shared';
 import { chunkKey, chunkOfKey, type ChunkGrid } from './coords';
 import type { FarEvent, FarNodeDraw } from './far-field';
+import type { FarSeenWire } from './far-seen';
 import type { MipNode } from './voxel-mips';
 import type { JoinedDraw, JoinTimes } from './chunk-join';
 import type { DerivedData } from './derived-data';
@@ -135,6 +136,8 @@ export interface NearCoverWire {
 export interface FarDrawWire {
   readonly added: readonly FarNodeDraw[];
   readonly removed: readonly MipNode[];
+  /** The last far event in it ({@link FarEvent.seq}): what the draws name in their visibility feedback. */
+  readonly seq?: number;
 }
 
 export interface ChunkDrawBatch {
@@ -180,7 +183,7 @@ export interface ChunkDrawFeed {
   /** The kit pieces (`VoxelStreamer.pieces`): the page's GPU bytes of the kit meshes and textures they draw from, counted in the budget. */
   readonly pieces?: { gpuBytes: number };
   /** The far field (`VoxelStreamer.far`; null or absent: none). */
-  readonly far?: { on(listener: (e: FarEvent) => void): void; gpuBytes: number } | null;
+  readonly far?: { on(listener: (e: FarEvent) => void): void; gpuBytes: number; feedback?(fb: FarSeenWire): void } | null;
 }
 
 export interface ChunkDrawBatcherOptions {
@@ -267,6 +270,7 @@ export class ChunkDrawBatcher {
   private relief: ChunkReliefWire | null = null;
   private farAdded: FarNodeDraw[] = [];
   private farRemoved: MipNode[] = [];
+  private farSeq = 0;
   /** The near field's draws changed since the cover last went (with a far field). */
   private coverDirty = false;
   private coverSent = '';
@@ -293,6 +297,7 @@ export class ChunkDrawBatcher {
       if (this.closed) return;
       this.farAdded.push(...e.added);
       this.farRemoved.push(...e.removed);
+      this.farSeq = e.seq;
       this.queue();
     });
   }
@@ -448,7 +453,7 @@ export class ChunkDrawBatcher {
     this.queued = false;
     const cover = this.coverDirty ? this.nearCover() : null;
     this.coverDirty = false;
-    const far = this.farAdded.length > 0 || this.farRemoved.length > 0 ? { added: this.farAdded, removed: this.farRemoved } : null;
+    const far = this.farAdded.length > 0 || this.farRemoved.length > 0 ? { added: this.farAdded, removed: this.farRemoved, seq: this.farSeq } : null;
     if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null)) return;
     const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];
@@ -543,6 +548,12 @@ export class ChunkDrawBatcher {
       this.feed.setPart(cx, cy, cz, MESH_PART, bytes[i + 3]! - relief);
       if (this.reliefSent.has(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, relief);
     }
+  }
+
+  /** A round of the far field's visibility feedback from the page (far-seen.ts): handed to the far field. */
+  farSeen(fb: FarSeenWire): void {
+    if (this.closed) return;
+    this.feed.far?.feedback?.(fb);
   }
 
   /** The world closed: what was not sent is dropped and the page lets go of every draw. */

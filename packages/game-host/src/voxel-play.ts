@@ -9,7 +9,9 @@
  * simulation as batches, one a streamer task (`ChunkDrawBatcher`): a
  * worker posts each batch to the page in one transferred message, a page
  * simulation hands it straight to the page's draws. The page answers with
- * the drawn chunks' GPU bytes (`drawn`), counted in the world's budget.
+ * the drawn chunks' GPU bytes (`drawn`), counted in the world's budget,
+ * and with what its far draws were seen at (`farSeen`), for the far field's
+ * selection.
  *
  * Every world derives its detail pieces from the build's voxel kits (a
  * material no kit binds draws plain voxel faces): one piece table
@@ -19,13 +21,15 @@
  * go with them too (`ctx.voxels.materialOf`).
  */
 import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, worldPieceTable, type ChunkDrawBatch, type PieceKitSource, type PieceTable } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
   readonly ports: VoxelWorldPorts;
   /** The page's GPU bytes of a world's drawn chunks (`[cx, cy, cz, bytes]` repeated), of its nodes and seams summed, and of the kit meshes and textures. */
   drawn(world: string, bytes: readonly number[], coarse: number, kits: number): void;
+  /** A round of a world's far field visibility feedback from the page. */
+  farSeen(world: string, seen: FarSeenWire): void;
 }
 
 /**
@@ -70,5 +74,6 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
       },
     },
     drawn: (world, bytes, coarse, kits) => batchers.get(world)?.drawn(bytes, coarse, kits),
+    farSeen: (world, seen) => batchers.get(world)?.farSeen(seen),
   };
 }

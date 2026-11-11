@@ -283,6 +283,11 @@ export class VoxelShaderGrids {
     return this.used;
   }
 
+  /** Regions along each axis of the texture now (a region's origin ÷ the side is its place along them). */
+  get regionDims(): readonly [number, number, number] {
+    return this.dims;
+  }
+
   /** Regions the texture holds. */
   get capacity(): number {
     return this.dims[0] * this.dims[1] * this.dims[2];

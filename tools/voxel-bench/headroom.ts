@@ -227,3 +227,30 @@ function round2(x: number): number {
 function round3(x: number): number {
   return Math.round(x * 1000) / 1000;
 }
+
+/** The share the far field's drawn nodes and bricks may move while it counts as settled ({@link FarSettle}). */
+export const FAR_SETTLE_SHARE = 0.02;
+
+/**
+ * The fill's end: the far field drawn within {@link FAR_SETTLE_SHARE} of the same nodes and bricks for `holdMs`. Not
+ * exactly the same: with visibility feedback a turning camera keeps changing a few nodes (what comes into view
+ * refines, what left it for a while coarsens), so an exact match never comes.
+ */
+export class FarSettle {
+  private ref: { nodes: number; bricks: number } | null = null;
+  /** When the drawn field came within the share of what it is now. */
+  since = 0;
+
+  constructor(private readonly holdMs = 5000) {}
+
+  /** A reading at `now` (ms); true once settled. */
+  step(far: { readonly nodes: number; readonly bricks: number } | null | undefined, now: number): boolean {
+    const near = (a: number, b: number): boolean => Math.abs(a - b) <= FAR_SETTLE_SHARE * Math.max(a, b);
+    if (far == null || far.nodes === 0 || this.ref === null || !near(far.nodes, this.ref.nodes) || !near(far.bricks, this.ref.bricks)) {
+      this.ref = far == null ? null : { nodes: far.nodes, bricks: far.bricks };
+      this.since = now;
+      return false;
+    }
+    return now - this.since > this.holdMs;
+  }
+}

@@ -68,7 +68,7 @@ import type { Locator, Page } from '@playwright/test';
 import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_BUDGET_MIB } from '@thirdlight/project-model';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
-import { fitLine, frameCap, frameGpu, frameWindow, misses, passShare, searchLimit, spread, type FrameWindow, type LimitResult, type LineFit, type PassRow } from './headroom';
+import { FarSettle, fitLine, frameCap, frameGpu, frameWindow, misses, passShare, searchLimit, spread, type FrameWindow, type LimitResult, type LineFit, type PassRow } from './headroom';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -165,7 +165,7 @@ interface Hook {
   stats(): { worlds: Record<string, { far: { nodes: number; bricks: number } ; chunks: number }> };
 }
 
-async function openPlay(page: Page): Promise<{ canvas: Locator; control: (body: unknown) => Promise<void> }> {
+async function openPlay(page: Page): Promise<{ canvas: Locator; psid: string; control: (body: unknown) => Promise<void> }> {
   await page.goto(`${ORIGIN}/?project=${PROJECT}&renderer=webgpu${QUERY}#token=${TOKEN}`);
   await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 60_000 });
   // The preview at the viewport's size, over the editor (the editor draws nothing under it).
@@ -184,7 +184,7 @@ async function openPlay(page: Page): Promise<{ canvas: Locator; control: (body: 
       await page.waitForTimeout(250);
     }
   };
-  return { canvas, control };
+  return { canvas, psid, control };
 }
 
 /** The GPU process's memory as its driver counts it (MiB per DRM key summed over its fds; an integrated GPU's buffers are system memory). */
@@ -218,25 +218,27 @@ async function main(): Promise<void> {
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('console', (m) => void (m.type() === 'error' && errors.push(m.text().slice(0, 200))));
-    const { canvas, control } = await openPlay(page);
+    const { canvas, psid, control } = await openPlay(page);
     await control({ command: 'setQuality', level: QUALITY });
     const stats = () => canvas.evaluate((_c, w) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.stats().worlds[w] ?? null, WORLD);
-    // The fill: until the far field drawn stays the same for 5 s.
-    let last = '';
-    let since = Date.now();
+    // The fill: until the far field drawn stays within 2 % for 5 s (FarSettle).
+    // With visibility feedback an orbiting camera keeps changing a few hundred nodes (what comes into view refines,
+    // what left it coarsens): the fill ends at the first time the far field has made everything its selection wanted
+    // (nothing pending, no job) with nodes drawn, then 5 s on; without feedback that is the drawn set settling.
+    const settle = new FarSettle();
+    const trace: unknown[] = [];
+    out['fillTrace'] = trace;
+    let madeAt: number | null = null;
     for (;;) {
       const s = await stats();
-      const key = JSON.stringify(s?.far ?? null);
-      if (s !== null && s.far.nodes > 0 && key === last) {
-        if (Date.now() - since > 5000) break;
-      } else {
-        last = key;
-        since = Date.now();
-      }
+      const sim = (((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<{ world?: string; far?: { pending?: number; jobs?: number; drawn?: number } }> } } | undefined)?.runtime?.voxelWorlds ?? []).find((w) => w.world === WORLD)?.far;
+      if (trace.length < 200 && (Date.now() - T0) / 5000 >= trace.length) trace.push({ s: Math.round((Date.now() - T0) / 1000), far: s?.far ?? null, sim: sim ?? null });
+      if (madeAt === null && sim !== undefined && (sim.drawn ?? 0) > 0 && sim.pending === 0 && sim.jobs === 0 && (s?.far.nodes ?? 0) > 0) madeAt = Date.now();
+      if (settle.step(s?.far, Date.now()) || (madeAt !== null && Date.now() - madeAt > 5000)) break;
       if (Date.now() - T0 > 420_000) throw new Error('the far field did not settle in 7 min');
       await page.waitForTimeout(250);
     }
-    out['fillS'] = Number(((since - T0) / 1000).toFixed(1));
+    out['fillS'] = Number(((Math.min(settle.since, madeAt ?? Infinity) - T0) / 1000).toFixed(1));
     out['fill'] = await stats();
     // Memory at the town once filled: the page's heap and the GPU process's (the editor's page included: Play runs in it).
     const cdp = await browser.newBrowserCDPSession();

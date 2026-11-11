@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { createOcclusionFrame, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
-import { FAR_FIELD_MODES, farViewOf, reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
+import { FAR_BRICK_BUILD, FAR_FIELD_MODES, farViewOf, reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld, type ResolvedVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
@@ -103,7 +103,7 @@ export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFa
 /** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
 export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
   if (streamer.far === null) return null;
-  return { ...streamer.far.metrics(), brickBuild: streamer.far.brickBuild, half: view.brickHalf, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+  return { ...streamer.far.metrics(), brickBuild: FAR_BRICK_BUILD, half: view.brickHalf, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
 }
 
 /** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */
