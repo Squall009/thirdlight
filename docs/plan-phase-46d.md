@@ -2954,6 +2954,51 @@ roof at the near field's edge shows a notch (left, frame 4; near field, not this
 rate, medium/high pictures, the Scene view and the voxel world page (no rounds: D609), a world whose far budget binds,
 WebGL 2 pictures (the smoke passes).
 
+### 46d.15 review fixes
+
+The independent review's tooling and test findings (§9, "46d.15, independent review"); H3, M2, M3 and L7 are the
+next fix pass's.
+
+| Finding | What changed | Commit |
+|---|---|---|
+| H1 | `everyArea` in `tools/gate-areas.json`: project-model, shared and the backend's plumbing (api-router, auth, backend, config, engine, full-state, http, index, services, sessions, session and static routes, util, ws-channel) run every area, as wide as `phase`; the rest of the backend's 75 unmapped sources mapped to their areas; `check-gate-areas.mjs` fails a package source (packages/*/src, tests aside) in no area, and `--for` runs every area for one anyway; a unit test beside an every-area source runs no area | d484d1d2, c2c63280 |
+| H2 | `tests/e2e/webgpu-reference.e2e.ts` (environment, materials areas): WebGPU against the frozen references, 21 environment/post cases + 5 behaviour checks, 8 shader families + 5 as graphs + the control; harnesses and refs `git mv`ed back to `tests/e2e/webgpu-reference/` | 6892a30c |
+| M1 | `stream-speed.test.ts`: renamed to what it checks; counts, not ms | bd1534e3 |
+| L1 | history check reads `.sh` comments; gate.sh's date and defect id gone | 61d0f8d3 |
+| L2 | voxel-world.e2e.ts WebGPU only; restart + reload and the run-time tier switch moved into the WebGPU runs | 3b4ac226 |
+| L3 | webgl2-smoke: a voxel world in the scene, drawn in Play and the export; a real share of the picture | 4518059f |
+| L5 | stream.test.ts 2,000 → 1,252 lines + stream-levels.test.ts 716 + stream-fixture.ts 128 | c18c162e |
+| L6 | quality-levels.test.ts: the 4096 and the sum dropped, the relation checks kept | 81f2ab58 |
+| L8 | `perf/run.mjs see-through-cpu`; voxel-bench `stream` prints a pool line | 2e6bf6c2 |
+| watch | D610 (memory.e2e.ts:350, gpu.buffers 88 → 91 once in the phase gate) | this docs commit |
+
+H1, before → after: 268 of 1,584 package sources reached no area; now 0 (203 every area: project-model 173,
+shared 17, backend plumbing 13; content 13, materials 12, scripting 6, voxel 5, mcp 4, the rest in one or two areas
+each). Dry run, `check-gate-areas.mjs --for packages/project-model/src/quality-levels.ts`: all 19 areas, 179 of 179
+e2e files (180 with H2's); `--for packages/backend/src/far-cache-worker.ts`: voxel. A probe file
+`packages/backend/src/zz-unmapped-probe.ts` failed the build check ("reaches no area").
+
+H2: the references are the archived WebGLRenderer's pictures (`bloom`, `tone-aces`, `tone-neutral` redrawn on
+purpose before, unchanged now); none was redrawn from today's WebGPU (a reference from the code under test passes
+whatever it draws). All 40 tests pass within their rules on this GPU (sky-color mean 0.04, bloom 0.10; the
+control misses), 43 s on one worker. Not restored: `scene-view-parity` (Scene view against Play on the product's
+renderer, no reference image): it needs its own backend and editor; left archived for the owner to choose.
+
+M1: the flight still runs in real time (the focus's speed is read from the clock); it now asserts the ring
+narrowed, that every update counted the ground (200 of 200, ground missing 0, ahead 39 in the run measured), and
+that once stopped the ground under the focus is known after 10 of the 7,736 jobs that refill the widened ring
+(bound: a tenth). The flight's missing share is the coverage bench's to report.
+
+L2/L3 e2e times (gate-fast-20261111-154323, 2 workers → one worker after): voxel-world.e2e.ts 149 s (6 tests) →
+103 s (4); webgl2-smoke 19.1 → 19.8 s. Dropped with the WebGL 2 runs: a voxel world in Play with the simulation in
+the page (`threads=off`; sim-worker.e2e.ts keeps that path for a game) and WebGL 2's relief in Play. The smoke's
+bounds: a scene 0.2 of the picture off its most common colour (Scene view measured 35 %), a voxel world 0.5 (Play
+83 %, export 80 %, the voxel page 66 %); Play's and the export's pictures looked at: ground, wall and pad drawn.
+
+L8 (load 2.0–2.3): see-through search over 600 instanced members, members moved every frame: 0.68–0.71 ms mean,
+0.96–1.11 p95 (the removed unit bound was 5 ms); the merge of 600 boxes into 6: 0.62–0.63 ms mean (bound was
+20 ms). 8 background jobs of 40 ms on 4 idle workers: 81.6 ms, ideal 80 (bound was 240 ms).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
