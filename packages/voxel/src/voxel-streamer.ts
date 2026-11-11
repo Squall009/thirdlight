@@ -48,6 +48,7 @@
  * chunk, so the base always stays what the files hold and a later save's
  * base hashes are of the shipped chunks.
  */
+import { countGround, type GroundCoverage, type GroundQuery } from './stream-coverage';
 import { checkRadius } from './apron';
 import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
 import { jobRadius, type AssemblyRuleSet } from './assembly';
@@ -74,7 +75,7 @@ import type { LevelEvent } from './stream-lod';
 import type { SeamEvent } from './stream-seams';
 import type { LevelRings } from './lod-select';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
-import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
+import { DEFAULT_STREAM_READS, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
 import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, mipRingsFor, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { FarField, type FarFieldOptions } from './far-field';
@@ -239,6 +240,10 @@ const EVICT_TO = 0.95;
 const RESUME_BELOW = 0.85;
 
 export interface StreamCounters {
+  /** Times the load ring narrowed or widened for the focus's speed (stream-ring.ts `speedRing`). */
+  speedRings: number;
+  /** Updates, and those where the ground under the focus or its lead point was not resident and derived, or out of the ring's height (stream-coverage.ts). */
+  readonly ground: GroundCoverage;
   loads: number;
   loadsStored: number;
   loadsUniform: number;
@@ -287,6 +292,8 @@ export interface StreamMetrics {
   readonly reliefUs: SampleSummary | null;
   /** The relief ring (cells; null: the streamer derives no sections with rules). */
   readonly relief: ReturnType<ReliefRing['state']> | null;
+  /** Updates counted, those where the ground under the focus or its lead point was not resident and derived, and those with no ground within the ring's height (stream-coverage.ts). */
+  readonly coverage: Readonly<GroundCoverage>;
 }
 
 /** Quantiles of a sample ring (µs) and how many samples it holds. */
@@ -315,7 +322,7 @@ export class VoxelStreamer {
   readonly tracker: DirtyTracker;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0 };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, ground: { updates: 0, groundMissing: 0, aheadMissing: 0, outOfReach: 0 } };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -412,7 +419,7 @@ export class VoxelStreamer {
                 return inLoadRing(this.grid, this.ring, this.focus, cx, cy, cz) && chunkDistance2(this.grid, this.focus, cx, cy, cz) < this.horizon;
               },
               lane: (cx, cy, cz) => laneOf(this.grid, this.ring, this.focus, cx, cz),
-              distance2: (cx, cy, cz) => chunkDistance2(this.grid, this.focus, cx, cy, cz),
+              distance2: (cx, cy, cz) => motionDistance2(this.grid, this.focus, this.plan.lead, cx, cy, cz),
               setPart: (cx, cy, cz, part, bytes) => this.setPart(cx, cy, cz, part, bytes),
               emit: (e) => {
                 this.emit(e);
@@ -649,10 +656,11 @@ export class VoxelStreamer {
       deriving,
       bytes: { total: this.held.chunks + this.held.derived + this.held.overlay + tables + mips + kits, chunks: this.held.chunks, derived: this.held.derived, overlay: this.held.overlay, tables, mips, kits, budget: this.budgetBytes, relief: this.relief?.bytes ?? 0, reliefShare: this.relief?.share(this.budgetBytes) ?? 0 },
       storeBytes: this.store.memoryBytes(),
-      counters: { ...this.counters },
+      counters: { ...this.counters, ground: { ...this.counters.ground } },
       evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },
       reliefUs: this.derives === null || this.derives.reliefUs.count === 0 ? null : summarize(this.derives.reliefUs),
       relief: this.relief?.ring.state() ?? null,
+      coverage: { ...this.counters.ground },
     };
   }
 
@@ -681,6 +689,11 @@ export class VoxelStreamer {
     this.tick++;
     const g = this.grid;
     if (this.plan.update(this.focus, t0)) {
+      if (this.plan.ringChanged) {
+        if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(this.ring));
+        this.mips?.lod.changed();
+        this.counters.speedRings++;
+      }
       this.wanted = readOrder(g, this.ring, this.focus, this.plan.lead);
       this.cursor = 0;
       for (const w of this.wanted) {
@@ -690,7 +703,7 @@ export class VoxelStreamer {
       for (const c of [...this.chunks.values()]) {
         c.d2 = chunkDistance2(g, this.focus, c.cx, c.cy, c.cz);
         if (this.plan.pastUnload(this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
-        else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, laneOf(g, this.ring, this.focus, c.cx, c.cz), c.d2);
+        else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, laneOf(g, this.ring, this.focus, c.cx, c.cz), motionDistance2(g, this.focus, this.plan.lead, c.cx, c.cy, c.cz));
       }
       this.mips?.focusMoved();
     } else if (this.heldOutside.size > 0) {
@@ -719,6 +732,9 @@ export class VoxelStreamer {
     // The far field selects from the focus too; its jobs go last in the pool.
     this.far?.setEye(this.focus.x, this.focus.y, this.focus.z, { radius: this.ring.loadRadius, height: this.ring.loadHeight, drawn: (cx, cy, cz) => nearDrawn(this.mips, cx, cy, cz, () => this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.phase === 'resident') });
     this.far?.update();
+    // Whether the ground under the focus and its lead point is resident and derived this update (stream-coverage.ts).
+    const ground: GroundQuery = { isResident: (x, y, z) => this.isResident(x, y, z), chunkReady: (x, y, z) => this.chunkReady(x, y, z), isAir: (x, y, z) => this.store.chunkForm(x, y, z) === 'absent' };
+    countGround(this.counters.ground, this.grid, this.focus, this.plan.lead, this.ring.loadHeight, ground);
     for (const [key, at] of this.unloadedAt) {
       if (t0 - at <= CHURN_WINDOW_MS) break;
       this.unloadedAt.delete(key);
@@ -912,7 +928,7 @@ export class VoxelStreamer {
     const id = job.id;
     const input: LoadInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, bytes: stored, hash: false };
     const transfer = 'stored' in stored ? [stored.stored.buffer as ArrayBuffer] : [];
-    void this.opts.pool.submit<LoadOutput>({ id, kind: 'load', lane: laneOf(this.grid, this.ring, this.focus, c.cx, c.cz), distance: c.d2, input, transfer }).then((o) => {
+    void this.opts.pool.submit<LoadOutput>({ id, kind: 'load', lane: laneOf(this.grid, this.ring, this.focus, c.cx, c.cz), distance: motionDistance2(this.grid, this.focus, this.plan.lead, c.cx, c.cy, c.cz), input, transfer }).then((o) => {
       if (o.status === 'done') {
         this.decompressUs.add(o.output.decompressUs);
         this.decodeUs.add(o.output.decodeUs);

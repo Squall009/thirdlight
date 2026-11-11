@@ -27,7 +27,7 @@
  * node march, far-bricks-node.ts, walks a node's bricks with it; the shader
  * in three-adapter `voxel-far-bricks.ts` is their port).
  */
-import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample } from './distance-brick-format';
+import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample } from './distance-brick-format';
 import { FAR_SKIRT_CELLS } from './far-mesh';
 
 /** How steeply a brick's skirt falls past its node's face (distance into the field a cell out). */
@@ -187,6 +187,20 @@ export function farBrickSample(samples: Uint8Array, block: number, p: readonly n
     sum += w * samples[o + ((i[2]! + dz) * S + i[1]! + dy) * S + i[0]! + dx]!;
   }
   return distanceOfSample(sum, DISTANCE_BRICK_BAND_VOXELS);
+}
+
+/**
+ * Whether a point of a node (its cells, 0 to the bricks' side × {@link DISTANCE_BRICK_CELLS} an axis) lies inside the
+ * solid its bricks draw: a wholly inside brick, or a stored one whose field there is below zero. A camera there sees
+ * the node from inside (box faces, no surface): what a coverage check counts.
+ */
+export function farBricksInside(b: FarBricks, p: readonly number[]): boolean {
+  const C = DISTANCE_BRICK_CELLS;
+  const i = [0, 1, 2].map((a) => Math.min(b.side - 1, Math.max(0, Math.floor(p[a]! / C))));
+  const brick = b.bricks[i[0]! + b.side * (i[1]! + b.side * i[2]!)]!;
+  if (brick === DISTANCE_BRICK_INSIDE) return true;
+  if (brick < 0) return false;
+  return farBrickSample(b.samples, brick, [p[0]! - i[0]! * C, p[1]! - i[1]! * C, p[2]! - i[2]! * C]) < 0;
 }
 
 /** The field the draw marches at a point of a brick (cells): the block's distance, and past the brick's box its skirt's. */

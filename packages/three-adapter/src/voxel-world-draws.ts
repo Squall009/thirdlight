@@ -324,6 +324,11 @@ export class VoxelWorldDraws {
     this.opts.applied?.();
   }
 
+  /** The far node drawn at a world point (metres) of a world and whether the point is inside its solid (null: none drawn there; a coverage check). */
+  farSolidAt(world: string, x: number, y: number, z: number): { level: number; inside: boolean } | null {
+    return this.worlds.get(world)?.view.far.solidAt(x / VOXEL_SIZE_M, y / VOXEL_SIZE_M, z / VOXEL_SIZE_M) ?? null;
+  }
+
   /** Every world's near field and far field draws now (a measuring run draws them again, gpu-headroom.ts). */
   roots(): { readonly near: THREE.Object3D[]; readonly far: THREE.Object3D[] } {
     const worlds = [...this.worlds.values()];

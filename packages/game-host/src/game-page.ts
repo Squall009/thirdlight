@@ -712,7 +712,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
     report: (world, bytes, coarse, kitBytes) => report(world, bytes, coarse, kitBytes),
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), meter: voxelMeter(draws, adapter) };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter) };
   return {
     draws,
     kitMeshes,

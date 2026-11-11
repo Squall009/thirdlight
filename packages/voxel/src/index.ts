@@ -237,8 +237,8 @@ export { deriveNow, jobRelief, streamJobHandlers, type StreamHandlerOptions } fr
 export { JobQueue } from './job-queue';
 export { defaultVoxelWorkers, eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
-export { DEFAULT_STREAM_READS, FocusMotion, readOrder, STREAM_PREFETCH_SECONDS, type WantedChunk } from './stream-reads';
-export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_LEVELS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, mipRingsFor, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
+export { DEFAULT_STREAM_READS, FocusMotion, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, type WantedChunk } from './stream-reads';
+export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_LEVELS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, mipRingsFor, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, speedRing, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
 export { StreamMips, type MipEvent, type MipHost } from './stream-mips';
 export { checkLevelRings, chooseLevels, DrawnLevels, levelNodeDistance, type LevelChoice, type LevelChoiceStats, type LevelNode, type LevelRings } from './lod-select';
 export { StreamLod, type LevelEvent, type LodHost } from './stream-lod';
@@ -417,7 +417,7 @@ export {
   type FarView,
 } from './far-tree';
 export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
-export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks } from './far-bricks';
+export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksInside, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks } from './far-bricks';
 export { bakedFarBricks, decodeFarBricks, encodeFarBricks, FAR_BRICKS_BLOB_MAGIC, FAR_BRICKS_BLOB_VERSION, farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromFaces } from './far-bricks-faces';
 export { farBrickMarchedBox, farNodeMarchedBox, marchFarNode, rayBox, type FarCellBox } from './far-bricks-node';
@@ -431,3 +431,4 @@ export { VoxelOverlay } from './voxel-overlay';
 export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedFarFile, shippedFarSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedFarCache, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';
 export { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample, sampleOfDistance } from './distance-brick-format';
 export { FAR_GPU_PER_STORED_BYTE, FarGpuLedger } from './far-gpu-ledger';
+export { countGround, groundAt, type GroundCoverage, type GroundQuery } from './stream-coverage';

@@ -821,6 +821,16 @@ export class SectionDerives {
       l.push(s);
     }
     let room = this.host.pool.room();
+    // Streaming derives nearest the pool's key first (the focus, or the way ahead of a moving one): the set keeps the
+    // order sections were wanted in, which at speed is ground already behind.
+    if (room > 0 && rest.length > 1) {
+      const key = new Map<number, number>();
+      for (const ck of rest) {
+        const s = byChunk.get(ck)![0]!;
+        key.set(ck, this.host.distance2(s.cx, s.cy, s.cz));
+      }
+      rest.sort((a, b) => key.get(a)! - key.get(b)!);
+    }
     const t0 = performance.now();
     for (const [order, budget] of [[edits, this.editMsPerUpdate], [editsOnly ? [] : rest, msPerUpdate]] as const) {
       for (const ck of order) {

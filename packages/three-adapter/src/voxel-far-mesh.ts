@@ -38,7 +38,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farBrickCount, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
+import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farBrickCount, farBricksInside, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import type { N } from './effects-tsl';
 import { FarBrickAtlas, FarBrickMaterial, farNodeGeometry } from './voxel-far-bricks';
@@ -204,6 +204,27 @@ export class VoxelFarView {
 
   get visible(): boolean {
     return !this.hidden;
+  }
+
+  /**
+   * The far node drawn at a world point (cells) and whether the point lies inside the solid its bricks draw (null:
+   * no brick node drawn there). A camera inside one sees it from inside: box faces, no ground.
+   */
+  solidAt(x: number, y: number, z: number): { level: number; inside: boolean } | null {
+    const e = this.opts.grid.edge;
+    const levels = new Set<number>();
+    for (const g of this.groups.values()) if (g.kind === 'bricks') levels.add(g.level);
+    for (const level of [...levels].sort((a, b) => a - b)) {
+      const span = e << level;
+      const n = { level, nx: Math.floor(x / span), ny: Math.floor(y / span), nz: Math.floor(z / span) };
+      const key = mipNodeKey(n);
+      const gk = this.groupOf.get(key);
+      const b = gk === undefined ? undefined : this.groups.get(gk)?.nodes.get(key)?.bricks;
+      if (b === undefined) continue;
+      const cell = 2 ** level;
+      return { level, inside: farBricksInside(b, [(x - n.nx * span) / cell, (y - n.ny * span) / cell, (z - n.nz * span) / cell]) };
+    }
+    return null;
   }
 
   /** A batch's far changes and near cover, all applied in this task. */

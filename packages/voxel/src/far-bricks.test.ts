@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { chunkGrid } from './coords';
 import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample } from './distance-brick-format';
-import { FAR_BRICK_LIP_CELLS, farBrickCount, farBrickField, marchBrickBox, squaredDistances, type FarBricks } from './far-bricks';
+import { FAR_BRICK_LIP_CELLS, farBrickCount, farBrickField, farBricksInside, marchBrickBox, squaredDistances, type FarBricks } from './far-bricks';
 import { farBricksFromFaces } from './far-bricks-faces';
 import { farBrickMarchedBox } from './far-bricks-node';
 import { FAR_SKIRT_CELLS } from './far-mesh';
@@ -80,6 +80,17 @@ describe('far bricks', () => {
     const again = bricksOf(ground(TOP), [0, 1, 0]);
     expect([...again.samples]).toEqual([...b.samples]);
     expect([...again.looks]).toEqual([...b.looks]);
+  });
+
+  it('tells a point inside the drawn solid from one over it: a wholly inside brick, a stored one below its surface', () => {
+    const b = bricksOf(ground(TOP), [0, 1, 0]);
+    // The ground's top lies at node cell 12 (y 44 of the node at 32).
+    for (const [x, z] of [[3, 5], [20.5, 30.25], [31.9, 0]] as const) {
+      expect(farBricksInside(b, [x, 2, z]), 'brick row 0, wholly inside').toBe(true);
+      expect(farBricksInside(b, [x, 11.5, z]), 'half a cell under the top').toBe(true);
+      expect(farBricksInside(b, [x, 12.5, z]), 'half a cell over it').toBe(false);
+      expect(farBricksInside(b, [x, 28, z]), 'an outside brick').toBe(false);
+    }
   });
 
   it('gives the exact squared distance to the nearest cell of a kind', () => {

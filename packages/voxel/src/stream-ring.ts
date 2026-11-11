@@ -133,6 +133,35 @@ export const VOXEL_REACH_SCALES: Readonly<Record<StreamTier, number>> = Object.f
  */
 export const RESIDENT_CHUNK_OVERHEAD_BYTES = 96;
 
+/**
+ * Travel speed (cells a second; 20 m/s) up to which the load ring keeps its
+ * full radius. Faster, the ring narrows so the ground it sweeps a second
+ * stays what it is at this speed: a ring the pool cannot fill as fast as it
+ * moves holds chunks it never derives, and the chunks under the camera (its
+ * collision) wait behind them. Measured at 60 and 150 m/s on the Iris Xe:
+ * with the full ring the ground under the camera was missing in 57–90 % of
+ * updates; past the near field the far field draws the world anyway.
+ */
+export const STREAM_FULL_RING_SPEED = 40;
+
+/** The narrowest a load ring gets at speed (cells; 48 m): the default collision ring's radius, what a character stands on. */
+export const STREAM_MIN_SPEED_RADIUS = DEFAULT_COLLISION_RING.radius;
+
+/**
+ * The load ring for a focus moving at `speed` cells a second: `base` up to
+ * {@link STREAM_FULL_RING_SPEED}, then its radius times that speed over
+ * `speed` (never under {@link STREAM_MIN_SPEED_RADIUS} or over `base`),
+ * rounded down to whole chunks so a speed that wavers does not plan again
+ * every update; the unload gap, the heights and the near lane's radius
+ * (at most the load radius) kept.
+ */
+export function speedRing(base: StreamRing, speed: number, chunkEdge: number): StreamRing {
+  if (!(speed > STREAM_FULL_RING_SPEED)) return base;
+  const narrow = Math.max(STREAM_MIN_SPEED_RADIUS, Math.floor((base.loadRadius * STREAM_FULL_RING_SPEED) / speed / chunkEdge) * chunkEdge);
+  if (narrow >= base.loadRadius) return base;
+  return { loadRadius: narrow, unloadRadius: narrow + (base.unloadRadius - base.loadRadius), loadHeight: base.loadHeight, unloadHeight: base.unloadHeight, nearRadius: Math.min(base.nearRadius, narrow) };
+}
+
 /** Throws unless a ring's radii are positive and its unload bounds hold its load bounds. */
 export function checkRing(r: StreamRing): void {
   for (const v of [r.loadRadius, r.unloadRadius, r.loadHeight, r.unloadHeight, r.nearRadius]) if (!(v >= 0) || !Number.isFinite(v)) throw new RangeError('ring radii must be finite and ≥ 0');

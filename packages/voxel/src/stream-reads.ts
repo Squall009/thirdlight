@@ -16,7 +16,7 @@
  *   respawn, a test moving the focus) is not motion: it resets the velocity.
  */
 import { chunkKeyOrNone, type ChunkGrid } from './coords';
-import { chunkDistance2, pastUnloadRing, type Focus, type StreamRing } from './stream-ring';
+import { chunkDistance2, pastUnloadRing, speedRing, type Focus, type StreamRing } from './stream-ring';
 
 /** How far ahead of the focus's motion chunks are read (seconds of travel). */
 export const STREAM_PREFETCH_SECONDS = 1;
@@ -84,6 +84,12 @@ export class FocusMotion {
     this.movedAt = now;
   }
 
+  /** The focus's smoothed speed (cells a second; 0 when still). */
+  speed(now: number): number {
+    if (this.movedAt === 0 || now - this.movedAt > STILL_AFTER_MS) return 0;
+    return Math.hypot(this.vx, this.vy, this.vz);
+  }
+
   /** The lead point (the focus itself when still or prefetch is off). */
   lead(f: Focus, now: number, seconds: number, maxCells: number): Focus {
     if (!(seconds > 0) || this.movedAt === 0 || now - this.movedAt > STILL_AFTER_MS) return f;
@@ -99,6 +105,28 @@ export class FocusMotion {
     }
     return { x: f.x + lx, y: f.y + ly, z: f.z + lz };
   }
+}
+
+/**
+ * A chunk's place in the pool's queue while the focus moves (squared cells,
+ * smaller first): its distance from the way between the focus and the lead
+ * point, plus a quarter of how far along it lies (the ground under the focus
+ * before the ground a second ahead), and four times its distance behind the
+ * focus (ground left behind is wanted last). With no lead point, its
+ * distance from the focus. Collision under and ahead of a fast camera then
+ * comes before the sides of the ring.
+ */
+export function motionDistance2(grid: ChunkGrid, focus: Focus, lead: Focus, cx: number, cy: number, cz: number): number {
+  const sx = lead.x - focus.x, sy = lead.y - focus.y, sz = lead.z - focus.z;
+  const len2 = sx * sx + sy * sy + sz * sz;
+  if (len2 === 0) return chunkDistance2(grid, focus, cx, cy, cz);
+  const h = grid.edge / 2;
+  const px = (cx << grid.shift) + h - focus.x, py = (cy << grid.shift) + h - focus.y, pz = (cz << grid.shift) + h - focus.z;
+  const t = (px * sx + py * sy + pz * sz) / len2;
+  if (t < 0) return 4 * (px * px + py * py + pz * pz);
+  const k = Math.min(1, t);
+  const ox = px - sx * k, oy = py - sy * k, oz = pz - sz * k;
+  return ox * ox + oy * oy + oz * oz + (k * k * len2) / 4;
 }
 
 /**
@@ -153,9 +181,13 @@ export class StreamReadPlan<Held> {
   lead: Focus = { x: 0, y: 0, z: 0 };
   /** Stored chunks read and waiting for room in the pool, oldest first. */
   readonly held: Held[] = [];
+  /** The last update narrowed or widened the ring for the focus's speed (the levels kept derived follow it). */
+  ringChanged = false;
   private motion: FocusMotion;
   private focusChunk = Number.NaN;
   private leadChunk = Number.NaN;
+  /** The ring as set; {@link current} is it at the focus's speed ({@link speedRing}). */
+  private base: StreamRing;
   private current: StreamRing;
 
   constructor(
@@ -163,17 +195,24 @@ export class StreamReadPlan<Held> {
     ring: StreamRing,
     private readonly prefetchSeconds: number,
   ) {
+    this.base = ring;
     this.current = ring;
     this.motion = StreamReadPlan.motionFor(ring);
   }
 
-  /** The load ring the plan reads for. */
+  /** The load ring the plan reads for (the ring as set, narrowed at speed). */
   get ring(): StreamRing {
     return this.current;
   }
 
+  /** The ring as set. */
+  get baseRing(): StreamRing {
+    return this.base;
+  }
+
   /** A new load ring: the next update plans again (what it no longer holds unloads, what it now holds loads). */
   setRing(ring: StreamRing): void {
+    this.base = ring;
     this.current = ring;
     this.motion = StreamReadPlan.motionFor(ring);
     this.focusChunk = Number.NaN;
@@ -194,11 +233,16 @@ export class StreamReadPlan<Held> {
     const g = this.grid;
     const chunkOf = (p: Focus): number => chunkKeyOrNone(g, Math.floor(p.x) >> g.shift, Math.floor(p.y) >> g.shift, Math.floor(p.z) >> g.shift);
     const fk = chunkOf(focus);
-    const lead = this.motion.lead(focus, now, this.prefetchSeconds, this.ring.nearRadius);
+    // At speed the ring narrows to what the pool can fill (the motion stays: it is the base ring's).
+    const ring = speedRing(this.base, this.motion.speed(now), g.edge);
+    this.ringChanged = ring.loadRadius !== this.current.loadRadius;
+    if (this.ringChanged) this.current = ring;
+    // The lead point reaches a second of travel up to the ring as set, so faster travel reads further ahead.
+    const lead = this.motion.lead(focus, now, this.prefetchSeconds, Math.max(this.base.nearRadius, this.base.loadRadius));
     const lk = lead === focus ? fk : chunkOf(lead);
     // A lead point outside the world leads nowhere.
     this.lead = lk < 0 ? focus : lead;
-    if (fk === this.focusChunk && lk === this.leadChunk) return false;
+    if (fk === this.focusChunk && lk === this.leadChunk && !this.ringChanged) return false;
     this.focusChunk = fk;
     this.leadChunk = lk;
     return true;
