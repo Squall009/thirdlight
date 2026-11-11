@@ -288,7 +288,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.17 | done (73adedac, 287ed0d2): far node boxes rows of the culled table (frustum + pyramid in compute, far depth, drawn after the pyramid; auto culling on with a far field), covered nodes left out, depth reject before the march, F6. Medium room 0.7–1.8 → 4.5 ms, frame GPU 15–16 → 12 ms, far 6–8 → 4.4 ms; high 17/127 missed (D583). d, e measured, not kept; pictures 0.00 % >60 |
 | 46d.18 | done (f50e6ab2, ead1c53a, 5c51b45a, e3dd1ec9): TAAU on low/medium WebGPU (D591/D592). Far cache format 2 bakes every node's bricks (8 km: +300.9 MB zstd, 1,421 s staging; projection 270 MB); job 74 → 0.3 ms, Play fill low 31 → 8.5 s, medium 79 → 16 s (D596); edits rebuild farBrickDirty, reuse by content. Pictures same (0.00–0.73 % >60). D594–D597 |
 | 46d.19 | done (84c60578 D600, a3639669): D600 fixed (TAAU hold never started: pose bits; a late stop of an earlier play). Per-draw programs (1 set / 1 projection; levels 1–2 one axis), chunks+seams culled-table rows. Low room 21.5 → 23.2–24.2 ms, medium 7.6 → 6.6–7.6; near share below the meter's noise. c, d, e measured, not built; static casters +1.6 ms low. Pictures ≤ 0.26 % >60 |
-| 46d.20 | not started |
+| 46d.20 | 20a done (46872194): WebGPU far march writes a visibility texel (brick, place, depth, entry face; 20 B/px), one full-screen shade lights it once a pixel (sun, ambient, environment, fog at the hit) with the hit's own TAAU motion. Room low 23.0 → 24.8 ms, medium 7.4 → 8.3; high misses 25 → 7 / ~160 (D583 open). Pictures ≤ 0.25 % >60. Half res not needed (D574). 20b next |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
@@ -2782,6 +2782,86 @@ frame (grass slope, gravel channel, cliff): the same view a few metres apart, no
 and no more far detail, as the numbers say. *Unverified:* sharper textures on a world with 2048²/4096² sets, medium
 and high on target hardware, an export without the editor (D606), WebGL 2.
 
+### 46d.20a the far pass reshaped: a visibility target and one shade (vista step 4, WebGPU); D583
+
+**Built** (46872194). The lead split 46d.20: 20a reshapes the far pass, 20b (visibility feedback streaming in compute)
+is later. *Visibility pass* (`voxel-far-visibility.ts`, WebGPU; `?farPass=direct` and WebGL 2 keep the per-fragment
+shading, `?farRes=half` keeps its own pass): the brick groups move to the pass's own scene; the march is the same
+node march (culled-table rows, pyramid reject before it, 46d.17) but writes no colour, only its hit into an RGBA float
+target with its own depth: **the texel** = the hit's brick (atlas region, a byte an axis), the hit in that brick's
+cells (12 bits an axis over −1.5…9.5 cells), its view depth, and the face the ray entered by (the normal where the
+field has no gradient); 0 = nothing hit; 16 B + 4 B depth a pixel (7.8 MiB at low/medium's 853 × 480, 17.6 at high).
+The pass is drawn from the shade's `onBeforeRender` inside the frame's second pass (after the pyramid and the late
+culling, so the lists and the per-pixel reject hold), into its own target at the frame target's size, MRT off, its
+clear set and put back. *The shade*: one full-screen draw in the frame (`AFTER_PYRAMID_KEY`), the standard material
+as before (metalness 0, roughness 1: the sun, the ambient **and the environment light**), reading its own pixel's texel
+(`textureLoad`), placing the hit on the pixel's ray at its depth, reading the normal (the brick field's gradient,
+six reads) and the baked colour (one read) once a pixel; **fog** is the scene's fog at the hit's own depth (three's
+`context.getViewZ`; the per-fragment march fogged at its box's back face, a little farther), the depth the far
+draws' (edge ring behind the near field), and the **motion** the hit's own (`OWN_MOTION_KEY` in `motion-vectors.ts`:
+this frame's view-projection × the hit's world place minus last frame's × its last place, a floating-origin re-base
+or a moved root carried by one matrix), so TAAU reprojects far pixels by where the surface was, not where its box's
+back face was. The atlas's texture nodes and reads are shared by every far program (`voxel-far-brick-field.ts`).
+*Shade pass type:* a full-screen fragment draw, not compute: the shade must write the frame's depth (the far field
+sorts against the near field per pixel) and its motion attachment, which a compute pass cannot write; nothing to
+choose by the meter. *Normals:* the field's gradient kept: its six reads now run once a pixel in the shade (the shade
+is below the meter's resolution, below); a baked normal costs +65 MB at medium (46d.17 d: 164 → 229 MB) and was not
+rebuilt. *Half resolution* (D574): not needed — low has 23–27 ms of room at its 30 Hz cap either way; left as is.
+
+**Tested.** `voxel-far-view.test.ts` (+3): the texel's round trip (bricks to 227 an axis, the brick's whole span to half
+a 4095th of it, the depth exactly in a float32, every face; a cleared texel reads as no hit); on WebGPU the brick
+draws move to the pass scene, the march's WGSL keeps its depth and discard with 7 fewer filtered reads than the lit
+march (the gradient's six and the colour), the shade's WGSL has its depth, discard, `textureLoad` and the 7 reads;
+built under the motion MRT the shade writes a second output with no motion varying from its quad's vertices (its own
+motion); half resolution takes the bricks and gives them back; WebGL 2 stays direct; the shade's hook against a
+recording renderer: one nested render of the pass scene into a target of the frame target's size (853 × 480), MRT
+null, auto-clear on and alpha 0 for it, then the frame's target, MRT, clear and flags put back; the culler handed to
+the pass scene; a one-chunk re-base gives a point's last place +64 m, the next still frame the identity. Fast gate
+gate-fast-20261111-110034 red only on D603 (`voxel-world.e2e.ts:401`, 771 replaced for 8), GREEN on rerun
+gate-rerun-20261111-111151 (village perf 0 / 360). The e2e's Play, Scene view and export runs report `pass:
+"visibility"` on WebGPU and `"direct"` on WebGL 2 (webgl2 smoke passed). No e2e file changed.
+
+**Measured** (staging, Iris Xe, Play in the editor, WebGPU 1280 × 720, the 8 km world's town orbit, `run.mjs headroom
+--scales none`, one round each, before = this build with `--query '&farPass=direct'`, interleaved 11:14–11:43, load
+1-min 0.9–2.3, uptime 18.8 d; `work/46d.20a/headroom-*.json`, `sum.mjs`). Room = ballast held × its ms; frame GPU from
+the edge; far = hidden far's ms past the edge (its share of four in brackets); far GPU = the far view's bytes after
+the fill (atlas + draws + the visibility target).
+
+| tier | room at the cap | frame GPU | far hidden (share) | no-load missed | far GPU MB | page heap / GPU MiB |
+|---|---|---|---|---|---|---|
+| low 30 Hz, direct | 192 × 0.120 = 23.0 ms | 8.4–10.3 | 1.89 ms (40 %) | 0 / 89 | 72.4 | 598 / 902 |
+| low 30 Hz, visibility | 192 × 0.129 = 24.8 ms | 6.5–8.6 | 2.25 ms (23 %) | 0 / 89 | 80.6 | 606 / 959 |
+| medium 60 Hz, direct | 60 × 0.124 = 7.4 ms | 8.7–9.2 | 3.02 ms (76 %) | 0 / 179 | 164.3 | 796 / 1,313 |
+| medium 60 Hz, visibility | 64 × 0.129 = 8.3 ms | 7.9–8.4 | 0.16 ms (6 %) | 0 / 179 | 172.5 | 767 / 1,239 |
+| high 60 Hz, direct | none (misses at no load) | — | 9.1 ms | 25 / 142, mean 21.0 ms | 315.3 | 1,022 / 1,858 |
+| high 60 Hz, visibility | none (misses at no load) | — | 5.2 ms | 7 / 176, mean 17.1 ms | 333.7 | 1,095 / 1,922 |
+
+Read: low's room moved by the ballast's slope only (the edge 192 both: one step is 16 units ≈ 2 ms, D588), frame GPU
+−1.7 to −1.9 ms; medium's edge 60 → 64 (+0.5 ms room), frame GPU −0.8 ms. The far pass's own ms is not resolved by
+the meter at low or medium (hidden far 2.25 / 0.16 ms against shadows or post hidden at −0.6 to −3.2 ms in the same
+rounds): the change is a small gain, within the meter's noise at low. **High (D583): better, does not hold its
+cap** — no-load misses 25 / 142 → 7 / 176 (mean 21.0 → 17.1 ms, 0 stalls both); far hidden 9.1 → 5.2 ms past the edge;
+at no load near hidden holds (0 / 179), far hidden 2 / 179, shadows and post hidden still miss (12 / 179, 11 / 164);
+high's frame times are **unverified on target hardware**. Memory: +8.2 MB far GPU at low/medium, +18.4 at high (the
+target); page heap and the GPU process within run-to-run noise (GPU +57 low, −74 medium).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/46d.20a/`: Play, WebGPU, the five far poses at low (`-direct`,
+`-vis1`) and medium (`-meddirect`, `-medvis`), `side-by-side/<pose>-<A>-vs-<B>.png` direct left, a 2× crop below;
+8-frame strips ~0.25 s apart of the town orbit (`strip*`) and of the 60 m/s flight 10 s in (`fly*`), `side-by-side/
+{strip,fly}-<A>-vs-<B>.png` and full-size crops `{strip,fly}-crops-<tag>.png`, TAAU on both tiers; every one opened).
+Direct → visibility, low: 0.00 % of pixels by > 60 at peak-to-town, town-peak-4.5km, peak-sight-5km and
+beyond-peak-to-town (≤ 0.08 % by > 20), town-west 0.25 % (the town's roof edges: TAAU's settle between runs, near
+field); medium: 0.00–0.01 % at the far poses, town-west 0.71 % (the same roof edges, the visibility run a touch
+softer). **Light:** sunlit slopes, rock and snow the same; **shade-side rock** keeps its blue-grey environment light
+(not the black of 46d.17 e). **Fog:** the distant haze on the massif the same to the eye (this world's fog is thin;
+the shade's fog is taken at the hit, a little nearer than the box's back face, no visible change). **Edges:** ridge
+silhouettes against the sky and the far slopes behind the roofs single and as sharp as before; no hole, no fringe at
+the near field's edge, no box missing. **Ghosting: none seen** — in the orbit strip the roof edges against the far
+slope stay single in every frame; in the flight strip the massif's silhouette and slopes stay single, both runs as soft
+as TAAU at speed is on low (no trail behind the ridge). *Unverified:* WebGL 2 pictures (unchanged path; the webgl2
+smoke), high's pictures, the Scene view's and an export's far field in pictures (the e2e reads them drawing,
+`pass: "visibility"`), a world with position-lit far ground (D607), medium/high frame times on target hardware.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3532,6 +3612,17 @@ and high on target hardware, an export without the editor (D606), WebGL 2.
   (0.71 / 1 / 1.41 kept as numbers): a budget is memory, a ring is GPU and worker time.
 - 2026-11-11 (46d.23): D597's cause was removed voxel meshes kept alive by three's render objects (fixed); the far
   brick and texture copies the page keeps are working set (D604), not leaks.
+
+- 2026-11-11 (46d.20a, default chosen, owner to confirm): **the far bricks draw as a visibility pass and one shade on
+  WebGPU** (default; `?farPass=direct` keeps the per-fragment shading for comparisons, WebGL 2 keeps it): the texel
+  holds the hit's brick, its place in the brick, its view depth and its entry face (RGBA float, 20 B a pixel with
+  its depth: 7.8 MiB at low/medium, 17.6 at high), the smallest the shade can read the atlas from.
+- 2026-11-11 (46d.20a, default chosen, owner to confirm): **the shade is a full-screen fragment draw, not compute**: it
+  writes the frame's depth and motion attachments, which compute cannot; it keeps the standard material (sun,
+  ambient, environment), fogs at the hit's own depth (before: the box's back face) and writes the hit's own motion.
+- 2026-11-11 (46d.20a, default chosen, owner to confirm): **normals stay the brick field's gradient** (six reads, now
+  once a pixel), not baked (+65 MB at medium, 46d.17 d), since the shade is below the meter's resolution.
+- 2026-11-11 (46d.20a): half resolution with reuse (D574) not built: low keeps 23–27 ms of room at 30 Hz.
 
 ## 10. Open questions for the owner
 

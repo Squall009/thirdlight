@@ -485,6 +485,15 @@ to `FAR_BRICK_AO_FLOOR` (½) at most; depth: the hit's own (`depthNode`), the sa
 placed with that depth so none is clipped at the far plane. **Half resolution** (`voxel-far-half.ts`, the voxel world
 page only, `?farRes=half`, off by default): the brick draws marched into a half-size target before the frame and a
 lit, depth-aware composite in it (no reuse of the last frame: D574).
+**Visibility pass and one shade** (46d.20a; WebGPU, the default there; `voxel-far-visibility.ts`; `?farPass=direct`
+and WebGL 2 shade each fragment as above): the brick draws march in their own scene, drawn from the shade's
+`onBeforeRender` inside the frame (after the depth pyramid: culled lists and the per-pixel reject as below) into an
+RGBA float target with its own depth at the frame target's size; a hit writes one texel: its brick's atlas region in
+bricks (a byte an axis), its place in the brick (12 bits an axis over −1.5…9.5 cells), its view depth, and the face its
+ray entered the brick by + 4096 × face code (1–6; 0 = no hit). One full-screen draw in the frame then shades each far
+pixel once: its texel, the hit on the pixel's ray at that depth, normal and colour read from the atlas as above, the
+standard material (the scene's lights and environment), the scene's fog at the hit's depth, the far depth (behind
+the near field in its edge ring) and the hit's own motion for the temporal upscale.
 
 **Culled on the GPU** (46d.17; WebGPU, where the frame takes the depth pyramid path; three-adapter
 `voxel-far-cull.ts`): a brick group's nodes are rows of the engine's one culled-instance table
