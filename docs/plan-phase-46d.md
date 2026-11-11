@@ -3934,6 +3934,14 @@ edge (not seen on medium; not traced); medium looks like low at these poses.
   Bench note: coverage-cli.ts's camera behaviour and memory readers moved into shared modules (57522215); its
   behaviour is the same source but the coverage bench was not re-run after the move.
 
+- 2026-11-11 (OWNER, answers to acc46d-b / approve-46d-b.md): (1) "Brick far field looks much better to me." (2) Low =
+  720p upscaled with TAAU at 30 Hz: "the right target for the current igpu and leaves room for foliage, wind, water,
+  and fog systems later." (3) The 4 GB low budget and its split: "Current budget is fine. We can revise if we hit a
+  limit later." (4) The vista goals: "I think you met the vistas goals for now" — the deviations (D595, D602, D596,
+  D594, 46d.14/D581) accepted as recorded. (5) 46d-c starts in a fresh session (the owner moves orchestration to
+  Fable, sub-agents on Opus). The other "default chosen, owner to confirm" entries stand as approved (owner review
+  model: defaults left are approved).
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
