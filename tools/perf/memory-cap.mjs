@@ -4,7 +4,7 @@
  *
  * A perf run starts a backend and a browser that can take gigabytes; run from
  * an agent's shell it lands in that shell's uncapped service and once pushed
- * this host (16 GiB then, 32 GiB since 2026-11-11) into the OOM killer, which took every session with it. So
+ * this host into the OOM killer, which took every session with it. So
  * a run refuses to start unless a cgroup it is in (its own or an ancestor)
  * has a `memory.max` of at most MAX_CAP_BYTES, and the host has the room the
  * run can still take under it plus HEADROOM_BYTES available. `--no-memory-cap`
