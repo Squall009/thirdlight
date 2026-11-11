@@ -39,9 +39,11 @@ const areaRes = Object.entries(areas).map(([name, area]) => ({
   exc: (area.exclude ?? []).map(areaGlobRegExp),
 }));
 const inArea = (a, f) => a.inc.some((r) => r.test(f)) && !a.exc.some((r) => r.test(f));
+const isUnitTest = (f) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(f);
 /** A package's own source: what the product is built from (its tests run by `vitest related` instead). */
-const isPackageSource = (f) => /^packages\/[^/]+\/src\//.test(f) && !/\.(test|spec)\.[cm]?[jt]sx?$/.test(f);
-const reachesEveryArea = (f) => everyAreaRes.some((r) => r.test(f));
+const isPackageSource = (f) => /^packages\/[^/]+\/src\//.test(f) && !isUnitTest(f);
+/** A unit test beside an every-area source changes no product code: `vitest related` runs it, no area. */
+const reachesEveryArea = (f) => !isUnitTest(f) && everyAreaRes.some((r) => r.test(f));
 const unmapped = (f) => isPackageSource(f) && !reachesEveryArea(f) && !areaRes.some((a) => inArea(a, f));
 
 function areasFor(files) {
