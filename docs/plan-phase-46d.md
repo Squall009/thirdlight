@@ -2989,8 +2989,10 @@ narrowed, that every update counted the ground (200 of 200, ground missing 0, ah
 that once stopped the ground under the focus is known after 10 of the 7,736 jobs that refill the widened ring
 (bound: a tenth). The flight's missing share is the coverage bench's to report.
 
-L2/L3 e2e times (gate-fast-20261111-154323, 2 workers → one worker after): voxel-world.e2e.ts 149 s (6 tests) →
-103 s (4); webgl2-smoke 19.1 → 19.8 s. Dropped with the WebGL 2 runs: a voxel world in Play with the simulation in
+L2/L3 e2e times, fast gates at 2 workers (gate-fast-20261111-154323 → gate-fast-20261111-160835): voxel-world.e2e.ts
+149 s (6 tests) → 113 s (4); webgl2-smoke 19.1 → 23.7 s (the voxel world in Play and the export). Area gate
+`voxel environment materials rendering` (gate-area-20261111-161413, 43 files, 3 workers, leak test on): green, 8 min;
+`layered-material.e2e.ts:258` failed once on the export's `export_output_path_invalid` and passed alone (D319). Dropped with the WebGL 2 runs: a voxel world in Play with the simulation in
 the page (`threads=off`; sim-worker.e2e.ts keeps that path for a game) and WebGL 2's relief in Play. The smoke's
 bounds: a scene 0.2 of the picture off its most common colour (Scene view measured 35 %), a voxel world 0.5 (Play
 83 %, export 80 %, the voxel page 66 %); Play's and the export's pictures looked at: ground, wall and pad drawn.
