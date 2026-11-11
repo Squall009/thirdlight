@@ -261,6 +261,15 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.23 | (owner 2026-11-11) Low's memory: the ~4 GB total budget replaces the 1,024 / 1,280 MiB ceiling (split page/GPU proposed from measurements); starting values to measure: voxel stream budget 256 → ~768 MiB, far GPU budget 96 → ~384 MiB, texture residency 256 → 512 px/m; medium/high raised at least to match (unverified on target hardware). What each buys measured with the coverage and headroom benches. D597 stays a retention check (heap 396 → 1,119 MiB over one 60 m/s flight): trace what holds it, whatever the budget. After 46d.19, before 46d.20. |
 | 46d.15 | 46d-b close (lead), after 46d.20: `gate.sh phase a376c761` (whole vitest + areas touched + core smoke); full only for the merge to main or on the owner's word; review, fixes, acceptance acc46d-b (pictures and numbers on WebGPU; WebGL 2 a load-and-draw smoke). |
 
+### 46d-c (owner 2026-11-11)
+
+After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; §2 and §9 entries of 2026-11-11).
+
+| Item | Builds |
+|---|---|
+| 46d.24 | Travel at speed by the owner's new measures (the coverage bench keeps its hole check): longest frame in flight, frames over 100 ms, missed a minute; after a stop the seconds until the ground under the camera is solid, full detail stands (~50 m), nothing is pending; never falling through. Mechanisms in order: no level 0 at speed, stale work cancelled, collision on its own path along the bodies' velocity, a coarse fallback floor from the far field's 2 m data, D585. Pinned regions and path hints planned, built only if cheap. 60 and 150 m/s, low and medium. |
+| 46d.25 | Fine bricks (levels 0–1) built in GPU compute past the detail ring, on demand from the chunks' voxel grids, never stored, behind a switch beside the level 1–2 mesh rings; compared on WebGPU, low and medium (D593 and 46d.12b poses by picture, the headroom meter, fill, 46d.24's measures, memory) before any mesh ring or seam is retired; say if the level 1 → 2 boundary shows. |
+
 ## 7. Progress
 
 | Item | Status |
@@ -301,7 +310,9 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
-| 46d.15 | not started |
+| 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
+| 46d.24 | not started (46d-c) |
+| 46d.25 | not started (46d-c) |
 
 ## 8. Results
 
@@ -3052,6 +3063,35 @@ stands above the finer one (D608's second cycle) needs real pictures and is not 
 Gates: gate-fast-20261111-165602 GREEN (14 min, 5.3 GB; stream.test.ts collision ring failed once, passed alone
 → 99099271); voxel-world.e2e.ts 113 → 111 s (export 25.0 s with the `threads=off` reload).
 
+### 46d.15 close: the low tier's memory in an export (M5) and acc46d-b
+
+**M5** (`run.mjs export-memory`, 57522215; `work/46d.15-close/m5/`): the staging Play project (8 km world) exported
+with the debug console on and a camera that orbits the town and flies the coverage bench's 9.84 km line on
+`fly60` / `fly150`; the export served statically with the backend stopped; low, WebGPU (`webgpu/ready`), 1280 × 720,
+30 Hz; 2 rounds 17:53–18:03 UTC, load 0.8–3.0. Fill 4.2 s. No console error, no request outside the export.
+
+| low, export (2 rounds) | town orbit | after 60 m/s | after 150 m/s | home (town, 30 s on) | budget |
+|---|---|---|---|---|---|
+| page heap MiB (live after a collection) | 301–356 (283–318) | 296–305 (283–290) | 278–290 (273–275) | 297–304 (287–288) | 1,536 |
+| GPU, driver-resident MiB | 543–552 | 576–578 | 580–583 | 627–628 | 2,560 |
+| renderer process RSS GB (page, simulation, voxel workers) | 1.30 | 1.62–1.68 | 1.62–1.68 | 1.48–1.51 | |
+| whole browser RSS / PSS GB | 1.79 / 1.54–1.56 | 2.15–2.21 / 1.88–1.94 | 2.14–2.21 / 1.87–1.94 | 2.00–2.04 / 1.73–1.78 | |
+| game total, PSS + GPU GiB | 2.05 | 2.40–2.46 | 2.39–2.46 | 2.31–2.35 | 4.0 |
+
+Against Play in the editor (D606, 46d.23): renderer RSS 1.9–2.1 GB at the start and 2.5–3.2 after a flight, GPU
+process 0.4–0.5 GB beside 0.7–1.2 GB driver-resident, about 4 GB in all; the export holds about 60 % of the low budget
+at its peak, the split well inside both halves (heap ≤ 23 %, GPU ≤ 25 %). Frames at the cap in the export: 60 m/s 30–35
+missed of ~4,910, 3 over 100 ms, longest 142–155 ms; 150 m/s 12–14 of ~1,965, 1 over 100 ms, longest 153–173 ms (46d-c's
+starting point). Per-worker heaps are inside the renderer's RSS, not separated. D606 fixed, D604 updated.
+
+**acc46d-b** (`~/.cache/thirdlight-phase46/acceptance/46d-b/`, README, `approve-46d-b.md`; scripts
+`work/46d.15-close/acc/`): Play in the editor on staging, 18:04–18:09 UTC, load 2.2–4.5. 8 poses × low and medium on
+WebGPU (both draw 0.667 + TAAU), a TAAU orbit strip and a 150 m/s strip (8 frames 0.25 s apart, low above medium, with
+1:1 crops), three before/after pairs (46d.12b's bricks | now, medium), one WebGL 2 smoke picture (low, FSR 1). All
+looked at: no mush, crisp far silhouettes and the town's back row (D593 holds); D578's thin lines on the grass slopes
+and D572's lattice on the near escarpment still show; the low 150 m/s frames 1–5 have dark green slivers at the bottom
+edge (not seen on medium; not traced); medium looks like low at these poses.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3881,6 +3921,18 @@ Gates: gate-fast-20261111-165602 GREEN (14 min, 5.3 GB; stream.test.ts collision
   switch beside the mesh rings and compared (D593 and 46d.12b poses, meter, fill, the speed measures, memory) before
   anything is retired; pinned regions and path hints for games with a known route are planned there, not built
   unless cheap. 46e still only on the owner's word.
+
+- 2026-11-11 (46d.15, lead, the close): **46d-b closed**. Phase gate gate-phase-20261111-144708 GREEN in 23 min
+  (8.5 GB peak, 887 vitest files, 189 e2e tests in core + 8 areas, 105 files, 2 failed once and passed alone) against the previous
+  phase close's full gate of 35 min (gate-full-20261109-051432): the phase gate runs the areas the phase touched
+  (voxel, rendering, materials, environment, editor-ui, content, play, mcp) and not effects/input/startup in full,
+  so the drop is the gate's shape, not lost coverage; voxel-world.e2e.ts 71.1 → 111 s over 46d-b (the export's
+  `threads=off` reload, the WebGPU runs that took over the WebGL 2 loops). M5: an export at low holds 2.05–2.46 GiB
+  of the 4 GiB budget (§8). acc46d-b published (review page `#acc46d-b`); `approve-46d-b.md` lists the owner's five
+  questions first and every default since 2026-11-09 after them (92 entries, 22 carried from approve-46d). Closed
+  D-rows stay in the open list until 46d ends (AGENTS.md: they move when a phase ends; 46d-b is a sub-phase).
+  Bench note: coverage-cli.ts's camera behaviour and memory readers moved into shared modules (57522215); its
+  behaviour is the same source but the coverage bench was not re-run after the move.
 
 ## 10. Open questions for the owner
 
