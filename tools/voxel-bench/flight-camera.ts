@@ -53,6 +53,92 @@ export interface FlightOptions {
   readonly flights: Readonly<Record<string, number>>;
   /** True: the camera orbits the town square until a flight starts, and the debug command `orbit` puts it back there. */
   readonly orbit?: boolean;
+  /** The probes of the ground under the camera (a ray and a dropped body, {@link PROBE_COUNTERS}); absent: none. */
+  readonly probe?: FlightProbe;
+}
+
+/**
+ * What the flight behaviour probes in the simulation, at the real physics boundary: every step a ray straight down
+ * from the camera against the colliders (solid when it hits within `rayTolM` of the ground under the line), and the
+ * project's player character ({@link PROBE_BODY}, if there is one) dropped `dropAboveM` over the ground under the
+ * camera every `dropEveryS` of flight and once where the flight stops, its height, standing and suspension reported.
+ */
+export interface FlightProbe {
+  /** The ground under the line (metres) every `step` metres along it, at the line itself (the far cache's 2 m cells). */
+  readonly ground: readonly number[];
+  readonly step: number;
+  readonly dropEveryS: number;
+  readonly dropAboveM: number;
+  readonly rayTolM: number;
+}
+
+/** The player character the probe drops (a capsule controller the bench adds to the project for the run). */
+export const PROBE_BODY = 'Perf probe character';
+
+/**
+ * The run's counters the probe writes (`ctx.game`; read from the play's observation): the flight's distance (cm),
+ * the steps the flight started and stopped at, ray steps in flight (all, solid, none hit, hit deep under the
+ * ground), the first solid step after the stop, and the body: its drop, the drop point's ground (cm), its height
+ * (cm), standing, suspended, the first step after the stop's drop it stood.
+ */
+export const PROBE_COUNTERS = Object.freeze({
+  m: 'probe_m_cm',
+  flyStep: 'probe_fly_step',
+  stopStep: 'probe_stop_step',
+  raySteps: 'probe_ray_steps',
+  raySolid: 'probe_ray_solid',
+  rayNone: 'probe_ray_none',
+  rayDeep: 'probe_ray_deep',
+  rayReadyStep: 'probe_ray_ready_step',
+  drop: 'probe_drop',
+  dropGround: 'probe_drop_ground_cm',
+  bodyY: 'probe_body_y_cm',
+  grounded: 'probe_grounded',
+  suspended: 'probe_suspended',
+  bodyReadyStep: 'probe_body_ready_step',
+});
+
+/** The probe's behaviour source (the `intent` phase, after the flight's commands): rays, drops and counters. */
+function probeSource(p: FlightProbe): string {
+  const C = PROBE_COUNTERS;
+  return `
+const GROUND = ${JSON.stringify(p.ground.map((g) => Math.round(g * 10) / 10))};
+const GSTEP = ${p.step}, DROP_STEPS = ${Math.round(p.dropEveryS * 120)}, DROP_ABOVE = ${p.dropAboveM}, RAY_TOL = ${p.rayTolM};
+const gAt = (m: number) => { const f = Math.max(0, Math.min(GROUND.length - 1.001, m / GSTEP)); const i = Math.floor(f); return GROUND[i]! + (GROUND[i + 1]! - GROUND[i]!) * (f - i); };
+const put = (ctx: any, name: string, v: number) => { const now = ctx.game.counter(name); if (now !== v) ctx.game.add(name, v - now); };
+const probe = (s: any, ctx: any) => {
+  if (s.flyStep < 0) return;
+  const body = ctx.world.find(${JSON.stringify(PROBE_BODY)});
+  const p = along(s.m), y = altAt(s.m), g = gAt(s.m);
+  put(ctx, '${C.m}', Math.round(s.m * 100));
+  const stopped = s.m >= TOTAL;
+  if (stopped && s.stopStep < 0) { s.stopStep = ctx.stepIndex; put(ctx, '${C.stopStep}', s.stopStep); s.nextDrop = ctx.stepIndex; }
+  const hit = ctx.physics.raycast?.([p.x, y, p.z], [0, -1, 0], 2000, body === undefined ? undefined : { exclude: [body] }) ?? null;
+  const solid = hit !== null && Math.abs(y - hit.distance - g) <= RAY_TOL;
+  if (!stopped) {
+    ctx.game.add('${C.raySteps}', 1);
+    if (solid) ctx.game.add('${C.raySolid}', 1);
+    else if (hit === null) ctx.game.add('${C.rayNone}', 1);
+    else if (y - hit.distance < g - RAY_TOL) ctx.game.add('${C.rayDeep}', 1);
+  } else if (solid && ctx.game.counter('${C.rayReadyStep}') === 0) put(ctx, '${C.rayReadyStep}', ctx.stepIndex);
+  if (body === undefined) return;
+  if (ctx.stepIndex >= s.nextDrop && (!stopped || s.stopDropped === false)) {
+    ctx.emit({ kind: 'character_place', entityId: body, position: [p.x, g + DROP_ABOVE, p.z] });
+    ctx.game.add('${C.drop}', 1);
+    put(ctx, '${C.dropGround}', Math.round(g * 100));
+    s.nextDrop = ctx.stepIndex + DROP_STEPS;
+    if (stopped) s.stopDropped = true;
+  }
+  const st = ctx.physics.characterState?.(body);
+  if (st === undefined) return;
+  const susp = ctx.physics.isSuspended?.(body) === true;
+  put(ctx, '${C.bodyY}', Math.round(st.position.y * 100));
+  put(ctx, '${C.grounded}', st.grounded ? 1 : 0);
+  put(ctx, '${C.suspended}', susp ? 1 : 0);
+  if (s.stopDropped && st.grounded && !susp && ctx.game.counter('${C.bodyReadyStep}') === 0 && ctx.stepIndex > s.stopStep + 2) put(ctx, '${C.bodyReadyStep}', ctx.stepIndex);
+};
+const probeReset = (ctx: any) => { for (const name of ${JSON.stringify(Object.values(C))}) put(ctx, name, 0); };
+`;
 }
 
 /**
@@ -69,14 +155,17 @@ ${CAMERA_QUAT}
 ${TOWN_ORBIT_POSE}
 const along = (m: number) => { let r = Math.max(0, m); for (let i = 1; i < WP.length; i++) { const a = WP[i - 1]!, b = WP[i]!; const len = Math.hypot(b[0] - a[0], b[1] - a[1]); const dx = (b[0] - a[0]) / len, dz = (b[1] - a[1]) / len; if (r <= len || i === WP.length - 1) { const t = Math.min(r, len); return { x: a[0] + dx * t, z: a[1] + dz * t, dx, dz }; } r -= len; } return { x: WP[0][0], z: WP[0][1], dx: 1, dz: 0 }; };
 const altAt = (m: number) => { const f = Math.max(0, Math.min(ALT.length - 1.001, m / STEP)); const i = Math.floor(f); return ALT[i]! + (ALT[i + 1]! - ALT[i]!) * (f - i); };
+${o.probe === undefined ? 'const probe = (_s: any, _ctx: any) => undefined; const probeReset = (_ctx: any) => undefined;' : probeSource(o.probe)}
+const flown = (s: any, ctx: any) => { s.m = 0; s.orbiting = false; s.flyStep = s.speed > 0 ? ctx.stepIndex : -1; s.stopStep = -1; s.nextDrop = ctx.stepIndex; s.stopDropped = false; probeReset(ctx); };
 export default {
   prepare() { return {}; },
-  instantiate() { return { m: 0, speed: 0, orbiting: ${o.orbit === true}, yaw: 0.4636 }; },
+  instantiate() { return { m: 0, speed: 0, orbiting: ${o.orbit === true}, yaw: 0.4636, flyStep: -1, stopStep: -1, nextDrop: 0, stopDropped: false }; },
   step(s: any, ctx: any) {
     if (ctx.phase === 'intent') {
-      for (const name of Object.keys(FLIGHTS)) for (const _ of ctx.debug.command(name)) { s.m = 0; s.speed = FLIGHTS[name]; s.orbiting = false; }
-      for (const _ of ctx.debug.command('start')) { s.m = 0; s.speed = 0; s.orbiting = false; }
-      ${o.orbit === true ? `for (const _ of ctx.debug.command('orbit')) { s.speed = 0; s.orbiting = true; }` : ''}
+      for (const name of Object.keys(FLIGHTS)) for (const _ of ctx.debug.command(name)) { s.speed = FLIGHTS[name]; flown(s, ctx); ctx.game.add('${PROBE_COUNTERS.flyStep}', ctx.stepIndex); }
+      for (const _ of ctx.debug.command('start')) { s.speed = 0; flown(s, ctx); }
+      ${o.orbit === true ? `for (const _ of ctx.debug.command('orbit')) { s.speed = 0; s.orbiting = true; s.flyStep = -1; }` : ''}
+      if (!s.orbiting) probe(s, ctx);
       return;
     }
     if (ctx.phase !== 'transform') return;

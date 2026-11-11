@@ -47,6 +47,7 @@ import { processMemory } from './browser-memory';
 import { coveragePath } from './coverage';
 import { farGround, flightSource, publishCameraBehaviour } from './flight-camera';
 import { FarSettle, frameCap, frameWindow } from './headroom';
+import { exportDebug } from './travel-page';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -159,15 +160,7 @@ async function run(dir: string): Promise<void> {
         await page.waitForTimeout(250);
       }
     };
-    const debug = async (name: string): Promise<void> => {
-      await canvas.click();
-      await page.keyboard.press('Backquote');
-      const input = page.getByLabel('debug console command');
-      await input.fill(name);
-      await input.press('Enter');
-      await page.locator('.tl-console').filter({ hasText: `ran ${name}` }).last().waitFor({ timeout: 10_000 });
-      await page.keyboard.press('Backquote');
-    };
+    const debug = (name: string): Promise<void> => exportDebug(page, name);
     out['fillS'] = await settle(420_000);
     // The backend the game draws with, once it draws (WebGPU expected; a fallback would measure another renderer).
     out['renderer'] = await canvas.evaluate((c) => `${c.getAttribute('data-tl-renderer')}/${c.getAttribute('data-tl-renderer-state')}`);

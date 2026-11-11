@@ -170,3 +170,10 @@ export function isKey(r: number, g: number, b: number): boolean {
   return r > 170 && b > 170 && g < 100 && Math.abs(r - b) < 70;
 }
 
+/** The ground at the line itself (no sideways samples) every `step` metres: where a body dropped under the camera lands. */
+export function groundAlong(path: CoveragePath, ground: (x: number, z: number) => number, step = 2): number[] {
+  return Array.from({ length: Math.ceil(path.total / step) + 1 }, (_, i) => {
+    const p = along(path.waypoints, Math.min(path.total, i * step));
+    return ground(p.x, p.z);
+  });
+}
