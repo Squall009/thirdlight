@@ -9,7 +9,10 @@
  * - `fly`: 40 m/s along a square loop, derive on, the low tier's budget;
  * - `fast`: 80 m/s, derive off;
  * - `tight`: 40 m/s with a 4 MiB budget (half of what the ring holds: eviction all the time);
- * - `jitter`: the focus swinging ±12 m across a chunk edge (hysteresis).
+ * - `jitter`: the focus swinging ±12 m across a chunk edge (hysteresis);
+ * - `pool`: 8 background jobs of 40 ms handed to an idle pool that keeps one
+ *   worker for them: the wall time against the ideal (every worker taking
+ *   them), the timing the pool's unit test leaves to this bench.
  *
  *   node tools/voxel-bench/run.mjs stream [--workers N] [--seconds S] [--out DIR] [--world DIR]
  *
@@ -192,6 +195,21 @@ async function run(spec: RunSpec, workerFile: string): Promise<Record<string, un
   return out;
 }
 
+/** Background jobs on an idle pool: they take every worker, not only the one kept for them. */
+async function poolBackground(workerFile: string): Promise<{ jobs: number; jobMs: number; workers: number; wallMs: number; idealMs: number }> {
+  const pool = new WorkerPool({ size: WORKERS, create: () => nodePoolWorker(workerFile), ...STREAM_POOL_SETTINGS, backgroundWorkers: 1 });
+  const jobs = 8;
+  const jobMs = 40;
+  const sleepJob = (id: number) => pool.submit({ id, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 0 }, transfer: [], background: true });
+  // Warm: every worker started and answering.
+  await Promise.all(Array.from({ length: WORKERS }, (_, i) => sleepJob(i)));
+  const t0 = performance.now();
+  await Promise.all(Array.from({ length: jobs }, (_, i) => pool.submit({ id: 100 + i, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: jobMs }, transfer: [], background: true })));
+  const wallMs = performance.now() - t0;
+  pool.close();
+  return { jobs, jobMs, workers: WORKERS, wallMs: Number(wallMs.toFixed(1)), idealMs: Math.ceil(jobs / WORKERS) * jobMs };
+}
+
 function row(r: Record<string, any>): string {
   const mm = r.memory;
   return `| ${r.spec.name} | ${r.spec.speed} | ${r.coldMs} (${r.cold.resident}/${r.cold.stored}) | ${r.loadsPerS} / ${r.storedLoadsPerS} | ${r.decompressUs.p50}+${r.decodeUs.p50} / ${r.decompressUs.p95}+${r.decodeUs.p95} | ${r.queueMs.p50} / ${r.queueMs.p95} | ${r.mainMs.plan.p50} / ${r.mainMs.plan.p95} / ${r.mainMs.plan.max} | ${r.mainMs.adopt.p95} / ${r.mainMs.apron.p95} | ${r.nearHoles.p50} / ${r.nearHoles.p95} / ${r.nearHoles.max} of ${r.nearHoles.nearChunks} | ${mm.peakMB} / ${mm.budgetMB} (${mm.derivedMB} der, ${mm.tablesMB} tab) | ${r.churn.unloads} / ${r.churn.reloads} / ${r.churn.evictions} / ${r.churn.cancelledLoads} / ${r.churn.staleRefused} |`;
@@ -215,7 +233,9 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(r));
     results.push(r);
   }
-  const report = { started: new Date().toISOString(), node: process.version, loadavg: loadavg(), workers: WORKERS, world: manifest, results };
+  const background = await poolBackground(workerFile);
+  console.log(`pool: ${background.jobs} background jobs of ${background.jobMs} ms on ${background.workers} idle workers (one kept for them): ${background.wallMs} ms, ideal ${background.idealMs} ms`);
+  const report = { started: new Date().toISOString(), node: process.version, loadavg: loadavg(), workers: WORKERS, world: manifest, results, background };
   writeFileSync(join(OUT, 'stream.json'), JSON.stringify(report, null, 2));
   const md = [
     `# Voxel streaming bench ${report.started}`,
@@ -225,6 +245,8 @@ async function main(): Promise<void> {
     '| run | m/s | cold ms (resident/stored) | loads/s all / stored | worker µs zstd+decode p50 / p95 | queue ms p50 / p95 | update ms p50 / p95 / max | adopt / apron ms p95 | near holes p50 / p95 / max | peak MB / budget | unloads / reloads / evictions / cancels / stale |',
     '|---|---|---|---|---|---|---|---|---|---|---|',
     ...results.map((r) => row(r as Record<string, any>)),
+    '',
+    `Pool: ${background.jobs} background jobs of ${background.jobMs} ms on ${background.workers} idle workers (one kept for them): ${background.wallMs} ms, ideal ${background.idealMs} ms.`,
     '',
   ].join('\n');
   writeFileSync(join(OUT, 'stream.md'), md);
