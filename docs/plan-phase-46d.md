@@ -279,7 +279,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.14 | deferred (lead 2026-11-10): bricks are the default; the mesh fallback is not revised. Its flight OOM stays D581. The vista note's §5 gate replaces it: if 46d.16's meter shows the bricks cannot reach their budget, the top levels become a simplified height-field mesh |
 | 46d.16 | done (ba27e91c): headroom meter at the 60 Hz cap without timestamps (ballast to the edge, passes hidden/copied past it; `run.mjs headroom`). Iris Xe 720p town orbit: medium room 0.7–2.5 ms of ~14–16; far 39–50 %, near 28–33 %, post 19–24 %, shadows 2–4 %; ms ±40 %. High ~23–31 ms: D583 = GPU-bound, far hidden holds the cap. D587, D588 |
 | 46d.17 | done (73adedac, 287ed0d2): far node boxes rows of the culled table (frustum + pyramid in compute, far depth, drawn after the pyramid; auto culling on with a far field), covered nodes left out, depth reject before the march, F6. Medium room 0.7–1.8 → 4.5 ms, frame GPU 15–16 → 12 ms, far 6–8 → 4.4 ms; high 17/127 missed (D583). d, e measured, not kept; pictures 0.00 % >60 |
-| 46d.18 | not started |
+| 46d.18 | done (f50e6ab2 step 0, ead1c53a +): TAAU on low/medium WebGPU (D591/D592). Far cache format 2 bakes every node's bricks (8 km: +300.9 MB zstd, 1,421 s staging; projection 270 MB); job 74 → 0.3 ms, Play fill low 31 → 8.5 s, medium 79 → 16 s (D596); edits rebuild farBrickDirty, reuse by content. Pictures same (0.00–0.73 % >60). D594–D597 |
 | 46d.19 | not started |
 | 46d.20 | not started |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
@@ -2461,6 +2461,78 @@ rotates, where a far box's motion equals its hit's, so the hit's motion was not 
 fast or translating shot (the flight under TAAU not pictured), WebGL 2 low pictures (the e2e's smoke draws it),
 medium/high on target hardware, the meter's ms (±40 %, D588).
 
+### 46d.18 bricks baked into the far cache (vista step 2); step 0: TAAU on low; D591, D592
+
+**Step 0** (f50e6ab2). The 8 km world's look has no post stack, and `levelPost` lays a level's anti-aliasing only
+over a look's own, so low and medium (the same cause, D591) drew MSAA + FSR 1 there. A level below the full
+resolution that names TAAU now upscales by it on WebGPU in a view drawn frame after frame whatever the look's
+anti-aliasing (`drawnAntialias`, environment.ts), with no MSAA under it and no contact shadows or reflections the
+look does not draw; WebGL 2 and the Scene view keep FSR 1. vitest `environment-nodes.test.ts`. Seen (Play, WebGPU,
+low, town-west): `far-field/46d.18/side-by-side/step0-town-west-fsr1-vs-taau.png`, FSR 1 left, TAAU right, a 2× crop
+below: the far slopes' hard horizontal contour bands and the light rims on the roof edges are gone, bands faint; the
+same frame as 46d.21's look-AA TAAU shot within 0.33 % of pixels (> 60). The back-row melted roofs (D593) stay.
+
+**Size first** (`work/46d.18/size.mts`: the shipped builder on 1,960 real nodes of the 8 km world's cache, every
+level, town nodes always in, zstd level 3 as the cache): per node L2 1.8 KiB (9.3 bricks), L3 3.6, L4 4.5, L5–L8
+6.0–6.9 KiB; samples and occlusion are ~90 % of the packed bytes. Projected: 1.20 M bricks, 3.5 GB raw, **270 MB
+zstd**, 2,424 s of one thread (~10 min on 4). Under the ~1 GB stop line, so built. Measured after the bake: 300.9 MB
+(the L2 sample ran low), so the cache is 355 MB (nodes 54.1 + bricks 300.9), 5.6 MB/km².
+
+**Built** (ead1c53a and the route fix): the far cache **format 2** (add-only, owner note on the [render
+spec](architecture/voxel-render-spec.md) §4 *Baked bricks*, format spec §3.8): every kept node's bricks built at
+cache build by the far field's own builder from the cells its job would send (`farBrickJobCells`, shared),
+encoded (`encodeFarBricks`, `TLFB` v1) and zstd-packed as entries of `B<level>/` region files; the backend bakes on up
+to 4 threads of its far worker, the bench pool in its workers; served at `…/far/B<level>/…` (also under Play's
+locator: its route took only `L<level>`, so the first Play run drew nothing, fixed), shipped in exports; Play,
+exports, the Scene view and the page read a node's entry at level 64 + L and the far job only unpacks and decodes it.
+A format-1 cache still reads (a page builds its bricks); the backend builds it again. Edits: the brick nodes whose
+read box meets a changed ancestor (`farBrickDirty`, node-granular: the mip's opening rule reads a whole parent node)
+are built again in the backend's rebuild, looked up first by content key in the cache's `rebuilt/` store; only their
+bricks files are written; the old bricks draw until the new ones land. Not built: run-time game edits/saves reaching
+the far field (D594); the compute brick build (D595, not tried: with every node baked only edits build, and those run
+on the backend's worker).
+
+**Tested.** `far-world.test.ts` (real 512 m world, real workers): the bricks the far field draws from the baked cache
+equal, node for node and byte for byte, those it builds in its workers from the same cache as format 1 (levels 2–4,
+two eyes); a format-1 copy reads with no bricks, is stale to the backend ("format 1") and draws; an edit (a dig
+through `VoxelWorlds`) rebuilds exactly `farBrickDirty`'s held nodes, every other node's baked bytes unchanged, and
+the cache then equals a full build of the edited world (seams included); undo, then the same dig again: 0 built, all
+reused from the rebuilt store by content (a store opened afresh). `far-bricks-baked.test.ts` (codec, job cells,
+dirty set); `far-cache-runner.test.ts`: the backend worker's threaded bake equals the in-thread bake.
+`voxel-world.e2e.ts`: the export ships `B<level>/` files and the export's far field reads them with the backend
+stopped (two assertions in the existing test, no new test).
+
+**Measured** (staging, Iris Xe, Play in the editor, WebGPU, 1280 × 720, the realistic 8 km world, town orbit 3 × 8 s
+then the 2.4 km flight; before = this code on a format-1 cache (the page builds), after = the baked cache; one round
+each, 23:58–00:50, load 1.7–4.1, uptime 18.3 d; `work/46d.18/perf-*.json`, `low-perf-after-*.json`, `uptime-*.txt`).
+Fill = from the canvas to the far field settled.
+
+| | fill | far job p50 / p95 | nodes, bricks | orbit missed | flight missed (max ms) | flight swaps in / out, pending at end | page heap town → flight → settled | far GPU MiB |
+|---|---|---|---|---|---|---|---|---|
+| low 30 Hz, before | 31.1 s | 74 / 127 ms | 1,052, 17,980 | 1 / 1 / 1 of 239 | 9 / 1,198 (117) | 1,506 / 363, 1,518 | 681 → 789 → 909 | 69 → 103 |
+| low 30 Hz, baked | **8.5 s** | **0.3 / 1.2 ms** | 1,050, 17,952 | 1 / 2 / 1 | 3 / 1,199 (60) | 3,528 / 2,942, **0** | 586 → 1,007 → 1,001 | 69 → 84 |
+| medium 60 Hz, before | 78.9 s | 78 / 140 ms | 2,934, 43,698 | 11 / 12 / 5 of 478 | 10 / 2,382 (198) | 3,014 / 1,213, 4,906 | 939 → 1,072 → 1,007 | 157 → 195 |
+| medium 60 Hz, baked | **16.3 s** | **0.3 / 0.7 ms** | 2,927, 43,597 | 8 / 5 / 2 | 10 / 2,388 (181) | 6,259 / 4,218, 1,990 | 784 → 937 → 975 | 157 → 195 |
+
+Read: the job is decode only (~250× cheaper); low fills under the 10 s target, medium does not (D596): 133 of its 141
+commits were cut at `FAR_COMMIT_BYTES` (1 MiB of events, the rest 50 ms later; ~127 MB of brick events) and its
+116 reads ran one batch at a time (p50 36 ms); the pacing is the page thread's upload guard, not tuned here. In the
+flight the far field now keeps up (low ends with nothing pending, medium 4,906 → 1,990), so it swaps 2–8× more nodes;
+low's page heap after the flight rose 789 → 1,007 MiB, at its 1,024 MiB ceiling (D597). GPU process memory not read
+(the DRM counter was empty in these runs); far GPU within the tier budgets. Bake: staging's backend rebuilt the
+format-1 cache in 1,421 s (nodes ~690 s on its one build thread, as before; bricks ~730 s on 4 threads), peak 4.74 GB
+of its 6 GB scope; the bench's 4 workers would bake it in about the same. Export: the far cache ships 355 MB for this
+world (was 54.1); the e2e's 128 m slice ships its bricks beside its nodes.
+
+**Looked at** (`far-field/46d.18/`: `<pose>-rt.png` runtime-built, `<pose>-baked.png`, `side-by-side/<pose>-runtime-vs-baked.png`
+runtime left, a 2× crop below; Play, WebGPU, low; every picture opened). peak-to-town: the same picture (0.00 % of
+pixels by > 60, 0.33 % by > 8): massif, slopes, channels, the red town patch alike. town-west: the same but the back
+row of houses at the near field's edge (0.73 % by > 60): the two runs selected 1,052 and 1,050 nodes (the GPU ledger
+selects again as made nodes' bytes arrive, so the set at the near field's edge depends on arrival order), and those
+houses are drawn by the far field there (D593); the bricks themselves are byte-identical (vitest). town-peak-4.5km and
+near-ground: the same scene (the clouds moved). *Unverified:* medium and the flight's pictures, WebGL 2 (unchanged
+path; the e2e smoke), an edit in the Scene view in a browser (vitest only), motion.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3128,6 +3200,31 @@ medium/high on target hardware, the meter's ms (±40 %, D588).
 - 2026-11-10 (46d.21): medium/high not re-measured (unchanged by the item; 46d.17's shares stand, "unverified on
   target hardware"). The far bricks' own motion output not written: no ghosting seen in the orbit (D591: TAAU runs on
   the 8 km world only with an anti-aliased look).
+- 2026-11-11 (46d.18 step 0, default chosen, owner to confirm): **a level below the full resolution that names TAAU
+  upscales by it on WebGPU whatever the look's anti-aliasing** (low and medium; the shared cause of D591), with no
+  MSAA under it; the level's TAAU is not a look effect, so it brings no contact shadows or reflections the look does
+  not draw. At the full resolution (high) a look without anti-aliasing still gets none. WebGL 2 and the Scene view
+  keep the spatial upscale over MSAA (no FXAA/SMAA added there).
+- 2026-11-11 (46d.18, default chosen, owner to confirm): **what is baked is the brick job's output** (distances, look
+  words, occlusion, table, blocks, bounds), not the RGBA colour: the colour stays the page's palette bake, so a
+  material record's edit recolours the far field without a re-bake. Normals are not baked (46d.17 measured them as
+  +40 % GPU bytes for no gain).
+- 2026-11-11 (46d.18, default chosen, owner to confirm): **the far cache bakes every kept node at every level**
+  (measured projection 270 MB zstd for the 8 km world, under the 1 GB stop line; §8), in region files of the cache's
+  own format (`B<level>/`), one stored entry a node; format 2 add-only, a format-1 cache read as one without bricks
+  (a page builds them) and built again by the backend.
+- 2026-11-11 (46d.18, default chosen, owner to confirm): **an edit's dirty set is node-granular**: the node over a
+  changed ancestor at each level and every node whose read box (margin: the distance band at the node's spacing and
+  a cell) meets that ancestor, up to 8 a level (27 at the lowest level). A cell-exact set would be smaller, but the
+  mip's opening rule reads across a whole parent node, so a change's reach at a coarse level is its node.
+- 2026-11-11 (46d.18, default chosen, owner to confirm): **the rebuilt store lives in the far cache's folder**
+  (`rebuilt/`, a file a SHA-256 content key of the build and every cell entry read, 64 MiB kept, oldest first, never
+  shipped); the editor's rebuild rewrites the cache's bricks files too, so a reload builds nothing. "Beside the save"
+  for a game's run-time saves waits for D594 (the far field does not follow run-time edits yet).
+- 2026-11-11 (46d.18, default chosen, owner to confirm): **the backend bakes on up to four threads** (cores − 1) of
+  its far cache worker while it serves the old cache; the bench pool bakes in its workers.
+- 2026-11-11 (46d.18): the compute brick build for edited nodes not tried (D595): with every node baked the only
+  builds left are edits, which run on the backend's worker; it matters once D594 brings run-time edits.
 
 ## 10. Open questions for the owner
 

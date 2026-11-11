@@ -41,11 +41,11 @@ export interface PreviewRoutesContext {
 /**
  * A play's voxel world routes on the preview origin: `/play-content/<contentId>/voxels/<world>` (the
  * manifest and file list) and `…/voxels/<world>/regions/<file>` (read by range), and its far cache under
- * `…/voxels/<world>/far` (manifest) and `…/far/L<level>/<file>`. Play's simulation streams the worlds its
+ * `…/voxels/<world>/far` (manifest) and `…/far/L<level>/<file>` (its nodes; `B<level>`: their baked bricks). Play's simulation streams the worlds its
  * scenes name from there as the backend has them now; another world of the project is not served under the
  * locator.
  */
-const PLAY_VOXELS_RE = /^\/play-content\/([^/]+)\/voxels\/([^/]+)(?:\/regions\/([^/]+)|\/(far)(?:\/(L\d{1,2})\/([^/]+))?)?$/;
+const PLAY_VOXELS_RE = /^\/play-content\/([^/]+)\/voxels\/([^/]+)(?:\/regions\/([^/]+)|\/(far)(?:\/([LB]\d{1,2})\/([^/]+))?)?$/;
 
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile, onFileChanged, voxels } = ctx;

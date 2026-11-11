@@ -1139,7 +1139,10 @@ test('Export: the Play project exported and served statically with the backend s
   // Its far cache ships beside it (the far field's nodes, level by level).
   const farFiles = (shipped[0] as { far?: { files: Array<{ name: string; digest: string }> } }).far?.files ?? [];
   expect(farFiles.length).toBeGreaterThan(0);
-  expect(farFiles.every((f) => /^L\d+\//.test(f.name) && existsSync(join(out, 'content', 'sha256', f.digest)))).toBe(true);
+  // Nodes (L<level>/) and their bricks baked beside them (B<level>/), which the far field decodes instead of building.
+  expect(farFiles.every((f) => /^[LB]\d+\//.test(f.name) && existsSync(join(out, 'content', 'sha256', f.digest)))).toBe(true);
+  const bakedPaths = new Set(farFiles.filter((f) => f.name.startsWith('B')).map((f) => `content/sha256/${f.digest}`));
+  expect(bakedPaths.size).toBeGreaterThan(0);
   // The stone's record ships though only the world's cells name it; the mesh-only material nothing wears does not.
   const shippedMaterials = ((exportedContent(out) as unknown as { materials?: Array<{ materialId: string; voxel?: unknown }> }).materials ?? []);
   expect(shippedMaterials.find((m) => m.materialId === 'mat-stone-voxel')?.voxel).toEqual(STONE_MATERIAL.voxel);
@@ -1219,6 +1222,8 @@ test('Export: the Play project exported and served statically with the backend s
     // The far field from the shipped far cache, the export opened again at the low tier: bricks past the near field.
     await game.goto(`${site.url}${exportQueryFor('webgpu')}&quality=low`);
     console.log(`[voxel-export] far bricks: ${await farBeyondNear(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')} px of ground past the near field`);
+    // Drawn from the baked bricks the export ships.
+    expect(requests.filter((u) => bakedPaths.has(u.slice(site.url.length))).length).toBeGreaterThan(0);
     expect(errors).toEqual([]);
   } finally {
     await game.close();

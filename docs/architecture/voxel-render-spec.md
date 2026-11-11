@@ -490,6 +490,52 @@ enters the node's box behind the pyramid's farthest depth there is discarded (`c
 and every pass but the view's draw every node as before. Not built (measured, not kept): normals baked per sample
 (+40 % far GPU bytes, no measured gain) and a Lambert far shading (darker without the environment term).
 
+
+**Owner note (46d.18, 2026-11-10): far cache format 1 → 2, add-only.** The owner's vista step 2 (relayed by session
+thirdlight-65 with `docs/research/voxel-vista-performance.md` §4/§6): "The far cache stores finished bricks
+(distance, colour, normal) per node, written when the world is baked and re-baked for edited nodes only; the runtime
+job becomes decode + upload. Removes F5 from the fill. … Needs a far cache version bump (format spec §3.8, owner
+note)", and "Bake at world-bake time as written (the bake itself may stay on the CPU: it runs once). For edited nodes
+at runtime, try the brick build in compute". The owner's edit design of the same day (plan 46d §6d): "the bake is the
+same builder code run ahead of time (identical bricks from identical voxels, or edited nodes seam against baked
+neighbours); an edit dirties its node at each level plus border neighbours, workers rebuild those while the old brick
+keeps drawing; rebuilt bricks stored beside the save, keyed by their source voxels' content, so a much-edited save
+does not rebuild every load." What is stored is what the brick job made (distances, look words, occlusion, the
+brick table, blocks, bounds); the colour stays the palette's bake on the page, so a material record's edit still
+recolours without a bake. Default chosen, owner to confirm (plan 46d §9, the 46d.18 defaults).
+
+**Baked bricks** (`@thirdlight/voxel` `far-bricks-baked.ts`, `@thirdlight/workspace` `voxel-far-bake.ts`):
+- *Layout.* `far.json` gains `bricks`: `blob` (the node bytes' version, `FAR_BRICKS_BLOB_VERSION` 1), `scale` and
+  `occlusion` (the build, `FAR_BRICK_BUILD`), and per kept level its region files, nodes and bytes, as `levels`.
+  Folder `B<level>/` holds region files of the cache's own format (stacked, the world's id and footprint) whose
+  entries are the level's nodes at their node coordinates, each a stored entry (zstd-packed where smaller) of the
+  node's bricks encoded by `encodeFarBricks`: `TLFB`, version, side, flags (bit 0: occlusion), a spare byte, the
+  block count (u32), then the brick table (i32 each), samples, looks (u16), blocks, bounds and occlusion, all
+  little-endian. Every kept node has an entry (one with nothing to draw is a 268-byte table of codes).
+- *Built.* A full build writes the nodes and their manifest first, then bakes a job a level file (the level's nodes
+  in that file), each node's input made by `farBrickJobCells` from the cache's own entries (the function the far
+  field's job uses) and built by `brickFarNodeBy` in a worker-kind store, so a baked node is the bytes the far field
+  would build (vitest, byte for byte through its workers). The backend's build bakes on up to four threads of the
+  far cache worker; the bench pool bakes in its workers; the bytes are the same whichever runner and order.
+- *Read.* Readers take formats 1 and 2 (`FAR_CACHE_FORMATS_READ`); the backend builds a format-1 cache again
+  (stale: "format 1"), and also one whose bricks' blob or build differs. Served under
+  `GET …/voxels/<world>/far/B<level>/<file>` (as `L<level>`); exports ship them in the catalog row's `far.files` as
+  `B<level>/<file>` (add-only names: an older catalog has none and its far field builds). A far source with bricks
+  (`regionFarSource` `bricks`; Play, exports, the Scene view and the page) reads a node's entry at level
+  `FAR_BAKED_LEVELS` (64) + its level; the far bricks job then only unpacks and decodes it (`input.baked`), off the
+  page's thread. Uploads and the palette bake are unchanged.
+- *Edits.* An edit's rebuild (`rebuildFarCache`, the backend's far worker, before the command answers) builds the
+  nodes again, then exactly the brick nodes whose read box (the node and its margin of the distance band and a cell
+  at the source level) meets a changed ancestor at their source level (`farBrickDirty`: the node over the change at
+  each level and its neighbours across the side it lies on, up to 8 a level, 27 at the lowest level built from its
+  own cells), and rewrites only the bricks files holding them; the result equals a full build of the edited world.
+  Each is looked up first by its content key (SHA-256 of the build, the blob version and every cell entry it reads,
+  in order) in the cache's `rebuilt/` store (a file a key, the oldest past `FAR_REBUILT_STORE_BYTES` 64 MiB removed;
+  never shipped), so cells returning to a content built before (an undo, a redo) are read, not built. The page's far
+  field, told the changed chunks, drops the stale baked entries and makes those nodes again while their old bricks
+  keep drawing. The command's `far` answer gains `bricks` (`dirty`, `built`, `reused`, `ms`). Not built: a game's
+  run-time edits and saves do not reach the far field (it draws the shipped cache; D594), and the compute brick
+  build was not tried (D595).
 ---
 
 ## 5. Requirement traceability (46d)

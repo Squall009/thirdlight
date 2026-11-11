@@ -261,6 +261,10 @@ project's `cache/` folder, never committed), keeps current with every edit
 command, and an export ships with the world. A world's first build (minutes
 for a world of kilometres) runs in the background: edits go on meanwhile and
 are built into it when it lands, and the far field appears once it is there.
+The far cache holds each node's bricks ready made (baked when it is built, and
+built again for the nodes an edit changes), so a game only unpacks and uploads
+them; a far cache from before baking still draws, its bricks made as the game
+runs, and the backend builds it again.
 
 - **Mode and detail, by quality level.** A quality level's **Voxel far
   field** is `bricks` (default on every tier), `mesh` (the fallback) or
@@ -397,7 +401,7 @@ The voxel object's **Decal layers** choose which decals mark the world.
 
 An export ships each world its scenes name with all of the world's region
 files, whole (about 4–10 MB per km² for the test worlds), and its far cache's
-files (about a tenth of that). An export waits up to two minutes for a far
+files (about half of that again with the baked bricks; 355 MB for the 8 km test world). An export waits up to two minutes for a far
 cache still being built; past that it ships the world without one (the game
 draws nothing past the load ring) and its warnings say so: export again once
 the cache is built. Each file is checked
