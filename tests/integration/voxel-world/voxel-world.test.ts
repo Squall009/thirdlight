@@ -945,9 +945,11 @@ describe('voxel world routes', () => {
     expect(shipped.files.map((f) => f.name)).toEqual(manifest.regions);
     // Its far cache ships beside it, built by the export (the world had none) at the world's revision, each file whole.
     const farDir = join(backend._test.service.projectDir(PROJECT)!, 'cache', 'voxel-far', FEED_WORLD);
-    const farManifest = JSON.parse(readFileSync(join(farDir, 'far.json'), 'utf8')) as { revision: number; minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }> };
+    const farManifest = JSON.parse(readFileSync(join(farDir, 'far.json'), 'utf8')) as { revision: number; minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }>; bricks: { levels: Array<{ level: number; regions: string[] }> } };
     expect(farManifest.revision).toBe(manifest.revision);
-    expect(shipped.far?.files.map((f) => f.name)).toEqual(farManifest.levels.flatMap((l) => l.regions.map((r) => `L${l.level}/${r}`)).sort());
+    // The nodes (L<level>/) and their baked bricks (B<level>/), a bricks file beside each nodes file.
+    expect(shipped.far?.files.map((f) => f.name)).toEqual([...farManifest.levels.flatMap((l) => l.regions.map((r) => `L${l.level}/${r}`)), ...farManifest.bricks.levels.flatMap((l) => l.regions.map((r) => `B${l.level}/${r}`))].sort());
+    expect(farManifest.bricks.levels.map((l) => l.regions)).toEqual(farManifest.levels.map((l) => l.regions));
     expect([shipped.far!.minLevel, shipped.far!.maxLevel]).toEqual([farManifest.minLevel, farManifest.maxLevel]);
     for (const f of shipped.far!.files) expect(readFileSync(join(out, 'content', 'sha256', f.digest)).equals(readFileSync(join(farDir, f.name)))).toBe(true);
     let regionBytes = 0;
