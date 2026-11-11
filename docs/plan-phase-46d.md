@@ -283,7 +283,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.19 | not started |
 | 46d.20 | not started |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
-| 46d.22 | not started |
+| 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.15 | not started |
 
 ## 8. Results
@@ -2539,6 +2539,74 @@ houses are drawn by the far field there (D593); the bricks themselves are byte-i
 near-ground: the same scene (the clouds moved). *Unverified:* medium and the flight's pictures, WebGL 2 (unchanged
 path; the e2e smoke), an edit in the Scene view in a browser (vitest only), motion.
 
+### 46d.22 coverage at 150 m/s; D593
+
+**D593 traced** (`work/46d.22/trace.mjs`, Play, WebGPU, low, town-west; `far-field/46d.22/d593-*`). Shots with the far
+field hidden and with the near field hidden: the melted back-row houses vanish with the far field hidden and are all
+there, melted, with the near field hidden, so the **far bricks** draw them. The near field drew levels 0/1 only
+(110 / 49 nodes; level 1 is complete only ~30 m inside the load ring), ending at ~95 m: low's ring scale 0.71 put the
+load ring at 136 m and level 1 at 91 m. Past it the far field's finest level (2 m cells) is 9–13 px a cell at 92–140 m
+(`farCellPixels`, 623.5 px/rad), over low's 8 px error; a house of 4 × 3 cells marched from a trilinear field is a
+rounded blob whatever the build. Level 1 alone to 136 m changed nothing (49 → 51 nodes: completeness, not the ring).
+**Fix** (75f78691): `VOXEL_REACH_SCALES` (stream-ring.ts): a tier's load ring and level-1 distance scale by its ring
+scale but never under 1; level 0, collision and relief keep the ring scale. Low now loads 192 m and draws level 1 to
+128 m (125 level-1 nodes, near triangles 308 k → 446 k at the pose, resident 62 → 90 MB of the 256 MiB budget). Seen:
+`side-by-side/d593-town-west-before-after.png` (before left): the back row crisp with gables and walls, 2.5 % of pixels
+by > 60. vitest `voxel-world.test.ts` (low's reach, level 1 = medium's).
+
+**The bench** (28c1aa66; `node tools/voxel-bench/run.mjs coverage`, `coverage-cli.ts`, `coverage.ts`): Play in the editor
+on staging's 8 km world, WebGPU, 1280 × 720, low at its 30 Hz cap; a 9.84 km line (east lowland → town → up the
+massif's cliffs, 0–1,065 m → west valleys → eastern mountains) 30 m over the highest ground near it (`high`) or 5 m
+(`hug`), 0.08 rad down. The sky is a key colour for the run. **Every presented frame** (screencast 320 × 180, 1,962–4,919
+frames a run of 1,995–4,950 presented) is checked: a key pixel whose ray falls to the world's lowest ground inside its
+bounds is a hole (the world is a height field, so that ray meets ground; rays leaving the world first may see sky —
+a first version with a fixed margin under the horizon called the world's edge a hole). Per streamer update the
+simulation counts the ground under the focus and under its lead point (`stream-coverage.ts`: every chunk down to the
+first solid resident and derived — what collision is made from — within the ring's height; deeper is "out of reach").
+The camera inside a drawn far node's solid is sampled at 4 Hz (`VoxelFarView.solidAt`, `farBricksInside`).
+
+**Measured** (staging, Iris Xe, one round each, before 01:45–02:05, after 02:55–03:15, uptime 18.4 d;
+`work/46d.22/cov-low-*.json`, `uptime-*.txt`). Ground % = flight updates with the ground missing (before: out of
+reach counted as missing; after: out of reach 21–25 % `high`, 0–1 % `hug`).
+
+| low | hole frames (events) | ground missing under / ahead | missed frames | live heap start → end (MiB) | GPU MiB | far swaps in / out, pending end |
+|---|---|---|---|---|---|---|
+| 150 high before → after | 1 (1) → 0 | 97 / 98 % → 15 / 47 % | 4 → 9 of 1,997 | 385 → 532 / 407 → 606 | 664 → 938 / 676 → 893 | 6,359 / 6,518, 1,719 → 10,771 / 14,019, 0 |
+| 150 hug | 4 (1) → 0 | 97 / 97 % → 16 / 68 % | 6 → 17 | 450 → 576 / 395 → 766 | 711 → 959 / 668 → 1,037 | 6,738 / 7,309, 1,506 → 10,986 / 14,770, 0 |
+| 60 high | 0 → 1 (1) | 58 / 74 % → 1.2 / 8.4 % | 21 → 23 of 4,948 | 369 → 951 / 407 → 967 | 710 → 1,033 / 656 → 1,045 | — , 0 → 0 |
+| 60 hug | 0 → 0 | 95 / 96 % → 0.0 / 2.8 % | 7 → 48 | 439 → 609 / 396 → 1,119 | 711 → 907 / 698 → 1,075 | 527 → 0 pending |
+
+Holes per km: 0–0.4 → 0–0.1. The one-frame events (m ≈ 4.44 km) are at the line's 90° corner on the massif, where
+the bench's camera for a frame comes from polls 0.25 s apart and turns instantly: likely the check, not the draw.
+Camera inside a far node's solid: 0 of 184–538 samples in every run (but see the pictures). Before the change the far
+field alone kept the screen covered: the far coverage candidates (top levels kept resident) were not needed and not
+built. **Built** (28c1aa66): the load ring narrows with speed past 20 m/s (`speedRing`, `STREAM_FULL_RING_SPEED`: radius
+× 20 m/s ÷ speed in whole chunks, never under the collision radius 48 m; at 60 m/s 64 m, at 150 m/s 48 m; the motion
+keeps the base ring so the speed is not reset); the lead point reaches a second of travel up to the set ring (was
+capped at 96 m); loads, decodes and derives are queued by `motionDistance2` (distance from the way between the focus
+and the lead point, a quarter of the distance along it, behind × 4) and derives are asked in that order. vitest
+`stream-speed.test.ts` (real workers, region files, a 512 m hilly world, 150 m/s: the ring at the floor in flight, the
+base again when still, the ground under the focus known within a second of stopping; ordering and ring arithmetic).
+Not built: near levels 1–2 before level 0 at speed (with the ring at 48 m the near field is the collision ring; the
+far field draws the rest), collision bodies built along the velocity (the bench has no physics port: it checks the
+derived ground they are made of).
+
+**Memory:** GPU stays under low's 1,280 MiB (≤ 1,075). The live page heap (after a GC) ends the 60 m/s hugging flight at
+1,119 MiB, over the 1,024 MiB ceiling (before 609: the near field then drew nothing in flight); 150 m/s ends 606–766.
+D597 updated. **Gate:** gate-fast-20261111-011830 red on the descriptor size guard (fixed) and D523 once; rerun
+gate-rerun-20261111-013124 GREEN; gate-fast-20261111-022637 GREEN (16 min, 4.9 GB, 881 vitest files; village perf 0
+missed both renderers). `stream.test.ts`'s lod flight failed once in a local 3-worker run with other files, passed alone
+twice and in the gate (a timing test, D589's family). `voxel-world.e2e.ts` not touched (its tests' sum 152 s under this
+gate's load; 102 s at 46d.18).
+
+**Looked at** (`far-field/46d.22/low-150-{hug,high}-after-t*.png`, six hugging and four at 30 m, every one opened).
+At 30 m (t12, 24, 36, 48): the lowland, the town as a red coarse patch from 1 km, the massif's rock and the valleys
+whole, no hole, slopes in coarse stand-ins with terrace lines, smooth enough at speed. Hugging: t6, t18, t42, t54 and
+t62 show along the bottom or sides of the frame the **grey grid with square recesses** (a coarse far node's faces seen
+from under its surface, D585) next to near-field ground; t18 also has black wedges where near chunks end; t30 is the
+massif's cliff face close up, dark and blocky. No sky hole in any. *Unverified:* motion at full rate (stills only),
+WebGL 2, medium/high, collision bodies in a game with physics, the eye-point sampler's blind spot for D585.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3231,6 +3299,18 @@ path; the e2e smoke), an edit in the Scene view in a browser (vitest only), moti
   its far cache worker while it serves the old cache; the bench pool bakes in its workers.
 - 2026-11-11 (46d.18): the compute brick build for edited nodes not tried (D595): with every node baked the only
   builds left are edits, which run on the backend's worker; it matters once D594 brings run-time edits.
+
+- 2026-11-11 (46d.22, default chosen, owner to confirm): **a tier never scales the near field's reach under medium's**
+  (D593): low loads 192 m and draws level 1 to 128 m like medium (resident 62 → 90 MB of its 256 MiB at the town);
+  level 0, collision and relief keep low's 0.71. Past the near field the far field's 2 m cells melt buildings.
+- 2026-11-11 (46d.22, default chosen, owner to confirm): **the pass check of the coverage bench**: a hole is a sky
+  pixel whose ray falls to the world's lowest ground inside the world; the ground under the camera counts when every
+  chunk down to the first solid within the ring's height is resident and derived; the camera inside a stand-in is
+  sampled at 4 Hz at the eye.
+- 2026-11-11 (46d.22, default chosen, owner to confirm): **the load ring narrows with speed** past 20 m/s to
+  radius × 20 / speed in whole chunks, never under the collision radius (48 m at 150 m/s), and widens when still; work
+  is queued along the way ahead (`motionDistance2`). The far field draws the rest; no far level kept resident (the
+  far field alone kept the screen covered before), no near levels 1–2 first at speed.
 
 ## 10. Open questions for the owner
 
