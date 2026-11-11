@@ -117,11 +117,19 @@ GATE_TMP=$HOME/.cache/thirdlight-tmp/gate-$$
 find "$HOME/.cache/thirdlight-tmp" -mindepth 1 -maxdepth 1 -type d -name 'gate-*' ! -name "gate-$$" -mmin +60 -exec rm -rf {} + 2> /dev/null
 rm -rf "$GATE_TMP" && mkdir -p "$GATE_TMP" && chmod 700 "$GATE_TMP"
 export TMPDIR=$GATE_TMP TMP=$GATE_TMP TEMP=$GATE_TMP
-trap 'rm -rf "$GATE_TMP"' EXIT
 L=${TL_GATE_LOGS:-$HOME/.cache/thirdlight-logs/gate-$mode-$(date +%Y%m%d-%H%M%S)}
 mkdir -p "$L"
 t0=$(date +%s)
+# The host's 1-minute load every 30 s (load.log, its mean and peak in the last line): the gate shares the host's
+# threads with production, staging and the agents, so how hard it pushed them is part of its result.
+( while :; do echo "$(date +%T) $(cut -d' ' -f1 /proc/loadavg)" >> "$L/load.log"; sleep 30; done ) &
+SAMPLER=$!
+trap 'kill "$SAMPLER" 2> /dev/null; rm -rf "$GATE_TMP"' EXIT
 say() { echo "$*" | tee -a "$L/summary.txt"; }
+load() { # the 1-minute load's mean and peak over the samples so far
+  awk '{ v = $2 + 0; s += v; n++; if (v > m) m = v } END { if (n) printf ", load mean %.1f peak %.1f", s / n, m }' "$L/load.log" 2> /dev/null
+}
+secs() { echo "$(( $(date +%s) - $1 )) s"; } # secs <start>: the time since then
 peak() { # the memory peak of this run's cgroup (the detached unit's, or the caller's scope)
   local f=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak
   [ -r "$f" ] && awk '{printf "memory peak %.1f GB", $1 / 1073741824}' "$f"
@@ -145,7 +153,7 @@ done_() {
   local min=$(( ($(date +%s) - t0) / 60 )) prev=''
   [ "$mode" = full ] && prev=$(prev_full) && prev=", previous green full gate ${prev:-not recorded}"
   case "$1" in GREEN*) mark_green ;; esac
-  say "$1 (${min} min${prev}, $(peak), logs $L)"; case "$1" in GREEN*) rm -rf "$STATE"; exit 0 ;; *) exit 1 ;; esac
+  say "$1 (${min} min${prev}, $(peak)$(load), logs $L)"; case "$1" in GREEN*) rm -rf "$STATE"; exit 0 ;; *) exit 1 ;; esac
 }
 
 # What changed: from a base commit to the working tree (uncommitted work counts), untracked files included.
@@ -204,18 +212,21 @@ begin_state() { # begin_state <mode> [args…]: a new fast or full gate replaces
 }
 
 build() {
+  local t=$(date +%s)
   npm run build > "$L/build.log" 2>&1
   grep -q '^build: done' "$L/build.log" || { grep -E 'FAIL|error' "$L/build.log" | head -20; [ -s "$STATE/step" ] || fail_at lint; done_ "RED build"; }
+  say "build: done ($(secs "$t"))"
 }
 
 lint() {
+  local t=$(date +%s)
   npm run lint > "$L/lint.log" 2>&1 || { grep -E 'error|✖' "$L/lint.log" | head -20; fail_at lint; done_ "RED lint (fix, then: tools/gate.sh rerun)"; }
-  say "lint: clean"
+  say "lint: clean ($(secs "$t"))"
 }
 
 unit() { # unit [--related] [files…]: the whole suite, or (a rerun) only the test files named, or (--related) the
   # test files that import the files named
-  local cmd=(run)
+  local cmd=(run) t=$(date +%s)
   [ "${1:-}" = --related ] && { cmd=(related --run --passWithNoTests); shift; }
   npx vitest "${cmd[@]}" --exclude '.claude/**' --exclude 'archive/**' ${TL_VITEST_WORKERS:+--maxWorkers="$TL_VITEST_WORKERS"} "$@" > "$L/vitest.log" 2>&1
   # Nothing related (a docs-only change): vitest found no test file, which passes.
@@ -238,7 +249,7 @@ unit() { # unit [--related] [files…]: the whole suite, or (a rerun) only the t
       grep -E 'FAIL|✗|×' "$L/vitest.log" | head -20; fail_at vitest; done_ "RED vitest (fix, then: tools/gate.sh rerun)"
     fi
   fi
-  say "$(sed 's/\x1b\[[0-9;]*m//g' "$L/vitest.log" | grep -E 'Test Files' | tail -1 | sed 's/^ *//')"
+  say "$(sed 's/\x1b\[[0-9;]*m//g' "$L/vitest.log" | grep -E 'Test Files' | tail -1 | sed 's/^ *//') ($(secs "$t"))"
 }
 unit_changed() { # unit_changed [--all]: the unit tests the changed files reach, or the whole suite
   unit_scope "$@"
