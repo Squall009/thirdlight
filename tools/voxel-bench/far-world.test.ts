@@ -674,6 +674,7 @@ describe('the far field drawn as meshes and as bricks', () => {
       expect(far.metrics().standIns.pending).toBe(0);
       far.close();
       await seenFirst(source, workers, m.maxLevel);
+      await seenUnderBudget(source, workers);
     } finally {
       for (const d of opened) await d.close();
       workers.close();
@@ -775,6 +776,76 @@ async function seenFirst(source: ReturnType<typeof regionFarSource>, workers: Wo
     const stale = far.metrics().seen.stale;
     far.feedback({ round: 1, farSeq: 0, nodes: [s.level, s.nx, s.ny, s.nz, 50, 400] });
     expect(far.metrics().seen.stale).toBe(stale + 1);
+  } finally {
+    far.close();
+  }
+}
+
+/**
+ * Visibility feedback where the far GPU budget binds (half of what the field draws with everything seen): rounds name
+ * the drawn nodes in front of a still eye (centre in its half-space), as the page's reduction would. The unseen half
+ * is released and the work settles (no node made, released and made again while the eye stands); turned round, the
+ * nodes now in front are made finer again and the field settles once more.
+ */
+async function seenUnderBudget(source: ReturnType<typeof regionFarSource>, workers: WorkerPool): Promise<void> {
+  const TURN = 600;
+  const far = new FarField({ source, errorPixels: 8, draw: 'bricks', seenTurnMs: TURN }, { grid: FAR_WORLD_GRID, pool: workers, rules: WORLD_RULES });
+  const shown = new Map<string, MipNode>();
+  far.on((e) => {
+    for (const n of e.removed) shown.delete(mipNodeKey(n));
+    for (const a of e.added) shown.set(mipNodeKey(a), { level: a.level, nx: a.nx, ny: a.ny, nz: a.nz });
+  });
+  const eye = [0, 40, 0] as const;
+  const centreX = (n: MipNode): number => n.nx * (32 << n.level) + (16 << n.level) - eye[0];
+  let round = 0;
+  const wait = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+  /** Feeds rounds for `windows` turn windows naming the drawn nodes on the `side` of the eye (+1: x > 0); returns the meshes made per window. */
+  const look = async (side: number, windows: number): Promise<number[]> => {
+    const made: number[] = [];
+    for (let w = 0; w < windows; w++) {
+      const m0 = far.metrics().counters.meshes;
+      const t0 = performance.now();
+      while (performance.now() - t0 < TURN) {
+        const seen = [...shown.values()].filter((n) => side * centreX(n) > 0);
+        far.feedback({ round: ++round, farSeq: far.metrics().counters.events, nodes: seen.flatMap((n) => [n.level, n.nx, n.ny, n.nz, 50, 400]) });
+        far.update();
+        await wait(40);
+      }
+      made.push(far.metrics().counters.meshes - m0);
+    }
+    return made;
+  };
+  /** Mean level drawn on a side (lower: finer). */
+  const meanLevel = (side: number): number => {
+    const l = [...shown.values()].filter((n) => side * centreX(n) > 0).map((n) => n.level);
+    return l.reduce((a, b) => a + b, 0) / l.length;
+  };
+  try {
+    far.setEye(...eye);
+    far.update();
+    await far.settle();
+    const full = far.metrics().gpu.drawn;
+    // Everything in front first (nothing is unseen before a window has passed), then the budget binds.
+    await look(1, 2);
+    far.setView({ gpuBudgetBytes: Math.floor(full / 2) });
+    const still = await look(1, 8);
+    console.log(`far seen under a binding budget: meshes made per window, still ${JSON.stringify(still)}`);
+    // The unseen half went coarser to fit the budget, the seen half kept finer nodes.
+    expect(far.metrics().seen.unseenWanted).toBeGreaterThan(0);
+    expect(meanLevel(-1)).toBeGreaterThan(meanLevel(1));
+    expect(far.metrics().gpu.drawn).toBeLessThanOrEqual(full / 2 * 1.25);
+    // Settled: the last windows of a still eye make nothing and nothing waits.
+    expect(still.slice(-3)).toEqual([0, 0, 0]);
+    expect(far.metrics().jobs).toBe(0);
+    // Turned round: what is in front now is made finer again, what is behind goes coarser, and it settles again.
+    const behindBefore = meanLevel(-1);
+    const turned = await look(-1, 10);
+    console.log(`far seen under a binding budget: turned ${JSON.stringify(turned)}`);
+    expect(turned.slice(0, 5).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+    expect(meanLevel(-1)).toBeLessThan(behindBefore);
+    expect(meanLevel(1)).toBeGreaterThan(meanLevel(-1));
+    expect(turned.slice(-3)).toEqual([0, 0, 0]);
+    expect(far.metrics().jobs).toBe(0);
   } finally {
     far.close();
   }
