@@ -20,9 +20,10 @@
 #                                             stopped at (lint, the vitest files that failed, the e2e
 #                                             tests that failed, the perf check) and the steps after it
 #   tools/gate.sh start <mode> [args…]        the same, detached as the systemd unit thirdlight-gate
-#                                             under a memory cap (TL_GATE_MEM, default 12G): a caller
-#                                             that ends (an agent session) no longer kills the gate
-#                                             halfway. Prints its log folder.
+#                                             under a memory cap (TL_GATE_MEM, default 12G) and a CPU
+#                                             cap (TL_GATE_CPU, default 1100%: 11 of the 16 threads): a
+#                                             caller that ends (an agent session) no longer kills the
+#                                             gate halfway. Prints its log folder.
 #   tools/gate.sh wait                        blocks until the detached gate ends; prints its summary.
 #                                             A unit the cap's OOM killer (or a signal) ended is RED,
 #                                             whatever its summary got to say
@@ -74,11 +75,14 @@ case "$mode" in
     echo "$L" > "$LOGS/last-detached"
     sudo -n systemctl reset-failed "$UNIT" 2> /dev/null || true
     # No --collect: a unit that failed stays loaded, so `wait` can read how it ended (reset above on the next start).
-    sudo -n systemd-run --unit="$UNIT" --quiet -p MemoryMax="$need" -p MemorySwapMax=0 \
+    # The host's 16 threads also run production, staging, the agent UI and the Proxmox host: the CPU cap leaves them
+    # five, so a gate slows down rather than hanging the host (throttled threads don't count in the load average).
+    cpu=${TL_GATE_CPU:-1100%}
+    sudo -n systemd-run --unit="$UNIT" --quiet -p MemoryMax="$need" -p MemorySwapMax=0 -p CPUQuota="$cpu" \
       --working-directory="$PWD" -- sudo -n -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" \
       NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_LOGS="$L" ${workers_set:+TL_E2E_WORKERS="$TL_E2E_WORKERS"} ${TL_VITEST_WORKERS:+TL_VITEST_WORKERS="$TL_VITEST_WORKERS"} \
       tools/gate.sh "$sub" "$@" || exit 1
-    echo "started $UNIT ($sub), logs $L"
+    echo "started $UNIT ($sub; caps: memory $need, CPU $cpu), logs $L"
     exit 0 ;;
   wait)
     L=$(cat "$LOGS/last-detached" 2> /dev/null)
