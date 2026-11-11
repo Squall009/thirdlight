@@ -313,7 +313,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
-| 46d.24 | not started (46d-c) |
+| 46d.24 | 46d.24a done (dda61ab9, 5f37e8f2): coverage bench measures hitches + settle, in an export; baseline (§8): export low 150 longest 152–208 ms (2 > 100), ground solid 0.01 s, detail 4.3 s, pending 7.8–8.2 s; medium 150 detail 14–15 s; 0 falls of 34–83 drops; spikes = one swap batch applied whole (D612). Mechanisms next |
 | 46d.25 | not started (46d-c) |
 
 ## 8. Results
@@ -3094,6 +3094,131 @@ looked at: no mush, crisp far silhouettes and the town's back row (D593 holds); 
 and D572's lattice on the near escarpment still show; the low 150 m/s frames 1–5 have dark green slivers at the bottom
 edge (not seen on medium; not traced); medium looks like low at these poses.
 
+### 46d.24 travel at speed by hitches and settle
+
+**The measures** (46d.24a, `run.mjs coverage`, `coverage-cli.ts`; arithmetic `travel.ts`, page side `travel-page.ts`,
+the probe in the shared flight behaviour `flight-camera.ts`; vitest `travel.test.ts`). Same 9.84 km line 30 m up
+(`high`), the camera stops at its end (eastern mountains) and stands 30 s. Runs in the **export** (`--export` with
+staging up, then `--dir` with it stopped, served statically) or Play in the editor (default). Per run:
+
+- *Flight frames*: the meter's presented-frame intervals at the tier's cap: longest, count over 100 ms, missed (over
+  the cap's miss interval) a minute.
+- *Ground solid after the stop*: a ray straight down from the camera every simulation step against the colliders
+  (`ctx.physics.raycast`), solid when it hits within 3 m of the ground under the line (the far cache's level-2 cells);
+  seconds in simulation steps from the stop step to the first solid one. In flight the same ray gives the share of
+  steps with collision under the camera (`groundRay`).
+- *A body never falls through*: the project gets a capsule player controller for the run (`Perf probe character`,
+  taken out after); the flight places it 2.5 m over the line's ground under the camera every 2 s of flight and once
+  at the stop (`character_place`), and reports its height, standing and suspension as run counters (read from the
+  play's observation, 20 Hz in an export, 4 Hz in Play). A fall-through = a reading neither suspended nor standing
+  and 6 m under the drop point's ground. Covers: a body resting where dropped while the world streams round the
+  camera and round it (a player is a collision focus), and collision swapped from under a standing body. Does not
+  cover: a body moving over the ground at speed, bodies other than a character controller, falls shorter than 6 m,
+  a 2 m-cell ground estimate wrong by more than that (steep cliffs), drops between readings (≥ 5 readings a drop).
+  `bodyFree` / `bodyStands`: after the stop's drop the first step not suspended / standing (includes a ~0.5 s fall
+  from 2.5 m).
+- *Full detail stands*: the page's level-0 chunk count and kit pieces drawn (every frame, `__tlVoxelPlay.stats()`)
+  within 1 % (or 2) of their final values and held 3 s; *nothing pending*: every near count (chunks, levels 0–2,
+  pieces) and the far nodes/bricks (2 %) so. In Play the simulation's queue, jobs in flight and far pending at 0
+  (`simIdle`) agree with the page's within 0.1–0.3 s in all four runs, so the export's page-count reading stands for
+  it. Not seen by either: work that changes no count (textures streaming in, a rebuild drawing the same count).
+- *Spikes*: every gap over 100 ms between the page's animation frames with the Long Animation Frame overlapping it
+  (its longest script's invoker) and what the draws' counts did across it. Play's preview frame reports no long
+  frames (0 kept in every Play run): its gaps are unattributed.
+- *Pictures*: the screencast at 640 × 360 every frame (the hole check reads every second pixel, 320 × 180 as before);
+  `--strip` keeps chosen frames without a capture of its own. The bottom 9 rows' near-black share is kept a frame for
+  D611 (but see below). D585: the 15-ray view check and the eye-inside sample, 4 Hz, as before.
+
+**Baseline** (Iris Xe, WebGPU, 1280 × 720, at the cap: low 30 Hz, medium 60 Hz; the 8 km world; export
+`voxel-slice@r716` (product code as at dda61ab9: nothing under packages/ changed since e9581c15); 2 rounds each 20:41–21:05 UTC, uptime 19.2 d,
+load 1.9–4.8 (the bench decodes every screencast frame); Play 1 round 21:06–21:17, load 3.5–5.9;
+`work/46d.24/{exp,play}-*.json`, `sum.py`, `*.uptime`). Medium/high frame times are **unverified on target hardware**
+(this host has only the Iris Xe). Seconds after the stop; two export rounds as a–b.
+
+| export | longest ms | > 100 ms | missed / min | ground solid | body free / stands | full detail | nothing pending | falls | hole frames |
+|---|---|---|---|---|---|---|---|---|---|
+| low 60 | 85.5–98.8 | 0, 0 | 14.3, 10.6 | 0.01 | 0.07–0.08 / 0.27–0.50 | 3.6–4.4 | 8.2–8.5 | 0 of 83, 83 | 0, 0 |
+| low 150 | 151.8–207.8 | 2, 2 | 20.1, 22.9 | 0.01 | 0.03–0.09 / 0.50–0.52 | 4.3–4.4 | 7.8–8.2 | 0 of 34, 34 | 1, 0 |
+| medium 60 | 107.9–161.9 | 1, 2 | 46.1, 44.6 | 0.01 | 0.13–2.25 / 0.33–2.41 | 9.5–11.8 | 14.5–15.1 | 0 of 83, 83 | 1, 3 |
+| medium 150 | 53.1–57.0 | 0, 0 | 21.0, 29.3 | 0.48–0.53 | 1.05–1.25 / 1.48 | 13.6–15.4 | 16.0–17.3 | 0 of 34, 34 | 0, 1 |
+| starting target (low) | < 100 | | | < 0.5 | | < 2 | < 10 | never | |
+
+| Play (1 round) | longest ms | > 100 ms | missed / min | ground solid | body free / stands | full detail | nothing pending (sim idle) |
+|---|---|---|---|---|---|---|---|
+| low 60 | 105.4 | 1 | 20.9 | 0.01 | 0.35 / 0.50 | 5.5 | 9.4 (9.5) |
+| low 150 | 674.8 | 3 | 26.5 | 0.01 | 0.57 / 0.79 | 5.7 | 10.2 (10.3) |
+| medium 60 | 153.4 | 2 | 46.1 | 0.01 | 0.35 / 0.53 | 12.4 | 17.2 (17.5) |
+| medium 150 | 106.9 | 1 | 15.5 | 0.64 | 1.47 / 1.57 | 22.0 | 22.9 (23.0) |
+
+No body fell through in any run (0 of 34 / 83 drops, 12 runs). In flight the ray under the camera found collision in
+8.7 % (low 150), 12 % (medium 150), 23 % (low 60), 38 % (medium 60) of steps, none in the rest (0–0.2 % hit deep under
+the ground); of the drops 8–63 landed, 12–31 stayed suspended the whole 2 s (collision never came: the engine holds
+them, by design). Holes: every hole frame but one is at the line's 90° corner on the massif (m ≈ 4,434, a key-pixel
+spike of 3,600–4,200 in one or two frames, 46d.22's camera-poll artefact of the check), the other a 34–35 px frame at
+m ≈ 6,834 (both tiers). D585: rays entering a stand-in at a box face in 1–3 of 185–580 samples a run, eye never inside.
+
+**Where the spikes come from.** Every export frame over 100 ms on the page's thread is one `Worker.onmessage` task:
+the simulation's batch for one streamer swap applied whole — at the town (t ≈ 15.6–16.8 s at 150 m/s, 38.9–40.9 s at
+60 m/s): 39–89 new level-0 chunks, 93–248 meshes built and 7,600–35,200 kit pieces placed in one task of 80–131 ms
+of script (low 150 both rounds, medium 60 both rounds; D612). The other long frames (50–100 ms) are the same task with
+fewer chunks or a rAF callback (`Q`, the render) of 50–56 ms right after it. In low 150's runs those were the only page
+gaps over 100 ms (the meter's longest presented frames, 151.8 and 207.8 ms, carry no time to match them one to one). In Play the same counts move across its gaps (71–124 level-0 chunks, up to
+35,219 pieces; the 674.8 ms frame at t 9.5 s applied 71 level-0 chunks / 237 meshes) but the preview frame gives no
+long-frame timing. Built for nothing: in the low 150 Play flight the simulation loaded 53,943 chunks (43,489 air) and
+unloaded 53,932, ran 281,240 section derives (4,300 a second) and cancelled 813 loads; its queue stood at 105 jobs on
+mean, at its 256 limit at peaks (medium 150: 217 on mean, the far field 3,064 nodes pending on mean, 6,616 at peak).
+
+**What the settle waits on.** After the stop the ring widens back (one `speedRings`) and refills: the queue goes from
+0 to its 252–256 limit 2 s after the stop and drains by 5 s (low); low's level-0 count and pieces settle at 3.6–5.7 s,
+the far field and the rest at 7.8–10.3 s; medium at 9.5–22 s (its level-0 ring 64 m against low's 45 m, its queue
+holding far work: 33–39 k section derives and 5.3–5.8 k loads after the stop at either tier). Ground under the camera
+is solid at once except medium 150 (0.48–0.64 s).
+
+**Looked at** (`work/46d.24/strip-export-{low,medium}-150-{flight,stop}.png`, montages of `shots/export-*-r1-strip-*`;
+all 30 frames opened). Flight, both tiers alike: lowland, the town as a red patch at t 10, valley channels, mountains;
+no sky hole; t 30 (the massif's cliff close by) dark blocky rock with a square grid and a straight seam (the cliff
+noted in 46d.22 — not the grey D585 grid); low t 5 a lighter flat green rectangle along the bottom edge (a near patch
+drawn over the coarse ground); medium t 64 a black wedge at the bottom-right corner. No dark green slivers at the
+bottom edge in these nine stills (D611 not reproduced at these times; the acc46d-b frames were 0.25 s apart at the
+flight's start). Stop, both tiers alike: 0.5–4 s a coarse, blurred surface (streaked at the bottom right), at 8 s the
+detail has popped in (sharper rock and grass, different material patches): a visible pop between 4 and 8 s, later than
+the counts settle at 4.3 s on low (textures streaming in, not counted); low at 1 s and 15 s and medium at 15 s show flat
+grey untextured patches (D613). The bottom-rows dark share is no sliver detector: it flags 15–19 % of flight frames and
+every frame at the stop pose (dark rock at the bottom), so it is kept as a raw series only.
+
+**D612 (first Play smoke, 1.5 km park).** Once, standing at a 1.5 km park point in Play, the probe character stayed
+suspended for 30 s with the simulation idle and the ray under the camera solid at 0.01 s (`work/46d.24/smoke3.json`);
+at the line's end it was free in 0.03–2.3 s in all 12 runs. Not traced (D614).
+
+**Proposal for the mechanisms slice** (ordered by what the numbers say):
+
+1. **Apply a swap's batch over frames, or make it smaller** (D612, the only > 100 ms frames): `three-adapter`
+   `voxel-world-draws.ts` (`apply`), `voxel-chunk-view.ts` (`applyChunkDrawBatch`), `voxel-piece-batches.ts` (kit
+   instances rebuilt per batch) — build the batch's meshes and instances hidden over several frames within a
+   ms budget and flip them in one frame, keeping the atomic swap; or `game-host/voxel-play.ts` / `voxel/chunk-batch.ts`
+   splitting a streamer task's batch. Measured by `spikes.worst` (delta per gap).
+2. **No level 0 at speed**: the batches that spike are level 0 and pieces at the town at 60 and 150 m/s, thrown away
+   within a second. Above `STREAM_FULL_RING_SPEED` the near field asks for levels 1–2 only (`voxel/stream-lod.ts`
+   `LevelRings`, `stream-mips.ts`, `stream-ring.ts` `speedRing`) except round collision foci; pieces follow level 0.
+   Then levels return from the camera outward when the speed falls (the settle's refill order, `stream-reads.ts`).
+3. **Cancel stale queued work**: 53,932 of 53,943 loaded chunks unloaded within the flight, the queue at its limit:
+   `voxel/worker-pool.ts` (cancel queued jobs by a predicate), `voxel-streamer.ts` (`drop`: loads only today),
+   `stream-sections.ts` (queued section derives of chunks out of the ring), `far-field.ts` (far jobs for nodes no
+   longer selected). The settle's 2–5 s queue refill is then the ring's own work only.
+4. **Collision on its own path**: ground solid is already at once at the stop except medium 150 (0.5–0.6 s), but in
+   flight collision under the camera exists in only 9–38 % of steps: a collision-only derive job (`voxel/stream-job.ts`,
+   `derived-collision.ts`, `ground-heightfield.ts`) round `collide` foci and along their velocity (`runtime/
+   voxel-world-host.ts` `step`, `voxel/collision-ring.ts`), not round the camera.
+5. **A coarse fallback floor**: 12–31 drops a flight stayed suspended (no collision came); a level-2 heightfield from
+   the far tree's nodes the simulation already holds (`voxel/far-field.ts`, `far-tree.ts`, `ground-heightfield.ts`)
+   as a body under the fine ring (`voxel-world-host.ts` `PortBodies`), and `runtime/body-suspension.ts` counting a
+   column on the coarse floor as loaded.
+6. **D585**: rarely seen at 30 m (1–3 face-ray samples a run); a `hug` run is its before/after (`--altitude hug`);
+   in `three-adapter/voxel-far-visibility.ts` / `voxel-far-bricks.ts` a node holding the eye skipped or drawn from
+   outside, `far-field.ts` refining round the eye first (exists).
+7. **D611**: not reproduced in the strips; a `--strip` at 0.25 s steps over the flight's first 3 s at low is the
+   check before any change (`voxel-chunk-view.ts` near cover by chunk, the far draw's hide).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3943,6 +4068,17 @@ edge (not seen on medium; not traced); medium looks like low at these poses.
   D594, 46d.14/D581) accepted as recorded. (5) 46d-c starts in a fresh session (the owner moves orchestration to
   Fable, sub-agents on Opus). The other "default chosen, owner to confirm" entries stand as approved (owner review
   model: defaults left are approved).
+
+- 2026-11-11 (46d.24a, default chosen, owner to confirm): **how the travel measures read** — ground solid = a ray down
+  from the camera hits a collider within 3 m of the far cache's level-2 ground under the line; a fall-through = a
+  dropped capsule character neither suspended nor standing 6 m under that ground; full detail = level-0 chunks and
+  pieces drawn within 1 % (or 2) of their final count for 3 s; nothing pending = every near and far count so (far
+  2 %); primary numbers in the export, Play a second column; 30 s recorded after the stop.
+- 2026-11-11 (46d.24a, default chosen, owner to confirm): **the starting targets stand unchanged**. Measured on low
+  (export): ground solid 0.01 s and nothing pending 7.8–8.5 s already meet theirs, never falling through holds (0 of
+  234 drops), longest frame (152–208 ms at 150 m/s, 86–99 at 60) and full detail (3.6–4.4 s for < 2 s) do not; nothing
+  measured argues for moving a target before the mechanisms are tried. Medium misses full detail (9.5–15 s) and
+  nothing pending (14.5–17 s), unverified on target hardware: no medium targets proposed.
 
 ## 10. Open questions for the owner
 

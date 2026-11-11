@@ -413,11 +413,14 @@ function travelMeasures(rec: FlightRecord): Record<string, unknown> {
 function spikes(rec: FlightRecord): Record<string, unknown> {
   const end = rec.flyAt + rec.flightS * 1000;
   const frames = (rec.recorded?.frames ?? []).filter((f) => f.t >= rec.flyAt && f.t <= end);
-  const gaps = longGaps(frames, rec.recorded?.long ?? []);
+  const long = rec.recorded?.long ?? [];
+  const gaps = longGaps(frames, long);
+  // A page that reported no long frame at all (Play's preview frame reports none) gives no cause: its gaps are unattributed, not off the thread.
+  const causes = spikeCauses(gaps).map((c) => (long.length === 0 && c.cause === 'off-thread' ? { ...c, cause: 'unattributed (no long-frame timing)' } : c));
   return {
     pageFrames: frames.length,
     longFrames: (rec.recorded?.long ?? []).filter((f) => f.t >= rec.flyAt && f.t <= end).length,
-    causes: spikeCauses(gaps),
+    causes,
     worst: [...gaps].sort((a, b) => b.ms - a.ms).slice(0, 12).map((g) => ({ t: Number(((g.t - rec.flyAt) / 1000).toFixed(2)), ms: g.ms, frame: g.frame, delta: g.delta })),
   };
 }
@@ -539,7 +542,6 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
     // Play holds the camera at the line's start on `start`; an export's camera starts there (its console takes commands once the game runs).
     if (WHERE === 'play') await game.debug('start');
     const stats = () => game.frame.evaluate((w) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.stats().worlds[w] ?? null, WORLD);
-    out['renderer'] = await game.frame.evaluate(() => { const c = document.querySelector('canvas#game') ?? document.querySelector('canvas'); return `${c?.getAttribute('data-tl-renderer')}/${c?.getAttribute('data-tl-renderer-state')}`; });
     const cdpBrowser = await browser.newBrowserCDPSession();
     const memory = async () => {
       const m = await processMemory(cdpBrowser);
@@ -558,6 +560,8 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
       await page.waitForTimeout(250);
     }
     out['fillS'] = Number(((settle.since - T0) / 1000).toFixed(1));
+    // The backend the game draws with once it draws (WebGPU expected; a fallback would measure another renderer).
+    out['renderer'] = await game.frame.evaluate(() => { const c = document.querySelector('canvas[data-tl-renderer]'); return `${c?.getAttribute('data-tl-renderer')}/${c?.getAttribute('data-tl-renderer-state')}`; });
     out['memoryStart'] = await memory();
     const heapCdp = HEAP_PROFILE ? await context.newCDPSession(page) : null;
     if (heapCdp !== null) await heapCdp.send('HeapProfiler.startSampling', { samplingInterval: 16384 });
