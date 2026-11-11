@@ -115,6 +115,15 @@ not edited (an art-factory request doc may be written). three.js is not updated 
   total (page + GPU; an integrated GPU shares system memory). Replaces 46d.21's 1,024 / 1,280 MiB ceiling (that
   day's measurement plus a margin, not derived from hardware). Still no budgets for medium/high until they can be
   tested properly, but they must not end up below low.
+- 2026-11-11 (OWNER, relayed by session thirdlight-65; `docs/briefs/streaming-rings-2026-11-11.md`): **the 150 m/s
+  test measures the wrong thing** — "the more important thing during that test is that there are no large spike
+  hiccups that would make player experience feel sluggish and second, how long does it take after stopping for the
+  detail to fill in and settle around the camera." Full-detail data under a flying camera (D598, review H3) is no
+  longer a pass criterion; new measures: longest frame in flight, frames > 100 ms, after a stop the seconds until
+  ground is solid / full detail stands / nothing is pending, never falling through. **Fine bricks from GPU compute**:
+  "the gpu compute stage for brick generation at the 0.5/1m level should be attempted for anything beyond the detail
+  ring." Deferred, not to revive now: detail-piece LODs, relief, GPU tessellation of the near mesh. No whole-map
+  bake of near detail ("derived data is never stored" stays).
 
 ## 3. three.js check
 
@@ -3811,6 +3820,15 @@ L8 (load 2.0–2.3): see-through search over 600 instanced members, members move
   > 3. A 150 m/s flight: does missing ground ahead show or feel wrong? Is H3 acceptable?
   > 4. Medium/high frame times: unverified on target hardware. The workstation meter run (§10) is still wanted.
   > 5. Decisions marked "owner to confirm": the far release policy (D608), the inside-ground look (D585), the terrain-shadow proposal (static casters cost +1.6 ms at low), the WebGPU-only test suite including the parity archive (H2), and the 1.5 / 2.5 GiB split.
+
+- 2026-11-11 (lead, placement of the streaming/rings decisions): **a new sub-phase 46d-c after the 46d-b close**
+  (46d-b closes as built; review H3 is answered by the owner: superseded, D598 superseded): 46d.24 travel at speed by
+  the new measures (hitches, settle times, never falling through; mechanisms: no level 0 at speed, cancel stale
+  work, collision on its own path, a coarse fallback floor from the far field's 2 m data, D585); 46d.25 fine bricks
+  (levels 0–1) built in GPU compute past the detail ring, on demand from the chunks' voxels, never stored, behind a
+  switch beside the mesh rings and compared (D593 and 46d.12b poses, meter, fill, the speed measures, memory) before
+  anything is retired; pinned regions and path hints for games with a known route are planned there, not built
+  unless cheap. 46e still only on the owner's word.
 
 ## 10. Open questions for the owner
 
