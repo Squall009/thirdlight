@@ -706,8 +706,10 @@ test('the export draws the box field instanced and looks the same as without ins
     expect(within(d, STRICT), show(d, STRICT)).toBe(true);
     // The other frame layouts: the plain frame with MSAA (culling off draws it straight to the canvas, culling on
     // through the scene pass whose depth the pyramid reads), and under a render scale (the pyramid follows the scene
-    // pass's size).
-    for (const query of ['ao=off', 'ao=off&renderScale=0.5']) {
+    // pass's size). Under the render scale the level now upscales by TAAU even for a look without anti-aliasing, and
+    // a jittered temporal upscale gives no two frames the same pixels: the comparison pins the spatial upscale
+    // (`taau=0`, the page flag for comparisons), which is what this check is about (the pyramid at the scene pass's size).
+    for (const query of ['ao=off', 'ao=off&renderScale=0.5&taau=0']) {
       const g = await openGame(`${site.url}?${query}`);
       await onAndOff(g.game, g.canvas, `export-${query}`);
       if (query.includes('renderScale')) {

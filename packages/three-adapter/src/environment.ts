@@ -1039,11 +1039,11 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // as the archived WebGL renderer drew it at exposure 1; WebGPURenderer tone maps the whole frame, so the
     // background is laid under the picture (and metered so, `meterSource`): a colour as a uniform (at any render
     // scale, so Play under a render scale or dynamic resolution shows the sky the Scene view does), an image in
-    // its own pass. Not yet an image under a render scale (no pixel test of it there): an upscaled frame draws
-    // an image background as a post stack does (tone mapped).
+    // its own pass (before a level's TAAU, no look effect). Not yet an image under a render scale (no pixel test
+    // of it there): an upscaled frame draws an image background as a post stack does (tone mapped).
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
     const bgKind = bg === null ? null : bg.isColor === true ? 'color' : bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace ? 'image' : null;
-    const displayBackground = !isPost && hasCurve(renderer.toneMapping) && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
+    const displayBackground = !lookPost(w, postNow()) && hasCurve(renderer.toneMapping) && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
     const post = postNow();
     // The numbers the passes take as uniforms (grading, vignette, bloom) are not part of
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
