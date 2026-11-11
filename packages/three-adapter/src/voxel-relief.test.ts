@@ -202,12 +202,14 @@ describe('relief displacement', () => {
     probe.receiveShadow = true;
     const lit = new THREE.Scene().add(sun, probe);
     const withPlain = wgslOf(shadowed(wgslRenderer()), lit, probe);
-    const kept = surface.material.receivedShadowPositionNode;
-    surface.material.receivedShadowPositionNode = null;
-    surface.material.needsUpdate = true;
+    // The draw's own program (its path's: voxel-surface-path.ts).
+    const drawn = relief.material as THREE.Material & { receivedShadowPositionNode: unknown };
+    const kept = drawn.receivedShadowPositionNode;
+    drawn.receivedShadowPositionNode = null;
+    drawn.needsUpdate = true;
     const without = wgslOf(shadowed(wgslRenderer()), lit, probe);
-    surface.material.receivedShadowPositionNode = kept;
-    surface.material.needsUpdate = true;
+    drawn.receivedShadowPositionNode = kept;
+    drawn.needsUpdate = true;
     // What the shadow lookup's world position is made of in the vertex stage: the geometry's own position attribute
     // (the plain place) or the displaced local position.
     const lookupFrom = (src: string): string => {
