@@ -244,10 +244,11 @@ describe('worker pool (real module workers)', () => {
     const lastNear = Math.max(...ends.filter((e) => e.id < 1000).map((e) => e.at));
     // Every background job ended before the near stream did (a strict priority would have run them all after it).
     for (const e of ends.filter((x) => x.id >= 1000)) expect(e.at).toBeLessThan(lastNear);
-    // With the near work gone, background jobs take every worker: 8 of 40 ms run 4 at a time, ~2 rounds.
-    const t1 = performance.now();
-    await Promise.all(Array.from({ length: 8 }, (_, i) => sleep(2000 + i, 40, true)));
-    expect(performance.now() - t1).toBeLessThan(8 * 40 * 0.75);
+    // With the near work gone, background jobs take every worker: of 8, 4 are sent at once and 4 wait.
+    const eight = Array.from({ length: 8 }, (_, i) => sleep(2000 + i, 40, true));
+    expect(p.inFlight).toBe(4);
+    expect(p.backgroundQueued).toBe(4);
+    await Promise.all(eight);
     // A background job cancelled while queued never runs.
     const blockers = Array.from({ length: 4 }, (_, i) => sleep(3000 + i, 60));
     const c = sleep(3100, 0, true);
