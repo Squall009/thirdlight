@@ -1220,8 +1220,15 @@ test('Export: the Play project exported and served statically with the backend s
     expect((await observe())?.state).toBe('running');
     // Relief drawn moved by the shipped grass set's heights.
     expect(await reliefMoves(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')).toBeGreaterThan(2000);
-    // The far field from the shipped far cache, the export opened again at the low tier: bricks past the near field.
-    await game.goto(`${site.url}${exportQueryFor('webgpu')}&quality=low`);
+    // The far field from the shipped far cache, the export opened again at the low tier with the simulation in the
+    // page (`threads=off`, the fallback where a worker cannot start): the world streams there too, the character stands
+    // on it again, and bricks draw past the near field.
+    await game.goto(`${site.url}${exportQueryFor('webgpu')}&quality=low&threads=off`);
+    await expectRendererBackend(canvas, 'webgpu');
+    expect(await game.evaluate(() => (window as unknown as { __thirdlightThreading?: { mode: string } }).__thirdlightThreading?.mode ?? null)).toBe('single');
+    await expect.poll(async () => (await observe())?.counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident with the simulation in the page' }).toBe(1);
+    await expect.poll(drawn, { timeout: 60_000, intervals: [100], message: 'the world is drawn with the simulation in the page' }).toBeGreaterThan(20);
+    await expect.poll(async () => { const y = (await observe())?.player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad with the simulation in the page' }).toBe(true);
     console.log(`[voxel-export] far bricks: ${await farBeyondNear(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')} px of ground past the near field`);
     // Drawn from the baked bricks the export ships.
     expect(requests.filter((u) => bakedPaths.has(u.slice(site.url.length))).length).toBeGreaterThan(0);
