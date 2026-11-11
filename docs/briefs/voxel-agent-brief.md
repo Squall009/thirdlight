@@ -104,7 +104,10 @@ Host rules (an OOM once forced a shutdown of this host (16 GiB then, 32 GiB sinc
 Gates (owner 2026-11-11: run only what a change affects; tools/gate.sh, AGENTS.md "Gates"):
 - tools/gate.sh REFUSES uncapped runs. Every mode runs detached and capped, started only with >= 14 GB available:
   `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start <mode> …` then `tools/gate.sh wait` (NEVER run a mode
-  directly in your shell). TL_VITEST_WORKERS=6 always (an uncapped vitest OOM-killed a full gate at 8G).
+  directly in your shell). TL_VITEST_WORKERS=6 always (an uncapped vitest OOM-killed a full gate at 8G). The unit
+  is also CPU-capped (TL_GATE_CPU, default 1100% = 11 of 16 threads); the summary's last line gives the 1-minute
+  load's mean and peak (load.log). Steps run in turn: lint + vitest beside e2e was measured and backed out
+  (docs/environment.md "Gate on this host"); keep e2e at 2 workers (fast) / 3 (wide).
   - `fast [--all] [e2e files…]` per commit: build, lint, `vitest related` on the files changed since the branch's
     last green gate (~/.cache/thirdlight-logs/last-green-phase-45; whole suite with --all, without a base, or when
     package/config/gate/check files changed), the core smoke (authoring-loop, play-export), the e2e areas the

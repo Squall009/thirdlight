@@ -30,8 +30,8 @@ The server the engine is built, tested and served on (checked 2026-10-30). The 2
   `node tools/voxel-bench/run.mjs slice-world --project-dir ~/thirdlight-staging-p45/projects/voxel-slice` (in a
   capped scope, before the backend opens it); the page is
   `http://127.0.0.1:4180/voxel-world.html?project=voxel-slice&world=slice&at=0,103,-32` (token from the editor).
-- `thirdlight-gate`: the detached, memory-capped unit `tools/gate.sh start` runs a gate in (7 GB cap by default).
-  Gates and e2e tests run Chromium on the Iris Xe.
+- `thirdlight-gate`: the detached unit `tools/gate.sh start` runs a gate in, capped at 12 GB (`TL_GATE_MEM`) and
+  1100 % CPU, 11 of the 16 threads (`TL_GATE_CPU`). Gates and e2e tests run Chromium on the Iris Xe.
 
 ## Rules for runs on this host
 
@@ -44,3 +44,28 @@ The server the engine is built, tested and served on (checked 2026-10-30). The 2
   (`free -g`); one backend and one browser at a time.
 - **Performance is measured at the display's 60 Hz cap**, never uncapped (uncapped runs throttle).
 - The shell exports `NODE_ENV=production`; installs need `NODE_ENV=development`.
+
+## Gate on this host
+
+Measured 2026-11-11 (16 threads, 32 GiB). Every gate's `load.log` has the 1-minute load every 30 s; its last line
+gives the mean and peak. The load is lxcfs's, the container's own: it counts a thread the CPU cap throttles as
+runnable, so the cap bounds the CPU a gate takes, not the load it shows; worker counts set the load.
+
+| Run (vitest 6 workers, e2e 3 on the area files) | Time | 1-min load mean / peak | Memory peak |
+|---|---|---|---|
+| `fast --all`, no CPU cap | 604 s | 8.3 / 15.2 | 6.4 GB |
+| `fast --all`, CPU cap 1100 % | 614 s | 7.9 / 14.6 | 7.0 GB |
+| `area voxel rendering`, no cap / cap | 285 s / 293 s | 6.4 / 9.4, 5.2 / 7.0 | 6.1 GB |
+| `fast --all` + the 20 area files, in turn (kept) | 839 s | 7.3 / 13.1 | 6.1 GB |
+| the same, lint + vitest beside the e2e step | 694 s | 11.6 / **20.2** | 10.2 GB |
+| the same, beside it with vitest on 4 workers | 777 s (×2) | 8.1–8.4 / 12.4–13.7 | 10.3 GB |
+
+- The CPU cap is kept: it costs nothing measurable (the vitest step alone holds ~11 threads) and keeps 5 threads
+  for production, staging and the agents whatever a gate starts.
+- Running lint and vitest beside the e2e step was backed out. At 6 vitest workers the load reached 20; at 4 it
+  saved 62 s of 839 (7 %) but slowed the e2e step 30 % (voxel 174 → 235–285 s: its streaming and meshing workers
+  need the CPU too, it is not only waiting on the GPU) and a Play test timed out waiting for the world to draw
+  (`voxel-world.e2e.ts:894`, 30 s), with the memory peak at 10.3 of the 12 GB cap. So the steps run in turn.
+- A fourth e2e worker was not tried: it was to follow only a clean overlap.
+- The heaviest step is vitest's whole suite (~430 s at 6 workers, load peak 13–15 alone); a fast gate's
+  `vitest related` and the e2e step (load 7–9 at 3 workers) leave the host room.
