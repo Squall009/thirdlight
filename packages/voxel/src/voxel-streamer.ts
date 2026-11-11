@@ -20,7 +20,12 @@
  *   `derive` job (the placeholder for meshing and its kin) with its apron;
  * - with assembly rules, the chunk tree's coarser levels are built from
  *   the resident chunks and derived within their rings, after all level-0
- *   work (stream-mips.ts).
+ *   work (stream-mips.ts);
+ * - faster than {@link STREAM_DETAIL_SPEED} level 0 is held back: the
+ *   levels drawn leave it out, level-0 derives go out only for chunks in
+ *   the collision ring of a focus (what bodies are made of) and those
+ *   waiting in the pool for chunks outside it are cancelled; once the speed
+ *   has stayed down, the rest are derived nearest the focus first and drawn.
  *
  * Every job carries a tracker id and the input stamps it read; a result
  * whose chunk was edited, reloaded or had a neighbour within R change
@@ -48,6 +53,7 @@
  * chunk, so the base always stays what the files hold and a later save's
  * base hashes are of the shipped chunks.
  */
+import { StreamDetail } from './stream-detail';
 import { copyCoverage, countGround, emptyCoverage, type GroundCoverage, type GroundQuery } from './stream-coverage';
 import { checkRadius } from './apron';
 import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
@@ -272,6 +278,12 @@ export interface StreamCounters {
   refreshDropped: number;
   /** Edits (and relief ring changes, `relief.plans`) whose rebuilt sections were swapped in together. */
   swaps: number;
+  /** Of the derives, sections answered empty without a job (air with air all round). */
+  airDerives: number;
+  /** Derive jobs cancelled while still queued: their chunk unloaded, or left the collision ring while level 0 was held back. */
+  cancelledDerives: number;
+  /** Times level 0 was held back for the focus's speed, and let go again. */
+  detailHolds: number;
 }
 
 export interface StreamMetrics {
@@ -322,7 +334,7 @@ export class VoxelStreamer {
   readonly tracker: DirtyTracker;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, ground: emptyCoverage() };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, ground: emptyCoverage() };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -351,9 +363,8 @@ export class VoxelStreamer {
   private horizon = Infinity;
   private tick = 0;
   private reads = 0;
-  /** Refresh load jobs in flight. */
-  private refreshing = 0;
-  private refreshSeq = 0;
+  /** Refresh load jobs in flight, and the last refresh number given. */
+  private readonly refreshes = { live: 0, seq: 0 };
   /** Bytes the stream holds by part: chunk payloads, derived results, the runtime overlay. */
   private readonly held = { chunks: 0, derived: 0, overlay: 0 };
   /** Payloads, worker results and save bases with the overlay laid over the base. */
@@ -374,6 +385,11 @@ export class VoxelStreamer {
   readonly pieces: StreamPieces;
   /** The far field (null: none): its events go to the draws beside the stream's. */
   readonly far: FarField | null;
+  /**
+   * Level 0 held back at speed (stream-detail.ts): `detail.held` now, and `detail.bounds`, the collision ring's
+   * bounds (cells) level 0 is still derived within (its host sets them), so bodies keep the ground they are made of.
+   */
+  readonly detail: StreamDetail;
 
   constructor(opts: VoxelStreamerOptions) {
     this.opts = opts;
@@ -384,6 +400,7 @@ export class VoxelStreamer {
     const ring = opts.ring ?? DEFAULT_STREAM_RING;
     checkRing(ring);
     this.plan = new StreamReadPlan(this.grid, ring, opts.prefetchSeconds ?? STREAM_PREFETCH_SECONDS);
+    this.detail = new StreamDetail(this.grid, this.plan, () => [this.focus, ...(this.mips?.lod.extraFoci ?? [])]);
     checkRadius(this.grid.edge, opts.dependencyRadius);
     if (opts.rules !== undefined && jobRadius(opts.rules) !== opts.dependencyRadius) throw new RangeError(`dependency radius ${opts.dependencyRadius} for rules ${opts.rules.id} (needs ${jobRadius(opts.rules)})`);
     this.radius = opts.dependencyRadius;
@@ -430,6 +447,7 @@ export class VoxelStreamer {
                 }
               },
               poke: () => this.poke(),
+              deriveNow: (cx, cy, cz) => this.detail.deriveNow(cx, cy, cz),
               seamHold: (groups, chunks, surfaces, ready) => this.mips?.holdEdit(groups, chunks, surfaces, ready) ?? null,
             },
             opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
@@ -688,7 +706,13 @@ export class VoxelStreamer {
     const t0 = performance.now();
     this.tick++;
     const g = this.grid;
-    if (this.plan.update(this.focus, t0)) {
+    const replanned = this.plan.update(this.focus, t0);
+    if (this.plan.detailChanged) {
+      this.counters.detailHolds++;
+      this.mips?.lod.setDetail(!this.plan.detailHeld);
+      this.poke();
+    }
+    if (replanned) {
       if (this.plan.ringChanged) {
         if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(this.ring));
         this.mips?.lod.changed();
@@ -706,6 +730,8 @@ export class VoxelStreamer {
         else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, laneOf(this.plan, this.focus, c.cx, c.cz), motionDistance2(g, this.focus, this.plan.lead, c.cx, c.cy, c.cz));
       }
       this.mips?.focusMoved();
+      // Held back, the derives waiting in the pool for ground the focus has left are not built for nothing.
+      if (this.detail.held) this.derives?.cancelQueued((cx, cy, cz) => this.detail.collides(cx, cy, cz));
     } else if (this.heldOutside.size > 0) {
       for (const key of [...this.heldOutside]) {
         const c = this.chunks.get(key);
@@ -776,7 +802,7 @@ export class VoxelStreamer {
   }
 
   private idle(): boolean {
-    if (this.reads > 0 || this.refreshing > 0) return false;
+    if (this.reads > 0 || this.refreshes.live > 0) return false;
     for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding') return false;
     if (this.derives?.pending() === true || this.mips?.pending() === true) return false;
     for (let i = this.cursor; i < this.wanted.length; i++) {
@@ -1113,7 +1139,7 @@ export class VoxelStreamer {
     this.opts.source.invalidate?.(chunks);
     this.far?.refresh(chunks);
     const list: Chunk[] = [];
-    const token = ++this.refreshSeq;
+    const token = ++this.refreshes.seq;
     const group = this.derives?.newGroup() ?? 0;
     for (const ch of chunks) {
       if (!chunkInWorld(this.grid, ch.cx, ch.cy, ch.cz)) continue;
@@ -1174,9 +1200,9 @@ export class VoxelStreamer {
     this.tracker.expireJob(job.id);
     const stored = r.bytes.slice();
     const input: LoadInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, bytes: { stored, raw: r.raw }, hash: false };
-    this.refreshing++;
+    this.refreshes.live++;
     void this.opts.pool.submit<LoadOutput>({ id: job.id, kind: 'load', lane: 'edit', distance: c.d2, input, transfer: [stored.buffer as ArrayBuffer] }).then((o) => {
-      this.refreshing--;
+      this.refreshes.live--;
       this.poke();
       if (o.status !== 'done') {
         if (c.refresh === token) this.refreshDropped(c);

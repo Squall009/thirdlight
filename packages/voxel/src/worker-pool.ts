@@ -270,6 +270,13 @@ export class WorkerPool {
     return this.queue.update(id, lane, distance) || this.back.update(id, lane, distance);
   }
 
+  /** Cancels a job only while it waits unsent (true: it was dropped); a sent one runs on. */
+  cancelQueued(id: number): boolean {
+    const p = this.live.get(id);
+    if (p === undefined || p.settled || p.sentAt !== 0) return false;
+    return this.cancel(id);
+  }
+
   /** Cancels a job: a queued one is dropped unsent, a sent one answered now (its reply is ignored). */
   cancel(id: number): boolean {
     const p = this.live.get(id);

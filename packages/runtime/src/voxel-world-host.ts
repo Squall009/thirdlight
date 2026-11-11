@@ -323,6 +323,8 @@ export class VoxelWorldHost {
       this.bodies = new PortBodies(port, conn.grid, `voxel:${this.name}:`);
       this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: streamer, bounds: this.collisionBounds() });
     }
+    // At speed level 0 is derived only where bodies are made: the ring's bounds, with or without a physics port.
+    streamer.detail.bounds = this.collisionBounds();
     const channel = new PropLightChannel(streamer, VOXEL_SIZE_M);
     channel.apply(this.props);
     this.channel = channel;
@@ -349,6 +351,7 @@ export class VoxelWorldHost {
     if (this.streamer === null || this.disposed) return;
     applyWorldRings(this.streamer, this.settings);
     this.ring?.setBounds(this.collisionBounds());
+    this.streamer.detail.bounds = this.collisionBounds();
   }
 
   private ringsInUse(): VoxelRings {

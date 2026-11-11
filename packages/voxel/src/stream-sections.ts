@@ -113,7 +113,7 @@ export interface SectionHost {
   pieceTable(): PieceTable | null;
   /** The relief mesh a level-0 section derives beside its surfaces (absent, or null for the section: none; relief-ring.ts). */
   relief?(sx: number, sy: number, sz: number): ReliefOptions | null;
-  readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number };
+  readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number; airDerives: number; cancelledDerives: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
   /** Whether a chunk that is not resident is on its way (being read or decoded, or inside the load ring and not held back by the budget). */
@@ -124,6 +124,11 @@ export interface SectionHost {
   setPart(cx: number, cy: number, cz: number, part: string, bytes: number): boolean;
   emit(e: SectionEvent): void;
   poke(): void;
+  /**
+   * Whether a chunk's streaming derives go out now (absent: always). One that
+   * may not keeps its sections wanted, sent once it may (an edit's always go).
+   */
+  deriveNow?(cx: number, cy: number, cz: number): boolean;
   /**
    * What a group (its ids) waits for besides its sections: the drawn mip
    * nodes its edits changed, and the seams reading them or its chunks,
@@ -422,7 +427,7 @@ export class SectionDerives {
     const touched = new Set<EditGroup>();
     for (const s of list ?? []) {
       if (s.job !== 0) {
-        this.host.pool.cancel(s.job);
+        if (this.host.pool.cancel(s.job)) this.host.counters.cancelledDerives++;
         this.jobs.delete(s.job);
         s.job = 0;
       }
@@ -827,6 +832,16 @@ export class SectionDerives {
       l.push(s);
     }
     let room = this.host.pool.room();
+    // Chunks whose streaming derives may not go now keep their sections wanted (at speed: past the collision ring).
+    const now = this.host.deriveNow;
+    if (now !== undefined && room > 0) {
+      let k = 0;
+      for (const ck of rest) {
+        const s = byChunk.get(ck)![0]!;
+        if (now(s.cx, s.cy, s.cz)) rest[k++] = ck;
+      }
+      rest.length = k;
+    }
     // Streaming derives nearest the pool's key first (the focus, or the way ahead of a moving one): the set keeps the
     // order sections were wanted in, which at speed is ground already behind.
     if (room > 0 && rest.length > 1) {
@@ -853,6 +868,30 @@ export class SectionDerives {
         if (full.length > 0) room -= this.send(full, false, split);
       }
     }
+  }
+
+  /**
+   * Cancels the streaming derive jobs still waiting in the pool for chunks `keep` no longer wants derived now (the
+   * focus left them): their sections stay wanted, sent again once they are wanted now, instead of being built for
+   * nothing while the work the focus needs waits behind them. An edit's jobs are never cancelled. Returns the jobs
+   * cancelled.
+   */
+  cancelQueued(keep: (cx: number, cy: number, cz: number) => boolean): number {
+    let n = 0;
+    for (const [id, part] of [...this.jobs]) {
+      const s0 = part[0]!;
+      if (part.some((s) => s.derive === 'edit' || s.group !== null) || keep(s0.cx, s0.cy, s0.cz)) continue;
+      if (!this.host.pool.cancelQueued(id)) continue;
+      this.jobs.delete(id);
+      for (const s of part) {
+        if (s.job !== id) continue;
+        s.job = 0;
+        if (this.bySection.get(s.key) === s) this.wanted.add(s);
+      }
+      n++;
+    }
+    this.host.counters.cancelledDerives += n;
+    return n;
   }
 
   /** Lets go of held blocked sections whose group closed, whose chunk left, or whose neighbours stopped coming (the group may swap without them). */
@@ -899,6 +938,7 @@ export class SectionDerives {
     const rules = host.rules;
     if (form === 'absent' && rules === undefined) {
       // An air chunk has nothing to derive.
+      host.counters.airDerives += list.length;
       for (const s of list) this.deliver(s, EMPTY_OUTPUT, null);
       this.flushChunks();
       return 0;
@@ -910,6 +950,7 @@ export class SectionDerives {
     host.rings.apronMs.add(apronMs);
     if (!shaderOnly && form === 'absent' && apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) {
       // Air with air all around: nothing stands, nothing is drawn.
+      host.counters.airDerives += list.length;
       for (const s of list) this.deliver(s, EMPTY_OUTPUT, null);
       this.flushChunks();
       return 0;

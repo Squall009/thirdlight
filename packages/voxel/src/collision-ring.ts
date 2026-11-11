@@ -105,6 +105,20 @@ function axisGap(p: number, lo: number, edge: number): number {
   return p < lo ? lo - p : p > lo + edge ? p - lo - edge : 0;
 }
 
+/**
+ * Whether any focus is nearer than `radius` (horizontally) and `height` (vertically) to a chunk's box (cells;
+ * strictly: a box only touching the bound is out, as cells are half-open): the collision ring's test.
+ */
+export function chunkNearFoci(grid: ChunkGrid, foci: readonly Focus[], cx: number, cy: number, cz: number, radius: number, height: number): boolean {
+  const e = grid.edge;
+  for (const f of foci) {
+    const gx = axisGap(f.x, cx * e, e);
+    const gz = axisGap(f.z, cz * e, e);
+    if (gx * gx + gz * gz < radius * radius && axisGap(f.y, cy * e, e) < height) return true;
+  }
+  return false;
+}
+
 export class CollisionRing {
   private current: CollisionRingBounds;
   private readonly grid: ChunkGrid;
@@ -173,15 +187,8 @@ export class CollisionRing {
     return [best2, bestY];
   }
 
-  /** Whether any focus is nearer than the given bounds to the chunk's box (strictly: a box only touching the bound is out, as cells are half-open). */
   private within(cx: number, cy: number, cz: number, radius: number, height: number): boolean {
-    const e = this.grid.edge;
-    for (const f of this.foci) {
-      const gx = axisGap(f.x, cx * e, e);
-      const gz = axisGap(f.z, cz * e, e);
-      if (gx * gx + gz * gz < radius * radius && axisGap(f.y, cy * e, e) < height) return true;
-    }
-    return false;
+    return chunkNearFoci(this.grid, this.foci, cx, cy, cz, radius, height);
   }
 
   /**

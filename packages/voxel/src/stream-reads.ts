@@ -16,7 +16,7 @@
  *   respawn, a test moving the focus) is not motion: it resets the velocity.
  */
 import { chunkKeyOrNone, type ChunkGrid } from './coords';
-import { chunkDistance2, inLoadRing, inNearRing, pastUnloadRing, speedRing, type Focus, type StreamRing } from './stream-ring';
+import { chunkDistance2, inLoadRing, inNearRing, pastUnloadRing, speedRing, STREAM_DETAIL_SPEED, type Focus, type StreamRing } from './stream-ring';
 
 /** How far ahead of the focus's motion chunks are read (seconds of travel). */
 export const STREAM_PREFETCH_SECONDS = 1;
@@ -238,6 +238,16 @@ export class StreamReadPlan<Held> {
   readonly held: Held[] = [];
   /** The last update narrowed or widened the ring for the focus's speed (the levels kept derived follow it). */
   ringChanged = false;
+  /**
+   * Level 0 is held back for the focus's speed ({@link STREAM_DETAIL_SPEED}): set at once when the speed passes it,
+   * cleared once the speed has stayed under it for {@link STREAM_WIDEN_AFTER_MS} (a moment's dip in a fast flight must
+   * not ask for the level-0 ring's derives and draws).
+   */
+  detailHeld = false;
+  /** The last update set or cleared {@link detailHeld}. */
+  detailChanged = false;
+  /** Since when the focus's speed has been under {@link STREAM_DETAIL_SPEED} while level 0 is held (NaN: it has not). */
+  private slowSince = Number.NaN;
   private motion: FocusMotion;
   private focusChunk = Number.NaN;
   private leadChunk = Number.NaN;
@@ -298,6 +308,7 @@ export class StreamReadPlan<Held> {
     this.base = ring;
     this.current = ring;
     this.widerSince = Number.NaN;
+    this.slowSince = Number.NaN;
     this.motion = StreamReadPlan.motionFor(ring);
     this.focusChunk = Number.NaN;
     this.leadChunk = Number.NaN;
@@ -320,7 +331,9 @@ export class StreamReadPlan<Held> {
     // At speed the ring narrows to what the pool can fill (the motion stays: it is the base ring's).
     // It narrows at once and widens only once the speed has stayed down for STREAM_WIDEN_AFTER_MS: a widened ring
     // asks for the whole base ring's reads and derives, which a moment's dip in the speed must not start.
-    const ring = speedRing(this.base, this.motion.speed(now), g.edge);
+    const speed = this.motion.speed(now);
+    this.holdDetail(speed, now);
+    const ring = speedRing(this.base, speed, g.edge);
     if (ring.loadRadius > this.current.loadRadius) {
       if (Number.isNaN(this.widerSince)) this.widerSince = now;
     } else this.widerSince = Number.NaN;
@@ -338,6 +351,22 @@ export class StreamReadPlan<Held> {
     this.focusChunk = fk;
     this.leadChunk = lk;
     return true;
+  }
+
+  /** Holds level 0 back at once past {@link STREAM_DETAIL_SPEED}, and lets it go once the speed stayed under it for {@link STREAM_WIDEN_AFTER_MS}. */
+  private holdDetail(speed: number, now: number): void {
+    const held = this.detailHeld;
+    if (speed > STREAM_DETAIL_SPEED) {
+      this.slowSince = Number.NaN;
+      this.detailHeld = true;
+    } else if (held) {
+      if (Number.isNaN(this.slowSince)) this.slowSince = now;
+      if (now - this.slowSince >= STREAM_WIDEN_AFTER_MS) {
+        this.detailHeld = false;
+        this.slowSince = Number.NaN;
+      }
+    }
+    this.detailChanged = this.detailHeld !== held;
   }
 
   /**

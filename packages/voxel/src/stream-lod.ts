@@ -15,6 +15,12 @@
  * - **When to choose.** Again after a focus moved a cell or more, a node
  *   became ready or left, or the rings changed; otherwise the drawn choice
  *   stands (it is cheap when nothing changed).
+ * - **Detail held back.** While the streamer holds level 0 back for the
+ *   focus's speed ({@link StreamLod.setDetail}), the choice is made with no
+ *   level-0 ring: level 1 is drawn where level 0 would be (level 0 still
+ *   stands in only for a level-1 node not ready next to a focus, so nothing
+ *   near goes missing). When the speed falls, level 0 comes back by swaps as
+ *   its chunks are derived, nearest the focus first.
  */
 import type { ChunkGrid } from './coords';
 import { checkLevelRings, chooseLevels, DrawnLevels, type LevelNode, type LevelRings } from './lod-select';
@@ -57,6 +63,8 @@ export class StreamLod {
   private building: DrawnLevels | null = null;
   private dirty = true;
   private extra: readonly Focus[] = [];
+  /** Level 0 drawn (false: held back at speed, the choice made without its ring). */
+  private detail = true;
   private used: readonly Focus[] = [];
 
   constructor(
@@ -93,6 +101,23 @@ export class StreamLod {
     this.extra = foci.map((f) => ({ x: f.x, y: f.y, z: f.z }));
   }
 
+  /** The focus points besides the stream's own ({@link setFoci}). */
+  get extraFoci(): readonly Focus[] {
+    return this.extra;
+  }
+
+  /** Draws level 0 (true, the default) or holds it back (false: the levels are chosen with no level-0 ring); the change is one swap. */
+  setDetail(on: boolean): void {
+    if (on === this.detail) return;
+    this.detail = on;
+    this.dirty = true;
+  }
+
+  /** Whether level 0 is drawn ({@link setDetail}). */
+  get detailShown(): boolean {
+    return this.detail;
+  }
+
   /** Something a choice reads changed (a node or chunk became ready): choose again at the next update. */
   changed(): void {
     this.dirty = true;
@@ -120,7 +145,8 @@ export class StreamLod {
     const foci = this.foci();
     this.used = foci;
     const host = this.host;
-    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings: this.rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => host.ready(l, x, y, z), previous: this.chosen });
+    const rings = this.detail ? this.rings : { radii: [0, ...this.rings.radii.slice(1)], hysteresis: this.rings.hysteresis };
+    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => host.ready(l, x, y, z), previous: this.chosen });
     this.counters.choices++;
     this.counters.unbalanced = stats.unbalanced;
     this.chosen = drawn;

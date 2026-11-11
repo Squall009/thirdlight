@@ -9,11 +9,15 @@
  * under it (what its collision is made of) is resident and derived after a
  * small share of the jobs that refill the ring. How often the ground is
  * missing while flying is the coverage bench's to report (`run.mjs coverage`).
+ * Past STREAM_DETAIL_SPEED level 0 is held back: no level-0 derive is sent for
+ * a chunk outside the collision ring of the focus, the levels drawn add level
+ * 0 only as a stand-in beside the focus, and once the speed has stayed down
+ * level 0 comes back by swaps nearest the focus first.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chunkGrid, createWorldStore, jobRadius, motionDistance2, speedRing, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VoxelStreamer, WorkerPool, WORLD_RULES, type PaletteStore, type StreamRing } from '@thirdlight/voxel';
+import { chunkGrid, chunkNearFoci, createWorldStore, jobRadius, levelNodeDistance, motionDistance2, speedRing, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VoxelStreamer, WorkerPool, WORLD_RULES, type Focus, type LevelNode, type PaletteStore, type PoolJob, type StreamRing } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pickStore, surfaceY } from './regions';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
@@ -131,4 +135,78 @@ describe('streaming at racing speed', () => {
     expect(knownAt, `ground known after ${knownAt} of the refill's ${refill} jobs`).toBeLessThan(refill / 10);
     console.log(`speed ${JSON.stringify({ ...inFlight, knownAfterJobs: knownAt, refillJobs: refill, speedRings: flight.counters.speedRings })}`);
   }, 120_000);
+  it('holds level 0 back at 150 m/s: no level-0 derive past the collision ring, level 0 drawn only as a stand-in beside the focus; stopped, it comes back nearest first (real workers)', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    closers.push(() => disk.close());
+    const pool = new WorkerPool({ size: 4, create: () => nodePoolWorker(workerFile), timeoutMs: 10_000, maxQueued: 256 });
+    closers.push(() => pool.close());
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool, ring: RING, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES });
+    expect(s.mips).not.toBeNull();
+    let focus: Focus = { x: 0, y: 0, z: 0 };
+    // Every level-0 derive job sent while level 0 is held, against the collision ring round the focus it was sent at.
+    let held = 0;
+    let outside = 0;
+    const submit = pool.submit.bind(pool);
+    pool.submit = ((job: PoolJob) => {
+      const input = job.input as { chunk?: { cx: number; cy: number; cz: number }; level?: number };
+      if (job.kind === 'derive' && input.level === undefined && s.detail.held && input.chunk !== undefined) {
+        held++;
+        const b = s.detail.bounds;
+        if (!chunkNearFoci(grid, [focus], input.chunk.cx, input.chunk.cy, input.chunk.cz, b.keepRadius, b.keepHeight)) outside++;
+      }
+      return submit(job);
+    }) as typeof pool.submit;
+    // Level-0 nodes the level choice adds, held or not, with their distance from the focus then.
+    // A swap being built when the hold begins was chosen before it (one swap is built at a time, and shown whole):
+    // its level 0 counts as chosen unheld.
+    const added: Array<{ held: boolean; d: number }> = [];
+    let heldSwaps = 0;
+    s.on((e) => {
+      if (e.type !== 'levels' || e.reason !== 'swap') return;
+      const held = s.detail.held && heldSwaps++ > 0;
+      for (const n of e.added as readonly LevelNode[]) if (n.level === 0) added.push({ held, d: levelNodeDistance(grid, [focus], n) });
+      if (!s.detail.held) heldSwaps = 0;
+    });
+    const yAt = (x: number) => (surfaceY(oracle, Math.round(x), 0, 600, -200) ?? 0) + 60;
+    const x0 = -HALF + 96, x1 = HALF - 96;
+    focus = { x: x0, y: yAt(x0), z: 0 };
+    s.setFocus(focus.x, focus.y, focus.z);
+    await s.settle();
+    expect(added.length).toBeGreaterThan(0);
+    const settled = added.length;
+    const t0 = performance.now();
+    let x = x0;
+    let heldUpdates = 0;
+    while (x < x1) {
+      x = Math.min(x1, x0 + (SPEED * (performance.now() - t0)) / 1000);
+      focus = { x, y: yAt(x), z: 0 };
+      s.setFocus(focus.x, focus.y, focus.z);
+      s.update();
+      if (s.detail.held) heldUpdates++;
+      await sleep(8);
+    }
+    expect(heldUpdates).toBeGreaterThan(0);
+    expect(s.counters.detailHolds).toBe(1);
+    // Held, every level-0 derive went to a chunk bodies are made of; the level choice added level 0 only as the
+    // stand-in for a level-1 node not ready next to the focus (within two chunks, and the hysteresis of one drawn).
+    expect(outside).toBe(0);
+    const inFlight = added.slice(settled).filter((a) => a.held);
+    for (const a of inFlight) expect(a.d).toBeLessThanOrEqual(64 + 16);
+    // Stopped: held on until the speed stayed down, then let go once.
+    for (let i = 0; i < 5000 && s.detail.held; i++) {
+      s.update();
+      await sleep(8);
+    }
+    expect(s.detail.held).toBe(false);
+    expect(s.counters.detailHolds).toBe(2);
+    const back = added.length;
+    await s.settle();
+    const after = added.slice(back).map((a) => a.d);
+    expect(after.length).toBeGreaterThan(8);
+    // Nearest first: the first third of level 0 to come back lies nearer the focus than the last third.
+    const third = Math.floor(after.length / 3);
+    const mean = (a: number[]): number => a.reduce((n, v) => n + v, 0) / a.length;
+    expect(mean(after.slice(0, third))).toBeLessThan(mean(after.slice(-third)));
+    console.log(`detail ${JSON.stringify({ heldUpdates, heldDerives: held, standIns: inFlight.length, back: after.length, cancelledDerives: s.counters.cancelledDerives, airDerives: s.counters.airDerives, derives: s.counters.derives })}`);
+  }, 180_000);
 });

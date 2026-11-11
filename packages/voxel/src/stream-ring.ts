@@ -145,6 +145,18 @@ export const RESIDENT_CHUNK_OVERHEAD_BYTES = 96;
  */
 export const STREAM_FULL_RING_SPEED = 40;
 
+/**
+ * Travel speed (cells a second; 40 m/s) above which the near field draws no
+ * level 0: a 16 m chunk is crossed in under half a second, while its load,
+ * derive and draw take about that long, so what was built for it is thrown
+ * away before it is seen (at the town every frame over 100 ms was such a
+ * swap). Faster, the near field draws levels 1 and 2 and derives level 0
+ * only where bodies collide (the collision ring round each focus); once the
+ * speed stayed down for the ring's widening delay level 0 comes back,
+ * nearest the focus first.
+ */
+export const STREAM_DETAIL_SPEED = 80;
+
 /** The narrowest a load ring gets at speed (cells; 48 m): the default collision ring's radius, what a character stands on. */
 export const STREAM_MIN_SPEED_RADIUS = DEFAULT_COLLISION_RING.radius;
 
