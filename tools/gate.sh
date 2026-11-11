@@ -41,8 +41,8 @@
 # On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
 # 4.7 and 5.6 GB of anonymous memory (6.5 GB with the page cache the cap reclaims), each test
 # about 5 % slower than on 2: the cap held 3, not 4 (+0.9 GB a worker). With the voxel world's files a wide run
-# on 3 workers was OOM-killed at the old 7G cap 3 min into its e2e step (the leak test on); the host has 32 GiB
-# since 2026-11-11 and the cap is 12G: 3 again.
+# on 3 workers was OOM-killed at the old 7G cap 3 min into its e2e step (the leak test on); with the host's
+# memory raised to 32 GiB the cap is 12G: 3 again.
 set -u
 mode=${1:-}
 shift || true
@@ -240,7 +240,7 @@ unit() { # unit [--related] [files…]: the whole suite, or (a rerun) only the t
   if ! grep -qE 'Test Files .*passed' "$L/vitest.log" || grep -qE 'Test Files .*failed' "$L/vitest.log"; then
     # Like the e2e step: rerun the failed files once alone (timeouts and CPU budgets on a loaded host).
     local failed
-    # vitest colours its FAIL lines (D44): strip the escapes before matching.
+    # vitest colours its FAIL lines: strip the escapes before matching.
     failed=$(sed 's/\x1b\[[0-9;]*m//g' "$L/vitest.log" | grep -oE '^ *FAIL +[^ ]+\.(test|spec)\.[cm]?[jt]s' | awk '{print $2}' | sort -u | tr '\n' ' ')
     if [ -n "$failed" ]; then
       say "vitest: rerunning failed files alone: $failed"

@@ -7,7 +7,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkHistory, commentRanges, historyHits, historyMarkers } from './history-comments.mjs';
+import { checkHistory, commentRanges, historyHits, historyMarkers, shellCommentRanges } from './history-comments.mjs';
 import { emitWithoutComments } from './emit-compare.mjs';
 
 const roots = [];
@@ -97,6 +97,21 @@ describe('where it looks', () => {
     expect(historyHits(src, 'packages/demo/src/a.test.tsx')).toEqual([]);
     expect(historyHits(src, 'packages/demo/tests/a.tsx')).toEqual([]);
     expect(historyHits(src, 'tools/a.tsx')).toEqual([]);
+  });
+
+  it('reads shell comments: a word-starting # outside quotes, not the #! line, $#, ${#x} or a quoted #', () => {
+    const src = [
+      '#!/usr/bin/env bash',
+      '# the gate, since 2026-11-11',
+      'echo "a # not a comment (phase 9)" \'and # this (D12)\' $# ${#x} a#b # trailing: phase 4',
+      'say "two',
+      '# lines in one string (D7)"',
+    ].join('\n');
+    expect(shellCommentRanges(src).map((c) => c.text)).toEqual(['# the gate, since 2026-11-11', '# trailing: phase 4']);
+    expect(historyHits(src, 'tools/gate.sh').map((h) => [h.line, h.name])).toEqual([
+      [2, 'date'],
+      [3, 'phase'],
+    ]);
   });
 
   it('fails a workspace with a marker in a package source and passes it once removed', () => {

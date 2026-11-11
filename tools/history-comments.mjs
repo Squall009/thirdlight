@@ -11,6 +11,8 @@
  *
  * Comments are found with the TypeScript parser, never a regex over code,
  * so string literals, template strings and regexes are not read as comments.
+ * Shell scripts (the gate, staging) are read too: a `#` that starts a word
+ * outside quotes begins a comment there.
  *
  * Usage: node tools/history-comments.mjs            (check; exit 1 on hits)
  *        node tools/history-comments.mjs --list     (print every hit)
@@ -43,7 +45,7 @@ export const HISTORY_PATTERNS = Object.freeze([
 
 /** Where the check applies: every package's sources (tests included), the tools and the repo tests. */
 export const CHECKED_ROOTS = Object.freeze(['packages', 'tools', 'tests']);
-const SOURCE_RE = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
+const SOURCE_RE = /\.(?:ts|tsx|mts|cts|js|mjs|cjs|sh)$/;
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.build', 'fixtures', '__pycache__']);
 
 function scriptKind(file) {
@@ -81,6 +83,35 @@ export function commentRanges(text, fileName = 'source.ts') {
   visit(sf);
   return { sourceFile: sf, comments: [...found.values()].sort((a, b) => a.pos - b.pos) };
 }
+
+/**
+ * Every comment in a shell script, as `{ pos, end, text }`: from a `#` that starts a word (at the line's start or
+ * after a blank) outside single and double quotes to the line's end, the `#!` line aside. `$#` and `${#x}` are not
+ * comments. Quotes are followed across lines, as the shell does; heredoc bodies are read as code.
+ */
+export function shellCommentRanges(text) {
+  const out = [];
+  let quote = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote !== '') {
+      if (ch === '\\' && quote === '"') i++;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '\\') { i++; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch === '#' && (i === 0 || /\s/.test(text[i - 1]))) {
+      const end = text.indexOf('\n', i) < 0 ? text.length : text.indexOf('\n', i);
+      if (!(i === 0 && text[1] === '!')) out.push({ pos: i, end, text: text.slice(i, end) });
+      i = end;
+    }
+  }
+  return out;
+}
+
+/** The 1-based line of a position in a text. */
+const lineAt = (text, pos) => text.slice(0, pos).split('\n').length;
 
 const TEST_CALLEES = new Set(['describe', 'it', 'test', 'suite']);
 
@@ -149,6 +180,9 @@ export function historyMarkers(text) {
 
 /** Every history hit in one file: `{ line, kind: 'comment' | 'test title' | 'string', name, match }`. */
 export function historyHits(text, fileName) {
+  if (fileName.endsWith('.sh')) {
+    return shellCommentRanges(text).flatMap((c) => historyMarkers(c.text).map((m) => ({ line: lineAt(text, c.pos), kind: 'comment', ...m })));
+  }
   const { sourceFile, comments } = commentRanges(text, fileName);
   const hits = [];
   const add = (kind, range) => {
