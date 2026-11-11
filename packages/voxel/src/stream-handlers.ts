@@ -37,6 +37,7 @@ import { farBricksTransfer } from './far-bricks';
 import { bakedFarBricks } from './far-bricks-baked';
 import { brickFarNodeBy } from './far-bricks-faces';
 import { farMeshTransfer, meshFarNode, type FarMeshInput } from './far-mesh';
+import { farGroundTops, type FarGroundInput } from './far-ground';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
 
 export interface StreamHandlerOptions {
@@ -391,6 +392,12 @@ function farBricks(opts: StreamHandlerOptions, raw: unknown): JobResult {
   }
 }
 
+/** A far node column's ground tops (far-ground.ts), the coarse floor's. */
+function farGround(opts: StreamHandlerOptions, raw: unknown): JobResult {
+  const output = farGroundTops(raw as FarGroundInput, opts.decompress);
+  return { output, transfer: [output.tops.buffer as ArrayBuffer] };
+}
+
 /** The stream job handlers ({@link serveJobs} serves them). */
 export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
   return {
@@ -402,6 +409,7 @@ export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
     seam: (input) => seam(input),
     'far-mesh': (input) => farMesh(opts, input),
     'far-bricks': (input) => farBricks(opts, input),
+    'far-ground': (input) => farGround(opts, input),
   };
 }
 

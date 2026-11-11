@@ -41,6 +41,7 @@ import {
   collisionRingBounds,
   EditCommandError,
   EditRefused,
+  FarGround,
   lightCoverageAt,
   MATERIAL_AIR,
   planeMask,
@@ -69,6 +70,7 @@ import {
   type PieceTable,
 } from '@thirdlight/voxel';
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
+import { floorColumns, VoxelFloors } from './voxel-floor';
 import {
   regionCellList,
   regionCells,
@@ -224,6 +226,8 @@ export interface VoxelHostStats {
   readonly bytes: number;
   readonly overlayBytes: number;
   readonly bodies: number;
+  /** The coarse floor's bodies now and since the world opened: added, removed, handed to the fine ground, bodies lifted. */
+  readonly floors?: { readonly count: number; readonly added: number; readonly removed: number; readonly handedOver: number; readonly lifted: number };
   readonly propChannelBytes: number;
   readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
   readonly far?: Readonly<Record<string, unknown>> & { readonly selected: number; readonly drawn: number; readonly pending: number };
@@ -242,6 +246,8 @@ export class VoxelWorldHost {
   private streamer: VoxelStreamer | null = null;
   private ring: CollisionRing | null = null;
   private bodies: PortBodies | null = null;
+  /** The coarse floor where fine collision is late (null: no physics port, or no far cache). */
+  private floors: VoxelFloors | null = null;
   /** The props' lighting occupancy over the resident chunks (null until the world is open). */
   private channel: PropLightChannel | null = null;
   /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
@@ -326,6 +332,11 @@ export class VoxelWorldHost {
     if (port !== undefined && typeof port.addStaticColliders === 'function' && typeof port.removeStaticColliders === 'function') {
       this.bodies = new PortBodies(port, conn.grid, `voxel:${this.name}:`);
       this.ring = new CollisionRing({ grid: conn.grid, bodies: this.bodies, feed: this.collisionFeed(streamer), bounds: this.collisionBounds() });
+      const far = streamer.far;
+      if (far !== null) {
+        const ground = new FarGround({ source: far.cache.source, index: () => far.cache.index(), jobId: () => far.cache.jobId(), pool: conn.pool, grid: conn.grid, poke: () => undefined });
+        this.floors = new VoxelFloors(port, conn.grid, `voxel:${this.name}:`, ground);
+      }
     }
     // The collision-only derives ask within the ring's add bounds, with or without a physics port (a test's ring reads them).
     if (streamer.collision !== null) streamer.collision.bounds = this.collisionBounds();
@@ -483,6 +494,11 @@ export class VoxelWorldHost {
     if (this.ring !== null) {
       this.ring.setFoci(collide);
       this.ring.update();
+      if (this.floors !== null) {
+        const b = this.collisionBounds();
+        const ring = this.ring;
+        this.floors.update(floorColumns(s.grid, collide, b.radius, b.keepRadius), (cx, cz) => ring.columnSettled(cx, cz, (x, y, z) => this.chunkCollides(x, y, z)));
+      }
     }
     for (let i = 0; i < this.waits.length; ) {
       const w = this.waits[i]!;
@@ -498,10 +514,11 @@ export class VoxelWorldHost {
   /**
    * Whether the world's collision under a point (world metres) is in place:
    * the world is open and every chunk of the column within the collision
-   * ring has its body from its derived ground. Without a physics port
-   * nothing collides here, so nothing waits for it.
+   * ring has its body from its derived ground, or the column has its coarse
+   * floor and the body (at height `y`, when given) is not in a cave under it.
+   * Without a physics port nothing collides here, so nothing waits for it.
    */
-  collisionReadyAt(x: number, z: number): boolean {
+  collisionReadyAt(x: number, z: number, y?: number): boolean {
     if (this.disposed) return true;
     if (this.streamer === null) return !this.opening || this.physics === undefined;
     const ring = this.ring;
@@ -511,7 +528,15 @@ export class VoxelWorldHost {
     // A chunk counts once every section has its result (or its collision-only result is in): its first `chunk` event
     // may carry only some of them (a section waits while a chunk its apron reaches is still loading), and a body let
     // go then falls through.
-    return ring.columnSettled(Math.floor(x / VOXEL_SIZE_M) >> sh, Math.floor(z / VOXEL_SIZE_M) >> sh, (cx, cy, cz) => this.chunkCollides(cx, cy, cz));
+    return ring.columnSettled(Math.floor(x / VOXEL_SIZE_M) >> sh, Math.floor(z / VOXEL_SIZE_M) >> sh, (cx, cy, cz) => this.chunkCollides(cx, cy, cz)) || this.floors?.holds(x, z, y) === true;
+  }
+
+  /**
+   * Where a body at (x, y, z) (world metres, its feet) is to be lifted to: the fine ground's height where it replaced
+   * the column's coarse floor this step and holds the body inside it; null otherwise.
+   */
+  riseAt(x: number, y: number, z: number): number | null {
+    return this.floors?.riseAt(x, y, z) ?? null;
   }
 
   /** A new run: the game's changes are dropped (the world reads as its files again, rebuilt in one swap). */
@@ -526,6 +551,7 @@ export class VoxelWorldHost {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.floors?.clear();
     this.bodies?.clear();
     this.conn?.pool.close();
     this.conn?.close?.();
@@ -568,6 +594,7 @@ export class VoxelWorldHost {
       bytes: m?.bytes.total ?? 0,
       overlayBytes: m?.bytes.overlay ?? 0,
       bodies: this.bodies?.count ?? 0,
+      ...(this.floors !== null ? { floors: { count: this.floors.count, ...this.floors.counters } } : {}),
       propChannelBytes: this.channel?.stats().bytes ?? 0,
       ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, cancelledQueued: pool.stats.cancelledQueued, cancelledSent: pool.stats.cancelledSent, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
       ...(m !== undefined ? { coverage: m.coverage } : {}),

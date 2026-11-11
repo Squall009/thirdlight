@@ -405,7 +405,7 @@ function travelMeasures(rec: FlightRecord): Record<string, unknown> {
     stopAtS: stopW === null ? null : Number(((stopW - rec.flyAt) / 1000).toFixed(2)),
     afterStop: { groundSolidS: probe.raySolidAfterStopS, bodyStandsS: probe.bodyStandsAfterStopS, bodyFreeS, detailS, nothingPendingS: viewS, simIdleS, holdS: HOLD_S, settleHoldS: SETTLE_HOLD_S },
     groundRay: { steps: probe.raySteps, solid: probe.solidShare, noHit: probe.noneShare, deep: probe.deepShare },
-    falls: { ...falls, events: falls.events.slice(0, 20), stopTrace: trace.slice(0, 80), bodyEnd: { y: (end[PROBE_COUNTERS.bodyY] ?? 0) / 100, grounded: end[PROBE_COUNTERS.grounded] === 1, suspended: end[PROBE_COUNTERS.suspended] === 1 } },
+    falls: { ...falls, events: falls.events.slice(0, 20), stopTrace: trace.slice(0, 80), bodyEnd: { y: (end[PROBE_COUNTERS.bodyY] ?? 0) / 100, grounded: end[PROBE_COUNTERS.grounded] === 1, suspended: end[PROBE_COUNTERS.suspended] === 1, onFloor: end[PROBE_COUNTERS.onFloor] === 1 } },
   };
 }
 
@@ -630,9 +630,9 @@ async function main(): Promise<void> {
   const out = await run(path, stopAt);
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, `${JSON.stringify(out, null, 1)}\n`);
-  const t = out['travel'] as { flight?: unknown; afterStop?: unknown; falls?: { drops: number; fellThrough: number } } | undefined;
+  const t = out['travel'] as { flight?: unknown; afterStop?: unknown; falls?: { drops: number; fellThrough: number; end?: unknown } } | undefined;
   const h = out['holes'] as { holeFrames: number; checked: number } | undefined;
-  console.log(`flight ${JSON.stringify(t?.flight ?? null)}; after stop ${JSON.stringify(t?.afterStop ?? null)}; falls ${t?.falls?.fellThrough}/${t?.falls?.drops}; holes ${h?.holeFrames}/${h?.checked}`);
+  console.log(`flight ${JSON.stringify(t?.flight ?? null)}; after stop ${JSON.stringify(t?.afterStop ?? null)}; falls ${t?.falls?.fellThrough}/${t?.falls?.drops} end ${JSON.stringify(t?.falls?.end ?? null)}; holes ${h?.holeFrames}/${h?.checked}`);
   console.log(`coverage: ${OUT}`);
   process.exit(out['error'] === undefined ? 0 : 1);
 }

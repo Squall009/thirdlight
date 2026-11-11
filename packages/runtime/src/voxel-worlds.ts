@@ -261,10 +261,23 @@ export class RuntimeVoxels {
     return this.worlds.size > 0;
   }
 
-  /** Whether every loaded world's collision under a point (world metres) is in place. */
-  loadedAt(x: number, z: number): boolean {
-    for (const held of this.worlds.values()) if (!held.host.collisionReadyAt(x, z)) return false;
+  /** Whether every loaded world's collision under a point (world metres; `y`: the body's height, when known) is in place. */
+  loadedAt(x: number, z: number, y?: number): boolean {
+    for (const held of this.worlds.values()) if (!held.host.collisionReadyAt(x, z, y)) return false;
     return true;
+  }
+
+  /**
+   * Where a body at (x, y, z) (world metres, its feet) is lifted to this step: onto the fine ground that replaced a
+   * world's coarse floor under it and holds it inside (the highest such; null: none).
+   */
+  riseAt(x: number, y: number, z: number): number | null {
+    let top: number | null = null;
+    for (const held of this.worlds.values()) {
+      const r = held.host.riseAt(x, y, z);
+      if (r !== null && (top === null || r > top)) top = r;
+    }
+    return top;
   }
 
   /** A new run: every world's changes are dropped. */

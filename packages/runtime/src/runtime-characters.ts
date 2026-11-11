@@ -54,7 +54,7 @@ export interface CharacterHost {
   /** Where the active camera's yaw comes from, if not the camera brain (null: the brain's view). */
   yawSource(): (() => number | undefined) | null;
   /** The scenes' voxel worlds (their collision streams like the terrains'). */
-  readonly voxels: Pick<RuntimeVoxels, 'loadedAt' | 'active'>;
+  readonly voxels: Pick<RuntimeVoxels, 'loadedAt' | 'active' | 'riseAt'>;
 }
 
 export class RuntimeCharacters {
@@ -89,7 +89,7 @@ export class RuntimeCharacters {
     // A terrain tile in its ring collides once its data has arrived.
     const tileReady = (entityId: string, key: string): boolean => host.grid.terrain.tileReady(entityId, key);
     // Voxel worlds' collision streams too: a body waits over a column whose chunk bodies are not in yet.
-    this.suspension = new BodySuspension((x, z) => host.grid.stream.loadedAt(x, z, tileReady) && host.voxels.loadedAt(x, z), () => host.grid.stream.active || host.voxels.active);
+    this.suspension = new BodySuspension((x, z, y) => host.grid.stream.loadedAt(x, z, tileReady) && host.voxels.loadedAt(x, z, y), () => host.grid.stream.active || host.voxels.active);
     this.colliders = new ColliderSystem({
       get physics3d() {
         return sim_.physics3d;
@@ -166,10 +166,18 @@ export class RuntimeCharacters {
   suspendBodies(): void {
     const curr = this.sim.curr;
     const blocks = this.host.blocks;
+    // A character the fine ground holds inside it, where that ground replaced a voxel world's coarse floor under it
+    // this step, stands on it instead (the coarse floor lay lower than the fine ground there).
+    for (const id of this.controllers.ids) {
+      const t = curr.get(id);
+      if (t === undefined) continue;
+      const rise = this.host.voxels.riseAt(t.position[0], t.position[1], t.position[2]);
+      if (rise !== null) this.controllers.place3D(id, t.position[0], rise, t.position[2]);
+    }
     this.suspension.update((test) => {
       for (const id of this.controllers.ids) {
         const t = curr.get(id);
-        if (t !== undefined) test(id, t.position[0], t.position[2]);
+        if (t !== undefined) test(id, t.position[0], t.position[2], t.position[1]);
       }
       blocks?.primitives.suspensionPoints(test);
     });

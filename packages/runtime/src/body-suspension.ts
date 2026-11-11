@@ -27,8 +27,11 @@ export interface SuspensionDiagnostics {
   resumes: number;
 }
 
-/** Gives every body the engine moves: `test(id, x, z)` once per point it needs loaded (a body with any point unloaded is suspended). */
-export type SuspensionCandidates = (test: (id: string, x: number, z: number) => void) => void;
+/**
+ * Gives every body the engine moves: `test(id, x, z, y)` once per point it needs loaded (a body with any point unloaded
+ * is suspended); `y` the body's height where it is known (a coarse floor holds only bodies over it, not in a cave under it).
+ */
+export type SuspensionCandidates = (test: (id: string, x: number, z: number, y?: number) => void) => void;
 
 const NONE: ReadonlySet<string> = new Set();
 
@@ -37,9 +40,9 @@ export class BodySuspension {
   private suspensions = 0;
   private resumes = 0;
 
-  /** `loadedAt`: whether a ground column has its collision; `active`: whether anything streams (else nothing is tested). */
+  /** `loadedAt`: whether a ground column has its collision (for a body at height `y`, when known); `active`: whether anything streams (else nothing is tested). */
   constructor(
-    private readonly loadedAt: (x: number, z: number) => boolean,
+    private readonly loadedAt: (x: number, z: number, y?: number) => boolean,
     private readonly active: () => boolean,
   ) {}
 
@@ -50,8 +53,8 @@ export class BodySuspension {
       return;
     }
     let next: Set<string> | null = null;
-    candidates((id, x, z) => {
-      if (next?.has(id) === true || this.loadedAt(x, z)) return;
+    candidates((id, x, z, y) => {
+      if (next?.has(id) === true || this.loadedAt(x, z, y)) return;
       (next ??= new Set()).add(id);
     });
     this.settle(next ?? NONE);

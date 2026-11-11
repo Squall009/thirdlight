@@ -1085,7 +1085,10 @@ describe('streamer (workers, region files on disk)', () => {
     await go(128, 0);
 
     // A dig at the focus: the chunks of its swap inside the ring had their bodies replaced in the swap's own task.
+    // Bodies replaced by streaming results before the dig are not the swap's (the list counts since the last swap,
+    // and no swap came since the flight began): they are left out.
     swaps.length = 0;
+    replaced = [];
     const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [6, 6, 6], points: [128, ground(128, 0) - 1, 0], mode: 'dig', smooth: false });
     s.edit(dig);
     await s.settle();

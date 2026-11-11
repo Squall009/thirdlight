@@ -238,6 +238,7 @@ export { JobQueue } from './job-queue';
 export { defaultVoxelWorkers, eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { StreamDetail } from './stream-detail';
+export { FAR_GROUND_CACHE_BYTES, FAR_GROUND_LEVEL, FarGround, farGroundTops, type FarGroundField, type FarGroundHost, type FarGroundInput, type FarGroundOutput } from './far-ground';
 export { COLLISION_ALONE_PART, CollisionDerives, type CollisionDeriveHost, type CollisionEvent } from './stream-collision';
 export { DEFAULT_STREAM_READS, FocusMotion, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, STREAM_WIDEN_AFTER_MS, type WantedChunk } from './stream-reads';
 export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_LEVELS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, mipRingsFor, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, speedRing, STREAM_DETAIL_SPEED, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
@@ -392,7 +393,7 @@ export { EDGE_RULES, evaluateCases, evaluateEdges, levelHasCases, withCases, wit
 export { KIT_TEST_SAMPLER_PITCH, KIT_TEST_SCENE_PITCH, kitTestExhibits, kitTestScene, voxelRoleName, type KitTestExhibit, type KitTestLabel, type KitTestScene, type KitTestSceneOptions } from './kit-test-scene';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs, type CellPieceOutput } from './derived-cell';
-export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
+export { collisionBodyParts, collisionGeometry, heightfieldPart, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
 export { groundHeightfield, groundHeightfieldPatches, GROUND_HEIGHTFIELD_TOLERANCE_M, MIN_HEIGHTFIELD_PATCH_CELLS, type GroundHeightfield, type GroundHeightfieldPatches, type HeightfieldPatchOptions, type HeightfieldRefusal } from './ground-heightfield';
 export { ChunkTreeFlags, downsampleMip, MIP_OPENING_KEEP_CELLS, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export {

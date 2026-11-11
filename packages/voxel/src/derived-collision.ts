@@ -168,6 +168,19 @@ const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 const QUARTER_Y = Object.freeze({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
 
 /**
+ * A heightfield (cells of `cellM` metres, split from their (min x, min z) corner to their (+x, +z) corner) as a body
+ * part: handed to the port turned a quarter about +y, with its heights turned to match (see {@link collisionBodyParts}).
+ */
+export function heightfieldPart(h: CollisionHeightfield, cellM = VOXEL_SIZE_M): CollisionBodyPart {
+  // The part's own x runs along the chunk's −z (from the field's +z end), its own z along the chunk's +x.
+  const ownX = h.cellsZ;
+  const ownZ = h.cellsX;
+  const heights = new Float32Array((ownX + 1) * (ownZ + 1));
+  for (let u = 0; u <= ownX; u++) for (let v = 0; v <= ownZ; v++) heights[u * (ownZ + 1) + v] = h.heights[v * (h.cellsZ + 1) + (h.cellsZ - u)]!;
+  return { shape: { type: 'heightfield', cellsX: ownX, cellsZ: ownZ, cellX: cellM, cellZ: cellM, heights }, position: { x: h.x, y: 0, z: h.z + h.cellsZ * cellM }, rotation: QUARTER_Y };
+}
+
+/**
  * A chunk's collision geometry as the parts of one static compound body
  * (the editor's page and the runtime build the same body from it).
  *
@@ -179,15 +192,7 @@ const QUARTER_Y = Object.freeze({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }
  * them (`oriented`), so edges between their triangles never catch.
  */
 export function collisionBodyParts(geo: CollisionGeometry): CollisionBodyPart[] {
-  const parts: CollisionBodyPart[] = [];
-  for (const h of geo.heightfields) {
-    // The part's own x runs along the chunk's −z (from the field's +z end), its own z along the chunk's +x.
-    const ownX = h.cellsZ;
-    const ownZ = h.cellsX;
-    const heights = new Float32Array((ownX + 1) * (ownZ + 1));
-    for (let u = 0; u <= ownX; u++) for (let v = 0; v <= ownZ; v++) heights[u * (ownZ + 1) + v] = h.heights[v * (h.cellsZ + 1) + (h.cellsZ - u)]!;
-    parts.push({ shape: { type: 'heightfield', cellsX: ownX, cellsZ: ownZ, cellX: VOXEL_SIZE_M, cellZ: VOXEL_SIZE_M, heights }, position: { x: h.x, y: 0, z: h.z + h.cellsZ * VOXEL_SIZE_M }, rotation: QUARTER_Y });
-  }
+  const parts: CollisionBodyPart[] = geo.heightfields.map((h) => heightfieldPart(h));
   const b = geo.boxes;
   for (let i = 0; i < b.length; i += 6) parts.push({ shape: { type: 'box', hx: b[i + 3]!, hy: b[i + 4]!, hz: b[i + 5]! }, position: { x: b[i]!, y: b[i + 1]!, z: b[i + 2]! }, rotation: IDENTITY });
   for (const m of geo.meshes) parts.push({ shape: { type: 'mesh', vertices: m.vertices, indices: m.indices, oriented: true }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY });

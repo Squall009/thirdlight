@@ -54,10 +54,14 @@ describe('the dropped body', () => {
   it('counts the drops that landed, stayed suspended and fell through, and where', () => {
     const samples = [...drop(1, 0, 0, 100), ...drop(2, 2, 2.5, 100), ...drop(3, 4, 0.5, null), ...drop(4, 6, 0.3, 99.2)];
     const o = dropOutcomes(samples);
+    // A drop standing on a coarse floor at its end counts as on the floor.
+    expect(dropOutcomes(drop(1, 0, 0, 100).map((s) => ({ ...s, onFloor: true }))).end).toEqual({ suspended: 0, onFloor: 1, onFine: 0 });
     expect(o.drops).toBe(4);
     expect(o.landed).toBe(2);
     expect(o.suspendedOnly).toBe(1);
     expect(o.fellThrough).toBe(1);
+    // At their last readings: the second still suspended, the third falling, the others standing on fine collision.
+    expect(o.end).toEqual({ suspended: 1, onFloor: 0, onFine: 2 });
     expect(o.events[0]!.drop).toBe(3);
     expect(o.events[0]!.y).toBeLessThan(100 - FALL_THROUGH_M);
   });

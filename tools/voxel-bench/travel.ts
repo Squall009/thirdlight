@@ -81,6 +81,8 @@ export interface BodySample {
   readonly y: number;
   readonly grounded: boolean;
   readonly suspended: boolean;
+  /** It stood on a voxel world's coarse floor (the far cache's 2 m ground), not on fine collision. */
+  readonly onFloor?: boolean;
 }
 
 /** How far under the ground the probe's origin must be, falling, to have fallen through (metres): past the 2 m cells' error and the capsule's half height. */
@@ -94,6 +96,8 @@ export interface DropOutcomes {
   readonly suspendedOnly: number;
   /** Not suspended, not standing, and {@link FALL_THROUGH_M} under the ground: through the ground. */
   readonly fellThrough: number;
+  /** At its last reading: still suspended, standing on the coarse floor, standing on fine collision (the rest were falling or in the air). */
+  readonly end: { readonly suspended: number; readonly onFloor: number; readonly onFine: number };
   readonly events: ReadonlyArray<{ readonly drop: number; readonly t: number; readonly y: number; readonly groundY: number }>;
 }
 
@@ -107,14 +111,19 @@ export function dropOutcomes(samples: readonly BodySample[], depthM = FALL_THROU
   const byDrop = new Map<number, BodySample[]>();
   for (const s of samples) if (s.drop > 0) (byDrop.get(s.drop) ?? byDrop.set(s.drop, []).get(s.drop)!).push(s);
   let landed = 0, suspendedOnly = 0;
+  const end = { suspended: 0, onFloor: 0, onFine: 0 };
   const events: Array<{ drop: number; t: number; y: number; groundY: number }> = [];
   for (const [drop, list] of byDrop) {
+    const last = list.at(-1)!;
+    if (last.suspended) end.suspended++;
+    else if (last.grounded && last.onFloor === true) end.onFloor++;
+    else if (last.grounded) end.onFine++;
     if (list.some((s) => s.grounded && !s.suspended)) landed++;
     if (list.every((s) => s.suspended)) suspendedOnly++;
     const through = list.find((s) => !s.suspended && !s.grounded && s.y < s.groundY - depthM);
     if (through !== undefined) events.push({ drop, t: round2(through.t), y: round2(through.y), groundY: round2(through.groundY) });
   }
-  return { drops: byDrop.size, landed, suspendedOnly, fellThrough: events.length, events };
+  return { drops: byDrop.size, landed, suspendedOnly, fellThrough: events.length, end, events };
 }
 
 /**

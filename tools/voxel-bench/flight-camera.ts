@@ -79,7 +79,8 @@ export const PROBE_BODY = 'Perf probe character';
  * The run's counters the probe writes (`ctx.game`; read from the play's observation): the flight's distance (cm),
  * the steps the flight started and stopped at, ray steps in flight (all, solid, none hit, hit deep under the
  * ground), the first solid step after the stop, and the body: its drop, the drop point's ground (cm), its height
- * (cm), standing, suspended, the first step after the stop's drop it stood.
+ * (cm), standing, suspended, standing on a voxel world's coarse floor (its collider ids' `:floor:`), the first
+ * step after the stop's drop it stood.
  */
 export const PROBE_COUNTERS = Object.freeze({
   m: 'probe_m_cm',
@@ -95,6 +96,7 @@ export const PROBE_COUNTERS = Object.freeze({
   bodyY: 'probe_body_y_cm',
   grounded: 'probe_grounded',
   suspended: 'probe_suspended',
+  onFloor: 'probe_on_floor',
   bodyReadyStep: 'probe_body_ready_step',
 });
 
@@ -135,6 +137,7 @@ const probe = (s: any, ctx: any) => {
   put(ctx, '${C.bodyY}', Math.round(st.position.y * 100));
   put(ctx, '${C.grounded}', st.grounded ? 1 : 0);
   put(ctx, '${C.suspended}', susp ? 1 : 0);
+  put(ctx, '${C.onFloor}', st.grounded && typeof st.groundEntityId === 'string' && st.groundEntityId.startsWith('voxel:') && st.groundEntityId.includes(':floor:') ? 1 : 0);
   if (s.stopDropped && st.grounded && !susp && ctx.game.counter('${C.bodyReadyStep}') === 0 && ctx.stepIndex > s.stopStep + 2) put(ctx, '${C.bodyReadyStep}', ctx.stepIndex);
 };
 const probeReset = (ctx: any) => { for (const name of ${JSON.stringify(Object.values(C))}) put(ctx, name, 0); };

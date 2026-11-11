@@ -386,10 +386,17 @@ export class FarField {
   /** What the draws reported seen (visibility feedback; none: every node counts as seen). */
   readonly seen: FarSeenLog;
 
+  /**
+   * What reads the far cache beside the far field (the coarse floor, far-ground.ts): its source, its index once
+   * read (null before), and job ids of the far field's own id space.
+   */
+  readonly cache: { readonly source: FarNodeSource; index(): FarNodeIndex | null; jobId(): number };
+
   constructor(
     private readonly opts: FarFieldOptions,
     private readonly host: FarFieldHost,
   ) {
+    this.cache = { source: opts.source, index: () => this.index, jobId: () => this.nextId-- };
     this.seen = new FarSeenLog(opts.seenTurnMs ?? FAR_SEEN_TURN_MS, opts.source.maxLevel);
     opts.source.index().then(
       (idx) => {
