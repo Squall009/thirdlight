@@ -590,6 +590,8 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
     out['memoryEnd'] = await memory();
     await heapAt('end');
     out['drawnEnd'] = await stats();
+    // How the page made the swaps' draws: batches made over several frames, the most frames one took, the longest commit and step (ms).
+    out['staging'] = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: { stats(): { staging?: unknown } } }).__tlVoxelPlay?.stats().staging ?? null);
     if (RETURN_S > 0) {
       await game.debug('start');
       await page.waitForTimeout(RETURN_S * 1000);

@@ -2,8 +2,10 @@
  * A game page's voxel worlds as drawn: one chunk view a world, fed by the
  * batches the simulation sends (`@thirdlight/voxel` chunk-batch.ts). The
  * world runs with the simulation (a worker or the page itself); this side
- * only replaces chunk draws, each batch in the task it arrives in, so a
- * swap's chunks change between the same two frames.
+ * only replaces chunk draws, a batch's all between the same two frames: in
+ * the task it arrives in when making its draws fits what is left of the
+ * frame's budget, else made over the next frames and shown whole in one
+ * (voxel-batch-stage.ts), the batches after it waiting their turn.
  *
  * The views hang under the scene adapter's scene and draw in its world
  * coordinates, so a world's chunks lie where the scene's objects do; their
@@ -74,7 +76,8 @@ import * as THREE from 'three';
 import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
-import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
 import { DEFAULT_QUALITY_LEVELS, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, voxelWorldBlendMetres, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
 import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 import type { VoxelKitSet } from './voxel-kit-pieces';
@@ -207,6 +210,18 @@ interface WorldDraw {
   unlink: () => void;
 }
 
+/** A batch received and not shown yet: its stage once its draws are being made. */
+interface Waiting {
+  readonly b: ChunkDrawBatch;
+  readonly at: number;
+  stage: VoxelBatchStage | null;
+  /** ms spent making it so far. */
+  ms: number;
+}
+
+/** Frame intervals the staging budget is taken from (the median of the newest). */
+const BUDGET_FRAMES = 8;
+
 /** Edits kept for measurements. */
 const EDITS_KEPT = 64;
 /** Frame times kept (wall-clock ms): a few seconds at a high refresh rate. */
@@ -214,8 +229,12 @@ const FRAMES_KEPT = 600;
 
 export class VoxelWorldDraws {
   private readonly worlds = new Map<string, WorldDraw>();
-  /** Batches waiting for the renderer (the adapter starts asynchronously). */
-  private readonly waiting: ChunkDrawBatch[] = [];
+  /** Batches waiting for the renderer (the adapter starts asynchronously) or for their draws to be made, oldest first. */
+  private readonly waiting: Waiting[] = [];
+  /** ms spent making and showing batches since the last animation frame. */
+  private spent = 0;
+  /** Batches made over more than one frame, the most frames one took, and the longest ms showing one took (its commit) and making a step of one. */
+  readonly staging = { spread: 0, framesMax: 0, commitMsMax: 0, prepareMsMax: 0 };
   private readonly frameTimes: number[] = [];
   /** Edits drawn, waiting for the frame that shows them. */
   private unseen: { e: Omit<VoxelEditToScreen, 'visibleMs' | 'frames'>; editAt: number }[] = [];
@@ -386,13 +405,45 @@ export class VoxelWorldDraws {
     this.opts.report(name, w.view.chunkBytes(), w.coarse, w.kits);
   }
 
-  /** A batch from the simulation: applied now when the renderer can take it, else at the first frame it can. */
+  /**
+   * A batch from the simulation: shown now when the renderer can take it and its draws fit the frame's budget, else
+   * made over the next frames and shown whole in one; later batches wait for it.
+   */
   receive(b: ChunkDrawBatch): void {
     if (this.disposed) return;
     this.batches++;
-    const at = wallClock();
-    if (this.waiting.length > 0 || !this.apply(b, at)) this.waiting.push(b);
+    this.waiting.push({ b, at: wallClock(), stage: null, ms: 0 });
+    this.pump();
     this.loop();
+  }
+
+  /**
+   * Makes and shows waiting batches in order within what is left of this frame's budget (at least one draw a frame,
+   * so a batch always moves on). Without animation frames (a test, a worker) every batch is shown whole at once.
+   */
+  private pump(): void {
+    const frames = typeof requestAnimationFrame === 'function';
+    const budget = voxelBatchFrameMs(this.frameInterval());
+    while (this.waiting.length > 0) {
+      // Past the budget nothing more is made until the next frame (which begins with none spent, so it makes at least one draw).
+      if (frames && this.spent >= budget) return;
+      const w = this.waiting[0]!;
+      const t0 = performance.now();
+      const shown = this.step(w, frames ? () => this.spent + (performance.now() - t0) < budget : () => true);
+      const ms = performance.now() - t0;
+      this.spent += ms;
+      w.ms += ms;
+      if (!shown) return;
+      this.waiting.shift();
+    }
+  }
+
+  /** The median of the page's newest frame intervals (null: too few frames yet). */
+  private frameInterval(): number | null {
+    const t = this.frameTimes;
+    if (t.length <= BUDGET_FRAMES) return null;
+    const d = Array.from({ length: BUDGET_FRAMES }, (_, i) => t[t.length - 1 - i]! - t[t.length - 2 - i]!).sort((a, b) => a - b);
+    return d[BUDGET_FRAMES >> 1]!;
   }
 
   private loop(): void {
@@ -409,7 +460,8 @@ export class VoxelWorldDraws {
       }
       this.unseen = [];
       if (this.edits.length > EDITS_KEPT) this.edits.splice(0, this.edits.length - EDITS_KEPT);
-      while (this.waiting.length > 0 && this.apply(this.waiting[0]!, now)) this.waiting.shift();
+      this.spent = 0;
+      this.pump();
       for (const w of this.worlds.values()) w.surface.grids.frame();
       this.capArrays();
       if (this.worlds.size > 0 || this.waiting.length > 0) this.loop();
@@ -448,6 +500,7 @@ export class VoxelWorldDraws {
   private close(name: string): void {
     const w = this.worlds.get(name);
     if (w === undefined) return;
+    for (const q of this.waiting) if (q.stage?.view === w.view) q.stage.discard();
     this.worlds.delete(name);
     w.unlink();
     w.view.root.removeFromParent();
@@ -455,20 +508,34 @@ export class VoxelWorldDraws {
     w.surface.dispose();
   }
 
-  /** False: the renderer or the scene is not there yet (nothing was applied). */
-  private apply(b: ChunkDrawBatch, receivedAt: number): boolean {
+  /**
+   * Makes more of a waiting batch's draws while `more()` says so and shows the batch once they are all made; true
+   * when it was shown. False also while the renderer or the scene is not there yet (nothing was made).
+   */
+  private step(q: Waiting, more: () => boolean): boolean {
+    const b = q.b;
     if (b.closed === true) {
       this.close(b.world);
       this.opts.applied?.();
       return true;
     }
-    const scene = this.opts.scene();
-    const renderer = this.opts.renderer();
-    if (scene === null || renderer === null) return false;
+    if (q.stage === null) {
+      const scene = this.opts.scene();
+      const renderer = this.opts.renderer();
+      if (scene === null || renderer === null) return false;
+      q.stage = new VoxelBatchStage(this.world(b.world, b.edge, scene, renderer).view, b);
+    }
     const t0 = performance.now();
-    const w = this.world(b.world, b.edge, scene, renderer);
+    const ready = q.stage.prepare(more);
+    this.staging.prepareMsMax = Math.max(this.staging.prepareMsMax, performance.now() - t0);
+    if (!ready) return false;
+    const w = this.worlds.get(b.world)!;
     if (b.relief !== undefined) this.giveRelief(w, b.relief);
-    const done = applyChunkDrawBatch(w.view, b);
+    const t1 = performance.now();
+    const done = q.stage.commit();
+    this.staging.commitMsMax = Math.max(this.staging.commitMsMax, performance.now() - t1);
+    if (q.stage.steps > 1) this.staging.spread++;
+    this.staging.framesMax = Math.max(this.staging.framesMax, q.stage.steps);
     this.replaced += done.chunkBytes.length / 4;
     this.applied++;
     const was = [w.coarse, w.kits];
@@ -476,8 +543,8 @@ export class VoxelWorldDraws {
     w.kits = this.kitBytes();
     if (done.chunkBytes.length > 0 || was[0] !== w.coarse || was[1] !== w.kits) this.opts.report(b.world, done.chunkBytes, w.coarse, w.kits);
     this.opts.applied?.();
-    const applyMs = performance.now() - t0;
-    const hopMs = receivedAt - b.sentAt;
+    const applyMs = q.ms + performance.now() - t0;
+    const hopMs = q.at - b.sentAt;
     for (const s of b.swaps) {
       this.unseen.push({ e: { world: b.world, groups: s.groups, sections: s.sections, chunks: s.chunks, swapMs: s.ms, hopMs, applyMs }, editAt: b.sentAt - s.ms });
     }
@@ -485,10 +552,10 @@ export class VoxelWorldDraws {
   }
 
   /** What is drawn (diagnostics and tests). */
-  stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
+  stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number; staging: VoxelWorldDraws['staging'] } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
     for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes, feedback: view.far.feedbackStats } };
-    return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
+    return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length, staging: { ...this.staging } };
   }
 
   dispose(): void {
@@ -498,6 +565,7 @@ export class VoxelWorldDraws {
     this.kitLoaded?.();
     this.kitLoaded = null;
     for (const name of [...this.worlds.keys()]) this.close(name);
+    for (const q of this.waiting) q.stage?.discard();
     this.waiting.length = 0;
     if (this.arrays !== null) for (const t of Object.values(this.arrays.textures)) if (t !== undefined) this.opts.release?.(t);
     this.arrays = null;

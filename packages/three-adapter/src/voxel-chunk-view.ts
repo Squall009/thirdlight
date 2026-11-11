@@ -76,7 +76,6 @@ import {
   surfaceOwnerOf,
   SURFACE_VERTEX_BYTES,
   VOXEL_SIZE_M,
-  type ChunkDrawBatch,
   type ChunkGrid,
   type FarSeenWire,
   type FloatingOrigin,
@@ -221,7 +220,7 @@ function casterMaterial(): THREE.Material {
 /** A seam piece: positions in the finer level's steps from its origin (finer-level cells). */
 export type VoxelSeamPiece = SeamPieceWire;
 
-interface ChunkDraw {
+export interface ChunkDraw {
   readonly group: THREE.Group;
   /** The object's corner, level-0 cells. */
   readonly cell: readonly [number, number, number];
@@ -244,6 +243,26 @@ interface ChunkDraw {
   readonly decalSurface: THREE.Mesh | null;
   /** Its surface mesh (null: none), whose program follows its grid ({@link voxelDrawPath}). */
   readonly mesh: THREE.Mesh | null;
+}
+
+/** A draw's kit pieces as runs in the view's piece draws, the instances they hold, and whether some waited for kit meshes. */
+interface PieceRuns {
+  readonly runs: readonly PieceRun[];
+  readonly instances: number;
+  readonly waiting: boolean;
+}
+
+/** A chunk's (or node's) draw made and not shown yet ({@link VoxelChunkView.prepare}); `draw` null: nothing to draw, its commit removes the chunk. */
+export interface VoxelPreparedDraw {
+  readonly cx: number;
+  readonly cy: number;
+  readonly cz: number;
+  readonly level: number;
+  readonly key: number;
+  readonly draw: ChunkDraw | null;
+  readonly runs: PieceRuns;
+  /** The kits its pieces were made from. */
+  readonly kits: VoxelKitSet | null;
 }
 
 /** What the view tells of the surfaces clipped decals may be cut from (the scene's clipped decals). */
@@ -471,7 +490,7 @@ export class VoxelChunkView {
 
   /** Builds again the pieces of every drawn chunk and node that waited for kit meshes, then tells {@link rebuilt}. */
   private buildWaiting(): void {
-    for (const map of this.levels) for (const m of map?.values() ?? []) if (m.waiting) this.buildPieces(m);
+    for (const map of this.levels) for (const m of map?.values() ?? []) if (m.waiting) this.givePieces(m, this.pieceRuns(m));
     this.flushPieces();
     this.rebuilt?.();
   }
@@ -567,10 +586,24 @@ export class VoxelChunkView {
    * entry. Returns the bytes it holds (meshes and grid).
    */
   set(cx: number, cy: number, cz: number, d: VoxelChunkDraw | null, level = 0): number {
-    this.remove(cx, cy, cz, level);
-    if (d === null) return 0;
+    if (d === null) {
+      this.remove(cx, cy, cz, level);
+      return 0;
+    }
+    return this.commit(this.prepare(cx, cy, cz, d, level));
+  }
+
+  /**
+   * Builds a chunk's (or node's) draw without showing it: its meshes, its
+   * kit pieces' instance data and its shader grid (uploaded into a region of
+   * its own, so the draw it replaces keeps reading its old one) are made,
+   * nothing drawn changes until {@link commit}. The shader grid is read from
+   * {@link cells} now. What a draw costs to make is here; showing it is
+   * cheap, so a swap's draws can be made over several frames and shown in
+   * one ({@link VoxelBatchStage}).
+   */
+  prepare(cx: number, cy: number, cz: number, d: VoxelChunkDraw, level = 0): VoxelPreparedDraw {
     const key = chunkKey(this.grid, cx, cy, cz);
-    this.meshBuilds++;
     const group = new THREE.Group();
     group.name = level === 0 ? `voxel-chunk ${cx},${cy},${cz}` : `voxel-node ${level}:${cx},${cy},${cz}`;
     group.matrixAutoUpdate = false;
@@ -599,35 +632,59 @@ export class VoxelChunkView {
         decalSurface = mesh;
       }
       group.add(mesh);
-      if (level === 0) this.pickable.push(mesh);
       bytes += geometryBytes(geo);
-      this.triangles += (geo.index?.count ?? 0) / 3;
-      this.vertices += geo.getAttribute('position').count;
-      if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) {
-        this.reliefVertices += geo.getAttribute('position').count;
-        bytes += this.addCaster(group, mesh, d, cellM);
-      }
+      if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) bytes += this.addCaster(group, mesh, d, cellM);
     }
     const kept = keptInstances(d.instances, this.kitEntriesOf(d));
     const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface, mesh: surfaceMesh };
-    this.buildPieces(m);
-    if (group.children.length === 0 && m.pieceBytes === 0 && !m.waiting) {
-      this.pieces.remove(m);
-      return 0;
+    const runs = this.pieceRuns(m);
+    const empty = group.children.length === 0 && runs.instances === 0 && !runs.waiting;
+    // The grid goes into a region of its own now; the draw it replaces is shown with its old one until the commit.
+    if (!empty) this.applyShader(m, d.solid);
+    return { cx, cy, cz, level, key, draw: empty ? null : m, runs, kits: this.kitSet };
+  }
+
+  /**
+   * Shows a prepared draw in place of what the chunk (or node) draws now
+   * (an empty one removes it); returns the bytes it holds. A draw prepared
+   * before the view's kits changed has its pieces built again from the kits
+   * now, as do pieces that were waiting for meshes.
+   */
+  commit(p: VoxelPreparedDraw): number {
+    this.remove(p.cx, p.cy, p.cz, p.level);
+    this.meshBuilds++;
+    const m = p.draw;
+    if (m === null) return 0;
+    if (m.mesh !== null) {
+      const geo = m.mesh.geometry;
+      if (p.level === 0) this.pickable.push(m.mesh);
+      this.triangles += (geo.index?.count ?? 0) / 3;
+      this.vertices += geo.getAttribute('position').count;
+      if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) this.reliefVertices += geo.getAttribute('position').count;
     }
-    this.place(group, cell);
-    group.visible = this.nearShown;
-    this.root.add(group);
-    if (decalSurface !== null) this.tellAdded(decalSurface);
-    let map = this.levels[level];
+    for (const c of m.group.children) if (c instanceof THREE.Mesh && c.userData[VOXEL_CASTER_KEY] === true) this.casterTriangles += ((c.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
+    this.givePieces(m, p.kits === this.kitSet && !p.runs.waiting ? p.runs : this.pieceRuns(m));
+    this.place(m.group, m.cell);
+    m.group.visible = this.nearShown;
+    this.root.add(m.group);
+    if (m.decalSurface !== null) this.tellAdded(m.decalSurface);
+    let map = this.levels[p.level];
     if (map === undefined) {
-      for (let l = this.levels.length; l <= level; l++) this.levels[l] = new Map();
-      map = this.levels[level]!;
+      for (let l = this.levels.length; l <= p.level; l++) this.levels[l] = new Map();
+      map = this.levels[p.level]!;
     }
-    map.set(key, m);
-    this.applyShader(m, d.solid);
+    map.set(p.key, m);
     this.flushPieces();
     return m.bytes;
+  }
+
+  /** Lets go of a prepared draw that will not be shown (its world closed): its grid region and meshes. */
+  discard(p: VoxelPreparedDraw): void {
+    const m = p.draw;
+    if (m === null) return;
+    if (m.region !== null) this.shading.grids.release(m.region);
+    for (const c of m.group.children) if (c instanceof THREE.Mesh) (c.geometry as THREE.BufferGeometry).dispose();
+    disposeObjectTree(m.group);
   }
 
   /**
@@ -656,7 +713,6 @@ export class VoxelChunkView {
     mesh.receiveShadow = false;
     mesh.userData[VOXEL_CASTER_KEY] = true;
     group.add(mesh);
-    this.casterTriangles += (geo.index?.count ?? 0) / 3;
     return geometryBytes(geo);
   }
 
@@ -675,7 +731,7 @@ export class VoxelChunkView {
       const wet = keptInstances(m.instances, this.kitEntriesOf({ solid })).wet;
       if (wet.some((w, k) => w !== m.wet[k])) {
         m.wet = wet;
-        this.buildPieces(m);
+        this.givePieces(m, this.pieceRuns(m));
         this.flushPieces();
       }
     }
@@ -737,16 +793,26 @@ export class VoxelChunkView {
     return (x, y, z) => cells[((x + b) * side + (z + b)) * side + (y + b)]!;
   }
 
-  /** Builds a draw's kit pieces again from its instances and the pieces the view has now, as its runs in the view's piece draws. */
-  private buildPieces(m: ChunkDraw): void {
+  /** A draw's runs in the view's piece draws (none: its pieces leave them) and its bytes from them; `pieceRuns(m)` builds them again from its instances and the kits the view has now. */
+  private givePieces(m: ChunkDraw, r: PieceRuns): void {
     m.bytes -= m.pieceBytes;
     m.pieceBytes = 0;
-    m.waiting = false;
-    const list = m.instances;
-    if (list.count === 0) {
+    m.waiting = r.waiting;
+    if (r.runs.length === 0) {
       this.pieces.remove(m);
       return;
     }
+    const e = this.grid.edge * 2 ** m.level;
+    this.pieces.set(m, [m.cell[0]!, m.cell[1]!, m.cell[2]!], e * VOXEL_SIZE_M, r.runs);
+    m.pieceBytes = r.instances * PIECE_INSTANCE_BYTES;
+    m.bytes += m.pieceBytes;
+  }
+
+  /** A draw's kit pieces as runs (one a resolved piece kind) from its instances and the kits the view has now; nothing of the view changes. */
+  private pieceRuns(m: ChunkDraw): PieceRuns {
+    const list = m.instances;
+    let waiting = false;
+    if (list.count === 0) return { runs: [], instances: 0, waiting };
     // One run a kit piece's resolved draw: its mesh (cut flush or not) and material.
     const byMesh = new Map<string, PiecePlacement & { key: string; geometry: THREE.BufferGeometry; material: THREE.Material; offsets: number[]; uPerMetre?: number; runAxis: 0 | 1 | 2 }>();
     for (let k = 0; k < list.count; k++) {
@@ -754,7 +820,7 @@ export class VoxelChunkView {
       const piece = list.data[o + 4]! | (list.data[o + 5]! << 8);
       const r = this.kitSet?.resolve(m.materials[k]!, piece, list.data[o + 6]! | (list.data[o + 7]! << 8)) ?? null;
       if (r === 'pending') {
-        m.waiting = true;
+        waiting = true;
         continue;
       }
       if (r === null) continue;
@@ -802,10 +868,7 @@ export class VoxelChunkView {
       runs.push({ kind: { key: g.key, geometry: g.geometry, material: g.material }, n, matrices, data });
       instances += n;
     }
-    const e = this.grid.edge * 2 ** m.level;
-    this.pieces.set(m, [m.cell[0]!, m.cell[1]!, m.cell[2]!], e * VOXEL_SIZE_M, runs);
-    m.pieceBytes = instances * PIECE_INSTANCE_BYTES;
-    m.bytes += m.pieceBytes;
+    return { runs, instances, waiting };
   }
 
   /** Stops drawing a chunk (unloaded, or nothing left to draw), or a node of `level`. */
@@ -962,39 +1025,4 @@ export interface VoxelBatchApplied {
   readonly seams: number;
   /** GPU bytes of the far field's draws after the batch. */
   readonly farBytes: number;
-}
-
-/**
- * Applies one batch of a world's draws to its view, all in this task: the
- * chunks' and nodes' draws, shader data and removals, then the seams. A
- * change of the levels drawn arrives whole in one batch, so the old level
- * stays drawn until the frame after the new one is complete.
- */
-export function applyChunkDrawBatch(view: VoxelChunkView, b: ChunkDrawBatch): VoxelBatchApplied {
-  return view.inBatch(() => applyBatch(view, b));
-}
-
-function applyBatch(view: VoxelChunkView, b: ChunkDrawBatch): VoxelBatchApplied {
-  const chunkBytes: number[] = [];
-  let replaced = 0;
-  for (const c of b.chunks) {
-    const level = c.level ?? 0;
-    replaced++;
-    if (c.kind === 'remove') {
-      view.remove(c.cx, c.cy, c.cz, level);
-      continue;
-    }
-    if (c.cells !== undefined) view.cells.set(c.cells);
-    const solid = c.solid ?? 0;
-    const n = c.kind === 'shader' ? view.setShader(c.cx, c.cy, c.cz, solid, level) : view.set(c.cx, c.cy, c.cz, { ground: c.ground!, base: c.base!, ...(c.caster !== undefined ? { caster: c.caster } : {}), instances: c.instances!, solid }, level);
-    if (level === 0) chunkBytes.push(c.cx, c.cy, c.cz, n);
-  }
-  let seams = 0;
-  for (const s of b.seams ?? []) {
-    seams++;
-    if (s.kind === 'remove') view.removeSeam(s.level, s.nx, s.ny, s.nz, s.face);
-    else view.setSeam(s.level, s.nx, s.ny, s.nz, s.face, s.pieces ?? null);
-  }
-  view.far.apply(b.far, b.nearCover);
-  return { chunkBytes, coarseBytes: view.coarseBytes(), replaced, seams, farBytes: view.far.bytes };
 }

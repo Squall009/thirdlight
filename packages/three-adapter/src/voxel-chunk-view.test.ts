@@ -52,7 +52,8 @@ import {
   type StreamEvent,
 } from '@thirdlight/voxel';
 
-import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry } from './voxel-chunk-view';
+import { VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry } from './voxel-chunk-view';
+import { applyChunkDrawBatch, VoxelBatchStage } from './voxel-batch-stage';
 import { cameraRelativeModelView } from './camera-relative';
 import { VoxelKitMeshes, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { observerOf, wgslOf, wgslRenderer } from './test-wgsl';
@@ -343,8 +344,15 @@ describe('the voxel chunk view', () => {
     };
     let flush: () => void = () => {};
     const batches: ChunkDrawBatch[] = [];
+    // A batch made over several frames (one draw a step) instead of in its task, when asked.
+    let stageNext = false;
+    let staged: VoxelBatchStage | null = null;
     const batcher = new ChunkDrawBatcher('w', feed, SECTION, (b) => {
       batches.push(b);
+      if (stageNext) {
+        staged = new VoxelBatchStage(view, b);
+        return;
+      }
       const done = applyChunkDrawBatch(view, b);
       batcher.drawn(done.chunkBytes, done.coarseBytes);
     }, { schedule: (f) => (flush = f) });
@@ -417,12 +425,31 @@ describe('the voxel chunk view', () => {
     expect(seamMesh.userData[VOXEL_SURFACE_KEY]).toBe(again.userData[VOXEL_SURFACE_KEY]);
     expect(view.triangles).toBe(tris);
 
-    // Back to level 0: the node and its seam leave in the swap's batch, the level-0 chunks under it come.
+    // Back to level 0: the node and its seam leave in the swap's batch, the level-0 chunks under it come. The batch is
+    // made one draw a step (a frame each) and shown in one: until then every step leaves the view drawing the node,
+    // its seam and the old chunks, nothing of the new ones.
     drawn = new Set([...drawn].filter((k) => k !== '1,-1,-1,-1').concat(children.map((c) => `0,${c.join(',')}`)));
     emit({ type: 'seams', built: [], removed: [{ level: 1, nx: -1, ny: -1, nz: -1, face: 1 }] });
     emit({ type: 'levels', reason: 'swap', added: children.map(([nx, ny, nz]) => ({ level: 0, nx, ny, nz })), removed: [{ level: 1, nx: -1, ny: -1, nz: -1 }] });
     expect(view.levelCounts()[1]).toBe(1);
+    stageNext = true;
     flush();
+    stageNext = false;
+    const stage = staged as VoxelBatchStage | null;
+    expect(stage).not.toBeNull();
+    const shown = (): string => JSON.stringify([view.levelCounts(), view.seamCount, view.triangles, view.seamTriangles, view.root.children.map((c) => c.name).sort(), view.meshBuilds]);
+    const was = shown();
+    const entries = stage!.progress.of;
+    expect(entries).toBeGreaterThan(2);
+    let steps = 0;
+    while (!stage!.prepare(() => false)) {
+      steps++;
+      expect(shown()).toBe(was);
+    }
+    expect(steps + 1).toBe(entries);
+    expect(shown()).toBe(was);
+    const done = stage!.commit();
+    batcher.drawn(done.chunkBytes, done.coarseBytes);
     expect(view.levelCounts()[1]).toBe(0);
     expect(view.seamCount).toBe(0);
     expect(view.seamTriangles).toBe(0);

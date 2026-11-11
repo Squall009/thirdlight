@@ -32,7 +32,8 @@ import { CULLED_COPIES_ATTRIBUTE, CULLED_COPIES_KEY, INSTANCE_MATRIX_FLOATS, typ
 import { InstanceOcclusion } from './occlusion-instances';
 import { wgslOf, wgslRenderer, litScene } from './test-wgsl';
 import { isPieceDraw, pieceCopyData as copyDataAt, pieceCopyMatrix as copyMatrixAt, pieceDrawColumns as columnsOf, pieceDrawCopies as copiesOf } from './voxel-piece-draw';
-import { applyChunkDrawBatch, VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
+import { applyChunkDrawBatch } from './voxel-batch-stage';
 import { VoxelKitMeshes, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { PIECE_ANCHOR_REACH_CELLS, PIECE_SOURCE_KEY } from './voxel-piece-batches';
 import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
