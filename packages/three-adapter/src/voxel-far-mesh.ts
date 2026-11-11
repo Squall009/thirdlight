@@ -40,6 +40,7 @@ import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_VERTEX_BYTES, farBrickCount, farBricksInside, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FloatingOrigin, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
+import { disposeObjectTree } from './dispose';
 import type { N } from './effects-tsl';
 import { FarBrickAtlas, FarBrickMaterial, farNodeGeometry } from './voxel-far-bricks';
 import { FarNodeCopies } from './voxel-far-cull';
@@ -353,6 +354,8 @@ export class VoxelFarView {
       g.copies = null;
       g.mesh.removeFromParent();
       g.mesh.geometry.dispose();
+      // A group's mesh is rebuilt on every change of its nodes: its render objects hold on the one far material.
+      disposeObjectTree(g.mesh);
       g.mesh = null;
       this.triangles -= g.triangles;
       this.bricks -= g.brickCount;
@@ -443,6 +446,7 @@ export class VoxelFarView {
     for (const g of this.groups.values()) {
       g.copies?.dispose();
       g.mesh?.geometry.dispose();
+      disposeObjectTree(g.mesh);
     }
     this.groups.clear();
     this.groupOf.clear();

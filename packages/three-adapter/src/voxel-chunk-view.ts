@@ -101,6 +101,7 @@ import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from 
 import { gridPhases } from './voxel-surface-projection';
 import { AXIS_PROJECTION_LEVEL, voxelDrawPath } from './voxel-surface-path';
 import { STATIC_CASTER_KEY } from './shadow-casters';
+import { disposeObjectTree } from './dispose';
 import { markOccludee, markOccludeeGroup } from './occludees';
 import { FULL_PATH, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
@@ -833,6 +834,9 @@ export class VoxelChunkView {
         (child.geometry as THREE.BufferGeometry).dispose();
       }
     }
+    // The renderer's render objects of these meshes listen on the shared surface material and the lights, so
+    // without the objects' own dispose they (and through them every mesh's geometry arrays) outlive the chunk.
+    disposeObjectTree(m.group);
   }
 
   /**
@@ -894,6 +898,7 @@ export class VoxelChunkView {
     this.seams.delete(id);
     this.root.remove(s.mesh);
     s.mesh.geometry.dispose();
+    disposeObjectTree(s.mesh);
     this.triangles -= s.triangles;
     this.seamTriangles -= s.triangles;
   }

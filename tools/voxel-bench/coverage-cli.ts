@@ -33,6 +33,11 @@
  *   --quality LEVEL (default low)   --speed M/S (default 150)   --altitude high|hug (default high)
  *   --shots LIST  seconds into the flight to save full-size frames (default none)   --shot-dir DIR
  *   --park M      stop the flight M metres along the line   --after LIST  seconds after the flight to save frames at
+ *   --return S    after the flight, put the camera back at the line's start and read memory again S seconds on
+ *                 (what a flight leaves held once the camera is home: retention, not working set)
+ *   --heap-profile  sample the page's heap allocations from the start reading on and write, at each later reading,
+ *                 what is still live by allocation site (`<out>.heap-<reading>.json`; whole profile beside it)
+ *   --heap-snapshot LIST  readings (start,end,return) a full heap snapshot is also written at (`.heapsnapshot`)
  *   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/coverage/<quality>-<speed>-<altitude>-<tag>.json)
  *
  * How to (staging running with the 8 km world, nothing else on the GPU):
@@ -44,7 +49,7 @@
  * camera), `inStandIn`, `frames`, `memory`, `far`. Not part of `npm test`.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
@@ -74,6 +79,10 @@ const ALTITUDE = arg('altitude', 'high') as 'high' | 'hug';
 const PARK = Number(arg('park', 'Infinity'));
 /** Seconds after the flight a frame is saved at (with `--park`: whether a hole fills once the camera stands). */
 const AFTER = arg('after', '').split(',').filter((s) => s !== '').map(Number);
+const RETURN_S = Number(arg('return', '0'));
+const HEAP_PROFILE = process.argv.includes('--heap-profile');
+/** Readings (start, end, return) a full heap snapshot is written at too, with `--heap-profile`. */
+const HEAP_SNAPSHOT = arg('heap-snapshot', '').split(',').filter((s) => s !== '');
 const SHOTS = arg('shots', '').split(',').filter((s) => s !== '').map(Number);
 const SHOT_DIR = arg('shot-dir', benchDir('coverage'));
 const TAG = arg('tag', new Date().toISOString().slice(0, 16).replace(/[:T]/g, ''));
@@ -210,6 +219,41 @@ function gpuResidentMiB(pid: number): number {
   return Math.round(kib / 1024);
 }
 
+/** A process's resident set (MiB): the renderer's counts its workers (the simulation, the voxel jobs) beside the page. */
+function rssMiB(pid: number): number {
+  try {
+    const m = /^VmRSS:\s+(\d+) kB/m.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
+    return m === null ? 0 : Math.round(Number(m[1]) / 1024);
+  } catch {
+    return 0;
+  }
+}
+
+interface SamplingNode { callFrame: { functionName: string; url: string; lineNumber: number }; selfSize: number; children: SamplingNode[] }
+
+/** What a sampling heap profile holds live, by allocation site: the innermost frame and the first frame of engine code. */
+function heapSites(head: SamplingNode): { totalMiB: number; byFrame: Array<[string, number]>; byEngineFrame: Array<[string, number]> } {
+  const byFrame = new Map<string, number>();
+  const byEngine = new Map<string, number>();
+  let total = 0;
+  const name = (f: SamplingNode['callFrame']) => `${f.functionName || '(anon)'} ${f.url.replace(/^.*\//, '')}:${f.lineNumber + 1}`;
+  const walk = (n: SamplingNode, stack: SamplingNode['callFrame'][]) => {
+    const here = [...stack, n.callFrame];
+    if (n.selfSize > 0) {
+      total += n.selfSize;
+      const top = name(n.callFrame);
+      byFrame.set(top, (byFrame.get(top) ?? 0) + n.selfSize);
+      const engine = [...here].reverse().find((f) => /\/(game|play|assets|engine)[^/]*\.js|\.mjs|chunk-|voxel|three-adapter|game-host/.test(f.url) && !/three\.(webgpu|module|core)/.test(f.url));
+      const e = engine === undefined ? `(no engine frame) ${top}` : `${name(engine)} <- ${top}`;
+      byEngine.set(e, (byEngine.get(e) ?? 0) + n.selfSize);
+    }
+    for (const c of n.children) walk(c, here);
+  };
+  walk(head, []);
+  const mib = (m: Map<string, number>) => [...m].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([k, v]) => [k, Number((v / 2 ** 20).toFixed(1))] as [string, number]);
+  return { totalMiB: Number((total / 2 ** 20).toFixed(1)), byFrame: mib(byFrame), byEngineFrame: mib(byEngine) };
+}
+
 interface Hook {
   meter: { record(seconds: number): Promise<number[]> };
   farSolidAt(world: string, x: number, y: number, z: number): { level: number; inside: boolean } | null;
@@ -275,6 +319,8 @@ async function main(): Promise<void> {
     const memory = async () => {
       const info = (await cdpBrowser.send('SystemInfo.getProcessInfo')) as { processInfo: Array<{ type: string; id: number }> };
       const pid = info.processInfo.find((p) => p.type === 'GPU')?.id;
+      const rendererRssMiB = info.processInfo.filter((p) => p.type === 'renderer').reduce((n, p) => n + rssMiB(p.id), 0);
+      const gpuProcessRssMiB = pid === undefined ? null : rssMiB(pid);
       const pageHeapMiB = await canvas.evaluate(() => Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 2 ** 20));
       const gpuMiB = pid === undefined ? null : gpuResidentMiB(pid);
       // What the heap holds once garbage is collected (the page's own heap reading counts garbage not yet collected).
@@ -282,7 +328,7 @@ async function main(): Promise<void> {
         (globalThis as unknown as { gc?: () => void }).gc?.();
         return Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 2 ** 20);
       });
-      return { pageHeapMiB, pageHeapLiveMiB, gpuMiB, farGpuMiB: Math.round(((await stats())?.far.gpuBytes ?? 0) / 2 ** 20) };
+      return { pageHeapMiB, pageHeapLiveMiB, gpuMiB, rendererRssMiB, gpuProcessRssMiB, farGpuMiB: Math.round(((await stats())?.far.gpuBytes ?? 0) / 2 ** 20) };
     };
     // The fill at the line's start: until the far field drawn stays the same for 5 s.
     const T0 = Date.now();
@@ -302,6 +348,30 @@ async function main(): Promise<void> {
     }
     out['fillS'] = Number(((since - T0) / 1000).toFixed(1));
     out['memoryStart'] = await memory();
+    const heapCdp = HEAP_PROFILE ? await context.newCDPSession(page) : null;
+    if (heapCdp !== null) await heapCdp.send('HeapProfiler.startSampling', { samplingInterval: 16384 });
+    const heapAt = async (label: string): Promise<void> => {
+      if (heapCdp === null) return;
+      await canvas.evaluate(() => (globalThis as unknown as { gc?: () => void }).gc?.());
+      const { profile } = (await heapCdp.send('HeapProfiler.getSamplingProfile')) as { profile: { head: SamplingNode } };
+      const file = OUT.replace(/\.json$/, `.heap-${label}.json`);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify({ label, sites: heapSites(profile.head) }, null, 1));
+      if (HEAP_SNAPSHOT.includes(label)) {
+        // The whole heap with its retainers (array buffers' backing stores among its native nodes), streamed to disk.
+        const snap = file.replace(/\.json$/, '.heapsnapshot');
+        const fd = openSync(snap, 'w');
+        const onChunk = (e: { chunk: string }) => void writeSync(fd, e.chunk);
+        heapCdp.on('HeapProfiler.addHeapSnapshotChunk', onChunk);
+        await heapCdp.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false, captureNumericValue: false });
+        heapCdp.off('HeapProfiler.addHeapSnapshotChunk', onChunk);
+        closeSync(fd);
+      }
+      writeFileSync(file.replace(/\.json$/, '.profile.json'), JSON.stringify(profile));
+      (out['heapProfiles'] as Record<string, string> | undefined) ?? (out['heapProfiles'] = {});
+      (out['heapProfiles'] as Record<string, string>)[label] = file;
+    };
+    await heapAt('start');
     const simStart = await sim();
     out['simStart'] = { far: simStart?.['far'] ?? null, coverage: simStart?.['coverage'] ?? null };
 
@@ -375,9 +445,20 @@ async function main(): Promise<void> {
     polling = false;
     await Promise.all([poll, simPoll]);
     out['memoryEnd'] = await memory();
+    await heapAt('end');
     const simEnd = await sim();
     out['simEnd'] = { far: simEnd?.['far'] ?? null, coverage: simEnd?.['coverage'] ?? null, stream: simEnd?.['stream']?.['lod'] ?? null };
     out['drawnEnd'] = await stats();
+    if (RETURN_S > 0) {
+      // Home again: what the flight's places still hold once the camera stands where it started.
+      await control({ command: 'debugCommand', name: 'start' });
+      await page.waitForTimeout(RETURN_S * 1000);
+      out['memoryReturn'] = await memory();
+      await heapAt('return');
+      const simBack = await sim();
+      out['simReturn'] = { far: simBack?.['far'] ?? null, stream: simBack?.['stream'] ?? null };
+      out['drawnReturn'] = await stats();
+    }
     out['frames'] = frameWindow(intervals, CAP);
     // Holes: frames with key pixels below the ground row, per km, as events (runs of such frames), with their places.
     const inFlight = checks.filter((c) => c.t <= flightS);

@@ -41,6 +41,7 @@
 import * as THREE from 'three';
 import { VOXEL_SIZE_M, type FloatingOrigin } from '@thirdlight/voxel';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
+import { disposeObjectTree } from './dispose';
 import { applyObjectDecalLayers } from './projected-decals';
 import { PieceDraw } from './voxel-piece-draw';
 import { TRIM_RUN_ATTRIBUTE } from './voxel-trim-u';
@@ -320,6 +321,8 @@ export class VoxelPieceBatches {
   private drop(b: Batch): void {
     if (b.draw === null) return;
     this.root.remove(b.draw.mesh);
+    // Its render objects hold on the kind's shared material until the mesh itself is disposed.
+    disposeObjectTree(b.draw.mesh);
     b.draw.dispose();
     b.draw = null;
     b.capacity = 0;

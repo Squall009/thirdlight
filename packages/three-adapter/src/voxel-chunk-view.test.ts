@@ -17,6 +17,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { Backend, Renderer } from 'three/webgpu';
 import {
   buildApron,
   ChunkDrawBatcher,
@@ -221,6 +222,55 @@ describe('the voxel chunk view', () => {
     expect(view.instances).toBe(0);
     expect(view.regions).toBe(0);
     expect(view.pickable).toHaveLength(0);
+  });
+
+  it('lets go of every removed chunk in three\'s own render objects: after many moves only the drawn ones are held', async () => {
+    // Three's renderer (the pinned release) on a backend that draws nothing: its RenderObjects are the ones a frame makes.
+    class Quiet extends (Backend as unknown as new () => object) {
+      getDomElement(): unknown {
+        return { style: {}, width: 1, height: 1, addEventListener: () => undefined, removeEventListener: () => undefined };
+      }
+      async init(renderer: unknown): Promise<void> {
+        (this as unknown as { renderer: unknown }).renderer = renderer;
+      }
+    }
+    type Objects = { get(o: unknown, m: unknown, s: unknown, c: unknown, l: unknown, rc: unknown, cc: unknown): unknown; _renderObjects: Set<{ object: THREE.Object3D }> };
+    const three = new (Renderer as unknown as new (b: object) => { init(): Promise<unknown>; _objects: Objects; _nodes: { getForRender(): unknown }; lighting: { getNode(s: THREE.Scene, c: THREE.Camera): unknown } })(new Quiet());
+    await three.init();
+    // No program is built (the backend draws nothing): a render object's node state is empty.
+    three._nodes.getForRender = () => ({ nodeAttributes: [], createBindings: () => [] });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const lights = three.lighting.getNode(scene, camera);
+    const context = {};
+    const s = world();
+    const { view } = setup();
+    scene.add(view.root);
+    // What a frame draws: one render object a mesh (its shared surface material, the scene's lights).
+    const frame = (): void => {
+      view.root.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh !== true) return;
+        three._objects.get(o, (o as THREE.Mesh).material, scene, camera, lights, context, null);
+      });
+    };
+    const drawn = (): number => {
+      let n = 0;
+      view.root.traverse((o) => void ((o as THREE.Mesh).isMesh === true && n++));
+      return n;
+    };
+    // A window of 2 chunks slid over 12 places: every move adds one and drops the one behind.
+    for (let move = 0; move < 12; move++) {
+      const cx = (move % 2 === 0 ? 0 : -1);
+      view.set(cx, 0, move % 3 === 0 ? 0 : -1, joined(s, cx, 0, move % 3 === 0 ? 0 : -1, view.cells));
+      frame();
+      if (move > 0) view.remove(move % 2 === 0 ? -1 : 0, 0, (move - 1) % 3 === 0 ? 0 : -1);
+      frame();
+    }
+    expect(drawn()).toBeGreaterThan(0);
+    expect(three._objects._renderObjects.size).toBe(drawn());
+    for (const ro of three._objects._renderObjects) expect(ro.object.parent).not.toBeNull();
+    view.dispose();
+    expect(three._objects._renderObjects.size).toBe(0);
   });
 
   it('replaces every chunk a swap announces in the announcing task, counts their bytes, and removes unloaded chunks', () => {
