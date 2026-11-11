@@ -313,7 +313,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
-| 46d.24 | 46d.24a done (dda61ab9, 5f37e8f2): coverage bench measures hitches + settle, in an export; baseline (§8): export low 150 longest 152–208 ms (2 > 100), ground solid 0.01 s, detail 4.3 s, pending 7.8–8.2 s; medium 150 detail 14–15 s; 0 falls of 34–83 drops; spikes = one swap batch applied whole (D612). Mechanisms next |
+| 46d.24 | 46d.24a done (dda61ab9, 5f37e8f2); 46d.24b done (51d69259, 3d9acf42): swaps made over frames, shown whole (D612 fixed); no level 0 past 40 m/s, derives only in the collision ring, stale queued ones cancelled. Export low 150 longest 152–208 → 49–52 ms, missed 20–23 → 2–4/min; medium 60 108–162 → 55–76 ms; 0 > 100 ms, 0 falls; settle ±noise (§8). Next 46d.24c |
 | 46d.25 | not started (46d-c) |
 
 ## 8. Results
@@ -3219,6 +3219,62 @@ at the line's end it was free in 0.03–2.3 s in all 12 runs. Not traced (D614).
 7. **D611**: not reproduced in the strips; a `--strip` at 0.25 s steps over the flight's first 3 s at low is the
    check before any change (`voxel-chunk-view.ts` near cover by chunk, the far draw's hide).
 
+**46d.24b: the mechanisms** (51d69259, 3d9acf42; export `voxel-slice@r761` for the steps' last two columns and the
+final table, one round a step before it; Iris Xe, WebGPU, at the cap, alone on the host, uptime 19.2 d, load 1.6–4.7;
+`work/46d.24b/{s1,s2,fin,play2}-*.json`, `sum.py`, `*.uptime`). Medium frame times **unverified on target hardware**.
+
+1. **A swap made over frames, shown in one** (D612; `three-adapter/voxel-batch-stage.ts`, `VoxelChunkView.prepare/commit`,
+   `VoxelWorldDraws.pump`). Rule: a batch's draws (surface geometry, kit piece instances, the shader grid into a region
+   of its own) are made hidden within `VOXEL_BATCH_FRAME_SHARE` (a quarter) of the page's measured frame interval a frame
+   (never more than the slowest cap's: ~8 ms at 30 Hz, ~4 at 60), at least one draw a frame; once every draw is made the
+   whole batch (removals, shader changes, draws, seams, far change) is shown in one task; later batches wait. Why: the
+   atomic swap is about what is *shown* (R107: no half edit, no half-swapped level or seam), and showing is cheap (commit
+   ≤ 10.5–18.7 ms) while making is what cost 80–131 ms. A batch that fits the frame's rest still shows in its own task.
+   vitest: a level swap made one draw a step changes nothing drawn until its commit.
+2. **No level 0 at speed** (`voxel/stream-detail.ts`, `stream-reads.ts` `holdDetail`, `stream-lod.ts` `setDetail`): past
+   `STREAM_DETAIL_SPEED` (40 m/s) level 0 is held at once, let go after the speed stayed under it 1 s (the ring's
+   `STREAM_WIDEN_AFTER_MS`; a placed camera is not travel, as before). Held: the level choice has no level-0 ring
+   (level 1 drawn there; level 0 only as a stand-in next to a focus for a level-1 node not ready), level-0 derives go out
+   only for chunks within the **collision ring's keep bounds of a focus** (stream focus + characters; the host gives its
+   tier-scaled bounds) — the minimum collision kept, so bodies neither fall nor float (0 falls in every run); derive jobs
+   still queued for chunks that left those bounds are cancelled and wanted again. Let go: the held sections derive
+   nearest the focus first and level 0 returns by swaps. vitest (real workers, `stream-speed.test.ts`): 0 level-0
+   derives sent past the collision ring held, stand-ins within 80 cells, level 0 back nearest first.
+3. **Stale work**, measured (Play low 150, `play2-low-150.json` against 46d.24a's): flight section derives 281,240 →
+   156,965 (115,112 of them air answered without a job), derive checks 134,713 → 31,034, pool jobs done 66,845 → 54,623,
+   queue mean / peak 105 / 256 → 18 / 159, cancelled loads 813 → 265, queued derives cancelled 583; loads unchanged
+   (54,028, 42,778 air: an air chunk is an index read and costs no worker, its derive no apron cells). The cancel landed
+   with step 2 (it is what makes derives stale); mip and far jobs were already cancelled when their node leaves. Step 3's
+   commit only reports the pool's cancelled counts (Play diagnostics); no further mechanism was worth building.
+   Play low 150 after: longest 95.9 ms (674.8), 0 > 100 (3), detail 5.35 s (5.7), pending 9.4 s (10.2), sim idle 9.8 s.
+
+| export, per step (1 round) | baseline (46d.24a) | (1) staged swaps | (2) no level 0 at speed |
+|---|---|---|---|
+| low 150: longest / > 100 / missed a min | 152–208 / 2 / 20–23 | 86.1 / 0 / 11.0 | 68.9 / 0 / 1.8 |
+| low 150: ground / detail / pending (s) | 0.01 / 4.3–4.4 / 7.8–8.2 | 0.01 / 5.6 / 8.5 | 0.03 / 4.3 / 8.3 |
+| medium 60: longest / > 100 / missed a min | 108–162 / 1–2 / 45–46 | 75.8 / 0 / 32.2 | 56.0 / 0 / 14.6 |
+| medium 60: ground / detail / pending (s) | 0.01 / 9.5–11.8 / 14.5–15.1 | 0.01 / 11.1 / 15.3 | 0.10 / 12.1 / 14.2 |
+
+| export, after (2 rounds) | longest ms | > 100 | missed / min | ground solid | body free / stands | full detail | nothing pending | falls | hole frames |
+|---|---|---|---|---|---|---|---|---|---|
+| low 60 | 62.6–67.6 (86–99) | 0, 0 | 4.8, 4.0 (14, 11) | 0.06 (0.01) | 0.13 / 0.43–0.61 | 3.8–4.5 (3.6–4.4) | 7.3–7.8 (8.2–8.5) | 0 of 83 | 0, 0 |
+| low 150 | 48.8–51.6 (152–208) | 0, 0 (2, 2) | 1.8, 3.7 (20, 23) | 0.07–0.10 (0.01) | 0.12–0.18 / 0.34–0.36 | 4.1 (4.3–4.4) | 7.4–8.1 (7.8–8.2) | 0 of 34 | 0, 0 |
+| medium 60 | 54.7–75.7 (108–162) | 0, 0 (1, 2) | 18.7, 20.5 (46, 45) | 0.08 (0.01) | 0.19–0.25 / 0.35–0.68 | 10.5–11.3 (9.5–11.8) | 13.9–14.8 (14.5–15.1) | 0 of 83 | 5, 2 |
+| medium 150 | 57.8–66.0 (53–57) | 0, 0 | 27.4, 32.0 (21, 29) | 0.33–0.71 (0.48–0.53) | 0.94–1.01 / 1.08–1.49 | 13.1–14.9 (13.6–15.4) | 15.6–16.0 (16.0–17.3) | 0 of 34 | 2, 4 |
+
+Baseline in brackets. No frame over 100 ms in any run; batches made over 2–19 frames (13–57 a run), the longest commit
+10.5–18.7 ms, the longest single step 11–22 ms (one chunk's pieces). Settle: full detail on low 3.8–4.5 s (target < 2 s
+still missed: the refill's derives, not the page), nothing pending a little better; medium unchanged within noise.
+Ground solid got later at low (0.01 → 0.06–0.10 s, under the 0.5 s target; D615). Holes are the old places only (m ≈ 4,434
+corner artefact, m ≈ 6,833 35-px frames, now 2–4 frames there). Medium 150's missed frames did not move (GPU-bound there).
+
+**Looked at** (`work/46d.24b/strip-export-{low,medium}-150-{flight,stop}.png`, `strip-export-low-150-early-d611.png`, every
+frame opened, beside 46d.24a's). Flight: the same poses, no sky hole; t30 the massif's dark blocky cliff, medium t64 the
+black corner wedge, as before. Stop, low: the coarse stand-in to 2 s, the detail in at 4 s in the lower half (as before);
+46d.24a's grey square at 1 s is gone, the flat grey patch at 15 s is still there (D613). Medium: coarse to 4 s, detail
+from 8 s. Early low strip (12 frames, 0.25–3 s): no dark sliver at the bottom edge (D611 not reproduced).
+*Unverified:* motion at full rate (stills), medium/high on their hardware, WebGL 2 (not run), a body moving at speed.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4079,6 +4135,18 @@ at the line's end it was free in 0.03–2.3 s in all 12 runs. Not traced (D614).
   234 drops), longest frame (152–208 ms at 150 m/s, 86–99 at 60) and full detail (3.6–4.4 s for < 2 s) do not; nothing
   measured argues for moving a target before the mechanisms are tried. Medium misses full detail (9.5–15 s) and
   nothing pending (14.5–17 s), unverified on target hardware: no medium targets proposed.
+
+- 2026-11-11 (46d.24b, default chosen, owner to confirm): **a swap's batch is made within a quarter of the frame
+  interval a frame** (`VOXEL_BATCH_FRAME_SHARE`, three-adapter; ~8 ms at 30 Hz, ~4 at 60; at least one draw a frame) and
+  shown whole in one task once made; batches keep their order. The atomic swap holds for what is shown.
+- 2026-11-11 (46d.24b, default chosen, owner to confirm): **level 0 is held back past 40 m/s** (`STREAM_DETAIL_SPEED`):
+  at once above it, released after 1 s under it (the ring's widening delay). Held, level 1 is drawn where level 0 was;
+  level 0 is still derived inside the collision ring of each focus (camera and characters) so bodies keep their ground —
+  the collision-only derive is 46d.24c's.
+- 2026-11-11 (46d.24b, default chosen, owner to confirm): **what is cancelled**: level-0 derive jobs still queued for
+  chunks that left the collision ring while level 0 is held (sent jobs run on; edits never cancelled), besides what was
+  already cancelled (loads/derives of unloaded chunks, mip and far jobs of nodes that left). Air chunks get no new path:
+  measured, they cost an index read and no worker job.
 
 ## 10. Open questions for the owner
 

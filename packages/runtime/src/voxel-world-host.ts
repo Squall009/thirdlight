@@ -221,7 +221,7 @@ export interface VoxelHostStats {
   readonly overlayBytes: number;
   readonly bodies: number;
   readonly propChannelBytes: number;
-  readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
+  readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
   readonly far?: Readonly<Record<string, unknown>> & { readonly selected: number; readonly drawn: number; readonly pending: number };
   /** Streamer updates, those where the ground under the focus or a second ahead of it was not resident and derived, and those with no ground within the ring's height under the focus. */
   readonly coverage?: Readonly<GroundCoverage>;
@@ -529,7 +529,7 @@ export class VoxelWorldHost {
       overlayBytes: m?.bytes.overlay ?? 0,
       bodies: this.bodies?.count ?? 0,
       propChannelBytes: this.channel?.stats().bytes ?? 0,
-      ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
+      ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, cancelledQueued: pool.stats.cancelledQueued, cancelledSent: pool.stats.cancelledSent, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
       ...(m !== undefined ? { coverage: m.coverage } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
       ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen } } : {}),
