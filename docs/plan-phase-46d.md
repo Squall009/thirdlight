@@ -133,6 +133,8 @@ to assess against `docs/three-upgrade-checklist.md`; no update (owner-only). Ite
 in the checklist (the shadow pass's use of a material's `positionNode` for displacement, 46d.1b; fragment depth
 writes for the brick marcher, 46d.7c) add their hook to the checklist in the same commit.
 
+46d-c start (checked 2026-11-11, `npm view three time`): 0.187.0 is still the newest release on npm; nothing to assess.
+
 ## 4. Baseline (measured at the start of 46d.1a; the numbers 46d reports against)
 
 Measured by the first item before it changes anything, on staging (`tools/staging.sh`), Iris Xe, 1280 × 720, the

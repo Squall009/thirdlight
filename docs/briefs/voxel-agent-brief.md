@@ -9,7 +9,7 @@ branch code. Nothing is merged or deployed in phase 46 (the merge is 48c). tools
 folder with main, so one gate at a time still holds.
 Main at the freeze: d4053cab. Phase 46 base on the branch: aeb8114a (phase 45 done, format spec v1 APPROVED by the owner 2026-11-02).
 46a DONE at ac283f22 (2026-11-03); 46b DONE at 6ffc2031 (2026-11-04). Last D-row used: D499; NEW BLOCK D500–D599 (continue at D500).
-CURRENT SUB-PHASE: 46d-b follow-ups (plan-46d §6d; see the lead's prompt for your item). NEVER start 46e (lighting).
+CURRENT SUB-PHASE: 46d-c (see the "46d-c" section at the end; the lead's prompt names your item). NEVER start 46e (lighting).
 Code agents run one at a time (they share the worktree's dist/); a docs-only agent may run beside you.
 
 Read AGENTS.md; then the current sub-phase plan (docs/plan-phase-46a.md, 46b, 46c) IN FULL; then from
@@ -196,3 +196,10 @@ cut existing both-renderer e2e passes / two-renderer rounds in the area you touc
 46d.17–46d.20 go on compute, reusing three-adapter occlusion-pyramid.ts and occlusion-instances.ts (no second
 culling path). Vista note: docs/research/voxel-vista-performance.md (§6 supersedes §4 where they differ).
 Commit trailer now: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+46d-c (owner 2026-11-11). CURRENT SUB-PHASE = 46d-c: plan-46d §6d rows 46d.24 (travel at speed by hitches and settle
+times) and 46d.25 (fine bricks from GPU compute past the detail ring); spec = docs/briefs/streaming-rings-2026-11-11.md
+(§1 decisions, §2 measures, §4 layout). 46d-c start commit fda36fa8. D-rows continue at D612 (block D600–D699).
+Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Deferred by the owner, never revive:
+detail-piece LODs, relief, GPU tessellation of the near mesh, whole-map bake of near detail ("derived data is never
+stored" stays). Never start 46e.
