@@ -279,7 +279,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.14 | deferred (lead 2026-11-10): bricks are the default; the mesh fallback is not revised. Its flight OOM stays D581. The vista note's §5 gate replaces it: if 46d.16's meter shows the bricks cannot reach their budget, the top levels become a simplified height-field mesh |
 | 46d.16 | done (ba27e91c): headroom meter at the 60 Hz cap without timestamps (ballast to the edge, passes hidden/copied past it; `run.mjs headroom`). Iris Xe 720p town orbit: medium room 0.7–2.5 ms of ~14–16; far 39–50 %, near 28–33 %, post 19–24 %, shadows 2–4 %; ms ±40 %. High ~23–31 ms: D583 = GPU-bound, far hidden holds the cap. D587, D588 |
 | 46d.17 | done (73adedac, 287ed0d2): far node boxes rows of the culled table (frustum + pyramid in compute, far depth, drawn after the pyramid; auto culling on with a far field), covered nodes left out, depth reject before the march, F6. Medium room 0.7–1.8 → 4.5 ms, frame GPU 15–16 → 12 ms, far 6–8 → 4.4 ms; high 17/127 missed (D583). d, e measured, not kept; pictures 0.00 % >60 |
-| 46d.18 | done (f50e6ab2 step 0, ead1c53a +): TAAU on low/medium WebGPU (D591/D592). Far cache format 2 bakes every node's bricks (8 km: +300.9 MB zstd, 1,421 s staging; projection 270 MB); job 74 → 0.3 ms, Play fill low 31 → 8.5 s, medium 79 → 16 s (D596); edits rebuild farBrickDirty, reuse by content. Pictures same (0.00–0.73 % >60). D594–D597 |
+| 46d.18 | done (f50e6ab2, ead1c53a, 5c51b45a, e3dd1ec9): TAAU on low/medium WebGPU (D591/D592). Far cache format 2 bakes every node's bricks (8 km: +300.9 MB zstd, 1,421 s staging; projection 270 MB); job 74 → 0.3 ms, Play fill low 31 → 8.5 s, medium 79 → 16 s (D596); edits rebuild farBrickDirty, reuse by content. Pictures same (0.00–0.73 % >60). D594–D597 |
 | 46d.19 | not started |
 | 46d.20 | not started |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
@@ -2500,7 +2500,13 @@ the cache then equals a full build of the edited world (seams included); undo, t
 reused from the rebuilt store by content (a store opened afresh). `far-bricks-baked.test.ts` (codec, job cells,
 dirty set); `far-cache-runner.test.ts`: the backend worker's threaded bake equals the in-thread bake.
 `voxel-world.e2e.ts`: the export ships `B<level>/` files and the export's far field reads them with the backend
-stopped (two assertions in the existing test, no new test).
+stopped (two assertions in the existing test, no new test). Fast gate gate-fast-20261111-004545 red on
+`voxel-world.test.ts` (the export's far file list, now with `B<level>/`: fixed) and D418 (timed out under load);
+rerun gate-rerun-20261111-005857 red on two `rendering.e2e.ts` checks step 0 broke (a level's TAAU dropped the
+colour sky laid under the picture: fixed in the product; the culling on/off comparison under a render scale now pins
+`taau=0`, since a jittered temporal upscale gives no two equal frames); gate-rerun-20261111-010426 GREEN (village
+perf 0 missed both renderers). `voxel-world.e2e.ts` ~89.3 → 102.2 s (its tests' sum, under the gate's parallel load;
+nothing added but two assertions).
 
 **Measured** (staging, Iris Xe, Play in the editor, WebGPU, 1280 × 720, the realistic 8 km world, town orbit 3 × 8 s
 then the 2.4 km flight; before = this code on a format-1 cache (the page builds), after = the baked cache; one round
