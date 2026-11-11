@@ -300,9 +300,7 @@ runs, and the backend builds it again.
   (`ctx.voxels`) show in the near field only; edit commands reach the far
   field too.
 - On the voxel world page, `?farField=bricks|mesh|off` and `?farError=` (pixels)
-  override the quality level's; `?farRes=half` marches the bricks at half
-  resolution (a trial: silhouettes step and slopes shimmer); `?farShow=0`
-  keeps the far draws hidden.
+  override the quality level's; `?farShow=0` keeps the far draws hidden.
 
 Limits today:
 

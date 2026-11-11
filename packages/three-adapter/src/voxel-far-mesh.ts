@@ -45,7 +45,6 @@ import type { N } from './effects-tsl';
 import { FarBrickTextures } from './voxel-far-brick-field';
 import { FarBrickAtlas, FarBrickMaterial, farNodeGeometry, type FarBrickOutput } from './voxel-far-bricks';
 import { FarNodeCopies } from './voxel-far-cull';
-import { FarHalfRes, type FarHalfRenderer } from './voxel-far-half';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
 import { FarFeedback, farFeedbackMismatch, FarRegionOwners, type FarFeedbackRenderer, type FarFeedbackResult } from './voxel-far-feedback';
@@ -114,11 +113,9 @@ export class VoxelFarView {
   /** Each brick node's page (its brick table, the march's), by node key. */
   private readonly pages = new Map<string, THREE.Vector3>();
   private hidden = false;
-  /** The bricks' half-resolution pass (null: they draw in the frame). */
-  private half: FarHalfRes | null = null;
   /** The atlas's texture nodes every brick program reads (made with the atlas). */
   private textures: FarBrickTextures | null = null;
-  /** The bricks' visibility pass and shade (null: they shade in the frame, or at half resolution). */
+  /** The bricks' visibility pass and shade (null: they shade in the frame). */
   private vis: FarVisibility | null = null;
   /** The visibility pass's feedback (null: off) and who holds each brick region, by version. */
   private feedback: FarFeedback | null = null;
@@ -169,9 +166,9 @@ export class VoxelFarView {
     return this.vis?.gpuBytes ?? 0;
   }
 
-  /** How the bricks shade: in the visibility pass's one shade, at half resolution, or each fragment in the frame. */
-  get brickPass(): 'visibility' | 'half' | 'direct' {
-    return this.vis !== null ? 'visibility' : this.half !== null ? 'half' : 'direct';
+  /** How the bricks shade: in the visibility pass's one shade (WebGPU), or each fragment in the frame (WebGL 2, or the pass off). */
+  get brickPass(): 'visibility' | 'direct' {
+    return this.vis !== null ? 'visibility' : 'direct';
   }
 
   /** The visibility pass's own scene, which holds the brick draws while it is on (null: off). */
@@ -194,39 +191,6 @@ export class VoxelFarView {
     let n = 0;
     for (const g of this.groups.values()) if (g.mesh !== null) n++;
     return n;
-  }
-
-  /**
-   * Whether the bricks are marched at half resolution (voxel-far-half.ts): their draws move to the pass's own scene
-   * and a composite draws them in the frame; the host calls {@link prepare} before each frame. A change makes the
-   * brick draws and their program again (no upload).
-   */
-  setBrickHalf(on: boolean): void {
-    if (on === (this.half !== null)) return;
-    if (on) {
-      this.half = new FarHalfRes();
-      this.root.add(this.half.composite);
-    } else {
-      this.half!.composite.removeFromParent();
-      this.half!.dispose();
-      this.half = null;
-    }
-    this.remakeBrickDraws();
-  }
-
-  get brickHalf(): boolean {
-    return this.half !== null;
-  }
-
-  /** The half-resolution pass's own scene, which holds the brick draws while it is on (null: off). */
-  get halfScene(): THREE.Scene | null {
-    return this.half?.scene ?? null;
-  }
-
-  /** Before a frame (half resolution only): the brick draws marched into their target for `camera`. */
-  prepare(renderer: FarHalfRenderer, camera: THREE.Camera): void {
-    if (this.half === null || this.hidden) return;
-    this.half.prepare(renderer, camera, this.root);
   }
 
   private remakeBrickDraws(): void {
@@ -339,12 +303,12 @@ export class VoxelFarView {
   }
 
   /**
-   * The visibility pass on or off as the renderer and the half-resolution switch want it (decided when brick draws
+   * The visibility pass on or off as the renderer wants it (decided when brick draws
    * are made: three's WebGPU renderer falls back to WebGL 2 only at its first draw).
    */
   private setVisibilityPass(): void {
     const webgpu = (this.opts.renderer as { backend?: { isWebGPUBackend?: boolean } } | undefined)?.backend?.isWebGPUBackend === true;
-    const want = webgpu && this.opts.visibility !== false && this.half === null;
+    const want = webgpu && this.opts.visibility !== false;
     if (want === (this.vis !== null)) return;
     if (want) {
       this.brickAtlas();
@@ -388,7 +352,7 @@ export class VoxelFarView {
   }
 
   private brickOutput(): FarBrickOutput {
-    return this.half !== null ? 'half' : this.vis !== null ? 'visibility' : 'lit';
+    return this.vis !== null ? 'visibility' : 'lit';
   }
 
   /** Before a brick draw: when the surface's looks changed, the palette is drawn again after this frame. */
@@ -481,9 +445,8 @@ export class VoxelFarView {
       g.brickCount = nodes.reduce((n, d) => n + (d.bricks !== undefined ? farBrickCount(d.bricks) : 0), 0);
       g.bytes = geometryBytes(draws.geometry);
       mesh = new THREE.Mesh(draws.geometry, this.brickMaterial.material);
-      // Culled node by node on the GPU where the frame has the pyramid path, drawn after it (voxel-far-cull.ts); the
-      // half-resolution pass draws its own scene, whole.
-      const copies = this.half === null && draws.count > 0 ? new FarNodeCopies(mesh, draws.buffer, draws.boxes, draws.count, this.cover) : null;
+      // Culled node by node on the GPU where the frame has the pyramid path, drawn after it (voxel-far-cull.ts).
+      const copies = draws.count > 0 ? new FarNodeCopies(mesh, draws.buffer, draws.boxes, draws.count, this.cover) : null;
       g.copies = copies;
       mesh.onBeforeRender = (_r, scene) => {
         this.checkPalette();
@@ -507,7 +470,7 @@ export class VoxelFarView {
     mesh.frustumCulled = false;
     mesh.castShadow = mesh.receiveShadow = false;
     mesh.userData['voxelFar'] = g.key;
-    const parent = g.kind !== 'bricks' ? this.root : this.half !== null ? this.half.root : this.vis !== null ? this.vis.root : this.root;
+    const parent = g.kind !== 'bricks' || this.vis === null ? this.root : this.vis.root;
     parent.add(mesh);
     this.vis?.sync();
     this.place(mesh, g.cell);
@@ -567,8 +530,6 @@ export class VoxelFarView {
     this.brickMaterial?.dispose();
     this.atlas?.dispose();
     this.palette?.dispose();
-    this.half?.dispose();
-    this.half = null;
     this.vis?.dispose();
     this.vis = null;
     if (this.feedback !== null && this.opts.renderer !== undefined) this.feedback.dispose(this.opts.renderer as unknown as FarFeedbackRenderer);

@@ -49,7 +49,6 @@ import { farClipPosition, farFragmentDepth, type FarCover } from './voxel-far-co
 import { COPY_BOX_FLOAT, HIDDEN_DEPTH_MARGIN } from './occlusion-instances-rule';
 import { declareVertexReach } from './vertex-reach';
 import { FAR_BOX_FROM, FAR_BOX_STEPS, FAR_NODE_CORNER_FLOAT, FAR_NODE_FLOATS, FAR_NODE_HI_FLOAT, FAR_NODE_LO_FLOAT, FAR_NODE_PAGE_FLOAT, packFarBoxCorner } from './voxel-far-cull';
-import { farHalfOutput } from './voxel-far-half';
 import { farVisibilityMaterial, farVisibilityOutput } from './voxel-far-visibility';
 import { VoxelShaderGrids, type RegionTexels, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
@@ -264,11 +263,10 @@ export function farNodeGeometry(edge: number, g: { readonly level: number; reado
 }
 
 /**
- * What a brick draw writes: `lit` its hit shaded and lit in the frame (the march shades each fragment), `half` the
- * half-resolution target's packed colour, normal and depth (voxel-far-half.ts), `visibility` the visibility target's
+ * What a brick draw writes: `lit` its hit shaded and lit in the frame (the march shades each fragment), `visibility` the visibility target's
  * texel (voxel-far-visibility.ts: the hit's brick, place, depth and entry face; shaded once a pixel after).
  */
-export type FarBrickOutput = 'lit' | 'half' | 'visibility';
+export type FarBrickOutput = 'lit' | 'visibility';
 
 /**
  * The brick draws' material, one for every brick group: the node march, the
@@ -280,8 +278,8 @@ export class FarBrickMaterial {
   /** `nodeBricks`: bricks a side of a node (the march walks that many an axis). */
   constructor(textures: FarBrickTextures, cover: FarCover, nodeBricks = 4, readonly output: FarBrickOutput = 'lit') {
     const lit = output === 'lit';
-    const m = cameraRelative(output === 'visibility' ? (farVisibilityMaterial() as MeshStandardNodeMaterial) : lit ? new MeshStandardNodeMaterial() : (new NodeMaterial() as MeshStandardNodeMaterial));
-    m.name = `voxel far bricks${output === 'half' ? ' (half resolution)' : output === 'visibility' ? ' (visibility)' : ''}`;
+    const m = cameraRelative(lit ? new MeshStandardNodeMaterial() : (farVisibilityMaterial() as MeshStandardNodeMaterial));
+    m.name = `voxel far bricks${lit ? '' : ' (visibility)'}`;
     m.metalness = 0;
     m.roughness = 1;
     m.side = THREE.BackSide;
@@ -455,7 +453,6 @@ export class FarBrickMaterial {
     } else {
       m.colorNode = vec4(hitColour, 1);
       m.normalNode = hitNormal;
-      if (output === 'half') m.outputNode = farHalfOutput(hitColour, hitNormal, hitViewZ);
     }
     // The boxes reach past the camera's far plane: placed with the far depth, never clipped there (the fragment writes its own).
     m.vertexNode = farClipPosition();

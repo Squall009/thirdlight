@@ -482,9 +482,8 @@ drawn; the fragment enters the node's box, walks its 4³ bricks in ray order (a 
 the brick by central differences a cell either side (`FAR_BRICK_NORMAL_SPAN_CELLS`), or the entered face where the samples are clamped (deep under the surface); colour: one filtered read of
 the baked samples (the eight samples' colours and occlusions blended by the hit's weights), the occlusion darkening
 to `FAR_BRICK_AO_FLOOR` (½) at most; depth: the hit's own (`depthNode`), the same mapping as the meshes, and the boxes
-placed with that depth so none is clipped at the far plane. **Half resolution** (`voxel-far-half.ts`, the voxel world
-page only, `?farRes=half`, off by default): the brick draws marched into a half-size target before the frame and a
-lit, depth-aware composite in it (no reuse of the last frame: D574).
+placed with that depth so none is clipped at the far plane. The half-resolution march (the voxel world page's
+`?farRes=half`) was retired unused (D574, `archive/removed-phase-46d/`).
 **Visibility pass and one shade** (46d.20a; WebGPU, the default there; `voxel-far-visibility.ts`; `?farPass=direct`
 and WebGL 2 shade each fragment as above): the brick draws march in their own scene, drawn from the shade's
 `onBeforeRender` inside the frame (after the depth pyramid: culled lists and the per-pixel reject as below) into an

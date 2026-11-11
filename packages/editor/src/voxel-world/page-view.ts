@@ -53,18 +53,18 @@ export function pageLevel(quality: string, p: ReliefParams): { readonly id: stri
  * (`?farError=` pixels, default the level's) and the bricks' half-resolution march (`?farRes=half`, off by
  * default): what the streamer's far field and the view are made with.
  */
-export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean; half: boolean } {
+export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean } {
   const asked = params.get('farField');
   const mode = (FAR_FIELD_MODES as readonly string[]).includes(asked ?? '') ? (asked as FarFieldMode) : null;
   const error = params.get('farError');
   const retired = RETIRED_FAR_PARAMS.filter((k) => params.has(k));
   if (retired.length > 0) console.warn(`voxel world page: ${retired.map((k) => `?${k}`).join(', ')} ignored: ${RETIRED_FAR_SWITCHES}`);
-  return { ...farViewOf(mode ?? level.far.mode), errorPixels: error === null ? level.far.errorPixels : Number(error), pinned: mode !== null || error !== null, half: params.get('farRes') === 'half' };
+  return { ...farViewOf(mode ?? level.far.mode), errorPixels: error === null ? level.far.errorPixels : Number(error), pinned: mode !== null || error !== null };
 }
 
 /** The page's far brick switches from before one build was chosen: refused (the URL's ignored with a warning, the hook's an error). */
-const RETIRED_FAR_PARAMS = ['farBricks', 'farShade', 'farMarch'] as const;
-const RETIRED_FAR_SWITCHES = 'the far bricks have one build (faces from the children), one shading (baked) and one march (a node a box)';
+const RETIRED_FAR_PARAMS = ['farBricks', 'farShade', 'farMarch', 'farRes'] as const;
+const RETIRED_FAR_SWITCHES = 'the far bricks have one build (faces from the children), one shading (baked), one march (a node a box) at full resolution';
 
 /** WASD walks the view's target over the ground at 30 m/s along the view's yaw (`dt` ms). */
 export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: number }, target: { x: number; z: number }, dt: number): void {
@@ -78,18 +78,15 @@ export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: numb
 
 /**
  * The hook's far field controls: on or off, its mode (`mode`: bricks, mesh or off, switched without a reload), its
- * detail (pixels a far node's cell may cover), the bricks' march at half resolution (`res` `half` or `full`, as
- * `?farRes=half`; the bricks start with `half`), and a wait until it draws its selection. The retired brick switches
- * (`bricks`, `shade`, `march`) are refused.
+ * detail (pixels a far node's cell may cover), and a wait until it draws its selection. The retired brick switches
+ * (`bricks`, `shade`, `march`, `res`: the half-resolution march) are refused.
  */
-export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView, half = false): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; res?: string }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
-  view.setBrickHalf(half);
+export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: Pick<VoxelFarView, 'setVisible'>): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
   return {
     setFar: (o) => {
-      const { mode, res, ...rest } = o;
-      const retired = RETIRED_FAR_PARAMS.map((k) => (k === 'farBricks' ? 'bricks' : k === 'farShade' ? 'shade' : 'march')).filter((k) => k in rest);
+      const { mode, ...rest } = o;
+      const retired = RETIRED_FAR_PARAMS.map((k) => (k === 'farBricks' ? 'bricks' : k === 'farShade' ? 'shade' : k === 'farMarch' ? 'march' : 'res')).filter((k) => k in rest);
       if (retired.length > 0) throw new Error(`setFar: ${retired.join(', ')} retired: ${RETIRED_FAR_SWITCHES}`);
-      if (res !== undefined) view.setBrickHalf(res === 'half');
       streamer.far?.setView({ ...rest, ...(mode !== undefined ? farViewOf(mode) : {}) });
     },
     settleFar: async () => {
@@ -103,7 +100,7 @@ export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFa
 /** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
 export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
   if (streamer.far === null) return null;
-  return { ...streamer.far.metrics(), brickBuild: FAR_BRICK_BUILD, half: view.brickHalf, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+  return { ...streamer.far.metrics(), brickBuild: FAR_BRICK_BUILD, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
 }
 
 /** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */

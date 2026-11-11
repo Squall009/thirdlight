@@ -13,7 +13,7 @@ const level = pageLevel('medium', reliefParams(new URLSearchParams()));
 /** A far view and a far field recording what the hooks ask of them. */
 function targets() {
   const calls: string[] = [];
-  const view = { setBrickHalf: (on: boolean) => void calls.push(`half ${on}`), setVisible: (on: boolean) => void calls.push(`visible ${on}`) };
+  const view = { setVisible: (on: boolean) => void calls.push(`visible ${on}`) };
   const far = { setView: (o: object) => void calls.push(`view ${JSON.stringify(o)}`), settle: async () => undefined };
   return { calls, view, streamer: { far } };
 }
@@ -21,24 +21,24 @@ function targets() {
 describe('the page far field switches', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('draws bricks by default, keeps the mesh fallback and the half-resolution march as switches', () => {
+  it('draws bricks by default and keeps the mesh fallback as a switch', () => {
     expect(level.far.mode).toBe('bricks');
-    expect(pageFar(new URLSearchParams(), level)).toEqual({ enabled: true, draw: 'bricks', errorPixels: 4, pinned: false, half: false });
-    expect(pageFar(new URLSearchParams('farField=mesh&farRes=half'), level)).toEqual({ enabled: true, draw: 'mesh', errorPixels: 4, pinned: true, half: true });
+    expect(pageFar(new URLSearchParams(), level)).toEqual({ enabled: true, draw: 'bricks', errorPixels: 4, pinned: false });
+    expect(pageFar(new URLSearchParams('farField=mesh'), level)).toEqual({ enabled: true, draw: 'mesh', errorPixels: 4, pinned: true });
     const t = targets();
     const hooks = pageFarHooks(t.streamer as never, t.view as never);
-    hooks.setFar({ mode: 'mesh', res: 'half', errorPixels: 6 });
-    expect(t.calls).toEqual(['half false', 'half true', 'view {"errorPixels":6,"enabled":true,"draw":"mesh"}']);
+    hooks.setFar({ mode: 'mesh', errorPixels: 6 });
+    expect(t.calls).toEqual(['view {"errorPixels":6,"enabled":true,"draw":"mesh"}']);
   });
 
   it('refuses the retired brick switches: the URL warns and ignores them, the hook throws and applies nothing', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect(pageFar(new URLSearchParams('farBricks=occupancy&farShade=fine&farMarch=raster'), level)).toEqual(pageFar(new URLSearchParams(), level));
+    expect(pageFar(new URLSearchParams('farBricks=occupancy&farShade=fine&farMarch=raster&farRes=half'), level)).toEqual(pageFar(new URLSearchParams(), level));
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]![0])).toMatch(/\?farBricks, \?farShade, \?farMarch ignored: the far bricks have one build/);
+    expect(String(warn.mock.calls[0]![0])).toMatch(/\?farBricks, \?farShade, \?farMarch, \?farRes ignored: the far bricks have one build/);
     const t = targets();
     const hooks = pageFarHooks(t.streamer as never, t.view as never);
-    for (const o of [{ bricks: 'faces2' }, { shade: 'fine' }, { march: 'raster', mode: 'bricks' }]) expect(() => hooks.setFar(o as never)).toThrow(/retired: the far bricks have one build/);
-    expect(t.calls).toEqual(['half false']);
+    for (const o of [{ bricks: 'faces2' }, { shade: 'fine' }, { march: 'raster', mode: 'bricks' }, { res: 'half' }]) expect(() => hooks.setFar(o as never)).toThrow(/retired: the far bricks have one build/);
+    expect(t.calls).toEqual([]);
   });
 });

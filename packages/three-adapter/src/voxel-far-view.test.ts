@@ -67,7 +67,6 @@ describe('the far view', () => {
   it('draws a brick node as one instanced box over its bricks in the shared atlas, a program walking its brick table with its own depth on both backends, and swaps kinds per node', () => {
     const r = recorder();
     const v = view(r);
-    expect(v.brickHalf).toBe(false);
     const a = brickNode(0);
     const b = brickNode(1);
     v.apply({ added: [a, b], removed: [] }, undefined);
@@ -242,43 +241,6 @@ describe('the far view', () => {
     v.dispose();
   });
 
-  it('marches at half resolution: the brick draws move to the pass scene, write the packed target, and a lit composite in the frame writes their depth (both backends)', () => {
-    const r = recorder();
-    const v = view(r);
-    v.apply({ added: [brickNode(0)], removed: [] }, undefined);
-    const uploads = r.uploads.length;
-    v.setBrickHalf(true);
-    // No upload: the same atlas, the draws made again into the pass's scene; the frame keeps only the composite.
-    expect(r.uploads.length).toBe(uploads);
-    const bricks: THREE.Mesh[] = [];
-    v.halfScene!.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) bricks.push(o as THREE.Mesh);
-    });
-    expect(bricks.length).toBe(1);
-    const inFrame = v.root.children as THREE.Mesh[];
-    expect(inFrame.map((m) => m.name)).toEqual(['voxel-far half-resolution composite']);
-    expect(v.bricks).toBe(16);
-    // The half pass's program: the march with its depth, its output the packed texel (no lighting).
-    const pass = new THREE.Scene();
-    pass.add(v.halfScene!);
-    const wgsl = fragmentWgslOf(wgslRenderer(), pass, bricks[0]!);
-    expect(wgsl).toContain('frag_depth');
-    expect(fragmentWgslOf(glslRenderer(), pass, bricks[0]!)).toContain('gl_FragDepth');
-    // The composite: lit by the scene, its depth the hit's.
-    const scene = litScene();
-    scene.add(v.root);
-    const composite = fragmentWgslOf(wgslRenderer(), scene, inFrame[0]!);
-    expect(composite).toContain('frag_depth');
-    expect(composite).toContain('discard');
-    expect(fragmentWgslOf(glslRenderer(), scene, inFrame[0]!)).toContain('gl_FragDepth');
-    // Back in the frame: the brick draws return, the composite goes.
-    v.setBrickHalf(false);
-    expect(v.halfScene).toBeNull();
-    expect(v.root.children.length).toBe(1);
-    expect((v.root.children[0] as THREE.Mesh).name).not.toContain('composite');
-    v.dispose();
-  });
-
   it('holds a far hit in one visibility texel and reads it back: its brick, its place in the brick to a 4095th of the span, its depth exactly, its entry face; nothing hit reads as none', () => {
     const step = FAR_VIS_CELL_SPAN / FAR_VIS_CELL_STEPS;
     // The atlas's largest region index on its widest axis (2048 texels / 9) and the brick's whole span, lip included.
@@ -358,11 +320,6 @@ describe('the far view', () => {
     const varyings = (w: string): number => (w.match(/@location\(\s*\d+\s*\)/g) ?? []).length;
     expect(varyings(vertexOf(g)), 'the vertex stage passes what it passes without motion').toBe(varyings(vertexOf(wgslRenderer())));
     target.dispose();
-    // Half resolution takes the bricks from it, and back.
-    v.setBrickHalf(true);
-    expect(v.brickPass).toBe('half');
-    expect(v.visibilityScene).toBeNull();
-    v.setBrickHalf(false);
     expect(v.brickPass).toBe('visibility');
     // Removed, the shade hides (nothing to march).
     v.apply({ added: [], removed: [{ level: 2, nx: 0, ny: 1, nz: 0 }] }, undefined);

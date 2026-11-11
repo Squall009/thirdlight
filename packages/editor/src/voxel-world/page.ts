@@ -66,7 +66,7 @@
  * ray-marched distance bricks or, as the fallback, meshes (the backend builds the cache on the first read and keeps it current
  * with every command), under the near field and hidden where it draws:
  * `?farField=bricks|mesh|off` and `?farError=` (pixels) override the quality
- * level's; `?farRes=half` marches the bricks at half resolution; `?farShow=0` keeps the
+ * level's; `?farShow=0` keeps the
  * far draws hidden.
  *
  * `?kitScene=x,y,z,material` writes the kit test scene there (every case of
@@ -484,7 +484,6 @@ async function main(): Promise<void> {
     ring?.update();
     materials.streamer.update(scene, camera, renderer.domElement.height);
     const r0 = performance.now();
-    meshes.far.prepare(renderer, camera);
     if (occlusion !== null) occlusion.render();
     else renderer.render(scene, camera);
     renderMs.add(performance.now() - r0);
@@ -531,7 +530,7 @@ async function main(): Promise<void> {
       streamer.mips?.lod.setRings(metres.length === 0 ? DEFAULT_LEVEL_RINGS : levelRings(metres));
       await streamer.settle();
     },
-    ...pageFarHooks(streamer, meshes.far, far.half),
+    ...pageFarHooks(streamer, meshes.far),
     /** Relief displacement and the height-bent lighting normal on or off (no new program; `?relief=` must be on). */
     setRelief(s: { displace?: boolean; bump?: boolean }): void {
       relief.set(s);
