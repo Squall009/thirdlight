@@ -268,8 +268,7 @@ WebGPU); WebGL 2, the fallback, is covered by `webgl2-smoke.e2e.ts` alone
 Without a GPU everything runs on SwiftShader: `default` has no WebGPU
 adapter (`auto` takes WebGL 2), and `webgpu` runs the renderer-sensitive
 specs again with headless WebGPU (Dawn's SwiftShader adapter).
-`TL_E2E_WORKERS=<n>` runs spec files in parallel (`tools/gate.sh` uses 2,
-3 for its wide runs on a GPU host).
+`TL_E2E_WORKERS=<n>` runs spec files in parallel (`tools/gate.sh` uses 2).
 
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in

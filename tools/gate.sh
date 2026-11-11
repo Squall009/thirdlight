@@ -39,14 +39,15 @@
 # above a 5G cap with them all, so a gate started under 5G sets about 4.
 # On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
 # 4.7 and 5.6 GB of anonymous memory (6.5 GB with the page cache the cap reclaims), each test
-# about 5 % slower than on 2: the cap holds 3, not 4 (+0.9 GB a worker).
+# about 5 % slower than on 2: the cap held 3, not 4 (+0.9 GB a worker). With the voxel world's files a wide run
+# on 3 workers was OOM-killed at the 7G cap 3 min into its e2e step (the leak test on): 2 since.
 set -u
 mode=${1:-}
 shift || true
 cd "$(dirname "$0")/.."
 # The full gate has no fixed time budget (AGENTS.md): its summary gives its time beside the previous green full
 # gate's (the previous phase's end), so a phase's growth is seen and questioned in its review.
-FULL_WORKERS=3
+FULL_WORKERS=2
 # A worker count the caller set wins in every mode.
 workers_set=${TL_E2E_WORKERS:+1}
 export TL_E2E_WORKERS=${TL_E2E_WORKERS:-2}
