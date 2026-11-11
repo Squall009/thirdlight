@@ -1,12 +1,13 @@
 # Thirdlight — Status
 
-Updated 2026-11-01. Current phase: **44b, camera** (`docs/plan-phase-44b.md`), after 44 (consolidation); then the
-voxel world, 45–49 (`docs/plan-phase-45.md`). Order and future work: `docs/roadmap.md`. Goal and scope:
-`docs/architecture/charter.md`. Work rules: `AGENTS.md`. Each phase's items, numbers and decisions are in its plan;
-this file holds one row per phase, two lines at most.
+Updated 2026-11-11. Current work: **46d-b**, rendering follow-ups of the voxel world (`docs/plan-phase-46d.md` §6d),
+on the branch `phase-45` (worktree `~/projects/thirdlight-p45`); `main` is frozen at d4053cab until the voxel merge
+(48c). The voxel world is phases 45–49 (`docs/plan-phase-45.md`). Order and future work: `docs/roadmap.md`. Goal and
+scope: `docs/architecture/charter.md`. Work rules: `AGENTS.md`. Each phase's items, numbers and decisions are in its
+plan; this file holds one row per phase, two lines at most.
 
 Defects: open and watch rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
-On 2026-10-30: 118 open (M 31, L 87; no C or H), 18 watch; closed 284 (266 fixed, 14 superseded, 4 won't fix).
+On 2026-11-11: 174 open (M 41, L 133; no C or H), 39 watch; closed 386 (360 fixed, 21 superseded, 5 won't fix).
 
 Done: an item works in a real browser and has an automated test at the boundary it fixes (Playwright for the editor).
 Visual and audible results no test observes in pixels are marked "owner look pending": that is the normal done state.

@@ -93,8 +93,11 @@ support.
 
 ## Pitfalls
 
-- **Measure uncapped and on the real GPU.** A capped frame hides its cost;
-  a software renderer (SwiftShader) says little about a player's machine.
+- **Measure at the display's cap and on the real GPU.** An uncapped frame
+  time reads how hard the host's shared power budget was pushed, and by what
+  else; at the cap every frame is one refresh, so a missed refresh is a real
+  miss. A software renderer (SwiftShader) says little about a player's
+  machine.
 - **The Scene view is not the game.** It draws everything at full
   resolution and keeps every streamed tile loaded; measure Play or the
   export.

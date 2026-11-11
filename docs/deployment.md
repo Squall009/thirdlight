@@ -155,7 +155,7 @@ Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 `tl_diagnostics`, `tl_sessions`, `tl_play_start`/`tl_play_stop`,
 `tl_input_exercise`, `tl_game_control`, `tl_game_observe`, `tl_screenshot`,
 `tl_content_upload`, `tl_content_job`, `tl_content_query`,
-`tl_instance_buffer`, `tl_playtest`). What the play tools do:
+`tl_instance_buffer`, `tl_playtest`, `tl_bake_lighting`). What the play tools do:
 [Play tools](manual/features/play-tools.md).
 
 **The manual over MCP.** The server's instructions send an agent to
@@ -248,9 +248,12 @@ action, `ctx.shell`); a game loads its levels with `ctx.scenes.load` /
 ## Verification
 
 ```sh
-tools/gate.sh fast [e2e files…]             # per change: build, vitest, smoke e2e + the named files (minutes)
-tools/gate.sh full                          # everything incl. the leak test, before an item is done
-tools/gate.sh rerun                         # from the step the last red gate stopped at (lint, failed vitest files, failed e2e, perf)
+tools/gate.sh start fast [e2e files…]       # per change: build, lint, the unit tests and e2e areas the change reaches, the core smoke
+tools/gate.sh start area <name>…            # every e2e file of those areas (tools/gate-areas.json)
+tools/gate.sh start phase <start-commit>    # a phase's end: every unit test, the areas touched since that commit
+tools/gate.sh start full                    # everything incl. the leak test: the merge to main or on the owner's word
+tools/gate.sh start rerun                   # from the step the last red gate stopped at (lint, failed vitest files, failed e2e, perf)
+tools/gate.sh wait                          # (every mode runs detached under a memory cap; wait prints its summary)
 npm test                                    # unit + integration (vitest)
 npm run build && npm run test:e2e           # Playwright: real backend + Chromium
 npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
@@ -258,20 +261,15 @@ npx playwright test --project=webgpu        # the renderer-sensitive specs with 
 node tools/perf/run.mjs                     # the performance harness (long; see manual/features/performance.md)
 ```
 
-`npm run test:e2e` runs both Playwright projects: `default` (every spec,
-Chromium with WebGL 2 on SwiftShader and no WebGPU adapter, so `auto`, the
-default, covers the WebGL 2 fallback everywhere) and `webgpu` (the
-renderer-sensitive specs again with
-`--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader`:
-Dawn's SwiftShader adapter). The materials, textures, lightmaps,
-environment, lights, sky-texture, level-look and shadows specs run once per
-renderer variant: `auto` (no flag) and `webgl2` (forced with `?renderer=`)
-in `default`, `webgpu` in `webgpu` (the `auto` variant only with
-`TL_E2E_ALL_VARIANTS=1` where no WebGPU adapter exists, since it then draws
-exactly like `webgl2`); `TL_E2E_WORKERS=<n>` runs spec files in parallel
-(`tools/gate.sh` uses 2, its full gate 3 on a GPU host); the shader-parity and env-parity specs
-compare every shader type and environment with its reference image (drawn
-by the old WebGL renderer and frozen) on WebGL 2 and on WebGPU.
+`npm run test:e2e` runs the Playwright specs. On a host with a usable GPU
+every spec runs once, in `default`, on the product's renderer (`auto` →
+WebGPU); WebGL 2, the fallback, is covered by `webgl2-smoke.e2e.ts` alone
+(the old WebGL 2 / WebGPU parity specs are in `archive/webgl2-parity/`).
+Without a GPU everything runs on SwiftShader: `default` has no WebGPU
+adapter (`auto` takes WebGL 2), and `webgpu` runs the renderer-sensitive
+specs again with headless WebGPU (Dawn's SwiftShader adapter).
+`TL_E2E_WORKERS=<n>` runs spec files in parallel (`tools/gate.sh` uses 2,
+3 for its wide runs on a GPU host).
 
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in

@@ -164,10 +164,11 @@ must agree). `guides/playtesting`, `features/play-tools`.
 
 ## 8. Performance habits
 
-- Design for 60 fps at 1080p on an integrated GPU (`guides/performance`).
-  Measure Play or the export, uncapped, on a real GPU; the headless editor
-  renders in software and the Scene view draws everything, so neither
-  says much about speed.
+- Design for the floor GPU, an integrated one (`guides/performance`).
+  Measure Play or the export at the display's cap (never uncapped: an
+  uncapped frame reads the host's load), on a real GPU, on WebGPU; the
+  headless editor renders in software and the Scene view draws everything,
+  so neither says much about speed.
 - Many copies of one thing: instance sets or rule scatter, not objects.
   Level geometry: block layers or terrain, not piles of boxes.
 - Lights: give lamps a range, shadows to few; cheap fill lights per vertex

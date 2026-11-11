@@ -6,8 +6,13 @@ walks through it.
 
 ## Level geometry
 
+Voxel worlds replace block layers, terrain and generated architecture:
+those three stay for existing levels until the voxel world covers them,
+then go. Start new level work on a voxel world.
+
 | You want | Use | Why |
 |---|---|---|
+| Ground, cliffs, caves, buildings, a whole world you can dig and build in | A [voxel world](../features/voxel-worlds.md) (looks from [voxel kits](voxel-kits.md); scripts: [voxel scripts](voxel-scripts.md)) | One grid of 0.5 m voxels for terrain and construction: streamed around the camera, edited by stroke commands in the editor and by `ctx.voxels` in a game, far field to the horizon |
 | Floors, walls, buildings, a dungeon, a tactics map | [Block layer](block-layers.md) in the [block editor](block-editor.md) (start from the 3D starter) | A grid you paint: merged meshes and colliders per chunk, cell data scripts read (`ctx.grid`), walk queries, regions, cut-aways |
 | Open ground to the horizon: hills, valleys, roads | [Terrain](terrain.md) | A heightfield with levels of detail; sculpted, painted by rules, streamed |
 | A road, a path, a river, a fence along a curve | A spline ([terrain guide](terrain.md#a-road-or-a-river-splines)) | Shapes and paints the terrain, makes its own mesh and pieces |

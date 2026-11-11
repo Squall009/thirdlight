@@ -92,8 +92,10 @@ village` builds the village class (`tools/perf/village.ts`: ~1,000 entities,
 650 placed models with `_LOD` levels, 50 instance sets, 20 animated skinned
 figures, a block ground, 16 effect lights, the shadowed sun and the full post
 stack; generated, no game content) through a private backend, exports it and
-measures the export on the host's GPU at 1920×1080, DPR 1, uncapped, on WebGPU
-and WebGL 2: fps and frame p50/p95/p99, the main thread's time per frame and
+measures the export on the host's GPU at 1920×1080, DPR 1, on WebGPU and
+WebGL 2 (by default uncapped, for the comparison with plain three.js only:
+numbers you record or compare between runs are taken with `--vsync`, at the
+display's cap): fps and frame p50/p95/p99, the main thread's time per frame and
 its split by package (a CPU profile), the Object3Ds three walks, draws,
 triangles, uniform buffers and GPU time per render pass (three's timestamp
 queries; WebGPU only — on WebGL 2 three times just the outermost pass). It
@@ -111,9 +113,10 @@ of game projects the same way (default: the game folders the script names; the c
 gets registered, never the game's folder).
 
 **The frame-time gate.** On a host with a usable GPU (`gpuAvailable()` in
-`tests/e2e/browser-env.mjs`), `tools/gate.sh fast` ends with
-`node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json`
-(about 45 s). `--gate` measures the export at the display's 60 Hz cap (vsync),
+`tests/e2e/browser-env.mjs`), `tools/gate.sh fast` (and `phase`) ends, when rendering or frame code changed
+(three-adapter, runtime, game-host, voxel, effects, the perf tools), with
+`node tools/perf/run.mjs village --gate --renderers webgpu --check tests/perf/village-baseline.json`
+(about 30 s; WebGPU only, the product's renderer). `--gate` measures the export at the display's 60 Hz cap (vsync),
 never uncapped: uncapped frame times read how hard this host's shared CPU/GPU
 power budget was pushed, and by what else. At the cap every frame is one
 refresh, so the check reads what a player sees and the work behind a frame. It

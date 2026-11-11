@@ -24,7 +24,7 @@ The long-term ambition includes scene authoring, prefabs, gameplay systems, UI, 
 | Backend and harness access the same underlying workspace | Confirmed |
 | TypeScript editor/runtime; targeted WebAssembly modules when justified | Recommended default; not explicitly confirmed |
 | External coding harness plus MCP before embedded chat | Recommended default |
-| WebGPU enhancements with a supported WebGL 2 baseline | Recommended compatibility policy; prove feature coverage before promising parity |
+| WebGPU first; WebGL 2 a fallback that keeps what it draws, with one smoke test and no parity | Confirmed (owner, 2026-11-10; was: WebGPU enhancements over a supported WebGL 2 baseline) |
 | One active authoring session per project initially | Proposed scope limit |
 
 Hosting is an implementation detail for the user: opening the editor should not require manually orchestrating services each session. Deployment is process-level (`npm start`, a systemd unit; `docs/deployment.md`); no containers (owner, 2026-09-16).

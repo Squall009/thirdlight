@@ -37,13 +37,18 @@ and moves on; unanswered defaults count as approved (owner, 2026-10-26; `docs/de
 4. **The runtime never imports editor code**, exports run without the
    editor, determinism and replays hold (a data default equal to the old
    constant keeps every recorded replay valid).
-5. **Renderer target: WebGPU, with a WebGL2 fallback** (owner decision).
-   Shading is authored once (three.js TSL/node materials) and runs on both.
+5. **Renderer target: WebGPU first, WebGL 2 a fallback** (owner decision;
+   WebGPU first, 2026-11-10). Shading is authored once (three.js TSL/node
+   materials). New rendering work is designed, built, tested and measured on
+   WebGPU; WebGL 2 keeps what it draws today, with one smoke test, no new
+   features and no parity.
 6. **Observed, not claimed.** Visual/audio results are "owner look pending"
    unless observed in pixels by a test.
-7. **Performance first, with soft targets** (owner, 2026-10-03). Every
-   item is designed for 60 fps at 1080p on an integrated GPU and measured
-   there. A phase's performance targets guide the design; a missed target is
+7. **Performance first, with soft targets** (owner, 2026-10-03; targets
+   2026-11-10). The floor GPU (Intel Iris Xe) runs the low tier at 720p with
+   upscaling, capped at 30 Hz; streaming keeps a world around a camera at
+   150 m/s, coverage first. Every item is measured at the display's cap,
+   never uncapped. A phase's performance targets guide the design; a missed target is
    recorded with its cause and a follow-up, never a reason to throw away
    working progress.
 

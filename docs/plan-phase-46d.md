@@ -243,7 +243,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.20 | (vista step 4) The far pass shaped like Enshrouded's: the march writes a visibility target (brick id, depth), one far shade with fog (full-screen pass or compute, by the meter); culling and visibility feedback in compute (per-node seen/error in a storage buffer, read back a frame or two late); half resolution with reuse (D574) only if 46d.16 asks; far motion output for TAAU checked in a moving shot. The largest item; starts on 46d.17's numbers. |
 | 46d.21 | (owner 2026-11-10) The low tier as the Iris Xe target: render scale ~0.667 + the temporal upscaler, everything else cheaper, capped at 30 Hz; the meter measures low against that cap (`headroom --quality low`); a stated page + GPU memory ceiling for low only; medium/high reported as shares and scaling, frame times "unverified on target hardware". Runs right after 46d.17. |
 | 46d.22 | (owner 2026-11-10) Coverage at 150 m/s: a world is kept round the moving camera at some quality (no hole, ground and collision under the camera). Candidates: top far levels of the whole world kept resident, motion prefetch scaled with speed, near levels 1–2 before 0 at speed, collision along the velocity first; a 150 m/s bench that asserts coverage (D584, D585). After 46d.18 (baked bricks). |
-| 46d.15 | 46d-b close (lead), after 46d.20: full gate, review, fixes, acceptance acc46d-b (pictures and numbers on WebGPU; WebGL 2 a load-and-draw smoke). |
+| 46d.15 | 46d-b close (lead), after 46d.20: `gate.sh phase a376c761` (whole vitest + areas touched + core smoke); full only for the merge to main or on the owner's word; review, fixes, acceptance acc46d-b (pictures and numbers on WebGPU; WebGL 2 a load-and-draw smoke). |
 
 ## 7. Progress
 
@@ -3311,6 +3311,16 @@ WebGL 2, medium/high, collision bodies in a game with physics, the eye-point sam
   radius × 20 / speed in whole chunks, never under the collision radius (48 m at 150 m/s), and widens when still; work
   is queued along the way ahead (`motionDistance2`). The far field draws the rest; no far level kept resident (the
   far field alone kept the screen covered before), no near levels 1–2 first at speed.
+- 2026-11-11 (OWNER, relayed by session thirdlight-65; tooling, not an item): **gates split by what a change
+  affects.** Owner: "Doing full gate runs that take a half hour at a time need to be split up and only run gates on
+  affected systems, kept modular and efficient/quick. I think this would help with false failures too. I agree the
+  agents.md file needs cleaned up to reflect the current project and objectives." Applied on the branch: vitest
+  timeouts 30 s and no wall-clock bounds in unit tests; the fast gate runs `vitest related` on the files changed
+  since the branch's last green gate, a two-file core smoke (authoring-loop, play-export; start.e2e.ts quarantined
+  into the `startup` area, D417/D453) and the e2e areas of `tools/gate-areas.json`; WebGPU once on a GPU host,
+  WebGL 2 one smoke file, the parity specs archived, `--both-renderers` gone (this supersedes the 2026-11-10 lead
+  default that the 46d-b close keeps it); `gate.sh area` and `gate.sh phase <start>`; AGENTS.md rewritten. A fast
+  gate went from 16 min (whole suite) to 2 min for a docs change.
 
 ## 10. Open questions for the owner
 

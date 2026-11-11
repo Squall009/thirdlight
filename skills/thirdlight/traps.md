@@ -22,6 +22,13 @@ the exact fields and ops are in `tl_docs`.
   (`guides/block-layers`).
 - **Something in use cannot be deleted** (an asset, prefab, script or
   effect): the refusal lists the uses; remove them first.
+- **An edit that changes nothing is refused with `no_change`.** A script
+  that re-sends the values it read treats that answer as done.
+- **Voxel worlds are edited by stroke commands, not by files**: the world's
+  region files are the backend's; set and dig through the commands (or
+  `ctx.voxels` in a running game) (`features/voxel-worlds`, `guides/voxel-scripts`). Block layers,
+  terrain and generated architecture are being replaced by voxel worlds:
+  start new level work on a voxel world.
 
 ## Scripts
 
