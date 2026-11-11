@@ -91,7 +91,8 @@ test('one command starts the backend; the printed URL opens the picker; stop is 
     // Ctrl+C-style stop is clean: the start script exits 0 and the backend is
     // gone with it (its ports are free again; the project is released).
     first.proc.kill('SIGINT');
-    expect(await first.exited).toBe(0);
+    // The log says why a stop exited 1 (the backend's close timing out, or an error), which a bare code does not.
+    expect(await first.exited, first.output()).toBe(0);
     await expect.poll(() => portFree(port), { timeout: 10_000 }).toBe(true);
     await expect.poll(() => portFree(previewPort), { timeout: 10_000 }).toBe(true);
     expect(JSON.parse(readFileSync(join(dataRoot, 'projects', 'first-game', '.thirdlight', 'ownership.json'), 'utf8')).state).toBe('released');
@@ -103,7 +104,7 @@ test('one command starts the backend; the printed URL opens the picker; stop is 
     const list = await fetch(`http://127.0.0.1:${port}/api/v1/projects`, { headers: { authorization: `Bearer ${token}` } });
     expect(((await list.json()) as { projects: Array<{ projectId: string }> }).projects.map((p) => p.projectId)).toEqual(['first-game']);
     second.proc.kill('SIGTERM');
-    expect(await second.exited).toBe(0);
+    expect(await second.exited, second.output()).toBe(0);
     await expect.poll(() => portFree(port), { timeout: 10_000 }).toBe(true);
   } finally {
     rmSync(dataRoot, { recursive: true, force: true });
@@ -134,7 +135,7 @@ test('behind a reverse proxy: --origin/--preview-origin are the origins the brow
     await expect(frame).toBeVisible();
     expect(await frame.getAttribute('src')).toMatch(new RegExp(`^${preview.replace(/[.]/g, '\\.')}/`));
     started.proc.kill('SIGTERM');
-    expect(await started.exited).toBe(0);
+    expect(await started.exited, started.output()).toBe(0);
   } finally {
     rmSync(dataRoot, { recursive: true, force: true });
   }

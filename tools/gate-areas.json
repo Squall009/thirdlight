@@ -1,0 +1,395 @@
+{
+  "note": "The gate's e2e areas: a change to a file matching an area's sources (and none of its exclude) runs that area's e2e files in the fast gate; `tools/gate.sh area <name>` runs one area; `core` runs in every fast gate; start.e2e.ts is out of it (in `startup`) while its stop's exit code 1 under load (D417/D453) is unexplained: its log now prints with the failure. Every e2e file sits in at least one area (tools/check-gate-areas.mjs, in npm run build). Globs: * stays inside a folder, ** crosses folders.",
+  "areas": {
+    "core": {
+      "sources": [],
+      "e2e": [
+        "authoring-loop",
+        "play-export"
+      ]
+    },
+    "startup": {
+      "sources": [
+        "tools/start.mjs",
+        "packages/backend/src/index.ts",
+        "packages/backend/src/backend.ts"
+      ],
+      "e2e": [
+        "start"
+      ]
+    },
+    "voxel": {
+      "sources": [
+        "packages/voxel/**",
+        "packages/three-adapter/src/voxel-*",
+        "packages/runtime/src/voxel-*",
+        "packages/editor/src/voxel-world/**",
+        "packages/backend/src/voxel-*",
+        "packages/project-model/src/voxel*",
+        "packages/game-host/src/voxel*",
+        "tools/voxel-bench/**"
+      ],
+      "e2e": [
+        "voxel-world",
+        "webgl2-smoke"
+      ]
+    },
+    "rendering": {
+      "sources": [
+        "packages/three-adapter/**",
+        "packages/game-host/**"
+      ],
+      "exclude": [
+        "packages/three-adapter/src/voxel-*",
+        "packages/game-host/src/voxel*"
+      ],
+      "e2e": [
+        "rendering",
+        "renderer",
+        "engine-view",
+        "camera-depth",
+        "frame-rate-cap",
+        "screenshot",
+        "batch-dispose",
+        "instances",
+        "instance-brush",
+        "primitives",
+        "model-pieces",
+        "internal-edges",
+        "engine-stats",
+        "preview-pane",
+        "editor-workers",
+        "ktx2-rgba-thumbnails",
+        "look-override",
+        "placeholders",
+        "webgl2-smoke"
+      ]
+    },
+    "materials": {
+      "sources": [
+        "packages/three-adapter/src/*material*",
+        "packages/three-adapter/src/*texture*",
+        "packages/three-adapter/src/*ktx*",
+        "packages/three-adapter/src/*graph*",
+        "packages/project-model/src/*material*",
+        "packages/editor/src/graph/**"
+      ],
+      "e2e": [
+        "materials",
+        "material-custom-lit",
+        "material-graph",
+        "material-graph-play",
+        "material-graph-render",
+        "material-instances",
+        "material-preview",
+        "material-runtime",
+        "material-swap",
+        "textures",
+        "shared-textures",
+        "embedded-textures",
+        "ktx2-textures",
+        "texture-streaming",
+        "extract-textures",
+        "layered-material",
+        "graph"
+      ]
+    },
+    "lighting": {
+      "sources": [
+        "packages/three-adapter/src/*light*",
+        "packages/three-adapter/src/*shadow*",
+        "packages/three-adapter/src/*probe*",
+        "packages/three-adapter/src/*cluster*",
+        "packages/three-adapter/src/*bake*"
+      ],
+      "e2e": [
+        "lights",
+        "lightmaps",
+        "block-lightmaps",
+        "shadows",
+        "scene-lights",
+        "effect-light-pool"
+      ]
+    },
+    "environment": {
+      "sources": [
+        "packages/three-adapter/src/*environment*",
+        "packages/three-adapter/src/*sky*",
+        "packages/three-adapter/src/*fog*",
+        "packages/three-adapter/src/*post*",
+        "packages/three-adapter/src/*bloom*",
+        "packages/three-adapter/src/*exposure*",
+        "packages/project-model/src/*environment*"
+      ],
+      "e2e": [
+        "environment",
+        "environment-blend-cost",
+        "environment-presets",
+        "scene-environment",
+        "sky-texture"
+      ]
+    },
+    "effects": {
+      "sources": [
+        "packages/effects/**",
+        "packages/three-adapter/src/*effect*",
+        "packages/editor/src/**/*effect*"
+      ],
+      "e2e": [
+        "effect-editor",
+        "effect-graph",
+        "effect-light-pool",
+        "effects-gpu",
+        "effects-runtime"
+      ]
+    },
+    "levels": {
+      "sources": [
+        "packages/**/*block*",
+        "packages/**/*terrain*",
+        "packages/**/*cdlod*",
+        "packages/**/*architecture*"
+      ],
+      "e2e": [
+        "block-editor",
+        "block-layers",
+        "block-lod",
+        "blocks",
+        "block-lightmaps",
+        "block-world-uv",
+        "terrain",
+        "terrain-brushes",
+        "terrain-cdlod",
+        "terrain-paint",
+        "painted-terrain",
+        "smooth-tops",
+        "level-acceptance"
+      ]
+    },
+    "editor-ui": {
+      "sources": [
+        "packages/editor/**"
+      ],
+      "exclude": [
+        "packages/editor/src/voxel-world/**"
+      ],
+      "e2e": [
+        "editor-chrome",
+        "editor-scale",
+        "editor-window",
+        "layout",
+        "menus",
+        "inspector",
+        "hierarchy",
+        "gizmos",
+        "handles",
+        "create-menu",
+        "edit-copy",
+        "window-tools",
+        "project-window",
+        "project-ui",
+        "project-items",
+        "project-settings",
+        "tags",
+        "descriptors",
+        "external-edit",
+        "insecure-context",
+        "debug-entry",
+        "ui-editor",
+        "script-editor",
+        "delete-content",
+        "placeholders",
+        "instance-brush",
+        "loadable"
+      ]
+    },
+    "scenes": {
+      "sources": [
+        "packages/runtime/src/*scene*",
+        "packages/runtime/src/*save*",
+        "packages/runtime/src/*shell*",
+        "packages/project-model/src/*scene*",
+        "packages/commands/**"
+      ],
+      "e2e": [
+        "scenes",
+        "scene-loads",
+        "scene-reload",
+        "scene-transition",
+        "shell-scenes",
+        "shell",
+        "keep-loaded",
+        "spawn",
+        "game-modes",
+        "starter-game",
+        "starter-capabilities",
+        "save-slots",
+        "save-storage",
+        "save-world",
+        "project-saves"
+      ]
+    },
+    "content": {
+      "sources": [
+        "packages/asset-pipeline/**",
+        "packages/workspace/**",
+        "packages/backend/src/*asset*",
+        "packages/backend/src/*import*",
+        "packages/backend/src/*folder*",
+        "packages/backend/src/*project*"
+      ],
+      "e2e": [
+        "assets",
+        "asset-files",
+        "asset-handles",
+        "folder-assets",
+        "folder-import",
+        "folder-projects",
+        "import-extensions",
+        "import-fbx",
+        "font-asset",
+        "missing-files",
+        "resource-folders",
+        "resource-manager",
+        "manifest-keys",
+        "large-project",
+        "count-caps",
+        "backup",
+        "projects",
+        "project-upgrade",
+        "extract-textures",
+        "embedded-textures"
+      ]
+    },
+    "play": {
+      "sources": [
+        "packages/exporter/**",
+        "packages/runtime/**",
+        "packages/game-host/**",
+        "packages/backend/src/*play*"
+      ],
+      "exclude": [
+        "packages/runtime/src/voxel-*",
+        "packages/game-host/src/voxel*"
+      ],
+      "e2e": [
+        "play-end",
+        "play-files",
+        "play-logs",
+        "play-memory",
+        "play-reimports",
+        "play-start-assets",
+        "play-start-cache",
+        "playtest",
+        "sim-worker",
+        "replay-answer",
+        "memory",
+        "frame-rate-cap"
+      ]
+    },
+    "mcp": {
+      "sources": [
+        "packages/mcp-adapter/**",
+        "packages/protocol/**",
+        "packages/backend/src/*socket*",
+        "packages/backend/src/*relay*"
+      ],
+      "e2e": [
+        "mcp",
+        "mcp-headless",
+        "playtest",
+        "sockets",
+        "trusted-network",
+        "relay-input",
+        "replay-answer"
+      ]
+    },
+    "physics": {
+      "sources": [
+        "packages/physics-rapier/**",
+        "packages/runtime/src/*physic*",
+        "packages/runtime/src/*collider*",
+        "packages/runtime/src/*character*",
+        "packages/runtime/src/*camera*"
+      ],
+      "e2e": [
+        "physics-3d",
+        "physics-3d-colliders",
+        "colliders",
+        "capsule",
+        "character-3d",
+        "climb-walls",
+        "sensors",
+        "pointer-queries",
+        "camera-regions",
+        "cameras"
+      ]
+    },
+    "audio": {
+      "sources": [
+        "packages/runtime/src/*audio*",
+        "packages/runtime/src/*sound*",
+        "packages/game-host/src/*audio*"
+      ],
+      "e2e": [
+        "audio-kinds",
+        "audio-loading",
+        "play-audio-diagnostics",
+        "script-audio",
+        "script-sound-owners",
+        "ui-sounds-shell-shot"
+      ]
+    },
+    "input": {
+      "sources": [
+        "packages/input/**"
+      ],
+      "e2e": [
+        "input",
+        "rebind",
+        "relay-input",
+        "co-op",
+        "ui-bindable-size"
+      ]
+    },
+    "scripting": {
+      "sources": [
+        "packages/behavior-build/**",
+        "packages/runtime/src/*script*",
+        "packages/runtime/src/*ctx*",
+        "packages/runtime/src/*ui*"
+      ],
+      "e2e": [
+        "script-api",
+        "script-libraries",
+        "script-libraries-shared",
+        "script-properties",
+        "callbacks",
+        "entity-access",
+        "hidden-signals",
+        "mover-signals",
+        "dialogue",
+        "ui-lists-motion",
+        "ui-bindable-size",
+        "visual-script",
+        "visual-script-debug",
+        "timeline"
+      ]
+    },
+    "animation": {
+      "sources": [
+        "packages/runtime/src/*anim*",
+        "packages/three-adapter/src/*anim*",
+        "packages/three-adapter/src/*skin*"
+      ],
+      "e2e": [
+        "animator",
+        "animator-layers",
+        "animator-look-at",
+        "animator-skinned",
+        "animator-timing",
+        "timeline"
+      ]
+    }
+  }
+}

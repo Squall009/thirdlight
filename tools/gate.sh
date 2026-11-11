@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# Thirdlight green gate. Three modes:
+# Thirdlight green gate. It runs what a change affects:
 #
 #   tools/gate.sh fast [--all] [e2e files…]   per commit: build + lint + the unit tests related to what
 #                                             changed since this branch's last green gate (--all: every
-#                                             one) + the smoke set + the e2e files named (the ones for the
-#                                             area you changed) + on a GPU host the village perf class at
-#                                             the 60 Hz cap against its baseline
-#   tools/gate.sh full                        per phase item / before STATUS says done: build +
+#                                             one) + the core smoke + the e2e areas the changed files reach
+#                                             (tools/gate-areas.json) + the changed and named e2e files +, when
+#                                             rendering or frame code changed, on a GPU host the village perf
+#                                             class at the 60 Hz cap against its baseline
+#   tools/gate.sh area <name>…                at the end of an item that changed an area broadly: build +
+#                                             every e2e file of those areas, the leak test on (TL_MEMORY=1)
+#   tools/gate.sh phase <start-commit>        once at the end of a phase: build + lint + every unit test +
+#                                             the core smoke and every area the changes since that commit
+#                                             reach, the leak test on + the perf check
+#   tools/gate.sh full                        only for the merge to main or on the owner's word: build +
 #                                             lint + vitest + every e2e spec, the leak test included
 #                                             (TL_MEMORY=1), once on the product's renderer (WebGPU on a
 #                                             GPU; WebGL 2's coverage is webgl2-smoke.e2e.ts)
@@ -26,9 +32,9 @@
 #
 # Every run writes its logs to its own folder (TL_GATE_LOGS, default
 # ~/.cache/thirdlight-logs/gate-<mode>-<time>/) and prints the last line GREEN or RED.
-# A failed full run reruns its failed tests once alone (load flakes on the
-# CPU-rendered host) before it says RED. TL_E2E_WORKERS sets Playwright's
-# worker count (the config's own default is 1). Here: 2 for fast and rerun, FULL_WORKERS for full on a GPU.
+# A failed full, phase or area run reruns its failed tests once alone (load flakes) before it says RED. Every
+# e2e run's summary gives its test time by area. TL_E2E_WORKERS sets Playwright's worker count (the config's own
+# default is 1). Here: 2 for fast and rerun, FULL_WORKERS for full, phase and area on a GPU.
 # TL_VITEST_WORKERS caps vitest's workers (default: vitest's own, a CPU each): the unit run alone peaks
 # above a 5G cap with them all, so a gate started under 5G sets about 4.
 # On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
@@ -38,9 +44,6 @@ set -u
 mode=${1:-}
 shift || true
 cd "$(dirname "$0")/.."
-# The fast gate's smoke set: open and start, the authoring loop, Play and the export, scenes, the Inspector and
-# menus, rendering, MCP, a script in Play, and one project at scale (count-caps). Kept to ~2 min on 2 workers.
-SMOKE=(tests/e2e/start.e2e.ts tests/e2e/authoring-loop.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/mcp.e2e.ts tests/e2e/script-api.e2e.ts tests/e2e/count-caps.e2e.ts)
 # The full gate has no fixed time budget (AGENTS.md): its summary gives its time beside the previous green full
 # gate's (the previous phase's end), so a phase's growth is seen and questioned in its review.
 FULL_WORKERS=3
@@ -53,7 +56,7 @@ mkdir -p "$LOGS"
 
 case "$mode" in
   start)
-    sub=${1:-}; [ -n "$sub" ] || { echo "usage: tools/gate.sh start fast|full|rerun [args…]"; exit 2; }
+    sub=${1:-}; [ -n "$sub" ] || { echo "usage: tools/gate.sh start fast|area|phase|full|rerun [args…]"; exit 2; }
     shift
     if systemctl is-active --quiet "$UNIT"; then echo "a gate is already running ($UNIT); tools/gate.sh wait"; exit 1; fi
     # A gate started short of memory gets its browsers killed by the cap halfway; wait for room.
@@ -274,26 +277,72 @@ perf_check() {
   return $rc
 }
 
-fast_e2e() { # fast_e2e [e2e files…]: the smoke set and the named files
-  e2e e2e.log --project=default "${SMOKE[@]}" "$@" || { fail_at e2e; done_ "RED e2e (fix, then: tools/gate.sh rerun)"; }
+# The e2e areas (tools/gate-areas.json, checked by tools/check-gate-areas.mjs in the build): which e2e files a
+# changed file reaches. `core` (the smoke) runs in every fast gate.
+areas_changed() { # the areas the changed files reach, one a line
+  [ ${#CHANGED[@]} -gt 0 ] && node tools/check-gate-areas.mjs --for "${CHANGED[@]}"
+  return 0
+}
+changed_e2e() { # the changed e2e files themselves
+  local f
+  for f in "${CHANGED[@]}"; do case "$f" in tests/e2e/*.e2e.ts) [ -e "$f" ] && echo "$f" ;; esac; done
+  return 0
+}
+area_times() { # area_times <log> [areas…]: test time by area, so growth is seen per area
+  say "e2e time by area: $(node tools/check-gate-areas.mjs --times "$L/$1" "${@:2}")"
+}
+fast_e2e() { # fast_e2e [e2e files…]: the core smoke, the areas the changes reach, the changed e2e files, the files named
+  local areas=() files=()
+  if [ -n "$BASE" ]; then mapfile -t areas < <(areas_changed); else say "e2e areas: none from the changes (no green gate on this branch to compare with)"; fi
+  mapfile -t files < <({ node tools/check-gate-areas.mjs --e2e core "${areas[@]}"; changed_e2e; printf '%s\n' "$@"; } | sed '/^$/d' | sort -u)
+  say "e2e: core${areas[*]:+ + ${areas[*]}}${1:+ + named: $*} (${#files[@]} files)"
+  e2e e2e.log --project=default "${files[@]}" || { area_times e2e.log core "${areas[@]}"; fail_at e2e; done_ "RED e2e (fix, then: tools/gate.sh rerun)"; }
+  area_times e2e.log core "${areas[@]}"
 }
 fast_perf() {
   perf_check || { fail_at perf; done_ "RED perf (the village class at the cap; fix, then: tools/gate.sh rerun)"; }
 }
-full_e2e() {
+# The wide e2e runs (full, phase, area): more workers on a GPU, the leak test on, and the failed tests rerun once
+# alone before it says RED. WIDE_NOTE says when a rerun turned it green.
+WIDE_NOTE=''
+wide_e2e() { # wide_e2e [e2e files…] (none: every spec)
   # Measured on the GPU: a CPU-rendered host keeps 2 (SwiftShader slows every test past ~cores/3).
   if [ -z "$workers_set" ] && node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
     export TL_E2E_WORKERS=$FULL_WORKERS
   fi
   export TL_MEMORY=1
-  PROJECTS=(--project=default)
-  say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]}, ${TL_E2E_WORKERS} workers"
-  if e2e e2e.log "${PROJECTS[@]}"; then done_ GREEN; fi
+  say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") --project=default, ${TL_E2E_WORKERS} workers"
+  e2e e2e.log --project=default "$@" && return 0
   fail_at e2e
   grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
   say "rerunning the failed tests alone"
-  TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed --trace=retain-on-failure && done_ "GREEN (failed once, passed alone: see e2e.log)"
-  done_ "RED e2e (fix, then: tools/gate.sh rerun)"
+  TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed --trace=retain-on-failure || done_ "RED e2e (fix, then: tools/gate.sh rerun)"
+  WIDE_NOTE=" (failed once, passed alone: see e2e.log)"
+}
+full_e2e() {
+  wide_e2e
+  area_times e2e.log
+  done_ "GREEN$WIDE_NOTE"
+}
+area_e2e() { # area_e2e <areas…>: every e2e file of those areas
+  local files=()
+  mapfile -t files < <(node tools/check-gate-areas.mjs --e2e "$@") || done_ "RED (unknown area: $*)"
+  [ ${#files[@]} -gt 0 ] || done_ "RED (unknown area: $*)"
+  say "e2e: areas $* (${#files[@]} files)"
+  wide_e2e "${files[@]}"
+  area_times e2e.log "$@"
+}
+phase_e2e() { # the core smoke and every area the phase's changes reach (CHANGED: since its start)
+  local areas=() files=()
+  mapfile -t areas < <(areas_changed)
+  mapfile -t files < <({ node tools/check-gate-areas.mjs --e2e core "${areas[@]}"; changed_e2e; } | sed '/^$/d' | sort -u)
+  say "e2e: core${areas[*]:+ + ${areas[*]}} (${#files[@]} files; ${#CHANGED[@]} files changed since ${BASE:0:8})"
+  wide_e2e "${files[@]}"
+  area_times e2e.log core "${areas[@]}"
+}
+phase_start() { # phase_start <commit>: the phase's first commit, an ancestor of HEAD
+  git rev-parse --verify -q "${1:-}^{commit}" > /dev/null && git merge-base --is-ancestor "$1" HEAD || { echo "usage: tools/gate.sh phase <start-commit> (an ancestor of HEAD)"; exit 2; }
+  git rev-parse "$1"
 }
 
 case "$mode" in
@@ -306,31 +355,51 @@ case "$mode" in
     fast_perf
     done_ "GREEN${PERF_SKIPPED:-}" ;;
   full)
-    begin_state full "$@"
+    begin_state full
     build; lint; unit
-    full_e2e "$@" ;;
+    full_e2e ;;
+  area)
+    [ $# -gt 0 ] || { echo "usage: tools/gate.sh area <name>… (tools/gate-areas.json)"; exit 2; }
+    begin_state area "$@"
+    build
+    area_e2e "$@"
+    done_ "GREEN$WIDE_NOTE" ;;
+  phase)
+    start=$(phase_start "${1:-}") || { echo "$start"; exit 2; }
+    begin_state phase "$start"
+    changed_since "$start"
+    build; lint; unit
+    phase_e2e
+    fast_perf
+    done_ "GREEN$WIDE_NOTE${PERF_SKIPPED:-}" ;;
   rerun)
     # The failed step of the last RED gate, then the steps after it; without a recorded step (an older gate's run),
     # the e2e tests that failed last time.
     step=$(cat "$STATE/step" 2> /dev/null); was=$(cat "$STATE/mode" 2> /dev/null)
     args=(); [ -r "$STATE/args" ] && mapfile -d '' -t args < "$STATE/args"
     say "rerun of the ${was:-last} gate from ${step:-its failed e2e tests}${args[*]:+ (${args[*]})}"
-    changed_since "$(last_green_base)"
+    if [ "$was" = phase ]; then changed_since "${args[0]:-}"; else changed_since "$(last_green_base)"; fi
     build
     case "$step" in
-      lint) lint; unit_changed ;;
+      lint) if [ "$was" = fast ]; then lint; unit_changed; elif [ "$was" != area ]; then lint; unit; fi ;;
       vitest)
         # A failed file the fix deleted has nothing left to run (vitest refuses a missing file).
         files=(); for f in $(cat "$STATE/vitest"); do [ -e "$f" ] && files+=("$f"); done
         if [ -n "$(tr -d ' \n' < "$STATE/vitest")" ] && [ ${#files[@]} -eq 0 ]; then say "vitest: the files that failed are gone"; else unit "${files[@]}"; fi ;;
     esac
     case "$step" in
-      lint | vitest) if [ "$was" = full ]; then full_e2e "${args[@]}"; else fast_e2e "${args[@]}"; fi ;;
+      lint | vitest)
+        case "$was" in
+          full) full_e2e ;;
+          area) area_e2e "${args[@]}" ;;
+          phase) phase_e2e ;;
+          *) fast_e2e "${args[@]}" ;;
+        esac ;;
       e2e | '')
         export TL_MEMORY=1
         e2e e2e.log --last-failed --trace=retain-on-failure || { [ -n "$step" ] && fail_at e2e; done_ "RED e2e"; } ;;
     esac
-    [ "$was" = fast ] && fast_perf
-    done_ "GREEN${PERF_SKIPPED:-}" ;;
-  *) echo "usage: tools/gate.sh fast [--all] [e2e files…] | full | rerun | start <mode> [args…] | wait"; exit 2 ;;
+    case "$was" in fast | phase) fast_perf ;; esac
+    done_ "GREEN$WIDE_NOTE${PERF_SKIPPED:-}" ;;
+  *) echo "usage: tools/gate.sh fast [--all] [e2e files…] | area <name>… | phase <start-commit> | full | rerun | start <mode> [args…] | wait"; exit 2 ;;
 esac
