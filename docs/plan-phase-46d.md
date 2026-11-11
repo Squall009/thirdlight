@@ -287,7 +287,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.16 | done (ba27e91c): headroom meter at the 60 Hz cap without timestamps (ballast to the edge, passes hidden/copied past it; `run.mjs headroom`). Iris Xe 720p town orbit: medium room 0.7–2.5 ms of ~14–16; far 39–50 %, near 28–33 %, post 19–24 %, shadows 2–4 %; ms ±40 %. High ~23–31 ms: D583 = GPU-bound, far hidden holds the cap. D587, D588 |
 | 46d.17 | done (73adedac, 287ed0d2): far node boxes rows of the culled table (frustum + pyramid in compute, far depth, drawn after the pyramid; auto culling on with a far field), covered nodes left out, depth reject before the march, F6. Medium room 0.7–1.8 → 4.5 ms, frame GPU 15–16 → 12 ms, far 6–8 → 4.4 ms; high 17/127 missed (D583). d, e measured, not kept; pictures 0.00 % >60 |
 | 46d.18 | done (f50e6ab2, ead1c53a, 5c51b45a, e3dd1ec9): TAAU on low/medium WebGPU (D591/D592). Far cache format 2 bakes every node's bricks (8 km: +300.9 MB zstd, 1,421 s staging; projection 270 MB); job 74 → 0.3 ms, Play fill low 31 → 8.5 s, medium 79 → 16 s (D596); edits rebuild farBrickDirty, reuse by content. Pictures same (0.00–0.73 % >60). D594–D597 |
-| 46d.19 | not started |
+| 46d.19 | done (84c60578 D600, a3639669): D600 fixed (TAAU hold never started: pose bits; a late stop of an earlier play). Per-draw programs (1 set / 1 projection; levels 1–2 one axis), chunks+seams culled-table rows. Low room 21.5 → 23.2–24.2 ms, medium 7.6 → 6.6–7.6; near share below the meter's noise. c, d, e measured, not built; static casters +1.6 ms low. Pictures ≤ 0.26 % >60 |
 | 46d.20 | not started |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
@@ -2615,6 +2615,108 @@ from under its surface, D585) next to near-field ground; t18 also has black wedg
 massif's cliff face close up, dark and blocky. No sky hole in any. *Unverified:* motion at full rate (stills only),
 WebGL 2, medium/high, collision bodies in a game with physics, the eye-point sampler's blind spot for D585.
 
+### 46d.19 near surface shader and submission (vista step 3, WebGPU); D600
+
+**D600 first** (84c60578, 1bcfd6be). Two causes, neither the TAAU jitter's existence. (1) TAAU's hold (a still view
+stops jittering after 120 frames) compared the camera's matrices bit for bit; Play rebuilds its pose every step and
+the last bits alternate (±2.8e-17, probed in the page), so the hold never started and a still Play picture never
+settled: `samePose` (post-taau.ts) allows 1e-7 an element, measured from the pose the stillness began at. (2) With
+the hold's 120 frames, batch-dispose's second Play ran long enough for the backend's late `play.stopped` of the
+first play (stopped, its page gone: "unconfirmed") to reach the new page, and the editor ended whatever play ran:
+`PlayLink.receiveStopped` now ignores a stop of another play. Two tests read what a temporal upscale legitimately
+changes and pin `taau=0` with the reason written: layered-material (lit rooms read at a few pixels of distant
+rooms: lit / across / off 499 / 288 / 250 under TAAU against 560 / 313 / 297, the brightness-weighted resolve
+settles darker where jittered samples differ; the culling on/off comparison wants equal frames) and sim-worker's
+export (a walk read as pixels changed against a standing view, which TAAU keeps resolving for its first seconds).
+vitest `post-taau.test.ts`, `play-link.test.ts`; the three files alone pass; fast gate gate-fast-20261111-050647
+green but its perf step (the lead's cap change, fixed by the lead) and gate-rerun-20261111-052547 GREEN (village
+perf 0 / 360 missed). The lead's perf-cap commit failed the history check (a date in a comment): fixed (85209218).
+
+**N1–N6 re-checked** (against 1bcfd6be). N1 present: 3 maps × 3 projections × 2 materials = 18 array samples a
+pixel whatever the draw, 10 grid texel loads, the table, a crack sample. N2 present: no depth prepass; and the
+near surfaces were **not occludees at all** (Play: 1 occludee): the registry follows the scene's children only,
+the chunks sit below the view's root, and the relief position node had no declared vertex reach. N3 present
+(`placedGeometry`'s `DataView` loop). N4 present (one draw a chunk, a seam, per-object uniform callbacks). N5
+present (every mip node derives collision, nav, light, occupancy; hash = CRC of the full encode). N6 not
+re-measured.
+
+**Built** (a3639669). *b.* A program per **draw path** (`VoxelSurface.materialFor`, `voxel-surface-path.ts`
+`voxelDrawPath`), chosen when a draw's shader data arrives, never per pixel: one solid material in the draw's
+grid (border cells included) reads one texture set; construction alone at level 0, and every draw from level 1
+out (64 m and past), reads **one projection** a map (`SetProjectionMode` `axis`: the grid's UV on construction,
+the same pixels; on terrain the normal's largest axis, sampled with that axis's gradients so the mip does not
+jump at the axis's seams). Seams take two materials and their level's projection. Four programs: 18 / 9 / 6 / 3
+array samples. WebGPU only (WebGL 2 keeps its one program); `?voxelPaths=full` draws the full program everywhere
+(passed on to Play). Anisotropy at levels 1–2 not changed: a sampler is per texture, so it needs second array
+textures (memory) — not done. *a.* Chunk, node and seam surfaces are **rows of the culled table**: the view's root
+is an occludee group (`markOccludeeGroup`; the registry follows its visible marked meshes), the surface programs
+declare vertex reach 0 (a relief geometry's bounds already hold its relief), so each is tested whole (frustum +
+pyramid in compute, indirect draw; `occlusion-whole.ts`). **One indirect draw a level is not built**: WebGPU has no
+multi-draw indirect (vista §3), so a shared-buffer level draw could not leave chunks out without an index
+compaction pass; recorded (D602). Diagnostics count surface draws by program (`voxelWorld.paths`).
+
+**Not built, measured:** *c* the depth prepass: the meter cannot tell near's share at low from noise (below), so
+nothing says overdraw costs; not built. *d* packed vertices read directly: the page-thread unpack is 41–87 µs a
+draw (p50, 1,089–1,161 vertices; the whole town's 834 chunks 63 ms once), level-0 meshes are the clipped decals'
+surfaces and the picking meshes (float positions on the CPU) and the caster and relief programs read `position`:
+not worth the vertex-stage decode now; dropped. *e* mip nodes without collision/nav/light/occupancy and a cheap
+hash: `work/46d.19/n5.mts` (the shipped derive on the town and hilly worlds): consumers 1.08–1.18 ms a node p50,
+**11–24 % of a level-1/2 node's worker time**, the hash (encode + CRC) 72–153 µs, ≤ 2.5 %. The hash is not worth
+changing; dropping the consumers for mips changes the derived payload of mip nodes (a format note) and every
+consumer must be shown level-0-only first: not built, D601.
+
+**Tested.** vitest: `voxel-surface-path.test.ts` (one / two materials with air, wetness and the construction bit;
+the projection by construction-only, level, solid entry; the page flag); `voxel-surface.test.ts` (each path's
+program builds on WGSL: 18 − 9 / 12 / 15 fewer array samples, `textureSampleGrad` for one projection, every sample
+in uniform control flow; every path's draw is an occludee culled whole, reach 0); `occlusion.test.ts` (a marked
+group's nested marked draws followed while shown, a hidden level dropped). The meter and pictures are the browser
+proof (staging, Play). E2e: below.
+
+**Measured** (staging, Iris Xe, Play in the editor, WebGPU 1280 × 720, the realistic 8 km world's town orbit,
+`run.mjs headroom`, one round a tier a step, 05:27–06:29, load 1.0–5.2, uptime 18.6 d; `work/46d.19/headroom-*`).
+Room = ballast held × its ms; frame GPU from the line past the edge; hidden = the interval the pass saves past the edge.
+
+| step | low 30 Hz room | low frame GPU | low near hidden | medium 60 Hz room | medium frame GPU | medium near hidden | missed (no load) |
+|---|---|---|---|---|---|---|---|
+| before | 176 × 0.122 = 21.5 ms | 10.0 | 1.53 ms | 60 × 0.127 = 7.6 ms | 8.7 | 0.66 ms | 0 / 89, 0 / 179 |
+| b (paths) | 192 × 0.126 = 24.2 ms | 7.5 | 1.98 | 60 × 0.127 = 7.6 | 8.4 | 1.50 | 0 / 89, 1 / 179 |
+| b again (reach only, no row yet) | 192 × 0.121 = 23.2 | 10.5 | −2.38 | 60 × 0.125 = 7.5 | 9.0 | 1.06 | 0 / 89, 2 / 179 |
+| a + b (rows) | 192 × 0.122 = 23.4 | 10.3 | 2.54 | 52 × 0.127 = 6.6 | 8.5 (edge 9.6–10.1) | 1.67 | 0 / 89, 2 / 179 |
+| f: + surfaces as static casters | 176 × 0.126 = 22.2 | 8.2 | 3.09 (shadows 1.55) | 44 × 0.131 = 5.8 | 8.6 | 1.85 (shadows 0.53) | 0 / 89, 2 / 179 |
+
+Which paths draw (the page's `__tlVoxelPlay.stats()`, low, three town poses): 109 surfaces on the full program
+(level 0: every chunk holds ground and two or more materials, construction with it) and 141–146 on two materials, one
+projection (levels 1–2 and seams); none on one material (no chunk of this world's near field holds a single one). Read: at the cap the low room moved 21.5 → 23.2–24.2 ms with b (one ballast step, 16 units ≈ 2 ms: the meter's
+resolution), medium's not at all; the "b again" row is the same code measured twice and shows what a hidden pass's
+ms is worth at low (1.98 vs −2.38 ms): **near's share at low cannot be resolved by the meter** (D588), so b and a
+are reported as room only. a's rows: at the town 176 surfaces are occludees, 32 pass the runtime's class test and
+are tested whole, 1 culled: nothing to gain at an orbit over open roofs; medium's room −1 ms is within one ballast
+step. Kept both (b: never worse in a picture, fewer samples by construction; a: the step the vista asked for,
+neutral here, it pays where streets and slopes hide chunks — not measured). Page heap (low, Play in the editor):
+town 589–665 MiB, after the 2.4 km flight 850–869, settled 796–891 (a2, f): under 46d.21's 1,024 and the 46d.23
+starting split (page ≤ 1.5 GiB); GPU (DRM resident) 870–958 town, 1,097–1,120 after the flight. The 60 m/s hugging
+flight of D597 not run again. Worker ms: above (e).
+
+**f — near chunks as static casters** (`?voxelShadows=static`, measurement only; the owner's proposal is not
+decided). Play draws voxel surfaces with no shadow at all: with them on, the key light's maps run (a2: 0 static /
+0 dynamic draws; f: the static map 3 draws by the fill, the dynamic map every frame). Cost by the meter: low room
+23.4 → 22.2 ms, shadows hidden 1.55 ms (2 ballast steps; 15–20 % of low's measured passes); medium room 6.6 → 5.8
+ms, shadows 0.53 ms. The 2.4 km flight at low held 30 Hz either way (mean 33.5 ms, 1 → 2 frames over 100 ms).
+Reach and invalidation (from `cached-shadow.ts`, not traced frame by frame): the static map is redrawn on any
+static caster change in its reach and at each step of half the shadow square, so streaming chunks in and out
+redraws it about as often as the near field changes in a flight (it then costs as an uncached map), and an edit
+redraws it once; its square (the sun's map of this world: 1024 texels) covers the near field, not the far field.
+Seen: the 8 km world's sun (intensity 1.2, nearly overhead) makes the cast shadows faint: 0.00 % of pixels differ
+by > 20 at the town poses, 2.97 % at near-ground (a wall's foot darker); so the pictures say little about the look.
+
+**Looked at** (`far-field/46d.19/`: `<pose>-{before,b,a2,f}.png`, `side-by-side/<pose>-<A>-vs-<B>.png` A left, a 2×
+crop below; Play, WebGPU, low; town-west, town-peak-4.5km (the square), near-ground, peak-to-town; every one
+opened). before → a2: the same pictures: ≤ 0.01 % of pixels by > 60 at town-west, near-ground and peak-to-town,
+0.26 % at the square (roof edges at the far field's edge and the clouds: the run-to-run noise, before → b 0.24 %);
+materials, blends, triplanar ground, wetness and the far slopes the same; no seam where level 0 meets level 1 at
+the square's distance. *Unverified:* a pose where whole culling hides chunks (streets, behind a ridge), motion,
+medium/high pictures, WebGL 2 (unchanged path; the voxel area's smoke), the meter's ms (±40 %, D588).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3339,6 +3441,20 @@ WebGL 2, medium/high, collision bodies in a game with physics, the eye-point sam
   **46d.23**, after 46d.19 and before 46d.20. Lead's starting split, to be confirmed by 46d.23's measurements:
   page heap ≤ 1.5 GiB, GPU ≤ 2.5 GiB (the GPU side holds the stream's meshes, far atlas and texture arrays, which
   grow most with the new budgets). D597 stays open as a retention check, separate from the budget.
+
+- 2026-11-11 (46d.19, default chosen, owner to confirm): **a voxel draw's program follows its grid and level**
+  (`voxelDrawPath`): one solid material reads one set; construction alone at level 0 and every draw from level 1
+  out reads one projection, terrain the normal's largest axis (no triplanar blend past 64 m). WebGPU only; WebGL 2
+  keeps the one program. Anisotropy at levels 1–2 unchanged (second array textures would cost memory).
+- 2026-11-11 (46d.19, default chosen, owner to confirm): **near chunks, nodes and seams are rows of the culled table**
+  (tested whole on the GPU, drawn indirect), kept though neutral at the town orbit (1 of 32 tested culled); no
+  merged per-level draw: WebGPU has no multi-draw indirect (D602).
+- 2026-11-11 (46d.19): the depth prepass (c), packed vertices read in the vertex stage (d: 41–87 µs a chunk on the
+  page) and mip nodes without collision/nav/light/occupancy (e: 11–24 % of a mip node's worker time, D601) measured,
+  not built. Terrain as static casters measured only (low +1.6 ms, medium +0.5 ms by the meter): the owner decides.
+- 2026-11-11 (46d.19, default chosen, owner to confirm): **D600: a still TAAU view holds once the camera's matrices
+  stay within 1e-7 an element** of the pose its stillness began at; the editor ignores a `play.stopped` of a play
+  other than the one it runs; two e2e reads pin `taau=0` with the reason written.
 
 ## 10. Open questions for the owner
 

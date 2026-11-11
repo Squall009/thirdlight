@@ -170,6 +170,16 @@ a tint, white for the set as authored). The image's first row is its top. Roughn
 it), metalness its B, occlusion its R. The test patterns leave the default program (`?patterns=1` on the voxel
 world page draws them).
 
+**Draw paths (46d.19; default chosen, owner to confirm; WebGPU only).** No format change. Each near draw (a chunk, a
+mip node, a seam) takes one of four programs, chosen when its shader data arrives (`voxelDrawPath`): one solid
+material in its grid (border cells included) reads one texture set, else two; construction alone at level 0 and
+every draw from level 1 out reads one projection a map (the grid's UV on construction, the same pixels; on terrain
+the normal's largest axis, sampled with that axis's gradients: no triplanar blend past 64 m), else level 0 reads
+terrain triplanar. 18 / 9 / 6 / 3 array samples a pixel. Seams take two materials and their level's projection.
+WebGL 2 draws every surface with the full program. Near surfaces are occlusion culling's draws: each tested whole on
+the GPU (frustum and depth pyramid) and drawn through its indirect draw; the surface programs declare that no vertex
+leaves its geometry's bounds (a relief geometry's bounds hold its relief).
+
 **Residency (46d.4b; default chosen, owner to confirm).** No format change: the arrays keep every level. A quality
 level field `voxelTexelDensity` (texels a metre on a construction tile, one of 64 … 4096 in powers of two; absent:
 the lighting tier's, `VOXEL_TEXEL_DENSITY_BY_TIER` low 256, medium 512, high 1024) caps each array at the largest
