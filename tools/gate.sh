@@ -126,7 +126,8 @@ mkdir -p "$L"
 t0=$(date +%s)
 # The host's 1-minute load every 30 s (load.log, its mean and peak in the last line): the gate shares the host's
 # threads with production, staging and the agents, so how hard it pushed them is part of its result.
-( while :; do echo "$(date +%T) $(cut -d' ' -f1 /proc/loadavg)" >> "$L/load.log"; sleep 30; done ) &
+# Without the lock (fd 9): its sleep outlives the gate by up to 30 s and would hold the lock that long.
+( exec 9>&-; while :; do echo "$(date +%T) $(cut -d' ' -f1 /proc/loadavg)" >> "$L/load.log"; sleep 30; done ) &
 SAMPLER=$!
 trap 'kill "$SAMPLER" 2> /dev/null; rm -rf "$GATE_TMP"' EXIT
 say() { echo "$*" | tee -a "$L/summary.txt"; }
