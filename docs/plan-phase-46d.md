@@ -3726,6 +3726,45 @@ WebGL 2 pictures (the smoke passes).
 - 2026-11-11 (46d.20b): feedback does not help D598 (the near field's work); the Scene view and the voxel world page
   make no rounds (D609).
 
+- 2026-11-11 (46d.15, independent review of 46d-b by a fresh agent that did not build it; range a376c761..b0338420).
+  Verdict: close after fixes (H1 gate area map gaps, H2 WebGPU pixel coverage lost with the parity archive, H3 the
+  150 m/s ground-under-camera criterion not met). Lead's plan: fix H1/H2/M1/L-test findings (tooling), H3/M2/M3/L7
+  (product), M5 + acc46d-b + the owner decisions list (M4) — then close. The page:
+  > # 46d-b independent review (a376c761..b0338420, phase-45) — 2026-11-11
+  >
+  > **Verdict: close after fixes.** The work follows the owner's 11-09/10/11 direction (bricks the default far field, relief off, height in albedo A, blend per material, WebGPU-first compute culling on the one culled table, low = 720p/0.667/TAAU/30 Hz, 4 GB low budget, gates by area). Build checks pass on HEAD (check-size, check-redefinitions, history-comments: OK, run read-only). Three things block a clean close: the new gate map leaves whole packages unmapped (the D600 class of hidden regression stays likely), the parity archive removed the only WebGPU pixel-reference tests along with the WebGL 2 ones, and the owner's 150 m/s pass criterion is not met.
+  >
+  > ## Findings
+  > **H1 Gate area map incomplete.** 265 of 1,574 package sources reach no area: all of `packages/project-model` (173, including `quality-levels.ts`, which turned TAAU on for low, the D600 cause), `packages/shared` (17, imported everywhere), most of `packages/backend` (75, including `far-cache-worker.ts`, `preview-routes.ts`). Changing them runs only the core smoke and `vitest related`. `tools/gate-areas.json` / `tools/check-gate-areas.mjs`. Fix: send unmapped sources (or project-model/shared) to every area, or have check-gate-areas fail on an unmapped source the way it fails on an unmapped e2e file.
+  > **H2 Parity archive dropped WebGPU coverage.** `env-parity`, `shader-parity` and `scene-view-parity` (commit 9a49193d, now `archive/webgl2-parity/`) also compared **WebGPU** against frozen references: sky ×5, fog, fog volume, shadows, tone ×3, grading, LUT, bloom, SSAO, DoF, SMAA/FXAA, and the standard/unlit/water/foliage/kit/lightmap/look shader families. The owner asked to cut the doubled WebGL 2 passes, not WebGPU regression checks. Fix: restore the WebGPU half (`project()==='webgpu'` branch) as one file in `environment`/`materials`, keep WebGL 2 out of it.
+  > **H3 150 m/s criterion unmet (D598 open).** The owner's criterion (§2, 2026-11-10) is "no hole, no missing ground or collision under the camera". Measured: ground under the camera missing in 12–18 % of updates, and in 45–55 % one second ahead. 46d.22 is marked "done". Fix: reword 46d.22 to "partial", and either fix it (collision ground first and coarser at speed, D601) or put it to the owner as one of the 46d-b decisions before the close.
+  > **M1** `tools/voxel-bench/stream-speed.test.ts:73`: the title says "keeps the ground under a focus flying at 150 m/s", but nothing asserts ground in flight. It also asserts wall clock (`knownAfterMs < 1000`, `:113`), which AGENTS.md forbids, and `knownAfterMs` is set on the first unchanged poll, so the check is weak. Fix: assert counts (groundMissing over updates against a bound) and drop the ms bound.
+  > **M2 D608 shipped untested on its binding path.** Release is gated at ≥ 90 % of the far GPU budget (f2d6a1eb). The budget never binds on the 8 km world (77–165 of 384 MiB), and release at any fill flapped (33 k jobs). The flapping comes back wherever the budget binds. Fix: a far-seen.test case at a tight budget asserting a still camera settles (jobs → 0), or build the non-flapping release the row names.
+  > **M3 D603 (watch, 3 times) looks like a defect, not load.** `replacedChunks` was 752–782 where 8 were expected (`voxel-world.e2e.ts:522`), so an edit's swap counted a whole stream batch. Fix: trace before the close. If it is real, edits re-swap a batch (cost and pop).
+  > **M4 Vista item requirements dropped with D-rows only.** 46d.18's "compute brick build tried and measured" was not tried (D595). 46d.19's N4 (one indirect draw per level, D602) and N2/N3/N5 were measured, not built (D601). Fill is 16.3 s at medium against the < 10 s target (D596). Each has a logged reason. Fix: list them on the owner's decisions page; no code needed.
+  > **M5** `LOW_MEMORY_BUDGET_MIB` (`quality-levels.ts:308`) is read only by benches. The 4 GB total was measured only in Play inside the editor (D606, D604: 181–317 MiB of CPU brick copies, kit textures twice). Owner requirement "about 4 GB in total" is unverified for a game. Fix: one export measurement (no editor) before acc46d-b.
+  > **L1** `tools/gate.sh:45` has a dated comment ("since 2026-11-11"). The history check skips `.sh`.
+  > **L2** `tests/e2e/voxel-world.e2e.ts:399,903`: two WebGL 2 loops are still in a file heavily touched this phase. The rule is to cut them when the area is next touched. Cut them; the smoke covers WebGL 2.
+  > **L3** `tests/e2e/webgl2-smoke.e2e.ts`: the export it draws is the box scene, not the voxel world. Also `brightPixels > 20` is a very weak bound. Export a voxel scene, or say "no voxel export on WebGL 2" in its header.
+  > **L4** `docs/architecture/voxel-render-spec.md:600`: the trace row lists D550/D551/D557/D573 as open; they were fixed in 46d.13c-3.
+  > **L5** `tools/voxel-bench/stream.test.ts` is at exactly 2,000 lines (it was 1,969). Split it before the next addition.
+  > **L6** `quality-levels.test.ts:134-135` asserts the constant's own value (4096, sum). This is a test of its own code; keep only the "budgets < gpu" check.
+  > **L7** The far brick output keeps three paths (`visibility` default, `half`, `direct`), plus the mesh fallback (`voxel-far-mesh.ts:173`). `half` is unused ("not needed", 46d.20a) and D574 is open. Retire `half`, or record why it stays.
+  > **L8** The see-through and worker-pool timing bounds were removed (1e3ac083) and no bench reports those timings. A slowdown there is now silent. Add one bench line.
+  > Clean: one culling path (`voxel-far-cull.ts` uses occlusion-instances), far cache format 2 is add-only with its owner note (`voxel-render-spec.md:537`), format 1 still reads (`far-world.test.ts:295`), no new per-project caps, the size/redefinition ratchets only shrank, the D600 pins (`taau=0`) carry written reasons.
+  >
+  > ## Owner requirements 2026-11-09…11
+  > Met: height → albedo A (46d.10); relief off on every tier, switch kept (46d.11); blend per material + world default, narrowest wins (46d.11); bricks the far direction / default, mesh fallback (46d.13); WebGPU-first, steps 1–4 on compute over the existing pyramid and table (46d.17/20; WebGL 2 kept direct); low = 720p 0.667 + TAAU, 30 Hz (46d.21); memory ceiling for low only, then 4 GB with medium/high ≥ low (46d.23); post stack and stand-in forest left out; gates split + AGENTS rewrite.
+  > Deviated, logged: mesh ~1/4 triangle cut (46d.14 deferred, D581); compute edit build (D595); N4 (D602); fill < 10 s (D596); run-time edits never reach the far field (D594); bevelled edges wait for relief's return.
+  > Not met: 150 m/s ground under the camera (H3). Unverified: "order of magnitude of headroom" (low room 15–24 ms at 30 Hz; medium 0.7–2.5 → 6.6–7.6 ms) and 4 GB in a game (M5).
+  >
+  > ## Owner's eyes / ears
+  > 1. acc46d-b pictures (46d.15 not built yet): is the brick far field still "mush"? Also D578 faint lines, D572 near cliff lattice, D607 far lit at the wrong position, D585 camera inside the ground.
+  > 2. TAAU on low in motion: ghosting and shimmer on far slopes and roof edges. Only stills and one orbit strip were checked.
+  > 3. A 150 m/s flight: does missing ground ahead show or feel wrong? Is H3 acceptable?
+  > 4. Medium/high frame times: unverified on target hardware. The workstation meter run (§10) is still wanted.
+  > 5. Decisions marked "owner to confirm": the far release policy (D608), the inside-ground look (D585), the terrain-shadow proposal (static casters cost +1.6 ms at low), the WebGPU-only test suite including the parity archive (H2), and the 1.5 / 2.5 GiB split.
+
 ## 10. Open questions for the owner
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
