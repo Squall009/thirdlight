@@ -76,7 +76,8 @@ case "$mode" in
     sudo -n systemctl reset-failed "$UNIT" 2> /dev/null || true
     # No --collect: a unit that failed stays loaded, so `wait` can read how it ended (reset above on the next start).
     # The host's 16 threads also run production, staging, the agent UI and the Proxmox host: the CPU cap leaves them
-    # five, so a gate slows down rather than hanging the host (throttled threads don't count in the load average).
+    # five, so a gate slows down rather than hanging the host. The container's load average (lxcfs) still counts a
+    # throttled thread as runnable: the cap bounds the CPU a gate takes, not the load it shows; worker counts do that.
     cpu=${TL_GATE_CPU:-1100%}
     sudo -n systemd-run --unit="$UNIT" --quiet -p MemoryMax="$need" -p MemorySwapMax=0 -p CPUQuota="$cpu" \
       --working-directory="$PWD" -- sudo -n -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" \
