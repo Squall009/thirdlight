@@ -10,7 +10,7 @@
 #
 # Settings (environment): TL_STAGING_PORT (4180) and TL_STAGING_PREVIEW_PORT (the port + 1),
 # TL_STAGING_ROOT (~/thirdlight-staging-p45), TL_STAGING_HOST (127.0.0.1; a LAN address only when a
-# browser elsewhere needs it), TL_STAGING_MEM (6G).
+# browser elsewhere needs it), TL_STAGING_MEM (10G).
 #
 # The data root holds engine-owned test worlds only, never a game or a copy of one: its owner token is its
 # own (tools/start.mjs makes it on first start). The production service's data root and ports are refused,
@@ -25,7 +25,7 @@ PORT=${TL_STAGING_PORT:-4180}
 PREVIEW_PORT=${TL_STAGING_PREVIEW_PORT:-$((PORT + 1))}
 ROOT=${TL_STAGING_ROOT:-$HOME/thirdlight-staging-p45}
 HOST=${TL_STAGING_HOST:-127.0.0.1}
-MEM=${TL_STAGING_MEM:-6G}
+MEM=${TL_STAGING_MEM:-10G}
 TEST_PROJECT=staging-empty
 
 die() { echo "staging: $*" >&2; exit 1; }

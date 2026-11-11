@@ -115,7 +115,7 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
 - The shell exports `NODE_ENV=production`: installs need `NODE_ENV=development npm ci --include=dev`. New
   dependencies get exact versions and a pin in `tools/check-deps.mjs`.
 - `/tmp` is RAM on this host: never write there (`docs/environment.md`); set `TMPDIR` to a folder on disk.
-  The host has 16 GiB shared by production, staging and the gate: heavy runs go in a memory-capped scope, one
+  The host has 32 GiB (since 2026-11-11) shared by production, staging and the gate: heavy runs go in a memory-capped scope, one
   at a time. An ad-hoc vitest run passes `--exclude '.claude/**'` (the gate does).
 - A new `three/examples/jsm/...` module goes on the three-adapter allowlist in `tools/check-boundaries.mjs`,
   with a reason.

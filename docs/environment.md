@@ -9,7 +9,7 @@ The server the engine is built, tested and served on (checked 2026-10-30). The 2
 |---|---|
 | Container | Proxmox VE LXC, Ubuntu 26.04.1 LTS, kernel 7.0.2-pve, x86_64. No containers inside it (owner, 2026-09-16) |
 | CPU | Intel Core i5-12600H, 10 CPUs visible |
-| Memory | 16 GiB, 512 MiB swap. OOM kills have taken the service and every agent down before |
+| Memory | 32 GiB (owner doubled it 2026-11-11), 512 MiB swap. OOM kills have taken the service and every agent down before |
 | GPU | Intel Iris Xe (Alder Lake-P GT2), passed through at `/dev/dri`; `dadmin` is in `video` and `render`. The floor tier for performance (owner, 2026-10-28) |
 | Disk | `/` 63 GB (LVM). `/tmp` is a RAM tmpfs capped at 4 GB |
 | Toolchain | Node 22.22.1, npm 9.2.0 (pins: `package.json`, the lockfile) |

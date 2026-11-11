@@ -20,7 +20,7 @@
 #                                             stopped at (lint, the vitest files that failed, the e2e
 #                                             tests that failed, the perf check) and the steps after it
 #   tools/gate.sh start <mode> [args…]        the same, detached as the systemd unit thirdlight-gate
-#                                             under a memory cap (TL_GATE_MEM, default 7G): a caller
+#                                             under a memory cap (TL_GATE_MEM, default 12G): a caller
 #                                             that ends (an agent session) no longer kills the gate
 #                                             halfway. Prints its log folder.
 #   tools/gate.sh wait                        blocks until the detached gate ends; prints its summary.
@@ -40,14 +40,15 @@
 # On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
 # 4.7 and 5.6 GB of anonymous memory (6.5 GB with the page cache the cap reclaims), each test
 # about 5 % slower than on 2: the cap held 3, not 4 (+0.9 GB a worker). With the voxel world's files a wide run
-# on 3 workers was OOM-killed at the 7G cap 3 min into its e2e step (the leak test on): 2 since.
+# on 3 workers was OOM-killed at the old 7G cap 3 min into its e2e step (the leak test on); the host has 32 GiB
+# since 2026-11-11 and the cap is 12G: 3 again.
 set -u
 mode=${1:-}
 shift || true
 cd "$(dirname "$0")/.."
 # The full gate has no fixed time budget (AGENTS.md): its summary gives its time beside the previous green full
 # gate's (the previous phase's end), so a phase's growth is seen and questioned in its review.
-FULL_WORKERS=2
+FULL_WORKERS=3
 # A worker count the caller set wins in every mode.
 workers_set=${TL_E2E_WORKERS:+1}
 export TL_E2E_WORKERS=${TL_E2E_WORKERS:-2}
@@ -61,7 +62,7 @@ case "$mode" in
     shift
     if systemctl is-active --quiet "$UNIT"; then echo "a gate is already running ($UNIT); tools/gate.sh wait"; exit 1; fi
     # A gate started short of memory gets its browsers killed by the cap halfway; wait for room.
-    need=${TL_GATE_MEM:-7G}; need_gb=${need%G}
+    need=${TL_GATE_MEM:-12G}; need_gb=${need%G}
     for _ in $(seq 1 15); do
       avail=$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)
       [ "$avail" -ge "$need_gb" ] && break

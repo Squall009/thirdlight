@@ -83,11 +83,11 @@ D-ROWS: this branch owns D430–D499 (reserved on main). Take the next free numb
 docs/audit-2026-09-22.md and docs/audit-closed.md; D430–D440 were used in phase 45; continue at D441). New rows
 `| Dn | Sev | open | … |`; closing sets `fixed <commit>` (or superseded / won't fix / watch).
 
-Host rules (an OOM once forced a shutdown of this 16 GiB host; the owner was furious):
+Host rules (an OOM once forced a shutdown of this host (16 GiB then, 32 GiB since 2026-11-11); the owner was furious):
 - EVERY backend, browser, perf, benchmark or gate run is memory-capped, reruns included. Gates:
-  `TL_GATE_MEM=7G TL_VITEST_WORKERS=4 tools/gate.sh start fast <e2e files>` then `tools/gate.sh wait`, started only
-  with >= 9 GB available. Ad-hoc runs (benchmarks too):
-  `sudo -n systemd-run --scope --quiet -p MemoryMax=6G -p MemorySwapMax=0 -- sudo -n -u dadmin -- env HOME=$HOME PATH=$PATH TMPDIR=$TMPDIR NODE_OPTIONS=--max-old-space-size=4096 …`
+  `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start fast <e2e files>` then `tools/gate.sh wait`, started only
+  with >= 14 GB available. Ad-hoc runs (benchmarks too):
+  `sudo -n systemd-run --scope --quiet -p MemoryMax=10G -p MemorySwapMax=0 -- sudo -n -u dadmin -- env HOME=$HOME PATH=$PATH TMPDIR=$TMPDIR NODE_OPTIONS=--max-old-space-size=4096 …`
   The inner `sudo -u` keeps the GPU groups. One backend and one browser at a time. Synthetic worlds: generate
   per tile / stream to disk; never hold a 10 km world in memory; size the benchmark to fit the cap.
 - NEVER WRITE TO /tmp (RAM tmpfs; it OOM-killed every chat and agent twice). Before builds, vitest, Playwright,
@@ -102,9 +102,9 @@ Host rules (an OOM once forced a shutdown of this 16 GiB host; the owner was fur
 - The shell exports NODE_ENV=production; use `NODE_ENV=development` for npm installs (`npm ci --include=dev`).
 
 Gates (owner 2026-11-11: run only what a change affects; tools/gate.sh, AGENTS.md "Gates"):
-- tools/gate.sh REFUSES uncapped runs. Every mode runs detached and capped, started only with >= 9 GB available:
-  `TL_GATE_MEM=7G TL_VITEST_WORKERS=4 tools/gate.sh start <mode> …` then `tools/gate.sh wait` (NEVER run a mode
-  directly in your shell). TL_VITEST_WORKERS=4 always (an uncapped vitest OOM-killed a full gate at 8G).
+- tools/gate.sh REFUSES uncapped runs. Every mode runs detached and capped, started only with >= 14 GB available:
+  `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start <mode> …` then `tools/gate.sh wait` (NEVER run a mode
+  directly in your shell). TL_VITEST_WORKERS=6 always (an uncapped vitest OOM-killed a full gate at 8G).
   - `fast [--all] [e2e files…]` per commit: build, lint, `vitest related` on the files changed since the branch's
     last green gate (~/.cache/thirdlight-logs/last-green-phase-45; whole suite with --all, without a base, or when
     package/config/gate/check files changed), the core smoke (authoring-loop, play-export), the e2e areas the
@@ -176,7 +176,7 @@ triplanar 2 m; per-material height depth in metres; one texture set per kit; kit
 to the far-field work; the L0 detail-piece ring stays = level-0 ring (owner: unchanged until far-field numbers).
 Carried D-rows: D463, D485, D516, D479, D526, D496 (split format spec §3.7 BEFORE adding to it), D468 (perf phase).
 Never start 46e (lighting, connectivity culling, walk graph). D-rows continue at D528 (block D500–D599).
-GATES: always pass TL_VITEST_WORKERS=4 (an uncapped vitest OOM-killed a full gate at 8G).
+GATES: always pass TL_VITEST_WORKERS=6 (an uncapped vitest OOM-killed a full gate at 8G).
 
 46d-b (owner 2026-11-09, plan-46d §9 entries of that date + §6d are REQUIREMENTS): height in the ALBEDO alpha (texture
 layout v1 amended, owner note); relief displacement OFF on every tier for now (switch kept, height lighting stays);
