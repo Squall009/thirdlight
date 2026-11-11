@@ -2670,7 +2670,10 @@ the projection by construction-only, level, solid entry; the page flag); `voxel-
 program builds on WGSL: 18 − 9 / 12 / 15 fewer array samples, `textureSampleGrad` for one projection, every sample
 in uniform control flow; every path's draw is an occludee culled whole, reach 0); `occlusion.test.ts` (a marked
 group's nested marked draws followed while shown, a hidden level dropped). The meter and pictures are the browser
-proof (staging, Play). E2e: below.
+proof (staging, Play). Gates: gate-fast-20261111-063302 red on `voxel-relief.test.ts` (it read the shared program,
+the relief mesh now draws its path's: fixed), rerun red once on D410 (`project-items.e2e.ts:186`, passed on rerun),
+gate-rerun-20261111-064624 GREEN (village perf 0 / 360); `area voxel rendering` gate-area-20261111-064830 GREEN
+(4 min, 38 tests, 6.0 GB; voxel area 184 s, its tests' sum). No e2e file changed for the item.
 
 **Measured** (staging, Iris Xe, Play in the editor, WebGPU 1280 × 720, the realistic 8 km world's town orbit,
 `run.mjs headroom`, one round a tier a step, 05:27–06:29, load 1.0–5.2, uptime 18.6 d; `work/46d.19/headroom-*`).
