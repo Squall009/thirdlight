@@ -54,6 +54,7 @@ import {
   type ChunkGrid,
   type ChunkSource,
   type FarNodeSource,
+  type GroundCoverage,
   type CollisionBodies,
   type CollisionSource,
   type Focus,
@@ -223,7 +224,7 @@ export interface VoxelHostStats {
   readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
   readonly far?: Readonly<Record<string, unknown>> & { readonly selected: number; readonly drawn: number; readonly pending: number };
   /** Streamer updates, those where the ground under the focus or a second ahead of it was not resident and derived, and those with no ground within the ring's height under the focus. */
-  readonly coverage?: { readonly updates: number; readonly groundMissing: number; readonly aheadMissing: number; readonly outOfReach: number };
+  readonly coverage?: Readonly<GroundCoverage>;
 }
 
 export class VoxelWorldHost {

@@ -434,4 +434,4 @@ export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, ship
 export { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample, sampleOfDistance } from './distance-brick-format';
 export { FAR_GPU_PER_STORED_BYTE, FarGpuLedger } from './far-gpu-ledger';
 export { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_STRIDE, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
-export { countGround, groundAt, type GroundCoverage, type GroundQuery } from './stream-coverage';
+export { countGround, emptyCoverage, groundAt, type GroundCoverage, type GroundGap, type GroundQuery } from './stream-coverage';

@@ -372,7 +372,7 @@ async function main(): Promise<void> {
     };
     await heapAt('start');
     const simStart = await sim();
-    out['simStart'] = { far: simStart?.['far'] ?? null, coverage: simStart?.['coverage'] ?? null };
+    out['simStart'] = { far: simStart?.['far'] ?? null, coverage: simStart?.['coverage'] ?? null, counters: simStart?.['stream']?.['counters'] ?? null, pool: simStart?.['pool'] ?? null };
 
     // Every presented frame, small, through the screencast: key pixels below the ground row.
     const cdp = await context.newCDPSession(page);
@@ -426,7 +426,7 @@ async function main(): Promise<void> {
     const simPoll = (async () => {
       while (polling) {
         const s = await sim();
-        if (Number.isFinite(flyAt)) coverageLog.push({ t: (Date.now() - flyAt) / 1000, c: { coverage: s?.['coverage'] ?? null, far: { drawn: s?.['far']?.drawn, pending: s?.['far']?.pending } } });
+        if (Number.isFinite(flyAt)) coverageLog.push({ t: (Date.now() - flyAt) / 1000, c: { coverage: s?.['coverage'] ?? null, far: { drawn: s?.['far']?.drawn, pending: s?.['far']?.pending }, queued: s?.['pool']?.queued ?? null } });
         await page.waitForTimeout(1000);
       }
     })();
@@ -463,7 +463,7 @@ async function main(): Promise<void> {
     out['memoryEnd'] = await memory();
     await heapAt('end');
     const simEnd = await sim();
-    out['simEnd'] = { far: simEnd?.['far'] ?? null, coverage: simEnd?.['coverage'] ?? null, stream: simEnd?.['stream']?.['lod'] ?? null };
+    out['simEnd'] = { far: simEnd?.['far'] ?? null, coverage: simEnd?.['coverage'] ?? null, stream: simEnd?.['stream']?.['lod'] ?? null, counters: simEnd?.['stream']?.['counters'] ?? null, pool: simEnd?.['pool'] ?? null };
     out['drawnEnd'] = await stats();
     if (RETURN_S > 0) {
       // Home again: what the flight's places still hold once the camera stands where it started.

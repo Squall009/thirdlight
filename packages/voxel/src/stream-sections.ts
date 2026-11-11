@@ -334,6 +334,12 @@ export class SectionDerives {
     return list !== undefined && list.every((s) => s.derived !== null || this.stranded(s));
   }
 
+  /** Whether a section of a chunk without a result yet waits for a neighbour chunk that is not resident (the coverage bench's reason). */
+  chunkBlocked(cx: number, cy: number, cz: number): boolean {
+    const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
+    return list !== undefined && list.some((s) => s.derived === null && s.job === 0 && !this.canDerive(s));
+  }
+
   /** A section that has never had a result and cannot have one while the world stays as loaded: a chunk it reaches is neither resident nor coming. */
   private stranded(s: Section): boolean {
     return s.derived === null && s.job === 0 && !this.neighboursComing(s);

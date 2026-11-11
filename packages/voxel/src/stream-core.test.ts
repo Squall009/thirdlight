@@ -9,7 +9,7 @@ import { JobQueue } from './job-queue';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { MATERIAL_AIR, SHAPE_FULL, VOXEL_ROLE, voxel, type VoxelRecord } from './record';
 import { deriveNow } from './stream-handlers';
-import { FocusMotion, readOrder } from './stream-reads';
+import { FocusMotion, readOrder, StreamReadPlan, STREAM_WIDEN_AFTER_MS } from './stream-reads';
 import { chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, pastUnloadRing, ringChunks } from './stream-ring';
 
 const grid = chunkGrid(32);
@@ -315,7 +315,7 @@ describe('read order and prefetch', () => {
   });
 
   it('puts the lead a second ahead of steady motion, capped; a jump or a pause is not motion', () => {
-    const m = new FocusMotion(ring.nearRadius, ring.nearRadius * 60);
+    const m = new FocusMotion(ring.nearRadius);
     // 80 m/s along +x is 160 cells a second, at 60 frames a second.
     let t = 1000;
     for (let i = 0; i <= 60; i++, t += 1000 / 60) m.move({ x: (160 * i) / 60, y: 50, z: 0 }, t);
@@ -334,6 +334,52 @@ describe('read order and prefetch', () => {
     // A jump resets the velocity.
     m.move({ x: 5000, y: 50, z: 0 }, t + 16);
     expect(m.lead({ x: 5000, y: 50, z: 0 }, t + 16, 1, 1e9)).toEqual({ x: 5000, y: 50, z: 0 });
+  });
+
+  it('takes a camera placed a little way off (one step, slower than a cut) for no motion: neither speed nor lead', () => {
+    const m = new FocusMotion(ring.nearRadius);
+    m.move({ x: 0, y: 50, z: 0 }, 1000);
+    // 52 cells (26 m) in one 60 Hz frame, then the camera stays: read as a burst it narrowed the ring for half a
+    // second, then the ring widened and refilled.
+    m.move({ x: 52, y: 50, z: 0 }, 1016);
+    for (let t = 1016; t < 1600; t += 16) {
+      m.move({ x: 52, y: 50, z: 0 }, t);
+      expect(m.speed(t)).toBe(0);
+      expect(m.lead({ x: 52, y: 50, z: 0 }, t, 1, 1e9)).toEqual({ x: 52, y: 50, z: 0 });
+    }
+    // Steady travel is motion again after a smoothing window.
+    let x = 52;
+    for (let t = 1632; t <= 2000; t += 16) m.move({ x: (x += 2), y: 50, z: 0 }, t);
+    expect(m.speed(2000)).toBeGreaterThan(60);
+  });
+
+  it('keeps the ring narrowed through a 150 m/s flight whose steps come at uneven ticks, and widens it a while after a stop', () => {
+    const base = { loadRadius: 384, unloadRadius: 448, loadHeight: 192, unloadHeight: 256, nearRadius: 192 };
+    const plan = new StreamReadPlan<never>(g, base, 1);
+    // 300 cells a second in 30 Hz frames of 10 cells, each reaching the plan twice: on its tick and 0.3 ms later
+    // again (the simulation's ticks are not the frames).
+    let changes = 0;
+    let t = 1000;
+    const f = { x: 0, y: 100, z: 0 };
+    for (let i = 0; i < 300; i++, t += 1000 / 30) {
+      const p = { x: 10 * i, y: 100, z: 0 };
+      plan.moved(p, t);
+      if (plan.update(p, t) && plan.ringChanged) changes++;
+      plan.moved({ x: p.x + 0.1, y: 100, z: 0 }, t + 0.3);
+      if (plan.update({ x: p.x + 0.1, y: 100, z: 0 }, t + 0.3) && plan.ringChanged) changes++;
+      Object.assign(f, p);
+    }
+    // Narrowed once, never widened in flight.
+    expect(changes).toBe(1);
+    expect(plan.ring.loadRadius).toBeLessThan(base.loadRadius);
+    // Stopped: still narrow until the speed has stayed down for the widening hold, then the base ring.
+    const stop = t + 600;
+    plan.update(f, stop);
+    expect(plan.ring.loadRadius).toBeLessThan(base.loadRadius);
+    plan.update(f, stop + STREAM_WIDEN_AFTER_MS - 10);
+    expect(plan.ring.loadRadius).toBeLessThan(base.loadRadius);
+    plan.update(f, stop + STREAM_WIDEN_AFTER_MS + 10);
+    expect(plan.ring).toBe(base);
   });
 });
 
