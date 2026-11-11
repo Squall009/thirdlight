@@ -1075,6 +1075,14 @@ describe('streamer (workers, region files on disk)', () => {
     }
     expect(ring.adds - adds0).toBeGreaterThan(first / 2);
     expect(ring.removes).toBeGreaterThan(first);
+    // Steps that come faster than a settle's pause read as travel and may have narrowed the load ring: it widens once
+    // the focus has stood a while, and the chunks that refill it would land in the dig's swap below. The dig is
+    // checked against a still ring.
+    while (s.ring.loadRadius !== RING.loadRadius) {
+      await new Promise((ok) => setTimeout(ok, 50));
+      s.update();
+    }
+    await go(128, 0);
 
     // A dig at the focus: the chunks of its swap inside the ring had their bodies replaced in the swap's own task.
     swaps.length = 0;
