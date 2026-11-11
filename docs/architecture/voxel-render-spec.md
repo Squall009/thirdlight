@@ -495,6 +495,30 @@ pixel once: its texel, the hit on the pixel's ray at that depth, normal and colo
 standard material (the scene's lights and environment), the scene's fog at the hit's depth, the far depth (behind
 the near field in its edge ring) and the hit's own motion for the temporal upscale.
 
+**Visibility feedback** (46d.20b; WebGPU with the visibility pass, the default there; `voxel-far-feedback.ts`,
+`@thirdlight/voxel` `far-seen.ts`; `?farFeedback=off` makes none, and WebGL 2 and `?farPass=direct` have none: their
+far field selects by screen error alone). Every `FAR_FEEDBACK_EVERY_FRAMES` (4) passes, while no round is out, two
+compute dispatches in one pass right after the visibility pass: a clear, then a thread every `FAR_FEEDBACK_PIXEL_STEP`
+(2) pixels a side reading its texel and, on a hit, `atomicAdd` on its brick region's count and `atomicMin` on the bits
+of its view depth (two u32 a region, indexed x + X·(y + Y·z) by the atlas's regions along each axis). The buffer is
+copied for reading in the same turn and mapped whenever the GPU gets there (nothing waits). Each region's holder is
+stamped with the far view's version when it was given; a round carries its frame's version and atlas shape, and a
+region given later or given back is left out (stale). The round goes to where the world runs (`voxels.farSeen` to the
+simulation worker, else straight to the page's simulation) as `FarSeenWire`: its number, the last far event its frame
+drew (`FarEvent.seq`, the batch's `far.seq`) and per node seen: level, nx, ny, nz, pixels (counted × step²), nearest
+view depth in cells. The far field keeps each node's last sighting and, for each ancestor, the last sighting under it;
+a round not newer than the last is dropped. A node is *seen* when it, a node under it or its drawn stand-in was seen
+within `FAR_SEEN_TURN_MS` (6 s); *unseen* once rounds have come for a whole window and none has; never a node wholly
+inside the near field's load cylinder (the far view leaves those to it), nor one held seen (a node seen again after a
+window unseen `FAR_SEEN_RETURNS` (2) times within 4 windows is held seen for 10: a coarse stand-in seen drawn coarse
+and hidden drawn fine). The work order puts refinements under unseen stand-ins after the seen ones and ranks a seen
+stand-in by the error it was seen at (its nearest pixel). Once the drawn and made nodes reach
+`FAR_SEEN_RELEASE_SHARE` (90 %) of the far GPU budget, the selection also opens and ranks an unseen node by
+`FAR_UNSEEN_ERROR_SCALE` (¼) of its error (two levels coarser; the top levels always drawn, never nothing), so the
+budget goes to what is seen; below it the unseen keep their detail. A round that changes which wanted nodes are
+unseen remakes the order and, while releasing, at most every `FAR_SEEN_RESELECT_MS` (400 ms) the selection.
+No stored or derived format changes. Default chosen, owner to confirm (plan 46d §9).
+
 **Culled on the GPU** (46d.17; WebGPU, where the frame takes the depth pyramid path; three-adapter
 `voxel-far-cull.ts`): a brick group's nodes are rows of the engine's one culled-instance table
 (`occlusion-instances.ts`), 16 floats a node in the group's instance buffer (corner + cell size, page + the box's

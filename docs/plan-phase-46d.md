@@ -288,7 +288,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.17 | done (73adedac, 287ed0d2): far node boxes rows of the culled table (frustum + pyramid in compute, far depth, drawn after the pyramid; auto culling on with a far field), covered nodes left out, depth reject before the march, F6. Medium room 0.7–1.8 → 4.5 ms, frame GPU 15–16 → 12 ms, far 6–8 → 4.4 ms; high 17/127 missed (D583). d, e measured, not kept; pictures 0.00 % >60 |
 | 46d.18 | done (f50e6ab2, ead1c53a, 5c51b45a, e3dd1ec9): TAAU on low/medium WebGPU (D591/D592). Far cache format 2 bakes every node's bricks (8 km: +300.9 MB zstd, 1,421 s staging; projection 270 MB); job 74 → 0.3 ms, Play fill low 31 → 8.5 s, medium 79 → 16 s (D596); edits rebuild farBrickDirty, reuse by content. Pictures same (0.00–0.73 % >60). D594–D597 |
 | 46d.19 | done (84c60578 D600, a3639669): D600 fixed (TAAU hold never started: pose bits; a late stop of an earlier play). Per-draw programs (1 set / 1 projection; levels 1–2 one axis), chunks+seams culled-table rows. Low room 21.5 → 23.2–24.2 ms, medium 7.6 → 6.6–7.6; near share below the meter's noise. c, d, e measured, not built; static casters +1.6 ms low. Pictures ≤ 0.26 % >60 |
-| 46d.20 | 20a done (46872194): WebGPU far march writes a visibility texel (brick, place, depth, entry face; 20 B/px), one full-screen shade lights it once a pixel (sun, ambient, environment, fog at the hit) with the hit's own TAAU motion. Room low 23.0 → 24.8 ms, medium 7.4 → 8.3; high misses 25 → 7 / ~160 (D583 open). Pictures ≤ 0.25 % >60. Half res not needed (D574). 20b next |
+| 46d.20 | done (46872194; 14617da1, f7a9df90, f2d6a1eb): visibility pass + one shade; feedback: compute counts each brick's pixels + nearest depth, read back late, versioned, to the far tree (seen-coarse refined first, unseen wait; released near the GPU budget only). 8 km low: 1,037 nodes, 77 MiB unchanged (budget never binds); release at any fill churned (D608). D598 not helped |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
@@ -2862,6 +2862,98 @@ as TAAU at speed is on low (no trail behind the ridge). *Unverified:* WebGL 2 pi
 smoke), high's pictures, the Scene view's and an export's far field in pictures (the e2e reads them drawing,
 `pass: "visibility"`), a world with position-lit far ground (D607), medium/high frame times on target hardware.
 
+### 46d.20b visibility feedback: the far tree streams by what the eye sees (vista step 4, WebGPU); D585, D598
+
+**Built** (14617da1, f7a9df90, f2d6a1eb). *The reduction* (`voxel-far-feedback.ts`): right after the visibility pass
+(20a) is submitted, every 4th pass while no round is out, one compute call of two dispatches: a clear, then a thread a
+2 × 2 pixels reading its texel; on a hit `atomicAdd` on its brick region's count and `atomicMin` on its view depth's
+bits (two u32 a region of the atlas, 256 KiB at low/medium). The buffer is copied for reading in the same turn
+(`getArrayBufferAsync`, submitted after the dispatches) and mapped whenever the GPU gets there: rounds came back
+after 0–1 passes (6–28 ms), ~7 a second at low; nothing in the frame waits. *Per brick, not per node:* the texel names
+the brick, the page knows each region's node, so the GPU needs no table; regions are stamped with the far view's
+version when given (`FarRegionOwners`), a round with its frame's version and atlas shape, and a region given later or
+given back is left out. *The wire:* `voxels.farSeen` to the simulation worker (or the page's own simulation),
+`FarSeenWire` = round number, the last far event its frame drew (`FarEvent.seq`, new), and per node seen level, place,
+pixels, nearest depth in cells. *The tree* (`far-seen.ts` `FarSeenLog`): a node's last sighting and, per ancestor, the
+last sighting under it; stale rounds (number or frame not newer) dropped. Seen = itself, a node under it or its drawn
+stand-in seen within the turn window (6 s); unseen once rounds came for a whole window and none did; never a node
+inside the near field's load cylinder, never one held seen (seen again after a window twice within 4 windows: held for
+10). The work order puts refinements under unseen stand-ins after the seen ones and ranks a seen stand-in by the
+error it was seen at. Near the far GPU budget (≥ 90 %) the selection also takes an unseen node at ¼ of its error (two
+levels coarser), so the budget goes to what is seen. `?farFeedback=off` (now passed through Play) makes no rounds;
+WebGL 2 and `?farPass=direct` have none (screen error alone, as before).
+
+**Chosen by measurement.** *Release at any fill* (14617da1, the first build): the far field at low drew 271–301
+nodes (28 MiB) for 1,037 (77 MiB), medium 915–1,042 (92 MiB) for 2,594 (165 MiB) — but it never settled with a still
+camera: at the flight's start 9,097–13,957 far jobs for 362–468 drawn nodes before the camera moved, fill 143–276 s
+(the bench's fill rule timed out), a town pose 33 k jobs in 5 min, and peak-to-town visibly softer (0.35 % of pixels
+> 60). Two cycles, both traced: nodes wholly under the near field are never drawn by the far view, so never seen,
+drawn coarser they reach out of it, are seen, refine and vanish again; and a coarse stand-in whose surface stands
+above the finer one is seen drawn coarse, hidden drawn fine. The cylinder rule and the hold cut the churn by a third
+(9.1 k jobs, fill 177 s), not to zero, so release is bound to the budget (f2d6a1eb): below 90 % the unseen keep their
+detail. *Step 2 × 2:* a node over a few pixels is met; a quarter of the threads and atomics of every pixel; the pass
+is below the meter's resolution either way (not resolved: no rows hidden in these runs). *4 passes:* ~7 rounds a
+second at 30 Hz, latency ≤ 1 pass seen; one round out at a time keeps a single 256 KiB copy. *6 s window:* a look
+round and back finds its detail; the town orbit's turn is 42 s.
+
+**Tested.** vitest `voxel-far-feedback.test.ts` (+3): a known visibility target (packed texels) reduced to each
+brick's pixels and nearest depth, step 1 and 2; owners' versions (a round of version 1 leaves out a region given at 2,
+regions given back are stale, one reused by another node is not the old one's); the far view's pass hook with a
+recording renderer: one compute call of two dispatches every 4th pass, none while a round is out, the round's node
+handed on with its frame's far event, a node given after the frame left out. `far-seen.test.ts` (+5): stale rounds,
+seen through self/under/stand-in, unseen only after a full window, the hold, the near cylinder; the selection draws
+the unseen half of a flat world two levels coarser and gives a tight budget to the seen half first. `far-world.test.ts`
+(the far field test, real cache and workers): asked for finer nodes, every refinement under the seen stand-in comes
+before every other; turned away, the detail stays within the window and after it far from the budget, and near the
+budget the stand-in is drawn again (never nothing); a stale round changes nothing. `coverage.test.ts` (+2),
+`headroom.test.ts` (+1, the fill rule). e2e `voxel-world.e2e.ts` (Play and the export, WebGPU): a round names seen
+nodes, and a round's GPU reduction equals region for region the CPU's of the same target read back (`differ` 0);
+WebGL 2 smoke: no rounds, passes. Fast gate gate-fast-20261111-125426 GREEN (16 min, 6.7 GB, 724 vitest files, 63 e2e;
+voxel area 167 s; village perf 0 / 361).
+
+**Measured** (staging, Iris Xe, Play in the editor, WebGPU 1280 × 720, the 8 km world; before = this build with
+`&farFeedback=off`, 13:16–13:37; after = f2d6a1eb, 14:21–14:29; one round each; load 1-min 2.4–7.9 (after higher),
+uptime 18.9 d; `work/46d.20b/{headroom,cov}-*.json`, `low-shots-*.json`, `sum.mjs`; the release-at-any-fill runs in
+`work/46d.20b/on1`, `on2`, `on3`).
+
+| | far nodes / bricks at the fill | far GPU MiB | far jobs built (fill) | fill | room at the cap | no-load missed |
+|---|---|---|---|---|---|---|
+| low 30 Hz, off → on | 1,037 / 17,952 → same | 76.9 → 76.9 | 1,050 → 1,050 | 7.2 → 8.1 s | 176 × 0.126 = 22.2 → 136 × 0.130 = 17.7 ms | 0 → 2 / 89 |
+| medium 60 Hz, off → on | 2,594 / 43,597 → same | 164.5 → 164.5 | 2,927 → 2,927 | 12.8 → 15.1 s | 0.4 → 0.4 ms (edge 3 both) | 1 → 0 / 179 |
+| low, released at any fill (first build) | 271–301 / 5,032–5,516 | 28.2–28.3 | 1,050–1,182 | (never settled) | 17.7–22.2 ms | 0–1 / 89 |
+
+| low, coverage | ground missing under / ahead | hole frames | view rays into a stand-in (polls) | eye inside | missed | far drawn end, jobs | heap start → end, GPU end MiB |
+|---|---|---|---|---|---|---|---|
+| 150 m/s high, off → on | 16.3 / 47.5 % → 18.3 / 55.0 % | 0 → 0 | 0 → 1 of 192–196 | 0 → 0 | 23 → 24 / ~1,995 | 2,094 → 2,098, 16.1 k → 15.7 k | 394 → 666, 1,072 / 376 → 674, 1,043 |
+| 60 m/s hug, off → on | 0.56 / 2.5 % → 0.85 / 4.0 % | 0 → 0 | 100 → 109 of 484–493 | 0 → 0 | 89 → 86 / ~4,930 | 2,137 → 2,137, 17.4 k → 17.4 k | 385 → 899, 1,243 / 412 → 875, 1,240 |
+
+Read: on this world the far budget never binds at low or medium (77 / 165 of 384 MiB), so the shipped rule draws the
+same nodes and bricks, swaps the same (in/out within 1 %) and holds the same memory; what feedback changes here is
+the order of the far work (seen-coarse first), and its cost is below the meter's resolution: low's room moved by 5
+edge steps (a step ~2 ms, D588) with the load 1-min at 7.9 when the "on" run started, medium's edge 3 both (medium has
+no room at the town on this host, D587). What release would buy where the budget binds is the first build's line:
+−71 % nodes, −63 % far GPU at low; it waits on a selection that does not flap (D608). **D598:** no — the ground under
+the camera at 150 m/s is the near field's: 16–18 % missing either way (60 m/s 0.6–0.9 %), the far field's jobs
+are decodes of baked bricks (~0.3 ms) on its quarter of the workers, and feedback took nothing from the near field's
+work (the first build's runs are not comparable: their long fills counted standing updates). What would: the near field's collision ring derived first and coarser at speed (levels 1–2 for collision only under
+the camera), a narrower lead corridor, more workers for the ring while fast, and mip nodes without
+collision/nav/light (D601: 11–24 % of a mip node's worker time). **D585:** the bench now also casts 15 rays through
+the lower half of the view (to 48 m) at every position poll and counts a ray entering a far node's solid at a box
+face: hugging at 60 m/s 20–22 % of polls (212–245 rays) see it while the eye check stays 0; 30 m up at 150 m/s 0–1
+poll. That is D585's measure; feedback does not change it (a coarse stand-in under the camera is seen and refined
+first, but at 60 m/s the near field has not drawn there either).
+
+**Looked at** (`~/.cache/thirdlight-phase46/far-field/46d.20b/`, every picture opened; `side-by-side/<pose>-off-vs-on.png`
+off left, 2× crop below; `fly150-off-vs-on.png` 150 m/s frames at 10/20/30/40 s, off above; `orbit-strip-off-vs-on.png`
+the town orbit 0.5 s apart). peak-to-town: the same picture (0.00 % of pixels by > 60): massif, lowland channels and
+the red town patch alike. town-west: the same (0.12 % by > 60, TAAU's settle at the roof edges). Orbit strip: the same
+frames, steady, no node popping in either. 150 m/s: the same scenes a few metres apart, no hole; at 30 s the massif's
+cliff dark and blocky both (D585's inside view at the cliff), at 40 s the channel alike. Seen with the first build
+(`on1/`): peak-to-town visibly softer lowland channels (0.35 % by > 60), the release flapping. In both orbit strips a
+roof at the near field's edge shows a notch (left, frame 4; near field, not this item). *Unverified:* motion at full
+rate, medium/high pictures, the Scene view and the voxel world page (no rounds: D609), a world whose far budget binds,
+WebGL 2 pictures (the smoke passes).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3623,6 +3715,16 @@ smoke), high's pictures, the Scene view's and an export's far field in pictures 
 - 2026-11-11 (46d.20a, default chosen, owner to confirm): **normals stay the brick field's gradient** (six reads, now
   once a pixel), not baked (+65 MB at medium, 46d.17 d), since the shade is below the meter's resolution.
 - 2026-11-11 (46d.20a): half resolution with reuse (D574) not built: low keeps 23–27 ms of room at 30 Hz.
+
+- 2026-11-11 (46d.20b, default chosen, owner to confirm): **visibility feedback is reduced per brick region on the
+  GPU and mapped to nodes on the page** (versioned region owners), a round every 4th pass at 2 × 2 pixels, one out at a
+  time, read back with no wait; the far tree keeps sightings per node and ancestor (turn window 6 s).
+- 2026-11-11 (46d.20b, default chosen, owner to confirm): **unseen nodes are released only near the far GPU budget**
+  (≥ 90 %, at ¼ of their error); below it they keep their detail and only wait behind what is seen. Released at any
+  fill the far field never settled with a still camera (D608). Nodes under the near field are never unseen; a node
+  that keeps coming back into view is held seen.
+- 2026-11-11 (46d.20b): feedback does not help D598 (the near field's work); the Scene view and the voxel world page
+  make no rounds (D609).
 
 ## 10. Open questions for the owner
 
