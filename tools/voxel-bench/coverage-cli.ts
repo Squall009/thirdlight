@@ -52,18 +52,18 @@
  * Read `holes` (frames with a hole, per km, and where), `ground` (updates without collision under / ahead of the
  * camera), `inStandIn`, `frames`, `memory`, `far`. Not part of `npm test`.
  */
-import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_BUDGET_MIB } from '@thirdlight/project-model';
-import { chunkGrid, createDenseChunk, decodeDenseChunk, regionChunkCodecBytes } from '@thirdlight/voxel';
-import { FarCacheReader, zstdDecompress } from '@thirdlight/workspace';
 import { decodePng } from '../../tests/e2e/png';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
+import { processMemory } from './browser-memory';
 import { along, coveragePath, distanceAlong, entersAtFace, groundMask, isKey, viewRayPoints, VIEW_RAYS, type CoveragePath, type FarSample } from './coverage';
+import { farGround, flightSource, publishCameraBehaviour } from './flight-camera';
 import { FarSettle, frameCap, frameWindow } from './headroom';
 
 function arg(name: string, fallback: string): string {
@@ -76,6 +76,7 @@ const DATA_ROOT = arg('data-root', join(homedir(), 'thirdlight-staging-p45'));
 const TOKEN = readFileSync(arg('token-file', join(DATA_ROOT, 'owner-token')), 'utf8').trim();
 const PROJECT = arg('project', 'voxel-slice');
 const WORLD = 'far';
+const PROJECT_DIR = join(DATA_ROOT, 'projects', PROJECT);
 const QUALITY = arg('quality', 'low');
 const SPEED = Number(arg('speed', '150'));
 const ALTITUDE = arg('altitude', 'high') as 'high' | 'hug';
@@ -118,32 +119,6 @@ async function command(op: string, args: unknown): Promise<void> {
   if (r.json['ok'] !== true && error?.code !== 'no_change') throw new Error(`${op}: ${JSON.stringify(r.json).slice(0, 400)}`);
 }
 
-/** The ground (metres) at (x, z): the top solid cell of the far cache's level-2 nodes (2 m cells). */
-function farGround(): (x: number, z: number) => number {
-  const cache = new FarCacheReader(join(DATA_ROOT, 'projects', PROJECT, 'cache', 'voxel-far', WORLD));
-  const g = chunkGrid(32);
-  const L = 2, span = 32 << L;
-  const d = createDenseChunk(g);
-  return (xm, zm) => {
-    const xc = xm * 2, zc = zm * 2;
-    const nx = Math.floor(xc / span), nz = Math.floor(zc / span);
-    const ix = Math.floor((xc - nx * span) / (1 << L)), iz = Math.floor((zc - nz * span) / (1 << L));
-    for (let ny = 30; ny >= -2; ny--) {
-      const e = cache.entry({ level: L, nx, ny, nz }) as { uniform?: unknown; stored?: Uint8Array; raw?: number } | null;
-      if (e === null) continue;
-      if ('uniform' in e) return ((ny + 1) * span) / 2;
-      const codec = regionChunkCodecBytes(g, { cx: 0, cy: 0, cz: 0, kind: 'stored', bytes: e.stored!, raw: e.raw! } as never, zstdDecompress);
-      if (codec === null) continue;
-      decodeDenseChunk(g, codec, d);
-      for (let y = 31; y >= 0; y--) {
-        const li = (ix << 10) | (iz << 5) | y;
-        if (d.material[li] !== 0) return (ny * span + (y + d.shape[li]! / 15) * (1 << L)) / 2;
-      }
-    }
-    return 0;
-  };
-}
-
 /** The world's extent in x and z (metres) from its region files' names (`r.<x>.<y>.<z>.vxr`, `footprint` cells a side). */
 function worldBounds(): { min: number; max: number } {
   const m = JSON.parse(readFileSync(join(DATA_ROOT, 'projects', PROJECT, 'voxels', WORLD, 'world.json'), 'utf8')) as { footprint: number; regions: string[] };
@@ -157,82 +132,6 @@ function worldBounds(): { min: number; max: number } {
     }
   }
   return { min: (lo * m.footprint) / 2, max: (hi * m.footprint) / 2 };
-}
-
-/** The flight behaviour: holds the line's start until `fly`, then `speed` m/s along it (the 120 Hz step), then holds its end. */
-function flightSource(path: CoveragePath): string {
-  return `
-const WP = ${JSON.stringify(path.waypoints)};
-const ALT = ${JSON.stringify(path[ALTITUDE])};
-const STEP = ${path.step}, TOTAL = ${Math.min(path.total, PARK)}, SPEED = ${SPEED}, PITCH = ${PITCH};
-const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
-const along = (m: number) => { let r = Math.max(0, m); for (let i = 1; i < WP.length; i++) { const a = WP[i - 1]!, b = WP[i]!; const len = Math.hypot(b[0] - a[0], b[1] - a[1]); const dx = (b[0] - a[0]) / len, dz = (b[1] - a[1]) / len; if (r <= len || i === WP.length - 1) { const t = Math.min(r, len); return { x: a[0] + dx * t, z: a[1] + dz * t, dx, dz }; } r -= len; } return { x: WP[0][0], z: WP[0][1], dx: 1, dz: 0 }; };
-const altAt = (m: number) => { const f = Math.max(0, Math.min(ALT.length - 1.001, m / STEP)); const i = Math.floor(f); return ALT[i]! + (ALT[i + 1]! - ALT[i]!) * (f - i); };
-export default {
-  prepare() { return {}; },
-  instantiate() { return { m: 0, flying: false }; },
-  step(s: any, ctx: any) {
-    if (ctx.phase === 'intent') {
-      for (const _ of ctx.debug.command('fly')) { s.m = 0; s.flying = true; }
-      for (const _ of ctx.debug.command('start')) { s.m = 0; s.flying = false; }
-      return;
-    }
-    if (ctx.phase !== 'transform') return;
-    if (s.flying) s.m = Math.min(TOTAL, s.m + SPEED / 120);
-    const p = along(s.m);
-    const yaw = Math.atan2(-p.dx, -p.dz);
-    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: p.x, y: altAt(s.m), z: p.z }, quaternion: quat(yaw, PITCH) });
-  },
-  dispose() {},
-};
-`;
-}
-
-async function flightCamera(source: string): Promise<void> {
-  const entities = JSON.parse(readFileSync(join(DATA_ROOT, 'projects', PROJECT, 'scenes', 'scene-main.json'), 'utf8')).scene.entities as Array<{ id: string; name: string }>;
-  const cam = entities.find((e) => e.name === 'Perf far camera');
-  if (cam === undefined) throw new Error('no "Perf far camera" object in the project (the far-field runs make it)');
-  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: ['@self'], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
-  const stageId = String((await api('content/stages')).json['stageId']);
-  const put = await fetch(`${ORIGIN}/api/v1/projects/${PROJECT}/content/stages/${stageId}/bytes`, { method: 'PUT', headers: { authorization: `Bearer ${TOKEN}`, origin: ORIGIN, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes });
-  if (put.status !== 200) throw new Error(`stage ${put.status}`);
-  const declaration = { properties: [] };
-  await command('publishBehavior', { behaviorId: BEHAVIOR, displayName: BEHAVIOR, mode: 'declaration-create', declaration }).catch((e: unknown) => {
-    if (!String(e).includes('behavior_id_duplicate')) throw e;
-  });
-  await command('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
-  const pub = await api('content/behaviors/source', { stageId, behaviorId: BEHAVIOR, displayName: BEHAVIOR, declaration, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}` });
-  if (pub.status !== 200) throw new Error(`publish ${JSON.stringify(pub.json).slice(0, 300)}`);
-  await command('setBehaviorProperties', { entityId: cam.id, behaviorId: BEHAVIOR, values: {} });
-}
-
-/** The GPU process's resident memory as its driver counts it (MiB, summed over its DRM fds). */
-function gpuResidentMiB(pid: number): number {
-  let kib = 0;
-  for (const fd of readdirSync(`/proc/${pid}/fdinfo`)) {
-    let text = '';
-    try {
-      text = readFileSync(`/proc/${pid}/fdinfo/${fd}`, 'utf8');
-    } catch {
-      continue;
-    }
-    if (!text.includes('drm-driver')) continue;
-    for (const line of text.split('\n')) {
-      const m = /^drm-resident-[\w-]+:\s+(\d+)\s*(KiB|MiB)?/.exec(line);
-      if (m !== null) kib += Number(m[1]) * (m[2] === 'MiB' ? 1024 : 1);
-    }
-  }
-  return Math.round(kib / 1024);
-}
-
-/** A process's resident set (MiB): the renderer's counts its workers (the simulation, the voxel jobs) beside the page. */
-function rssMiB(pid: number): number {
-  try {
-    const m = /^VmRSS:\s+(\d+) kB/m.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
-    return m === null ? 0 : Math.round(Number(m[1]) / 1024);
-  } catch {
-    return 0;
-  }
 }
 
 interface SamplingNode { callFrame: { functionName: string; url: string; lineNumber: number }; selfSize: number; children: SamplingNode[] }
@@ -300,7 +199,7 @@ interface FrameCheck {
 
 async function main(): Promise<void> {
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
-  const path = coveragePath(WAYPOINTS, farGround());
+  const path = coveragePath(WAYPOINTS, farGround(PROJECT_DIR, WORLD));
   const stopAt = Math.min(path.total, PARK);
   const flightS = stopAt / SPEED;
   const out: Record<string, unknown> = { bench: 'coverage', quality: QUALITY, speed: SPEED, altitude: ALTITUDE, renderer: 'webgpu', viewport: VIEWPORT, cap: CAP.fps, km: path.total / 1000, flightS, start: host() };
@@ -309,7 +208,7 @@ async function main(): Promise<void> {
   const look = JSON.parse(readFileSync(sceneFile, 'utf8')).scene.environment as Record<string, unknown> & { sky?: Record<string, unknown> };
   await command('setEnvironment', { environment: { quality: QUALITY, qualityLevels: DEFAULT_QUALITY_LEVELS } });
   await command('setEnvironment', { sceneId: 'scene-main', environment: { ...look, sky: { ...(look.sky ?? {}), mode: 'color', color: '#ff00ff' } } });
-  await flightCamera(flightSource(path));
+  await publishCameraBehaviour({ origin: ORIGIN, token: TOKEN, project: PROJECT, api, command, revision }, PROJECT_DIR, BEHAVIOR, flightSource({ path, altitude: ALTITUDE, total: Math.min(path.total, PARK), pitch: PITCH, flights: { fly: SPEED } }));
   const browser = await launchGpuBrowser({ vsync: true });
   try {
     const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
@@ -323,18 +222,14 @@ async function main(): Promise<void> {
     const sim = async () => ((((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<Record<string, unknown>> } } | undefined)?.runtime?.voxelWorlds ?? []).find((w) => w['world'] === WORLD) ?? null) as Record<string, any> | null;
     const cdpBrowser = await browser.newBrowserCDPSession();
     const memory = async () => {
-      const info = (await cdpBrowser.send('SystemInfo.getProcessInfo')) as { processInfo: Array<{ type: string; id: number }> };
-      const pid = info.processInfo.find((p) => p.type === 'GPU')?.id;
-      const rendererRssMiB = info.processInfo.filter((p) => p.type === 'renderer').reduce((n, p) => n + rssMiB(p.id), 0);
-      const gpuProcessRssMiB = pid === undefined ? null : rssMiB(pid);
+      const { gpuMiB, rendererRssMiB, gpuProcessRssMiB, treeRssMiB, treePssMiB } = await processMemory(cdpBrowser);
       const pageHeapMiB = await canvas.evaluate(() => Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 2 ** 20));
-      const gpuMiB = pid === undefined ? null : gpuResidentMiB(pid);
       // What the heap holds once garbage is collected (the page's own heap reading counts garbage not yet collected).
       const pageHeapLiveMiB = await canvas.evaluate(() => {
         (globalThis as unknown as { gc?: () => void }).gc?.();
         return Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 2 ** 20);
       });
-      return { pageHeapMiB, pageHeapLiveMiB, gpuMiB, rendererRssMiB, gpuProcessRssMiB, farGpuMiB: Math.round(((await stats())?.far.gpuBytes ?? 0) / 2 ** 20) };
+      return { pageHeapMiB, pageHeapLiveMiB, gpuMiB, rendererRssMiB, gpuProcessRssMiB, treeRssMiB, treePssMiB, farGpuMiB: Math.round(((await stats())?.far.gpuBytes ?? 0) / 2 ** 20) };
     };
     // The fill at the line's start: until the far field drawn stays within 2 % for 5 s (FarSettle).
     const T0 = Date.now();
