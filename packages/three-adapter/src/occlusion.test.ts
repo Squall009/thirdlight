@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { occludeeClassOf } from '@thirdlight/runtime';
 import { type OcclusionCulling } from '@thirdlight/project-model';
 
-import { markOccludee, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds } from './occludees';
+import { markOccludee, markOccludeeGroup, occludeeCandidates, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds } from './occludees';
 import { OCCLUSION_NO_PATH_PROBLEM, OCCLUSION_SWITCH_KEY, OcclusionCuller, occlusionFromUrl, occlusionPyramidFromUrl, type OcclusionSwitch } from './occlusion';
 import { createQualityControl } from './quality-control';
 import { createRenderControl } from './render-control';
@@ -55,6 +55,34 @@ describe('occludees', () => {
     expect(r.sync(children)).toBe(true);
     expect(r.get(a)?.kind).toBe('transparent');
     expect(r.counts()).toMatchObject({ transparent: 1, single: 0 });
+  });
+
+  it('follows the marked draws nested below a marked group (a voxel world\'s chunks), only while they are shown', () => {
+    const r = new OccludeeRegistry();
+    const root = new THREE.Group();
+    const node = new THREE.Group();
+    const chunk = box();
+    const seam = box();
+    const other = box();
+    markOccludee(chunk, 'single');
+    markOccludee(seam, 'single');
+    node.add(chunk);
+    root.add(node, seam, other);
+    const out: THREE.Object3D[] = [];
+    // Not marked: the group alone is followed (and is no draw).
+    r.sync(occludeeCandidates([root], out));
+    expect(r.size).toBe(0);
+    markOccludeeGroup(root);
+    expect(r.sync(occludeeCandidates([root], out))).toBe(true);
+    expect([...r.values()].map((o) => o.object).sort((a, b) => a.id - b.id)).toEqual([chunk, seam]);
+    expect(r.get(chunk)?.kind).toBe('single');
+    // A hidden level (its group) leaves the registry; the whole root hidden, everything.
+    node.visible = false;
+    expect(r.sync(occludeeCandidates([root], out))).toBe(true);
+    expect([...r.values()].map((o) => o.object)).toEqual([seam]);
+    root.visible = false;
+    r.sync(occludeeCandidates([root], out));
+    expect(r.size).toBe(0);
   });
 
   it('bounds in the world and the facts the runtime decides on (an instanced draw: the box over every copy)', () => {

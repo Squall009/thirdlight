@@ -36,7 +36,7 @@ import * as THREE from 'three';
 import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRole, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
 import { type OcclusionCulling } from '@thirdlight/project-model';
 
-import { OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
+import { occludeeCandidates, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY, standinFollowsSurfaces, standinMaterialOf } from './occluders';
 import { pyramidPathWanted, TwoPassFrame, type ScenePasses } from './occlusion-passes';
 import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
@@ -154,6 +154,8 @@ export interface OcclusionCullerDeps {
 
 export class OcclusionCuller implements OcclusionSwitch {
   readonly registry = new OccludeeRegistry();
+  /** What the registry follows this frame (reused). */
+  private readonly candidates: THREE.Object3D[] = [];
   private pinned: OcclusionPath | null;
   /** The path the last frame culled on (what is hidden belongs to it). */
   private applied: OcclusionPath = 'off';
@@ -268,7 +270,7 @@ export class OcclusionCuller implements OcclusionSwitch {
       if (this.registry.size > 0) this.registry.clear();
       this.instancedDraws = null;
       this.wholeDraws = [];
-    } else if (this.registry.sync(this.deps.scene.children) || this.instancedDraws === null) {
+    } else if (this.registry.sync(occludeeCandidates(this.deps.scene.children, this.candidates)) || this.instancedDraws === null) {
       // The instanced draws the GPU may cull, listed again only when the scene's draws changed.
       this.instancedDraws = [];
       this.wholeDraws = [];

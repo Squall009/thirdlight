@@ -12,14 +12,17 @@ import { CONSTRUCTION_TILE_METRES, MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_RE
 
 import { fragmentWgslOf, glslRenderer, settle, wgslRenderer } from './test-wgsl';
 import { LIGHT_PATH_TEXTURE_UNITS, LIT_TEXTURE_UNITS } from './texture-units';
-import { createVoxelSurface, PHASE_CELLS, VOXEL_OWNER_ATTRIBUTE, VOXEL_SURFACE_KEY, type VoxelGridRenderer } from './voxel-surface';
+import { createVoxelSurface, FULL_PATH, PHASE_CELLS, VOXEL_OWNER_ATTRIBUTE, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelSurfacePath } from './voxel-surface';
 import { gridPhases, gridUv, tileUv, type ProjectionOps } from './voxel-surface-projection';
 import { CRACK_TEXELS, engineCrackTexels } from './voxel-crack-texture';
+import { occludeeKindOf } from './occludees';
+import { culledWhole } from './occlusion-whole';
+import { vertexReachOf } from './vertex-reach';
 
 // The layout the voxel package derives for 32³ chunks.
 const LAYOUT = { cellMetres: VOXEL_SIZE_M, side: shaderGridSide(32), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS };
 
-function program(shading: 'blend' | 'flat', bands = false, glsl = false, patterns = true): string {
+function program(shading: 'blend' | 'flat', bands = false, glsl = false, patterns = true, path?: VoxelSurfacePath): string {
   const surface = createVoxelSurface(LAYOUT, { look: (m) => ({ colour: 0x808080 + m, pattern: m % 4 }), blendMetres: 0.5, shading, bands, patterns });
   const scene = new THREE.Scene();
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1), new THREE.DirectionalLight(0xffffff, 2));
@@ -28,7 +31,7 @@ function program(shading: 'blend' | 'flat', bands = false, glsl = false, pattern
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
   // As a chunk's geometry carries it (voxel-chunk-view.ts): the owner offset, snorm8x4.
   geo.setAttribute(VOXEL_OWNER_ATTRIBUTE, new THREE.BufferAttribute(new Int8Array(12), 4, true));
-  const mesh = new THREE.Mesh(geo, surface.material);
+  const mesh = new THREE.Mesh(geo, path === undefined ? surface.material : surface.materialFor(path));
   mesh.userData[VOXEL_SURFACE_KEY] = surface.objectValues();
   scene.add(mesh);
   return fragmentWgslOf(glsl ? glslRenderer() : wgslRenderer(), scene, mesh);
@@ -104,6 +107,37 @@ describe('the voxel surface program', () => {
     expect((glsl.match(/\btexelFetch\s*\(/g) ?? []).length).toBe(27);
     expect((glsl.match(/\btexture\s*\(/g) ?? []).length - (glslPatterns.match(/\btexture\s*\(/g) ?? []).length).toBe(12);
     expect((glsl.match(/uniform\s+(?:highp\s+|mediump\s+|lowp\s+)?sampler2DArray\b/g) ?? []).length).toBe(4);
+  });
+
+  it('builds a program a draw path: one material reads one set, one projection one sample a map (with the picked axis\'s gradients), every one in uniform control flow, on WGSL', async () => {
+    await settle();
+    const samples = (wgsl: string): number => (wgsl.match(/\btextureSample\w*\s*\(/g) ?? []).length;
+    const full = program('blend', false, false, false, FULL_PATH);
+    expect(full).toBe(program('blend', false, false, false));
+    const of = (materials: 1 | 2, projection: 'blend' | 'axis'): string => program('blend', false, false, false, { materials, projection });
+    // 3 maps × 3 projections × 2 materials in the full program; a path drops whole sets or projections.
+    const expected: [1 | 2, 'blend' | 'axis', number][] = [[1, 'blend', 9], [2, 'axis', 6], [1, 'axis', 3]];
+    for (const [materials, projection, sets] of expected) {
+      const wgsl = of(materials, projection);
+      expect(samples(full) - samples(wgsl), `${materials} ${projection}`).toBe(18 - sets);
+      if (projection === 'axis') expect((wgsl.match(/\btextureSampleGrad\s*\(/g) ?? []).length).toBe(sets);
+      const body = wgsl.slice(wgsl.indexOf('@fragment'));
+      for (const line of body.split('\n').filter((l) => /\btextureSample\w*\(/.test(l))) expect(line.startsWith('\t') && !line.startsWith('\t\t'), line).toBe(true);
+    }
+  });
+
+  it('lets occlusion culling test every path\'s draw whole: its vertices stay in its geometry\'s bounds (relief bounds grown already)', () => {
+    const surface = createVoxelSurface(LAYOUT, { look: (m) => ({ colour: 0x808080 + m, pattern: m % 4 }), blendMetres: 0.5, relief: true });
+    for (const path of [FULL_PATH, { materials: 1, projection: 'axis' }] as VoxelSurfacePath[]) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+      const mesh = new THREE.Mesh(geo, surface.materialFor(path));
+      expect((mesh.material as THREE.Material & { positionNode?: unknown }).positionNode).toBeTruthy();
+      expect(vertexReachOf(mesh)).toBe(0);
+      expect(occludeeKindOf(mesh)).toBe('single');
+      expect(culledWhole('single')).toBe(true);
+    }
+    expect(surface.variants).toBe(2);
   });
 
   it('binds the arrays it is given and writes each material\'s wall, floor and ceiling layer into the table (none: −1), and binds the neutral texels again without arrays', () => {

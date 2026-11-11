@@ -64,6 +64,30 @@ export function markOccludee(o: THREE.Object3D, kind: OccludeeKind): void {
   if (m.isMesh === true && occluderRoleOfDraw(m, occludeeKindOf(m)) === 'early') m.renderOrder = OCCLUDER_EARLY_RENDER_ORDER;
 }
 
+/** `object.userData[OCCLUDEE_GROUP_KEY]`: a scene child whose own drawables are nested below it (a voxel world's chunks). */
+const OCCLUDEE_GROUP_KEY = '__tlOccludeeGroup';
+
+/**
+ * Mark `root` (a child of the scene) as holding occludees below it: its visible meshes an owner marked
+ * ({@link markOccludee}) are followed as the scene's own children are. Other meshes below it are not.
+ */
+export function markOccludeeGroup(root: THREE.Object3D): void {
+  root.userData[OCCLUDEE_GROUP_KEY] = true;
+}
+
+/** The scene's children and, below each marked group, its visible marked meshes: what the registry follows ({@link OccludeeRegistry.sync}). */
+export function occludeeCandidates(children: readonly THREE.Object3D[], out: THREE.Object3D[]): THREE.Object3D[] {
+  out.length = 0;
+  for (const c of children) {
+    out.push(c);
+    if (c.userData[OCCLUDEE_GROUP_KEY] !== true || !c.visible) continue;
+    c.traverseVisible((o) => {
+      if (o !== c && o.userData[OCCLUDEE_KIND_KEY] !== undefined && (o as THREE.Mesh).isMesh === true) out.push(o);
+    });
+  }
+  return out;
+}
+
 const materialsOf = (m: THREE.Mesh): readonly THREE.Material[] => (Array.isArray(m.material) ? m.material : [m.material]);
 
 /** Whether `m` draws copies of one geometry (three's instanced meshes, or instance attributes). */

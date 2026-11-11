@@ -80,6 +80,8 @@ import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRec
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
+import { voxelPathsFromUrl, voxelStaticCastersFromUrl } from './voxel-surface-path';
+import { pageSearch } from './renderer-factory';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -169,6 +171,8 @@ export interface VoxelWorldDrawStats {
   readonly piecesInView: number;
   readonly meshBuilds: number;
   readonly shaderSets: number;
+  /** Surface draws by their program's path (`materials-projection`, voxel-surface-path.ts). */
+  readonly paths: Record<string, number>;
   /** Material table uploads (a record changed) and the ms the last one took. */
   readonly tableUploads: number;
   readonly tableMs: number;
@@ -411,7 +415,9 @@ export class VoxelWorldDraws {
     // Nothing is displaced until the ring is told (a relief mesh arrives only with or after it).
     surface.setRelief({ displace: this.displace, fadeStartM: 0, fadeEndM: 0 });
     if (this.arrays !== null) this.giveArrays(surface);
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet });
+    // Per-draw programs on WebGPU only: WebGL 2 keeps the one program it drew with.
+    const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
+    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), staticCasters: voxelStaticCastersFromUrl(pageSearch()) });
     view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);
@@ -471,7 +477,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length };
   }
 

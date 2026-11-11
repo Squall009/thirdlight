@@ -99,7 +99,10 @@ import { VoxelPieceBatches, type PieceRun } from './voxel-piece-batches';
 import { VoxelFarView } from './voxel-far-mesh';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
-import { PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
+import { AXIS_PROJECTION_LEVEL, voxelDrawPath } from './voxel-surface-path';
+import { STATIC_CASTER_KEY } from './shadow-casters';
+import { markOccludee, markOccludeeGroup } from './occludees';
+import { FULL_PATH, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
 const SWATCHES = [0x8a8f96, 0x7d7f84, 0x7a5a3c, 0x5f8f3e, 0xc8b47c, 0x4a78b8, 0x9a958c, 0xb0a48c, 0xa9a39a, 0x8b5a33, 0xd8d0c0, 0x9c4a3a, 0xb08850, 0xa0523c, 0x6d6a5f, 0x8c7a6b];
@@ -237,6 +240,8 @@ interface ChunkDraw {
   waiting: boolean;
   /** Its surface mesh when clipped decals may be cut from it (a level-0 chunk's), else null. */
   readonly decalSurface: THREE.Mesh | null;
+  /** Its surface mesh (null: none), whose program follows its grid ({@link voxelDrawPath}). */
+  readonly mesh: THREE.Mesh | null;
 }
 
 /** What the view tells of the surfaces clipped decals may be cut from (the scene's clipped decals). */
@@ -270,6 +275,10 @@ export interface VoxelChunkViewOptions {
   readonly kits?: VoxelKitSet | null;
   /** Surfaces and pieces cast and receive shadows (default false). */
   readonly shadows?: boolean;
+  /** Each draw's program follows its grid and level ({@link voxelDrawPath}; default true; false: every draw the full program). */
+  readonly fastPaths?: boolean;
+  /** Surfaces (not pieces) cast and receive the key light's shadow as static casters, whatever `shadows` says (a measurement). */
+  readonly staticCasters?: boolean;
   /**
    * What casts a relief chunk's shadow: its plain surfaces (`plain`, the
    * default; see {@link VoxelChunkView} `addCaster`) or the displaced relief
@@ -315,6 +324,8 @@ export class VoxelChunkView {
   private readonly shading: VoxelSurface;
   private readonly renderer: VoxelGridRenderer;
   private readonly shadows: boolean;
+  private readonly fastPaths: boolean;
+  private readonly staticCasters: boolean;
   private readonly plainCasters: boolean;
   /** Triangles drawn (seams included), and of them the seams'. */
   triangles = 0;
@@ -341,10 +352,14 @@ export class VoxelChunkView {
     this.shading = opts.surface;
     this.renderer = opts.renderer;
     this.shadows = opts.shadows === true;
+    this.fastPaths = opts.fastPaths !== false;
+    this.staticCasters = opts.staticCasters === true;
     this.plainCasters = opts.reliefCasters !== 'relief';
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows });
     this.root.add(this.pieces.root);
+    // Its chunk, node and seam surfaces are occlusion culling's draws, though they sit below this root.
+    markOccludeeGroup(this.root);
     this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer });
     this.root.add(this.far.root);
     this.kitSet = null;
@@ -560,10 +575,15 @@ export class VoxelChunkView {
     gridPhases(cell, VOXEL_SIZE_M, PHASE_CELLS, surface.phase, surface.slopePhase, surface.slope5Phase);
     const geo = voxelSurfaceGeometry([d.ground, d.base], cellM, this.shading.reliefDepthM);
     let decalSurface: THREE.Mesh | null = null;
+    let surfaceMesh: THREE.Mesh | null = null;
     if (geo !== null) {
       const mesh = new THREE.Mesh(geo, this.shading.material);
+      surfaceMesh = mesh;
+      // Culled whole on the GPU (a row of occlusion culling's table) like any other draw of the scene.
+      markOccludee(mesh, 'single');
       mesh.matrixAutoUpdate = false;
       mesh.castShadow = mesh.receiveShadow = this.shadows;
+      this.castStatic(mesh);
       mesh.userData['voxelChunk'] = key;
       mesh.userData['voxelLevel'] = level;
       mesh.userData[VOXEL_SURFACE_KEY] = surface;
@@ -583,7 +603,7 @@ export class VoxelChunkView {
       }
     }
     const kept = keptInstances(d.instances, this.kitEntriesOf(d));
-    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface };
+    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface, mesh: surfaceMesh };
     this.buildPieces(m);
     if (group.children.length === 0 && m.pieceBytes === 0 && !m.waiting) {
       this.pieces.remove(m);
@@ -656,9 +676,33 @@ export class VoxelChunkView {
     return m.bytes;
   }
 
+  /** Drawn surfaces (chunks, nodes and seams) by their program's name (diagnostics). */
+  pathCounts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    const add = (mesh: THREE.Mesh | null): void => {
+      if (mesh === null) return;
+      const name = (mesh.material as THREE.Material).name;
+      out[name] = (out[name] ?? 0) + 1;
+    };
+    for (const level of this.levels) for (const m of level?.values() ?? []) add(m.mesh);
+    for (const seam of this.seams.values()) add(seam.mesh);
+    return out;
+  }
+
+  /** With {@link VoxelChunkViewOptions.staticCasters}: `mesh` casts and receives as a static caster (the cached map). */
+  private castStatic(mesh: THREE.Mesh): void {
+    if (!this.staticCasters) return;
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.userData[STATIC_CASTER_KEY] = true;
+  }
+
   private applyShader(m: ChunkDraw, solid: number): void {
     this.shaderSets++;
     const grids = this.shading.grids;
+    if (m.mesh !== null) {
+      const path = this.fastPaths ? voxelDrawPath(solid >= 0 ? null : this.cells, solid, m.level) : FULL_PATH;
+      m.mesh.material = this.shading.materialFor(path);
+    }
     if (solid >= 0) {
       if (m.region !== null) {
         grids.release(m.region);
@@ -809,8 +853,11 @@ export class VoxelChunkView {
     });
     const geo = placedGeometry(parts);
     if (geo === null) return 0;
-    const mesh = new THREE.Mesh(geo, this.shading.material);
+    // A seam lies on a coarse node's face and is shaded from that node's grid, which may change on its own: two materials.
+    const mesh = new THREE.Mesh(geo, this.fastPaths ? this.shading.materialFor({ materials: 2, projection: level >= AXIS_PROJECTION_LEVEL ? 'axis' : 'blend' }) : this.shading.material);
     mesh.castShadow = mesh.receiveShadow = this.shadows;
+    this.castStatic(mesh);
+    markOccludee(mesh, 'single');
     mesh.name = `voxel-seam ${seamId(level, nx, ny, nz, face)}`;
     mesh.matrixAutoUpdate = false;
     if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;

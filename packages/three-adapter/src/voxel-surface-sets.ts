@@ -13,7 +13,7 @@ import type { N } from './effects-tsl';
 import { gridFrame, tileUv, type ProjectionOps } from './voxel-surface-projection';
 
 const TSL: N = TSLTyped;
-const { abs, float, floor, int, max, mix, mod, select, sqrt, step, texture, vec2, vec3 } = TSL;
+const { abs, dFdx, dFdy, float, floor, int, max, mix, mod, select, sqrt, step, texture, vec2, vec3 } = TSL;
 
 /** The smallest tile a material record may name (metres): the table's tiles are read no smaller. */
 const MIN_TILE_METRES = VOXEL_MATERIAL_LIMITS.tileMetresMin;
@@ -74,9 +74,19 @@ interface SetProjection {
   read(map: N, level?: N): [N, N, N];
   /** The three reads weighted by the projection (construction: the first alone; terrain: triplanar). */
   weighted(r: [N, N, N]): N;
+  /** One read a map (`axis`): the largest axis as a one-hot vector (its triplanar weights); null: triplanar. */
+  readonly axis: N | null;
 }
 
-function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint): SetProjection {
+/**
+ * How many projections a material's set is read on: `blend`, a construction material on the grid and a terrain one
+ * triplanar (three reads a map, weighted); `axis`, one read a map: the grid on construction (the same pixels as
+ * `blend`), and on terrain only the projection of the normal's largest axis (no triplanar blend at the axes' seams).
+ * Chosen per draw (`VoxelSurface.materialFor`), never per pixel.
+ */
+export type SetProjectionMode = 'blend' | 'axis';
+
+function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend'): SetProjection {
   const { look, matMask } = src;
   const { n, p, gu, gv, bn } = at;
   const id = mod(m, matMask);
@@ -95,11 +105,43 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint): SetPro
   // An image's first row is its top (KTX2, no flip on upload): V up reads it bottom to top, so a texture stands
   // upright on a wall and its bottom edge lies on the grid's 0 m line.
   const up = (uv: N): N => vec2(uv.x, uv.y.negate());
+  if (mode === 'axis') {
+    // One read: the grid's UV on construction, else the largest axis's. Its screen derivatives are taken from the
+    // three continuous UVs and picked with it, so the mip level does not jump where the axis changes.
+    const ax = abs(n);
+    const isX = ax.x.greaterThanEqual(ax.y).and(ax.x.greaterThanEqual(ax.z)).toVar();
+    const isY = isX.not().and(ax.y.greaterThanEqual(ax.z)).toVar();
+    const pick = (x: N, y: N, z: N, g: N): N => select(onBuilt.greaterThan(0.5), g, select(isX, x, select(isY, y, z)));
+    const ux = up(pt.zy).toVar();
+    const uy = up(pt.xz).toVar();
+    const uz = up(pt.xy).toVar();
+    const ug = up(gt).toVar();
+    const uv = pick(ux, uy, uz, ug).toVar();
+    const gx = pick(dFdx(ux), dFdx(uy), dFdx(uz), dFdx(ug)).toVar();
+    const gy = pick(dFdy(ux), dFdy(uy), dFdy(uz), dFdy(ug)).toVar();
+    const one = vec3(select(isX, float(1), float(0)), select(isY, float(1), float(0)), select(isX.or(isY), float(0), float(1)));
+    return {
+      l,
+      built,
+      onBuilt,
+      has,
+      layer,
+      gt,
+      axis: one,
+      read: (map, level) => {
+        const t = texture(map, uv).depth(layer);
+        const r = (level === undefined ? t.grad(gx, gy) : t.level(level)).toVar();
+        return [r, r, r];
+      },
+      weighted: (r) => r[0],
+    };
+  }
   const uvs = [mix(up(pt.zy), up(gt), onBuilt).toVar(), up(pt.xz).toVar(), up(pt.xy).toVar()];
   const wx = mix(bn.x, float(1), onBuilt);
   const wy = bn.y.mul(onBuilt.oneMinus());
   const wz = bn.z.mul(onBuilt.oneMinus());
   return {
+    axis: null,
     l,
     built,
     onBuilt,
@@ -121,10 +163,12 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint): SetPro
  * (0–1, 1 the surface) from the albedo's A, where the engine's texture sets keep it. Every sample is taken whether the
  * material has a layer or not (uniform control flow), the result picked after; without a layer the height is 1.
  */
-export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint): { albedo: N; normal: N; orm: N; height: N } {
+export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend'): { albedo: N; normal: N; orm: N; height: N } {
   const { maps } = src;
-  const { n, bn } = at;
-  const { l, built, onBuilt, has, gt, read, weighted } = setProjection(src, m, at);
+  const { n } = at;
+  const { l, built, onBuilt, has, gt, read, weighted, axis } = setProjection(src, m, at, mode);
+  // On one axis the read is turned by that axis's frame alone (its weight 1).
+  const bn = axis ?? at.bn;
   const a = read(maps.albedo);
   const t = read(maps.normal).map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
   const o = read(maps.orm);
@@ -149,7 +193,7 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint): 
  * A material's height alone (0–1, the albedo's A) at an explicit mip level: what the vertex stage displaces by
  * (it has no screen derivatives), read on the same layer and projection as the pixel's.
  */
-export function textureHeightAt(src: TextureSetSource, m: N, at: TextureSetPoint, level: N): N {
-  const { has, read, weighted } = setProjection(src, m, at);
+export function textureHeightAt(src: TextureSetSource, m: N, at: TextureSetPoint, level: N, mode: SetProjectionMode = 'blend'): N {
+  const { has, read, weighted } = setProjection(src, m, at, mode);
   return select(has, weighted(read(src.maps.albedo, level)).a, float(1));
 }

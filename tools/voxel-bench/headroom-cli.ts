@@ -45,6 +45,7 @@
  *   --copies LIST        passes drawn again (default near,far; `none`)
  *   --hide LIST          passes hidden (default near,far,shadows,post; `none`)
  *   --scales LIST        render scales at no load (default low 0.833,1; medium 0.75,0.833,0.917,1; high 0.9,0.8,0.667; `none`)
+ *   --query Q            more of the editor page's query (`&voxelShadows=static`: page flags Play is passed)
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *
  * How to (staging running, the 8 km world in it, nothing else on the GPU):
@@ -87,6 +88,7 @@ const COPIES = list(arg('copies', 'near,far')) as Array<'near' | 'far'>;
 const HIDE = list(arg('hide', 'near,far,shadows,post')) as Array<'near' | 'far' | 'shadows' | 'post'>;
 const SCALES = list(arg('scales', QUALITY === 'high' ? '0.9,0.8,0.667' : QUALITY === 'medium' ? '0.75,0.833,0.917,1' : QUALITY === 'low' ? '0.833,1' : 'none')).map(Number);
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
+const QUERY = arg('query', '');
 const TAG = arg('tag', new Date().toISOString().slice(0, 16).replace(/[:T]/g, ''));
 const OUT = arg('out', join(benchDir('headroom'), `${QUALITY}-${TAG}.json`));
 const LEVEL = DEFAULT_QUALITY_LEVELS.find((l) => l.id === QUALITY);
@@ -164,7 +166,7 @@ interface Hook {
 }
 
 async function openPlay(page: Page): Promise<{ canvas: Locator; control: (body: unknown) => Promise<void> }> {
-  await page.goto(`${ORIGIN}/?project=${PROJECT}&renderer=webgpu#token=${TOKEN}`);
+  await page.goto(`${ORIGIN}/?project=${PROJECT}&renderer=webgpu${QUERY}#token=${TOKEN}`);
   await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 60_000 });
   // The preview at the viewport's size, over the editor (the editor draws nothing under it).
   await page.addStyleTag({ content: `iframe.tl-app__preview-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: ${VIEWPORT.width}px !important; height: ${VIEWPORT.height}px !important; z-index: 2147483647 !important; }` });

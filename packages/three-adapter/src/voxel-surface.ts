@@ -130,7 +130,8 @@ import { WORLD_MAPPED_TEXTURES_KEY, type WorldMappedTextures } from './texture-s
 import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
 import { BAND_TEXELS, bandTexels, gridUv, tileUv } from './voxel-surface-projection';
-import { NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt } from './voxel-surface-sets';
+import { declareVertexReach } from './vertex-reach';
+import { NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt, type SetProjectionMode } from './voxel-surface-sets';
 import { seamBlendMetres, type BlendCell } from './voxel-surface-blend';
 import { heightBlend, WET_DARKEN, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
 
@@ -607,9 +608,29 @@ export interface VoxelReliefSettings {
   readonly fadeEndM?: number;
 }
 
+/**
+ * What a draw's program reads, chosen per draw from what its grid holds and its level (never per pixel):
+ * `materials` 1 when the draw's grid holds one solid material (its second set is never read), and the sets'
+ * projection (`blend`: triplanar on terrain; `axis`: one read a map, see `SetProjectionMode`).
+ */
+export interface VoxelSurfacePath {
+  readonly materials: 1 | 2;
+  readonly projection: SetProjectionMode;
+}
+
+/** The program every draw can take: two materials blended, terrain triplanar. */
+export const FULL_PATH: VoxelSurfacePath = Object.freeze({ materials: 2, projection: 'blend' });
+
+const pathKey = (p: VoxelSurfacePath): string => `${p.materials}-${p.projection}`;
+
 /** The surface material, its grids and the setting it reads each frame. */
 export interface VoxelSurface {
+  /** The program of {@link FULL_PATH}. */
   readonly material: THREE.MeshStandardNodeMaterial;
+  /** The program for a draw's path (made on the first ask, then shared; the same grids, table, arrays and uniforms). */
+  materialFor(path: VoxelSurfacePath): THREE.MeshStandardNodeMaterial;
+  /** Programs made so far (diagnostics). */
+  readonly variants: number;
   readonly grids: VoxelShaderGrids;
   /**
    * Metres the blend runs over where no material of a seam sets its own (a uniform: changing it needs no new
@@ -924,170 +945,198 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   });
   const look = (m: N, block: number): N => tableNode.load(ivec2(int(mod(m, TABLE_WIDTH)), int(floor(m.div(TABLE_WIDTH))).add(block * TABLE_ROWS)));
 
-  if (opts.shading === 'flat') {
-    material.colorNode = vec4(0.55, 0.52, 0.47, 1);
-    material.roughnessNode = float(0.85);
-  } else {
-    const blendOf = (m: N): N => look(mod(m, matMask), 2).z;
-    const blendCtx: BlendInputs = { layout, cellU, blendM, blendOf, gridNode, slotU, phaseU, slopePhaseU, slope5PhaseU, decode };
-    const blendAt = (pos: N, n: N): Blend => surfaceBlend(blendCtx, pos, n);
-    /** A point's materials as the texture sets read them (the projection's inputs from the blend). */
-    const setPoint = (b: Blend, n: N) => ({ n, p: b.p, gu: b.gu, gv: b.gv, bn: b.bn });
-    /** A material's height depth (metres: where its height 0 lies below its surface). */
-    const depthOf = (m: N): N => look(mod(m, matMask), 2).y;
-    /**
-     * A material's relief test height (0–1; 1 without a test layer) at the point, read as its pattern is (grid U/V on
-     * construction, triplanar on terrain), at a level of detail (`lod`, from the material's tile metres: none in the
-     * fragment, its implicit mips). The debug program's heights.
-     */
-    const testHeightOf = (m: N, b: Blend, lod: ((tileM: N) => N) | null): N => {
-      const id = mod(m, matMask);
-      const r = look(id, 2).toVar();
-      const tiles = look(id, 1).toVar();
-      const built = m.greaterThanEqual(matMask);
-      const layer = int(floor(max(r.x, 0).add(0.5)));
-      const level = lod === null ? null : lod(select(built, tiles.x, tiles.y)).toVar();
-      const sample = (uv: N): N => {
-        const t = texture(heights!, uv).depth(layer);
-        return (level === null ? t : t.level(level)).r.toVar();
-      };
-      const pt = b.p.div(tiles.y);
-      const gt = vec2(...tileUv(NODE_OPS, [b.gu, b.gv], tiles.x));
-      const h0 = sample(select(built, gt, pt.zy));
-      const h1 = sample(pt.xz);
-      const h2 = sample(pt.xy);
-      const h = h0.mul(select(built, float(1), b.bn.x)).add(h1.mul(select(built, float(0), b.bn.y))).add(h2.mul(select(built, float(0), b.bn.z)));
-      return select(r.x.lessThan(-0.5), float(1), h);
-    };
-    // The texture sets' maps, the table and the bands, as both stages read them.
-    const sets = textured ? { maps: arrayNodes!, look, matMask, bands } : null;
-    // The colour is built before the roughness, metalness, occlusion and normal in a program, so they read what the
-    // colour found: the texture sets' ORM and normal, the recess, and what the wetness does.
-    const normalOut = property('vec3', 'tlVoxelNormal');
-    const ormOut = property('vec3', 'tlVoxelOrm');
-    const reliefOut = property('float', 'tlVoxelRecess');
-    const roughKeepOut = property('float', 'tlVoxelWetRoughness');
-    const waterOut = property('float', 'tlVoxelWater');
-    const flattenOut = property('float', 'tlVoxelWetFlatten');
-    const shade = Fn(() => {
-      const n = normalLocal.normalize();
-      const b = blendAt(positionLocal, n);
-      const { mA, mB, share, wetness, seen, p, gu, gv, bn } = b;
-      const dA = depthOf(mA).toVar();
-      const dB = depthOf(mB).toVar();
-      const albedo = (m: N): N => {
+  /** Builds the surface's program for a draw's path into `material` (every path reads the same grids, table and arrays). */
+  const program = (material: THREE.MeshStandardNodeMaterial, path: VoxelSurfacePath): void => {
+    if (opts.shading === 'flat') {
+      material.colorNode = vec4(0.55, 0.52, 0.47, 1);
+      material.roughnessNode = float(0.85);
+    } else {
+      const blendOf = (m: N): N => look(mod(m, matMask), 2).z;
+      const blendCtx: BlendInputs = { layout, cellU, blendM, blendOf, gridNode, slotU, phaseU, slopePhaseU, slope5PhaseU, decode };
+      const blendAt = (pos: N, n: N): Blend => surfaceBlend(blendCtx, pos, n);
+      /** A point's materials as the texture sets read them (the projection's inputs from the blend). */
+      const setPoint = (b: Blend, n: N) => ({ n, p: b.p, gu: b.gu, gv: b.gv, bn: b.bn });
+      /** A material's height depth (metres: where its height 0 lies below its surface). */
+      const depthOf = (m: N): N => look(mod(m, matMask), 2).y;
+      /**
+       * A material's relief test height (0–1; 1 without a test layer) at the point, read as its pattern is (grid U/V on
+       * construction, triplanar on terrain), at a level of detail (`lod`, from the material's tile metres: none in the
+       * fragment, its implicit mips). The debug program's heights.
+       */
+      const testHeightOf = (m: N, b: Blend, lod: ((tileM: N) => N) | null): N => {
         const id = mod(m, matMask);
-        const l = look(id, 0).toVar();
+        const r = look(id, 2).toVar();
         const tiles = look(id, 1).toVar();
         const built = m.greaterThanEqual(matMask);
-        const layer = int(floor(l.a.add(0.5)));
-        const sample = (uv: N): N => texture(patterns!, uv).depth(layer).r;
-        const pt = p.div(tiles.y);
-        const gt = vec2(...tileUv(NODE_OPS, [gu, gv], tiles.x));
-        const pat = sample(select(built, gt, pt.zy)).mul(select(built, float(1), bn.x)).add(sample(pt.xz).mul(select(built, float(0), bn.y))).add(sample(pt.xy).mul(select(built, float(0), bn.z)));
-        const shaded = l.rgb.mul(pat.sub(0.5).mul(1.2).add(1)).toVar();
-        if (bands === null) return shaded;
-        // Into a variable first: the pick below is a branch, and a sample inside it would vary per pixel.
-        const band = texture(bands, gt).toVar();
-        return select(built, mix(l.rgb, band.rgb, band.a), shaded);
+        const layer = int(floor(max(r.x, 0).add(0.5)));
+        const level = lod === null ? null : lod(select(built, tiles.x, tiles.y)).toVar();
+        const sample = (uv: N): N => {
+          const t = texture(heights!, uv).depth(layer);
+          return (level === null ? t : t.level(level)).r.toVar();
+        };
+        const pt = b.p.div(tiles.y);
+        const gt = vec2(...tileUv(NODE_OPS, [b.gu, b.gv], tiles.x));
+        const h0 = sample(select(built, gt, pt.zy));
+        const h1 = sample(pt.xz);
+        const h2 = sample(pt.xy);
+        const h = h0.mul(select(built, float(1), b.bn.x)).add(h1.mul(select(built, float(0), b.bn.y))).add(h2.mul(select(built, float(0), b.bn.z)));
+        return select(r.x.lessThan(-0.5), float(1), h);
       };
-      // Sampled in uniform control flow (WGSL refuses an implicit-derivative sample inside a branch that varies per pixel): into variables first, then picked.
-      let blended: N;
-      let height: N;
-      if (sets !== null) {
-        const at = setPoint(b, n);
-        const s1 = textureSetAt(sets, mA, at);
-        const s2 = textureSetAt(sets, mB, at);
-        const hb = heightBlend(NODE_OPS, s1.height.toVar(), dA, s2.height.toVar(), dB, share);
-        const hs = hb.share.toVar();
-        height = hb.height;
-        reliefOut.assign(select(seen, hb.recess, float(0)));
-        blended = mix(s1.albedo, s2.albedo, hs);
-        normalOut.assign(select(seen, mix(s1.normal, s2.normal, hs).normalize(), n));
-        ormOut.assign(select(seen, mix(s1.orm, s2.orm, hs), vec3(1, 0.8, 0)));
-      } else {
-        const a1 = albedo(mA).toVar();
-        const a2 = albedo(mB).toVar();
-        if (heights !== null) {
-          const hb = heightBlend(NODE_OPS, testHeightOf(mA, b, null), dA, testHeightOf(mB, b, null), dB, share);
+      // The texture sets' maps, the table and the bands, as both stages read them.
+      const sets = textured ? { maps: arrayNodes!, look, matMask, bands } : null;
+      // The colour is built before the roughness, metalness, occlusion and normal in a program, so they read what the
+      // colour found: the texture sets' ORM and normal, the recess, and what the wetness does.
+      const normalOut = property('vec3', 'tlVoxelNormal');
+      const ormOut = property('vec3', 'tlVoxelOrm');
+      const reliefOut = property('float', 'tlVoxelRecess');
+      const roughKeepOut = property('float', 'tlVoxelWetRoughness');
+      const waterOut = property('float', 'tlVoxelWater');
+      const flattenOut = property('float', 'tlVoxelWetFlatten');
+      const shade = Fn(() => {
+        const n = normalLocal.normalize();
+        const b = blendAt(positionLocal, n);
+        const { mA, mB, share, wetness, seen, p, gu, gv, bn } = b;
+        const dA = depthOf(mA).toVar();
+        const dB = depthOf(mB).toVar();
+        const albedo = (m: N): N => {
+          const id = mod(m, matMask);
+          const l = look(id, 0).toVar();
+          const tiles = look(id, 1).toVar();
+          const built = m.greaterThanEqual(matMask);
+          const layer = int(floor(l.a.add(0.5)));
+          const sample = (uv: N): N => texture(patterns!, uv).depth(layer).r;
+          const pt = p.div(tiles.y);
+          const gt = vec2(...tileUv(NODE_OPS, [gu, gv], tiles.x));
+          const pat = sample(select(built, gt, pt.zy)).mul(select(built, float(1), bn.x)).add(sample(pt.xz).mul(select(built, float(0), bn.y))).add(sample(pt.xy).mul(select(built, float(0), bn.z)));
+          const shaded = l.rgb.mul(pat.sub(0.5).mul(1.2).add(1)).toVar();
+          if (bands === null) return shaded;
+          // Into a variable first: the pick below is a branch, and a sample inside it would vary per pixel.
+          const band = texture(bands, gt).toVar();
+          return select(built, mix(l.rgb, band.rgb, band.a), shaded);
+        };
+        // Sampled in uniform control flow (WGSL refuses an implicit-derivative sample inside a branch that varies per pixel): into variables first, then picked.
+        let blended: N;
+        let height: N;
+        if (sets !== null) {
+          const at = setPoint(b, n);
+          const s1 = textureSetAt(sets, mA, at, path.projection);
+          // One material in the draw: its second is never another set (its share is 0), so it is not read again.
+            const s2 = path.materials === 1 ? s1 : textureSetAt(sets, mB, at, path.projection);
+          const hb = heightBlend(NODE_OPS, s1.height.toVar(), dA, s2.height.toVar(), dB, share);
           const hs = hb.share.toVar();
           height = hb.height;
           reliefOut.assign(select(seen, hb.recess, float(0)));
-          blended = mix(a1, a2, hs);
+          blended = mix(s1.albedo, s2.albedo, hs);
+          normalOut.assign(select(seen, mix(s1.normal, s2.normal, hs).normalize(), n));
+          ormOut.assign(select(seen, mix(s1.orm, s2.orm, hs), vec3(1, 0.8, 0)));
         } else {
-          height = float(1);
-          blended = mix(a1, a2, share);
+          const a1 = albedo(mA).toVar();
+          const a2 = albedo(mB).toVar();
+          if (heights !== null) {
+            const hb = heightBlend(NODE_OPS, testHeightOf(mA, b, null), dA, testHeightOf(mB, b, null), dB, share);
+            const hs = hb.share.toVar();
+            height = hb.height;
+            reliefOut.assign(select(seen, hb.recess, float(0)));
+            blended = mix(a1, a2, hs);
+          } else {
+            height = float(1);
+            blended = mix(a1, a2, share);
+          }
         }
+        // Wetness (R111): darker, smoother, flatter, and water standing in the low parts first.
+        const wet = wetLook(NODE_OPS, wetness, select(seen, height, float(1)).toVar());
+        roughKeepOut.assign(wet.roughness);
+        waterOut.assign(wet.water);
+        flattenOut.assign(wet.flatten);
+        // Cracks (a damaged block's faces, damage stage 1): one crack map a construction tile, laid on the grid exactly as
+        // the material's texture (the same metres and phase), so neighbouring cracked cells show one continuous pattern;
+        // a texel shows once the face's strength reaches it (bright cracks first). Sampled outside any branch, as above.
+        const crackLook = look(mod(mA, matMask), 1).toVar();
+        const crackLayer = int(floor(crackLook.z.add(0.5)));
+        const crackTexel = cracksNode.sample(vec2(...tileUv(NODE_OPS, [gu, gv], crackLook.x))).depth(crackLayer).r.toVar();
+        const strength = crackStrength();
+        const cracked = select(strength.greaterThan(0.002).and(crackTexel.greaterThan(0.002)).and(crackTexel.greaterThanEqual(float(1).sub(strength))), float(CRACK_DARKEN), float(0));
+        const colour = mix(vec3(0.5), blended.mul(wet.albedo).mul(float(1).sub(cracked)), select(seen, float(1), float(0)));
+        return vec4(colour, 1);
+      });
+      material.colorNode = shade();
+      material.roughnessNode = mix((textured ? ormOut.y : float(0.85)).mul(roughKeepOut), float(WET_WATER_ROUGHNESS), waterOut);
+      if (textured) {
+        material.metalnessNode = ormOut.z;
+        material.aoNode = ormOut.x;
+        // The texture sets' normal (object space: world directions), flattened toward the surface's own by the wetness.
+        material.normalNode = transformNormalToView(mix(normalOut, normalLocal.normalize(), flattenOut).normalize()).normalize();
       }
-      // Wetness (R111): darker, smoother, flatter, and water standing in the low parts first.
-      const wet = wetLook(NODE_OPS, wetness, select(seen, height, float(1)).toVar());
-      roughKeepOut.assign(wet.roughness);
-      waterOut.assign(wet.water);
-      flattenOut.assign(wet.flatten);
-      // Cracks (a damaged block's faces, damage stage 1): one crack map a construction tile, laid on the grid exactly as
-      // the material's texture (the same metres and phase), so neighbouring cracked cells show one continuous pattern;
-      // a texel shows once the face's strength reaches it (bright cracks first). Sampled outside any branch, as above.
-      const crackLook = look(mod(mA, matMask), 1).toVar();
-      const crackLayer = int(floor(crackLook.z.add(0.5)));
-      const crackTexel = cracksNode.sample(vec2(...tileUv(NODE_OPS, [gu, gv], crackLook.x))).depth(crackLayer).r.toVar();
-      const strength = crackStrength();
-      const cracked = select(strength.greaterThan(0.002).and(crackTexel.greaterThan(0.002)).and(crackTexel.greaterThanEqual(float(1).sub(strength))), float(CRACK_DARKEN), float(0));
-      const colour = mix(vec3(0.5), blended.mul(wet.albedo).mul(float(1).sub(cracked)), select(seen, float(1), float(0)));
-      return vec4(colour, 1);
-    });
-    material.colorNode = shade();
-    material.roughnessNode = mix((textured ? ormOut.y : float(0.85)).mul(roughKeepOut), float(WET_WATER_ROUGHNESS), waterOut);
-    if (textured) {
-      material.metalnessNode = ormOut.z;
-      material.aoNode = ormOut.x;
-      // The texture sets' normal (object space: world directions), flattened toward the surface's own by the wetness.
-      material.normalNode = transformNormalToView(mix(normalOut, normalLocal.normalize(), flattenOut).normalize()).normalize();
+      if (opts.relief === true && (textured || heights !== null)) {
+        // The vertex stage: a relief vertex moves inward along its normal by the blended recess, its crease weight and
+        // the ring's fade; heights are read at the mip whose texels are as wide as the vertex spacing, never sharper.
+        // Three's shadow pass draws with the material's position node too, so a relief mesh that casts moves the same.
+        material.positionNode = Fn((builder: { hasGeometryAttribute(name: string): boolean }) => {
+          if (!builder.hasGeometryAttribute(VOXEL_CREASE_ATTRIBUTE)) return positionLocal;
+          const n = normalLocal.normalize();
+          const b = blendAt(positionLocal, n);
+          const stepM = cellU.div(reliefN);
+          const lod = (tileM: N): N => log2(max(stepM.mul(heightEdgeU).div(tileM), 1));
+          const heightOf = (m: N): N => {
+            if (sets === null) return testHeightOf(m, b, lod);
+            const tiles = look(mod(m, matMask), 1).toVar();
+            return textureHeightAt(sets, m, setPoint(b, n), lod(max(select(m.greaterThanEqual(matMask), tiles.x, tiles.y), VOXEL_MATERIAL_LIMITS.tileMetresMin)).toVar());
+          };
+          const hb = heightBlend(NODE_OPS, heightOf(b.mA).toVar(), depthOf(b.mA), heightOf(b.mB).toVar(), depthOf(b.mB), b.share);
+          const d = select(b.seen, hb.recess, float(0)).toVar();
+          const fade = float(1).sub(smoothstep(fadeStartU, fadeEndU, positionLocal.sub(focusU).length()));
+          return positionLocal.sub(n.mul(d.mul(creaseWeight()).mul(fade).mul(displaceU)));
+        })();
+        // A relief mesh casts no shadow where its view draws shadows (its chunk's plain surfaces do, voxel-chunk-view.ts),
+        // so it looks its shadow up where the plain surface is: a recessed point is then lit or shaded exactly as the
+        // plain surface there (no point lies behind its own caster's far side).
+        material.receivedShadowPositionNode = Fn((builder: { hasGeometryAttribute(name: string): boolean }) =>
+          builder.hasGeometryAttribute(VOXEL_CREASE_ATTRIBUTE) ? varying(modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz) : positionWorld,
+        )();
+      }
+      if (heights !== null) {
+        // The debug program's lighting normal follows its test heights (the geometry's normals are never rebuilt): the
+        // recess's screen derivatives bend the view normal (Mikkelsen's surface gradient, in metres), less as it wets.
+        material.normalNode = Fn(() => {
+          const hgt = reliefOut.negate().mul(bumpU).mul(float(1).sub(flattenOut));
+          const sx = positionView.dFdx();
+          const sy = positionView.dFdy();
+          const nv = normalView;
+          const r1 = sy.cross(nv);
+          const r2 = nv.cross(sx);
+          const det = sx.dot(r1).mul(faceDirection);
+          const grad = det.sign().mul(hgt.dFdx().mul(r1).add(hgt.dFdy().mul(r2)));
+          return det.abs().mul(nv).sub(grad).normalize();
+        })();
+      }
     }
-    if (opts.relief === true && (textured || heights !== null)) {
-      // The vertex stage: a relief vertex moves inward along its normal by the blended recess, its crease weight and
-      // the ring's fade; heights are read at the mip whose texels are as wide as the vertex spacing, never sharper.
-      // Three's shadow pass draws with the material's position node too, so a relief mesh that casts moves the same.
-      material.positionNode = Fn((builder: { hasGeometryAttribute(name: string): boolean }) => {
-        if (!builder.hasGeometryAttribute(VOXEL_CREASE_ATTRIBUTE)) return positionLocal;
-        const n = normalLocal.normalize();
-        const b = blendAt(positionLocal, n);
-        const stepM = cellU.div(reliefN);
-        const lod = (tileM: N): N => log2(max(stepM.mul(heightEdgeU).div(tileM), 1));
-        const heightOf = (m: N): N => {
-          if (sets === null) return testHeightOf(m, b, lod);
-          const tiles = look(mod(m, matMask), 1).toVar();
-          return textureHeightAt(sets, m, setPoint(b, n), lod(max(select(m.greaterThanEqual(matMask), tiles.x, tiles.y), VOXEL_MATERIAL_LIMITS.tileMetresMin)).toVar());
-        };
-        const hb = heightBlend(NODE_OPS, heightOf(b.mA).toVar(), depthOf(b.mA), heightOf(b.mB).toVar(), depthOf(b.mB), b.share);
-        const d = select(b.seen, hb.recess, float(0)).toVar();
-        const fade = float(1).sub(smoothstep(fadeStartU, fadeEndU, positionLocal.sub(focusU).length()));
-        return positionLocal.sub(n.mul(d.mul(creaseWeight()).mul(fade).mul(displaceU)));
-      })();
-      // A relief mesh casts no shadow where its view draws shadows (its chunk's plain surfaces do, voxel-chunk-view.ts),
-      // so it looks its shadow up where the plain surface is: a recessed point is then lit or shaded exactly as the
-      // plain surface there (no point lies behind its own caster's far side).
-      material.receivedShadowPositionNode = Fn((builder: { hasGeometryAttribute(name: string): boolean }) =>
-        builder.hasGeometryAttribute(VOXEL_CREASE_ATTRIBUTE) ? varying(modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz) : positionWorld,
-      )();
+  };
+  program(material, FULL_PATH);
+  // The position node moves only relief vertices, and a relief geometry's bounds already hold its deepest relief
+  // (voxel-chunk-view.ts): no vertex leaves its geometry's bounds, so occlusion culling may test a draw whole.
+  declareVertexReach(material, () => 0);
+  /** The programs of the other paths, made when a draw first asks (the flat program has one). */
+  const variants = new Map<string, THREE.MeshStandardNodeMaterial>([[pathKey(FULL_PATH), material]]);
+  const materialFor = (path: VoxelSurfacePath): THREE.MeshStandardNodeMaterial => {
+    const key = opts.shading === 'flat' ? pathKey(FULL_PATH) : pathKey(path);
+    let m = variants.get(key);
+    if (m === undefined) {
+      m = cameraRelative(new THREE.MeshStandardNodeMaterial());
+      m.metalness = 0;
+      m.name = `voxel surface ${key}`;
+      m.userData = material.userData;
+      program(m, path);
+      declareVertexReach(m, () => 0);
+      variants.set(key, m);
     }
-    if (heights !== null) {
-      // The debug program's lighting normal follows its test heights (the geometry's normals are never rebuilt): the
-      // recess's screen derivatives bend the view normal (Mikkelsen's surface gradient, in metres), less as it wets.
-      material.normalNode = Fn(() => {
-        const hgt = reliefOut.negate().mul(bumpU).mul(float(1).sub(flattenOut));
-        const sx = positionView.dFdx();
-        const sy = positionView.dFdy();
-        const nv = normalView;
-        const r1 = sy.cross(nv);
-        const r2 = nv.cross(sx);
-        const det = sx.dot(r1).mul(faceDirection);
-        const grad = det.sign().mul(hgt.dFdx().mul(r1).add(hgt.dFdy().mul(r2)));
-        return det.abs().mul(nv).sub(grad).normalize();
-      })();
-    }
-  }
+    return m;
+  };
   return {
     material,
+    materialFor,
+    get variants() {
+      return variants.size;
+    },
     grids,
     setBlendMetres(m) {
       blendM.value = Math.max(0, m);
@@ -1169,7 +1218,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       cracks.dispose();
       bands?.dispose();
       heights?.dispose();
-      material.dispose();
+      for (const m of variants.values()) m.dispose();
     },
   };
 }
