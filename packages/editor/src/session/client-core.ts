@@ -635,7 +635,7 @@ export class SessionClientCore extends SessionProjectState {
         break;
       }
       case 'play.stopped':
-        this.play.receiveStopped((m as { reason?: string }).reason ?? 'request');
+        this.play.receiveStopped(String(m.playSessionId ?? ''), (m as { reason?: string }).reason ?? 'request');
         break;
       case 'error':
         this.error = { code: String(m.code ?? 'error'), message: String(m.message ?? '') };

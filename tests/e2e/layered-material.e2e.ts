@@ -297,7 +297,11 @@ for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right 
   });
   await cmd('setMaterial', { material: { materialId: 'mat-std', name: 'Standard bump', shader: 'standard', params: { color: '#b4b4b4', roughness: 0.9 }, textures: { normalMap: 'tilt' } } });
 
-  await page.goto(editorUrlFor(be.editorUrl, variant));
+  // Play's pictures are read at a few pixels of small, distant rooms (the lamp's room against the one through its wall).
+  // The level's temporal upscale softens such detail across neighbours and its brightness-weighted resolve settles a
+  // little darker where jittered samples differ (lit rooms 499 / 288 / 250 against 560 / 313 / 297 with the spatial
+  // upscale): the reads are pinned to the spatial upscale (`taau=0`, the page flag for comparisons, passed on to Play).
+  await page.goto(editorUrlFor(be.editorUrl.replace('#', '&taau=0#'), variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const view = page.locator('canvas.tl-viewport');
   await expectRendererBackend(view, variant);
@@ -1100,7 +1104,10 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   // Its scenes kept: the occlusion and rooms switches are reachable.
   await game.addInitScript(keepThreeScenes);
   try {
-    await game.goto(`${site.url}${exportQueryFor(variant)}`);
+    // As in Play, the spatial upscale (`taau=0`): the culling comparisons below want two frames pixel for pixel, which a
+    // jittered temporal upscale does not give, and the lit rooms are read at a few pixels.
+    const q = exportQueryFor(variant);
+    await game.goto(`${site.url}${q}${q === '' ? '?' : '&'}taau=0`);
     const exported = game.locator('canvas').first();
     await expectRendererBackend(exported, variant);
     let shown: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };

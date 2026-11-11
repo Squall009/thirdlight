@@ -96,10 +96,17 @@ export class PlayLink {
     }
   }
 
-  /** The backend stopped the play. */
-  receiveStopped(reason: string): void {
+  /**
+   * The backend stopped a play. A stop of an earlier play (one this tab
+   * stopped before it started the next: the backend confirms it late when the
+   * page that ran it has gone) is not the running play's end, so it is
+   * ignored. Returns whether the stop ended this editor's play.
+   */
+  receiveStopped(playSessionId: string, reason: string): boolean {
+    if (this.active !== null && playSessionId !== '' && playSessionId !== this.active.playSessionId) return false;
     this.active = null;
     this.host.stopped(reason);
+    return true;
   }
 
   /** Send `play.preview.ready` exactly once per play session (idempotent per playSessionId). */

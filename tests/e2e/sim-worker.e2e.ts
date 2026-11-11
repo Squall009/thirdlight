@@ -297,7 +297,10 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
     const requests: string[] = [];
     game.on('request', (r) => requests.push(r.url()));
     try {
-      await game.goto(`${site.url}${c.query}`);
+      // The motion check reads the walk as pixels changed against pixels changed standing; the level's temporal upscale
+      // keeps resolving a standing view for its first seconds (the history converging), which this check is not about:
+      // it pins the spatial upscale (`taau=0`, the page flag for comparisons).
+      await game.goto(`${site.url}${c.query}${c.query === '' ? '?' : '&'}taau=0`);
       await expect.poll(() => game.evaluate(() => (window as unknown as { __thirdlightThreading?: unknown }).__thirdlightThreading ?? null), { timeout: 30_000 }).toMatchObject(c.want);
       // The game starts from the keyboard (the title's Start; the restart goes to wherever the simulation runs) …
       const observed = async (): Promise<string | null> => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null);

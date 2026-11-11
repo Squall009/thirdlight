@@ -110,6 +110,23 @@ const Base = TAAUNode as unknown as new (beauty: N, depth: N, velocity: N, camer
   dispose(): void;
 };
 
+/**
+ * How far a still camera's matrices may differ between frames (each element):
+ * a pose rebuilt every frame from the same transform (an interpolated step, a
+ * quaternion composed again) differs in its last bits, which would read as a
+ * moving camera and keep the jitter running for ever. 1e-7 m or rad moves no
+ * point on screen by a thousandth of a pixel.
+ */
+export const TAAU_STILL_EPSILON = 1e-7;
+
+/** Whether two camera matrices are the same pose within {@link TAAU_STILL_EPSILON}. */
+export function samePose(a: THREE.Matrix4, b: THREE.Matrix4): boolean {
+  const x = a.elements;
+  const y = b.elements;
+  for (let i = 0; i < 16; i++) if (Math.abs(x[i]! - y[i]!) > TAAU_STILL_EPSILON) return false;
+  return true;
+}
+
 /** `history` (rgb) clipped toward the box's middle until it lies inside `lo`…`hi` (Karis 2014). */
 const clipToBox = (lo: N, hi: N, history: N): N => {
   const half = hi.sub(lo).mul(0.5).add(1e-7);
@@ -165,9 +182,12 @@ class TemporalUpscaleNode extends Base {
     // This frame's pose (three updates it inside its render, after this hook).
     cam.updateMatrixWorld();
     cam.updateProjectionMatrix();
-    const moved = !this.lastWorld.equals(cam.matrixWorld) || !this.lastProjection.equals(cam.projectionMatrix);
-    this.lastWorld.copy(cam.matrixWorld);
-    this.lastProjection.copy(cam.projectionMatrix);
+    const moved = !samePose(this.lastWorld, cam.matrixWorld) || !samePose(this.lastProjection, cam.projectionMatrix);
+    // The pose the stillness is measured from stays until the camera moves, so a slow drift adds up and counts.
+    if (moved) {
+      this.lastWorld.copy(cam.matrixWorld);
+      this.lastProjection.copy(cam.projectionMatrix);
+    }
     setMotionCamera(cam.projectionMatrix, cam.matrixWorldInverse);
     this.still = moved ? 0 : this.still + 1;
     this.holding = this.holdAllowed && this.still >= TAAU_HOLD_FRAMES;
