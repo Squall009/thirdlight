@@ -228,7 +228,7 @@ unit() { # unit [--related] [files…]: the whole suite, or (a rerun) only the t
       # shellcheck disable=SC2086
       npx vitest run $failed > "$L/vitest-rerun.log" 2>&1
       if grep -qE 'Test Files .*passed' "$L/vitest-rerun.log" && ! grep -qE 'Test Files .*failed' "$L/vitest-rerun.log"; then
-        say "vitest-rerun: $(grep -E 'Test Files' "$L/vitest-rerun.log" | tail -1 | sed 's/^ *//') (failed once, passed alone)"
+        say "vitest-rerun: $(sed 's/\x1b\[[0-9;]*m//g' "$L/vitest-rerun.log" | grep -E 'Test Files' | tail -1 | sed 's/^ *//') (failed once, passed alone)"
       else
         grep -E 'FAIL|✗|×' "$L/vitest-rerun.log" | head -20; fail_at vitest "$failed"; done_ "RED vitest (fix, then: tools/gate.sh rerun)"
       fi
@@ -288,16 +288,16 @@ changed_e2e() { # the changed e2e files themselves
   for f in "${CHANGED[@]}"; do case "$f" in tests/e2e/*.e2e.ts) [ -e "$f" ] && echo "$f" ;; esac; done
   return 0
 }
-area_times() { # area_times <log> [areas…]: test time by area, so growth is seen per area
-  say "e2e time by area: $(node tools/check-gate-areas.mjs --times "$L/$1" "${@:2}")"
+area_times() { # area_times <log>: test time by area (a file in two areas counts in both), so growth is seen per area
+  say "e2e time by area: $(node tools/check-gate-areas.mjs --times "$L/$1")"
 }
 fast_e2e() { # fast_e2e [e2e files…]: the core smoke, the areas the changes reach, the changed e2e files, the files named
   local areas=() files=()
   if [ -n "$BASE" ]; then mapfile -t areas < <(areas_changed); else say "e2e areas: none from the changes (no green gate on this branch to compare with)"; fi
   mapfile -t files < <({ node tools/check-gate-areas.mjs --e2e core "${areas[@]}"; changed_e2e; printf '%s\n' "$@"; } | sed '/^$/d' | sort -u)
   say "e2e: core${areas[*]:+ + ${areas[*]}}${1:+ + named: $*} (${#files[@]} files)"
-  e2e e2e.log --project=default "${files[@]}" || { area_times e2e.log core "${areas[@]}"; fail_at e2e; done_ "RED e2e (fix, then: tools/gate.sh rerun)"; }
-  area_times e2e.log core "${areas[@]}"
+  e2e e2e.log --project=default "${files[@]}" || { area_times e2e.log; fail_at e2e; done_ "RED e2e (fix, then: tools/gate.sh rerun)"; }
+  area_times e2e.log
 }
 fast_perf() {
   perf_check || { fail_at perf; done_ "RED perf (the village class at the cap; fix, then: tools/gate.sh rerun)"; }
@@ -330,7 +330,7 @@ area_e2e() { # area_e2e <areas…>: every e2e file of those areas
   [ ${#files[@]} -gt 0 ] || done_ "RED (unknown area: $*)"
   say "e2e: areas $* (${#files[@]} files)"
   wide_e2e "${files[@]}"
-  area_times e2e.log "$@"
+  area_times e2e.log
 }
 phase_e2e() { # the core smoke and every area the phase's changes reach (CHANGED: since its start)
   local areas=() files=()
@@ -338,7 +338,7 @@ phase_e2e() { # the core smoke and every area the phase's changes reach (CHANGED
   mapfile -t files < <({ node tools/check-gate-areas.mjs --e2e core "${areas[@]}"; changed_e2e; } | sed '/^$/d' | sort -u)
   say "e2e: core${areas[*]:+ + ${areas[*]}} (${#files[@]} files; ${#CHANGED[@]} files changed since ${BASE:0:8})"
   wide_e2e "${files[@]}"
-  area_times e2e.log core "${areas[@]}"
+  area_times e2e.log
 }
 phase_start() { # phase_start <commit>: the phase's first commit, an ancestor of HEAD
   git rev-parse --verify -q "${1:-}^{commit}" > /dev/null && git merge-base --is-ancestor "$1" HEAD || { echo "usage: tools/gate.sh phase <start-commit> (an ancestor of HEAD)"; exit 2; }
