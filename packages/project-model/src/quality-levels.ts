@@ -55,7 +55,7 @@
  *
  * Pure: no I/O.
  */
-import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
+import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
 import type { FrameRateCap } from './frame-rate-cap';
 import type { PostConfig } from './materials';
 import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
@@ -249,10 +249,12 @@ export interface QualityLevelConfig {
  * most texels a metre their surfaces keep resident and the relief lattice steps a cell in their relief rings, each by
  * its tier unless the level sets it.
  */
-export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity' | 'voxelRelief' | 'voxelFarField' | 'voxelFarError'>): { readonly ringScale: number; readonly reliefScale: number; readonly budgetBytes: number; readonly texelDensity: number; readonly relief: number; readonly farField: FarFieldMode; readonly farError: number; readonly farGpuBudget: number } {
+export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity' | 'voxelRelief' | 'voxelFarField' | 'voxelFarError'>): { readonly ringScale: number; readonly reachScale: number; readonly reliefScale: number; readonly budgetBytes: number; readonly texelDensity: number; readonly relief: number; readonly farField: FarFieldMode; readonly farError: number; readonly farGpuBudget: number } {
   const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
   return {
     ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier],
+    // The load ring and level 1 (the near field's reach): a level's own scale moves them too.
+    reachScale: level.voxelRings ?? VOXEL_REACH_SCALES[tier],
     // A level's own ring scale moves relief by the same factor against its tier's, keeping relief's own tier scale.
     reliefScale: level.voxelRings !== undefined ? (level.voxelRings / VOXEL_RING_SCALES[tier]) * RELIEF_RING_SCALES[tier] : RELIEF_RING_SCALES[tier],
     budgetBytes: VOXEL_STREAM_BUDGET_BYTES[tier],

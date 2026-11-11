@@ -200,8 +200,9 @@ function baseRings(c: VoxelWorldRings): { ring: Required<VoxelWorldRing>; collis
  * A world's settings with the voxel defaults filled in, at a quality level
  * (`level`; null or absent: none known, the scene's own distances and no
  * budget). At a level every distance is scaled (the scene's `quality`
- * entry's `scale`, else the level's `voxelRings`, else its tier's), then
- * replaced where the entry sets one of its own. An unload distance below
+ * entry's `scale`, else the level's `voxelRings`, else its tier's: the
+ * load ring's radii and level 1 by the tier's reach scale, the rest by its
+ * ring scale), then replaced where the entry sets one of its own. An unload distance below
  * its load distance is taken as the load distance (no hysteresis), since an
  * unload ring inside the load ring would drop chunks the ring just loaded.
  * Likewise a level-1 distance below the level-0 one is taken as it (no
@@ -216,10 +217,13 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
   const k = own?.scale ?? at?.ringScale ?? 1;
   // The relief distance has its tier's own scale (sized by what is seen, not by the budget's area).
   const kRelief = own?.scale ?? at?.reliefScale ?? 1;
+  // The near field's reach (the load ring's radii, level 1) has its tier's own scale too (never under medium's).
+  const kReach = own?.scale ?? at?.reachScale ?? 1;
+  const factor = (group: keyof VoxelWorldRings, field: string): number => (field === 'relief' ? kRelief : (group === 'ring' && field.endsWith('Radius')) || field === 'level1' ? kReach : k);
   const pick = (group: keyof VoxelWorldRings, field: string): number => {
     const set = (own?.[group] as Readonly<Record<string, number | undefined>> | undefined)?.[field];
     if (set !== undefined) return set;
-    const scaled = (b[group] as Readonly<Record<string, number>>)[field]! * (field === 'relief' ? kRelief : k);
+    const scaled = (b[group] as Readonly<Record<string, number>>)[field]! * factor(group, field);
     if (scaled === 0 && ZERO_ALLOWED.has(field)) return 0;
     return Math.min(STREAMING_RADIUS_LIMITS.max, Math.max(STREAMING_RADIUS_LIMITS.min, scaled));
   };

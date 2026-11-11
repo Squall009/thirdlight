@@ -14,7 +14,7 @@ import { DEFAULT_QUALITY_LEVELS, levelVoxels, type QualityLevelConfig } from './
 import { validateQualityLevels } from './materials';
 import { canonicalVoxelWorld, resolveVoxelWorld, validateVoxelWorldComponent, VOXEL_WORLD_DEFAULTS, type VoxelWorldComponent } from './voxel-world';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
-import { FAR_GPU_BUDGET_BYTES_BY_TIER as G, RELIEF_RING_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
+import { FAR_GPU_BUDGET_BYTES_BY_TIER as G, RELIEF_RING_SCALES, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const CAMERA = { id: 'cam-main', components: { transform: T, virtualCamera: { rig: 'fixed' } } };
@@ -171,8 +171,8 @@ describe('the voxelWorld component', () => {
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
     // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
-    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 0, farField: 'bricks', farError: 4, farGpuBudget: G.medium });
-    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 0, farField: 'bricks', farError: 3, farGpuBudget: G.high });
+    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reachScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 0, farField: 'bricks', farError: 4, farGpuBudget: G.medium });
+    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reachScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 0, farField: 'bricks', farError: 3, farGpuBudget: G.high });
     // A level's own ring scale moves relief by its factor against the tier's ring scale, relief's own tier scale kept.
     expect(levelVoxels({ ...high!, voxelRings: 2 * Math.SQRT2 }).reliefScale).toBeCloseTo(3, 12);
     expect(levelVoxels({ lighting: 'medium', voxelRings: 0.5 }).reliefScale).toBe(0.5);
@@ -189,17 +189,21 @@ describe('the voxelWorld component', () => {
     expect(resolveVoxelWorld({ world: 'w' }).far).toEqual({ mode: 'bricks', errorPixels: 4, gpuBudgetBytes: G.medium });
     const base = resolveVoxelWorld({ world: 'w' });
     // The relief distance scales by its tier's own (`kRelief`, absent: as every distance).
-    const scaled = (k: number, kRelief = k) => ({
-      ring: Object.fromEntries(Object.entries(base.ring).map(([f, v]) => [f, v * k])),
+    // The load ring's radii and level 1 (the near field's reach) by the tier's reach scale (`kReach`, absent: as every distance).
+    const scaled = (k: number, kRelief = k, kReach = k) => ({
+      ring: Object.fromEntries(Object.entries(base.ring).map(([f, v]) => [f, v * (f.endsWith('Radius') ? kReach : k)])),
       collision: Object.fromEntries(Object.entries(base.collision).map(([f, v]) => [f, v * k])),
-      levels: Object.fromEntries(Object.entries(base.levels).map(([f, v]) => [f, v * (f === 'relief' ? kRelief : k)])),
+      levels: Object.fromEntries(Object.entries(base.levels).map(([f, v]) => [f, v * (f === 'relief' ? kRelief : f === 'level1' ? kReach : k)])),
     });
     const at = (c: VoxelWorldComponent, l: QualityLevelConfig) => {
       const r = resolveVoxelWorld(c, l);
       return { ring: r.ring, collision: r.collision, levels: r.levels };
     };
-    // The engine's levels: low √½, medium as the defaults, high √2 times every distance; the budget is the tier's.
-    expect(at({ world: 'w' }, low!)).toEqual(scaled(Math.SQRT1_2));
+    // The engine's levels: low √½, medium as the defaults, high √2 times every distance; the budget is the tier's. The near
+    // field's reach is never under medium's: low loads and draws level 1 as far as medium (the far field's 2 m cells past it).
+    expect(VOXEL_REACH_SCALES).toEqual({ low: 1, medium: 1, high: Math.SQRT2 });
+    expect(at({ world: 'w' }, low!)).toEqual(scaled(Math.SQRT1_2, Math.SQRT1_2, 1));
+    expect(resolveVoxelWorld({ world: 'w' }, low!).levels.level1).toBe(base.levels.level1);
     expect(at({ world: 'w' }, medium!)).toEqual(scaled(1));
     expect(at({ world: 'w' }, high!)).toEqual(scaled(Math.SQRT2, 1.5));
     // Relief: medium 16 m, high 24 m (the rings the relief verdict chose).

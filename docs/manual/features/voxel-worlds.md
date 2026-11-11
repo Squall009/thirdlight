@@ -94,7 +94,9 @@ detail levels) is scaled by the quality level the player runs: the level's
 lighting tier's — low 0.71, medium 1, high 1.41 (an integrated GPU such as
 the Iris Xe starts at medium, where the defaults were measured), so the area loaded grows as
 the tier's stream memory budget does (256 MiB, 512 MiB, 1 GiB, which the
-world takes at that level). A scene sets its base distances (an indoor
+world takes at that level). A tier never scales the load ring and the
+level-1 distance under 1: past them the far field draws in 2 m cells, which
+turn buildings into blobs until they are far enough to be small on screen. A scene sets its base distances (an indoor
 scene small, a large outdoor one large) and, where it needs, its own scale
 or distances per level (`quality`). A world opens at its scene's own
 distances; once the game page reports its quality level (within half a

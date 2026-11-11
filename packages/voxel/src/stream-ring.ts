@@ -111,6 +111,22 @@ export const VOXEL_RING_SCALES: Readonly<Record<StreamTier, number>> = Object.fr
 });
 
 /**
+ * How much a tier scales the near field's reach (the load ring and the
+ * level-1 ring) by default: its ring scale, but never under medium's. Past
+ * the near field the far field's finest level draws (2 m cells), and a
+ * building in 2 m cells is a rounded blob until a cell is about the low
+ * tier's far error on screen (8 px at the far field's 720-px projection,
+ * ~156 m out); the low tier's budget-sized 0.71 ended the near field at
+ * ~95 m, so the town's back row of houses drew as blobs at 9–13 px a cell.
+ * Level 0, collision and relief keep the ring scale (they cost the most).
+ */
+export const VOXEL_REACH_SCALES: Readonly<Record<StreamTier, number>> = Object.freeze({
+  low: Math.max(1, VOXEL_RING_SCALES.low),
+  medium: Math.max(1, VOXEL_RING_SCALES.medium),
+  high: Math.max(1, VOXEL_RING_SCALES.high),
+});
+
+/**
  * Bookkeeping bytes per resident chunk, air ones included: its entry in the
  * store's index and the streamer's own state (a map entry and a small
  * object). An estimate, so the budget is never blind to many tiny chunks.

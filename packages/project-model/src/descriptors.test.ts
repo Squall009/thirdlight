@@ -1087,8 +1087,9 @@ describe('descriptor registry', () => {
     // material record's physics, game data and voxel use, and the physical profiles, about 4.7 KB; a quality level's
     // voxel texel density, about 0.35 KB; a voxel world's relief distance and a quality level's voxel relief, about 1 KB;
     // a quality level's voxel far field mode and detail, about 0.65 KB; a voxel material's and a voxel world's blend
-    // distance, about 0.7 KB; a quality level's frame-rate cap, about 0.25 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(377_450);
+    // distance, about 0.7 KB; a quality level's frame-rate cap, about 0.25 KB; the voxel ring scale's floor for the
+    // load ring and level 1, about 0.06 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(377_510);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
