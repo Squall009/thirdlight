@@ -4,7 +4,7 @@
  *
  * A perf run starts a backend and a browser that can take gigabytes; run from
  * an agent's shell it lands in that shell's uncapped service and once pushed
- * this 16 GiB host into the OOM killer, which took every session with it. So
+ * this host (16 GiB then, 32 GiB since 2026-11-11) into the OOM killer, which took every session with it. So
  * a run refuses to start unless a cgroup it is in (its own or an ancestor)
  * has a `memory.max` of at most MAX_CAP_BYTES, and the host has the room the
  * run can still take under it plus HEADROOM_BYTES available. `--no-memory-cap`
@@ -14,15 +14,15 @@ import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const GiB = 1024 ** 3;
-/** The largest cap a run may sit under (the host's rule: runs capped at 7G). */
-export const MAX_CAP_BYTES = 7 * GiB;
+/** The largest cap a run may sit under: the gate's own cap (12G on the 32 GiB host), so the gate's perf check runs. */
+export const MAX_CAP_BYTES = 12 * GiB;
 /** Memory left to the rest of the host while the run fills its cap. */
 export const HEADROOM_BYTES = 2 * GiB;
 /** The flag that skips the check. */
 export const NO_MEMORY_CAP_FLAG = '--no-memory-cap';
 /** How to start a run capped (printed when one is refused). */
 export const CAPPED_COMMAND =
-  'sudo -n systemd-run --scope --quiet -p MemoryMax=7G -p MemorySwapMax=0 -- sudo -n -u "$USER" -- env HOME="$HOME" PATH="$PATH" NODE_OPTIONS=--max-old-space-size=4096 node tools/perf/run.mjs …';
+  'sudo -n systemd-run --scope --quiet -p MemoryMax=10G -p MemorySwapMax=0 -- sudo -n -u "$USER" -- env HOME="$HOME" PATH="$PATH" NODE_OPTIONS=--max-old-space-size=4096 node tools/perf/run.mjs …';
 
 const read = (path) => {
   try {
