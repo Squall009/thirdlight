@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Thirdlight green gate. Three modes:
 #
-#   tools/gate.sh fast [e2e files or dirs…]   per commit: build + lint + vitest + the smoke set + the
-#                                             e2e files named (the ones for the area you changed) + on a
-#                                             GPU host the village perf class at the 60 Hz cap against its baseline
+#   tools/gate.sh fast [--all] [e2e files…]   per commit: build + lint + the unit tests related to what
+#                                             changed since this branch's last green gate (--all: every
+#                                             one) + the smoke set + the e2e files named (the ones for the
+#                                             area you changed) + on a GPU host the village perf class at
+#                                             the 60 Hz cap against its baseline
 #   tools/gate.sh full [--both-renderers]     per phase item / before STATUS says done: build +
 #                                             lint + vitest + every e2e spec, the leak test included
 #                                             (TL_MEMORY=1). On a GPU one pass in the
@@ -133,10 +135,58 @@ prev_full() { # the last green full gate before this one, from its summary: "<n>
     [ -n "$m" ] && { echo "$m min on ${d##*/gate-full-}"; return; }
   done
 }
+# The last green tree of this branch: the base the next gate's changed set is taken from. Only a clean tree is
+# recorded: a gate that ran on uncommitted work proves a tree no commit names.
+LAST_GREEN=$LOGS/last-green-$(git rev-parse --abbrev-ref HEAD | tr '/' '-')
+mark_green() {
+  if [ -n "$(git status --porcelain)" ]; then say "last green: not recorded (uncommitted changes in the tree)"; return; fi
+  git rev-parse HEAD > "$LAST_GREEN"
+}
 done_() {
   local min=$(( ($(date +%s) - t0) / 60 )) prev=''
   [ "$mode" = full ] && prev=$(prev_full) && prev=", previous green full gate ${prev:-not recorded}"
+  case "$1" in GREEN*) mark_green ;; esac
   say "$1 (${min} min${prev}, $(peak), logs $L)"; case "$1" in GREEN*) rm -rf "$STATE"; exit 0 ;; *) exit 1 ;; esac
+}
+
+# What changed: from a base commit to the working tree (uncommitted work counts), untracked files included.
+# CHANGED is the list, BASE the commit (empty: no base, so everything counts as changed).
+CHANGED=(); BASE=''
+changed_since() { # changed_since <commit or empty>
+  BASE=${1:-}; CHANGED=()
+  [ -n "$BASE" ] || return 0
+  mapfile -t CHANGED < <({ git diff --name-only "$BASE" --; git ls-files -o --exclude-standard; } | sort -u)
+}
+last_green_base() { # this branch's last green commit when it is an ancestor of HEAD, else nothing
+  local c; c=$(cat "$LAST_GREEN" 2> /dev/null)
+  [ -n "$c" ] && git merge-base --is-ancestor "$c" HEAD 2> /dev/null && echo "$c"
+}
+# Tests that read files from disk rather than importing them: the manual, the skill, the specs, the docs check.
+DOC_TESTS=(packages/backend/src/docs.test.ts packages/mcp-adapter/src/onboarding.test.ts tools/manual-links.test.mjs tools/skill.test.mjs tools/check-docs.test.mjs tools/ratchet-base.test.mjs tools/voxel-bench/role-spec-doc.test.ts)
+# UNIT_SCOPE: empty = the whole suite (UNIT_WHY says why), else the files `vitest related` starts from.
+UNIT_SCOPE=(); UNIT_WHY=''
+unit_scope() { # unit_scope [--all]
+  UNIT_SCOPE=(); UNIT_WHY=''
+  [ "${1:-}" = --all ] && { UNIT_WHY='--all'; return; }
+  [ -n "$BASE" ] || { UNIT_WHY='no green gate on this branch to compare with'; return; }
+  local f docs=''
+  for f in "${CHANGED[@]}"; do
+    case "$f" in
+      # The suite's own setup, dependencies and compiler settings change what every test runs on.
+      package.json | */package.json | package-lock.json | tsconfig*.json | */tsconfig*.json | vitest.config.mts | eslint.config.mjs | \
+        tools/gate.sh | tools/check-*.mjs | tests/test-hygiene.ts | fixtures/* | templates/* | packs/*)
+        UNIT_WHY="$f changed"; return ;;
+      docs/* | skills/*) docs=1 ;;
+      *.ts | *.tsx | *.mts | *.cts | *.js | *.mjs | *.cjs | *.json)
+        # A deleted module: its importers are found only by the whole suite (the build fails them first).
+        [ -e "$f" ] || { UNIT_WHY="$f deleted"; return; }
+        UNIT_SCOPE+=("$f") ;;
+      # Shaders, styles, pages and data next to the code are read by tests the import graph does not name.
+      packages/* | tools/*) case "$f" in *.md) ;; *) UNIT_WHY="$f changed (not a module)"; return ;; esac ;;
+    esac
+  done
+  [ -n "$docs" ] && for f in "${DOC_TESTS[@]}"; do [ -e "$f" ] && UNIT_SCOPE+=("$f"); done
+  return 0
 }
 
 # What `rerun` picks up (STATE): the gate that went RED (`mode`, its arguments in `args`), the step it stopped at
@@ -164,8 +214,13 @@ lint() {
   say "lint: clean"
 }
 
-unit() { # unit [test files…]: the whole suite, or (a rerun) only the files named
-  npx vitest run --exclude '.claude/**' --exclude 'archive/**' ${TL_VITEST_WORKERS:+--maxWorkers="$TL_VITEST_WORKERS"} "$@" > "$L/vitest.log" 2>&1
+unit() { # unit [--related] [files…]: the whole suite, or (a rerun) only the test files named, or (--related) the
+  # test files that import the files named
+  local cmd=(run)
+  [ "${1:-}" = --related ] && { cmd=(related --run --passWithNoTests); shift; }
+  npx vitest "${cmd[@]}" --exclude '.claude/**' --exclude 'archive/**' ${TL_VITEST_WORKERS:+--maxWorkers="$TL_VITEST_WORKERS"} "$@" > "$L/vitest.log" 2>&1
+  # Nothing related (a docs-only change): vitest found no test file, which passes.
+  if [ "${cmd[0]}" = related ] && sed 's/\x1b\[[0-9;]*m//g' "$L/vitest.log" | grep -qE 'No test files found'; then say "vitest: no test file related"; return 0; fi
   if ! grep -qE 'Test Files .*passed' "$L/vitest.log" || grep -qE 'Test Files .*failed' "$L/vitest.log"; then
     # Like the e2e step: rerun the failed files once alone (timeouts and CPU budgets on a loaded host).
     local failed
@@ -185,6 +240,13 @@ unit() { # unit [test files…]: the whole suite, or (a rerun) only the files na
     fi
   fi
   say "$(sed 's/\x1b\[[0-9;]*m//g' "$L/vitest.log" | grep -E 'Test Files' | tail -1 | sed 's/^ *//')"
+}
+unit_changed() { # unit_changed [--all]: the unit tests the changed files reach, or the whole suite
+  unit_scope "$@"
+  if [ -n "$UNIT_WHY" ]; then say "vitest: whole suite ($UNIT_WHY)"; unit; return; fi
+  say "vitest: related to ${#UNIT_SCOPE[@]} changed files since ${BASE:0:8} (${#CHANGED[@]} changed in all)"
+  if [ ${#UNIT_SCOPE[@]} -eq 0 ]; then say "vitest: no test file related"; return; fi
+  unit --related "${UNIT_SCOPE[@]}"
 }
 
 e2e() { # e2e <log> [playwright args…]
@@ -237,8 +299,10 @@ full_e2e() { # full_e2e [--both-renderers]
 
 case "$mode" in
   fast)
+    all=''; [ "${1:-}" = --all ] && { all=--all; shift; }
     begin_state fast "$@"
-    build; lint; unit
+    changed_since "$(last_green_base)"
+    build; lint; unit_changed $all
     fast_e2e "$@"
     fast_perf
     done_ "GREEN${PERF_SKIPPED:-}" ;;
@@ -252,9 +316,10 @@ case "$mode" in
     step=$(cat "$STATE/step" 2> /dev/null); was=$(cat "$STATE/mode" 2> /dev/null)
     args=(); [ -r "$STATE/args" ] && mapfile -d '' -t args < "$STATE/args"
     say "rerun of the ${was:-last} gate from ${step:-its failed e2e tests}${args[*]:+ (${args[*]})}"
+    changed_since "$(last_green_base)"
     build
     case "$step" in
-      lint) lint; unit ;;
+      lint) lint; unit_changed ;;
       vitest)
         # A failed file the fix deleted has nothing left to run (vitest refuses a missing file).
         files=(); for f in $(cat "$STATE/vitest"); do [ -e "$f" ] && files+=("$f"); done
@@ -268,5 +333,5 @@ case "$mode" in
     esac
     [ "$was" = fast ] && fast_perf
     done_ "GREEN${PERF_SKIPPED:-}" ;;
-  *) echo "usage: tools/gate.sh fast [e2e files…] | full [--both-renderers] | rerun | start <mode> [args…] | wait"; exit 2 ;;
+  *) echo "usage: tools/gate.sh fast [--all] [e2e files…] | full [--both-renderers] | rerun | start <mode> [args…] | wait"; exit 2 ;;
 esac
