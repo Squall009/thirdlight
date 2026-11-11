@@ -26,7 +26,7 @@
  * the camera down to the first solid), and whether the camera is inside a
  * drawn far stand-in's solid (`coverage` in its diagnostics). Also recorded:
  * missed frames at the cap, page heap and GPU process memory against the low
- * tier's ceiling, far swaps and what is pending, and full-size pictures at
+ * tier's memory budget, far swaps and what is pending, and full-size pictures at
  * `--shots` seconds into the flight.
  *
  *   --origin URL  --token-file FILE  --data-root DIR (default ~/thirdlight-staging-p45)  --project ID (voxel-slice)
@@ -53,7 +53,7 @@ import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSyn
 import { homedir, loadavg, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
-import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_CEILING_MIB } from '@thirdlight/project-model';
+import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_BUDGET_MIB } from '@thirdlight/project-model';
 import { chunkGrid, createDenseChunk, decodeDenseChunk, regionChunkCodecBytes } from '@thirdlight/voxel';
 import { FarCacheReader, zstdDecompress } from '@thirdlight/workspace';
 import { decodePng } from '../../tests/e2e/png';
@@ -505,7 +505,7 @@ async function main(): Promise<void> {
     out['coverageLog'] = coverageLog;
     out['shots'] = shots;
     out['errors'] = errors.slice(0, 5);
-    if (QUALITY === 'low') out['ceiling'] = LOW_MEMORY_CEILING_MIB;
+    if (QUALITY === 'low') out['budget'] = LOW_MEMORY_BUDGET_MIB;
     await control({ command: 'stop' }).catch(() => undefined);
   } catch (e) {
     out['error'] = String(e).slice(0, 600);

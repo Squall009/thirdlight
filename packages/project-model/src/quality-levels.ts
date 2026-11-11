@@ -43,8 +43,8 @@
  * - `voxelRings`: how much every voxel world's ring distances are scaled at
  *   the level (load, collision, the detail levels; a scene may scale or set
  *   its own per level, `voxelWorld.quality`). Absent: the tier's
- *   (`VOXEL_RING_SCALES`: the area loaded grows as the tier's stream budget
- *   does). The voxel stream budget is the tier's (`VOXEL_STREAM_BUDGET_BYTES`).
+ *   (`VOXEL_RING_SCALES`: the area loaded halves or doubles from medium's).
+ *   The voxel stream budget is the tier's (`VOXEL_STREAM_BUDGET_BYTES`).
  * - `frameRateCap`: the most frames a second the page draws at the level
  *   (frame-rate-cap.ts). Under a game's own cap the lower of the two paces
  *   the frames; dynamic resolution budgets from it.
@@ -106,8 +106,11 @@ export const VOXEL_RING_SCALE_MAX = 4;
  */
 export const VOXEL_TEXEL_DENSITIES: readonly number[] = Object.freeze([64, 128, 256, 512, 1024, 2048, 4096]);
 
-/** A level's voxel texel density by its tier: an integrated GPU's low tier keeps a quarter of the authored 1024 px/m. */
-export const VOXEL_TEXEL_DENSITY_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 256, medium: 512, high: 1024 });
+/**
+ * A level's voxel texel density by its tier: an integrated GPU's low tier keeps half of the authored 1024 px/m, as
+ * medium does (the arrays fit inside low's memory budget, `LOW_MEMORY_BUDGET_MIB`); high keeps all of it.
+ */
+export const VOXEL_TEXEL_DENSITY_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 512, medium: 512, high: 1024 });
 
 /** A level's reflections: none, or screen-space rays with traced fallback at a quality. */
 export const REFLECTION_QUALITIES = ['off', 'medium', 'high'] as const;
@@ -290,14 +293,19 @@ export const UPSCALED_RENDER_SCALE = 0.667;
 export const LOW_FRAME_RATE_CAP: FrameRateCap = 30;
 
 /**
- * The memory the engine's low level is held to, MiB: the page's JavaScript
- * heap and the GPU memory the browser's GPU process holds (the driver's
- * resident count), measured in Play on the 8 km voxel world at the town and
- * after a 2.4 km flight. A ceiling the low tier's budgets (voxel stream, far
- * field, textures, surface cache) must fit under together, reported by the
- * headroom bench against what it measures; the other tiers have none yet.
+ * The memory the engine's low level is designed to (MiB): the minimum spec is
+ * an 8 GB machine, not a phone, and about half of it is the game's, page and
+ * GPU together (an integrated GPU's memory is the system's). Split as the
+ * page's JavaScript heap (with the array buffers it holds) and the GPU memory
+ * the browser's GPU process holds (the driver's resident count): the GPU side
+ * holds the voxel meshes, the far atlas and the texture arrays, which grow
+ * with the tier's budgets, the page only the copies it keeps to draw them.
+ * The low tier's budgets (voxel stream, far field, textures, surface cache)
+ * are sized to fit inside it; the benches report what they measure against
+ * it. Medium and high have no budget of their own until they are measured on
+ * their own hardware, and none of their budgets is below low's.
  */
-export const LOW_MEMORY_CEILING_MIB: Readonly<{ readonly pageHeap: number; readonly gpu: number }> = Object.freeze({ pageHeap: 1024, gpu: 1280 });
+export const LOW_MEMORY_BUDGET_MIB: Readonly<{ readonly total: number; readonly pageHeap: number; readonly gpu: number }> = Object.freeze({ total: 4096, pageHeap: 1536, gpu: 2560 });
 
 /**
  * The engine's levels, for a project that lists none, one per lighting

@@ -34,7 +34,7 @@
  * animation frames: under a 30 cap on a 60 Hz display every other callback
  * draws nothing. After the fill the page's heap and the GPU process's memory
  * (the driver's resident count from its DRM fds) are read, and at low against
- * the tier's ceiling (`LOW_MEMORY_CEILING_MIB`).
+ * the tier's memory budget (`LOW_MEMORY_BUDGET_MIB`).
  *
  *   --origin URL         the backend (default http://127.0.0.1:4180, staging)
  *   --token-file FILE    its owner token (default ~/thirdlight-staging-p45/owner-token)
@@ -65,7 +65,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
-import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_CEILING_MIB } from '@thirdlight/project-model';
+import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_BUDGET_MIB } from '@thirdlight/project-model';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { fitLine, frameCap, frameGpu, frameWindow, misses, passShare, searchLimit, spread, type FrameWindow, type LimitResult, type LineFit, type PassRow } from './headroom';
@@ -245,8 +245,8 @@ async function main(): Promise<void> {
     const drm = gpuPid === null ? {} : drmMemoryMiB(gpuPid);
     const pageHeapMiB = await canvas.evaluate(() => Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 2 ** 20));
     const gpuMiB = Object.entries(drm).filter(([k]) => k.startsWith('drm-resident-')).reduce((n, [, v]) => n + v, 0);
-    out['memory'] = { pageHeapMiB, gpuMiB, drm, ...(QUALITY === 'low' ? { ceiling: LOW_MEMORY_CEILING_MIB, over: { pageHeap: pageHeapMiB > LOW_MEMORY_CEILING_MIB.pageHeap, gpu: gpuMiB > LOW_MEMORY_CEILING_MIB.gpu } } : {}) };
-    console.log(`memory at the town: page heap ${pageHeapMiB} MiB, GPU ${gpuMiB} MiB${QUALITY === 'low' ? ` (low's ceiling ${LOW_MEMORY_CEILING_MIB.pageHeap} / ${LOW_MEMORY_CEILING_MIB.gpu} MiB${pageHeapMiB > LOW_MEMORY_CEILING_MIB.pageHeap || gpuMiB > LOW_MEMORY_CEILING_MIB.gpu ? ': OVER' : ': under'})` : ''}`);
+    out['memory'] = { pageHeapMiB, gpuMiB, drm, ...(QUALITY === 'low' ? { budget: LOW_MEMORY_BUDGET_MIB, over: { pageHeap: pageHeapMiB > LOW_MEMORY_BUDGET_MIB.pageHeap, gpu: gpuMiB > LOW_MEMORY_BUDGET_MIB.gpu } } : {}) };
+    console.log(`memory at the town: page heap ${pageHeapMiB} MiB, GPU ${gpuMiB} MiB${QUALITY === 'low' ? ` (low's budget ${LOW_MEMORY_BUDGET_MIB.pageHeap} / ${LOW_MEMORY_BUDGET_MIB.gpu} MiB${pageHeapMiB > LOW_MEMORY_BUDGET_MIB.pageHeap || gpuMiB > LOW_MEMORY_BUDGET_MIB.gpu ? ': OVER' : ': under'})` : ''}`);
 
     let current: MeterSettings = {};
     const set = async (s: MeterSettings): Promise<void> => {

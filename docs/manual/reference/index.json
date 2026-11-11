@@ -624,6 +624,7 @@
 "limit.LOOK_AT_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--animator"},
 "limit.LOOK_MAX_EMISSIVE_INTENSITY": {"page":"limits-runtime.md","section":"limits-runtime--primitives"},
 "limit.LOW_FRAME_RATE_CAP": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
+"limit.LOW_MEMORY_BUDGET_MIB": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.M2_GLTF_MAX_DIAGNOSTICS": {"page":"limits-asset-pipeline.md","section":"limits-asset-pipeline--limits"},
 "limit.M2_GLTF_PROFILE_LIMITS": {"page":"limits-asset-pipeline.md","section":"limits-asset-pipeline--limits"},
 "limit.MANIFEST_CONTENT_FILE_MAX_BYTES": {"page":"limits-project-model-2.md","section":"limits-project-model--manifest"},

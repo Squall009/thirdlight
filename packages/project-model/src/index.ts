@@ -1762,7 +1762,7 @@ export {
   lightingTierRank,
   lightingTierValues,
   LOW_FRAME_RATE_CAP,
-  LOW_MEMORY_CEILING_MIB,
+  LOW_MEMORY_BUDGET_MIB,
   UPSCALED_RENDER_SCALE,
   type LightingTier,
   type LightingTierSettings,

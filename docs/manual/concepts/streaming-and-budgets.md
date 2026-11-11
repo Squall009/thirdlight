@@ -22,7 +22,7 @@ each:
   inside the **streaming budget** (`streaming_budget_mb`, 768 MiB unless
   you set it).
 - **Voxel worlds** stream round the camera inside their own budget, one a
-  world (256 MiB), which counts their cells, the game's changes, meshes and
+  world (768 MiB at low), which counts their cells, the game's changes, meshes and
   colliders — see [voxel worlds](../features/voxel-worlds.md#streaming-and-memory).
 - **Quality levels** let the player trade picture for speed (render scale,
   shadows, effects); with **dynamic resolution** on (`dynamic_resolution`),

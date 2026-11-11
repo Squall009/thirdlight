@@ -72,10 +72,12 @@ export const FAR_ERROR_PIXELS_BY_TIER: Readonly<Record<'low' | 'medium' | 'high'
 
 /**
  * GPU bytes each tier's far field may hold in the nodes it draws (bricks: their atlas regions and brick tables;
- * meshes: their buffers). The selection opens nodes by screen error, largest first, while they fit; at the town of
- * the 8 km test world medium draws ~155 MiB and high ~255 MiB, so neither is cut there, and travel cannot pile up.
+ * meshes: their buffers). The selection opens nodes by screen error, largest first, while they fit, so the budget is
+ * a bound, not a target: on the 8 km test world low draws 50–85 MiB at its error and is never cut, medium ~155 MiB
+ * at the town and high ~255 MiB. Sized inside the low tier's memory budget (`LOW_MEMORY_BUDGET_MIB` in
+ * project-model); no tier holds less than low (medium and high are not measured on their own hardware yet).
  */
-export const FAR_GPU_BUDGET_BYTES_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 96 * 2 ** 20, medium: 176 * 2 ** 20, high: 288 * 2 ** 20 });
+export const FAR_GPU_BUDGET_BYTES_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 384 * 2 ** 20, medium: 384 * 2 ** 20, high: 384 * 2 ** 20 });
 
 /** Selections a far field makes again for one eye when what came in was over its GPU budget. */
 const FAR_OVER_BUDGET_RESELECTS = 3;

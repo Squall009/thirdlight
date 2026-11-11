@@ -84,11 +84,11 @@ describe('voxel texture residency', () => {
     ktx2 = r.ktx2;
   }, 120_000);
 
-  it('a tier keeps the authored set down to its texel density (4096² authored: low level 2, medium 1, high 0)', () => {
+  it('a tier keeps the authored set down to its texel density (4096² authored: low and medium level 1, high 0)', () => {
     expect(VOXEL_AUTHORED_TEXEL_DENSITY).toBe(1024);
     const authored = VOXEL_AUTHORED_TEXEL_DENSITY * 4;
     expect(DEFAULT_QUALITY_LEVELS.map((l) => [l.id, levelVoxels(l).texelDensity, voxelArrayTopLevel(authored, levelVoxels(l).texelDensity)])).toEqual([
-      ['low', VOXEL_TEXEL_DENSITY_BY_TIER.low, 2],
+      ['low', VOXEL_TEXEL_DENSITY_BY_TIER.low, 1],
       ['medium', VOXEL_TEXEL_DENSITY_BY_TIER.medium, 1],
       ['high', VOXEL_TEXEL_DENSITY_BY_TIER.high, 0],
     ]);

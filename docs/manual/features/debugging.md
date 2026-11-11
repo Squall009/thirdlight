@@ -225,9 +225,11 @@ dynamic resolution — for low and medium both only where the project sets no
 `render_scale` or `dynamic_resolution` of its own) and high (the look as
 authored, at the project's render scale). A level's `frameRateCap` (30, 60
 or 120) paces the frames with the game's own cap: the lower one holds, and
-dynamic resolution budgets from it. Low is also held to a memory ceiling
-(`LOW_MEMORY_CEILING_MIB`: page heap and GPU memory), which the voxel
-headroom bench reports against; the other levels have none yet. *Starting level* is
+dynamic resolution budgets from it. Low is designed to a memory budget
+(`LOW_MEMORY_BUDGET_MIB`: about 4 GB of an 8 GB minimum-spec machine, page
+heap 1.5 GiB and GPU memory 2.5 GiB), which the voxel headroom and coverage
+benches report against; the other levels have none of their own yet, and none
+of their budgets is below low's. *Starting level* is
 `environment.quality` (absent: the device's level, below). Each level has an
 `id` (what a player's setting and game control name), a `name`, and changes
 only what it sets:

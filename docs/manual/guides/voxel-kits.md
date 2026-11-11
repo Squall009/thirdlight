@@ -165,7 +165,7 @@ texture sets and the physical block are set over the API for now.
 
 | | low | medium | high |
 |---|---|---|---|
-| Texel density kept (`voxelTexelDensity`) | 256 px/m (the 1024² level) | 512 px/m (2048²) | 1024 px/m (4096²) |
+| Texel density kept (`voxelTexelDensity`) | 512 px/m (2048²) | 512 px/m (2048²) | 1024 px/m (4096²) |
 | Relief mesh (`voxelRelief`, steps a 0.5 m cell) | none: normal maps only | 2 (25 cm vertices) to 16 m | 4 (12.5 cm) to 24 m |
 | Far field | one colour a material (mean albedo × `color`), wetness darkened | same | same |
 

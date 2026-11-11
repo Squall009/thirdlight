@@ -93,22 +93,23 @@ const MIB = 1024 * 1024;
 
 /**
  * The streaming memory budget per tier (bytes): one number covering voxel
- * chunks, derived data and open region tables. Low is the Iris Xe floor.
+ * chunks, derived data and open region tables. Low is the Iris Xe floor,
+ * sized inside the low tier's share of an 8 GB machine
+ * (`LOW_MEMORY_BUDGET_MIB` in project-model); no tier holds less than low
+ * (medium and high are not measured on their own hardware yet).
  */
-export const VOXEL_STREAM_BUDGET_BYTES: Readonly<Record<StreamTier, number>> = Object.freeze({ low: 256 * MIB, medium: 512 * MIB, high: 1024 * MIB });
+export const VOXEL_STREAM_BUDGET_BYTES: Readonly<Record<StreamTier, number>> = Object.freeze({ low: 768 * MIB, medium: 768 * MIB, high: 1024 * MIB });
 
 /**
  * How much a tier scales every ring distance a world sets (load, collision,
- * the levels) by default: the square root of its budget over the medium
- * tier's, so the area a tier loads grows as its budget does (low 0.71,
- * medium 1, high 1.41). Medium is 1: the default distances were measured on
- * the Iris Xe, an integrated GPU, which starts at the medium tier.
+ * the levels) by default: low 0.71, medium 1, high 1.41, so the area a tier
+ * loads halves or doubles from medium's (they were the square roots of the
+ * budgets when those were 256 / 512 / 1024 MiB). Not derived from the budget
+ * any more: the rings cost GPU and worker time, the budget only memory, and
+ * a larger budget is room (edits, dense places), not a reason to draw more.
+ * Medium is 1: the default distances were measured on the Iris Xe.
  */
-export const VOXEL_RING_SCALES: Readonly<Record<StreamTier, number>> = Object.freeze({
-  low: Math.sqrt(VOXEL_STREAM_BUDGET_BYTES.low / VOXEL_STREAM_BUDGET_BYTES.medium),
-  medium: 1,
-  high: Math.sqrt(VOXEL_STREAM_BUDGET_BYTES.high / VOXEL_STREAM_BUDGET_BYTES.medium),
-});
+export const VOXEL_RING_SCALES: Readonly<Record<StreamTier, number>> = Object.freeze({ low: Math.SQRT1_2, medium: 1, high: Math.SQRT2 });
 
 /**
  * How much a tier scales the near field's reach (the load ring and the

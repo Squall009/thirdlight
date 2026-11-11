@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateEnvironment, type PostConfig } from './materials';
-import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_CEILING_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
+import { TEXTURE_BUDGET_DEFAULT_MB } from './texture-streaming';
+import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
 import { validateQualityBindings } from './save-schema';
 
 const errorsOf = (v: unknown): ModelErrorV2[] => {
@@ -114,20 +115,28 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'a', frameRateCap: '30' }] })).toEqual(['/qualityLevels/0/frameRateCap']);
   });
 
-  it('the engine\'s low level is the integrated-GPU target: capped at 30 fps, held to a memory ceiling; the others have neither', () => {
+  it('the engine\'s low level is the integrated-GPU target: capped at 30 fps, its budgets inside its memory budget; no tier holds less than low', () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS;
     expect(LOW_FRAME_RATE_CAP).toBe(30);
     expect([low!.frameRateCap, medium!.frameRateCap, high!.frameRateCap]).toEqual([30, undefined, undefined]);
-    // Cheaper than medium in every voxel and lighting budget it shares.
-    expect(levelVoxels(low!).farGpuBudget).toBeLessThan(levelVoxels(medium!).farGpuBudget);
-    expect(levelVoxels(low!).budgetBytes).toBeLessThan(levelVoxels(medium!).budgetBytes);
-    expect(levelVoxels(low!).farError).toBeGreaterThan(levelVoxels(medium!).farError);
-    expect(levelVoxels(low!).texelDensity).toBeLessThan(levelVoxels(medium!).texelDensity);
+    // Medium and high are not measured on their own hardware: whatever low keeps, they keep at least as much.
+    for (const l of [medium!, high!]) {
+      expect(levelVoxels(l).farGpuBudget).toBeGreaterThanOrEqual(levelVoxels(low!).farGpuBudget);
+      expect(levelVoxels(l).budgetBytes).toBeGreaterThanOrEqual(levelVoxels(low!).budgetBytes);
+      expect(levelVoxels(l).texelDensity).toBeGreaterThanOrEqual(levelVoxels(low!).texelDensity);
+      expect(levelVoxels(l).farError).toBeLessThanOrEqual(levelVoxels(low!).farError);
+      expect(levelLighting(l).surfaceCacheMiB).toBeGreaterThanOrEqual(levelLighting(low!).surfaceCacheMiB);
+    }
+    expect(levelVoxels(medium!).budgetBytes).toBeLessThanOrEqual(levelVoxels(high!).budgetBytes);
+    expect(levelVoxels(medium!).farGpuBudget).toBeLessThanOrEqual(levelVoxels(high!).farGpuBudget);
     expect(low!.shadowMapSize).toBe(2048);
-    // The ceiling holds the tier's own GPU budgets with room for the frame's targets and the page's.
-    const budgets = (levelVoxels(low!).farGpuBudget + levelVoxels(low!).budgetBytes) / 2 ** 20 + levelLighting(low!).surfaceCacheMiB;
-    expect(budgets).toBeLessThan(LOW_MEMORY_CEILING_MIB.gpu);
-    expect(LOW_MEMORY_CEILING_MIB.pageHeap).toBeGreaterThan(0);
+    // About 4 GB of an 8 GB machine, page and GPU together.
+    expect(LOW_MEMORY_BUDGET_MIB.pageHeap + LOW_MEMORY_BUDGET_MIB.gpu).toBe(LOW_MEMORY_BUDGET_MIB.total);
+    expect(LOW_MEMORY_BUDGET_MIB.total).toBe(4096);
+    // The GPU side holds the tier's far field, its voxel meshes (inside the stream budget), its texture budget and
+    // saved light, with room left for the frame's own targets.
+    const gpuBudgets = (levelVoxels(low!).farGpuBudget + levelVoxels(low!).budgetBytes) / 2 ** 20 + TEXTURE_BUDGET_DEFAULT_MB + levelLighting(low!).surfaceCacheMiB;
+    expect(gpuBudgets).toBeLessThan(LOW_MEMORY_BUDGET_MIB.gpu);
     // The cap survives the canonical form a project stores.
     expect(JSON.stringify(canonicalEnvironment({ qualityLevels: [{ id: 'low', frameRateCap: 30 }] }))).toBe('{"qualityLevels":[{"frameRateCap":30,"id":"low"}]}');
   });

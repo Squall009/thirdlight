@@ -182,8 +182,8 @@ describe('the voxelWorld component', () => {
     expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelRelief: 8 }).reliefSteps).toBe(8);
     // The far field: bricks on every tier, coarser on low, its GPU bytes the tier's (a level does not set them); a level's own mode (the mesh fallback, off) and detail beat its tier's; no level known draws medium's.
     expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).far)).toEqual([{ mode: 'bricks', errorPixels: 8, gpuBudgetBytes: G.low }, { mode: 'bricks', errorPixels: 4, gpuBudgetBytes: G.medium }, { mode: 'bricks', errorPixels: 3, gpuBudgetBytes: G.high }]);
-    expect(G.low).toBeLessThan(G.medium);
-    expect(G.medium).toBeLessThan(G.high);
+    expect(G.low).toBeLessThanOrEqual(G.medium);
+    expect(G.medium).toBeLessThanOrEqual(G.high);
     expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelFarField: 'mesh' }).far).toEqual({ mode: 'mesh', errorPixels: 8, gpuBudgetBytes: G.low });
     expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'high', voxelFarField: 'off', voxelFarError: 8 }).far).toEqual({ mode: 'off', errorPixels: 8, gpuBudgetBytes: G.high });
     expect(resolveVoxelWorld({ world: 'w' }).far).toEqual({ mode: 'bricks', errorPixels: 4, gpuBudgetBytes: G.medium });
