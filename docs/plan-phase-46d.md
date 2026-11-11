@@ -109,6 +109,12 @@ not edited (an art-factory request doc may be written). three.js is not updated 
   A fuller frame budget (GPU and CPU per thread) is drafted with the owner once low's numbers exist; nothing to
   build yet. No stand-in forest: the owner's demo project is the stress scene; the 8 km world stays for
   like-for-like numbers.
+- 2026-11-11 (OWNER, relayed by session thirdlight-65): "**A hair over a gb … seems ridiculous. 4gb would be better
+  but honestly everyone and their dog have at least 8 to work with. I'm not making games for mobile devices
+  here.**" Minimum spec 8 GB system memory, not mobile; the low tier's design budget is about 4 GB for the game in
+  total (page + GPU; an integrated GPU shares system memory). Replaces 46d.21's 1,024 / 1,280 MiB ceiling (that
+  day's measurement plus a margin, not derived from hardware). Still no budgets for medium/high until they can be
+  tested properly, but they must not end up below low.
 
 ## 3. three.js check
 
@@ -243,6 +249,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.20 | (vista step 4) The far pass shaped like Enshrouded's: the march writes a visibility target (brick id, depth), one far shade with fog (full-screen pass or compute, by the meter); culling and visibility feedback in compute (per-node seen/error in a storage buffer, read back a frame or two late); half resolution with reuse (D574) only if 46d.16 asks; far motion output for TAAU checked in a moving shot. The largest item; starts on 46d.17's numbers. |
 | 46d.21 | (owner 2026-11-10) The low tier as the Iris Xe target: render scale ~0.667 + the temporal upscaler, everything else cheaper, capped at 30 Hz; the meter measures low against that cap (`headroom --quality low`); a stated page + GPU memory ceiling for low only; medium/high reported as shares and scaling, frame times "unverified on target hardware". Runs right after 46d.17. |
 | 46d.22 | (owner 2026-11-10) Coverage at 150 m/s: a world is kept round the moving camera at some quality (no hole, ground and collision under the camera). Candidates: top far levels of the whole world kept resident, motion prefetch scaled with speed, near levels 1–2 before 0 at speed, collision along the velocity first; a 150 m/s bench that asserts coverage (D584, D585). After 46d.18 (baked bricks). |
+| 46d.23 | (owner 2026-11-11) Low's memory: the ~4 GB total budget replaces the 1,024 / 1,280 MiB ceiling (split page/GPU proposed from measurements); starting values to measure: voxel stream budget 256 → ~768 MiB, far GPU budget 96 → ~384 MiB, texture residency 256 → 512 px/m; medium/high raised at least to match (unverified on target hardware). What each buys measured with the coverage and headroom benches. D597 stays a retention check (heap 396 → 1,119 MiB over one 60 m/s flight): trace what holds it, whatever the budget. After 46d.19, before 46d.20. |
 | 46d.15 | 46d-b close (lead), after 46d.20: `gate.sh phase a376c761` (whole vitest + areas touched + core smoke); full only for the merge to main or on the owner's word; review, fixes, acceptance acc46d-b (pictures and numbers on WebGPU; WebGL 2 a load-and-draw smoke). |
 
 ## 7. Progress
@@ -284,6 +291,7 @@ Before 46e. One agent each, fast gate per item, one closing full gate + review a
 | 46d.20 | not started |
 | 46d.21 | done (52caccdc, c6d0925e): D590 fixed (the sky follows the camera). Low = 0.667 + dyn res, TAAU where the look anti-aliases else MSAA + FSR 1, 30 fps level cap (`frameRateCap`), shadow map ≤ 2048; ceiling 1024 / 1280 MiB heap / GPU. Iris Xe town orbit at 30 Hz: room 15–23 ms, 0–3 / 239 missed, flight 12 / 1197; heap 614 → 834, GPU 880 → 1105 MiB. No TAAU ghosting seen. D591, D592 |
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
+| 46d.23 | not started |
 | 46d.15 | not started |
 
 ## 8. Results
@@ -3324,6 +3332,13 @@ WebGL 2, medium/high, collision bodies in a game with physics, the eye-point sam
   unit suite green in 11 min, then OOM-killed at the 7G cap on 3 e2e workers (wide runs use 2 since); its e2e (core
   + 8 areas, 103 files) as `area` on 2 workers: 14.8 min + a 3.4 min rerun alone, about 31 min in all against the
   last full gate's 35. Three tests fail alone that passed at the 46d-b start: D600, to fix before the close.
+
+- 2026-11-11 (OWNER, relayed by session thirdlight-65): low's memory budget is ~4 GB total on an 8 GB minimum-spec
+  machine (quote in §2); starting values (proposed by that session, agreed by the owner as values to measure): voxel
+  stream 768 MiB, far GPU 384 MiB, texture residency 512 px/m on low; medium/high not below low. Lead placement:
+  **46d.23**, after 46d.19 and before 46d.20. Lead's starting split, to be confirmed by 46d.23's measurements:
+  page heap ≤ 1.5 GiB, GPU ≤ 2.5 GiB (the GPU side holds the stream's meshes, far atlas and texture arrays, which
+  grow most with the new budgets). D597 stays open as a retention check, separate from the budget.
 
 ## 10. Open questions for the owner
 
