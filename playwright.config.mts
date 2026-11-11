@@ -101,6 +101,8 @@ const WEBGPU_SPECS = [
   '**/texture-streaming.e2e.ts',
   // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.
   '**/extract-textures.e2e.ts',
+  // The environment, post stack and shader families against their frozen reference images.
+  '**/webgpu-reference.e2e.ts',
 ];
 export default defineConfig({
   testDir: './tests/e2e',

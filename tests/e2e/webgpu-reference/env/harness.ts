@@ -1,11 +1,11 @@
 /**
  * The neutral environment/post test scene (browser code, bundled
- * by `env-parity.e2e.ts` with esbuild). One case per page load:
+ * by `webgpu-reference.e2e.ts` with esbuild). One case per page load:
  *
  *   index.html?backend=webgl2|webgpu|auto&case=<name>[&ao=off|ssao|gtao][&light=ambient][&skyRotation=<deg>][&exposure=<n>][&bloom=none]
  *
  * (`ao`: the kind of ambient occlusion; `light=ambient`: no sun, only
- * ambient light — the ambient-occlusion check in env-parity.e2e.ts;
+ * ambient light — the ambient-occlusion check in webgpu-reference.e2e.ts;
  * `skyRotation`: the case's sky turned about +Y — the sky rotation check.)
  *
  * Every case draws the same small scene (a ground, boxes near and far, a
@@ -236,7 +236,7 @@ async function main(): Promise<void> {
     },
   });
   env.resize(WIDTH, HEIGHT);
-  // ?ao=off|ssao|gtao: the kind of ambient occlusion (absent: SSAO, what a new project draws; the parity cases'
+  // ?ao=off|ssao|gtao: the kind of ambient occlusion (absent: SSAO, what a new project draws; the reference cases'
   // references hold its passes).
   const ao = q.get('ao');
   env.setRender({ ao: ao === 'off' || ao === 'gtao' ? ao : 'ssao' });

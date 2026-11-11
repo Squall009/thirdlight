@@ -126,7 +126,8 @@
         "texture-streaming",
         "extract-textures",
         "layered-material",
-        "graph"
+        "graph",
+        "webgpu-reference"
       ]
     },
     "lighting": {
@@ -161,7 +162,8 @@
         "environment-blend-cost",
         "environment-presets",
         "scene-environment",
-        "sky-texture"
+        "sky-texture",
+        "webgpu-reference"
       ]
     },
     "effects": {

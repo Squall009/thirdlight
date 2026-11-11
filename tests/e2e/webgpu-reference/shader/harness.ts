@@ -1,6 +1,6 @@
 /**
  * The neutral shader test scene (browser code, bundled by
- * `shader-parity.e2e.ts` with esbuild). One case per page load:
+ * `webgpu-reference.e2e.ts` with esbuild). One case per page load:
  *
  *   index.html?backend=webgl2|webgpu|auto&case=<name>[&control=1][&graph=1]
  *
@@ -36,7 +36,7 @@ import {
 } from '@thirdlight/three-adapter';
 import type { MaterialDef } from '@thirdlight/project-model';
 
-import { convertToGraph } from '../../../packages/editor/src/session/material-graph';
+import { convertToGraph } from '../../../../packages/editor/src/session/material-graph';
 
 export const SIZE = 256;
 
