@@ -1,6 +1,6 @@
 /**
  * A project's voxel world in the real page against the real backend, on
- * WebGPU and on WebGL 2: the voxel world page streams the world's region
+ * WebGPU (WebGL 2's voxel page is webgl2-smoke.e2e.ts's): the voxel world page streams the world's region
  * files by range, derives and draws them (ground, walls, and the kit pieces
  * on the stone's edges), sends a brush dab as a
  * command, and shows the change once the backend has written it (pixels
@@ -36,8 +36,7 @@
  * standing on the world's ground and a script that digs a pit under it when
  * the test asks (a debug command, after the "before" picture) once the
  * ground is resident. The pixels change where the pit opens, the character
- * falls into it, on both renderers, with the simulation in its worker
- * (WebGPU) and in the page (WebGL 2, `?threads=off`); each edit's way from
+ * falls into it, with the simulation in its worker; each edit's way from
  * the script to the screen is read from the play page's hook. The script
  * then wets the ground beside the pit and saves the world (`ctx.voxels.save`,
  * its text kept in the game's own save slot); the game restarts (the world
@@ -396,15 +395,16 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
   expect(errors).toHaveLength(1);
 }
 
-for (const renderer of ['webgpu', 'webgl2'] as const) {
-  // One page a renderer: on WebGPU the assembly proof runs first on the same page load.
-  test(renderer === 'webgpu' ? 'assembly proof (runtime set/dig turn a banister into a wall and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips), then streams, draws and edits the voxel world through commands (webgpu)' : 'streams, draws and edits the voxel world through commands; the edit is in the files after a backend restart and a reload (webgl2)', async ({ page }) => {
-    test.setTimeout(renderer === 'webgpu' ? 300_000 : 180_000);
+{
+  // WebGPU only: WebGL 2's voxel page is webgl2-smoke.e2e.ts's. The assembly proof runs first on the same page load.
+  const renderer = 'webgpu';
+  test('assembly proof (runtime set/dig turn a banister into a wall and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips), then streams, draws and edits the voxel world through commands; the edit is in the files after a backend restart and a reload', async ({ page }) => {
+    test.setTimeout(300_000);
     await page.setViewportSize({ width: 960, height: 540 });
     const errors = consoleErrors(page);
     // Construction drawn with the band test texture (the pictures below compare with each other, a reload's too).
     await open(page, renderer, '&bands=1');
-    if (renderer === 'webgpu') await assemblyProof(page, errors);
+    await assemblyProof(page, errors);
     const state = await hook<{ drawn: number; triangles: number; pieces: number; counters: { damaged: number } }>(page, 'state');
     expect(state.drawn).toBeGreaterThan(20);
     // The material picker lists the project's voxel materials only (not the mesh-only one); shift-click adds the stone.
@@ -487,24 +487,22 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // The kit test scene (writeKitTestScene, the page's ?kitScene): written beside the scene in stone (the test kit's
     // material), every slot's sampler cell labelled on the screen; the filled slot (vertical edges) draws the kit's
     // board there, an empty slot (top edges) nothing; one undo takes it away.
-    if (renderer === 'webgpu') {
-      const at: Cell = [ox - 52, oy, oz + 16];
-      const labels = kitTestScene(WORLD_RULES, { origin: at, material: MAT.stone }).labels;
-      expect((await hook<EditAnswer>(page, 'writeKitScene', at, MAT.stone)).ok).toBe(true);
-      const top = labels.find((l) => l.caseId === 'edge-out-vertical')!;
-      await hook(page, 'look', ...top.cell, -0.6, 0.45, 8);
-      await hook(page, 'settle');
-      await page.waitForFunction(() => ((window as unknown as { __tlVoxelWorld: { labelsShown(): number } }).__tlVoxelWorld.labelsShown()) > 3);
-      expect((await cellAt(page, [...top.cell] as Cell)).kitPieces.map((p) => `${p.kit} ${p.caseId}`)).toContain(`${STONE_KIT} edge-out-vertical`);
-      const edgeTop = labels.find((l) => l.caseId === 'edge-out-top')!;
-      expect((await cellAt(page, [...edgeTop.cell] as Cell)).kitPieces.map((p) => p.caseId)).not.toContain('edge-out-top');
-      expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
-      expect((await cellAt(page, [...top.cell] as Cell)).outputs?.piece ?? null).toBeNull();
-      await hook(page, 'clearKitScene');
-      // Back to the view the page opened with: the pictures below compare against a reload's.
-      await hook(page, 'look', ox, oy + 3, oz + 2, -0.75, 0.42, 16);
-      await hook(page, 'settle');
-    }
+    const at: Cell = [ox - 52, oy, oz + 16];
+    const labels = kitTestScene(WORLD_RULES, { origin: at, material: MAT.stone }).labels;
+    expect((await hook<EditAnswer>(page, 'writeKitScene', at, MAT.stone)).ok).toBe(true);
+    const top = labels.find((l) => l.caseId === 'edge-out-vertical')!;
+    await hook(page, 'look', ...top.cell, -0.6, 0.45, 8);
+    await hook(page, 'settle');
+    await page.waitForFunction(() => ((window as unknown as { __tlVoxelWorld: { labelsShown(): number } }).__tlVoxelWorld.labelsShown()) > 3);
+    expect((await cellAt(page, [...top.cell] as Cell)).kitPieces.map((p) => `${p.kit} ${p.caseId}`)).toContain(`${STONE_KIT} edge-out-vertical`);
+    const edgeTop = labels.find((l) => l.caseId === 'edge-out-top')!;
+    expect((await cellAt(page, [...edgeTop.cell] as Cell)).kitPieces.map((p) => p.caseId)).not.toContain('edge-out-top');
+    expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
+    expect((await cellAt(page, [...top.cell] as Cell)).outputs?.piece ?? null).toBeNull();
+    await hook(page, 'clearKitScene');
+    // Back to the view the page opened with: the pictures below compare against a reload's.
+    await hook(page, 'look', ox, oy + 3, oz + 2, -0.75, 0.42, 16);
+    await hook(page, 'settle');
 
     // A 2 m blast at the scene's chunk corner in x and z (the pad's ground under the wall's foot), first as a game's
     // runtime edit in the page: the dug cells read as air in the same task as the edit, before anything is rebuilt;
@@ -538,8 +536,8 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
     expect((await hook<{ material: number }>(page, 'voxelAt', ...spot)).material).not.toBe(0);
 
-    // Each renderer digs its own row of the wall (the other test's dig may already be in the files).
-    const cell: Cell = [scene[0], scene[1] + (renderer === 'webgpu' ? 4 : 1), scene[2]];
+    // A row of the wall the edits above left whole.
+    const cell: Cell = [scene[0], scene[1] + 4, scene[2]];
     expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).not.toBe(0);
     const before = await shot(page);
     const timing = await hook<{ ok: boolean; code?: string; chunks: number; visibleMs: number }>(page, 'dab', cell, 'dig');
@@ -556,7 +554,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // and its grids uploaded; no mesh is built, and the picture changes.
     const wallCell: Cell = [ox - 4, oy + 6, oz];
     const was = (await hook<{ material: number }>(page, 'voxelAt', ...wallCell)).material;
-    // A run that finds the wall brick (the other renderer's run left it so, wet) paints it back to light stone: plank's
+    // A run that finds the wall brick (a run before it in the same files left it so, wet) paints it back to light stone: plank's
     // stand-in swatch is as dark as wet brick, so brick → plank there would measure a colour coincidence, not the paint.
     const material = was === MAT.brick ? MAT.stone : MAT.brick;
     const wall = (m: number, wetness: number): unknown => ({ v: 2, grid: 0, kind: 'fill', min: [ox - 4, oy + 5, oz], max: [ox + 3, oy + 7, oz], mode: 'paint', voxel: { material: m, role: VOXEL_ROLE.wall, wetness } });
@@ -579,15 +577,13 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     }
     expect(await hook<{ material: number; wetness: number }>(page, 'voxelAt', ...wallCell)).toMatchObject({ material, wetness: 7 });
 
-    // A restarted backend and a reload (on one renderer: the assembly proof reloads WebGPU's page and compares every
-    // derived hash): the same picture as before, from the region files (the view and the world are the same).
-    if (renderer === 'webgl2') {
-      await be.restart();
-      await page.reload();
-      await open(page, renderer, '&bands=1');
-      expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).toBe(0);
-      expect(changedPixels(shown, await shot(page))).toBeLessThan(200);
-    }
+    // A restarted backend and a reload (the assembly proof reloaded the page alone and compared every derived hash):
+    // the same picture as before, from the region files (the view and the world are the same).
+    await be.restart();
+    await page.reload();
+    await open(page, renderer, '&bands=1');
+    expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).toBe(0);
+    expect(changedPixels(shown, await shot(page))).toBeLessThan(200);
 
     // Detail levels in this small world: level 0 within 4 m, level 1 within 24 m, level 2 past it (the change is
     // one swap). Every level is drawn, with seams between them, and a grazing view across the level boundaries
@@ -647,7 +643,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect(changedPixels(levelBefore, await shot(page)), 'a dig at level 1').toBeGreaterThan(300);
     await hook(page, 'reread');
     // The assembly proof's refused command (its HTTP 409) is the one console error.
-    expect(errors).toHaveLength(renderer === 'webgpu' ? 1 : 0);
+    expect(errors).toHaveLength(1);
   });
 }
 
@@ -900,17 +896,17 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
   return changed;
 }
 
-for (const renderer of ['webgpu', 'webgl2'] as const) {
-  // WebGPU plays with the simulation in its worker, WebGL 2 in the page: both ways the world reaches the draws.
-  const threads = renderer === 'webgpu' ? 'worker' : 'single';
-  test(`Play: a world 8 km out streams with the simulation (${threads}), a script digs a pit, the pixels change and the character falls in; a voxel save in the game's slot brings the pit back after a restart, not the wetness (${renderer})`, async ({ page }) => {
+{
+  // WebGPU only, the simulation in its worker (the product's way; sim-worker.e2e.ts runs a game with it in the page).
+  const renderer = 'webgpu';
+  test("Play: a world 8 km out streams with the simulation in its worker at a tier switched at run time, a script digs a pit, the pixels change and the character falls in; a voxel save in the game's slot brings the pit back after a restart, not the wetness", async ({ page }) => {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 1280, height: 720 });
     const at = await playProject();
     await groundRelief(true);
     const errors = consoleErrors(page);
     const url = editorUrlFor(be.editorUrl, renderer);
-    await page.goto(threads === 'single' ? url.replace('#', '&threads=off#') : url);
+    await page.goto(url);
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
     await page.getByTitle('Start an isolated play preview').click();
@@ -924,12 +920,10 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const voxelStatus = async (world: string): Promise<number> => (await fetch(`${preview}${answer.playContent.path}voxels/${world}`)).status;
     expect([await voxelStatus('far'), await voxelStatus('slice')]).toEqual([200, 404]);
     const observe = async (): Promise<PlayObservation> => (await projectApi(`play/${psid}/observe`)).json as PlayObservation;
-    // WebGL 2 plays at the high tier from the start, switched at run time before the world streams in: the world
-    // streams, collides and draws at the new tier (a body is let go only on a column whose sections all derived).
-    if (renderer === 'webgl2') {
-      const q = await projectApi(`play/${psid}/control`, { command: 'setQuality', level: 'high' });
-      expect(q.status, JSON.stringify(q.json)).toBe(200);
-    }
+    // The high tier, switched at run time before the world streams in: the world streams, collides and draws at the
+    // new tier (a body is let go only on a column whose sections all derived).
+    const q = await projectApi(`play/${psid}/control`, { command: 'setQuality', level: 'high' });
+    expect(q.status, JSON.stringify(q.json)).toBe(200);
     const drawn = (): Promise<ReturnType<VoxelPlayHook['stats']>> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats());
     await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
     // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
@@ -969,7 +963,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     const edits = await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.edits());
     expect(edits.length).toBeGreaterThanOrEqual(1);
     const pipeline = ((await projectApi(`play/${psid}/diagnostics`)).json as { diagnostics?: { simulation?: { pipeline?: { workerRoundTripMs: { avg: number; max: number } } | null } } }).diagnostics?.simulation?.pipeline ?? null;
-    console.log(`[voxel-play] ${renderer} ${threads}: edit→screen ${JSON.stringify(edits)}; sim round trip ${JSON.stringify(pipeline?.workerRoundTripMs ?? null)}; drawn ${JSON.stringify(await drawn())}`);
+    console.log(`[voxel-play] ${renderer} worker: edit→screen ${JSON.stringify(edits)}; sim round trip ${JSON.stringify(pipeline?.workerRoundTripMs ?? null)}; drawn ${JSON.stringify(await drawn())}`);
 
     // Wet the ground beside the pit, save the world into the game's slot, restart, restore: the pit is back, dry.
     const control = async (body: Record<string, unknown>): Promise<void> => {
@@ -998,12 +992,7 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     await expect.poll(async () => again.y - ((await observe()).player?.y ?? again.y), { timeout: 10_000, message: 'the character falls into the restored pit' }).toBeGreaterThan(1);
     const restored = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('restored.png') }));
     expect(changedPixels(restarted, restored)).toBeGreaterThan(500);
-    // The high tier, switched at the start: the relief ring round the camera draws the pad's grass moved by its heights.
-    // On WebGL 2 here; WebGPU's relief, with the simulation in its worker, is read in the export below (it plays the same way).
-    if (renderer === 'webgl2') {
-      const shot = async (name: string): Promise<ReturnType<typeof decodePng>> => decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath(`${name}.png`) }));
-      expect(await reliefMoves(canvas, shot, `play-${renderer}`)).toBeGreaterThan(2000);
-    }
+    // The relief ring of the high tier is read in the export below (it plays the same way).
     // The far field at the low tier (the world's own short load ring there): ray-marched bricks draw the ground past
     // the near field.
     await control({ command: 'setQuality', level: 'low' });
