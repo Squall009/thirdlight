@@ -10,7 +10,7 @@
  * result byte for byte a full build), the town's doors and windows
  * closed at levels 1 and 2 (no "legs" under far front walls), and the far
  * field fed visibility feedback: what the eye sees too coarse refined first,
- * what it left kept for the turn window, then coarser.
+ * what it left kept for the turn window, then coarser near the GPU budget.
  */
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { zstdDecompressSync } from 'node:zlib';
@@ -684,8 +684,8 @@ describe('the far field drawn as meshes and as bricks', () => {
 
 /**
  * A far field fed rounds of visibility feedback (what the page's draws were seen at): asked for finer nodes, what the
- * eye sees too coarse is refined first; a node no longer seen keeps its detail within the turn window and coarsens
- * after it (never to nothing); a stale round changes nothing.
+ * eye sees too coarse is refined first; a node no longer seen keeps its detail within the turn window, and after it
+ * while the GPU budget is far off; near the budget it coarsens (never to nothing); a stale round changes nothing.
  */
 async function seenFirst(source: ReturnType<typeof regionFarSource>, workers: WorkerPool, maxLevel: number): Promise<void> {
   const TURN = 600;
@@ -756,14 +756,19 @@ async function seenFirst(source: ReturnType<typeof regionFarSource>, workers: Wo
     expect(performance.now() - left).toBeLessThan(TURN);
     expect(far.metrics().seen.unseenWanted).toBeLessThan(far.metrics().nodes);
     expect(fine().length).toBe(kept);
-    // Past it, the next round selects again: the stand-in drawn again in its place, never nothing.
-    const reselects = far.metrics().counters.seenReselects;
+    // Past it, with the GPU budget far off, still kept (the unseen only wait behind the seen).
     await wait(TURN - (performance.now() - left) + 100);
     feed([]);
-    for (let i = 0; i < 200 && far.metrics().counters.seenReselects === reselects; i++) await wait(10);
+    await wait(100);
+    await far.settle();
+    expect(fine().length).toBe(kept);
+    // Near the budget the unseen are released: the stand-in drawn again in its place, never nothing.
+    far.setView({ gpuBudgetBytes: far.metrics().gpu.drawn });
+    await far.settle();
+    feed([]);
     for (let i = 0; i < 200 && far.metrics().pending === 0; i++) await wait(10);
     await far.settle();
-    expect(far.metrics().counters.seenReselects).toBeGreaterThan(reselects);
+    expect(far.metrics().seen.unseenWanted).toBeGreaterThan(0);
     expect(fine().length).toBe(0);
     expect(shown.has(mipNodeKey(s))).toBe(true);
     // A stale round (a number already taken) is dropped and changes nothing.

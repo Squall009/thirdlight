@@ -16,7 +16,9 @@
  *   the rounds kept coming: behind the camera, under the ground, behind a
  *   ridge. Before the first window has passed nothing is unseen, so a far
  *   field without rounds (WebGL 2, a pass without the visibility target)
- *   selects by screen error alone, as before.
+ *   selects by screen error alone, as before. Unseen refinements wait behind
+ *   seen ones; unseen nodes are released (drawn coarser) only once the far
+ *   field nears its GPU budget ({@link FAR_SEEN_RELEASE_SHARE}).
  */
 import { farCellPixels } from './far-tree';
 import { mipNodeKey, type MipNode } from './voxel-mips';
@@ -33,6 +35,24 @@ export const FAR_SEEN_TURN_MS = 6000;
  * top levels are drawn whatever is seen.
  */
 export const FAR_UNSEEN_ERROR_SCALE = 0.25;
+
+/**
+ * Times a node may come back into view within {@link FAR_SEEN_RETURN_WINDOWS} turn windows before it is held seen for
+ * {@link FAR_SEEN_HOLD_WINDOWS}: a coarse stand-in whose surface stands above the finer one (a ridge, a bulge over
+ * the skyline) is seen drawn coarse, hidden drawn fine, so it would be refined and released by turns for as long as
+ * the eye stays.
+ */
+export const FAR_SEEN_RETURNS = 2;
+export const FAR_SEEN_RETURN_WINDOWS = 4;
+export const FAR_SEEN_HOLD_WINDOWS = 10;
+
+/**
+ * The share of its GPU budget the far field's drawn and made nodes reach before unseen nodes are released (drawn by
+ * {@link FAR_UNSEEN_ERROR_SCALE} of their error). Below it what is unseen only waits behind what is seen: released at
+ * any fill, a still camera's field never settled (a node drawn coarser is seen, refined, hidden again; measured: tens
+ * of thousands of jobs where a few hundred nodes are drawn), so memory is spent on detail while it is there.
+ */
+export const FAR_SEEN_RELEASE_SHARE = 0.9;
 
 /** ms between selections a change in what is seen may start (the eye's moves start them as before). */
 export const FAR_SEEN_RESELECT_MS = 400;
@@ -65,11 +85,20 @@ export class FarSeenLog {
   private readonly own = new Map<string, Sighting>();
   /** Latest sighting of anything under a node (its own excluded). */
   private readonly under = new Map<string, number>();
+  /** Nodes seen again after a turn window unseen: how often since when; and the nodes held seen, until when. */
+  private readonly returns = new Map<string, { n: number; since: number }>();
+  private readonly held = new Map<string, number>();
   private lastRound = -Infinity;
   private lastFarSeq = -Infinity;
   private startedAt: number | null = null;
   private prunedAt = -Infinity;
-  readonly counters = { rounds: 0, stale: 0, nodes: 0, pixels: 0, behind: 0 };
+  readonly counters = { rounds: 0, stale: 0, nodes: 0, pixels: 0, behind: 0, held: 0 };
+  /**
+   * The near field's load cylinder round the eye (cells; `edge` the chunk edge): a node wholly inside it is never
+   * unseen. The near field draws there and the far view leaves such nodes out, so they are never seen; drawn coarser
+   * they would reach out of the cylinder, be seen, refine and vanish again, round and round.
+   */
+  near: { readonly eye: readonly [number, number, number]; readonly radius: number; readonly height: number; readonly edge: number } | null = null;
   /** When the far field's selection under way started (what it takes as unseen is judged then). */
   selectingAt = 0;
   /** The wanted nodes the last selection took as unseen: a round that changes one of them selects again. */
@@ -110,6 +139,8 @@ export class FarSeenLog {
     for (let i = 0; i < s.length; i += FAR_SEEN_STRIDE) {
       const n: MipNode = { level: s[i]!, nx: s[i + 1]!, ny: s[i + 2]!, nz: s[i + 3]! };
       const key = mipNodeKey(n);
+      const was = this.own.get(key);
+      if (was !== undefined && now - was.at > this.turnMs) this.cameBack(key, now);
       this.own.set(key, { at: now, pixels: s[i + 4]!, nearest: s[i + 5]! });
       pixels += s[i + 4]!;
       for (let l = n.level + 1; l <= this.topLevel; l++) {
@@ -123,6 +154,42 @@ export class FarSeenLog {
     this.counters.pixels = pixels;
     if (now - this.prunedAt >= this.turnMs) this.prune(now);
     return true;
+  }
+
+  /** A node seen again after a turn window unseen; held seen once that happens too often. */
+  private cameBack(key: string, now: number): void {
+    const r = this.returns.get(key);
+    if (r === undefined || now - r.since > FAR_SEEN_RETURN_WINDOWS * this.turnMs) {
+      this.returns.set(key, { n: 1, since: now });
+      return;
+    }
+    if (++r.n < FAR_SEEN_RETURNS) return;
+    this.returns.delete(key);
+    this.held.set(key, now + FAR_SEEN_HOLD_WINDOWS * this.turnMs);
+    this.counters.held++;
+  }
+
+  /** Whether a node lies wholly inside the near field's load cylinder. */
+  private insideNear(n: MipNode): boolean {
+    const r = this.near;
+    if (r === null) return false;
+    const s = r.edge << n.level;
+    const [ex, ey, ez] = r.eye;
+    if (n.ny * s < ey - r.height || (n.ny + 1) * s > ey + r.height) return false;
+    const dx = Math.max(Math.abs(n.nx * s - ex), Math.abs((n.nx + 1) * s - ex));
+    const dz = Math.max(Math.abs(n.nz * s - ez), Math.abs((n.nz + 1) * s - ez));
+    return dx * dx + dz * dz <= r.radius * r.radius;
+  }
+
+  /** Whether a node or a node over it is held seen. */
+  private isHeld(n: MipNode, now: number): boolean {
+    if (this.held.size === 0) return false;
+    for (let l = n.level; l <= this.topLevel; l++) {
+      const d = l - n.level;
+      const until = this.held.get(mipNodeKey({ level: l, nx: n.nx >> d, ny: n.ny >> d, nz: n.nz >> d }));
+      if (until !== undefined && until > now) return true;
+    }
+    return false;
   }
 
   /** When a node, a node under it or a node over it was last seen (null: never). */
@@ -139,7 +206,7 @@ export class FarSeenLog {
 
   /** Whether the eye has not met a node for a whole turn window while rounds kept coming. */
   unseen(n: MipNode, now: number): boolean {
-    if (!this.running(now)) return false;
+    if (!this.running(now) || this.isHeld(n, now) || this.insideNear(n)) return false;
     const t = this.seenAt(n);
     return t === null || now - t > this.turnMs;
   }
@@ -164,5 +231,7 @@ export class FarSeenLog {
     const old = now - FORGET_WINDOWS * this.turnMs;
     for (const [k, o] of this.own) if (o.at < old) this.own.delete(k);
     for (const [k, t] of this.under) if (t < old) this.under.delete(k);
+    for (const [k, t] of this.held) if (t <= now) this.held.delete(k);
+    for (const [k, r] of this.returns) if (now - r.since > FAR_SEEN_RETURN_WINDOWS * this.turnMs) this.returns.delete(k);
   }
 }

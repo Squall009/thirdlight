@@ -38,7 +38,7 @@ import { FAR_BRICK_BUILD, farBricksBytes, type FarBricks } from './far-bricks';
 import { farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
-import { FAR_SEEN_RESELECT_MS, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
+import { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, farCellPixels, farNodeBox, farNodeDistance, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
 import { parseRegionFileName, REGION_ENTRY_BYTES, WORLD_GRID_ID, type RegionByteSource, type RegionChunkRead } from './region-file';
@@ -418,6 +418,7 @@ export class FarField {
   setEye(x: number, y: number, z: number, near: FarNearRing | null = this.near): void {
     this.eye = [x, y, z];
     this.near = near;
+    this.seen.near = near === null ? null : { eye: [x, y, z], radius: near.radius, height: near.height, edge: this.host.grid.edge };
     const at = this.selectedAt;
     if (at === null || Math.hypot(x - at[0], y - at[1], z - at[2]) >= FAR_RESELECT_CELLS) {
       this.reselect = true;
@@ -480,7 +481,8 @@ export class FarField {
       else {
         const gpuBytesOf = this.gpu.foresee();
         const at = (this.seen.selectingAt = performance.now());
-        const unseen = this.seen.running(at) ? (n: MipNode) => this.seen.unseen(n, at) : undefined;
+        // Unseen nodes are released only near the GPU budget: below it they keep their detail and only wait behind.
+        const unseen = this.seen.running(at) && this.liveGpu >= FAR_SEEN_RELEASE_SHARE * this.gpuBudget ? (n: MipNode) => this.seen.unseen(n, at) : undefined;
         this.selecting = { steps: this.selection.steps(this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, gpuBudgetBytes: this.gpuBudget, gpuBytesOf, near: null, ...(unseen !== undefined ? { unseen, unseenScale: FAR_UNSEEN_ERROR_SCALE } : {}) }), ms: 0 };
         this.selectStep();
       }
@@ -523,7 +525,7 @@ export class FarField {
     this.wanted = new Map((sel?.drawn ?? []).map((d) => [mipNodeKey(d.node), d]));
     const at = this.seen.selectingAt;
     this.seen.selectedUnseen = new Set();
-    if (this.seen.running(at)) for (const [key, d] of this.wanted) if (this.seen.unseen(d.node, at)) this.seen.selectedUnseen.add(key);
+    if (this.seen.running(at) && this.liveGpu >= FAR_SEEN_RELEASE_SHARE * this.gpuBudget) for (const [key, d] of this.wanted) if (this.seen.unseen(d.node, at)) this.seen.selectedUnseen.add(key);
     this.restep();
     this.commitSoon();
     void this.pump();
@@ -652,6 +654,8 @@ export class FarField {
     }
     if (!moved) return;
     this.todo = null;
+    // Below the release share a selection would draw the same nodes: only the order changes.
+    if (this.liveGpu < FAR_SEEN_RELEASE_SHARE * this.gpuBudget && this.seen.selectedUnseen.size === 0) return;
     if (this.reselect || this.selecting !== null || now - this.seen.reselectedAt < FAR_SEEN_RESELECT_MS) return;
     this.seen.reselectedAt = now;
     this.counters.seenReselects++;

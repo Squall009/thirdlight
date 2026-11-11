@@ -37,7 +37,7 @@ describe('the far seen log', () => {
     expect(log.apply(round(3, [[a, 1, 1]]), 10)).toBe(false);
     expect(log.apply(round(2, []), 20)).toBe(false);
     expect(log.apply({ round: 9, farSeq: 1, nodes: [] }, 30)).toBe(false);
-    expect(log.counters).toMatchObject({ rounds: 1, stale: 3 });
+    expect(log.counters).toMatchObject({ rounds: 1, stale: 3, held: 0 });
     expect(log.pixelsOf(a)).toBe(40);
     // Its error where it showed: a level-2 cell (4 cells) at its nearest pixel's 300 cells.
     expect(log.seenError(a, 500, PPR)).toBeCloseTo((4 * PPR) / 300, 9);
@@ -69,6 +69,45 @@ describe('the far seen log', () => {
     expect(log.unseen({ level: 2, nx: 6 * 8 + 3, ny: 0, nz: 5 }, 1600)).toBe(false);
     expect(log.seenAt({ level: 3, nx: 6 * 4 + 1, ny: 0, nz: 1 })).toBe(1500);
     expect(FAR_SEEN_STRIDE).toBe(6);
+  });
+});
+
+describe('a node seen by turns', () => {
+  it('is held seen once it keeps coming back into view (a coarse stand-in seen drawn coarse, hidden drawn fine)', () => {
+    const log = new FarSeenLog(1000, 6);
+    const p: MipNode = { level: 4, nx: 2, ny: 0, nz: 1 };
+    log.apply(round(1, [[p, 30, 800]]), 0);
+    // Opened, its finer nodes hidden: unseen after the window; drawn coarse again, seen again (once: a look back).
+    expect(log.unseen(p, 1200)).toBe(true);
+    log.apply(round(2, [[p, 30, 800]]), 1300);
+    expect(log.counters.held).toBe(0);
+    expect(log.unseen(p, 2400)).toBe(true);
+    // Again within a few windows: held seen, it and the nodes under it, for many windows.
+    log.apply(round(3, [[p, 30, 800]]), 2500);
+    expect(log.counters.held).toBe(1);
+    for (const t of [3600, 6000, 12000]) {
+      log.apply(round(t, []), t);
+      expect(log.unseen(p, t)).toBe(false);
+      expect(log.unseen({ level: 2, nx: 9, ny: 0, nz: 5 }, t)).toBe(false);
+    }
+    // The hold runs out: unseen again.
+    log.apply(round(20000, []), 13000);
+    expect(log.unseen(p, 13000)).toBe(true);
+  });
+});
+
+describe('a node under the near field', () => {
+  it('is never unseen: the far view leaves it to the near field, so it is never seen either', () => {
+    const log = new FarSeenLog(1000, 6);
+    log.apply(round(1, []), 0);
+    log.apply(round(2, []), 1500);
+    const inside: MipNode = { level: 2, nx: 0, ny: 0, nz: 0 };
+    const out: MipNode = { level: 2, nx: 3, ny: 0, nz: 0 };
+    expect(log.unseen(inside, 1500)).toBe(true);
+    // A load cylinder of 200 cells round (64, 64, 64): the first node (0–128 a side) wholly in it, the other out.
+    log.near = { eye: [64, 64, 64], radius: 200, height: 100, edge: 32 };
+    expect(log.unseen(inside, 1500)).toBe(false);
+    expect(log.unseen(out, 1500)).toBe(true);
   });
 });
 
