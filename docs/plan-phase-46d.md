@@ -3010,6 +3010,48 @@ L8 (load 2.0–2.3): see-through search over 600 instanced members, members move
 0.96–1.11 p95 (the removed unit bound was 5 ms); the merge of 600 boxes into 6: 0.62–0.63 ms mean (bound was
 20 ms). 8 background jobs of 40 ms on 4 idle workers: 81.6 ms, ideal 80 (bound was 240 ms).
 
+**Second pass (H3, M2, M3, L7, the `threads=off` gap).**
+
+| Finding | What changed | Commit |
+|---|---|---|
+| M3 / D603 | a product defect: one step of the camera (the page's `look`, 26 m in a frame) read as a burst of speed, the ring narrowed and half a second later widened and refilled into the edit's swap (752–782 chunk draws for 8). Motion now needs a run of steps lasting the smoothing window | b393b182 |
+| H3 / D598 (part) | the speed ring flapped (222 ring changes, 172 k reloads in one flight: steps reach the simulation's streamer 0.3 ms apart, the per-step speed test reset the velocity): a jump is judged by length only, a narrowed ring widens after 1 s down; at speed the way ahead is a 32 m corridor (one shape with the focus's bounds, near lane, read under the focus first) in place of a 48 m ring round the lead point; the count says why the ground was missing | b393b182 |
+| test race | stream.test.ts collision ring: the dig waits for a still ring (failed once in the gate, passed alone) | 99099271 |
+| threads=off | the export's second load (low, far bricks) runs the simulation in the page: streams, draws, character on the pad | 251c23b0 |
+| M2 / D608 | far-world.test.ts `seenUnderBudget`: budget half of what is drawn, rounds naming the drawn nodes in front | eb88e200 |
+| L7 / D574 | half-resolution march retired (`archive/removed-phase-46d/`), `?farRes` refused | e9581c15 |
+
+H3, `run.mjs coverage` (staging, Iris Xe, Play WebGPU low 30 Hz, the 8 km world, one round each; before 16:32–16:46
+at d4a9f83d, after 17:22–17:31 at b393b182's streaming code; ground % of all updates, as 46d.22 read them;
+`work/fix2/cov-{before,after}-*.json`, `sum.mjs`):
+
+| low | under / ahead before → after | why under (after: unread, reading, blocked, deriving) | holes | missed |
+|---|---|---|---|---|
+| 150 m/s, 30 m up | 20.9 / 51.6 → 14.1 / 40.9 % | 87, 13, 812, 381 | 0 → 0 | 17 → 30 / ~1,990 |
+| 150 m/s, hugging | 18.5 / 63.6 → 9.1 / 62.7 % | 39, 9, 431, 357 | 0 → 0 | 24 → 28 |
+| 60 m/s, 30 m up | 2.9 / 8.9 → 4.2 / 15.1 % | 107, 13, 542, 212 | 0 → 0 | 56 → 53 / ~4,940 |
+| 60 m/s, hugging | 0.6 / 3.1 → 0.6 / 13.1 % | 35, 13, 42, 35 | 0 → 0 | 95 → 89 |
+
+Not 0 %: the pool is the bound (its queue sat at 100–250 jobs through the flight); what is missing under the camera
+is resident chunks waiting for a neighbour (blocked) or for their derive. Ahead is worse at 60 m/s: the corridor is
+narrower than the ring round the lead point it replaced. Measured in a node harness (3 workers, hilly world,
+150 m/s): the coarser levels (levels 1–2) took 35 % of the workers' time in flight though only level 0 draws inside
+the narrowed ring; skipping them there cut it to 1 % but made the browser flight worse (33–44 % under: the stale
+nodes the change left were walked every update), so it was not kept. The owner then replaced the criterion
+(hitches and settle times, 46d-c): D598 superseded, these numbers its last. Pictures
+(`far-field/46d.15-fix2/{before,after}/low-150-high-*-t{10,20,30,40}.png`, all eight opened): t10 the same frame
+(lowland, the town's red patch, the massif), t20 the valley floor and its channel, t30 the massif's cliff close
+(after: a moment later, the rock shoulder against the sky; both dark and blocky as in 46d.22), t40 the valley with
+the channel; no hole in any, no visible difference between before and after at these stills.
+
+M2: with the budget binding a still eye's far field releases the unseen half and settles: meshes made per 0.6 s
+window 17, 3, then 0 six times, no job left; turned round, 17, 3, then 0 eight times, the new front finer (mean level
+lower) and the old front coarser. The release does not flap on this feedback model; the stand-in whose surface
+stands above the finer one (D608's second cycle) needs real pictures and is not reproduced here.
+
+Gates: gate-fast-20261111-165602 GREEN (14 min, 5.3 GB; stream.test.ts collision ring failed once, passed alone
+→ 99099271); voxel-world.e2e.ts 113 → 111 s (export 25.0 s with the `threads=off` reload).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -3821,6 +3863,16 @@ L8 (load 2.0–2.3): see-through search over 600 instanced members, members move
   > 4. Medium/high frame times: unverified on target hardware. The workstation meter run (§10) is still wanted.
   > 5. Decisions marked "owner to confirm": the far release policy (D608), the inside-ground look (D585), the terrain-shadow proposal (static casters cost +1.6 ms at low), the WebGPU-only test suite including the parity archive (H2), and the 1.5 / 2.5 GiB split.
 
+- 2026-11-11 (46d.15 second pass, default chosen, owner to confirm): **a camera placed once is not travel**: the
+  focus counts as moving only after a run of steps lasting the velocity's smoothing window (0.25 s), and a jump is a
+  step longer than the near radius whatever its speed; a ring narrowed for speed widens only after the speed stayed
+  down for 1 s.
+- 2026-11-11 (46d.15 second pass, default chosen, owner to confirm): **at speed the way ahead is a corridor** 32 m
+  either side of the line from the focus to its lead point (two chunks: the chunks on it have their neighbours), its
+  work in the near lane, read under the focus first; slower than 20 m/s the lead's ring stays the load ring.
+- 2026-11-11 (46d.15 second pass, default chosen, owner to confirm): **the far release policy stays "unseen released
+  only near the far GPU budget"**: where the budget binds a still eye settles (M2 test); the half-resolution march is
+  retired (L7).
 - 2026-11-11 (lead, placement of the streaming/rings decisions): **a new sub-phase 46d-c after the 46d-b close**
   (46d-b closes as built; review H3 is answered by the owner: superseded, D598 superseded): 46d.24 travel at speed by
   the new measures (hitches, settle times, never falling through; mechanisms: no level 0 at speed, cancel stale
