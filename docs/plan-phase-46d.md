@@ -313,7 +313,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
-| 46d.24 | done (24a dda61ab9; 24b 3d9acf42; 24c f0eadb60…197c7bfa): collision-only derives round bodies, coarse 2 m floor, D615 fixed (ground 0.02–0.05 s). Export low 60/150 longest 41–52 ms, 0 > 100, 0–2.7 missed/min; full detail low 4.6–5.6 s, medium 13–17 s: later than 24b (D620). D585 drawn as ground, open; D617, D619 |
+| 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
 | 46d.25 | not started (46d-c) |
 
 ## 8. Results
@@ -3372,6 +3372,84 @@ flight frames as 24b's (no sky hole, the massif's dark cliff at t30); after the 
 from 4–8 s, the grey near rock as in D613. *Unverified:* motion at full rate (stills), medium/high on their hardware,
 WebGL 2 (not run), the lift at the hand-over in a game (the vitest's floor lay within 5 cm, so no lift happened there).
 
+
+**46d.24d: D619 traced and fixed, D620 split and fixed at 60 m/s, D618** (60f4c9ca, 72f2cee5; export `voxel-slice@r860` for
+the final table, Iris Xe, WebGPU, at the cap, alone on the host, 2 rounds 04:21–04:46 UTC 2026-11-12, uptime 19.5 d, load
+2.3–4.4; traces `work/46d.24d/{t1,t2}-*.json`, A/B `ab-*`, `cd-*`, final `fin-*`, `sum2.py`, `*.uptime`). Medium frame times
+**unverified on target hardware**.
+
+1. **D619: through, not off an edge.** The probe now records the body's x, z and the first collider under it and over it
+   (`flight-camera.ts`), and the bench judges each fall by the true ground (the world's voxels, `fineGround`) at the body's
+   own place (`travel.ts` `judgeFall`). Before the fix (low 60, `t1`): drops 38 and 39 were placed at x = −2,000 (a chunk
+   column's edge on the massif) 2.5 m over the 2 m ground but already 1.7 m **under the coarse floor** (floor 874.3, body
+   872.6, true ground 870.4): no collider under them, not suspended (a floor counted for anything above its lowest point
+   less 2 m), so they fell through the world (sideways 0 m, the floor over them all the way). Drop 41 stood on a steep floor
+   cell, slid 5 m and a floor came over it with nothing under it. Cause: the floor's corners take the highest coarse top
+   round them, so at a cliff's foot (or a street under rooftops) it stands metres over the true ground. Fix
+   (`runtime/voxel-floor.ts`): a floor holds a body only over its surface at the body's place (the heightfield's own
+   triangle, `FLOOR_UNDER_M` 0.5 m) or where fine collision lies right under it (a ray, 4.5 m); otherwise it waits
+   (suspended) for its fine collision. vitest (`collision-ready.test.ts`, real workers, real Rapier, a 20 m cliff world
+   `cliffWorld`): a body on the steepest floor rests or slides, never under the fine ground; one placed under a floor 19.7 m
+   over the cliff's foot waits all 2 s, then ends on the fine ground at the hand-over (−0.27 m); before the fix it fell
+   through. Bench after: through the true ground 0 in every run (low 60/150, medium 60/150, 3 + 8 runs); "onto lower ground"
+   0–4 a flight (stood or slid on real ground lower than the drop point's cells). The one drop a run that ends suspended is
+   at the town (m ≈ 2.43 km, x 32.7, z −5.4): the floor lies 3.2 m up at the rooftops' corners over the street; it waits
+   for fine collision, which at speed does not come within its 2 s (as before the fix: the old rule's 2 m cave margin).
+   With the fix more drops wait instead of falling: 2 / 5 / 10–11 a flight end suspended (low 150 / low 60 / medium 60;
+   D621). While suspended the probe reads the body's last physics result, so a waiting drop may show the previous drop's place.
+2. **D618: by design.** Traced in `stream-speed.test.ts` after the 150 m/s stop: every chunk with a full rebuild asked and
+   not sent is at the load ring's edge: a neighbour loaded, its sections were wanted again, then blocked on another neighbour
+   outside the ring (never read, or past unload). Not pending (`pending()` skips them), no work, its old result drawn; a
+   neighbour's landing wants it again. Won't fix.
+3. **D620: the A/B** (one round each, export, seconds after the stop to full detail / nothing pending; ground solid
+   0.02–0.04 s in all):
+
+| variant | low 150 | medium 60 | flight |
+|---|---|---|---|
+| base (60f4c9ca) | 5.67 / 8.97 | 13.79 / 18.08 | as 24c |
+| A: loads take the whole queue (24b) | 4.73 / 8.57 | 12.54 / 16.31 | as base |
+| B: level-0 derives in the camera's collision bounds at speed (24b) | 5.46 / 8.76 | 12.54 / 17.88 | medium missed 17.6 a min (11.7) |
+| C: the reserve only while a body's collision-only derives wait (kept) | 4.72 / 8.49 | 11.69 / 15.41 | as base |
+| D: C + B | 5.06 / 8.34 | 11.10 / 15.88 | medium missed 20.5 a min (8.0) |
+
+   The reserve was the larger part: with it held back always, the stop's refill decoded at three quarters of the queue and
+   the level-0 ring waits for the chunks round it to load. Ground solid did not need it (collision-only derives already go
+   first: A kept 0.02–0.03 s). Kept C (`voxel-streamer.ts` `loadRoom`, `stream-collision.ts` `look`/`waiting`); B was left
+   out (no gain at low, medium's missed frames doubled). vitest (real workers, a 64-job queue, the load replies held until
+   it fills): with no ground waiting the refill's loads fill the whole queue (68 = 64 + 4 running; the fixed reserve held
+   them to 52); with a body's ground waiting 18; the stopped ground still known after 69 of 9,136 jobs.
+
+| export, final (2 rounds) | longest ms | > 100 | missed / min | ground solid | body free / stands | full detail | nothing pending | through (old count) | drops' end: suspended / floor / fine | hole frames |
+|---|---|---|---|---|---|---|---|---|---|---|
+| low 60 | 48.3–48.8 (49.5–50.9; 62.6–67.6) | 0, 0 | 1.5–2.6 (1.5–2.2; 4.0–4.8) | 0.03 (0.02–0.03; 0.06) | 0.06–0.07 / 0.25 | **3.55–3.86** (4.6; 3.8–4.5; 3.6–4.4) | **7.18–7.59** (8.3–8.5; 7.3–7.8; 8.2–8.5) | 0 (1) of 83 | 5 / 66 / 1 | 0, 0 |
+| low 150 | 40.4–44.0 (40.8–51.8; 48.8–51.6) | 0, 0 | 0–1.8 (0–2.7; 1.8–3.7) | 0.03 (0.03; 0.07–0.10) | 0.07–0.08 / 0.26 | **4.65–4.76** (5.2–5.6; 4.1; 4.3–4.4) | **8.40–8.56** (8.9–9.5; 7.4–8.1; 7.8–8.2) | 0 (0) of 34 | 2 / 27 / 1 | 0, 0 |
+| medium 60 | 36.1–43.1 (35.5–41.0; 54.7–75.7) | 0, 0 | 9.1–11.7 (11.0–11.3; 18.7–20.5) | 0.03–0.06 (0.03–0.04; 0.08) | 0.07 / 0.08–0.53 | **10.2–12.0** (13.4; 10.5–11.3; 9.5–11.8) | **15.0–15.8** (17.6–18.0; 13.9–14.8; 14.5–15.1) | 0 (1–2) of 83 | 10–11 / 46 / 1 | 1, 2 |
+| medium 150 | 34.5–46.4 (37.5–51.8; 57.8–66.0) | 0, 0 | 20.1–22.0 (16.5–28.4; 27.4–32.0) | 0.02–0.05 (0.02–0.05; 0.33–0.71) | 0.12–0.15 / 0.28–0.57 | **16.0–17.1** (16.6–16.7; 13.1–14.9; 13.6–15.4) | **18.0–18.4** (20.5–20.6; 15.6–16.0; 16.0–17.3) | 0 (0) of 34 | 2 / 21–22 / 1 | 2, 5 |
+| starting target (low) | < 100 | | | < 0.5 | | < 2 | < 10 | never | | |
+
+   46d.24c in brackets, then 46d.24b (and for the settle 46d.24a). "Through" is the bench's new count (under the true ground
+   at the body's place, or ending a drop falling with nothing under it); the old count (6 m under the drop point's 2 m
+   ground) in brackets catches drops onto lower real ground. Holes are the old places only (m ≈ 4,434 corner artefact,
+   m ≈ 6,834 35-px frames). Against the targets (low): longest frame met (40–49 ms), ground solid met (0.03 s), nothing
+   pending met (7.2–8.6 s), never through met; full detail missed (3.6–4.8 s for < 2 s). At 60 m/s the settle is back to
+   24b's or better at both tiers; at 150 m/s low is 0.6 s and medium ~2 s later than 24b (D620 stays open there).
+
+   **What bounds the settle now** (each count's own settle, `settleBy`): the level-1 count (and the chunk count with it)
+   settles last in every run, and nothing pending equals it (low 7.2–8.6 s, medium 15–18.4 s); level 0 settles before it
+   (low 3.6–4.8 s, medium 10–17 s), level 2 and the kit pieces at once (the stop pose has no pieces), the far field at once
+   except medium 150 (8.8–11.2 s: still refining after the stop, the only cell where far counts move). So the refill of the
+   load ring that widens back after the stop bounds it: level 0's edge waits for level-1 neighbours downsampled from it,
+   and at 150 m/s the ring was narrower, so more is read and decoded after the stop. 46d.25's fine bricks need no level-1
+   downsample; that is where < 2 s can come from (46d.24c's proposal stands).
+
+   **Looked at** (`work/46d.24d/strip-export-{low,medium}-150-stop.png`: 0.5, 1, 2 / 4, 8, 15 s after the stop, beside
+   `work/46d.24b/strip-export-{low,medium}-150-stop.png`). Low: near detail shows at the bottom right already at 2 s (24b:
+   still coarse), with a flat dark-grey square at the right edge at 2 s only; at 4 s 24b had more of the lower left in
+   detail than this build (4.1 against 4.7 s); 8 and 15 s alike, the grey patch at the top centre at 15 s as before (D613).
+   Medium: coarse to 8 s, detail at 15 s (24b: detail at 8 s), and a flat dark-green rectangle at the bottom centre at 1, 2
+   and 4 s, gone by 8 s (D622). *Unverified:* motion at full rate (stills), medium on its hardware, WebGL 2 (not run), a
+   body walking under a floor in a game (the vitest covers a placed one).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4262,6 +4340,19 @@ WebGL 2 (not run), the lift at the hand-over in a game (the vitest's floor lay w
   measure 4.6–5.6 s at low after this slice (D620: later than 24b's 3.8–4.5 s).
 - 2026-11-12 (46d.24c): pinned regions and path hints planned in §8 "46d.24" (7), not built: neither is a small change on
   the one-second lead. D601 not changed (a draw-only mip derive is a format note, not a few lines).
+- 2026-11-12 (46d.24d, default chosen, owner to confirm): **a body under the coarse floor's surface waits**: the floor
+  holds a body only over its surface where the body is (0.5 m skin) or where fine collision lies right under it; otherwise
+  the body is suspended until its fine collision comes (a placed body at a cliff's foot, a street under rooftop-high floor
+  corners, a slide off a floor's edge). Never falling wins over standing at once: at speed 2–11 drops a flight now end
+  suspended instead of 1 (D621).
+- 2026-11-12 (46d.24d, default chosen, owner to confirm): **loads leave the pool's reserve only while a body's ground
+  waits** (collision-only derives queued or wanted); the stop's refill takes the whole queue otherwise. Level-0 derives
+  round the camera at speed (24b's) not brought back: no gain at low, medium's missed frames doubled.
+- 2026-11-12 (46d.24d, default chosen, owner to confirm): **"falls through" reads the true ground at the body's own
+  place**: a body under the world's voxels' top there by 6 m, or ending its drop falling with nothing under it; a body
+  that went down to lower real ground is counted apart ("onto lower ground"), the old count kept beside it.
+- 2026-11-12 (46d.24d): D618 won't fix (sections at the load ring's edge blocked on neighbours outside it: no work, not
+  pending). The < 2 s full-detail target stays with 46d.25 (the level-1 refill bounds the mesh rings' settle).
 
 ## 10. Open questions for the owner
 
