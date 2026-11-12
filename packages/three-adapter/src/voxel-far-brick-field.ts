@@ -110,7 +110,7 @@ export class FarBrickTextures {
   }
 }
 
-/** The face code a hit carries when its ray started inside the solid and never left it ({@link FarBrickTextures.shade}). */
+/** The face code a hit carries when it is drawn as the ground's look from above ({@link FarBrickTextures.shade}). */
 export const INSIDE_FACE_CODE = 7;
 
 /** A point clamped into a brick's samples (cells). */

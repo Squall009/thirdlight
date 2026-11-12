@@ -39,7 +39,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
+import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { culledCopyVec4, culledDepthAt } from './attribute-instancing';
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
@@ -482,13 +482,16 @@ export class FarBrickMaterial {
       });
       const face = entryFace(near, dir);
       const view = modelView.mul(vec4(local, 1));
+      // A hit deep in the solid near the eye: a stand-in's side entered under its surface, seen from beside it while
+      // hugging the ground. Drawn as the ground's look, not as the side's cells (whose unstored bricks show as recesses).
+      const look = insideHit.or(field(region, p).lessThan(-FAR_DEEP_CELLS).and(view.z.greaterThan(-FAR_INSIDE_LOOK_M)));
       if (output === 'visibility') {
-        hitPayload.assign(farVisibilityOutput(region, p, view.z, select(insideHit, float(INSIDE_FACE_CODE), entryFaceCode(face))));
+        hitPayload.assign(farVisibilityOutput(region, p, view.z, select(look, float(INSIDE_FACE_CODE), entryFaceCode(face))));
         return farFragmentDepth(cover.behindNear(world, view.z));
       }
       // Deep under the surface (the samples clamped to the band) there is no gradient: a ray hits there only where a
       // node face shows its ground's side (a neighbour drawn at a coarser level lies lower), shaded as that face.
-      const shaded = textures.shade(region, p, face, insideHit);
+      const shaded = textures.shade(region, p, face, look);
       hitNormal.assign(normalize(modelView.mul(vec4(shaded.normal, 0)).xyz));
       hitColour.assign(shaded.colour);
       hitViewZ.assign(cover.behindNear(world, view.z));

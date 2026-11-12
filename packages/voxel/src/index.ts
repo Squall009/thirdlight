@@ -426,7 +426,7 @@ export {
   type FarView,
 } from './far-tree';
 export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
-export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksInside, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks, type FarMarchStart } from './far-bricks';
+export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksInside, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks, type FarMarchStart } from './far-bricks';
 export { bakedFarBricks, decodeFarBricks, encodeFarBricks, FAR_BRICKS_BLOB_MAGIC, FAR_BRICKS_BLOB_VERSION, farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromFaces } from './far-bricks-faces';
 export { farBrickMarchedBox, farNodeMarchedBox, farNodeRayStartsInside, marchFarNode, rayBox, type FarCellBox } from './far-bricks-node';

@@ -165,6 +165,13 @@ export function entersAtFace(eye: FarSample, ray: readonly FarSample[]): boolean
   return false;
 }
 
+/** For a ray that {@link entersAtFace}: whether it enters within `maxM` of the eye (its points `stepM` apart, the first at `stepM`). */
+export function entersWithin(eye: FarSample, ray: readonly FarSample[], stepM: number, maxM: number): boolean {
+  if (eye !== null && eye.inside) return true;
+  const k = ray.findIndex((q) => q !== null && q.inside);
+  return k >= 0 && (k + 1) * stepM <= maxM;
+}
+
 /** For a ray that {@link entersAtFace}: whether the node it enters is the one the eye is in (the far draw's rule for a stand-in seen from inside applies then). */
 export function entersEyeNode(eye: FarSample, ray: readonly FarSample[]): boolean {
   const p = ray.find((q) => q !== null && q.inside);

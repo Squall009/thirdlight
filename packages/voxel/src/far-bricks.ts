@@ -212,6 +212,16 @@ export function farBrickField(samples: Uint8Array, block: number, p: readonly nu
 
 /** One brick's march over a box of its cells (`lo`–`hi`, the draw's marched box) from where the ray enters it: where it hits (cells along the unit direction from the origin) and the steps taken; null: it leaves the box (or runs out of steps) first. */
 /**
+ * Metres from the eye within which a far draw's hit deep in a stand-in's solid (a side entered under its surface: the
+ * camera low beside a coarse node drawn higher than the ground) is drawn as the ground's look from above instead of
+ * the side's cells; farther out such a side is the step between two levels and is shaded as the face it is.
+ */
+export const FAR_INSIDE_LOOK_M = 64;
+
+/** Cells under the surface (of the brick band's two) past which a hit is deep in the solid: the samples hold no surface there. */
+export const FAR_DEEP_CELLS = 1.5;
+
+/**
  * A node march's state across its bricks: whether the ray's first sample is taken, whether the ray is still inside the
  * solid that sample lay in (it is not hit until it has left it), and where it began (t, its block).
  */
