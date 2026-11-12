@@ -4137,7 +4137,13 @@ keys built once), only those entries change, the cache equals a fresh bake of th
 reuses every node; an export ships levels 0–1 at 0.5 m, level 1 only at 1 m, none at 2 m, and the catalog row checks;
 a format-2 cache reads and is current at 2 m, format 4 refused), `far-cache-runner.test.ts` (+1: the backend's worker
 threads bake the same files as this thread), `voxel-world.test.ts` (project-model: values, round trip, finest of the
-scenes), descriptors (the field reached). Counts and bytes only.
+scenes), descriptors (the field reached), the script access table re-pinned (an added optional field). Counts and
+bytes only. Gates (a project-model change: every area): gate-fast-20261112-161546 red on the script access pin (re-pinned,
+f5bccc30); gate-rerun-20261112-162630 (180 e2e files, 23 min, peak 7.5 GB) 317 passed, 3 failed, all outside the far
+cache: `layered-material.e2e.ts` (D349 watch; passed in gate-rerun-20261112-165030), `block-layers.e2e.ts:490`
+(failed again in the rerun under the gate's load, passed alone at this head and at the base 2bc9f009: D637 watch),
+`scene-loads.e2e.ts:107` (fails alone at the base 2bc9f009 too: a hidden regression since 2026-11-10, D638, to fix
+before the phase's full gate). voxel area 172 s in the wide run.
 
 *The product bake on staging's 8 km world* (`work/46d.26a/stage-bake.mts`: `bakeFarFineColumn` on 8 worker threads,
 `writeFarFineColumn` here, the two measured slices only, 16:10–16:13, load 2.2 → 8.2): 40 columns (8 at level 1, 32 at
