@@ -4143,7 +4143,8 @@ f5bccc30); gate-rerun-20261112-162630 (180 e2e files, 23 min, peak 7.5 GB) 317 p
 cache: `layered-material.e2e.ts` (D349 watch; passed in gate-rerun-20261112-165030), `block-layers.e2e.ts:490`
 (failed again in the rerun under the gate's load, passed alone at this head and at the base 2bc9f009: D637 watch),
 `scene-loads.e2e.ts:107` (fails alone at the base 2bc9f009 too: a hidden regression since 2026-11-10, D638, to fix
-before the phase's full gate). voxel area 172 s in the wide run.
+before the phase's full gate). voxel area 172 s in the wide run. Area gate voxel + content gate-area-20261112-165523
+GREEN (33 passed, 4 min; voxel 148 s, content 229 s).
 
 *The product bake on staging's 8 km world* (`work/46d.26a/stage-bake.mts`: `bakeFarFineColumn` on 8 worker threads,
 `writeFarFineColumn` here, the two measured slices only, 16:10–16:13, load 2.2 → 8.2): 40 columns (8 at level 1, 32 at
