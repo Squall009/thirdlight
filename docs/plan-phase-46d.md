@@ -314,7 +314,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
 | 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
-| 46d.25 | not started (46d-c) |
+| 46d.25 | 46d.25a done (f4af93a3, 2d235b54): fine bricks L0–1 built in WebGPU compute past the detail ring behind `?fineBricks=1` (off); GPU = CPU build (same bricks, distances ±1 byte at ties). Low 150 m/s export: longest 45 ms, detail 3.9 s, pending 3.9 s (was 4.7 / 8.5). Houses crisp, untextured; D623–D624. 46d.25b compares |
 
 ## 8. Results
 
@@ -3513,6 +3513,74 @@ the final table, Iris Xe, WebGPU, at the cap, alone on the host, 2 rounds 04:21�
   page asks for fine bricks only on WebGPU; a Play page that falls back with the flag draws nothing past the detail
   ring (one console warning). Not a quality-level field yet (a project-model change once the comparison keeps it).
 
+**46d.25a built** (f4af93a3, 2d235b54): as designed above. `@thirdlight/voxel` `far-fine.ts` (block, packing, `FarFineIndex`,
+dirty set), `far-fine-nodes.ts` (the far field's fine nodes: make, edits, reselect on residency and near-level changes),
+`far-tree.ts` (`FarSelectIndex`, `openable`), `far-bricks-faces.ts` (`gatherFarCells` / `farBricksFromBlock` split
+out, bytes unchanged), `stream-lod.ts` (`setNearOnly`), `voxel-streamer.ts` (`setFineBricks`, the fine host);
+three-adapter `voxel-fine-bricks-wgsl.ts` (five passes), `voxel-fine-bricks.ts` (slots, budget, readback, atlas copies,
+the CPU check), `voxel-far-mesh.ts` (far changes held until their fine nodes are built). Switch: `?fineBricks=1`
+(voxel world page on WebGPU, Play, exports), `setFar({ fine })`, world setting `fineBricks`.
+
+**Tested.** vitest `far-fine.test.ts` (6): the packed block is the CPU build's block and builds byte-equal bricks; the
+windowed field passes mirrored in 64-bit floats with the CPU build's 32-bit stores give its corner bytes exactly (scale
+1 and 2, terrain, scarp, house; >20 k corners); selection opens 2 → 1 → 0 by error only where resident and not drawn
+whole by the near field; the dirty set; the far field sends fine blocks from a real store, again after an edit, and
+closes back to level 2 when off. `page-view.test.ts` (+1). e2e `voxel-world.e2e.ts` (the page test, WebGPU): with
+fine on the near field draws level 0 only, fine nodes are built and drawn (>90 % of the far nodes in that small
+world), the GPU build against the CPU build of the same blocks (6 nodes: same bricks every time, distance bytes off by
+one in 0–0.5 % of samples, colours equal, occlusion ±1), no background below the horizon, their pixels gone with the far
+hidden, a dig 54 m out rebuilt (the far solid there ground → air, read back) and seen (>300 px), off: level 1 back.
+That test 51–66 s in gates before → 53 s alone after (the gate's own figure in gate-fast-20261112-062359). Gates:
+gate-fast-20261112-053043 red only on the then uncommitted e2e extension; gate-fast-20261112-062359 red on D599
+(failed once, passed alone in the gate) and `project-items.e2e.ts` (D331/D410 watch), GREEN on rerun
+gate-rerun-20261112-064525. WebGL 2 smoke passed in both (no new path there).
+
+**First look** (staging, Iris Xe, Play in the editor, WebGPU 1280 × 720, the 8 km world, off vs on, one run each
+06:47–07:05, load 1.1–4.3, uptime 19.6 d; `work/46d.25a/{low,medium}-shots-{off,on}.json`, `shots/<pose>-<q>-<tag>.png`,
+`shots/side-by-side/<pose>-<q>-off-vs-on.png`, `compose.mts`; every picture opened). Medium frame times unverified on
+target hardware.
+
+| | near levels drawn (town-west) | far nodes / bricks | far GPU MiB | fine nodes L0 / L1, built, bricks | settle after the pose (s) | fine block read ms p50 / p95 |
+|---|---|---|---|---|---|---|
+| low off | 110 / 121 / 0 | 1,040 / 17,991 | 77–92 | — | 8.4–11.2 | — |
+| low on | 83 / 0 / 0 | 1,163 / 21,244 | 92 | 100 / 39, 445–776, 11.3–16.3 k | 4.2–7.1 | 2.6 / 9.4–11 |
+| medium off | 302 / 111 / 0 | 2,600 / 43,698 | 164–202 | — | 14.3–19.6 | — |
+| medium on | 193 / 0 / 0 | 3,165 / 54,188 | 202–249 | 575 / 18, 1,740–2,474, 32–43 k | 12.9–21.3 | 2.3 / 11–13 |
+
+Build cost: at most 4 blocks started a frame (the cell budget lets one level-1 block, 949 k cells, or a few level-0 ones),
+the encode 0.1 ms a build on the page, a block's build in the atlas 17–88 ms after it arrives at low (p50), 50–960 ms at
+medium while 1.7–2.5 k fill; the blocks' read on the world's thread 2–3 ms p50, 9–13 ms p95 a node. GPU ms a build not
+resolved (timestamps are not usable at the cap; the meter was not run with builds held going: the comparison slice's).
+Atlas: fine bricks add 11–16 k bricks at low (~40–60 MiB of atlas at 3.6 KiB a brick; far GPU 77–92 → 92 MiB, the atlas
+growing in steps) and 32–43 k at medium (~110–150 MiB; far GPU 164–202 → 202–249 MiB), plus the build's slot buffers
+16 MiB; under the 384 MiB budget at both. The orbit fill from a cold start did not settle by the bench's rule in either
+mode (its key now holds the near counts, which move in an orbit); the settle after each pose is the fill measure here.
+
+**Travel at speed, low 150 m/s, fine on** (export `voxel-slice@r874`, 1 round 07:10, `exp-low-150-fine.json`,
+`travel/*after*.png`): longest frame 45.1 ms (46d.24d 40.4–44.0), 0 over 100 ms, 1.8 missed a minute; ground solid 0.03 s;
+**full detail 3.86 s (4.65–4.76), nothing pending 3.89 s (8.40–8.56)**: level 0 settles last, the far field with it; no
+level-1 refill (none is drawn); 0 falls, 0 hole frames. The < 2 s detail target is still missed, now by the level-0 ring
+alone.
+
+**Looked at.** *town-west (D593's back row), low:* off, the houses past the detail ring are the level-1 meshes, textured
+(planks, plaster, window rows); on, they are fine bricks: every house keeps its block, gable and roof slope, the roof's
+0.5–1 m steps visible as a serrated ridge, no blob anywhere, but flat far-palette colours: no texture, no window rows, no
+kit pieces (fences, frames). So the hand-off at the detail ring is a texture
+and detail line, not a silhouette change: textured houses with windows in front, flat-coloured clean blocks behind, the
+ground's tiled grass turning to flat green there. Medium: the same with the line farther out. *near-valley / near-border:*
+the same slopes and channel; on, the gravel bed past the ring is a flat grey patch where off showed its tiled stones, and
+the grass slopes past ~70 m carry a fine regular dimple pattern (the fine field's 0.5–1 m cell steps lit), faint at medium.
+*Level 1 → 2 boundary:* not seen as a line in these poses (the 2 m far bricks begin past 150 m on low's slopes, colours and
+slopes continuous; no crack, no skirt visible). *Holes, cracks, z-fighting against the near cover:* none seen in these
+stills. The orbit strips (`shots/strip*-<q>-<tag>.png`) were saved but not looked at frame by frame: shimmer and pop
+unverified. *Stop strip (150 m/s):* blocky but complete
+terraces at 0.5–4 s, detail in by 4 s. *Unverified:* motion and shimmer, medium/high on their hardware, an edit past the
+ring in Play (vitest and the page e2e only), WebGL 2 with the switch (D624).
+
+**For 46d.25b:** the texture line at the hand-off (the far palette's flat colour against the near's tiled sets: D613's
+cause too) is the first thing to judge; then the headroom meter with builds going (GPU ms a build), medium's fill
+(2.5 k fine nodes, latency to 1 s), 60 m/s and medium 150, the load ring shrunk toward the fine reach, memory.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4416,6 +4484,20 @@ the final table, Iris Xe, WebGPU, at the cap, alone on the host, 2 rounds 04:21�
   that went down to lower real ground is counted apart ("onto lower ground"), the old count kept beside it.
 - 2026-11-12 (46d.24d): D618 won't fix (sections at the load ring's edge blocked on neighbours outside it: no work, not
   pending). The < 2 s full-detail target stays with 46d.25 (the level-1 refill bounds the mesh rings' settle).
+- 2026-11-12 (46d.25a, default chosen, owner to confirm): **fine bricks are the far tree's levels 0–1**, opened by its
+  own selection where their chunks are resident and the near field does not draw them whole, built on the page's
+  WebGPU device from the chunks' cell blocks (the CPU build's block, 16 bits a cell), never stored; levels 2+ stay the
+  far cache's (no level with two builders). Off by default; `?fineBricks=1`, `setFar({ fine })`, world setting
+  `fineBricks`; not a quality-level field until the comparison keeps it.
+- 2026-11-12 (46d.25a, default chosen, owner to confirm): **with fine bricks the near field draws only its level-0
+  ring**, ending at that ring (no stand-in reach past it); levels 1–2 are not drawn (the node holding the focus stays
+  derived); the mesh rings, downsample and seams stay in the code.
+- 2026-11-12 (46d.25a, default chosen, owner to confirm): **build budget**: 4 build slots (~4 MiB each), 1 M cells of
+  blocks started a frame (at least one), 8 MiB of blocks a far event, 4 ms of block reading an update on the world's
+  thread; a fine node foreseen at ~58 KB in the far GPU budget.
+- 2026-11-12 (46d.25a, default chosen, owner to confirm): **the GPU build matches the CPU build up to 32-bit rounding**
+  (distance bytes ±1 at ties, occlusion ±1, a look vote over at most 8 words a sample, a sample with no shown cell
+  taking its brick's nearest earlier look); checked in the browser against `farBricksFromBlock` on the same blocks.
 
 ## 10. Open questions for the owner
 
