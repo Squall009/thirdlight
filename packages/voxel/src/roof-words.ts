@@ -313,6 +313,24 @@ export function roofAlong(k: number, iu: number, iv: number): number {
   return k === 0 ? iu : k === 1 ? iv : k === 2 ? 4 - iu : 4 - iv;
 }
 
+/**
+ * A plane cell's top at sample (iu, iv) (quarter cells across it, 0 … 4), in quarter cells above its voxel's top: the
+ * lowest of its directions' planes (a ridge, a hip, an apex), or the highest where they meet concave (a valley). The
+ * roof mesher draws this surface; the far field's fine bricks take their roofs' distance from it.
+ */
+export function roofTopAt(word: number, iu: number, iv: number): number {
+  const dirs = word & ROOF_WORD.dirs;
+  const shallow = (word & ROOF_WORD.shallow) !== 0;
+  const concave = (word & ROOF_WORD.concave) !== 0;
+  let h = concave ? -Infinity : Infinity;
+  for (let k = 0; k < 4; k++) {
+    if (((dirs >>> k) & 1) === 0) continue;
+    const at = roofPlaneAt(shallow, (word >>> (ROOF_WORD.phaseShift + k)) & 1, roofAlong(k, iu, iv));
+    h = concave ? Math.max(h, at) : Math.min(h, at);
+  }
+  return h;
+}
+
 /** The directions of a 1:2 reading that never lie under (over, concave) another of its planes anywhere in the cell. */
 function undominated(dirs: number, phases: number, concave: boolean): number {
   let keep = 0;
@@ -494,6 +512,12 @@ let probeValues: Uint32Array = new Uint32Array(0);
 let probeCell = 0;
 let probeSide = 0;
 const neighbourhoodProbe: RoofProbe = (dx, dy, dz) => roofValue(probeValues[probeCell + (dx * probeSide + dz) * probeSide + dy]!);
+
+/** Whether a cell of value `v` is a roof cell the roof mesher reads: role roof, drawn whole by `table`'s stages (null: the engine's). */
+export function isRoofCellValue(v: number, table: PieceTable | null = null): boolean {
+  useDamage(table, true);
+  return roofValue(v);
+}
 
 /** Sets how the predicates read damage: `table`'s kits' stages (null: the engine's), or none drawn. */
 function useDamage(table: PieceTable | null, drawn: boolean): void {

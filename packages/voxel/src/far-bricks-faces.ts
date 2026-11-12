@@ -31,7 +31,10 @@ import { farBrickOcclusion } from './far-bricks-shade';
 import { withFarNeighbourhood, type FarMeshInput } from './far-mesh';
 import type { PaletteStore } from './palette-store';
 import { SHADER_CONSTRUCTION_BIT } from './derived-shader';
-import { fillLevel, isConstructionRole, MATERIAL_AIR, MATERIAL_BITS, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { fillLevel, isConstructionRole, MATERIAL_AIR, MATERIAL_BITS, recordValue, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { OPEN_ROLE } from './assembly';
+import { FAR_ROOF_COLUMN, FAR_ROOF_READ_PAD, farRoofColumns, farRoofDistance, type FarRoofColumns } from './far-bricks-roofs';
+import { isRoofCellValue } from './roof-words';
 import { regionChunkCodecBytes } from './region-file';
 
 /**
@@ -137,6 +140,11 @@ export interface FarCellBlock {
   readonly solid: Uint8Array;
   /** Solid cells. */
   readonly count: number;
+  /**
+   * Sloped roofs drawn as the roof mesher's planes (far-bricks-roofs.ts; fine blocks only): the columns' plane cells,
+   * which read as air in `density` and `solid` and keep their look word. Null: none.
+   */
+  readonly roofs: FarRoofColumns | null;
 }
 
 /** Finer cells a far node's block reads past the node on each side at a build scale ({@link FarCellBlock.apron}). */
@@ -144,13 +152,17 @@ export function farCellApron(scale: number): number {
   return (DISTANCE_BRICK_BAND_VOXELS + 1) * scale + 1;
 }
 
+/** Scratch of a fine gather: per cell of the block and {@link FAR_ROOF_READ_PAD} round it, bit 0 solid, bit 1 a roof cell. */
+let roofScratch = new Uint8Array(0);
+
 /**
- * The cell block of the node at `node` (its level's coordinates) at `scale`, read a chunk at a time. `construction`:
- * a construction cell's word also carries {@link SHADER_CONSTRUCTION_BIT} (the near surface's grid entry, above the
- * wetness), so a build whose samples keep their words (the fine bricks, textured as the near surface is) knows a wall
- * from the ground of the same material; the far cache's builds leave it out (their words index the far palette).
+ * The cell block of the node at `node` (its level's coordinates) at `scale`, read a chunk at a time. `fine`: the
+ * block of a fine node, textured and shaped as the near surface is: a construction cell's word also carries
+ * {@link SHADER_CONSTRUCTION_BIT} (the near surface's grid entry, above the wetness), so the samples know a wall from
+ * the ground of the same material, and sloped roofs are the roof mesher's planes ({@link FarCellBlock.roofs}). The
+ * far cache's builds leave both out (their words index the far palette; their levels re-lay roofs in the mip).
  */
-export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number, construction = false): FarCellBlock {
+export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number, fine = false): FarCellBlock {
   if (!Number.isInteger(scale) || scale < 1 || scale > FAR_BRICK_SCALE_MAX || (scale & (scale - 1)) !== 0) throw new RangeError(`far bricks: scale ${scale}`);
   const e = g.edge;
   if (e % DISTANCE_BRICK_CELLS !== 0) throw new RangeError(`far bricks: a chunk edge of ${e} cells is not whole bricks`);
@@ -167,30 +179,62 @@ export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: reado
   const sh = g.shift;
   const mask = e - 1;
   const cell = createDenseChunk(g);
+  // A fine block also reads the cells a little past its side for the roofs' reading.
+  const pad = fine ? FAR_ROOF_READ_PAD : 0;
+  const np = n + 2 * pad;
+  if (fine && roofScratch.length < np ** 3) roofScratch = new Uint8Array(np ** 3);
+  const flags = roofScratch;
+  if (fine) flags.fill(0, 0, np ** 3);
+  let anyRoof = false;
   const [bx0, by0, bz0] = base as [number, number, number];
-  for (let cx = bx0 >> sh; cx <= (bx0 + n - 1) >> sh; cx++) for (let cz = bz0 >> sh; cz <= (bz0 + n - 1) >> sh; cz++) for (let cy = by0 >> sh; cy <= (by0 + n - 1) >> sh; cy++) {
+  const [px0, py0, pz0] = [bx0 - pad, by0 - pad, bz0 - pad];
+  for (let cx = px0 >> sh; cx <= (px0 + np - 1) >> sh; cx++) for (let cz = pz0 >> sh; cz <= (pz0 + np - 1) >> sh; cz++) for (let cy = py0 >> sh; cy <= (py0 + np - 1) >> sh; cy++) {
     if (!chunkCells(cx, cy, cz, cell)) continue;
     const { material, role, shape, wetness } = cell;
-    const x1 = Math.min(bx0 + n, (cx + 1) * e), y1 = Math.min(by0 + n, (cy + 1) * e), z1 = Math.min(bz0 + n, (cz + 1) * e);
-    const y0 = Math.max(by0, cy * e);
-    for (let x = Math.max(bx0, cx * e); x < x1; x++) for (let z = Math.max(bz0, cz * e); z < z1; z++) {
+    const x1 = Math.min(px0 + np, (cx + 1) * e), y1 = Math.min(py0 + np, (cy + 1) * e), z1 = Math.min(pz0 + np, (cz + 1) * e);
+    const y0 = Math.max(py0, cy * e);
+    for (let x = Math.max(px0, cx * e); x < x1; x++) for (let z = Math.max(pz0, cz * e); z < z1; z++) {
       const column = (((x & mask) << sh) | (z & mask)) << sh;
+      const inXZ = x >= bx0 && x < bx0 + n && z >= bz0 && z < bz0 + n;
       const row = (z - bz0) * n2 + (x - bx0);
       for (let y = y0; y < y1; y++) {
         const li = column | (y & mask);
         const m = material[li]!;
         const r = role[li]!;
         if (m === MATERIAL_AIR || r === VOXEL_ROLE.liquid) continue;
+        const fill = fillLevel(r, shape[li]!);
+        if (fine) {
+          const f = ((z - pz0) * np + (y - py0)) * np + (x - px0);
+          const v = recordValue(m, r, shape[li]!, wetness[li]!);
+          flags[f] = (OPEN_ROLE[r] !== 1 && fill * 2 >= SHAPE_FULL ? 1 : 0) | (r === VOXEL_ROLE.roof && isRoofCellValue(v) ? 2 : 0);
+          if (r === VOXEL_ROLE.roof) anyRoof = true;
+        }
+        if (!inXZ || y < by0 || y >= by0 + n) continue;
         const i = row + (y - by0) * n;
-        density[i] = fillLevel(r, shape[li]!) / SHAPE_FULL;
-        word[i] = m | (wetness[li]! << MATERIAL_BITS) | (construction && isConstructionRole(r) ? SHADER_CONSTRUCTION_BIT : 0);
+        density[i] = fill / SHAPE_FULL;
+        if (density[i] === 0) continue;
+        word[i] = m | (wetness[li]! << MATERIAL_BITS) | (fine && isConstructionRole(r) ? SHADER_CONSTRUCTION_BIT : 0);
         if (density[i]! < 0.5) continue;
         solid[i] = 1;
         count++;
       }
     }
   }
-  return { n, apron: A, scale: S, density, word, solid, count };
+  let roofs: FarRoofColumns | null = null;
+  if (anyRoof) {
+    const at = (x: number, y: number, z: number): number => flags[((z + pad) * np + y + pad) * np + x + pad]!;
+    roofs = farRoofColumns(n, (x, y, z) => (at(x, y, z) & 2) !== 0, (x, y, z) => (at(x, y, z) & 1) !== 0);
+    // A column's plane cell leaves the cell field (the roofs' own field draws it) and keeps its word for the looks.
+    if (roofs !== null) for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
+      const c = roofs[z * n + x]!;
+      if (c === 0) continue;
+      const i = (z * n + (c & FAR_ROOF_COLUMN.yMask) - 1) * n + x;
+      density[i] = 0;
+      if (solid[i] === 1) count--;
+      solid[i] = 0;
+    }
+  }
+  return { n, apron: A, scale: S, density, word, solid, count, roofs };
 }
 
 /** {@link farBricksFromFaces} from cells read a chunk at a time. */
@@ -203,21 +247,24 @@ export function farBricksFromBlock(g: ChunkGrid, block: FarCellBlock): FarBricks
   const e = g.edge;
   const side = e / DISTANCE_BRICK_CELLS;
   const band = DISTANCE_BRICK_BAND_VOXELS;
-  const { n, apron: A, scale: S, density, word, solid, count } = block;
+  const { n, apron: A, scale: S, density, word, solid, count, roofs } = block;
   const n2 = n * n;
   const m = n + 1;
   const empty = (fill: number): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(fill), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0), bounds: new Uint8Array(0) });
-  if (count === 0) return empty(DISTANCE_BRICK_OUTSIDE);
+  if (count === 0 && roofs === null) return empty(DISTANCE_BRICK_OUTSIDE);
   if (count === solid.length) return empty(DISTANCE_BRICK_INSIDE);
   const { toSolid, toAir } = spanDistances(density, n, S, A % S);
-  // Cells by how they show: 2 a top (air above; a thin top cell too, which is not solid but is what the ground shows,
-  // while the solid cell under it is not a top), 1 a solid cell with a non-solid cell at a side or below (a riser, a
-  // wall, an underside), 0 hidden or air.
+  // Cells by how they show: 2 a top (nothing above; a thin top cell too, which is not solid but is what the ground
+  // shows, while the solid cell under it is not a top; a roof's plane cell, out of the field but what the roof shows),
+  // 1 a solid cell with a non-solid cell at a side or below (a riser, a wall, an underside), 0 hidden or air.
   const shown = new Uint8Array(n2 * n);
   for (let z = 1; z < n - 1; z++) for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
     const i = (z * n + y) * n + x;
-    if (density[i] === 0) continue;
-    if (density[i + n] === 0) shown[i] = 2;
+    if (density[i] === 0) {
+      if (word[i] !== 0) shown[i] = 2;
+      continue;
+    }
+    if (density[i + n] === 0 && word[i + n] === 0) shown[i] = 2;
     else if (solid[i] === 1 && (solid[i + n] === 0 || solid[i - n] === 0 || solid[i + 1] === 0 || solid[i - 1] === 0 || solid[i + n2] === 0 || solid[i - n2] === 0)) shown[i] = 1;
   }
   /**
@@ -239,9 +286,13 @@ export function farBricksFromBlock(g: ChunkGrid, block: FarCellBlock): FarBricks
         sum += d;
         if (d > 0 && d < 1) whole = false;
       }
-      if (whole) return (0.5 - sum / 8) / S;
+      if (whole) {
+        const d = (0.5 - sum / 8) / S;
+        return roofs === null ? d : Math.min(d, farRoofDistance(roofs, n, cx * S + A, cy * S + A, cz * S + A, S) / S);
+      }
     }
-    return (out > 0 ? out : -inside) / S;
+    const d = (out > 0 ? out : -inside) / S;
+    return roofs === null ? d : Math.min(d, farRoofDistance(roofs, n, cx * S + A, cy * S + A, cz * S + A, S) / S);
   };
   const words: number[] = [];
   const weights: number[] = [];

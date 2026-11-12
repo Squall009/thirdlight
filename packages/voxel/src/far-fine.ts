@@ -30,6 +30,7 @@ import { VOXEL_SIZE_M, type ChunkGrid } from './coords';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import { FAR_BRICK_BAKED_BYTES, FAR_BRICK_TABLE_GPU_BYTES } from './far-bricks-shade';
 import { farCellApron, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
+import type { FarRoofColumns } from './far-bricks-roofs';
 import { FAR_MIN_LEVEL, type FarNodeIndex } from './far-tree';
 import { SHAPE_FULL } from './record';
 import { mipChildren, type MipNode } from './voxel-mips';
@@ -96,6 +97,8 @@ export interface FarFineCells {
   readonly cells: Uint16Array;
   /** The block's look words (material | wetness << 12, construction cells | `SHADER_CONSTRUCTION_BIT`), first seen first. */
   readonly words: Uint16Array;
+  /** Its sloped roofs' column table (far-bricks-roofs.ts; a plane cell is a fill of 0 with its word); null: none. */
+  readonly roofs: FarRoofColumns | null;
 }
 
 /** Look words a packed block can name (12 bits). */
@@ -103,7 +106,7 @@ const FINE_WORDS_MAX = 1 << 12;
 
 /** Bytes a fine block holds on the wire. */
 export function farFineBytes(f: FarFineCells): number {
-  return f.cells.byteLength + f.words.byteLength;
+  return f.cells.byteLength + f.words.byteLength + (f.roofs?.byteLength ?? 0);
 }
 
 /**
@@ -111,14 +114,14 @@ export function farFineBytes(f: FarFineCells): number {
  * solid cell, or nothing but solid ones: the CPU build's empty node).
  */
 export function packFarFine(b: FarCellBlock): FarFineCells | null {
-  if (b.count === 0 || b.count === b.solid.length) return null;
+  if ((b.count === 0 && b.roofs === null) || b.count === b.solid.length) return null;
   const cells = new Uint16Array(b.density.length);
   const words: number[] = [0];
   const place = new Map<number, number>([[0, 0]]);
   for (let i = 0; i < cells.length; i++) {
     const d = b.density[i]!;
-    if (d === 0) continue;
     const w = b.word[i]!;
+    if (d === 0 && w === 0) continue;
     let k = place.get(w);
     if (k === undefined) {
       if (words.length >= FINE_WORDS_MAX) throw new RangeError(`far fine block: more than ${FINE_WORDS_MAX} look words`);
@@ -128,7 +131,7 @@ export function packFarFine(b: FarCellBlock): FarFineCells | null {
     }
     cells[i] = (k << 4) | Math.round(d * SHAPE_FULL);
   }
-  return { scale: b.scale, n: b.n, cells, words: Uint16Array.from(words) };
+  return { scale: b.scale, n: b.n, cells, words: Uint16Array.from(words), roofs: b.roofs };
 }
 
 /** The packed block back to the CPU build's (the check of a GPU build against the CPU one reads the same cells). */
@@ -141,15 +144,15 @@ export function unpackFarFine(f: FarFineCells): FarCellBlock {
   for (let i = 0; i < n3; i++) {
     const c = f.cells[i]!;
     const fill = c & 15;
+    word[i] = f.words[c >> 4]!;
     if (fill === 0) continue;
     density[i] = fill / SHAPE_FULL;
-    word[i] = f.words[c >> 4]!;
     if (density[i]! >= 0.5) {
       solid[i] = 1;
       count++;
     }
   }
-  return { n: f.n, apron: farCellApron(f.scale), scale: f.scale, density, word, solid, count };
+  return { n: f.n, apron: farCellApron(f.scale), scale: f.scale, density, word, solid, count, roofs: f.roofs };
 }
 
 /** The chunks a fine node's block reads (its own and one round them: the apron is under a chunk deep), min and max inclusive. */

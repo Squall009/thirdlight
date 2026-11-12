@@ -709,7 +709,7 @@ interface FineState {
     problem: string | null;
     drawnNodes: number;
     fine: { on: boolean; made: number; edits: number; drawn: number[] };
-    fineBuild: { built: number; bricks: number; pending: number; held: number; drawn: number[]; checks: Array<{ node: string; sameBricks: boolean; bricks: number; samples: number; distanceDiffer: number; distanceMax: number; boundsDiffer: number; lookDiffer: number; occlusionDiffer: number; occlusionMax: number }>; texture: string | null; fadeM: [number, number] | null } | null;
+    fineBuild: { built: number; bricks: number; pending: number; held: number; drawn: number[]; checks: Array<{ node: string; sameBricks: boolean; bricks: number; roofs: number; samples: number; distanceDiffer: number; distanceMax: number; boundsDiffer: number; lookDiffer: number; occlusionDiffer: number; occlusionMax: number }>; texture: string | null; fadeM: [number, number] | null } | null;
   };
 }
 
@@ -788,6 +788,28 @@ async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: n
   expect(solid, 'a fine node over the dig').toMatchObject({ inside: false });
   expect(solid!.level).toBeLessThan(2);
   expect(changedPixels(before, await shot(page)), 'a dig drawn by fine bricks').toBeGreaterThan(300);
+  // A sloped roof past the detail ring (a 45° gable of roof cells, one a column, laid at run time beside the pit): the
+  // nodes over it are built again, their GPU builds checked against the CPU build (the roof mesher's planes in both),
+  // and the far solid there is the roof's slab, not the stair: a point above a stair cell and under the plane is inside.
+  const [gx, gz] = [px + 12, pz - 4];
+  const gy = (await hook<number | null>(page, 'surfaceAt', gx + 4, gz + 4, oy + 40, oy - 40))! + 6;
+  const roof: number[] = [];
+  for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) roof.push(gx + x, gy + Math.min(z + 1, 8 - z), gz + z);
+  expect(await hook<number | null>(page, 'levelAt', gx, gy + 1, gz), 'the roof is not drawn by the near field').toBeNull();
+  await hook(page, 'checkFine', 12);
+  await hook(page, 'localEdit', { v: 2, grid: 0, kind: 'set', cells: roof, voxel: { material: MAT.stone, role: VOXEL_ROLE.roof, wetness: 0, shape: 15 } });
+  const roofed = await built();
+  const roofChecks = roofed.far.fineBuild!.checks.filter((c) => c.roofs > 0);
+  console.log(`fine roof checks: ${JSON.stringify(roofChecks)}`);
+  expect(roofChecks.length, 'fine builds over the roof checked').toBeGreaterThan(0);
+  for (const c of roofChecks) {
+    expect(c.sameBricks, c.node).toBe(true);
+    expect(c.distanceMax, c.node).toBeLessThanOrEqual(1);
+    expect(c.lookDiffer / c.samples, c.node).toBeLessThan(0.02);
+  }
+  // Row 1 of the gable: its stair cell spans gy + 2 … gy + 3, its plane rises from gy + 3 to gy + 4 across the row.
+  expect(await hook<{ level: number; inside: boolean } | null>(page, 'farSolidAt', gx + 4.5, gy + 3.5, gz + 1.9), 'under the roof plane, over its stair').toMatchObject({ inside: true });
+  expect(await hook<{ level: number; inside: boolean } | null>(page, 'farSolidAt', gx + 4.5, gy + 4.6, gz + 1.5), 'over the roof plane').toMatchObject({ inside: false });
   // Off, at the first view again: the near field's levels 1 and 2 come back, the far field's level 2 past them.
   await hook(page, 'look', ox, oy + 3, oz + 2, yaw, 0.18, 30);
   await hook(page, 'setFar', { fine: false });

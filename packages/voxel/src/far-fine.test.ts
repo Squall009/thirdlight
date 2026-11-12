@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { chunkGrid, VOXEL_SIZE_M, type ChunkCoord } from './coords';
 import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, sampleOfDistance } from './distance-brick-format';
 import { farBricksFromBlock, farBricksFromFaces, gatherFarCells, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
+import { farRoofDistance } from './far-bricks-roofs';
 import { FAR_VIEW_PIXELS_PER_RADIAN, FarField, type FarEvent, type FarNodeDraw, type FarNodeSource } from './far-field';
 import { farFineChunks, farFineDirty, farFineFade, FarFineIndex, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineHost } from './far-fine';
 import { SHADER_CONSTRUCTION_BIT } from './derived-shader';
@@ -26,11 +27,12 @@ const grid = chunkGrid(32);
 const ROCK = 7;
 const GRASS = 9;
 const WALL = 12;
+const TILE = 14;
 /** The test world's chunks: 8 × 3 × 8 (128 m square, 48 m tall). */
 const SPAN = 8;
 const HEIGHT = 3;
 
-/** Hills of whole and part-full cells, a steep scarp and a house with a doorway and a part-full roof. */
+/** Hills of whole and part-full cells, a steep scarp, a house with a doorway and a part-full roof, and a 45° gable roof. */
 function testWorld(): PaletteStore {
   const s = createWorldStore(grid);
   const e = grid.edge;
@@ -47,6 +49,8 @@ function testWorld(): PaletteStore {
     if (shell && !door) s.setVoxel(x, y, z, { material: WALL, role: VOXEL_ROLE.wall, shape: SHAPE_FULL, wetness: 0 });
   }
   for (let x = 99; x < 117; x++) for (let z = 59; z < 73; z++) s.setVoxel(x, 46, z, { material: WALL, role: VOXEL_ROLE.terrain, shape: 9, wetness: 0 });
+  // A 45° gable of roof cells (one a column, the ridge along x): drawn as the roof mesher's planes.
+  for (let x = 102; x < 116; x++) for (let z = 76; z < 90; z++) s.setVoxel(x, 48 + Math.min(z - 76 + 1, 90 - z), z, { material: TILE, role: VOXEL_ROLE.roof, shape: SHAPE_FULL, wetness: 0 });
   return s;
 }
 
@@ -130,6 +134,8 @@ function windowedField(b: FarCellBlock): Float64Array {
       }
       if (whole) v = (0.5 - sum / 8) / S;
     }
+    // The roofs' slabs join by the least (the GPU's roofDistance is this function in 32 bits).
+    if (b.roofs !== null) v = Math.min(v, farRoofDistance(b.roofs, n, cx * S + A, cy * S + A, Z, S) / S);
     out[(cz * C + cy) * C + cx] = v;
   }
   return out;
@@ -172,6 +178,18 @@ describe('fine far bricks: the block', () => {
       expect(sameBytes(a.looks.buffer, b.looks.buffer)).toBe(true);
       expect(a.samples.length / DISTANCE_BRICK_SAMPLES, mipNodeKey(node)).toBeGreaterThan(0);
     }
+    // The gable's block carries its roofs' column table there and back; its plane cells read as air with their word.
+    const roofed = gatherFarCells(grid, cellsOf(world), [3, 1, 2], 1, true);
+    expect(roofed.roofs).not.toBeNull();
+    const back = unpackFarFine(packFarFine(roofed)!);
+    expect(sameBytes(back.roofs!.buffer, roofed.roofs!.buffer)).toBe(true);
+    let planes = 0;
+    for (let i = 0; i < roofed.word.length; i++) if (roofed.density[i] === 0 && roofed.word[i] !== 0) {
+      planes++;
+      expect(back.word[i]).toBe(roofed.word[i]);
+    }
+    expect(planes).toBe(14 * 14);
+    expect(sameBytes(farBricksFromBlock(grid, back).samples, farBricksFromBlock(grid, roofed).samples)).toBe(true);
     // A level-0 node is built from its own cells as the CPU far build would from a store.
     const own = farBricksFromBlock(grid, gatherFarCells(grid, cellsOf(world), [3, 1, 2], 1));
     const store = farBricksFromFaces(grid, world, [3, 1, 2], 1);
@@ -220,10 +238,10 @@ describe('fine far bricks: the block', () => {
     }
   });
 
-  it("gives the CPU build's corner bytes with the GPU build's windowed passes (scale 1 and 2, terrain, scarp, house)", () => {
+  it("gives the CPU build's corner bytes with the GPU build's windowed passes (scale 1 and 2, terrain, scarp, house, a sloped roof)", () => {
     let corners = 0;
     for (const node of [{ level: 0, nx: 3, ny: 1, nz: 2 }, { level: 0, nx: 5, ny: 1, nz: 3 }, { level: 1, nx: 1, ny: 0, nz: 1 }, { level: 1, nx: 2, ny: 0, nz: 1 }, { level: 1, nx: 3, ny: 0, nz: 1 }] as const) {
-      const block = gatherFarCells(grid, cellsOf(world), [node.nx, node.ny, node.nz], farFineScale(node.level));
+      const block = gatherFarCells(grid, cellsOf(world), [node.nx, node.ny, node.nz], farFineScale(node.level), true);
       const cpu = farBricksFromBlock(grid, block);
       const field = windowedField(block);
       const C = DISTANCE_BRICK_CELLS;
@@ -328,7 +346,7 @@ describe('fine far bricks: the far field', () => {
     // Each fine node's block is the store's, packed.
     for (const d of fine) {
       expect(d.fine, mipNodeKey(d)).toBeDefined();
-      const block = gatherFarCells(grid, host(store).cells, [d.nx, d.ny, d.nz], farFineScale(d.level));
+      const block = gatherFarCells(grid, host(store).cells, [d.nx, d.ny, d.nz], farFineScale(d.level), true);
       expect(sameBytes(unpackFarFine(d.fine!).density.buffer, block.density.buffer), mipNodeKey(d)).toBe(true);
     }
     expect(far.metrics().fine.ms.n).toBeGreaterThan(0);
@@ -346,7 +364,7 @@ describe('fine far bricks: the far field', () => {
     const again = events.slice(before).flatMap((e) => e.added);
     const sent = again.find((a) => mipNodeKey(a) === mipNodeKey(target));
     expect(sent?.fine, 'the edited node sent again').toBeDefined();
-    const edited = gatherFarCells(grid, host(store).cells, [target.nx, target.ny, target.nz], 1);
+    const edited = gatherFarCells(grid, host(store).cells, [target.nx, target.ny, target.nz], 1, true);
     expect(sameBytes(unpackFarFine(sent!.fine!).density.buffer, edited.density.buffer)).toBe(true);
     for (const a of again) expect(isFarFine(a), mipNodeKey(a)).toBe(true);
     // Off: the fine nodes close back into the kept level 2.

@@ -62,7 +62,7 @@
  */
 import type { Neighbourhood } from './assembly';
 import { POSITION_STEPS_PER_CELL, snorm8, SURFACE_OWNER_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, writeSurfaceExtras, type SurfaceBuffer } from './derived-mesh';
-import { ROOF_DX, ROOF_DZ, roofAlong, roofPlaneAt, ROOF_WORD } from './roof-words';
+import { ROOF_DX, ROOF_DZ, roofTopAt, ROOF_WORD } from './roof-words';
 
 
 const DX = ROOF_DX;
@@ -88,16 +88,7 @@ const Q = 4;
 
 /** Height (quarter cells) of a plane cell's top at sample (iu, iv) of 0, 2, 4 across it, its voxel at local y. */
 function topAt(w: number, y: number, iu: number, iv: number): number {
-  const dirs = w & ROOF_WORD.dirs;
-  const shallow = (w & ROOF_WORD.shallow) !== 0;
-  const concave = (w & ROOF_WORD.concave) !== 0;
-  let h = concave ? -Infinity : Infinity;
-  for (let k = 0; k < 4; k++) {
-    if (((dirs >>> k) & 1) === 0) continue;
-    const at = roofPlaneAt(shallow, (w >>> (ROOF_WORD.phaseShift + k)) & 1, roofAlong(k, iu, iv));
-    h = concave ? Math.max(h, at) : Math.min(h, at);
-  }
-  return Q * (y + 1) + h;
+  return Q * (y + 1) + roofTopAt(w, iu, iv);
 }
 
 /** The floor a supported cell closes down onto (quarter cells): its body's top. */

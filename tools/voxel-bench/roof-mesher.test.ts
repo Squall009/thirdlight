@@ -55,6 +55,16 @@ import {
   SHAPE_FULL,
   type PieceKitSource,
   type PieceTable,
+  BRICK_HIT_VOXELS,
+  DISTANCE_BRICK_BAND_VOXELS,
+  DISTANCE_BRICK_CELLS,
+  DISTANCE_BRICK_INSIDE,
+  DISTANCE_BRICK_OUTSIDE,
+  farBricksFromBlock,
+  farBrickSample,
+  gatherFarCells,
+  type ChunkCells,
+  type FarBricks,
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
@@ -1176,6 +1186,143 @@ describe('the roof over its walls', () => {
       // With the fill the gable is closed up to the slope (as 'closes the slab down onto the walls under it' checks).
       const closed = rampMesh(s, [r], 'base', false, FILL);
       for (let z = z0 + 0.25; z < z0 + d; z += 0.5) for (let y = yb + 0.25; y < roofTop(r, x0, z) - 1.05; y += 0.25) expect(rayHit(closed, [x0 - 3, y, z], [1, 0, 0]), `${r.name} filled gable at y ${y}, z ${z}`).toBeCloseTo(3, 6);
+    }
+  });
+});
+
+/** The far field of fine bricks (levels 0 and 1, `scale` 1 or 2) over a store, as the march reads it: world cells in, finer cells out. */
+function fineFarField(s: PaletteStore, scale: number): (x: number, y: number, z: number) => number {
+  const nodes = new Map<string, FarBricks>();
+  const cells: ChunkCells = (cx, cy, cz, out) => cx >= 0 && cy >= 0 && cz >= 0 && s.exportChunk(cx, cy, cz, out);
+  const F = 32 * scale;
+  const C = DISTANCE_BRICK_CELLS;
+  return (x, y, z) => {
+    const node = [x, y, z].map((c) => Math.floor(c / F)) as [number, number, number];
+    const key = node.join(',');
+    let b = nodes.get(key);
+    if (b === undefined) nodes.set(key, (b = farBricksFromBlock(grid, gatherFarCells(grid, cells, node, scale, true))));
+    const p = [x, y, z].map((c, a) => (c - node[a]! * F) / scale);
+    const i = p.map((c) => Math.min(b!.side - 1, Math.max(0, Math.floor(c / C))));
+    const k = b.bricks[i[0]! + b.side * (i[1]! + b.side * i[2]!)]!;
+    if (k === DISTANCE_BRICK_OUTSIDE) return DISTANCE_BRICK_BAND_VOXELS * scale;
+    if (k === DISTANCE_BRICK_INSIDE) return -DISTANCE_BRICK_BAND_VOXELS * scale;
+    return farBrickSample(b.samples, k, [p[0]! - i[0]! * C, p[1]! - i[1]! * C, p[2]! - i[2]! * C]) * scale;
+  };
+}
+
+/** A vertical ray down onto a mesh's triangles (cells): the first one's height and its unit normal facing up; null: none. */
+function hitDown(m: Mesh, x: number, z: number): { y: number; n: number[] } | null {
+  let best: { y: number; n: number[] } | null = null;
+  for (let t = 0; t < m.tris.length; t += 3) {
+    const p = [0, 1, 2].map((k) => [0, 1, 2].map((a) => m.pos[3 * m.tris[t + k]! + a]! / STEPS));
+    const [a, b, c] = p as [number[], number[], number[]];
+    // Barycentrics in the xz plane.
+    const det = (b[0]! - a[0]!) * (c[2]! - a[2]!) - (c[0]! - a[0]!) * (b[2]! - a[2]!);
+    if (Math.abs(det) < 1e-12) continue;
+    const u = ((x - a[0]!) * (c[2]! - a[2]!) - (c[0]! - a[0]!) * (z - a[2]!)) / det;
+    const v = ((b[0]! - a[0]!) * (z - a[2]!) - (x - a[0]!) * (b[2]! - a[2]!)) / det;
+    if (u < 0 || v < 0 || u + v > 1) continue;
+    const y = a[1]! + u * (b[1]! - a[1]!) + v * (c[1]! - a[1]!);
+    if (best !== null && y <= best.y) continue;
+    const e1 = [0, 1, 2].map((k) => b[k]! - a[k]!);
+    const e2 = [0, 1, 2].map((k) => c[k]! - a[k]!);
+    const n = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
+    const len = Math.hypot(...n) * (n[1]! < 0 ? -1 : 1);
+    best = { y, n: n.map((q) => q / len) };
+  }
+  return best;
+}
+
+/**
+ * Vertical rays over a roof's footprint (a cell apart, off the cells' corner lines, a quarter cell in from its edge):
+ * the far field's first hit against the roof mesher's planes (metres), and the field's normal there against the
+ * plane's (degrees; rays within a cell of a ridge, hip, valley or edge left out of the normals). `hitCells`: the
+ * march's hit distance (finer cells).
+ */
+function roofAgainstPlanes(field: (x: number, y: number, z: number) => number, mesh: Mesh, r: Roof, hitCells: number): { rays: number; missed: number; meanM: number; maxM: number; angles: number[] } {
+  // Only the roof's own triangles: a ray against every triangle of the world's mesh is most of the test's time.
+  const own: number[] = [];
+  for (let t = 0; t < mesh.tris.length; t += 3) {
+    const xs = [0, 1, 2].map((k) => mesh.pos[3 * mesh.tris[t + k]!]! / STEPS);
+    const zs = [0, 1, 2].map((k) => mesh.pos[3 * mesh.tris[t + k]! + 2]! / STEPS);
+    if (Math.max(...xs) >= r.x0 - 1 && Math.min(...xs) <= r.x0 + r.w + 1 && Math.max(...zs) >= r.z0 - 1 && Math.min(...zs) <= r.z0 + r.d + 1) own.push(mesh.tris[t]!, mesh.tris[t + 1]!, mesh.tris[t + 2]!);
+  }
+  const roofMesh: Mesh = { pos: mesh.pos, tris: own, normals: mesh.normals };
+  const errs: number[] = [];
+  const angles: number[] = [];
+  let missed = 0;
+  for (let x = r.x0 + 0.3; x < r.x0 + r.w - 0.25; x += 1) for (let z = r.z0 + 0.3; z < r.z0 + r.d - 0.25; z += 1) {
+    if (!r.inside(Math.floor(x - r.x0), Math.floor(z - r.z0))) continue;
+    const plane = hitDown(roofMesh, x, z);
+    if (plane === null) continue;
+    const want = plane.y;
+    // Down in steps a little under the hit distance, then halved to the first point under it.
+    let hi = want + 3;
+    let lo = NaN;
+    for (let y = hi; y > want - 3; y -= 0.04) {
+      if (field(x, y, z) < hitCells) {
+        lo = y;
+        break;
+      }
+      hi = y;
+    }
+    if (Number.isNaN(lo)) {
+      missed++;
+      continue;
+    }
+    for (let k = 0; k < 12; k++) {
+      const mid = (lo + hi) / 2;
+      if (field(x, mid, z) < hitCells) lo = mid;
+      else hi = mid;
+    }
+    const hit = (lo + hi) / 2;
+    errs.push(Math.abs(hit - want) * VOXEL_SIZE_M);
+    if (edgeDistance(r, x - r.x0, z - r.z0) < 1) continue;
+    const ridge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => {
+      const q = hitDown(roofMesh, x + dx!, z + dz!);
+      return q === null || Math.hypot(...q.n.map((c, a) => c - plane.n[a]!)) > 1e-3;
+    });
+    if (ridge) continue;
+    const g = [0, 1, 2].map((a) => {
+      const p = [x, hit, z];
+      const q = [x, hit, z];
+      p[a]! += 0.5;
+      q[a]! -= 0.5;
+      return field(p[0]!, p[1]!, p[2]!) - field(q[0]!, q[1]!, q[2]!);
+    });
+    const dot = (plane.n[0]! * g[0]! + plane.n[1]! * g[1]! + plane.n[2]! * g[2]!) / Math.hypot(...g);
+    angles.push((Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI);
+  }
+  const meanM = errs.reduce((a, b) => a + b, 0) / Math.max(1, errs.length);
+  return { rays: errs.length + missed, missed, meanM, maxM: Math.max(0, ...errs), angles };
+}
+
+describe('fine far bricks over the roof mesher', () => {
+  it("draw sloped roofs on the roof mesher's planes at levels 0 and 1 (45° and 1:2): every ray meets the roof, on its plane, lit by its normal", () => {
+    // Bounds. The march stops BRICK_HIT_VOXELS short of the surface (a node cell's 0.05: 1.8 cm at level 0, 3.5 at
+    // level 1, more along a ray down a slope); a ridge between two samples is cut flat (a 45° centre ridge's apex half
+    // a cell up: 0.125 m at level 0, and at level 1 with the 1 m samples up to 0.5 m on an odd ridge, over a third of
+    // a 4.5 m deep gable's rays, so its mean is the cut's share of it). Normals: where
+    // the planes are flat round the ray (ridges, hips, valleys and eaves a cell away left out), the gradient of 8-bit
+    // samples over a cell either way: a few degrees.
+    for (const scale of [1, 2]) {
+      const angles: number[] = [];
+      for (const [world, roofs] of [[roofWorld(), ROOFS], [shallowWorld(), SHALLOW]] as const) {
+        const mesh = rampMesh(world, roofs);
+        const field = fineFarField(world, scale);
+        for (const r of roofs) {
+          const got = roofAgainstPlanes(field, mesh, r, BRICK_HIT_VOXELS * scale);
+          const tag = `level ${scale - 1} ${r.name}: ${got.rays} rays, ${got.missed} missed, ${got.meanM.toFixed(3)} / ${got.maxM.toFixed(3)} m`;
+          expect(got.missed, tag).toBe(0);
+          expect(got.meanM, tag).toBeLessThan(scale === 1 ? 0.05 : 0.15);
+          expect(got.maxM, tag).toBeLessThan(scale === 1 ? 0.2 : 0.6);
+          angles.push(...got.angles);
+        }
+      }
+      angles.sort((a, b) => a - b);
+      const p90 = angles[Math.floor(angles.length * 0.9)]!;
+      console.log(`fine far bricks over roofs, level ${scale - 1}: normal p50 ${angles[angles.length >> 1]!.toFixed(1)}°, p90 ${p90.toFixed(1)}° (${angles.length} rays)`);
+      expect(p90, `level ${scale - 1}`).toBeLessThan(scale === 1 ? 6 : 10);
     }
   });
 });

@@ -277,7 +277,7 @@ export { appendRelief, checkReliefOptions, emptyReliefSurface, groundCreaseRule,
 export { checkReliefRing, DEFAULT_RELIEF_RADIUS_CELLS, RELIEF_BUDGET_SHARE, RELIEF_DRAW_PART, RELIEF_FADE_CELLS, RELIEF_HYSTERESIS_CELLS, RELIEF_FOCUS_STEP_CELLS, RELIEF_PART, RELIEF_RING_SCALES, RELIEF_STEPS, RELIEF_STEPS_BY_TIER, reliefFade, ReliefRing, sectionHalfDiagonal, type ReliefRingSettings, type SectionCoord } from './relief-ring';
 export { StreamRelief, type ReliefDerives, type ReliefEvent } from './stream-relief';
 export { appendSurface, roofSurface } from './roof-mesher';
-export { classifyRoofs, isRoofGapCell, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
+export { classifyRoofs, isRoofCellValue, isRoofGapCell, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, roofTopAt, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
 export {
   cellBit,
   collisionPartBytes,
@@ -429,6 +429,7 @@ export {
 export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
 export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksInside, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks, type FarMarchStart } from './far-bricks';
 export { bakedFarBricks, decodeFarBricks, encodeFarBricks, FAR_BRICKS_BLOB_MAGIC, FAR_BRICKS_BLOB_VERSION, farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
+export { FAR_ROOF_COLUMN, FAR_ROOF_COS_SHALLOW, FAR_ROOF_COS_STEEP, farRoofDistance, farRoofReach, farRoofThickness, type FarRoofColumns } from './far-bricks-roofs';
 export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromBlock, farBricksFromFaces, farCellApron, gatherFarCells, spanDistances, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
 export { FarFineNodes, type FarFineNodesHost } from './far-fine-nodes';
 export { FAR_FINE_COMMIT_BYTES, FAR_FINE_FADE_START_SHARE, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, FAR_FINE_RESELECT_MS, FAR_FINE_TOP_LEVEL, farFineBytes, farFineFade, farFineChunks, farFineDirty, FarFineIndex, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineCells, type FarFineHost } from './far-fine';

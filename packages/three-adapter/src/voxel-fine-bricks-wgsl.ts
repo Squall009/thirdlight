@@ -12,7 +12,9 @@
  *   either way): a nearer span or offset than the band always lies inside
  *   that window, and a corner farther than the band stores the band either
  *   way, so the stored bytes are the same. A corner on the surface of whole
- *   cells is moved by ½ less their mean fill, as the CPU build does.
+ *   cells is moved by ½ less their mean fill, as the CPU build does. A block
+ *   with sloped roofs joins their slabs' distance (the roof mesher's planes,
+ *   far-bricks-roofs.ts) by the least of the two.
  * - **Which bricks** (pass 4). A brick is stored, outside or inside by the
  *   CPU build's rule (its samples' least and greatest, the solid cells it
  *   holds, a surface on its faces), with the cells a ray can hit in.
@@ -33,7 +35,7 @@
  * at a byte's rounding edge may land one byte off; `Math.round` is
  * `floor(x + 0.5)` here (WGSL's `round` takes halves to even).
  */
-import { BRICK_HIT_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SIDE, FAR_BRICK_GRADIENT_MIN, FAR_BRICK_NORMAL_SPAN_CELLS, FAR_BRICK_SKIRT_SLOPE } from '@thirdlight/voxel';
+import { BRICK_HIT_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SIDE, FAR_BRICK_GRADIENT_MIN, FAR_BRICK_NORMAL_SPAN_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_ROOF_COLUMN, FAR_ROOF_COS_SHALLOW, FAR_ROOF_COS_STEEP, farRoofReach, farRoofThickness } from '@thirdlight/voxel';
 
 /** Threads a workgroup of the field and look passes. */
 export const FINE_WORKGROUP = 64;
@@ -87,7 +89,7 @@ struct Params {
   n: u32, A: u32, S: u32, m: u32,
   W: u32, R: u32, xsOff: u32, fieldOff: u32,
   dens: array<vec4<f32>, 4>,
-  colourOff: u32, p1: u32, p2: u32, p3: u32,
+  colourOff: u32, roofsOn: u32, roofReach: u32, roofThick: u32,
 };
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> cells: array<u32>;
@@ -95,6 +97,7 @@ struct Params {
 @group(0) @binding(3) var<storage, read_write> scratch: array<f32>;
 @group(0) @binding(4) var<storage, read_write> bricks: array<u32>;
 @group(0) @binding(5) var<storage, read_write> staged: array<u32>;
+@group(0) @binding(6) var<storage, read> roofs: array<u32>;
 
 const NONE: f32 = 1e12;
 const C: u32 = ${FINE_CORNERS}u;
@@ -110,6 +113,12 @@ const DIST_PER_ROW: u32 = ${FINE_DIST_PER_ROW}u;
 const COLOUR_PER_ROW: u32 = ${FINE_COLOUR_PER_ROW}u;
 const ROWS: u32 = ${FINE_BRICK_ROWS}u;
 const VOTES: u32 = ${FINE_VOTE_WORDS}u;
+const ROOF_CORNER_SHIFT: u32 = ${FAR_ROOF_COLUMN.cornerShift}u;
+const ROOF_CORNER_BITS: u32 = ${FAR_ROOF_COLUMN.cornerBits}u;
+const ROOF_SHALLOW: u32 = ${FAR_ROOF_COLUMN.shallow}u;
+const ROOF_Y: u32 = ${FAR_ROOF_COLUMN.yMask}u;
+const COS_STEEP: f32 = ${FAR_ROOF_COS_STEEP};
+const COS_SHALLOW: f32 = ${FAR_ROOF_COS_SHALLOW};
 
 fn cellAt(i: u32) -> u32 {
   let w = cells[i >> 1u];
@@ -201,6 +210,38 @@ fn xpass(@builtin(global_invocation_id) gid: vec3<u32>) {
   scratch[P.xsOff + ((sel * C + cy) * m + z) * C + cx] = best;
 }
 
+// The roofs' slabs from block corner (X, Y, Z) (finer cells): far-bricks-roofs.ts farRoofDistance.
+fn roofDistance(X: i32, Y: f32, Z: i32) -> f32 {
+  let n = i32(P.n);
+  let R = i32(P.roofReach);
+  let T = f32(P.roofThick);
+  var best = NONE;
+  for (var cz = max(0, Z - R); cz < min(n, Z + R); cz++) {
+    for (var cx = max(0, X - R); cx < min(n, X + R); cx++) {
+      let c = roofs[u32(cz * n + cx)];
+      if (c == 0u) { continue; }
+      let qx = clamp(X, cx, cx + 1);
+      let qz = clamp(Z, cz, cz + 1);
+      let k = u32(qx - cx + 2 * (qz - cz));
+      let h = f32(c & ROOF_Y) + f32((c >> (ROOF_CORNER_SHIFT + ROOF_CORNER_BITS * k)) & 7u) / 4.0;
+      let b = h - T;
+      let ex = f32(X - qx);
+      let ez = f32(Z - qz);
+      var d: f32;
+      if (ex == 0.0 && ez == 0.0) {
+        let cs = select(COS_STEEP, COS_SHALLOW, (c & ROOF_SHALLOW) != 0u);
+        if (Y > h) { d = (Y - h) * cs; } else if (Y < b) { d = (b - Y) * cs; } else { d = -min(h - Y, Y - b) * cs; }
+      } else {
+        var dy = 0.0;
+        if (Y > h) { dy = Y - h; } else if (Y < b) { dy = b - Y; }
+        d = sqrt(ex * ex + ez * ez + dy * dy);
+      }
+      best = min(best, d);
+    }
+  }
+  return best;
+}
+
 // Pass 3: along z, then the corner's signed distance (node cells).
 @compute @workgroup_size(${FINE_WORKGROUP})
 fn zpass(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -237,6 +278,7 @@ fn zpass(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     if (whole) { v = (0.5 - sum / 8.0) / S; }
   }
+  if (P.roofsOn != 0u) { v = min(v, roofDistance(i32(cx * P.S + P.A), f32(cy * P.S + P.A), Z) / S); }
   scratch[P.fieldOff + t] = v;
 }
 
@@ -329,10 +371,11 @@ fn fieldOut(p: vec3<f32>) -> f32 {
   return sampleAt(q) + SLOPE * length(p - q);
 }
 
-// A shown cell's vote: 2 a top, 1 a solid cell beside a non-solid one, 0 hidden or empty.
+// A shown cell's vote: 2 a top (nothing above it; a roof's plane cell, a fill of 0 that keeps its word), 1 a solid cell
+// beside a non-solid one, 0 hidden or empty.
 fn shownAt(i: u32) -> u32 {
-  if (densAt(i) == 0.0) { return 0u; }
-  if (densAt(i + P.n) == 0.0) { return 2u; }
+  if (densAt(i) == 0.0) { return select(0u, 2u, (cellAt(i) >> 4u) != 0u); }
+  if (cellAt(i + P.n) == 0u) { return 2u; }
   if (!solidAt(i)) { return 0u; }
   let n2 = P.n * P.n;
   if (!solidAt(i + P.n) || !solidAt(i - P.n) || !solidAt(i + 1u) || !solidAt(i - 1u) || !solidAt(i + n2) || !solidAt(i - n2)) { return 1u; }
@@ -426,8 +469,8 @@ fn bake(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
 }
 `;
 
-/** The uniform block for a block of `n` cells a side at a build scale (u32 words; densities as floats in place). */
-export function fineParams(n: number, scale: number, apron: number, densities: Float32Array): Uint32Array {
+/** The uniform block for a block of `n` cells a side at a build scale (u32 words; densities as floats in place); `roofs` whether it has a roof column table. */
+export function fineParams(n: number, scale: number, apron: number, densities: Float32Array, roofs = false): Uint32Array {
   const out = new Uint32Array(FINE_PARAM_WORDS);
   const floats = new Float32Array(out.buffer);
   const s = fineScratchFloats(n);
@@ -437,5 +480,6 @@ export function fineParams(n: number, scale: number, apron: number, densities: F
   out.set([n, apron, scale, n + 1, W, R, s.ys, s.ys + s.xs], 0);
   floats.set(densities.subarray(0, 16), 8);
   out[24] = FINE_DIST_WORDS;
+  out.set([roofs ? 1 : 0, farRoofReach(scale), farRoofThickness(scale)], 25);
   return out;
 }

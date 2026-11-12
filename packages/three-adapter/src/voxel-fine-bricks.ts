@@ -5,7 +5,8 @@
  * (voxel-fine-bricks-wgsl.ts), drawn by the far bricks' one march and shade
  * like every other far node. WebGPU only.
  *
- * - **A build.** The block (16 bits a cell) and its look words go up, five
+ * - **A build.** The block (16 bits a cell), its look words and its sloped
+ *   roofs' column table go up, five
  *   dispatches make the corner field, choose the stored bricks and stage
  *   their bytes; the brick list and the staged distances are read back.
  *   Once there, the stored bricks get atlas regions and one copy each puts
@@ -64,6 +65,8 @@ export interface FineBrickCheck {
   readonly node: string;
   readonly sameBricks: boolean;
   readonly bricks: number;
+  /** Columns of the block with a sloped roof drawn as its planes. */
+  readonly roofs: number;
   readonly samples: number;
   readonly distanceDiffer: number;
   readonly distanceMax: number;
@@ -97,6 +100,7 @@ interface Slot {
   readonly params: GpuBuffer;
   readonly cells: GpuBuffer;
   readonly words: GpuBuffer;
+  readonly roofs: GpuBuffer;
   readonly scratch: GpuBuffer;
   readonly meta: GpuBuffer;
   readonly staged: GpuBuffer;
@@ -141,7 +145,7 @@ export class FineBrickBuilder {
     const module = d.createShaderModule({ code: FINE_BRICKS_WGSL, label: 'fine far bricks' });
     const COMPUTE = 4;
     const entry = (binding: number, type: string): Record<string, unknown> => ({ binding, visibility: COMPUTE, buffer: { type } });
-    const group = d.createBindGroupLayout({ label: 'fine far bricks', entries: [entry(0, 'uniform'), entry(1, 'read-only-storage'), entry(2, 'read-only-storage'), entry(3, 'storage'), entry(4, 'storage'), entry(5, 'storage')] });
+    const group = d.createBindGroupLayout({ label: 'fine far bricks', entries: [entry(0, 'uniform'), entry(1, 'read-only-storage'), entry(2, 'read-only-storage'), entry(3, 'storage'), entry(4, 'storage'), entry(5, 'storage'), entry(6, 'read-only-storage')] });
     this.layout = group;
     const layout = d.createPipelineLayout({ bindGroupLayouts: [group] });
     const make = (entryPoint: string): unknown => d.createComputePipeline({ layout, compute: { module, entryPoint }, label: `fine far bricks ${entryPoint}` });
@@ -151,7 +155,7 @@ export class FineBrickBuilder {
   /** GPU bytes the build's buffers hold. */
   get gpuBytes(): number {
     let n = 0;
-    for (const s of this.slots) n += s.params.size + s.cells.size + s.words.size + s.scratch.size + s.meta.size + s.staged.size + s.read.size;
+    for (const s of this.slots) n += s.params.size + s.cells.size + s.words.size + s.roofs.size + s.scratch.size + s.meta.size + s.staged.size + s.read.size;
     return n;
   }
 
@@ -211,12 +215,13 @@ export class FineBrickBuilder {
     const params = buf(FINE_PARAM_WORDS * 4, U.UNIFORM | U.COPY_DST, 'params');
     const cells = buf(SLOT_MAX_N ** 3 * 2, U.STORAGE | U.COPY_DST, 'cells');
     const words = buf(SLOT_MAX_WORDS * 4, U.STORAGE | U.COPY_DST, 'words');
+    const roofs = buf(SLOT_MAX_N ** 2 * 4, U.STORAGE | U.COPY_DST, 'roofs');
     const scratch = buf(fineScratchFloats(SLOT_MAX_N).total * 4, U.STORAGE, 'scratch');
     const meta = buf(META_BYTES, U.STORAGE | U.COPY_SRC, 'bricks');
     const staged = buf(DIST_BYTES + COLOUR_BYTES, U.STORAGE | U.COPY_SRC, 'staged');
     const read = buf(META_BYTES + DIST_BYTES + COLOUR_BYTES, U.MAP_READ | U.COPY_DST, 'read');
-    const bind = d.createBindGroup({ layout: this.layout, entries: [params, cells, words, scratch, meta, staged].map((buffer, binding) => ({ binding, resource: { buffer } })) });
-    const s: Slot = { params, cells, words, scratch, meta, staged, read, bind, busy: false };
+    const bind = d.createBindGroup({ layout: this.layout, entries: [params, cells, words, scratch, meta, staged, roofs].map((buffer, binding) => ({ binding, resource: { buffer } })) });
+    const s: Slot = { params, cells, words, roofs, scratch, meta, staged, read, bind, busy: false };
     this.slots.push(s);
     return s;
   }
@@ -228,7 +233,8 @@ export class FineBrickBuilder {
     const f = job.fine;
     const n = f.n;
     const apron = (n - this.grid.edge * f.scale) / 2;
-    d.queue.writeBuffer(slot.params, 0, fineParams(n, f.scale, apron, DENSITIES));
+    d.queue.writeBuffer(slot.params, 0, fineParams(n, f.scale, apron, DENSITIES, f.roofs !== null));
+    if (f.roofs !== null) d.queue.writeBuffer(slot.roofs, 0, f.roofs);
     // Whole words: a block of an odd cell count is padded by a cell.
     const cells = f.cells.length % 2 === 0 ? f.cells : Uint16Array.from({ length: f.cells.length + 1 }, (_, i) => f.cells[i] ?? 0);
     d.queue.writeBuffer(slot.cells, 0, cells);
@@ -370,7 +376,8 @@ export class FineBrickBuilder {
         occlusionMax = Math.max(occlusionMax, od);
       }
     }
-    const out: FineBrickCheck = { node: mipNodeKey(job.node), sameBricks, bricks: gpu.samples.length / DISTANCE_BRICK_SAMPLES, samples, distanceDiffer, distanceMax, boundsDiffer, lookDiffer, occlusionDiffer, occlusionMax };
+    const roofs = job.fine.roofs === null ? 0 : job.fine.roofs.reduce((n, c) => n + (c !== 0 ? 1 : 0), 0);
+    const out: FineBrickCheck = { node: mipNodeKey(job.node), sameBricks, bricks: gpu.samples.length / DISTANCE_BRICK_SAMPLES, roofs, samples, distanceDiffer, distanceMax, boundsDiffer, lookDiffer, occlusionDiffer, occlusionMax };
     this.checks.push(out);
     if (this.checks.length > 64) this.checks.shift();
     return out;
@@ -381,7 +388,7 @@ export class FineBrickBuilder {
     if (this.raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.raf);
     this.raf = null;
     this.queue.length = 0;
-    for (const s of this.slots) for (const b of [s.params, s.cells, s.words, s.scratch, s.meta, s.staged, s.read]) b.destroy();
+    for (const s of this.slots) for (const b of [s.params, s.cells, s.words, s.roofs, s.scratch, s.meta, s.staged, s.read]) b.destroy();
     this.slots.length = 0;
   }
 }
