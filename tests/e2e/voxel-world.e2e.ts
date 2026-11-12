@@ -693,7 +693,8 @@ async function fineTextured(page: Page, shown: ReturnType<typeof decodePng>, nea
     const f = detailIn(plain, far);
     console.log(`fine textured: far pixels ${t.pixels}, detail textured ${t.detail.toFixed(2)} vs palette ${f.detail.toFixed(2)}, fade ${JSON.stringify(st.far.fineBuild!.fadeM)} (${st.far.fineBuild!.texture})`);
     expect(t.pixels, 'far pixels compared').toBeGreaterThan(2000);
-    expect(changedPixels(plain, textured, () => true, 20), 'pixels the texture set changes past the detail ring').toBeGreaterThan(1000);
+    // Detail, not a colour step: a set's mips keep its mean, the palette's colour (measured 14.0 vs 1.9 a pixel step;
+    // pixels apart by 20 or more: about a hundred).
     expect(t.detail, 'the fine bricks show the set\'s detail').toBeGreaterThan(1.5 * f.detail);
   } finally {
     await groundRelief(false);

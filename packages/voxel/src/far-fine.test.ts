@@ -206,16 +206,17 @@ describe('fine far bricks: the block', () => {
     }
   });
 
-  it('fades fine bricks\' textures out before level 2 can begin: where a level-2 cell is the error on screen, or nearer where the load ring keeps level 2 closed', () => {
+  it('fades fine bricks\' textures out where level 2 begins: where a level-2 cell is the error on screen, or nearer where the load ring keeps level 2 closed', () => {
     for (const error of [4, 8, 16]) {
       const [start, end] = farFineFade(error, FAR_VIEW_PIXELS_PER_RADIAN, Infinity, grid.edge);
       // At the fade's end a level-2 cell is still worth opening into level 1 (no level-2 brick nearer than it by error).
       expect(farCellPixels(FAR_MIN_LEVEL, end / VOXEL_SIZE_M, FAR_VIEW_PIXELS_PER_RADIAN)).toBeGreaterThanOrEqual(error - 1e-9);
       expect(start).toBeGreaterThan(0);
       expect(start).toBeLessThan(end);
-      // A load ring of 192 m: level 2 opens only with a node's chunks and one round them resident (5 chunks short of the ring).
+      // A load ring of 192 m: level 2 opens only with a node's chunks and one round them resident (its near side 1–5
+      // chunks short of the ring): the textures are gone by the middle of that band.
       const [, ringEnd] = farFineFade(error, FAR_VIEW_PIXELS_PER_RADIAN, 384, grid.edge);
-      expect(ringEnd).toBeLessThanOrEqual(Math.min(end, (384 - 5 * grid.edge) * VOXEL_SIZE_M));
+      expect(ringEnd).toBeLessThanOrEqual(Math.min(end, (384 - 3 * grid.edge) * VOXEL_SIZE_M));
     }
   });
 

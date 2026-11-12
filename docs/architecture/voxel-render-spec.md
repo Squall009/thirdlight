@@ -628,7 +628,7 @@ level: distance × pixel angle ÷ the slant's cosine, at least ¼), the world po
 floating origin's grid phase, so a texture lies at the same metres on a fine brick as on the mesh it continues. It
 fades to the palette's colour (the two words' far colours, live from the table) between the far field's `fineFade`
 distances (`farFineFade`: ending where a level-2 cell is the error on screen, or nearer where the load ring keeps level
-2 closed; starting at half that), so the level 1 → 2 hand-over joins two palette colours. The colours and sets are
+2 closed, three chunks short of it, the middle of the band where level 2's near side lies; starting at half that), so the level 1 → 2 hand-over joins two palette colours. The colours and sets are
 read from the material table and arrays when shaded: a material record's change reaches fine bricks without a
 rebuild. What a fine hit reads is the view's `fineTexture` (`full`: albedo, normal, ORM; `albedo`: the albedo alone;
 `off`: the palette's colour), `?fineTexture=` on the pages; `setFar({ fineTextured })` turns it off at run time.

@@ -57,19 +57,21 @@ export const FAR_FINE_GPU_FORESEEN_BYTES = 16 * DISTANCE_BRICK_SAMPLES * (1 + FA
 export const FAR_FINE_PACK_MS = 4;
 
 /**
- * Chunks short of the load ring where level 2 can begin: a level-2 node opens into fine children only with its four
- * chunks a side and one more round them resident.
+ * Chunks short of the load ring where level 2 begins in the main: a level-2 node opens into fine children only with
+ * its four chunks a side and one more round them resident, so its near side lies one to five chunks short of the ring
+ * (three on average). Fading by the worst case (five) took the textures off houses a level-1 node still drew 30 m
+ * nearer (the town's back row at low); a node that stays closed nearer meets a fading, not a full, texture.
  */
-const FAR_FINE_REACH_CHUNKS = 2 ** FAR_MIN_LEVEL + 1;
+const FAR_FINE_REACH_CHUNKS = (2 ** FAR_MIN_LEVEL + 2) / 2;
 
 /** Share of the fade's end at which fine bricks' textures begin to fade to the far palette's colour. */
 export const FAR_FINE_FADE_START_SHARE = 0.5;
 
 /**
  * Where fine bricks' textures fade to the far palette's colour (metres from the eye: start, end). They end where level
- * 2 can begin, so the level 1 → 2 hand-over joins two palette colours, not a texture and a flat colour: where a level-2
+ * 2 begins, so the level 1 → 2 hand-over joins two palette colours, not a texture and a flat colour: where a level-2
  * cell is the selection's error on screen (`errorPixels` at `pixelsPerRadian`), or nearer where the load ring
- * (`loadRadiusCells`) keeps level 2 closed sooner.
+ * (`loadRadiusCells`) keeps level 2 closed sooner ({@link FAR_FINE_REACH_CHUNKS}).
  */
 export function farFineFade(errorPixels: number, pixelsPerRadian: number, loadRadiusCells: number, edge: number): readonly [number, number] {
   const handover = (2 ** FAR_MIN_LEVEL * VOXEL_SIZE_M * pixelsPerRadian) / errorPixels;
