@@ -688,8 +688,31 @@ Default chosen, owner to confirm (plan 46d §9, the 46d.26a defaults).
   the encoding and every chunk entry the block reads, in order) in the cache's `rebuilt/` store; only their files are
   rewritten. The command's `far` answer gains `fine` (`dirty`, `built`, `reused`, `ms`).
 - *Shipped.* A catalog row's `far` gains `bakeLevel` (add-only; absent: no fine level shipped) and may list `B<level>/`
-  files from it up to `minLevel`. Not built in this step: the run time reading them (fine nodes are still built on the
-  GPU; 46d.26b).
+  files from it up to `minLevel`.
+- *Read at run time.* A far source offers the fine levels the scenes ask (`fineBakeLevel`: whole in an export, by the
+  region columns baked so far in Play, the voxel world page and the Scene view, from the far info's `fine` record), and
+  per node whether its column is baked (`fineBaked`). The selection walks them as the fine levels (`FarFineIndex` with
+  its sources: a baked child needs no chunk resident and counts as holding something until read; a node missing from
+  a baked column reads as nothing to draw), its entry read at `FAR_BAKED_LEVELS` + its level and decoded in a worker
+  as any baked node (no block read, no GPU build), the page uploading its samples as the GPU build writes them (look
+  word in red and green, occlusion in alpha: `bakeFineFarBrick`), drawn and shaded by the same far pass. Levels finer
+  than the bake are built from the chunks where `fineBricks` is on. A backend edit's rebuild bakes the changed
+  nodes again (above) and the page reads them again (`FarField.refresh` drops their entries); a run-time edit of a
+  baked node is built from the edited chunks while fine bricks are built at all, else it draws the cache's (as D594
+  for the coarse levels). With fine levels offered the near field draws only its level-0 ring (near only). Where the
+  finest level drawn past the detail ring (0, or 1 with nothing built finer) is baked in every column within the load
+  ring round the focus, the voxels are read only to the detail ring's reach (`StreamLod.detailReadReach`: its ring,
+  hysteresis, a chunk and 3.5 more for a level-1 node's far side and a derive's neighbours; `StreamReadReach`), checked
+  again as the focus enters another chunk; elsewhere the load ring as set. Past the detail speed no baked fine node is
+  read (`FarFineHost.fast`, the streamer's level-0 hold): they close into level 2 and come back nearest first after the
+  stop. A tier holds baked level 0 to `FAR_FINE_HOLD_M_BY_TIER` metres (levels 2 and 1 open there whatever their
+  error: the selection's `openWithin`), and the textures' fade ends no nearer than that hold; the load ring no longer
+  bounds the fade where levels are baked. WebGL 2 draws baked fine bricks too (its direct march shades a fine hit in
+  the palette's colour of its word); on a world baked to 2 m it keeps the mesh rings.
+- *The bake in the editor.* A command that changes the bake level a scene asks starts the world's bake at once (its
+  far cache built first when not current); a level no longer asked stops it. The voxel world's Inspector section shows
+  per level the columns baked of the world's and the state (baking, stale, paused, baked), with Pause and Resume
+  (`POST …/voxels/<world>/far/bake {run}`, a background job's control, not project state).
 ---
 
 ## 5. Requirement traceability (46d)

@@ -280,7 +280,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 |---|---|
 | 46d.24 | Travel at speed by the owner's new measures (the coverage bench keeps its hole check): longest frame in flight, frames over 100 ms, missed a minute; after a stop the seconds until the ground under the camera is solid, full detail stands (~50 m), nothing is pending; never falling through. Mechanisms in order: no level 0 at speed, stale work cancelled, collision on its own path along the bodies' velocity, a coarse fallback floor from the far field's 2 m data, D585. Pinned regions and path hints planned, built only if cheap. 60 and 150 m/s, low and medium. |
 | 46d.25 | Fine bricks (levels 0–1) built in GPU compute past the detail ring, on demand from the chunks' voxel grids, never stored, behind a switch beside the level 1–2 mesh rings; compared on WebGPU, low and medium (D593 and 46d.12b poses by picture, the headroom meter, fill, 46d.24's measures, memory) before any mesh ring or seam is retired; say if the level 1 → 2 boundary shows. |
-| 46d.26 | (owner 2026-11-12, `docs/briefs/bake-level-2026-11-12.md`) Brick bake level per voxel world (2 m default, 1 m, 0.5 m, cached; run-time compute only finer than the bake): storage measured first (bytes a km² of terrain and of town at 1 m and 0.5 m); far cache version bump, add-only, with the owner's note; one builder for bake and run time, roof planes included; bake by region, resumable; on a baked world the read ring shrinks to the detail ring + collision, measured with 46d.24's settle measures and load counts; low's 0.5 m reach set with the headroom meter (D629); WebGL 2 draws baked fine bricks; no fine brick reads at speed; then the comparison again; the mesh rings stay behind the switch until the poses match. |
+| 46d.26 | 26a done; 26b done (b07407ee): baked 0.5/1 m read, 0 built; read ring → detail reach where baked; hold 156 m; WebGL 2 draws them; bake starts on the command, Inspector progress, pause/resume. Low 60 C/A/B: detail 3.9/5.2/6.5 s, pending 5.0/9.6/6.5, loads after stop 1.7k/4.1k; medium 150 holes 11/20/41. D638 fixed. 26c: 13 poses + verdict |
 
 ## 7. Progress
 
@@ -4155,6 +4155,102 @@ scene asks 2 m, so its backend bakes nothing more and its exports ship no fine l
 world (~3.7 h on 4 threads by the extrapolation), the bake's memory on the backend's 6 GB scope (a column holds its
 chunks two node columns deep), the editor's Inspector select in a browser.
 
+### 46d.26b the bake level at run time: baked fine levels read, the read ring shrunk; D638, D637, D636
+
+**Step 0.** *D638* (`scene-loads.e2e.ts:107`, first frame 20 draws against 18): it fails alone at the 46d-c start
+fda36fa8 too, so `git bisect` from the last pass (f317bedf) found **f50e6ab2** (upscaled levels draw TAAU whatever the
+look's anti-aliasing). Counted per frame (a scratch log of each `render` call's draws): Play's first frame draws the
+start scene exactly as every later frame (dynamic shadow 7, scene 15 with its post pass) plus two full-screen draws that
+seed TAAU's history (three's `TAAU.seed` and a second resolve); from the second frame on 18. No frame drew less than the
+scene: the test compared whole-frame draw counts, which count post-stack quads. Fixed in the test (57882976): it adds
+the seed's two draws when Play's diagnostics say the frame upscales by TAAU. *D637* (`block-layers.e2e.ts:490`, the
+export's WebGPU cut-away): at fda36fa8 in `gate.sh start area levels` (gate-area-20261112-170826) it failed the same way
+(23 px left) and passed in the gate's rerun; later it failed alone about half the time at 57882976 and b07407ee alike
+(1 of 2, 2 of 3). Not a 46d-c regression: watch kept. *D639* (new, watch): `sockets.e2e.ts:259` timed out twice beside
+other e2e (its hierarchy row re-rendered for 4 min), passes alone at fda36fa8 and 57882976.
+
+**Built** (b07407ee; render spec §4 *Fine levels baked*, *Read at run time*, *The bake in the editor*; manual
+`voxel-worlds.md`). `@thirdlight/voxel`: `FarNodeSource.fineBaked` / `fineBakeLevel` (`regionFarSource` `fine` with the
+columns baked; `shippedFarSource` the levels a catalog ships whole), `FarFineIndex` with its sources (baked children need
+no chunk and hold something until read; built ones as before), `FarFineNodes.readBaked` / `built` (a run-time edit of a
+baked node is built from the chunks while builds are on), the far field's baked fine reads through the coarse levels'
+job path (`bakedReadOf`; a node a baked column does not hold draws nothing, no job), `refresh` reading edited baked fine
+nodes again, the selection's `openWithin` and `FAR_FINE_HOLD_M_BY_TIER`, `farFineFade`'s hold, `FarFineHost.fast` (the
+detail speed), `StreamReadReach` (`stream-read-reach.ts`) and `StreamLod.detailReadReach`, `fineLevelsChanged`;
+three-adapter `bakeFineFarBrick` uploads (`FarBrickAtlas.add(…, 'words')`), fine nodes not recoloured, `fineBaked`
+counts; project-model `levelVoxels.farFineHoldM` and the resolved `far.fineHoldM`; workspace `VoxelWorlds.scenesChanged`,
+`fineBakeControl`, `VoxelFineBake.paused`; backend `POST …/voxels/:world/far/bake`, the mutation hook; editor
+`VoxelBakeStatus` in the voxel world's Inspector section, the range world's `fine` levels, the page's hold.
+
+*Tested.* vitest `far-fine.test.ts` +2 (a far field over baked levels 0–1 and no chunk resident: every fine node drawn is
+the bake's bytes decoded by the worker's own handler, 0 blocks read, none built; none read or drawn past the detail
+speed, back after; an edited node read again after `refresh` equals the new bake; the hold opens more level-0 nodes),
+`stream-levels.test.ts` +1 (real streamer, 4 workers, region files, a 192 m ring: baked to 0.5 m it reads to the detail
+reach, 1,608 resident chunks against 5,688, 218 loads against 406, no level above 0 built), `page-view.test.ts` and the
+project-model pins (the hold). e2e: `voxel-world.e2e.ts` Play test extended (the bake level set by one command on the
+128 m world, the Inspector shows it baking through to `1:4/4 0:4/4` in 5.2 s, a new Play at low draws 31 baked level-0
+nodes with 0 built and 0 blocks read, the read ring 90 m of the 100 m set); `webgl2-smoke.e2e.ts` +1 check (baked to
+0.5 m the voxel world page on WebGL 2 draws 148 baked level-0 nodes, nothing built). voxel-world.e2e.ts in the wide
+gates 124 → 155 s (the Play test +17 s; the rest within the gate's spread). Gates: gate-fast-20261112-171753 (57882976,
+every area: 3 failed: block-editor D452, start D453, sockets D639; rerun -175623 from a clean scratch worktree at
+57882976: sockets again, the others passed, sockets alone passed); gate-fast-20261112-181650 (b07407ee, every area: red
+on block-editor D452 and block-layers D637, rerun -185107 the same two; alone block-editor passes, block-layers fails
+half the time at 57882976 too).
+
+**Measured** (staging, Iris Xe, WebGPU 1280 × 720 at the tier's cap, Play on the 8 km world, one round, 19:05–20:17,
+load 2.4–6.4, uptime 20.1 d; `work/46d.26b/`). The bench regions baked first (`bake/stage-bake.mts`, the product's column
+bake on 8 threads): 39 columns, 323 s, +140 MB (staging's fine levels now 59 + 20 columns, 240 MB). A = mesh rings (2 m,
+switch off), B = compute fine bricks (2 m, `?fineBricks=1`), C = baked to 0.5 m (scene `bakeLevel` 0.5, the bake
+paused past the bench regions).
+
+*Travel* (coverage bench in Play, the 9.8 km line ending in a baked region; detail = full detail after the stop, pending
+= nothing pending; loads and derives after the stop; queue full = the worker pool's queue at ≥ 250 of 256):
+
+| | longest ms | > 100 | missed/min | ground s | detail s | pending s | holes | loads / derives after stop | queue full s | fine read / built |
+|---|---|---|---|---|---|---|---|---|---|---|
+| low 60 A / B / C | 63 / 64 / **49** | 0 / 0 / 0 | 7.3 / 5.9 / **2.9** | 0.03 | 5.2 / 6.5 / **3.9** | 9.6 / 6.5 / **5.0** | 0 / 0 / 0 | 4,068 / 28,150; 4,146 / 6,582; **1,658 / 6,590** | 1.4–8.8 / 1.2–4.6 / 2.2–3.3 | 0 / 1,675 built / **938 read** |
+| low 150 A / B / C | 54 / 65 / 57 | 0 / 0 / 0 | 20 / 24 / **9.1** | 0.03 / 0.08 / 0.03 | 5.3 / 7.2 / **5.0** | 10.7 / 7.9 / **6.4** | 0 / 1 / 0 | 4,034 / 28,961; 4,288 / 6,776; **1,949 / 6,847** | 2.5–10.1 / 3.4–7.1 / 2.2–3.3 | 0 / 1,724 / 938 |
+| medium 60 A / B / C | 53 / 45 / **34** | 0 | 34 / 32 / **17** | 0.03–0.07 | 16.1 / 22.5 / **12.3** | 21.0 / not in 30 s / **14.6** | 2 / 2 / 3 | 5,396 / 38,719; 5,677 / 12,718; **2,855 / 12,859** | 1.3–19.9 / 1.7–23.4 / 2.5–11.3 | 0 / 3,827 / 1,023 |
+| medium 150 A / B / C | 49 / 41 / **32** | 0 | 25 / 26 / **18** | 0.05–0.07 | 17.7 / 26.3 / **13.3** | not in 30 s (all three) | 20 / 41 / **11** | 5,363 / 36,873; 5,905 / 12,805; **2,833 / 12,784** | 0.5–29 / 1.2–26.4 / 0.4–11.6 | 0 / 2,243 / 1,031 |
+
+Never fell through in any run. Read: baked C settles soonest in every cell; the < 2 s full-detail start target at low is
+still missed (3.9 s at 60 m/s, 5.0 at 150: level 0's own derives, 6.6 k after the stop, are what is left). The loads after
+a stop halve (the read ring: low 192 → 133 m reach) and the worker queue stands full 1 s instead of 7–28 s (D632's bound).
+Cache reads: none in flight (the speed rule); after the stop ~940–1,030 fine nodes uploaded, × 4.3–5.1 KB a node ≈ 4–5 MB
+over ~5 s, ≈ 1 MB/s (an estimate from uploads, not a byte count). Holes at medium 150: 11 frames (A 20, B 41), D634 not
+gone. One round a cell: the spreads of 46d.25b-3 (±1 s settle) apply.
+
+*Low's 0.5 m hold (D629), the headroom meter, town orbit 12 m at 0.15 rad/s, one round each:*
+
+| low | far nodes | far MiB of 384 | far pass ms (hidden) | near ms | frame GPU ms | room (copies) | fill s | page heap + GPU MiB |
+|---|---|---|---|---|---|---|---|---|
+| A (mesh rings) | 1,037 | 77 | 3.3 | 1.0 | 7.4 | 3 (a miss at no load; not pursued) | 7.3 | 592 + 847 |
+| C hold 110 m | 1,655 | 111 | 7.7 | 5.2 | 9.5 | 176 | 9.9 | 673 + 1,078 |
+| **C hold 156 m (chosen)** | 1,933 | 134 | 6.4 | 0.6 | 7.7 | 128 | 8.4 | 629 + 1,048 |
+| C hold 220 m | 2,626 | 165 | 6.9 | 0.8 | 7.8 | 128 | 13.9 | 720 + 1,193 |
+
+All within the meter's ±40 % for pass times; low keeps its 30 Hz cap at every hold. Memory at the town in Play (low):
+A 610 + 892, B 577 + 960, C 671 + 1,122 MiB (page heap + GPU of 4,096); medium C 905 + 1,821. Export memory not
+measured (no export of a part-baked world; §9).
+
+*Looked at* (`shots/side-by-side/<pose>-<q>-A-vs-C.png`, `town-west-low-A-vs-C-backrow.png`, `town-west-low-C110-vs-C220-
+backrow.png`, `town-street-low-A-vs-B.png`, `town-west-low-gl2C.png`; every picture opened). *town-west low:* C the same
+houses; the back row's roofs are straight planes with clean eaves where A's level-1 meshes show 0.5 m stair-stepped
+eaves and ridges; A keeps sharper wall textures and a few more window dots on the farthest houses, C's back-row walls
+softer; **about the same, slightly better silhouettes, slightly softer walls**. *town-north low:* C's back-row roofs are
+smooth planes where A's are serrated: **better**; the wells past the ring pale grey rings in C (A darker water). *town-
+street low:* near identical (near field) but **worse in one thing**: thin dark curved lines float just above two far
+roof ridges (~80–100 m) in C and the same in B, never in A (D640). *near-boulders low:* the cliff lattice the same (near
+field); the far grass slope is smoother in C but carries dark hairline streaks along it (D631's leftovers) where A has
+blocky pixel patches: **mixed**. *near-valley:* same (0.02 % > 60). Medium: town-west/north/street as low with the line
+farther out; near-boulders the same hairlines. *Hold 110 vs 220 m:* 220 thins the back-row eaves a little more; window
+recesses in the farthest row show at neither (0.5 m openings at 150–200 m are under a pixel). *WebGL 2 (C, town-west):*
+the town drawn whole with baked fine bricks in palette colours (pass `direct`): gables, roofs and back rows as on WebGPU,
+flat colour past the ring, grass slopes with fine moiré banding; no blob. Motion unverified (stills).
+
+*Not done here (26c):* the 13-pose comparison and the verdict page, a second round, medium/high on their hardware, an
+export of a baked world (needs a whole bake: 5 GB).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -5136,6 +5232,34 @@ chunks two node columns deep), the editor's Inspector select in a browser.
   a format-2 cache stays current for a 2 m world; the bake runs by world region column, level 1 first, resumable,
   commands going on meanwhile; edits rebuild exactly their fine nodes at the baked levels through the content-keyed
   `rebuilt/` store.
+- 2026-11-12 (46d.26b, default chosen, owner to confirm): **baked fine levels are read wherever the cache holds them for
+  the scenes' bake level** (whole in an export; by region column in Play, the voxel world page and the Scene view while
+  a bake is under way), decoded in a worker and uploaded as the GPU build lays its samples (look word, occlusion), with
+  no build; levels finer than the bake are built where `fineBricks` is on. With fine levels offered the near field runs
+  near only on every renderer (WebGL 2 draws the baked bricks in the palette's colours), so a partly baked world on
+  WebGL 2 shows 2 m bricks past the detail ring where not baked yet (the editor's state while it bakes).
+- 2026-11-12 (46d.26b, default chosen, owner to confirm): **the read ring ends at the detail ring's reach where the
+  level drawn past it is baked in every column within the load ring round the focus** (`StreamLod.detailReadReach`:
+  level-0 ring + hysteresis + 4.5 chunks, as a chunk drawn at level 0 lies under a level-1 node within the ring and its
+  derive reads its neighbours); elsewhere, and on a 1 m world with level 0 built, the ring as set. Looked at as the
+  focus enters another chunk, applied without resetting the motion.
+- 2026-11-12 (46d.26b, default chosen, owner to confirm): **no baked fine node is read past the detail speed** (40 m/s,
+  level 0's rule, both fine levels): they close into level 2 and come back nearest first after the stop. Built
+  (compute) fine nodes keep 46d.25's behaviour.
+- 2026-11-12 (46d.26b, default chosen, owner to confirm): **low holds baked 0.5 m bricks to 156 m**
+  (`FAR_FINE_HOLD_M_BY_TIER`, medium and high the same, not below low; levels 2 and 1 open over it there whatever their
+  error, the fade ends no nearer): measured at 110 / 156 / 220 m at the town (far 111 / 134 / 165 MiB of 384, far pass
+  7.7 / 6.4 / 6.9 ms within the meter's ±40 %, room 176 / 128 / 128 copies, fill 9.9 / 8.4 / 13.9 s); 220 m adds 700
+  nodes and 5 s of fill for back-row eaves only a little thinner than at 156 m.
+- 2026-11-12 (46d.26b, default chosen, owner to confirm): **the bake starts when a scene's bake level changes** (a
+  command naming `voxelWorld` makes the backend compare the levels its scenes ask; a world asking a finer one is baked
+  from then, its far cache built first if needed; a level no longer asked stops its bake); Pause/Resume is a route
+  (`POST …/voxels/<world>/far/bake {run}`), not a command: it controls a background job, not project state; a pause
+  lasts until resumed or the backend restarts.
+- 2026-11-12 (46d.26b): **the benches ran in Play, not an export**: an export ships fine levels only whole, and a whole
+  0.5 m bake of the 8 km world is 5.0 GB plus the export's copy (the ≥ 8 GB free rule would not hold); the bench
+  regions (the town, the flight's end, near-valley, near-boulders) were baked instead, 39 columns more (27 at level 0,
+  12 at level 1), 140 MB, 323 s on 8 threads; the three modes ran in Play the same hour for that reason.
 
 ## 10. Open questions for the owner
 
