@@ -3844,6 +3844,37 @@ fine nodes are still building 30 s on, with 15–33 hole frames (the known place
 and once a new place at m ≈ 6,491, 10 frames): D632. Never fell through, either way. *Unverified:* medium on its own
 hardware.
 
+**The comparison: what the load ring costs** (a scratch vitest at real boundaries, not kept: the real streamer, 4
+`worker_threads` workers, region files on disk, a 1.5 km hilly world, the 192 m ring, a 60 m/s flight of 368 m then a
+stop; OFF = the mesh rings, ON = the near field as fine bricks leave it (`setNearOnly`, mip rings of radius 0, the read
+ring unchanged); `work/46d.25b3/loadring/result.txt`, 13:25, load 3.7–4.0). Jobs in the flight and its settle:
+
+| | loads | section derives | mip (downsample) jobs | seam jobs | queue max | world thread ms a s | fill s | settle after stop s |
+|---|---|---|---|---|---|---|---|---|
+| OFF | 877 | 3,370 | 1,750 | 1,108 | 54 | 128 | 16.0 | 5.6 |
+| ON | 877 | 3,059 | 1,688 | 0 | 39 | 121 | 9.4 | 5.0 |
+
+The reads are the same (fine bricks need the voxels to 192 m); ON drops every seam job and 9 % of the derives (the
+mip nodes' derive), **but the run-time downsample still runs for the whole ring** (1,688 of 1,750 mip jobs: the mip
+rings of radius 0 stop a node's derive, not its cells' downsample, `stream-mips.ts`): today's ON does not yet save
+what retiring the rings would (D633). In Play the fine blocks' reads on the world's thread add 2.6–4.1 ms p50 a node
+within the 4 ms an update budget (46d.25a/b-2). Shrinking the worker-derived reach to the detail ring is then: derives
+(already, with ON) and the downsample (not yet); the read ring stays.
+
+**What retirement would remove** (inventory by grep and `wc -l`, nothing removed): files only for the level-1/2 rings:
+`stream-mips.ts` 959, `stream-seams.ts` 569, `lod-seam.ts` 545, `lod-select.ts` 265, `stream-lod.ts` 241,
+`mip-derive.ts` 138 (2,717 lines in `@thirdlight/voxel`), bench tools `lod-seams.ts` 935, `mips-cli.ts` 209,
+`seams-cli.ts` 95, `lod-checks.ts` 61 (1,300); about 600 lines mixed into shared files (`chunk-batch.ts` ~130 levels
+and seams wire, `voxel-chunk-view.ts` ~130 node and seam draws, `voxel-streamer.ts` ~70, `stream-sections.ts` ~60,
+`stream-handlers.ts` ~40, `stream-job.ts` ~35, `stream-ring.ts` ~35 (`DEFAULT_MIP_LEVELS`, `mipRingsFor`,
+`MIP_RING_HYSTERESIS_CELLS`), the `level1` world setting ~15, others); tests ~1,300 lines outright
+(`stream-levels.test.ts` 714, `lod-select.test.ts`, the mip/seam parts of `derived.test.ts`, `mesh-cases.test.ts`,
+`voxel-chunk-view.test.ts`) and ~460 in part, the page e2e's level/seam checks (~25 lines). What stays either way:
+`voxel-mips.ts` (the far tree's downsample and node keys), the derive's `level` parameter (the far meshes), the far
+cache. Two caveats: with fine bricks on, `stream-lod.ts` / `lod-select.ts` still give the level-0 drawn set
+(`nearDrawn`, the batch's level gate) and need a level-0-only replacement first; and **the WebGL 2 fallback (D624:
+no compute, fine bricks off, the mesh rings back) runs all of it**.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
