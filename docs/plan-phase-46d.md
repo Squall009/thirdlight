@@ -3731,6 +3731,45 @@ children only with all its chunks and one round them resident in the 192 m ring:
 thinner slab at level 1 with the top kept, or level 0 farther for construction), D628 (rocks: the terrain mesher's
 rules in the field, as roofs now are), then the full table as planned.
 
+**46d.25b-3 D627 counted and fixed; the comparison** (0b02327e; staging, Iris Xe, Play 1280 × 720, WebGPU, the 8 km
+world; `work/46d.25b3/`).
+
+- *D627 counted* (`d627-count.mjs`: the selection's rule against the 192 m ring at town-west, the eye 12 m off the
+  square 20 m up; the stream budget never binds there, so in-ring chunks are resident after the fill). A level-2 node
+  opened into fine children only with its 4 × 4 × 4 chunks and one round them resident: 6 chunk columns a side, whose
+  far corner lies ~1.4 node widths past its near face. **No level-2 node whose near face lies past ~96 m opened, at
+  either tier**: low's 8 px error wants level 2 open to 156 m (64 nodes there), 36 refused (8 at 96–128 m, 28 at
+  128–160 m); medium's 4 px to 312 m (180), 148 refused. Every missing chunk was past the ring horizontally (2,376 at
+  low), none vertically; not the far GPU budget (92 of 384 MiB), not the near field, not the threshold. Whole nodes to
+  the error's reach would need a ~277 m ring at low (~2.1× the chunks), ~433 m at medium.
+- *The fix (option a, the cheapest generic rule).* A level-2 node the ring ends across opens into the level-1 children
+  whose blocks are resident (a level-1 child reads its 2 × 2 × 2 chunks and one round them) and stays drawn over the
+  rest (`FarFineIndex.partial`, `FarSelectIndex.partial`): its cost is its children's, it is not taken out. The page
+  leaves its bricks in the octants that drawn fine nodes cover out of its brick table (`farFineOctants`,
+  `farBrickOctant`, `FarBrickAtlas.writePage`; a 256-byte page written again, in the same apply as the change), so
+  the two never draw one place and no octant is left undrawn; the march passes masked bricks as air and the fine
+  nodes' skirts close the octant faces as at any level change. At town-west low that opens 40 of the 64 children in
+  the 96–128 m nodes and 56 of 224 in the 128–160 m ones. Fine nodes drawn at the pose: low 96 / 32 → 176 / 100 (levels
+  0 / 1), far GPU 92 → 111 MiB; medium 575 / 18 → 747 / 27, 202 → 249 MiB. The fade's reach follows (level 2 now
+  begins 1–3 chunks short of the ring, `FAR_FINE_REACH_CHUNKS` 3 → 2). The selection asks `openable` only of a node
+  that wants to open and counts its refusals (`fine.refused`: resident, near, partial). Option (b), a wider ring, was
+  not needed for the back row in view; the ring and the fine band stay one setting (the load ring), the band ending
+  ~2 chunks inside it.
+- *Looked at* (`shots/side-by-side/town-west-{low,medium}-backrow-count-vs-partial-{left,right}.png`, the old rule
+  "count" above the new): low, the right back row's rounded red lumps with window holes are now gables with straight
+  roof planes and ridges (1 m stair on the gable edges, a few dark specks on one roof); the far left's last house (past
+  ~150 m) is still a lump (level 2: beyond the ring's reach). Medium: the same houses were already crisp and stay so.
+  *Untraced:* why medium's back row was crisp before with the same refusals (the houses in that crop lie in nodes
+  nearer than 96 m at medium's level-0 reach; not counted per house).
+- *Low's level-1 eaves* (`town-street-low-count-vs-partial.png`): roofs past ~78 m down the street keep thick, rounded
+  verges (D629, not fixed: a construction-weighted error would open level 0 to ~156 m for buildings; its cost to
+  measure first). *D628* traced, left open (the terrain mesher's crease placement is a per-corner rule over the rule
+  set's neighbourhood that 8-bit samples at the cell spacing cannot hold; not the roof planes' kind of change).
+- *Tests.* vitest `far-fine.test.ts`: the old "kept closed" case is now the partial rule (a chunk away: the two
+  level-2 nodes over it stay drawn, open into the children not reading it, the other two open whole; no fine node reads
+  a missing chunk; no octant undrawn; the refusals counted), and the octant rules. Page e2e unchanged (1.0 m in the
+  gate). Gate gate-fast-20261112-113346 GREEN (12 min).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
