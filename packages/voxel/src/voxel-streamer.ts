@@ -249,16 +249,20 @@ const SETTLE_POLL_MS = 4;
 const EVICT_TO = 0.95;
 const RESUME_BELOW = 0.85;
 
-/** Share of the pool's queue loads leave to derives (64 of the streaming pool's 256), so near derives never wait behind a refill's decodes. */
+/**
+ * Share of the pool's queue loads leave free while bodies' collision-only derives wait (64 of the streaming pool's
+ * 256), so a body's ground never waits behind a refill's decodes.
+ */
 export const STREAM_DERIVE_RESERVE_SHARE = 0.25;
 
 /**
- * Pool room loads may take: all but {@link STREAM_DERIVE_RESERVE_SHARE} of the queue, which stays the derives'
- * (bodies' ground, then the chunks nearest the focus). A refill reads and decodes in tasks of its own between
- * updates; without the reserve its decodes fill the queue and the ground under a stopped focus waits behind them.
+ * Pool room loads may take: all of it, less {@link STREAM_DERIVE_RESERVE_SHARE} of the queue while `reserve` (a
+ * body's collision-only derives are waiting). A refill reads and decodes in tasks of its own between updates;
+ * without the reserve its decodes would fill the queue ahead of a stopped body's ground. Held back always, the
+ * reserve slowed the refill itself: the level-0 ring after a stop waits for the chunks round it to load.
  */
-function loadRoom(pool: WorkerPool): number {
-  return pool.room() - Math.floor(pool.capacity * STREAM_DERIVE_RESERVE_SHARE);
+function loadRoom(pool: WorkerPool, reserve: boolean): number {
+  return pool.room() - (reserve ? Math.floor(pool.capacity * STREAM_DERIVE_RESERVE_SHARE) : 0);
 }
 
 export interface StreamCounters {
@@ -786,10 +790,12 @@ export class VoxelStreamer {
     // The draws' fade follows the ring's centre and where it displaces now.
     const told = this.relief?.drawState(this.focus) ?? null;
     if (told !== null) this.emit(told);
+    // Loads leave room for bodies' ground while it waits (looked at once an update: the collision foci's chunks).
+    this.collision?.look();
     // Held stored chunks go to the pool as it has room (a dropped chunk's bytes are let go).
     const held = this.plan.held;
     let n = 0;
-    while (n < held.length && loadRoom(this.opts.pool) > 0) {
+    while (n < held.length && loadRoom(this.opts.pool, this.collision?.waiting === true) > 0) {
       const { c, stored } = held[n++]!;
       if (this.chunks.get(c.key) === c && c.phase === 'reading') this.decode(c, stored);
     }
@@ -931,7 +937,7 @@ export class VoxelStreamer {
     const batch = this.opts.readBatch ?? 64;
     const maxReads = this.opts.maxReads ?? DEFAULT_STREAM_READS;
     // Most chunks read are air or uniform and need no worker: reads go on while the pool has room for what waits.
-    while (this.reads < maxReads && loadRoom(this.opts.pool) > this.plan.held.length && this.cursor < this.wanted.length) {
+    while (this.reads < maxReads && loadRoom(this.opts.pool, this.collision?.waiting === true) > this.plan.held.length && this.cursor < this.wanted.length) {
       const list: Chunk[] = [];
       let column = -1;
       while (this.cursor < this.wanted.length) {
@@ -994,7 +1000,7 @@ export class VoxelStreamer {
         return;
       }
       const stored: StoredChunk = { stored: r.bytes.slice(), raw: r.raw };
-      if (this.plan.held.length > 0 || loadRoom(this.opts.pool) <= 0) {
+      if (this.plan.held.length > 0 || loadRoom(this.opts.pool, this.collision?.waiting === true) <= 0) {
         this.plan.held.push({ c, stored });
         return;
       }

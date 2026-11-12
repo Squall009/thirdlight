@@ -151,6 +151,14 @@ export class CollisionDerives {
     this.entries.delete(key);
   }
 
+  /** Whether collision-only work was waiting at the last {@link look} (the streamer's loads leave the pool room for it then). */
+  waiting = false;
+
+  /** Looks whether collision-only work is waiting now ({@link waiting}). */
+  look(): void {
+    this.waiting = this.pending();
+  }
+
   /** Whether any job is out or could be sent (the streamer's idle check). */
   pending(): boolean {
     for (const e of this.entries.values()) if (e.job !== 0) return true;

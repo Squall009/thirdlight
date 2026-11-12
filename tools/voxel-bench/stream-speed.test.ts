@@ -19,7 +19,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chunkGrid, chunkNearFoci, collisionGeometry, collisionLeadPoints, collisionRingBounds, createWorldStore, DERIVED_PART, jobRadius, levelNodeDistance, motionDistance2, speedRing, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VoxelStreamer, WorkerPool, WORLD_RULES, type Focus, type LevelNode, type PaletteStore, type PoolJob, type StreamRing } from '@thirdlight/voxel';
+import { chunkGrid, chunkNearFoci, collisionGeometry, collisionLeadPoints, collisionRingBounds, createWorldStore, DERIVED_PART, jobRadius, levelNodeDistance, motionDistance2, speedRing, STREAM_DERIVE_RESERVE_SHARE, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VoxelStreamer, WorkerPool, WORLD_RULES, type Focus, type LevelNode, type PaletteStore, type PoolJob, type PoolWorker, type StreamRing } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pickStore, surfaceY } from './regions';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
@@ -137,6 +137,73 @@ describe('streaming at racing speed', () => {
     expect(knownAt, `ground known after ${knownAt} of the refill's ${refill} jobs`).toBeLessThan(refill / 10);
     console.log(`speed ${JSON.stringify({ ...inFlight, knownAfterJobs: knownAt, refillJobs: refill, speedRings: flight.counters.speedRings })}`);
   }, 120_000);
+  it('leaves the pool\'s reserve to a body\'s ground only while it waits: a refill with no ground waiting takes the whole queue, one with a body\'s ground waiting leaves the reserve free (real workers)', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    closers.push(() => disk.close());
+    // A small queue, and the workers' load replies held at first, so a refill fills it whatever this host's speed.
+    let holdLoads = true;
+    const heldReplies: Array<() => void> = [];
+    const create = (): PoolWorker => {
+      const w = nodePoolWorker(workerFile);
+      const ids = new Set<number>();
+      return {
+        post: (m, t) => {
+          if (holdLoads && m.kind === 'load') ids.add(m.id);
+          w.post(m, t);
+        },
+        listen: (onMessage, onError) =>
+          w.listen((d) => {
+            if (ids.delete((d as { id: number }).id)) heldReplies.push(() => onMessage(d));
+            else onMessage(d);
+          }, onError),
+        terminate: () => w.terminate(),
+      };
+    };
+    const pool = new WorkerPool({ size: 4, create, timeoutMs: 60_000, maxQueued: 64 });
+    closers.push(() => pool.close());
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool, ring: RING, budgetBytes: 512 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES });
+    s.collision!.bounds = collisionRingBounds();
+    // Loads queued or running (at most the pool's size of them running) each time one is queued, by whether a body's
+    // ground was waiting then.
+    let loads = 0;
+    let peakFree = 0;
+    let peakWaiting = 0;
+    const submit = pool.submit.bind(pool);
+    pool.submit = ((job: PoolJob) => {
+      if (job.kind !== 'load') return submit(job);
+      loads++;
+      if (s.collision!.pending()) peakWaiting = Math.max(peakWaiting, loads);
+      else peakFree = Math.max(peakFree, loads);
+      return submit(job).then((o) => {
+        loads--;
+        return o;
+      });
+    }) as typeof pool.submit;
+    const yAt = (x: number) => (surfaceY(oracle, Math.round(x), 0, 600, -200) ?? 0) + 4;
+    // Opened with no body: nothing waits on the collision path. The loads queue until the pool is full.
+    s.setFocus(-HALF + 96, yAt(-HALF + 96), 0);
+    for (let i = 0, still = 0, was = -1; i < 2000 && still < 50; i++) {
+      s.update();
+      still = loads === was ? still + 1 : 0;
+      was = loads;
+      await sleep(4);
+    }
+    const reserve = Math.floor(pool.capacity * STREAM_DERIVE_RESERVE_SHARE);
+    const filled = peakFree;
+    expect(filled, 'loads queued with no ground waiting').toBe(pool.capacity + pool.size);
+    holdLoads = false;
+    for (const go of heldReplies.splice(0)) go();
+    await s.settle();
+    // A body placed far off: its ground waits while the chunks round it load, and loads leave the reserve free then.
+    const x = HALF - 96;
+    s.collision!.setFoci([{ x, y: yAt(x), z: 0 }]);
+    s.setFocus(x, yAt(x), 0);
+    await s.settle();
+    expect(s.counters.collisionDerives + s.counters.collisionAir).toBeGreaterThan(0);
+    expect(peakWaiting, 'loads queued while a body\'s ground waits').toBeLessThanOrEqual(pool.capacity - reserve + pool.size);
+    console.log(`reserve ${JSON.stringify({ filled, peakWaiting, reserve, collision: s.counters.collisionDerives })}`);
+  }, 120_000);
+
   it('holds level 0 back at 150 m/s: no full level-0 derive, collision alone round a moving body and ahead of it (not round the camera), level 0 drawn only as a stand-in; stopped, level 0 comes back nearest first and takes over the bodies with the same surface (real workers)', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     closers.push(() => disk.close());

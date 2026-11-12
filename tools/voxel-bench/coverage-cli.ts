@@ -393,6 +393,8 @@ function travelMeasures(rec: FlightRecord): Record<string, unknown> {
   const ALL = ['chunks', 'l0', 'l1', 'l2', 'kits', 'farNodes', 'farBricks'];
   const detailS = settleAfter(counts(NEAR), 0, NEAR_STILL, SETTLE_HOLD_S);
   const viewS = settleAfter(counts(ALL), 0, ALL.map((k) => (k.startsWith('far') ? FAR_STILL : NEAR_STILL)), SETTLE_HOLD_S);
+  // Which count settles last (what bounds the settle): each one alone, by the same rule.
+  const settleBy = Object.fromEntries(ALL.map((k) => [k, settleAfter(counts([k]), 0, k.startsWith('far') ? FAR_STILL : NEAR_STILL, SETTLE_HOLD_S)]));
   // Play: the simulation's own pending work (the job queue, far work) at zero and staying there.
   const simPending: CountSample[] = rec.sims.filter((s) => s.s !== null).map((s) => ({ t: (s.w - t0) / 1000, v: [Number(s.s!['pool']?.queued ?? 0), Number(s.s!['pool']?.inFlight ?? 0), Number(s.s!['far']?.pending ?? 0)] }));
   const lastPending = simPending.at(-1)?.v ?? [];
@@ -413,7 +415,7 @@ function travelMeasures(rec: FlightRecord): Record<string, unknown> {
   return {
     flight: flightFrames(rec.intervals, CAP, rec.flightS),
     stopAtS: stopW === null ? null : Number(((stopW - rec.flyAt) / 1000).toFixed(2)),
-    afterStop: { groundSolidS: probe.raySolidAfterStopS, bodyStandsS: probe.bodyStandsAfterStopS, bodyFreeS, detailS, nothingPendingS: viewS, simIdleS, holdS: HOLD_S, settleHoldS: SETTLE_HOLD_S },
+    afterStop: { groundSolidS: probe.raySolidAfterStopS, bodyStandsS: probe.bodyStandsAfterStopS, bodyFreeS, detailS, nothingPendingS: viewS, simIdleS, holdS: HOLD_S, settleHoldS: SETTLE_HOLD_S, settleBy },
     groundRay: { steps: probe.raySteps, solid: probe.solidShare, noHit: probe.noneShare, deep: probe.deepShare },
     falls: { ...falls, through: verdicts.filter((v) => v.verdict === 'through').length, lower: verdicts.filter((v) => v.verdict === 'lower').length, verdicts, events: falls.events.slice(0, 20), stopTrace: trace.slice(0, 80), bodyEnd: { y: (end[PROBE_COUNTERS.bodyY] ?? 0) / 100, grounded: end[PROBE_COUNTERS.grounded] === 1, suspended: end[PROBE_COUNTERS.suspended] === 1, onFloor: end[PROBE_COUNTERS.onFloor] === 1 } },
   };
