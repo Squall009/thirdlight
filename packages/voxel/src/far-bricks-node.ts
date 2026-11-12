@@ -14,7 +14,7 @@
  * is the nearest one (`far-bricks-node.test.ts` against every brick).
  */
 import { DISTANCE_BRICK_CELLS } from './distance-brick-format';
-import { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, marchBrickBox, type FarBricks } from './far-bricks';
+import { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, marchBrickBox, type FarBricks, type FarMarchStart } from './far-bricks';
 
 /** A box in node cells. */
 export interface FarCellBox {
@@ -76,9 +76,24 @@ export function rayBox(o: readonly number[], d: readonly number[], box: FarCellB
 
 /**
  * A ray's march through a far node (node cells, unit direction): the first hit in ray order, its block and the
- * bricks the walk looked at; null: it leaves the node first.
+ * bricks the walk looked at; null: it leaves the node first. A ray whose first sample lies inside the solid is not
+ * hit until it has left it; one that never leaves it is hit where it began (`inside`: the draw shades it as the
+ * ground's look from above, not as the stand-in's cells seen from inside).
  */
-export function marchFarNode(b: FarBricks, o: readonly number[], d: readonly number[]): { t: number; block: number; visited: number } | null {
+export function marchFarNode(b: FarBricks, o: readonly number[], d: readonly number[]): { t: number; block: number; visited: number; inside?: true } | null {
+  return walkFarNode(b, o, d, { seen: false, inside: false, first: 0, firstBlock: -1 });
+}
+
+/** Whether a ray's first sample in a far node lies inside its solid (the march then waits for it to leave that solid). */
+export function farNodeRayStartsInside(b: FarBricks, o: readonly number[], d: readonly number[]): boolean {
+  const start: FarMarchStart = { seen: false, inside: false, first: 0, firstBlock: -1 };
+  const was = { inside: false };
+  walkFarNode(b, o, d, start, was);
+  return was.inside;
+}
+
+/** {@link marchFarNode}'s walk; `began` learns whether its first sample lay inside the solid. */
+function walkFarNode(b: FarBricks, o: readonly number[], d: readonly number[], start: FarMarchStart, began?: { inside: boolean }): { t: number; block: number; visited: number; inside?: true } | null {
   const node = farNodeMarchedBox(b);
   if (node === null) return null;
   const span = rayBox(o, d, node);
@@ -91,20 +106,24 @@ export function marchFarNode(b: FarBricks, o: readonly number[], d: readonly num
   const inv = [0, 1, 2].map((a) => 1 / (Math.abs(d[a]!) < 1e-8 ? (d[a]! < 0 ? -1e-8 : 1e-8) : d[a]!));
   const tMax = [0, 1, 2].map((a) => ((cell[a]! + (step[a]! > 0 ? 1 : 0)) * C - o[a]!) * inv[a]!);
   const tDelta = [0, 1, 2].map((a) => Math.abs(C * inv[a]!));
+  const notHit = (visited: number): { t: number; block: number; visited: number; inside: true } | null => (start.inside ? { t: start.first, block: start.firstBlock, visited, inside: true } : null);
   for (let visited = 1; visited <= 3 * side; visited++) {
     const block = b.bricks[(cell[2]! * side + cell[1]!) * side + cell[0]!]!;
     if (block >= 0) {
       const box = farBrickMarchedBox(b, block);
       const local = [o[0]! - cell[0]! * C, o[1]! - cell[1]! * C, o[2]! - cell[2]! * C];
-      const hit = marchBrickBox(b.samples, block, box.lo, box.hi, local, d);
+      const seen = start.seen;
+      const hit = marchBrickBox(b.samples, block, box.lo, box.hi, local, d, start);
+      // The first block marks where the ray began only when its first sample lay inside the solid.
+      if (!seen && start.seen && began !== undefined) began.inside = start.firstBlock >= 0;
       if (hit !== null) return { t: hit.t, block, visited };
     }
     const tn = Math.min(tMax[0]!, tMax[1]!, tMax[2]!);
-    if (tn >= t1) return null;
+    if (tn >= t1) return notHit(visited);
     const a = tMax[0] === tn ? 0 : tMax[1] === tn ? 1 : 2;
     cell[a]! += step[a]!;
-    if (cell[a]! < 0 || cell[a]! >= side) return null;
+    if (cell[a]! < 0 || cell[a]! >= side) return notHit(visited);
     tMax[a]! += tDelta[a]!;
   }
-  return null;
+  return notHit(3 * side);
 }

@@ -4,13 +4,17 @@
  * (rough ground, a roof block, an overhang): the walk never steps over a
  * brick holding the surface, so every ray meets what the nearest brick
  * march meets, at the same distance, and rays through air meet nothing.
+ * A ray that starts inside the solid (the eye inside a coarse stand-in, or
+ * under its surface entering its box at a side) is not hit until it has left
+ * that solid: it meets the surface beyond, or, never leaving, is hit where it
+ * began and marked so (drawn as the ground's look, not the cells' sides).
  */
 import { describe, expect, it } from 'vitest';
 import { chunkGrid } from './coords';
 import { DISTANCE_BRICK_CELLS } from './distance-brick-format';
 import { FAR_BRICK_BLOCK_BYTES, farBrickCount, marchBrickBox, type FarBricks } from './far-bricks';
 import { farBricksFromFaces } from './far-bricks-faces';
-import { farBrickMarchedBox, farNodeMarchedBox, marchFarNode } from './far-bricks-node';
+import { farBrickMarchedBox, farNodeMarchedBox, farNodeRayStartsInside, marchFarNode } from './far-bricks-node';
 import { createWorldStore } from './palette-store';
 import { SHAPE_FULL, VOXEL_ROLE } from './record';
 
@@ -58,6 +62,7 @@ describe('far node march', () => {
     let hits = 0;
     let misses = 0;
     let rays = 0;
+    let startInside = 0;
     let worst = 0;
     let visitedMax = 0;
     // Rays from a sphere round the node at every height and bearing (grazing ones included) toward points in it.
@@ -70,9 +75,15 @@ describe('far node march', () => {
       const target = [rnd() * 32, rnd() * 32, rnd() * 32];
       const len = Math.hypot(target[0]! - o[0]!, target[1]! - o[1]!, target[2]! - o[2]!);
       const d = [0, 1, 2].map((a) => (target[a]! - o[a]!) / len);
+      rays++;
+      // A ray whose first sample is inside the solid (it enters the node's box at a side, under the ground's top) is
+      // marched by the rule of the test below, not met as the brick-by-brick march meets it.
+      if (farNodeRayStartsInside(b, o, d)) {
+        startInside++;
+        continue;
+      }
       const want = nearestBrickHit(b, o, d);
       const got = marchFarNode(b, o, d);
-      rays++;
       if (want === null) {
         expect(got).toBeNull();
         misses++;
@@ -89,7 +100,55 @@ describe('far node march', () => {
     expect(hits).toBeGreaterThan(1000);
     expect(misses).toBeGreaterThan(500);
     expect(rays).toBe(6000);
+    // Rays entering at a side under the ground's top are few, not none.
+    expect(startInside).toBeGreaterThan(0);
+    expect(startInside).toBeLessThan(rays / 10);
     // A walk crosses at most 3 × 4 − 2 bricks of a 4³ node.
     expect(visitedMax).toBeLessThanOrEqual(10);
+  });
+
+  it('does not hit a ray that starts inside the solid until it has left it; one that never leaves is hit where it began, marked inside', () => {
+    const b = scene();
+    /** The ground's top over (x, z) in node cells, from a ray down from above the node. */
+    const top = (x: number, z: number): number | null => {
+      const r = marchFarNode(b, [x, 40, z], [0, -1, 0]);
+      return r === null ? null : 40 - r.t;
+    };
+    // Straight up from a cell under the rough ground's top (away from the overhang): out into air, nothing beyond in
+    // the node: no hit (what lies past it shows).
+    expect(marchFarNode(b, [10, top(10, 10)! - 1, 10], [0, 1, 0])).toBeNull();
+    // Rays from points under the ground's top in every direction that start inside: none is hit unmarked where it
+    // began; each is not hit (it left into air), hit where it began (marked), or meets a surface after leaving.
+    const kinds = { none: 0, marked: 0, atStart: 0, surface: 0 };
+    let seed = 11;
+    const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 2000; i++) {
+      const x = 2 + rnd() * 28, z = 2 + rnd() * 28;
+      if (x > 21 && x < 31 && z > 4 && z < 12) continue;
+      const y = top(x, z);
+      if (y === null) continue;
+      const o = [x, y - 0.5 - rnd() * 2, z];
+      const az = rnd() * 2 * Math.PI, el = (rnd() - 0.5) * Math.PI;
+      const d = [Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)];
+      if (!farNodeRayStartsInside(b, o, d)) continue;
+      const r = marchFarNode(b, o, d);
+      if (r === null) kinds.none++;
+      else if (r.inside === true) {
+        // Where its first sample lay: at the start in a stored brick, else where it reaches the first stored one.
+        kinds.marked++;
+        if (r.t === 0) kinds.atStart++;
+        expect(r.t).toBeGreaterThanOrEqual(0);
+      } else {
+        kinds.surface++;
+        expect(r.t).toBeGreaterThan(0);
+      }
+    }
+    // Each kind is met (2,000 rays; a quarter to a half start inside).
+    expect(kinds.none).toBeGreaterThan(20);
+    expect(kinds.marked).toBeGreaterThan(20);
+    expect(kinds.atStart).toBeGreaterThan(5);
+    expect(kinds.surface).toBeGreaterThan(5);
+    // From outside, rays are marched as before: from above the ground is met, unmarked.
+    expect(marchFarNode(b, [10, 40, 10], [0, -1, 0])?.inside).toBeUndefined();
   });
 });

@@ -39,7 +39,7 @@ import type { N } from './effects-tsl';
 import { OWN_MOTION_KEY, worldMotion } from './motion-vectors';
 import { AFTER_PYRAMID_KEY, wantPyramidPath } from './occlusion-passes';
 import { texelTexture } from './texel-texture-node';
-import { faceOfCode, type FarBrickTextures } from './voxel-far-brick-field';
+import { faceOfCode, INSIDE_FACE_CODE, type FarBrickTextures } from './voxel-far-brick-field';
 import { farFragmentDepth, type FarCover } from './voxel-far-common';
 
 const TSL: N = TSLTyped;
@@ -102,12 +102,13 @@ export function farVisibilityOutput(region: N, p: N, viewZ: N, face: N): N {
 }
 
 /** The shade's read of a texel (TSL): the brick's region (texels), the hit in its cells, the view depth and the face's normal. */
-function readTexel(t: N): { region: N; p: N; viewZ: N; face: N } {
+function readTexel(t: N): { region: N; p: N; viewZ: N; face: N; inside: N } {
   const r = t.x;
   const brick = vec3(mod(r, 256), mod(floor(r.div(256)), 256), floor(r.div(65536)));
   const cell = (q: N): N => q.div(FAR_VIS_CELL_STEPS).mul(FAR_VIS_CELL_SPAN).add(FAR_VIS_CELL_FROM);
   const p = vec3(cell(floor(t.y.div(4096))), cell(mod(t.y, 4096)), cell(mod(t.w, FACE_SCALE)));
-  return { region: brick.mul(DISTANCE_BRICK_SIDE), p, viewZ: t.z, face: faceOfCode(floor(t.w.div(FACE_SCALE))) };
+  const code = floor(t.w.div(FACE_SCALE));
+  return { region: brick.mul(DISTANCE_BRICK_SIDE), p, viewZ: t.z, face: faceOfCode(code), inside: code.equal(INSIDE_FACE_CODE) };
 }
 
 /** What the pass draws with (three's WebGPU renderer). */
@@ -200,9 +201,9 @@ export class FarVisibility {
       const ray = positionView.toVar();
       const view = ray.mul(hitViewZ.div(ray.z));
       hitWorld.assign(cameraWorldMatrix.mul(vec4(view, 1)).xyz);
-      const n = textures.normal(region, p, hit.face);
-      normalOut.assign(normalize(cameraViewMatrix.mul(vec4(normalize(rootWorld.mul(vec4(n, 0)).xyz), 0)).xyz));
-      colourOut.assign(textures.colour(region, p));
+      const shaded = textures.shade(region, p, hit.face, hit.inside);
+      normalOut.assign(normalize(cameraViewMatrix.mul(vec4(normalize(rootWorld.mul(vec4(shaded.normal, 0)).xyz), 0)).xyz));
+      colourOut.assign(shaded.colour);
       return farFragmentDepth(cover.behindNear(hitWorld, hitViewZ));
     })();
     m.colorNode = vec4(colourOut, 1);

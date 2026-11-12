@@ -94,7 +94,24 @@ export class FarBrickTextures {
     const c = this.colours.sample(region.add(inBrick(p)).add(0.5).mul(this.invSide)).level(float(0));
     return c.rgb.mul(mix(float(FAR_BRICK_AO_FLOOR), float(1), c.a));
   }
+
+  /**
+   * A hit's normal and colour: as {@link normal} and {@link colour}, or, for a ray that started inside the solid and
+   * never left it (`inside`), the ground's look seen from above (its baked colour, unoccluded, facing up), so a view
+   * from under a coarse stand-in's surface reads as ground rather than as its cells' sides.
+   */
+  shade(region: N, p: N, facing: N, inside: N): { normal: N; colour: N } {
+    // One read for both colours (a node used twice would be read twice).
+    const c = this.colours.sample(region.add(inBrick(p)).add(0.5).mul(this.invSide)).level(float(0)).toVar();
+    return {
+      normal: select(inside, vec3(0, 1, 0), this.normal(region, p, facing)),
+      colour: select(inside, c.rgb, c.rgb.mul(mix(float(FAR_BRICK_AO_FLOOR), float(1), c.a))),
+    };
+  }
 }
+
+/** The face code a hit carries when its ray started inside the solid and never left it ({@link FarBrickTextures.shade}). */
+export const INSIDE_FACE_CODE = 7;
 
 /** A point clamped into a brick's samples (cells). */
 export function inBrick(p: N): N {

@@ -44,7 +44,7 @@ import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_BRICK_BAKED_BYTES, type FarPalette,
 import { culledCopyVec4, culledDepthAt } from './attribute-instancing';
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
 import type { N } from './effects-tsl';
-import { entryFace, entryFaceCode, type FarBrickTextures } from './voxel-far-brick-field';
+import { entryFace, entryFaceCode, INSIDE_FACE_CODE, type FarBrickTextures } from './voxel-far-brick-field';
 import { farClipPosition, farFragmentDepth, type FarCover } from './voxel-far-common';
 import { COPY_BOX_FLOAT, HIDDEN_DEPTH_MARGIN } from './occlusion-instances-rule';
 import { declareVertexReach } from './vertex-reach';
@@ -313,8 +313,11 @@ export class FarBrickMaterial {
     /**
      * One brick's march over its box (brick cells, `lo`–`hi`) from where the ray enters it: as `marchBrickBox`, step
      * for step. Sets `hit` and leaves `t` at the hit, `near` the entry's per-axis distances (the face it entered by).
+     * A ray whose first sample in the node lies inside the solid (the eye inside a coarse stand-in, or under its
+     * surface where the ray enters its box at a side) is not hit until it has left that solid (`inside` until then;
+     * `seen` once its first sample is taken), so the stand-in is not seen from inside; `first` keeps where it began.
      */
-    const marchBrick = (region: N, o: N, dir: N, inv: N, lo: N, hi: N, t: N, hit: N, near: N): void => {
+    const marchBrick = (region: N, o: N, dir: N, inv: N, lo: N, hi: N, t: N, hit: N, near: N, inside: N, seen: N, first: N): void => {
       const ta = lo.sub(o).mul(inv);
       const tb = hi.sub(o).mul(inv);
       near.assign(min(ta, tb));
@@ -325,16 +328,29 @@ export class FarBrickMaterial {
         Loop(FAR_BRICK_STEPS, () => {
           const p = o.add(dir.mul(t)).toVar();
           const f = field(region, p).toVar();
-          If(f.lessThan(max(float(BRICK_HIT_VOXELS), t.mul(pixelCells))), () => {
+          const solid = f.lessThan(max(float(BRICK_HIT_VOXELS), t.mul(pixelCells))).toVar();
+          If(seen.lessThan(0.5), () => {
+            seen.assign(1);
+            If(solid, () => {
+              inside.assign(1);
+              first.assign(t);
+            });
+          });
+          If(inside.greaterThan(0.5).and(solid.not()), () => {
+            inside.assign(0);
+          });
+          If(solid.and(inside.lessThan(0.5)), () => {
             hit.assign(1);
             Break();
           });
           If(t.greaterThanEqual(t1), () => {
             Break();
           });
-          // The skirt's field grows faster than the distance: its steps are shortened to match.
+          // The skirt's field grows faster than the distance: its steps are shortened to match. Inside the solid the
+          // distance to its surface is the field's negative.
           const q = clamp(p, vec3(0), vec3(C));
-          const step = select(length(p.sub(q)).greaterThan(0), f.div(1 + FAR_BRICK_SKIRT_SLOPE), f);
+          const d = select(inside.greaterThan(0.5), f.negate(), f);
+          const step = select(length(p.sub(q)).greaterThan(0), d.div(1 + FAR_BRICK_SKIRT_SLOPE), d);
           t.assign(min(t1, t.add(max(step, float(BRICK_MIN_STEP_VOXELS)))));
         });
       });
@@ -367,6 +383,14 @@ export class FarBrickMaterial {
       // The hit's brick: its atlas region and its corner in the instance's cells.
       const region = vec3(0).toVar();
       const brick = vec3(0).toVar();
+      // A ray that starts inside the solid: whether it still is, whether its first sample is taken, where it began
+      // (t, its brick and region, its entry face).
+      const inside = float(0).toVar();
+      const seen = float(0).toVar();
+      const firstT = float(0).toVar();
+      const firstRegion = vec3(0).toVar();
+      const firstBrick = vec3(0).toVar();
+      const firstNear = vec3(0).toVar();
       {
         // The node's box, then its bricks in ray order (a DDA over the node's 4³ brick table, as `marchFarNode`).
         const ta = vLo.sub(o).mul(inv);
@@ -399,7 +423,13 @@ export class FarBrickMaterial {
             const box = lipped(vec3(mod(b.x, 16), mod(b.y, 16), mod(b.z, 16)), vec3(floor(b.x.div(16)), floor(b.y.div(16)), floor(b.z.div(16))), b.w);
             region.assign(round(entry.rgb.mul(255)).mul(DISTANCE_BRICK_SIDE));
             brick.assign(cell.mul(C));
-            marchBrick(region, o.sub(brick), dir, inv, box.lo, box.hi, t, hit, near);
+            const was = seen.toVar();
+            marchBrick(region, o.sub(brick), dir, inv, box.lo, box.hi, t, hit, near, inside, seen, firstT);
+            If(was.lessThan(0.5).and(inside.greaterThan(0.5)), () => {
+              firstRegion.assign(region);
+              firstBrick.assign(brick);
+              firstNear.assign(near);
+            });
           });
           If(hit.greaterThan(0.5), () => {
             Break();
@@ -425,6 +455,16 @@ export class FarBrickMaterial {
           });
         });
       }
+      // Never out of the solid it started in: hit where it began, shaded as the ground's look from above (no hole, no
+      // view of the stand-in's cells from inside).
+      const insideHit = hit.lessThan(0.5).and(inside.greaterThan(0.5)).toVar();
+      If(insideHit, () => {
+        hit.assign(1);
+        t.assign(firstT);
+        region.assign(firstRegion);
+        brick.assign(firstBrick);
+        near.assign(firstNear);
+      });
       If(hit.lessThan(0.5), () => {
         Discard();
       });
@@ -438,13 +478,14 @@ export class FarBrickMaterial {
       const face = entryFace(near, dir);
       const view = modelView.mul(vec4(local, 1));
       if (output === 'visibility') {
-        hitPayload.assign(farVisibilityOutput(region, p, view.z, entryFaceCode(face)));
+        hitPayload.assign(farVisibilityOutput(region, p, view.z, select(insideHit, float(INSIDE_FACE_CODE), entryFaceCode(face))));
         return farFragmentDepth(cover.behindNear(world, view.z));
       }
       // Deep under the surface (the samples clamped to the band) there is no gradient: a ray hits there only where a
       // node face shows its ground's side (a neighbour drawn at a coarser level lies lower), shaded as that face.
-      hitNormal.assign(normalize(modelView.mul(vec4(textures.normal(region, p, face), 0)).xyz));
-      hitColour.assign(textures.colour(region, p));
+      const shaded = textures.shade(region, p, face, insideHit);
+      hitNormal.assign(normalize(modelView.mul(vec4(shaded.normal, 0)).xyz));
+      hitColour.assign(shaded.colour);
       hitViewZ.assign(cover.behindNear(world, view.z));
       return farFragmentDepth(hitViewZ);
     })();

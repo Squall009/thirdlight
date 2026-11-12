@@ -211,7 +211,18 @@ export function farBrickField(samples: Uint8Array, block: number, p: readonly nu
 }
 
 /** One brick's march over a box of its cells (`lo`–`hi`, the draw's marched box) from where the ray enters it: where it hits (cells along the unit direction from the origin) and the steps taken; null: it leaves the box (or runs out of steps) first. */
-export function marchBrickBox(samples: Uint8Array, block: number, lo: readonly number[], hi: readonly number[], o: readonly number[], d: readonly number[]): { t: number; steps: number } | null {
+/**
+ * A node march's state across its bricks: whether the ray's first sample is taken, whether the ray is still inside the
+ * solid that sample lay in (it is not hit until it has left it), and where it began (t, its block).
+ */
+export interface FarMarchStart {
+  seen: boolean;
+  inside: boolean;
+  first: number;
+  firstBlock: number;
+}
+
+export function marchBrickBox(samples: Uint8Array, block: number, lo: readonly number[], hi: readonly number[], o: readonly number[], d: readonly number[], start?: FarMarchStart): { t: number; steps: number } | null {
   let t0 = 0;
   let t1 = Infinity;
   for (let a = 0; a < 3; a++) {
@@ -226,11 +237,19 @@ export function marchBrickBox(samples: Uint8Array, block: number, lo: readonly n
   for (let steps = 1; steps <= FAR_BRICK_STEPS; steps++) {
     const p = [o[0]! + d[0]! * t, o[1]! + d[1]! * t, o[2]! + d[2]! * t];
     const f = farBrickField(samples, block, p);
-    if (f < BRICK_HIT_VOXELS) return { t, steps };
+    const solid = f < BRICK_HIT_VOXELS;
+    if (start !== undefined && !start.seen) {
+      start.seen = true;
+      if (solid) Object.assign(start, { inside: true, first: t, firstBlock: block });
+    }
+    if (start?.inside === true && !solid) start.inside = false;
+    if (solid && start?.inside !== true) return { t, steps };
     if (t >= t1) return null;
-    // The skirt's field grows faster than the distance: its steps are shortened to match.
-    const inside = p.every((c) => c >= 0 && c <= DISTANCE_BRICK_CELLS);
-    t = Math.min(t1, t + Math.max(inside ? f : f / (1 + FAR_BRICK_SKIRT_SLOPE), BRICK_MIN_STEP_VOXELS));
+    // The skirt's field grows faster than the distance: its steps are shortened to match. Inside the solid the ray
+    // started in, the distance to its surface is the field's negative.
+    const inBox = p.every((c) => c >= 0 && c <= DISTANCE_BRICK_CELLS);
+    const dist = start?.inside === true ? -f : f;
+    t = Math.min(t1, t + Math.max(inBox ? dist : dist / (1 + FAR_BRICK_SKIRT_SLOPE), BRICK_MIN_STEP_VOXELS));
   }
   return null;
 }
