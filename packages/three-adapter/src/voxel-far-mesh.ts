@@ -43,7 +43,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { DISTANCE_BRICK_CELLS, FAR_POSITION_ORIGIN_CELLS, FAR_SEEN_STRIDE, FAR_VERTEX_BYTES, farBrickCount, farBricksInside, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FarSeenWire, type FloatingOrigin, type MipNode, type NearCoverWire } from '@thirdlight/voxel';
+import { DISTANCE_BRICK_CELLS, FAR_FINE_TOP_LEVEL, farFineOctants, FAR_POSITION_ORIGIN_CELLS, FAR_SEEN_STRIDE, FAR_VERTEX_BYTES, farBrickCount, farBricksInside, mipNodeKey, POSITION_STEPS_PER_CELL, VOXEL_SIZE_M, type ChunkGrid, type FarDrawKind, type FarDrawWire, type FarBricks, type FarNodeDraw, type FarSeenWire, type FloatingOrigin, type MipNode, type NearCoverWire } from '@thirdlight/voxel';
 import { cameraRelative } from './camera-relative';
 import { disposeObjectTree } from './dispose';
 import type { N } from './effects-tsl';
@@ -126,6 +126,8 @@ export class VoxelFarView {
   private readonly regions = new Map<string, THREE.Vector3[]>();
   /** Each brick node's page (its brick table, the march's), by node key. */
   private readonly pages = new Map<string, THREE.Vector3>();
+  /** Octants of a drawn coarse node left out of its brick table because fine nodes draw there (absent: none). */
+  private readonly masks = new Map<string, number>();
   private hidden = false;
   /** The atlas's texture nodes every brick program reads (made with the atlas). */
   private textures: FarBrickTextures | null = null;
@@ -384,9 +386,43 @@ export class VoxelFarView {
       g.dirty = true;
       this.groupOf.set(key, g.key);
     });
+    this.maskUnderFine(far);
     for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
     if (this.atlas !== null && this.atlas.trim(this.uploader())) this.trims++;
     this.lastBuildMs = performance.now() - t0;
+  }
+
+  /**
+   * A level-2 node opened only partly by the far field (the load ring ends across it) stays drawn beside the fine
+   * nodes over its resident part: its bricks in the octants a fine node draws are left out of its brick table, in
+   * the same apply as the change, so the two never draw one place and nothing is left undrawn between them. Fine
+   * nodes on the octants' faces hang their skirts as at any level change.
+   */
+  private maskUnderFine(far: FarDrawWire): void {
+    const top = FAR_FINE_TOP_LEVEL + 1;
+    const touched = new Set<string>();
+    const up = (n: MipNode): void => {
+      if (n.level > FAR_FINE_TOP_LEVEL) {
+        if (n.level === top) touched.add(mipNodeKey(n));
+        return;
+      }
+      const d = top - n.level;
+      touched.add(mipNodeKey({ level: top, nx: n.nx >> d, ny: n.ny >> d, nz: n.nz >> d }));
+    };
+    for (const n of far.removed) up(n);
+    for (const n of far.added) up(n);
+    for (const key of touched) {
+      const page = this.pages.get(key);
+      const gk = this.groupOf.get(key);
+      const b = gk === undefined ? undefined : this.groups.get(gk)?.nodes.get(key)?.bricks;
+      if (page === undefined || b === undefined || this.fineKeys.has(key)) continue;
+      const [nx, ny, nz] = key.slice(key.indexOf(':') + 1).split(',').map(Number) as [number, number, number];
+      const octants = farFineOctants({ level: top, nx, ny, nz }, (k) => this.fineKeys.has(k));
+      if ((this.masks.get(key) ?? 0) === octants) continue;
+      if (octants === 0) this.masks.delete(key);
+      else this.masks.set(key, octants);
+      this.atlas!.writePage(this.uploader(), page, b, this.regions.get(key)!, octants);
+    }
   }
 
   private dropRegions(key: string): void {
@@ -398,6 +434,7 @@ export class VoxelFarView {
     const page = this.pages.get(key);
     if (page !== undefined) this.atlas!.removePage(page);
     this.pages.delete(key);
+    this.masks.delete(key);
   }
 
   /** A brick node's bricks and brick table into the atlas. */

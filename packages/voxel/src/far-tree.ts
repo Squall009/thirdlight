@@ -243,6 +243,11 @@ export interface FarSelectIndex {
   children(n: MipNode): MipNode[];
   /** Whether a node may open into its children now (absent: every node above the lowest level may). */
   openable?(n: MipNode): boolean;
+  /**
+   * Whether an openable node opens only into the children {@link children} gives now and stays drawn over the rest
+   * (absent: never). The host draws such a node without the parts its drawn descendants cover.
+   */
+  partial?(n: MipNode): boolean;
 }
 
 /** A box of cells, min inclusive, max exclusive. */
@@ -429,19 +434,21 @@ export class FarSelection {
       if (++looked % FAR_SELECT_STEP_NODES === 0) yield;
       const i = pop();
       const key = i.key;
-      if (i.node.level <= index.minLevel || index.openable?.(i.node) === false) continue;
+      if (i.node.level <= index.minLevel) continue;
       const wasOpen = this.open.has(key);
       const wants = i.nearOverlap || i.rank > threshold * (wasOpen ? 1 - h : 1);
-      if (!wants) continue;
+      // Asked only of a node that wants to open: what it refuses is then what keeps detail out (and it reads chunks).
+      if (!wants || index.openable?.(i.node) === false) continue;
       const kids = index.children(i.node).map(info).filter(visible);
-      const cost = kids.reduce((s, k) => s + k.bytes, 0) - i.bytes;
-      const gpuCost = kids.reduce((s, k) => s + k.gpu, 0) - i.gpu;
+      const part = index.partial?.(i.node) === true;
+      const cost = kids.reduce((s, k) => s + k.bytes, 0) - (part ? 0 : i.bytes);
+      const gpuCost = kids.reduce((s, k) => s + k.gpu, 0) - (part ? 0 : i.gpu);
       // The near field's edge opens whatever the budget: a coarse node there would cover what the near rings draw.
       if (!i.nearOverlap && (bytes + cost > budget || gpu + gpuCost > gpuBudget)) {
         held++;
         continue;
       }
-      drawn.delete(key);
+      if (!part) drawn.delete(key);
       nextOpen.add(key);
       bytes += cost;
       gpu += gpuCost;

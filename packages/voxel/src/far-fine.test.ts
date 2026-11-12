@@ -14,7 +14,7 @@ import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_OUTSID
 import { farBricksFromBlock, farBricksFromFaces, gatherFarCells, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
 import { farRoofDistance } from './far-bricks-roofs';
 import { FAR_VIEW_PIXELS_PER_RADIAN, FarField, type FarEvent, type FarNodeDraw, type FarNodeSource } from './far-field';
-import { farFineChunks, farFineDirty, farFineFade, FarFineIndex, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineHost } from './far-fine';
+import { farBrickOctant, farFineChunks, farFineDirty, farFineFade, FarFineIndex, farFineOctants, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineHost } from './far-fine';
 import { SHADER_CONSTRUCTION_BIT } from './derived-shader';
 import { FAR_MIN_LEVEL, farCellPixels, FarNodeIndex, FarSelection } from './far-tree';
 import { createWorldStore, type PaletteStore } from './palette-store';
@@ -231,10 +231,10 @@ describe('fine far bricks: the block', () => {
       expect(farCellPixels(FAR_MIN_LEVEL, end / VOXEL_SIZE_M, FAR_VIEW_PIXELS_PER_RADIAN)).toBeGreaterThanOrEqual(error - 1e-9);
       expect(start).toBeGreaterThan(0);
       expect(start).toBeLessThan(end);
-      // A load ring of 192 m: level 2 opens only with a node's chunks and one round them resident (its near side 1–5
-      // chunks short of the ring): the textures are gone by the middle of that band.
+      // A load ring of 192 m: a level-1 node opens only with its chunks and one round them resident (level 2 begins
+      // 1–3 chunks short of the ring): the textures are gone by the middle of that band.
       const [, ringEnd] = farFineFade(error, FAR_VIEW_PIXELS_PER_RADIAN, 384, grid.edge);
-      expect(ringEnd).toBeLessThanOrEqual(Math.min(end, (384 - 3 * grid.edge) * VOXEL_SIZE_M));
+      expect(ringEnd).toBeLessThanOrEqual(Math.min(end, (384 - 2 * grid.edge) * VOXEL_SIZE_M));
     }
   });
 
@@ -281,16 +281,64 @@ describe('fine far bricks: the selection', () => {
     expect(new FarSelection().select(keptIndex(), view).drawn.every((d) => d.node.level >= 2)).toBe(true);
   });
 
-  it('keeps a level-2 node closed while a chunk its children read is not resident, and a node the detail ring draws whole', () => {
-    // One chunk away: the two level-2 nodes whose children read it (it is in one, in the other's apron) stay closed.
+  it('opens a level-2 node the load ring ends across into its resident children only, keeping it drawn over the rest, and not a node the detail ring draws whole', () => {
+    // One chunk away: the two level-2 nodes whose children read it (it is in one, in the other's apron) open into the
+    // level-1 children whose blocks do not read it, and stay drawn over the children that do.
     const away = (c: ChunkCoord): boolean => c.cx === 0 && c.cz === 4 && c.cy === 0;
-    const sel = new FarSelection().select(new FarFineIndex(keptIndex(), host(world, away)), view);
-    const at = (n: MipNode): MipNode => ({ level: 2, nx: n.nx >> (2 - n.level), ny: n.ny >> (2 - n.level), nz: n.nz >> (2 - n.level) });
-    const opened = new Set(sel.drawn.filter((d) => d.node.level < 2).map((d) => mipNodeKey(at(d.node))));
-    for (const k of ['2:0,0,0', '2:0,0,1', '2:1,0,0', '2:1,0,1']) expect(opened.has(k), k).toBe(k.startsWith('2:1,'));
+    const fine = new FarFineIndex(keptIndex(), host(world, away));
+    const sel = new FarSelection().select(fine, view);
+    const keys = new Set(sel.drawn.map((d) => mipNodeKey(d.node)));
+    const up = (n: MipNode, l: number): MipNode => ({ level: l, nx: n.nx >> (l - n.level), ny: n.ny >> (l - n.level), nz: n.nz >> (l - n.level) });
+    const reads = (n: MipNode): boolean => {
+      const { min, max } = farFineChunks(n);
+      return min[0] <= 0 && max[0] >= 0 && min[1] <= 0 && max[1] >= 0 && min[2] <= 4 && max[2] >= 4;
+    };
+    for (const k of ['2:0,0,0', '2:0,0,1']) expect(keys.has(k), `${k} stays drawn over its unread part`).toBe(true);
+    for (const k of ['2:1,0,0', '2:1,0,1']) expect(keys.has(k), `${k} opens whole`).toBe(false);
+    expect(fine.partial({ level: 2, nx: 0, ny: 0, nz: 1 })).toBe(true);
+    expect(fine.partial({ level: 2, nx: 1, ny: 0, nz: 1 })).toBe(false);
+    let opened = 0;
+    for (const d of sel.drawn) {
+      if (!isFarFine(d.node)) continue;
+      // No fine node reads a chunk that is not here, and none lies under another drawn fine node.
+      expect(reads(d.node.level === 1 ? d.node : up(d.node, 1)), mipNodeKey(d.node)).toBe(false);
+      for (let l = d.node.level + 1; l <= 1; l++) expect(keys.has(mipNodeKey(up(d.node, l)))).toBe(false);
+      if (keys.has(mipNodeKey(up(d.node, 2)))) opened++;
+    }
+    expect(opened, 'fine nodes beside their partly opened level-2 node').toBeGreaterThan(0);
+    // No hole: under a drawn level-2 node every octant is the node's or a fine node's; under one not drawn every
+    // holding level-1 child is drawn itself or through its level-0 children.
+    for (const n of keptIndex().nodes(2)) {
+      const k2 = mipNodeKey(n);
+      const octants = farFineOctants(n, (k) => keys.has(k));
+      for (const c of fine.children(n)) {
+        const o = (c.nx & 1) | ((c.ny & 1) << 1) | ((c.nz & 1) << 2);
+        if (!keys.has(k2)) expect((octants >> o) & 1, `${mipNodeKey(c)} drawn`).toBe(1);
+      }
+      if (keys.has(k2)) for (let o = 0; o < 8; o++) {
+        const c = { level: 1, nx: n.nx * 2 + (o & 1), ny: n.ny * 2 + ((o >> 1) & 1), nz: n.nz * 2 + (o >> 2) };
+        // A partly opened node's octant left to it is one whose child reads the chunk away (or holds nothing).
+        if (((octants >> o) & 1) === 0 && fine.has(c)) expect(reads(c), mipNodeKey(c)).toBe(true);
+      }
+    }
+    expect(fine.refused.resident + fine.refused.partial).toBe(0);
+    fine.selecting();
+    expect(fine.refused.partial, 'the selection counted the nodes it opened in part').toBe(2);
     // Every chunk the near field draws: no fine node opens under it.
     const all = new FarSelection().select(new FarFineIndex(keptIndex(), host(world, () => false, () => true)), view);
     expect(all.drawn.every((d) => d.node.level >= 2)).toBe(true);
+  });
+
+  it("leaves a partly opened node's bricks out of its draw in the octants fine nodes cover", () => {
+    const n = { level: 2, nx: 3, ny: 1, nz: 5 };
+    const drawn = new Set(['1:7,2,10', '0:12,6,22', '0:13,7,23']);
+    // 1:7,2,10 is octant x1 y0 z0; 0:12,6,22 and 0:13,7,23 are both under 1:6,3,11 (octant x0 y1 z1).
+    expect(farFineOctants(n, (k) => drawn.has(k))).toBe((1 << 1) | (1 << 6));
+    // A 4³ brick table: bricks 0–1 in x lie in the low half, 2–3 in the high one, alike for y and z.
+    expect(farBrickOctant(0, 4)).toBe(0);
+    expect(farBrickOctant(2, 4)).toBe(1);
+    expect(farBrickOctant(1 + 4 * 2 + 16 * 3, 4)).toBe(2 | 4);
+    expect(farBrickOctant(63, 4)).toBe(7);
   });
 
   it('names every fine node whose block reads a changed chunk', () => {

@@ -33,7 +33,7 @@ import { farCellApron, type ChunkCells, type FarCellBlock } from './far-bricks-f
 import type { FarRoofColumns } from './far-bricks-roofs';
 import { FAR_MIN_LEVEL, type FarNodeIndex } from './far-tree';
 import { SHAPE_FULL } from './record';
-import { mipChildren, type MipNode } from './voxel-mips';
+import { mipChildren, mipNodeKey, type MipNode } from './voxel-mips';
 
 /** The finest far level the cache keeps less one: the levels below {@link FAR_MIN_LEVEL} are the fine ones. */
 export const FAR_FINE_TOP_LEVEL = FAR_MIN_LEVEL - 1;
@@ -58,12 +58,12 @@ export const FAR_FINE_GPU_FORESEEN_BYTES = 16 * DISTANCE_BRICK_SAMPLES * (1 + FA
 export const FAR_FINE_PACK_MS = 4;
 
 /**
- * Chunks short of the load ring where level 2 begins in the main: a level-2 node opens into fine children only with
- * its four chunks a side and one more round them resident, so its near side lies one to five chunks short of the ring
- * (three on average). Fading by the worst case (five) took the textures off houses a level-1 node still drew 30 m
- * nearer (the town's back row at low); a node that stays closed nearer meets a fading, not a full, texture.
+ * Chunks short of the load ring where level 2 begins in the main: a level-2 node opens into those of its level-1
+ * children whose two chunks a side and one more round them are resident (FarFineIndex), so level 2 begins one to
+ * three chunks short of the ring (two on average). A node that stays closed nearer meets a fading, not a full,
+ * texture.
  */
-const FAR_FINE_REACH_CHUNKS = (2 ** FAR_MIN_LEVEL + 2) / 2;
+const FAR_FINE_REACH_CHUNKS = (2 ** (FAR_MIN_LEVEL - 1) + 2) / 2;
 
 /** Share of the fade's end at which fine bricks' textures begin to fade to the far palette's colour. */
 export const FAR_FINE_FADE_START_SHARE = 0.5;
@@ -161,6 +161,16 @@ export function farFineChunks(n: MipNode): { readonly min: readonly [number, num
   return { min: [n.nx * s - 1, n.ny * s - 1, n.nz * s - 1], max: [(n.nx + 1) * s, (n.ny + 1) * s, (n.nz + 1) * s] };
 }
 
+/** What a selection kept closed that wanted to open ({@link FarFineIndex.refused}). */
+export interface FarFineRefused {
+  /** Level-2 nodes with a chunk their children read not resident. */
+  readonly resident: number;
+  /** Nodes the near field draws whole. */
+  readonly near: number;
+  /** Level-2 nodes opened into only their resident children, drawn over the rest. */
+  readonly partial: number;
+}
+
 /** What the far field reads fine nodes from: the streamer's chunks. */
 export interface FarFineHost {
   /** Whether a chunk's cells are here (resident, or outside the world: air). */
@@ -181,6 +191,13 @@ export interface FarFineHost {
  */
 export class FarFineIndex {
   readonly minLevel = 0;
+  /**
+   * Nodes the last finished selection wanted to open (by screen error) but kept closed: a chunk their children read
+   * not resident, or the near field drawing them whole.
+   */
+  refused: FarFineRefused = { resident: 0, near: 0, partial: 0 };
+  private counting: { resident: number; near: number; partial: number } = { resident: 0, near: 0, partial: 0 };
+  private last: { readonly key: string; readonly full: boolean; readonly kids: MipNode[] } | null = null;
 
   constructor(
     private readonly base: FarNodeIndex,
@@ -208,21 +225,76 @@ export class FarFineIndex {
     return isFarFine(n) ? this.holds(n) : this.base.has(n);
   }
 
-  /** Whether a node may open into its children (a kept level above the fine ones always may). */
+  /** A selection begins: the refusals counted in the one before it are what {@link refused} reports. */
+  selecting(): void {
+    this.refused = this.counting;
+    this.counting = { resident: 0, near: 0, partial: 0 };
+    // Residency may have changed since the last selection.
+    this.last = null;
+  }
+
+  /**
+   * Whether a node may open into its children (a kept level above the fine ones always may). A level-2 node whose
+   * children's chunks are not all resident (the load ring ends across it) opens into those children that are: it
+   * stays drawn over the rest ({@link partial}), so the fine band reaches the ring's edge instead of stopping a whole
+   * level-2 node and its apron short of it.
+   */
   openable(n: MipNode): boolean {
     if (n.level > FAR_MIN_LEVEL || n.level === 0) return n.level > 0;
-    const { min, max } = farFineChunks(n);
-    // The children's blocks read one chunk round the node: all of those here, or the node stays closed.
-    for (let cx = min[0]; cx <= max[0]; cx++) for (let cy = min[1]; cy <= max[1]; cy++) for (let cz = min[2]; cz <= max[2]; cz++) if (!this.host.resident(cx, cy, cz)) return false;
-    const s = 1 << n.level;
-    for (let cx = n.nx * s; cx < (n.nx + 1) * s; cx++) for (let cy = n.ny * s; cy < (n.ny + 1) * s; cy++) for (let cz = n.nz * s; cz < (n.nz + 1) * s; cz++) if (!this.host.nearDrawn(cx, cy, cz)) return true;
-    return false;
+    const o = this.opening(n);
+    if (o.kids.length === 0) {
+      if (o.full) this.counting.near++;
+      else this.counting.resident++;
+      return false;
+    }
+    if (!o.full) this.counting.partial++;
+    return true;
+  }
+
+  /** Whether a level-2 node opens only into some of its children now and stays drawn over the others. */
+  partial(n: MipNode): boolean {
+    return n.level === FAR_MIN_LEVEL && !this.opening(n).full;
   }
 
   children(n: MipNode): MipNode[] {
     if (n.level > FAR_MIN_LEVEL) return this.base.children(n);
     if (n.level === 0) return [];
+    if (n.level === FAR_MIN_LEVEL) return this.opening(n).kids;
     return mipChildren(n).filter((c) => this.holds(c));
+  }
+
+  /**
+   * A level-2 node's opening: its children that hold anything and whose blocks' chunks are all resident (a level-1
+   * node reads its own chunks and one round them, as each of its level-0 children together do), and whether that is
+   * every child that holds anything (full). With every chunk resident, a node the near field draws whole opens into
+   * nothing (the detail ring draws it). Kept for the node last asked: the selection asks openable, children and
+   * partial of one node in turn.
+   */
+  private opening(n: MipNode): { readonly full: boolean; readonly kids: MipNode[] } {
+    const key = `${n.nx},${n.ny},${n.nz}`;
+    if (this.last !== null && this.last.key === key) return this.last;
+    const holding = mipChildren(n).filter((c) => this.holds(c));
+    const kids = holding.filter((c) => this.resident(c));
+    const full = kids.length === holding.length;
+    let open = kids;
+    if (full) {
+      const s = 1 << n.level;
+      let drawn = true;
+      for (let cx = n.nx * s; cx < (n.nx + 1) * s && drawn; cx++) for (let cy = n.ny * s; cy < (n.ny + 1) * s && drawn; cy++) for (let cz = n.nz * s; cz < (n.nz + 1) * s; cz++) if (!this.host.nearDrawn(cx, cy, cz)) {
+        drawn = false;
+        break;
+      }
+      if (drawn) open = [];
+    }
+    this.last = { key, full, kids: open };
+    return this.last;
+  }
+
+  /** Whether every chunk a fine node's block reads is resident. */
+  private resident(n: MipNode): boolean {
+    const { min, max } = farFineChunks(n);
+    for (let cx = min[0]; cx <= max[0]; cx++) for (let cy = min[1]; cy <= max[1]; cy++) for (let cz = min[2]; cz <= max[2]; cz++) if (!this.host.resident(cx, cy, cz)) return false;
+    return true;
   }
 
   /** A fine node holds anything: one of its chunks holds more than air. */
@@ -231,6 +303,28 @@ export class FarFineIndex {
     for (let cx = n.nx * s; cx < (n.nx + 1) * s; cx++) for (let cy = n.ny * s; cy < (n.ny + 1) * s; cy++) for (let cz = n.nz * s; cz < (n.nz + 1) * s; cz++) if (this.host.holds(cx, cy, cz)) return true;
     return false;
   }
+}
+
+/**
+ * The octants (bit x + 2y + 4z of its halves) of a level-2 node that drawn fine nodes cover: a level-1 node over the
+ * octant, or one of its level-0 children (a level-1 node opens into all of them at once). A partly opened node's
+ * bricks there are left out of its draw.
+ */
+export function farFineOctants(n: MipNode, drawn: (key: string) => boolean): number {
+  let octants = 0;
+  for (let o = 0; o < 8; o++) {
+    const c = { level: FAR_FINE_TOP_LEVEL, nx: n.nx * 2 + (o & 1), ny: n.ny * 2 + ((o >> 1) & 1), nz: n.nz * 2 + (o >> 2) };
+    let fine = drawn(mipNodeKey(c));
+    for (let k = 0; k < 8 && !fine; k++) fine = drawn(mipNodeKey({ level: 0, nx: c.nx * 2 + (k & 1), ny: c.ny * 2 + ((k >> 1) & 1), nz: c.nz * 2 + (k >> 2) }));
+    if (fine) octants |= 1 << o;
+  }
+  return octants;
+}
+
+/** The octant (bit x + 2y + 4z) of a node that brick `i` of its `side`³ brick table (x fastest) lies in. */
+export function farBrickOctant(i: number, side: number): number {
+  const half = side >> 1;
+  return (i % side >= half ? 1 : 0) | (Math.floor(i / side) % side >= half ? 2 : 0) | (Math.floor(i / (side * side)) >= half ? 4 : 0);
 }
 
 /** The fine nodes whose blocks read a changed chunk (levels 0 and 1). */
@@ -245,3 +339,4 @@ export function farFineDirty(chunks: Iterable<{ readonly cx: number; readonly cy
   }
   return [...out.values()];
 }
+

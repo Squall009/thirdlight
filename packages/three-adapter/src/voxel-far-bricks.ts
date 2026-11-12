@@ -39,7 +39,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_DEEP_CELLS, FAR_FINE_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
+import { bakeFarBrick, farBrickOctant, BRICK_HIT_VOXELS, FAR_DEEP_CELLS, FAR_FINE_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { culledCopyVec4, culledDepthAt } from './attribute-instancing';
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
@@ -100,8 +100,20 @@ export class FarBrickAtlas {
   }
 
   /** A node's brick table (its bricks' regions as {@link add} gave them); its page's origin (null: no brick stored). */
-  addPage(renderer: VoxelGridRenderer, b: FarBricks, regions: readonly THREE.Vector3[]): THREE.Vector3 | null {
+  addPage(renderer: VoxelGridRenderer, b: FarBricks, regions: readonly THREE.Vector3[], octants = 0): THREE.Vector3 | null {
     if (regions.length === 0) return null;
+    const at = this.pages.allocate(renderer);
+    const twin = this.pageBounds.allocate(renderer);
+    if (!at.equals(twin)) throw new Error('far brick atlas: the two page stores parted');
+    this.writePage(renderer, at, b, regions, octants);
+    return at;
+  }
+
+  /**
+   * A node's brick table written again with the bricks of the octants set in `octants` (bit x + 2y + 4z of the
+   * node's halves) left out: finer nodes draw there, and the march passes through as through air.
+   */
+  writePage(renderer: VoxelGridRenderer, at: THREE.Vector3, b: FarBricks, regions: readonly THREE.Vector3[], octants: number): void {
     const n = b.bricks.length;
     const table = new Uint8Array(n * 4);
     const bounds = new Uint8Array(n * 4);
@@ -109,18 +121,15 @@ export class FarBrickAtlas {
     for (let i = 0; i < n; i++) {
       const k = b.bricks[i]!;
       if (k < 0) continue;
+      if (octants !== 0 && (octants >> farBrickOctant(i, b.side)) & 1) continue;
       const r = regions[k]!;
       table.set([r.x / S, r.y / S, r.z / S, 255], i * 4);
       const q = k * FAR_BRICK_BOUNDS_BYTES;
       const bb = b.bounds;
       bounds.set([bb[q]! + 16 * bb[q + 3]!, bb[q + 1]! + 16 * bb[q + 4]!, bb[q + 2]! + 16 * bb[q + 5]!, b.blocks[k * FAR_BRICK_BLOCK_BYTES + 3]!], i * 4);
     }
-    const at = this.pages.allocate(renderer);
-    const twin = this.pageBounds.allocate(renderer);
-    if (!at.equals(twin)) throw new Error('far brick atlas: the two page stores parted');
     this.pages.upload(renderer, at, table);
     this.pageBounds.upload(renderer, at, bounds);
-    return at;
   }
 
   /** Gives a node's page back. */

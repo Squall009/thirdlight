@@ -39,7 +39,7 @@ import { farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
 import { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
-import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, farFineBytes, farFineFade, isFarFine, type FarFineCells, type FarFineHost } from './far-fine';
+import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, farFineBytes, farFineFade, isFarFine, type FarFineCells, type FarFineHost, type FarFineRefused } from './far-fine';
 import { FarFineNodes } from './far-fine-nodes';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, farCellPixels, farNodeBox, farNodeDistance, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
@@ -529,6 +529,7 @@ export class FarField {
         const coarseGpu = this.gpu.foresee();
         const fineIndex = this.fineNodes.selectIndex;
         const fine = fineIndex !== null;
+        fineIndex?.selecting();
         // A fine node's bricks are built on the page: foreseen at a fixed size (the ledger's ratio is the stored nodes').
         const gpuBytesOf = fine ? (n: MipNode, stored: number) => (isFarFine(n) ? FAR_FINE_GPU_FORESEEN_BYTES : coarseGpu(n, stored)) : coarseGpu;
         const at = (this.seen.selectingAt = performance.now());
@@ -1190,7 +1191,7 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null; seen: FarSeenLog['counters'] & { unseenWanted: number; turnMs: number }; fine: FarFineNodes['counters'] & { on: boolean; ms: { p50: number; p95: number; n: number; sum: number }; drawn: number[] } } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null; seen: FarSeenLog['counters'] & { unseenWanted: number; turnMs: number }; fine: FarFineNodes['counters'] & { on: boolean; refused: FarFineRefused | null; ms: { p50: number; p95: number; n: number; sum: number }; drawn: number[] } } {
     return {
       draw: this.draw,
       nodes: this.wanted.size,
@@ -1212,7 +1213,7 @@ export class FarField {
       standIns: farStandIns(this.wanted, this.shown, this.index?.maxLevel ?? 0, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, (n) => underNear(this.host.grid, n, this.eye, this.near)),
       index: this.index?.counts() ?? null,
       seen: { ...this.seen.counters, unseenWanted: this.seen.selectedUnseen.size, turnMs: this.seen.turnMs },
-      fine: { on: this.fineNodes.on, ...this.fineNodes.counters, ms: { p50: this.fineNodes.ms.quantile(0.5), p95: this.fineNodes.ms.quantile(0.95), n: this.fineNodes.ms.count, sum: sumOf(this.fineNodes.ms) }, drawn: [0, 1].map((l) => [...this.shown.values()].filter((n) => n.level === l).length) },
+      fine: { on: this.fineNodes.on, ...this.fineNodes.counters, refused: this.fineNodes.selectIndex?.refused ?? null, ms: { p50: this.fineNodes.ms.quantile(0.5), p95: this.fineNodes.ms.quantile(0.95), n: this.fineNodes.ms.count, sum: sumOf(this.fineNodes.ms) }, drawn: [0, 1].map((l) => [...this.shown.values()].filter((n) => n.level === l).length) },
     };
   }
 

@@ -591,9 +591,11 @@ default chosen, owner to confirm (plan 46d §9, the 46d.25a defaults).
 `voxel-fine-bricks-wgsl.ts`; WebGPU). The far tree gains levels 0 (0.5 m cells, 16 m nodes: a chunk) and 1 (1 m, 32
 m) under its kept levels, never kept: with `fineBricks` on, the selection opens a kept level-2 node into the level-1
 nodes over its chunks, and a level-1 node into its chunks, by the same screen error, hysteresis, GPU budget and
-visibility feedback as every level, where every chunk the children's blocks read (the node's and one round it) is
-resident in the streamer and the near field does not draw the node whole (`FarFineIndex`); elsewhere level 2 is the
-finest, as without. A fine node's input is its **cell block**, the very block the CPU build reads
+visibility feedback as every level, into those children whose blocks' chunks (the child's and one round it) are
+resident in the streamer, unless the near field draws the node whole (`FarFineIndex`). Where the load ring ends across
+a level-2 node it opens into its resident children only and stays drawn over the rest (`partial`): the page leaves its
+bricks in the octants fine nodes cover out of its brick table (`farFineOctants`, in the same apply as the change), and
+the fine nodes' skirts close the octant faces as at any level change. Elsewhere level 2 is the finest, as without. A fine node's input is its **cell block**, the very block the CPU build reads
 (`gatherFarCells`): its cells at scale 1 (level 0: the chunk's own) or 2 (level 1: the chunks', twice finer than its
 own) and an apron of `farCellApron` (4 or 7) finer cells round it, read from the streamer's chunks (the world's files
 with the run-time edits over them), packed 16 bits a cell (fill level in bits 0–3, the cell's look word's place in

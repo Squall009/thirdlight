@@ -46,6 +46,7 @@
  *   --hide LIST          passes hidden (default near,far,shadows,post; `none`)
  *   --scales LIST        render scales at no load (default low 0.833,1; medium 0.75,0.833,0.917,1; high 0.9,0.8,0.667; `none`)
  *   --query Q            more of the editor page's query (`&voxelShadows=static`: page flags Play is passed)
+ *   --orbit R,W          the camera R m from the town square at W rad/s (default 12,0.15; e.g. 60,0.25 moves the eye 15 m/s)
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *
  * How to (staging running, the 8 km world in it, nothing else on the GPU):
@@ -113,7 +114,13 @@ async function command(op: string, args: unknown): Promise<void> {
   if (r.json['ok'] !== true && error?.code !== 'no_change') throw new Error(`${op}: ${JSON.stringify(r.json).slice(0, 400)}`);
 }
 
-/** The orbit round the town square the far-field measurements use (0.15 rad/s at the 120 Hz step, 12 m out, 20 m up). */
+/**
+ * The orbit round the town square the far-field measurements use (0.15 rad/s at the 120 Hz step, 12 m out, 20 m up),
+ * or `--orbit R,W`: R m out at W rad/s, so the eye moves (R × W m/s) and the fine far bricks build while it is
+ * measured (e.g. 60,0.25: 15 m/s).
+ */
+const [ORBIT_R, ORBIT_W] = arg('orbit', '12,0.15').split(',').map(Number) as [number, number];
+const ORBIT_ID = ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${ORBIT_W}`;
 const ORBIT = `
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
@@ -121,15 +128,15 @@ export default {
   instantiate() { return { yaw: 0.4636 }; },
   step(s: any, ctx: any) {
     if (ctx.phase !== 'transform') return;
-    s.yaw += 0.15 / 120;
-    const pitch = 0.03, d = 12, c = Math.cos(pitch);
+    s.yaw += ${ORBIT_W} / 120;
+    const pitch = 0.03, d = ${ORBIT_R}, c = Math.cos(pitch);
     ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: Math.sin(s.yaw) * c * d, y: 20 + Math.sin(pitch) * d, z: Math.cos(s.yaw) * c * d }, quaternion: quat(s.yaw, pitch) });
   },
   dispose() {},
 };
 `;
 /** Behaviours that orbit the town square from the start (the far-field runs' camera, or this bench's). */
-const ORBITS = new Set(['farcam5', 'headroom-orbit']);
+const ORBITS = new Set(ORBIT_ID === 'headroom-orbit' ? ['farcam5', ORBIT_ID] : [ORBIT_ID]);
 
 async function orbitCamera(): Promise<void> {
   const scene = (await api('scenes/scene-main', {}, 'GET')).json as { scene?: { entities?: Array<{ id: string; name: string; components: Record<string, { behaviorId?: string }> }> } };
@@ -143,13 +150,13 @@ async function orbitCamera(): Promise<void> {
   if (put.status !== 200) throw new Error(`stage ${put.status}`);
   const declaration = { properties: [] };
   // The orbit's record may be there already (another bench gave the camera its own behaviour since).
-  await command('publishBehavior', { behaviorId: 'headroom-orbit', displayName: 'headroom-orbit', mode: 'declaration-create', declaration }).catch((e: unknown) => {
+  await command('publishBehavior', { behaviorId: ORBIT_ID, displayName: ORBIT_ID, mode: 'declaration-create', declaration }).catch((e: unknown) => {
     if (!String(e).includes('behavior_id_duplicate')) throw e;
   });
   await command('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
-  const pub = await api('content/behaviors/source', { stageId, behaviorId: 'headroom-orbit', displayName: 'headroom-orbit', declaration, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}` });
+  const pub = await api('content/behaviors/source', { stageId, behaviorId: ORBIT_ID, displayName: ORBIT_ID, declaration, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}` });
   if (pub.status !== 200) throw new Error(`publish ${JSON.stringify(pub.json).slice(0, 300)}`);
-  await command('setBehaviorProperties', { entityId: cam.id, behaviorId: 'headroom-orbit', values: {} });
+  await command('setBehaviorProperties', { entityId: cam.id, behaviorId: ORBIT_ID, values: {} });
 }
 
 interface MeterSettings {
