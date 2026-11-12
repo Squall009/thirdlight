@@ -120,7 +120,7 @@ async function command(op: string, args: unknown): Promise<void> {
  * measured (e.g. 60,0.25: 15 m/s).
  */
 const [ORBIT_R, ORBIT_W] = arg('orbit', '12,0.15').split(',').map(Number) as [number, number];
-const ORBIT_ID = ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${ORBIT_W}`;
+const ORBIT_ID = ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${String(ORBIT_W).replace('.', 'p')}`;
 const ORBIT = `
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {

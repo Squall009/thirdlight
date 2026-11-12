@@ -25,7 +25,8 @@
  *
  *   --origin URL  --token-file FILE  --data-root DIR (default ~/thirdlight-staging-p45)  --project ID (voxel-slice)
  *   --quality LEVEL (default low)   --hold S (seconds on the orbit before a reading, default 30)
- *   --shot-dir DIR  full-size pictures at each reading   --tag NAME   --out FILE
+ *   --shot-dir DIR  full-size pictures at each reading   --query Q  more of the export's query (`&fineBricks=1`)
+ *   --tag NAME   --out FILE
  *
  * How to:
  *
@@ -60,6 +61,8 @@ const PROJECT = arg('project', 'voxel-slice');
 const PROJECT_DIR = join(DATA_ROOT, 'projects', PROJECT);
 const WORLD = 'far';
 const QUALITY = arg('quality', 'low');
+/** More of the export's query (`&fineBricks=1`). */
+const QUERY = arg('query', '');
 const HOLD_S = Number(arg('hold', '30'));
 const SHOT_DIR = arg('shot-dir', '');
 const TAG = arg('tag', new Date().toISOString().slice(0, 16).replace(/[:T]/g, ''));
@@ -129,7 +132,7 @@ async function run(dir: string): Promise<void> {
     const outside: string[] = [];
     page.on('request', (r) => void (!r.url().startsWith(site.url) && !/^(about|data|blob):/.test(r.url()) && outside.push(r.url())));
     const T0 = Date.now();
-    await page.goto(`${site.url}/?renderer=webgpu&quality=${QUALITY}`);
+    await page.goto(`${site.url}/?renderer=webgpu&quality=${QUALITY}${QUERY}`);
     const canvas = page.locator('canvas#game');
     await canvas.waitFor({ timeout: 60_000 });
     const stats = () => page.evaluate((w) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.stats().worlds[w] ?? null, WORLD);
