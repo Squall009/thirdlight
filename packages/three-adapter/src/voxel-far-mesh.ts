@@ -180,6 +180,8 @@ export class VoxelFarView {
   private fineChecks = 0;
   /** Fine nodes drawn now, by level (0, 1), and their keys. */
   readonly fineDrawn = [0, 0];
+  /** Fine nodes read baked from the far cache and uploaded (no GPU build). */
+  fineBakedIn = 0;
   private readonly fineKeys = new Set<string>();
   /** Far changes held for their fine builds since made. */
   heldChanges = 0;
@@ -380,7 +382,16 @@ export class VoxelFarView {
         a = { level: a0.level, nx: a0.nx, ny: a0.ny, nz: a0.nz, bricks: r.bricks };
         this.fineKeys.add(key);
         this.fineDrawn[a0.level]!++;
-      } else if (a0.bricks !== undefined) this.upload(key, a0, a0.bricks);
+      } else if (a0.bricks !== undefined) {
+        // A fine node read baked from the far cache: its samples hold look words, as a GPU-built one's do.
+        const fineBaked = a0.level <= FAR_FINE_TOP_LEVEL;
+        this.upload(key, a0, a0.bricks, fineBaked);
+        if (fineBaked) {
+          this.fineKeys.add(key);
+          this.fineDrawn[a0.level]!++;
+          this.fineBakedIn++;
+        }
+      }
       const g = this.group(a.bricks !== undefined ? 'bricks' : 'mesh', a.level, a.nx, a.nz);
       g.nodes.set(key, a);
       g.dirty = true;
@@ -437,10 +448,10 @@ export class VoxelFarView {
     this.masks.delete(key);
   }
 
-  /** A brick node's bricks and brick table into the atlas. */
-  private upload(key: string, node: MipNode, b: FarBricks): void {
+  /** A brick node's bricks and brick table into the atlas (`words`: a fine node's, its samples' look words). */
+  private upload(key: string, node: MipNode, b: FarBricks, words = false): void {
     const atlas = this.brickAtlas();
-    const regions = atlas.add(this.uploader(), b, this.palette?.palette ?? null);
+    const regions = atlas.add(this.uploader(), b, words ? 'words' : (this.palette?.palette ?? null));
     this.regions.set(key, regions);
     this.owners.give({ level: node.level, nx: node.nx, ny: node.ny, nz: node.nz }, regions);
     const page = atlas.addPage(this.uploader(), b, regions);
@@ -529,7 +540,8 @@ export class VoxelFarView {
       const t0 = performance.now();
       let n = 0;
       for (const g of this.groups.values()) {
-        if (g.kind !== 'bricks') continue;
+        // Fine nodes hold look words, read against the live table when shaded: nothing to bake again.
+        if (g.kind !== 'bricks' || g.level <= FAR_FINE_TOP_LEVEL) continue;
         for (const [key, d] of g.nodes) {
           const b = d.bricks;
           const r = this.regions.get(key);

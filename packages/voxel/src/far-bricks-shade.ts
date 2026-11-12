@@ -141,6 +141,26 @@ export function bakeFarBrick(b: FarBricks, block: number, palette: FarPalette, o
   return out;
 }
 
+/**
+ * A fine brick's samples as the atlas holds them (the GPU build's layout, three-adapter voxel-fine-bricks-wgsl.ts): each
+ * sample's look word itself, its low byte in red and its high byte in green, blue 0, its occlusion in alpha; the shade
+ * reads the words' far colours and textures from the live material table. A fine node read baked from the far cache
+ * is uploaded this way, so it draws as one built on the GPU.
+ */
+export function bakeFineFarBrick(b: FarBricks, block: number, out: Uint8Array): Uint8Array {
+  const o = block * DISTANCE_BRICK_SAMPLES;
+  const ao = b.occlusion;
+  for (let i = 0; i < DISTANCE_BRICK_SAMPLES; i++) {
+    const w = b.looks[o + i]!;
+    const t = i * FAR_BRICK_BAKED_BYTES;
+    out[t] = w & 255;
+    out[t + 1] = w >> 8;
+    out[t + 2] = 0;
+    out[t + 3] = ao === undefined ? 255 : ao[o + i]!;
+  }
+  return out;
+}
+
 /** A baked block read at a point (cells 0–8 an axis) as the draw's filtered read does: linear colour (0–1) and occlusion. */
 export function farBakedAt(baked: Uint8Array, p: readonly number[]): { colour: [number, number, number]; occlusion: number } {
   const q = [0, 1, 2].map((a) => Math.min(C, Math.max(0, p[a]!)));

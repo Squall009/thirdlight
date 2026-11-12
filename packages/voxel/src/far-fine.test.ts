@@ -13,7 +13,11 @@ import { chunkGrid, VOXEL_SIZE_M, type ChunkCoord } from './coords';
 import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, sampleOfDistance } from './distance-brick-format';
 import { farBricksFromBlock, farBricksFromFaces, gatherFarCells, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
 import { farRoofDistance } from './far-bricks-roofs';
-import { FAR_VIEW_PIXELS_PER_RADIAN, FarField, type FarEvent, type FarNodeDraw, type FarNodeSource } from './far-field';
+import { FAR_BAKED_LEVELS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, type FarEvent, type FarNodeDraw, type FarNodeSource } from './far-field';
+import { bakeFarFineNode } from './far-fine-bake';
+import { encodeFarBricks } from './far-bricks-baked';
+import { farBrickCount } from './far-bricks';
+import { streamJobHandlers } from './stream-handlers';
 import { farBrickOctant, farFineChunks, farFineDirty, farFineFade, FarFineIndex, farFineOctants, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineHost } from './far-fine';
 import { SHADER_CONSTRUCTION_BIT } from './derived-shader';
 import { FAR_MIN_LEVEL, farCellPixels, FarNodeIndex, FarSelection } from './far-tree';
@@ -424,6 +428,174 @@ describe('fine far bricks: the far field', () => {
     expect(jobs).toBeGreaterThan(0);
     // The world's uniform value is what a block reads as solid.
     expect(recordValue(ROCK, VOXEL_ROLE.terrain, SHAPE_FULL, 0)).toBeGreaterThan(0);
+    far.close();
+  });
+});
+
+describe('fine far bricks: baked levels read', () => {
+  /** A far source over the kept index whose fine levels 0–1 are baked: every fine node the fine bake of its block. */
+  function bakedSource(store: PaletteStore, reads: { fine: number }): FarNodeSource & { bakes: Map<string, Uint8Array | null> } {
+    const kept = keptIndex();
+    const bakes = new Map<string, Uint8Array | null>();
+    const bakeOf = (n: MipNode): Uint8Array | null => {
+      const key = mipNodeKey(n);
+      if (!bakes.has(key)) {
+        const b = bakeFarFineNode(grid, cellsOf(store), n);
+        bakes.set(key, b === null ? null : encodeFarBricks(b));
+      }
+      return bakes.get(key)!;
+    };
+    return {
+      grid,
+      minLevel: 2,
+      maxLevel: 3,
+      index: () => Promise.resolve(kept),
+      read: (level, nodes) => {
+        // Coarse nodes read as solid rock (they stay in the index when read again after an edit; their bricks are empty).
+        if (level < FAR_BAKED_LEVELS) return Promise.resolve(nodes.map((c) => ({ ...c, kind: 'uniform' as const, value: recordValue(ROCK, VOXEL_ROLE.terrain, SHAPE_FULL, 0) })));
+        const fine = level - FAR_BAKED_LEVELS;
+        expect(fine, 'only fine levels are read baked here').toBeLessThan(2);
+        reads.fine += nodes.length;
+        return Promise.resolve(
+          nodes.map((c) => {
+            const bytes = bakeOf({ level: fine, nx: c.cx, ny: c.cy, nz: c.cz });
+            return bytes === null ? { ...c, kind: 'air' as const } : { ...c, kind: 'stored' as const, bytes, raw: true };
+          }),
+        );
+      },
+      fineBaked: (n) => n.level < 2,
+      fineBakeLevel: () => 0,
+      invalidate: (level, nodes) => {
+        for (const c of nodes) bakes.delete(mipNodeKey({ level: level - FAR_BAKED_LEVELS, nx: c.cx, ny: c.cy, nz: c.cz }));
+      },
+      memoryBytes: () => 0,
+      bakes,
+    };
+  }
+
+  /** The worker's own far-bricks handler, run in this thread: a baked entry is decoded, a coarse node built. */
+  function handlerPool(): WorkerPool & { counts: { baked: number; built: number } } {
+    const handlers = streamJobHandlers({ decompress: (b) => b });
+    const counts = { baked: 0, built: 0 };
+    return {
+      submit: (job: { kind: string; input: unknown }) => {
+        const input = job.input as { baked?: unknown };
+        if (input.baked !== undefined) counts.baked++;
+        else counts.built++;
+        return Promise.resolve(handlers[job.kind]!(job.input)).then((r) => ({ status: 'done', output: r.output, workerUs: 0, queueMs: 0, runMs: 0 }));
+      },
+      cancel: () => true,
+      backgroundRoom: () => 8,
+      counts,
+    } as unknown as WorkerPool & { counts: { baked: number; built: number } };
+  }
+
+  it('draws levels 0 and 1 from the baked entries, decoded byte for byte as baked, with no chunk resident and nothing built; none at speed, back after', async () => {
+    const store = testWorld();
+    const reads = { fine: 0 };
+    const source = bakedSource(store, reads);
+    const pool = handlerPool();
+    let fast = false;
+    // No chunk resident: a baked world needs none past the detail ring (cells would throw if read).
+    const noChunks: FarFineHost = {
+      resident: () => false,
+      holds: () => false,
+      cells: () => {
+        throw new Error('a baked fine node read a chunk');
+      },
+      nearDrawn: () => false,
+      fast: () => fast,
+    };
+    const far = new FarField({ source, errorPixels: 8, pixelsPerRadian: 300, draw: 'bricks' }, { grid, pool, rules: WORLD_RULES, fine: noChunks });
+    const shown = new Map<string, FarNodeDraw>();
+    const events: FarEvent[] = [];
+    far.on((e) => {
+      events.push(e);
+      for (const n of e.removed) shown.delete(mipNodeKey(n));
+      for (const a of e.added) shown.set(mipNodeKey(a), a);
+    });
+    far.setEye(128, 76, 128);
+    far.update();
+    await far.settle();
+    expect(far.metrics().problem).toBeNull();
+    expect(far.fineNodes.on, 'nothing is built from chunks (the switch is off)').toBe(false);
+    const fine = [...shown.values()].filter((d) => isFarFine(d));
+    expect(fine.filter((d) => d.level === 0).length).toBeGreaterThan(4);
+    expect(fine.filter((d) => d.level === 1).length).toBeGreaterThan(0);
+    for (const d of fine) {
+      expect(d.fine, `${mipNodeKey(d)} came as bricks, not a block to build`).toBeUndefined();
+      expect(sameBytes(encodeFarBricks(d.bricks!), source.bakes.get(mipNodeKey(d))!), mipNodeKey(d)).toBe(true);
+    }
+    const m = far.metrics().fine;
+    expect(m.made, 'fine blocks read from chunks').toBe(0);
+    expect(m.baked).toBeGreaterThanOrEqual(fine.length);
+    expect(pool.counts.baked).toBeGreaterThanOrEqual(fine.length);
+    // The textures fade by the error alone: no load ring ends a baked level.
+    expect(events.at(-1)!.fineFade).toEqual(farFineFade(8, 300, Infinity, grid.edge));
+    // Faster than the detail speed: no baked fine node is read; the fine levels close into level 2 meanwhile.
+    fast = true;
+    far.fineNodes.residency();
+    await new Promise((ok) => setTimeout(ok, 600));
+    far.update();
+    await far.settle();
+    const readAtSpeed = reads.fine;
+    expect([...shown.values()].some((d) => isFarFine(d)), 'fine nodes drawn at speed').toBe(false);
+    expect(far.metrics().fine.refused?.speed ?? 0).toBeGreaterThan(0);
+    far.setEye(140, 76, 128);
+    far.update();
+    await far.settle();
+    expect(reads.fine, 'baked fine reads at speed').toBe(readAtSpeed);
+    // Slow again: they come back.
+    fast = false;
+    far.fineNodes.residency();
+    await new Promise((ok) => setTimeout(ok, 600));
+    far.update();
+    await far.settle();
+    expect([...shown.values()].filter((d) => d.level === 0).length).toBeGreaterThan(4);
+    far.close();
+  });
+
+  it('reads an edited node again from the rebuilt cache (refresh), and holds level 0 to the tier reach past its error', async () => {
+    const store = testWorld();
+    const reads = { fine: 0 };
+    const source = bakedSource(store, reads);
+    const pool = handlerPool();
+    const host: FarFineHost = { resident: () => false, holds: () => false, cells: () => false, nearDrawn: () => false };
+    const far = new FarField({ source, errorPixels: 8, pixelsPerRadian: 300, draw: 'bricks' }, { grid, pool, rules: WORLD_RULES, fine: host });
+    const shown = new Map<string, FarNodeDraw>();
+    far.on((e) => {
+      for (const n of e.removed) shown.delete(mipNodeKey(n));
+      for (const a of e.added) shown.set(mipNodeKey(a), a);
+    });
+    far.setEye(128, 76, 128);
+    far.update();
+    await far.settle();
+    const target = [...shown.values()].find((d) => d.level === 0 && farBrickCount(d.bricks!) > 0)!;
+    expect(target).toBeDefined();
+    // The world's files change there (the backend bakes the node again): the far field reads it again.
+    const s = grid.shift;
+    const x = (target.nx << s) + 10, z = (target.nz << s) + 10;
+    for (let y = target.ny << s; y < (target.ny + 1) << s; y++) store.setVoxel(x, y, z, { material: 0, role: 0, shape: 0, wetness: 0 });
+    far.refresh([{ cx: target.nx, cy: target.ny, cz: target.nz }]);
+    await new Promise((ok) => setTimeout(ok, 0));
+    far.update();
+    await far.settle();
+    const again = shown.get(mipNodeKey(target))!;
+    const want = bakeFarFineNode(grid, cellsOf(store), target)!;
+    expect(sameBytes(encodeFarBricks(again.bricks!), encodeFarBricks(want))).toBe(true);
+    expect(sameBytes(encodeFarBricks(again.bricks!), encodeFarBricks(target.bricks!)), 'the edit changed the node').toBe(false);
+    expect(far.metrics().fine.made).toBe(0);
+    // The tier's hold: level 1 opens into baked level 0 within the reach whatever its error.
+    const level0At = async (holdM: number | undefined, eye: readonly [number, number, number]): Promise<number> => {
+      far.setView({ errorPixels: 64, ...(holdM !== undefined ? { fineHoldM: holdM } : {}) });
+      far.setEye(...eye);
+      far.update();
+      await far.settle();
+      return [...shown.values()].filter((d) => d.level === 0).length;
+    };
+    const byError = await level0At(undefined, [-20, 76, -20]);
+    const held = await level0At(80, [-20, 76, -20]);
+    expect(held).toBeGreaterThan(byError);
     far.close();
   });
 });

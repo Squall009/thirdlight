@@ -173,6 +173,23 @@ export function voxelWorldBakeLevel(scenes: readonly unknown[], world: string): 
   return out;
 }
 
+/** Every world the scenes' `voxelWorld` components name, with the bake level it is baked to ({@link voxelWorldBakeLevel}). */
+export function voxelWorldBakeLevels(scenes: readonly unknown[]): Map<string, FarBakeLevelM> {
+  const out = new Map<string, FarBakeLevelM>();
+  for (const sc of scenes) {
+    const entities = (sc as { entities?: unknown } | null)?.entities;
+    if (!Array.isArray(entities)) continue;
+    for (const e of entities) {
+      const v = (e as { components?: { voxelWorld?: { world?: unknown; bakeLevel?: unknown } } } | null)?.components?.voxelWorld;
+      if (typeof v?.world !== 'string') continue;
+      const level = isFarBakeLevelM(v.bakeLevel) ? v.bakeLevel : DEFAULT_FAR_BAKE_LEVEL_M;
+      const had = out.get(v.world);
+      out.set(v.world, had === undefined || level < had ? level : had);
+    }
+  }
+  return out;
+}
+
 /** The blend metres a world's `voxelWorld` value draws with where no material sets its own (absent or out of range: the default). */
 export function voxelWorldBlendMetres(c: unknown): number {
   const v = (c as { blendMetres?: unknown } | null | undefined)?.blendMetres;
@@ -193,8 +210,8 @@ export interface ResolvedVoxelWorld {
   readonly budgetBytes: number | null;
   /** Relief lattice steps a cell in the relief ring (the level's `voxelRelief`; 0: none, and with no level known). */
   readonly reliefSteps: number;
-  /** How the world is drawn past its near rings, the far nodes' on-screen error (the level's `voxelFarField`, `voxelFarError`) and the GPU bytes they may hold (the tier's); with no level known, the medium tier's. */
-  readonly far: { readonly mode: FarFieldMode; readonly errorPixels: number; readonly gpuBudgetBytes: number };
+  /** How the world is drawn past its near rings, the far nodes' on-screen error (the level's `voxelFarField`, `voxelFarError`) the GPU bytes they may hold and the metres it holds baked 0.5 m bricks to (the tier's); with no level known, the medium tier's. */
+  readonly far: { readonly mode: FarFieldMode; readonly errorPixels: number; readonly gpuBudgetBytes: number; readonly fineHoldM: number };
 }
 
 /** The planes of a `PLANE_BIT` mask, in the voxel planes' order. */
@@ -266,7 +283,7 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
     quality: level?.id ?? null,
     budgetBytes: at?.budgetBytes ?? null,
     reliefSteps: at?.relief ?? 0,
-    far: Object.freeze({ mode: (at ?? NO_LEVEL_VOXELS).farField, errorPixels: (at ?? NO_LEVEL_VOXELS).farError, gpuBudgetBytes: (at ?? NO_LEVEL_VOXELS).farGpuBudget }),
+    far: Object.freeze({ mode: (at ?? NO_LEVEL_VOXELS).farField, errorPixels: (at ?? NO_LEVEL_VOXELS).farError, gpuBudgetBytes: (at ?? NO_LEVEL_VOXELS).farGpuBudget, fineHoldM: (at ?? NO_LEVEL_VOXELS).farFineHoldM }),
   });
 }
 

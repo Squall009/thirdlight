@@ -62,7 +62,9 @@ export const FAR_CACHE_POLL_MS = 2000;
 /** What the far cache's route answers. */
 interface FarInfo {
   ok: boolean;
-  manifest?: { minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }>; bricks?: { levels: Array<{ level: number; regions: string[] }> } };
+  manifest?: { minLevel: number; maxLevel: number; levels: Array<{ level: number; regions: string[] }>; bricks?: { levels: Array<{ level: number; regions: string[] }> }; fine?: { levels: Array<{ level: number; regions: string[]; columns: string[] }> } };
+  /** The fine bake the world's scenes ask (absent: none, 2 m). */
+  fine?: { bakeLevel: number; levels: Array<{ level: number; done: number; total: number }> };
   error?: { code: string; message: string };
 }
 
@@ -82,7 +84,12 @@ function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footp
         const m = info.manifest;
         // Baked bricks files open at their level past FAR_BAKED_LEVELS (the far source's reads of them).
         const folder = (level: number): string => (level >= FAR_BAKED_LEVELS ? `B${level - FAR_BAKED_LEVELS}` : `L${level}`);
-        inner = regionFarSource({ worldId, grid, footprint, minLevel: m.minLevel, maxLevel: m.maxLevel, levels: m.levels, ...(m.bricks !== undefined ? { bricks: m.bricks.levels } : {}), maxOpen: OPEN_REGION_FILES, open: (level, name) => rangeByteSource(`${url}/far/${folder(level)}/${encodeURIComponent(name)}`, headers, stats) });
+        // The fine levels the scenes ask (a finer bake the cache still holds is not read), by the columns baked so far.
+        const want = info.fine?.bakeLevel;
+        // A level with every column baked is whole (the read ring may then shrink to the detail ring).
+        const whole = new Set((info.fine?.levels ?? []).filter((l) => l.done === l.total).map((l) => l.level));
+        const fine = want === undefined ? [] : (m.fine?.levels ?? []).filter((l) => l.level >= want).map((l) => (whole.has(l.level) ? { level: l.level, regions: l.regions } : l));
+        inner = regionFarSource({ worldId, grid, footprint, minLevel: m.minLevel, maxLevel: m.maxLevel, levels: m.levels, ...(m.bricks !== undefined ? { bricks: m.bricks.levels } : {}), ...(fine.length > 0 ? { fine } : {}), maxOpen: OPEN_REGION_FILES, open: (level, name) => rangeByteSource(`${url}/far/${folder(level)}/${encodeURIComponent(name)}`, headers, stats) });
         return inner;
       }
       if (info.error?.code !== 'far_cache_building') throw new Error(info.error?.message ?? `far cache: HTTP ${res.status}`);
@@ -100,6 +107,8 @@ function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footp
     index: async () => (await ready).index(),
     read: async (level, nodes) => (await ready).read(level, nodes),
     baked: (level) => inner?.baked?.(level) === true,
+    fineBaked: (n) => inner?.fineBaked?.(n) === true,
+    fineBakeLevel: () => inner?.fineBakeLevel?.() ?? null,
     invalidate: (level, nodes) => inner?.invalidate(level, nodes),
     memoryBytes: () => inner?.memoryBytes() ?? 0,
   };

@@ -903,6 +903,23 @@ export class SessionClient extends SessionClientCore {
     return new Uint8Array(await res.arrayBuffer());
   }
 
+  /**
+   * A voxel world's fine bake as its far info answers it (null: the world asks none, or its far cache is still being
+   * built); `run` pauses (false) or resumes (true) it first.
+   */
+  async voxelFineBake(world: string, run?: boolean): Promise<{ bakeLevel: number; baking: boolean; paused: boolean; levels: Array<{ level: number; done: number; total: number }> } | null> {
+    const url = `${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/voxels/${encodeURIComponent(world)}/far${run === undefined ? '' : '/bake'}`;
+    const res = await fetch(url, {
+      method: run === undefined ? 'GET' : 'POST',
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin, ...(run === undefined ? {} : { 'content-type': 'application/json' }) },
+      ...(run === undefined ? {} : { body: JSON.stringify({ run }) }),
+    });
+    if (res.status === 202) return null;
+    if (!res.ok) throw new Error(`far info read failed (HTTP ${res.status})`);
+    const info = (await res.json()) as { fine?: { bakeLevel: number; baking: boolean; paused: boolean; levels: Array<{ level: number; done: number; total: number }> } };
+    return info.fine ?? null;
+  }
+
   /** A model version's distance-field file (bricks and surfels; null: the model has nothing to make one of). */
   async modelBricks(assetId: string, version: number): Promise<Uint8Array | null> {
     const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/assets/${assetId}/versions/${version}/bricks`, {

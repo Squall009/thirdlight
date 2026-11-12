@@ -328,6 +328,15 @@ export class StreamReadPlan<Held> {
     this.leadChunk = Number.NaN;
   }
 
+  /**
+   * The ring read now ended or widened (a baked world's read reach), the motion kept: a narrower ring applies at the
+   * next update, a wider one once the speed allows it, as a speed ring does.
+   */
+  setBase(ring: StreamRing): void {
+    this.base = ring;
+    this.focusChunk = Number.NaN;
+  }
+
   /** A step past the near radius is a jump, not motion. */
   private static motionFor(ring: StreamRing): FocusMotion {
     return new FocusMotion(ring.nearRadius);

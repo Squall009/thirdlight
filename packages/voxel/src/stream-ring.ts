@@ -175,6 +175,16 @@ export function speedRing(base: StreamRing, speed: number, chunkEdge: number): S
   return { loadRadius: narrow, unloadRadius: narrow + (base.unloadRadius - base.loadRadius), loadHeight: base.loadHeight, unloadHeight: base.unloadHeight, nearRadius: Math.min(base.nearRadius, narrow) };
 }
 
+/**
+ * A ring ended at `reach` cells (null: as it is): its load radius at most the reach, its unload gap kept, the near
+ * lane at most the load radius; heights as they are (the detail ring is a horizontal reach).
+ */
+export function readRing(r: StreamRing, reach: number | null): StreamRing {
+  if (reach === null || reach >= r.loadRadius) return r;
+  const loadRadius = Math.max(0, reach);
+  return { loadRadius, unloadRadius: loadRadius + (r.unloadRadius - r.loadRadius), loadHeight: r.loadHeight, unloadHeight: r.unloadHeight, nearRadius: Math.min(r.nearRadius, loadRadius) };
+}
+
 /** Throws unless a ring's radii are positive and its unload bounds hold its load bounds. */
 export function checkRing(r: StreamRing): void {
   for (const v of [r.loadRadius, r.unloadRadius, r.loadHeight, r.unloadHeight, r.nearRadius]) if (!(v >= 0) || !Number.isFinite(v)) throw new RangeError('ring radii must be finite and ≥ 0');

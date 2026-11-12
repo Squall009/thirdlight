@@ -206,7 +206,9 @@ export function shippedFarSource(w: ShippedVoxelWorld, readFile: (file: ShippedV
       .sort((a, b) => a[0] - b[0])
       .map(([k, m]) => ({ level: bricks ? k - FAR_BAKED_LEVELS : k, regions: [...m.keys()].sort() }));
   const levels = listOf(false);
-  const bricks = listOf(true);
+  // Fine levels (below minLevel) ship whole, from the bake level up (an export never ships part of one).
+  const bricks = listOf(true).filter((l) => l.level >= far.minLevel);
+  const fine = listOf(true).filter((l) => l.level < far.minLevel && far.bakeLevel !== undefined && l.level >= far.bakeLevel);
   return regionFarSource({
     worldId: hexToBytes(w.worldId),
     grid: chunkGrid(w.edge),
@@ -215,6 +217,7 @@ export function shippedFarSource(w: ShippedVoxelWorld, readFile: (file: ShippedV
     maxLevel: far.maxLevel,
     levels,
     ...(bricks.length > 0 ? { bricks } : {}),
+    ...(fine.length > 0 ? { fine } : {}),
     maxOpen: OPEN_REGION_FILES,
     open: (level, name) => {
       const f = byLevel.get(level)?.get(name);

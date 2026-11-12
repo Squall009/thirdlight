@@ -33,13 +33,13 @@
  */
 import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
-import { VOXEL_SIZE_M, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
+import { chunksPerRegionSide, VOXEL_SIZE_M, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
 import { FAR_BRICK_BUILD, farBricksBytes, type FarBricks } from './far-bricks';
 import { farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
 import { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
-import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, farFineBytes, farFineFade, isFarFine, type FarFineCells, type FarFineHost, type FarFineRefused } from './far-fine';
+import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, farFineBytes, farFineDirty, farFineFade, isFarFine, type FarFineCells, type FarFineHost, type FarFineRefused } from './far-fine';
 import { FarFineNodes } from './far-fine-nodes';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, farCellPixels, farNodeBox, farNodeDistance, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
@@ -159,6 +159,16 @@ export interface FarNodeSource {
   read(level: number, nodes: readonly ChunkCoord[]): Promise<RegionChunkRead[]>;
   /** Whether the cache holds a kept level's bricks baked (absent or false: they are built here, from the nodes). */
   baked?(level: number): boolean;
+  /**
+   * Whether a fine node's (level 0 or 1) bricks are baked: its level's region column is (absent: no fine level is). Its
+   * entry is read at {@link FAR_BAKED_LEVELS} past its level, as a kept level's baked bricks are.
+   */
+  fineBaked?(n: MipNode): boolean;
+  /**
+   * The finest fine level the cache offers baked, whole or by the region columns baked so far (null or absent: none);
+   * {@link fineBaked} tells a node's column.
+   */
+  fineBakeLevel?(): number | null;
   /** Forgets what it holds of these nodes' files (they were rewritten). */
   invalidate(level: number, nodes: readonly ChunkCoord[]): void;
   memoryBytes(): number;
@@ -173,6 +183,11 @@ export interface RegionFarSourceOptions {
   readonly levels: readonly FarCacheLevelFiles[];
   /** The kept levels whose bricks the cache holds baked, and their region files (none: built from the nodes). */
   readonly bricks?: readonly FarCacheLevelFiles[];
+  /**
+   * The fine levels (below `minLevel`) baked, their region files and the region columns baked so far (`rx,rz` at the
+   * level's node coordinates; absent: every column, a level shipped whole). Read as `bricks` are.
+   */
+  readonly fine?: ReadonlyArray<FarCacheLevelFiles & { readonly columns?: readonly string[] }>;
   /** A level's region file by name (null: not listed, all air); `level` past {@link FAR_BAKED_LEVELS}: a baked bricks file. */
   open(level: number, name: string): RegionByteSource | null;
   /** Region tables kept open a level. */
@@ -194,6 +209,17 @@ export function regionFarSource(o: RegionFarSourceOptions): FarNodeSource {
   };
   for (const l of o.levels) listed.set(l.level, addLevel(l.level, l.regions));
   for (const l of o.bricks ?? []) addLevel(FAR_BAKED_LEVELS + l.level, l.regions);
+  // A fine level's node lies in the region column of its level's node coordinates, as its files tile them.
+  const fineColumns = new Map<number, ReadonlySet<string> | null>();
+  for (const l of o.fine ?? []) {
+    if (l.level >= o.minLevel) continue;
+    addLevel(FAR_BAKED_LEVELS + l.level, l.regions);
+    fineColumns.set(l.level, l.columns === undefined ? null : new Set(l.columns));
+  }
+  const side = chunksPerRegionSide(o.grid, o.footprint);
+  // From the coarsest fine level down (a bake runs level 1 first): the finest offered.
+  let fineBakeLevel: number | null = null;
+  for (let l = o.minLevel - 1; l >= 0 && fineColumns.has(l); l--) fineBakeLevel = l;
   const levelSource = (level: number): RegionChunkSource => {
     const s = sources.get(level);
     if (s === undefined) throw new RangeError(`far level ${level} is not kept`);
@@ -225,6 +251,12 @@ export function regionFarSource(o: RegionFarSourceOptions): FarNodeSource {
     },
     read: (level, nodes) => levelSource(level).read(nodes),
     baked: (level) => sources.has(FAR_BAKED_LEVELS + level),
+    fineBaked: (n) => {
+      if (!fineColumns.has(n.level)) return false;
+      const cols = fineColumns.get(n.level)!;
+      return cols === null || cols.has(`${Math.floor(n.nx / side)},${Math.floor(n.nz / side)}`);
+    },
+    fineBakeLevel: () => fineBakeLevel,
     invalidate: (level, nodes) => levelSource(level).invalidate(nodes),
     memoryBytes: () => {
       let n = 0;
@@ -281,6 +313,11 @@ export interface FarFieldOptions {
    * detail ring from the streamer's chunks, their bricks built on the page's GPU (far-fine.ts).
    */
   readonly fine?: boolean;
+  /**
+   * Metres within which level-1 nodes open into baked level-0 nodes whatever their error (absent: by the error alone):
+   * baked 0.5 m bricks cost no build, only memory and drawing, so a tier holds them farther than its error would.
+   */
+  readonly fineHoldM?: number;
 }
 
 /**
@@ -314,6 +351,8 @@ export interface FarFieldHost {
   readonly rules: AssemblyRuleSet;
   /** Where fine nodes' cells come from (absent: no fine bricks). */
   readonly fine?: FarFineHost;
+  /** The far index was read (what the cache bakes is known from then). */
+  indexed?(): void;
 }
 
 interface Ready {
@@ -418,12 +457,9 @@ export class FarField {
       grid: host.grid,
       fine: host.fine,
       wanted: () => this.opts.fine === true && this.draw === 'bricks',
+      baked: () => (this.draw === 'bricks' && opts.source.fineBaked !== undefined ? { baked: (n) => opts.source.fineBaked!(n) } : null),
       held: (key) => this.shown.has(key) || this.target.has(key),
-      remake: (key) => {
-        this.stamps.set(key, (this.stamps.get(key) ?? 0) + 1);
-        this.ready.delete(key);
-        if (this.shown.has(key)) this.stale.add(key);
-      },
+      remake: (key) => this.remake(key),
       made: (key, fine) => {
         this.ready.set(key, { made: fine === null ? null : { fine }, gpu: fine === null ? 0 : FAR_FINE_GPU_FORESEEN_BYTES });
         this.commitSoon();
@@ -443,6 +479,7 @@ export class FarField {
         this.index = idx;
         this.fineNodes.setIndex(idx);
         this.firsts.index = performance.now() - this.made;
+        this.host.indexed?.();
         this.reselect = true;
         this.update();
       },
@@ -475,13 +512,25 @@ export class FarField {
   }
 
   /** The selection's settings changed (a quality level): selects again. */
-  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'gpuBudgetBytes' | 'pixelsPerRadian' | 'draw' | 'fine'>): void {
+  setView(o: Pick<FarFieldOptions, 'enabled' | 'errorPixels' | 'budgetBytes' | 'gpuBudgetBytes' | 'pixelsPerRadian' | 'draw' | 'fine' | 'fineHoldM'>): void {
     const drawWas = this.opts.draw ?? 'mesh';
     Object.assign(this.opts as { -readonly [K in keyof FarFieldOptions]: FarFieldOptions[K] }, o);
     this.gpu.overReselects = 0;
     if ((this.opts.draw ?? 'mesh') !== drawWas) this.remakeAll();
     this.reselect = true;
     this.update();
+  }
+
+  /** A node's draw is made again (its old one stays until the new one replaces it). */
+  private remake(key: string): void {
+    this.stamps.set(key, (this.stamps.get(key) ?? 0) + 1);
+    this.ready.delete(key);
+    const j = this.jobs.get(key);
+    if (j !== undefined) {
+      this.host.pool.cancel(j.id);
+      this.jobs.delete(key);
+    }
+    if (this.shown.has(key)) this.stale.add(key);
   }
 
   /** Every node is made again (the draw kind changed): each drawn one stays until its new draw replaces it. */
@@ -508,7 +557,7 @@ export class FarField {
    * kept level) itself and its 26 neighbours.
    */
   private reads(n: MipNode): MipNode[] {
-    const b = bakedRead(this.opts.source, this.draw, n);
+    const b = this.bakedReadOf(n);
     if (b !== null) return [b];
     const f = farFineOf(n, this.draw === 'bricks' ? FAR_BRICK_BUILD.scale : 1, this.index?.minLevel ?? Infinity);
     if (f !== null) return f.nodes;
@@ -517,6 +566,12 @@ export class FarField {
     return out;
   }
 
+
+  /** A node's baked entry: a kept level's bricks, or a fine node read from the cache's baked levels (null: built). */
+  private bakedReadOf(n: MipNode): MipNode | null {
+    if (!isFarFine(n)) return bakedRead(this.opts.source, this.draw, n);
+    return this.fineNodes.readBaked(n) ? { level: FAR_BAKED_LEVELS + n.level, nx: n.nx, ny: n.ny, nz: n.nz } : null;
+  }
 
   /** Selects again if the eye moved far enough, and starts the meshes the selection needs. */
   update(): void {
@@ -535,7 +590,9 @@ export class FarField {
         const at = (this.seen.selectingAt = performance.now());
         // Unseen nodes are released only near the GPU budget: below it they keep their detail and only wait behind.
         const unseen = this.seen.running(at) && this.liveGpu >= FAR_SEEN_RELEASE_SHARE * this.gpuBudget ? (n: MipNode) => this.seen.unseen(n, at) : undefined;
-        this.selecting = { steps: this.selection.steps(fineIndex ?? this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, gpuBudgetBytes: this.gpuBudget, gpuBytesOf, near: null, ...(unseen !== undefined ? { unseen, unseenScale: FAR_UNSEEN_ERROR_SCALE } : {}) }), ms: 0 };
+        // Baked level 0 is held to the tier's reach (levels 2 and 1 open over it there): it costs no build, only memory and drawing.
+        const hold = fine && this.opts.fineHoldM !== undefined && this.opts.source.fineBakeLevel?.() === 0 ? this.opts.fineHoldM / VOXEL_SIZE_M : undefined;
+        this.selecting = { steps: this.selection.steps(fineIndex ?? this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, gpuBudgetBytes: this.gpuBudget, gpuBytesOf, near: null, ...(unseen !== undefined ? { unseen, unseenScale: FAR_UNSEEN_ERROR_SCALE } : {}), ...(hold !== undefined ? { openWithin: [undefined, hold, hold] } : {}) }), ms: 0 };
         this.selectStep();
       }
       return;
@@ -777,7 +834,7 @@ export class FarField {
       let left = false;
       for (let i = this.cursor, seen = 0; i < todo.length && seen < FAR_PUMP_SCAN; i++, seen++) {
         const n = todo[i]!.node;
-        if (!isFarFine(n)) continue;
+        if (!this.fineNodes.built(n)) continue;
         const key = mipNodeKey(n);
         if (!this.needs(key)) continue;
         if (spent >= FAR_FINE_PACK_MS) {
@@ -800,7 +857,7 @@ export class FarField {
     for (let i = this.cursor, seen = 0; i < todo.length && seen < FAR_PUMP_SCAN && (room > 0 || (!this.reading && unread.length < FAR_READ_BATCH)); i++, seen++) {
       const n = todo[i]!.node;
       const key = mipNodeKey(n);
-      if (isFarFine(n) || !this.needs(key) || this.jobs.has(key) || (hold && this.refines.has(key))) continue;
+      if (this.fineNodes.built(n) || !this.needs(key) || this.jobs.has(key) || (hold && this.refines.has(key))) continue;
       if (this.readDone.has(key)) {
         if (room <= 0) continue;
         if (this.neighbourhoodRead(n)) {
@@ -892,7 +949,14 @@ export class FarField {
 
   private submit(n: MipNode): void {
     const key = mipNodeKey(n);
-    const baked = bakedRead(this.opts.source, this.draw, n);
+    const baked = this.bakedReadOf(n);
+    // A baked fine node the cache does not hold draws nothing (only nodes that draw are stored).
+    if (baked !== null && isFarFine(n) && this.cellsOf(baked) === null) {
+      this.ready.set(key, { made: null, gpu: 0 });
+      this.commitSoon();
+      return;
+    }
+    if (baked !== null && isFarFine(n)) this.fineNodes.counters.baked++;
     const rules = rulesRef(this.host.rules);
     const edge = this.host.grid.edge;
     // A copy of each entry: the stored bytes stay here for the neighbours' jobs while the job takes its own across.
@@ -1060,7 +1124,10 @@ export class FarField {
       this.counters.swappedIn += added.length;
       this.counters.swappedOut += removed.length;
       this.firsts.drawn ??= performance.now() - this.made;
-      const fade = this.fineNodes.on ? farFineFade(this.opts.errorPixels ?? FAR_ERROR_PIXELS, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, this.near?.radius ?? Infinity, this.host.grid.edge) : null;
+      // Baked fine levels need no chunk resident: the load ring does not end them.
+      const ring = (this.opts.source.fineBakeLevel?.() ?? null) !== null ? Infinity : (this.near?.radius ?? Infinity);
+      const holdM = this.opts.source.fineBakeLevel?.() === 0 ? (this.opts.fineHoldM ?? 0) : 0;
+      const fade = this.fineNodes.selecting ? farFineFade(this.opts.errorPixels ?? FAR_ERROR_PIXELS, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, ring, this.host.grid.edge, holdM) : null;
       const e: FarEvent = { type: 'far', seq: this.counters.events, added, removed, ...(fade !== null ? { fineFade: fade } : {}) };
       for (const l of this.listeners) l(e);
     }
@@ -1135,6 +1202,24 @@ export class FarField {
       }
       for (const [level, nodes] of bakedByLevel) src.invalidate(level, nodes);
     }
+    // Baked fine nodes whose blocks read a changed chunk: baked again with the rebuild, read again where held. The
+    // chunks need not be resident (the read ring may end short of them), so they are made again here, not by the streamer.
+    if (this.draw === 'bricks' && src.fineBaked !== undefined) {
+      const fineByLevel = new Map<number, ChunkCoord[]>();
+      for (const n of farFineDirty(chunks)) {
+        if (!src.fineBaked(n)) continue;
+        const b = { level: FAR_BAKED_LEVELS + n.level, nx: n.nx, ny: n.ny, nz: n.nz };
+        const old = this.entries.get(mipNodeKey(b));
+        if (old !== undefined) {
+          this.entries.delete(mipNodeKey(b));
+          this.entryBytes -= old.bytes;
+        }
+        fineByLevel.set(b.level, [...(fineByLevel.get(b.level) ?? []), { cx: n.nx, cy: n.ny, cz: n.nz }]);
+        const key = mipNodeKey(n);
+        if (this.shown.has(key) || this.target.has(key)) this.remake(key);
+      }
+      for (const [level, nodes] of fineByLevel) src.invalidate(level, nodes);
+    }
     this.rereads++;
     this.reread(ancestors).then(
       () => {
@@ -1191,7 +1276,7 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null; seen: FarSeenLog['counters'] & { unseenWanted: number; turnMs: number }; fine: FarFineNodes['counters'] & { on: boolean; refused: FarFineRefused | null; ms: { p50: number; p95: number; n: number; sum: number }; drawn: number[] } } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null; seen: FarSeenLog['counters'] & { unseenWanted: number; turnMs: number }; fine: FarFineNodes['counters'] & { on: boolean; bakeLevel: number | null; refused: FarFineRefused | null; ms: { p50: number; p95: number; n: number; sum: number }; drawn: number[] } } {
     return {
       draw: this.draw,
       nodes: this.wanted.size,
@@ -1213,7 +1298,7 @@ export class FarField {
       standIns: farStandIns(this.wanted, this.shown, this.index?.maxLevel ?? 0, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, (n) => underNear(this.host.grid, n, this.eye, this.near)),
       index: this.index?.counts() ?? null,
       seen: { ...this.seen.counters, unseenWanted: this.seen.selectedUnseen.size, turnMs: this.seen.turnMs },
-      fine: { on: this.fineNodes.on, ...this.fineNodes.counters, refused: this.fineNodes.selectIndex?.refused ?? null, ms: { p50: this.fineNodes.ms.quantile(0.5), p95: this.fineNodes.ms.quantile(0.95), n: this.fineNodes.ms.count, sum: sumOf(this.fineNodes.ms) }, drawn: [0, 1].map((l) => [...this.shown.values()].filter((n) => n.level === l).length) },
+      fine: { on: this.fineNodes.on, bakeLevel: this.opts.source.fineBakeLevel?.() ?? null, ...this.fineNodes.counters, refused: this.fineNodes.selectIndex?.refused ?? null, ms: { p50: this.fineNodes.ms.quantile(0.5), p95: this.fineNodes.ms.quantile(0.95), n: this.fineNodes.ms.count, sum: sumOf(this.fineNodes.ms) }, drawn: [0, 1].map((l) => [...this.shown.values()].filter((n) => n.level === l).length) },
     };
   }
 
@@ -1321,8 +1406,9 @@ function bakedRead(source: FarNodeSource, draw: FarDrawKind, n: MipNode): MipNod
   return draw === 'bricks' && source.baked?.(n.level) === true ? { level: FAR_BAKED_LEVELS + n.level, nx: n.nx, ny: n.ny, nz: n.nz } : null;
 }
 
-/** Whether a read node holds anything (a baked entry: whether its node does). */
+/** Whether a read node holds anything (a baked entry: whether its node does; a fine node's is known only once read). */
 function holdsRead(index: FarNodeIndex, m: MipNode): boolean {
+  if (m.level >= FAR_BAKED_LEVELS && isFarFine({ level: m.level - FAR_BAKED_LEVELS })) return true;
   return index.has(m.level >= FAR_BAKED_LEVELS ? { level: m.level - FAR_BAKED_LEVELS, nx: m.nx, ny: m.ny, nz: m.nz } : m);
 }
 

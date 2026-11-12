@@ -100,7 +100,7 @@ test('WebGL 2 forced: the Scene view, Play, a voxel world and the export served 
   const scene = writeSliceWorld(be.projectDir, 'slice', 256).scene;
   const at = scene.map((c) => c * 0.5);
   const pitch = (35 * Math.PI) / 180;
-  await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: 'slice' } } });
+  const worldId = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: 'slice' } } }))['createdId']);
   await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World camera', transform: { position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
   const errors = consoleErrors(page);
 
@@ -120,6 +120,12 @@ test('WebGL 2 forced: the Scene view, Play, a voxel world and the export served 
   await page.getByTitle('Stop the play preview').click();
   await expect(frame).toHaveCount(0);
 
+  // The world baked to 0.5 m for the voxel world page: marching baked bricks needs no compute, so WebGL 2 draws the
+  // fine levels too (in the far palette's colours) and its near field no level past the detail ring.
+  await command('setComponent', { entityId: worldId, component: 'voxelWorld', value: { world: 'slice', bakeLevel: 0.5 } });
+  const farInfo = async (): Promise<{ fine?: { levels: Array<{ done: number; total: number }> } }> => (await (await fetch(`${be.origin}/api/v1/projects/${be.projectId}/voxels/slice/far`, { headers: { authorization: `Bearer ${be.token}` } })).json()) as { fine?: { levels: Array<{ done: number; total: number }> } };
+  await expect.poll(async () => { const f = (await farInfo()).fine; return f !== undefined && f.levels.length === 2 && f.levels.every((l) => l.done === l.total); }, { timeout: 120_000, message: 'the world baked to 0.5 m' }).toBe(true);
+
   await page.goto(`${be.origin}/voxel-world.html?project=${be.projectId}&world=slice&at=${scene.join(',')}&renderer=webgl2&hud=0#token=${be.token}`);
   await page.waitForFunction(() => {
     const h = (window as unknown as { __tlVoxelWorld?: { ready?: boolean; failed?: string } }).__tlVoxelWorld;
@@ -135,7 +141,13 @@ test('WebGL 2 forced: the Scene view, Play, a voxel world and the export served 
   const pageShare = drawnShare(decodePng(pagePng));
   console.log(`[webgl2-smoke] voxel page: ${(pageShare * 100).toFixed(0)} % of the picture off its most common colour`);
   expect(pageShare, 'the voxel world page draws the world').toBeGreaterThan(WORLD_SHARE);
+  const far = await voxelHook<{ far: { fineBaked: { drawn: number[]; read: number }; fineBuild: unknown } }>(page, 'state');
+  console.log(`[webgl2-smoke] voxel page, world baked to 0.5 m: fine nodes read ${far.far.fineBaked.read}, drawn by level ${JSON.stringify(far.far.fineBaked.drawn)}`);
+  expect(far.far.fineBaked.drawn[0], 'baked 0.5 m bricks drawn on WebGL 2').toBeGreaterThan(0);
+  expect(far.far.fineBuild, 'nothing built on the GPU').toBeNull();
   expect(errors).toEqual([]);
+  // Back to 2 m for the export (WebGL 2 keeps its near levels there).
+  await command('setComponent', { entityId: worldId, component: 'voxelWorld', value: { bakeLevel: null } });
 
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);

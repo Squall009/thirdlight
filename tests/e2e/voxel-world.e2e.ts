@@ -851,6 +851,8 @@ async function publishScript(behaviorId: string, source: string, entityId: strin
 
 /** Where the character stands (metres): the slice's flat pad, beside the wall scene. */
 let standAt: [number, number, number] | null = null;
+/** The play world's object (made with the play project). */
+let playWorld: string | null = null;
 
 /** The Play camera (metres, as `playProject` places it): over the pad, 35° down. */
 const PLAY_PITCH = (35 * Math.PI) / 180;
@@ -930,6 +932,7 @@ async function playProject(): Promise<[number, number, number]> {
     '};',
     '',
   ].join('\n'), world);
+  playWorld = world;
   return (standAt = at);
 }
 
@@ -1174,6 +1177,51 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     console.log(`[voxel-play] ${renderer} far bricks: ${await farBeyondNear(canvas, playShot, `play-${renderer}`)} px of ground past the near field`);
     expect((await observe()).state).toBe('running');
     expect(errors).toEqual([]);
+
+    // The world baked to 0.5 m (its object's bake level, one command): the bake starts with the command, the voxel
+    // world's Inspector section shows it through to done, and a new Play draws baked fine bricks past the detail ring
+    // with nothing built on the GPU, reading its voxels only to the detail ring's reach (a load ring of 100 m set, a
+    // detail ring of a few metres; the chunks held fall where the world reaches past the reach: stream-levels.test.ts).
+    await page.getByTitle('Stop the play preview').click();
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+    const bakeT0 = Date.now();
+    await playCmd('setComponent', { entityId: playWorld!, component: 'voxelWorld', value: { world: 'far', blendMetres: PLAY_BLEND_M, bakeLevel: 0.5, quality: { low: { ring: { loadRadius: 100, unloadRadius: 108 }, levels: { level0: 4, level1: 8 }, collision: { radius: 2 } } } } });
+    await page.locator(`.tl-hierarchy__list li[data-entity-id="${playWorld!}"]`).click();
+    const bake = inspector(page).locator('[data-fine-bake]');
+    const seen = new Set<string>();
+    await expect.poll(async () => { const v = await bake.getAttribute('data-fine-bake').catch(() => null); if (v !== null) seen.add(`${v} ${await bake.getAttribute('data-fine-done').catch(() => '')}`); return v; }, { timeout: 120_000, intervals: [200], message: 'the fine bake shown done in the Inspector' }).toBe('baked');
+    const done = (await bake.getAttribute('data-fine-done'))!;
+    console.log(`[voxel-play] ${renderer} fine bake: ${Date.now() - bakeT0} ms, Inspector states ${JSON.stringify([...seen])}`);
+    expect(done).toMatch(/^1:(\d+)\/\1 0:(\d+)\/\2$/);
+    const started2 = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid2 = String(((await (await started2).json()) as { playSessionId: string }).playSessionId);
+    await expect.poll(async () => ((await projectApi(`play/${psid2}/observe`)).json as PlayObservation).state, { timeout: 60_000 }).toBe('running');
+    const q2 = await projectApi(`play/${psid2}/control`, { command: 'setQuality', level: 'low' });
+    expect(q2.status, JSON.stringify(q2.json)).toBe(200);
+    type Host = { resident: number; readRing?: { setM: number; nowM: number; reachM: number | null }; far?: { fine?: { on: boolean; bakeLevel: number | null; made: number; baked: number; drawn: number[] } } };
+    const host = async (): Promise<Host | null> => ((((await projectApi(`play/${psid2}/diagnostics`)).json as { diagnostics?: { runtime?: { voxelWorlds?: Host[] & Array<{ world: string }> } } }).diagnostics?.runtime?.voxelWorlds ?? []).find((w) => (w as unknown as { world: string }).world === 'far') ?? null) as Host | null;
+    type Page2 = { worlds: Record<string, { far: { fine: { built: number } | null; fineBaked: { drawn: number[]; read: number } } }> };
+    const pageFar = async (): Promise<Page2['worlds'][string]['far'] | null> => (await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay?: { stats(): unknown } }).__tlVoxelPlay?.stats() ?? null) as Page2 | null)?.worlds['far']?.far ?? null;
+    await expect.poll(async () => (await host())?.readRing?.setM ?? 0, { timeout: 30_000, message: 'the low tier\'s ring in use' }).toBe(100);
+    await expect.poll(async () => (await pageFar())?.fineBaked.drawn[0] ?? 0, { timeout: 60_000, message: 'baked level-0 bricks drawn' }).toBeGreaterThan(0);
+    const f = (await pageFar())!;
+    const h = (await host())!;
+    console.log(`[voxel-play] ${renderer} baked: page ${JSON.stringify(f.fineBaked)} built ${JSON.stringify(f.fine)}; host resident ${h.resident} read ring ${JSON.stringify(h.readRing)} fine ${JSON.stringify(h.far?.fine)}`);
+    expect(f.fineBaked.read).toBeGreaterThan(0);
+    expect(f.fine, 'no fine node built on the GPU').toBeNull();
+    expect(h.far?.fine?.made, 'no fine block read from the chunks').toBe(0);
+    expect(h.far?.fine?.bakeLevel).toBe(0);
+    expect(h.far?.fine?.baked).toBeGreaterThan(0);
+    // The voxels are read only to the detail ring's reach, inside the load ring the object sets.
+    expect(h.readRing?.setM).toBe(100);
+    expect(h.readRing?.reachM).not.toBeNull();
+    expect(h.readRing!.reachM!).toBeLessThan(100);
+    expect(h.readRing?.nowM).toBe(h.readRing?.reachM);
+    expect(errors).toEqual([]);
+    await page.getByTitle('Stop the play preview').click();
+    // Back to 2 m (the cache keeps the baked levels; a scene asking 2 m neither reads nor ships them).
+    await playCmd('setComponent', { entityId: playWorld!, component: 'voxelWorld', value: { bakeLevel: null, quality: { low: FAR_TEST_RINGS } } });
     await groundRelief(false);
   });
 }

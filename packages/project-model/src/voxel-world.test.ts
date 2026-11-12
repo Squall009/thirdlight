@@ -14,7 +14,7 @@ import { DEFAULT_QUALITY_LEVELS, levelVoxels, type QualityLevelConfig } from './
 import { validateQualityLevels } from './materials';
 import { canonicalVoxelWorld, resolveVoxelWorld, validateVoxelWorldComponent, VOXEL_WORLD_DEFAULTS, voxelWorldBakeLevel, type VoxelWorldComponent } from './voxel-world';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
-import { FAR_GPU_BUDGET_BYTES_BY_TIER as G, RELIEF_RING_SCALES, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
+import { FAR_FINE_HOLD_M_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER as G, RELIEF_RING_SCALES, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const CAMERA = { id: 'cam-main', components: { transform: T, virtualCamera: { rig: 'fixed' } } };
@@ -187,8 +187,8 @@ describe('the voxelWorld component', () => {
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS as QualityLevelConfig[];
     // Medium keeps the scene's distances (the defaults are the integrated GPU's); the tiers' own numbers are pinned below.
-    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reachScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 0, farField: 'bricks', farError: 4, farGpuBudget: G.medium });
-    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reachScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 0, farField: 'bricks', farError: 3, farGpuBudget: G.high });
+    expect(levelVoxels(medium!)).toEqual({ ringScale: 1, reachScale: 1, reliefScale: 1, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.medium, texelDensity: 512, relief: 0, farField: 'bricks', farError: 4, farGpuBudget: G.medium, farFineHoldM: FAR_FINE_HOLD_M_BY_TIER.medium });
+    expect(levelVoxels(high!)).toEqual({ ringScale: Math.SQRT2, reachScale: Math.SQRT2, reliefScale: 1.5, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.high, texelDensity: 1024, relief: 0, farField: 'bricks', farError: 3, farGpuBudget: G.high, farFineHoldM: FAR_FINE_HOLD_M_BY_TIER.high });
     // A level's own ring scale moves relief by its factor against the tier's ring scale, relief's own tier scale kept.
     expect(levelVoxels({ ...high!, voxelRings: 2 * Math.SQRT2 }).reliefScale).toBeCloseTo(3, 12);
     expect(levelVoxels({ lighting: 'medium', voxelRings: 0.5 }).reliefScale).toBe(0.5);
@@ -196,13 +196,13 @@ describe('the voxelWorld component', () => {
     expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).reliefSteps)).toEqual([0, 0, 0]);
     expect(resolveVoxelWorld({ world: 'w' }, { ...high!, voxelRelief: 4 }).reliefSteps).toBe(4);
     expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelRelief: 8 }).reliefSteps).toBe(8);
-    // The far field: bricks on every tier, coarser on low, its GPU bytes the tier's (a level does not set them); a level's own mode (the mesh fallback, off) and detail beat its tier's; no level known draws medium's.
-    expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).far)).toEqual([{ mode: 'bricks', errorPixels: 8, gpuBudgetBytes: G.low }, { mode: 'bricks', errorPixels: 4, gpuBudgetBytes: G.medium }, { mode: 'bricks', errorPixels: 3, gpuBudgetBytes: G.high }]);
+    // The far field: bricks on every tier, coarser on low, its GPU bytes and baked 0.5 m hold the tier's (a level does not set them); a level's own mode (the mesh fallback, off) and detail beat its tier's; no level known draws medium's.
+    expect([low, medium, high].map((l) => resolveVoxelWorld({ world: 'w' }, l!).far)).toEqual([{ mode: 'bricks', errorPixels: 8, gpuBudgetBytes: G.low, fineHoldM: FAR_FINE_HOLD_M_BY_TIER.low }, { mode: 'bricks', errorPixels: 4, gpuBudgetBytes: G.medium, fineHoldM: FAR_FINE_HOLD_M_BY_TIER.medium }, { mode: 'bricks', errorPixels: 3, gpuBudgetBytes: G.high, fineHoldM: FAR_FINE_HOLD_M_BY_TIER.high }]);
     expect(G.low).toBeLessThanOrEqual(G.medium);
     expect(G.medium).toBeLessThanOrEqual(G.high);
-    expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelFarField: 'mesh' }).far).toEqual({ mode: 'mesh', errorPixels: 8, gpuBudgetBytes: G.low });
-    expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'high', voxelFarField: 'off', voxelFarError: 8 }).far).toEqual({ mode: 'off', errorPixels: 8, gpuBudgetBytes: G.high });
-    expect(resolveVoxelWorld({ world: 'w' }).far).toEqual({ mode: 'bricks', errorPixels: 4, gpuBudgetBytes: G.medium });
+    expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'low', voxelFarField: 'mesh' }).far).toEqual({ mode: 'mesh', errorPixels: 8, gpuBudgetBytes: G.low, fineHoldM: FAR_FINE_HOLD_M_BY_TIER.low });
+    expect(resolveVoxelWorld({ world: 'w' }, { id: 'x', lighting: 'high', voxelFarField: 'off', voxelFarError: 8 }).far).toEqual({ mode: 'off', errorPixels: 8, gpuBudgetBytes: G.high, fineHoldM: FAR_FINE_HOLD_M_BY_TIER.high });
+    expect(resolveVoxelWorld({ world: 'w' }).far).toEqual({ mode: 'bricks', errorPixels: 4, gpuBudgetBytes: G.medium, fineHoldM: FAR_FINE_HOLD_M_BY_TIER.medium });
     const base = resolveVoxelWorld({ world: 'w' });
     // The relief distance scales by its tier's own (`kRelief`, absent: as every distance).
     // The load ring's radii and level 1 (the near field's reach) by the tier's reach scale (`kReach`, absent: as every distance).

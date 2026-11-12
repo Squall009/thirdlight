@@ -7,7 +7,7 @@
  */
 import type { ChunkCoord, ChunkGrid } from './coords';
 import { gatherFarCells } from './far-bricks-faces';
-import { FAR_FINE_RESELECT_MS, farFineChunks, farFineDirty, FarFineIndex, farFineScale, isFarFine, packFarFine, type FarFineCells, type FarFineHost } from './far-fine';
+import { FAR_FINE_RESELECT_MS, farFineChunks, farFineDirty, FarFineIndex, farFineScale, isFarFine, packFarFine, type FarFineBaked, type FarFineCells, type FarFineHost } from './far-fine';
 import type { FarNodeIndex } from './far-tree';
 import { mipNodeKey, type MipNode } from './voxel-mips';
 import { SampleRing } from './worker-pool';
@@ -17,8 +17,10 @@ export interface FarFineNodesHost {
   readonly grid: ChunkGrid;
   /** Where fine nodes' cells come from (absent: no fine nodes). */
   readonly fine: FarFineHost | undefined;
-  /** Whether fine nodes are asked for (the option on, the bricks mode). */
+  /** Whether fine nodes are built from the chunks where not baked (the option on, the bricks mode). */
   wanted(): boolean;
+  /** The fine levels the far cache holds baked (null: none, or not the bricks mode). */
+  baked(): FarFineBaked | null;
   /** Whether a node is drawn now or in the target. */
   held(key: string): boolean;
   /** A node's draw is to be made again (its old one stays until then). */
@@ -36,7 +38,10 @@ export class FarFineNodes {
   private index: FarFineIndex | null = null;
   /** ms a fine node's block took to read on the world's thread. */
   readonly ms = new SampleRing();
-  readonly counters = { made: 0, empty: 0, edits: 0 };
+  /** Built: blocks read and sent to be built; baked: nodes read from the cache (the far field counts those); edits: changes that made nodes again. */
+  readonly counters = { made: 0, empty: 0, edits: 0, baked: 0 };
+  /** Baked nodes a run-time edit changed: built from the edited chunks while fine nodes are built at all (the cache holds the old ones). */
+  private readonly edited = new Set<string>();
   private reselectAt = -Infinity;
   private later: ReturnType<typeof setTimeout> | null = null;
 
@@ -44,38 +49,56 @@ export class FarFineNodes {
 
   /** The far index was read: the fine levels go under it. */
   setIndex(idx: FarNodeIndex): void {
-    if (this.host.fine !== undefined) this.index = new FarFineIndex(idx, this.host.fine);
+    if (this.host.fine !== undefined) this.index = new FarFineIndex(idx, this.host.fine, { compute: () => this.host.wanted(), baked: { baked: (n) => this.host.baked()?.baked(n) === true } });
   }
 
-  /** Whether fine nodes are asked for (they may not be drawn yet: the index is read first). */
+  /** Whether fine nodes are asked to be built (they may not be drawn yet: the index is read first). */
   get wanted(): boolean {
     return this.host.wanted() && this.host.fine !== undefined;
   }
 
-  /** Whether fine nodes are selected and drawn now. */
+  /** Whether fine nodes are built from the chunks now (where they are not baked). */
   get on(): boolean {
     return this.host.wanted() && this.index !== null;
   }
 
-  /** The index the selection walks while {@link on}. */
-  get selectIndex(): FarFineIndex | null {
-    return this.on ? this.index : null;
+  /** Whether fine nodes are selected and drawn now: built, or read baked. */
+  get selecting(): boolean {
+    return this.index !== null && (this.host.wanted() || this.host.baked() !== null);
   }
 
-  /** Whether the tree holds a fine node (one of its chunks holds anything); null: not a fine node, or fine nodes off. */
+  /** Whether a fine node is read from the cache's baked levels (not built from the chunks). */
+  readBaked(n: MipNode): boolean {
+    return isFarFine(n) && this.host.baked()?.baked(n) === true && !(this.on && this.edited.has(mipNodeKey(n)));
+  }
+
+  /** Whether a fine node is built from the chunks (its block read here and built on the page). */
+  built(n: MipNode): boolean {
+    return isFarFine(n) && this.on && !this.readBaked(n);
+  }
+
+  /** The index the selection walks while {@link selecting}. */
+  get selectIndex(): FarFineIndex | null {
+    return this.selecting ? this.index : null;
+  }
+
+  /** Whether the tree holds a fine node (one of its chunks holds anything, or baked); null: not a fine node, or fine nodes off. */
   has(n: MipNode): boolean | null {
-    return this.on && isFarFine(n) ? this.index!.has(n) : null;
+    return this.selecting && isFarFine(n) ? this.index!.has(n) : null;
   }
 
   /**
-   * Chunks were edited (the world's files, or a run-time edit over them): every fine node whose block reads one is
-   * made again from the edited cells and replaced alone (its old draw stays until then).
+   * Chunks were edited (the world's files, or a run-time edit over them, `overlay`): every fine node whose block reads
+   * one is made again and replaced alone (its old draw stays until then). A built node is built from the edited
+   * cells; a baked one is read again (the backend baked it again with the files) unless the edit is a run-time one
+   * while fine nodes are built at all: then it is built from the edited chunks too, as the cache still holds the old.
    */
-  changed(chunks: readonly ChunkCoord[]): void {
-    if (chunks.length === 0 || !this.on) return;
+  changed(chunks: readonly ChunkCoord[], overlay = false): void {
+    if (chunks.length === 0 || !this.selecting) return;
     let any = false;
     for (const n of farFineDirty(chunks)) {
       const key = mipNodeKey(n);
+      if (overlay && this.on && this.host.baked()?.baked(n) === true) this.edited.add(key);
       if (!this.host.held(key)) continue;
       any = true;
       this.host.remake(key);
@@ -90,7 +113,7 @@ export class FarFineNodes {
    * Selected again at most every {@link FAR_FINE_RESELECT_MS}; a change inside that window selects at its end.
    */
   residency(): void {
-    if (!this.on || this.later !== null) return;
+    if (!this.selecting || this.later !== null) return;
     const wait = this.reselectAt + FAR_FINE_RESELECT_MS - performance.now();
     if (wait > 0) {
       this.later = setTimeout(() => {

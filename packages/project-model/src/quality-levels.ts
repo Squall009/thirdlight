@@ -55,7 +55,7 @@
  *
  * Pure: no I/O.
  */
-import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
+import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_FINE_HOLD_M_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
 import type { FrameRateCap } from './frame-rate-cap';
 import type { PostConfig } from './materials';
 import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
@@ -252,7 +252,7 @@ export interface QualityLevelConfig {
  * most texels a metre their surfaces keep resident and the relief lattice steps a cell in their relief rings, each by
  * its tier unless the level sets it.
  */
-export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity' | 'voxelRelief' | 'voxelFarField' | 'voxelFarError'>): { readonly ringScale: number; readonly reachScale: number; readonly reliefScale: number; readonly budgetBytes: number; readonly texelDensity: number; readonly relief: number; readonly farField: FarFieldMode; readonly farError: number; readonly farGpuBudget: number } {
+export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelRings' | 'voxelTexelDensity' | 'voxelRelief' | 'voxelFarField' | 'voxelFarError'>): { readonly ringScale: number; readonly reachScale: number; readonly reliefScale: number; readonly budgetBytes: number; readonly texelDensity: number; readonly relief: number; readonly farField: FarFieldMode; readonly farError: number; readonly farGpuBudget: number; readonly farFineHoldM: number } {
   const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
   return {
     ringScale: level.voxelRings ?? VOXEL_RING_SCALES[tier],
@@ -266,6 +266,7 @@ export function levelVoxels(level: Pick<QualityLevelConfig, 'lighting' | 'voxelR
     farField: level.voxelFarField ?? FAR_FIELD_BY_TIER[tier],
     farError: level.voxelFarError ?? FAR_ERROR_PIXELS_BY_TIER[tier],
     farGpuBudget: FAR_GPU_BUDGET_BYTES_BY_TIER[tier],
+    farFineHoldM: FAR_FINE_HOLD_M_BY_TIER[tier],
   };
 }
 

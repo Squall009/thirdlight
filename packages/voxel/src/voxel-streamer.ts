@@ -89,6 +89,7 @@ import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_STREAM_RING, mi
 import { decodeUndoRecord } from './undo-store';
 import { FarField, type FarFieldOptions } from './far-field';
 import type { FarFineHost } from './far-fine';
+import { StreamReadReach } from './stream-read-reach';
 import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
@@ -383,6 +384,8 @@ export class VoxelStreamer {
   private focus: Focus = { x: 0, y: 0, z: 0 };
   /** Motion, lead point and held reads (stream-reads.ts). */
   private readonly plan: StreamReadPlan<{ c: Chunk; stored: StoredChunk }>;
+  /** How far the voxels are read round the focus: the ring as set, ended on a baked world at the detail ring's reach. */
+  readonly readReach: StreamReadReach;
   private wanted: WantedChunk[] = [];
   private cursor = 0;
   private horizon = Infinity;
@@ -427,6 +430,20 @@ export class VoxelStreamer {
     this.tracker = opts.tracker ?? new DirtyTracker();
     const ring = opts.ring ?? DEFAULT_STREAM_RING;
     checkRing(ring);
+    this.readReach = new StreamReadReach(
+      {
+        grid: this.grid,
+        far: () => this.far?.cache.source ?? null,
+        detailReach: () => this.mips?.lod.detailReadReach() ?? null,
+        focus: () => this.focus,
+        setBase: (r) => {
+          this.plan.setBase(r);
+          if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(this.plan.ring));
+          this.poke();
+        },
+      },
+      ring,
+    );
     this.plan = new StreamReadPlan(this.grid, ring, opts.prefetchSeconds ?? STREAM_PREFETCH_SECONDS);
     this.detail = new StreamDetail(this.plan);
     checkRadius(this.grid.edge, opts.dependencyRadius);
@@ -556,8 +573,10 @@ export class VoxelStreamer {
       },
       cells: (cx, cy, cz, out) => this.isResident(cx, cy, cz) && this.overlay.exportChunk(cx, cy, cz, out),
       nearDrawn: (cx, cy, cz) => nearDrawn(this.mips, cx, cy, cz, () => this.isResident(cx, cy, cz)),
+      // Level 0's speed rule holds for baked fine reads too.
+      fast: () => this.plan.detailHeld,
     };
-    this.far = opts.far !== undefined && opts.rules !== undefined ? new FarField(opts.far, { grid: this.grid, pool: opts.pool, rules: opts.rules, fine: fineHost }) : null;
+    this.far = opts.far !== undefined && opts.rules !== undefined ? new FarField(opts.far, { grid: this.grid, pool: opts.pool, rules: opts.rules, fine: fineHost, indexed: () => fineLevelsChanged(this) }) : null;
     if (this.far?.fineNodes.wanted === true) setNearOnly(this, true);
     const merged = this.merged;
     this.pieces = new StreamPieces(
@@ -689,11 +708,6 @@ export class VoxelStreamer {
     if (this.derives !== null) yield* this.derives.derived();
   }
 
-  /** Base hash of a chunk as loaded (null unless the streamer loaded it with a save entry or hashing on). */
-  baseHashOf(cx: number, cy: number, cz: number): Uint8Array | null {
-    return this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.hash ?? null;
-  }
-
   /**
    * Registers what a derived representation of a resident chunk costs
    * (bytes; 0 removes it), so meshes, colliders, light and the rest count
@@ -761,11 +775,13 @@ export class VoxelStreamer {
    */
   setRing(ring: StreamRing): void {
     checkRing(ring);
+    ring = this.readReach.ringSet(ring);
     this.plan.setRing(ring);
     if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(ring));
     this.mips?.lod.changed();
     this.poke();
   }
+
 
   /** One planning step (see the file comment); cheap when the focus stays in its chunk. */
   update(): void {
@@ -774,11 +790,15 @@ export class VoxelStreamer {
     const g = this.grid;
     const replanned = this.plan.update(this.focus, t0);
     if (this.plan.detailChanged) {
+      // Baked fine nodes are held back at speed as level 0 is, and come back with it.
+      this.far?.fineNodes.residency();
       this.counters.detailHolds++;
       this.mips?.lod.setDetail(!this.plan.detailHeld);
       this.poke();
     }
     if (replanned) {
+      // Another chunk: whether the fine levels round the focus are baked (the read reach) may have changed.
+      this.readReach.moved();
       if (this.plan.ringChanged) {
         if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(this.ring));
         this.mips?.lod.changed();
@@ -1128,7 +1148,7 @@ export class VoxelStreamer {
     if (changed.length > 0) {
       d.invalidate(box, 'edit', parts, group);
       this.mips?.changed(changed, box, group);
-      this.far?.fineNodes.changed(changed);
+      this.far?.fineNodes.changed(changed, true);
     }
     d.request(this.opts.deriveMsPerUpdate ?? 2, true);
     // The drawn nodes the edit changed swap with it: their rebuilds go out now, in the edit lane.
@@ -1357,7 +1377,7 @@ export class VoxelStreamer {
     }
     this.derives?.invalidate(box, 'edit', ALL_DERIVED_PARTS, group);
     this.mips?.changed([c], box, group);
-    this.far?.fineNodes.changed([c]);
+    this.far?.fineNodes.changed([c], true);
   }
 
   private settleRebuild(group: number): void {
@@ -1451,8 +1471,25 @@ export function setFineBricks(streamer: VoxelStreamer, on: boolean): void {
   const far = streamer.far;
   if (far === null) return;
   far.setView({ fine: on });
-  // Only where the far field draws them (the bricks mode with the chunks at hand) does the near field give its rings up.
-  setNearOnly(streamer, far.fineNodes.wanted);
+  fineLevelsChanged(streamer);
+}
+
+/**
+ * The near field and the read ring for the fine far levels drawn now: built from the chunks (the switch) or baked
+ * in the far cache. Either way the near field draws only its level-0 ring (fine bricks draw past it). Where the
+ * finest level drawn past the detail ring is baked (0.5 m, or 1 m with nothing built finer) round the focus, no voxel
+ * past the detail ring is needed: the read ring ends at the detail ring's reach ({@link StreamLod.detailReadReach});
+ * where a bake is still under way, the ring as set. A world baked to 2 m keeps its ring and its near rings as without.
+ */
+export function fineLevelsChanged(streamer: VoxelStreamer): void {
+  const far = streamer.far;
+  if (far === null) return;
+  const offered = far.draw === 'bricks' ? (far.cache.source.fineBakeLevel?.() ?? null) : null;
+  // Only where the far field draws them (the bricks mode with the chunks at hand, or baked) does the near field give its rings up.
+  setNearOnly(streamer, far.fineNodes.wanted || offered !== null);
+  // Level 0 built from the chunks needs them read as far as it is drawn: only a bake down to level 0, or to level 1
+  // with nothing built finer, ends the read ring.
+  streamer.readReach.setBaked(offered !== null && (offered === 0 || !far.fineNodes.wanted) ? offered : null);
 }
 
 /**

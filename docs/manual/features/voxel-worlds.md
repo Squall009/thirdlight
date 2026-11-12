@@ -292,18 +292,31 @@ runs, and the backend builds it again.
 
 - **Brick bake level.** A scene's voxel world chooses how fine its far cache
   bakes bricks (**Brick bake**, `bakeLevel`): 2 m by default, or 1 m, or
-  0.5 m. Finer levels are baked after the far cache, a region column at a
-  time on the backend's bake threads, while you keep editing; a bake stopped
-  part way (the backend stopped) goes on where it was, an edit bakes again
-  only the bricks over what it changed, and an export ships the levels the
-  scenes ask (it waits for the bake like for the far cache, and says so if it
-  had to ship without them). The far info answer reports the columns baked.
+  0.5 m. The bake starts as soon as a scene asks for a finer level, after the
+  far cache, a region column at a time on the backend's bake threads, while
+  you keep editing. The voxel world's Inspector section shows it: per level
+  the region columns baked of the world's, **baking**, **stale** (not done,
+  not running), **paused** or **baked**, with **Pause bake** and **Resume
+  bake** (a paused bake keeps the columns it wrote and goes on from them). A
+  bake stopped part way (the backend stopped) goes on where it was, an edit
+  bakes again only the bricks over what it changed, and an export ships the
+  levels the scenes ask, whole (it waits for the bake like for the far cache,
+  and says so if it had to ship without them).
   What it costs, measured on the 8 km test world: a km² of terrain 5.4 MB at
   2 m, 19.6 MB at 1 m, 71 MB at 0.5 m (town 3.8 / 10.6 / 30 MB); the whole
   world 355 MB, 1.4 GB, 5.0 GB, baked in 24 min, ~1.6 h, ~3.7 h on four
-  threads. Drawing the baked fine levels in a game is the next step: today
-  they are baked and shipped, and the fine bricks are still built while
-  playing.
+  threads.
+  What it buys while playing: past the detail ring the baked fine bricks are
+  read from the cache and uploaded, nothing is built (WebGL 2 draws them too,
+  in the far palette's colours), the near field draws only its level-0 ring,
+  and where the world is baked to the finest level drawn past the detail ring
+  (0.5 m, or 1 m with fine bricks not built) the voxels are read only as far as
+  the detail ring and collision need instead of the whole load ring. A tier
+  holds baked 0.5 m bricks out to a set distance (low, medium and high 156 m)
+  whatever its far detail says, so houses keep their window recesses and
+  eaves farther out. Faster than 40 m/s no fine brick is read; they come back,
+  nearest first, once the camera slows. Where a level is not baked yet (a bake
+  under way), the world draws as a 2 m world there and reads its whole ring.
 
 - **Mode and detail, by quality level.** A quality level's **Voxel far
   field** is `bricks` (default on every tier), `mesh` (the fallback) or

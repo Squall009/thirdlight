@@ -65,6 +65,14 @@ export const FAR_FINE_PACK_MS = 4;
  */
 const FAR_FINE_REACH_CHUNKS = (2 ** (FAR_MIN_LEVEL - 1) + 2) / 2;
 
+/**
+ * Metres to which a quality tier holds baked level-0 (0.5 m) far bricks whatever its error says (far-field.ts
+ * `fineHoldM`): a baked node costs no build, only atlas memory and march time, which the low tier has to spare at its
+ * 30 Hz cap, while its 8 px error would drop the town's back rows to 1 m cells (no window recesses, thick eaves) past
+ * ~78 m. Set with the GPU headroom meter; medium and high hold no less than low.
+ */
+export const FAR_FINE_HOLD_M_BY_TIER: Readonly<Record<'low' | 'medium' | 'high', number>> = Object.freeze({ low: 156, medium: 156, high: 156 });
+
 /** Share of the fade's end at which fine bricks' textures begin to fade to the far palette's colour. */
 export const FAR_FINE_FADE_START_SHARE = 0.5;
 
@@ -72,10 +80,12 @@ export const FAR_FINE_FADE_START_SHARE = 0.5;
  * Where fine bricks' textures fade to the far palette's colour (metres from the eye: start, end). They end where level
  * 2 begins, so the level 1 → 2 hand-over joins two palette colours, not a texture and a flat colour: where a level-2
  * cell is the selection's error on screen (`errorPixels` at `pixelsPerRadian`), or nearer where the load ring
- * (`loadRadiusCells`) keeps level 2 closed sooner ({@link FAR_FINE_REACH_CHUNKS}).
+ * (`loadRadiusCells`) keeps level 2 closed sooner ({@link FAR_FINE_REACH_CHUNKS}); no nearer than a baked level 0's hold
+ * (`holdM`).
  */
-export function farFineFade(errorPixels: number, pixelsPerRadian: number, loadRadiusCells: number, edge: number): readonly [number, number] {
-  const handover = (2 ** FAR_MIN_LEVEL * VOXEL_SIZE_M * pixelsPerRadian) / errorPixels;
+export function farFineFade(errorPixels: number, pixelsPerRadian: number, loadRadiusCells: number, edge: number, holdM = 0): readonly [number, number] {
+  // A tier holding baked level 0 farther (far-field.ts `fineHoldM`) opens level 2 that far too.
+  const handover = Math.max(holdM, (2 ** FAR_MIN_LEVEL * VOXEL_SIZE_M * pixelsPerRadian) / errorPixels);
   const reach = Math.max(0, (loadRadiusCells - FAR_FINE_REACH_CHUNKS * edge) * VOXEL_SIZE_M);
   const end = Math.min(handover, reach);
   return [FAR_FINE_FADE_START_SHARE * end, end];
@@ -169,6 +179,8 @@ export interface FarFineRefused {
   readonly near: number;
   /** Level-2 nodes opened into only their resident children, drawn over the rest. */
   readonly partial: number;
+  /** Nodes kept closed over baked fine children while the eye travels faster than the detail speed. */
+  readonly speed: number;
 }
 
 /** What the far field reads fine nodes from: the streamer's chunks. */
@@ -181,13 +193,37 @@ export interface FarFineHost {
   readonly cells: ChunkCells;
   /** Whether the near field draws a chunk whole now (the detail ring): a fine node there is not opened. */
   nearDrawn(cx: number, cy: number, cz: number): boolean;
+  /**
+   * Whether the eye travels faster than the near field's detail speed now: no baked fine node is read then (a 0.5 m
+   * band's reads at speed are megabytes a second for detail the eye cannot hold), so they come back nearest first
+   * once it slows (absent: never).
+   */
+  fast?(): boolean;
+}
+
+/**
+ * A world's fine levels as the far cache holds them baked (far-fine-bake.ts): whether a fine node's region column of
+ * its level is baked. A baked node is read and decoded, never built, and needs no chunk resident; a node missing from a
+ * baked column draws nothing.
+ */
+export interface FarFineBaked {
+  baked(n: MipNode): boolean;
+}
+
+/** How a {@link FarFineIndex} finds its fine nodes: built from the chunks (`compute`), read baked, or both. */
+export interface FarFineSources {
+  /** Whether fine nodes not baked are built from the streamer's chunks (the GPU build). */
+  compute(): boolean;
+  /** The fine levels the far cache holds baked (absent: none). */
+  readonly baked?: FarFineBaked;
 }
 
 /**
  * The far tree's index with the fine levels under its kept ones, as the selection walks it: a kept level-2 node opens
- * into the level-1 nodes over its chunks, a level-1 node into its chunks, where every chunk their blocks read is
- * resident and the near field does not draw the node whole; elsewhere a level-2 node stays closed (the kept tree's
- * finest, as without fine bricks).
+ * into the level-1 nodes over its chunks, a level-1 node into its chunks, where each child is baked (read from the far
+ * cache, no chunk needed) or built (every chunk its block reads resident), and the near field does not draw the node
+ * whole; elsewhere a level-2 node stays closed (the kept tree's finest, as without fine bricks). A baked child is taken
+ * to hold something until read (the cache stores only nodes that draw; a missing one is read as nothing to draw).
  */
 export class FarFineIndex {
   readonly minLevel = 0;
@@ -195,14 +231,18 @@ export class FarFineIndex {
    * Nodes the last finished selection wanted to open (by screen error) but kept closed: a chunk their children read
    * not resident, or the near field drawing them whole.
    */
-  refused: FarFineRefused = { resident: 0, near: 0, partial: 0 };
-  private counting: { resident: number; near: number; partial: number } = { resident: 0, near: 0, partial: 0 };
-  private last: { readonly key: string; readonly full: boolean; readonly kids: MipNode[] } | null = null;
+  refused: FarFineRefused = { resident: 0, near: 0, partial: 0, speed: 0 };
+  private counting: { resident: number; near: number; partial: number; speed: number } = { resident: 0, near: 0, partial: 0, speed: 0 };
+  private last: { readonly key: string; readonly full: boolean; readonly kids: MipNode[]; readonly fast: boolean } | null = null;
+  private readonly sources: FarFineSources;
 
   constructor(
     private readonly base: FarNodeIndex,
     private readonly host: FarFineHost,
-  ) {}
+    sources: FarFineSources = { compute: () => true },
+  ) {
+    this.sources = sources;
+  }
 
   get grid(): ChunkGrid {
     return this.base.grid;
@@ -216,7 +256,7 @@ export class FarFineIndex {
     return this.base.nodes(level);
   }
 
-  /** Stored bytes (fine nodes store nothing). */
+  /** Stored bytes (fine nodes are foreseen apart: built ones store nothing, baked ones are read). */
   bytesOf(n: MipNode): number {
     return isFarFine(n) ? 0 : this.base.bytesOf(n);
   }
@@ -225,25 +265,38 @@ export class FarFineIndex {
     return isFarFine(n) ? this.holds(n) : this.base.has(n);
   }
 
+  /** Whether a fine node is read from the far cache's baked levels (not built). */
+  isBaked(n: MipNode): boolean {
+    return this.sources.baked?.baked(n) === true;
+  }
+
   /** A selection begins: the refusals counted in the one before it are what {@link refused} reports. */
   selecting(): void {
     this.refused = this.counting;
-    this.counting = { resident: 0, near: 0, partial: 0 };
+    this.counting = { resident: 0, near: 0, partial: 0, speed: 0 };
     // Residency may have changed since the last selection.
     this.last = null;
   }
 
   /**
    * Whether a node may open into its children (a kept level above the fine ones always may). A level-2 node whose
-   * children's chunks are not all resident (the load ring ends across it) opens into those children that are: it
-   * stays drawn over the rest ({@link partial}), so the fine band reaches the ring's edge instead of stopping a whole
-   * level-2 node and its apron short of it.
+   * children are not all to be had (the load ring ends across it, or baked children wait for the eye to slow) opens
+   * into those that are: it stays drawn over the rest ({@link partial}), so the fine band reaches the ring's edge
+   * instead of stopping a whole level-2 node and its apron short of it. A level-1 node opens only into all its
+   * children at once.
    */
   openable(n: MipNode): boolean {
     if (n.level > FAR_MIN_LEVEL || n.level === 0) return n.level > 0;
+    if (n.level < FAR_MIN_LEVEL) {
+      const kids = mipChildren(n).filter((c) => this.holds(c));
+      if (kids.length > 0 && kids.every((c) => this.available(c))) return true;
+      if (kids.some((c) => this.isBaked(c)) && this.fast()) this.counting.speed++;
+      return false;
+    }
     const o = this.opening(n);
     if (o.kids.length === 0) {
       if (o.full) this.counting.near++;
+      else if (o.fast) this.counting.speed++;
       else this.counting.resident++;
       return false;
     }
@@ -264,17 +317,17 @@ export class FarFineIndex {
   }
 
   /**
-   * A level-2 node's opening: its children that hold anything and whose blocks' chunks are all resident (a level-1
-   * node reads its own chunks and one round them, as each of its level-0 children together do), and whether that is
-   * every child that holds anything (full). With every chunk resident, a node the near field draws whole opens into
-   * nothing (the detail ring draws it). Kept for the node last asked: the selection asks openable, children and
-   * partial of one node in turn.
+   * A level-2 node's opening: its children that hold anything and are to be had now (baked: the eye not too fast;
+   * built: every chunk its block reads resident, as a level-1 node reads its own chunks and one round them, which its
+   * level-0 children together read), and whether that is every child that holds anything (full). With every child to
+   * be had, a node the near field draws whole opens into nothing (the detail ring draws it). Kept for the node last
+   * asked: the selection asks openable, children and partial of one node in turn.
    */
-  private opening(n: MipNode): { readonly full: boolean; readonly kids: MipNode[] } {
+  private opening(n: MipNode): { readonly full: boolean; readonly kids: MipNode[]; readonly fast: boolean } {
     const key = `${n.nx},${n.ny},${n.nz}`;
     if (this.last !== null && this.last.key === key) return this.last;
     const holding = mipChildren(n).filter((c) => this.holds(c));
-    const kids = holding.filter((c) => this.resident(c));
+    const kids = holding.filter((c) => this.available(c));
     const full = kids.length === holding.length;
     let open = kids;
     if (full) {
@@ -286,8 +339,18 @@ export class FarFineIndex {
       }
       if (drawn) open = [];
     }
-    this.last = { key, full, kids: open };
+    this.last = { key, full, kids: open, fast: !full && holding.some((c) => this.isBaked(c)) && this.fast() };
     return this.last;
+  }
+
+  private fast(): boolean {
+    return this.host.fast?.() === true;
+  }
+
+  /** Whether a fine node holding anything can be drawn now: read baked (the eye not too fast), or built from resident chunks. */
+  private available(n: MipNode): boolean {
+    if (this.isBaked(n)) return !this.fast();
+    return this.sources.compute() && this.resident(n);
   }
 
   /** Whether every chunk a fine node's block reads is resident. */
@@ -297,8 +360,13 @@ export class FarFineIndex {
     return true;
   }
 
-  /** A fine node holds anything: one of its chunks holds more than air. */
+  /**
+   * A fine node holds anything: baked, until read (the cache stores what draws); built, one of its chunks holds more
+   * than air (resident chunks only); neither, nothing.
+   */
   private holds(n: MipNode): boolean {
+    if (this.isBaked(n)) return true;
+    if (!this.sources.compute()) return false;
     const s = 1 << n.level;
     for (let cx = n.nx * s; cx < (n.nx + 1) * s; cx++) for (let cy = n.ny * s; cy < (n.ny + 1) * s; cy++) for (let cz = n.nz * s; cz < (n.nz + 1) * s; cz++) if (this.host.holds(cx, cy, cz)) return true;
     return false;

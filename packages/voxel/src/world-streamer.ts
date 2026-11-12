@@ -23,7 +23,7 @@ import { createWorldStore } from './palette-store';
 import { jobRadius } from './assembly';
 import { WORLD_RULES } from './rule-registry';
 import type { ReliefRingSettings } from './relief-ring';
-import { VoxelStreamer } from './voxel-streamer';
+import { fineLevelsChanged, VoxelStreamer } from './voxel-streamer';
 import type { WorkerPool } from './worker-pool';
 import { buildPieceTable, type PieceKitSource, type PieceTable } from './piece-table';
 import { FAR_FIELD_BY_TIER, farViewOf, type FarFieldMode, type FarNodeSource } from './far-field';
@@ -87,7 +87,7 @@ export interface WorldRingSettings {
   readonly budgetBytes?: number | null;
   readonly reliefSteps?: number;
   /** How the world is drawn past its near rings (absent: meshes at the default error, where the connection has a far cache). */
-  readonly far?: { readonly mode: FarFieldMode; readonly errorPixels: number; readonly gpuBudgetBytes?: number };
+  readonly far?: { readonly mode: FarFieldMode; readonly errorPixels: number; readonly gpuBudgetBytes?: number; readonly fineHoldM?: number };
   /** Fine far bricks past the detail ring (VoxelStreamer.setFineBricks; absent: off). */
   readonly fineBricks?: boolean;
 }
@@ -107,11 +107,14 @@ export function worldReliefRing(settings: Pick<WorldRingSettings, 'levels' | 're
  * relief ring is planned again (its changed sections swap together).
  */
 export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSettings): void {
-  streamer.setRing(worldStreamRing(settings.ring));
+  // The level rings first: a baked world's read ring ends at the detail ring's reach.
   streamer.mips?.lod.setRings(worldLevelRings(settings.levels, settings.collision?.radius));
+  streamer.setRing(worldStreamRing(settings.ring));
   if (settings.budgetBytes !== undefined && settings.budgetBytes !== null) streamer.budgetBytes = settings.budgetBytes;
   streamer.relief?.set(worldReliefRing(settings));
-  if (settings.far !== undefined) streamer.far?.setView({ ...farViewOf(settings.far.mode), errorPixels: settings.far.errorPixels, ...(settings.far.gpuBudgetBytes !== undefined ? { gpuBudgetBytes: settings.far.gpuBudgetBytes } : {}) });
+  if (settings.far !== undefined) streamer.far?.setView({ ...farViewOf(settings.far.mode), errorPixels: settings.far.errorPixels, ...(settings.far.gpuBudgetBytes !== undefined ? { gpuBudgetBytes: settings.far.gpuBudgetBytes } : {}), ...(settings.far.fineHoldM !== undefined ? { fineHoldM: settings.far.fineHoldM } : {}) });
+  // A far mode or bake level change may give the near rings up or back, and with them the read ring.
+  fineLevelsChanged(streamer);
 }
 
 /** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: no kit, plain voxel faces). */
@@ -130,6 +133,6 @@ export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source:
     relief: worldReliefRing(settings),
     ...(conn.pieces !== undefined ? { pieces: conn.pieces } : {}),
     // The far field is made wherever the world has a far cache, so a level switching it on needs no reload.
-    ...(conn.far !== undefined ? { far: { source: conn.far, ...farViewOf(settings.far?.mode ?? FAR_FIELD_BY_TIER.medium), ...(settings.far !== undefined ? { errorPixels: settings.far.errorPixels, ...(settings.far.gpuBudgetBytes !== undefined ? { gpuBudgetBytes: settings.far.gpuBudgetBytes } : {}) } : {}), ...(settings.fineBricks === true || conn.fineBricks === true ? { fine: true } : {}) } } : {}),
+    ...(conn.far !== undefined ? { far: { source: conn.far, ...farViewOf(settings.far?.mode ?? FAR_FIELD_BY_TIER.medium), ...(settings.far !== undefined ? { errorPixels: settings.far.errorPixels, ...(settings.far.gpuBudgetBytes !== undefined ? { gpuBudgetBytes: settings.far.gpuBudgetBytes } : {}), ...(settings.far.fineHoldM !== undefined ? { fineHoldM: settings.far.fineHoldM } : {}) } : {}), ...(settings.fineBricks === true || conn.fineBricks === true ? { fine: true } : {}) } } : {}),
   });
 }

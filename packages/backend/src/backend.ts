@@ -308,6 +308,8 @@ export function createBackend(
   ): void => {
     checks.changed(projectId, change);
     modelBricks.changed(projectId, change);
+    // A scene's voxel world asking another bake level starts (or stops) its fine bake now, not at its next far read.
+    if (JSON.stringify(change ?? null).includes('voxelWorld')) voxelWorlds.scenesChanged(projectId);
     channel.sendMutationApplied(projectId, requestId, revision, origin, change, sceneId);
   };
 
@@ -390,7 +392,7 @@ export function createBackend(
       missingFiles: missingFilesRoute,
       externalResolve: external.resolveRoute,
     },
-    voxels: { info: voxels.info, region: voxels.region, farInfo: voxels.farInfo, farRegion: voxels.farRegion },
+    voxels: { info: voxels.info, region: voxels.region, farInfo: voxels.farInfo, farRegion: voxels.farRegion, farBake: voxels.farBake },
     lighting: { bake: lightingBake.start, bakeJob: async (req, res, projectId, jobId) => lightingBake.read(req, res, projectId, jobId) },
     play: { start: playStartRoute, stop: playStopRoute, snapshot: playSnapshotRoute, relay: relayRoute, input: inputRelayRoute, control: gameControlRoute, observe: gameObserveRoute },
     admin: { createProject: adminCreateProject, registerProject: adminRegisterProject, unregisterProject: adminUnregisterProject, projectOp: adminProjectOp, exportProject: adminExportRoute },

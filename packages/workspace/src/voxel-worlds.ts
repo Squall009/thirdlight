@@ -36,7 +36,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
-import { voxelWorldBakeLevel } from '@thirdlight/project-model';
+import { voxelWorldBakeLevel, voxelWorldBakeLevels } from '@thirdlight/project-model';
 import {
   canonicalEditCommand,
   chunkGrid,
@@ -265,6 +265,8 @@ export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest
 export interface VoxelFineBake {
   readonly bakeLevel: number;
   readonly baking: boolean;
+  /** Paused by the editor: the columns baked stay, and nothing bakes until it is resumed. */
+  readonly paused: boolean;
   readonly levels: ReadonlyArray<{ readonly level: number; readonly done: number; readonly total: number }>;
 }
 
@@ -404,6 +406,8 @@ interface FineBake {
   readonly level: number;
   readonly changed: ChunkCoord[];
   done: Promise<void>;
+  /** Stopped (paused, or the level asked changed): no further column lands; the columns written stay. */
+  stopped: boolean;
 }
 
 /**
@@ -446,6 +450,10 @@ export class VoxelWorlds {
   private readonly farBuilds = new Map<string, FarBuild>();
   /** Fine bakes running, by world. */
   private readonly fineBakes = new Map<string, FineBake>();
+  /** Worlds whose fine bake the editor paused (keyed as {@link fineBakes}). */
+  private readonly finePaused = new Set<string>();
+  /** Per project, the bake level each world its scenes name asks, as last seen ({@link scenesChanged}). */
+  private readonly bakeAsked = new Map<string, Map<string, number>>();
   private readonly farJobs: FarCacheJobs;
 
   constructor(private readonly opts: VoxelWorldsOptions) {
@@ -643,7 +651,7 @@ export class VoxelWorlds {
       const files = farCacheFiles(w.farDir).slice(1).map((f) => ({ name: f, etag: this.farTag(w, f) }));
       const manifest = readFarCacheManifest(w.farDir);
       const fine = this.fineState(w, manifest);
-      if (fine !== undefined && !fine.baking && fine.levels.some((l) => l.done < l.total)) void this.bakeFine(w);
+      if (fine !== undefined && !fine.baking && !fine.paused && fine.levels.some((l) => l.done < l.total)) void this.bakeFine(w);
       return { ok: true, world: name, manifest, files, ...(fine !== undefined ? { fine: { ...fine, baking: this.fineBakes.has(worldKey(w)) } } : {}) };
     });
   }
@@ -704,7 +712,60 @@ export class VoxelWorlds {
   private fineState(w: OpenWorld, m: FarCacheManifest): VoxelFineBake | undefined {
     const want = this.wantedBake(w);
     if (want >= FAR_MIN_LEVEL) return undefined;
-    return { bakeLevel: want, baking: this.fineBakes.has(worldKey(w)), levels: farFineProgress(m, new FarWorldSource(w.dir), want) };
+    return { bakeLevel: want, baking: this.fineBakes.has(worldKey(w)), paused: this.finePaused.has(worldKey(w)), levels: farFineProgress(m, new FarWorldSource(w.dir), want) };
+  }
+
+  /**
+   * The project's scenes changed (a command applied): a world whose bake level they ask changed starts baking toward
+   * it at once (its far cache built first when it is not current), and a bake toward a level no longer asked stops.
+   * Background work: the command has answered; the bake writes a column at a time in the world's queue.
+   */
+  scenesChanged(projectId: string): void {
+    if (this.opts.scenes === undefined) return;
+    const asked = new Map([...voxelWorldBakeLevels(this.opts.scenes(projectId))].map(([world, m]) => [world, farBakeLevelOf(m)]));
+    const before = this.bakeAsked.get(projectId);
+    this.bakeAsked.set(projectId, asked);
+    for (const [world, level] of asked) {
+      // First seen: only a world asking a fine level (a bake left part way goes on).
+      if (before === undefined ? level >= FAR_MIN_LEVEL : before.get(world) === level) continue;
+      this.startFineBake(projectId, world).catch(() => undefined);
+    }
+  }
+
+  /**
+   * The editor pauses (`run` false) or resumes a world's fine bake. Paused, the columns baked stay and nothing more
+   * bakes (a far read does not start it either); resumed, it goes on from the columns written. Answers the bake's state.
+   */
+  async fineBakeControl(projectId: string, name: string, run: boolean): Promise<VoxelFarInfo> {
+    const w = await this.load(projectId, name);
+    if ('ok' in w) return w;
+    const key = worldKey(w);
+    if (run) {
+      this.finePaused.delete(key);
+      this.startFineBake(projectId, name).catch(() => undefined);
+    } else {
+      this.finePaused.add(key);
+      const job = this.fineBakes.get(key);
+      if (job !== undefined) job.stopped = true;
+    }
+    return this.farInfo(projectId, name);
+  }
+
+  /** A world's fine bake toward the level its scenes ask, started now (its far cache built first where not current). */
+  private async startFineBake(projectId: string, name: string): Promise<void> {
+    const w = await this.load(projectId, name);
+    if ('ok' in w) return;
+    const key = worldKey(w);
+    const level = this.wantedBake(w);
+    const running = this.fineBakes.get(key);
+    // A bake toward another level stops; the next one starts from the columns written.
+    if (running !== undefined && running.level !== level) {
+      running.stopped = true;
+      await running.done;
+    }
+    if (level >= FAR_MIN_LEVEL || this.finePaused.has(key)) return;
+    if (farCacheStale(w.farDir, w.manifest) !== null) await this.buildFar(w);
+    await this.bakeFine(w);
   }
 
   /**
@@ -719,7 +780,7 @@ export class VoxelWorlds {
     if (had !== undefined) return had.done;
     const level = this.wantedBake(w);
     if (level >= FAR_MIN_LEVEL) return Promise.resolve();
-    const job: FineBake = { level, changed: [], done: Promise.resolve() };
+    const job: FineBake = { level, changed: [], done: Promise.resolve(), stopped: false };
     const drop = (): void => {
       if (this.fineBakes.get(key) === job) this.fineBakes.delete(key);
     };
@@ -728,7 +789,8 @@ export class VoxelWorlds {
       const pending = await this.queued(w, () => Promise.resolve(current() ? farFinePending(startFarFine(w.farDir, level), new FarWorldSource(w.dir), level) : []));
       if (pending.length === 0) return;
       for await (const r of this.farJobs.bakeFine(pending.map((t) => ({ worldDir: w.dir, ...t })))) {
-        const landed = await this.queued(w, () => Promise.resolve(current() && this.landFine(w, job, r)));
+        if (job.stopped) break;
+        const landed = await this.queued(w, () => Promise.resolve(current() && !job.stopped && this.landFine(w, job, r)));
         if (!landed) break;
       }
     })()
@@ -1062,5 +1124,7 @@ export class VoxelWorlds {
    */
   close(projectId?: string): void {
     for (const key of [...this.open.keys()]) if (projectId === undefined || key.startsWith(`${projectId}\u0000`)) this.open.delete(key);
+    if (projectId === undefined) this.bakeAsked.clear();
+    else this.bakeAsked.delete(projectId);
   }
 }

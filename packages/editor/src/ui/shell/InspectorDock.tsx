@@ -9,7 +9,7 @@
  * (EntityInspector, with the button of the editor that edits it), and the running Play's
  * script values for it.
  */
-import type { JSX } from 'react';
+import { useCallback, type JSX } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
 import { effectiveFlagsOf } from '../../session/hierarchy';
 import { addEntries } from '../../session/descriptor-fields';
@@ -38,6 +38,7 @@ import type { GizmoMode } from '../../viewport/viewport';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { InstanceBrushPanel, type useInstanceBrush } from '../instances/InstanceBrush';
 import { ItemInspector } from '../project/ItemInspector';
+import { VoxelBakeStatus, type FineBakeState } from '../VoxelBakeStatus';
 import type { ItemActions } from '../project/useItemActions';
 import type { ProjectItem } from '../../session/project-items';
 import { assetPlacementAvailable } from '../../session/placement';
@@ -308,6 +309,7 @@ const COVER_HEIGHT_TRACK: readonly [number, number] = [-20, 100];
 /** The Inspector of the selected object (several selected: the primary one). */
 function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { clientRef, viewportRef, entities, selected, selection, hierarchyFlags, fieldContext, gizmoMode, setGizmoMode, instanceChunks, selectedCopy, setSelectedCopy, instanceBrush, reportFailure, setNotice } = props;
+  const readFineBake = useCallback((world: string, run?: boolean): Promise<FineBakeState> => clientRef.current?.voxelFineBake(world, run) ?? Promise.resolve(null), [clientRef]);
   const { declarations, materials, registry } = props.content;
   const { settings, tags } = props.settings;
   const copy = usePrefabCopy({ clientRef, selected, entities, runTypedCommand: props.entity.runTypedCommand, setNotice, openPrefab: props.openPrefab });
@@ -432,6 +434,17 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
           : {
               ...(roomsSection !== null || archCover !== null ? { architecture: <>{roomsSection}{archCover}</> } : {}),
               ...(modelCover !== null ? { model: modelCover } : {}),
+              ...(typeof (selected.components['voxelWorld'] as { world?: unknown } | undefined)?.world === 'string'
+                ? {
+                    voxelWorld: (
+                      <VoxelBakeStatus
+                        world={(selected.components['voxelWorld'] as { world: string }).world}
+                        bakeLevelM={Number((selected.components['voxelWorld'] as { bakeLevel?: number }).bakeLevel ?? 2)}
+                        read={readFineBake}
+                      />
+                    ),
+                  }
+                : {}),
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
               blockFootprint: (
                 <div className="tl-inspector__modes">

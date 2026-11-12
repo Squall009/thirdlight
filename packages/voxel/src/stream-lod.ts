@@ -136,6 +136,18 @@ export class StreamLod {
     return levelNodeDistance(g, this.foci(), { level: 1, nx: cx >> 1, ny: cy >> 1, nz: cz >> 1 }) < this.rings.radii[0]! + this.rings.hysteresis + g.edge;
   }
 
+  /**
+   * Cells round the stream focus whose chunks the level-0 ring needs read (a chunk's centre within it): a chunk is
+   * drawn at level 0 under a level-1 node within the ring, its hysteresis and a chunk ({@link inDetailReach}); a chunk
+   * of that node lies at most 1.5 chunks √2 past the node's nearest point, and a chunk's derive reads its neighbours,
+   * one chunk (√2 across a corner) more: 4.5 chunks in all. The collision ring lies inside the level-0 ring
+   * (world-streamer.ts `worldLevelRings`).
+   */
+  detailReadReach(): number {
+    const e = this.host.grid.edge;
+    return this.rings.radii[0]! + this.rings.hysteresis + e + Math.ceil(3.5 * e);
+  }
+
   /** Whether level 0 is drawn ({@link setDetail}). */
   get detailShown(): boolean {
     return this.detail;

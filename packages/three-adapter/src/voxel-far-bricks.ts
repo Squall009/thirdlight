@@ -39,7 +39,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { bakeFarBrick, farBrickOctant, BRICK_HIT_VOXELS, FAR_DEEP_CELLS, FAR_FINE_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
+import { bakeFarBrick, bakeFineFarBrick, farBrickOctant, BRICK_HIT_VOXELS, FAR_DEEP_CELLS, FAR_FINE_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { culledCopyVec4, culledDepthAt } from './attribute-instancing';
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
@@ -138,8 +138,11 @@ export class FarBrickAtlas {
     this.pageBounds.release(at);
   }
 
-  /** Uploads a node's bricks, one region each (baked from `palette`); their regions (texel origins), in block order. */
-  add(renderer: VoxelGridRenderer, b: FarBricks, palette: FarPalette | null = null): THREE.Vector3[] {
+  /**
+   * Uploads a node's bricks, one region each (baked from `palette`; `'words'`: a fine node's, its samples' look words as
+   * the GPU build writes them); their regions (texel origins), in block order.
+   */
+  add(renderer: VoxelGridRenderer, b: FarBricks, palette: FarPalette | null | 'words' = null): THREE.Vector3[] {
     const out: THREE.Vector3[] = [];
     const n = farBrickCount(b);
     for (let i = 0; i < n; i++) {
@@ -159,8 +162,9 @@ export class FarBrickAtlas {
     for (let i = 0; i < regions.length; i++) this.bake(renderer, b, i, regions[i]!, palette);
   }
 
-  private bake(renderer: VoxelGridRenderer, b: FarBricks, i: number, at: THREE.Vector3, palette: FarPalette | null): void {
+  private bake(renderer: VoxelGridRenderer, b: FarBricks, i: number, at: THREE.Vector3, palette: FarPalette | null | 'words'): void {
     if (palette === null) this.scratch.fill(0);
+    else if (palette === 'words') bakeFineFarBrick(b, i, this.scratch);
     else bakeFarBrick(b, i, palette, this.scratch);
     this.colours.upload(renderer, at, this.scratch);
   }

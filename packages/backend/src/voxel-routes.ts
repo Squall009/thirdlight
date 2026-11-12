@@ -13,7 +13,8 @@
  *
  * A world's far cache (the far field's nodes, rebuilt by the workspace on
  * every change and built whole when missing) is served the same way under
- * `…/far`: its manifest and files, each file by range.
+ * `…/far`: its manifest and files, each file by range; `…/far/bake` pauses or
+ * resumes the world's fine bake (the bake level is the scene's).
  *
  * Play reads the same worlds on the preview origin under its play's
  * locator (`reads`, see preview-routes.ts): the locator is the permission
@@ -21,10 +22,11 @@
  */
 import { closeSync, createReadStream, fstatSync, openSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { sessionError, statusFor, type SessionError, type VoxelsChangedPayload } from '@thirdlight/protocol';
+import { parseStrictJsonBytes, sessionError, statusFor, type SessionError, type VoxelsChangedPayload } from '@thirdlight/protocol';
 import type { VoxelWorlds } from '@thirdlight/workspace';
 
 import type { Problem } from './backend';
+import { readBody } from './http';
 
 export interface VoxelRoutesContext {
   readonly worlds: VoxelWorlds;
@@ -153,6 +155,22 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     else await sendFarFile(req, res, projectId, world, level, file);
   };
 
+  /**
+   * POST …/voxels/:world/far/bake {run} — pauses (false) or resumes (true) the world's fine bake (a background job, not
+   * the project's state: the bake level itself is the scene's, set by its commands); answers the far info with its state.
+   */
+  const farBake = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string): Promise<void> => {
+    const auth = requireAuth(req, projectId, false);
+    if (auth !== null) return sendError(res, auth);
+    const body = await readBody(req);
+    if (!body.ok) return sendError(res, body.error);
+    const strict = parseStrictJsonBytes(body.bytes);
+    const run = strict.ok ? (strict.value as { run?: unknown } | null)?.run : undefined;
+    if (typeof run !== 'boolean') return sendError(res, sessionError('invalid_request', 'validation', 'the body is {"run": true | false}'));
+    const r = await worlds.fineBakeControl(projectId, world, run);
+    sendJson(res, r.ok ? 200 : r.error.code === 'far_cache_building' ? 202 : statusFor(r.error.cls), r);
+  };
+
   /** A voxel world command from the command route (envelope already parsed as strict JSON). */
   const command = async (res: ServerResponse, projectId: string, envelope: Record<string, unknown>): Promise<void> => {
     const r = await worlds.command(projectId, envelope);
@@ -165,5 +183,5 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     sendJson(res, statusFor(r.error.cls), r);
   };
 
-  return { info, region, farInfo, farRegion, command, reads: { info: sendInfo, region: sendRegion, farInfo: sendFarInfo, farFile: sendFarFile } };
+  return { info, region, farInfo, farRegion, farBake, command, reads: { info: sendInfo, region: sendRegion, farInfo: sendFarInfo, farFile: sendFarFile } };
 }

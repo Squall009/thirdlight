@@ -109,18 +109,18 @@ export function pageFarHooks(streamer: VoxelStreamer, view: Pick<VoxelFarView, '
 /** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
 export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
   if (streamer.far === null) return null;
-  return { ...streamer.far.metrics(), fineBuild: view.fineState, brickBuild: FAR_BRICK_BUILD, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+  return { ...streamer.far.metrics(), fineBuild: view.fineState, fineBaked: { drawn: [...view.fineDrawn], read: view.fineBakedIn }, brickBuild: FAR_BRICK_BUILD, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
 }
 
 /** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */
-export function pageQualityHook(textures: (id: string) => unknown, streamer: { budgetBytes: number; readonly far: { setView(o: { enabled?: boolean; errorPixels?: number; gpuBudgetBytes?: number; draw?: FarDrawKind }): void } | null }, relief: PageRelief, farPinned = false): (id: string) => unknown {
+export function pageQualityHook(textures: (id: string) => unknown, streamer: { budgetBytes: number; readonly far: { setView(o: { enabled?: boolean; errorPixels?: number; gpuBudgetBytes?: number; fineHoldM?: number; draw?: FarDrawKind }): void } | null }, relief: PageRelief, farPinned = false): (id: string) => unknown {
   return (id) => {
     const out = textures(id);
     const l = pageLevel(id, relief.params);
     streamer.budgetBytes = l.budgetBytes;
     relief.setRing(l.relief);
     // The GPU budget is the tier's whatever the page pins: it bounds memory, not the look.
-    streamer.far?.setView(farPinned ? { gpuBudgetBytes: l.far.gpuBudgetBytes } : { ...farViewOf(l.far.mode), errorPixels: l.far.errorPixels, gpuBudgetBytes: l.far.gpuBudgetBytes });
+    streamer.far?.setView(farPinned ? { gpuBudgetBytes: l.far.gpuBudgetBytes, ...(l.far.fineHoldM !== undefined ? { fineHoldM: l.far.fineHoldM } : {}) } : { ...farViewOf(l.far.mode), errorPixels: l.far.errorPixels, gpuBudgetBytes: l.far.gpuBudgetBytes, ...(l.far.fineHoldM !== undefined ? { fineHoldM: l.far.fineHoldM } : {}) });
     return out;
   };
 }

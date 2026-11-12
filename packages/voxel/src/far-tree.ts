@@ -282,6 +282,11 @@ export interface FarView {
   readonly unseen?: (n: MipNode) => boolean;
   /** The share of its error an unseen node is selected by (default 1: as a seen one). */
   readonly unseenScale?: number;
+  /**
+   * Per level, a distance (cells) within which a node opens whatever its error (absent or undefined for a level: by
+   * its error alone): detail held farther than the error alone would, where it costs only memory and drawing.
+   */
+  readonly openWithin?: readonly (number | undefined)[];
 }
 
 /** A drawn far node. */
@@ -437,7 +442,8 @@ export class FarSelection {
       const key = i.key;
       if (i.node.level <= index.minLevel) continue;
       const wasOpen = this.open.has(key);
-      const wants = i.nearOverlap || i.rank > threshold * (wasOpen ? 1 - h : 1);
+      const within = view.openWithin?.[i.node.level];
+      const wants = i.nearOverlap || i.rank > threshold * (wasOpen ? 1 - h : 1) || (within !== undefined && i.distance < within * (wasOpen ? 1 + h : 1));
       // Asked only of a node that wants to open: what it refuses is then what keeps detail out (and it reads chunks).
       if (!wants || index.openable?.(i.node) === false) continue;
       const kids = index.children(i.node).map(info).filter(visible);
