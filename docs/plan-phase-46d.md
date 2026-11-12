@@ -3824,6 +3824,26 @@ back home GPU 636 → 666 MiB, far GPU 111 both. Page + GPU 866 → 879 MiB of 4
 bench at 30 Hz: missed 8 → 3 (60 m/s), 21 → 4 (150 m/s), longest 61 → 54 ms. Play at the town-west pose: low far GPU
 77 → 92 MiB (partial nodes at 111 MiB in the D627 shots), medium 164 → 249 MiB of the 384 MiB far budget.
 
+**The comparison: travel** (coverage bench in the export `voxel-slice@r950`, same build, staging stopped, Iris Xe,
+WebGPU, at the cap, 2 rounds interleaved OFF/ON 12:39–13:27, load 1.7–5.7, uptime 19.8 d; `work/46d.25b3/travel/`,
+`sum2.py`). OFF is the mesh rings (46d.24d's last table: same order). Two rounds a cell, OFF → ON:
+
+| | longest ms | > 100 | missed / min | ground solid s | full detail s | nothing pending s | through | hole frames |
+|---|---|---|---|---|---|---|---|---|
+| low 60 | 49.0–50.1 → 40.5–43.0 | 0 → 0 | 1.1–1.5 → 0–0.4 | 0.03 → 0.03 | 4.41–4.48 → **1.35–1.43** | 7.52–8.21 → 5.05–5.28 | 0 → 0 | 0 → 0 |
+| low 150 | 41.7–43.6 → 44.8–47.0 | 0 → 0 | 0.9–3.7 → 1.8–4.6 | 0.03 → 0.04–0.11 | 4.57–4.61 → 5.66–6.42 | 7.52–8.02 → 5.89–6.97 | 0 → 0 | 0–1 → 0 |
+| medium 60 | 39.2–48.9 → 34.1–39.8 | 0 → 0 | 12.1–12.4 → 20.5–23.0 | 0.03–0.08 → 0.03–0.12 | 12.0–12.9 → 19.6–21.7 | 16.4–16.7 → 19.6–21.7 | 0 → 0 | 2–4 → 2–3 |
+| medium 150 | 33.9–42.2 → 30.4–37.7 | 0 → 0 | 23.8–31.1 → 9.1–11.0 | 0.08 → 0.09–0.10 | 18.2 → 26.3–26.7 | 19.2–19.4 → **not settled in 30 s** (far nodes) | 0 → 0 | 2–4 → 15–33 |
+
+Per-count settle (`settleBy`): OFF ends on the level-1 count (the ring's downsample, 46d.24d) at every cell; ON has no
+level 1 or 2 to wait for and ends on level 0 and the far (fine) nodes. **At low the < 2 s full-detail target is met at
+60 m/s** (1.35–1.43 s; it was 3.6–4.8 s) and nothing pending comes 2–3 s sooner at both speeds; at 150 m/s low's level
+0 comes ~1–2 s later (5.7–6.4 s against 4.6) and ground solid 0.04–0.11 s (still under 0.5). **Medium is worse with
+ON**: level 0 settles 7–8 s later, missed frames at 60 m/s double (12 → 21–23 a minute), and after the 150 m/s stop the
+fine nodes are still building 30 s on, with 15–33 hole frames (the known places m ≈ 4,434 and 6,834 with more frames,
+and once a new place at m ≈ 6,491, 10 frames): D632. Never fell through, either way. *Unverified:* medium on its own
+hardware.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
