@@ -98,7 +98,14 @@ export interface DropOutcomes {
   readonly fellThrough: number;
   /** At its last reading: still suspended, standing on the coarse floor, standing on fine collision (the rest were falling or in the air). */
   readonly end: { readonly suspended: number; readonly onFloor: number; readonly onFine: number };
-  readonly events: ReadonlyArray<{ readonly drop: number; readonly t: number; readonly y: number; readonly groundY: number }>;
+  /**
+   * Each fall-through reading's drop, time and heights, and where the body stood later in the same drop (null: it never
+   * stood again: through the world, not onto lower ground the 2 m cells did not show, such as a cliff's foot or the fine
+   * ground under a higher coarse floor).
+   */
+  readonly events: ReadonlyArray<{ readonly drop: number; readonly t: number; readonly y: number; readonly groundY: number; readonly stoodAt: number | null }>;
+  /** Of {@link fellThrough}, those that never stood again within their drop. */
+  readonly neverStood: number;
 }
 
 /**
@@ -112,7 +119,7 @@ export function dropOutcomes(samples: readonly BodySample[], depthM = FALL_THROU
   for (const s of samples) if (s.drop > 0) (byDrop.get(s.drop) ?? byDrop.set(s.drop, []).get(s.drop)!).push(s);
   let landed = 0, suspendedOnly = 0;
   const end = { suspended: 0, onFloor: 0, onFine: 0 };
-  const events: Array<{ drop: number; t: number; y: number; groundY: number }> = [];
+  const events: Array<{ drop: number; t: number; y: number; groundY: number; stoodAt: number | null }> = [];
   for (const [drop, list] of byDrop) {
     const last = list.at(-1)!;
     if (last.suspended) end.suspended++;
@@ -121,9 +128,11 @@ export function dropOutcomes(samples: readonly BodySample[], depthM = FALL_THROU
     if (list.some((s) => s.grounded && !s.suspended)) landed++;
     if (list.every((s) => s.suspended)) suspendedOnly++;
     const through = list.find((s) => !s.suspended && !s.grounded && s.y < s.groundY - depthM);
-    if (through !== undefined) events.push({ drop, t: round2(through.t), y: round2(through.y), groundY: round2(through.groundY) });
+    if (through === undefined) continue;
+    const stood = list.find((s) => s.t > through.t && s.grounded && !s.suspended);
+    events.push({ drop, t: round2(through.t), y: round2(through.y), groundY: round2(through.groundY), stoodAt: stood === undefined ? null : round2(stood.y) });
   }
-  return { drops: byDrop.size, landed, suspendedOnly, fellThrough: events.length, end, events };
+  return { drops: byDrop.size, landed, suspendedOnly, fellThrough: events.length, end, events, neverStood: events.filter((e) => e.stoodAt === null).length };
 }
 
 /**

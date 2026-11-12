@@ -165,6 +165,30 @@ export function entersAtFace(eye: FarSample, ray: readonly FarSample[]): boolean
   return false;
 }
 
+/**
+ * For a ray that {@link entersAtFace}: whether it leaves that solid again inside the same node (a later point of the
+ * node outside its solid). The far draw does not hit such a ray until it has left the solid, so it meets the surface
+ * beyond; one that never leaves it is drawn as the ground's look where it began (not the stand-in's cells seen from
+ * inside).
+ */
+export function leavesSolid(eye: FarSample, ray: readonly FarSample[]): boolean {
+  let prev = eye;
+  for (let i = 0; i < ray.length; i++) {
+    const p = ray[i]!;
+    if (p !== null && p.inside) {
+      if (!(prev === null || prev.inside || prev.node !== p.node)) return false;
+      for (let k = i + 1; k < ray.length; k++) {
+        const q = ray[k]!;
+        if (q === null || q.node !== p.node) return false;
+        if (!q.inside) return true;
+      }
+      return false;
+    }
+    prev = p;
+  }
+  return false;
+}
+
 /** Whether an RGB pixel is the run's key sky (magenta, after tone mapping and an upscaler's blend at its edges). */
 export function isKey(r: number, g: number, b: number): boolean {
   return r > 170 && b > 170 && g < 100 && Math.abs(r - b) < 70;

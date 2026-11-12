@@ -5,7 +5,7 @@
  * inside one node.
  */
 import { describe, expect, it } from 'vitest';
-import { entersAtFace, viewRayPoints, type FarSample } from './coverage';
+import { entersAtFace, leavesSolid, viewRayPoints, type FarSample } from './coverage';
 
 describe('the coverage bench\'s view check', () => {
   it('casts rays from the eye through the lower half of the view, the bottom row steepest', () => {
@@ -36,5 +36,18 @@ describe('the coverage bench\'s view check', () => {
     expect(entersAtFace(b(true), [b(true)])).toBe(true);
     // Never into solid within the reach: nothing.
     expect(entersAtFace(a(false), [a(false), null, b(false)])).toBe(false);
+  });
+
+  it('tells a face ray that leaves the solid again inside its node (the draw meets the surface beyond) from one that never does', () => {
+    const a = (inside: boolean): FarSample => ({ level: 2, node: '2:0,0,0', inside });
+    const b = (inside: boolean): FarSample => ({ level: 4, node: '4:0,0,-1', inside });
+    // Into the coarse node's solid at its face, out of it again inside the node: left.
+    expect(leavesSolid(a(false), [a(false), b(true), b(true), b(false)])).toBe(true);
+    // Into it and on into the next node still inside: never left within it.
+    expect(leavesSolid(a(false), [a(false), b(true), a(true)])).toBe(false);
+    // The eye inside, the ray out through the surface: left.
+    expect(leavesSolid(b(true), [b(true), b(false)])).toBe(true);
+    // A surface met inside a node is no face ray at all.
+    expect(leavesSolid(a(false), [a(false), a(true), a(false)])).toBe(false);
   });
 });

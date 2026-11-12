@@ -63,6 +63,14 @@ describe('the dropped body', () => {
     // At their last readings: the second still suspended, the third falling, the others standing on fine collision.
     expect(o.end).toEqual({ suspended: 1, onFloor: 0, onFine: 2 });
     expect(o.events[0]!.drop).toBe(3);
+    // It never stood again: through the world, not onto lower ground.
+    expect(o.events[0]!.stoodAt).toBeNull();
+    expect(o.neverStood).toBe(1);
+    // Onto ground 8 m under the 2 m cells' estimate (a cliff's foot): counted, but it stood there.
+    const cliff = dropOutcomes(drop(5, 0, 0.2, 92));
+    expect(cliff.fellThrough).toBe(1);
+    expect(cliff.events[0]!.stoodAt).toBeCloseTo(92.9, 1);
+    expect(cliff.neverStood).toBe(0);
     expect(o.events[0]!.y).toBeLessThan(100 - FALL_THROUGH_M);
   });
 
