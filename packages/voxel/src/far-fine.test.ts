@@ -461,7 +461,7 @@ describe('fine far bricks: the far field', () => {
 
 describe('fine far bricks: baked levels read', () => {
   /** A far source over the kept index whose fine levels 0–1 are baked: every fine node the fine bake of its block. */
-  function bakedSource(store: PaletteStore, reads: { fine: number }): FarNodeSource & { bakes: Map<string, Uint8Array | null> } {
+  function bakedSource(store: PaletteStore, reads: { fine: number; bytes?: number }): FarNodeSource & { bakes: Map<string, Uint8Array | null> } {
     const kept = keptIndex();
     const bakes = new Map<string, Uint8Array | null>();
     const bakeOf = (n: MipNode): Uint8Array | null => {
@@ -486,6 +486,7 @@ describe('fine far bricks: baked levels read', () => {
         return Promise.resolve(
           nodes.map((c) => {
             const bytes = bakeOf({ level: fine, nx: c.cx, ny: c.cy, nz: c.cz });
+            if (bytes !== null) reads.bytes = (reads.bytes ?? 0) + bytes.byteLength;
             return bytes === null ? { ...c, kind: 'air' as const } : { ...c, kind: 'stored' as const, bytes, raw: true };
           }),
         );
@@ -519,7 +520,7 @@ describe('fine far bricks: baked levels read', () => {
 
   it('draws levels 0 and 1 from the baked entries, decoded byte for byte as baked, with no chunk resident and nothing built; none at speed, back after', async () => {
     const store = testWorld();
-    const reads = { fine: 0 };
+    const reads: { fine: number; bytes?: number } = { fine: 0 };
     const source = bakedSource(store, reads);
     const pool = handlerPool();
     let fast = false;
@@ -555,6 +556,11 @@ describe('fine far bricks: baked levels read', () => {
     }
     const m = far.metrics().fine;
     expect(m.made, 'fine blocks read from chunks').toBe(0);
+    // The bytes read are the cache's stored entries as the source served them, counted, not estimated.
+    const c = far.metrics().counters;
+    expect(c.bakedReads).toBe(reads.fine);
+    expect(c.bakedReadBytes).toBe(reads.bytes);
+    expect(c.bakedReadBytes).toBeGreaterThan(0);
     expect(m.baked).toBeGreaterThanOrEqual(fine.length);
     expect(pool.counts.baked).toBeGreaterThanOrEqual(fine.length);
     // The textures fade by the error alone: no load ring ends a baked level.

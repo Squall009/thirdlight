@@ -431,7 +431,7 @@ export class FarField {
    * read; ms the far field's own work took on the world's thread (a pump's scan, a commit's walk).
    */
   readonly samples = { selectMs: new SampleRing(), meshUs: new SampleRing(), queueMs: new SampleRing(), readMs: new SampleRing(), pumpMs: new SampleRing(), commitMs: new SampleRing() };
-  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0, unrun: 0, swappedIn: 0, swappedOut: 0, commitsCut: 0, seenReselects: 0, fineSent: 0, fineBytes: 0 };
+  readonly counters = { selections: 0, meshes: 0, events: 0, reads: 0, edits: 0, triangles: 0, bricks: 0, unrun: 0, swappedIn: 0, swappedOut: 0, commitsCut: 0, seenReselects: 0, fineSent: 0, fineBytes: 0, readBytes: 0, bakedReads: 0, bakedReadBytes: 0 };
   /** The fine nodes (levels 0–1 from the streamer's chunks, far-fine.ts): `fineNodes.changed` after an edit, `residency` as chunks come and go. */
   readonly fineNodes: FarFineNodes;
   /** When (ms since the far field was made) its stages first happened: the index read, a job sent, a node drawn. */
@@ -913,8 +913,16 @@ export class FarField {
       const keys = [...want.keys()];
       const reads = await this.opts.source.read(level, [...want.values()]);
       this.counters.reads += reads.length;
+      // The source's stored bytes as read (compressed, as on disk or over HTTP): the baked fine levels apart, so a
+      // world's bake level can be judged by what it reads, not only by what it holds.
+      const baked = level >= FAR_BAKED_LEVELS;
+      if (baked) this.counters.bakedReads += reads.length;
       reads.forEach((r, i) => {
         if (r.kind === 'damaged') throw new Error(`far node ${keys[i]!}: ${r.reason}`);
+        if (r.kind === 'stored') {
+          this.counters.readBytes += r.bytes.byteLength;
+          if (baked) this.counters.bakedReadBytes += r.bytes.byteLength;
+        }
         // A copy: a read's bytes may be a view of the whole range fetched for many nodes, which a kept view would hold.
         this.keep(keys[i]!, r.kind === 'air' ? null : r.kind === 'uniform' ? { uniform: r.value } : { stored: r.bytes.slice(), raw: r.raw });
       });

@@ -519,6 +519,7 @@ function simSummary(rec: FlightRecord): Record<string, unknown> | null {
   const flight = s.filter((x) => x.w <= end);
   const stat = (xs: number[]) => (xs.length === 0 ? null : { mean: Math.round(xs.reduce((a, b) => a + b, 0) / xs.length), max: Math.max(...xs) });
   const counters = (x: (typeof s)[number] | undefined) => (x?.s?.['stream']?.['counters'] ?? null) as Record<string, number> | null;
+  const farCounters = (x: (typeof s)[number] | undefined) => (x?.s?.['far']?.['counters'] ?? null) as Record<string, number> | null;
   const grow = (a: Record<string, number> | null, b: Record<string, number> | null) => (a === null || b === null ? null : Object.fromEntries(Object.keys(b).filter((k) => typeof b[k] === 'number').map((k) => [k, b[k]! - (a[k] ?? 0)])));
   return {
     flightQueued: stat(flight.map((x) => Number(x.s!['pool']?.queued ?? 0))),
@@ -526,6 +527,9 @@ function simSummary(rec: FlightRecord): Record<string, unknown> | null {
     flightFarPending: stat(flight.map((x) => Number(x.s!['far']?.pending ?? 0))),
     flightCounters: grow(counters(flight[0]), counters(flight.at(-1))),
     afterCounters: grow(counters(flight.at(-1)), counters(s.at(-1))),
+    // The far field's reads (its counters: stored bytes as read, the baked fine levels apart), in flight and after.
+    farFlightCounters: grow(farCounters(flight[0]), farCounters(flight.at(-1))),
+    farAfterCounters: grow(farCounters(flight.at(-1)), farCounters(s.at(-1))),
     afterPending: s.filter((x) => x.w > end).map((x) => ({ t: Number(((x.w - end) / 1000).toFixed(1)), queued: x.s!['pool']?.queued, inFlight: x.s!['pool']?.inFlight, farPending: x.s!['far']?.pending })).filter((_, i) => i % 2 === 0),
     coverageEnd: s.at(-1)!.s!['coverage'] ?? null,
     pool: s.at(-1)!.s!['pool'] ?? null,
