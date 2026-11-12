@@ -23,7 +23,7 @@
  *   its chunks are derived, nearest the focus first.
  */
 import type { ChunkGrid } from './coords';
-import { checkLevelRings, chooseLevels, DrawnLevels, type LevelNode, type LevelRings } from './lod-select';
+import { checkLevelRings, chooseLevels, DrawnLevels, levelNodeDistance, type LevelNode, type LevelRings } from './lod-select';
 import type { Focus, StreamRing } from './stream-ring';
 import type { StreamSeams } from './stream-seams';
 import { SampleRing } from './worker-pool';
@@ -123,6 +123,17 @@ export class StreamLod {
     if (on === this.nearOnly) return;
     this.nearOnly = on;
     this.dirty = true;
+  }
+
+  /**
+   * Whether a chunk lies where level 0 may be drawn: near only, within its ring, the hysteresis and one chunk more
+   * round any focus (the chunk at the edge is ready before the ring reaches it); with every ring drawn, anywhere
+   * (level 1 is downsampled from the chunks and a chunk stands in wherever a node is not ready).
+   */
+  inDetailReach(cx: number, cy: number, cz: number): boolean {
+    if (!this.nearOnly) return true;
+    const g = this.host.grid;
+    return levelNodeDistance(g, this.foci(), { level: 0, nx: cx, ny: cy, nz: cz }) < this.rings.radii[0]! + this.rings.hysteresis + g.edge;
   }
 
   /** Whether level 0 is drawn ({@link setDetail}). */

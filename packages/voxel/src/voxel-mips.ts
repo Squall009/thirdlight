@@ -788,6 +788,11 @@ export class MipStaleSet {
   get size(): number {
     return this.stale.size;
   }
+
+  /** Forgets every stale node (nothing is rebuilt from them). */
+  clear(): void {
+    this.stale.clear();
+  }
 }
 
 /**

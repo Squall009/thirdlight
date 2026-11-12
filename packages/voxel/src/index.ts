@@ -250,7 +250,7 @@ export { chunkNearFoci, COLLISION_ADD_MS_PER_UPDATE, COLLISION_LEAD_MAX_SPEED, C
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { joinCollision, joinCollisionParts, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, NEAR_COVER_EDGE, NEAR_COVER_HIDDEN, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkReliefWire, type ChunkSwapWire, type DrawSurface, type FarDrawWire, type NearCoverWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
-export { setFineBricks, STREAM_DERIVE_RESERVE_SHARE, VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
+export { setFineBricks, setNearOnly, STREAM_DERIVE_RESERVE_SHARE, VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
 export { applyWorldRings, worldLevelRings, worldPieceTable, worldReliefRing, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres, type WorldRingSettings } from './world-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';

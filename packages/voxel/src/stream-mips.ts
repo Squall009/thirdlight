@@ -42,6 +42,11 @@
  * - **Memory.** Node cells, derived results and bookkeeping are one part of
  *   the stream budget; a node whose chunks unload loses its result and,
  *   once none is left, its cells.
+ * - **Dormant.** While fine far bricks draw past the detail ring
+ *   ({@link StreamMips.setDormant}) nothing reads a node's cells or result,
+ *   so no node is kept, downsampled or derived; the level choice (level 0
+ *   only then) and its seams go on. Waking marks every resident chunk's
+ *   ancestors stale, so the levels are built again as they were.
  * - **Seams and levels.** The seams between the levels drawn
  *   (stream-seams.ts) and the choice of which level is drawn where
  *   (stream-lod.ts) are kept here too: a node's new result goes in together
@@ -90,6 +95,8 @@ export interface MipHost {
   /** The rules' job radius (the apron depth at every level). */
   readonly radius: number;
   isResident(cx: number, cy: number, cz: number): boolean;
+  /** Every resident chunk (what waking rebuilds the levels from). */
+  residentChunks(): Iterable<ChunkCoord>;
   /** A resident chunk as the game sees it, as a payload of its own arrays. */
   chunkPayload(cx: number, cy: number, cz: number): ChunkPayload;
   focus(): Focus;
@@ -188,6 +195,7 @@ export class StreamMips {
   private readonly groups = new Map<number, MipGroup>();
   private total = 0;
   private stampSeq = 0;
+  private dormant = false;
 
   constructor(
     private readonly host: MipHost,
@@ -286,6 +294,30 @@ export class StreamMips {
     for (let l = 1; l <= this.maxLevel; l++) for (const n of this.levels[l]!.values()) if (n.fresh) yield { level: l, nx: n.nx, ny: n.ny, nz: n.nz, result: n.derived };
   }
 
+  /** Whether no mip work goes on ({@link setDormant}). */
+  get isDormant(): boolean {
+    return this.dormant;
+  }
+
+  /**
+   * Dormant (true): no level above 0 is downsampled, derived or kept: every node, its cells and its result go (the
+   * level choice draws level 0 only meanwhile; a node drawn leaves as lost). Awake (false): the ancestors of the
+   * resident chunks are rebuilt and derived as after their landing.
+   */
+  setDormant(on: boolean): void {
+    if (on === this.dormant) return;
+    this.dormant = on;
+    if (on) {
+      for (let l = 1; l <= this.maxLevel; l++) for (const n of [...this.levels[l]!.values()]) this.remove(n);
+      this.stale.clear();
+      this.unfresh.clear();
+      // An edit waiting for nodes that are gone swaps without them.
+      for (const g of [...this.openGroups()]) this.stepGroup(g);
+    } else this.stale.markChanged(this.host.residentChunks());
+    this.lod.changed();
+    this.host.poke();
+  }
+
   /** A chunk's content landed (first load, or a reload): its ancestors are rebuilt, and results reading it derived again. */
   chunkLanded(cx: number, cy: number, cz: number): void {
     this.changed([{ cx, cy, cz }], this.chunkBox(cx, cy, cz));
@@ -294,6 +326,7 @@ export class StreamMips {
   /** A chunk left: its ancestors lose their results at once (they are no longer complete) and are rebuilt without it. */
   chunkDropped(cx: number, cy: number, cz: number): void {
     this.lod.lost(0, cx, cy, cz);
+    if (this.dormant) return;
     this.stale.markChanged([{ cx, cy, cz }]);
     for (let l = 1; l <= this.maxLevel; l++) {
       const n = this.levels[l]!.get(chunkKey(this.host.grid, cx >> l, cy >> l, cz >> l));
@@ -311,6 +344,7 @@ export class StreamMips {
    * swap with it.
    */
   changed(chunks: readonly ChunkCoord[], box: CellBox, group?: number): void {
+    if (this.dormant) return;
     this.stale.markChanged(chunks);
     const g = this.host.grid;
     for (let l = 1; l <= this.maxLevel; l++) {
@@ -342,6 +376,7 @@ export class StreamMips {
    * where it is shown. Its cells are unchanged, and so is every other node.
    */
   piecesChanged(holds: (p: ChunkPayload) => boolean, group: number): void {
+    if (this.dormant) return;
     for (let l = 1; l <= this.maxLevel; l++) {
       if (!levelDrawsPieces(l) || !this.rings.has(l)) continue;
       for (const n of this.levels[l]!.values()) {
@@ -383,6 +418,7 @@ export class StreamMips {
   /** Whether any mip work can go on now (for the streamer's idle check). */
   pending(): boolean {
     if (this.jobs.size > 0) return true;
+    if (this.dormant) return this.lod.pending() || this.seams.pending();
     for (const m of this.stale.nodes()) if (this.childrenSettled(m)) return true;
     for (const n of this.unfresh) if (this.derivable(n)) return true;
     return this.lod.pending() || this.seams.pending();
@@ -400,6 +436,7 @@ export class StreamMips {
 
   /** Node rebuilds lowest level first, then derives, within `ms` of main-thread time and the pool's room. */
   private sendNodes(ms: number): void {
+    if (this.dormant) return;
     const t0 = performance.now();
     this.advanceEdits();
     for (const g of this.openGroups()) this.stepGroup(g);
@@ -470,6 +507,7 @@ export class StreamMips {
 
   /** Sends the next jobs of every open edit group (node rebuilds, then derives), in the edit lane. */
   advanceEdits(): void {
+    if (this.dormant) return;
     for (const g of this.openGroups()) {
       let room = this.host.pool.room();
       for (const n of g.members) {

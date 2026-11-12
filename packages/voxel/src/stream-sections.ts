@@ -827,7 +827,8 @@ export class SectionDerives {
   /** Whether anything wanted can be sent now (for the streamer's idle check). */
   pending(): boolean {
     if (this.jobs.size > 0) return true;
-    for (const s of this.wanted) if (this.shaderOnly(s) || this.canDerive(s)) return true;
+    const now = this.host.deriveNow;
+    for (const s of this.wanted) if ((s.derive === 'edit' || now === undefined || now(s.cx, s.cy, s.cz)) && (this.shaderOnly(s) || this.canDerive(s))) return true;
     return false;
   }
 

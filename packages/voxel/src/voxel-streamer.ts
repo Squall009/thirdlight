@@ -475,7 +475,7 @@ export class VoxelStreamer {
                 }
               },
               poke: () => this.poke(),
-              deriveNow: () => this.detail.deriveNow(),
+              deriveNow: (cx, cy, cz) => this.detail.deriveNow(cx, cy, cz),
               seamHold: (groups, chunks, surfaces, ready) => this.mips?.holdEdit(groups, chunks, surfaces, ready) ?? null,
             },
             opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
@@ -513,6 +513,7 @@ export class VoxelStreamer {
     }
     const rings = opts.mips ?? mipRingsFor(ring);
     const streamer = this;
+    const chunks = this.chunks;
     this.mips =
       this.derives !== null && opts.rules !== undefined && rings.length > 0
         ? new StreamMips(
@@ -525,6 +526,9 @@ export class VoxelStreamer {
               pieceTable: () => this.pieces.table,
               radius: this.radius,
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
+              *residentChunks() {
+                for (const c of chunks.values()) if (c.phase === 'resident') yield { cx: c.cx, cy: c.cy, cz: c.cz };
+              },
               chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
               chunkSurfaces: (cx, cy, cz, axis, plane) => this.derives?.seamSurfaces(cx, cy, cz, axis, plane),
               chunkReady: (cx, cy, cz) => this.derives?.chunkReady(cx, cy, cz) ?? false,
@@ -554,11 +558,7 @@ export class VoxelStreamer {
       nearDrawn: (cx, cy, cz) => nearDrawn(this.mips, cx, cy, cz, () => this.isResident(cx, cy, cz)),
     };
     this.far = opts.far !== undefined && opts.rules !== undefined ? new FarField(opts.far, { grid: this.grid, pool: opts.pool, rules: opts.rules, fine: fineHost }) : null;
-    if (this.far?.fineNodes.wanted === true) {
-      this.mips?.lod.setNearOnly(true);
-      if (opts.mips === undefined) this.mips?.setRings(mipRingsOf(ring, true));
-    }
-    const chunks = this.chunks;
+    if (this.far?.fineNodes.wanted === true) setNearOnly(this, true);
     const merged = this.merged;
     this.pieces = new StreamPieces(
       {
@@ -762,7 +762,7 @@ export class VoxelStreamer {
   setRing(ring: StreamRing): void {
     checkRing(ring);
     this.plan.setRing(ring);
-    if (this.opts.mips === undefined) this.mips?.setRings(mipRingsOf(ring, this.far?.fineNodes.wanted === true));
+    if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(ring));
     this.mips?.lod.changed();
     this.poke();
   }
@@ -780,7 +780,7 @@ export class VoxelStreamer {
     }
     if (replanned) {
       if (this.plan.ringChanged) {
-        if (this.opts.mips === undefined) this.mips?.setRings(mipRingsOf(this.ring, this.far?.fineNodes.wanted === true));
+        if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(this.ring));
         this.mips?.lod.changed();
         this.counters.speedRings++;
       }
@@ -796,8 +796,10 @@ export class VoxelStreamer {
         else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, laneOf(this.plan, this.focus, c.cx, c.cz), motionDistance2(g, this.focus, this.plan.lead, c.cx, c.cy, c.cz));
       }
       this.mips?.focusMoved();
-      // Held back, the level-0 derives still waiting in the pool are not built for nothing (bodies have their own path).
+      // Held back, the level-0 derives still waiting in the pool are not built for nothing (bodies have their own path);
+      // near only, neither are those for chunks the detail ring has left.
       if (this.detail.fast) this.derives?.cancelQueued(() => false);
+      else if (this.detail.nearOnly) this.derives?.cancelQueued((cx, cy, cz) => this.detail.deriveNow(cx, cy, cz));
     } else if (this.heldOutside.size > 0) {
       for (const key of [...this.heldOutside]) {
         const c = this.chunks.get(key);
@@ -1438,11 +1440,6 @@ function unionBox(a: CellBox, b: CellBox): CellBox {
   return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), minZ: Math.min(a.minZ, b.minZ), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY), maxZ: Math.max(a.maxZ, b.maxZ) };
 }
 
-/** Whether the near field draws a chunk now: a drawn level covers it (without levels: `resident`). */
-/** The mip levels kept derived for a load ring: none while fine far bricks draw past the detail ring (far-fine.ts). */
-function mipRingsOf(ring: Pick<StreamRing, 'loadRadius'>, fine: boolean): MipRing[] {
-  return fine ? mipRingsFor(ring).map((r) => ({ level: r.level, radius: 0 })) : mipRingsFor(ring);
-}
 
 /**
  * Fine far bricks on or off (far-fine.ts), without a reload: on, the far field draws levels 0–1 past the detail ring
@@ -1455,15 +1452,26 @@ export function setFineBricks(streamer: VoxelStreamer, on: boolean): void {
   if (far === null) return;
   far.setView({ fine: on });
   // Only where the far field draws them (the bricks mode with the chunks at hand) does the near field give its rings up.
-  const fine = far.fineNodes.wanted;
-  streamer.mips?.lod.setNearOnly(fine);
-  streamer.mips?.setRings(mipRingsOf(streamer.ring, fine));
-  streamer.mips?.lod.changed();
+  setNearOnly(streamer, far.fineNodes.wanted);
+}
+
+/**
+ * The near field as fine far bricks leave it (true) or with every ring (false): near only, the level choice draws the
+ * level-0 ring alone, the coarser levels do no work at all (no downsample, derive or node kept), and level 0 is
+ * derived only within the detail ring's reach of a focus; the load ring still reads every chunk the far field's fine
+ * nodes are built from. Off, the levels are rebuilt from the resident chunks and level 0 is derived ring-wide again.
+ */
+export function setNearOnly(streamer: VoxelStreamer, on: boolean): void {
+  const mips = streamer.mips;
+  streamer.detail.setReach(on && mips !== null ? (cx, cy, cz) => mips.lod.inDetailReach(cx, cy, cz) : null);
+  mips?.lod.setNearOnly(on);
+  mips?.setDormant(on);
 }
 
 /** A cell read to tell a uniform chunk's value (the fine host's `holds`). */
 const fineProbe: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
 
+/** Whether the near field draws a chunk now: a drawn level covers it (without levels: `resident`). */
 function nearDrawn(mips: StreamMips | null, cx: number, cy: number, cz: number, resident: () => boolean): boolean {
   if (mips === null) return resident();
   const d = mips.lod.drawn;

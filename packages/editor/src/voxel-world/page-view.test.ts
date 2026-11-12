@@ -20,9 +20,8 @@ function targets() {
     calls.push(`view ${JSON.stringify(o)}`);
     if (o.fine !== undefined) fine.wanted = o.fine;
   }, settle: async () => undefined, fineNodes: fine };
-  const lod = { setNearOnly: (on: boolean) => void calls.push(`near only ${on}`), changed: () => undefined };
-  const mips = { lod, setRings: (r: ReadonlyArray<{ level: number; radius: number }>) => void calls.push(`mip rings ${r.map((x) => x.radius).join(',')}`) };
-  return { calls, view, streamer: { far, mips, ring: { loadRadius: 384 } } };
+  const mips = { lod: { setNearOnly: (on: boolean) => void calls.push(`near only ${on}`) }, setDormant: (on: boolean) => void calls.push(`mips dormant ${on}`) };
+  return { calls, view, streamer: { far, mips, detail: { setReach: () => undefined } } };
 }
 
 describe('the page far field switches', () => {
@@ -42,10 +41,10 @@ describe('the page far field switches', () => {
     expect(pageFar(new URLSearchParams('fineBricks=1'), level).fine).toBe(true);
     const t = targets();
     pageFarHooks(t.streamer as never, t.view as never).setFar({ fine: true });
-    expect(t.calls).toEqual(['view {"fine":true}', 'near only true', 'mip rings 0,0']);
+    expect(t.calls).toEqual(['view {"fine":true}', 'near only true', 'mips dormant true']);
     t.calls.length = 0;
     pageFarHooks(t.streamer as never, t.view as never).setFar({ fine: false });
-    expect(t.calls).toEqual(['view {"fine":false}', 'near only false', 'mip rings 384,384']);
+    expect(t.calls).toEqual(['view {"fine":false}', 'near only false', 'mips dormant false']);
   });
 
   it('refuses the retired brick switches: the URL warns and ignores them, the hook throws and applies nothing', () => {

@@ -18,6 +18,7 @@ import {
   MipTree,
   WORLD_RULES,
   RESIDENT_CHUNK_OVERHEAD_BYTES,
+  setNearOnly,
   voxel,
   VOXEL_ROLE,
   VoxelStreamer,
@@ -551,6 +552,76 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
     await s.settle();
     fresh(-1, ny, -1);
     console.log('apart', JSON.stringify({ heldToolUpdates: updates }));
+  }, 180_000);
+
+  it('near only (fine far bricks past the detail ring): no level above 0 is downsampled, derived or drawn, level 0 is derived only within the detail ring\'s reach, and off the levels come back as fresh builds (real workers)', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    let minCy = Infinity;
+    let maxCy = -Infinity;
+    for (const k of oracle.chunkKeys()) {
+      const c = chunkOfKey(grid, k);
+      minCy = Math.min(minCy, c.cy);
+      maxCy = Math.max(maxCy, c.cy);
+    }
+    const midY = ((minCy + maxCy + 1) * 32) / 2;
+    const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
+    const ring: StreamRing = { loadRadius: 192, unloadRadius: 224, loadHeight: half, unloadHeight: half + 32, nearRadius: 96 };
+    const p = pool(4);
+    const jobs: Array<{ kind: string; level: number; cx: number; cy: number; cz: number }> = [];
+    const submit = p.submit.bind(p);
+    p.submit = ((job: Parameters<WorkerPool['submit']>[0]) => {
+      const input = job.input as { level?: number; chunk?: { cx: number; cy: number; cz: number } };
+      jobs.push({ kind: job.kind, level: input.level ?? 0, cx: input.chunk?.cx ?? NaN, cy: input.chunk?.cy ?? NaN, cz: input.chunk?.cz ?? NaN });
+      return submit(job);
+    }) as WorkerPool['submit'];
+    // The default mip rings (to the load ring), level 0 drawn within 48 cells.
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: p, ring, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge: 32, deriveMsPerUpdate: 10_000, levels: { radii: [48, 96], hysteresis: 8 } });
+    const mips = s.mips!;
+    const count = (kind: string, above0: boolean): number => jobs.filter((j) => j.kind === kind && (j.level > 0) === above0).length;
+    setNearOnly(s, true);
+    expect(mips.isDormant).toBe(true);
+    const visit = async (x: number): Promise<void> => {
+      jobs.length = 0;
+      s.setFocus(x, midY, 8);
+      await s.settle();
+      expect(count('mip', false) + count('mip', true), 'downsample jobs').toBe(0);
+      expect(count('derive', true), 'level-1/2 derives').toBe(0);
+      const derives = jobs.filter((j) => j.kind === 'derive');
+      expect(derives.length).toBeGreaterThan(0);
+      // Every level-0 derive within the detail ring's reach (its ring, hysteresis and a chunk) of the focus.
+      for (const j of derives) expect(levelNodeDistance(grid, [{ x, y: midY, z: 8 }], { level: 0, nx: j.cx, ny: j.cy, nz: j.cz })).toBeLessThan(48 + 8 + 32);
+      expect(mips.nodeCount).toBe(0);
+      const drawn = [...mips.lod.drawn.nodes()];
+      expect(drawn.length).toBeGreaterThan(0);
+      expect(drawn.every((n) => n.level === 0)).toBe(true);
+    };
+    await visit(-64);
+    const near = jobs.filter((j) => j.kind === 'derive').length;
+    // Moving on: chunks entering the detail ring are derived as it reaches them; the ones it left are not.
+    await visit(64);
+    const resident = s.metrics().resident;
+    // The same chunks read; with every ring they would all be derived, and their levels downsampled.
+    setNearOnly(s, false);
+    jobs.length = 0;
+    await s.settle();
+    expect(mips.isDormant).toBe(false);
+    const off = { derives: count('derive', false), mips: count('mip', false) + count('mip', true), levelDerives: count('derive', true) };
+    expect(off.mips).toBeGreaterThan(0);
+    expect(off.levelDerives).toBeGreaterThan(0);
+    expect([...mips.lod.drawn.nodes()].some((n) => n.level > 0)).toBe(true);
+    const truth = copyOracle();
+    const tree = new MipTree(truth);
+    let checked = 0;
+    for (const n of mips.derived()) {
+      if (n.level !== 1 || checked >= 6) continue;
+      const want = deriveMipNode(tree, { level: n.level, nx: n.nx, ny: n.ny, nz: n.nz }, WORLD_RULES);
+      if (n.result === null) expect(want.ground.vertexCount + want.base.vertexCount + want.instances.count).toBe(0);
+      else expect(Buffer.compare(Buffer.from(encodeDerived(n.result)), Buffer.from(encodeDerived(want)))).toBe(0);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+    console.log('near only', JSON.stringify({ resident, nearOnlyDerives: near, off }));
   }, 180_000);
 
   it('chooses the levels drawn round a moving focus in real workers: every chunk drawn once across the levels at every task boundary, neighbours a level apart, a level change one swap with its seams, stable under jitter', async () => {
