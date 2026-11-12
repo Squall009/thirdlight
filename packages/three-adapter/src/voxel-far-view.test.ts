@@ -310,9 +310,9 @@ describe('the far view', () => {
     expect(shade).toContain('textureLoad');
     expect(samplesTop(shade)).toBe(7);
     // A fine brick's hit (its own branch, only its pixels): the occlusion, the two words' far colours (each set's
-    // mean), and, nearer than the fade's end, the two materials' albedo, normal and ORM at an explicit level, one
-    // projection each; its eight words are loads.
-    expect(samples(shade) - samplesTop(shade), 'the fine hits\' reads').toBe(1 + 2 + 2 * 3);
+    // mean), and, nearer than the fade's end, the two materials' albedo, normal and ORM at an explicit level, on the
+    // three triplanar axes (a fine field's normal flips its largest axis on a slope); its eight words are loads.
+    expect(samples(shade) - samplesTop(shade), 'the fine hits\' reads').toBe(1 + 2 + 2 * 3 * 3);
     // Under the temporal upscale's motion target the shade writes the hit's motion from its own fragment (the texel's
     // place), not the full-screen quad's vertices: no motion varying in its vertex stage.
     installMotionVectors();

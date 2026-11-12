@@ -888,9 +888,11 @@ function farSurfaceRead(s: FarSurfaceInputs, at: FarSurfacePoint, maps: SetMaps)
   const point = { n, p, gu, gv, bn: triplanarWeights(n) };
   // The level whose texels are as wide as the footprint (a tile is the array's width in texels).
   const lod = (tileM: N): N => log2(max(at.footprintM.mul(s.heightEdge).div(tileM), 1));
-  // One read a map (the normal's largest axis on terrain): far, the triplanar blend at the axes' seams is sub-pixel.
-  const s1 = textureSetAt(src, a.mat, point, 'axis', lod, maps);
-  const s2 = textureSetAt(src, b.mat, point, 'axis', lod, maps);
+  // Terrain blends its three axes as the near surface does: a fine field's normal is its samples' gradient over 0.5–1 m,
+  // so on a slope near 45° the largest axis flips from sample to sample, and one axis's read drew those flips as dark
+  // streaks and a paler band along the slope. Construction reads the grid's UV either way.
+  const s1 = textureSetAt(src, a.mat, point, 'blend', lod, maps);
+  const s2 = textureSetAt(src, b.mat, point, 'blend', lod, maps);
   const depthOf = (m: N): N => look(mod(m, matMask), 2).y;
   const hb = heightBlend(NODE_OPS, s1.height.toVar(), depthOf(a.mat), s2.height.toVar(), depthOf(b.mat), at.share);
   const hs = hb.share.toVar();
