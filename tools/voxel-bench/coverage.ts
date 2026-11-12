@@ -165,6 +165,12 @@ export function entersAtFace(eye: FarSample, ray: readonly FarSample[]): boolean
   return false;
 }
 
+/** For a ray that {@link entersAtFace}: whether the node it enters is the one the eye is in (the far draw's rule for a stand-in seen from inside applies then). */
+export function entersEyeNode(eye: FarSample, ray: readonly FarSample[]): boolean {
+  const p = ray.find((q) => q !== null && q.inside);
+  return eye !== null && p !== undefined && p !== null && p.node === eye.node;
+}
+
 /**
  * For a ray that {@link entersAtFace}: whether it leaves that solid again inside the same node (a later point of the
  * node outside its solid). The far draw does not hit such a ray until it has left the solid, so it meets the surface

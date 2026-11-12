@@ -216,6 +216,8 @@ export function farBrickField(samples: Uint8Array, block: number, p: readonly nu
  * solid that sample lay in (it is not hit until it has left it), and where it began (t, its block).
  */
 export interface FarMarchStart {
+  /** The eye is inside the node's box: only then does a ray beginning inside the solid wait to leave it. */
+  readonly eyeIn: boolean;
   seen: boolean;
   inside: boolean;
   first: number;
@@ -240,7 +242,7 @@ export function marchBrickBox(samples: Uint8Array, block: number, lo: readonly n
     const solid = f < BRICK_HIT_VOXELS;
     if (start !== undefined && !start.seen) {
       start.seen = true;
-      if (solid) Object.assign(start, { inside: true, first: t, firstBlock: block });
+      if (solid && start.eyeIn) Object.assign(start, { inside: true, first: t, firstBlock: block });
     }
     if (start?.inside === true && !solid) start.inside = false;
     if (solid && start?.inside !== true) return { t, steps };

@@ -76,17 +76,24 @@ export function rayBox(o: readonly number[], d: readonly number[], box: FarCellB
 
 /**
  * A ray's march through a far node (node cells, unit direction): the first hit in ray order, its block and the
- * bricks the walk looked at; null: it leaves the node first. A ray whose first sample lies inside the solid is not
- * hit until it has left it; one that never leaves it is hit where it began (`inside`: the draw shades it as the
- * ground's look from above, not as the stand-in's cells seen from inside).
+ * bricks the walk looked at; null: it leaves the node first. From inside the node's box, a ray whose first sample
+ * lies inside the solid is not hit until it has left it; one that never leaves it is hit where it began (`inside`:
+ * the draw shades it as the ground's look from above, not as the stand-in's cells seen from inside). From outside
+ * the box every ray is marched as before (a side entered under the surface is met).
  */
 export function marchFarNode(b: FarBricks, o: readonly number[], d: readonly number[]): { t: number; block: number; visited: number; inside?: true } | null {
-  return walkFarNode(b, o, d, { seen: false, inside: false, first: 0, firstBlock: -1 });
+  return walkFarNode(b, o, d, { eyeIn: eyeInNode(b, o), seen: false, inside: false, first: 0, firstBlock: -1 });
 }
 
-/** Whether a ray's first sample in a far node lies inside its solid (the march then waits for it to leave that solid). */
+/** Whether a point (node cells) lies inside a node's marched box. */
+function eyeInNode(b: FarBricks, o: readonly number[]): boolean {
+  const box = farNodeMarchedBox(b);
+  return box !== null && [0, 1, 2].every((a) => o[a]! >= box.lo[a]! && o[a]! <= box.hi[a]!);
+}
+
+/** Whether a ray from inside a far node's box has its first sample inside the solid (the march then waits for it to leave that solid). */
 export function farNodeRayStartsInside(b: FarBricks, o: readonly number[], d: readonly number[]): boolean {
-  const start: FarMarchStart = { seen: false, inside: false, first: 0, firstBlock: -1 };
+  const start: FarMarchStart = { eyeIn: eyeInNode(b, o), seen: false, inside: false, first: 0, firstBlock: -1 };
   const was = { inside: false };
   walkFarNode(b, o, d, start, was);
   return was.inside;

@@ -313,11 +313,13 @@ export class FarBrickMaterial {
     /**
      * One brick's march over its box (brick cells, `lo`–`hi`) from where the ray enters it: as `marchBrickBox`, step
      * for step. Sets `hit` and leaves `t` at the hit, `near` the entry's per-axis distances (the face it entered by).
-     * A ray whose first sample in the node lies inside the solid (the eye inside a coarse stand-in, or under its
-     * surface where the ray enters its box at a side) is not hit until it has left that solid (`inside` until then;
-     * `seen` once its first sample is taken), so the stand-in is not seen from inside; `first` keeps where it began.
+     * With the eye inside the node's box (`eyeIn`), a ray whose first sample lies inside the solid (the eye inside a
+     * coarse stand-in, under its surface) is not hit until it has left that solid (`inside` until then; `seen` once
+     * its first sample is taken), so the stand-in is not seen from inside; `first` keeps where it began. From outside
+     * the box a ray entering a side under the surface meets the side, as before: it is the step to a neighbour drawn
+     * lower, seen from beside it (passing through it would show the sky where the hill is).
      */
-    const marchBrick = (region: N, o: N, dir: N, inv: N, lo: N, hi: N, t: N, hit: N, near: N, inside: N, seen: N, first: N): void => {
+    const marchBrick = (region: N, o: N, dir: N, inv: N, lo: N, hi: N, t: N, hit: N, near: N, inside: N, seen: N, first: N, eyeIn: N): void => {
       const ta = lo.sub(o).mul(inv);
       const tb = hi.sub(o).mul(inv);
       near.assign(min(ta, tb));
@@ -331,7 +333,7 @@ export class FarBrickMaterial {
           const solid = f.lessThan(max(float(BRICK_HIT_VOXELS), t.mul(pixelCells))).toVar();
           If(seen.lessThan(0.5), () => {
             seen.assign(1);
-            If(solid, () => {
+            If(solid.and(eyeIn), () => {
               inside.assign(1);
               first.assign(t);
             });
@@ -396,7 +398,10 @@ export class FarBrickMaterial {
         const ta = vLo.sub(o).mul(inv);
         const tb = vHi.sub(o).mul(inv);
         const tFar = max(ta, tb);
-        const t0 = max(max(max(min(ta.x, tb.x), min(ta.y, tb.y)), min(ta.z, tb.z)), float(0));
+        const entryT = max(max(min(ta.x, tb.x), min(ta.y, tb.y)), min(ta.z, tb.z));
+        const t0 = max(entryT, float(0));
+        // The eye inside the node's box: the box's entry lies behind it.
+        const eyeIn = entryT.lessThanEqual(0);
         const t1 = min(min(tFar.x, tFar.y), tFar.z).toVar();
         // Where the GPU culls the draw it is drawn after the pyramid of everything drawn before it (the near field):
         // a ray whose entry into the node's box lies behind that already, meets nothing in front of it, so it is
@@ -424,7 +429,7 @@ export class FarBrickMaterial {
             region.assign(round(entry.rgb.mul(255)).mul(DISTANCE_BRICK_SIDE));
             brick.assign(cell.mul(C));
             const was = seen.toVar();
-            marchBrick(region, o.sub(brick), dir, inv, box.lo, box.hi, t, hit, near, inside, seen, firstT);
+            marchBrick(region, o.sub(brick), dir, inv, box.lo, box.hi, t, hit, near, inside, seen, firstT, eyeIn);
             If(was.lessThan(0.5).and(inside.greaterThan(0.5)), () => {
               firstRegion.assign(region);
               firstBrick.assign(brick);

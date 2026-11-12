@@ -59,7 +59,7 @@ import { decodePng } from '../../tests/e2e/png';
 import { launchGpuBrowser, serveStatic } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { processMemory } from './browser-memory';
-import { along, coveragePath, entersAtFace, leavesSolid, groundAlong, groundMask, isKey, viewRayPoints, VIEW_RAYS, type CoveragePath, type FarSample } from './coverage';
+import { along, coveragePath, entersAtFace, entersEyeNode, leavesSolid, groundAlong, groundMask, isKey, viewRayPoints, VIEW_RAYS, type CoveragePath, type FarSample } from './coverage';
 import { farGround, flightSource, PROBE_COUNTERS, publishCameraBehaviour, type BenchApi } from './flight-camera';
 import { FarSettle, frameCap } from './headroom';
 import { addProbeBody, bodySamples, exportDebug, installRecorder, rayAndBody, removeProbeBody, stopWall, takeRecorded, type ObsSample, type Recorded } from './travel-page';
@@ -263,7 +263,7 @@ interface FlightRecord {
   intervals: number[];
   checks: FrameCheck[];
   /** `leaving`: of the face rays, those that leave the solid again inside the node (the draw meets the surface beyond). */
-  polls: Array<{ t: number; m: number; far: { level: number; inside: boolean } | null; faceRays: number; leaving: number }>;
+  polls: Array<{ t: number; m: number; far: { level: number; inside: boolean } | null; faceRays: number; leaving: number; eyeNode: number }>;
   obs: ObsSample[];
   sims: Array<{ w: number; s: Record<string, any> | null }>;
   recorded: Recorded | null;
@@ -334,7 +334,8 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
         const entering = sampled === null ? [] : sampled.rays.filter((r) => entersAtFace(eye as FarSample, r as FarSample[]));
         const faceRays = entering.length;
         const leaving = entering.filter((r) => leavesSolid(eye as FarSample, r as FarSample[])).length;
-        rec.polls.push({ t: (w - rec.flyAt) / 1000, m, far: eye === null ? null : { level: eye.level, inside: eye.inside }, faceRays, leaving });
+        const eyeNode = entering.filter((r) => entersEyeNode(eye as FarSample, r as FarSample[])).length;
+        rec.polls.push({ t: (w - rec.flyAt) / 1000, m, far: eye === null ? null : { level: eye.level, inside: eye.inside }, faceRays, leaving, eyeNode });
       }
       await game.page.waitForTimeout(250);
     }
@@ -462,7 +463,7 @@ function pictureChecks(rec: FlightRecord, path: CoveragePath, stopAt: number): R
   return {
     holes: { checked: inFlight.length, holeFrames: holes.length, perKm: Number((holes.length / km).toFixed(2)), events: events.length, eventsPerKm: Number((events.length / km).toFixed(2)), where: events.slice(0, 60), worstKey: Math.max(0, ...inFlight.map((c) => c.holes ?? 0)), afterStop: after.filter((c) => (c.holes ?? 0) >= HOLE_PIXELS).length },
     bottomDark: { rows: BOTTOM_ROWS, of: CAST.height, frameShare: BOTTOM_DARK_FRAME, flight: darkOf(inFlight), afterStop: darkOf(after) },
-    viewInStandIn: { samples: polls.length, rays: VIEW_RAYS.cols * VIEW_RAYS.rows, withRays: facing.length, faceRays: facing.reduce((n, p) => n + p.faceRays, 0), leaving: facing.reduce((n, p) => n + p.leaving, 0), where: facing.slice(0, 30).map((p) => ({ t: Number(p.t.toFixed(2)), m: Math.round(p.m), rays: p.faceRays })) },
+    viewInStandIn: { samples: polls.length, rays: VIEW_RAYS.cols * VIEW_RAYS.rows, withRays: facing.length, faceRays: facing.reduce((n, p) => n + p.faceRays, 0), leaving: facing.reduce((n, p) => n + p.leaving, 0), eyeNode: facing.reduce((n, p) => n + p.eyeNode, 0), where: facing.slice(0, 30).map((p) => ({ t: Number(p.t.toFixed(2)), m: Math.round(p.m), rays: p.faceRays })) },
     inStandIn: { samples: polls.length, inside: inside.length, where: inside.slice(0, 30).map((p) => ({ t: Number(p.t.toFixed(2)), m: Math.round(p.m), level: p.far!.level })), farLevelAtEye: Object.fromEntries([...new Set(polls.map((p) => String(p.far?.level ?? 'none')))].map((k) => [k, polls.filter((p) => String(p.far?.level ?? 'none') === k).length])) },
   };
 }

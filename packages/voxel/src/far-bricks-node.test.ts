@@ -4,10 +4,11 @@
  * (rough ground, a roof block, an overhang): the walk never steps over a
  * brick holding the surface, so every ray meets what the nearest brick
  * march meets, at the same distance, and rays through air meet nothing.
- * A ray that starts inside the solid (the eye inside a coarse stand-in, or
- * under its surface entering its box at a side) is not hit until it has left
+ * From inside the node's box, a ray that starts inside the solid (the eye
+ * inside a coarse stand-in, under its surface) is not hit until it has left
  * that solid: it meets the surface beyond, or, never leaving, is hit where it
  * began and marked so (drawn as the ground's look, not the cells' sides).
+ * From outside the box a side entered under the surface is met as before.
  */
 import { describe, expect, it } from 'vitest';
 import { chunkGrid } from './coords';
@@ -76,12 +77,8 @@ describe('far node march', () => {
       const len = Math.hypot(target[0]! - o[0]!, target[1]! - o[1]!, target[2]! - o[2]!);
       const d = [0, 1, 2].map((a) => (target[a]! - o[a]!) / len);
       rays++;
-      // A ray whose first sample is inside the solid (it enters the node's box at a side, under the ground's top) is
-      // marched by the rule of the test below, not met as the brick-by-brick march meets it.
-      if (farNodeRayStartsInside(b, o, d)) {
-        startInside++;
-        continue;
-      }
+      // From outside the node's box no ray waits to leave a solid (the rule of the test below is the eye's inside it).
+      if (farNodeRayStartsInside(b, o, d)) startInside++;
       const want = nearestBrickHit(b, o, d);
       const got = marchFarNode(b, o, d);
       if (want === null) {
@@ -100,9 +97,7 @@ describe('far node march', () => {
     expect(hits).toBeGreaterThan(1000);
     expect(misses).toBeGreaterThan(500);
     expect(rays).toBe(6000);
-    // Rays entering at a side under the ground's top are few, not none.
-    expect(startInside).toBeGreaterThan(0);
-    expect(startInside).toBeLessThan(rays / 10);
+    expect(startInside).toBe(0);
     // A walk crosses at most 3 × 4 − 2 bricks of a 4³ node.
     expect(visitedMax).toBeLessThanOrEqual(10);
   });

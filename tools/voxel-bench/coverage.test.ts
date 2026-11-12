@@ -5,7 +5,7 @@
  * inside one node.
  */
 import { describe, expect, it } from 'vitest';
-import { entersAtFace, leavesSolid, viewRayPoints, type FarSample } from './coverage';
+import { entersAtFace, entersEyeNode, leavesSolid, viewRayPoints, type FarSample } from './coverage';
 
 describe('the coverage bench\'s view check', () => {
   it('casts rays from the eye through the lower half of the view, the bottom row steepest', () => {
@@ -49,5 +49,8 @@ describe('the coverage bench\'s view check', () => {
     expect(leavesSolid(b(true), [b(true), b(false)])).toBe(true);
     // A surface met inside a node is no face ray at all.
     expect(leavesSolid(a(false), [a(false), a(true), a(false)])).toBe(false);
+    // Whether the node entered is the eye's own: the eye in the coarse node and inside its solid, or beside it.
+    expect(entersEyeNode(b(true), [b(true)])).toBe(true);
+    expect(entersEyeNode(a(false), [a(false), b(true)])).toBe(false);
   });
 });
