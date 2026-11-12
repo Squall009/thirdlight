@@ -240,7 +240,7 @@ export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } fr
 export { StreamDetail } from './stream-detail';
 export { FAR_GROUND_CACHE_BYTES, FAR_GROUND_LEVEL, FarGround, farGroundTops, type FarGroundField, type FarGroundHost, type FarGroundInput, type FarGroundOutput } from './far-ground';
 export { COLLISION_ALONE_PART, CollisionDerives, type CollisionDeriveHost, type CollisionEvent } from './stream-collision';
-export { DEFAULT_STREAM_READS, FocusMotion, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, STREAM_WIDEN_AFTER_MS, type WantedChunk } from './stream-reads';
+export { DEFAULT_STREAM_READS, FocusMotion, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, STREAM_STOPPED_MS, STREAM_WIDEN_AFTER_MS, type WantedChunk } from './stream-reads';
 export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_LEVELS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, mipRingsFor, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, speedRing, STREAM_DETAIL_SPEED, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
 export { StreamMips, type MipEvent, type MipHost } from './stream-mips';
 export { checkLevelRings, chooseLevels, DrawnLevels, levelNodeDistance, type LevelChoice, type LevelChoiceStats, type LevelNode, type LevelRings } from './lod-select';

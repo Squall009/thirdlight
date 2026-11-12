@@ -246,10 +246,18 @@ describe('streaming at racing speed', () => {
     const third = Math.floor(after.length / 3);
     const mean = (a: number[]): number => a.reduce((n, v) => n + v, 0) / a.length;
     expect(mean(after.slice(0, third))).toBeLessThan(mean(after.slice(-third)));
-    // The full results took the bodies over with the same surface, and no collision-only result is left.
+    // The full results took the bodies over with the same surface.
     expect(handovers).toBeGreaterThan(0);
     expect(differ).toBe(0);
-    expect(s.collision!.count).toBe(0);
-    console.log(`detail ${JSON.stringify({ heldUpdates, fullHeld, alone, aloneAheadOnly, collisionDerives: s.counters.collisionDerives, collisionAir: s.counters.collisionAir, handovers, standIns: inFlight.length, back: after.length, cancelledDerives: s.counters.cancelledDerives, airDerives: s.counters.airDerives, derives: s.counters.derives })}`);
+    // A collision-only result is let go once its chunk's full result is of the chunk as it is now; one kept is on a
+    // chunk whose full result waits for a rebuild (a section waiting for a neighbour), where it is the newer surface.
+    let kept = 0;
+    for (let cx = -20; cx <= 20; cx++) for (let cy = -8; cy <= 8; cy++) for (let cz = -20; cz <= 20; cz++) {
+      if (s.collision!.source(cx, cy, cz) === null) continue;
+      kept++;
+      expect(s.collision!.fullCurrent(cx, cy, cz)).toBe(false);
+    }
+    expect(kept).toBe(s.collision!.count);
+    console.log(`detail ${JSON.stringify({ heldUpdates, fullHeld, alone, aloneAheadOnly, collisionDerives: s.counters.collisionDerives, collisionAir: s.counters.collisionAir, handovers, keptAlone: s.collision!.count, standIns: inFlight.length, back: after.length, cancelledDerives: s.counters.cancelledDerives, airDerives: s.counters.airDerives, derives: s.counters.derives })}`);
   }, 180_000);
 });

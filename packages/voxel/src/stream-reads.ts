@@ -30,6 +30,13 @@ const VELOCITY_SMOOTH_S = 0.25;
 const STILL_AFTER_MS = 500;
 
 /**
+ * A focus that has not moved for this long has stopped, for level 0's hold: its derives and its drawing come back at
+ * once instead of after the velocity's own stillness and the ring's widening delay (a stop is not a dip in the speed;
+ * steps reach the streamer in bursts a frame apart, so this is a few frames at the low tier's 30 Hz).
+ */
+export const STREAM_STOPPED_MS = 200;
+
+/**
  * Half-width (cells; 32 m) of the way ahead read while the ring is narrowed
  * for speed: from the focus to its lead point, two chunks either side of the
  * line, so the chunks on it have their neighbours, diagonal ones included (a derive needs every
@@ -124,6 +131,11 @@ export class FocusMotion {
    */
   private moving(now: number): boolean {
     return this.movedAt !== 0 && now - this.movedAt <= STILL_AFTER_MS && this.movedAt - this.since >= VELOCITY_SMOOTH_S * 1000;
+  }
+
+  /** ms since the focus last moved (Infinity: never). */
+  stillFor(now: number): number {
+    return this.movedAt === 0 ? Infinity : now - this.movedAt;
   }
 
   /** The focus's smoothed speed (cells a second; 0 when still). */
@@ -355,16 +367,20 @@ export class StreamReadPlan<Held> {
     return true;
   }
 
-  /** Holds level 0 back at once past {@link STREAM_DETAIL_SPEED}, and lets it go once the speed stayed under it for {@link STREAM_WIDEN_AFTER_MS}. */
+  /**
+   * Holds level 0 back at once past {@link STREAM_DETAIL_SPEED}, and lets it go once the speed stayed under it for
+   * {@link STREAM_WIDEN_AFTER_MS}, or at once when the focus stopped ({@link STREAM_STOPPED_MS}).
+   */
   private holdDetail(speed: number, now: number): void {
     const held = this.detailHeld;
-    this.detailFast = speed > STREAM_DETAIL_SPEED;
-    if (speed > STREAM_DETAIL_SPEED) {
+    const stopped = this.motion.stillFor(now) >= STREAM_STOPPED_MS;
+    this.detailFast = !stopped && speed > STREAM_DETAIL_SPEED;
+    if (this.detailFast) {
       this.slowSince = Number.NaN;
       this.detailHeld = true;
     } else if (held) {
       if (Number.isNaN(this.slowSince)) this.slowSince = now;
-      if (now - this.slowSince >= STREAM_WIDEN_AFTER_MS) {
+      if (stopped || now - this.slowSince >= STREAM_WIDEN_AFTER_MS) {
         this.detailHeld = false;
         this.slowSince = Number.NaN;
       }

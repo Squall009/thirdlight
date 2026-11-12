@@ -9,7 +9,7 @@ import { JobQueue } from './job-queue';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { MATERIAL_AIR, SHAPE_FULL, VOXEL_ROLE, voxel, type VoxelRecord } from './record';
 import { deriveNow } from './stream-handlers';
-import { FocusMotion, readOrder, StreamReadPlan, STREAM_WIDEN_AFTER_MS } from './stream-reads';
+import { FocusMotion, readOrder, StreamReadPlan, STREAM_STOPPED_MS, STREAM_WIDEN_AFTER_MS } from './stream-reads';
 import { chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, pastUnloadRing, ringChunks } from './stream-ring';
 
 const grid = chunkGrid(32);
@@ -380,6 +380,41 @@ describe('read order and prefetch', () => {
     expect(plan.ring.loadRadius).toBeLessThan(base.loadRadius);
     plan.update(f, stop + STREAM_WIDEN_AFTER_MS + 10);
     expect(plan.ring).toBe(base);
+  });
+
+  it('holds level 0 back while the focus travels fast, through a dip in the speed, and lets it go at once when it stops', () => {
+    const base = { loadRadius: 384, unloadRadius: 448, loadHeight: 192, unloadHeight: 256, nearRadius: 192 };
+    const plan = new StreamReadPlan<never>(g, base, 1);
+    let t = 1000;
+    let x = 0;
+    /** Frames of 30 Hz at `cellsPerS`, the focus moved and the plan updated each. */
+    const fly = (frames: number, cellsPerS: number): void => {
+      for (let i = 0; i < frames; i++, t += 1000 / 30) {
+        x += cellsPerS / 30;
+        plan.moved({ x, y: 100, z: 0 }, t);
+        plan.update({ x, y: 100, z: 0 }, t);
+      }
+    };
+    fly(60, 300);
+    expect(plan.detailHeld).toBe(true);
+    expect(plan.detailFast).toBe(true);
+    // A dip to walking pace for half a second: no longer fast (derives may go), still held (nothing drawn at level 0).
+    fly(15, 10);
+    expect(plan.detailFast).toBe(false);
+    expect(plan.detailHeld).toBe(true);
+    fly(30, 300);
+    expect(plan.detailHeld).toBe(true);
+    // A stop: no step for a few frames (the last moved a frame before `t`), and level 0 comes back at once, well
+    // before the widening hold; until then it is still fast (a frame's gap is not a stop).
+    const f = { x, y: 100, z: 0 };
+    const last = t - 1000 / 30;
+    plan.update(f, last + STREAM_STOPPED_MS / 2);
+    expect(plan.detailFast).toBe(true);
+    expect(plan.detailHeld).toBe(true);
+    plan.update(f, last + STREAM_STOPPED_MS + 1);
+    expect(plan.detailFast).toBe(false);
+    expect(plan.detailHeld).toBe(false);
+    expect(STREAM_STOPPED_MS).toBeLessThan(STREAM_WIDEN_AFTER_MS / 2);
   });
 });
 
