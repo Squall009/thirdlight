@@ -3926,7 +3926,7 @@ and give WebGL 2 the CPU fine-brick build (option 2), which keeps one draw path.
 ### 46d.25c the switch's work, the detail ring, the streaks; D633, D632, D629, D631
 
 (40c05fce, 6b3a04f0, 3503c1b9, d7320305; Iris Xe, WebGPU 1280 × 720, staging and export `voxel-slice@r969`, one round
-a cell, 14:30–16:20, load 1.5–4.5, uptime 19.9 d; `work/46d.25c/`). The second full comparison was dropped by the lead
+a cell, 14:00–15:05, load 1.5–4.5, uptime 19.9 d; `work/46d.25c/`). The second full comparison was dropped by the lead
 for 46d.26 (the owner's bake level, §2 2026-11-12): only the cells and poses these fixes touch were measured again.
 
 - *D633 fixed (40c05fce).* Counted (25b-3): with the switch on the mip rings got radius 0, which stopped a node's
@@ -3985,7 +3985,7 @@ for 46d.26 (the owner's bake level, §2 2026-11-12): only the cells and poses th
   OFF's level-1 mesh); near-valley same as OFF. Medium town-west 2.97 → 2.21 %, town-street 0.35 → 0.70 % (not
   looked at closely; medium unverified on target hardware).
 - *Tests and time.* vitest `stream-levels.test.ts` +1 (near only), `page-view.test.ts`, `voxel-far-view.test.ts` (the
-  fine reads 9 → 21). No e2e change; the voxel area in the gate 173 s (gate-fast-20261112-141915).
+  fine reads 9 → 21). No e2e change; the voxel area 173 → 147 s in the fast gates (gate-fast-20261112-141915, -150923, both GREEN); area gate voxel/rendering/play gate-area-20261112-152410 GREEN with the page test failing once on its fine-build look check and passing alone (D635 watch).
 - *Verdict (unchanged): keep both behind the switch, retire nothing.* Low holds for terrain and travel by pictures and
   frame, but with the fair ring its 60 m/s settle is ~1 s behind OFF's and construction past ~78 m is still worse;
   medium does not hold (settle bound by the read ring's refill, D632; holes at speed, D634). Both open points are what
