@@ -116,8 +116,8 @@ export class StreamLod {
   }
 
   /**
-   * Draws only the level-0 ring (true: fine far bricks draw past it, so no level 1 or 2 is chosen there; level 0
-   * still stands in next to the ring as before) or every ring (false, the default); the change is one swap.
+   * Draws only the level-0 ring (true: fine far bricks draw past it, so no level 1 or 2 is chosen there and nothing
+   * stands in for them: level 0 covers what it covers with every ring) or every ring (false, the default); one swap.
    */
   setNearOnly(on: boolean): void {
     if (on === this.nearOnly) return;
@@ -126,14 +126,14 @@ export class StreamLod {
   }
 
   /**
-   * Whether a chunk lies where level 0 may be drawn: near only, within its ring, the hysteresis and one chunk more
-   * round any focus (the chunk at the edge is ready before the ring reaches it); with every ring drawn, anywhere
-   * (level 1 is downsampled from the chunks and a chunk stands in wherever a node is not ready).
+   * Whether a chunk lies where level 0 may be drawn: near only, under a level-1 node within level 0's ring, its
+   * hysteresis and one chunk more of any focus (a node at the edge is ready before the ring reaches it); with every
+   * ring drawn, anywhere (level 1 is downsampled from the chunks and a chunk stands in wherever a node is not ready).
    */
   inDetailReach(cx: number, cy: number, cz: number): boolean {
     if (!this.nearOnly) return true;
     const g = this.host.grid;
-    return levelNodeDistance(g, this.foci(), { level: 0, nx: cx, ny: cy, nz: cz }) < this.rings.radii[0]! + this.rings.hysteresis + g.edge;
+    return levelNodeDistance(g, this.foci(), { level: 1, nx: cx >> 1, ny: cy >> 1, nz: cz >> 1 }) < this.rings.radii[0]! + this.rings.hysteresis + g.edge;
   }
 
   /** Whether level 0 is drawn ({@link setDetail}). */
@@ -168,15 +168,13 @@ export class StreamLod {
     const foci = this.foci();
     this.used = foci;
     const host = this.host;
-    // Near only: no coarser node is ever ready, so level 0 stands in for every level-1 node round the focus, as far as
-    // the choice lets a stand-in reach (one level-1 node past the ring it is split in). Every ring is set that far inside
-    // level 0's own, so level 0 ends at its ring, as it does where level 1 draws past it.
-    const r0 = Math.max(0, this.rings.radii[0]! - 2 * host.grid.edge);
-    const radii = this.nearOnly ? this.rings.radii.map(() => r0) : this.rings.radii;
+    const radii = this.rings.radii;
     const rings = this.detail ? { radii, hysteresis: this.rings.hysteresis } : { radii: [0, ...radii.slice(1)], hysteresis: this.rings.hysteresis };
-    // Near only, no coarser node is drawn even where one is still derived (the node round the focus stays derived).
+    // Near only, no coarser node is drawn and nothing stands in for one: level 0 is drawn over every level-1 node its
+    // ring splits, exactly where it is drawn with every ring (a stand-in would reach a level-1 node farther). Held back
+    // at speed, what is derived next to the focus still stands in, as with every ring.
     const nearOnly = this.nearOnly;
-    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => (nearOnly && l > 0 ? false : host.ready(l, x, y, z)), previous: this.chosen });
+    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => (nearOnly && l > 0 ? false : host.ready(l, x, y, z)), previous: this.chosen, standIns: !nearOnly || !this.detail });
     this.counters.choices++;
     this.counters.unbalanced = stats.unbalanced;
     this.chosen = drawn;

@@ -554,7 +554,7 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
     console.log('apart', JSON.stringify({ heldToolUpdates: updates }));
   }, 180_000);
 
-  it('near only (fine far bricks past the detail ring): no level above 0 is downsampled, derived or drawn, level 0 is derived only within the detail ring\'s reach, and off the levels come back as fresh builds (real workers)', async () => {
+  it('near only (fine far bricks past the detail ring): no level above 0 is downsampled, derived or drawn, level 0 covers what it covers with every ring and is derived only within its reach, and off the levels come back as fresh builds (real workers)', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     disks.push(disk);
     let minCy = Infinity;
@@ -589,8 +589,8 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
       expect(count('derive', true), 'level-1/2 derives').toBe(0);
       const derives = jobs.filter((j) => j.kind === 'derive');
       expect(derives.length).toBeGreaterThan(0);
-      // Every level-0 derive within the detail ring's reach (its ring, hysteresis and a chunk) of the focus.
-      for (const j of derives) expect(levelNodeDistance(grid, [{ x, y: midY, z: 8 }], { level: 0, nx: j.cx, ny: j.cy, nz: j.cz })).toBeLessThan(48 + 8 + 32);
+      // Every level-0 derive under a level-1 node within the detail ring's reach (its ring, hysteresis and a chunk).
+      for (const j of derives) expect(levelNodeDistance(grid, [{ x, y: midY, z: 8 }], { level: 1, nx: j.cx >> 1, ny: j.cy >> 1, nz: j.cz >> 1 })).toBeLessThan(48 + 8 + 32);
       expect(mips.nodeCount).toBe(0);
       const drawn = [...mips.lod.drawn.nodes()];
       expect(drawn.length).toBeGreaterThan(0);
@@ -601,6 +601,7 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
     // Moving on: chunks entering the detail ring are derived as it reaches them; the ones it left are not.
     await visit(64);
     const resident = s.metrics().resident;
+    const nearL0 = new Set([...mips.lod.drawn.nodes()].map((n) => `${n.nx},${n.ny},${n.nz}`));
     // The same chunks read; with every ring they would all be derived, and their levels downsampled.
     setNearOnly(s, false);
     jobs.length = 0;
@@ -610,6 +611,15 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
     expect(off.mips).toBeGreaterThan(0);
     expect(off.levelDerives).toBeGreaterThan(0);
     expect([...mips.lod.drawn.nodes()].some((n) => n.level > 0)).toBe(true);
+    // Near only, level 0 covers every chunk it covers with every ring under a level-1 node its ring splits (it ends
+    // where level 1 begins), and nothing more; with every ring it also stands in where a coarser node is incomplete
+    // (the load ring's top and bottom), which near only leaves to the far field.
+    const offL0 = [...mips.lod.drawn.nodes()].filter((n) => n.level === 0);
+    const split = offL0.filter((n) => levelNodeDistance(grid, [{ x: 64, y: midY, z: 8 }], { level: 1, nx: n.nx >> 1, ny: n.ny >> 1, nz: n.nz >> 1 }) < 48);
+    expect(split.length).toBeGreaterThan(20);
+    for (const n of split) expect(nearL0.has(`${n.nx},${n.ny},${n.nz}`), `chunk ${n.nx},${n.ny},${n.nz}`).toBe(true);
+    const offKeys = new Set(offL0.map((n) => `${n.nx},${n.ny},${n.nz}`));
+    for (const k of nearL0) expect(offKeys.has(k), `chunk ${k}`).toBe(true);
     const truth = copyOracle();
     const tree = new MipTree(truth);
     let checked = 0;
@@ -621,7 +631,7 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(0);
-    console.log('near only', JSON.stringify({ resident, nearOnlyDerives: near, off }));
+    console.log('near only', JSON.stringify({ resident, nearOnlyDerives: near, off, level0: nearL0.size, offLevel0: offL0.length, offSplit: split.length }));
   }, 180_000);
 
   it('chooses the levels drawn round a moving focus in real workers: every chunk drawn once across the levels at every task boundary, neighbours a level apart, a level change one swap with its seams, stable under jitter', async () => {

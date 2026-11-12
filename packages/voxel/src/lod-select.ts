@@ -134,6 +134,11 @@ export interface LevelChoice {
   ready(level: number, nx: number, ny: number, nz: number): boolean;
   /** The previous choice (its splits give the hysteresis); null: none. */
   readonly previous: DrawnLevels | null;
+  /**
+   * Whether a finer level stands in where a coarser node is not ready (default true). False: nothing is drawn there
+   * (another field draws past the rings, and a stand-in would draw the finer level farther than its ring).
+   */
+  readonly standIns?: boolean;
 }
 
 export interface LevelChoiceStats {
@@ -175,7 +180,7 @@ export function chooseLevels(c: LevelChoice): { readonly drawn: DrawnLevels; rea
 
   /** Covers node n into `list`; true when every part of it is covered. */
   const cover = (n: LevelNode, list: LevelNode[], asStandIn: boolean): boolean => {
-    if (!inWorld(c.grid, n) || (asStandIn && !standIn(n))) return false;
+    if (!inWorld(c.grid, n) || (asStandIn && (c.standIns === false || !standIn(n)))) return false;
     if (n.level === 0) {
       if (!ready(n)) return false;
       list.push(n);
