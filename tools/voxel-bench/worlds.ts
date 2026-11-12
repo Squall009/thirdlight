@@ -121,6 +121,30 @@ export function hillyWorld(opts: WorldOptions = {}): TestWorld {
   };
 }
 
+/**
+ * A cliff: low ground and, 20 m above it, high ground, split by a vertical face along a diagonal through the
+ * origin (so it crosses chunk and coarse cells at every angle), both with a little relief. What a body meets at
+ * a cliff's edge and foot, and what the far field's coarse cells round a cliff are made of. Not in
+ * {@link allWorlds}: the coarse floor's tests use it.
+ */
+export function cliffWorld(opts: WorldOptions = {}): TestWorld {
+  const seed = opts.seed ?? 31;
+  const footprint = opts.footprint ?? 512;
+  return {
+    name: 'cliff',
+    description: `a 20 m cliff on a diagonal, ${footprint / 2} m square, base −64 m`,
+    seed,
+    areaM2: footprint * footprint * M2_PER_CELL2,
+    benchFootprint: footprint,
+    grids: [
+      groundGrid('world', footprint, -footprint / 2, 200, SHALLOW_BASE, (x, z) => {
+        const high = x * 0.8 + z * 0.6 < 0;
+        return { surface: (high ? 60 : 20) + 4 * (fractalNoise01(x / 48, z / 48, 2, seed) - 0.5), base: SHALLOW_BASE, top: high ? MAT.rock : MAT.grass, soilDepth: high ? 0 : 6, liquidLevel: -1000 };
+      }),
+    ],
+  };
+}
+
 /** Writes one terrain-or-air cell from a signed density (cells; > 0 inside) and its depth below the ground surface. */
 function writeDensityCell(out: DenseChunk, i: number, density: number, depth: number, liquid: boolean, liquidFill: number): boolean {
   const fill = clamp01(density + 0.5);

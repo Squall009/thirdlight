@@ -61,10 +61,10 @@ import { launchGpuBrowser, serveStatic } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { processMemory } from './browser-memory';
 import { along, coveragePath, entersAtFace, entersEyeNode, entersWithin, leavesSolid, groundAlong, groundMask, isKey, viewRayPoints, VIEW_RAYS, type CoveragePath, type FarSample } from './coverage';
-import { farGround, flightSource, PROBE_COUNTERS, publishCameraBehaviour, type BenchApi } from './flight-camera';
+import { farGround, fineGround, flightSource, PROBE_COUNTERS, publishCameraBehaviour, type BenchApi } from './flight-camera';
 import { FarSettle, frameCap } from './headroom';
 import { addProbeBody, bodySamples, exportDebug, installRecorder, rayAndBody, removeProbeBody, stopWall, takeRecorded, type ObsSample, type Recorded } from './travel-page';
-import { bottomDarkShare, dropOutcomes, firstAfter, flightFrames, longGaps, settleAfter, spikeCauses, type CountSample } from './travel';
+import { bottomDarkShare, dropOutcomes, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spikeCauses, type CountSample } from './travel';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -400,6 +400,9 @@ function travelMeasures(rec: FlightRecord): Record<string, unknown> {
   const probe = rayAndBody(rec.obs.at(-1));
   const body = bodySamples(rec.obs, rec.flyAt);
   const falls = dropOutcomes(body);
+  // Each fall-through judged by the true ground (the world's voxels) at the body's own place, and the 2 m ground there.
+  const fine = fineGround(PROJECT_DIR, WORLD), far = farGround(PROJECT_DIR, WORLD);
+  const verdicts = falls.events.map((e) => ({ ...judgeFall(e, fine), farAtLast: e.last === undefined ? null : Math.round(far(e.last.x, e.last.z) * 100) / 100 }));
   // The stop's drop: when the engine let the body move (not suspended), and its readings every half second.
   const stopT = (t0 - rec.flyAt) / 1000;
   const lastDrop = body.at(-1)?.drop ?? 0;
@@ -412,7 +415,7 @@ function travelMeasures(rec: FlightRecord): Record<string, unknown> {
     stopAtS: stopW === null ? null : Number(((stopW - rec.flyAt) / 1000).toFixed(2)),
     afterStop: { groundSolidS: probe.raySolidAfterStopS, bodyStandsS: probe.bodyStandsAfterStopS, bodyFreeS, detailS, nothingPendingS: viewS, simIdleS, holdS: HOLD_S, settleHoldS: SETTLE_HOLD_S },
     groundRay: { steps: probe.raySteps, solid: probe.solidShare, noHit: probe.noneShare, deep: probe.deepShare },
-    falls: { ...falls, events: falls.events.slice(0, 20), stopTrace: trace.slice(0, 80), bodyEnd: { y: (end[PROBE_COUNTERS.bodyY] ?? 0) / 100, grounded: end[PROBE_COUNTERS.grounded] === 1, suspended: end[PROBE_COUNTERS.suspended] === 1, onFloor: end[PROBE_COUNTERS.onFloor] === 1 } },
+    falls: { ...falls, through: verdicts.filter((v) => v.verdict === 'through').length, lower: verdicts.filter((v) => v.verdict === 'lower').length, verdicts, events: falls.events.slice(0, 20), stopTrace: trace.slice(0, 80), bodyEnd: { y: (end[PROBE_COUNTERS.bodyY] ?? 0) / 100, grounded: end[PROBE_COUNTERS.grounded] === 1, suspended: end[PROBE_COUNTERS.suspended] === 1, onFloor: end[PROBE_COUNTERS.onFloor] === 1 } },
   };
 }
 
@@ -639,7 +642,7 @@ async function main(): Promise<void> {
   writeFileSync(OUT, `${JSON.stringify(out, null, 1)}\n`);
   const t = out['travel'] as { flight?: unknown; afterStop?: unknown; falls?: { drops: number; fellThrough: number; end?: unknown } } | undefined;
   const h = out['holes'] as { holeFrames: number; checked: number } | undefined;
-  console.log(`flight ${JSON.stringify(t?.flight ?? null)}; after stop ${JSON.stringify(t?.afterStop ?? null)}; falls ${t?.falls?.fellThrough}/${t?.falls?.drops} (never stood ${(t?.falls as { neverStood?: number } | undefined)?.neverStood}) end ${JSON.stringify(t?.falls?.end ?? null)}; holes ${h?.holeFrames}/${h?.checked}`);
+  console.log(`flight ${JSON.stringify(t?.flight ?? null)}; after stop ${JSON.stringify(t?.afterStop ?? null)}; falls ${t?.falls?.fellThrough}/${t?.falls?.drops} (never stood ${(t?.falls as { neverStood?: number } | undefined)?.neverStood}; through the true ground ${(t?.falls as { through?: number } | undefined)?.through}, onto lower ground ${(t?.falls as { lower?: number } | undefined)?.lower}) end ${JSON.stringify(t?.falls?.end ?? null)}; holes ${h?.holeFrames}/${h?.checked}`);
   console.log(`coverage: ${OUT}`);
   process.exit(out['error'] === undefined ? 0 : 1);
 }

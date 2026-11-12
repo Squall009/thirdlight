@@ -83,6 +83,22 @@ export interface BodySample {
   readonly suspended: boolean;
   /** It stood on a voxel world's coarse floor (the far cache's 2 m ground), not on fine collision. */
   readonly onFloor?: boolean;
+  /** Where it is (metres), and what is round it: {@link BodySurroundings}. */
+  readonly at?: BodySurroundings;
+}
+
+/**
+ * Where a probe body is and what collides round it at a reading: its x, z (metres); the first collider straight
+ * under it (`below`) and the first met coming down from high over it to its height (`above`), each a height (metres)
+ * and a kind ({@link PROBE_HIT_KIND}: 0 none, 1 fine voxel collision, 2 the coarse floor, 3 anything else).
+ */
+export interface BodySurroundings {
+  readonly x: number;
+  readonly z: number;
+  readonly belowY: number;
+  readonly belowKind: number;
+  readonly aboveY: number;
+  readonly aboveKind: number;
 }
 
 /** How far under the ground the probe's origin must be, falling, to have fallen through (metres): past the 2 m cells' error and the capsule's half height. */
@@ -103,9 +119,28 @@ export interface DropOutcomes {
    * stood again: through the world, not onto lower ground the 2 m cells did not show, such as a cliff's foot or the fine
    * ground under a higher coarse floor).
    */
-  readonly events: ReadonlyArray<{ readonly drop: number; readonly t: number; readonly y: number; readonly groundY: number; readonly stoodAt: number | null; readonly endY: number; readonly endT: number }>;
+  readonly events: ReadonlyArray<FallEvent>;
   /** Of {@link fellThrough}, those that never stood again within their drop. */
   readonly neverStood: number;
+  /** The drops whose last reading was still suspended, and that reading (where the body waited, and what was round it). */
+  readonly endSuspended: readonly number[];
+  readonly suspendedEnds: ReadonlyArray<{ readonly drop: number; readonly t: number; readonly y: number; readonly groundY: number; readonly at?: BodySurroundings }>;
+}
+
+export interface FallEvent {
+  readonly drop: number;
+  readonly t: number;
+  readonly y: number;
+  readonly groundY: number;
+  readonly stoodAt: number | null;
+  readonly endY: number;
+  readonly endT: number;
+  /** What was round the body at the drop's first reading, at the fall-through reading and at its last (when the probe recorded it). */
+  readonly first?: BodySurroundings;
+  readonly through?: BodySurroundings;
+  readonly last?: BodySurroundings;
+  /** The body's readings in the drop every quarter second: t, y, standing, suspended, and what was round it. */
+  readonly trace?: ReadonlyArray<{ readonly t: number; readonly y: number; readonly g: number; readonly s: number; readonly at?: BodySurroundings }>;
 }
 
 /**
@@ -119,10 +154,16 @@ export function dropOutcomes(samples: readonly BodySample[], depthM = FALL_THROU
   for (const s of samples) if (s.drop > 0) (byDrop.get(s.drop) ?? byDrop.set(s.drop, []).get(s.drop)!).push(s);
   let landed = 0, suspendedOnly = 0;
   const end = { suspended: 0, onFloor: 0, onFine: 0 };
-  const events: Array<{ drop: number; t: number; y: number; groundY: number; stoodAt: number | null; endY: number; endT: number }> = [];
+  const endSuspended: number[] = [];
+  const suspendedEnds: Array<{ drop: number; t: number; y: number; groundY: number; at?: BodySurroundings }> = [];
+  const events: FallEvent[] = [];
   for (const [drop, list] of byDrop) {
     const last = list.at(-1)!;
-    if (last.suspended) end.suspended++;
+    if (last.suspended) {
+      end.suspended++;
+      endSuspended.push(drop);
+      suspendedEnds.push({ drop, t: round2(last.t), y: round2(last.y), groundY: round2(last.groundY), ...(last.at !== undefined ? { at: last.at } : {}) });
+    }
     else if (last.grounded && last.onFloor === true) end.onFloor++;
     else if (last.grounded) end.onFine++;
     if (list.some((s) => s.grounded && !s.suspended)) landed++;
@@ -131,9 +172,71 @@ export function dropOutcomes(samples: readonly BodySample[], depthM = FALL_THROU
     if (through === undefined) continue;
     const stood = list.find((s) => s.t > through.t && s.grounded && !s.suspended);
     // Its last reading in the drop: how far it went (a slide down a cliff ends a few metres lower; through the world, far).
-    events.push({ drop, t: round2(through.t), y: round2(through.y), groundY: round2(through.groundY), stoodAt: stood === undefined ? null : round2(stood.y), endY: round2(last.y), endT: round2(last.t) });
+    const t0 = list[0]!.t;
+    const trace = list.filter((s, i) => i === 0 || i === list.length - 1 || Math.floor((s.t - t0) * 4) !== Math.floor((list[i - 1]!.t - t0) * 4));
+    events.push({
+      drop,
+      t: round2(through.t),
+      y: round2(through.y),
+      groundY: round2(through.groundY),
+      stoodAt: stood === undefined ? null : round2(stood.y),
+      endY: round2(last.y),
+      endT: round2(last.t),
+      ...(list[0]!.at !== undefined ? { first: list[0]!.at } : {}),
+      ...(through.at !== undefined ? { through: through.at } : {}),
+      ...(last.at !== undefined ? { last: last.at } : {}),
+      trace: trace.map((s) => ({ t: round2(s.t - t0), y: round2(s.y), g: s.grounded ? 1 : 0, s: s.suspended ? 1 : 0, ...(s.at !== undefined ? { at: s.at } : {}) })),
+    });
   }
-  return { drops: byDrop.size, landed, suspendedOnly, fellThrough: events.length, end, events, neverStood: events.filter((e) => e.stoodAt === null).length };
+  return { drops: byDrop.size, landed, suspendedOnly, fellThrough: events.length, end, events, neverStood: events.filter((e) => e.stoodAt === null).length, endSuspended, suspendedEnds };
+}
+
+/** A fall-through event judged against the true ground at the body's own place: {@link judgeFall}. */
+export interface FallVerdict {
+  readonly drop: number;
+  /**
+   * `through`: at some reading the body was {@link FALL_THROUGH_M} under the true ground at its own x, z, or it
+   * ended its drop falling with no collider at all under it (out of the world); `lower`: never so, it went down to ground lower than the drop point's 2 m cells show (a cliff's foot, a
+   * slide off an edge), standing there or still falling towards it; `unknown`: the probe recorded no place.
+   */
+  readonly verdict: 'through' | 'lower' | 'unknown';
+  /** The true ground at the body's place at its fall-through and last readings (null: air down to the world's floor). */
+  readonly fineAtThrough: number | null;
+  readonly fineAtLast: number | null;
+  /** How far the body moved sideways from its first reading to its last (metres). */
+  readonly sideM: number | null;
+  /** A collider over the body at its own x, z at the last reading (it is under a surface), and what it was. */
+  readonly underSurface: boolean;
+  readonly aboveKind: number | null;
+}
+
+/**
+ * Judges a fall-through by the true ground at the body's own x, z at each reading (`fineAt(x, z, fromY)`: the top of
+ * the highest solid cell at or under `fromY`, looked for from the drop's first height), not the drop point's 2 m cell:
+ * a body that went off an edge or down to ground the 2 m cells do not show is never under the ground where it is.
+ */
+export function judgeFall(e: FallEvent, fineAt: (x: number, z: number, fromY: number) => number | null, depthM = FALL_THROUGH_M): FallVerdict {
+  const fromY = (e.trace?.[0]?.y ?? e.y) + 3;
+  const readings = (e.trace ?? []).filter((r) => r.at !== undefined && r.g === 0 && r.s === 0);
+  const under = readings.some((r) => {
+    const f = fineAt(r.at!.x, r.at!.z, fromY);
+    return f !== null && r.y < f - depthM;
+  });
+  const lastReading = e.trace?.at(-1);
+  const intoNothing = lastReading?.at !== undefined && lastReading.g === 0 && lastReading.s === 0 && lastReading.at.belowKind === 0;
+  const fineAtThrough = e.through === undefined ? null : fineAt(e.through.x, e.through.z, fromY);
+  const fineAtLast = e.last === undefined ? null : fineAt(e.last.x, e.last.z, fromY);
+  const sideM = e.first === undefined || e.last === undefined ? null : round2(Math.hypot(e.last.x - e.first.x, e.last.z - e.first.z));
+  const underSurface = e.last !== undefined && e.last.aboveKind !== 0 && e.last.aboveY > e.endY + 1;
+  return {
+    drop: e.drop,
+    verdict: e.trace === undefined || e.trace.every((r) => r.at === undefined) ? 'unknown' : under || intoNothing ? 'through' : 'lower',
+    fineAtThrough: fineAtThrough === null ? null : round2(fineAtThrough),
+    fineAtLast: fineAtLast === null ? null : round2(fineAtLast),
+    sideM,
+    underSurface,
+    aboveKind: e.last?.aboveKind ?? null,
+  };
 }
 
 /**

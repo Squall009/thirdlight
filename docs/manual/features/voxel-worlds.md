@@ -215,9 +215,12 @@ player characters, so a large view costs a fraction of drawing every cell:
   higher floor drops onto it (usually a few centimetres; where the 2 m cells
   closed a narrow gap or a cliff's foot, as far as the ground lies lower),
   one the full-detail ground holds inside it is lifted onto it. A character
-  in a cave or under an overhang (more than 2 m under the floor's lowest
-  point) is not given the floor and waits for its collision as before. A
-  world without a far cache has no floor.
+  under the floor's surface where it is (at a cliff's foot the floor can lie
+  metres over the ground, since it takes the higher ground's top; in a cave,
+  under an overhang, or in a street under rooftops) is not given the floor:
+  it moves only where full-detail collision lies right under it, and
+  otherwise waits for its collision as before. A world without a far cache
+  has no floor.
 - Reading cells (`ctx.voxels`) always reads the full-detail cells, whatever
   ring they are drawn in.
 

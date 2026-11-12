@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { frameCap } from './headroom';
-import { bottomDarkShare, dropOutcomes, FALL_THROUGH_M, firstAfter, flightFrames, longGaps, settleAfter, spikeCause, spikeCauses, type BodySample, type CountSample, type LongFrame } from './travel';
+import { bottomDarkShare, dropOutcomes, FALL_THROUGH_M, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spikeCause, spikeCauses, type BodySample, type CountSample, type LongFrame } from './travel';
 
 /** Samples every 0.1 s from `from` to `to` seconds with the counts `v(t)`. */
 const series = (from: number, to: number, v: (t: number) => number[]): CountSample[] => Array.from({ length: Math.round((to - from) * 10) + 1 }, (_, i) => ({ t: from + i / 10, v: v(from + i / 10) }));
@@ -86,6 +86,30 @@ describe('the dropped body', () => {
     expect(dropOutcomes(swapped)).toMatchObject({ landed: 1, fellThrough: 1 });
     // Readings before the first drop are not a drop.
     expect(dropOutcomes([{ t: 0, drop: 0, groundY: 0, y: -50, grounded: false, suspended: false }]).drops).toBe(0);
+  });
+
+  it('judges a fall by the true ground at the body\'s own place, not the drop point\'s 2 m cell', () => {
+    // The world: a cliff edge at x = 10, ground 100 m west of it and 60 m east of it (true ground, 0.5 m cells).
+    const fineAt = (x: number, _z: number, fromY: number): number | null => Math.min(fromY, x < 10 ? 100 : 60);
+    // Dropped at x 9.8 over the 2 m cell's 100 m and slid east off the edge: never under the ground where it is.
+    const at = (x: number) => ({ x, z: 0, belowY: 60, belowKind: 1, aboveY: 0, aboveKind: 0 });
+    const slid = drop(1, 0, 0, null).map((s, i) => ({ ...s, at: at(9.8 + i * 0.05) }));
+    const o = dropOutcomes(slid);
+    expect(o.fellThrough).toBe(1);
+    expect(o.events[0]!.trace!.length).toBeGreaterThan(5);
+    expect(judgeFall(o.events[0]!, fineAt)).toMatchObject({ verdict: 'lower', fineAtLast: 60, underSurface: false });
+    // The same fall without moving sideways, under 100 m ground where it is: through, and a surface over it.
+    const through = drop(2, 0, 0, null).map((s) => ({ ...s, at: { ...at(5), aboveY: 100, aboveKind: 1 } }));
+    const t = judgeFall(dropOutcomes(through).events[0]!, fineAt);
+    expect(t).toMatchObject({ verdict: 'through', fineAtThrough: 100, sideM: 0, underSurface: true, aboveKind: 1 });
+    // Never under the true ground (80 m there) by the depth, but falling at its drop's end with nothing under it at
+    // all: through too (out of the world); with ground under it, onto lower ground.
+    const out = drop(4, 0, 0, null).map((s) => ({ ...s, at: { ...at(5), belowY: 0, belowKind: 0 } }));
+    expect(judgeFall(dropOutcomes(out).events[0]!, (_x, _z, y) => Math.min(y, 80)).verdict).toBe('through');
+    const onto = out.map((s) => ({ ...s, at: { ...s.at, belowY: 80, belowKind: 1 } }));
+    expect(judgeFall(dropOutcomes(onto).events[0]!, (_x, _z, y) => Math.min(y, 80)).verdict).toBe('lower');
+    // Without places recorded nothing is claimed.
+    expect(judgeFall(dropOutcomes(drop(3, 0, 0, null)).events[0]!, fineAt).verdict).toBe('unknown');
   });
 });
 

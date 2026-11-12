@@ -25,7 +25,7 @@ import { VoxelWorldHost, type VoxelHostEvents } from '@thirdlight/runtime';
 import { chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, downsampleMip, encodeDenseChunk, FAR_GROUND_LEVEL, FarNodeIndex, mipChildren, mipNodeKey, VOXEL_SIZE_M, WorkerPool, type DenseChunk, type FarNodeSource, type JobRequest, type MipNode, type PaletteStore, type PoolWorker, type RegionChunkRead, type VoxelRecord, type VoxelStreamer } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
-import { hillyWorld } from './worlds';
+import { cliffWorld, hillyWorld } from './worlds';
 
 const grid = chunkGrid(32);
 const HALF = 128;
@@ -35,6 +35,8 @@ let workerFile = '';
 let groundY = 0;
 /** The world as written (every chunk): the fine ground's oracle and the far cache's source. */
 let oracle: PaletteStore;
+/** The cliff world as written (the floor's cliff case). */
+let cliffOracle: PaletteStore;
 /** The column tested (cells): the last cell of chunk 0 along x, next to chunk 1, whose load is held. */
 const X = 31;
 const Z = 4;
@@ -47,6 +49,8 @@ beforeAll(async () => {
   writeWorldRegions(hillyWorld({ footprint: 2 * HALF }).grids[0]!, grid, join(dir, 'world'), 'stacked', 512, -HALF, -HALF, HALF, HALF, oracle);
   const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
   for (groundY = 200; groundY > -200 && oracle.voxelAt(X, groundY, Z, v).material === 0; groundY--);
+  cliffOracle = createWorldStore(grid);
+  writeWorldRegions(cliffWorld({ footprint: 2 * HALF }).grids[0]!, grid, join(dir, 'cliff'), 'stacked', 512, -HALF, -HALF, HALF, HALF, cliffOracle);
 }, 120_000);
 
 afterAll(() => {
@@ -202,124 +206,148 @@ function farSource(store: PaletteStore): FarNodeSource {
   };
 }
 
+/** The coarse floor's test rig: the runtime's world host over the world with its chunk reads held, a character on Rapier. */
+async function floorRig(world = 'world', oracle: PaletteStore = defaultOracle()) {
+  const r = await createPhysicsPort3D({
+    character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } },
+    statics: [],
+    solver: { hz: 60, gravityY: -9.81 },
+    controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: 0.8, minSlopeSlideRad: 0.9, autostep: false },
+  });
+  if (!r.ok) throw new Error(r.error.message);
+  const port = r.port;
+  // The world's chunk reads are held until let go (the workers stay free): only the far cache's ground is there.
+  let hold = true;
+  const queue: Array<() => void> = [];
+  const disk = new DiskRegions(join(dir, world));
+  const chunks = disk.source(grid, 'stacked', 512);
+  const source = new Proxy(chunks, {
+    get(t, k) {
+      if (k === 'read') return (list: Parameters<typeof chunks.read>[0]) => (hold ? new Promise<Awaited<ReturnType<typeof chunks.read>>>((ok) => queue.push(() => void chunks.read(list).then(ok))) : chunks.read(list));
+      const v = Reflect.get(t, k) as unknown;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+    },
+  });
+  let streamer: VoxelStreamer | null = null;
+  const host = new VoxelWorldHost(
+    { world: 'w', ring: { loadRadius: 48, loadHeight: 32 }, collision: { radius: 16, height: 16 } } as never,
+    // The far field is not drawn here: the floor reads the far cache all the same.
+    { id: 'test', lighting: 'low', voxelFarField: 'off' } as never,
+    {
+      open: async () => ({
+        grid,
+        worldId: TEST_WORLD_ID,
+        source,
+        pool: new WorkerPool({ size: 4, create: () => nodePoolWorker(workerFile), timeoutMs: 60_000, maxQueued: 256 }),
+        far: farSource(oracle),
+        present: (s) => {
+          streamer = s;
+        },
+      }),
+    },
+    port,
+    events,
+    () => 0,
+  );
+  const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+  /** The fine ground's top (metres) under a point: its highest solid cell's top. */
+  const fineGround = (x: number, z: number): number => {
+    const cx = Math.floor(x / VOXEL_SIZE_M), cz = Math.floor(z / VOXEL_SIZE_M);
+    let y = 200;
+    while (y > -200 && oracle.voxelAt(cx, y, cz, v).material === 0) y--;
+    return (y + 1) * VOXEL_SIZE_M;
+  };
+  // A minimal character driver on the port: gravity while not grounded, a horizontal speed, held while its column
+  // has no collision (the runtime's suspension rule) and lifted where the fine ground replaced its floor over it.
+  const HZ = 60;
+  let fall = 0;
+  let pos = { x: 0, y: 0, z: 0 };
+  let speed = 0;
+  const trace: Array<{ x: number; y: number; ground: number; grounded: boolean; held: boolean }> = [];
+  const tick = (): void => {
+    const at: [number, number, number] = [pos.x, pos.y, pos.z];
+    host.step({ stream: at, collide: [at], collideVelocity: [[speed, 0, 0]] });
+    const rise = host.riseAt(pos.x, pos.y, pos.z);
+    if (rise !== null) {
+      port.placeCharacter({ x: pos.x, y: rise, z: pos.z });
+      pos = { ...pos, y: rise };
+      fall = 0;
+    }
+    const held = !host.collisionReadyAt(pos.x, pos.z, pos.y);
+    port.suspendCharacter(held);
+    if (!held) {
+      fall = Math.min(fall + 9.81 / HZ, 60);
+      port.stageCharacterMove({ x: speed / HZ, y: -fall / HZ, z: 0 });
+    }
+    const res = port.step();
+    pos = { x: res.position.x, y: res.position.y, z: res.position.z };
+    if (res.grounded) fall = 0;
+    trace.push({ x: pos.x, y: pos.y, ground: fineGround(pos.x, pos.z), grounded: res.grounded, held });
+  };
+  const run = async (what: string, ok: () => boolean, ms = 30_000): Promise<void> => {
+    const t0 = performance.now();
+    while (!ok()) {
+      if (performance.now() - t0 > ms) throw new Error(`timed out waiting for ${what}: ${JSON.stringify({ last: trace.slice(-3), floors: host.stats().floors })}`);
+      tick();
+      await new Promise((d) => setTimeout(d, 2));
+    }
+  };
+  await run('the world to open', () => streamer !== null);
+  /** Lets the held chunk reads go (fine collision comes in). */
+  const release = (): void => {
+    hold = false;
+    for (const go of queue.splice(0)) go();
+  };
+  const floorPrefix = 'voxel:w:floor:';
+  /** The coarse floor's top (metres) over a point (null: no floor there now). */
+  const floorTop = (x: number, z: number): number | null => {
+    const h = port.raycast?.({ x, y: 400, z }, { x: 0, y: -1, z: 0 }, 800, { accept: (id: string) => id.startsWith(floorPrefix) }) ?? null;
+    return h === null ? null : 400 - h.distance;
+  };
+  const place = (p: { x: number; y: number; z: number }): void => {
+    pos = p;
+    fall = 0;
+    port.placeCharacter(p);
+    trace.length = 0;
+  };
+  return { host, port, trace, tick, run, release, fineGround, floorTop, place, disk, streamer: () => streamer!, setSpeed: (v: number) => (speed = v) };
+}
+
+function defaultOracle(): PaletteStore {
+  return oracle;
+}
+
 describe('the coarse floor', () => {
   it('rests a body where only far data is resident, standing and moving at 60 m/s, then hands it to the fine ground: never through, never thrown up (real workers, real Rapier)', async () => {
-    const r = await createPhysicsPort3D({
-      character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } },
-      statics: [],
-      solver: { hz: 60, gravityY: -9.81 },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: 0.8, minSlopeSlideRad: 0.9, autostep: false },
-    });
-    if (!r.ok) throw new Error(r.error.message);
-    const port = r.port;
-    // The world's chunk reads are held until let go (the workers stay free): only the far cache's ground is there.
-    let hold = true;
-    const queue: Array<() => void> = [];
-    const disk = new DiskRegions(join(dir, 'world'));
-    const chunks = disk.source(grid, 'stacked', 512);
-    const source = new Proxy(chunks, {
-      get(t, k) {
-        if (k === 'read') return (list: Parameters<typeof chunks.read>[0]) => (hold ? new Promise<Awaited<ReturnType<typeof chunks.read>>>((ok) => queue.push(() => void chunks.read(list).then(ok))) : chunks.read(list));
-        const v = Reflect.get(t, k) as unknown;
-        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
-      },
-    });
-    let streamer: VoxelStreamer | null = null;
-    const host = new VoxelWorldHost(
-      { world: 'w', ring: { loadRadius: 48, loadHeight: 32 }, collision: { radius: 16, height: 16 } } as never,
-      // The far field is not drawn here: the floor reads the far cache all the same.
-      { id: 'test', lighting: 'low', voxelFarField: 'off' } as never,
-      {
-        open: async () => ({
-          grid,
-          worldId: TEST_WORLD_ID,
-          source,
-          pool: new WorkerPool({ size: 4, create: () => nodePoolWorker(workerFile), timeoutMs: 60_000, maxQueued: 256 }),
-          far: farSource(oracle),
-          present: (s) => {
-            streamer = s;
-          },
-        }),
-      },
-      port,
-      events,
-      () => 0,
-    );
-    const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
-    /** The fine ground's top (metres) under a point: its highest solid cell's top. */
-    const fineGround = (x: number, z: number): number => {
-      const cx = Math.floor(x / VOXEL_SIZE_M), cz = Math.floor(z / VOXEL_SIZE_M);
-      let y = 200;
-      while (y > -200 && oracle.voxelAt(cx, y, cz, v).material === 0) y--;
-      return (y + 1) * VOXEL_SIZE_M;
-    };
-    // A minimal character driver on the port: gravity while not grounded, a horizontal speed, held while its column
-    // has no collision (the runtime's suspension rule) and lifted where the fine ground replaced its floor over it.
-    const HZ = 60;
-    let fall = 0;
-    let pos = { x: 0, y: 0, z: 0 };
-    let speed = 0;
-    const trace: Array<{ x: number; y: number; ground: number; grounded: boolean; held: boolean }> = [];
-    const tick = (): void => {
-      const at: [number, number, number] = [pos.x, pos.y, pos.z];
-      host.step({ stream: at, collide: [at], collideVelocity: [[speed, 0, 0]] });
-      const rise = host.riseAt(pos.x, pos.y, pos.z);
-      if (rise !== null) {
-        port.placeCharacter({ x: pos.x, y: rise, z: pos.z });
-        pos = { ...pos, y: rise };
-        fall = 0;
-      }
-      const held = !host.collisionReadyAt(pos.x, pos.z, pos.y);
-      port.suspendCharacter(held);
-      if (!held) {
-        fall = Math.min(fall + 9.81 / HZ, 60);
-        port.stageCharacterMove({ x: speed / HZ, y: -fall / HZ, z: 0 });
-      }
-      const res = port.step();
-      pos = { x: res.position.x, y: res.position.y, z: res.position.z };
-      if (res.grounded) fall = 0;
-      trace.push({ x: pos.x, y: pos.y, ground: fineGround(pos.x, pos.z), grounded: res.grounded, held });
-    };
-    const run = async (what: string, ok: () => boolean, ms = 30_000): Promise<void> => {
-      const t0 = performance.now();
-      while (!ok()) {
-        if (performance.now() - t0 > ms) throw new Error(`timed out waiting for ${what}: ${JSON.stringify({ last: trace.slice(-3), floors: host.stats().floors })}`);
-        tick();
-        await new Promise((d) => setTimeout(d, 2));
-      }
-    };
-    await run('the world to open', () => streamer !== null);
+    const { host, trace, tick, run, release, fineGround, place, disk, streamer, setSpeed } = await floorRig();
     // Dropped 3 m over the ground near the world's −x edge (it is 128 m square round the origin, so the flight below
     // stays over it), with no fine collision anywhere: it comes to rest on the floor.
     const START = { x: -50.25, z: 2.25 };
-    pos = { x: START.x, y: fineGround(START.x, START.z) + 3, z: START.z };
-    port.placeCharacter(pos);
-    trace.length = 0;
+    place({ x: START.x, y: fineGround(START.x, START.z) + 3, z: START.z });
     await run('the body to rest on the floor', () => trace.length > 30 && trace.slice(-30).every((t) => t.grounded && !t.held));
     const stats = host.stats();
     expect(stats.floors!.count).toBeGreaterThan(0);
-    expect(streamer!.metrics().resident).toBe(0);
+    expect(streamer().metrics().resident).toBe(0);
     // On the floor: within a coarse cell (2 m) of the fine ground, either way (the coarse ground's error; a body under
     // the fine top is lifted onto it at the hand-over).
     const COARSE_M = VOXEL_SIZE_M * 2 ** FAR_GROUND_LEVEL;
     const rest = trace.at(-1)!;
     expect(Math.abs(rest.y - rest.ground)).toBeLessThanOrEqual(COARSE_M);
     // Moving at 60 m/s over the floor for 1.5 s (90 m): it never drops under the fine ground by more than the floor's error.
-    speed = 60;
+    setSpeed(60);
     trace.length = 0;
     for (let i = 0; i < 90; i++) {
       tick();
       await new Promise((d) => setTimeout(d, 2));
     }
-    speed = 0;
+    setSpeed(0);
     expect(trace.at(-1)!.x - trace[0]!.x).toBeGreaterThan(10);
     for (const t of trace) expect(t.y, `at x ${t.x.toFixed(1)}`).toBeGreaterThanOrEqual(t.ground - COARSE_M);
     // Standing again, the world's chunks are let in: the floor hands over, and the body ends on the fine ground.
     trace.length = 0;
     await run('the body to rest', () => trace.length > 30 && trace.slice(-30).every((t) => t.grounded && !t.held));
     const before = trace.at(-1)!;
-    hold = false;
-    for (const go of queue.splice(0)) go();
+    release();
     const top = Math.max(before.y, before.ground);
     trace.length = 0;
     await run('the floor to hand over and the body to rest on the fine ground', () => (host.stats().floors?.handedOver ?? 0) > 0 && trace.length > 60 && trace.slice(-30).every((t) => t.grounded && !t.held));
@@ -333,6 +361,56 @@ describe('the coarse floor', () => {
     const end = trace.at(-1)!;
     expect(Math.abs(end.y - end.ground)).toBeLessThanOrEqual(VOXEL_SIZE_M + 0.05);
     console.log(`floor ${JSON.stringify({ floors: host.stats().floors, restOnFloorAboveGround: Number((rest.y - rest.ground).toFixed(2)), lowestAfterHandOver: Number(lowest.toFixed(2)), moved: Number((before.x - START.x).toFixed(1)), endAboveGround: Number((end.y - end.ground).toFixed(2)) })}`);
+    host.dispose();
+    await disk.close();
+  }, 180_000);
+
+  it('on a cliff: a body on the steepest floor cells rests or slides, one under the floor\'s surface there waits instead of falling through, and both end on the fine ground at the hand-over (real workers, real Rapier)', async () => {
+    const { host, trace, run, release, fineGround, floorTop, place, disk } = await floorRig('cliff', cliffOracle);
+    const COARSE_M = VOXEL_SIZE_M * 2 ** FAR_GROUND_LEVEL;
+    // The steepest place of the world: the largest step of the fine ground over a coarse cell, away from its edges.
+    let steep = { x: 0, z: 0, step: 0 };
+    for (let x = -100.25; x < 100; x += 1) for (let z = -100.25; z < 100; z += 1) {
+      const g = fineGround(x, z), gx = fineGround(x + COARSE_M, z), gz = fineGround(x, z + COARSE_M);
+      // Columns the oracle's scan found no ground in (under its reach) are left out.
+      if (Math.min(g, gx, gz) <= -99) continue;
+      const step = Math.max(Math.abs(g - gx), Math.abs(g - gz));
+      if (step > steep.step) steep = { x, z, step };
+    }
+    // The cliff: 20 m over a coarse cell.
+    expect(steep.step).toBeGreaterThan(10);
+    // Dropped 3 m over the fine ground there with no fine collision: it rests on the floor or slides down it, never under the fine ground.
+    place({ x: steep.x, y: fineGround(steep.x, steep.z) + 3, z: steep.z });
+    await run('the body to rest on the steep floor', () => trace.length > 30 && trace.slice(-30).every((t) => t.grounded && !t.held));
+    for (const t of trace) expect(t.y, `at ${t.x.toFixed(2)}`).toBeGreaterThanOrEqual(t.ground - COARSE_M);
+    // Where the floor lies highest over the fine ground near it (a corner takes the highest coarse top round it).
+    let under = { x: 0, z: 0, gap: -Infinity };
+    for (let dx = -6; dx <= 6; dx += 0.25) for (let dz = -6; dz <= 6; dz += 0.25) {
+      const x = steep.x + dx, z = steep.z + dz;
+      const top = floorTop(x, z);
+      if (top === null) continue;
+      const g = fineGround(x, z);
+      // Clear of the cliff's face by more than the capsule's radius: a body placed into the face is another case.
+      if ([-0.75, 0, 0.75].some((ox) => [-0.75, 0, 0.75].some((oz) => fineGround(x + ox, z + oz) > g + VOXEL_SIZE_M))) continue;
+      const gap = top - g;
+      if (gap > under.gap) under = { x, z, gap };
+    }
+    expect(under.gap).toBeGreaterThan(1);
+    // Placed on the fine ground's top there, under the floor's surface (what a placed player or a slide off a floor's
+    // edge meets): no collision under it, so it waits; it never falls through the world.
+    const ground = fineGround(under.x, under.z);
+    place({ x: under.x, y: ground + 0.2, z: under.z });
+    await run('two seconds', () => trace.length >= 120);
+    const waited = trace.filter((t) => t.held).length;
+    for (const t of trace) expect(t.y, 'under the floor').toBeGreaterThanOrEqual(ground - VOXEL_SIZE_M);
+    // The fine ground comes in: the floor hands over and the body ends on it.
+    release();
+    trace.length = 0;
+    await run('the hand-over on the cliff', () => (host.stats().floors?.handedOver ?? 0) > 0 && trace.length > 60 && trace.slice(-30).every((t) => t.grounded && !t.held));
+    for (const t of trace) expect(t.y, 'at the hand-over').toBeGreaterThanOrEqual(t.ground - VOXEL_SIZE_M);
+    const end = trace.at(-1)!;
+    expect(Math.abs(end.y - end.ground)).toBeLessThanOrEqual(VOXEL_SIZE_M + 0.05);
+    console.log(`cliff ${JSON.stringify({ steep, under: { ...under, gap: Number(under.gap.toFixed(2)) }, waited, endAboveGround: Number((end.y - end.ground).toFixed(2)), floors: host.stats().floors })}`);
     host.dispose();
     await disk.close();
   }, 180_000);

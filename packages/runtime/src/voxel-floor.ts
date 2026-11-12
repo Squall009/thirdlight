@@ -16,15 +16,23 @@
  *   short drop is the usual case); one the fine ground holds inside it (the
  *   fine ground lies higher) is lifted onto it by its host in the same step
  *   ({@link VoxelFloors.riseAt}).
- * - **Caves.** A floor is the column's top surface: a body more than
- *   {@link FLOOR_BELOW_M} under its lowest point (a cave, a tunnel) is not
- *   standing on it, and waits for its fine collision as before.
+ * - **Under it.** A floor is the column's top surface, and it lies on or
+ *   above the coarse ground: at a cliff's edge a corner takes the higher
+ *   ground's top, so the floor can stand metres over the true ground. A
+ *   body under the floor's surface at its own place (placed there, a slide
+ *   off the floor's edge, a floor added over a falling body, a cave) is not
+ *   standing on it: it counts as on collision only where fine collision
+ *   lies right under it, and otherwise waits for its fine collision
+ *   (suspended), since nothing would stop its fall.
  */
 import { heightfieldPart, VOXEL_SIZE_M, type ChunkGrid, type FarGround } from '@thirdlight/voxel';
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 
-/** How far under a floor's lowest point a body still counts as on it (metres): deeper, it is in a cave under the top. */
-export const FLOOR_BELOW_M = 2;
+/**
+ * How far a body's origin may be under the floor's surface at its own place and still count as on it (metres): the
+ * capsule's contact skin and the controller's ground snap, well under a coarse cell.
+ */
+export const FLOOR_UNDER_M = 0.5;
 
 /** How far over a body the fine ground that replaced its floor is looked for (metres): the coarse ground's error and more. */
 export const FLOOR_LIFT_M = 4;
@@ -35,7 +43,10 @@ interface Floor {
   readonly cx: number;
   readonly cz: number;
   readonly id: string;
-  readonly min: number;
+  /** The field's corner heights (metres; x-major, `cells + 1` a side) and its cell size, as the heightfield is made. */
+  readonly heights: ArrayLike<number>;
+  readonly cells: number;
+  readonly cellM: number;
 }
 
 /** A chunk column in the add or keep radius of the collision foci. */
@@ -117,15 +128,40 @@ export class VoxelFloors {
       // The port reads the typed arrays element by element; the runtime's shape lists them as plain lists.
       const shape = { type: 'compound', parts: [part] } as unknown as ColliderShape3D;
       this.port.addStaticColliders!([{ entityId: id, shape, position: { x: c.cx * m, y: 0, z: c.cz * m }, rotation: IDENTITY }]);
-      this.floors.set(key, { cx: c.cx, cz: c.cz, id, min: field.min });
+      this.floors.set(key, { cx: c.cx, cz: c.cz, id, heights: field.heights, cells: field.cells, cellM: field.cellM });
       this.counters.added++;
     }
   }
 
-  /** Whether a body at (x, y, z) (metres; y absent: anywhere in the column) stands over a floor now. */
+  /**
+   * Whether a body at (x, y, z) (metres; y absent: anywhere in the column) is held by a floor now: over the floor's
+   * surface at its place (within {@link FLOOR_UNDER_M}), or under it with fine collision right under it.
+   */
   holds(x: number, z: number, y?: number): boolean {
     const f = this.floors.get(this.keyAt(x, z));
-    return f !== undefined && (y === undefined || y >= f.min - FLOOR_BELOW_M);
+    if (f === undefined) return false;
+    if (y === undefined || y >= this.surface(f, x, z) - FLOOR_UNDER_M) return true;
+    return this.fineUnder(x, y, z);
+  }
+
+  /** The floor's surface height at (x, z) (metres), on the triangle its heightfield has there. */
+  private surface(f: Floor, x: number, z: number): number {
+    const m = this.grid.edge * VOXEL_SIZE_M;
+    const n = f.cells;
+    const u = Math.min(n - 1e-6, Math.max(0, (x - f.cx * m) / f.cellM));
+    const v = Math.min(n - 1e-6, Math.max(0, (z - f.cz * m) / f.cellM));
+    const i = Math.floor(u), k = Math.floor(v);
+    const fx = u - i, fz = v - k;
+    const h = (a: number, b: number): number => f.heights[(i + a) * (n + 1) + (k + b)]!;
+    // The ground's split, from (min x, min z) to (+x, +z) (derived-collision.ts hands the field over that way).
+    return fx >= fz ? h(0, 0) + fx * (h(1, 0) - h(0, 0)) + fz * (h(1, 1) - h(1, 0)) : h(0, 0) + fz * (h(0, 1) - h(0, 0)) + fx * (h(1, 1) - h(0, 1));
+  }
+
+  /** Whether the world's fine collision lies under a body at (x, y, z) within {@link FLOOR_LIFT_M}. */
+  private fineUnder(x: number, y: number, z: number): boolean {
+    const floorPrefix = `${this.prefix}floor:`;
+    const from = y + FLOOR_UNDER_M;
+    return (this.port.raycast?.({ x, y: from, z }, { x: 0, y: -1, z: 0 }, FLOOR_UNDER_M + FLOOR_LIFT_M, { accept: (id) => id.startsWith(this.prefix) && !id.startsWith(floorPrefix) }) ?? null) !== null;
   }
 
   /**

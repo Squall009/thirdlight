@@ -125,7 +125,16 @@ export function bodySamples(obs: readonly ObsSample[], t0Wall: number): BodySamp
   const C = PROBE_COUNTERS;
   return obs
     .filter((o) => (o.c[C.drop] ?? 0) > 0)
-    .map((o) => ({ t: (o.w - t0Wall) / 1000, drop: o.c[C.drop]!, groundY: (o.c[C.dropGround] ?? 0) / 100, y: (o.c[C.bodyY] ?? 0) / 100, grounded: o.c[C.grounded] === 1, suspended: o.c[C.suspended] === 1, onFloor: o.c[C.onFloor] === 1 }));
+    .map((o) => ({
+      t: (o.w - t0Wall) / 1000,
+      drop: o.c[C.drop]!,
+      groundY: (o.c[C.dropGround] ?? 0) / 100,
+      y: (o.c[C.bodyY] ?? 0) / 100,
+      grounded: o.c[C.grounded] === 1,
+      suspended: o.c[C.suspended] === 1,
+      onFloor: o.c[C.onFloor] === 1,
+      ...(o.c[C.bodyX] !== undefined ? { at: { x: o.c[C.bodyX]! / 100, z: (o.c[C.bodyZ] ?? 0) / 100, belowY: (o.c[C.belowY] ?? 0) / 100, belowKind: o.c[C.belowKind] ?? 0, aboveY: (o.c[C.aboveY] ?? 0) / 100, aboveKind: o.c[C.aboveKind] ?? 0 } } : {}),
+    }));
 }
 
 /** The ray probe's steps in flight and the seconds (simulation steps) from the stop to the first solid ray and to the body standing. */

@@ -9,7 +9,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chunkGrid, createDenseChunk, decodeDenseChunk, regionChunkCodecBytes } from '@thirdlight/voxel';
-import { FarCacheReader, zstdDecompress } from '@thirdlight/workspace';
+import { FarCacheReader, openShippedWorld, VOXEL_WORLDS_FOLDER, zstdDecompress } from '@thirdlight/workspace';
 import type { CoveragePath } from './coverage';
 
 /** The ground (metres) at (x, z) of a project's world: the top solid cell of its far cache's level-2 nodes (2 m cells). */
@@ -35,6 +35,41 @@ export function farGround(projectDir: string, world: string): (x: number, z: num
       }
     }
     return 0;
+  };
+}
+
+/**
+ * The true ground of a project's world at (x, z) (metres): the top of the highest solid 0.5 m cell of its voxels (the
+ * region files, what fine collision is derived from) at or under `fromY`; null where the column is air down to the
+ * world's floor. What a body there stands on once its fine collision is in, unlike {@link farGround}'s 2 m cells.
+ */
+export function fineGround(projectDir: string, world: string): (x: number, z: number, fromY: number) => number | null {
+  const w = openShippedWorld(join(projectDir, VOXEL_WORLDS_FOLDER, world));
+  const g = w.opts.grid;
+  const e = g.edge;
+  const chunks = new Map<string, ReturnType<typeof createDenseChunk> | null>();
+  const chunk = (cx: number, cy: number, cz: number): ReturnType<typeof createDenseChunk> | null => {
+    const key = `${cx},${cy},${cz}`;
+    let d = chunks.get(key);
+    if (d !== undefined) return d;
+    const codec = w.chunkBytes({ cx, cy, cz });
+    d = codec === null ? null : decodeDenseChunk(g, codec, createDenseChunk(g));
+    if (chunks.size > 4096) chunks.clear();
+    chunks.set(key, d);
+    return d;
+  };
+  return (xm, zm, fromY) => {
+    const x = Math.floor(xm * 2), z = Math.floor(zm * 2), top = Math.floor(fromY * 2);
+    const cx = Math.floor(x / e), cz = Math.floor(z / e), ix = x - cx * e, iz = z - cz * e;
+    for (let cy = Math.floor(top / e); cy >= -2; cy--) {
+      const d = chunk(cx, cy, cz);
+      if (d === null) continue;
+      for (let y = Math.min(e - 1, top - cy * e); y >= 0; y--) {
+        const li = (ix << 10) | (iz << 5) | y;
+        if (d.material[li] !== 0) return (cy * e + y + d.shape[li]! / 15) / 2;
+      }
+    }
+    return null;
   };
 }
 
@@ -80,7 +115,9 @@ export const PROBE_BODY = 'Perf probe character';
  * the steps the flight started and stopped at, ray steps in flight (all, solid, none hit, hit deep under the
  * ground), the first solid step after the stop, and the body: its drop, the drop point's ground (cm), its height
  * (cm), standing, suspended, standing on a voxel world's coarse floor (its collider ids' `:floor:`), the first
- * step after the stop's drop it stood.
+ * step after the stop's drop it stood. Where the body is and what is round it, to tell a fall off an edge from one
+ * through a surface: its x, z (cm), the first collider straight under it and the first one met coming down from
+ * {@link PROBE_ABOVE_M} over it to its height (each a height in cm and a kind, {@link PROBE_HIT_KIND}).
  */
 export const PROBE_COUNTERS = Object.freeze({
   m: 'probe_m_cm',
@@ -98,7 +135,19 @@ export const PROBE_COUNTERS = Object.freeze({
   suspended: 'probe_suspended',
   onFloor: 'probe_on_floor',
   bodyReadyStep: 'probe_body_ready_step',
+  bodyX: 'probe_body_x_cm',
+  bodyZ: 'probe_body_z_cm',
+  belowY: 'probe_below_y_cm',
+  belowKind: 'probe_below_kind',
+  aboveY: 'probe_above_y_cm',
+  aboveKind: 'probe_above_kind',
 });
+
+/** What a probe ray met: nothing, a voxel world's fine collision, its coarse floor, any other collider. */
+export const PROBE_HIT_KIND = Object.freeze({ none: 0, fine: 1, floor: 2, other: 3 });
+
+/** How far over the body the ray that looks for a surface it passed starts (metres): more than a drop's 2 s fall. */
+export const PROBE_ABOVE_M = 80;
 
 /** The probe's behaviour source (the `intent` phase, after the flight's commands): rays, drops and counters. */
 function probeSource(p: FlightProbe): string {
@@ -138,6 +187,16 @@ const probe = (s: any, ctx: any) => {
   put(ctx, '${C.grounded}', st.grounded ? 1 : 0);
   put(ctx, '${C.suspended}', susp ? 1 : 0);
   put(ctx, '${C.onFloor}', st.grounded && typeof st.groundEntityId === 'string' && st.groundEntityId.startsWith('voxel:') && st.groundEntityId.includes(':floor:') ? 1 : 0);
+  const bx = st.position.x, by = st.position.y, bz = st.position.z;
+  put(ctx, '${C.bodyX}', Math.round(bx * 100));
+  put(ctx, '${C.bodyZ}', Math.round(bz * 100));
+  const kind = (h: any) => h === null ? ${PROBE_HIT_KIND.none} : typeof h.entityId !== 'string' || !h.entityId.startsWith('voxel:') ? ${PROBE_HIT_KIND.other} : h.entityId.includes(':floor:') ? ${PROBE_HIT_KIND.floor} : ${PROBE_HIT_KIND.fine};
+  const below = ctx.physics.raycast?.([bx, by, bz], [0, -1, 0], 2000, { exclude: [body] }) ?? null;
+  put(ctx, '${C.belowY}', below === null ? 0 : Math.round((by - below.distance) * 100));
+  put(ctx, '${C.belowKind}', kind(below));
+  const above = ctx.physics.raycast?.([bx, by + ${PROBE_ABOVE_M}, bz], [0, -1, 0], ${PROBE_ABOVE_M}, { exclude: [body] }) ?? null;
+  put(ctx, '${C.aboveY}', above === null ? 0 : Math.round((by + ${PROBE_ABOVE_M} - above.distance) * 100));
+  put(ctx, '${C.aboveKind}', kind(above));
   if (s.stopDropped && st.grounded && !susp && ctx.game.counter('${C.bodyReadyStep}') === 0 && ctx.stepIndex > s.stopStep + 2) put(ctx, '${C.bodyReadyStep}', ctx.stepIndex);
 };
 const probeReset = (ctx: any) => { for (const name of ${JSON.stringify(Object.values(C))}) put(ctx, name, 0); };
