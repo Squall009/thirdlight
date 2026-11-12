@@ -325,7 +325,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
 | 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
 | 46d.25 | done (25a–25c; 25c 40c05fce, 6b3a04f0, d7320305): fine bricks L0–1 behind `fineBricks` (off). 25c: ON does no mip work (60 m/s flight: 1,455 → 0 downsample, 2,043 → 673 derives, D633); ON's detail ring was smaller than OFF's (83 vs 110 chunks, fixed: low 60 detail 5.9 s vs OFF 4.8); D631 streaks mostly gone; D632 bound by the read ring's refill. Keep both; 46d.26 next |
-| 46d.26 | not started (46d-c) |
+| 46d.26 | 46d.26a in progress: storage measured first (8 km world at 0.5 m 5.0 GB, ~3.7 h on 4 threads; 1 m 1.36 GB, ~1.6 h; 2 m 355 MB; terrain 5.4 / 19.6 / 71 MB a km², town 3.8 / 10.6 / 30): under the hard stop; design in §8 "46d.26"; format 3 and the bake next |
 
 ## 8. Results
 
@@ -3991,6 +3991,135 @@ for 46d.26 (the owner's bake level, §2 2026-11-12): only the cells and poses th
   medium does not hold (settle bound by the read ring's refill, D632; holes at speed, D634). Both open points are what
   46d.26 (baked fine levels, the read ring shrunk to the detail ring) is for.
 
+### 46d.26 brick bake level per voxel world
+
+**What a km² costs** (the owner's table; one page for the owner: `docs/briefs/bake-level-storage-2026-11-12.md`).
+Disk is the far cache a world holds at that bake level (each level adds to the coarser ones); bake is one CPU thread
+(the backend bakes on up to 4).
+
+| a km² of | 2 m (today) | 1 m | 0.5 m |
+|---|---|---|---|
+| terrain: disk / bake | 5.4 MB / 0.9 min | 19.6 MB / 5.0 min | 71 MB / 12.1 min |
+| town: disk / bake | 3.8 MB / 0.9 min | 10.6 MB / 4.7 min | 30 MB / 11.2 min |
+| the 8 km world (67 km²): disk / bake on 4 threads | 355 MB / 24 min | 1.36 GB / ~1.6 h | 5.0 GB / ~3.7 h |
+
+**Hard stop rule:** not triggered (0.5 m: 5.0 GB < ~8 GB, ~3.7 h < ~12 h on this host), so the format and the bake
+are built (below).
+
+**Storage, measured** (46d.26a, before any product change; `work/46d.26a/fine-size.mts`, a scratch bench: 8
+`worker_threads`, a world region column of a level's nodes a task, the world's own region files read through
+`FarWorldSource`; 15:39–15:44, load 0.7–7.8 with the bench itself, uptime 19.97 d). Each fine node is built by the
+fine builder's CPU side exactly as the GPU build's oracle: `gatherFarCells(…, fine)` (construction words, roof
+planes) → `farBricksFromBlock` → `farBrickOcclusion`, encoded by `encodeFarBricks` (`TLFB` v1), zstd 3 a node, region
+files of the cache's own format (`writeRegion`, stacked, the level's node coordinates). Slices: **town** = world
+region columns rx, rz −2…1 (1.05 km² round the origin; the town's own footprint is its middle 256 m, 0.066 km²,
+counted apart), **terrain** = rx −6…−3, rz 2…5 (1.05 km²: the valley floor, slopes, a ridge to ~800 m; 7,405 stored
+chunks, the world's mean for that area is 7,802, so it is a typical piece of this world).
+
+| | nodes holding anything | all air / all solid (not stored) | no stored brick (not stored) | stored nodes | bricks a node | raw MB | **zstd MB (files)** | **MB a km²** | bytes a node | CPU s a km² (gather / build) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| terrain, level 0 (0.5 m) | 68,201 | 56,439 | 699 | 11,063 | 16.2 | 526.9 | 54.0 | **51.5** | 4,886 | 423 (145 / 275) |
+| terrain, level 1 (1 m) | 8,966 | 6,059 | 172 | 2,735 | 16.3 | 130.9 | 14.8 | **14.2** | 5,427 | 248 (96 / 151) |
+| town footprint, level 0 | 1,253 | 512 | 0 | 741 | 18.9 | 41.2 | 1.29 | **19.7** | 1,745 | 389 (50 / 337) |
+| town footprint, level 1 | 192 | 0 | 0 | 192 | 17.8 | 10.0 | 0.44 | **6.8** | 2,310 | 229 (40 / 189) |
+| the town slice's terrain round it, level 0 / 1 | 22,774 / 3,200 | 13,493 / 850 | 755 / 207 | 8,526 / 2,143 | 16.0 / 15.9 | 400 / 100 | 22.8 / 7.0 | 23.2 / 7.2 | 2,677 / 3,288 | 275 / 160 |
+
+Wall time: town slice 49 s a level (8 / 4 workers), terrain 77 s (level 0, 8 workers) and 83 s (level 1, 4: a level-1
+region column is 512 m, so the slice is 4 tasks). The terrain round the town is the floodplain: flatter, and half its
+nodes repeat byte for byte, so it is half the terrain slice's bytes.
+
+*2 m today, per km², by the nodes' places* (`coarse.mts`: level-2 nodes and bricks in the slices, levels 3–8 at the
+world's mean, 1.43 MB/km²): terrain 5.4 MB/km², town footprint 3.8; the whole cache 355 MB (5.3 MB/km²), baked in 1,421
+s on staging (nodes ~690 s on one thread, bricks ~730 s on 4) = ~54 CPU s/km².
+
+*The whole 8 km world, extrapolated* by the slice's bytes and CPU per stored chunk (the cost follows the surface: the
+world has 499,313 stored chunks; by area alone it is within 5 %): **level 0: 3.65 GB, 8.3 CPU-h; level 1: 1.00 GB, 4.9
+CPU-h.** So a 1 m bake is 355 MB + 1.00 GB = 1.36 GB, a 0.5 m bake 355 MB + 1.00 + 3.65 = 5.0 GB, beside the voxels'
+644 MB; bake on 4 threads +1.2 h (1 m) and +3.3 h (0.5 m) over the 24 min of 2 m. (The town slice's own figures
+extrapolate to 2.0 / 0.63 GB: a world of floodplain is cheaper.)
+
+*The material word against the palette colour.* On disk nothing: a coarse baked node stores its look words too (the
+colour is the page's palette bake, 46d.18), u16 a sample either way. The fine words' construction bit costs 2.5 % in
+the town (1.261 → 1.293 MB at level 0), 0 on terrain. On the GPU nothing (a baked sample is RGBA8 either way, 46d.25b-1).
+
+*Format wins, measured on the same nodes:*
+
+| | terrain level 0 | terrain level 1 | town level 0 |
+|---|---|---|---|
+| all-air / all-solid nodes left out (in already: what the run-time build sends nothing for) | 83 % of the nodes | 68 % | 41 % |
+| nodes with no stored brick left out (a 268-byte table each) | 699 nodes, 0.03 MB | 172, 0.007 MB | 0 |
+| **occlusion not stored, made again on load** (`farBrickOcclusion`, the same function) | 54.0 → 29.3 MB (−46 %) | 14.8 → 9.0 (−39 %) | 1.29 → 0.79 (−39 %) |
+| zstd 19 instead of 3 (an export's packing) | 54.0 → 43.4 MB (−20 %) | 14.8 → 12.6 (−15 %) | 1.29 → 0.71 (−45 %) |
+| bricks that are another brick's copy (samples, words, occlusion) | 37 % | 37 % | 77 % |
+| nodes that are another node's copy | 37 % | 37 % | 40 % |
+
+The cost of not storing occlusion (`decode.mts`, the baked files read back): **decode 0.09–0.11 ms a node, the occlusion
+made again 6.7–7.0 ms a node** (0.42 ms a brick), 70× the decode, on the thread that loads. Loading is the owner's
+bottleneck (§2 2026-11-12), so occlusion stays stored (the blob's occlusion flag already lets a cache leave it out:
+an owner's choice for disk, 5.0 → 2.9 GB for the 0.5 m world). Shared copies need a region file whose entries may share
+bytes (a region format change): not taken now; the same sharing in the GPU atlas (37–77 % of fine bricks) is noted for
+46d.26b's memory.
+
+*Atlas memory a km² resident* (3,645 bytes a brick, `FAR_BRICK_GPU_BYTES`): terrain level 0 593 MiB/km², level 1 147;
+town level 0 743, level 1 181. In view at low (the fine bands round the eye, every direction): level 0 from the detail
+ring (~45 m) to 78 m 0.013 km² = 8 MiB, to 156 m 0.070 km² = 42 MiB (town 52); level 1 from 156 to 312 m 0.23 km² = 34
+MiB (town 41). Within low's 384 MiB far budget with room (the coarse levels drew 77–92 MiB at the town, 46d.25c);
+level 0 to 312 m would be 177–222 MiB.
+
+**Design** (46d.26a; decisions with reasons, §9 "default chosen, owner to confirm").
+
+- *The setting.* `voxelWorld.bakeLevel`: metres, `2` (the default, absent) | `1` | `0.5`, on the scene's voxel world
+  component (the owner's "per scene"): validated (`field_value` for any other value), rebuilt field by field by the
+  canonicalizer, set by the scene's component commands (the one mutation path; no new op), an Inspector field from the
+  component's descriptor, in the generated reference for MCP. The values and the level they mean are defined once in
+  `@thirdlight/voxel` (`FAR_BAKE_LEVELS_M`, `farBakeLevelOf`: 2 m → level 2, 1 m → 1, 0.5 m → 0). A world two scenes
+  name is baked to the finer of the two (the cache is the world's; a coarser scene reads the finer cache it does not
+  need, which costs disk, not frames). An export ships the levels down to the finest bake level its scenes ask, never
+  finer levels the cache happens to hold.
+- *The format: far cache format 3,* add-only (owner note in the render spec §4 *Fine levels baked*): `far.json` gains
+  `fine`: the finest level baked toward (`bakeLevel`, 0 or 1), the blob version and build, the world revision its
+  levels are current with, the region columns baked so far per level, and per fine level its region files, nodes and
+  bytes. A fine level's nodes are stored in `B<level>/` (`B0/`, `B1/`) at the level's node coordinates: level 0's files
+  tile the world exactly as its region files do (a node is a chunk), level 1's span 512 m, so fine bricks stream by
+  region and an export ships them as files of the existing `B<level>/` names. A node is stored only where its block
+  draws something (a stored brick); a missing node of a baked level is nothing to draw. Formats 1, 2 and 3 read; any
+  other is refused. A format-2 cache stays current for a 2 m world (no rebuild: the coarse content is the same); a fine
+  bake writes format 3.
+- *One builder.* The bake runs the fine builder's CPU side, the GPU build's oracle: the block from the world's files as
+  the streamer would read it (`gatherFarCells(…, fine)`: construction words, roof planes), packed and unpacked as the
+  page's block is (`packFarFine` / `unpackFarFine`), `farBricksFromBlock`, `farBrickOcclusion`. So a baked node is
+  byte for byte the CPU build of the same block, and within 46d.25a's rounding of the GPU's (distance bytes ±1 at the
+  ties, occlusion ±1–2). A slower, more exact bake (more samples, the terrain mesher's creases for D628) was not
+  chosen: an edited node is rebuilt by the run-time build next to baked neighbours, and two builders would seam there;
+  D628, D629 and D631 are fixed in the one builder, so bake and run time stay equal.
+- *The bake.* After the coarse cache is current, by world region column and level, level 1 first (a 1 m bake is the
+  0.5 m bake's first half), in the backend's far cache worker on its bake threads (up to 4: cores − 1). A column's
+  nodes are built from the world's files at a revision, then written (its region files and the manifest's done list)
+  in the world's queue, so commands go on while a column builds and never see a half-written column. Resumable: an
+  interrupted bake (the backend stopped) keeps every column it wrote and goes on from the next. A world whose bake is
+  not finished draws as a 2 m world plus the regions baked so far: the editor keeps the compute fine bricks (WebGPU)
+  where a level is not baked yet. Progress: columns done of the world's columns per level, in the far info answer
+  (the editor can show it; no panel built in this slice). Edits: a command's changed chunks make exactly their fine
+  nodes stale (`farFineDirty` at the baked levels, in baked columns), built again by the same builder in the same
+  rebuild as the coarse levels, looked up first by a content key (the build and every chunk entry the block reads) in
+  the cache's `rebuilt/` store (46d.18's, now also fine nodes), only their files rewritten. Changes made while a column
+  builds are built into it when it lands. A coarse rebuild of the whole cache (another revision on disk) starts the
+  fine bake again.
+- *Run time (designed here, built in 46d.26b).* Levels at or above the bake level come from the cache: a baked fine
+  node is decoded and uploaded (0.1 ms decode), never built; only levels finer than the bake are built by the compute
+  build (WebGPU). On a world baked to the finest level drawn past the detail ring, the voxel read ring shrinks to what
+  the detail ring (level 0's ring and its hysteresis) and collision need, plus a chunk (a fine block's apron); on a 1 m
+  world it reaches only as far as level 0 is drawn by compute. Baked fine reads follow 46d.24's "no fine detail at
+  speed" rule: past `STREAM_DETAIL_SPEED` no level-0 node is opened (its reads at 150 m/s would be ~2.4 MB/s of terrain
+  at low's 156 m reach); level 1 opens as reads allow (~1.3 MB/s at 150 m/s to 312 m). Low's 0.5 m reach becomes a
+  tier setting set with the headroom meter (D629: a lower error for the fine levels, or construction-weighted).
+  WebGL 2 draws baked fine bricks too (the march needs no compute; the direct path shades fine hits in the palette's
+  colour): on a world baked to 0.5 m it needs no mesh rings; on a 2 m world it keeps the mesh rings (the owner's call
+  later, with pictures; nothing is deleted).
+- *Memory.* Fine bricks count in the far GPU budget as now (see above: 8–42 MiB of level 0 and ~34 MiB of level 1 in view
+  at low against 384 MiB). The read ring's shrink frees stream memory (low's 768 MiB budget held the 192 m ring);
+  measured in 46d.26b.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4954,6 +5083,24 @@ for 46d.26 (the owner's bake level, §2 2026-11-12): only the cells and poses th
   left as they are.
 - 2026-11-12 (lead): placed the owner's bake-level decision (§2 2026-11-12) as **46d.26 in 46d-c**, after 46d.25c and
   before the close; 25c's second full comparison dropped in its favour (46d.26 runs it with baked bricks).
+- 2026-11-12 (46d.26a, measured): the 8 km world baked to 0.5 m is **5.0 GB and ~3.7 h on 4 threads** (1 m: 1.36 GB,
+  ~1.6 h; 2 m today 355 MB, 24 min); terrain 5.4 / 19.6 / 71 MB a km² at 2 / 1 / 0.5 m, town 3.8 / 10.6 / 30 (§8
+  "46d.26"). Under the hard stop (~8 GB, ~12 h): the format and the bake are built.
+- 2026-11-12 (46d.26a, default chosen, owner to confirm): **the bake level is the scene's voxel world's
+  `bakeLevel`** (2 m default, 1 m, 0.5 m), set by the component commands; a world two scenes name is baked to the finer;
+  an export ships levels down to the finest its scenes ask.
+- 2026-11-12 (46d.26a, default chosen, owner to confirm): **baked fine nodes store their occlusion** (as the coarse
+  levels): not storing it halves the disk (0.5 m world 5.0 → 2.9 GB) but costs ~7 ms of CPU a node on load against a
+  0.1 ms decode, and loading is the bottleneck. zstd 19 for exports (−15–45 %) and shared copies of identical bricks
+  (37–77 % of fine bricks; a region format change) are not built.
+- 2026-11-12 (46d.26a, default chosen, owner to confirm): **one builder, no more exact bake**: the bake is the GPU
+  build's CPU oracle (roof planes included), so an edited node rebuilt at run time meets baked neighbours as any node
+  does; the pictures' builder problems (D628, D629, D631) are fixed in that one builder.
+- 2026-11-12 (46d.26a, default chosen, owner to confirm): **far cache format 3, fine levels in `B0/` and `B1/`** at the
+  level's node coordinates (level 0 tiles as the world's region files), a node stored only where it draws something;
+  a format-2 cache stays current for a 2 m world; the bake runs by world region column, level 1 first, resumable,
+  commands going on meanwhile; edits rebuild exactly their fine nodes at the baked levels through the content-keyed
+  `rebuilt/` store.
 
 ## 10. Open questions for the owner
 
