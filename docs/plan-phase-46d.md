@@ -3770,6 +3770,33 @@ world; `work/46d.25b3/`).
   a missing chunk; no octant undrawn; the refusals counted), and the octant rules. Page e2e unchanged (1.0 m in the
   gate). Gate gate-fast-20261112-113346 GREEN (12 min).
 
+**The comparison: pictures** (one build 0b02327e, OFF vs ON, Play on staging, WebGPU 1280 × 720, low at its 30 Hz
+cap, medium at 60; 11:47–12:04, load 2.6–3.4, uptime 19.8 d; `shots.mjs`, `{low,medium}-shots-{off,on}.json`,
+`shots/side-by-side/<pose>-<q>-off-vs-on.png` (full frames and a 2× centre crop, every one opened), orbit
+`strip-low-on-backrow.png`, walk `walk-{low,medium}-on-strip.png` (a 4 m/s walk down the street, frames 1.5 s
+apart)). Pixels over 60 apart, low / medium:
+
+| pose | px > 60 low / med | low | medium |
+|---|---|---|---|
+| town-west (D593's back row, 92–192 m) | 5.45 / 2.97 % | **worse in detail**: silhouettes, gables and roof planes as OFF, but past ~78 m (level 1) no window rows, frames or fences (OFF's level-1 mesh keeps 0.5 m openings) and the walls softer; the last house far left past ~150 m still level 2 | same (fences and windows kept to ~156 m; roof edges a little smoother) |
+| town-north | 3.15 / 2.33 % | **worse**: back-row roofs past ~100 m read as rounded slabs (thick eaves, D629), gable triangles gone | slightly worse: the same eaves, thinner |
+| town-peak-4.5km | 5.20 / 3.18 % | back rows: rounder roofs, no windows past ~78 m (worse); nearer, ON's shot had kit pieces OFF's had not yet built (the settle rule) | same |
+| town-street (new) | 0.42 / 0.35 % | same near; roofs past ~78 m thick-eaved (D629) | **worse**: the roofs 70–100 m down the street are rounded "pillows" with soft eaves where OFF's level-0/1 meshes are crisp |
+| near-border | 0.30 / 0.11 % | **worse in the gully**: rock outcrops past the ring are rounded lumps (D628); grass same; black sky in both (D630) | as low |
+| near-valley | 0.05 / 0.02 % | gravel same; **a short dark dashed line across the gravel ~60–70 m** (D626's look, back with partial nodes: D631) | same |
+| near-river | 0.03 / 0.02 % | same (gravel bed a little sharper far) | same |
+| near-boulders | 2.99 / 2.45 % | **worse**: the far grass patch upper left carries thin dark streaks along the slope and a paler flat green (D631) | **worse**: a straight line across that patch and the same paler green (D631) |
+| near-escarpment | 0.20 / 0.10 % | same | same |
+| near-outcrop | 0.05 / 0.06 % | same or better: the far wall's ledge lattice (D572) is calmer | same |
+| peak-to-town, peak-sight-5km, beyond-peak-to-town | ≤ 0.01 % | same (no fine band in view from the peaks' eye) | same |
+
+*Hand-off at the detail ring:* the walls stay textured across it; what changes is kit pieces (owner's choice) and,
+at low, windows and fences once level 1 takes over (~78 m). *Level 1 → 2:* not seen as a line in these poses (palette
+colour both sides); at low the last back-row house past ~150 m is the boundary. *Finite-world edge:* not in view in
+any pose. *Orbit (low ON, 4 frames 0.25 s):* roofs hold their planes, no crawl or sparkle. *Walk (12 frames 0.5 s, low
+and medium ON):* no shimmer seen; a pop where a far roof enters the detail ring (rounded slab → the near mesh's gable),
+the same kind of step OFF has at its level 1 → 0 change. Motion at full rate unverified (stills).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
