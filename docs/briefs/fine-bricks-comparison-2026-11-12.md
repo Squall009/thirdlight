@@ -5,6 +5,25 @@ detail ring, behind a switch beside the level-1/2 mesh rings, and compare before
 to 25b-2; this is the comparison (46d.25b-3). Details and every number: `docs/plan-phase-46d.md` §8 "46d.25b-3" and
 "46d.25 comparison: the verdict".
 
+## After 46d.25c (same day; details `docs/plan-phase-46d.md` §8 "46d.25c")
+
+What changed since the tables below (one round a cell, only what the fixes touch; the full comparison again comes
+with baked bricks in 46d.26, your bake-level decision of today):
+
+- **With the switch on the mesh rings now do no work at all** (D633): in a 60 m/s flight no downsample (1,455 → 0),
+  no seams, level-0 derives 2,043 → 673, fill 11.5 → 2.0 s. The voxels are still read to 192 m (fine bricks need
+  them); that is what the bake removes.
+- **The tables below compared fine bricks against a smaller detail ring** (83 level-0 chunks at town-west low against
+  110 with the rings). Fixed: both draw the same ring now. Fair, low 60 m/s full detail is 5.9 s with fine bricks
+  against 4.8 s with the rings (not the 1.4 s below), nothing pending 5.9 against 9.2 s; low 150 m/s 6.4 s.
+- **Streaks on the far grass slope** (D631): a texture read, now blended over three axes: mostly gone (two faint
+  hairlines), no dashed line on the gravel; low still holds its 30 Hz cap.
+- **Medium's late settle** (D632) is the 192 m read ring refilling (the worker queue full for 24 s after a 150 m/s stop),
+  not the GPU build; holes at speed: the ground band nearest the camera left undrawn (D634, untraced).
+- Buildings past ~78 m at low (no window recesses, thick eaves; D629) wait for baked 0.5 m bricks pushed farther.
+
+The verdict stays: **keep both behind the switch, retire nothing.**
+
 ## What was compared
 
 One build, the switch off (today: mesh rings to 192 m) against on (fine bricks), WebGPU on the Iris Xe at 1280 × 720,

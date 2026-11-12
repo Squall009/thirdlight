@@ -124,6 +124,15 @@ not edited (an art-factory request doc may be written). three.js is not updated 
   "the gpu compute stage for brick generation at the 0.5/1m level should be attempted for anything beyond the detail
   ring." Deferred, not to revive now: detail-piece LODs, relief, GPU tessellation of the near mesh. No whole-map
   bake of near detail ("derived data is never stored" stays).
+- 2026-11-12 (OWNER, relayed by session thirdlight-65; `docs/briefs/bake-level-2026-11-12.md`): "**brick compute
+  and storage should be tunable per scene.** Just select how fine grained scene gets baked with 2m being default but
+  you can change it to one or 0.5 and have it all cached. At any level chosen the runtime brick compute is based on
+  that so no realtime needed if 0.5 is selected or only 0.5 if 1 is selected." And for low: "At 720p30hz we have a
+  lot of frame time available but the streaming and load speed are the current bottlenecks. If we keep the current
+  detail zone on low, bake down to 0.5m we can cut out the additional detail voxels that are going so far out and use
+  the precomputed 0.5 pushed out to keep the detail reasonable." A bake level per voxel world (2 m default, 1 m or
+  0.5 m, cached); run-time compute builds only levels finer than the bake; low = today's detail ring + baked 0.5 m
+  pushed out, so the voxel read ring shrinks.
 
 ## 3. three.js check
 
@@ -271,6 +280,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 |---|---|
 | 46d.24 | Travel at speed by the owner's new measures (the coverage bench keeps its hole check): longest frame in flight, frames over 100 ms, missed a minute; after a stop the seconds until the ground under the camera is solid, full detail stands (~50 m), nothing is pending; never falling through. Mechanisms in order: no level 0 at speed, stale work cancelled, collision on its own path along the bodies' velocity, a coarse fallback floor from the far field's 2 m data, D585. Pinned regions and path hints planned, built only if cheap. 60 and 150 m/s, low and medium. |
 | 46d.25 | Fine bricks (levels 0–1) built in GPU compute past the detail ring, on demand from the chunks' voxel grids, never stored, behind a switch beside the level 1–2 mesh rings; compared on WebGPU, low and medium (D593 and 46d.12b poses by picture, the headroom meter, fill, 46d.24's measures, memory) before any mesh ring or seam is retired; say if the level 1 → 2 boundary shows. |
+| 46d.26 | (owner 2026-11-12, `docs/briefs/bake-level-2026-11-12.md`) Brick bake level per voxel world (2 m default, 1 m, 0.5 m, cached; run-time compute only finer than the bake): storage measured first (bytes a km² of terrain and of town at 1 m and 0.5 m); far cache version bump, add-only, with the owner's note; one builder for bake and run time, roof planes included; bake by region, resumable; on a baked world the read ring shrinks to the detail ring + collision, measured with 46d.24's settle measures and load counts; low's 0.5 m reach set with the headroom meter (D629); WebGL 2 draws baked fine bricks; no fine brick reads at speed; then the comparison again; the mesh rings stay behind the switch until the poses match. |
 
 ## 7. Progress
 
@@ -314,7 +324,8 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
 | 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
-| 46d.25 | 25a–25b-2 done (fine bricks L0–1, textured, roof planes). 25b-3 done (0b02327e): D627 fixed (partial level-2 opening); comparison OFF/ON: low ON holds (60 m/s detail 4.4 → 1.4 s, 30 Hz room same, +13 MiB) but construction past 78 m worse (D629); medium worse (+3 ms, settle +7 s, D632). Verdict: keep both, retire nothing; WebGL 2 needs a path (§8) |
+| 46d.25 | done (25a–25c; 25c 40c05fce, 6b3a04f0, d7320305): fine bricks L0–1 behind `fineBricks` (off). 25c: ON does no mip work (60 m/s flight: 1,455 → 0 downsample, 2,043 → 673 derives, D633); ON's detail ring was smaller than OFF's (83 vs 110 chunks, fixed: low 60 detail 5.9 s vs OFF 4.8); D631 streaks mostly gone; D632 bound by the read ring's refill. Keep both; 46d.26 next |
+| 46d.26 | not started (46d-c) |
 
 ## 8. Results
 
@@ -3912,6 +3923,74 @@ nothing now.** Next: D632 and D633, then construction at low (D629: level 0 fart
 comparison again with the same scripts (`work/46d.25b3/*.sh`); if low and medium then hold, retire the rings for WebGPU
 and give WebGL 2 the CPU fine-brick build (option 2), which keeps one draw path.
 
+### 46d.25c the switch's work, the detail ring, the streaks; D633, D632, D629, D631
+
+(40c05fce, 6b3a04f0, 3503c1b9, d7320305; Iris Xe, WebGPU 1280 × 720, staging and export `voxel-slice@r969`, one round
+a cell, 14:30–16:20, load 1.5–4.5, uptime 19.9 d; `work/46d.25c/`). The second full comparison was dropped by the lead
+for 46d.26 (the owner's bake level, §2 2026-11-12): only the cells and poses these fixes touch were measured again.
+
+- *D633 fixed (40c05fce).* Counted (25b-3): with the switch on the mip rings got radius 0, which stopped a node's
+  derive but not its cells' downsample, and level 0 was still derived for every chunk of the 192 m read ring. Now
+  near only (`setNearOnly`, called by `setFineBricks`) the coarser levels are dormant (`StreamMips.setDormant`: no node
+  kept, downsampled or derived; waking rebuilds them from the resident chunks) and streaming level-0 derives go out
+  only under a level-1 node within level 0's ring, its hysteresis and a chunk of a focus (`StreamDetail.setReach`,
+  `StreamLod.inDetailReach`); the read ring is unchanged (fine nodes read the chunks). The 25b-3 flight again (real
+  streamer, 4 workers, region files, a 1.5 km hilly world, 192 m ring, 368 m at 60 m/s; scratch, not kept,
+  `work/46d.25c/loadring/`), same hour OFF → ON: loads 830 → 832, downsample jobs 1,455 → **0**, level-1/2 derives
+  352 → 0, seams 944 → 0, level-0 derives 2,043 → 673, fill 11.5 → 2.0 s, settle after the stop 11.5 → 2.5 s, world
+  thread 0.90 → 0.77 s over the run (25b-3's ON: 1,688 downsample jobs, 3,059 derives). vitest
+  (`stream-levels.test.ts`, real workers): near only no downsample or level-1/2 job, every level-0 derive within the
+  reach, no node kept; off again the levels come back equal to fresh derives.
+- *The detail ring: a comparison error (6b3a04f0).* Near only, no coarser node is ready, so level 0 stood in for every
+  level-1 node round the focus, with every ring pulled in by one level-1 node to end it at the ring: per chunk,
+  inside the ring, where with every ring level 0 covers each whole level-1 node the ring splits. ON compared against
+  a smaller detail ring: low town-west 83 level-0 chunks against OFF's 110 (25a's table). Now near only keeps the
+  rings and lets nothing stand in (at speed what is derived still stands in by the focus): town-west low ON draws
+  110 chunks, as OFF; vitest: the level-0 set near only equals OFF's split set (192 of 192). **Cost of being fair:**
+  low 60 m/s full detail ON 5.86 s against OFF 4.80 s the same hour (25b-3's 1.35–1.43 s was the smaller ring: the
+  last ~25 chunks of the full ring land 5–6 s after the stop); nothing pending ON 5.86 / OFF 9.22 s; low 150 ON
+  6.38 s, 0 hole frames.
+- *D632 traced (counted), not fixed.* The coverage bench now records the page's fine builds and its counts a second
+  after the stop, and saves each hole event's worst frame (3503c1b9). Medium 150 m/s ON (export and Play): the page's
+  fine build queue was empty (0 pending, 0 far changes held) in 28 of 30 one-second samples; fine builds 2,117 →
+  2,573 over 30 s; **the simulation's worker pool queue stood full (253–256 of 256) from 2 s to 26 s after the stop**,
+  with 5,982 loads (870 stored, 2,887 uniform, 2,225 air) and 13,084 section derives after it and the far field's
+  coarse work 5,800 → 4,865 pending behind them. So medium's settle is bound by refilling the 192 m read ring that
+  the fine nodes need resident (and level 0 waits in the same queue: 94 chunks from 8 to 18 s), not by the GPU build,
+  its 4 slots, the block reads or their order: nearest-first and cancelling builds would not move it. The far side's
+  "parent drawn until every opened child is built" already holds (checked in code: a far change is grouped by root
+  and the page holds it whole until every fine build in it is in). That bound is what 46d.26's bake removes (the read
+  ring shrinks). Holes at medium 150 ON: 19 frames (export), 69 (Play; a new place m ≈ 2,447 with 34 frames); the
+  worst frame (`travel/shots/play-medium-150-high-playon-t1-hole-m2447.png`) shows **the ground band nearest the camera
+  undrawn** while the coarser ground behind is drawn: at speed the near field draws only its stand-ins and the far
+  field does not cover the band round the eye; untraced (D634).
+- *D629.* The ring above was the comparison's part. The remaining construction loss past the level-0 fine reach
+  (~78 m at low: window recesses, thick level-1 eaves) is not changed here: with baked level 0 the reach costs march
+  time and atlas only, so it is set with the headroom meter in 46d.26. Window frames, fences, ridges and kit pieces
+  end at the detail ring in both modes (owner's choice); OFF shows window *recesses* past it because its level-1 mesh
+  keeps 0.5 m openings, not frames.
+- *D631 mostly fixed (d7320305).* Traced by pictures (`shots/side-by-side/near-boulders-low-on-vs-notex.png`): with the
+  fine textures off the streaks and the pale band are gone, so they are the texture read, not the field: the fine
+  shade read terrain on the normal's largest axis only, and a fine field's normal (its gradient over 0.5–1 m) flips
+  that axis from sample to sample on a slope near 45°. Terrain now blends the three axes as the near surface does:
+  the streaks are down to two faint hairlines, the pale band gone (`near-boulders-low-off-vs-blend.png`); near-valley
+  shows no dashed line (`near-valley-low-off-vs-blend.png`). Cost: 9 → 21 samples a fine pixel; low's meter (town
+  orbit, one round) far pass 4.76 → 7.05 ms, frame GPU 11.6 → 10.1 ms (both within ±40 %), room 176 copies, the 30 Hz
+  cap held. Medium not metered (unverified).
+- *D628* left with its trace (the terrain mesher's creases are not a one-plane rule).
+- *Looked at* (`work/46d.25c/shots/side-by-side/`, low OFF vs ON same build, every picture opened): town-west better
+  than 25b-3 (the right-front houses now level 0 with window rows as OFF; past ~78 m the back rows still without
+  windows and fences; px > 60: 5.45 → 4.46 %); town-north 3.15 → 2.98 % (back-row eaves still thick: D629); town-street
+  0.42 → 0.34 % (same); near-boulders better (streaks mostly gone; the material split on that slope still differs from
+  OFF's level-1 mesh); near-valley same as OFF. Medium town-west 2.97 → 2.21 %, town-street 0.35 → 0.70 % (not
+  looked at closely; medium unverified on target hardware).
+- *Tests and time.* vitest `stream-levels.test.ts` +1 (near only), `page-view.test.ts`, `voxel-far-view.test.ts` (the
+  fine reads 9 → 21). No e2e change; the voxel area in the gate 173 s (gate-fast-20261112-141915).
+- *Verdict (unchanged): keep both behind the switch, retire nothing.* Low holds for terrain and travel by pictures and
+  frame, but with the fair ring its 60 m/s settle is ~1 s behind OFF's and construction past ~78 m is still worse;
+  medium does not hold (settle bound by the read ring's refill, D632; holes at speed, D634). Both open points are what
+  46d.26 (baked fine levels, the read ring shrunk to the detail ring) is for.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4863,6 +4942,18 @@ and give WebGL 2 the CPU fine-brick build (option 2), which keeps one draw path.
   retire nothing now** (§8 "46d.25 comparison: the verdict"): low holds for terrain and travel, construction past ~78 m
   at low and medium's settle (D629, D632) do not; WebGL 2 needs its own answer before any ring goes (keep the rings
   for WebGL 2 only, a CPU fine-brick build in workers, or blobs).
+- 2026-11-12 (46d.25c, default chosen, owner to confirm): **near only, the coarser levels do no work at all** (no node
+  kept, downsampled or derived) and level 0 is derived only within its ring's reach; waking rebuilds them (D633).
+- 2026-11-12 (46d.25c, default chosen, owner to confirm): **near only, level 0 covers what it covers with every ring**
+  (no stand-in reach past it): the comparison's detail ring was smaller with fine bricks on; low 60 m/s full detail
+  is 5.9 s ON against 4.8 s OFF with the fair ring (25b-3's 1.4 s came from the smaller ring).
+- 2026-11-12 (46d.25c, default chosen, owner to confirm): **fine bricks' terrain blends the three triplanar axes**
+  (D631): 21 reads a fine pixel instead of 9.
+- 2026-11-12 (46d.25c): D632 counted: medium's settle with fine bricks is bound by the 192 m read ring's refill (the
+  pool's queue full 2–26 s after a 150 m/s stop), not by the GPU build; the build's order, slots and cancelling
+  left as they are.
+- 2026-11-12 (lead): placed the owner's bake-level decision (§2 2026-11-12) as **46d.26 in 46d-c**, after 46d.25c and
+  before the close; 25c's second full comparison dropped in its favour (46d.26 runs it with baked bricks).
 
 ## 10. Open questions for the owner
 

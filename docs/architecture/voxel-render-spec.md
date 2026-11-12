@@ -624,8 +624,8 @@ byte, green the high) and the occlusion: no byte more a brick (3.6 KiB). The mar
 visibility texel (its face code + 8); the one far shade, for a fine hit only (a branch), reads the eight samples' words
 round the hit, takes the two heaviest by the trilinear weights and the second's share, and shades as the near surface
 does (`VoxelSurface.farSurface`, the same `textureSetAt`, projection, height blend and R111 wetness): construction on
-the 4 m grid tiles with the wall/floor/ceiling set by the hit's normal, terrain on the 2 m tiles of the normal's
-largest axis (one read a map), at the mip whose texels are as wide as the pixel's footprint on the surface (explicit
+the 4 m grid tiles with the wall/floor/ceiling set by the hit's normal, terrain on the 2 m tiles blended over the
+three triplanar axes (a fine field's normal flips its largest axis from sample to sample on a slope), at the mip whose texels are as wide as the pixel's footprint on the surface (explicit
 level: distance × pixel angle ÷ the slant's cosine, at least ¼), the world point from the far view's root and the
 floating origin's grid phase, so a texture lies at the same metres on a fine brick as on the mesh it continues. It
 fades to the palette's colour (the two words' far colours, live from the table) between the far field's `fineFade`
