@@ -333,6 +333,33 @@ describe('fine far bricks: the selection', () => {
     expect(all.drawn.every((d) => d.node.level >= 2)).toBe(true);
   });
 
+  it("opens fine nodes in the near cover's edge ring, where the far field draws behind the near field, and none the cover hides", () => {
+    // The near field draws chunk columns 0–6 on both axes at every height: the cover hides 1–5 (each chunk and every
+    // chunk round it drawn) and keeps 0 and 6 as its edge ring. A level-2 node over the edge ring kept closed draws
+    // its 2 m roofs there behind the near field, standing out past its silhouettes; fine nodes draw the near field's
+    // own surface instead.
+    const drawnCol = (c: number): boolean => c >= 0 && c <= 6;
+    const near = (c: ChunkCoord): boolean => drawnCol(c.cx) && drawnCol(c.cz);
+    const hiddenCol = (c: number): boolean => c >= 1 && c <= 5;
+    const fine = new FarFineIndex(keptIndex(), host(world, () => false, near));
+    const sel = new FarSelection().select(fine, { ...view, errorPixels: 2 });
+    const covering = (cx: number, cy: number, cz: number): MipNode | undefined => sel.drawn.map((d) => d.node).find((n) => n.nx === cx >> n.level && n.ny === cy >> n.level && n.nz === cz >> n.level);
+    let edge = 0;
+    for (let cx = 0; cx < SPAN; cx++) for (let cz = 0; cz < SPAN; cz++) for (let cy = 0; cy < HEIGHT; cy++) {
+      if (!near({ cx, cy, cz }) || (hiddenCol(cx) && hiddenCol(cz)) || world.chunkForm(cx, cy, cz) === 'absent') continue;
+      edge++;
+      expect(covering(cx, cy, cz)?.level, `edge chunk ${cx},${cy},${cz}`).toBe(0);
+    }
+    expect(edge).toBeGreaterThan(0);
+    // Nothing fine where the cover hides the far field whole.
+    for (const d of sel.drawn) {
+      if (!isFarFine(d.node)) continue;
+      const s = 1 << d.node.level;
+      const wholly = hiddenCol(d.node.nx * s) && hiddenCol((d.node.nx + 1) * s - 1) && hiddenCol(d.node.nz * s) && hiddenCol((d.node.nz + 1) * s - 1);
+      expect(wholly, `${mipNodeKey(d.node)} under the cover`).toBe(false);
+    }
+  });
+
   it("leaves a partly opened node's bricks out of its draw in the octants fine nodes cover", () => {
     const n = { level: 2, nx: 3, ny: 1, nz: 5 };
     const drawn = new Set(['1:7,2,10', '0:12,6,22', '0:13,7,23']);

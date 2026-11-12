@@ -21,7 +21,9 @@
  * - **Selection.** The far tree's own, by screen error and the visibility
  *   feedback: the fine levels are the tree's levels below its kept ones,
  *   opened where a 1 m or 0.5 m cell is worth its pixels. A node the near
- *   field draws whole is not opened (the detail ring draws it).
+ *   cover hides whole (the near field draws it and every chunk round it)
+ *   is not opened; in the cover's edge ring fine nodes draw behind the
+ *   near field, so its coarser levels never show past it.
  * - **Edits.** A changed chunk makes every fine node whose block reads it
  *   stale: its block is read again from the edited cells and sent, and its
  *   old draw stays until the new one is built.
@@ -175,7 +177,7 @@ export function farFineChunks(n: MipNode): { readonly min: readonly [number, num
 export interface FarFineRefused {
   /** Level-2 nodes with a chunk their children read not resident. */
   readonly resident: number;
-  /** Nodes the near field draws whole. */
+  /** Nodes the near cover hides whole (the near field draws them and every chunk round them). */
   readonly near: number;
   /** Level-2 nodes opened into only their resident children, drawn over the rest. */
   readonly partial: number;
@@ -191,7 +193,11 @@ export interface FarFineHost {
   holds(cx: number, cy: number, cz: number): boolean;
   /** A resident chunk's cells (the world's files with the run-time edits over them); false: air. */
   readonly cells: ChunkCells;
-  /** Whether the near field draws a chunk whole now (the detail ring): a fine node there is not opened. */
+  /**
+   * Whether the near field draws a chunk now (a drawn level covers it). Where it and every chunk round it are drawn the
+   * near cover hides the far field (chunk-batch.ts `NearCoverWire`) and no fine node is opened; in the cover's edge
+   * ring the far field draws behind the near field, so fine nodes open there.
+   */
   nearDrawn(cx: number, cy: number, cz: number): boolean;
   /**
    * Whether the eye travels faster than the near field's detail speed now: no baked fine node is read then (a 0.5 m
@@ -221,7 +227,7 @@ export interface FarFineSources {
 /**
  * The far tree's index with the fine levels under its kept ones, as the selection walks it: a kept level-2 node opens
  * into the level-1 nodes over its chunks, a level-1 node into its chunks, where each child is baked (read from the far
- * cache, no chunk needed) or built (every chunk its block reads resident), and the near field does not draw the node
+ * cache, no chunk needed) or built (every chunk its block reads resident), and the near cover does not hide the node
  * whole; elsewhere a level-2 node stays closed (the kept tree's finest, as without fine bricks). A baked child is taken
  * to hold something until read (the cache stores only nodes that draw; a missing one is read as nothing to draw).
  */
@@ -229,11 +235,13 @@ export class FarFineIndex {
   readonly minLevel = 0;
   /**
    * Nodes the last finished selection wanted to open (by screen error) but kept closed: a chunk their children read
-   * not resident, or the near field drawing them whole.
+   * not resident, or the near cover hiding them whole.
    */
   refused: FarFineRefused = { resident: 0, near: 0, partial: 0, speed: 0 };
   private counting: { resident: number; near: number; partial: number; speed: number } = { resident: 0, near: 0, partial: 0, speed: 0 };
   private last: { readonly key: string; readonly full: boolean; readonly kids: MipNode[]; readonly fast: boolean } | null = null;
+  /** The near field's drawn chunks asked in this selection (the near field changes between selections, not within). */
+  private drawnMemo = new Map<number, boolean>();
   private readonly sources: FarFineSources;
 
   constructor(
@@ -274,8 +282,9 @@ export class FarFineIndex {
   selecting(): void {
     this.refused = this.counting;
     this.counting = { resident: 0, near: 0, partial: 0, speed: 0 };
-    // Residency may have changed since the last selection.
+    // Residency and the near field may have changed since the last selection.
     this.last = null;
+    this.drawnMemo.clear();
   }
 
   /**
@@ -288,7 +297,7 @@ export class FarFineIndex {
   openable(n: MipNode): boolean {
     if (n.level > FAR_MIN_LEVEL || n.level === 0) return n.level > 0;
     if (n.level < FAR_MIN_LEVEL) {
-      const kids = mipChildren(n).filter((c) => this.holds(c));
+      const kids = this.children(n);
       if (kids.length > 0 && kids.every((c) => this.available(c))) return true;
       if (kids.some((c) => this.isBaked(c)) && this.fast()) this.counting.speed++;
       return false;
@@ -313,38 +322,53 @@ export class FarFineIndex {
     if (n.level > FAR_MIN_LEVEL) return this.base.children(n);
     if (n.level === 0) return [];
     if (n.level === FAR_MIN_LEVEL) return this.opening(n).kids;
-    return mipChildren(n).filter((c) => this.holds(c));
+    return mipChildren(n).filter((c) => this.holds(c) && !this.hidden(c));
   }
 
   /**
    * A level-2 node's opening: its children that hold anything and are to be had now (baked: the eye not too fast;
    * built: every chunk its block reads resident, as a level-1 node reads its own chunks and one round them, which its
    * level-0 children together read), and whether that is every child that holds anything (full). With every child to
-   * be had, a node the near field draws whole opens into nothing (the detail ring draws it). Kept for the node last
+   * be had, a node the near cover hides whole opens into nothing (the detail ring draws it). Kept for the node last
    * asked: the selection asks openable, children and partial of one node in turn.
    */
   private opening(n: MipNode): { readonly full: boolean; readonly kids: MipNode[]; readonly fast: boolean } {
     const key = `${n.nx},${n.ny},${n.nz}`;
     if (this.last !== null && this.last.key === key) return this.last;
-    const holding = mipChildren(n).filter((c) => this.holds(c));
+    // A child the near cover hides whole is left out: the far field is not drawn there.
+    const holding = mipChildren(n).filter((c) => this.holds(c) && !this.hidden(c));
     const kids = holding.filter((c) => this.available(c));
     const full = kids.length === holding.length;
     let open = kids;
-    if (full) {
-      const s = 1 << n.level;
-      let drawn = true;
-      for (let cx = n.nx * s; cx < (n.nx + 1) * s && drawn; cx++) for (let cy = n.ny * s; cy < (n.ny + 1) * s && drawn; cy++) for (let cz = n.nz * s; cz < (n.nz + 1) * s; cz++) if (!this.host.nearDrawn(cx, cy, cz)) {
-        drawn = false;
-        break;
-      }
-      if (drawn) open = [];
-    }
+    if (full && this.hidden(n)) open = [];
     this.last = { key, full, kids: open, fast: !full && holding.some((c) => this.isBaked(c)) && this.fast() };
     return this.last;
   }
 
   private fast(): boolean {
     return this.host.fast?.() === true;
+  }
+
+  /**
+   * Whether the near cover hides the far field over every chunk of a node: each chunk and every chunk round it drawn by
+   * the near field (the cover's erosion, chunk-batch.ts). Not the near field's drawn chunks alone: in the cover's edge
+   * ring the far field still draws (behind the near field, to close gaps between the two), and a node kept closed
+   * there draws its coarser level, whose roofs and walls stand out past the near field's silhouettes.
+   */
+  private hidden(n: MipNode): boolean {
+    const s = 1 << n.level;
+    for (let cx = n.nx * s; cx < (n.nx + 1) * s; cx++) for (let cy = n.ny * s; cy < (n.ny + 1) * s; cy++) for (let cz = n.nz * s; cz < (n.nz + 1) * s; cz++) {
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) if (!this.drawnChunk(cx + dx, cy + dy, cz + dz)) return false;
+    }
+    return true;
+  }
+
+  private drawnChunk(cx: number, cy: number, cz: number): boolean {
+    // Chunk coordinates stay well inside ±2^16; three 17-bit fields pack exactly into a double.
+    const k = ((cx + 65536) * 131072 + (cy + 65536)) * 131072 + (cz + 65536);
+    let d = this.drawnMemo.get(k);
+    if (d === undefined) this.drawnMemo.set(k, (d = this.host.nearDrawn(cx, cy, cz)));
+    return d;
   }
 
   /** Whether a fine node holding anything can be drawn now: read baked (the eye not too fast), or built from resident chunks. */
