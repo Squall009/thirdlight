@@ -314,7 +314,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
 | 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
-| 46d.25 | 46d.25a done (f4af93a3, 2d235b54): fine bricks L0–1 built in WebGPU compute past the detail ring behind `?fineBricks=1` (off); GPU = CPU build (same bricks, distances ±1 byte at ties). Low 150 m/s export: longest 45 ms, detail 3.9 s, pending 3.9 s (was 4.7 / 8.5). Houses crisp, untextured; D623–D624. 46d.25b compares |
+| 46d.25 | 25a done (f4af93a3, 2d235b54): fine bricks L0–1 in WebGPU compute behind `?fineBricks=1`. 25b-1 done (5c970289, 5abc05c9): fine samples hold look words, the far shade textures them as the near surface (fade 72–144 m low), no atlas byte more; far shade low 5.9 → 5.9 ms, medium 5.7 → 6.1; D623, D624 fixed; roofs step (D625). 25b-2 compares |
 
 ## 8. Results
 
@@ -3581,6 +3581,74 @@ ring in Play (vitest and the page e2e only), WebGL 2 with the switch (D624).
 cause too) is the first thing to judge; then the headroom meter with builds going (GPU ms a build), medium's fill
 (2.5 k fine nodes, latency to 1 s), 60 m/s and medium 150, the load ring shrunk toward the fine reach, memory.
 
+**46d.25b-1 textured fine bricks** (5c970289, 5abc05c9; the lead saw 25a's ON pictures turn every house past the detail ring
+into flat palette colour, worse than the mesh rings in the very band bricks would take over).
+
+- *What a fine sample holds.* The GPU build keeps each sample's look word where a coarse brick keeps its baked palette
+  colour: red the word's low byte, green the high, alpha the occlusion as before (`voxel-fine-bricks-wgsl.ts` pass 5).
+  A fine block's words carry the near grid's construction bit (`SHADER_CONSTRUCTION_BIT`, bit 15, from the cell's
+  role: `gatherFarCells(…, construction)`), so the word is the near surface's grid entry; the far cache's builds leave
+  it out. **Memory: none.** A brick is 3.6 KiB either way; the build no longer holds the 256 KiB palette buffer.
+- *The shade.* The march marks a fine node's hit (cells under 1.5 m) in the visibility texel (face code + 8). The one
+  far shade, for those pixels only (a branch: coarse pixels read nothing new), loads the eight words round the hit,
+  takes the two heaviest by the trilinear weights (the near blend's `addHeaviest`, moved to `voxel-surface-sets.ts` and
+  shared), and calls `VoxelSurface.farSurface`: the near surface's `textureSetAt` on the two materials (construction on
+  the grid's 4 m tiles with the wall/floor/ceiling set by the hit's normal, terrain on the 2 m tiles of the normal's
+  largest axis, one read a map), `heightBlend`, `wetLook` (R111); its world point from the frame's camera and the far
+  view's root (64 bits on the CPU each frame) plus the floating origin's grid phase (`gridPhases`; vitest: the same
+  (U, V) in the tile as the chunk's at any origin). Mip level explicit: texels as wide as the pixel's footprint
+  (distance × pixel angle ÷ the slant's cosine, at least ¼), so the reads may sit in the branch. The material blend
+  is the near one's two-material height blend without its per-material blend width (samples are 0.5–1 m apart
+  already). The colour fades to the two words' far colours (the palette's colour, read live from the table) between
+  the far event's `fineFade` (`farFineFade`): ending where a level-2 cell is the error on screen, or three chunks
+  short of the load ring (the middle of the band where level 2's near side lies); starting at half: 72–144 m at low
+  and medium on the 8 km world. (First built with the band's worst case, five chunks: 56–112 m, which faded the town's
+  back row still drawn by level 1; `town-west-low-backrow-off-on-on2.png`.) The direct march (`?farPass=direct`)
+  draws fine hits in the palette's colour.
+- *Tiers.* One program on every tier: albedo, normal and ORM (`fineTexture` `full`); `albedo` (albedo only) and `off`
+  are there for comparisons (`?fineTexture=`; `setFar({ fineTextured })` at run time, no new program). Low did not
+  need the albedo-only tier (below).
+- *D623.* Colours and sets are read when shaded: a record's change reaches fine bricks without a rebuild (page e2e: a
+  texture set added to the ground, 0 fine builds, detail 1.9 → 14.0–15.6 a pixel step). *D624.* The far view tells
+  the page when a fine node arrives it cannot build (WebGL 2); the page sends `voxels.fine` off to the simulation
+  (worker or page), which turns fine bricks off: the near field's levels 1–2 come back (WebGL 2 smoke: export with
+  `?fineBricks=1` draws near levels [156, 20], the console says why once).
+- *Dimples (25a, grass slopes past ~70 m).* The GPU build already has 46d.13c-2's fill-aware surface (part-full cells
+  as heights, the normal over ±1 cell; mirrored and checked against the CPU build). In the new pictures the regular
+  pattern on the far grass slope is in OFF's mesh rings as much as in ON (`near-border-low-off-vs-on2.png`); textured,
+  it is no stronger than OFF. No new row.
+
+**Measured** (staging, Iris Xe, Play 1280 × 720, WebGPU, the 8 km world, fine on; headroom meter 1 round a tier,
+`--hide far,near --copies far`; before 07:19–07:25 at 25a's build, after 08:27–08:34; load 0.5–3.2, uptime 19.6 d;
+`work/46d.25b1/meter/`). The far pass hidden (march + shade): **low 5.94 → 5.88 ms, medium 5.65 → 6.14 ms**; frame GPU
+low 9.2 → 7.6–10.5 ms, medium 9.0–10.0 → 9.0–9.5. The texture reads are under the meter's resolution at low (±40 %),
+medium +0.5 ms within it; medium unverified on target hardware. Low's room 0 → 176 ballast copies at the edge (the
+before round missed at no load once and found no edge: host noise, not texturing). Page heap / GPU at the town: low
+560 / 944 → 585 / 939 MiB, medium 760 / 1,345 → 718 / 1,389 MiB. Tests: vitest `far-fine.test.ts` (+2: construction
+words, the fade), `voxel-surface.test.ts` (+1: the far shade's projection = the chunk's), `voxel-far-view.test.ts`
+(the shade's reads: 7 at its top as before, 9 more only in the fine branch; the texel's fine flag);
+`voxel-world.e2e.ts` page test (textured vs off, D623) 1.1 m → 1.0 m in the gate; WebGL 2 smoke (D624). Gates:
+gate-fast-20261112-074841 red on the e2e's wrong colour-step bound (fixed: a set keeps the palette's mean) and
+`project-items.e2e.ts` (D331/D410 watch), `surface-probes.test.ts` failed once, passed alone (D419 watch);
+gate-fast-20261112-080731 GREEN (19 min).
+
+**Looked at** (`work/46d.25b1/shots/side-by-side/<pose>-<q>-off-vs-on2.png`, `town-west-low-backrow-off-on-on2.png`,
+`strip-low-on2-crop.png`; every picture opened). *town-west, low:* the walls past the detail ring now carry their
+sets (stone courses, white plaster, plank boards on the brown houses) to ~100 m and fade after; the hand-off at the
+ring is no longer a texture line (the walls continue textured); the ground's tiled grass continues past the ring.
+**Still different from OFF:** the roofs are 0.5–1 m stepped slabs (each step lit and textured as tread and riser)
+where OFF's level-1 meshes show smooth tile planes with rows (D625); no window rows, frames, fences (kit pieces end at
+the detail ring by the owner's choice); the farthest back-row houses (level 1, past ~110 m) are rounded lumps in the
+palette's colour; a dark square on a stone wall where OFF has a window. *Medium:* the back row is level 0, crisp and
+textured (planks, stone, plaster), roofs stepped as at low. *near-valley:* the gravel bed past the ring is textured
+stones (25a's flat grey patch is gone), fading to grey past ~140 m without a line; a thin dark dashed line across the
+gravel at ~60–70 m (D626). *near-border:* grass and the gully textured as OFF; the gully's rock outcrops past the ring
+are lumpy (D625). *Level 1 → 2:* no line seen in these poses (palette to palette). *Orbit strip (4 frames 0.25 s
+apart):* no sparkle or crawl between frames in the back row; motion and TAAU shimmer otherwise unverified.
+
+**For 46d.25b-2 (the comparison):** first D625 (roof steps: what the owner sees as the mesh rings' advantage), then
+the full table (meter per pass with builds going, fill, 60/150 m/s both tiers, memory, the load ring shrunk).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4498,6 +4566,16 @@ cause too) is the first thing to judge; then the headroom meter with builds goin
 - 2026-11-12 (46d.25a, default chosen, owner to confirm): **the GPU build matches the CPU build up to 32-bit rounding**
   (distance bytes ±1 at ties, occlusion ±1, a look vote over at most 8 words a sample, a sample with no shown cell
   taking its brick's nearest earlier look); checked in the browser against `farBricksFromBlock` on the same blocks.
+- 2026-11-12 (46d.25b-1, default chosen, owner to confirm): **fine bricks are textured on every tier as the near
+  surface** (albedo, normal, ORM, wetness; one read a map, terrain on the normal's largest axis), only on their own
+  pixels; `?fineTexture=albedo|off` kept for comparisons. Low did not need albedo only (far pass 5.9 ms either way).
+- 2026-11-12 (46d.25b-1, default chosen, owner to confirm): **a fine sample holds its look word, not its colour**
+  (no byte more; colours and sets read live, so a record's change needs no rebuild); words carry the construction bit.
+- 2026-11-12 (46d.25b-1, default chosen, owner to confirm): **the textures fade to the palette's colour between half
+  and all of where level 2 begins** (the error's hand-over, or three chunks short of the load ring): 72–144 m at
+  low and medium; the level 1 → 2 boundary joins two palette colours.
+- 2026-11-12 (46d.25b-1, default chosen, owner to confirm): **a page that cannot build fine bricks turns them off**
+  in the simulation (WebGL 2): the mesh rings come back rather than nothing past the detail ring.
 
 ## 10. Open questions for the owner
 
