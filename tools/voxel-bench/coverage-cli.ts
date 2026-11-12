@@ -480,6 +480,14 @@ function pictureChecks(rec: FlightRecord, path: CoveragePath, stopAt: number): R
       worst.push(h);
     }
   }
+  // What the page drew at each event's worst frame: the near field's counts and the far field's against the near cover
+  // (which part of the view is undrawn tells the cause).
+  const frames = rec.recorded?.frames ?? [];
+  events.forEach((e, k) => {
+    const at = rec.flyAt + worst[k]!.t * 1000;
+    const f = frames.find((x) => x.t >= at);
+    if (f !== undefined) (e as { page?: Record<string, number> }).page = f.counts;
+  });
   // Each event's worst frame as seen, when it was kept (where the hole lies tells its cause).
   events.forEach((e, k) => {
     const png = worst[k]!.png;
