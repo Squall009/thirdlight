@@ -314,7 +314,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
 | 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
-| 46d.25 | 25a done (f4af93a3, 2d235b54): fine bricks L0–1 in WebGPU compute behind `?fineBricks=1`. 25b-1 done (5c970289, 5abc05c9): fine samples hold look words, the far shade textures them as the near surface (fade 72–144 m low), no atlas byte more; far shade low 5.9 → 5.9 ms, medium 5.7 → 6.1; D623, D624 fixed; roofs step (D625). 25b-2 compares |
+| 46d.25 | 25a done (f4af93a3, 2d235b54): fine bricks L0–1 in WebGPU compute, `?fineBricks=1`. 25b-1 done (5c970289, 5abc05c9): textured as the near surface. 25b-2 done (0548778d, aa0a7be8, 0815a6a6): roofs are the roof mesher's planes (L0 rays 0 missed, 3 cm off, were 62–90 % through), D625–D626 fixed; low back row is level 2 (D627), rocks D628. Next: comparison |
 
 ## 8. Results
 
@@ -3649,6 +3649,88 @@ apart):* no sparkle or crawl between frames in the back row; motion and TAAU shi
 **For 46d.25b-2 (the comparison):** first D625 (roof steps: what the owner sees as the mesh rings' advantage), then
 the full table (meter per pass with builds going, fill, 60/150 m/s both tiers, memory, the load ring shrunk).
 
+**46d.25b-2 sloped roofs as the roof mesher's planes; D625, D626** (0548778d, aa0a7be8, 0815a6a6; the lead saw every roof
+past the detail ring as 0.5–1 m stepped slabs with swollen edges and the farthest back-row houses as rounded lumps).
+
+- *The trace.* A roof is stored as a one-cell stair (`town.ts`: one roof cell a column, one up a column), whose cells
+  touch only along their edges; the near field draws it as a slab through the stair's outer corners (roof-mesher.ts).
+  A field of the cells has no inside there: every corner touches air, so the surface rule puts the corners at 0 or
+  +¼ cell and the solid is only a thin tube along each step's edge. Measured with the CPU build (byte-equal to the GPU's)
+  against the roof mesher's own planes, vertical rays half a cell apart over the roof tests' five 45° and eight 1:2
+  roofs (`tools/voxel-bench/roof-mesher.test.ts`, first run with the old rule): **level 0: 62–90 % of the rays passed
+  through a 45° roof (11–39 % through a 1:2 one), the rest hit 0.35–0.57 m off the plane on average; level 1: 30–100 %
+  passed through, 0.30–0.66 m off**; the hits' normals 20–165° off (p90). So the roof was the steps' edges and whatever lay under them, lit and textured by
+  the steps' gradient: not the ±2-cell band, not the 8³ sampling, not level 1's spacing alone.
+- *The fix: the roof mesher's planes in the fine field* (`far-bricks-roofs.ts`; render spec §4 *Sloped roofs*). A fine
+  block reads its roofs as the near field does: a roof cell drawn whole with nothing solid above that the mesher's own
+  reading (`roofReading`) lays as a slope is a plane cell (the highest of its column); the block carries a column table
+  (u32 a column: the cell's height, its top at the column's four corners by the mesher's `roofTopAt`, now shared, and a
+  1:2 bit). The plane cell leaves the cell field (fill 0, its word kept for the looks, a top in the vote); the roofs'
+  distance at a corner over a roof column is the height off its plane times the slope's cosine (a trilinear read of a
+  plane's corners is the plane), elsewhere the distance to the nearest roof column's span, over a slab two sample
+  spacings deep, joined to the cell field by the least: in `farBricksFromBlock` and in the GPU's z pass alike (one rule,
+  one source: the CPU oracle is the rule, the WGSL mirrors it). The texture follows the plane's normal on its own (the
+  near surface's `textureSetAt` on the 45°/1:2 grid phases). Levels 2+ (the far cache, CPU) are unchanged.
+- *After* (the same test, now its assertions): **level 0: 0 rays missed, 2–4 cm off on average (max 0.16 m at a 45°
+  centre ridge cut between two samples), normals p50 2.4°, p90 3.0°; level 1: 0 missed, 4–11 cm (max 0.58 m: an odd
+  ridge between 1 m samples is cut flat), p90 5.3°.** The bounds in the test: level 0 mean < 5 cm, max < 0.2 m, p90
+  < 6°; level 1 mean < 15 cm, max < 0.6 m, p90 < 10° (the hit distance of 0.05 node cells, a ridge's cut, 8-bit samples).
+- *Exact vs approximate now.* Unchanged for cells (distance bytes ±1 at ties, looks within 8 words, occlusion ±1-2); the
+  roofs' distance is the same function on both sides in 64 vs 32 bits. Browser check (page e2e, a 45° gable laid at run
+  time 54 m out): the two fine nodes over it built on the GPU and the CPU agree: same bricks, distance bytes off by one
+  in 0.4–2 % of samples (never more), looks 0.2–0.6 % apart, occlusion ±2; the far solid under the plane over a stair
+  cell reads inside (it was air), over the plane outside. What is approximate against the near mesher: the far slab is
+  two sample spacings deep (1 m at level 0, 2 m at level 1) where the mesher's is one cell, so an eave's underside sits
+  lower (seen only from under an eave); a supported roof closes onto its walls by that depth instead of the kit's
+  wall-top rule; a second plane cell lower in a column keeps its cells; damage by the engine's stages (no kit table).
+- *D626* (the dashed line across the gravel 60–70 m out). Traced by pictures (`work/46d.25b2/d626-tint.png`): it is in
+  the far draw (there with the near field hidden, gone with the far hidden) and on fine pixels (a scratch build tinted
+  them green). Rays entering a fine node's side under its surface, where a level-1 neighbour lies a cell or so lower than
+  level 0, were shaded as the side's face past `FAR_INSIDE_LOOK_M` (64 m): dark dashes. Fixed: on fine nodes a hit more
+  than `FAR_FINE_DEEP_CELLS` (½ cell) under takes the ground's look at any distance (coarse nodes keep 46d.13c-4's
+  rule). One 2–3 px dot is left (`d626-after.png`).
+- *Cost.* Per node: the block grows by the column table only where a roof is (n² × 4 bytes: 6.4 KB level 0, 24 KB level
+  1, against 128 / 949 KB of cells); the far event's fine bytes at the town 155.8 → 164.9 MB low (385 nodes vs 370
+  sent), 573.8 → 541.8 MB medium (1,660 vs 1,724); one more storage buffer a build slot (24 KiB, 4 slots); the same five
+  passes, the z pass reading 6 × 6 (level 0) or 10 × 10 (level 1) roof columns a corner when the block has roofs. The
+  block's read on the world's thread (it now also reads the roofs' cells three past the block): p50 3.2 → 4.1 ms low,
+  2.3 → 3.3 medium, p95 10.9 → 14.4 and 13.5 → 19.1 (one Play run each; the 4 ms an update budget holds the frame).
+  **Atlas / far GPU at town-west: low 92.1 → 92.1 MiB (21,016 → 21,064 bricks), medium 202.5 → 202.5 MiB (54,188 →
+  54,255)**: the planes store about the bricks the stairs did.
+- *Measured* (staging, Iris Xe, Play 1280 × 720, WebGPU, the 8 km world, fine on; uptime 19.7 d). Headroom meter, far
+  pass hidden (`work/46d.25b2/meter/`): **low 5.88 → 8.04 ms (10:17, load 3.4–4.8; the near pass in the same round
+  2.33 → 3.91) and 5.39 ms in a second round (10:24, load 1.5); medium 6.14 → 6.34 ms** (one round, load 1.4–3.0;
+  unverified on target hardware): within the meter's ±40 %, no change shown. Low 150 m/s travel in an export
+  (`voxel-slice@r919`, one round, `exp-low-150-fine.json`; 25a's in brackets): longest frame 43.2 ms (45.1), 0 over
+  100 ms, 0.9 missed a minute (1.8); ground solid 0.03 s; full detail 2.65 s (3.86); nothing pending 4.56 s (3.89, the
+  far nodes last); 0 falls, 0 hole frames. Nothing regressed beyond one round's spread. Page e2e (`voxel-world.e2e.ts`
+  page test with the roof check) 1.0 m in both gates (1.0–1.1 m before). Gates: gate-fast-20261112-091027 GREEN;
+  gate-fast-20261112-095223 GREEN (`far-world.test.ts` failed once, passed alone: D599 watch).
+- *Looked at* (`work/46d.25b2/shots/side-by-side/<pose>-<q>-off-vs-on.png`, `town-west-<q>-backrow-off-on.png`,
+  `town-street-<q>-off-vs-on.png`, `town-street-low-far-crop.png`, `strip-low-on-crop.png`; every picture opened).
+  *town-west, low:* every roof drawn by fine bricks is a straight tiled plane with a clean ridge and eave, at the
+  hand-off and in the middle rows; the stepped slabs are gone. **Still different from OFF:** the back row's farthest
+  houses (left and right, past ~110 m) are still rounded red lumps: a scratch build that tinted fine pixels green
+  (`shots/town-west-low-tint.png`) shows them **not fine at all but level 2**, the far cache's 2 m bricks, so D593's
+  look where level 2 begins (D627); no ridge or eave kit pieces, window frames or fences past the ring (owner's choice);
+  roof colours flatten past the fade (72–144 m). *town-west, medium:* the back row is fine bricks out to its end: roofs,
+  gables, ridges and eaves read as OFF's; the ridges a little softer, kit pieces absent. *town-street* (a new pose: eye
+  ~7 m in a street at the town's south edge, roofs from 10 to 120 m): near roofs identical (near field); down the street
+  at low the roofs past ~78 m (level 1 by distance; not tinted) keep their planes but their verges and eaves are thick and rounded (the slab is
+  2 m deep at level 1 and its edges are rounded by the 1 m samples) and a few dark specks lie on one roof face (not
+  traced); medium is close to OFF there. *near-valley:* the dashed line is gone (one 2–3 px dot left); gravel textured
+  as before. *near-border:* grass and channel as OFF; **the gully's rock outcrops past the ring are still rounded lumps**
+  where OFF's terrain mesher draws crisp facets (D628: the fine field is the cells', not the terrain rules'). *Orbit
+  strip (low, 4 frames 0.25 s apart):* the roofs hold their planes frame to frame; no crawl or sparkle seen; motion
+  otherwise unverified. *Travel stop (after 0.5–4 s):* complete, blocky terrain filling in; a dark slope at the right
+  edge, not traced (no roof there; its texture set in shadow, as far as one frame tells).
+
+**For the comparison slice:** first D627 (at low the town's back row is level 2 because a level-2 node opens into fine
+children only with all its chunks and one round them resident in the 192 m ring: the fine reach is short of the error's
+156 m at the ring's corners; options in §9), then low's level-1 roof edges (thick, rounded: the slab's depth; a
+thinner slab at level 1 with the top kept, or level 0 farther for construction), D628 (rocks: the terrain mesher's
+rules in the field, as roofs now are), then the full table as planned.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4576,6 +4658,22 @@ the full table (meter per pass with builds going, fill, 60/150 m/s both tiers, m
   low and medium; the level 1 → 2 boundary joins two palette colours.
 - 2026-11-12 (46d.25b-1, default chosen, owner to confirm): **a page that cannot build fine bricks turns them off**
   in the simulation (WebGL 2): the mesh rings come back rather than nothing past the detail ring.
+- 2026-11-12 (46d.25b-2, default chosen, owner to confirm): **fine bricks draw sloped roofs as the roof mesher's
+  planes** (its reading and top rule, shared), not their stair of cells: the near field's own look past the detail
+  ring, at no atlas cost. The far slab is two sample spacings deep (1 m at level 0, 2 m at level 1) so its top stays
+  the plane; its underside under an eave sits that much lower than the near mesher's one cell, and at low's level 1 the
+  verges and eaves read thick and rounded. Damage by the engine's stages (a fine block has no kit table). The far
+  cache's levels (2+) keep their rule (their roofs re-laid in the mip); D627 asks whether level 2 needs the planes too.
+- 2026-11-12 (46d.25b-2, default chosen, owner to confirm): **a fine node's side entered half a cell under its surface
+  takes the ground's look at any distance** (D626): between fine levels such a side is only ever the seam; coarse nodes
+  keep the 64 m rule.
+- 2026-11-12 (46d.25b-2, for the owner, before any mesh ring is retired): **what still keeps the back row's roofs from
+  OFF's at low (D627)** and the options that keep one path: (a) a level-2 node opens its resident children and leaves
+  the rest at level 2 (the selection's all-or-none per node relaxed; no more memory; the hand-off moves to the ring's
+  edge); (b) the load ring wider where construction is (~260 m instead of 192 m for the 156 m fine reach: ~1.8× the
+  resident chunks there; reads and memory to measure); (c) the roof planes in the far cache's level 2 too (its roofs
+  re-laid as 1 m stairs in the mip are the same stair problem at 2 m; a far cache rebuild); (d) keep the level-1 mesh
+  ring for construction chunks only. The comparison slice measures (a) and (b) first.
 
 ## 10. Open questions for the owner
 

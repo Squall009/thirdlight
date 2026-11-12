@@ -632,6 +632,23 @@ distances (`farFineFade`: ending where a level-2 cell is the error on screen, or
 read from the material table and arrays when shaded: a material record's change reaches fine bricks without a
 rebuild. What a fine hit reads is the view's `fineTexture` (`full`: albedo, normal, ORM; `albedo`: the albedo alone;
 `off`: the palette's colour), `?fineTexture=` on the pages; `setFar({ fineTextured })` turns it off at run time.
+
+*Sloped roofs are the roof mesher's planes* (46d.25b-2; `far-bricks-roofs.ts`). A roof is stored as a one-cell 45° or
+1:2 stair whose cells touch only along their edges; a field of those cells has no inside, so fine bricks drew it as
+rounded steps a slanted ray passes between. A fine block (`gatherFarCells(…, fine)`) reads its roofs as the near field
+does: a roof cell drawn whole with nothing solid above that the roof mesher's own reading (`roofReading`) lays as a
+slope is a **plane cell**, the highest of its column; the block carries a **column table** (per block column, u32:
+the plane cell's height plus one in bits 0–7, its top at the column's four corners in quarter cells by the mesher's
+`roofTopAt` in bits 8–19, bit 20 a 1:2 slope; `FAR_ROOF_COLUMN`), sent beside the cells (`FarFineCells.roofs`, n² × 4
+bytes, only for a block with roofs). A plane cell leaves the cell field (fill 0) and keeps its look word, and counts as
+a top in the look vote (a cell under it is not one). The roofs' signed distance at a corner over a roof column is the
+height off its plane times the slope's cosine (exact for the plane), elsewhere the distance to the nearest roof
+column's span at its nearest corner, over a slab `farRoofThickness` (two sample spacings) deep, so a trilinear read of
+the corners just under the top gives the top's plane; it joins the cell field by the least, on the CPU build and in
+the GPU's z pass alike (`roofDistance` mirrors `farRoofDistance`). A second plane cell lower in the same column keeps
+its cells. The far cache's builds (levels 2+) are unchanged. In the march, a ray entering a fine node's side more than
+`FAR_FINE_DEEP_CELLS` (½ a cell) under its surface (the seam where a level-1 neighbour lies lower) takes the ground's
+look at any distance, where a coarse node's side does so only within `FAR_INSIDE_LOOK_M` (D626).
 ---
 
 ## 5. Requirement traceability (46d)
