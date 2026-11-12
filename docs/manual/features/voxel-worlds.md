@@ -201,6 +201,23 @@ player characters, so a large view costs a fraction of drawing every cell:
   the physics engine than triangles); cliff faces, overhangs, cave roofs and
   buildings keep exact triangles and boxes. Scripts' rays and sweeps hit the
   same ground the characters stand on.
+- **Collision follows the characters.** The collision ring is kept round
+  every player character and half a second ahead of each along the way it
+  moves; round the camera only while the camera is not travelling fast (past
+  40 m/s nothing stands on the camera's ground). Where a chunk has nothing
+  drawn yet, its collision is built on its own, ahead of the drawing work,
+  and the drawn chunk later takes it over with the same surface.
+- **A coarse floor where collision is late.** Where a character's ground has
+  no full-detail collision yet, it stands on a floor made of the far field's
+  2 m ground (the world's far cache) instead of hanging in the air. The
+  floor lies on or a little above the 2 m ground; when the full-detail
+  ground arrives it replaces the floor where it stood: a character on a
+  higher floor drops onto it (usually a few centimetres; where the 2 m cells
+  closed a narrow gap or a cliff's foot, as far as the ground lies lower),
+  one the full-detail ground holds inside it is lifted onto it. A character
+  in a cave or under an overhang (more than 2 m under the floor's lowest
+  point) is not given the floor and waits for its collision as before. A
+  world without a far cache has no floor.
 - Reading cells (`ctx.voxels`) always reads the full-detail cells, whatever
   ring they are drawn in.
 
@@ -316,6 +333,11 @@ Limits today:
 - **Where the near field ends.** Within the near field's outermost chunk
   the far field draws too, and where its coarser surface lies higher it can
   show in front of the near ground there.
+- **A camera under a coarse surface.** Flying low and fast, the camera can
+  be under the surface of a coarse far stand-in (the near field not drawn
+  there yet). The far field then shows what lies past that stand-in's solid,
+  or, where the view never leaves it, a flat patch in the ground's colours,
+  not the stand-in's cells seen from inside.
 
 ## In the editor
 

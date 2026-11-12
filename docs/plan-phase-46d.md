@@ -313,7 +313,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
-| 46d.24 | 46d.24a done (dda61ab9, 5f37e8f2); 46d.24b done (51d69259, 3d9acf42): swaps made over frames, shown whole (D612 fixed); no level 0 past 40 m/s, derives only in the collision ring, stale queued ones cancelled. Export low 150 longest 152–208 → 49–52 ms, missed 20–23 → 2–4/min; medium 60 108–162 → 55–76 ms; 0 > 100 ms, 0 falls; settle ±noise (§8). Next 46d.24c |
+| 46d.24 | done (24a dda61ab9; 24b 3d9acf42; 24c f0eadb60…197c7bfa): collision-only derives round bodies, coarse 2 m floor, D615 fixed (ground 0.02–0.05 s). Export low 60/150 longest 41–52 ms, 0 > 100, 0–2.7 missed/min; full detail low 4.6–5.6 s, medium 13–17 s: later than 24b (D620). D585 drawn as ground, open; D617, D619 |
 | 46d.25 | not started (46d-c) |
 
 ## 8. Results
@@ -3275,6 +3275,103 @@ black corner wedge, as before. Stop, low: the coarse stand-in to 2 s, the detail
 from 8 s. Early low strip (12 frames, 0.25–3 s): no dark sliver at the bottom edge (D611 not reproduced).
 *Unverified:* motion at full rate (stills), medium/high on their hardware, WebGL 2 (not run), a body moving at speed.
 
+**46d.24c: collision on its own path, the coarse floor, D615, D585** (f0eadb60, 92eee6f7, 14a6552d, 56da399b, 12024562,
+197c7bfa, and the near-deep shading commit; export `voxel-slice@r803` for the final table, Iris Xe, WebGPU, at the cap,
+alone on the host, 2 rounds 01:45–02:07 UTC 2026-11-12, uptime 19.4 d, load 3.0–6.5; `work/46d.24c/{c1,c2,fin,h1,h2,h3}-*.json`,
+`*.uptime`). Medium frame times **unverified on target hardware**.
+
+1. **Collision on its own path** (`voxel/stream-collision.ts`, `derived-data.ts` `deriveCollision`, job `parts:
+   collision`). A collision-only derive runs the same evaluation and code as the full derive and skips the base
+   surface, pieces, relief, light, navigation, occupancy and shader data; its `collision` and `ground` are the full
+   derive's byte for byte, per section and joined (`joinCollisionParts`; vitest on the town with a kit, hills, the hard
+   cases). Cost (derive bench, world rules, 16³ sections, no kit): 1.36–1.55 ms a chunk against 1.94–2.51 ms. It is asked
+   for in the pool's edit lane for resident chunks within the collision ring's add bounds of a collision focus that have
+   never had their full result: the characters, points ahead of each along its velocity (`collisionLeadPoints`, 0.5 s,
+   spaced by the ring's radius, none under 2 m/s or over 600 m/s), and the camera only while it is not fast. A result is
+   kept while it is of the chunk as it is now (`fresh`, the sections' stamps) and handed to the full result once that is
+   current (`chunkCurrent`): the same surface, so a body does not pop (vitest, real workers: 190–217 hand-overs, 0 differ).
+   At speed no streaming level-0 derive goes out any more (24b kept them in the collision ring; vitest: 0 full level-0
+   derives while fast, collision jobs only round the body and ahead of it, 278–285 for chunks only ahead). Derived data:
+   no format moves (`DERIVED_FORMAT_VERSION` 31 unchanged; the collision part is a job output, never stored; the job
+   contract gains a `parts` value, add-only).
+2. **The coarse floor** (`voxel/far-ground.ts`, `runtime/voxel-floor.ts`). Where a collision focus's chunk column has no
+   fine collision, a heightfield of the far cache's level-2 ground (a `far-ground` worker job decodes a node column's
+   nodes into each 2 m column's top; a corner is the highest top of the four cells round it, so the floor lies on or above
+   the coarse ground and neighbouring columns share their corners) is a static body. A body over a floor counts as on
+   collision unless it is 2 m or more under the floor's lowest point (a cave under the top). Hand-over: the floor goes when
+   its column settles; a character on a higher floor drops onto the fine ground (vitest: 5 cm; at the bench's stop 1.5–2 m),
+   one the fine ground holds inside it is lifted onto it in the same step (raycast down 4 m, `riseAt`). vitest (real
+   workers, real Rapier, level-2 nodes from the engine's mip code): with every chunk read held, a dropped body rests on the
+   floor, moves 89.5 m at 60 m/s over floors alone never under the fine ground by more than a coarse cell, and ends on the
+   fine ground after the hand-over, never thrown up. Bench: dropped bodies at speed end on the floor (66 of 83 at low 60,
+   46 at medium 60, 21–27 of 34 at 150), not suspended (24b: 12–31 a flight hung suspended). Fine collision under a body
+   dropped at speed seldom settles within its 2 s (1 a run); after the stop it does (bodyEnd on fine ground every run).
+3. **D615 and the settle.** Loads leave a quarter of the pool's queue to derives (`STREAM_DERIVE_RESERVE_SHARE`: a refill's
+   decodes filled it and the stopped camera's ground waited behind them), collision-only derives go first, derives resume
+   as soon as the focus is not fast and level 0 comes back 200 ms after a stop (`STREAM_STOPPED_MS`; a dip keeps the 1 s
+   hold). Ground solid 0.02–0.05 s everywhere (24b 0.06–0.71; vitest: ground known after 64–69 of the refill's ~9,000
+   jobs). **Full detail did not get faster; it got later** (D620): low 4.6–5.6 s (24b 3.8–4.5), medium 13.4–16.7 s
+   (10.5–14.9). Per step (one round each, low 150 / medium 60): collision path + reserve 5.55 / 12.7 s, + floor 4.89 /
+   12.8, final 5.2–5.6 / 13.4: the change came with the first step, where nothing round the camera is derived at speed any
+   more (24b derived its collision ring at 150 m/s, which the stop then found done) and loads have three quarters of the
+   queue. Which of the two costs what was not split (an A/B is the next measurement); what bounds the level-0 ring after a
+   stop is its outer edge waiting for level-1 neighbours, which wait for the 192 m load ring's downsample (46d.25's
+   question). The < 2 s starting target is not reachable with the mesh rings on this host; proposed: keep it as the
+   target for 46d.25 (fine bricks need no level-1 downsample) and report the mesh rings' 4.6–5.6 s (default chosen, owner
+   to confirm).
+4. **D585.** A ray whose first sample in a far node lies inside the solid with the eye inside the node's box is not hit
+   until it leaves that solid; one that never leaves is drawn where it began as the ground's look from above (baked colour,
+   unoccluded, facing up). Letting every ray that entered a box side under the surface through first showed the sky where
+   hills stood (21–208 hole frames a 30 m flight against 0–4; restricted, 0–4 again). The hugging flights' face rays all
+   enter a neighbouring node from outside (`eyeNode` 0 of 92–259): a hit deep in the solid within 64 m of the eye
+   (`FAR_INSIDE_LOOK_M`) is drawn as the ground's look too, farther ones keep the step's face shading. 15-ray check, hug,
+   share of polls with face rays: 60 m/s 20 % before (114 of 562), 19 % after (106 of 568); 150 m/s 19 % / 23 % (the
+   geometry does not change: the coarse stand-in still lies above the true ground near the eye; what changes is how it is
+   drawn). Looked at (`work/46d.24c/hug-{60,150}-before-after.png`): no grey grid with dark recesses in either set at the
+   strip's times; after, flat ground-coloured squares show at the bottom edge where a coarse step lies near the eye (t18 at
+   150 m/s: a brown and a green square). D585 stays open: the step itself goes with refinement near the eye or 46d.25's
+   fine bricks.
+5. **D611**: not reproduced (the final rounds' t64 at medium: a step at the near field's edge in the bottom-right, green,
+   no wedge). Left open as a watch.
+6. **D613**: the grey areas at 15 s are textured near rock (the stone set's pattern shows, drawnEnd `textured`, texture
+   tops at level 0), darker than the far palette's colour for the same material: a far look vs near texture difference,
+   not residency (`work/46d.24c/fin1-hole-build/shots/export-low-150-high-fin-r1-after15.png`). The far palette taking
+   each set's mean albedo would join them (not built). A 16 m darker patch at the level-0 ring's edge stays untraced.
+7. **Pinned regions and path hints: planned, not built** (neither is a small change on the one-second lead). Design:
+   - `ctx.voxels.world(name).pin(region, { id? })` → a pin id; `unpin(id)`; `pins()` lists them with their state
+     (`reading`, `ready`, bytes). A pinned region (a box, or a polyline with a half-width: a track corridor) is read,
+     derived (level 0 or a level the game names) and kept: its chunks are never unloaded or evicted while pinned and
+     their bytes count in the stream budget like any chunk (a pin that cannot fit is refused with the bytes it needs,
+     no count cap). Built in the pool's far lane, nearest the stream focus first, so a loading screen can wait for
+     `ready` (`whenResident` already answers per region).
+   - `ctx.voxels.world(name).hint(points, { seconds? })`: "the focus will be along here": the read plan's lead segment
+     becomes the hint's polyline from the focus (reads and the collision path's lead points along it), dropped when the
+     focus leaves it or after `seconds`.
+   - Where: `voxel/stream-reads.ts` (`StreamReadPlan`: the lead from a hint instead of the velocity; pinned chunks never
+     `pastUnload`), `voxel-streamer.ts` (`enforceBudget` skips pinned chunks; a pin's byte reckoning), runtime
+     `voxel-world-host.ts` + `voxel-api.ts` (the API, its refusals), docs and the reference. Cost estimate: a pin 300–400
+     lines with tests, a hint ~150; 2,500 chunks for a 5 km × 64 m corridor fit low's 768 MiB stream budget (24b's
+     measure: 11–69 KB derived a chunk) at level 1, not all at level 0.
+
+| export, final (2 rounds) | longest ms | > 100 | missed / min | ground solid | body free / stands | full detail | nothing pending | falls (never stood) | drops' end: suspended / floor / fine | hole frames |
+|---|---|---|---|---|---|---|---|---|---|---|
+| low 60 | 49.5–50.9 (62.6–67.6; 85.5–98.8) | 0, 0 | 1.5–2.2 (4.0–4.8; 11–14) | 0.02–0.03 (0.06) | 0.07–0.08 / 0.24–0.25 | 4.6 (3.8–4.5) | 8.3–8.5 (7.3–7.8) | 3 (2) of 83 | 1 / 66 / 1 | 0, 1 |
+| low 150 | 40.8–51.8 (48.8–51.6; 152–208) | 0, 0 | 0–2.7 (1.8–3.7; 20–23) | 0.03 (0.07–0.10) | 0.07–0.08 / 0.25–0.26 | 5.2–5.6 (4.1) | 8.9–9.5 (7.4–8.1) | 1–2 (1) of 34 | 1 / 27 / 1 | 0, 0 |
+| medium 60 | 35.5–41.0 (54.7–75.7; 108–162) | 0, 0 | 11.0–11.3 (18.7–20.5; 45–46) | 0.03–0.04 (0.08) | 0.01 / 0.52–0.53 | 13.4 (10.5–11.3) | 17.6–18.0 (13.9–14.8) | 7–10 (5) of 83 | 1 / 46 / 1 | 3, 4 |
+| medium 150 | 37.5–51.8 (57.8–66.0; 53–57) | 0, 0 | 16.5–28.4 (27.4–32.0; 21–29) | 0.02–0.05 (0.33–0.71) | 0.07–0.10 / 0.53–0.57 | 16.6–16.7 (13.1–14.9) | 20.5–20.6 (15.6–16.0) | 1–3 (1) of 34 | 1 / 21–22 / 1 | 3, 1 |
+| starting target (low) | < 100 | | | < 0.5 | | < 2 | < 10 | never | | |
+
+46d.24b in brackets, then the 46d.24a baseline. Falls: the bench's old count (6 m under the 2 m ground, neither suspended
+nor standing) now catches bodies that used to hang suspended: those that stood later in the drop were onto ground the
+2 m cells did not show (a reading's drop counter ahead of the body's position, or a cliff's foot); "never stood" are the
+same drops each run at the massif's cliffs (m ≈ 4.5 km), ~6 m under within 1 s and ~30 m by the drop's end (D619:
+untraced, off a cliff's edge or through; the probe records no x, z). Hole frames are the old places. The hugging flights
+in the export show 123–129 hole frames at m ≈ 4,760 at 24b's code too (D617). Looked at: the final strips
+(`work/46d.24c/shots/export-{low,medium}-150-high-fin-r1-strip-*.png`, the 15 s full-size frames) and the hug montages;
+flight frames as 24b's (no sky hole, the massif's dark cliff at t30); after the stop the coarse stand-in to 2–4 s, detail
+from 4–8 s, the grey near rock as in D613. *Unverified:* motion at full rate (stills), medium/high on their hardware,
+WebGL 2 (not run), the lift at the hand-over in a game (the vitest's floor lay within 5 cm, so no lift happened there).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -4147,6 +4244,24 @@ from 8 s. Early low strip (12 frames, 0.25–3 s): no dark sliver at the bottom 
   chunks that left the collision ring while level 0 is held (sent jobs run on; edits never cancelled), besides what was
   already cancelled (loads/derives of unloaded chunks, mip and far jobs of nodes that left). Air chunks get no new path:
   measured, they cost an index read and no worker job.
+- 2026-11-12 (46d.24c, default chosen, owner to confirm): **collision follows the bodies**: a collision-only derive
+  (same code and bytes as the full derive's collision) round each character and 0.5 s ahead of it along its velocity, in
+  the pool's edit lane; round the camera only while it is not faster than 40 m/s. At speed no streaming level-0 derive goes
+  out at all.
+- 2026-11-12 (46d.24c, default chosen, owner to confirm): **the coarse floor**: where fine collision is late a body stands on
+  a heightfield of the far cache's 2 m ground, each corner the highest coarse top round it; a body 2 m or more under the
+  floor's lowest point is in a cave and waits as before; at the hand-over a body the fine ground holds inside it is lifted
+  onto it (4 m search), one on a higher floor drops. 4 MiB of node-column tops kept.
+- 2026-11-12 (46d.24c, default chosen, owner to confirm): **a stop is 200 ms without a step**: level 0 and its derives come
+  back at once; a dip under 40 m/s keeps the 1 s hold. Loads leave a quarter of the pool's queue to derives.
+- 2026-11-12 (46d.24c, default chosen, owner to confirm): **a far stand-in seen from inside**: with the eye inside a node's
+  box a ray beginning in the solid waits to leave it; a hit deep in the solid within 64 m of the eye is drawn as the
+  ground's look from above. From outside the box a side entered under the surface is the step it is (letting it through
+  showed the sky).
+- 2026-11-12 (46d.24c, default chosen, owner to confirm): **the < 2 s full-detail target is kept for 46d.25**; the mesh rings
+  measure 4.6–5.6 s at low after this slice (D620: later than 24b's 3.8–4.5 s).
+- 2026-11-12 (46d.24c): pinned regions and path hints planned in §8 "46d.24" (7), not built: neither is a small change on
+  the one-second lead. D601 not changed (a draw-only mip derive is a format note, not a few lines).
 
 ## 10. Open questions for the owner
 

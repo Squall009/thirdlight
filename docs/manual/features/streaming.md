@@ -60,7 +60,9 @@ everything (editing needs every tile and chunk).
   at the same steps. Scripts read it with `ctx.physics.isSuspended(id)`
   (visual scripts: **Is suspended**); Play's diagnostics count them
   (`runtime.worldStream.suspended`: bodies now, suspensions and resumes so
-  far).
+  far). In a voxel world with a far cache a character over ground whose
+  collision is late stands on a coarse floor of the far field's 2 m ground
+  instead (see Voxel worlds), and is not suspended.
 - **Live blocks** of a streamed layer are in the game only within the live
   ring; at most 16 objects spawn a step for cells entering it (the rest the
   next steps), and they go when their chunk leaves it. A live block's lasting
