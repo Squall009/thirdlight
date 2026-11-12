@@ -222,6 +222,12 @@ export const FAR_INSIDE_LOOK_M = 64;
 export const FAR_DEEP_CELLS = 1.5;
 
 /**
+ * The same for a fine node (levels 0–1): there a ray entering a node's side under the surface is the seam with a
+ * neighbour a cell or so lower, so any hit this far under (past a march step's overshoot) is one.
+ */
+export const FAR_FINE_DEEP_CELLS = 0.5;
+
+/**
  * A node march's state across its bricks: whether the ray's first sample is taken, whether the ray is still inside the
  * solid that sample lay in (it is not hit until it has left it), and where it began (t, its block).
  */

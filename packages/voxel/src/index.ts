@@ -427,7 +427,7 @@ export {
   type FarView,
 } from './far-tree';
 export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
-export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksInside, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks, type FarMarchStart } from './far-bricks';
+export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_DEEP_CELLS, FAR_FINE_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksInside, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks, type FarMarchStart } from './far-bricks';
 export { bakedFarBricks, decodeFarBricks, encodeFarBricks, FAR_BRICKS_BLOB_MAGIC, FAR_BRICKS_BLOB_VERSION, farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 export { FAR_ROOF_COLUMN, FAR_ROOF_COS_SHALLOW, FAR_ROOF_COS_STEEP, farRoofDistance, farRoofReach, farRoofThickness, type FarRoofColumns } from './far-bricks-roofs';
 export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromBlock, farBricksFromFaces, farCellApron, gatherFarCells, spanDistances, type ChunkCells, type FarCellBlock } from './far-bricks-faces';

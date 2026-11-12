@@ -39,7 +39,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
+import { bakeFarBrick, BRICK_HIT_VOXELS, FAR_DEEP_CELLS, FAR_FINE_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_BAKED_BYTES, type FarPalette, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farNodeMarchedBox, VOXEL_SIZE_M, type FarBricks, type FarCellBox, type FarNodeDraw } from '@thirdlight/voxel';
 
 import { culledCopyVec4, culledDepthAt } from './attribute-instancing';
 import { cameraRelative, cameraRelativeModelView } from './camera-relative';
@@ -483,11 +483,14 @@ export class FarBrickMaterial {
       });
       const face = entryFace(near, dir);
       const view = modelView.mul(vec4(local, 1));
-      // A hit deep in the solid near the eye: a stand-in's side entered under its surface, seen from beside it while
-      // hugging the ground. Drawn as the ground's look, not as the side's cells (whose unstored bricks show as recesses).
-      const look = insideHit.or(field(region, p).lessThan(-FAR_DEEP_CELLS).and(view.z.greaterThan(-FAR_INSIDE_LOOK_M)));
       // A fine node's bricks (built on the GPU) hold look words where a coarse node's hold colours.
       const isFine = vCellM.lessThan(FAR_FINE_CELL_M_BELOW);
+      // A hit deep in the solid near the eye: a stand-in's side entered under its surface, seen from beside it while
+      // hugging the ground. Drawn as the ground's look, not as the side's cells (whose unstored bricks show as recesses).
+      // On a fine node at any distance: there a side entered under the surface is only ever the seam where a fine
+      // neighbour (level 1 beside level 0) lies a cell or so lower, and drawn as its face it is a dark dashed line.
+      const deep = field(region, p).lessThan(select(isFine, float(-FAR_FINE_DEEP_CELLS), float(-FAR_DEEP_CELLS)));
+      const look = insideHit.or(deep.and(view.z.greaterThan(-FAR_INSIDE_LOOK_M).or(isFine)));
       if (output === 'visibility') {
         hitPayload.assign(farVisibilityOutput(region, p, view.z, select(look, float(INSIDE_FACE_CODE), entryFaceCode(face)), select(isFine, float(1), float(0))));
         return farFragmentDepth(cover.behindNear(world, view.z));
