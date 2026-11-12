@@ -3450,6 +3450,69 @@ the final table, Iris Xe, WebGPU, at the cap, alone on the host, 2 rounds 04:21�
    and 4 s, gone by 8 s (D622). *Unverified:* motion at full rate (stills), medium on its hardware, WebGL 2 (not run), a
    body walking under a floor in a game (the vitest covers a placed one).
 
+### 46d.25 fine bricks from GPU compute
+
+**46d.25a design** (the brief's §4 points, settled; the render spec's §4 *Fine bricks* is the format view).
+
+- *Input.* Not the near surface's 34³ × 2-byte grid (material and wetness only: the fill-aware surface of 46d.13c-2
+  needs each cell's fill level, and the look vote needs each shown cell's word): a fine node's **cell block**, the
+  block the CPU build reads (`gatherFarCells`): level 0 its chunk's cells and an apron of 4 (40³), level 1 its eight
+  chunks' cells at scale 2 and an apron of 7 (78³). Decoded on the world's thread from the streamer's resident chunks
+  (`exportChunk` through the run-time overlay: no worker derive, no file read), packed 16 bits a cell (fill 4 bits,
+  the word's place in the block's word list 12 bits): 128 KB (level 0) and 949 KB (level 1) a node on the wire,
+  transferred with the batch. The page uploads it into one of `FINE_BUILD_SLOTS` (4) slot buffers (~4 MiB each),
+  builds, and lets it go: nothing of a block is kept on the page or the GPU after its build. A shared GPU chunk pool
+  (each chunk uploaded once, read by every node over it) would cut the wire ~2× for level 1; not built (measure
+  first).
+- *The build.* Five passes on the renderer's device (raw WGSL on `backend.device`, the pattern of the surface
+  light's passes; the atlas textures through the hooks the region store already uses, no new private hook): (1–3)
+  the corner field — the CPU build's exact distance to the solid and air spans, along y per corner line, then the
+  separable x and z passes, each over a window of the band (`2S + 2` rows, `2S + 1` offsets): a nearer span or
+  offset always lies inside it and a corner farther than the band stores the band either way, so the narrow band is
+  exact, not a search approximation, at ~5–12 M simple operations a level-1 node instead of the brute force's ~70 M;
+  (4) a workgroup a brick: the CPU build's stored / outside / inside rule and the hit bounds; (5) a workgroup a stored
+  brick: the distance bytes, each sample's look by the CPU build's vote and weights (tops first), its far palette
+  colour and its occlusion from its own bytes (`farBrickOcclusionAt`), staged in 256-byte rows that
+  `copyBufferToTexture` puts straight into the brick's two atlas regions. The brick list and the staged distances are
+  read back (`mapAsync`, 1–2 frames) for the regions, the node's page, its box (culled-table row) and the CPU's inside
+  test; the march and the one shade read the atlas unchanged. *Exact vs approximate against the CPU build of the
+  same block:* the stored-brick set, bounds and distances exact up to float rounding (the windowed passes mirrored in
+  64-bit floats with the CPU build's 32-bit stores give its bytes exactly: vitest; the GPU's 32-bit `sqrt` and byte
+  rounding land one byte off at the rounding ties that part-full fills (k/15) make, measured in the browser check);
+  looks exact where a sample's footprint shows at most 8 words, and a sample with no shown cell in reach takes the
+  look of the brick's nearest earlier sample (the CPU carries it across bricks); occlusion within a byte or so (32-bit).
+- *The level 1 → 2 boundary.* Level 2 stays the far cache's (built from the level-2 mip, doors and windows closed at
+  levels ≥ 1, the mip's opening rule of 46d.7a), level 1 is built from the chunks' own cells (openings kept): the same lip and
+  skirt rule as any level change (the brick on the node face hangs its skirt), and the doors show at level 1 and not
+  at level 2 by design. Whether the boundary shows: first look below.
+- *Selection.* The far tree's own (`FarFineIndex` under the kept index): a kept level-2 node opens into the level-1
+  nodes over its chunks, a level-1 node into its chunks, by the screen error with hysteresis, the far GPU budget
+  (a fine node foreseen at `FAR_FINE_GPU_FORESEEN_BYTES`, ~58 KB) and the visibility feedback as every level, only
+  where every chunk the children's blocks read is resident and the near field does not draw the node whole. At low
+  (8 px, 623.5 px/rad) that is level 0 to ~78 m and level 1 to ~156 m; medium (4 px) level 0 to ~156 m, level 1 only
+  where the 192 m load ring still holds a whole level-2 node's chunks. The near detail ring covers by the near cover
+  as before (fine nodes under its hidden chunks are not drawn; its edge ring puts them behind the near field).
+- *Edits.* A changed chunk (an editor command's refresh, a run-time dig, a save restored, the overlay cleared) makes
+  every fine node whose block reads it (`farFineDirty`: up to 27 level-0, 8 level-1) again from the edited cells, sent
+  in the next commit and built on the page; its old bricks draw until then. Levels 2+ keep 46d.18's path (the
+  backend's rebuild; D594 for run-time edits).
+- *The load ring.* Unchanged (192 m on every tier): fine bricks read the voxels out to where they draw. What goes with
+  the switch on: the near field's levels 1–2 (their downsample, derive, seams and draws: no mip node is drawn and
+  only the one holding the focus stays derived, the level choice draws the level-0 ring only, ending at its ring as
+  where level 1 draws past it, not one level-1 node farther as a stand-in would). What it costs: the blocks' decode on the world's thread
+  (`FAR_FINE_PACK_MS` 4 ms an update at most) and their GPU builds. Shrinking the ring toward the fine reach is the
+  comparison slice's.
+- *Budgets.* Fine bricks are far bricks: they count in the far GPU budget (`FAR_GPU_BUDGET_BYTES_BY_TIER`, 384 MiB
+  every tier) through the selection and the ledger; no count cap. The build's constants are its package's
+  (three-adapter `FINE_BUILD_SLOTS`, `FINE_BUILD_CELLS_PER_FRAME` 1 M cells of blocks started a frame, at least one;
+  voxel `FAR_FINE_*`); a far event carries at most `FAR_FINE_COMMIT_BYTES` (8 MiB) of blocks, the coarse levels keep
+  `FAR_COMMIT_BYTES`.
+- *Low tier, devices without WebGPU, WebGL 2.* Off by default everywhere. The switch is the world streamer's
+  `fineBricks` (a world setting, defined once in `@thirdlight/voxel`), the page and bench override `?fineBricks=1`
+  (the voxel world page, Play, exports), the page hook `setFar({ fine })`. WebGL 2 gets nothing new: the voxel world
+  page asks for fine bricks only on WebGPU; a Play page that falls back with the flag draws nothing past the detail
+  ring (one console warning). Not a quality-level field yet (a project-model change once the comparison keeps it).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material

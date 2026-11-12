@@ -578,6 +578,41 @@ recolours without a bake. Default chosen, owner to confirm (plan 46d §9, the 46
   keep drawing. The command's `far` answer gains `bricks` (`dirty`, `built`, `reused`, `ms`). Not built: a game's
   run-time edits and saves do not reach the far field (it draws the shipped cache; D594), and the compute brick
   build was not tried (D595).
+
+**Owner note (46d.25a, 2026-11-12): fine bricks, levels 0 and 1, built on the GPU and never stored.** The owner
+(2026-11-11, `docs/briefs/streaming-rings-2026-11-11.md` §1): "the gpu compute stage for brick generation at the
+0.5/1m level should be attempted for anything beyond the detail ring. Could save us a great deal in simplification
+and compute." No stored or derived format changes (derived 31, far cache format 2 as above: the fine levels are
+never written anywhere); added, add-only: a far draw's `fine` (the block a page builds from) beside `mesh` and
+`bricks`, and the world streamer's `fineBricks` setting. Off by default in this slice (behind `?fineBricks=1`);
+default chosen, owner to confirm (plan 46d §9, the 46d.25a defaults).
+
+**Fine bricks** (`@thirdlight/voxel` `far-fine.ts`, `far-fine-nodes.ts`; three-adapter `voxel-fine-bricks.ts`,
+`voxel-fine-bricks-wgsl.ts`; WebGPU). The far tree gains levels 0 (0.5 m cells, 16 m nodes: a chunk) and 1 (1 m, 32
+m) under its kept levels, never kept: with `fineBricks` on, the selection opens a kept level-2 node into the level-1
+nodes over its chunks, and a level-1 node into its chunks, by the same screen error, hysteresis, GPU budget and
+visibility feedback as every level, where every chunk the children's blocks read (the node's and one round it) is
+resident in the streamer and the near field does not draw the node whole (`FarFineIndex`); elsewhere level 2 is the
+finest, as without. A fine node's input is its **cell block**, the very block the CPU build reads
+(`gatherFarCells`): its cells at scale 1 (level 0: the chunk's own) or 2 (level 1: the chunks', twice finer than its
+own) and an apron of `farCellApron` (4 or 7) finer cells round it, read from the streamer's chunks (the world's files
+with the run-time edits over them), packed 16 bits a cell (fill level in bits 0–3, the cell's look word's place in
+the block's own word list in bits 4–15; `packFarFine`); a block of only air or only solid is not sent. The page's GPU
+builds the node's bricks from it in five compute passes: the corner field (the CPU build's exact distance to the
+solid and air spans, along y per corner line, then along x and z, each within a window of the band: a nearer span
+or offset always lies inside it and a farther corner stores the band either way; the surface rule for whole cells),
+the stored-brick rule and bounds (`farBricksFromBlock`'s), and per stored brick its distance bytes, each sample's
+look by the same vote (at most 8 distinct words a sample are counted) baked to the far palette's colour, and its
+occlusion from its own bytes; the bytes are staged in rows a copy puts straight into atlas regions, and the brick
+list and distances are read back for the node's page, its box and the CPU's inside test. The page applies a far
+change holding fine nodes once all are built (later changes wait), so a swap stays a swap. An edit makes every fine
+node whose block reads a changed chunk again from the edited cells (`farFineDirty`); its old draw stays until then.
+With fine bricks on the near field draws only its level-0 ring, ending at that ring: levels 1 and 2 are not drawn,
+and of their nodes only the one holding the focus stays derived (the mesh rings, their downsample and seams stay in
+the code, off). Levels 2 and up are the CPU build's and the far
+cache's as above: no level has two builders. WebGL 2 builds none: the voxel world page asks for fine bricks only on
+WebGPU; Play or an export that falls back to WebGL 2 with the switch on draws nothing past the detail ring (said
+once in the console), and without the switch every renderer draws as before.
 ---
 
 ## 5. Requirement traceability (46d)

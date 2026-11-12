@@ -82,7 +82,7 @@ export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: numb
  * detail (pixels a far node's cell may cover), and a wait until it draws its selection. The retired brick switches
  * (`bricks`, `shade`, `march`, `res`: the half-resolution march) are refused.
  */
-export function pageFarHooks(streamer: VoxelStreamer, view: Pick<VoxelFarView, 'setVisible' | 'checkFine'>): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; fine?: boolean }): void; settleFar(): Promise<void>; showFar(on: boolean): void; checkFine(n: number): void } {
+export function pageFarHooks(streamer: VoxelStreamer, view: Pick<VoxelFarView, 'setVisible' | 'checkFine' | 'solidAt'>): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; fine?: boolean }): void; settleFar(): Promise<void>; showFar(on: boolean): void; checkFine(n: number): void; farSolidAt(x: number, y: number, z: number): { level: number; inside: boolean } | null } {
   return {
     setFar: (o) => {
       const { mode, fine, ...rest } = o;
@@ -99,6 +99,8 @@ export function pageFarHooks(streamer: VoxelStreamer, view: Pick<VoxelFarView, '
     showFar: (on) => view.setVisible(on),
     // The next fine builds are checked against the CPU build of the same blocks (`state().far.fineBuild.checks`).
     checkFine: (n) => view.checkFine(n),
+    // The far node drawn at a cell and whether its bricks hold the cell inside their solid (null: none drawn there).
+    farSolidAt: (x, y, z) => view.solidAt(x, y, z),
   };
 }
 

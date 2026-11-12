@@ -157,11 +157,15 @@ export class StreamLod {
     const foci = this.foci();
     this.used = foci;
     const host = this.host;
-    const r0 = this.rings.radii[0]!;
-    // Near only: every coarser level splits where level 0 does, so nothing past the level-0 ring is drawn (its nodes are never ready).
+    // Near only: no coarser node is ever ready, so level 0 stands in for every level-1 node round the focus, as far as
+    // the choice lets a stand-in reach (one level-1 node past the ring it is split in). Every ring is set that far inside
+    // level 0's own, so level 0 ends at its ring, as it does where level 1 draws past it.
+    const r0 = Math.max(0, this.rings.radii[0]! - 2 * host.grid.edge);
     const radii = this.nearOnly ? this.rings.radii.map(() => r0) : this.rings.radii;
     const rings = this.detail ? { radii, hysteresis: this.rings.hysteresis } : { radii: [0, ...radii.slice(1)], hysteresis: this.rings.hysteresis };
-    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => host.ready(l, x, y, z), previous: this.chosen });
+    // Near only, no coarser node is drawn even where one is still derived (the node round the focus stays derived).
+    const nearOnly = this.nearOnly;
+    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => (nearOnly && l > 0 ? false : host.ready(l, x, y, z)), previous: this.chosen });
     this.counters.choices++;
     this.counters.unbalanced = stats.unbalanced;
     this.chosen = drawn;

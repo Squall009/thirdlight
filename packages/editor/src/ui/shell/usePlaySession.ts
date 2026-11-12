@@ -7,7 +7,7 @@
  * renderer and game mode, clearing the Play save).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { BATCHING_URL_PARAM, OCCLUSION_URL_PARAM, occlusionFromUrl, PORTALS_URL_PARAM, BUILD_KEEP_URL_PARAM, buildKeepFromUrl, MERGING_URL_PARAM, RELEASED_BUILD_KEEP_MS, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, RENDER_URL_PARAMS, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, UPSCALE_URL_PARAM, upscaleFilterFromUrl, TAAU_URL_PARAM, taauFlag, VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, FAR_PASS_URL_PARAM, FAR_FEEDBACK_URL_PARAM } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, OCCLUSION_URL_PARAM, occlusionFromUrl, PORTALS_URL_PARAM, BUILD_KEEP_URL_PARAM, buildKeepFromUrl, MERGING_URL_PARAM, RELEASED_BUILD_KEEP_MS, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, RENDER_URL_PARAMS, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, UPSCALE_URL_PARAM, upscaleFilterFromUrl, TAAU_URL_PARAM, taauFlag, VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, FAR_PASS_URL_PARAM, FAR_FEEDBACK_URL_PARAM, FINE_BRICKS_URL_PARAM } from '@thirdlight/three-adapter';
 import { pageFlagOn } from '@thirdlight/shared';
 import { FRAME_RATE_CAP_URL_PARAM, frameRateCapFromUrl, SIM_DELAY_URL_PARAM, simDelayFromUrl } from '@thirdlight/runtime';
 import type { readEditorConfig } from '../../config';
@@ -368,7 +368,7 @@ export function usePlaySession(
   // The play loads from its own content locator on the preview origin.
   // The editor page's ?renderer= flag is passed on to the play page (and ?batching=off, ?threads=, ?simDelayMs=, ?frameRateCap=,
   // the render settings' ?ao=, ?renderScale=, ?dynamicResolution=, ?upscale=bilinear, ?slowFrames=, ?voxelPaths=,
-  // ?voxelShadows= and ?farPass=, and the culling
+  // ?voxelShadows=, ?farPass= and ?fineBricks=, and the culling
   // comparisons ?occlusion= and ?portals=off, which the Scene view draws with too).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
@@ -403,8 +403,8 @@ function renderFlags(search: string): string {
   const pinned = renderSettingsFromUrl(search);
   const taau = taauFlag(search);
   // The voxel surfaces' comparisons: every draw on the full program, the surfaces as static shadow casters, the far
-  // bricks shaded per fragment, the far field without visibility feedback.
+  // bricks shaded per fragment, the far field without visibility feedback, fine far bricks past the detail ring.
   const q = new URLSearchParams(search);
-  const voxel = [VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, FAR_PASS_URL_PARAM, FAR_FEEDBACK_URL_PARAM].map((k) => (q.get(k) !== null ? `&${k}=${encodeURIComponent(q.get(k)!)}` : '')).join('');
+  const voxel = [VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, FAR_PASS_URL_PARAM, FAR_FEEDBACK_URL_PARAM, FINE_BRICKS_URL_PARAM].map((k) => (q.get(k) !== null ? `&${k}=${encodeURIComponent(q.get(k)!)}` : '')).join('');
   return `${voxel}${taau !== null ? `&${TAAU_URL_PARAM}=${taau}` : ''}${pinned.ambientOcclusion !== undefined ? `&${RENDER_URL_PARAMS.ao}=${pinned.ambientOcclusion}` : ''}${pinned.renderScale !== undefined ? `&${RENDER_URL_PARAMS.renderScale}=${pinned.renderScale}` : ''}${pinned.dynamicResolution !== undefined ? `&${RENDER_URL_PARAMS.dynamicResolution}=${pinned.dynamicResolution ? 'on' : 'off'}` : ''}`;
 }

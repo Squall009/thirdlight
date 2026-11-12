@@ -601,7 +601,7 @@ export class VoxelWorldHost {
       ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, cancelledQueued: pool.stats.cancelledQueued, cancelledSent: pool.stats.cancelledSent, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
       ...(m !== undefined ? { coverage: m.coverage } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
-      ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen } } : {}),
+      ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen, fine: far.fine } } : {}),
     };
   }
 

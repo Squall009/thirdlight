@@ -432,6 +432,7 @@ export class FarField {
       },
       reselect: () => {
         this.reselect = true;
+        setTimeout(() => this.update(), 0);
       },
     });
     this.seen = new FarSeenLog(opts.seenTurnMs ?? FAR_SEEN_TURN_MS, opts.source.maxLevel);
@@ -1220,6 +1221,7 @@ export class FarField {
 
   close(): void {
     this.closed = true;
+    this.fineNodes.close();
     if (this.commitTimer !== null) clearTimeout(this.commitTimer);
     this.commitTimer = null;
     for (const j of this.jobs.values()) this.host.pool.cancel(j.id);

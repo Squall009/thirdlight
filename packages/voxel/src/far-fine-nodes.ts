@@ -38,6 +38,7 @@ export class FarFineNodes {
   readonly ms = new SampleRing();
   readonly counters = { made: 0, empty: 0, edits: 0 };
   private reselectAt = -Infinity;
+  private later: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly host: FarFineNodesHost) {}
 
@@ -84,13 +85,28 @@ export class FarFineNodes {
     this.host.rework();
   }
 
-  /** The chunks resident round the focus changed: fine nodes may open or must close (selected again, now and then). */
+  /**
+   * The chunks resident round the focus or the near field's drawn levels changed: fine nodes may open or must close.
+   * Selected again at most every {@link FAR_FINE_RESELECT_MS}; a change inside that window selects at its end.
+   */
   residency(): void {
-    if (!this.on) return;
-    const now = performance.now();
-    if (now - this.reselectAt < FAR_FINE_RESELECT_MS) return;
-    this.reselectAt = now;
+    if (!this.on || this.later !== null) return;
+    const wait = this.reselectAt + FAR_FINE_RESELECT_MS - performance.now();
+    if (wait > 0) {
+      this.later = setTimeout(() => {
+        this.later = null;
+        this.residency();
+      }, wait);
+      return;
+    }
+    this.reselectAt = performance.now();
     this.host.reselect();
+  }
+
+  /** Stops a reselection still to come (the far field closed). */
+  close(): void {
+    if (this.later !== null) clearTimeout(this.later);
+    this.later = null;
   }
 
   /**

@@ -398,8 +398,9 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
 {
   // WebGPU only: WebGL 2's voxel page is webgl2-smoke.e2e.ts's. The assembly proof runs first on the same page load.
   const renderer = 'webgpu';
-  test('assembly proof (runtime set/dig turn a banister into a wall and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips), then streams, draws and edits the voxel world through commands; the edit is in the files after a backend restart and a reload', async ({ page }) => {
-    test.setTimeout(300_000);
+  test('assembly proof (runtime set/dig turn a banister into a wall and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips), then streams, draws and edits the voxel world through commands; the edit is in the files after a backend restart and a reload; fine far bricks', async ({ page }) => {
+    // Fine far bricks build over frames on the GPU after the rest (~30 s of the page's own frames under the gate's load).
+    test.setTimeout(420_000);
     await page.setViewportSize({ width: 960, height: 540 });
     const errors = consoleErrors(page);
     // Construction drawn with the band test texture (the pictures below compare with each other, a reload's too).
@@ -642,9 +643,105 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
     expect(await hook<number | null>(page, 'levelAt', ...pit!)).toBe(1);
     expect(changedPixels(levelBefore, await shot(page)), 'a dig at level 1').toBeGreaterThan(300);
     await hook(page, 'reread');
+    await fineBricks(page, yaw, ox, oy, oz, skyBelow);
     // The assembly proof's refused command (its HTTP 409) is the one console error.
     expect(errors).toHaveLength(1);
   });
+}
+
+/** What the page reports of its fine far bricks (`state().far`). */
+interface FineState {
+  levels: number[];
+  far: {
+    problem: string | null;
+    drawnNodes: number;
+    fine: { on: boolean; made: number; edits: number; drawn: number[] };
+    fineBuild: { built: number; bricks: number; pending: number; held: number; drawn: number[]; checks: Array<{ node: string; sameBricks: boolean; bricks: number; samples: number; distanceDiffer: number; distanceMax: number; boundsDiffer: number; colourDiffer: number; colourMax: number; occlusionDiffer: number; occlusionMax: number }> } | null;
+  };
+}
+
+/**
+ * Fine far bricks (WebGPU): levels 0–1 past the detail ring built on the GPU from the streamed chunks, the near field
+ * drawing its level-0 ring only; the GPU build against the CPU build of the same blocks; the band past the detail ring
+ * is theirs (hidden, the sky shows there); a dig there shows; off, the near field's levels come back.
+ */
+async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: number, skyBelow: (p: Awaited<ReturnType<typeof shot>>) => number): Promise<void> {
+  await hook(page, 'setFar', { mode: 'bricks' });
+  await hook(page, 'settleFar');
+  await hook(page, 'checkFine', 6);
+  await hook(page, 'setFar', { fine: true });
+  const built = async (): Promise<FineState> => {
+    await hook(page, 'settle');
+    await hook(page, 'settleFar');
+    // The page builds what the far field sent over the next frames; settled when nothing waits there either.
+    let st = await hook<FineState>(page, 'state');
+    for (let i = 0; i < 1200 && !(st.far.fineBuild !== null && st.far.fineBuild.pending === 0 && st.far.fineBuild.held === 0); i++) {
+      await page.waitForTimeout(100);
+      st = await hook<FineState>(page, 'state');
+    }
+    expect(st.far.fineBuild, JSON.stringify({ levels: st.levels, fine: st.far.fine, build: st.far.fineBuild })).toMatchObject({ pending: 0, held: 0 });
+    return st;
+  };
+  const on = await built();
+  expect(on.far.problem).toBeNull();
+  expect(on.far.fine.on).toBe(true);
+  expect(on.levels.slice(1).every((n) => n === 0), `near levels drawn ${on.levels.join(', ')}`).toBe(true);
+  expect(on.levels[0]).toBeGreaterThan(0);
+  const b = on.far.fineBuild!;
+  expect(b.drawn[0]! + b.drawn[1]!, 'fine nodes drawn').toBeGreaterThan(0);
+  expect(b.bricks).toBeGreaterThan(0);
+  // The GPU build against the CPU build of the same blocks: the same bricks stored, every distance byte within one
+  // (32-bit rounding at the ties part-full fills make), looks and occlusion as the design says.
+  expect(b.checks.length).toBeGreaterThan(0);
+  const sum = (k: 'samples' | 'distanceDiffer' | 'colourDiffer' | 'occlusionDiffer' | 'boundsDiffer' | 'bricks'): number => b.checks.reduce((n, c) => n + c[k], 0);
+  console.log(`fine check: ${JSON.stringify(b.checks)}`);
+  for (const c of b.checks) {
+    expect(c.sameBricks, c.node).toBe(true);
+    expect(c.distanceMax, c.node).toBeLessThanOrEqual(1);
+  }
+  expect(sum('distanceDiffer') / sum('samples'), 'distance bytes off by one').toBeLessThan(0.02);
+  expect(sum('colourDiffer') / sum('samples'), 'colours apart').toBeLessThan(0.02);
+  expect(Math.max(...b.checks.map((c) => c.occlusionMax)), 'occlusion').toBeLessThanOrEqual(3);
+  // Past the detail ring the fine bricks draw (in this small world nearly every far node drawn is a fine one): ground
+  // below the horizon everywhere, and their pixels gone with the far draws hidden.
+  expect(b.drawn[0]! + b.drawn[1]!, `fine of ${on.far.drawnNodes} far nodes drawn`).toBeGreaterThan(0.9 * on.far.drawnNodes);
+  const shown = await shot(page);
+  expect(skyBelow(shown), 'background below the horizon with fine bricks').toBe(0);
+  await hook(page, 'showFar', false);
+  expect(changedPixels(shown, await shot(page)), 'pixels the fine bricks draw').toBeGreaterThan(2000);
+  await hook(page, 'showFar', true);
+  // A dig past the detail ring, where fine bricks draw it: the camera 120 m out from the focus, the dig 54 m out on its
+  // way (past the near field's level-0 ring and the chunks it stands in for, in view below the focus); the nodes over
+  // it are built again and it shows.
+  await hook(page, 'look', ox, oy, oz, yaw, 0.3, 120);
+  await built();
+  const px = Math.round(ox + (Math.sin(yaw) * 54) / 0.5);
+  const pz = Math.round(oz + (Math.cos(yaw) * 54) / 0.5);
+  const top = await hook<number | null>(page, 'surfaceAt', px, pz, oy + 40, oy - 40);
+  expect(top, 'ground 54 m out').not.toBeNull();
+  const pit: [number, number, number] = [px, top! - 1, pz];
+  expect(await hook<number | null>(page, 'levelAt', ...pit), 'not drawn by the near field').toBeNull();
+  // The far field's own solid there (the GPU's bricks read back): ground before, air after.
+  const under = [px, top! - 3, pz] as const;
+  expect(await hook<{ level: number; inside: boolean } | null>(page, 'farSolidAt', ...under)).toMatchObject({ inside: true });
+  const before = await shot(page);
+  expect((await hook<{ ok: boolean }>(page, 'blast', pit, 3, 'local')).ok).toBe(true);
+  const dug = await built();
+  expect(dug.far.fine.edits).toBeGreaterThan(on.far.fine.edits);
+  expect(dug.far.fineBuild!.built).toBeGreaterThan(b.built);
+  const solid = await hook<{ level: number; inside: boolean } | null>(page, 'farSolidAt', ...under);
+  expect(solid, 'a fine node over the dig').toMatchObject({ inside: false });
+  expect(solid!.level).toBeLessThan(2);
+  expect(changedPixels(before, await shot(page)), 'a dig drawn by fine bricks').toBeGreaterThan(300);
+  // Off, at the first view again: the near field's levels 1 and 2 come back, the far field's level 2 past them.
+  await hook(page, 'look', ox, oy + 3, oz + 2, yaw, 0.18, 30);
+  await hook(page, 'setFar', { fine: false });
+  await hook(page, 'settle');
+  await hook(page, 'settleFar');
+  const off = await hook<FineState>(page, 'state');
+  expect(off.far.fine.on).toBe(false);
+  expect(off.levels[1], 'level 1 drawn again').toBeGreaterThan(0);
+  expect(skyBelow(await shot(page)), 'background below the horizon with fine bricks off').toBe(0);
 }
 
 // ---- Play: the world runs with the simulation ----------------------------------------------------------------

@@ -594,6 +594,8 @@ export class VoxelStreamer {
   }
 
   private emit(e: StreamEvent): void {
+    // Where the near field draws decides where fine far nodes open (a node it draws whole stays closed).
+    if (e.type === 'levels') this.far?.fineNodes.residency();
     for (const l of this.listeners) l(e);
   }
 
