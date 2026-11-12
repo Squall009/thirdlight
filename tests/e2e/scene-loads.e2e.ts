@@ -104,6 +104,9 @@ interface SceneLoad {
 
 const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
+/** Full-screen draws a temporal upscale's first frame adds to seed its history (counted with a frame's draws). */
+const TAAU_SEED_DRAWS = 2;
+
 for (const variant of VARIANTS) test(`a scene transition shows no empty frame: the old scene stays until the new one is drawn whole, with a fade set in the Inspector (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
@@ -202,8 +205,11 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   expect(b?.attachedMs).not.toBeNull();
   const startOnly = a!.drawsBefore!;
   expect(startOnly).toBeGreaterThan(0);
-  // The first picture already had the start scene's models (it waited for them).
-  expect((await diag()).firstFrameDraws).toBe(startOnly);
+  // The first picture already had the start scene's models (it waited for them). A frame's draws count the post
+  // stack's full-screen draws too, and a temporal upscale's first frame seeds its history with two more than every
+  // later frame (three's seed draw and a second resolve): the scene's own draws are the same.
+  const upscale = ((await api(`play/${psid}/diagnostics`)).json as { diagnostics?: { renderer?: { render?: { upscale?: string | null } } } }).diagnostics?.renderer?.render?.upscale;
+  expect((await diag()).firstFrameDraws).toBe(startOnly + (upscale === 'taau' ? TAAU_SEED_DRAWS : 0));
   // A draws its wall over the start scene.
   expect(a!.attachDraws!).toBeGreaterThan(startOnly);
   // No empty frame: from B's request to 10 s after it attached, every frame drew more than the start scene alone.
