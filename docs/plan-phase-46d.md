@@ -3797,6 +3797,33 @@ any pose. *Orbit (low ON, 4 frames 0.25 s):* roofs hold their planes, no crawl o
 and medium ON):* no shimmer seen; a pop where a far roof enters the detail ring (rounded slab → the near mesh's gable),
 the same kind of step OFF has at its level 1 → 0 change. Motion at full rate unverified (stills).
 
+**The comparison: frame, fill, memory** (same build; staging 12:07–12:28, load 1.6–4.2; export `voxel-slice@r943`
+12:29–12:39, staging stopped; `work/46d.25b3/meter/`, `mem/`). Headroom meter, town orbit 12 m out at 0.15 rad/s
+(fine builds idle once filled), one round each, ms a pass by hiding it past the edge (±40 %, the meter's noise; a
+negative figure is noise), frame GPU from the line (and from the edge):
+
+| | near ms | far ms (march + shade) | shadows | post | frame GPU ms | room (ballast copies held) |
+|---|---|---|---|---|---|---|
+| low OFF (30 Hz) | 5.24 | 2.08 | 1.66 | 2.21 | 5.9 (8.2–10.3; line and edge disagree) | 176 |
+| low ON | 1.55 | 4.76 | (−2.6) | 4.32 | 11.6 (9.5–11.5, agree) | 176 |
+| medium OFF (60 Hz) | 0.91 | 2.60 | 0.45 | (−3.2) | 8.5 (8.0–8.5) | 64 |
+| medium ON | 0.38 | 3.84 | (−0.1) | (−0.4) | 11.7 (11.2–11.7) | 40 |
+
+Read: the near pass shrinks (no level-1/2 meshes: low 5.2 → 1.6 ms, medium 0.9 → 0.4) and the far pass grows (more
+and finer bricks marched and textured: low 2.1 → 4.8, medium 2.6 → 3.8); the frame's GPU time rises ~3 ms at medium
+(8.5 → 11.7) and its room falls from 64 to 40 copies (~3 ms at 0.13 ms a copy); low holds its 30 Hz cap with the same
+room either way (176 copies). Medium figures **unverified on target hardware**. With the eye moving (60 m out at 0.25
+rad/s, builds running) and GPU ms a fine build: see below. *Fill* (cold start of Play to the town-west pose settled:
+page counts unchanged 4 s, no fine build pending, the far field's queue empty): low OFF 14.0 s, ON 13.1 s; medium OFF
+22.0 s, ON 26.8 s (the meter's own fill on the orbit: low 6.5 → 11.6 s, medium 12.3 → 27.3 s; the export's at the
+town, low: 4.5 → 8.3 s). ON fills slower where it has more to build (medium's 750 fine nodes through 4 build slots).
+*Memory, low, export* (`export-memory`, the 4 GiB budget = page 1.5 + GPU 2.5): at the town page heap 302 → 269 MiB,
+GPU (driver-resident) 564 → 610, far GPU 77 → 92, renderer RSS 1,301 → 1,249 (the simulation worker lives there),
+whole browser PSS 1,557 → 1,500 MiB; after the 60 and 150 m/s flights GPU 582–595 → 610–622, heap 287–301 → 278–286;
+back home GPU 636 → 666 MiB, far GPU 111 both. Page + GPU 866 → 879 MiB of 4,096: both well under. Flights in that
+bench at 30 Hz: missed 8 → 3 (60 m/s), 21 → 4 (150 m/s), longest 61 → 54 ms. Play at the town-west pose: low far GPU
+77 → 92 MiB (partial nodes at 111 MiB in the D627 shots), medium 164 → 249 MiB of the 384 MiB far budget.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
