@@ -159,15 +159,17 @@ export {
   buildFarCacheInto,
   farCacheBuildDir,
   FAR_EXPORT_WAIT_MS,
-  inProcessFarJobs,
   swapFarCache,
   yieldingFarRunner,
-  type FarCacheJobs,
   type FarBuildReport,
   type FarCacheLevel,
   type FarCacheManifest,
   type FarColumnResult,
   type FarColumnRunner,
   type FarRebuildReport,
+  type FarCacheFine,
+  type FarCacheFineLevel,
 } from './voxel-far-cache';
+export { inProcessFarJobs, rebuildFarWorldCache, type FarCacheJobs } from './voxel-far-jobs';
+export { bakeFarFineColumn, farFineColumnKey, farFineColumns, farFineComplete, farFineContentKey, farFinePending, farFineProgress, farFineStored, inThreadFarFine, rebakeFarFine, startFarFine, writeFarFineColumn, type FarFineResult, type FarFineRunner, type FarFineTask } from './voxel-far-fine';
 export { bakeFarBricks, farBrickContentKey, farBricksFolder, FAR_REBUILT_FOLDER, FAR_REBUILT_STORE_BYTES, FarRebuiltStore, type FarBakeResult, type FarBakeRunner, type FarBakeTask, type FarBricksRebuild } from './voxel-far-bake';

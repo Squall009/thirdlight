@@ -44,12 +44,18 @@
  *   where neither sets its own `voxel.blendMetres` (absent: the engine's,
  *   `VOXEL_MATERIAL_LIMITS.blendMetresDefault`); where two meet the smaller
  *   wins. A draw setting too: shader data, no remesh.
+ * - `bakeLevel`: how fine the world's far cache bakes its bricks, as the
+ *   metres of a cell at its finest baked level: 2 (absent: the far cache's
+ *   own levels; finer bricks are built while playing, on WebGPU), 1 or 0.5
+ *   (those levels baked too, so nothing finer is built while playing). The
+ *   cache is the world's: a world two scenes name is baked to the finer of
+ *   their levels, and an export ships the levels down to it.
  *
  * Pure data.
  */
 import { isPlainObject } from '@thirdlight/shared';
 import { DEFAULT_QUALITY_LEVELS, levelVoxels, QUALITY_LEVEL_ID_RE, qualityLevelOf, VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN, type QualityLevelConfig } from './quality-levels';
-import { DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_RELIEF_RADIUS_CELLS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type FarFieldMode, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
+import { DEFAULT_COLLISION_RING, DEFAULT_FAR_BAKE_LEVEL_M, DEFAULT_LEVEL_RINGS, FAR_BAKE_LEVELS_M, isFarBakeLevelM, DEFAULT_RELIEF_RADIUS_CELLS, DEFAULT_SAVED_FIELDS, DEFAULT_SECTION_EDGE, DEFAULT_STREAM_RING, PLANE_BIT, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M, VOXEL_WORLD_NAME_RE, type FarBakeLevelM, type FarFieldMode, type SectionEdge, type VoxelPlane } from '@thirdlight/voxel';
 import { validateDecalLayerMask } from './decals';
 import { isVoxelBlendMetres, VOXEL_MATERIAL_LIMITS } from './voxel-materials';
 import type { ModelErrorV2 } from './errors';
@@ -120,9 +126,11 @@ export interface VoxelWorldComponent extends VoxelWorldRings {
   decalLayers?: number;
   /** Metres neighbouring voxel materials blend over where neither sets its own (absent: the engine's default). */
   blendMetres?: number;
+  /** Metres of a cell at the finest level the world's far cache bakes bricks for (absent: 2, the cache's own levels). */
+  bakeLevel?: FarBakeLevelM;
 }
 
-export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields', 'decalLayers', 'blendMetres']);
+export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields', 'decalLayers', 'blendMetres', 'bakeLevel']);
 export const VOXEL_WORLD_QUALITY_FIELDS = ['scale', 'ring', 'collision', 'levels'] as const;
 export const VOXEL_WORLD_RING_FIELDS = ['loadRadius', 'unloadRadius', 'loadHeight', 'unloadHeight'] as const;
 export const VOXEL_WORLD_COLLISION_FIELDS = ['radius', 'height'] as const;
@@ -145,7 +153,25 @@ export const VOXEL_WORLD_DEFAULTS = Object.freeze({
   sectionEdge: DEFAULT_SECTION_EDGE,
   savedFields: Object.freeze(planesOf(DEFAULT_SAVED_FIELDS)),
   blendMetres: VOXEL_MATERIAL_LIMITS.blendMetresDefault,
+  bakeLevel: DEFAULT_FAR_BAKE_LEVEL_M,
 });
+
+/**
+ * The bake level a world is baked to: the finest `bakeLevel` any scene's `voxelWorld` naming it sets (absent
+ * everywhere: the default). The cache is the world's, so the scene asking most decides.
+ */
+export function voxelWorldBakeLevel(scenes: readonly unknown[], world: string): FarBakeLevelM {
+  let out: FarBakeLevelM = DEFAULT_FAR_BAKE_LEVEL_M;
+  for (const sc of scenes) {
+    const entities = (sc as { entities?: unknown } | null)?.entities;
+    if (!Array.isArray(entities)) continue;
+    for (const e of entities) {
+      const v = (e as { components?: { voxelWorld?: { world?: unknown; bakeLevel?: unknown } } } | null)?.components?.voxelWorld;
+      if (v?.world === world && isFarBakeLevelM(v.bakeLevel) && v.bakeLevel < out) out = v.bakeLevel;
+    }
+  }
+  return out;
+}
 
 /** The blend metres a world's `voxelWorld` value draws with where no material sets its own (absent or out of range: the default). */
 export function voxelWorldBlendMetres(c: unknown): number {
@@ -291,7 +317,7 @@ function validateQuality(value: unknown, path: string, errors: ModelErrorV2[]): 
 }
 
 export function validateVoxelWorldComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields?, decalLayers?, blendMetres? }', value);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields?, decalLayers?, blendMetres?, bakeLevel? }', value);
   for (const k of Object.keys(value)) if (!VOXEL_WORLD_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown voxelWorld field "${k}" (${VOXEL_WORLD_FIELDS.join(', ')})`, k);
   const world = value['world'];
   if (world === undefined) err(errors, 'field_missing', `${path}/world`, "voxelWorld needs its world's name");
@@ -313,6 +339,8 @@ export function validateVoxelWorldComponent(value: unknown, path: string, errors
   validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
   const blend = value['blendMetres'];
   if (blend !== undefined && !isVoxelBlendMetres(blend)) err(errors, 'field_value', `${path}/blendMetres`, `blendMetres is 0-${VOXEL_MATERIAL_LIMITS.blendMetresMax} m`, blend);
+  const bake = value['bakeLevel'];
+  if (bake !== undefined && !isFarBakeLevelM(bake)) err(errors, 'field_value', `${path}/bakeLevel`, `bakeLevel is one of ${FAR_BAKE_LEVELS_M.join(', ')} m`, bake);
 }
 
 /** Ring distance groups in canonical form, field by field (into `out`). */
@@ -353,5 +381,6 @@ export function canonicalVoxelWorld(c: VoxelWorldComponent): VoxelWorldComponent
   if (c.savedFields !== undefined) out.savedFields = planesOf(planeMaskOf(c.savedFields));
   if (c.decalLayers !== undefined) out.decalLayers = c.decalLayers;
   if (c.blendMetres !== undefined) out.blendMetres = c.blendMetres;
+  if (c.bakeLevel !== undefined) out.bakeLevel = c.bakeLevel;
   return out;
 }

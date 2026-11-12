@@ -225,7 +225,7 @@ export function FieldRow(p: RowProps): JSX.Element | null {
   switch (kind) {
     case 'number':
     case 'int': {
-      // An int with a list of allowed values is a select.
+      // A number with a list of allowed values is a select.
       const choices = intChoices(f);
       if (choices !== null)
         return (

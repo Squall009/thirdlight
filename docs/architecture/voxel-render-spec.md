@@ -651,6 +651,45 @@ the GPU's z pass alike (`roofDistance` mirrors `farRoofDistance`). A second plan
 its cells. The far cache's builds (levels 2+) are unchanged. In the march, a ray entering a fine node's side more than
 `FAR_FINE_DEEP_CELLS` (½ a cell) under its surface (the seam where a level-1 neighbour lies lower) takes the ground's
 look at any distance, where a coarse node's side does so only within `FAR_INSIDE_LOOK_M` (D626).
+
+**Owner note (46d.26a, 2026-11-12): far cache format 2 → 3, add-only, the fine levels a world bakes.** The owner
+(relayed by session thirdlight-65, `docs/briefs/bake-level-2026-11-12.md`): "brick compute and storage should be
+tunable per scene. Just select how fine grained scene gets baked with 2m being default but you can change it to one or
+0.5 and have it all cached. At any level chosen the runtime brick compute is based on that so no realtime needed if 0.5
+is selected or only 0.5 if 1 is selected." What it costs, measured first: plan 46d §8 "46d.26" and the owner page
+`docs/briefs/bake-level-storage-2026-11-12.md` (the 8 km world: 355 MB at 2 m, 1.36 GB at 1 m, 5.0 GB at 0.5 m).
+Default chosen, owner to confirm (plan 46d §9, the 46d.26a defaults).
+
+**Fine levels baked** (`@thirdlight/voxel` `far-fine-bake.ts`; `@thirdlight/workspace` `voxel-far-fine.ts`).
+- *The setting.* The `voxelWorld` component's `bakeLevel` (metres: 2, the default, 1 or 0.5; `FAR_BAKE_LEVELS_M`, its
+  far level by `farBakeLevelOf`: 2, 1, 0). A world's cache bakes down to the finest any of the project's scenes asks
+  (`voxelWorldBakeLevel`); an export ships the fine levels down to it, whole, never a finer one the cache holds.
+- *Layout.* `far.json` `format` 3 gains `fine`: `bakeLevel` (the finest level baked toward, 0 or 1), `build`
+  (`FAR_FINE_BAKE_BUILD` 1), `blob` (`FAR_BRICKS_BLOB_VERSION`) and `levels`, coarsest first, each with its region
+  files, nodes and bytes and `columns` (its region columns baked, `rx,rz` at the level's node coordinates). A fine
+  level's nodes are entries of region files in `B<level>/` (`B1/`, `B0/`) at the level's node coordinates, encoded as
+  any baked node (`TLFB` v1, occlusion stored, zstd-packed where smaller): level 0's files tile the world as its own
+  region files (a node is a chunk), level 1's span 512 m. A node is stored only where its block draws something; a
+  node missing from a baked column draws nothing. The look words are the fine block's (the construction bit set).
+  Readers take formats 1, 2 and 3 (`FAR_CACHE_FORMATS_READ`); any other is refused. A format-2 cache is current for a
+  world baked to 2 m (the coarse levels are the same), and a fine bake rewrites its manifest as format 3.
+- *Built.* After the coarse cache is current, a region column of a fine level at a time, level 1 first, on the
+  backend's bake threads (`FAR_BAKE_THREADS`, cores − 1, at most 4): a column's nodes from the world's files
+  (`bakeFarFineColumn`: every node over a chunk holding anything, by `bakeFarFineNode`), then, in the world's queue,
+  its files and its place in `columns` written (`writeFarFineColumn`); commands go on meanwhile and the chunks they
+  change are built again in each column as it lands. A bake stopped part way goes on from the columns written; a
+  full build of the cache (another revision on disk) starts it again. The far info answer carries `fine`: the level
+  asked, whether it is baking, and per level the columns baked of the world's.
+- *One builder.* `bakeFarFineNode` is the GPU build's CPU oracle: the block a page sends (`gatherFarCells(…, fine)`,
+  `packFarFine`, `unpackFarFine`), `farBricksFromBlock`, `farBrickOcclusion`. A baked node is the CPU build of the
+  same block byte for byte, and within 46d.25a's rounding of the GPU's.
+- *Edits.* An edit's rebuild (`rebuildFarWorldCache`) builds again the fine nodes whose blocks read a changed chunk
+  (`farFineDirty`) in baked columns, each looked up first by its content key (`farFineContentKey`: the fine build,
+  the encoding and every chunk entry the block reads, in order) in the cache's `rebuilt/` store; only their files are
+  rewritten. The command's `far` answer gains `fine` (`dirty`, `built`, `reused`, `ms`).
+- *Shipped.* A catalog row's `far` gains `bakeLevel` (add-only; absent: no fine level shipped) and may list `B<level>/`
+  files from it up to `minLevel`. Not built in this step: the run time reading them (fine nodes are still built on the
+  GPU; 46d.26b).
 ---
 
 ## 5. Requirement traceability (46d)

@@ -53,6 +53,11 @@ export interface ShippedFarCache {
   readonly minLevel: number;
   readonly maxLevel: number;
   readonly files: readonly ShippedVoxelFile[];
+  /**
+   * The finest fine level whose bricks it ships baked (`B<level>/` below `minLevel`, every level from it up to
+   * `minLevel`; far-fine-bake.ts). Absent: none, the fine levels are built while playing.
+   */
+  readonly bakeLevel?: number;
 }
 
 /** A shipped world's fields, in their canonical order. */
@@ -74,7 +79,7 @@ export function canonicalShippedVoxelWorld(w: ShippedVoxelWorld): ShippedVoxelWo
     footprint: w.footprint,
     revision: w.revision,
     files: sortedFiles(w.files),
-    ...(w.far !== undefined ? { far: { minLevel: w.far.minLevel, maxLevel: w.far.maxLevel, files: sortedFiles(w.far.files) } } : {}),
+    ...(w.far !== undefined ? { far: { minLevel: w.far.minLevel, maxLevel: w.far.maxLevel, files: sortedFiles(w.far.files), ...(w.far.bakeLevel !== undefined ? { bakeLevel: w.far.bakeLevel } : {}) } } : {}),
   };
 }
 
@@ -117,14 +122,16 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
     if (files !== null) return files;
     if (w.far !== undefined) {
       const f = w.far as Record<string, unknown> | null;
-      if (typeof f !== 'object' || f === null || Object.keys(f).join(',') !== 'minLevel,maxLevel,files') return `voxelWorlds[${i}].far has the keys minLevel, maxLevel, files`;
-      const lo = f.minLevel, hi = f.maxLevel;
+      const fk = typeof f === 'object' && f !== null ? Object.keys(f).join(',') : '';
+      if (f === null || (fk !== 'minLevel,maxLevel,files' && fk !== 'minLevel,maxLevel,files,bakeLevel')) return `voxelWorlds[${i}].far has the keys minLevel, maxLevel, files (and bakeLevel)`;
+      const lo = f.minLevel, hi = f.maxLevel, bake = f.bakeLevel;
       if (typeof lo !== 'number' || typeof hi !== 'number' || !Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi < lo || hi > FAR_MAX_LEVEL) return `voxelWorlds[${i}].far levels are whole numbers 1 ≤ minLevel ≤ maxLevel ≤ ${FAR_MAX_LEVEL}`;
+      if (bake !== undefined && (typeof bake !== 'number' || !Number.isInteger(bake) || bake < 0 || bake >= lo)) return `voxelWorlds[${i}].far.bakeLevel is a whole number 0 ≤ bakeLevel < minLevel`;
       const levelOk = (name: string): boolean => {
         const at = shippedFarFile(name);
-        return at !== null && at.level >= lo && at.level <= hi;
+        return at !== null && at.level <= hi && (at.level >= lo || (at.bricks && typeof bake === 'number' && at.level >= bake));
       };
-      const p = filesProblem(`voxelWorlds[${i}].far.files`, f.files, levelOk, 'L<level>/ or B<level>/<stacked region file name> of a kept level');
+      const p = filesProblem(`voxelWorlds[${i}].far.files`, f.files, levelOk, 'L<level>/ or B<level>/<stacked region file name> of a kept level, or B<level>/ of a baked fine level');
       if (p !== null) return p;
     }
   }

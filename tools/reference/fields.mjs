@@ -61,6 +61,9 @@ export function typeText(f) {
       const vals = f.values === undefined ? '' : ` (one of ${f.values.map((v, i) => (f.valueLabels?.[i] !== undefined ? `${v} = ${f.valueLabels[i]}` : String(v))).join(', ')})`;
       return `int${vals}${f.mask === 'lightLayers' ? ' (light layer mask)' : ''}`;
     }
+    case 'number':
+      if (f.values !== undefined) return `number (one of ${f.values.map((v, i) => (f.valueLabels?.[i] !== undefined ? `${v} = ${f.valueLabels[i]}` : String(v))).join(', ')})`;
+      return 'number';
     case 'enum':
       return `enum: ${f.options.map((o) => code(o.value)).join(', ')}`;
     case 'vec2':

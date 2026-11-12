@@ -12,7 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildFarCache, farCacheDir, inProcessFarJobs, swapFarCache, type FarCacheJobs } from './voxel-far-cache';
+import { buildFarCache, farCacheDir, swapFarCache } from './voxel-far-cache';
+import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
 import { FAR_REBUILT_FOLDER } from './voxel-far-bake';
 import { VoxelWorlds, writeVoxelWorld } from './voxel-worlds';
 
@@ -72,6 +73,7 @@ function heldJobs(): {
       await gate;
     },
     rebuild: (...a) => real.rebuild(...a),
+    bakeFine: (tasks) => real.bakeFine(tasks),
     close: () => undefined,
   };
   return { jobs, built, release };

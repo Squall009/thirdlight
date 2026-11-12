@@ -38,12 +38,13 @@ import { downsampleMip, MIP_ROLE_PRIORITY, mipChildren, mipNodeKey, MipStaleSet,
 /**
  * The far cache's format; a cache of another format is built again (it is derived data). Format 2 adds the kept
  * nodes' baked bricks beside them (add-only: a format-1 cache is a format-2 cache without them, and a page reading
- * one builds its bricks itself).
+ * one builds its bricks itself). Format 3 adds the fine levels a world bakes (its bake level, far-fine-bake.ts):
+ * a format-2 cache is a format-3 cache with none baked.
  */
-export const FAR_CACHE_FORMAT = 2;
+export const FAR_CACHE_FORMAT = 3;
 
-/** The far cache formats a reader takes: 1 (no baked bricks) and {@link FAR_CACHE_FORMAT}. */
-export const FAR_CACHE_FORMATS_READ: readonly number[] = [1, FAR_CACHE_FORMAT];
+/** The far cache formats a reader takes: 1 (no baked bricks), 2 (no fine levels baked) and {@link FAR_CACHE_FORMAT}. */
+export const FAR_CACHE_FORMATS_READ: readonly number[] = [1, 2, FAR_CACHE_FORMAT];
 
 /** The lowest level the far tree keeps (2 m cells, 64 m nodes at the 32-cell edge): the near rings draw what is finer. */
 export const FAR_MIN_LEVEL = 2;

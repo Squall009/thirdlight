@@ -325,7 +325,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
 | 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
 | 46d.25 | done (25a–25c; 25c 40c05fce, 6b3a04f0, d7320305): fine bricks L0–1 behind `fineBricks` (off). 25c: ON does no mip work (60 m/s flight: 1,455 → 0 downsample, 2,043 → 673 derives, D633); ON's detail ring was smaller than OFF's (83 vs 110 chunks, fixed: low 60 detail 5.9 s vs OFF 4.8); D631 streaks mostly gone; D632 bound by the read ring's refill. Keep both; 46d.26 next |
-| 46d.26 | 46d.26a in progress: storage measured first (8 km world at 0.5 m 5.0 GB, ~3.7 h on 4 threads; 1 m 1.36 GB, ~1.6 h; 2 m 355 MB; terrain 5.4 / 19.6 / 71 MB a km², town 3.8 / 10.6 / 30): under the hard stop; design in §8 "46d.26"; format 3 and the bake next |
+| 46d.26 | 46d.26a done: storage first (8 km world 0.5 m 5.0 GB ~3.7 h on 4 threads, 1 m 1.36 GB, 2 m 355 MB; terrain 5.4/19.6/71 MB a km², town 3.8/10.6/30); `voxelWorld.bakeLevel`, far cache format 3 (B0/B1 by region), resumable bake, edits via the rebuilt store, export; staging slices baked byte-equal. 26b: run time reads them |
 
 ## 8. Results
 
@@ -4119,6 +4119,34 @@ level 0 to 312 m would be 177–222 MiB.
 - *Memory.* Fine bricks count in the far GPU budget as now (see above: 8–42 MiB of level 0 and ~34 MiB of level 1 in view
   at low against 384 MiB). The read ring's shrink frees stream memory (low's 768 MiB budget held the 192 m ring);
   measured in 46d.26b.
+
+**46d.26a built** (as designed above; render spec §4 *Fine levels baked*, format spec far cache 2 → 3, manual
+`voxel-worlds.md`). `voxelWorld.bakeLevel` (project-model: type, validation, canonical copy, descriptor with a number
+choice, `voxelWorldBakeLevel`; a number field may now list `values`, shown as a select as an int's is); `@thirdlight/voxel`
+`far-fine-bake.ts` (`FAR_BAKE_LEVELS_M`, `farBakeLevelOf`, `bakeFarFineNode`), far cache format 3, a shipped world's
+`far.bakeLevel`; `@thirdlight/workspace` `voxel-far-fine.ts` (column bake, write, pending, progress, edits through the
+rebuilt store), `voxel-far-jobs.ts` (the jobs, `bakeFine`; the rebuild includes the fine nodes), `VoxelWorlds` (the
+scenes' bake level, the background bake a column at a time written in the queue, far info `fine`, the export);
+backend `far-cache-threads.ts` (one thread pool for the coarse bake and the fine one), the worker's `fine` jobs.
+
+*Tested* (vitest, real region files and caches on disk): `voxel-far-fine.test.ts` (5: a 1 m world stores level 1 and a
+0.5 m world levels 1 and 0, every stored node byte for byte the fine builder's bricks of the block read from a world
+store as the streamer reads it, nothing else stored; a bake stopped after two columns goes on with only the rest and
+ends file for file equal to one never stopped; a dig's answer builds exactly `farFineDirty`'s nodes (shared content
+keys built once), only those entries change, the cache equals a fresh bake of the edited world, undo then the same dig
+reuses every node; an export ships levels 0–1 at 0.5 m, level 1 only at 1 m, none at 2 m, and the catalog row checks;
+a format-2 cache reads and is current at 2 m, format 4 refused), `far-cache-runner.test.ts` (+1: the backend's worker
+threads bake the same files as this thread), `voxel-world.test.ts` (project-model: values, round trip, finest of the
+scenes), descriptors (the field reached). Counts and bytes only.
+
+*The product bake on staging's 8 km world* (`work/46d.26a/stage-bake.mts`: `bakeFarFineColumn` on 8 worker threads,
+`writeFarFineColumn` here, the two measured slices only, 16:10–16:13, load 2.2 → 8.2): 40 columns (8 at level 1, 32 at
+level 0) in 198 s, 1,484 CPU s (the scratch bench's 1,172 without the chunk decode and holding checks); level 0 20,330
+nodes, 78.2 MB, level 1 5,070, 22.3 MB: **the 89 region files are byte for byte the scratch bench's.** Staging's cache is
+now format 3 with a partial `fine` record toward 0.5 m (those 40 columns of 1,280), its coarse levels unchanged; its
+scene asks 2 m, so its backend bakes nothing more and its exports ship no fine level. Unverified: a bake of the whole
+world (~3.7 h on 4 threads by the extrapolation), the bake's memory on the backend's 6 GB scope (a column holds its
+chunks two node columns deep), the editor's Inspector select in a browser.
 
 ## 9. Decision log
 

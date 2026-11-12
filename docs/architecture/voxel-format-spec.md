@@ -1572,7 +1572,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
 | Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 31 | refused | rebuilt, never upgraded |
-| Far cache ([render spec §4](voxel-render-spec.md#4-far-field-data)) | `far.json` `format` | 2 (reads 1 and 2) | built again | add-only step 1 → 2: format 2 adds the nodes' baked bricks (`bricks`, `B<level>/`); a format-1 cache reads as one without them (a page builds its bricks), the backend builds it again; rebuilt when its world's revision or its bricks' build differs |
+| Far cache ([render spec §4](voxel-render-spec.md#4-far-field-data)) | `far.json` `format` | 3 (reads 1, 2 and 3) | refused, built again | add-only steps: 2 adds the nodes' baked bricks (`bricks`, `B<level>/`; a format-1 cache reads as one without them, the backend builds it again); 3 adds the fine levels a world bakes (`fine`, `B0/`, `B1/`; a format-2 cache is current for a world baked to 2 m); rebuilt when its world's revision or its bricks' build differs |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 5 | refused | rebuilt from the kits, never stored |
 | Voxel kit record ([kit page](voxel-kit-format.md) §3.9, final) | `kitFormat` | 1 | any other refused whole | add-only fields (v1 has none to lift) |
 
@@ -1581,7 +1581,9 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 **Far cache 1 → 2 (46d.18, add-only):** format 2 = format 1 + the nodes' baked bricks (`far.json` `bricks`, folders
 `B<level>/`); a format-1 manifest reads as format 2 without them, nothing is rewritten. The owner note (vista step 2
 and the edit design, 2026-11-10, quoted) and the layout are in the [render spec](voxel-render-spec.md) §4, *Baked
-bricks*. Default chosen, owner to confirm (plan 46d §9).
+bricks*. Default chosen, owner to confirm (plan 46d §9). **2 → 3 (46d.26a, add-only):** format 3 = format 2 + the
+fine levels a world's bake level asks (`fine`, `B0/`, `B1/`); owner note (2026-11-12, quoted) and layout in the render
+spec §4, *Fine levels baked*.
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules

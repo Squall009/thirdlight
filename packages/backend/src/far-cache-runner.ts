@@ -1,6 +1,7 @@
 /**
- * Voxel far cache work off the backend's event loop: full builds and the
- * rebuild after each edit run on worker threads (`far-cache-worker.ts`).
+ * Voxel far cache work off the backend's event loop: full builds, fine
+ * bakes and the rebuild after each edit run on worker threads
+ * (`far-cache-worker.ts`).
  * A full build gets a thread of its own, so a world of kilometres being
  * built never delays another world's edit; edits share one kept thread,
  * stopped when idle. Run from source (tests), the work runs in this thread
@@ -8,7 +9,9 @@
  */
 import { Worker } from 'node:worker_threads';
 
-import { inProcessFarJobs, type FarCacheJobs, type FarRebuildReport } from '@thirdlight/workspace';
+import { inProcessFarJobs, type FarCacheJobs, type FarFineResult, type FarFineTask, type FarRebuildReport } from '@thirdlight/workspace';
+
+import { threadPoolRun } from './far-cache-threads';
 
 /** One job for the worker. */
 type FarCacheJob =
@@ -120,6 +123,9 @@ export function createFarCacheJobs(workerUrl: URL | null): FarCacheJobs {
           idle.unref();
         }
       }
+    },
+    bakeFine(tasks) {
+      return threadPoolRun<FarFineTask, FarFineResult>(workerUrl, 'fine', tasks);
     },
     close() {
       if (idle !== null) clearTimeout(idle);

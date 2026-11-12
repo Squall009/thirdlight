@@ -33,7 +33,7 @@ export type ExportVoxelWorldAnswer =
       readonly world: Omit<ShippedVoxelWorld, 'files' | 'far'>;
       readonly files: readonly ExportVoxelFile[];
       /** The world's far cache at that revision (`L<level>/<name>` files): shipped beside its region files, for the far field. */
-      readonly far?: { readonly minLevel: number; readonly maxLevel: number; readonly files: readonly ExportVoxelFile[] };
+      readonly far?: { readonly minLevel: number; readonly maxLevel: number; readonly files: readonly ExportVoxelFile[]; readonly bakeLevel?: number };
       /** Why the world ships without its far cache (still being built when the backend stopped waiting). */
       readonly farNote?: string;
     }
@@ -87,7 +87,7 @@ export async function shipVoxelWorlds(
     if (!got.ok) return { ok: false, message: `voxel world ${name}: ${got.message} (${got.code})` };
     if (got.farNote !== undefined) notes.push({ code: 'voxel_far_cache_building', message: got.farNote });
     const row = (f: ExportVoxelFile): { name: string; digest: string; byteLength: number } => ({ name: f.name, digest: f.digest, byteLength: f.byteLength });
-    worlds.push({ ...got.world, world: name, files: got.files.map(row), ...(got.far !== undefined ? { far: { minLevel: got.far.minLevel, maxLevel: got.far.maxLevel, files: got.far.files.map(row) } } : {}) });
+    worlds.push({ ...got.world, world: name, files: got.files.map(row), ...(got.far !== undefined ? { far: { minLevel: got.far.minLevel, maxLevel: got.far.maxLevel, files: got.far.files.map(row), ...(got.far.bakeLevel !== undefined ? { bakeLevel: got.far.bakeLevel } : {}) } } : {}) });
     for (const f of [...got.files, ...(got.far?.files ?? [])]) if (!files.has(f.digest)) files.set(f.digest, { path: `content/sha256/${f.digest}`, digest: f.digest, byteLength: f.byteLength, source: f.path });
   }
   return { ok: true, worlds, files: [...files.values()].sort((a, b) => (a.path < b.path ? -1 : 1)), notes };

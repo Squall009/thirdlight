@@ -298,7 +298,9 @@ describe('the far cache', () => {
     const world = join(p, 'voxels', 'far');
     const cacheDir = farCacheDir(p, 'far');
     const b = await buildFarCacheInPool(pool, world, cacheDir);
-    expect(b.manifest.format).toBe(2);
+    // A build writes the current format (3: fine levels baked only when a world asks; none here).
+    expect(b.manifest.format).toBe(3);
+    expect(b.manifest.fine).toBeUndefined();
     expect(b.manifest.bricks!.levels.map((l) => l.nodes)).toEqual(b.manifest.levels.map((l) => l.nodes));
     expect(b.brickBytes).toBeGreaterThan(0);
     // The same cache as format 1: its nodes only, as a cache built before bricks were baked.

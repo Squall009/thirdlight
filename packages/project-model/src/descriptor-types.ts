@@ -143,6 +143,10 @@ export interface NumberFieldDescriptor extends FieldBase {
   /** 0 is refused. */
   readonly nonZero?: boolean;
   readonly step?: number;
+  /** Only these values (a choice of numbers, e.g. a cell size). */
+  readonly values?: readonly number[];
+  /** What each of `values` is called (same order; shown instead of the number). */
+  readonly valueLabels?: readonly string[];
 }
 export interface IntFieldDescriptor extends FieldBase {
   readonly type: 'int';

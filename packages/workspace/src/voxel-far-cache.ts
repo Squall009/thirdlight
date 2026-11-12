@@ -79,7 +79,7 @@ export function farLevelFolder(level: number): string {
 }
 
 /** The far cache layout's region layout: nodes stack like chunks. */
-const FAR_LAYOUT: RegionLayout = 'stacked';
+export const FAR_LAYOUT: RegionLayout = 'stacked';
 
 export interface FarCacheLevel {
   readonly level: number;
@@ -103,6 +103,28 @@ export interface FarCacheManifest {
   readonly levels: readonly FarCacheLevel[];
   /** Format 2: every kept node's bricks baked beside it (`B<level>/`), by this build and encoding; absent in format 1. */
   readonly bricks?: FarCacheBricks;
+  /** Format 3: the fine levels baked (voxel-far-fine.ts); absent: none (formats 1 and 2, or a world baked to 2 m). */
+  readonly fine?: FarCacheFine;
+}
+
+/**
+ * A far cache's fine levels (levels below its kept ones, far-fine-bake.ts), baked by region column: the level they are
+ * baked toward, the build and encoding, and per fine level its files and the columns baked so far.
+ */
+export interface FarCacheFine {
+  /** The finest level the bake goes down to (0: 0.5 m, 1: 1 m). */
+  readonly bakeLevel: number;
+  /** The fine build's version (`FAR_FINE_BAKE_BUILD`). */
+  readonly build: number;
+  /** The encoding's version (`FAR_BRICKS_BLOB_VERSION`). */
+  readonly blob: number;
+  /** Coarsest first. */
+  readonly levels: readonly FarCacheFineLevel[];
+}
+
+/** A fine level's region files, nodes and bytes, and the level's region columns baked (`rx,rz` at the level's node coordinates, sorted). */
+export interface FarCacheFineLevel extends FarCacheLevel {
+  readonly columns: readonly string[];
 }
 
 /** A far cache's baked bricks: how they were made and, per kept level, their region files. */
@@ -137,6 +159,7 @@ function manifestBytes(m: FarCacheManifest): Uint8Array {
     revision: m.revision,
     levels: m.levels.map((l) => ({ level: l.level, regions: l.regions, nodes: l.nodes, bytes: l.bytes })),
     ...(m.bricks !== undefined ? { bricks: { blob: m.bricks.blob, scale: m.bricks.scale, occlusion: m.bricks.occlusion, levels: m.bricks.levels.map((l) => ({ level: l.level, regions: l.regions, nodes: l.nodes, bytes: l.bytes })) } } : {}),
+    ...(m.fine !== undefined ? { fine: { bakeLevel: m.fine.bakeLevel, build: m.fine.build, blob: m.fine.blob, levels: m.fine.levels.map((l) => ({ level: l.level, regions: l.regions, nodes: l.nodes, bytes: l.bytes, columns: l.columns })) } } : {}),
   };
   return new TextEncoder().encode(`${JSON.stringify(ordered, null, 2)}\n`);
 }
@@ -149,7 +172,12 @@ function manifestBytes(m: FarCacheManifest): Uint8Array {
 export function readFarCacheManifest(cacheDir: string): FarCacheManifest {
   const o = JSON.parse(readFileSync(join(cacheDir, FAR_CACHE_MANIFEST), 'utf8')) as FarCacheManifest;
   if (!FAR_CACHE_FORMATS_READ.includes(o.format)) throw new Error(`far cache format ${String(o.format)}, expected one of ${FAR_CACHE_FORMATS_READ.join(', ')}`);
-  return o.format === 1 ? { ...o, bricks: undefined } : o;
+  return o.format === 1 ? { ...o, bricks: undefined, fine: undefined } : o.format === 2 ? { ...o, fine: undefined } : o;
+}
+
+/** Writes a far cache's manifest (whole, through the durable write). */
+export function writeFarCacheManifest(cacheDir: string, m: FarCacheManifest): void {
+  writeFarCacheFile(cacheDir, FAR_CACHE_MANIFEST, manifestBytes(m));
 }
 
 /** A parsed region file and its bytes. */
@@ -203,7 +231,7 @@ function cellsEntry(grid: ChunkGrid, store: PaletteStore, n: { nx: number; ny: n
  * Replaces (or, for null bytes, removes) a cache file through the durable
  * write, whatever it held: the cache is derived, rebuilt rather than merged.
  */
-function writeCacheFile(dir: string, name: string, bytes: Uint8Array | null): void {
+export function writeFarCacheFile(dir: string, name: string, bytes: Uint8Array | null): void {
   if (bytes === null) {
     rmSync(join(dir, name), { force: true });
     return;
@@ -262,6 +290,11 @@ export class FarWorldSource implements FarSource {
     this.grid = chunkGrid(this.manifest.edge);
     this.folder = new RegionFolder(join(worldDir, gridFolder(WORLD_GRID_ID)), this.grid, hexToBytes(this.manifest.worldId), this.manifest.footprint, this.manifest.layout, new Set(this.manifest.regions));
     this.store = pickStore(this.grid);
+  }
+
+  /** A level-0 chunk's region read as stored (a content key reads its bytes). Throws on a damaged file. */
+  read(cx: number, cy: number, cz: number): RegionChunkRead {
+    return this.folder.read(cx, cy, cz);
   }
 
   chunk(cx: number, cy: number, cz: number): FarCells {
@@ -589,6 +622,8 @@ export interface FarRebuildReport {
   readonly ms: number;
   /** The baked bricks built again or reused (absent: the cache bakes none). */
   readonly bricks?: FarBricksRebuild;
+  /** The baked fine levels' nodes built again or reused (absent: the cache bakes none; voxel-far-fine.ts). */
+  readonly fine?: FarBricksRebuild;
 }
 
 /**
@@ -650,14 +685,14 @@ export function rebuildFarCache(worldDir: string, cacheDir: string, changed: Ite
     }
     mkdirSync(dir, { recursive: true });
     const bytes = entries.size === 0 ? null : writeRegion({ worldId: id, gridId: WORLD_GRID_ID, layout: FAR_LAYOUT, grid: world.grid, footprint: m.footprint, rx: t.rx, ry: t.ry, rz: t.rz, compressor: 'zstd' }, entries.values());
-    writeCacheFile(dir, name, bytes);
+    writeFarCacheFile(dir, name, bytes);
     if (bytes === null) lv.regions.delete(name);
     else lv.regions.add(name);
     written.push(path);
   }
-  const counted: FarCacheLevel[] = [...levels.values()].sort((a, b) => a.level - b.level).map((l) => countLevel(join(cacheDir, farLevelFolder(l.level)), world.grid, id, m.footprint, l.level, [...l.regions].sort()));
+  const counted: FarCacheLevel[] = [...levels.values()].sort((a, b) => a.level - b.level).map((l) => countFarLevel(join(cacheDir, farLevelFolder(l.level)), world.grid, id, m.footprint, l.level, [...l.regions].sort()));
   const manifest: FarCacheManifest = { ...m, revision: world.manifest.revision, levels: counted };
-  writeCacheFile(cacheDir, FAR_CACHE_MANIFEST, manifestBytes(manifest));
+  writeFarCacheFile(cacheDir, FAR_CACHE_MANIFEST, manifestBytes(manifest));
   if (m.bricks === undefined) return { rebuilt: ancestors, files: written, ms: performance.now() - t0 };
   const bricks = rebakeBricks(cacheDir, world.grid, id, chunks, written);
   return { rebuilt: ancestors, files: written.sort(), ms: performance.now() - t0, bricks };
@@ -720,13 +755,13 @@ function rebakeBricks(cacheDir: string, grid: ChunkGrid, worldId: Uint8Array, ch
     }
     mkdirSync(dir, { recursive: true });
     const bytes = entries.size === 0 ? null : writeRegion({ worldId, gridId: WORLD_GRID_ID, layout: FAR_LAYOUT, grid, footprint: m.footprint, rx: f.rx, ry: f.ry, rz: f.rz, compressor: 'zstd' }, entries.values());
-    writeCacheFile(dir, name, bytes);
+    writeFarCacheFile(dir, name, bytes);
     if (bytes === null) lv.regions.delete(name);
     else lv.regions.add(name);
     written.push(path);
   }
-  const counted = [...levels.values()].sort((a, b) => a.level - b.level).map((l) => countLevel(join(cacheDir, farBricksFolder(l.level)), grid, worldId, m.footprint, l.level, [...l.regions].sort()));
-  writeCacheFile(cacheDir, FAR_CACHE_MANIFEST, manifestBytes({ ...m, bricks: { ...m.bricks!, levels: counted } }));
+  const counted = [...levels.values()].sort((a, b) => a.level - b.level).map((l) => countFarLevel(join(cacheDir, farBricksFolder(l.level)), grid, worldId, m.footprint, l.level, [...l.regions].sort()));
+  writeFarCacheFile(cacheDir, FAR_CACHE_MANIFEST, manifestBytes({ ...m, bricks: { ...m.bricks!, levels: counted } }));
   return { dirty: dirty.length, built, reused, ms: performance.now() - t0 };
 }
 
@@ -740,7 +775,7 @@ export function runFarBakeFromCache(t: FarBakeTask): FarBakeResult {
 
 let bakeReader: { cacheDir: string; reader: FarCacheReader; store: PaletteStore | null } | null = null;
 
-function countLevel(dir: string, grid: ChunkGrid, worldId: Uint8Array, footprint: RegionFootprint, level: number, regions: string[]): FarCacheLevel {
+export function countFarLevel(dir: string, grid: ChunkGrid, worldId: Uint8Array, footprint: RegionFootprint, level: number, regions: string[]): FarCacheLevel {
   let nodes = 0;
   let bytes = 0;
   for (const name of regions) {
@@ -760,6 +795,7 @@ export function farCacheFiles(cacheDir: string): string[] {
   // Only the files the manifest lists: anything else in a level folder is debris, never shipped.
   for (const l of m.levels) for (const name of l.regions) out.push(`${farLevelFolder(l.level)}/${name}`);
   for (const l of m.bricks?.levels ?? []) for (const name of l.regions) out.push(`${farBricksFolder(l.level)}/${name}`);
+  for (const l of m.fine?.levels ?? []) for (const name of l.regions) out.push(`${farBricksFolder(l.level)}/${name}`);
   return out;
 }
 
@@ -776,7 +812,8 @@ export function farCacheStale(cacheDir: string, world: Pick<VoxelWorldManifest, 
     return existsSync(join(cacheDir, FAR_CACHE_MANIFEST)) ? `unreadable: ${e instanceof Error ? e.message : String(e)}` : 'not built';
   }
   if (m.worldId !== world.worldId || m.edge !== world.edge || m.footprint !== world.footprint) return 'of another world';
-  if (m.format !== FAR_CACHE_FORMAT) return `format ${m.format}: built again with its bricks`;
+  // Format 2 holds the same coarse levels as format 3 (which only adds the fine levels a world bakes).
+  if (m.format < 2) return `format ${m.format}: built again with its bricks`;
   const b = bricksStale(m.bricks);
   if (b !== null) return b;
   if (m.revision !== world.revision) return `built at revision ${m.revision}, the world is at ${world.revision}`;
@@ -796,32 +833,6 @@ export function yieldingFarRunner(worldDir: string): FarColumnRunner {
       yield farColumnNodes(world, rx, rz, minLevel);
       await new Promise<void>((ok) => setImmediate(ok));
     }
-  };
-}
-
-/**
- * Where a world's far cache work runs. The backend gives it a worker
- * thread, so a full build (minutes for a world of kilometres) and the
- * rebuild after each edit (a few hundred milliseconds) never hold its
- * event loop; from source both run in this thread.
- */
-export interface FarCacheJobs {
-  /** A whole cache built into `fresh` ({@link buildFarCacheInto}); the cache in use is left as it is. */
-  build(worldDir: string, fresh: string): Promise<void>;
-  /** The kept ancestors of `chunks` built again in place ({@link rebuildFarCache}). */
-  rebuild(worldDir: string, cacheDir: string, chunks: ReadonlyArray<{ readonly cx: number; readonly cy: number; readonly cz: number }>): Promise<FarRebuildReport>;
-  /** Stops what it started (its worker threads). */
-  close(): void;
-}
-
-/** Far cache work in this thread: a full build gives the event loop back between region columns. */
-export function inProcessFarJobs(): FarCacheJobs {
-  return {
-    build: async (worldDir, fresh) => {
-      await buildFarCacheInto(worldDir, fresh, { run: yieldingFarRunner(worldDir) });
-    },
-    rebuild: (worldDir, cacheDir, chunks) => Promise.resolve(rebuildFarCache(worldDir, cacheDir, chunks)),
-    close: () => undefined,
   };
 }
 

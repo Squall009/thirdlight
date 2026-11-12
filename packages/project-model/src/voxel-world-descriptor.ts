@@ -5,7 +5,7 @@
  *
  * Pure data.
  */
-import { COLLISION_RING_HYSTERESIS_CELLS, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { COLLISION_RING_HYSTERESIS_CELLS, FAR_BAKE_LEVELS_M, SECTION_EDGES, VOXEL_PLANES, VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { enm, ID, int, list, map, num, obj, str } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
 import { decalLayersField } from './decal-descriptor';
@@ -61,6 +61,7 @@ export const voxelWorld: ComponentDescriptor = {
     list('savedFields', 'Saved fields', "The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again).", enm('field', 'Field', 'A voxel field.', VOXEL_PLANES), { unique: true, default: [...D.savedFields] }),
     decalLayersField(false),
     num('blendMetres', 'Material blend', 'Metres over which neighbouring voxel materials blend where neither sets its own blend (0: hard cell lines; the smaller wins where two meet). Changes live, no remesh.', { min: 0, max: VOXEL_MATERIAL_LIMITS.blendMetresMax, step: 0.05, unit: 'm', default: D.blendMetres }),
+    num('bakeLevel', 'Brick bake', "How fine the world's far bricks are baked into its cache: 2 m (the cache's own levels; finer bricks are built while playing, WebGPU only), 1 m or 0.5 m (baked too: more disk and a longer bake, nothing finer built while playing). A world two scenes name is baked to the finer.", { values: FAR_BAKE_LEVELS_M, unit: 'm', default: D.bakeLevel }),
   ]),
   add: { kind: 'menu', value: { world: 'world' } },
   handles: [],

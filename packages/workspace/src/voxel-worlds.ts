@@ -36,6 +36,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
+import { voxelWorldBakeLevel } from '@thirdlight/project-model';
 import {
   canonicalEditCommand,
   chunkGrid,
@@ -60,6 +61,10 @@ import {
   WORLD_GRID_ID,
   WORLD_ID_BYTES,
   FAR_MAX_LEVEL,
+  FAR_MIN_LEVEL,
+  DEFAULT_FAR_BAKE_LEVEL_M,
+  farBakeLevelOf,
+  VOXEL_SIZE_M,
   type CellBox,
   type ChunkCoord,
   type ChunkEdge,
@@ -77,8 +82,10 @@ import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
 import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, REGION_WORLD_RESIDENT_BYTES, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
 import { writeAtomic, type WriteOps } from './write';
-import type { FarBricksRebuild } from './voxel-far-bake';
-import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, inProcessFarJobs, readFarCacheManifest, swapFarCache, type FarCacheJobs, type FarCacheManifest } from './voxel-far-cache';
+import { farBricksFolder, type FarBricksRebuild } from './voxel-far-bake';
+import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, FarWorldSource, readFarCacheManifest, swapFarCache, type FarCacheManifest } from './voxel-far-cache';
+import { farFineComplete, farFinePending, farFineProgress, rebakeFarFine, startFarFine, writeFarFineColumn, type FarFineResult } from './voxel-far-fine';
+import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
 
 /** The project folder holding its voxel worlds, one folder each. */
 export const VOXEL_WORLDS_FOLDER = 'voxels';
@@ -239,8 +246,8 @@ export type ShippedWorldFiles =
       world: { world: string; worldId: string; edge: ChunkEdge; layout: RegionLayout; footprint: RegionFootprint; revision: number };
       files: Array<{ name: string; path: string; digest: string; byteLength: number }>;
       /** The world's far cache, current with its revision: what the far field draws (its files named `L<level>/<name>`). */
-      far?: { minLevel: number; maxLevel: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }> };
-      /** Why the world ships without its far cache (it was still being built when the export stopped waiting). */
+      far?: { minLevel: number; maxLevel: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }>; bakeLevel?: number };
+      /** Why the world ships without its far cache, or without the fine levels its bake level asks (still being built when the export stopped waiting). */
       farNote?: string;
     }
   | { ok: false; code: string; message: string };
@@ -252,7 +259,14 @@ export type RegionFileAnswer = { ok: true; path: string; etag: string } | { ok: 
  * with their tags, current with the world's revision. While it is being
  * built (missing, or of an older revision) the answer is `far_cache_building`.
  */
-export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest; files: Array<{ name: string; etag: string }> } | { ok: false; error: VoxelWorldError };
+export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest; files: Array<{ name: string; etag: string }>; fine?: VoxelFineBake } | { ok: false; error: VoxelWorldError };
+
+/** A world's fine bake as the far info answers it: the level asked, whether it is baking now, and per fine level the region columns baked of all. */
+export interface VoxelFineBake {
+  readonly bakeLevel: number;
+  readonly baking: boolean;
+  readonly levels: ReadonlyArray<{ readonly level: number; readonly done: number; readonly total: number }>;
+}
 
 /** A far cache's level file folder name (`L<level>`: its nodes; `B<level>`: their baked bricks). */
 const FAR_LEVEL_RE = /^[LB](\d{1,2})$/;
@@ -285,7 +299,7 @@ export interface VoxelCommandApplied {
    * ancestors) and the ms it took, or why it was not (it is then built
    * again whole when next read); null when the world has none yet.
    */
-  readonly far: { readonly nodes: number; readonly ms: number; readonly bricks?: FarBricksRebuild } | { readonly stale: string } | null;
+  readonly far: { readonly nodes: number; readonly ms: number; readonly bricks?: FarBricksRebuild; readonly fine?: FarBricksRebuild } | { readonly stale: string } | null;
   /** Cells whose voxel changed. */
   readonly cells: number;
   /** The chunks whose content changed ([cx, cy, cz] each): what a client re-reads. */
@@ -374,6 +388,22 @@ export interface VoxelWorldsOptions {
   readonly farJobs?: FarCacheJobs;
   /** How long an export waits for a far cache being built (default {@link FAR_EXPORT_WAIT_MS}). */
   readonly farExportWaitMs?: number;
+  /**
+   * The project's scenes as stored: their voxel world components name each world's bake level (the finest any of them
+   * sets; absent: the default, 2 m, no fine level baked).
+   */
+  scenes?(projectId: string): readonly unknown[];
+}
+
+/**
+ * A fine bake under way (voxel-far-fine.ts): it runs outside the world's queue, a region column at a time, each
+ * column written in the queue; the chunks commands change meanwhile are built again in each column as it lands (a
+ * column read the world's files while they changed).
+ */
+interface FineBake {
+  readonly level: number;
+  readonly changed: ChunkCoord[];
+  done: Promise<void>;
 }
 
 /**
@@ -414,6 +444,8 @@ export class VoxelWorlds {
   private readonly known = new WeakMap<Promise<unknown>, OpenWorld>();
   /** Far cache builds running, by world. */
   private readonly farBuilds = new Map<string, FarBuild>();
+  /** Fine bakes running, by world. */
+  private readonly fineBakes = new Map<string, FineBake>();
   private readonly farJobs: FarCacheJobs;
 
   constructor(private readonly opts: VoxelWorldsOptions) {
@@ -609,7 +641,10 @@ export class VoxelWorlds {
         return refuse('far_cache_building', 'conflict', `voxel world ${name}'s far cache is being built (${now}); ask again shortly`);
       }
       const files = farCacheFiles(w.farDir).slice(1).map((f) => ({ name: f, etag: this.farTag(w, f) }));
-      return { ok: true, world: name, manifest: readFarCacheManifest(w.farDir), files };
+      const manifest = readFarCacheManifest(w.farDir);
+      const fine = this.fineState(w, manifest);
+      if (fine !== undefined && !fine.baking && fine.levels.some((l) => l.done < l.total)) void this.bakeFine(w);
+      return { ok: true, world: name, manifest, files, ...(fine !== undefined ? { fine: { ...fine, baking: this.fineBakes.has(worldKey(w)) } } : {}) };
     });
   }
 
@@ -638,9 +673,9 @@ export class VoxelWorlds {
         drop();
         swapFarCache(fresh, w.farDir);
         w.farTags.clear();
-        if (job.lost || job.changed.size === 0) return;
-        await this.farRebuild(w, [...job.changed.values()]);
+        if (!job.lost && job.changed.size > 0) await this.farRebuild(w, [...job.changed.values()]);
       });
+      if (this.wantedBake(w) < FAR_MIN_LEVEL) void this.bakeFine(w);
     })()
       .catch(() => rmSync(fresh, { recursive: true, force: true }))
       .finally(drop);
@@ -652,12 +687,63 @@ export class VoxelWorlds {
   private async farRebuild(w: OpenWorld, chunks: readonly ChunkCoord[]): Promise<VoxelCommandApplied['far']> {
     try {
       const r = await this.farJobs.rebuild(w.dir, w.farDir, chunks);
-      return { nodes: r.rebuilt.length, ms: r.ms, ...(r.bricks !== undefined ? { bricks: r.bricks } : {}) };
+      return { nodes: r.rebuilt.length, ms: r.ms, ...(r.bricks !== undefined ? { bricks: r.bricks } : {}), ...(r.fine !== undefined ? { fine: r.fine } : {}) };
     } catch (e) {
       rmSync(w.farDir, { recursive: true, force: true });
       w.farTags.clear();
       return { stale: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /** The far level a world's scenes bake down to (2: the kept levels only). */
+  private wantedBake(w: OpenWorld): number {
+    return farBakeLevelOf(this.opts.scenes === undefined ? DEFAULT_FAR_BAKE_LEVEL_M : voxelWorldBakeLevel(this.opts.scenes(w.projectId), w.name));
+  }
+
+  /** A world's fine bake toward the level its scenes ask, as the far info answers it (undefined: it asks none). */
+  private fineState(w: OpenWorld, m: FarCacheManifest): VoxelFineBake | undefined {
+    const want = this.wantedBake(w);
+    if (want >= FAR_MIN_LEVEL) return undefined;
+    return { bakeLevel: want, baking: this.fineBakes.has(worldKey(w)), levels: farFineProgress(m, new FarWorldSource(w.dir), want) };
+  }
+
+  /**
+   * Bakes a world's fine levels down to the level its scenes ask unless a bake runs already: the columns not baked
+   * yet, in the far jobs (bake threads in the backend) outside the world's queue, each column written in the queue
+   * as it lands, so commands go on and a stopped bake goes on from the columns written. A full build of the cache
+   * (another revision on disk) stops it; the next read starts it again on the new cache.
+   */
+  private bakeFine(w: OpenWorld): Promise<void> {
+    const key = worldKey(w);
+    const had = this.fineBakes.get(key);
+    if (had !== undefined) return had.done;
+    const level = this.wantedBake(w);
+    if (level >= FAR_MIN_LEVEL) return Promise.resolve();
+    const job: FineBake = { level, changed: [], done: Promise.resolve() };
+    const drop = (): void => {
+      if (this.fineBakes.get(key) === job) this.fineBakes.delete(key);
+    };
+    const current = (): boolean => !this.farBuilds.has(key) && farCacheStale(w.farDir, w.manifest) === null;
+    job.done = (async () => {
+      const pending = await this.queued(w, () => Promise.resolve(current() ? farFinePending(startFarFine(w.farDir, level), new FarWorldSource(w.dir), level) : []));
+      if (pending.length === 0) return;
+      for await (const r of this.farJobs.bakeFine(pending.map((t) => ({ worldDir: w.dir, ...t })))) {
+        const landed = await this.queued(w, () => Promise.resolve(current() && this.landFine(w, job, r)));
+        if (!landed) break;
+      }
+    })()
+      .catch(() => undefined)
+      .finally(drop);
+    this.fineBakes.set(key, job);
+    return job.done;
+  }
+
+  /** A baked column written (in the world's queue), then the chunks changed since the bake began built again in it. */
+  private landFine(w: OpenWorld, job: FineBake, r: FarFineResult): boolean {
+    writeFarFineColumn(w.farDir, w.world.store.grid, r);
+    w.farTags.clear();
+    if (job.changed.length > 0) rebakeFarFine(w.dir, w.farDir, job.changed);
+    return true;
   }
 
   /** A far cache file's tag (the hash of its bytes), taken again only when its stamp moved. */
@@ -694,6 +780,8 @@ export class VoxelWorlds {
    * read).
    */
   private async farAfter(w: OpenWorld, before: number, chunks: ReadonlyArray<readonly [number, number, number]>): Promise<VoxelCommandApplied['far']> {
+    // A column of a fine bake under way may have read these chunks before they changed: built again when it lands.
+    this.fineBakes.get(worldKey(w))?.changed.push(...chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })));
     const build = this.farBuilds.get(worldKey(w));
     if (build !== undefined) {
       for (const [cx, cy, cz] of chunks) build.changed.set(`${cx},${cy},${cz}`, { cx, cy, cz });
@@ -716,7 +804,10 @@ export class VoxelWorlds {
   async shippedFiles(projectId: string, name: string): Promise<ShippedWorldFiles> {
     const w = await this.load(projectId, name);
     if ('ok' in w) return { ok: false, code: w.error.code, message: w.error.message };
-    if (farCacheStale(w.farDir, w.manifest) !== null) await waitAtMost(this.buildFar(w), this.opts.farExportWaitMs ?? FAR_EXPORT_WAIT_MS);
+    const wait = this.opts.farExportWaitMs ?? FAR_EXPORT_WAIT_MS;
+    const t0 = performance.now();
+    if (farCacheStale(w.farDir, w.manifest) !== null) await waitAtMost(this.buildFar(w), wait);
+    if (this.wantedBake(w) < FAR_MIN_LEVEL && farCacheStale(w.farDir, w.manifest) === null) await waitAtMost(this.bakeFine(w), Math.max(0, wait - (performance.now() - t0)));
     return this.queued(w, async (): Promise<ShippedWorldFiles> => {
       const fresh = await this.refresh(w);
       if (!Array.isArray(fresh)) return { ok: false, code: fresh.error.code, message: fresh.error.message };
@@ -736,13 +827,27 @@ export class VoxelWorlds {
         return { ok: true, world: shipped, files, farNote: `voxel world ${name} ships without its far field: its far cache is still being built (${stale}); export again once it is built to draw the world past its load ring` };
       }
       const far = readFarCacheManifest(w.farDir);
+      // The fine levels ship only whole, and only down to the level the scenes ask (a finer bake held stays home).
+      const want = this.wantedBake(w);
+      const fine = want < FAR_MIN_LEVEL ? farFineComplete(far, new FarWorldSource(w.dir), want) : [];
+      const fineFolders = new Set(fine.map((l) => `${farBricksFolder(l)}/`));
       const farFiles = farCacheFiles(w.farDir)
         .slice(1)
+        .filter((f) => {
+          const level = Number(/^[LB](\d+)\//.exec(f)?.[1] ?? NaN);
+          return level >= far.minLevel || fineFolders.has(f.slice(0, f.indexOf('/') + 1));
+        })
         .map((f) => {
           const path = join(w.farDir, f);
           return { name: f, path, digest: this.farTag(w, f), byteLength: statSync(path).size };
         });
-      return { ok: true, world: { world: name, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, revision: m.revision }, files, far: { minLevel: far.minLevel, maxLevel: far.maxLevel, files: farFiles } };
+      const shipped = { world: name, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, revision: m.revision };
+      const farOut = { minLevel: far.minLevel, maxLevel: far.maxLevel, files: farFiles, ...(fine.length > 0 ? { bakeLevel: Math.min(...fine) } : {}) };
+      if (want < FAR_MIN_LEVEL && fine.length === 0) {
+        void this.bakeFine(w);
+        return { ok: true, world: shipped, files, far: farOut, farNote: `voxel world ${name} ships without its baked fine levels (bake level ${VOXEL_SIZE_M * 2 ** want} m): they are still being baked; export again once they are to load them instead of building them while playing` };
+      }
+      return { ok: true, world: shipped, files, far: farOut };
     });
   }
 

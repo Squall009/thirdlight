@@ -12,7 +12,7 @@ import { serializeCanonical } from './normalize';
 import { validateSceneV4 } from './scene-v3';
 import { DEFAULT_QUALITY_LEVELS, levelVoxels, type QualityLevelConfig } from './quality-levels';
 import { validateQualityLevels } from './materials';
-import { canonicalVoxelWorld, resolveVoxelWorld, validateVoxelWorldComponent, VOXEL_WORLD_DEFAULTS, type VoxelWorldComponent } from './voxel-world';
+import { canonicalVoxelWorld, resolveVoxelWorld, validateVoxelWorldComponent, VOXEL_WORLD_DEFAULTS, voxelWorldBakeLevel, type VoxelWorldComponent } from './voxel-world';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
 import { FAR_GPU_BUDGET_BYTES_BY_TIER as G, RELIEF_RING_SCALES, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
 
@@ -33,6 +33,7 @@ const FULL: VoxelWorldComponent = {
   savedFields: ['material', 'shape', 'wetness'],
   decalLayers: 5,
   blendMetres: 0.125,
+  bakeLevel: 0.5,
 };
 
 function errorsOf(v: unknown): string[] {
@@ -59,7 +60,7 @@ describe('the voxelWorld component', () => {
     expect(errorsOf('town')).toEqual(['field_type ']);
     expect(errorsOf({ world: 'Town' })).toEqual(['field_value /world']);
     expect(errorsOf({ world: 'a'.repeat(65) })).toEqual(['field_value /world']);
-    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, levels: { level0: 0, level1: '9', level2: 300 }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], decalLayers: 256, blendMetres: 0.75, climate: 1 })).toEqual([
+    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, levels: { level0: 0, level1: '9', level2: 300 }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], decalLayers: 256, blendMetres: 0.75, bakeLevel: 0.25, climate: 1 })).toEqual([
       'field_unexpected /climate',
       'field_unexpected /ring/near',
       'field_value /ring/loadRadius',
@@ -74,7 +75,11 @@ describe('the voxelWorld component', () => {
       'field_value /savedFields/2',
       'field_value /decalLayers',
       'field_value /blendMetres',
+      'field_value /bakeLevel',
     ]);
+    // A bake level is one of the far cache's: 2 m, 1 m, 0.5 m.
+    for (const m of [2, 1, 0.5]) expect(errorsOf({ world: 'w', bakeLevel: m })).toEqual([]);
+    for (const m of [1.5, 4, '1', 0]) expect(errorsOf({ world: 'w', bakeLevel: m })).toEqual(['field_value /bakeLevel']);
     // A blend is 0 (hard cell lines) to one cell.
     expect(errorsOf({ world: 'w', blendMetres: 0 })).toEqual([]);
     expect(errorsOf({ world: 'w', blendMetres: -0.1 })).toEqual(['field_value /blendMetres']);
@@ -95,6 +100,7 @@ describe('the voxelWorld component', () => {
 
   it('keeps every field through the scene validator and the canonical bytes, in order, adding nothing', () => {
     const shuffled = {
+      bakeLevel: 0.5,
       blendMetres: 0.125,
       decalLayers: 5,
       savedFields: ['wetness', 'material', 'shape'],
@@ -117,6 +123,16 @@ describe('the voxelWorld component', () => {
     // One level distance set keeps only that one.
     const one = canonicalScene([{ id: 'world-000001', components: { transform: T, voxelWorld: { world: 'w', levels: { level1: 90 } } } }]);
     expect(componentsOf(one, 'world-000001')['voxelWorld']).toEqual({ world: 'w', levels: { level1: 90 } });
+  });
+
+  it('bakes a world to the finest bake level any scene naming it asks', () => {
+    const sceneWith = (...worlds: Array<Record<string, unknown>>) => scene(worlds.map((voxelWorld, i) => ({ id: `world-00000${i}`, components: { transform: T, voxelWorld } })));
+    expect(voxelWorldBakeLevel([], 'w')).toBe(2);
+    expect(voxelWorldBakeLevel([sceneWith({ world: 'w' })], 'w')).toBe(2);
+    expect(voxelWorldBakeLevel([sceneWith({ world: 'w', bakeLevel: 1 }), sceneWith({ world: 'w', bakeLevel: 0.5 }, { world: 'v', bakeLevel: 1 })], 'w')).toBe(0.5);
+    expect(voxelWorldBakeLevel([sceneWith({ world: 'w', bakeLevel: 0.5 }, { world: 'v', bakeLevel: 1 })], 'v')).toBe(1);
+    // A value that is not a bake level is not one (the validator refuses it before it is ever stored).
+    expect(voxelWorldBakeLevel([sceneWith({ world: 'w', bakeLevel: 0.25 })], 'w')).toBe(2);
   });
 
   it('is refused in a scene with a bad value, and in a prefab', () => {

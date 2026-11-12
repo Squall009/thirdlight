@@ -4,13 +4,14 @@
  * worker writes the same files a build in this thread does, an edit's
  * rebuild there leaves the cache equal to a full build of the edited world,
  * the event loop keeps running while a build is under way, a job that
- * fails is answered as an error, and an export that stops waiting for a
- * build ships the world without its far cache with a warning saying so.
+ * fails is answered as an error, a world's fine levels bake on its threads
+ * to the same files as in this thread, and an export that stops waiting for
+ * a build ships the world without its far cache with a warning saying so.
  */
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildFarCache, farCacheDir, FAR_REBUILT_FOLDER, gridFolder, VoxelWorlds, writeVoxelWorldManifest } from '@thirdlight/workspace';
+import { buildFarCache, farCacheDir, FAR_REBUILT_FOLDER, gridFolder, inProcessFarJobs, VoxelWorlds, writeVoxelWorldManifest, type FarCacheJobs } from '@thirdlight/workspace';
 import { afterAll, describe, expect, it } from 'vitest';
 import { shipVoxelWorlds } from '@thirdlight/exporter';
 import { createFarCacheJobs } from './far-cache-runner';
@@ -103,6 +104,26 @@ describe('the far cache worker', () => {
     await expect(jobs.rebuild(join(root, 'no-world'), join(root, 'no-cache'), [{ cx: 0, cy: 0, cz: 0 }])).rejects.toThrow();
   });
 
+  it('bakes a world\'s fine levels on its threads, a region column a job, exactly as this thread does', async () => {
+    const baked = async (name: string, farJobs: FarCacheJobs): Promise<Record<string, string>> => {
+      const projectDir = join(root, name);
+      cpSync(join(root, 'p'), projectDir, { recursive: true });
+      rmSync(join(projectDir, 'cache'), { recursive: true, force: true });
+      const worlds = new VoxelWorlds({ projectDir: (id) => (id === 'p' ? projectDir : null), farJobs, scenes: () => [{ entities: [{ id: 'world-000001', components: { voxelWorld: { world: 'w', bakeLevel: 0.5 } } }] }] });
+      for (let i = 0; i < 3000; i++) {
+        const r = await worlds.farInfo('p', 'w');
+        if (r.ok && r.fine !== undefined && !r.fine.baking && r.fine.levels.every((l) => l.done === l.total)) break;
+        await new Promise((ok) => setTimeout(ok, 20));
+      }
+      worlds.close();
+      return filesOf(farCacheDir(projectDir, 'w'));
+    };
+    const inWorkers = await baked('fine-workers', jobs);
+    expect(Object.keys(inWorkers).some((f) => f.startsWith('B0/'))).toBe(true);
+    expect(Object.keys(inWorkers).some((f) => f.startsWith('B1/'))).toBe(true);
+    expect(inWorkers).toEqual(await baked('fine-thread', inProcessFarJobs()));
+  }, 60_000);
+
   it('lets an export ship a world whose far cache is still being built, without it and with a warning', async () => {
     const projectDir = join(root, 'export');
     cpSync(join(root, 'p'), projectDir, { recursive: true });
@@ -115,6 +136,7 @@ describe('the far cache worker', () => {
         await gate;
       },
       rebuild: jobs.rebuild,
+      bakeFine: jobs.bakeFine,
       close: () => undefined,
     };
     const worlds = new VoxelWorlds({

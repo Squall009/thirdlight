@@ -129,14 +129,14 @@ export function sliderRange(f: FieldDescriptor): { min: number; max: number; ste
   return { min: f.min, max: f.max, step };
 }
 
-/** An `int` limited to a list of values (e.g. the step rate) is a choice, not a free number. */
+/** A number limited to a list of values (e.g. the step rate, a cell size) is a choice, not a free number. */
 export function intChoices(f: FieldDescriptor): readonly number[] | null {
-  return f.type === 'int' && f.values !== undefined && f.values.length > 0 ? f.values : null;
+  return (f.type === 'int' || f.type === 'number') && f.values !== undefined && f.values.length > 0 ? f.values : null;
 }
 
-/** The option text of one allowed int value (its value label, else the number and unit). */
+/** The option text of one allowed number value (its value label, else the number and unit). */
 export function intChoiceLabel(f: FieldDescriptor, value: number): string {
-  if (f.type === 'int' && f.values !== undefined && f.valueLabels !== undefined) {
+  if ((f.type === 'int' || f.type === 'number') && f.values !== undefined && f.valueLabels !== undefined) {
     const label = f.valueLabels[f.values.indexOf(value)];
     if (label !== undefined) return label;
   }

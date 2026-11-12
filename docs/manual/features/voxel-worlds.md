@@ -82,6 +82,7 @@ how a game changes levels). All its fields:
 | **Saved fields** (`savedFields`) | material, role, shape | Which fields of the game's changes a save keeps. Wetness is left out by default: weather sets it again. A script can change it for a run (`ctx.voxels.setSavedFields`). |
 | **Decal layers** (`decalLayers`) | every layer | The [decal layers](decals.md#decal-layers) the world's surfaces and kit pieces are in: a decal marks them when its layers share one. A draw setting: changing it reloads nothing. |
 | **Material blend** (`blendMetres`) | 0.25 m | Metres over which neighbouring voxel materials blend where neither sets its own (`voxel.blendMetres`, below), 0 (hard cell lines) to 0.5 m (one cell); where two meet the smaller wins. A draw setting: it changes live, nothing is remeshed. |
+| **Brick bake** (`bakeLevel`) | 2 m | How fine the world's [far cache](#the-far-field) bakes its bricks: 2 m (its own levels), 1 m or 0.5 m. A finer bake costs disk and bake time (see below) and leaves nothing that fine to build while playing. A world two scenes name is baked to the finer of the two. |
 
 Settings you leave empty follow the engine's defaults, so a later default
 reaches every world that did not set its own. The component is not allowed
@@ -288,6 +289,21 @@ The far cache holds each node's bricks ready made (baked when it is built, and
 built again for the nodes an edit changes), so a game only unpacks and uploads
 them; a far cache from before baking still draws, its bricks made as the game
 runs, and the backend builds it again.
+
+- **Brick bake level.** A scene's voxel world chooses how fine its far cache
+  bakes bricks (**Brick bake**, `bakeLevel`): 2 m by default, or 1 m, or
+  0.5 m. Finer levels are baked after the far cache, a region column at a
+  time on the backend's bake threads, while you keep editing; a bake stopped
+  part way (the backend stopped) goes on where it was, an edit bakes again
+  only the bricks over what it changed, and an export ships the levels the
+  scenes ask (it waits for the bake like for the far cache, and says so if it
+  had to ship without them). The far info answer reports the columns baked.
+  What it costs, measured on the 8 km test world: a km² of terrain 5.4 MB at
+  2 m, 19.6 MB at 1 m, 71 MB at 0.5 m (town 3.8 / 10.6 / 30 MB); the whole
+  world 355 MB, 1.4 GB, 5.0 GB, baked in 24 min, ~1.6 h, ~3.7 h on four
+  threads. Drawing the baked fine levels in a game is the next step: today
+  they are baked and shipped, and the fine bricks are still built while
+  playing.
 
 - **Mode and detail, by quality level.** A quality level's **Voxel far
   field** is `bricks` (default on every tier), `mesh` (the fallback) or
