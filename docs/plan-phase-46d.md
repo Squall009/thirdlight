@@ -4251,6 +4251,45 @@ flat colour past the ring, grass slopes with fine moiré banding; no blob. Motio
 *Not done here (26c):* the 13-pose comparison and the verdict page, a second round, medium/high on their hardware, an
 export of a baked world (needs a whole bake: 5 GB).
 
+Closing area gate of 26b: gate-area-20261112-205610 (voxel, rendering, play) GREEN.
+
+### 46d.26c the final comparison: D640 fixed, D631 and D634 traced, A / B / C on both tiers, a baked export
+
+(9bc95e2a, 70b59330, 1bfd05e1; staging, Iris Xe, WebGPU 1280 × 720 at the tier's cap, alone on the host, capped
+scopes; `work/46d.26c/`, every `*.uptime` / `uptime-shots.txt` beside its run.) A = mesh rings (2 m world, `fineBricks`
+off, today's default), B = compute fine bricks (2 m, `?fineBricks=1`, WebGPU only), C = baked 0.5 m (scene `bakeLevel`
+0.5), C1 = baked 1 m with level 0 built by compute. Medium figures are **unverified on target hardware**.
+
+**D640 traced and fixed (9bc95e2a).** Scratch builds that dropped one kind of far hit at a time (`d640-c3.png`: skirts,
+the near cover's edge ring, the march's pixel tolerance; `d640-c4.png`: the edge ring per level) showed the curved
+lines are far bricks in the near cover's **edge ring** (drawn chunks next to undrawn ones, where the far field draws
+behind the near field to close gaps) and **only level 2**. A level-2 node the near field drew whole stayed closed, so
+there the far cache's 2 m bricks drew, whose roofs are hollow 1 m stairs (D627 (c)), standing out past the near roofs'
+silhouettes. The CPU field of the fine levels holds no shell there (`d640-scan.mts`: no column at levels 0 or 1 with a
+hit over 1.5 cells above every filled cell or roof plane round it). Fix (`far-fine.ts`): fine nodes stay closed only
+where the near cover **hides** the far field (the chunk and every chunk round it drawn, the cover's own erosion); a
+level-2 node opens into its level-1 children the cover does not hide whole, a level-1 node into its chunks the cover
+does not hide. vitest `far-fine.test.ts` (+1: near field over columns 0–6: every edge-ring chunk holding anything is
+drawn at level 0, no fine node under the hidden part; at the old rule the edge chunks were level 2). Seen gone in C and
+B (`d640-fix.png`). At town-west (the simulation's fine nodes drawn, levels 0 / 1): low 2,272 / 1,076 → 1,776 / 994 (children the cover hides are no longer opened), medium 2,488 / 116 → 2,400 / 116; far GPU at low 134 MiB both.
+
+**D631 traced, left open.** The hairlines on near-boulders' far grass slope stay with the D640 fix
+(`shots/side-by-side/near-boulders-low-oldC-vs-fixC.png`), with skirts dropped and without the march's pixel
+tolerance (`d631-crop.png`, dotted then): they run along the slope's contours at the fine field's 0.5 m cell steps, lit
+at a grazing angle. Not the builder's roof rule, so the bake stays as is (no re-bake).
+
+**D634 traced (counted), left open.** The coverage bench keeps, per hole event, what the page drew at its worst frame
+(70b59330). Medium 150 m/s, one round each (`travel/medium-150-{C,B}-d634*.json`): at every hole frame the near field
+draws 0 chunks (at speed level 0 is held and nothing is derived round the camera), the near cover is empty (0 hidden,
+0 edge chunks), no fine node is drawn: the missing ground is the far field's own coarse nodes near the eye, not a
+cover or ordering rule between the two fields. Baked: only the known corner artefact (m ≈ 4,434, 4 frames); compute:
+that and 8 frames at m ≈ 5,481; the band of 25c/26b did not come back in these two runs.
+
+**Staging's bake for the poses.** The 26b bench regions plus 52 columns round near-border, near-river,
+near-escarpment and near-outcrop (`bake/stage-bake.mts`, the product's column bake on 8 threads, 597 s, 4,491 CPU s):
+staging's fine levels now B0 328 MB + B1 129 MB = 457 MB (240 MB before). The builder did not change, so nothing
+was re-baked.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
