@@ -65,6 +65,8 @@ export class StreamLod {
   private extra: readonly Focus[] = [];
   /** Level 0 drawn (false: held back at speed, the choice made without its ring). */
   private detail = true;
+  /** Only the level-0 ring drawn ({@link setNearOnly}). */
+  private nearOnly = false;
   private used: readonly Focus[] = [];
 
   constructor(
@@ -113,6 +115,16 @@ export class StreamLod {
     this.dirty = true;
   }
 
+  /**
+   * Draws only the level-0 ring (true: fine far bricks draw past it, so no level 1 or 2 is chosen there; level 0
+   * still stands in next to the ring as before) or every ring (false, the default); the change is one swap.
+   */
+  setNearOnly(on: boolean): void {
+    if (on === this.nearOnly) return;
+    this.nearOnly = on;
+    this.dirty = true;
+  }
+
   /** Whether level 0 is drawn ({@link setDetail}). */
   get detailShown(): boolean {
     return this.detail;
@@ -145,7 +157,10 @@ export class StreamLod {
     const foci = this.foci();
     this.used = foci;
     const host = this.host;
-    const rings = this.detail ? this.rings : { radii: [0, ...this.rings.radii.slice(1)], hysteresis: this.rings.hysteresis };
+    const r0 = this.rings.radii[0]!;
+    // Near only: every coarser level splits where level 0 does, so nothing past the level-0 ring is drawn (its nodes are never ready).
+    const radii = this.nearOnly ? this.rings.radii.map(() => r0) : this.rings.radii;
+    const rings = this.detail ? { radii, hysteresis: this.rings.hysteresis } : { radii: [0, ...radii.slice(1)], hysteresis: this.rings.hysteresis };
     const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => host.ready(l, x, y, z), previous: this.chosen });
     this.counters.choices++;
     this.counters.unbalanced = stats.unbalanced;

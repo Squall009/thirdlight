@@ -269,7 +269,7 @@ async function main(): Promise<void> {
   materials.attach(surface);
   const level = pageLevel(textureResidency.quality, relief.params);
   const far = pageFar(params, level);
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels, gpuBudgetBytes: level.far.gpuBudgetBytes }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels, gpuBudgetBytes: level.far.gpuBudgetBytes, ...(far.fine && backendName === 'webgpu' ? { fine: true } : {}) }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   relief.attach(surface, streamer.relief, level.relief);
   const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters });
   const gpu = createGpuTiming();

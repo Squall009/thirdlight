@@ -230,6 +230,21 @@ export class FarNodeIndex {
   }
 }
 
+/**
+ * What the selection walks: the kept tree ({@link FarNodeIndex}), or one with levels under it opened only where
+ * `openable` allows (far-fine.ts).
+ */
+export interface FarSelectIndex {
+  readonly grid: ChunkGrid;
+  readonly minLevel: number;
+  readonly maxLevel: number;
+  nodes(level: number): MipNode[];
+  bytesOf(n: MipNode): number;
+  children(n: MipNode): MipNode[];
+  /** Whether a node may open into its children now (absent: every node above the lowest level may). */
+  openable?(n: MipNode): boolean;
+}
+
 /** A box of cells, min inclusive, max exclusive. */
 export interface FarBox {
   readonly min: readonly [number, number, number];
@@ -330,7 +345,7 @@ export class FarSelection {
   private open = new Set<string>();
 
   /** Selects the drawn nodes of `index` seen from `view`. */
-  select(index: FarNodeIndex, view: FarView): FarSelected {
+  select(index: FarSelectIndex, view: FarView): FarSelected {
     const steps = this.steps(index, view);
     for (;;) {
       const r = steps.next();
@@ -344,7 +359,7 @@ export class FarSelection {
    * the whole of it. Its open set is taken only when it returns; another selection meanwhile starts from the last
    * one's.
    */
-  *steps(index: FarNodeIndex, view: FarView): Generator<void, FarSelected, void> {
+  *steps(index: FarSelectIndex, view: FarView): Generator<void, FarSelected, void> {
     const threshold = view.errorPixels ?? FAR_ERROR_PIXELS;
     const h = view.hysteresis ?? FAR_HYSTERESIS;
     const budget = view.budgetBytes ?? FAR_BUDGET_BYTES;
@@ -414,7 +429,7 @@ export class FarSelection {
       if (++looked % FAR_SELECT_STEP_NODES === 0) yield;
       const i = pop();
       const key = i.key;
-      if (i.node.level <= index.minLevel) continue;
+      if (i.node.level <= index.minLevel || index.openable?.(i.node) === false) continue;
       const wasOpen = this.open.has(key);
       const wants = i.nearOverlap || i.rank > threshold * (wasOpen ? 1 - h : 1);
       if (!wants) continue;

@@ -408,6 +408,7 @@ export { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels, browserCrackDec
 export { createVoxelSurface, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_GRID_MAX_EDGE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelReliefSettings, type VoxelSurfaceObject, type VoxelSurfaceOptions, type VoxelSurfaceTextureArrays } from './voxel-surface';
 export { VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM } from './voxel-surface-path';
 export { FAR_FEEDBACK_URL_PARAM } from './voxel-far-feedback';
+export { FINE_BRICKS_URL_PARAM, FINE_BUILD_CELLS_PER_FRAME, FINE_BUILD_SLOTS, FineBrickBuilder, fineBricksFromUrl, type FineBrickCheck, type FineBrickResult } from './voxel-fine-bricks';
 export { FAR_PASS_URL_PARAM } from './voxel-far-visibility';
 export { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, RELIEF_TEST_SIZE, reliefTestHeights, voxelTestRelief, type VoxelReliefLook } from './voxel-relief';
 export { shadowSeesCutaways } from './block-cutaway-view';

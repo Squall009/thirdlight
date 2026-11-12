@@ -8,8 +8,8 @@
  * move, click to pick, Z to undo).
  */
 import * as THREE from 'three';
-import { createOcclusionFrame, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
-import { FAR_BRICK_BUILD, FAR_FIELD_MODES, farViewOf, reliefFade, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
+import { createOcclusionFrame, fineBricksFromUrl, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
+import { FAR_BRICK_BUILD, FAR_FIELD_MODES, farViewOf, reliefFade, setFineBricks, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld, type ResolvedVoxelWorld } from '@thirdlight/project-model/voxel-world';
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
@@ -53,13 +53,14 @@ export function pageLevel(quality: string, p: ReliefParams): { readonly id: stri
  * (`?farError=` pixels, default the level's) and the bricks' half-resolution march (`?farRes=half`, off by
  * default): what the streamer's far field and the view are made with.
  */
-export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean } {
+export function pageFar(params: URLSearchParams, level: Pick<ReturnType<typeof pageLevel>, 'far'>): { enabled: boolean; draw?: FarDrawKind; errorPixels: number; pinned: boolean; fine: boolean } {
   const asked = params.get('farField');
   const mode = (FAR_FIELD_MODES as readonly string[]).includes(asked ?? '') ? (asked as FarFieldMode) : null;
   const error = params.get('farError');
   const retired = RETIRED_FAR_PARAMS.filter((k) => params.has(k));
   if (retired.length > 0) console.warn(`voxel world page: ${retired.map((k) => `?${k}`).join(', ')} ignored: ${RETIRED_FAR_SWITCHES}`);
-  return { ...farViewOf(mode ?? level.far.mode), errorPixels: error === null ? level.far.errorPixels : Number(error), pinned: mode !== null || error !== null };
+  // `?fineBricks=1`: fine far bricks past the detail ring (WebGPU; the page leaves it off on WebGL 2).
+  return { ...farViewOf(mode ?? level.far.mode), errorPixels: error === null ? level.far.errorPixels : Number(error), pinned: mode !== null || error !== null, fine: fineBricksFromUrl(`?${params.toString()}`) };
 }
 
 /** The page's far brick switches from before one build was chosen: refused (the URL's ignored with a warning, the hook's an error). */
@@ -81,26 +82,30 @@ export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: numb
  * detail (pixels a far node's cell may cover), and a wait until it draws its selection. The retired brick switches
  * (`bricks`, `shade`, `march`, `res`: the half-resolution march) are refused.
  */
-export function pageFarHooks(streamer: Pick<VoxelStreamer, 'far'>, view: Pick<VoxelFarView, 'setVisible'>): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode }): void; settleFar(): Promise<void>; showFar(on: boolean): void } {
+export function pageFarHooks(streamer: VoxelStreamer, view: Pick<VoxelFarView, 'setVisible' | 'checkFine'>): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; fine?: boolean }): void; settleFar(): Promise<void>; showFar(on: boolean): void; checkFine(n: number): void } {
   return {
     setFar: (o) => {
-      const { mode, ...rest } = o;
+      const { mode, fine, ...rest } = o;
+      // Fine far bricks (levels 0–1 past the detail ring, built on the GPU): the near field's levels 1–2 go with them.
+      if (fine !== undefined) setFineBricks(streamer, fine);
       const retired = RETIRED_FAR_PARAMS.map((k) => (k === 'farBricks' ? 'bricks' : k === 'farShade' ? 'shade' : k === 'farMarch' ? 'march' : 'res')).filter((k) => k in rest);
       if (retired.length > 0) throw new Error(`setFar: ${retired.join(', ')} retired: ${RETIRED_FAR_SWITCHES}`);
-      streamer.far?.setView({ ...rest, ...(mode !== undefined ? farViewOf(mode) : {}) });
+      if (mode !== undefined || Object.keys(rest).length > 0) streamer.far?.setView({ ...rest, ...(mode !== undefined ? farViewOf(mode) : {}) });
     },
     settleFar: async () => {
       await streamer.far?.settle();
     },
     // Hides the far draws without changing what the far field selects (a picture of the near field alone).
     showFar: (on) => view.setVisible(on),
+    // The next fine builds are checked against the CPU build of the same blocks (`state().far.fineBuild.checks`).
+    checkFine: (n) => view.checkFine(n),
   };
 }
 
 /** What the far field selects, holds and draws (the hook's `state().far`; null: the page has none). */
 export function pageFarState(streamer: Pick<VoxelStreamer, 'far'>, view: VoxelFarView): Record<string, unknown> | null {
   if (streamer.far === null) return null;
-  return { ...streamer.far.metrics(), brickBuild: FAR_BRICK_BUILD, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
+  return { ...streamer.far.metrics(), fineBuild: view.fineState, brickBuild: FAR_BRICK_BUILD, pass: view.brickPass, trims: view.trims, recoloured: view.recoloured, recolourMs: view.recolourMs, gpuBytes: view.bytes, triangles: view.triangles, bricks: view.bricks, draws: view.draws, drawnNodes: view.nodes, rebuilds: view.rebuilds, buildMs: view.lastBuildMs, visible: view.visible, cover: view.coverState };
 }
 
 /** The hook's `setQuality`: the engine level's texel density cap on the arrays (`textures`), its stream budget, with `?relief=tier` its relief ring, and the far field's mode and detail unless the page pins them. */

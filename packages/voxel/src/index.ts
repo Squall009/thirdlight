@@ -250,7 +250,7 @@ export { chunkNearFoci, COLLISION_ADD_MS_PER_UPDATE, COLLISION_LEAD_MAX_SPEED, C
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { joinCollision, joinCollisionParts, joinInstances, joinRelief, joinSections, joinSectionsForDraw, joinShader, joinShaderCells, joinSurfaces, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 export { ChunkDrawBatcher, chunkDrawBatchTransfer, MESH_PART, NEAR_COVER_EDGE, NEAR_COVER_HIDDEN, type ChunkDrawBatch, type ChunkDrawBatcherOptions, type ChunkDrawFeed, type ChunkDrawLevels, type ChunkDrawWire, type ChunkReliefWire, type ChunkSwapWire, type DrawSurface, type FarDrawWire, type NearCoverWire, type SeamDrawWire, type SeamPieceWire } from './chunk-batch';
-export { STREAM_DERIVE_RESERVE_SHARE, VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
+export { setFineBricks, STREAM_DERIVE_RESERVE_SHARE, VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { StreamPieces, type PiecesHost } from './stream-pieces';
 export { applyWorldRings, worldLevelRings, worldPieceTable, worldReliefRing, worldStreamer, worldStreamRing, type WorldLevelsMetres, type WorldRingMetres, type WorldRingSettings } from './world-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
@@ -422,13 +422,16 @@ export {
   type FarCells,
   type FarDrawn,
   type FarSelected,
+  type FarSelectIndex,
   type FarSource,
   type FarView,
 } from './far-tree';
 export { FAR_POSITION_ORIGIN_CELLS, FAR_SKIRT_CELLS, FAR_VERTEX_BYTES, farMeshBytes, farMeshOf, farNeighbourIndex, farVertexLook, meshFarNode, withFarNeighbourhood, type FarMesh, type FarMeshInput } from './far-mesh';
 export { FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, FAR_BRICK_BUILD, FAR_DEEP_CELLS, FAR_INSIDE_LOOK_M, FAR_BRICK_LIP_CELLS, FAR_BRICK_SKIRT_SLOPE, FAR_BRICK_STEPS, farBrickCount, farBrickField, farBrickSample, farBricksBytes, farBricksInside, farBricksTransfer, marchBrickBox, squaredDistances, type FarBrickBuild, type FarBricks, type FarMarchStart } from './far-bricks';
 export { bakedFarBricks, decodeFarBricks, encodeFarBricks, FAR_BRICKS_BLOB_MAGIC, FAR_BRICKS_BLOB_VERSION, farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
-export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromFaces } from './far-bricks-faces';
+export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromBlock, farBricksFromFaces, farCellApron, gatherFarCells, spanDistances, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
+export { FarFineNodes, type FarFineNodesHost } from './far-fine-nodes';
+export { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, FAR_FINE_RESELECT_MS, FAR_FINE_TOP_LEVEL, farFineBytes, farFineChunks, farFineDirty, FarFineIndex, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineCells, type FarFineHost } from './far-fine';
 export { farBrickMarchedBox, farNodeMarchedBox, farNodeRayStartsInside, marchFarNode, rayBox, type FarCellBox } from './far-bricks-node';
 export { bakeFarBrick, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GPU_BYTES, FAR_BRICK_GRADIENT_MIN, FAR_BRICK_TABLE_GPU_BYTES, farBricksGpuBytes, FAR_BRICK_NORMAL_SPAN_CELLS, FAR_PALETTE_WORDS, farBakedAt, farBrickFineShade, farBrickGradient, farBrickOcclusion, farBrickOcclusionAt, type FarPalette } from './far-bricks-shade';
 export { FAR_BAKED_LEVELS, FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_BY_TIER, FAR_FIELD_MODES, FAR_GPU_BUDGET_BYTES_BY_TIER, FAR_JOBS_IN_FLIGHT, FAR_RESELECT_CELLS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, farEventBytes, farViewOf, regionFarSource, type FarCacheLevelFiles, type FarDrawKind, type FarEvent, type FarFieldHost, type FarFieldMode, type FarFieldOptions, type FarNearRing, type FarNodeDraw, type FarNodeSource, type FarStandIns, type RegionFarSourceOptions } from './far-field';

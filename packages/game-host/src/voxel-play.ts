@@ -35,9 +35,9 @@ export interface VoxelPresentation {
 /**
  * Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from
  * `kits` with the project's piece `seed`; `qualityLevels` the project's (absent: the engine's), `materials` the build's
- * voxel materials (absent: the ports').
+ * voxel materials (absent: the ports'); `fineBricks` fine far bricks past the detail ring (the page's switch).
  */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources): VoxelPresentation {
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   let table: PieceTable | null = null;
   const levels = qualityLevels ?? ports.qualityLevels;
@@ -58,6 +58,7 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           pool: conn.pool,
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),
           ...(conn.far !== undefined ? { far: conn.far } : {}),
+          ...(fineBricks ? { fineBricks: true } : {}),
           pieces: (table ??= worldPieceTable(kits, seed)),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);

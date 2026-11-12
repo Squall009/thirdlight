@@ -238,6 +238,8 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(a.bricks?.samples);
     add(a.bricks?.looks);
     add(a.bricks?.blocks);
+    add(a.fine?.cells);
+    add(a.fine?.words);
   }
   add(b.nearCover?.cells);
   return [...out];

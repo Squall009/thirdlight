@@ -34,6 +34,11 @@
  *   edge both draw, the far one's depth behind all of the near field (the
  *   coarser far surface may lie above the near one), so no gap opens
  *   between them and the near field wins wherever it has geometry.
+ * - **Fine nodes.** A fine node (levels 0–1) arrives as its cell block; its
+ *   bricks are built on the GPU (voxel-fine-bricks.ts) and drawn as any
+ *   brick node. A far change holding fine nodes waits until all of them are
+ *   built and is then applied whole, the changes after it waiting their
+ *   turn, so a swap stays a swap.
  */
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
@@ -49,6 +54,7 @@ import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
 import { FarFeedback, farFeedbackMismatch, FarRegionOwners, type FarFeedbackRenderer, type FarFeedbackResult } from './voxel-far-feedback';
 import { FarVisibility } from './voxel-far-visibility';
+import { FineBrickBuilder, fineDeviceOf, type FineBrickCheck, type FineBrickResult } from './voxel-fine-bricks';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
 
 const TSL: N = TSLTyped;
@@ -150,6 +156,18 @@ export class VoxelFarView {
   trims = 0;
   /** ms the last batch's group rebuilds took. */
   lastBuildMs = 0;
+  /** The fine nodes' GPU build (made with the first fine node; null before, or on WebGL 2). */
+  private fine: FineBrickBuilder | null = null;
+  private fineTried = false;
+  /** Far changes waiting for their fine nodes' builds, oldest first. */
+  private readonly held: Array<{ readonly far: FarDrawWire; readonly results: Map<number, FineBrickResult>; pending: number }> = [];
+  /** Fine builds still to check against the CPU build ({@link checkFine}). */
+  private fineChecks = 0;
+  /** Fine nodes drawn now, by level (0, 1), and their keys. */
+  readonly fineDrawn = [0, 0];
+  private readonly fineKeys = new Set<string>();
+  /** Far changes held for their fine builds since made. */
+  heldChanges = 0;
   constructor(private readonly opts: VoxelFarViewOptions) {
     this.root.name = 'voxel-far';
     this.root.matrixAutoUpdate = false;
@@ -234,10 +252,74 @@ export class VoxelFarView {
     return null;
   }
 
-  /** A batch's far changes and near cover, all applied in this task. */
+  /** A batch's near cover and its far changes, applied in this task (a far change with fine nodes once they are built). */
   apply(far: FarDrawWire | undefined, cover: NearCoverWire | undefined): void {
     if (cover !== undefined) this.cover.set(cover);
     if (far === undefined) return;
+    if (this.held.length === 0 && !far.added.some((a) => a.fine !== undefined)) this.applyFar(far, null);
+    else this.hold(far);
+  }
+
+  /** A far change with fine nodes: their builds start, and it is applied once the last is in (after those before it). */
+  private hold(far: FarDrawWire): void {
+    const entry = { far, results: new Map<number, FineBrickResult>(), pending: 0 };
+    const builder = this.fineBuilder();
+    far.added.forEach((a, i) => {
+      if (a.fine === undefined) return;
+      if (builder === null) {
+        entry.results.set(i, { bricks: null, regions: [], page: null });
+        return;
+      }
+      entry.pending++;
+      const check = this.fineChecks > 0;
+      if (check) this.fineChecks--;
+      builder.enqueue(a, a.fine, (r) => {
+        entry.results.set(i, r);
+        entry.pending--;
+        this.releaseHeld();
+      }, check);
+    });
+    this.held.push(entry);
+    this.heldChanges++;
+    this.releaseHeld();
+  }
+
+  private releaseHeld(): void {
+    while (this.held.length > 0 && this.held[0]!.pending === 0) {
+      const e = this.held.shift()!;
+      this.applyFar(e.far, e.results);
+    }
+  }
+
+  /** The fine build on the renderer's WebGPU device (null on WebGL 2: fine nodes draw nothing there, said once). */
+  private fineBuilder(): FineBrickBuilder | null {
+    if (this.fine !== null || this.fineTried) return this.fine;
+    this.fineTried = true;
+    const device = fineDeviceOf(this.uploader());
+    if (device === null) {
+      console.warn('far bricks: fine nodes need WebGPU; they draw nothing on WebGL 2');
+      return null;
+    }
+    const atlas = this.brickAtlas();
+    this.fine = new FineBrickBuilder(device, this.uploader(), atlas, this.opts.grid, () => {
+      this.checkPalette();
+      return this.palette?.palette ?? null;
+    });
+    return this.fine;
+  }
+
+  /** The next `n` fine builds are checked against the CPU build of the same blocks ({@link fineState}'s `checks`). */
+  checkFine(n: number): void {
+    this.fineChecks += n;
+  }
+
+  /** The fine build's counts (null: none made). */
+  get fineState(): (FineBrickBuilder['stats'] & { readonly pending: number; readonly held: number; readonly heldChanges: number; readonly drawn: readonly number[]; readonly gpuBytes: number; readonly checks: readonly FineBrickCheck[] }) | null {
+    const f = this.fine;
+    return f === null ? null : { ...f.stats, latencyMs: [...f.stats.latencyMs], pending: f.pending, held: this.held.length, heldChanges: this.heldChanges, drawn: [...this.fineDrawn], gpuBytes: f.gpuBytes, checks: [...f.checks] };
+  }
+
+  private applyFar(far: FarDrawWire, fine: ReadonlyMap<number, FineBrickResult> | null): void {
     const t0 = performance.now();
     // Regions given from here on belong to the new version: a round reduced before it never speaks for them.
     this.owners.version++;
@@ -250,23 +332,37 @@ export class VoxelFarView {
       if (gk === undefined) continue;
       this.groupOf.delete(key);
       const g = this.groups.get(gk)!;
+      if (this.fineKeys.delete(key)) this.fineDrawn[n.level]!--;
       g.nodes.delete(key);
       g.dirty = true;
     }
-    for (const a of far.added) {
-      const key = mipNodeKey(a);
+    far.added.forEach((a0, i) => {
+      const key = mipNodeKey(a0);
       this.dropRegions(key);
-      if (a.bricks !== undefined) this.upload(key, a, a.bricks);
       const old = this.groupOf.get(key);
       if (old !== undefined) {
+        if (this.fineKeys.delete(key)) this.fineDrawn[a0.level]!--;
         this.groups.get(old)!.nodes.delete(key);
         this.groups.get(old)!.dirty = true;
+        this.groupOf.delete(key);
       }
+      let a: FarNodeDraw = a0;
+      if (a0.fine !== undefined) {
+        // Built on the GPU: its regions and page are in the atlas already (the block itself is not kept).
+        const r = fine?.get(i);
+        if (r === undefined || r.bricks === null) return;
+        this.regions.set(key, r.regions);
+        this.owners.give({ level: a0.level, nx: a0.nx, ny: a0.ny, nz: a0.nz }, r.regions);
+        if (r.page !== null) this.pages.set(key, r.page);
+        a = { level: a0.level, nx: a0.nx, ny: a0.ny, nz: a0.nz, bricks: r.bricks };
+        this.fineKeys.add(key);
+        this.fineDrawn[a0.level]!++;
+      } else if (a0.bricks !== undefined) this.upload(key, a0, a0.bricks);
       const g = this.group(a.bricks !== undefined ? 'bricks' : 'mesh', a.level, a.nx, a.nz);
       g.nodes.set(key, a);
       g.dirty = true;
       this.groupOf.set(key, g.key);
-    }
+    });
     for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
     if (this.atlas !== null && this.atlas.trim(this.uploader())) this.trims++;
     this.lastBuildMs = performance.now() - t0;
@@ -516,6 +612,9 @@ export class VoxelFarView {
   }
 
   dispose(): void {
+    this.fine?.dispose();
+    this.fine = null;
+    this.held.length = 0;
     for (const g of this.groups.values()) {
       g.copies?.dispose();
       g.mesh?.geometry.dispose();

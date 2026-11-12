@@ -109,7 +109,7 @@ function bricksBy(store: PaletteStore, input: Pick<FarMeshInput, 'cells' | 'leve
 }
 
 /** A job's cells a chunk at a time: chunk (cx, cy, cz) into `out`; false when it holds none (air, absent, not kept). */
-type ChunkCells = (cx: number, cy: number, cz: number, out: DenseChunk) => boolean;
+export type ChunkCells =(cx: number, cy: number, cz: number, out: DenseChunk) => boolean;
 
 /**
  * The bricks of the node at `node` (its level's coordinates) from `store`,
@@ -120,20 +120,39 @@ export function farBricksFromFaces(g: ChunkGrid, store: PaletteStore, node: read
   return facesFromChunks(g, (cx, cy, cz, out) => chunkInWorld(g, cx, cy, cz) && store.exportChunk(cx, cy, cz, out), node, scale);
 }
 
-/** {@link farBricksFromFaces} from cells read a chunk at a time. */
-function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number): FarBricks {
+/**
+ * The cells a far node's bricks are made from (x fastest, then y, then z; `n` a side): the node's own `scale` times
+ * finer and {@link FarCellBlock.apron} more round it, each one's fill as a density 0–1, its look word (material |
+ * wetness << 12; 0 where nothing is), and whether it is solid (half full or more). The CPU build and the GPU build
+ * (three-adapter voxel-fine-bricks.ts) read the same block.
+ */
+export interface FarCellBlock {
+  readonly n: number;
+  /** Finer cells read past the node on each side: the band at the node's spacing, and one more for its edge's corners. */
+  readonly apron: number;
+  readonly scale: number;
+  readonly density: Float32Array;
+  readonly word: Uint16Array;
+  readonly solid: Uint8Array;
+  /** Solid cells. */
+  readonly count: number;
+}
+
+/** Finer cells a far node's block reads past the node on each side at a build scale ({@link FarCellBlock.apron}). */
+export function farCellApron(scale: number): number {
+  return (DISTANCE_BRICK_BAND_VOXELS + 1) * scale + 1;
+}
+
+/** The cell block of the node at `node` (its level's coordinates) at `scale`, read a chunk at a time. */
+export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number): FarCellBlock {
   if (!Number.isInteger(scale) || scale < 1 || scale > FAR_BRICK_SCALE_MAX || (scale & (scale - 1)) !== 0) throw new RangeError(`far bricks: scale ${scale}`);
   const e = g.edge;
   if (e % DISTANCE_BRICK_CELLS !== 0) throw new RangeError(`far bricks: a chunk edge of ${e} cells is not whole bricks`);
-  const side = e / DISTANCE_BRICK_CELLS;
   const S = scale;
-  const band = DISTANCE_BRICK_BAND_VOXELS;
-  // Fine cells read round the node: the band at the node's spacing, and one more cell for the corners on its edge.
-  const A = (band + 1) * S + 1;
+  const A = farCellApron(S);
   const F = e * S;
   const n = F + 2 * A;
   const n2 = n * n;
-  const m = n + 1;
   const base = [node[0] * F - A, node[1] * F - A, node[2] * F - A];
   const solid = new Uint8Array(n2 * n);
   const density = new Float32Array(n2 * n);
@@ -165,6 +184,22 @@ function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [n
       }
     }
   }
+  return { n, apron: A, scale: S, density, word, solid, count };
+}
+
+/** {@link farBricksFromFaces} from cells read a chunk at a time. */
+function facesFromChunks(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number): FarBricks {
+  return farBricksFromBlock(g, gatherFarCells(g, chunkCells, node, scale));
+}
+
+/** A far node's bricks from its cell block ({@link gatherFarCells}): the CPU build. */
+export function farBricksFromBlock(g: ChunkGrid, block: FarCellBlock): FarBricks {
+  const e = g.edge;
+  const side = e / DISTANCE_BRICK_CELLS;
+  const band = DISTANCE_BRICK_BAND_VOXELS;
+  const { n, apron: A, scale: S, density, word, solid, count } = block;
+  const n2 = n * n;
+  const m = n + 1;
   const empty = (fill: number): FarBricks => ({ side, bricks: new Int32Array(side ** 3).fill(fill), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0), bounds: new Uint8Array(0) });
   if (count === 0) return empty(DISTANCE_BRICK_OUTSIDE);
   if (count === solid.length) return empty(DISTANCE_BRICK_INSIDE);

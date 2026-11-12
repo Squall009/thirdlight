@@ -112,6 +112,8 @@ export interface VoxelWorldConnection {
   readonly pieces?: PieceTable | null;
   /** The world's far cache (absent: nothing is drawn past the near rings). */
   readonly far?: FarNodeSource;
+  /** Fine far bricks past the detail ring (the page's `?fineBricks=1`, WebGPU; absent: off). */
+  readonly fineBricks?: boolean;
   /** Lets go of what the source holds (open files, connections); called once when the world unloads. */
   close?(): void;
   /**

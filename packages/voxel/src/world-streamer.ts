@@ -88,6 +88,8 @@ export interface WorldRingSettings {
   readonly reliefSteps?: number;
   /** How the world is drawn past its near rings (absent: meshes at the default error, where the connection has a far cache). */
   readonly far?: { readonly mode: FarFieldMode; readonly errorPixels: number; readonly gpuBudgetBytes?: number };
+  /** Fine far bricks past the detail ring (VoxelStreamer.setFineBricks; absent: off). */
+  readonly fineBricks?: boolean;
 }
 
 /** The relief ring of a world's settings: its lattice steps and where it displaces (cells; none without both). */
@@ -113,7 +115,7 @@ export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSett
 }
 
 /** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: no kit, plain voxel faces). */
-export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null; readonly far?: FarNodeSource }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
+export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null; readonly far?: FarNodeSource; readonly fineBricks?: boolean }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
   return new VoxelStreamer({
     store: createWorldStore(conn.grid),
     source: conn.source,
@@ -128,6 +130,6 @@ export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source:
     relief: worldReliefRing(settings),
     ...(conn.pieces !== undefined ? { pieces: conn.pieces } : {}),
     // The far field is made wherever the world has a far cache, so a level switching it on needs no reload.
-    ...(conn.far !== undefined ? { far: { source: conn.far, ...farViewOf(settings.far?.mode ?? FAR_FIELD_BY_TIER.medium), ...(settings.far !== undefined ? { errorPixels: settings.far.errorPixels, ...(settings.far.gpuBudgetBytes !== undefined ? { gpuBudgetBytes: settings.far.gpuBudgetBytes } : {}) } : {}) } } : {}),
+    ...(conn.far !== undefined ? { far: { source: conn.far, ...farViewOf(settings.far?.mode ?? FAR_FIELD_BY_TIER.medium), ...(settings.far !== undefined ? { errorPixels: settings.far.errorPixels, ...(settings.far.gpuBudgetBytes !== undefined ? { gpuBudgetBytes: settings.far.gpuBudgetBytes } : {}) } : {}), ...(settings.fineBricks === true || conn.fineBricks === true ? { fine: true } : {}) } } : {}),
   });
 }

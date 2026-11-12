@@ -61,7 +61,7 @@ import { copyCoverage, countGround, emptyCoverage, type GroundCoverage, type Gro
 import { checkRadius } from './apron';
 import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
 import { jobRadius, type AssemblyRuleSet } from './assembly';
-import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, type VoxelRecord } from './record';
+import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, MATERIAL_AIR, type VoxelRecord } from './record';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import type { PieceTable } from './piece-table';
 import { StreamPieces } from './stream-pieces';
@@ -88,6 +88,7 @@ import { DEFAULT_STREAM_READS, motionDistance2, readOrder, STREAM_PREFETCH_SECON
 import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_STREAM_RING, mipRingsFor, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { FarField, type FarFieldOptions } from './far-field';
+import type { FarFineHost } from './far-fine';
 import { OverlayMerge, PendingRestore, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
@@ -539,7 +540,24 @@ export class VoxelStreamer {
           )
         : null;
     if (opts.far !== undefined && opts.rules === undefined) throw new RangeError('the far field needs a streamer deriving with assembly rules');
-    this.far = opts.far !== undefined && opts.rules !== undefined ? new FarField(opts.far, { grid: this.grid, pool: opts.pool, rules: opts.rules }) : null;
+    const fineHost: FarFineHost = {
+      // Outside the world is air: a fine node at the world's edge reads it as such.
+      resident: (cx, cy, cz) => !chunkInWorld(this.grid, cx, cy, cz) || this.isResident(cx, cy, cz),
+      holds: (cx, cy, cz) => {
+        if (!this.isResident(cx, cy, cz)) return false;
+        const form = this.overlay.chunkForm(cx, cy, cz);
+        if (form !== 'uniform') return form === 'stored';
+        const s = this.grid.shift;
+        return this.overlay.voxelAt(cx << s, cy << s, cz << s, fineProbe).material !== MATERIAL_AIR;
+      },
+      cells: (cx, cy, cz, out) => this.isResident(cx, cy, cz) && this.overlay.exportChunk(cx, cy, cz, out),
+      nearDrawn: (cx, cy, cz) => nearDrawn(this.mips, cx, cy, cz, () => this.isResident(cx, cy, cz)),
+    };
+    this.far = opts.far !== undefined && opts.rules !== undefined ? new FarField(opts.far, { grid: this.grid, pool: opts.pool, rules: opts.rules, fine: fineHost }) : null;
+    if (this.far?.fineNodes.wanted === true) {
+      this.mips?.lod.setNearOnly(true);
+      if (opts.mips === undefined) this.mips?.setRings(mipRingsOf(ring, true));
+    }
     const chunks = this.chunks;
     const merged = this.merged;
     this.pieces = new StreamPieces(
@@ -742,7 +760,7 @@ export class VoxelStreamer {
   setRing(ring: StreamRing): void {
     checkRing(ring);
     this.plan.setRing(ring);
-    if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(ring));
+    if (this.opts.mips === undefined) this.mips?.setRings(mipRingsOf(ring, this.far?.fineNodes.wanted === true));
     this.mips?.lod.changed();
     this.poke();
   }
@@ -760,7 +778,7 @@ export class VoxelStreamer {
     }
     if (replanned) {
       if (this.plan.ringChanged) {
-        if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(this.ring));
+        if (this.opts.mips === undefined) this.mips?.setRings(mipRingsOf(this.ring, this.far?.fineNodes.wanted === true));
         this.mips?.lod.changed();
         this.counters.speedRings++;
       }
@@ -886,6 +904,7 @@ export class VoxelStreamer {
       this.collision?.dropped(c.cx, c.cy, c.cz);
       this.store.dropChunk(c.cx, c.cy, c.cz);
       this.mips?.chunkDropped(c.cx, c.cy, c.cz);
+      this.far?.fineNodes.residency();
       this.tracker.unload(ref);
       this.held.chunks -= c.bytes - partBytes(c);
       this.held.derived -= partBytes(c);
@@ -1082,6 +1101,7 @@ export class VoxelStreamer {
     this.tracker.loaded(jobRef(this, c));
     this.derives?.chunkLanded(c.cx, c.cy, c.cz);
     this.mips?.chunkLanded(c.cx, c.cy, c.cz);
+    this.far?.fineNodes.residency();
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
@@ -1104,6 +1124,7 @@ export class VoxelStreamer {
     if (changed.length > 0) {
       d.invalidate(box, 'edit', parts, group);
       this.mips?.changed(changed, box, group);
+      this.far?.fineNodes.changed(changed);
     }
     d.request(this.opts.deriveMsPerUpdate ?? 2, true);
     // The drawn nodes the edit changed swap with it: their rebuilds go out now, in the edit lane.
@@ -1288,6 +1309,7 @@ export class VoxelStreamer {
     const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
     // The nodes join the refresh's group before its sections can swap.
     this.mips?.changed([c], box, this.derives?.refreshGroup(c.cx, c.cy, c.cz) ?? undefined);
+    this.far?.fineNodes.changed([c]);
     this.derives?.contentLanded(c.cx, c.cy, c.cz, box, parts);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
@@ -1331,6 +1353,7 @@ export class VoxelStreamer {
     }
     this.derives?.invalidate(box, 'edit', ALL_DERIVED_PARTS, group);
     this.mips?.changed([c], box, group);
+    this.far?.fineNodes.changed([c]);
   }
 
   private settleRebuild(group: number): void {
@@ -1414,6 +1437,31 @@ function unionBox(a: CellBox, b: CellBox): CellBox {
 }
 
 /** Whether the near field draws a chunk now: a drawn level covers it (without levels: `resident`). */
+/** The mip levels kept derived for a load ring: none while fine far bricks draw past the detail ring (far-fine.ts). */
+function mipRingsOf(ring: Pick<StreamRing, 'loadRadius'>, fine: boolean): MipRing[] {
+  return fine ? mipRingsFor(ring).map((r) => ({ level: r.level, radius: 0 })) : mipRingsFor(ring);
+}
+
+/**
+ * Fine far bricks on or off (far-fine.ts), without a reload: on, the far field draws levels 0–1 past the detail ring
+ * from the streamer's chunks and the near field draws only its level-0 ring (no level 1 or 2 is derived or drawn);
+ * off, the near field's rings are as they were. A streamer without a far field draws none; one given its own mip
+ * rings has the load ring's again.
+ */
+export function setFineBricks(streamer: VoxelStreamer, on: boolean): void {
+  const far = streamer.far;
+  if (far === null) return;
+  far.setView({ fine: on });
+  // Only where the far field draws them (the bricks mode with the chunks at hand) does the near field give its rings up.
+  const fine = far.fineNodes.wanted;
+  streamer.mips?.lod.setNearOnly(fine);
+  streamer.mips?.setRings(mipRingsOf(streamer.ring, fine));
+  streamer.mips?.lod.changed();
+}
+
+/** A cell read to tell a uniform chunk's value (the fine host's `holds`). */
+const fineProbe: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+
 function nearDrawn(mips: StreamMips | null, cx: number, cy: number, cz: number, resident: () => boolean): boolean {
   if (mips === null) return resident();
   const d = mips.lod.drawn;

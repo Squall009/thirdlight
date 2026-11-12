@@ -36,7 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, type GlbLoaderPort, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { fineBricksFromUrl, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, type GlbLoaderPort, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import { voxelMeter } from './voxel-meter';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -730,7 +730,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
-      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials);
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()));
       report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       farSeen = (world, seen) => p.farSeen(world, seen);
       return p.ports;
@@ -860,7 +860,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest) } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest), ...(fineBricksFromUrl(pageSearch()) ? { fineBricks: true } : {}) } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
