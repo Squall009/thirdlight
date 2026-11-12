@@ -53,6 +53,7 @@ import { FarNodeCopies } from './voxel-far-cull';
 import { FarBrickPalette, type FarPaletteRenderer } from './voxel-far-palette';
 import { FarCover, farClipPosition } from './voxel-far-common';
 import { FarFeedback, farFeedbackMismatch, FarRegionOwners, type FarFeedbackRenderer, type FarFeedbackResult } from './voxel-far-feedback';
+import { FarFineShade, type FarFineTexture } from './voxel-far-fine-shade';
 import { FarVisibility } from './voxel-far-visibility';
 import { FineBrickBuilder, fineDeviceOf, type FineBrickCheck, type FineBrickResult } from './voxel-fine-bricks';
 import type { VoxelGridRenderer, VoxelSurface } from './voxel-surface';
@@ -102,6 +103,13 @@ export interface VoxelFarViewOptions {
    * field's selection); absent, or without the visibility pass, none are made.
    */
   readonly onSeen?: (seen: FarSeenWire) => void;
+  /** What fine bricks' hits read of the texture sets (default `full`; voxel-far-fine-shade.ts). */
+  readonly fineTexture?: FarFineTexture;
+  /**
+   * Fine nodes arrived where they cannot be built (no WebGPU device: WebGL 2): told once, so where the world runs
+   * turns fine bricks off and its near field draws levels 1–2 again rather than nothing past the detail ring.
+   */
+  readonly onFineUnavailable?: () => void;
 }
 
 /** One world's far field draws. */
@@ -123,6 +131,11 @@ export class VoxelFarView {
   private textures: FarBrickTextures | null = null;
   /** The bricks' visibility pass and shade (null: they shade in the frame). */
   private vis: FarVisibility | null = null;
+  /** How fine bricks' hits are shaded (made with the atlas). */
+  private fineShade: FarFineShade | null = null;
+  private fineTexturedOn = true;
+  /** The far field's last fine fade (metres; null: none sent yet). */
+  private fineFade: readonly [number, number] | null = null;
   /** The visibility pass's feedback (null: off) and who holds each brick region, by version. */
   private feedback: FarFeedback | null = null;
   private readonly owners = new FarRegionOwners();
@@ -220,6 +233,12 @@ export class VoxelFarView {
   }
 
   /** Shows or hides every far draw (a page's switch; nothing is rebuilt). */
+  /** Fine bricks textured or in the palette's colours (a comparison; no new program). */
+  setFineTextured(on: boolean): void {
+    this.fineTexturedOn = on;
+    this.fineShade?.setTextured(on);
+  }
+
   setVisible(on: boolean): void {
     this.hidden = !on;
     this.root.visible = on;
@@ -256,6 +275,10 @@ export class VoxelFarView {
   apply(far: FarDrawWire | undefined, cover: NearCoverWire | undefined): void {
     if (cover !== undefined) this.cover.set(cover);
     if (far === undefined) return;
+    if (far.fineFade !== undefined) {
+      this.fineFade = far.fineFade;
+      this.fineShade?.setFade(far.fineFade[0], far.fineFade[1]);
+    }
     if (this.held.length === 0 && !far.added.some((a) => a.fine !== undefined)) this.applyFar(far, null);
     else this.hold(far);
   }
@@ -297,14 +320,12 @@ export class VoxelFarView {
     this.fineTried = true;
     const device = fineDeviceOf(this.uploader());
     if (device === null) {
-      console.warn('far bricks: fine nodes need WebGPU; they draw nothing on WebGL 2');
+      console.warn('far bricks: fine nodes need WebGPU; on WebGL 2 the near field draws past the detail ring instead');
+      this.opts.onFineUnavailable?.();
       return null;
     }
     const atlas = this.brickAtlas();
-    this.fine = new FineBrickBuilder(device, this.uploader(), atlas, this.opts.grid, () => {
-      this.checkPalette();
-      return this.palette?.palette ?? null;
-    });
+    this.fine = new FineBrickBuilder(device, this.uploader(), atlas, this.opts.grid);
     return this.fine;
   }
 
@@ -314,9 +335,9 @@ export class VoxelFarView {
   }
 
   /** The fine build's counts (null: none made). */
-  get fineState(): (FineBrickBuilder['stats'] & { readonly pending: number; readonly held: number; readonly heldChanges: number; readonly drawn: readonly number[]; readonly gpuBytes: number; readonly checks: readonly FineBrickCheck[] }) | null {
+  get fineState(): (FineBrickBuilder['stats'] & { readonly pending: number; readonly held: number; readonly heldChanges: number; readonly drawn: readonly number[]; readonly gpuBytes: number; readonly checks: readonly FineBrickCheck[]; readonly texture: FarFineTexture | null; readonly fadeM: readonly [number, number] | null }) | null {
     const f = this.fine;
-    return f === null ? null : { ...f.stats, latencyMs: [...f.stats.latencyMs], pending: f.pending, held: this.held.length, heldChanges: this.heldChanges, drawn: [...this.fineDrawn], gpuBytes: f.gpuBytes, checks: [...f.checks] };
+    return f === null ? null : { ...f.stats, latencyMs: [...f.stats.latencyMs], pending: f.pending, held: this.held.length, heldChanges: this.heldChanges, drawn: [...this.fineDrawn], gpuBytes: f.gpuBytes, checks: [...f.checks], texture: this.fineShade === null ? null : this.fineShade.textured ? this.fineShade.texture : 'off', fadeM: this.fineFade };
   }
 
   private applyFar(far: FarDrawWire, fine: ReadonlyMap<number, FineBrickResult> | null): void {
@@ -393,6 +414,9 @@ export class VoxelFarView {
     if (this.atlas === null) {
       this.atlas = new FarBrickAtlas(this.opts.grid.edge / DISTANCE_BRICK_CELLS);
       this.textures = new FarBrickTextures(this.atlas);
+      this.fineShade = new FarFineShade(this.opts.surface, this.textures, this.opts.fineTexture ?? 'full');
+      this.fineShade.setTextured(this.fineTexturedOn);
+      if (this.fineFade !== null) this.fineShade.setFade(this.fineFade[0], this.fineFade[1]);
       this.palette ??= new FarBrickPalette(this.opts.surface);
     }
     return this.atlas;
@@ -408,7 +432,7 @@ export class VoxelFarView {
     if (want === (this.vis !== null)) return;
     if (want) {
       this.brickAtlas();
-      this.vis = new FarVisibility(this.textures!, this.cover, this.root, this.opts.origin);
+      this.vis = new FarVisibility(this.textures!, this.cover, this.root, this.opts.origin, this.fineShade!);
       this.vis.root.visible = !this.hidden;
       this.root.add(this.vis.shade);
       if (this.opts.onSeen !== undefined) {
@@ -535,7 +559,7 @@ export class VoxelFarView {
       if (this.brickMaterial === null) {
         this.brickAtlas();
         this.setVisibilityPass();
-        this.brickMaterial = new FarBrickMaterial(this.textures!, this.cover, this.opts.grid.edge / DISTANCE_BRICK_CELLS, this.brickOutput());
+        this.brickMaterial = new FarBrickMaterial(this.textures!, this.cover, this.fineShade!, this.opts.grid.edge / DISTANCE_BRICK_CELLS, this.brickOutput());
       }
       g.triangles = 0;
       g.brickCount = nodes.reduce((n, d) => n + (d.bricks !== undefined ? farBrickCount(d.bricks) : 0), 0);

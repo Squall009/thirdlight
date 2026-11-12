@@ -21,7 +21,7 @@
  * go with them too (`ctx.voxels.materialOf`).
  */
 import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, setFineBricks, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
@@ -30,6 +30,11 @@ export interface VoxelPresentation {
   drawn(world: string, bytes: readonly number[], coarse: number, kits: number): void;
   /** A round of a world's far field visibility feedback from the page. */
   farSeen(world: string, seen: FarSeenWire): void;
+  /**
+   * Fine far bricks on or off for every world, open and to come: the page turns them off when it cannot build them
+   * (WebGL 2), so the near field draws its levels 1–2 again instead of nothing past the detail ring.
+   */
+  setFine(on: boolean): void;
 }
 
 /**
@@ -39,6 +44,8 @@ export interface VoxelPresentation {
  */
 export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
+  const streams = new Map<string, VoxelStreamer>();
+  let fine = fineBricks;
   let table: PieceTable | null = null;
   const levels = qualityLevels ?? ports.qualityLevels;
   const mats = materials ?? ports.materials;
@@ -58,16 +65,20 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           pool: conn.pool,
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),
           ...(conn.far !== undefined ? { far: conn.far } : {}),
-          ...(fineBricks ? { fineBricks: true } : {}),
+          ...(fine ? { fineBricks: true } : {}),
           pieces: (table ??= worldPieceTable(kits, seed)),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);
             mine = new ChunkDrawBatcher(world, stream, sectionEdge, send);
             batchers.set(world, mine);
+            streams.set(world, stream);
           },
           close: () => {
             mine?.close();
-            if (mine !== null && batchers.get(world) === mine) batchers.delete(world);
+            if (mine !== null && batchers.get(world) === mine) {
+              batchers.delete(world);
+              streams.delete(world);
+            }
             mine = null;
             conn.close?.();
           },
@@ -76,5 +87,10 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
     },
     drawn: (world, bytes, coarse, kits) => batchers.get(world)?.drawn(bytes, coarse, kits),
     farSeen: (world, seen) => batchers.get(world)?.farSeen(seen),
+    setFine: (on) => {
+      if (on === fine) return;
+      fine = on;
+      for (const s of streams.values()) setFineBricks(s, on);
+    },
   };
 }

@@ -241,7 +241,7 @@ describe('the far view', () => {
     v.dispose();
   });
 
-  it('holds a far hit in one visibility texel and reads it back: its brick, its place in the brick to a 4095th of the span, its depth exactly, its entry face; nothing hit reads as none', () => {
+  it('holds a far hit in one visibility texel and reads it back: its brick, its place in the brick to a 4095th of the span, its depth exactly, its entry face, whether its brick is fine; nothing hit reads as none', () => {
     const step = FAR_VIS_CELL_SPAN / FAR_VIS_CELL_STEPS;
     // The atlas's largest region index on its widest axis (2048 texels / 9) and the brick's whole span, lip included.
     const cases = [
@@ -249,6 +249,9 @@ describe('the far view', () => {
       { brick: [227, 3, 201], at: [8, 8, 8], viewZ: -4123.75, face: 6 },
       { brick: [17, 226, 0], at: [FAR_VIS_CELL_FROM, 3.3333, FAR_VIS_CELL_FROM + FAR_VIS_CELL_SPAN], viewZ: -61_000.125, face: 3 },
       { brick: [5, 6, 7], at: [-0.5, 8.5, 4.123], viewZ: -0.75, face: 4 },
+      // Fine bricks' hits.
+      { brick: [227, 226, 201], at: [8.5, 0, 3], viewZ: -150.5, face: 5, fine: true },
+      { brick: [1, 2, 3], at: [1, 2, 3], viewZ: -20, face: 6, fine: true },
     ] as const;
     for (const h of cases) {
       const t = packFarVisibility(h);
@@ -261,6 +264,7 @@ describe('the far view', () => {
       const back = unpackFarVisibility(t.map((x) => Math.fround(x)))!;
       expect(back.brick).toEqual(h.brick);
       expect(back.face).toBe(h.face);
+      expect(back.fine === true).toBe('fine' in h && h.fine);
       expect(back.viewZ).toBe(Math.fround(h.viewZ));
       for (let a = 0; a < 3; a++) expect(Math.abs(back.at[a]! - h.at[a]!)).toBeLessThanOrEqual(step / 2 + 1e-9);
     }
@@ -294,7 +298,9 @@ describe('the far view', () => {
       return w.root.children[0] as THREE.Mesh;
     })());
     const samples = (w: string): number => (w.match(/textureSampleLevel/g) ?? []).length;
-    expect(samples(lit) - samples(march), 'the six gradient reads and the colour read left to the shade').toBe(7);
+    // Not counting the fine hits' reads: in their own branch.
+    const samplesTop = (w: string): number => w.split('\n').filter((l) => /^\t[^\t]/.test(l) && l.includes('textureSampleLevel')).length;
+    expect(samplesTop(lit) - samplesTop(march), 'the six gradient reads and the colour read left to the shade').toBe(7);
     // The shade: lit by the scene, its depth the hit's, every pixel's own texel read once (no filtering).
     const scene = litScene();
     scene.add(v.root);
@@ -302,7 +308,11 @@ describe('the far view', () => {
     expect(shade).toContain('frag_depth');
     expect(shade).toContain('discard');
     expect(shade).toContain('textureLoad');
-    expect(samples(shade)).toBe(7);
+    expect(samplesTop(shade)).toBe(7);
+    // A fine brick's hit (its own branch, only its pixels): the occlusion, the two words' far colours (each set's
+    // mean), and, nearer than the fade's end, the two materials' albedo, normal and ORM at an explicit level, one
+    // projection each; its eight words are loads.
+    expect(samples(shade) - samplesTop(shade), 'the fine hits\' reads').toBe(1 + 2 + 2 * 3);
     // Under the temporal upscale's motion target the shade writes the hit's motion from its own fragment (the texel's
     // place), not the full-screen quad's vertices: no motion varying in its vertex stage.
     installMotionVectors();

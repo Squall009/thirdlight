@@ -410,6 +410,7 @@ export { VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM } from './voxel-surface-
 export { FAR_FEEDBACK_URL_PARAM } from './voxel-far-feedback';
 export { FINE_BRICKS_URL_PARAM, FINE_BUILD_CELLS_PER_FRAME, FINE_BUILD_SLOTS, FineBrickBuilder, fineBricksFromUrl, type FineBrickCheck, type FineBrickResult } from './voxel-fine-bricks';
 export { FAR_PASS_URL_PARAM } from './voxel-far-visibility';
+export { FAR_FINE_CELL_M_BELOW, FarFineShade, FINE_TEXTURE_URL_PARAM, fineTextureFromUrl, type FarFineTexture } from './voxel-far-fine-shade';
 export { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, RELIEF_TEST_SIZE, reliefTestHeights, voxelTestRelief, type VoxelReliefLook } from './voxel-relief';
 export { shadowSeesCutaways } from './block-cutaway-view';
 export { VOXEL_FAR_LOOK_ATTRIBUTE, VoxelFarView, type VoxelFarViewOptions } from './voxel-far-mesh';

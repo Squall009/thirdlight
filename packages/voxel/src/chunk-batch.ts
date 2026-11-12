@@ -138,6 +138,8 @@ export interface FarDrawWire {
   readonly removed: readonly MipNode[];
   /** The last far event in it ({@link FarEvent.seq}): what the draws name in their visibility feedback. */
   readonly seq?: number;
+  /** The last far event's fine fade ({@link FarEvent.fineFade}; absent: fine nodes off). */
+  readonly fineFade?: readonly [number, number];
 }
 
 export interface ChunkDrawBatch {
@@ -273,6 +275,8 @@ export class ChunkDrawBatcher {
   private farAdded: FarNodeDraw[] = [];
   private farRemoved: MipNode[] = [];
   private farSeq = 0;
+  /** The last far event's fine fade (null: fine nodes off). */
+  private farFade: readonly [number, number] | null = null;
   /** The near field's draws changed since the cover last went (with a far field). */
   private coverDirty = false;
   private coverSent = '';
@@ -300,6 +304,7 @@ export class ChunkDrawBatcher {
       this.farAdded.push(...e.added);
       this.farRemoved.push(...e.removed);
       this.farSeq = e.seq;
+      this.farFade = e.fineFade ?? null;
       this.queue();
     });
   }
@@ -455,7 +460,7 @@ export class ChunkDrawBatcher {
     this.queued = false;
     const cover = this.coverDirty ? this.nearCover() : null;
     this.coverDirty = false;
-    const far = this.farAdded.length > 0 || this.farRemoved.length > 0 ? { added: this.farAdded, removed: this.farRemoved, seq: this.farSeq } : null;
+    const far = this.farAdded.length > 0 || this.farRemoved.length > 0 ? { added: this.farAdded, removed: this.farRemoved, seq: this.farSeq, ...(this.farFade !== null ? { fineFade: this.farFade } : {}) } : null;
     if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null)) return;
     const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];

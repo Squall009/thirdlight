@@ -7,6 +7,10 @@
  * march reads the field; the shade reads the gradient and the colour, once
  * a pixel where the far pass shades from its visibility target
  * (voxel-far-visibility.ts), once a fragment where the march shades itself.
+ * A fine brick (levels 0–1, built on the GPU) keeps each sample's look word
+ * where a coarse one keeps its baked colour (red the low byte, green the
+ * high, alpha the occlusion as for every brick): {@link fineLooks} reads
+ * the words round a hit unfiltered.
  */
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
@@ -15,9 +19,10 @@ import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, FAR_BRICK_AO_FLOOR, F
 import type { N } from './effects-tsl';
 import { texelTexture3D } from './texel-texture-node';
 import type { VoxelShaderGrids } from './voxel-surface';
+import { addHeaviest, heaviestTwo } from './voxel-surface-sets';
 
 const TSL: N = TSLTyped;
-const { abs, clamp, float, length, max, mix, normalize, select, sign, texture3D, uniform, vec3 } = TSL;
+const { abs, clamp, float, floor, ivec3, length, max, min, mix, normalize, round, select, sign, texture3D, uniform, vec3 } = TSL;
 
 /** What of the atlas the texture nodes follow (voxel-far-bricks.ts `FarBrickAtlas`). */
 export interface FarBrickStores {
@@ -34,11 +39,14 @@ export class FarBrickTextures {
   readonly colours: N;
   readonly pages: N;
   readonly pageBounds: N;
+  /** The baked samples unfiltered: a fine brick's look words. */
+  readonly looks: N;
   private readonly invSide = uniform(new THREE.Vector3(1, 1, 1));
 
   constructor(stores: FarBrickStores) {
     this.distance = texture3D(stores.distance.texture);
     this.colours = texture3D(stores.colours.texture);
+    this.looks = texelTexture3D(stores.colours.texture);
     this.pages = texelTexture3D(stores.pages.texture);
     this.pageBounds = texelTexture3D(stores.pageBounds.texture);
     this.sides(stores.distance.texture);
@@ -48,6 +56,7 @@ export class FarBrickTextures {
     };
     stores.colours.onTexture = (tex) => {
       (this.colours as unknown as { value: THREE.Texture }).value = tex;
+      (this.looks as unknown as { value: THREE.Texture }).value = tex;
     };
     stores.pages.onTexture = (tex) => {
       (this.pages as unknown as { value: THREE.Texture }).value = tex;
@@ -93,6 +102,33 @@ export class FarBrickTextures {
   colour(region: N, p: N): N {
     const c = this.colours.sample(region.add(inBrick(p)).add(0.5).mul(this.invSide)).level(float(0));
     return c.rgb.mul(mix(float(FAR_BRICK_AO_FLOOR), float(1), c.a));
+  }
+
+  /** The occlusion's darkening at a hit (one filtered read of the baked samples' alpha: every brick keeps it there). */
+  occlusion(region: N, p: N): N {
+    const a = this.colours.sample(region.add(inBrick(p)).add(0.5).mul(this.invSide)).level(float(0)).a;
+    return mix(float(FAR_BRICK_AO_FLOOR), float(1), a);
+  }
+
+  /**
+   * A fine brick's look round a hit: the two heaviest of its eight samples' words by the hit's trilinear weights (as
+   * a filtered read blends them) and the second's share. Loads only (no filtering, no derivative): it may lie in a
+   * branch that varies per pixel.
+   */
+  fineLooks(region: N, p: N): { a: N; b: N; share: N } {
+    const q = inBrick(p);
+    const i0 = min(floor(q), vec3(DISTANCE_BRICK_CELLS - 1)).toVar();
+    const f = q.sub(i0).toVar();
+    const top = heaviestTwo();
+    for (let k = 0; k < 8; k++) {
+      const d = vec3(k & 1, (k >> 1) & 1, (k >> 2) & 1);
+      const at = region.add(i0).add(d);
+      const t = this.looks.load(ivec3(at)).toVar();
+      const word = round(t.r.mul(255)).add(round(t.g.mul(255)).mul(256));
+      const w = (k & 1 ? f.x : f.x.oneMinus()).mul((k >> 1) & 1 ? f.y : f.y.oneMinus()).mul((k >> 2) & 1 ? f.z : f.z.oneMinus()).add(1e-6);
+      addHeaviest(top, word, w);
+    }
+    return { a: top.m1, b: select(top.m2.lessThan(0), top.m1, top.m2), share: top.v2.div(max(top.v1.add(top.v2), 1e-6)) };
   }
 
   /**

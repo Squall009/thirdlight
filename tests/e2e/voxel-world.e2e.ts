@@ -649,6 +649,58 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
   });
 }
 
+/** Mean colour step between neighbouring pixels (x and y) where `mask` holds: how much detail a surface shows. */
+function detailIn(img: ReturnType<typeof decodePng>, mask: (x: number, y: number) => boolean): { detail: number; pixels: number } {
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y + 1 < img.height; y++) for (let x = 0; x + 1 < img.width; x++) {
+    if (!mask(x, y) || !mask(x + 1, y) || !mask(x, y + 1)) continue;
+    const p = img.pixel(x, y);
+    const r = img.pixel(x + 1, y);
+    const d = img.pixel(x, y + 1);
+    for (let c = 0; c < 3; c++) sum += Math.abs(p[c]! - r[c]!) + Math.abs(p[c]! - d[c]!);
+    n++;
+  }
+  return { detail: n === 0 ? 0 : sum / n, pixels: n };
+}
+
+/**
+ * Fine far bricks textured as the near surface draws its own: the ground's material given a texture set (a record
+ * change on the backend, read again by the page) reaches the fine bricks with no rebuild (their samples hold look
+ * words; the colours and sets are read when shaded), their pixels gain the set's detail, and with texturing off (a
+ * comparison at run time, no new program) the same pixels lose it again. `shown` and `nearOnly`: the view with and
+ * without the far draws (the far pixels are where they differ); `built` the fine builds so far.
+ */
+async function fineTextured(page: Page, shown: ReturnType<typeof decodePng>, nearOnly: ReturnType<typeof decodePng>, built: number): Promise<void> {
+  const far = (x: number, y: number): boolean => {
+    const a = shown.pixel(x, y);
+    const b = nearOnly.pixel(x, y);
+    return Math.abs(a[0]! - b[0]!) + Math.abs(a[1]! - b[1]!) + Math.abs(a[2]! - b[2]!) > 60;
+  };
+  await groundRelief(true);
+  try {
+    await hook(page, 'readMaterials');
+    type Textures = { textures: { current: boolean; layers: number } };
+    await expect.poll(async () => { const t = (await hook<Textures>(page, 'state')).textures; return t.current && t.layers > 0; }, { timeout: 30_000, message: 'the ground\'s texture set drawn' }).toBe(true);
+    await hook(page, 'settle');
+    const textured = await shot(page);
+    const st = await hook<FineState>(page, 'state');
+    expect(st.far.fineBuild!.built, 'the record reached the fine bricks with no rebuild').toBe(built);
+    await hook(page, 'setFar', { fineTextured: false });
+    const plain = await shot(page);
+    await hook(page, 'setFar', { fineTextured: true });
+    const t = detailIn(textured, far);
+    const f = detailIn(plain, far);
+    console.log(`fine textured: far pixels ${t.pixels}, detail textured ${t.detail.toFixed(2)} vs palette ${f.detail.toFixed(2)}, fade ${JSON.stringify(st.far.fineBuild!.fadeM)} (${st.far.fineBuild!.texture})`);
+    expect(t.pixels, 'far pixels compared').toBeGreaterThan(2000);
+    expect(changedPixels(plain, textured, () => true, 20), 'pixels the texture set changes past the detail ring').toBeGreaterThan(1000);
+    expect(t.detail, 'the fine bricks show the set\'s detail').toBeGreaterThan(1.5 * f.detail);
+  } finally {
+    await groundRelief(false);
+    await hook(page, 'readMaterials');
+  }
+}
+
 /** What the page reports of its fine far bricks (`state().far`). */
 interface FineState {
   levels: number[];
@@ -656,7 +708,7 @@ interface FineState {
     problem: string | null;
     drawnNodes: number;
     fine: { on: boolean; made: number; edits: number; drawn: number[] };
-    fineBuild: { built: number; bricks: number; pending: number; held: number; drawn: number[]; checks: Array<{ node: string; sameBricks: boolean; bricks: number; samples: number; distanceDiffer: number; distanceMax: number; boundsDiffer: number; colourDiffer: number; colourMax: number; occlusionDiffer: number; occlusionMax: number }> } | null;
+    fineBuild: { built: number; bricks: number; pending: number; held: number; drawn: number[]; checks: Array<{ node: string; sameBricks: boolean; bricks: number; samples: number; distanceDiffer: number; distanceMax: number; boundsDiffer: number; lookDiffer: number; occlusionDiffer: number; occlusionMax: number }>; texture: string | null; fadeM: [number, number] | null } | null;
   };
 }
 
@@ -693,14 +745,14 @@ async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: n
   // The GPU build against the CPU build of the same blocks: the same bricks stored, every distance byte within one
   // (32-bit rounding at the ties part-full fills make), looks and occlusion as the design says.
   expect(b.checks.length).toBeGreaterThan(0);
-  const sum = (k: 'samples' | 'distanceDiffer' | 'colourDiffer' | 'occlusionDiffer' | 'boundsDiffer' | 'bricks'): number => b.checks.reduce((n, c) => n + c[k], 0);
+  const sum = (k: 'samples' | 'distanceDiffer' | 'lookDiffer' | 'occlusionDiffer' | 'boundsDiffer' | 'bricks'): number => b.checks.reduce((n, c) => n + c[k], 0);
   console.log(`fine check: ${JSON.stringify(b.checks)}`);
   for (const c of b.checks) {
     expect(c.sameBricks, c.node).toBe(true);
     expect(c.distanceMax, c.node).toBeLessThanOrEqual(1);
   }
   expect(sum('distanceDiffer') / sum('samples'), 'distance bytes off by one').toBeLessThan(0.02);
-  expect(sum('colourDiffer') / sum('samples'), 'colours apart').toBeLessThan(0.02);
+  expect(sum('lookDiffer') / sum('samples'), 'looks apart').toBeLessThan(0.02);
   expect(Math.max(...b.checks.map((c) => c.occlusionMax)), 'occlusion').toBeLessThanOrEqual(3);
   // Past the detail ring the fine bricks draw (in this small world nearly every far node drawn is a fine one): ground
   // below the horizon everywhere, and their pixels gone with the far draws hidden.
@@ -708,8 +760,10 @@ async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: n
   const shown = await shot(page);
   expect(skyBelow(shown), 'background below the horizon with fine bricks').toBe(0);
   await hook(page, 'showFar', false);
-  expect(changedPixels(shown, await shot(page)), 'pixels the fine bricks draw').toBeGreaterThan(2000);
+  const nearOnly = await shot(page);
+  expect(changedPixels(shown, nearOnly), 'pixels the fine bricks draw').toBeGreaterThan(2000);
   await hook(page, 'showFar', true);
+  await fineTextured(page, shown, nearOnly, b.built);
   // A dig past the detail ring, where fine bricks draw it: the camera 120 m out from the focus, the dig 54 m out on its
   // way (past the near field's level-0 ring and the chunks it stands in for, in view below the focus); the nodes over
   // it are built again and it shows.

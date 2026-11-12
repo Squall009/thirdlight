@@ -14,6 +14,7 @@ import { fragmentWgslOf, glslRenderer, settle, wgslRenderer } from './test-wgsl'
 import { LIGHT_PATH_TEXTURE_UNITS, LIT_TEXTURE_UNITS } from './texture-units';
 import { createVoxelSurface, FULL_PATH, PHASE_CELLS, VOXEL_OWNER_ATTRIBUTE, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelSurfacePath } from './voxel-surface';
 import { gridPhases, gridUv, tileUv, type ProjectionOps } from './voxel-surface-projection';
+import { FarFineShade } from './voxel-far-fine-shade';
 import { CRACK_TEXELS, engineCrackTexels } from './voxel-crack-texture';
 import { occludeeKindOf } from './occludees';
 import { culledWhole } from './occlusion-whole';
@@ -321,6 +322,43 @@ describe('the grid projection of construction', () => {
         const cell = at.map((m) => m / VOXEL_SIZE_M);
         const [a, b] = [corner(cell.map((c) => c - 1e-6)), corner(cell.map((c) => c + 1e-6))].map((c) => uvAt(at, n, c));
         expect(sameInTile(a![1], b![1]) && sameInTile(a![0], b![0]), `${at.join(',')} n ${n.join(',')}: ${a} vs ${b}`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('the far shade\'s projection of fine bricks', () => {
+  it('reads a fine brick\'s textures where the near surface reads them: the same (U, V) in the tile at a world point, from the floating origin\'s phase as from the chunk\'s, any origin, root or view', () => {
+    const surface = createVoxelSurface(LAYOUT, { look: (m) => ({ colour: 0x808080 + m, pattern: 0 }), blendMetres: 0.25 });
+    const shade = new FarFineShade(surface, null as never, 'full');
+    // The far view's root at the world's origin cell less the floating origin (its cells' world place), a camera anywhere.
+    for (const origin of [[0, 0, 0], [2048, 64, -1024], [-96, 0, 1056], [16384, 3200, -16384]]) {
+      const root = new THREE.Group();
+      root.position.set(0.7, -3.25, 12.5);
+      root.updateMatrixWorld(true);
+      const camera = new THREE.PerspectiveCamera();
+      camera.position.set(40.5, 22, -13);
+      camera.lookAt(10, 0, 50);
+      camera.updateMatrixWorld(true);
+      shade.frame(camera, root, { origin: { x: origin[0]!, y: origin[1]!, z: origin[2]! } } as never);
+      for (const [cell, n] of [[[origin[0]! + 70.25, origin[1]! + 9.5, origin[2]! + 200.75], [0, 0, 1]], [[origin[0]! - 300.5, origin[1]! + 3, origin[2]! + 77.25], [1, 0, 0]], [[origin[0]! + 1030, origin[1]! + 41, origin[2]! - 9.5], [0, 1, 0]], [[origin[0]! + 15, origin[1]! + 2.5, origin[2]! + 15], [0, 1, 1]]] as const) {
+        // The point's world metres as the chunk view sees them, its place in the root's frame, and seen from the camera.
+        const world = cell.map((c) => c * VOXEL_SIZE_M);
+        const local = new THREE.Vector3(...cell.map((c, a) => (c - origin[a]!) * VOXEL_SIZE_M));
+        const view = local.clone().applyMatrix4(root.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
+        const at = shade.pointAt(view);
+        const len = Math.hypot(...n);
+        const unit = n.map((c) => c / len) as [number, number, number];
+        const far = gridUv(NUM, at.p.toArray(), at.ps.toArray(), at.ps5.toArray(), unit);
+        const near = uvAt(world, unit, corner(cell.map((c) => Math.floor(c))));
+        expect(sameInTile(far[0], near[0]) && sameInTile(far[1], near[1]), `origin ${origin.join(',')} cell ${cell.join(',')}: ${far} vs ${near}`).toBe(true);
+        // Terrain's triplanar reads world metres from the plain phase: the same within the 2 m tile.
+        const p = [0, 1, 2].map((a) => at.p.getComponent(a));
+        const chunk = corner(cell.map((c) => Math.floor(c)));
+        const phase = { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { Object.assign(this, { x, y, z }); } };
+        gridPhases(chunk, VOXEL_SIZE_M, PHASE_CELLS, phase, { set: () => undefined }, { set: () => undefined });
+        const nearP = [phase.x, phase.y, phase.z].map((c, a) => c * VOXEL_SIZE_M + world[a]! - chunk[a]! * VOXEL_SIZE_M);
+        for (let a = 0; a < 3; a++) expect(((p[a]! - nearP[a]!) / 2 % 1 + 1) % 1 < 1e-6 || ((p[a]! - nearP[a]!) / 2 % 1 + 1) % 1 > 1 - 1e-6, `terrain ${a}`).toBe(true);
       }
     }
   });

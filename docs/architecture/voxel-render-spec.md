@@ -602,8 +602,7 @@ builds the node's bricks from it in five compute passes: the corner field (the C
 solid and air spans, along y per corner line, then along x and z, each within a window of the band: a nearer span
 or offset always lies inside it and a farther corner stores the band either way; the surface rule for whole cells),
 the stored-brick rule and bounds (`farBricksFromBlock`'s), and per stored brick its distance bytes, each sample's
-look by the same vote (at most 8 distinct words a sample are counted) baked to the far palette's colour, and its
-occlusion from its own bytes; the bytes are staged in rows a copy puts straight into atlas regions, and the brick
+look by the same vote (at most 8 distinct words a sample are counted), and its occlusion from its own bytes; the bytes are staged in rows a copy puts straight into atlas regions, and the brick
 list and distances are read back for the node's page, its box and the CPU's inside test. The page applies a far
 change holding fine nodes once all are built (later changes wait), so a swap stays a swap. An edit makes every fine
 node whose block reads a changed chunk again from the edited cells (`farFineDirty`); its old draw stays until then.
@@ -611,8 +610,28 @@ With fine bricks on the near field draws only its level-0 ring, ending at that r
 and of their nodes only the one holding the focus stays derived (the mesh rings, their downsample and seams stay in
 the code, off). Levels 2 and up are the CPU build's and the far
 cache's as above: no level has two builders. WebGL 2 builds none: the voxel world page asks for fine bricks only on
-WebGPU; Play or an export that falls back to WebGL 2 with the switch on draws nothing past the detail ring (said
-once in the console), and without the switch every renderer draws as before.
+WebGPU; Play or an export that falls back to WebGL 2 with the switch on has the page tell the simulation (`voxels.fine`
+off) once the first fine node arrives that it cannot build (said once in the console), and the near field draws its
+levels 1–2 again; without the switch every renderer draws as before.
+
+*Fine samples hold look words, textured when shaded* (46d.25b). A fine block's words carry the near surface's
+construction bit (`SHADER_CONSTRUCTION_BIT`, bit 15, above the wetness) for a construction cell, so the sample's look
+word is the near grid's entry; the far cache's builds leave it out (their words index the far palette). Where a coarse
+brick's baked sample holds its palette colour (RGB) and occlusion (A), a fine brick's holds its look word (red the low
+byte, green the high) and the occlusion: no byte more a brick (3.6 KiB). The march marks a fine node's hit in the
+visibility texel (its face code + 8); the one far shade, for a fine hit only (a branch), reads the eight samples' words
+round the hit, takes the two heaviest by the trilinear weights and the second's share, and shades as the near surface
+does (`VoxelSurface.farSurface`, the same `textureSetAt`, projection, height blend and R111 wetness): construction on
+the 4 m grid tiles with the wall/floor/ceiling set by the hit's normal, terrain on the 2 m tiles of the normal's
+largest axis (one read a map), at the mip whose texels are as wide as the pixel's footprint on the surface (explicit
+level: distance × pixel angle ÷ the slant's cosine, at least ¼), the world point from the far view's root and the
+floating origin's grid phase, so a texture lies at the same metres on a fine brick as on the mesh it continues. It
+fades to the palette's colour (the two words' far colours, live from the table) between the far field's `fineFade`
+distances (`farFineFade`: ending where a level-2 cell is the error on screen, or nearer where the load ring keeps level
+2 closed; starting at half that), so the level 1 → 2 hand-over joins two palette colours. The colours and sets are
+read from the material table and arrays when shaded: a material record's change reaches fine bricks without a
+rebuild. What a fine hit reads is the view's `fineTexture` (`full`: albedo, normal, ORM; `albedo`: the albedo alone;
+`off`: the palette's colour), `?fineTexture=` on the pages; `setFar({ fineTextured })` turns it off at run time.
 ---
 
 ## 5. Requirement traceability (46d)

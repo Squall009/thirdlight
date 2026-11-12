@@ -123,7 +123,8 @@ export class FarFineNodes {
       this.residency();
       return performance.now() - t0;
     }
-    const packed = packFarFine(gatherFarCells(this.host.grid, host.cells, [n.nx, n.ny, n.nz], farFineScale(n.level)));
+    // Words keep the construction bit: the page textures fine bricks as the near surface, wall sets on construction.
+    const packed = packFarFine(gatherFarCells(this.host.grid, host.cells, [n.nx, n.ny, n.nz], farFineScale(n.level), true));
     const ms = performance.now() - t0;
     this.ms.add(ms);
     this.counters.made++;

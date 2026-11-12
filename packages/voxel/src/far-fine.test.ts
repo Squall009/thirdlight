@@ -9,12 +9,13 @@
  * streamer's chunks and sends them again after an edit.
  */
 import { describe, expect, it } from 'vitest';
-import { chunkGrid, type ChunkCoord } from './coords';
+import { chunkGrid, VOXEL_SIZE_M, type ChunkCoord } from './coords';
 import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, sampleOfDistance } from './distance-brick-format';
 import { farBricksFromBlock, farBricksFromFaces, gatherFarCells, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
-import { FarField, type FarEvent, type FarNodeDraw, type FarNodeSource } from './far-field';
-import { farFineChunks, farFineDirty, FarFineIndex, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineHost } from './far-fine';
-import { FarNodeIndex, FarSelection } from './far-tree';
+import { FAR_VIEW_PIXELS_PER_RADIAN, FarField, type FarEvent, type FarNodeDraw, type FarNodeSource } from './far-field';
+import { farFineChunks, farFineDirty, farFineFade, FarFineIndex, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineHost } from './far-fine';
+import { SHADER_CONSTRUCTION_BIT } from './derived-shader';
+import { FAR_MIN_LEVEL, farCellPixels, FarNodeIndex, FarSelection } from './far-tree';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { recordValue, SHAPE_FULL, VOXEL_ROLE } from './record';
 import { mipNodeKey, type MipNode } from './voxel-mips';
@@ -180,6 +181,44 @@ describe('fine far bricks: the block', () => {
     expect(packFarFine(gatherFarCells(grid, () => false, [0, 0, 0], 1))).toBeNull();
   });
 
+  it("keeps a construction cell's word apart from ground of the same material (the near surface's construction bit), so the samples' looks tell a wall's texture set from the terrain's; the distances do not change", () => {
+    const cells = cellsOf(world);
+    for (const [node, scale] of [[[3, 1, 1], 1], [[1, 0, 0], 2]] as const) {
+      const plain = gatherFarCells(grid, cells, node, scale);
+      const fine = gatherFarCells(grid, cells, node, scale, true);
+      let walls = 0;
+      let ground = 0;
+      for (let i = 0; i < plain.word.length; i++) {
+        if (plain.density[i] === 0) continue;
+        const built = fine.word[i]! !== plain.word[i]!;
+        expect(fine.word[i]! & ~SHADER_CONSTRUCTION_BIT).toBe(plain.word[i]);
+        if (built) walls++;
+        else ground++;
+      }
+      // The house's walls (role wall) carry it; its roof (laid with the terrain role) and the hills do not.
+      expect(walls, node.join()).toBeGreaterThan(100);
+      expect(ground, node.join()).toBeGreaterThan(100);
+      const a = farBricksFromBlock(grid, unpackFarFine(packFarFine(fine)!));
+      const b = farBricksFromBlock(grid, plain);
+      expect(sameBytes(a.samples, b.samples)).toBe(true);
+      expect([...a.looks].some((w) => (w & SHADER_CONSTRUCTION_BIT) !== 0)).toBe(true);
+      expect([...b.looks].some((w) => (w & SHADER_CONSTRUCTION_BIT) !== 0)).toBe(false);
+    }
+  });
+
+  it('fades fine bricks\' textures out before level 2 can begin: where a level-2 cell is the error on screen, or nearer where the load ring keeps level 2 closed', () => {
+    for (const error of [4, 8, 16]) {
+      const [start, end] = farFineFade(error, FAR_VIEW_PIXELS_PER_RADIAN, Infinity, grid.edge);
+      // At the fade's end a level-2 cell is still worth opening into level 1 (no level-2 brick nearer than it by error).
+      expect(farCellPixels(FAR_MIN_LEVEL, end / VOXEL_SIZE_M, FAR_VIEW_PIXELS_PER_RADIAN)).toBeGreaterThanOrEqual(error - 1e-9);
+      expect(start).toBeGreaterThan(0);
+      expect(start).toBeLessThan(end);
+      // A load ring of 192 m: level 2 opens only with a node's chunks and one round them resident (5 chunks short of the ring).
+      const [, ringEnd] = farFineFade(error, FAR_VIEW_PIXELS_PER_RADIAN, 384, grid.edge);
+      expect(ringEnd).toBeLessThanOrEqual(Math.min(end, (384 - 5 * grid.edge) * VOXEL_SIZE_M));
+    }
+  });
+
   it("gives the CPU build's corner bytes with the GPU build's windowed passes (scale 1 and 2, terrain, scarp, house)", () => {
     let corners = 0;
     for (const node of [{ level: 0, nx: 3, ny: 1, nz: 2 }, { level: 0, nx: 5, ny: 1, nz: 3 }, { level: 1, nx: 1, ny: 0, nz: 1 }, { level: 1, nx: 2, ny: 0, nz: 1 }, { level: 1, nx: 3, ny: 0, nz: 1 }] as const) {
@@ -292,6 +331,8 @@ describe('fine far bricks: the far field', () => {
       expect(sameBytes(unpackFarFine(d.fine!).density.buffer, block.density.buffer), mipNodeKey(d)).toBe(true);
     }
     expect(far.metrics().fine.ms.n).toBeGreaterThan(0);
+    // The events say where the fine nodes' textures fade (no near ring given: by the error alone).
+    expect(events.at(-1)!.fineFade).toEqual(farFineFade(8, 300, Infinity, grid.edge));
     // An edit in a fine node: it and every fine node reading the chunk are sent again with the edited cells.
     const target = fine.find((d) => d.level === 0)!;
     const s = grid.shift;
@@ -312,6 +353,7 @@ describe('fine far bricks: the far field', () => {
     await far.settle();
     expect([...shown.values()].some((d) => isFarFine(d))).toBe(false);
     expect(far.metrics().fine.on).toBe(false);
+    expect(events.at(-1)!.fineFade).toBeUndefined();
     expect(jobs).toBeGreaterThan(0);
     // The world's uniform value is what a block reads as solid.
     expect(recordValue(ROCK, VOXEL_ROLE.terrain, SHAPE_FULL, 0)).toBeGreaterThan(0);

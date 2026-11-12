@@ -104,7 +104,7 @@ import {
   VoxelStreamer,
   WETNESS_MAX,
 } from '@thirdlight/voxel';
-import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { applyChunkDrawBatch, createGpuTiming, createRenderer, createVoxelSurface, fineTextureFromUrl, rendererMemory, resolveRendererPreference, VoxelChunkView, VoxelKitMeshes, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { textureBudgetBytesOf, VOXEL_MATERIAL_LIMITS } from '@thirdlight/project-model/limits';
 import { bindViewInput, cellPicker, walkByKeys, pageFar, pageFarHooks, pageFarState, pageLevel, pageOcclusion, pageQualityHook, PageRelief, PageSun, reliefParams } from './page-view';
 import { pageKitPieces, readVoxelKits } from './kit-pieces';
@@ -271,7 +271,8 @@ async function main(): Promise<void> {
   const far = pageFar(params, level);
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source: world.source, pool: world.pool, budgetBytes: level.budgetBytes, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, sectionEdge, pieces: kits.table, relief: level.relief, far: { source: world.far, enabled: far.enabled, ...(far.draw !== undefined ? { draw: far.draw } : {}), errorPixels: far.errorPixels, gpuBudgetBytes: level.far.gpuBudgetBytes, ...(far.fine && backendName === 'webgpu' ? { fine: true } : {}) }, ...(levelsParam !== null ? { levels: levelRings(levelsParam.split(',').map(Number)) } : {}) });
   relief.attach(surface, streamer.relief, level.relief);
-  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters });
+  const fineTexture = fineTextureFromUrl(location.search);
+  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer, kits: kits.set, shadows, reliefCasters, ...(fineTexture !== null ? { fineTexture } : {}) });
   const gpu = createGpuTiming();
   // `?occlusion=`: drawn through the engine's culler and a scene pass (none: the page draws the scene itself).
   const occlusion = pageOcclusion(renderer, backendName, scene, camera);

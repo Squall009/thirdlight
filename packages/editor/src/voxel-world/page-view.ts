@@ -82,10 +82,12 @@ export function walkByKeys(keys: ReadonlySet<string>, view: { readonly yaw: numb
  * detail (pixels a far node's cell may cover), and a wait until it draws its selection. The retired brick switches
  * (`bricks`, `shade`, `march`, `res`: the half-resolution march) are refused.
  */
-export function pageFarHooks(streamer: VoxelStreamer, view: Pick<VoxelFarView, 'setVisible' | 'checkFine' | 'solidAt'>): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; fine?: boolean }): void; settleFar(): Promise<void>; showFar(on: boolean): void; checkFine(n: number): void; farSolidAt(x: number, y: number, z: number): { level: number; inside: boolean } | null } {
+export function pageFarHooks(streamer: VoxelStreamer, view: Pick<VoxelFarView, 'setVisible' | 'checkFine' | 'solidAt' | 'setFineTextured'>): { setFar(o: { enabled?: boolean; errorPixels?: number; mode?: FarFieldMode; fine?: boolean; fineTextured?: boolean }): void; settleFar(): Promise<void>; showFar(on: boolean): void; checkFine(n: number): void; farSolidAt(x: number, y: number, z: number): { level: number; inside: boolean } | null } {
   return {
     setFar: (o) => {
-      const { mode, fine, ...rest } = o;
+      const { mode, fine, fineTextured, ...rest } = o;
+      // Fine bricks textured or in the palette's colours (a comparison on the page's draws alone).
+      if (fineTextured !== undefined) view.setFineTextured(fineTextured);
       // Fine far bricks (levels 0–1 past the detail ring, built on the GPU): the near field's levels 1–2 go with them.
       if (fine !== undefined) setFineBricks(streamer, fine);
       const retired = RETIRED_FAR_PARAMS.map((k) => (k === 'farBricks' ? 'bricks' : k === 'farShade' ? 'shade' : k === 'farMarch' ? 'march' : 'res')).filter((k) => k in rest);

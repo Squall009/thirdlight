@@ -131,12 +131,12 @@ import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
 import { BAND_TEXELS, bandTexels, gridUv, tileUv } from './voxel-surface-projection';
 import { declareVertexReach } from './vertex-reach';
-import { NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt, type SetProjectionMode } from './voxel-surface-sets';
+import { addHeaviest, heaviestTwo, NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt, triplanarWeights, type SetMaps, type SetProjectionMode } from './voxel-surface-sets';
 import { seamBlendMetres, type BlendCell } from './voxel-surface-blend';
 import { heightBlend, WET_DARKEN, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, modelWorldMatrix, normalLocal, normalView, positionGeometry, positionLocal, positionView, positionWorld, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, varying, vec2, vec3, vec4 } = TSL;
+const { Fn, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, modelWorldMatrix, normalLocal, normalView, positionGeometry, positionLocal, positionView, positionWorld, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, varying, vec2, vec3, vec4 } = TSL;
 
 /** The object `userData` key holding a voxel surface's per-object values ({@link VoxelSurfaceObject}). */
 export const VOXEL_SURFACE_KEY = 'tlVoxelSurface';
@@ -683,7 +683,31 @@ export interface VoxelSurface {
    * Read from the same table and arrays as the surface, so a record's change reaches far draws with no mesh change.
    */
   farColour(m: N, wet: N): N;
+  /**
+   * A fine far hit's surface as this surface draws its own: the two materials' texture sets on their projection (the
+   * grid's 4 m tiles and wall/floor/ceiling sets by the normal on construction, one axis's 2 m tiles on terrain), at a
+   * mip from the pixel's footprint, blended by height, wetness as R111; `maps` `albedo`: the albedo alone (flat
+   * normal, neutral ORM). Without texture sets (patterns, flat): the two far colours blended. Every read has an
+   * explicit level, so it may lie in a branch that varies per pixel.
+   */
+  farSurface(at: FarSurfacePoint, maps: SetMaps): { albedo: N; normal: N; roughness: N; ao: N };
   dispose(): void;
+}
+
+/** A fine far hit where {@link VoxelSurface.farSurface} reads its textures. */
+export interface FarSurfacePoint {
+  /** The two heaviest look words round the hit (material | wetness · 2^materialBits | the construction bit) and the second's share. */
+  readonly a: N;
+  readonly b: N;
+  readonly share: N;
+  /** Its unit normal (the world's cell axes). */
+  readonly n: N;
+  /** World metres from the plain grid phase, and from the 45° and the 1:2 slope phases (voxel-surface-projection.ts). */
+  readonly p: N;
+  readonly ps: N;
+  readonly ps5: N;
+  /** Metres a pixel covers on the surface there: what the reads' mip level follows. */
+  readonly footprintM: N;
 }
 
 /** A face's crack strength: the geometry's attribute (absent on a geometry without one: no cracks). */
@@ -768,10 +792,8 @@ function surfaceBlend(ctx: BlendInputs, pos: N, n: N): Blend {
   const blendCells = clamp(seamBlendMetres(NODE_OPS, asks, blendM).toVar().div(cellU), 1e-3, 1);
   const w1 = clamp(f.sub(0.5).div(blendCells).add(0.5), 0, 1);
   const w0 = vec3(1).sub(w1);
-  const m1 = float(-1).toVar();
-  const v1 = float(0).toVar();
-  const m2 = float(-1).toVar();
-  const v2 = float(0).toVar();
+  const top = heaviestTwo();
+  const { m1, v1, m2 } = top;
   const wetSum = float(0).toVar();
   const total = float(0).toVar();
   // The nearest solid by plain trilinear weight, for a pixel whose blend weights find none.
@@ -792,22 +814,7 @@ function surfaceBlend(ctx: BlendInputs, pos: N, n: N): Blend {
     nm.assign(select(nearer, mat, nm));
     nWet.assign(select(nearer, wet, nWet));
     nw.assign(max(nw, tw));
-    // The two heaviest materials: a newcomer heavier than the second takes its place; the first stays the heaviest.
-    const same1 = mat.equal(m1);
-    const same2 = mat.equal(m2);
-    const takes = same1.or(same2).not().and(w.greaterThan(v2));
-    v1.assign(select(same1, v1.add(w), v1));
-    const nv2 = select(same2, v2.add(w), select(takes, w, v2)).toVar();
-    const nm2 = select(takes, mat, m2).toVar();
-    const swap = nv2.greaterThan(v1);
-    const am = select(swap, nm2, m1).toVar();
-    const av = select(swap, nv2, v1).toVar();
-    const bm = select(swap, m1, nm2).toVar();
-    const bv = select(swap, v1, nv2).toVar();
-    m1.assign(am);
-    v1.assign(av);
-    m2.assign(bm);
-    v2.assign(bv);
+    addHeaviest(top, mat, w);
   }
   // An even roof's ridge and hip apex run a whole cell above the roof's top voxels, so the eight cells round such a
   // pixel are all air: the cell under them in the pixel's nearest column is the roof's own, taken only then.
@@ -839,7 +846,7 @@ function surfaceBlend(ctx: BlendInputs, pos: N, n: N): Blend {
   const none = v1.lessThanEqual(0);
   const mA = select(solid, se.mat, select(owned, owner.mat, select(none, nm, m1)));
   const mB = select(solid, se.mat, select(owned, owner.mat, select(none, nm, max(m2, 0))));
-  const share = select(solid.or(none).or(owned), float(0), v2.div(max(v1.add(v2), 1e-6)));
+  const share = select(solid.or(none).or(owned), float(0), top.v2.div(max(v1.add(top.v2), 1e-6)));
   const wetness = select(solid, se.wet, select(owned, owner.wet, select(none, nWet, wetSum.div(max(total, 1e-6))))).div(layout.wetnessMax);
   // World metres from the object's grid phase (plain, and the slope's) plus the local position.
   const p = phaseU.mul(layout.cellMetres).add(pos);
@@ -847,11 +854,54 @@ function surfaceBlend(ctx: BlendInputs, pos: N, n: N): Blend {
   const ps5 = slope5PhaseU.add(pos);
   const [gu, gv] = gridUv(NODE_OPS, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [ps5.x, ps5.y, ps5.z], [n.x, n.y, n.z]);
   // Triplanar weights by the normal (terrain); a construction material takes the grid projection alone.
-  const bw = abs(n).pow(vec3(4));
-  const bn = bw.div(bw.x.add(bw.y).add(bw.z));
+  const bn = triplanarWeights(n);
   // Nothing solid among the eight cells (should not happen on a surface): a neutral grey shows it.
   const seen = solid.or(owned).or(nw.greaterThan(0));
   return { mA, mB, share, wetness, seen, p, gu, gv, bn };
+}
+
+/** What {@link farSurfaceRead} reads of a surface: its layout, arrays (null: none), table, entry decoding and far colour. */
+interface FarSurfaceInputs {
+  readonly layout: VoxelSurfaceLayout;
+  readonly arrays: { readonly albedo: N; readonly normal: N; readonly orm: N } | null;
+  look(m: N, block: number): N;
+  readonly matMask: number;
+  decode(entry: N): { mat: N; wet: N };
+  /** Texels along an albedo layer's side. */
+  readonly heightEdge: N;
+  farColour(m: N, wet: N): N;
+}
+
+/** {@link VoxelSurface.farSurface}. */
+function farSurfaceRead(s: FarSurfaceInputs, at: FarSurfacePoint, maps: SetMaps): { albedo: N; normal: N; roughness: N; ao: N } {
+  const { layout, look, matMask, decode } = s;
+  const a = decode(at.a);
+  const b = decode(at.b);
+  const wet = mix(a.wet, b.wet, at.share).div(layout.wetnessMax);
+  if (s.arrays === null) {
+    const flat = mix(s.farColour(mod(a.mat, matMask), a.wet), s.farColour(mod(b.mat, matMask), b.wet), at.share);
+    return { albedo: flat, normal: at.n, roughness: float(1), ao: float(1) };
+  }
+  const src = { maps: s.arrays, look, matMask };
+  const { n, p, ps, ps5 } = at;
+  const [gu, gv] = gridUv(NODE_OPS, [p.x, p.y, p.z], [ps.x, ps.y, ps.z], [ps5.x, ps5.y, ps5.z], [n.x, n.y, n.z]);
+  const point = { n, p, gu, gv, bn: triplanarWeights(n) };
+  // The level whose texels are as wide as the footprint (a tile is the array's width in texels).
+  const lod = (tileM: N): N => log2(max(at.footprintM.mul(s.heightEdge).div(tileM), 1));
+  // One read a map (the normal's largest axis on terrain): far, the triplanar blend at the axes' seams is sub-pixel.
+  const s1 = textureSetAt(src, a.mat, point, 'axis', lod, maps);
+  const s2 = textureSetAt(src, b.mat, point, 'axis', lod, maps);
+  const depthOf = (m: N): N => look(mod(m, matMask), 2).y;
+  const hb = heightBlend(NODE_OPS, s1.height.toVar(), depthOf(a.mat), s2.height.toVar(), depthOf(b.mat), at.share);
+  const hs = hb.share.toVar();
+  const w = wetLook(NODE_OPS, wet, hb.height);
+  const orm = mix(s1.orm, s2.orm, hs).toVar();
+  return {
+    albedo: mix(s1.albedo, s2.albedo, hs).mul(w.albedo),
+    normal: mix(mix(s1.normal, s2.normal, hs).normalize(), n, w.flatten).normalize(),
+    roughness: mix(orm.y.mul(w.roughness), float(WET_WATER_ROUGHNESS), w.water),
+    ao: orm.x,
+  };
 }
 
 /** The surface material over a set of shader grids. */
@@ -1117,6 +1167,17 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     }
   };
   program(material, FULL_PATH);
+  const farColour = (m: N, wet: N): N => {
+    const base = look(m, 0).rgb.toVar();
+    const layer = look(m, 3).x.toVar();
+    let colour: N = base;
+    if (arrayNodes !== null) {
+      // Sampled whatever the layer (uniform control flow), then picked: the coarsest level is the set's mean.
+      const mean = texture(arrayNodes.albedo, vec2(0.5, 0.5)).depth(int(max(layer, 0))).level(float(FAR_MEAN_LEVEL)).rgb;
+      colour = select(layer.greaterThan(-0.5), base.mul(mean), base);
+    }
+    return colour.mul(float(1).sub(wet.div(layout.wetnessMax).mul(WET_DARKEN)));
+  };
   // The position node moves only relief vertices, and a relief geometry's bounds already hold its deepest relief
   // (voxel-chunk-view.ts): no vertex leaves its geometry's bounds, so occlusion culling may test a draw whole.
   declareVertexReach(material, () => 0);
@@ -1204,17 +1265,8 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       fresh(table);
     },
     objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), slope5Phase: new THREE.Vector3(), cellMetres }),
-    farColour(m, wet) {
-      const base = look(m, 0).rgb.toVar();
-      const layer = look(m, 3).x.toVar();
-      let colour: N = base;
-      if (arrayNodes !== null) {
-        // Sampled whatever the layer (uniform control flow), then picked: the coarsest level is the set's mean.
-        const mean = texture(arrayNodes.albedo, vec2(0.5, 0.5)).depth(int(max(layer, 0))).level(float(FAR_MEAN_LEVEL)).rgb;
-        colour = select(layer.greaterThan(-0.5), base.mul(mean), base);
-      }
-      return colour.mul(float(1).sub(wet.div(layout.wetnessMax).mul(WET_DARKEN)));
-    },
+    farSurface: (at, maps) => farSurfaceRead({ layout, arrays: arrayNodes, look, matMask, decode, heightEdge: heightEdgeU, farColour }, at, maps),
+    farColour,
     dispose() {
       grids.dispose();
       table.dispose();

@@ -16,9 +16,13 @@
  *   the target's depth.
  * - **The texel** ({@link packFarVisibility}): the hit's brick (its atlas
  *   region, a byte an axis in bricks), the hit in that brick's cells (12 bits
- *   an axis), its view depth, and the face the ray entered the brick by (the
- *   normal where the field has no gradient); 0 where nothing was hit. One
- *   RGBA float texel, the integers exact in its 24-bit mantissas.
+ *   an axis), its view depth, the face the ray entered the brick by (the
+ *   normal where the field has no gradient) and whether the brick is a fine
+ *   one (its samples hold look words, not colours); 0 where nothing was hit.
+ *   One RGBA float texel, the integers exact in its 24-bit mantissas.
+ * - **Fine hits** are textured as the near surface draws its own
+ *   (voxel-far-fine-shade.ts), fading to the far palette's colour with
+ *   distance; only their pixels pay the texture reads.
  * - **The shade** reads its own pixel's texel (no filtering: one texel is
  *   one pixel), places the hit on the pixel's ray at its depth, reads the
  *   normal and the colour from the atlas there, and is lit as a far draw:
@@ -41,6 +45,7 @@ import { AFTER_PYRAMID_KEY, wantPyramidPath } from './occlusion-passes';
 import { texelTexture } from './texel-texture-node';
 import { faceOfCode, INSIDE_FACE_CODE, type FarBrickTextures } from './voxel-far-brick-field';
 import { farFragmentDepth, type FarCover } from './voxel-far-common';
+import type { FarFineShade } from './voxel-far-fine-shade';
 
 const TSL: N = TSLTyped;
 const { Discard, Fn, If, cameraProjectionMatrixInverse, cameraViewMatrix, cameraWorldMatrix, clamp, context, float, floor, int, ivec2, mod, normalize, positionGeometry, positionView, property, round, screenCoordinate, uniform, vec3, vec4 } = TSL;
@@ -62,6 +67,8 @@ export const FAR_VIS_CELL_STEPS = 4095;
 /** A face code's place in the last float (above the third coordinate's 12 bits): a texel whose last float is below it holds no hit. */
 export const FAR_VIS_FACE_SCALE = 4096;
 const FACE_SCALE = FAR_VIS_FACE_SCALE;
+/** What a fine brick's hit adds to its face code (face codes are 1–7). */
+export const FAR_VIS_FINE_CODE = 8;
 
 /** A far hit as the visibility texel holds it. */
 export interface FarVisibilityHit {
@@ -73,6 +80,8 @@ export interface FarVisibilityHit {
   readonly viewZ: number;
   /** The face its ray entered the brick by: 1–6 (axis × 2 + 1, +1 on the positive side). */
   readonly face: number;
+  /** Whether its brick is a fine one (absent: no). */
+  readonly fine?: boolean;
 }
 
 const cellStep = (c: number): number => Math.round(Math.min(1, Math.max(0, (c - FAR_VIS_CELL_FROM) / FAR_VIS_CELL_SPAN)) * FAR_VIS_CELL_STEPS);
@@ -82,7 +91,7 @@ const stepCell = (q: number): number => (q / FAR_VIS_CELL_STEPS) * FAR_VIS_CELL_
 export function packFarVisibility(h: FarVisibilityHit): [number, number, number, number] {
   const [bx, by, bz] = h.brick;
   if (h.face < 1 || h.face > 6) throw new RangeError(`far visibility: face ${h.face}`);
-  return [bx + 256 * by + 65536 * bz, cellStep(h.at[0]) * 4096 + cellStep(h.at[1]), h.viewZ, cellStep(h.at[2]) + FACE_SCALE * h.face];
+  return [bx + 256 * by + 65536 * bz, cellStep(h.at[0]) * 4096 + cellStep(h.at[1]), h.viewZ, cellStep(h.at[2]) + FACE_SCALE * (h.face + (h.fine === true ? FAR_VIS_FINE_CODE : 0))];
 }
 
 /** A texel back to its hit (null: nothing hit there). */
@@ -91,24 +100,26 @@ export function unpackFarVisibility(t: readonly number[]): FarVisibilityHit | nu
   if (w < FACE_SCALE) return null;
   const r = t[0]!;
   const xy = t[1]!;
-  return { brick: [r % 256, Math.floor(r / 256) % 256, Math.floor(r / 65536)], at: [stepCell(Math.floor(xy / 4096)), stepCell(xy % 4096), stepCell(w % FACE_SCALE)], viewZ: t[2]!, face: Math.floor(w / FACE_SCALE) };
+  const code = Math.floor(w / FACE_SCALE);
+  return { brick: [r % 256, Math.floor(r / 256) % 256, Math.floor(r / 65536)], at: [stepCell(Math.floor(xy / 4096)), stepCell(xy % 4096), stepCell(w % FACE_SCALE)], viewZ: t[2]!, face: code % FAR_VIS_FINE_CODE, ...(code >= FAR_VIS_FINE_CODE ? { fine: true } : {}) };
 }
 
-/** The march's output (TSL): `region` the brick's atlas region (texels), `p` the hit in its cells, `face` its code. */
-export function farVisibilityOutput(region: N, p: N, viewZ: N, face: N): N {
+/** The march's output (TSL): `region` the brick's atlas region (texels), `p` the hit in its cells, `face` its code, `fine` 1 for a fine brick (else 0). */
+export function farVisibilityOutput(region: N, p: N, viewZ: N, face: N, fine: N): N {
   const b = round(region.div(DISTANCE_BRICK_SIDE));
   const q = round(clamp(p.sub(FAR_VIS_CELL_FROM).div(FAR_VIS_CELL_SPAN), 0, 1).mul(FAR_VIS_CELL_STEPS));
-  return vec4(b.x.add(b.y.mul(256)).add(b.z.mul(65536)), q.x.mul(4096).add(q.y), viewZ, q.z.add(face.mul(FACE_SCALE)));
+  return vec4(b.x.add(b.y.mul(256)).add(b.z.mul(65536)), q.x.mul(4096).add(q.y), viewZ, q.z.add(face.add(fine.mul(FAR_VIS_FINE_CODE)).mul(FACE_SCALE)));
 }
 
-/** The shade's read of a texel (TSL): the brick's region (texels), the hit in its cells, the view depth and the face's normal. */
-function readTexel(t: N): { region: N; p: N; viewZ: N; face: N; inside: N } {
+/** The shade's read of a texel (TSL): the brick's region (texels), the hit in its cells, the view depth, the face's normal and whether it is fine. */
+function readTexel(t: N): { region: N; p: N; viewZ: N; face: N; inside: N; fine: N } {
   const r = t.x;
   const brick = vec3(mod(r, 256), mod(floor(r.div(256)), 256), floor(r.div(65536)));
   const cell = (q: N): N => q.div(FAR_VIS_CELL_STEPS).mul(FAR_VIS_CELL_SPAN).add(FAR_VIS_CELL_FROM);
   const p = vec3(cell(floor(t.y.div(4096))), cell(mod(t.y, 4096)), cell(mod(t.w, FACE_SCALE)));
-  const code = floor(t.w.div(FACE_SCALE));
-  return { region: brick.mul(DISTANCE_BRICK_SIDE), p, viewZ: t.z, face: faceOfCode(code), inside: code.equal(INSIDE_FACE_CODE) };
+  const coded = floor(t.w.div(FACE_SCALE)).toVar();
+  const code = mod(coded, FAR_VIS_FINE_CODE).toVar();
+  return { region: brick.mul(DISTANCE_BRICK_SIDE), p, viewZ: t.z, face: faceOfCode(code), inside: code.equal(INSIDE_FACE_CODE), fine: coded.greaterThan(FAR_VIS_FINE_CODE - 0.5) };
 }
 
 /** What the pass draws with (three's WebGPU renderer). */
@@ -167,6 +178,8 @@ export class FarVisibility {
     /** The far view's root: the groups are placed as if below it. */
     private readonly source: THREE.Object3D,
     private readonly origin: FloatingOrigin,
+    /** How fine bricks' hits are shaded (their samples hold look words). */
+    private readonly fine: FarFineShade,
   ) {
     this.target.texture.colorSpace = THREE.NoColorSpace;
     this.scene.add(this.root);
@@ -186,8 +199,11 @@ export class FarVisibility {
     const colourOut = property('vec3', 'farShadeColour');
     const normalOut = property('vec3', 'farShadeNormal');
     const hitViewZ = property('float', 'farShadeViewZ');
+    const roughOut = property('float', 'farShadeRoughness');
+    const aoOut = property('float', 'farShadeAo');
     const hitWorld = property('vec3', 'farShadeWorld');
     const rootWorld = this.rootWorld;
+    const fineShade = this.fine;
     m.depthNode = Fn(() => {
       const t = vis.load(ivec2(int(screenCoordinate.x), int(screenCoordinate.y))).toVar();
       If(t.w.lessThan(FACE_SCALE - 0.5), () => {
@@ -199,15 +215,28 @@ export class FarVisibility {
       hitViewZ.assign(hit.viewZ);
       // The pixel's ray (its plane point, view space) to the hit's depth.
       const ray = positionView.toVar();
-      const view = ray.mul(hitViewZ.div(ray.z));
+      const view = ray.mul(hitViewZ.div(ray.z)).toVar();
       hitWorld.assign(cameraWorldMatrix.mul(vec4(view, 1)).xyz);
       const shaded = textures.shade(region, p, hit.face, hit.inside);
-      normalOut.assign(normalize(cameraViewMatrix.mul(vec4(normalize(rootWorld.mul(vec4(shaded.normal, 0)).xyz), 0)).xyz));
+      const normal = vec3(shaded.normal).toVar();
       colourOut.assign(shaded.colour);
+      roughOut.assign(1);
+      aoOut.assign(1);
+      // A fine brick's samples hold look words: its hit is textured (only these pixels read the texture sets).
+      If(hit.fine, () => {
+        const look = fineShade.shade({ region, p, n: shaded.normal, view, inside: hit.inside });
+        colourOut.assign(look.colour);
+        normal.assign(look.normal);
+        roughOut.assign(look.roughness);
+        aoOut.assign(look.ao);
+      });
+      normalOut.assign(normalize(cameraViewMatrix.mul(vec4(normalize(rootWorld.mul(vec4(normal, 0)).xyz), 0)).xyz));
       return farFragmentDepth(cover.behindNear(hitWorld, hitViewZ));
     })();
     m.colorNode = vec4(colourOut, 1);
     m.normalNode = normalOut;
+    m.roughnessNode = roughOut;
+    m.aoNode = aoOut;
     // Fog at the hit's depth, not the plane's (three's fog reads the context's view depth where given).
     m.contextNode = context({ modelViewMatrix: cameraRelativeModelView, getViewZ: () => hitViewZ });
     m.userData[OWN_MOTION_KEY] = worldMotion(hitWorld, this.lastFromNow.mul(vec4(hitWorld, 1)).xyz);
@@ -222,6 +251,7 @@ export class FarVisibility {
     quad.userData[AFTER_PYRAMID_KEY] = true;
     quad.onBeforeRender = (renderer, scene, camera) => {
       quad.matrixWorld.copy(camera.matrixWorld);
+      this.fine.frame(camera, this.source, this.origin);
       this.draw(renderer as unknown as FarVisibilityRenderer, scene, camera);
     };
     this.shade = quad;

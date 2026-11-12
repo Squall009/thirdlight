@@ -9,19 +9,19 @@
  *   dispatches make the corner field, choose the stored bricks and stage
  *   their bytes; the brick list and the staged distances are read back.
  *   Once there, the stored bricks get atlas regions and one copy each puts
- *   their distances and baked colours in place from the staging buffer
+ *   their distances and look words in place from the staging buffer
  *   (never through the page), and the node's brick table is written. The
  *   block is not kept: an edit sends a new one.
  * - **Budget.** A few builds in flight at most ({@link FINE_BUILD_SLOTS},
  *   each with its own buffers), and per frame no more cells than
  *   {@link FINE_BUILD_CELLS_PER_FRAME} start (at least one block), so a
  *   fill spreads its builds over frames instead of one frame doing them all.
- * - **A check.** A build asked to check also reads back its colours and
+ * - **A check.** A build asked to check also reads back its looks and
  *   compares its bricks with the CPU build's of the same block
  *   ({@link FineBrickCheck}): the test of the GPU build against the CPU one.
  */
 import * as THREE from 'three';
-import { bakeFarBrick, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BAKED_BYTES, farBrickOcclusion, farBricksFromBlock, mipNodeKey, SHAPE_FULL, unpackFarFine, type ChunkGrid, type FarBricks, type FarFineCells, type FarPalette, type MipNode } from '@thirdlight/voxel';
+import { DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, FAR_BRICK_BAKED_BYTES, farBrickOcclusion, farBricksFromBlock, mipNodeKey, SHAPE_FULL, unpackFarFine, type ChunkGrid, type FarBricks, type FarFineCells, type MipNode } from '@thirdlight/voxel';
 
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, type GpuBuffer, type GpuEncoder, type GpuTexture } from './tracer-gpu';
 import type { FarBrickAtlas } from './voxel-far-bricks';
@@ -58,7 +58,7 @@ export interface FineBrickResult {
 
 /**
  * The GPU build against the CPU build of the same block: whether they store the same bricks, and among the stored
- * samples how many distance bytes, colour channels and occlusion bytes differ and by how much at most.
+ * samples how many distance bytes, look words and occlusion bytes differ (and by how much at most).
  */
 export interface FineBrickCheck {
   readonly node: string;
@@ -68,8 +68,7 @@ export interface FineBrickCheck {
   readonly distanceDiffer: number;
   readonly distanceMax: number;
   readonly boundsDiffer: number;
-  readonly colourDiffer: number;
-  readonly colourMax: number;
+  readonly lookDiffer: number;
   readonly occlusionDiffer: number;
   readonly occlusionMax: number;
 }
@@ -123,8 +122,6 @@ export class FineBrickBuilder {
   private readonly device: FineDevice;
   private readonly pipelines: Record<'ypass' | 'xpass' | 'zpass' | 'classify' | 'bake', unknown>;
   private readonly layout: unknown;
-  private palette: GpuBuffer;
-  private paletteFrom: FarPalette | null = null;
   private readonly slots: Slot[] = [];
   private readonly queue: FineJob[] = [];
   private raf: number | null = null;
@@ -139,23 +136,21 @@ export class FineBrickBuilder {
     private readonly renderer: VoxelGridRenderer,
     private readonly atlas: FarBrickAtlas,
     private readonly grid: ChunkGrid,
-    private readonly paletteOf: () => FarPalette | null,
   ) {
     const d = (this.device = device as FineDevice);
     const module = d.createShaderModule({ code: FINE_BRICKS_WGSL, label: 'fine far bricks' });
     const COMPUTE = 4;
     const entry = (binding: number, type: string): Record<string, unknown> => ({ binding, visibility: COMPUTE, buffer: { type } });
-    const group = d.createBindGroupLayout({ label: 'fine far bricks', entries: [entry(0, 'uniform'), entry(1, 'read-only-storage'), entry(2, 'read-only-storage'), entry(3, 'read-only-storage'), entry(4, 'storage'), entry(5, 'storage'), entry(6, 'storage')] });
+    const group = d.createBindGroupLayout({ label: 'fine far bricks', entries: [entry(0, 'uniform'), entry(1, 'read-only-storage'), entry(2, 'read-only-storage'), entry(3, 'storage'), entry(4, 'storage'), entry(5, 'storage')] });
     this.layout = group;
     const layout = d.createPipelineLayout({ bindGroupLayouts: [group] });
     const make = (entryPoint: string): unknown => d.createComputePipeline({ layout, compute: { module, entryPoint }, label: `fine far bricks ${entryPoint}` });
     this.pipelines = { ypass: make('ypass'), xpass: make('xpass'), zpass: make('zpass'), classify: make('classify'), bake: make('bake') };
-    this.palette = d.createBuffer({ size: 65536 * 4, usage: GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_DST, label: 'fine far bricks palette' });
   }
 
   /** GPU bytes the build's buffers hold. */
   get gpuBytes(): number {
-    let n = this.palette.size;
+    let n = 0;
     for (const s of this.slots) n += s.params.size + s.cells.size + s.words.size + s.scratch.size + s.meta.size + s.staged.size + s.read.size;
     return n;
   }
@@ -188,13 +183,6 @@ export class FineBrickBuilder {
   /** Starts the waiting builds this frame's budget and the free slots allow. */
   private frame(): void {
     if (this.disposed || this.queue.length === 0) return;
-    const palette = this.paletteOf();
-    // The colours are baked from the far palette: no build before it is drawn.
-    if (palette === null) return;
-    if (palette !== this.paletteFrom) {
-      this.device.queue.writeBuffer(this.palette, 0, palette);
-      this.paletteFrom = palette;
-    }
     let started = 0;
     let cells = 0;
     while (this.queue.length > 0) {
@@ -227,7 +215,7 @@ export class FineBrickBuilder {
     const meta = buf(META_BYTES, U.STORAGE | U.COPY_SRC, 'bricks');
     const staged = buf(DIST_BYTES + COLOUR_BYTES, U.STORAGE | U.COPY_SRC, 'staged');
     const read = buf(META_BYTES + DIST_BYTES + COLOUR_BYTES, U.MAP_READ | U.COPY_DST, 'read');
-    const bind = d.createBindGroup({ layout: this.layout, entries: [params, cells, words, this.palette, scratch, meta, staged].map((buffer, binding) => ({ binding, resource: { buffer } })) });
+    const bind = d.createBindGroup({ layout: this.layout, entries: [params, cells, words, scratch, meta, staged].map((buffer, binding) => ({ binding, resource: { buffer } })) });
     const s: Slot = { params, cells, words, scratch, meta, staged, read, bind, busy: false };
     this.slots.push(s);
     return s;
@@ -282,7 +270,7 @@ export class FineBrickBuilder {
     const raw = slot.read.getMappedRange();
     const meta = new Uint32Array(raw, 0, FINE_NODE_BRICKS * FINE_META_WORDS);
     const dist = new Uint8Array(raw, META_BYTES, DIST_BYTES);
-    const colours = job.check ? new Uint8Array(raw, META_BYTES + DIST_BYTES, COLOUR_BYTES).slice() : null;
+    const looks = job.check ? new Uint8Array(raw, META_BYTES + DIST_BYTES, COLOUR_BYTES).slice() : null;
     const stored: number[] = [];
     const table = new Int32Array(FINE_NODE_BRICKS);
     for (let b = 0; b < FINE_NODE_BRICKS; b++) {
@@ -303,7 +291,7 @@ export class FineBrickBuilder {
     });
     slot.read.unmap();
     const bricks: FarBricks = { side: 4, bricks: table, samples, looks: new Uint16Array(0), blocks, bounds };
-    const check = colours !== null ? this.check(job, bricks, colours) : undefined;
+    const check = looks !== null ? this.check(job, bricks, looks) : undefined;
     if (stored.length === 0) {
       slot.busy = false;
       this.stats.built++;
@@ -354,22 +342,19 @@ export class FineBrickBuilder {
   }
 
   /** The GPU build against the CPU build of the same block. */
-  private check(job: FineJob, gpu: FarBricks, colours: Uint8Array): FineBrickCheck {
+  private check(job: FineJob, gpu: FarBricks, looks: Uint8Array): FineBrickCheck {
     const block = unpackFarFine(job.fine);
     const cpu = farBricksFromBlock(this.grid, block);
     const occlusion = farBrickOcclusion(cpu);
-    const palette = this.paletteFrom!;
     const S = DISTANCE_BRICK_SIDE;
     let sameBricks = cpu.bricks.length === gpu.bricks.length;
     for (let i = 0; i < cpu.bricks.length && sameBricks; i++) sameBricks = cpu.bricks[i] === gpu.bricks[i];
-    let samples = 0, distanceDiffer = 0, distanceMax = 0, boundsDiffer = 0, colourDiffer = 0, colourMax = 0, occlusionDiffer = 0, occlusionMax = 0;
-    const baked = new Uint8Array(DISTANCE_BRICK_SAMPLES * FAR_BRICK_BAKED_BYTES);
+    let samples = 0, distanceDiffer = 0, distanceMax = 0, boundsDiffer = 0, lookDiffer = 0, occlusionDiffer = 0, occlusionMax = 0;
     for (let b = 0; b < cpu.bricks.length; b++) {
       const kc = cpu.bricks[b]!;
       const kg = gpu.bricks[b]!;
       if (kc < 0 || kg < 0) continue;
       for (let a = 0; a < 6; a++) if (cpu.bounds[kc * 6 + a] !== gpu.bounds[kg * 6 + a]) boundsDiffer++;
-      bakeFarBrick({ ...cpu, occlusion }, kc, palette, baked);
       const cBase = Math.floor(b / FINE_COLOUR_PER_ROW) * FINE_BRICK_ROWS * FINE_ROW_BYTES + (b % FINE_COLOUR_PER_ROW) * S * FAR_BRICK_BAKED_BYTES;
       for (let i = 0; i < DISTANCE_BRICK_SAMPLES; i++) {
         samples++;
@@ -378,16 +363,14 @@ export class FineBrickBuilder {
         distanceMax = Math.max(distanceMax, dd);
         const x = i % S, y = Math.floor(i / S) % S, z = Math.floor(i / (S * S));
         const t = cBase + (z * S + y) * FINE_ROW_BYTES + x * FAR_BRICK_BAKED_BYTES;
-        let cd = 0;
-        for (let c = 0; c < 3; c++) cd = Math.max(cd, Math.abs(baked[i * 4 + c]! - colours[t + c]!));
-        if (cd > 0) colourDiffer++;
-        colourMax = Math.max(colourMax, cd);
-        const od = Math.abs(baked[i * 4 + 3]! - colours[t + 3]!);
+        const s = kc * DISTANCE_BRICK_SAMPLES + i;
+        if (cpu.looks[s] !== looks[t]! + 256 * looks[t + 1]!) lookDiffer++;
+        const od = Math.abs(Math.round(occlusion[s]!) - looks[t + 3]!);
         if (od > 0) occlusionDiffer++;
         occlusionMax = Math.max(occlusionMax, od);
       }
     }
-    const out: FineBrickCheck = { node: mipNodeKey(job.node), sameBricks, bricks: gpu.samples.length / DISTANCE_BRICK_SAMPLES, samples, distanceDiffer, distanceMax, boundsDiffer, colourDiffer, colourMax, occlusionDiffer, occlusionMax };
+    const out: FineBrickCheck = { node: mipNodeKey(job.node), sameBricks, bricks: gpu.samples.length / DISTANCE_BRICK_SAMPLES, samples, distanceDiffer, distanceMax, boundsDiffer, lookDiffer, occlusionDiffer, occlusionMax };
     this.checks.push(out);
     if (this.checks.length > 64) this.checks.shift();
     return out;
@@ -400,6 +383,5 @@ export class FineBrickBuilder {
     this.queue.length = 0;
     for (const s of this.slots) for (const b of [s.params, s.cells, s.words, s.scratch, s.meta, s.staged, s.read]) b.destroy();
     this.slots.length = 0;
-    this.palette.destroy();
   }
 }

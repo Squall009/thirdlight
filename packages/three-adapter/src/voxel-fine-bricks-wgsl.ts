@@ -19,10 +19,15 @@
  * - **The samples** (pass 5). A stored brick's distance bytes, each sample's
  *   look (the vote of the shown cells round it: tops first, the CPU build's
  *   weights and order; at most {@link FINE_VOTE_WORDS} distinct words a
- *   sample, the CPU build counts them all), its baked colour from the far
- *   palette and its occlusion from the brick's own bytes (far-bricks-shade.ts
- *   `farBrickOcclusionAt`), written in rows a copy puts straight into the
- *   brick atlas's regions.
+ *   sample, the CPU build counts them all) and its occlusion from the
+ *   brick's own bytes (far-bricks-shade.ts `farBrickOcclusionAt`), written
+ *   in rows a copy puts straight into the brick atlas's regions. The look
+ *   word itself goes where a coarse brick keeps its baked colour (its low
+ *   and high byte in red and green, the occlusion in alpha): the shade
+ *   textures a fine hit from the words round it as the near surface does,
+ *   and reads each word's far colour from the live material table, so a
+ *   fine brick costs no byte more than a coarse one and follows a material
+ *   record without a rebuild.
  *
  * Floats are 32-bit here where the CPU build reads 64-bit sums, so a sample
  * at a byte's rounding edge may land one byte off; `Math.round` is
@@ -42,7 +47,7 @@ export const FINE_NODE_BRICKS = 64;
 /** Corners a side of a node (its 32 cells and the far edge). */
 export const FINE_CORNERS = 33;
 
-/** Brick rows a 256-byte copy row holds: distances (9 bytes a row, laid 12 apart) and baked colours (36). */
+/** Brick rows a 256-byte copy row holds: distances (9 bytes a row, laid 12 apart) and look words with occlusion (36). */
 export const FINE_DIST_PER_ROW = 21;
 export const FINE_COLOUR_PER_ROW = 7;
 
@@ -52,7 +57,7 @@ export const FINE_ROW_BYTES = 256;
 /** Rows a brick's samples take in a copy (9 × 9). */
 export const FINE_BRICK_ROWS = DISTANCE_BRICK_SIDE * DISTANCE_BRICK_SIDE;
 
-/** u32 words of the staged distances (every brick of a node) and of the staged colours that follow them. */
+/** u32 words of the staged distances (every brick of a node) and of the staged looks that follow them. */
 export const FINE_DIST_WORDS = Math.ceil(FINE_NODE_BRICKS / FINE_DIST_PER_ROW) * FINE_BRICK_ROWS * (FINE_ROW_BYTES / 4);
 export const FINE_COLOUR_WORDS = Math.ceil(FINE_NODE_BRICKS / FINE_COLOUR_PER_ROW) * FINE_BRICK_ROWS * (FINE_ROW_BYTES / 4);
 
@@ -87,10 +92,9 @@ struct Params {
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> cells: array<u32>;
 @group(0) @binding(2) var<storage, read> words: array<u32>;
-@group(0) @binding(3) var<storage, read> palette: array<u32>;
-@group(0) @binding(4) var<storage, read_write> scratch: array<f32>;
-@group(0) @binding(5) var<storage, read_write> bricks: array<u32>;
-@group(0) @binding(6) var<storage, read_write> staged: array<u32>;
+@group(0) @binding(3) var<storage, read_write> scratch: array<f32>;
+@group(0) @binding(4) var<storage, read_write> bricks: array<u32>;
+@group(0) @binding(5) var<storage, read_write> staged: array<u32>;
 
 const NONE: f32 = 1e12;
 const C: u32 = ${FINE_CORNERS}u;
@@ -368,7 +372,7 @@ fn lookAt(cx: u32, cy: u32, cz: u32) -> i32 {
   return best;
 }
 
-// Pass 5: a workgroup a stored brick, a thread a row of samples: distances, looks, colour and occlusion, staged for the copy.
+// Pass 5: a workgroup a stored brick, a thread a row of samples: distances, looks and occlusion, staged for the copy.
 @compute @workgroup_size(${DISTANCE_BRICK_SIDE * DISTANCE_BRICK_SIDE})
 fn bake(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) li: u32) {
   let b = wid.x;
@@ -417,7 +421,7 @@ fn bake(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
     let a1 = clamp(fieldOut(p + nrm), 0.0, 1.0);
     let a2 = clamp(fieldOut(p + 2.0 * nrm) / 2.0, 0.0, 1.0);
     let ao = u32(floor((a1 + a2) / 2.0 * 255.0 + 0.5));
-    staged[cRow + sx] = (palette[u32(look)] & 0x00ffffffu) | (ao << 24u);
+    staged[cRow + sx] = (u32(look) & 0xffffu) | (ao << 24u);
   }
 }
 `;

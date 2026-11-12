@@ -168,6 +168,8 @@ export type MainToWorker =
   | { readonly t: 'voxels.drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number; readonly kits: number }
   /** A round of a voxel world's far field visibility feedback (what the far draws were seen at), for its selection. */
   | { readonly t: 'voxels.farSeen'; readonly world: string; readonly seen: FarSeenWire }
+  /** Fine far bricks on or off for every voxel world (off: the page cannot build them, WebGL 2). */
+  | { readonly t: 'voxels.fine'; readonly on: boolean }
   | { readonly t: 'dispose' };
 
 /** The loaded scenes as the page mirrors them (entities only for a batch the page does not have yet). */

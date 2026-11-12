@@ -6,7 +6,8 @@
  * opens a project whose scene holds a box and a voxel world and the Scene
  * view draws, Play runs and draws the voxel world, the voxel world page
  * draws it, and the export, served statically with the backend stopped,
- * streams and draws it; no page logs a console error.
+ * streams and draws it (asked for fine far bricks, which need WebGPU, it
+ * falls back to the near field's levels); no page logs a console error.
  *
  * "Draws" is read in pixels: a picture with the scene in it differs from the
  * picture of nothing (the clear colour, or the sky alone) over a real share
@@ -145,10 +146,18 @@ test('WebGL 2 forced: the Scene view, Play, a voxel world and the export served 
   const gameErrors = consoleErrors(game);
   game.on('pageerror', (e) => gameErrors.push(e.message));
   try {
-    await game.goto(`${site.url}?renderer=webgl2`);
+    // Fine far bricks asked for (`?fineBricks=1`) where they cannot be built: the page tells the simulation, which turns
+    // them off, and the near field draws its levels past the detail ring again (not nothing past it).
+    const warnings: string[] = [];
+    game.on('console', (m) => void (m.type() === 'warning' && warnings.push(m.text())));
+    await game.goto(`${site.url}?renderer=webgl2&fineBricks=1`);
     const canvas = game.locator('canvas').first();
     await expectWebGl2(canvas, () => game.screenshot(), 'export');
     await expectVoxelWorld(canvas, () => game.screenshot(), 'export');
+    const levels = (): Promise<number[]> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay?: { stats(): { worlds: Record<string, { levels: number[] }> } } }).__tlVoxelPlay?.stats().worlds['slice']?.levels ?? []);
+    await expect.poll(async () => (await levels()).slice(1).reduce((n, c) => n + c, 0), { timeout: 60_000, message: 'export: the near field\'s levels past the detail ring, fine bricks fallen back' }).toBeGreaterThan(0);
+    console.log(`[webgl2-smoke] export with fine bricks asked for: near levels ${JSON.stringify(await levels())}; ${warnings.filter((w) => w.includes('fine nodes')).join(' | ')}`);
+    expect(warnings.some((w) => w.includes('fine nodes need WebGPU')), 'fine nodes arrived and fell back').toBe(true);
     expect(gameErrors).toEqual([]);
   } finally {
     await site.close();

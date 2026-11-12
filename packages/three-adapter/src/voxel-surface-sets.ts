@@ -86,7 +86,14 @@ interface SetProjection {
  */
 export type SetProjectionMode = 'blend' | 'axis';
 
-function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend'): SetProjection {
+/**
+ * A read's mip level from the material's tile (metres; the construction or the terrain one, as its projection): the
+ * vertex stage and the far shade have no screen derivatives and say the level themselves. A level is allowed in a
+ * branch that varies per pixel (no derivatives are taken).
+ */
+export type TileLevel = (tileMetres: N) => N;
+
+function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend', lod?: TileLevel): SetProjection {
   const { look, matMask } = src;
   const { n, p, gu, gv, bn } = at;
   const id = mod(m, matMask);
@@ -102,6 +109,7 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: S
   const layer = int(floor(max(picked, 0).add(0.5)));
   const pt = p.div(max(tiles.y, MIN_TILE_METRES));
   const gt = vec2(...tileUv(NODE_OPS, [gu, gv], max(tiles.x, MIN_TILE_METRES)));
+  const fixed = lod === undefined ? undefined : lod(max(select(built, tiles.x, tiles.y), MIN_TILE_METRES)).toVar();
   // An image's first row is its top (KTX2, no flip on upload): V up reads it bottom to top, so a texture stands
   // upright on a wall and its bottom edge lies on the grid's 0 m line.
   const up = (uv: N): N => vec2(uv.x, uv.y.negate());
@@ -117,8 +125,9 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: S
     const uz = up(pt.xy).toVar();
     const ug = up(gt).toVar();
     const uv = pick(ux, uy, uz, ug).toVar();
-    const gx = pick(dFdx(ux), dFdx(uy), dFdx(uz), dFdx(ug)).toVar();
-    const gy = pick(dFdy(ux), dFdy(uy), dFdy(uz), dFdy(ug)).toVar();
+    // With a level given no derivative is taken (the read may lie in a branch that varies per pixel).
+    const gx = fixed === undefined ? pick(dFdx(ux), dFdx(uy), dFdx(uz), dFdx(ug)).toVar() : null;
+    const gy = fixed === undefined ? pick(dFdy(ux), dFdy(uy), dFdy(uz), dFdy(ug)).toVar() : null;
     const one = vec3(select(isX, float(1), float(0)), select(isY, float(1), float(0)), select(isX.or(isY), float(0), float(1)));
     return {
       l,
@@ -130,7 +139,8 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: S
       axis: one,
       read: (map, level) => {
         const t = texture(map, uv).depth(layer);
-        const r = (level === undefined ? t.grad(gx, gy) : t.level(level)).toVar();
+        const at = level ?? fixed;
+        const r = (at === undefined ? t.grad(gx, gy) : t.level(at)).toVar();
         return [r, r, r];
       },
       weighted: (r) => r[0],
@@ -150,11 +160,18 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: S
     gt,
     read: (map, level) => uvs.map((uv) => {
       const t = texture(map, uv).depth(layer);
-      return (level === undefined ? t : t.level(level)).toVar();
+      const at = level ?? fixed;
+      return (at === undefined ? t : t.level(at)).toVar();
     }) as [N, N, N],
     weighted: (r) => r[0].mul(wx).add(r[1].mul(wy)).add(r[2].mul(wz)),
   };
 }
+
+/** Which of a set's maps a read takes: all three, or the albedo (with its height) alone, the normal flat and ORM neutral. */
+export type SetMaps = 'full' | 'albedo';
+
+/** The ORM a material without a layer (or a read of the albedo alone) takes. */
+const NEUTRAL_ORM = (): N => vec3(NEUTRAL_TEXELS.orm[0] / 255, NEUTRAL_TEXELS.orm[1] / 255, NEUTRAL_TEXELS.orm[2] / 255);
 
 /**
  * A material's texture set at the pixel (`m`: the key material + construction · 2^materialBits): its layer for the
@@ -162,31 +179,73 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: S
  * on the material's projection, the normal map turned into the surface by that projection's frame, and the height
  * (0–1, 1 the surface) from the albedo's A, where the engine's texture sets keep it. Every sample is taken whether the
  * material has a layer or not (uniform control flow), the result picked after; without a layer the height is 1.
+ * `lod`: the reads' mip level from the tile (absent: the implicit one, or the projection's derivatives); `maps`: which
+ * maps are read.
  */
-export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend'): { albedo: N; normal: N; orm: N; height: N } {
-  const { maps } = src;
+export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend', lod?: TileLevel, maps: SetMaps = 'full'): { albedo: N; normal: N; orm: N; height: N } {
   const { n } = at;
-  const { l, built, onBuilt, has, gt, read, weighted, axis } = setProjection(src, m, at, mode);
+  const { l, built, onBuilt, has, gt, read, weighted, axis } = setProjection(src, m, at, mode, lod);
+  const a = read(src.maps.albedo);
+  const textured = select(has, weighted(a).rgb.mul(l.rgb), l.rgb);
+  const height = select(has, weighted(a).a, float(1));
+  if (maps === 'albedo') return { albedo: textured, normal: n, orm: NEUTRAL_ORM(), height };
   // On one axis the read is turned by that axis's frame alone (its weight 1).
   const bn = axis ?? at.bn;
-  const a = read(maps.albedo);
-  const t = read(maps.normal).map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
-  const o = read(maps.orm);
+  const t = read(src.maps.normal).map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
+  const o = read(src.maps.orm);
   // The grid projection: tangent U, bitangent V (voxel-surface-projection.ts), the face normal.
   const frame = gridFrame(NODE_OPS, [n.x, n.y, n.z]);
   const onGrid = vec3(...frame.u).mul(t[0].x).add(vec3(...frame.v).mul(t[0].y)).add(n.mul(t[0].z));
   // Three axes: X reads (z, y), Y (x, z), Z (x, y); each map's normal turned by its axis's frame, then weighted.
   const side = (c: N): N => select(c.lessThan(0), float(-1), float(1));
   const onAxes = vec3(t[0].z.mul(side(n.x)), t[0].y, t[0].x).mul(bn.x).add(vec3(t[1].x, t[1].z.mul(side(n.y)), t[1].y).mul(bn.y)).add(vec3(t[2].x, t[2].y, t[2].z.mul(side(n.z))).mul(bn.z));
-  const textured = select(has, weighted(a).rgb.mul(l.rgb), l.rgb);
   // Into a variable first: the pick below is a branch, and a sample inside it would vary per pixel.
   const band = src.bands == null ? null : texture(src.bands, gt).toVar();
   return {
     albedo: band === null ? textured : select(built, mix(l.rgb, band.rgb, band.a), textured),
     normal: select(has, mix(onAxes, onGrid, onBuilt).normalize(), n),
-    orm: select(has, weighted(o).xyz, vec3(NEUTRAL_TEXELS.orm[0] / 255, NEUTRAL_TEXELS.orm[1] / 255, NEUTRAL_TEXELS.orm[2] / 255)),
-    height: select(has, weighted(a).a, float(1)),
+    orm: select(has, weighted(o).xyz, NEUTRAL_ORM()),
+    height,
   };
+}
+
+/** A surface point's triplanar weights by its unit normal (terrain's projection): sharpened, summing to 1. */
+export function triplanarWeights(n: N): N {
+  const bw = abs(n).pow(vec3(4));
+  return bw.div(bw.x.add(bw.y).add(bw.z));
+}
+
+/** The two heaviest materials of a weighted set as shader variables (`m1` the heaviest; −1: none yet). */
+export interface HeaviestTwo {
+  readonly m1: N;
+  readonly v1: N;
+  readonly m2: N;
+  readonly v2: N;
+}
+
+/** An empty {@link HeaviestTwo}, to {@link addHeaviest} into. */
+export function heaviestTwo(): HeaviestTwo {
+  return { m1: float(-1).toVar(), v1: float(0).toVar(), m2: float(-1).toVar(), v2: float(0).toVar() };
+}
+
+/** Weight `w` of material `mat` into the two heaviest: a newcomer heavier than the second takes its place; the first stays the heaviest. */
+export function addHeaviest(h: HeaviestTwo, mat: N, w: N): void {
+  const { m1, v1, m2, v2 } = h;
+  const same1 = mat.equal(m1);
+  const same2 = mat.equal(m2);
+  const takes = same1.or(same2).not().and(w.greaterThan(v2));
+  v1.assign(select(same1, v1.add(w), v1));
+  const nv2 = select(same2, v2.add(w), select(takes, w, v2)).toVar();
+  const nm2 = select(takes, mat, m2).toVar();
+  const swap = nv2.greaterThan(v1);
+  const am = select(swap, nm2, m1).toVar();
+  const av = select(swap, nv2, v1).toVar();
+  const bm = select(swap, m1, nm2).toVar();
+  const bv = select(swap, v1, nv2).toVar();
+  m1.assign(am);
+  v1.assign(av);
+  m2.assign(bm);
+  v2.assign(bv);
 }
 
 /**

@@ -695,6 +695,9 @@ interface PageVoxelKits {
 function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[], materials: VoxelMaterialSources, textures: (map: VoxelTextureMap) => ReturnType<NonNullable<SceneAdapterOptions['materials']>['loadTexture']>, streamer: TextureStreamer, startLevel: string | undefined) {
   let report: (world: string, bytes: number[], coarse: number, kits: number) => void = () => undefined;
   let farSeen: NonNullable<ConstructorParameters<typeof VoxelWorldDraws>[0]['farSeen']> = () => undefined;
+  // Fine far bricks asked for on a page that cannot build them (WebGL 2): the simulation turns them off once.
+  let fineOff: () => void = () => undefined;
+  let fineOffSent = false;
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length + voxelKitImageRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader(), undefined, (assetId) => kits.texture(assetId));
   const draws = new VoxelWorldDraws({
@@ -713,6 +716,11 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
     report: (world, bytes, coarse, kitBytes) => report(world, bytes, coarse, kitBytes),
     farSeen: (world, seen) => farSeen(world, seen),
+    fineUnavailable: () => {
+      if (fineOffSent) return;
+      fineOffSent = true;
+      fineOff();
+    },
   });
   (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter) };
   return {
@@ -723,6 +731,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       if (h === null) return null;
       report = (world, bytes, coarse, kitBytes) => h.post({ t: 'voxels.drawn', world, bytes, coarse, kits: kitBytes });
       farSeen = (world, seen) => h.post({ t: 'voxels.farSeen', world, seen });
+      fineOff = () => h.post({ t: 'voxels.fine', on: false });
       return {
         ...h,
         listen: (onMessage) => h.listen((m) => (typeof m === 'object' && m !== null && (m as { t?: unknown }).t === 'voxels' ? draws.receive((m as { batch: Parameters<VoxelWorldDraws['receive']>[0] }).batch) : onMessage(m))),
@@ -733,6 +742,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()));
       report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       farSeen = (world, seen) => p.farSeen(world, seen);
+      fineOff = () => p.setFine(false);
       return p.ports;
     },
   };

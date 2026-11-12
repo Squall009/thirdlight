@@ -96,6 +96,7 @@ import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { PIECE_DATA_FLOATS, PIECE_WET_FLOAT, pieceU, runAxisOf } from './voxel-trim-u';
 import { VoxelPieceBatches, type PieceRun } from './voxel-piece-batches';
+import type { FarFineTexture } from './voxel-far-fine-shade';
 import { VoxelFarView } from './voxel-far-mesh';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
@@ -304,6 +305,10 @@ export interface VoxelChunkViewOptions {
   readonly farVisibility?: boolean;
   /** Where the far field's visibility feedback goes (`VoxelFarViewOptions.onSeen`; absent: none is made). */
   readonly onFarSeen?: (seen: FarSeenWire) => void;
+  /** What fine far bricks read of the texture sets (default `full`; voxel-far-fine-shade.ts). */
+  readonly fineTexture?: FarFineTexture;
+  /** Fine far nodes cannot be built here (WebGL 2; voxel-far-mesh.ts `onFineUnavailable`). */
+  readonly onFineUnavailable?: () => void;
   /**
    * What casts a relief chunk's shadow: its plain surfaces (`plain`, the
    * default; see {@link VoxelChunkView} `addCaster`) or the displaced relief
@@ -385,7 +390,7 @@ export class VoxelChunkView {
     this.root.add(this.pieces.root);
     // Its chunk, node and seam surfaces are occlusion culling's draws, though they sit below this root.
     markOccludeeGroup(this.root);
-    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer, visibility: opts.farVisibility !== false, ...(opts.onFarSeen !== undefined ? { onSeen: opts.onFarSeen } : {}) });
+    this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer, visibility: opts.farVisibility !== false, ...(opts.onFarSeen !== undefined ? { onSeen: opts.onFarSeen } : {}), ...(opts.onFineUnavailable !== undefined ? { onFineUnavailable: opts.onFineUnavailable } : {}), ...(opts.fineTexture !== undefined ? { fineTexture: opts.fineTexture } : {}) });
     this.root.add(this.far.root);
     this.kitSet = null;
     this.setKits(opts.kits ?? null);

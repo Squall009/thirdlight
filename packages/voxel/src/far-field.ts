@@ -39,7 +39,7 @@ import { farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
 import { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
-import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, farFineBytes, isFarFine, type FarFineCells, type FarFineHost } from './far-fine';
+import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, farFineBytes, farFineFade, isFarFine, type FarFineCells, type FarFineHost } from './far-fine';
 import { FarFineNodes } from './far-fine-nodes';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, farCellPixels, farNodeBox, farNodeDistance, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
@@ -256,6 +256,8 @@ export interface FarEvent {
   readonly seq: number;
   readonly added: readonly FarNodeDraw[];
   readonly removed: readonly MipNode[];
+  /** With fine nodes on: where their textures fade to the far palette's colour (metres from the eye, far-fine.ts `farFineFade`). */
+  readonly fineFade?: readonly [number, number];
 }
 
 export interface FarFieldOptions {
@@ -1057,7 +1059,8 @@ export class FarField {
       this.counters.swappedIn += added.length;
       this.counters.swappedOut += removed.length;
       this.firsts.drawn ??= performance.now() - this.made;
-      const e: FarEvent = { type: 'far', seq: this.counters.events, added, removed };
+      const fade = this.fineNodes.on ? farFineFade(this.opts.errorPixels ?? FAR_ERROR_PIXELS, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, this.near?.radius ?? Infinity, this.host.grid.edge) : null;
+      const e: FarEvent = { type: 'far', seq: this.counters.events, added, removed, ...(fade !== null ? { fineFade: fade } : {}) };
       for (const l of this.listeners) l(e);
     }
     // What is drawn moved toward the selection: the next steps are made from it.

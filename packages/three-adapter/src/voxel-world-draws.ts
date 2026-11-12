@@ -87,6 +87,7 @@ import { voxelPathsFromUrl, voxelStaticCastersFromUrl } from './voxel-surface-pa
 import { farFeedbackFromUrl } from './voxel-far-feedback';
 import type { VoxelFarView } from './voxel-far-mesh';
 import { farVisibilityFromUrl } from './voxel-far-visibility';
+import { fineTextureFromUrl } from './voxel-far-fine-shade';
 import { pageSearch } from './renderer-factory';
 
 /** One edit's way to the screen, as this page saw it (ms). */
@@ -116,6 +117,8 @@ export interface VoxelWorldDrawsOptions {
   report(world: string, bytes: number[], coarse: number, kits: number): void;
   /** A round of a world's far field visibility feedback for where the world runs (absent: none is made). */
   farSeen?(world: string, seen: FarSeenWire): void;
+  /** A world's fine far nodes cannot be built on this page (WebGL 2): where it runs, fine bricks go off. */
+  fineUnavailable?(world: string): void;
   /** A batch was applied (a view drawing on demand draws a frame). */
   applied?(): void;
   /** The kit pieces every world draws (absent: none until {@link VoxelWorldDraws.setKits}). */
@@ -479,7 +482,7 @@ export class VoxelWorldDraws {
     if (this.arrays !== null) this.giveArrays(surface);
     // Per-draw programs on WebGPU only: WebGL 2 keeps the one program it drew with.
     const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), staticCasters: voxelStaticCastersFromUrl(pageSearch()), farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}) });
+    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), staticCasters: voxelStaticCastersFromUrl(pageSearch()), farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
     view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);

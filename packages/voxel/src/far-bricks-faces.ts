@@ -30,7 +30,8 @@ import { DISTANCE_NONE, FAR_BRICK_BLOCK_BYTES, FAR_BRICK_BOUNDS_BYTES, squaredDi
 import { farBrickOcclusion } from './far-bricks-shade';
 import { withFarNeighbourhood, type FarMeshInput } from './far-mesh';
 import type { PaletteStore } from './palette-store';
-import { fillLevel, MATERIAL_AIR, MATERIAL_BITS, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { SHADER_CONSTRUCTION_BIT } from './derived-shader';
+import { fillLevel, isConstructionRole, MATERIAL_AIR, MATERIAL_BITS, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
 import { regionChunkCodecBytes } from './region-file';
 
 /**
@@ -143,8 +144,13 @@ export function farCellApron(scale: number): number {
   return (DISTANCE_BRICK_BAND_VOXELS + 1) * scale + 1;
 }
 
-/** The cell block of the node at `node` (its level's coordinates) at `scale`, read a chunk at a time. */
-export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number): FarCellBlock {
+/**
+ * The cell block of the node at `node` (its level's coordinates) at `scale`, read a chunk at a time. `construction`:
+ * a construction cell's word also carries {@link SHADER_CONSTRUCTION_BIT} (the near surface's grid entry, above the
+ * wetness), so a build whose samples keep their words (the fine bricks, textured as the near surface is) knows a wall
+ * from the ground of the same material; the far cache's builds leave it out (their words index the far palette).
+ */
+export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: readonly [number, number, number], scale: number, construction = false): FarCellBlock {
   if (!Number.isInteger(scale) || scale < 1 || scale > FAR_BRICK_SCALE_MAX || (scale & (scale - 1)) !== 0) throw new RangeError(`far bricks: scale ${scale}`);
   const e = g.edge;
   if (e % DISTANCE_BRICK_CELLS !== 0) throw new RangeError(`far bricks: a chunk edge of ${e} cells is not whole bricks`);
@@ -177,7 +183,7 @@ export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: reado
         if (m === MATERIAL_AIR || r === VOXEL_ROLE.liquid) continue;
         const i = row + (y - by0) * n;
         density[i] = fillLevel(r, shape[li]!) / SHAPE_FULL;
-        word[i] = m | (wetness[li]! << MATERIAL_BITS);
+        word[i] = m | (wetness[li]! << MATERIAL_BITS) | (construction && isConstructionRole(r) ? SHADER_CONSTRUCTION_BIT : 0);
         if (density[i]! < 0.5) continue;
         solid[i] = 1;
         count++;

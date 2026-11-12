@@ -26,7 +26,7 @@
  *   stale: its block is read again from the edited cells and sent, and its
  *   old draw stays until the new one is built.
  */
-import type { ChunkGrid } from './coords';
+import { VOXEL_SIZE_M, type ChunkGrid } from './coords';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import { FAR_BRICK_BAKED_BYTES, FAR_BRICK_TABLE_GPU_BYTES } from './far-bricks-shade';
 import { farCellApron, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
@@ -56,6 +56,28 @@ export const FAR_FINE_GPU_FORESEEN_BYTES = 16 * DISTANCE_BRICK_SAMPLES * (1 + FA
 /** ms of the world's thread a far field update may spend reading fine nodes' blocks (each a few chunks exported). */
 export const FAR_FINE_PACK_MS = 4;
 
+/**
+ * Chunks short of the load ring where level 2 can begin: a level-2 node opens into fine children only with its four
+ * chunks a side and one more round them resident.
+ */
+const FAR_FINE_REACH_CHUNKS = 2 ** FAR_MIN_LEVEL + 1;
+
+/** Share of the fade's end at which fine bricks' textures begin to fade to the far palette's colour. */
+export const FAR_FINE_FADE_START_SHARE = 0.5;
+
+/**
+ * Where fine bricks' textures fade to the far palette's colour (metres from the eye: start, end). They end where level
+ * 2 can begin, so the level 1 → 2 hand-over joins two palette colours, not a texture and a flat colour: where a level-2
+ * cell is the selection's error on screen (`errorPixels` at `pixelsPerRadian`), or nearer where the load ring
+ * (`loadRadiusCells`) keeps level 2 closed sooner.
+ */
+export function farFineFade(errorPixels: number, pixelsPerRadian: number, loadRadiusCells: number, edge: number): readonly [number, number] {
+  const handover = (2 ** FAR_MIN_LEVEL * VOXEL_SIZE_M * pixelsPerRadian) / errorPixels;
+  const reach = Math.max(0, (loadRadiusCells - FAR_FINE_REACH_CHUNKS * edge) * VOXEL_SIZE_M);
+  const end = Math.min(handover, reach);
+  return [FAR_FINE_FADE_START_SHARE * end, end];
+}
+
 /** Bytes of fine blocks one far event may carry (the page builds them over frames; the coarse levels keep their own budget). */
 export const FAR_FINE_COMMIT_BYTES = 8 * 1024 * 1024;
 
@@ -70,7 +92,7 @@ export interface FarFineCells {
   readonly n: number;
   /** Per cell (x fastest, then y, then z): fill level 0–15 in bits 0–3, its word's place in {@link words} in bits 4–15. */
   readonly cells: Uint16Array;
-  /** The block's look words (material | wetness << 12), first seen first. */
+  /** The block's look words (material | wetness << 12, construction cells | `SHADER_CONSTRUCTION_BIT`), first seen first. */
   readonly words: Uint16Array;
 }
 

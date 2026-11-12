@@ -49,6 +49,7 @@ import { farClipPosition, farFragmentDepth, type FarCover } from './voxel-far-co
 import { COPY_BOX_FLOAT, HIDDEN_DEPTH_MARGIN } from './occlusion-instances-rule';
 import { declareVertexReach } from './vertex-reach';
 import { FAR_BOX_FROM, FAR_BOX_STEPS, FAR_NODE_CORNER_FLOAT, FAR_NODE_FLOATS, FAR_NODE_HI_FLOAT, FAR_NODE_LO_FLOAT, FAR_NODE_PAGE_FLOAT, packFarBoxCorner } from './voxel-far-cull';
+import { FAR_FINE_CELL_M_BELOW, type FarFineShade } from './voxel-far-fine-shade';
 import { farVisibilityMaterial, farVisibilityOutput } from './voxel-far-visibility';
 import { VoxelShaderGrids, type RegionTexels, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
 
@@ -275,8 +276,8 @@ export type FarBrickOutput = 'lit' | 'visibility';
 export class FarBrickMaterial {
   readonly material: NodeMaterial;
 
-  /** `nodeBricks`: bricks a side of a node (the march walks that many an axis). */
-  constructor(textures: FarBrickTextures, cover: FarCover, nodeBricks = 4, readonly output: FarBrickOutput = 'lit') {
+  /** `nodeBricks`: bricks a side of a node (the march walks that many an axis); `fine` shades fine bricks' hits (their samples hold look words). */
+  constructor(textures: FarBrickTextures, cover: FarCover, fine: FarFineShade, nodeBricks = 4, readonly output: FarBrickOutput = 'lit') {
     const lit = output === 'lit';
     const m = cameraRelative(lit ? new MeshStandardNodeMaterial() : (farVisibilityMaterial() as MeshStandardNodeMaterial));
     m.name = `voxel far bricks${lit ? '' : ' (visibility)'}`;
@@ -485,8 +486,10 @@ export class FarBrickMaterial {
       // A hit deep in the solid near the eye: a stand-in's side entered under its surface, seen from beside it while
       // hugging the ground. Drawn as the ground's look, not as the side's cells (whose unstored bricks show as recesses).
       const look = insideHit.or(field(region, p).lessThan(-FAR_DEEP_CELLS).and(view.z.greaterThan(-FAR_INSIDE_LOOK_M)));
+      // A fine node's bricks (built on the GPU) hold look words where a coarse node's hold colours.
+      const isFine = vCellM.lessThan(FAR_FINE_CELL_M_BELOW);
       if (output === 'visibility') {
-        hitPayload.assign(farVisibilityOutput(region, p, view.z, select(look, float(INSIDE_FACE_CODE), entryFaceCode(face))));
+        hitPayload.assign(farVisibilityOutput(region, p, view.z, select(look, float(INSIDE_FACE_CODE), entryFaceCode(face)), select(isFine, float(1), float(0))));
         return farFragmentDepth(cover.behindNear(world, view.z));
       }
       // Deep under the surface (the samples clamped to the band) there is no gradient: a ray hits there only where a
@@ -494,6 +497,10 @@ export class FarBrickMaterial {
       const shaded = textures.shade(region, p, face, look);
       hitNormal.assign(normalize(modelView.mul(vec4(shaded.normal, 0)).xyz));
       hitColour.assign(shaded.colour);
+      // Here a fine hit takes its palette's colour (the visibility pass's shade textures it); only its fragments read it.
+      If(isFine, () => {
+        hitColour.assign(fine.palette(region, p, look));
+      });
       hitViewZ.assign(cover.behindNear(world, view.z));
       return farFragmentDepth(hitViewZ);
     })();
