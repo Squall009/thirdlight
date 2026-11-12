@@ -592,7 +592,9 @@ default chosen, owner to confirm (plan 46d §9, the 46d.25a defaults).
 m) under its kept levels, never kept: with `fineBricks` on, the selection opens a kept level-2 node into the level-1
 nodes over its chunks, and a level-1 node into its chunks, by the same screen error, hysteresis, GPU budget and
 visibility feedback as every level, into those children whose blocks' chunks (the child's and one round it) are
-resident in the streamer, unless the near field draws the node whole (`FarFineIndex`). Where the load ring ends across
+resident in the streamer, unless the near cover hides the far field over the whole node (each chunk and every chunk round
+it drawn by the near field; `FarFineIndex`). In the cover's edge ring the far field draws behind the near field, so fine
+nodes open there: a level 2 kept closed there showed its 2 m roofs past the near roofs' silhouettes. Where the load ring ends across
 a level-2 node it opens into its resident children only and stays drawn over the rest (`partial`): the page leaves its
 bricks in the octants fine nodes cover out of its brick table (`farFineOctants`, in the same apply as the change), and
 the fine nodes' skirts close the octant faces as at any level change. Elsewhere level 2 is the finest, as without. A fine node's input is its **cell block**, the very block the CPU build reads
