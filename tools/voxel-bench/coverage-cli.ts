@@ -255,7 +255,12 @@ interface FrameCheck {
   key: Uint8Array;
   dark: number;
   holes?: number;
+  /** The frame itself, kept while {@link HOLE_FRAMES_KEPT} allow when its lower half shows key pixels (a hole's picture). */
+  png?: Buffer;
 }
+
+/** Frames kept for their pictures when their lower half shows the key (the holes' events save their worst one). */
+const HOLE_FRAMES_KEPT = 300;
 
 /** The raw record of one flight: what the bench and the page saw, before the measures are worked out. */
 interface FlightRecord {
@@ -298,7 +303,10 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
       const p = img.pixel(x * 2, y * 2);
       if (isKey(p[0], p[1], p[2])) key[(y * w + x) >> 3]! |= 1 << ((y * w + x) & 7);
     }
-    rec.checks.push({ t, width: w, height: h, key, dark: bottomDarkShare(img.width, img.height, (x, y) => img.pixel(x, y), BOTTOM_ROWS) });
+    let low = 0;
+    for (let i = (h >> 1) * w; i < w * h; i++) if ((key[i >> 3]! & (1 << (i & 7))) !== 0) low++;
+    const keep = low >= HOLE_PIXELS && rec.checks.filter((c) => c.png !== undefined).length < HOLE_FRAMES_KEPT;
+    rec.checks.push({ t, width: w, height: h, key, dark: bottomDarkShare(img.width, img.height, (x, y) => img.pixel(x, y), BOTTOM_ROWS), ...(keep ? { png: bytes } : {}) });
     for (const [at, s] of strip) if (t >= s) {
       const file = castName(at);
       mkdirSync(dirname(file), { recursive: true });
@@ -416,6 +424,11 @@ function travelMeasures(rec: FlightRecord): Record<string, unknown> {
     flight: flightFrames(rec.intervals, CAP, rec.flightS),
     stopAtS: stopW === null ? null : Number(((stopW - rec.flyAt) / 1000).toFixed(2)),
     afterStop: { groundSolidS: probe.raySolidAfterStopS, bodyStandsS: probe.bodyStandsAfterStopS, bodyFreeS, detailS, nothingPendingS: viewS, simIdleS, holdS: HOLD_S, settleHoldS: SETTLE_HOLD_S, settleBy },
+    // The page's counts once a second after the stop (what is still to come, and what waits for what).
+    afterSeries: Array.from({ length: HOLD_S + 1 }, (_, k) => {
+      const f = frames.find((x) => x.t >= t0 + k * 1000);
+      return f === undefined ? null : { s: k, ...f.counts };
+    }).filter((x) => x !== null),
     groundRay: { steps: probe.raySteps, solid: probe.solidShare, noHit: probe.noneShare, deep: probe.deepShare },
     falls: { ...falls, through: verdicts.filter((v) => v.verdict === 'through').length, lower: verdicts.filter((v) => v.verdict === 'lower').length, verdicts, events: falls.events.slice(0, 20), stopTrace: trace.slice(0, 80), bodyEnd: { y: (end[PROBE_COUNTERS.bodyY] ?? 0) / 100, grounded: end[PROBE_COUNTERS.grounded] === 1, suspended: end[PROBE_COUNTERS.suspended] === 1, onFloor: end[PROBE_COUNTERS.onFloor] === 1 } },
   };
@@ -454,14 +467,28 @@ function pictureChecks(rec: FlightRecord, path: CoveragePath, stopAt: number): R
   }
   const inFlight = rec.checks.filter((c) => c.t <= rec.flightS);
   const holes = inFlight.filter((c) => (c.holes ?? 0) >= HOLE_PIXELS);
-  const events: Array<{ t: number; m: number; frames: number; worstKey: number }> = [];
+  const events: Array<{ t: number; m: number; frames: number; worstKey: number; shot?: string }> = [];
+  const worst: FrameCheck[] = [];
   for (const h of holes) {
     const e = events.at(-1);
     if (e !== undefined && h.t - (e.t + e.frames / CAP.fps) < 0.25) {
       e.frames++;
       e.worstKey = Math.max(e.worstKey, h.holes ?? 0);
-    } else events.push({ t: Number(h.t.toFixed(2)), m: Math.round(mAtTime(h.t)), frames: 1, worstKey: h.holes ?? 0 });
+      if ((h.holes ?? 0) >= (worst.at(-1)!.holes ?? 0) && h.png !== undefined) worst[worst.length - 1] = h;
+    } else {
+      events.push({ t: Number(h.t.toFixed(2)), m: Math.round(mAtTime(h.t)), frames: 1, worstKey: h.holes ?? 0 });
+      worst.push(h);
+    }
   }
+  // Each event's worst frame as seen, when it was kept (where the hole lies tells its cause).
+  events.forEach((e, k) => {
+    const png = worst[k]!.png;
+    if (png === undefined) return;
+    const file = join(SHOT_DIR, `${WHERE}-${QUALITY}-${SPEED}-${ALTITUDE}-${TAG}-hole-m${e.m}.png`);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, png);
+    e.shot = file;
+  });
   const km = stopAt / 1000;
   const polls = rec.polls.filter((p) => p.t <= rec.flightS);
   const inside = polls.filter((p) => p.far?.inside === true);

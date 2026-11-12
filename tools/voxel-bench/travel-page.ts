@@ -32,7 +32,8 @@ export const LONG_FRAME_KEEP_MS = 50;
  * Every animation frame reads the draws' stats (a small cost of its own: the chunk view's counts, ~1,000 chunks).
  */
 export function installRecorder(a: { world: string; observe: boolean; keepMs: number }): boolean {
-  type Stats = { applied: number; replaced: number; waiting: number; worlds: Record<string, { chunks: number; levels: number[]; kitInstances: number; meshBuilds: number; far: { nodes: number; bricks: number; trims: number } }> };
+  type Fine = { built: number; pending: number; held: number; drawn: number[] };
+  type Stats = { applied: number; replaced: number; waiting: number; worlds: Record<string, { chunks: number; levels: number[]; kitInstances: number; meshBuilds: number; far: { nodes: number; bricks: number; trims: number; fine?: Fine | null } }> };
   const g = globalThis as unknown as { __tlVoxelPlay?: { stats(): Stats }; __thirdlightObserve?: () => { stepIndex?: number; counters?: Record<string, number> } | null; __tlTravel?: unknown };
   const rec = { frames: [] as Array<{ t: number; counts: Record<string, number> }>, long: [] as unknown[], obs: [] as Array<{ w: number; step: number; c: Record<string, number> }>, on: true };
   g.__tlTravel = rec;
@@ -40,7 +41,10 @@ export function installRecorder(a: { world: string; observe: boolean; keepMs: nu
     const s = g.__tlVoxelPlay?.stats();
     const w = s?.worlds[a.world];
     if (s === undefined || w === undefined) return {};
-    return { applied: s.applied, replaced: s.replaced, waiting: s.waiting, chunks: w.chunks, l0: w.levels[0] ?? 0, l1: w.levels[1] ?? 0, l2: w.levels[2] ?? 0, kits: w.kitInstances, meshBuilds: w.meshBuilds, farNodes: w.far.nodes, farBricks: w.far.bricks, farTrims: w.far.trims };
+    const f = w.far.fine;
+    // Fine far bricks' builds: started and waiting, far changes held for them, built, drawn by level.
+    const fine: Record<string, number> = f == null ? {} : { fineBuilt: f.built, finePending: f.pending, fineHeld: f.held, fineL0: f.drawn[0] ?? 0, fineL1: f.drawn[1] ?? 0 };
+    return { applied: s.applied, replaced: s.replaced, waiting: s.waiting, chunks: w.chunks, l0: w.levels[0] ?? 0, l1: w.levels[1] ?? 0, l2: w.levels[2] ?? 0, kits: w.kitInstances, meshBuilds: w.meshBuilds, farNodes: w.far.nodes, farBricks: w.far.bricks, farTrims: w.far.trims, ...fine };
   };
   const frame = (): void => {
     if (!rec.on) return;
