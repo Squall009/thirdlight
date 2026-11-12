@@ -314,7 +314,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
 | 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
-| 46d.25 | 25a done (f4af93a3, 2d235b54): fine bricks L0–1 in WebGPU compute, `?fineBricks=1`. 25b-1 done (5c970289, 5abc05c9): textured as the near surface. 25b-2 done (0548778d, aa0a7be8, 0815a6a6): roofs are the roof mesher's planes (L0 rays 0 missed, 3 cm off, were 62–90 % through), D625–D626 fixed; low back row is level 2 (D627), rocks D628. Next: comparison |
+| 46d.25 | 25a–25b-2 done (fine bricks L0–1, textured, roof planes). 25b-3 done (0b02327e): D627 fixed (partial level-2 opening); comparison OFF/ON: low ON holds (60 m/s detail 4.4 → 1.4 s, 30 Hz room same, +13 MiB) but construction past 78 m worse (D629); medium worse (+3 ms, settle +7 s, D632). Verdict: keep both, retire nothing; WebGL 2 needs a path (§8) |
 
 ## 8. Results
 
@@ -3783,7 +3783,7 @@ apart)). Pixels over 60 apart, low / medium:
 | town-peak-4.5km | 5.20 / 3.18 % | back rows: rounder roofs, no windows past ~78 m (worse); nearer, ON's shot had kit pieces OFF's had not yet built (the settle rule) | same |
 | town-street (new) | 0.42 / 0.35 % | same near; roofs past ~78 m thick-eaved (D629) | **worse**: the roofs 70–100 m down the street are rounded "pillows" with soft eaves where OFF's level-0/1 meshes are crisp |
 | near-border | 0.30 / 0.11 % | **worse in the gully**: rock outcrops past the ring are rounded lumps (D628); grass same; black sky in both (D630) | as low |
-| near-valley | 0.05 / 0.02 % | gravel same; **a short dark dashed line across the gravel ~60–70 m** (D626's look, back with partial nodes: D631) | same |
+| near-valley | 0.05 / 0.02 % | gravel same; **a short dark dashed line across the gravel ~60–70 m** (D626's look; the same with the old all-or-none rule: D631) | same |
 | near-river | 0.03 / 0.02 % | same (gravel bed a little sharper far) | same |
 | near-boulders | 2.99 / 2.45 % | **worse**: the far grass patch upper left carries thin dark streaks along the slope and a paler flat green (D631) | **worse**: a straight line across that patch and the same paler green (D631) |
 | near-escarpment | 0.20 / 0.10 % | same | same |
@@ -3874,6 +3874,43 @@ and seams wire, `voxel-chunk-view.ts` ~130 node and seam draws, `voxel-streamer.
 cache. Two caveats: with fine bricks on, `stream-lod.ts` / `lod-select.ts` still give the level-0 drawn set
 (`nearDrawn`, the batch's level gate) and need a level-0-only replacement first; and **the WebGL 2 fallback (D624:
 no compute, fine bricks off, the mesh rings back) runs all of it**.
+
+**The comparison: with the eye moving, and the WebGL 2 question.** Headroom meter with the camera 60 m off the square
+at 0.25 rad/s (15 m/s; fine nodes opening and closing all round), same build, 13:27–13:48, one round each:
+
+| | near ms | far ms | frame GPU ms | room (copies) |
+|---|---|---|---|---|
+| low OFF / ON | 3.89 / 7.17 | 1.61 / 10.19 | 9.8 / 11.1 (edge 9.5–11.5 / 10.5–12.5) | 176 / 160 |
+| medium OFF / ON | 2.40 / 1.39 | 3.29 / 6.77 | 11.0 / 11.0 (edge 9.9–10.4 / 14.0–14.3) | 52 / 18 |
+
+With builds running the far pass grows by 3–5 ms over the still orbit (low 4.8 → 10.2, medium 3.8 → 6.8, both ±40 %),
+which is the GPU's fine builds (up to 4 blocks, 1 M cells, a frame) plus the bricks they add: at most ~1–1.5 ms a
+build, not isolated further (the meter cannot separate a build from what it draws; timestamps are not usable at the
+cap). Low keeps its 30 Hz cap (room 160 copies); medium's room falls from 52 to 18 copies (~4.4 ms less) while moving,
+**unverified on target hardware**.
+
+*WebGL 2.* Fine bricks need WebGPU compute; WebGL 2 (and a device without it) turns them off and draws the mesh rings
+(D624). Retiring the rings leaves WebGL 2 the level-0 ring and the far cache's level-2 bricks. Seen with a scratch build
+where no fine node opens (`shots/side-by-side/town-west-low-gl2today-vs-gl2retired.png`, WebGL 2, low): every house
+past the detail ring (~45 m at low) becomes a melted 2 m blob with holes for windows, where today's WebGL 2 draws them
+crisp; 13 % of the pixels > 60 apart. That breaks the owner's rule that WebGL 2 keeps what it draws today. Options for
+the owner: (1) keep the mesh rings as WebGL 2's path only (the ~4,600 lines stay, WebGPU never runs them, covered by
+the WebGL 2 smoke); (2) the CPU fine-brick build in workers for WebGL 2 (`farBricksFromBlock` is the GPU build's oracle,
+byte-equal; worker time instead of compute; the mesh rings could then go everywhere); (3) accept the blobs on WebGL 2.
+
+**46d.25 comparison: the verdict** (for the lead and the owner; one page: `docs/briefs/fine-bricks-comparison-2026-11-12.md`).
+Fine bricks hold at **low** for terrain and for travel: the same pictures on the realistic world's slopes, rivers and
+cliffs, the town's back row now gables and roof planes (D627 fixed), full detail after a 60 m/s stop in 1.4 s (4.4 s
+with the rings: the < 2 s target met), nothing pending 2–3 s sooner, fewer missed frames, the 30 Hz cap held with the
+same room, memory +13 MiB of 4 GiB. They are **worse at low for construction past ~78 m** (no window rows, frames or
+fences, thick rounded eaves: level 1's 1 m samples, D629), in the gully rocks (D628) and on one grass slope (D631);
+and **worse at medium**: +3 ms GPU still, room 64 → 40 copies (52 → 18 moving), level 0 settling 7–8 s later after a
+stop, after 150 m/s the fine nodes still building at 30 s, 15–33 hole frames (D632). The load ring's saving is not yet
+what retiring the rings would give (D633: the downsample still runs). WebGL 2 would draw blobs past the detail ring if
+the rings went (options above). **Recommendation (default chosen, owner to confirm): keep both behind the switch; retire
+nothing now.** Next: D632 and D633, then construction at low (D629: level 0 farther for buildings), then this
+comparison again with the same scripts (`work/46d.25b3/*.sh`); if low and medium then hold, retire the rings for WebGPU
+and give WebGL 2 the CPU fine-brick build (option 2), which keeps one draw path.
 
 ## 9. Decision log
 
@@ -4818,6 +4855,14 @@ no compute, fine bricks off, the mesh rings back) runs all of it**.
   resident chunks there; reads and memory to measure); (c) the roof planes in the far cache's level 2 too (its roofs
   re-laid as 1 m stairs in the mip are the same stair problem at 2 m; a far cache rebuild); (d) keep the level-1 mesh
   ring for construction chunks only. The comparison slice measures (a) and (b) first.
+- 2026-11-12 (46d.25b-3, default chosen, owner to confirm): **a level-2 node the load ring ends across opens into its
+  resident level-1 children and stays drawn over the rest**, its bricks under fine nodes left out of its brick table (D627);
+  the load ring stays the one reach setting, the fine band ending ~2 chunks inside it (no wider ring: ~2× the chunks for
+  the last ~40 m at low).
+- 2026-11-12 (46d.25b-3, default chosen, owner to confirm): **the comparison's verdict is keep both behind the switch,
+  retire nothing now** (§8 "46d.25 comparison: the verdict"): low holds for terrain and travel, construction past ~78 m
+  at low and medium's settle (D629, D632) do not; WebGL 2 needs its own answer before any ring goes (keep the rings
+  for WebGL 2 only, a CPU fine-brick build in workers, or blobs).
 
 ## 10. Open questions for the owner
 
