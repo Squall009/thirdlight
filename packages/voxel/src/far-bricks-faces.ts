@@ -205,9 +205,10 @@ export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: reado
         const fill = fillLevel(r, shape[li]!);
         if (fine) {
           const f = ((z - pz0) * np + (y - py0)) * np + (x - px0);
-          const v = recordValue(m, r, shape[li]!, wetness[li]!);
-          flags[f] = (OPEN_ROLE[r] !== 1 && fill * 2 >= SHAPE_FULL ? 1 : 0) | (r === VOXEL_ROLE.roof && isRoofCellValue(v) ? 2 : 0);
-          if (r === VOXEL_ROLE.roof) anyRoof = true;
+          // Only a roof cell's value is read (its damage stage): the rest of the block pays a flag.
+          const roof = r === VOXEL_ROLE.roof && isRoofCellValue(recordValue(m, r, shape[li]!, wetness[li]!));
+          flags[f] = (OPEN_ROLE[r] !== 1 && fill * 2 >= SHAPE_FULL ? 1 : 0) | (roof ? 2 : 0);
+          if (roof) anyRoof = true;
         }
         if (!inXZ || y < by0 || y >= by0 + n) continue;
         const i = row + (y - by0) * n;
