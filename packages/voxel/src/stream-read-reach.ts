@@ -20,6 +20,8 @@ export interface StreamReadReachHost {
   focus(): Focus;
   /** The ring read now changed (a narrower one applies at the next update, a wider one once the speed allows). */
   setBase(ring: StreamRing): void;
+  /** Whether the bake round the focus is complete changed ({@link StreamReadReach.complete}). */
+  completeChanged?(): void;
 }
 
 export class StreamReadReach {
@@ -45,6 +47,11 @@ export class StreamReadReach {
   /** Cells the voxels are read to now (null: the ring as set). */
   get cells(): number | null {
     return this.reach;
+  }
+
+  /** Whether every column of the baked level within the ring as set round the focus is baked (the reach ends the ring). */
+  get complete(): boolean {
+    return this.reach !== null;
   }
 
   /** A new load ring as set: the ring read is it, ended at the reach. */
@@ -87,7 +94,9 @@ export class StreamReadReach {
 
   private set(cells: number | null): void {
     if (cells === this.reach) return;
+    const was = this.reach !== null;
     this.reach = cells;
     this.host.setBase(readRing(this.scene, cells));
+    if (was !== (cells !== null)) this.host.completeChanged?.();
   }
 }

@@ -441,6 +441,7 @@ export class VoxelStreamer {
           if (this.opts.mips === undefined) this.mips?.setRings(mipRingsFor(this.plan.ring));
           this.poke();
         },
+        completeChanged: () => fineDrawChanged(this),
       },
       ring,
     );
@@ -1475,21 +1476,31 @@ export function setFineBricks(streamer: VoxelStreamer, on: boolean): void {
 }
 
 /**
- * The near field and the read ring for the fine far levels drawn now: built from the chunks (the switch) or baked
- * in the far cache. Either way the near field draws only its level-0 ring (fine bricks draw past it). Where the
- * finest level drawn past the detail ring is baked (0.5 m, or 1 m with nothing built finer) round the focus, no voxel
- * past the detail ring is needed: the read ring ends at the detail ring's reach ({@link StreamLod.detailReadReach});
- * where a bake is still under way, the ring as set. A world baked to 2 m keeps its ring and its near rings as without.
+ * The near field, the far field's baked fine levels and the read ring for the fine far levels at hand: built from
+ * the chunks (the world's fine build, WebGPU) or baked in the far cache.
+ *
+ * Fine bricks stand in for the near field's level-1/2 rings past the detail ring only where they draw level 0
+ * (0.5 m) there, as the rings' finest level does: where they are built (any bake), or where the cache holds level 0
+ * baked for every column round the focus. A world baked to 1 m with nothing built, a bake still under way or stale
+ * round the focus, and a world baked to 2 m keep their near rings (and the far field draws out from them, as for a
+ * 2 m world): never 1 m or 2 m bricks where the rings drew 0.5 m. Only where level 0 is baked round the focus is no
+ * voxel past the detail ring needed: the read ring ends at the detail ring's reach ({@link StreamLod.detailReadReach}).
  */
 export function fineLevelsChanged(streamer: VoxelStreamer): void {
   const far = streamer.far;
   if (far === null) return;
   const offered = far.draw === 'bricks' ? (far.cache.source.fineBakeLevel?.() ?? null) : null;
-  // Only where the far field draws them (the bricks mode with the chunks at hand, or baked) does the near field give its rings up.
-  setNearOnly(streamer, far.fineNodes.wanted || offered !== null);
-  // Level 0 built from the chunks needs them read as far as it is drawn: only a bake down to level 0, or to level 1
-  // with nothing built finer, ends the read ring.
-  streamer.readReach.setBaked(offered !== null && (offered === 0 || !far.fineNodes.wanted) ? offered : null);
+  streamer.readReach.setBaked(offered === 0 ? 0 : null);
+  fineDrawChanged(streamer);
+}
+
+/** The near rings given up or back, and the far field's baked fine levels drawn or not, as {@link fineLevelsChanged} rules. */
+function fineDrawChanged(streamer: VoxelStreamer): void {
+  const far = streamer.far;
+  if (far === null) return;
+  const fine = far.fineNodes.wanted || streamer.readReach.complete;
+  far.fineNodes.useBaked(fine);
+  setNearOnly(streamer, fine);
 }
 
 /**

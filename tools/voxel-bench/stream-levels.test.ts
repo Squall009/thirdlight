@@ -19,6 +19,8 @@ import {
   WORLD_RULES,
   RESIDENT_CHUNK_OVERHEAD_BYTES,
   setNearOnly,
+  fineLevelsChanged,
+  type MipNode,
   voxel,
   VOXEL_ROLE,
   VoxelStreamer,
@@ -636,7 +638,7 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
     console.log('near only', JSON.stringify({ resident, nearOnlyDerives: near, off, level0: nearL0.size, offLevel0: offL0.length, offSplit: split.length }));
   }, 180_000);
 
-  it('reads the voxels only to the detail ring on a world whose fine far levels are baked whole (near only, no level above 0), and the whole ring on one baked to 2 m (real workers)', async () => {
+  it('reads the voxels only to the detail ring on a world whose fine far levels are baked to 0.5 m round the focus (near only, no level above 0, the baked levels drawn); keeps the whole ring and the near rings on one baked to 2 m, to 1 m with nothing built, or with its bake under way, and gives them up once the bake is complete (real workers)', async () => {
     let minCy = Infinity;
     let maxCy = -Infinity;
     for (const k of oracle.chunkKeys()) {
@@ -648,7 +650,10 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
     const half = ((maxCy - minCy + 1) * 32) / 2 + 64;
     // The default ring's 192 m (384 cells), against a detail ring of 24 m.
     const ring: StreamRing = { loadRadius: 384, unloadRadius: 416, loadHeight: half, unloadHeight: half + 32, nearRadius: 192 };
-    const run = async (whole: number | null): Promise<{ loads: number; resident: number; radius: number; farthest: number; levelDerives: number; reach: number }> => {
+    // `whole`: the finest level baked (null: none, a 2 m world); `under`: baked only at x ≥ 0 (a bake under way), the
+    // rest landing after the first settle.
+    const run = async (whole: number | null, under = false): Promise<{ loads: number; resident: number; radius: number; farthest: number; levelDerives: number; reach: number; bakedDrawn: boolean; before?: { radius: number; levelDerives: number; bakedDrawn: boolean } }> => {
+      let landed = !under;
       const disk = new DiskRegions(join(dir, 'world'));
       disks.push(disk);
       const p = pool(4);
@@ -666,7 +671,7 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
         maxLevel: 3,
         index: () => Promise.resolve(new FarNodeIndex(grid, 2, 3)),
         read: (_level, nodes) => Promise.resolve(nodes.map((c) => ({ ...c, kind: 'air' as const }))),
-        ...(whole !== null ? { fineBaked: () => true, fineBakeLevel: () => whole } : {}),
+        ...(whole !== null ? { fineBaked: (n: MipNode) => landed || n.nx >= 0, fineBakeLevel: () => whole } : {}),
         invalidate: () => undefined,
         memoryBytes: () => 0,
       };
@@ -674,26 +679,52 @@ describe('streamer: detail levels (workers, region files on disk)', () => {
       s.setFocus(0, midY, 8);
       for (let i = 0; i < 50 && s.far!.metrics().index === null; i++) await sleep(20);
       await s.settle();
+      const levelDerives = (): number => jobs.filter((j) => j.kind === 'derive' && j.level > 0).length + jobs.filter((j) => j.kind === 'mip').length;
+      let before: { radius: number; levelDerives: number; bakedDrawn: boolean } | undefined;
+      if (under) {
+        before = { radius: s.ring.loadRadius, levelDerives: levelDerives(), bakedDrawn: s.far!.metrics().fine.bakedDrawn };
+        // The rest of the columns land (the far cache tells the streamer as its index is read again).
+        landed = true;
+        jobs.length = 0;
+        fineLevelsChanged(s);
+        await s.settle();
+      }
       let farthest = 0;
       for (const k of oracle.chunkKeys()) {
         const c = chunkOfKey(grid, k);
         if (s.isResident(c.cx, c.cy, c.cz)) farthest = Math.max(farthest, Math.hypot((c.cx + 0.5) * 32, (c.cz + 0.5) * 32 - 8));
       }
-      const out = { loads: jobs.filter((j) => j.kind === 'load').length, resident: s.metrics().resident, radius: s.ring.loadRadius, farthest, levelDerives: jobs.filter((j) => j.kind === 'derive' && j.level > 0).length + jobs.filter((j) => j.kind === 'mip').length, reach: s.mips!.lod.detailReadReach() };
+      const out = { loads: jobs.filter((j) => j.kind === 'load').length, resident: s.metrics().resident, radius: s.ring.loadRadius, farthest, levelDerives: levelDerives(), reach: s.mips!.lod.detailReadReach(), bakedDrawn: s.far!.metrics().fine.bakedDrawn, ...(before !== undefined ? { before } : {}) };
       s.far?.close();
       return out;
     };
     const baked = await run(0);
     const coarse = await run(null);
-    console.log('read ring', JSON.stringify({ baked, coarse }));
+    const metre = await run(1);
+    const under = await run(0, true);
+    console.log('read ring', JSON.stringify({ baked, coarse, metre, under }));
     // Baked to 0.5 m: the ring read ends at the detail ring's reach (its level-0 ring, hysteresis, a level-1 node and a
     // derive's neighbours), every resident chunk inside it and its unload gap; no level above 0 is built.
     expect(baked.radius).toBe(baked.reach);
     expect(baked.reach).toBe(48 + 8 + 32 + 112);
     expect(baked.farthest).toBeLessThanOrEqual(baked.reach + (ring.unloadRadius - ring.loadRadius));
     expect(baked.levelDerives).toBe(0);
-    // A 2 m world reads the whole ring, as before.
+    expect(baked.bakedDrawn).toBe(true);
+    // A 2 m world reads the whole ring, as before, and keeps its near rings.
     expect(coarse.radius).toBe(ring.loadRadius);
+    expect(coarse.levelDerives).toBeGreaterThan(0);
+    // Baked to 1 m with nothing built finer: 1 m bricks would draw where the rings draw 0.5 m, so the world keeps its
+    // rings and its whole ring, and the far field draws out from them as for a 2 m world.
+    expect(metre.radius).toBe(ring.loadRadius);
+    expect(metre.levelDerives).toBeGreaterThan(0);
+    expect(metre.bakedDrawn).toBe(false);
+    // A bake under way round the focus: as before the bake (rings, the whole ring, no baked level drawn); once every
+    // column round the focus is baked, near only with the read ring ended, as a world baked whole.
+    expect(under.before).toEqual({ radius: ring.loadRadius, levelDerives: expect.any(Number), bakedDrawn: false });
+    expect(under.before!.levelDerives).toBeGreaterThan(0);
+    expect(under.radius).toBe(under.reach);
+    expect(under.bakedDrawn).toBe(true);
+    expect(under.levelDerives, 'no level above 0 built once the bake is complete').toBe(0);
     // A load job reads a run of columns, so loads fall less than the chunks held.
     expect(baked.loads).toBeLessThan(coarse.loads);
     expect(baked.resident).toBeLessThan(coarse.resident / 2);

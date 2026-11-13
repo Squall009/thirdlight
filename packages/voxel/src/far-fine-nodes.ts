@@ -45,11 +45,35 @@ export class FarFineNodes {
   private reselectAt = -Infinity;
   private later: ReturnType<typeof setTimeout> | null = null;
 
+  /** Whether the far cache's baked fine levels are drawn ({@link useBaked}). */
+  private baked = true;
+
   constructor(private readonly host: FarFineNodesHost) {}
+
+  /**
+   * Whether the far cache's baked fine levels are drawn: the streamer's call (voxel-streamer.ts `fineLevelsChanged`),
+   * only where they stand in for the near field's level-1/2 rings (the bake complete round the focus) or where fine
+   * nodes are built anyway. Off, the far field draws as for a world baked to 2 m, out from the near rings.
+   */
+  useBaked(on: boolean): void {
+    if (on === this.baked) return;
+    this.baked = on;
+    this.host.reselect();
+  }
+
+  /** Whether the baked fine levels are drawn ({@link useBaked}). */
+  get bakedOn(): boolean {
+    return this.baked;
+  }
+
+  /** The baked fine levels drawn now (null: off, or none offered). */
+  private bakedNow(): FarFineBaked | null {
+    return this.baked ? this.host.baked() : null;
+  }
 
   /** The far index was read: the fine levels go under it. */
   setIndex(idx: FarNodeIndex): void {
-    if (this.host.fine !== undefined) this.index = new FarFineIndex(idx, this.host.fine, { compute: () => this.host.wanted(), baked: { baked: (n) => this.host.baked()?.baked(n) === true } });
+    if (this.host.fine !== undefined) this.index = new FarFineIndex(idx, this.host.fine, { compute: () => this.host.wanted(), baked: { baked: (n) => this.bakedNow()?.baked(n) === true } });
   }
 
   /** Whether fine nodes are asked to be built (they may not be drawn yet: the index is read first). */
@@ -64,12 +88,12 @@ export class FarFineNodes {
 
   /** Whether fine nodes are selected and drawn now: built, or read baked. */
   get selecting(): boolean {
-    return this.index !== null && (this.host.wanted() || this.host.baked() !== null);
+    return this.index !== null && (this.host.wanted() || this.bakedNow() !== null);
   }
 
   /** Whether a fine node is read from the cache's baked levels (not built from the chunks). */
   readBaked(n: MipNode): boolean {
-    return isFarFine(n) && this.host.baked()?.baked(n) === true && !(this.on && this.edited.has(mipNodeKey(n)));
+    return isFarFine(n) && this.bakedNow()?.baked(n) === true && !(this.on && this.edited.has(mipNodeKey(n)));
   }
 
   /** Whether a fine node is built from the chunks (its block read here and built on the page). */
@@ -98,7 +122,7 @@ export class FarFineNodes {
     let any = false;
     for (const n of farFineDirty(chunks)) {
       const key = mipNodeKey(n);
-      if (overlay && this.on && this.host.baked()?.baked(n) === true) this.edited.add(key);
+      if (overlay && this.on && this.bakedNow()?.baked(n) === true) this.edited.add(key);
       if (!this.host.held(key)) continue;
       any = true;
       this.host.remake(key);

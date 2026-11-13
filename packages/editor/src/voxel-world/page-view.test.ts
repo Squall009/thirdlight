@@ -15,13 +15,13 @@ const level = pageLevel('medium', reliefParams(new URLSearchParams()));
 function targets() {
   const calls: string[] = [];
   const view = { setVisible: (on: boolean) => void calls.push(`visible ${on}`) };
-  const fine = { wanted: false };
+  const fine = { wanted: false, useBaked: (on: boolean) => void calls.push(`baked drawn ${on}`) };
   const far = { setView: (o: { fine?: boolean }) => {
     calls.push(`view ${JSON.stringify(o)}`);
     if (o.fine !== undefined) fine.wanted = o.fine;
   }, settle: async () => undefined, fineNodes: fine, draw: 'bricks', cache: { source: {} } };
   const mips = { lod: { setNearOnly: (on: boolean) => void calls.push(`near only ${on}`) }, setDormant: (on: boolean) => void calls.push(`mips dormant ${on}`) };
-  return { calls, view, streamer: { far, mips, detail: { setReach: () => undefined }, readReach: { setBaked: (l: number | null) => void calls.push(`read baked ${l}`) } } };
+  return { calls, view, streamer: { far, mips, detail: { setReach: () => undefined }, readReach: { complete: false, setBaked: (l: number | null) => void calls.push(`read baked ${l}`) } } };
 }
 
 describe('the page far field switches', () => {
@@ -42,10 +42,10 @@ describe('the page far field switches', () => {
     const t = targets();
     pageFarHooks(t.streamer as never, t.view as never).setFar({ fine: true });
     // No fine level baked in this far cache: the read ring stays as set.
-    expect(t.calls).toEqual(['view {"fine":true}', 'near only true', 'mips dormant true', 'read baked null']);
+    expect(t.calls).toEqual(['view {"fine":true}', 'read baked null', 'baked drawn true', 'near only true', 'mips dormant true']);
     t.calls.length = 0;
     pageFarHooks(t.streamer as never, t.view as never).setFar({ fine: false });
-    expect(t.calls).toEqual(['view {"fine":false}', 'near only false', 'mips dormant false', 'read baked null']);
+    expect(t.calls).toEqual(['view {"fine":false}', 'read baked null', 'baked drawn false', 'near only false', 'mips dormant false']);
   });
 
   it('refuses the retired brick switches: the URL warns and ignores them, the hook throws and applies nothing', () => {

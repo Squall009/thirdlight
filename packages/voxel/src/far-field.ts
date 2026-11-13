@@ -367,6 +367,11 @@ function madeGpuBytes(made: Ready['made']): number {
   return made === null ? 0 : (made.mesh !== undefined ? farMeshBytes(made.mesh) : 0) + (made.bricks !== undefined ? farBricksGpuBytes(made.bricks) : 0) + (made.fine !== undefined ? FAR_FINE_GPU_FORESEEN_BYTES : 0);
 }
 
+/** The finest baked fine level a far field draws now (null: none drawn, or none offered): {@link FarFineNodes.useBaked}. */
+function fineBakeLevelDrawn(fine: FarFineNodes, draw: FarDrawKind, source: FarNodeSource): number | null {
+  return fine.bakedOn && draw === 'bricks' ? (source.fineBakeLevel?.() ?? null) : null;
+}
+
 /**
  * One world's far field ({@link FarFieldOptions}); `update` after the
  * focus moves (`setEye`), `refresh` when the world's files changed.
@@ -591,7 +596,7 @@ export class FarField {
         // Unseen nodes are released only near the GPU budget: below it they keep their detail and only wait behind.
         const unseen = this.seen.running(at) && this.liveGpu >= FAR_SEEN_RELEASE_SHARE * this.gpuBudget ? (n: MipNode) => this.seen.unseen(n, at) : undefined;
         // Baked level 0 is held to the tier's reach (levels 2 and 1 open over it there): it costs no build, only memory and drawing.
-        const hold = fine && this.opts.fineHoldM !== undefined && this.opts.source.fineBakeLevel?.() === 0 ? this.opts.fineHoldM / VOXEL_SIZE_M : undefined;
+        const hold = fine && this.opts.fineHoldM !== undefined && fineBakeLevelDrawn(this.fineNodes, this.draw, this.opts.source) === 0 ? this.opts.fineHoldM / VOXEL_SIZE_M : undefined;
         this.selecting = { steps: this.selection.steps(fineIndex ?? this.index, { eye: this.eye, pixelsPerRadian: this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, errorPixels: this.opts.errorPixels ?? FAR_ERROR_PIXELS, budgetBytes: this.opts.budgetBytes ?? FAR_BUDGET_BYTES, gpuBudgetBytes: this.gpuBudget, gpuBytesOf, near: null, ...(unseen !== undefined ? { unseen, unseenScale: FAR_UNSEEN_ERROR_SCALE } : {}), ...(hold !== undefined ? { openWithin: [undefined, hold, hold] } : {}) }), ms: 0 };
         this.selectStep();
       }
@@ -1133,8 +1138,8 @@ export class FarField {
       this.counters.swappedOut += removed.length;
       this.firsts.drawn ??= performance.now() - this.made;
       // Baked fine levels need no chunk resident: the load ring does not end them.
-      const ring = (this.opts.source.fineBakeLevel?.() ?? null) !== null ? Infinity : (this.near?.radius ?? Infinity);
-      const holdM = this.opts.source.fineBakeLevel?.() === 0 ? (this.opts.fineHoldM ?? 0) : 0;
+      const ring = fineBakeLevelDrawn(this.fineNodes, this.draw, this.opts.source) !== null ? Infinity : (this.near?.radius ?? Infinity);
+      const holdM = fineBakeLevelDrawn(this.fineNodes, this.draw, this.opts.source) === 0 ? (this.opts.fineHoldM ?? 0) : 0;
       const fade = this.fineNodes.selecting ? farFineFade(this.opts.errorPixels ?? FAR_ERROR_PIXELS, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, ring, this.host.grid.edge, holdM) : null;
       const e: FarEvent = { type: 'far', seq: this.counters.events, added, removed, ...(fade !== null ? { fineFade: fade } : {}) };
       for (const l of this.listeners) l(e);
@@ -1284,7 +1289,7 @@ export class FarField {
   }
 
   /** What the far field holds and draws. */
-  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null; seen: FarSeenLog['counters'] & { unseenWanted: number; turnMs: number }; fine: FarFineNodes['counters'] & { on: boolean; bakeLevel: number | null; refused: FarFineRefused | null; ms: { p50: number; p95: number; n: number; sum: number }; drawn: number[] } } {
+  metrics(): { draw: FarDrawKind; nodes: number; drawn: number; pending: number; jobs: number; entryBytes: number; sourceBytes: number; selectMs: { p50: number; p95: number }; meshUs: { p50: number; p95: number }; queueMs: { p50: number; p95: number }; readMs: { p50: number; p95: number; n: number }; pumpMs: { p50: number; p95: number; n: number; sum: number }; commitMs: { p50: number; p95: number; n: number }; firsts: FarField['firsts']; problem: string | null; counters: FarField['counters']; gpu: { budget: number; drawn: number; live: number; selected: number; held: number; reselects: number; perStored: number }; standIns: FarStandIns; index: number[] | null; seen: FarSeenLog['counters'] & { unseenWanted: number; turnMs: number }; fine: FarFineNodes['counters'] & { on: boolean; bakeLevel: number | null; bakedDrawn: boolean; refused: FarFineRefused | null; ms: { p50: number; p95: number; n: number; sum: number }; drawn: number[] } } {
     return {
       draw: this.draw,
       nodes: this.wanted.size,
@@ -1306,7 +1311,7 @@ export class FarField {
       standIns: farStandIns(this.wanted, this.shown, this.index?.maxLevel ?? 0, this.opts.pixelsPerRadian ?? FAR_VIEW_PIXELS_PER_RADIAN, (n) => underNear(this.host.grid, n, this.eye, this.near)),
       index: this.index?.counts() ?? null,
       seen: { ...this.seen.counters, unseenWanted: this.seen.selectedUnseen.size, turnMs: this.seen.turnMs },
-      fine: { on: this.fineNodes.on, bakeLevel: this.opts.source.fineBakeLevel?.() ?? null, ...this.fineNodes.counters, refused: this.fineNodes.selectIndex?.refused ?? null, ms: { p50: this.fineNodes.ms.quantile(0.5), p95: this.fineNodes.ms.quantile(0.95), n: this.fineNodes.ms.count, sum: sumOf(this.fineNodes.ms) }, drawn: [0, 1].map((l) => [...this.shown.values()].filter((n) => n.level === l).length) },
+      fine: { on: this.fineNodes.on, bakeLevel: this.opts.source.fineBakeLevel?.() ?? null, bakedDrawn: fineBakeLevelDrawn(this.fineNodes, this.draw, this.opts.source) !== null, ...this.fineNodes.counters, refused: this.fineNodes.selectIndex?.refused ?? null, ms: { p50: this.fineNodes.ms.quantile(0.5), p95: this.fineNodes.ms.quantile(0.95), n: this.fineNodes.ms.count, sum: sumOf(this.fineNodes.ms) }, drawn: [0, 1].map((l) => [...this.shown.values()].filter((n) => n.level === l).length) },
     };
   }
 
