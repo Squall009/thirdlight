@@ -39,7 +39,9 @@ import { type OcclusionCulling } from '@thirdlight/project-model';
 import { occludeeCandidates, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY, standinFollowsSurfaces, standinMaterialOf } from './occluders';
 import { pyramidPathWanted, TwoPassFrame, type ScenePasses } from './occlusion-passes';
-import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
+import { InstanceOcclusion, type InstanceOcclusionDiagnostics } from './occlusion-instances';
+import type { CopyRowsDiagnostics } from './copy-rows';
+import { CullView } from './view-cull';
 import { OcclusionKeep, type OcclusionKeepHost } from './occlusion-keep';
 import { OcclusionOverlay } from './occlusion-overlay';
 import { culledWhole } from './occlusion-whole';
@@ -110,6 +112,8 @@ export interface OcclusionDiagnostics {
   readonly pass2Drawn: number;
   /** Instanced copies culled on the GPU (`hiz`; null: none). */
   readonly instances: InstanceOcclusionDiagnostics | null;
+  /** Stored copies' sets drawn as the table's rows (WebGPU, every path; null: no table). */
+  readonly copies: (CopyRowsDiagnostics & { readonly drawn: number; readonly triangles: number }) | null;
   /** The culling's own GPU time a frame, recently (its compute passes: the depth pyramid; null: none measured). */
   readonly gpuMs: number | null;
   /** The depth pyramid (`hiz`): its level 0's size, its levels, its GPU memory (with the stand-ins' records) and the frames drawn in two passes; null: none. */
@@ -172,6 +176,12 @@ export class OcclusionCuller implements OcclusionSwitch {
   /** The frame in two passes and its pyramid (`hiz` on WebGPU), and the renderer it was made for. */
   private frame: TwoPassFrame | null = null;
   private frameRenderer: unknown = null;
+  /**
+   * The culled-instance table (WebGPU, every path: stored copies are its rows whatever the path; the pyramid's
+   * path adds the other instanced draws) and the renderer it was made for.
+   */
+  private table: InstanceOcclusion | null = null;
+  private tableRenderer: unknown = null;
   private shownLevel: number | null;
   private readonly kept: OcclusionKeep | null;
   private readonly overlay: OcclusionOverlay;
@@ -213,8 +223,9 @@ export class OcclusionCuller implements OcclusionSwitch {
     const gpu = this.deps.gpu?.() ?? null;
     if (gpu === null) return null;
     if (this.frame !== null && this.frameRenderer !== gpu) this.dropFrame();
-    if (this.frame === null) {
-      this.frame = new TwoPassFrame(gpu as ConstructorParameters<typeof TwoPassFrame>[0], this.registry);
+    const table = this.tableFor(gpu);
+    if (this.frame === null && table !== null) {
+      this.frame = new TwoPassFrame(gpu as ConstructorParameters<typeof TwoPassFrame>[0], this.registry, table);
       this.frame.shown = this.shownLevel;
       this.frameRenderer = gpu;
     }
@@ -280,11 +291,18 @@ export class OcclusionCuller implements OcclusionSwitch {
       }
     }
     if (path === 'hiz') this.dressStandins();
-    const instances = path === 'hiz' ? (this.frame?.instances ?? null) : null;
+    const table = this.tableFor(this.deps.gpu?.() ?? null);
+    const camera = this.deps.view?.camera ?? null;
+    const view = this.deps.view instanceof CullView ? this.deps.view : null;
+    if (table !== null) {
+      table.attach(this.deps.scene);
+      table.setAllDraws(path === 'hiz');
+      // Off the pyramid's path only the copy sets' rows are listed (their levels, thinning and frustum in compute).
+      const wholes = path === 'hiz' && this.frame !== null ? this.frame.wholes.update(this.wholeDraws, camera, (o) => o.role !== 'none') : undefined;
+      table.update(path === 'hiz' ? (this.instancedDraws ?? []) : [], camera, wholes, view);
+    }
+    const instances = path === 'hiz' && this.frame !== null ? table : null;
     if (instances !== null) {
-      instances.attach(this.deps.scene);
-      const camera = this.deps.view?.camera ?? null;
-      instances.update(this.instancedDraws ?? [], camera, this.frame!.wholes.update(this.wholeDraws, camera, (o) => o.role !== 'none'));
       const d = instances.diagnostics();
       const w = d.whole;
       this.counts.tested = d.tested + w.tested;
@@ -309,8 +327,9 @@ export class OcclusionCuller implements OcclusionSwitch {
     const p = this.frame?.pyramid.layout() ?? null;
     const pyramid = p === null || this.frame === null ? null : { size: [p.levels[0]!.width, p.levels[0]!.height] as const, levels: p.levels.length, bytes: this.frame.pyramid.bytes(), frames: this.frame.frames };
     const gpuMs = this.applied === 'hiz' ? (this.deps.computeMs?.() ?? null) : null;
-    const instances = this.applied === 'hiz' ? (this.frame?.instances.diagnostics() ?? null) : null;
-    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, instances, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000, kept: this.kept?.size ?? 0, culledBoxes: this.overlay.on ? this.overlay.boxes : null };
+    const all = this.table?.diagnostics() ?? null;
+    const instances = this.applied === 'hiz' && this.frame !== null ? all : null;
+    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, instances, copies: all?.copies ?? null, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000, kept: this.kept?.size ?? 0, culledBoxes: this.overlay.on ? this.overlay.boxes : null };
   }
 
   /** The world boxes of the draws the path culls whole now. */
@@ -331,6 +350,7 @@ export class OcclusionCuller implements OcclusionSwitch {
     this.overlay.dispose();
     this.reset();
     this.dropFrame();
+    this.dropTable();
     this.registry.clear();
     if (this.deps.scene.userData[OCCLUSION_SWITCH_KEY] === this) {
       delete this.deps.scene.userData[OCCLUSION_SWITCH_KEY];
@@ -361,7 +381,7 @@ export class OcclusionCuller implements OcclusionSwitch {
     // Off the pyramid path its pyramid, pools and kernels are let go too (megabytes at 1080p; made again if it comes back).
     if (this.applied === 'hiz' && this.choice.path !== 'hiz') {
       this.frame?.wholes.clear();
-      this.frame?.instances.clear();
+      this.table?.setAllDraws(false);
       this.dropFrame();
     }
     this.applied = this.choice.path;
@@ -389,10 +409,34 @@ export class OcclusionCuller implements OcclusionSwitch {
   private dropFrame(): void {
     if (this.frame === null) return;
     this.undressStandins();
-    this.frame.instances.detach(this.deps.scene);
     this.frame.dispose();
     this.frame = null;
     this.frameRenderer = null;
+  }
+
+  /** The table for the WebGPU renderer `gpu` (made when first wanted, again for a new renderer; null: no WebGPU). */
+  private tableFor(gpu: unknown): InstanceOcclusion | null {
+    if (gpu === this.tableRenderer && this.table !== null) return this.table;
+    this.dropTable();
+    if (gpu === null) return null;
+    const self = this as OcclusionCuller;
+    this.table = new InstanceOcclusion(gpu as ConstructorParameters<typeof InstanceOcclusion>[0], {
+      get drawing() {
+        return self.frame?.drawing ?? 0;
+      },
+      firstPass: (o) => self.frame === null || !self.frame.secondPass(o),
+    });
+    this.tableRenderer = gpu;
+    return this.table;
+  }
+
+  private dropTable(): void {
+    if (this.table === null) return;
+    this.dropFrame();
+    this.table.detach(this.deps.scene);
+    this.table.dispose();
+    this.table = null;
+    this.tableRenderer = null;
   }
 
   private writeMark(): void {

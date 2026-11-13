@@ -7,7 +7,7 @@
  * imported only by .test.ts files.
  */
 import { CameraWindow, scrolledSourceAt } from './camera-window';
-import { CPU_SCALAR_OPS } from './field-ops';
+import { CPU_SCALAR_OPS } from '@thirdlight/shared';
 import { bendCapacity, bendOffsetSteps, bendPushSteps, decaySteps, INTERACTION_CELL_M, INTERACTION_TEXELS, PRESSED_EPSILON, stampSteps, STAMP_FLOATS, type InteractionStamps } from './interaction-field';
 
 export class InteractionFieldReference {

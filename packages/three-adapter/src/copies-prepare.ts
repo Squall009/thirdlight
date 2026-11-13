@@ -19,6 +19,7 @@
  * Pure: plain arrays, no three.js (the worker bundle stays small).
  */
 import { INSTANCE_FLOATS } from '@thirdlight/project-model';
+import { CPU_SCALAR_OPS, type ScalarOps } from '@thirdlight/shared';
 
 import { chunkCopies, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS } from './instance-prepare';
 
@@ -222,20 +223,17 @@ export function preparedCopyBuffers(p: PreparedCopies): ArrayBuffer[] {
 }
 
 /**
- * The level of detail a copy `distance` away (in the levels' units: metres
- * over the view's zoom and the project's bias) at largest scale `scale` draws
- * at: the last level whose switch distance (times the scale) it has reached.
- * The vertex stage's rule; the page lists blocks and counts copies with it.
+ * The share of copies kept at `distance` for a copy whose falloff runs from `from` to `to` (`min` past it), over
+ * scalar ops: the page's diagnostics, the vertex stage (WebGL 2) and the copies' compute pass run these steps.
  */
-export function copyLevel(distances: ArrayLike<number>, distance: number, scale: number): number {
-  let l = 0;
-  for (let k = 1; k < distances.length; k++) if (distance >= distances[k]! * scale) l = k;
-  return l;
+export function copyDensitySteps<F, B>(o: ScalarOps<F, B>, distance: F, from: F, to: F, min: F): F {
+  const span = o.max(o.sub(to, from), o.n(1e-9));
+  const ramp = o.sub(o.n(1), o.div(o.mul(o.sub(o.n(1), min), o.sub(distance, from)), span));
+  const past = o.select(o.lt(distance, to), o.select(o.lt(from, to), ramp, min), min);
+  return o.select(o.lt(from, distance), past, o.n(1));
 }
 
-/** The share of copies kept at `distance` for a copy whose falloff runs from `from` to `to` (`min` past it). */
+/** {@link copyDensitySteps} on numbers. */
 export function copyDensityAt(distance: number, from: number, to: number, min: number): number {
-  if (distance <= from) return 1;
-  if (distance >= to || to <= from) return min;
-  return 1 - ((1 - min) * (distance - from)) / (to - from);
+  return copyDensitySteps(CPU_SCALAR_OPS, distance, from, to, min);
 }

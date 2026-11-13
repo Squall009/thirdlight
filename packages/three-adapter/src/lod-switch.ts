@@ -11,6 +11,7 @@
  */
 import type * as THREE from 'three';
 import { LOD_BIAS_DEFAULT, LOD_HYSTERESIS_DEFAULT, type LodTuningSettings } from '@thirdlight/project-model';
+import { CPU_SCALAR_OPS, lodLevelStep, lodSwitchMargin, type LodLevelAcc } from '@thirdlight/shared';
 
 /**
  * `lod.userData[LOD_LEVEL_KEY]`: the level the render graph attached last
@@ -34,18 +35,16 @@ export const LOD_OWNER_KEY = '__tlLodOwner';
  */
 export function pickLodLevel(levels: readonly LodSwitch[], distance: number, current: number, hysteresis = 0): number {
   if (levels.length <= 1) return 0;
-  let i = 1;
-  for (; i < levels.length; i += 1) {
+  const o = CPU_SCALAR_OPS;
+  let acc: LodLevelAcc<number> = { level: 0, open: 1 };
+  for (let i = 1; i < levels.length && acc.open > 0; i += 1) {
     const level = levels[i]!;
-    let switchAt = level.distance;
     // three's own per-level margin (also on the first pick, as three applies it); the project's only once a level
-    // is shown: it switches back to the finer one that much closer.
-    let margin = current < 0 || current === i ? level.hysteresis : 0;
-    if (current === i && hysteresis > margin) margin = hysteresis;
-    switchAt -= switchAt * margin;
-    if (distance < switchAt) break;
+    // is shown: it switches back to the finer one that much closer (the shared rule's margin).
+    const own = current < 0 || current === i ? level.hysteresis : 0;
+    acc = lodLevelStep(o, acc, distance, level.distance, Math.max(own, lodSwitchMargin(o, current, i, hysteresis)));
   }
-  return i - 1;
+  return acc.level;
 }
 
 /** One level's switch as {@link pickLodLevel} reads it. */

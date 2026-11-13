@@ -67,6 +67,7 @@ import { controllerCapsuleOf, controllerCapsuleOffsetZ, SEE_THROUGH_DEFAULTS, SE
 
 import { ditherKeep } from './dither-fade';
 import type { N } from './effects-tsl';
+import { copyKeep } from './node-materials';
 import { addRefreshRule } from './observer-refresh';
 import type { RenderGraph } from './render-graph';
 import { layerOccluders, memberOccluders, mergeToFit, readMemberBounds, PieceCache, SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, sphereMeetsBox, SubjectVolume, type OccluderBox, type OccluderLayer, type PackedBox, type SeeThroughMembers } from './see-through-occluders';
@@ -1495,6 +1496,9 @@ export function installSeeThroughStep(): void {
     const view = builder.context[CONTEXT_KEY] as SeeThroughView | undefined;
     // Beside the material's own mask (three discards on it next): a pixel goes when either says so.
     if (view !== undefined && takesPart(this)) view.keep().not().discard();
+    // A stored copy cross-fading between two levels (copy-rows-draw.ts) keeps its share of the one dither, the same way.
+    const copy = copyKeep(builder as unknown as THREE.NodeBuilder);
+    if (copy !== null && takesPart(this)) (copy as N).not().discard();
     return diffuse.call(this, builder);
   };
   // A draw's subject bits change while its object, material and lights stay as they are, and three refreshes such

@@ -48,7 +48,8 @@ import * as TSLTyped from 'three/tsl';
 import { CameraWindow, scrolledSource, WindowTargets } from './camera-window';
 import { releaseStorage } from './dispose';
 import type { N } from './effects-tsl';
-import { TSL_SCALAR_OPS, type ScalarOps } from './field-ops';
+import type { ScalarOps } from '@thirdlight/shared';
+import { TSL_SCALAR_OPS } from './field-ops';
 import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;

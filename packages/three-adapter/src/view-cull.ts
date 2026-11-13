@@ -64,8 +64,8 @@ export class CullView {
   camera: THREE.Camera | null = null;
   /** Changes whenever the view changes (a draw culled at another stamp is out of date). */
   stamp = 0;
-  /** The frustum's six planes (normal xyz, constant), pointing inwards. */
-  private readonly planes = new Float64Array(24);
+  /** The frustum's six planes (normal xyz, constant), pointing inwards (a compute pass tests copies against them too). */
+  readonly planes = new Float64Array(24);
   /** The camera's matrices as culled (view and projection). */
   private readonly snap = new Float64Array(32);
   /** The camera's world position and zoom as culled (levels of detail are picked from them). */

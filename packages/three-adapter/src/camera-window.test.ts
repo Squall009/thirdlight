@@ -10,7 +10,7 @@ import { MeshBasicNodeMaterial } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import { CameraWindow, scrolledSourceAt, windowEdgeSteps, windowUvSteps } from './camera-window';
-import { CPU_SCALAR_OPS } from './field-ops';
+import { CPU_SCALAR_OPS } from '@thirdlight/shared';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
 
 describe('the camera window', () => {

@@ -10,7 +10,8 @@ import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
-import { BLOCK_FLOATS, copyDensityAt, copyLevel, prepareCopies } from './copies-prepare';
+import { lodLevelOf } from '@thirdlight/shared';
+import { BLOCK_FLOATS, copyDensityAt, prepareCopies } from './copies-prepare';
 import { buildGpuCopySet, GPU_COPIES_KEY } from './copies-gpu';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
@@ -112,7 +113,7 @@ describe('stored copies on the GPU', () => {
     cullFor(set.meshes, cam);
     const order = prepareCopies(f, 5000).order;
     const distance = (i: number): number => Math.hypot(f[i * 10]! - eye[0], eye[1], f[i * 10 + 2]! - eye[2]);
-    const levelOf = (i: number): number => copyLevel([0, 30, 60], distance(i), size(i));
+    const levelOf = (i: number): number => lodLevelOf([0, 30, 60], distance(i), size(i));
     // A draw that casts nothing: a static map draws none of it.
     const shadow = new THREE.OrthographicCamera();
     const staticCam = new THREE.OrthographicCamera();

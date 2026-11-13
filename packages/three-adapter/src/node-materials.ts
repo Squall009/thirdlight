@@ -229,6 +229,23 @@ export const copyBend = Fn((builder: NodeBuilder) => {
   return ((o !== null ? copyBends.get(o) : undefined) as ReturnType<typeof float> | undefined) ?? float(1);
 });
 
+const copyKeeps = new WeakMap<object, unknown>();
+
+/**
+ * A placement tells the build which of its copy's pixels to keep (a bool node from the vertex stage's varyings: a
+ * copy cross-fading between two levels keeps one dither's complementary pixels in each; inside the placement).
+ */
+export function setCopyKeep(builder: NodeBuilder, keep: unknown): void {
+  const o = drawOf(builder);
+  if (o !== null) copyKeeps.set(o, keep);
+}
+
+/** The drawn copy's keep term (fragment stage; null: every pixel is kept). */
+export function copyKeep(builder: NodeBuilder): ReturnType<typeof float> | null {
+  const o = drawOf(builder);
+  return ((o !== null ? copyKeeps.get(o) : undefined) as ReturnType<typeof float> | undefined) ?? null;
+}
+
 /**
  * `material.userData[ROOT_COLOUR_KEY]`: the material blends its copies' bases toward the surface under them, so a
  * placement reads that colour only for a material that asks (the read costs a texel per vertex).

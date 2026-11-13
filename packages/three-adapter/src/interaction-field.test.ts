@@ -20,7 +20,7 @@ import { InteractionFieldReference } from './interaction-field-reference';
 import { bendCapacity, InteractionField, INTERACTION_TEXELS, STAMP_FLOATS, type InteractionStamps } from './interaction-field';
 import { InteractorView, type InteractorDeps } from './interactors';
 import { createMaterialLibrary } from './material-library';
-import { glslRenderer, litScene, wgslOf, wgslRenderer } from './test-wgsl';
+import { computeWgsl, glslRenderer, litScene, wgslOf, wgslRenderer } from './test-wgsl';
 
 /** One stamp standing at (x, z) (or swept from (fx, fz)), radius `r`, strength `k`, feet 0, top 1.8 m, recovery 1 s. */
 function stamps(list: { x: number; z: number; r: number; k: number; fx?: number; fz?: number; recovery?: number }[]): InteractionStamps {
@@ -252,15 +252,6 @@ describe('the objects that press', () => {
     expect(gl.computes).toBe(0);
   });
 });
-
-/** The WGSL three builds for a compute node (no GPU). */
-function computeWgsl(node: N): string {
-  const renderer = wgslRenderer();
-  const b = (renderer as unknown as { backend: { createNodeBuilder(o: unknown, r: unknown): { compute: unknown; build(): void; computeShader: string } } }).backend.createNodeBuilder(null, renderer);
-  b.compute = node;
-  b.build();
-  return b.computeShader;
-}
 
 describe('the programs', () => {
   const foliage = (): { lib: ReturnType<typeof createMaterialLibrary>; mesh: THREE.Mesh } => {

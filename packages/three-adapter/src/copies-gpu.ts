@@ -37,13 +37,20 @@ import * as TSLTyped from 'three/tsl';
 import { RenderObjectRefreshType } from 'three';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
 import { INTERACTOR_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/project-model';
+import { lodLevelOf, lodLevelStep } from '@thirdlight/shared';
 
-import { PAINT_SLOT_ATTRIBUTE, setGpuCopyColumns } from './attribute-instancing';
+import { CULLED_COPIES_KEY, INSTANCE_CULLER_KEY, PAINT_SLOT_ATTRIBUTE, setGpuCopyColumns } from './attribute-instancing';
+import { buildDrawsCopyRows, COPY_ROW_KEY, COPY_ROWS_ATTRIBUTE, installCopyRows, rowsColumn, rowsIndex, rowsPlacement, type CopyRowDraw } from './copy-rows-draw';
+import type { CopyRowsMesh, CopyRowsSource } from './copy-rows';
+import { type CopyCamera, type CopyRowBinding, type InstanceOcclusion } from './occlusion-instances';
+import { vertexReachOf } from './vertex-reach';
 import { CUTAWAY_LAYER } from './block-cutaway-view';
-import { BLOCK_FLOATS, COPY_ROW, COPY_TEXEL_FLOATS, COPY_TEXELS, copyDensityAt, copyRank, copyLevel, measureBlock, prepareCopies, writeCopyTexels, type PreparedCopies } from './copies-prepare';
+import { BLOCK_FLOATS, COPY_ROW, COPY_TEXEL_FLOATS, COPY_TEXELS, copyDensityAt, copyDensitySteps, copyRank, measureBlock, prepareCopies, writeCopyTexels, type PreparedCopies } from './copies-prepare';
 import { COVER_DRAW_KEY, installCoverPlacement, type CoverPlacement } from './cover-gpu';
+import { COPY_ROW_FLOATS } from './copy-rows-rule';
 import { disposeSharingGeometry } from './dispose';
 import type { N } from './effects-tsl';
+import { TSL_SCALAR_OPS } from './field-ops';
 import { INSTANCE_SET_KEY, instanceSetPlan, type BuiltInstanceSet, type InstancePlanOptions, type InstanceSetOptions, type InstanceSetPlan, type InstanceSetStats } from './instancing';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import { lodSwitchesOf, LodTuning, pickLodLevel, type LodSwitch } from './lod-switch';
@@ -154,22 +161,25 @@ function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N; b
   const d = metres.mul(uEye.w).toVar();
   const s = max(max(abs(t2.x), abs(t2.y)), abs(t2.z)).mul(h0.z).toVar();
   const isStatic = uStatic.greaterThan(0.5);
-  // The rule of `copyLevel`: the levels whose switch distance (times the scale) the copy reached, level 0's (at 0) among them.
+  // The shared screen-size rule (`lodLevelStep`), switch by switch; this path keeps no level per copy (no hysteresis).
   const reached = float(0).toVar();
-  Loop({ start: uint(0), end: distanceTexels, type: 'uint', condition: '<' }, ({ i }: { i: N }) => {
-    const at = listTexture.load(ivec2(int(i).add(LIST_FIXED_HEADER), 0));
-    reached.addAssign(TSL.dot(TSL.step(at.mul(s), vec4(d)), vec4(1)));
+  const open = float(1).toVar();
+  Loop({ start: uint(1), end: uint(uLevel.y), type: 'uint', condition: '<' }, ({ i }: { i: N }) => {
+    const at = listTexture.load(ivec2(int(i.div(4)).add(LIST_FIXED_HEADER), 0));
+    const m = i.mod(4);
+    const switchAt = select(m.equal(0), at.x, select(m.equal(1), at.y, select(m.equal(2), at.z, at.w)));
+    const acc = lodLevelStep(TSL_SCALAR_OPS, { level: reached, open }, d, switchAt.mul(s), float(0));
+    reached.assign(acc.level);
+    open.assign(acc.open);
   });
-  const level = select(isStatic, float(0), reached.sub(1));
+  const level = select(isStatic, float(0), reached);
   const last = uLevel.y.sub(1);
   const culled = uLevel.z.greaterThan(0.5).and(level.greaterThanEqual(last));
   // Mode 0: the copy's own level is the draw's; 1: every listed copy not past its cull size (a mesh outside the levels, or
   // the list's blocks are at its level).
   const mine = select(uLevel.w.greaterThan(0.5), culled.not(), abs(level.sub(uLevel.x)).lessThan(0.5).and(culled.not()));
   // The rule of `copyDensityAt` (a static map keeps every copy).
-  const from = uDensity.x.mul(s);
-  const to = uDensity.y.mul(s);
-  const share = select(d.lessThanEqual(from), float(1), select(d.greaterThanEqual(to).or(to.lessThanEqual(from)), uDensity.z, float(1).sub(float(1).sub(uDensity.z).mul(d.sub(from)).div(max(to.sub(from), 1e-9)))));
+  const share = copyDensitySteps(TSL_SCALAR_OPS, d, uDensity.x.mul(s), uDensity.y.mul(s), uDensity.z);
   const thins = uDensity.w.greaterThan(0.5).and(isStatic.not());
   const keep = select(thins, t0.w.lessThan(share), float(1).greaterThan(0));
   const kept = float(k).lessThan(entry.y).and(mine).and(keep).and(metres.lessThanEqual(h0.y)).and(s.greaterThan(0));
@@ -242,11 +252,13 @@ export function installGpuCopies(): void {
   if (installed) return;
   installed = true;
   installCoverPlacement();
-  addRefreshRule('gpu-copies', (needs, builder) => (drawOf((builder as unknown as { object?: THREE.Object3D | null }).object) !== undefined ? refreshOnCopiesChange(needs) : null));
+  installCopyRows();
+  addRefreshRule('gpu-copies', (needs, builder) => (drawOf((builder as unknown as { object?: THREE.Object3D | null }).object) !== undefined && !buildDrawsCopyRows(builder) ? refreshOnCopiesChange(needs) : null));
+  // A set adopted by the culled-instance table reads its copies as the table's rows (WebGPU); else from its texture.
   setGpuCopyColumns({
     has: (builder) => drawOf((builder as unknown as { object?: THREE.Object3D | null }).object) !== undefined,
-    column: (i) => copyColumn(i),
-    index: () => copyNodes().slot,
+    column: (i) => Fn((builder: NodeBuilder) => (buildDrawsCopyRows(builder) ? rowsColumn(i) : copyColumn(i)))(),
+    index: () => Fn((builder: NodeBuilder) => (buildDrawsCopyRows(builder) ? rowsIndex() : copyNodes().slot))(),
   });
 }
 
@@ -332,7 +344,17 @@ export class GpuCopySet {
   private readonly switches: readonly (readonly LodSwitch[])[];
   private readonly blockMean: Float32Array;
   private readonly lists: CopyList[] = [];
-  private readonly draws: { mesh: THREE.Mesh; list: CopyList; part: InstanceSetPlan['parts'][number]; near: boolean; geometry: THREE.BufferGeometry }[] = [];
+  private readonly draws: { mesh: THREE.Mesh; list: CopyList; part: InstanceSetPlan['parts'][number]; near: boolean; geometry: THREE.InstancedBufferGeometry; binding: CopyRowBinding; row: CopyRowDraw }[] = [];
+  /**
+   * The culled-instance table drawing this set's copies as its rows (WebGPU: picked in compute, every copy at its
+   * own level), asked at the first draw; null: drawn by the vertex stage from the lists below (WebGL 2, or no table).
+   */
+  private table: InstanceOcclusion | null = null;
+  private adoptTried = false;
+  /** The view culler culled the set since the table last asked whether it is shown (it is in the scene). */
+  private culledSinceAsked = false;
+  /** What the table reads of this set (its source). */
+  private readonly rowsSource: CopyRowsSource;
   /** The farthest a model's point lies from its origin at scale 1 (most detailed level). */
   private readonly reach: number;
   private readonly tuning: LodTuning;
@@ -442,20 +464,129 @@ export class GpuCopySet {
       mesh.userData[COVER_DRAW_KEY] = copiesPlacement;
       // Culled through the set (one listing a frame for all its draws); the frame probe reads the copies the view sees once per list.
       const firstOfList = !this.draws.some((x) => x.list === list);
-      mesh.userData[VIEW_CULL_KEY] = { cull: (): boolean => false, group: this.culler, get inView(): number { return firstOfList ? list.copiesInView : 0; } };
+      const set = this;
+      mesh.userData[VIEW_CULL_KEY] = {
+        cull: (): boolean => false,
+        group: this.culler,
+        get inView(): number {
+          return !firstOfList ? 0 : set.table !== null ? (list.staticAll ? set.table.copiesInViewOf(set.rowsSource) : 0) : list.copiesInView;
+        },
+      };
       mesh.userData[INSTANCE_SET_KEY] = true;
-      mesh.onBeforeRender = (_r, _s, camera) => {
+      const binding: CopyRowBinding = { mode: 0, list: 0, row: null };
+      const row: CopyRowDraw = { binding, local: draw.local, bend: options.bendAway ?? INTERACTOR_DEFAULTS.ruleBend, pools: () => (this.table === null ? null : { matrices: binding.row!.matrices, slots: binding.row!.slots, lists: binding.row!.lists, visible: this.table.copyState, counts: this.table.copyCounts }) };
+      mesh.onBeforeRender = (_r, scene, camera) => {
+        if (this.table === null && !this.adoptTried) this.adopt(scene);
+        if (this.table !== null && binding.row !== null) {
+          this.table.drawCopies(binding.row, geometry, this.cameraKind(camera), binding);
+          return;
+        }
         geometry.instanceCount = this.blocksFor(list, camera, mesh) * this.block;
       };
       // A ray picks the copies of the most detailed level's meshes (one hit per copy and mesh).
       // A ray picks a copy once, through whichever of the set's own draws is shown (the most detailed level's meshes test it).
       mesh.raycast = near ? () => undefined : (raycaster, hits) => this.raycastFrom(mesh, raycaster, hits);
       this.group.add(mesh);
-      this.draws.push({ mesh, list, part, near, geometry });
+      this.draws.push({ mesh, list, part, near, geometry, binding, row });
     };
     for (const part of this.plan.parts) makeDraw(part, false);
     if (options.shadowDistance !== undefined) for (const part of this.plan.parts) if (part.mesh.userData[KEEP_MATERIAL_KEY] !== true && (part.lod < 0 || part.level === 0)) makeDraw(part, true);
     this.updateBounds();
+    this.rowsSource = this.makeRowsSource();
+  }
+
+  /** What the culled-instance table reads of this set (copy-rows.ts). */
+  private makeRowsSource(): CopyRowsSource {
+    const set = this;
+    const p = this.prepared;
+    const groups = this.plan.groups.map((g) => ({ distances: g.distances, culls: g.culls }));
+    const meshes: CopyRowsMesh[] = this.draws.map((d) => ({ mesh: d.mesh, group: d.part.lod, level: d.part.lod >= 0 ? d.part.level : 0, near: d.near, staticAll: d.list.staticAll }));
+    return {
+      count: p.count,
+      groups,
+      meshes,
+      get copiesVersion() {
+        return set.revision;
+      },
+      writeCopies: (target, at) => {
+        for (let slot = 0; slot < p.count; slot += 1) {
+          const t = slot * COPY_TEXEL_FLOATS;
+          const o = (at + slot) * COPY_ROW_FLOATS;
+          for (let k = 0; k < 12; k += 1) target[o + k] = p.texels[t + k]!;
+          target[o + 12] = Math.max(Math.abs(p.texels[t + 8]!), Math.abs(p.texels[t + 9]!), Math.abs(p.texels[t + 10]!));
+          target[o + 13] = 0;
+          target[o + 14] = 0;
+          target[o + 15] = 1;
+        }
+      },
+      get world() {
+        return set.draws[0]!.mesh.matrixWorld;
+      },
+      modelReach: this.reach,
+      get density() {
+        const d = set.density;
+        return d.w > 0.5 ? { from: d.x, to: d.y, min: d.z } : null;
+      },
+      nearReach: this.options.shadowDistance ?? null,
+      tuning: this.tuning,
+      vertexReach: () => {
+        let r = 0;
+        for (const d of set.draws) {
+          const v = vertexReachOf(d.mesh);
+          if (v === null) return null;
+          r = Math.max(r, v);
+        }
+        return r;
+      },
+      // In the scene this frame: the view culler (which hears what the render graph attaches) culled it since asked.
+      shown: () => {
+        const was = set.culledSinceAsked;
+        set.culledSinceAsked = false;
+        return !set.disposed && was;
+      },
+      released: () => set.unadopt(),
+    };
+  }
+
+  /** The scene's culled-instance table takes the set's draws as its rows, if there is one that can (asked at the first draw). */
+  private adopt(scene: THREE.Scene | null): void {
+    this.adoptTried = true;
+    const host = scene?.userData[INSTANCE_CULLER_KEY] as Partial<InstanceOcclusion> | undefined;
+    if (typeof host?.adoptCopies !== 'function' || !host.adoptCopies(this.rowsSource)) return;
+    const table = host as InstanceOcclusion;
+    this.table = table;
+    for (const d of this.draws) {
+      d.binding.row = table.copyRowOf(this.rowsSource, d.mesh);
+      // Its own program (the marker keys it) reads the table's pools; built at this, the draw's first, draw.
+      d.geometry.setAttribute(COPY_ROWS_ATTRIBUTE, d.geometry.getAttribute('position'));
+      d.mesh.userData[COVER_DRAW_KEY] = rowsPlacement;
+      d.mesh.userData[COPY_ROW_KEY] = d.row;
+      d.mesh.userData[CULLED_COPIES_KEY] = d.binding.row;
+    }
+    this.dirty = true;
+  }
+
+  /** The table let the set go (disposed): its draws draw from its lists again (their programs built again). */
+  private unadopt(): void {
+    if (this.table === null) return;
+    this.table = null;
+    this.adoptTried = false;
+    for (const d of this.draws) {
+      d.binding.row = null;
+      d.geometry.deleteAttribute(COPY_ROWS_ATTRIBUTE);
+      d.geometry.indirect = null;
+      d.mesh.userData[COVER_DRAW_KEY] = copiesPlacement;
+      delete d.mesh.userData[COPY_ROW_KEY];
+      delete d.mesh.userData[CULLED_COPIES_KEY];
+      for (const m of Array.isArray(d.mesh.material) ? d.mesh.material : [d.mesh.material]) m.needsUpdate = true;
+    }
+    this.dirty = true;
+  }
+
+  /** Which kind of camera a pass draws a row with: a cached static shadow map's, the view's (as culled), another's. */
+  private cameraKind(camera: THREE.Camera): CopyCamera {
+    if (camera.userData[STATIC_SHADOW_CAMERA_KEY] === true) return 'static';
+    return this.view !== null && this.view.stamp === this.stamp && this.view.is(camera) ? 'view' : 'other';
   }
 
   /** The copies with paint (their texels' paint slot is set): diagnostics. */
@@ -541,6 +672,7 @@ export class GpuCopySet {
   /** List each draw's blocks for `view` (when the view, the set's place, the tuning or a copy changed). */
   cull(view: CullView): boolean {
     if (this.disposed) return false;
+    this.culledSinceAsked = true;
     const first = this.draws[0]?.mesh;
     if (first === undefined) return false;
     const w = first.matrixWorld.elements;
@@ -562,7 +694,11 @@ export class GpuCopySet {
     const groups = this.plan.groups;
     const G = Math.max(1, groups.length);
     let changed = false;
-    if (!this.perCopy) this.pickBlockLevels(w, ws, toDistance);
+    // Drawn as the table's rows, every copy picks its own level (in compute): the page only hides the draws no copy
+    // can reach now (a level and its neighbours, for the project's hysteresis and a fade under way).
+    const rows = this.table !== null;
+    const perCopy = this.perCopy || rows;
+    if (!perCopy) this.pickBlockLevels(w, ws, toDistance);
     // Each block once: its nearest and farthest metres from the eye, whether the view sees it, and (per copy) the levels
     // its copies may take in each group; the lists then only compare.
     const sc = this.cullScratch(nb, G);
@@ -576,11 +712,11 @@ export class GpuCopySet {
       const dc = Math.hypot(wx - ex, wy - ey, wz - ez);
       sc.near[b] = Math.max(0, dc - r);
       sc.seen[b] = view.camera === null || view.side(wx, wy, wz, r) !== SphereSide.Outside ? 1 : 0;
-      if (!this.perCopy) continue;
+      if (!perCopy) continue;
       for (let g = 0; g < groups.length; g += 1) {
         const dist = groups[g]!.distances;
-        sc.lo[b * G + g] = copyLevel(dist, sc.near[b]! * toDistance, bl[o + 5]! * ws);
-        sc.hi[b * G + g] = copyLevel(dist, (dc + r) * toDistance, bl[o + 4]! * ws);
+        sc.lo[b * G + g] = lodLevelOf(dist, sc.near[b]! * toDistance, bl[o + 5]! * ws);
+        sc.hi[b * G + g] = lodLevelOf(dist, (dc + r) * toDistance, bl[o + 4]! * ws);
       }
     }
     const fades = this.density.w > 0.5 && this.density.z <= 0;
@@ -596,13 +732,23 @@ export class GpuCopySet {
         // A falloff down to no copies (a blob disc's) ends the set: a block wholly past it draws nothing.
         if (fades && sc.near[b]! * toDistance >= this.density.y * bl[b * BLOCK_FLOATS + 5]! * ws) return false;
         if (!levelled) return true;
-        if (!this.perCopy) {
+        if (!perCopy) {
           const at = this.blockLevels[b * groups.length + gi]!;
           return list.group < 0 ? !(culls && at === last) : at === list.level && !(culls && at === last);
         }
         const lo = sc.lo[b * G + gi]!;
-        return list.group < 0 ? !(culls && lo === last) : lo <= list.level && list.level <= sc.hi[b * G + gi]! && !(culls && list.level === last);
+        const hi = sc.hi[b * G + gi]!;
+        if (rows) return list.group < 0 ? !(culls && lo === last) : lo - 1 <= list.level && list.level <= hi + 1 && !(culls && list.level === last);
+        return list.group < 0 ? !(culls && lo === last) : lo <= list.level && list.level <= hi && !(culls && list.level === last);
       };
+      if (rows) {
+        // Shown while some block may hold a copy it draws (the selection pass lists the copies themselves).
+        let any = false;
+        for (let b = 0; b < nb && !any; b += 1) any = candidate(b);
+        list.nCand = any ? 1 : 0;
+        list.nAll = list.staticAll ? nb : list.nCand;
+        continue;
+      }
       // Seen candidates from the front, unseen ones after them, the rest (a static map's) last.
       let n = 0;
       let inView = 0;
@@ -829,10 +975,13 @@ export class GpuCopySet {
     const last = dist.length - 1;
     const cullsAt = g0?.culls === true ? last : -1;
     const seen = new Uint8Array(p.blocks.length / BLOCK_FLOATS);
-    for (const list of this.lists) {
-      if (list.reach !== Number.POSITIVE_INFINITY) continue;
-      for (let n = 0; n < list.nView; n += 1) seen[this.blockOf[list.data[(list.header + n) * 4]!]!] = 1;
-    }
+    // The blocks the view saw: as listed, or (drawn as the table's rows) as the last cull found them.
+    if (this.table !== null && this.scratch !== null) seen.set(this.scratch.seen.subarray(0, seen.length));
+    else
+      for (const list of this.lists) {
+        if (list.reach !== Number.POSITIVE_INFINITY) continue;
+        for (let n = 0; n < list.nView; n += 1) seen[this.blockOf[list.data[(list.header + n) * 4]!]!] = 1;
+      }
     const bl = p.blocks;
     const count = (level: number, n: number, b: number): void => {
       if (level === cullsAt) culled += n;
@@ -849,9 +998,9 @@ export class GpuCopySet {
       const sLo = bl[o + 4]! * ws;
       const sHi = bl[o + 5]! * ws;
       // A block's own level (picked whole), else the range its copies' levels lie in.
-      const own = !this.perCopy && g0 !== undefined ? Math.max(0, this.blockLevels[b * this.plan.groups.length]!) : -1;
-      const lo = own >= 0 ? own : copyLevel(dist, Math.max(0, dc - r) * toDistance, sHi);
-      const hi = own >= 0 ? own : copyLevel(dist, (dc + r) * toDistance, sLo);
+      const own = !this.perCopy && this.table === null && g0 !== undefined ? Math.max(0, this.blockLevels[b * this.plan.groups.length]!) : -1;
+      const lo = own >= 0 ? own : lodLevelOf(dist, Math.max(0, dc - r) * toDistance, sHi);
+      const hi = own >= 0 ? own : lodLevelOf(dist, (dc + r) * toDistance, sLo);
       if (lo === hi && sLo > 0 && (!thins || (dc + r) * toDistance <= d.x * sLo)) {
         count(lo, bl[o + 7]!, b);
         continue;
@@ -865,7 +1014,7 @@ export class GpuCopySet {
           thinned += 1;
           continue;
         }
-        count(own >= 0 ? own : copyLevel(dist, dd, s), 1, b);
+        count(own >= 0 ? own : lodLevelOf(dist, dd, s), 1, b);
       }
     }
     const stats = { copies: p.count, inView, byLevel, culled, thinned };
@@ -883,6 +1032,8 @@ export class GpuCopySet {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.table?.forgetCopies(this.rowsSource);
+    this.table = null;
     this.group.removeFromParent();
     for (const d of this.draws) {
       delete d.mesh.userData[VIEW_CULL_KEY];

@@ -194,7 +194,10 @@ export const OWNED_FAMILIES = Object.freeze([
   // The camera-following window (placement, world ↔ texel mapping, scroll, state textures): every camera-centred map sits on it.
   { family: 'camera-window', owner: 'packages/three-adapter/src/camera-window.ts', names: ['CameraWindow', 'windowUvSteps', 'windowEdgeSteps', 'scrolledSource', 'scrolledSourceAt', 'WindowTargets'] },
   // Arithmetic written once for numbers and shader nodes.
-  { family: 'field-ops', owner: 'packages/three-adapter/src/field-ops.ts', names: ['ScalarOps', 'CPU_SCALAR_OPS', 'TSL_SCALAR_OPS'] },
+  { family: 'scalar-ops', owner: 'packages/shared/src/scalar-ops.ts', names: ['ScalarOps', 'CPU_SCALAR_OPS'] },
+  { family: 'field-ops', owner: 'packages/three-adapter/src/field-ops.ts', names: ['TSL_SCALAR_OPS'] },
+  // Level of detail by screen size with hysteresis, for the CPU and shaders (voxel rings keep their own rings).
+  { family: 'lod-level', owner: 'packages/shared/src/lod-level.ts', names: ['lodLevelOf', 'lodLevelStep', 'lodSwitchMargin', 'copyLevel'] },
   // The module ids; the runtime's and the exporter's named ids alias these (a string literal id is not caught by name).
   {
     family: 'module-ids',

@@ -27,7 +27,7 @@ export type NeedsRefresh = (renderObject: RefreshDraw, frame: unknown) => number
 export type RefreshRule = (needs: NeedsRefresh, builder: NodeBuilder, material: THREE.Material) => NeedsRefresh | null;
 
 /** The rules' order, innermost first. */
-const RULE_ORDER = ['culled-copies', 'gpu-copies', 'see-through'] as const;
+const RULE_ORDER = ['culled-copies', 'gpu-copies', 'copy-rows', 'see-through'] as const;
 
 const rules: (RefreshRule | undefined)[] = RULE_ORDER.map(() => undefined);
 /** Whether three's observer step was there to hook (null: not looked yet). */

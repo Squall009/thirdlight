@@ -109,6 +109,8 @@ export class TwoPassFrame implements ScenePasses {
   readonly instances: InstanceOcclusion;
   /** The draws culled whole against it. */
   readonly wholes: WholeOcclusion;
+  /** The table is this frame's own (made by it, disposed with it). */
+  private readonly ownsInstances: boolean;
   /** The pass drawing now (0: neither): the stand-ins draw in the first only. */
   drawing: 0 | 1 | 2 = 0;
   /** The pyramid level shown over the frame (null: the picture). */
@@ -123,10 +125,13 @@ export class TwoPassFrame implements ScenePasses {
   constructor(
     renderer: WebGPURenderer,
     private readonly registry: OccludeeRegistry,
+    /** The culled-instance table (the occlusion culler's: it outlives the path, for the copy sets' rows; absent: one of its own). */
+    instances?: InstanceOcclusion,
   ) {
     const frame = this as TwoPassFrame;
     this.pyramid = new DepthPyramid(renderer);
-    this.instances = new InstanceOcclusion(renderer, { get drawing() { return frame.drawing; }, firstPass: (o) => !this.secondPass(o) });
+    this.ownsInstances = instances === undefined;
+    this.instances = instances ?? new InstanceOcclusion(renderer, { get drawing() { return frame.drawing; }, firstPass: (o) => !this.secondPass(o) });
     this.wholes = new WholeOcclusion(this.instances);
     this.r = renderer as unknown as PassRenderer;
   }
@@ -213,7 +218,7 @@ export class TwoPassFrame implements ScenePasses {
 
   dispose(): void {
     this.wholes.clear();
-    this.instances.dispose();
+    if (this.ownsInstances) this.instances.dispose();
     this.pyramid.dispose();
   }
 }

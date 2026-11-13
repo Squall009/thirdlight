@@ -57,6 +57,15 @@ export function wgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE
   return `${b.vertexShader}\n${b.fragmentShader}`;
 }
 
+/** The WGSL three builds for a compute node (no GPU). */
+export function computeWgsl(node: unknown): string {
+  const renderer = wgslRenderer();
+  const b = (renderer as unknown as { backend: { createNodeBuilder(o: unknown, r: unknown): { compute: unknown; build(): void; computeShader: string } } }).backend.createNodeBuilder(null, renderer);
+  b.compute = node;
+  b.build();
+  return b.computeShader;
+}
+
 /** The fragment WGSL three builds for a mesh in a scene. */
 export function fragmentWgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): string {
   return builtFor(renderer, scene, mesh).fragmentShader;

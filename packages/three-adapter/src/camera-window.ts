@@ -27,7 +27,8 @@ import * as TSLTyped from 'three/tsl';
 import { StorageTexture } from 'three/webgpu';
 
 import type { N } from './effects-tsl';
-import { CPU_SCALAR_OPS, TSL_SCALAR_OPS, type ScalarOps } from './field-ops';
+import { CPU_SCALAR_OPS, type ScalarOps } from '@thirdlight/shared';
+import { TSL_SCALAR_OPS } from './field-ops';
 
 const TSL: N = TSLTyped;
 
