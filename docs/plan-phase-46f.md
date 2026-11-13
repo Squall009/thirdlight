@@ -295,7 +295,10 @@ lists in backend/workspace/integration tests; script-access digest re-pinned at 
 `materials.e2e.ts` (no e2e covered bending before): 2 m posts in a foliage material, seven interactors and one
 script subject without the component walk in while P is held; in the export served with the backend stopped every
 ring round them changes 405–925 px against 0–4 px for an empty ring, and after release every ring is back to the
-first picture (0 px); the Inspector shows *interactor component* (about 11 s).
+first picture (0 px); the Inspector shows *interactor component* (about 11 s). Gate: `gate-fast-20261113-191259` red
+in vitest (the fixtures' and templates' upgrade lists, the foliage WGSL pins: fixed 69bf10cb; `tracer-terrain-rings` under
+load, passed alone: D411), `gate-rerun-20261113-192520` green, 23 min (every area: e2e 22.3 min over 181 files, materials
+301 s; village at 60 Hz 0/360 missed, main 5.83 ms against 5.64).
 
 **Measured** 2026-11-13 18:33–19:20 UTC, each run alone, uptime 21.0 d, load (1 min) 0.45–2.4; meadow class, low,
 WebGPU, `frameRateCap=30`, the §4 command (`--walker`: the moving box named by a script; `--interactors 8`: eight
