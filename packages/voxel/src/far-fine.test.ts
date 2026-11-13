@@ -165,6 +165,26 @@ function keptIndex(): FarNodeIndex {
 }
 
 describe('fine far bricks: the block', () => {
+  it('packs a block with more looks than a packed block names: a look past them draws as its material dry where that is named, else as the first look', () => {
+    const n = 17;
+    const block = (wordAt: (i: number) => number): FarCellBlock => {
+      const density = new Float32Array(n ** 3).fill(1);
+      const solid = new Uint8Array(n ** 3).fill(1);
+      density[0] = 0;
+      solid[0] = 0;
+      return { n, apron: 1, scale: 1, density, word: Uint16Array.from({ length: n ** 3 }, (_, i) => (i === 0 ? 0 : wordAt(i))), solid, count: n ** 3 - 1, roofs: null };
+    };
+    const WET = (w: number, m: number): number => m | (w << 12);
+    // Materials 1–4095 dry name every look a block can; a wet 5 past them reads as dry 5.
+    const dry = unpackFarFine(packFarFine(block((i) => (i < 4096 ? i : WET(3, 5))))!);
+    expect(dry.word[4095]).toBe(4095);
+    expect(dry.word[4096]).toBe(5);
+    expect(dry.word[n ** 3 - 1]).toBe(5);
+    // Every look named wet: a look of another wetness past them reads as the first.
+    const wet = unpackFarFine(packFarFine(block((i) => (i < 4096 ? WET(1, i) : WET(2, 7))))!);
+    expect(wet.word[4096]).toBe(WET(1, 1));
+  });
+
   it('packs the block the CPU build reads, and builds the same bricks from it', () => {
     for (const node of [{ level: 0, nx: 3, ny: 1, nz: 2 }, { level: 1, nx: 1, ny: 0, nz: 1 }, { level: 1, nx: 3, ny: 0, nz: 1 }] as const) {
       const block = gatherFarCells(grid, cellsOf(world), [node.nx, node.ny, node.nz], farFineScale(node.level));

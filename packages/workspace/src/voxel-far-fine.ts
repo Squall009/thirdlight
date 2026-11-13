@@ -354,7 +354,7 @@ const DRAWS_NOTHING = Uint8Array.of(0);
  * looked up first by its content key in the rebuilt store, and rewrites only the files holding them, then the
  * manifest. Absent: the cache bakes no fine levels.
  */
-export function rebakeFarFine(worldDir: string, cacheDir: string, chunks: ReadonlyArray<{ readonly cx: number; readonly cy: number; readonly cz: number }>): FarBricksRebuild | undefined {
+export function rebakeFarFine(worldDir: string, cacheDir: string, chunks: ReadonlyArray<{ readonly cx: number; readonly cy: number; readonly cz: number }>, only?: { readonly level: number; readonly rx: number; readonly rz: number }): FarBricksRebuild | undefined {
   const t0 = performance.now();
   const m = readFarCacheManifest(cacheDir);
   if (m.fine === undefined) return undefined;
@@ -362,7 +362,8 @@ export function rebakeFarFine(worldDir: string, cacheDir: string, chunks: Readon
   const g = world.grid;
   const side = chunksPerRegionSide(g, m.footprint as RegionFootprint);
   const baked = new Map(m.fine.levels.map((l) => [l.level, new Set(l.columns)]));
-  const dirty = farFineDirty(chunks).filter((n) => baked.get(n.level)?.has(farFineColumnKey(Math.floor(n.nx / side), Math.floor(n.nz / side))) === true);
+  const inOnly = (n: { level: number; nx: number; nz: number }): boolean => only === undefined || (n.level === only.level && Math.floor(n.nx / side) === only.rx && Math.floor(n.nz / side) === only.rz);
+  const dirty = farFineDirty(chunks).filter((n) => inOnly(n) && baked.get(n.level)?.has(farFineColumnKey(Math.floor(n.nx / side), Math.floor(n.nz / side))) === true);
   dirty.sort((a, b) => a.level - b.level || a.nx - b.nx || a.ny - b.ny || a.nz - b.nz);
   const store = new FarRebuiltStore(cacheDir);
   const cells = new WorldCells(world);

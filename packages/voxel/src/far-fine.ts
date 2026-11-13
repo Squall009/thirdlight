@@ -34,7 +34,7 @@ import { FAR_BRICK_BAKED_BYTES, FAR_BRICK_TABLE_GPU_BYTES } from './far-bricks-s
 import { farCellApron, type ChunkCells, type FarCellBlock } from './far-bricks-faces';
 import type { FarRoofColumns } from './far-bricks-roofs';
 import { FAR_MIN_LEVEL, type FarNodeIndex } from './far-tree';
-import { SHAPE_FULL } from './record';
+import { MATERIAL_BITS, SHAPE_FULL } from './record';
 import { mipChildren, mipNodeKey, type MipNode } from './voxel-mips';
 
 /** The finest far level the cache keeps less one: the levels below {@link FAR_MIN_LEVEL} are the fine ones. */
@@ -116,6 +116,9 @@ export interface FarFineCells {
 /** Look words a packed block can name (12 bits). */
 const FINE_WORDS_MAX = 1 << 12;
 
+/** A look word's material (its wetness dropped). */
+const MATERIAL_MASK = (1 << MATERIAL_BITS) - 1;
+
 /** Bytes a fine block holds on the wire. */
 export function farFineBytes(f: FarFineCells): number {
   return f.cells.byteLength + f.words.byteLength + (f.roofs?.byteLength ?? 0);
@@ -135,8 +138,11 @@ export function packFarFine(b: FarCellBlock): FarFineCells | null {
     const w = b.word[i]!;
     if (d === 0 && w === 0) continue;
     let k = place.get(w);
-    if (k === undefined) {
-      if (words.length >= FINE_WORDS_MAX) throw new RangeError(`far fine block: more than ${FINE_WORDS_MAX} look words`);
+    if (k === undefined && words.length >= FINE_WORDS_MAX) {
+      // More looks than 12 bits name (materials × wetness can be): a look past them draws as its material dry where
+      // that is named, else as the block's first look; the node draws rather than failing.
+      k = place.get(w & MATERIAL_MASK) ?? 1;
+    } else if (k === undefined) {
       k = words.length;
       words.push(w);
       place.set(w, k);

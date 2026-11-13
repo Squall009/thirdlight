@@ -38,7 +38,7 @@ import {
 import { afterAll, describe, expect, it } from 'vitest';
 import { FAR_REBUILT_FOLDER } from './voxel-far-bake';
 import { buildFarCache, FAR_CACHE_MANIFEST, farCacheDir, farCacheFiles, farCacheStale, readFarCacheManifest } from './voxel-far-cache';
-import { farFineColumns, farFineStored } from './voxel-far-fine';
+import { farFineColumns, farFineStored, rebakeFarFine } from './voxel-far-fine';
 import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
 import { FarWorldSource } from './voxel-far-cache';
 import { readVoxelWorldManifest, VoxelWorlds, writeVoxelWorld } from './voxel-worlds';
@@ -217,6 +217,50 @@ describe('fine far levels baked by a world', () => {
     again.close();
   });
 
+  it('answers a failed bake with why, starts it again on no far read, and goes on from its columns on a resume', async () => {
+    const { projectDir } = project('failed');
+    const real = inProcessFarJobs();
+    let sent = 0;
+    let full = true;
+    const disk: FarCacheJobs = {
+      ...real,
+      bakeFine: (tasks) => {
+        sent++;
+        if (!full) return real.bakeFine(tasks);
+        return {
+          async *[Symbol.asyncIterator]() {
+            let n = 0;
+            for await (const r of real.bakeFine(tasks)) {
+              if (n++ >= 1) throw new Error('ENOSPC: no space left on device, write');
+              yield r;
+            }
+          },
+        };
+      },
+    };
+    const worlds = worldsOf(projectDir, 0.5, disk);
+    let info = await worlds.farInfo('p', 'w');
+    for (let i = 0; i < 2000 && !(info.ok && info.fine?.failed !== undefined); i++) {
+      await new Promise((ok) => setTimeout(ok, 10));
+      info = await worlds.farInfo('p', 'w');
+    }
+    expect(info.ok && info.fine?.failed).toMatch(/ENOSPC/);
+    expect(info.ok && info.fine?.baking).toBe(false);
+    expect(info.ok && info.fine?.levels.reduce((s, l) => s + l.done, 0)).toBe(1);
+    // Far reads do not start it again into the same full disk.
+    for (let i = 0; i < 5; i++) await worlds.farInfo('p', 'w');
+    expect(sent).toBe(1);
+    // Room again, resumed: it goes on from the column it wrote and ends baked, the failure gone.
+    full = false;
+    const resumed = await worlds.fineBakeControl('p', 'w', true);
+    expect(resumed.ok && resumed.fine?.failed).toBeUndefined();
+    await baked(worlds);
+    const done = await worlds.farInfo('p', 'w');
+    expect(done.ok && done.fine?.levels.every((l) => l.done === l.total)).toBe(true);
+    expect(done.ok && done.fine?.failed).toBeUndefined();
+    worlds.close();
+  });
+
   it('builds again exactly the fine nodes over an edit, reuses them by content, and equals a fresh bake of the edited world', async () => {
     const { projectDir, worldDir } = project('edit');
     const worlds = worldsOf(projectDir, 0.5);
@@ -257,6 +301,18 @@ describe('fine far levels baked by a world', () => {
     expect(undone!.built + undone!.reused).toBe(dirty.length);
     const again = await worlds.command('p', { op: 'editVoxels', projectId: 'p', args: { world: 'w', command: DIG } });
     expect(again.ok && (again.far as { fine?: unknown }).fine).toMatchObject({ dirty: dirty.length, built: 0, reused: dirty.length });
+    // A column landing while a bake runs builds again only its own nodes over the changes made meanwhile: the
+    // columns' shares add up to the whole change's.
+    const m = readFarCacheManifest(dir);
+    const dug = r.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz }));
+    let shares = 0;
+    for (const l of m.fine!.levels) for (const c of l.columns) {
+      const [rx, rz] = c.split(',').map(Number) as [number, number];
+      const one = rebakeFarFine(worldDir, dir, dug, { level: l.level, rx, rz });
+      expect(one!.dirty).toBeLessThan(dirty.length);
+      shares += one!.dirty;
+    }
+    expect(shares).toBe(dirty.length);
     worlds.close();
   });
 

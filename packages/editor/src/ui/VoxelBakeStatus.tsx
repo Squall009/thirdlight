@@ -2,15 +2,15 @@
  * The voxel world's fine bake in its Inspector section: how far the far
  * cache has baked the levels the scenes ask (per level, region columns
  * done of the world's), whether it is baking now, stale (not done and not
- * running) or paused, with Pause and Resume. The bake itself runs in the
+ * running), paused or failed (with why), with Pause and Resume. The bake itself runs in the
  * backend from the moment a scene asks another bake level; this only shows
  * it and stops or restarts it. The editor keeps working meanwhile: a world
- * not baked yet draws as a 2 m world plus the columns baked so far.
+ * not baked round the camera yet draws as before the bake (its mesh rings).
  */
 import { useEffect, useState, type JSX } from 'react';
 
 /** The bake's state as the far info answers it (null: the world asks no fine level, or its far cache is still being built). */
-export type FineBakeState = { bakeLevel: number; baking: boolean; paused: boolean; levels: Array<{ level: number; done: number; total: number }> } | null;
+export type FineBakeState = { bakeLevel: number; baking: boolean; paused: boolean; failed?: string; levels: Array<{ level: number; done: number; total: number }> } | null;
 
 /** ms between reads of the bake's state while it bakes (or the far cache it waits for is built). */
 const POLL_MS = 1000;
@@ -43,7 +43,7 @@ export function VoxelBakeStatus(props: { world: string; bakeLevelM: number; read
   if (!asked) return null;
   if (state === 'unknown' || state === null) return <p className="tl-inspector__hint" data-fine-bake="waiting">Fine bake to {bakeLevelM} m: waiting for the far cache to be built…</p>;
   const done = state.levels.every((l) => l.done === l.total);
-  const status = done ? 'baked' : state.paused ? 'paused' : state.baking ? 'baking' : 'stale';
+  const status = done ? 'baked' : state.paused ? 'paused' : state.baking ? 'baking' : state.failed !== undefined ? 'failed' : 'stale';
   const control = (run: boolean): void => {
     read(world, run).then(
       (s) => setState(s),
@@ -54,7 +54,8 @@ export function VoxelBakeStatus(props: { world: string; bakeLevelM: number; read
     <div className="tl-inspector__hint" data-fine-bake={status} data-fine-done={state.levels.map((l) => `${l.level}:${l.done}/${l.total}`).join(' ')}>
       <p>
         Fine bake to {bakeLevelM} m: {status}
-        {done ? '' : ' (the world draws its 2 m far field plus the regions baked so far meanwhile)'}
+        {status === 'failed' ? `: ${state.failed ?? ''}` : ''}
+        {done ? '' : ' (until the regions round the camera are baked, the world draws as before the bake)'}
       </p>
       {state.levels.map((l) => (
         <p key={l.level}>
@@ -63,7 +64,7 @@ export function VoxelBakeStatus(props: { world: string; bakeLevelM: number; read
         </p>
       ))}
       {!done &&
-        (state.paused ? (
+        (state.paused || status === 'failed' ? (
           <button className="tl-btn tl-btn--small" title="Go on baking from the region columns baked so far" onClick={() => control(true)}>
             Resume bake
           </button>

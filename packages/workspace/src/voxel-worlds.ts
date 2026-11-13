@@ -267,6 +267,8 @@ export interface VoxelFineBake {
   readonly baking: boolean;
   /** Paused by the editor: the columns baked stay, and nothing bakes until it is resumed. */
   readonly paused: boolean;
+  /** Why the last bake stopped with an error (a full disk, a failed read): it waits for a resume or a new bake level. */
+  readonly failed?: string;
   readonly levels: ReadonlyArray<{ readonly level: number; readonly done: number; readonly total: number }>;
 }
 
@@ -450,6 +452,8 @@ export class VoxelWorlds {
   private readonly farBuilds = new Map<string, FarBuild>();
   /** Fine bakes running, by world. */
   private readonly fineBakes = new Map<string, FineBake>();
+  /** Worlds whose last fine bake failed, with why (keyed as {@link fineBakes}): not started again by a far read. */
+  private readonly fineFailed = new Map<string, string>();
   /** Worlds whose fine bake the editor paused (keyed as {@link fineBakes}). */
   private readonly finePaused = new Set<string>();
   /** Per project, the bake level each world its scenes name asks, as last seen ({@link scenesChanged}). */
@@ -651,7 +655,7 @@ export class VoxelWorlds {
       const files = farCacheFiles(w.farDir).slice(1).map((f) => ({ name: f, etag: this.farTag(w, f) }));
       const manifest = readFarCacheManifest(w.farDir);
       const fine = this.fineState(w, manifest);
-      if (fine !== undefined && !fine.baking && !fine.paused && fine.levels.some((l) => l.done < l.total)) void this.bakeFine(w);
+      if (fine !== undefined && !fine.baking && !fine.paused && fine.failed === undefined && fine.levels.some((l) => l.done < l.total)) void this.bakeFine(w);
       return { ok: true, world: name, manifest, files, ...(fine !== undefined ? { fine: { ...fine, baking: this.fineBakes.has(worldKey(w)) } } : {}) };
     });
   }
@@ -712,7 +716,8 @@ export class VoxelWorlds {
   private fineState(w: OpenWorld, m: FarCacheManifest): VoxelFineBake | undefined {
     const want = this.wantedBake(w);
     if (want >= FAR_MIN_LEVEL) return undefined;
-    return { bakeLevel: want, baking: this.fineBakes.has(worldKey(w)), paused: this.finePaused.has(worldKey(w)), levels: farFineProgress(m, new FarWorldSource(w.dir), want) };
+    const failed = this.fineFailed.get(worldKey(w));
+    return { bakeLevel: want, baking: this.fineBakes.has(worldKey(w)), paused: this.finePaused.has(worldKey(w)), ...(failed !== undefined ? { failed } : {}), levels: farFineProgress(m, new FarWorldSource(w.dir), want) };
   }
 
   /**
@@ -742,6 +747,7 @@ export class VoxelWorlds {
     const key = worldKey(w);
     if (run) {
       this.finePaused.delete(key);
+      this.fineFailed.delete(key);
       this.startFineBake(projectId, name).catch(() => undefined);
     } else {
       this.finePaused.add(key);
@@ -762,6 +768,7 @@ export class VoxelWorlds {
     if (running !== undefined && running.level !== level) {
       running.stopped = true;
       await running.done;
+      this.fineFailed.delete(key);
     }
     if (level >= FAR_MIN_LEVEL || this.finePaused.has(key)) return;
     if (farCacheStale(w.farDir, w.manifest) !== null) await this.buildFar(w);
@@ -794,17 +801,23 @@ export class VoxelWorlds {
         if (!landed) break;
       }
     })()
-      .catch(() => undefined)
+      // Kept and answered (the far info's `failed`, the Inspector's state): a full disk would otherwise fail again
+      // at every far read, unseen. The columns written stay; a resume goes on from them.
+      .catch((e: unknown) => void this.fineFailed.set(key, e instanceof Error ? e.message : String(e)))
       .finally(drop);
     this.fineBakes.set(key, job);
     return job.done;
   }
 
-  /** A baked column written (in the world's queue), then the chunks changed since the bake began built again in it. */
+  /**
+   * A baked column written (in the world's queue), then its nodes over the chunks changed since the bake began built
+   * again: it may have read them before they changed. Only its own: a column baked before a change was built again
+   * with the change, and one not baked yet reads the chunks as they are.
+   */
   private landFine(w: OpenWorld, job: FineBake, r: FarFineResult): boolean {
     writeFarFineColumn(w.farDir, w.world.store.grid, r);
     w.farTags.clear();
-    if (job.changed.length > 0) rebakeFarFine(w.dir, w.farDir, job.changed);
+    if (job.changed.length > 0) rebakeFarFine(w.dir, w.farDir, job.changed, { level: r.level, rx: r.rx, rz: r.rz });
     return true;
   }
 
@@ -907,7 +920,7 @@ export class VoxelWorlds {
       const farOut = { minLevel: far.minLevel, maxLevel: far.maxLevel, files: farFiles, ...(fine.length > 0 ? { bakeLevel: Math.min(...fine) } : {}) };
       if (want < FAR_MIN_LEVEL && fine.length === 0) {
         void this.bakeFine(w);
-        return { ok: true, world: shipped, files, far: farOut, farNote: `voxel world ${name} ships without its baked fine levels (bake level ${VOXEL_SIZE_M * 2 ** want} m): they are still being baked; export again once they are to load them instead of building them while playing` };
+        return { ok: true, world: shipped, files, far: farOut, farNote: `voxel world ${name} ships without its baked fine levels (bake level ${VOXEL_SIZE_M * 2 ** want} m): they are still being baked; until an export ships them the game draws its mesh rings past the detail ring (or builds fine bricks on WebGPU where the world's fine build is compute): export again once the bake is done` };
       }
       return { ok: true, world: shipped, files, far: farOut };
     });

@@ -907,7 +907,7 @@ export class SessionClient extends SessionClientCore {
    * A voxel world's fine bake as its far info answers it (null: the world asks none, or its far cache is still being
    * built); `run` pauses (false) or resumes (true) it first.
    */
-  async voxelFineBake(world: string, run?: boolean): Promise<{ bakeLevel: number; baking: boolean; paused: boolean; levels: Array<{ level: number; done: number; total: number }> } | null> {
+  async voxelFineBake(world: string, run?: boolean): Promise<{ bakeLevel: number; baking: boolean; paused: boolean; failed?: string; levels: Array<{ level: number; done: number; total: number }> } | null> {
     const url = `${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/voxels/${encodeURIComponent(world)}/far${run === undefined ? '' : '/bake'}`;
     const res = await fetch(url, {
       method: run === undefined ? 'GET' : 'POST',
@@ -916,7 +916,7 @@ export class SessionClient extends SessionClientCore {
     });
     if (res.status === 202) return null;
     if (!res.ok) throw new Error(`far info read failed (HTTP ${res.status})`);
-    const info = (await res.json()) as { fine?: { bakeLevel: number; baking: boolean; paused: boolean; levels: Array<{ level: number; done: number; total: number }> } };
+    const info = (await res.json()) as { fine?: { bakeLevel: number; baking: boolean; paused: boolean; failed?: string; levels: Array<{ level: number; done: number; total: number }> } };
     return info.fine ?? null;
   }
 
