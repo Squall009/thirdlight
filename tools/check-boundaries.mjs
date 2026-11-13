@@ -395,7 +395,9 @@ export const NODE_SIDE_ALLOWED = {
     // + its `./dialogue-preview` subpath — the dialogue tab's
     // previewer plays a conversation with the runtime's runner, the host's UI
     // layer and audio owner (the same code as Play), outside Play.
-    subpaths: { 'game-host': ['ui-layer', 'dialogue-preview'], 'behavior-build': ['api-typings'] },
+    // + its `./profile-view` subpath — the profiler panel lays out, saves and
+    // opens a frame profile with the code the Play/export overlay uses (pure).
+    subpaths: { 'game-host': ['ui-layer', 'dialogue-preview', 'profile-view'], 'behavior-build': ['api-typings'] },
     external: [
       'three',
       'react',
