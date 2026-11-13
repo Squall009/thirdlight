@@ -22,19 +22,20 @@ import { fillWindMap, orderWindZones, placeWindZone, WIND_DEFAULTS, WIND_MAP_CHA
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 
+import { CameraWindow } from './camera-window';
 import type { N } from './effects-tsl';
 import { untransformedTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, If, abs, clamp, float, floor, fract, length, max, min, mix, select, sqrt, texture, uniform, vec2, vec4 } = TSL;
+const { Fn, If, abs, clamp, float, floor, fract, length, max, mix, select, sqrt, texture, uniform, vec2, vec4 } = TSL;
 
 /** Texels a side of the wind map (64 × 4 m: 256 m round the camera, far past where grass is drawn). */
 export const WIND_MAP_TEXELS = 64;
 /** Metres a wind map texel spans: a zone's edge is no sharper than this. */
 export const WIND_MAP_TEXEL_M = 4;
-/** The map's centre moves in steps of this many metres (it is filled again only then). */
-const WIND_MAP_STEP_M = 32;
+/** The map's centre moves in steps of this many texels (32 m: it is filled again only then). */
+const WIND_MAP_STEP_TEXELS = 8;
 /** Texels a side of the engine's neutral gust pattern. */
 export const WIND_NOISE_TEXELS = 128;
 /** Seconds of one flow period where a zone moves the pattern (each read restarts once a period, unseen). */
@@ -131,6 +132,9 @@ const sameMatrix = (a: ArrayLike<number>, b: ArrayLike<number>): boolean => {
   return true;
 };
 
+/** The wind at a world ground point `p` (vec2 x, z): vec4(direction x, direction z, strength with gusts, turbulence). */
+export type WindSample = (p: N) => N;
+
 export class WindField {
   /** The global wind's values: [dirX, dirZ, strength, gust] and [speed, scale, turbulence, 0]. */
   private readonly globalA = uniform(new THREE.Vector4(1, 0, 0.5, 0.4)).setGroup(TSL.renderGroup);
@@ -139,8 +143,8 @@ export class WindField {
   private readonly scroll = uniform(new THREE.Vector4()).setGroup(TSL.renderGroup);
   /** The second layer's size and speed shares. */
   private readonly octave = uniform(new THREE.Vector2(WIND_DEFAULTS.octave.scale, WIND_DEFAULTS.octave.speed)).setGroup(TSL.renderGroup);
-  /** The map: [x0, z0, 1 / side metres, 1 when a zone reaches it]. */
-  private readonly rect = uniform(new THREE.Vector4()).setGroup(TSL.renderGroup);
+  /** Where the map lies round the camera (its rect is on when a zone reaches it). */
+  private readonly window = new CameraWindow({ texels: WIND_MAP_TEXELS, cellM: WIND_MAP_TEXEL_M, stepCells: WIND_MAP_STEP_TEXELS });
   private readonly mapA = halfTexture(WIND_MAP_TEXELS);
   private readonly mapB = halfTexture(WIND_MAP_TEXELS);
   private readonly ownNoise = noiseTexture();
@@ -151,8 +155,6 @@ export class WindField {
   private octaveShares: { scale: number; speed: number } = { ...WIND_DEFAULTS.octave };
   private zones: { key: string; zone: WindZoneComponent; matrix: Float64Array }[] = [];
   private placed: PlacedWindZone[] = [];
-  private mapX = NaN;
-  private mapZ = NaN;
   private dirty = true;
   /** Fills of the map so far (the diagnostics' count, the tests'). */
   fills = 0;
@@ -226,14 +228,7 @@ export class WindField {
 
   /** The camera's place this frame: the map follows it in steps, and is filled again when anything it holds changed. */
   setEye(x: number, z: number): void {
-    const half = (WIND_MAP_TEXELS * WIND_MAP_TEXEL_M) / 2;
-    const x0 = Math.round(x / WIND_MAP_STEP_M) * WIND_MAP_STEP_M - half;
-    const z0 = Math.round(z / WIND_MAP_STEP_M) * WIND_MAP_STEP_M - half;
-    if (x0 !== this.mapX || z0 !== this.mapZ) {
-      this.mapX = x0;
-      this.mapZ = z0;
-      this.dirty = true;
-    }
+    if (this.window.follow(x, z)) this.dirty = true;
     if (this.dirty) this.fill();
   }
 
@@ -288,21 +283,20 @@ export class WindField {
 
   /** What the map holds now (diagnostics). */
   state(): { zones: number; mapOn: boolean; centre: [number, number]; fills: number } {
-    return { zones: this.placed.length, mapOn: (this.rect.value as THREE.Vector4).w > 0, centre: [this.mapX + (WIND_MAP_TEXELS * WIND_MAP_TEXEL_M) / 2, this.mapZ + (WIND_MAP_TEXELS * WIND_MAP_TEXEL_M) / 2], fills: this.fills };
+    return { zones: this.placed.length, mapOn: this.window.on(), centre: this.window.centre(), fills: this.fills };
   }
 
   private fill(): void {
     this.dirty = false;
-    const side = WIND_MAP_TEXELS * WIND_MAP_TEXEL_M;
-    const rect = this.rect.value as THREE.Vector4;
+    const { side, originX: x0, originZ: z0 } = this.window;
     const reaching = this.placed.filter((z) => {
       const r = z.shape === 'sphere' ? z.radius : Math.hypot(z.halfX, z.halfZ);
-      return z.x + r > this.mapX && z.x - r < this.mapX + side && z.z + r > this.mapZ && z.z - r < this.mapZ + side;
+      return z.x + r > x0 && z.x - r < x0 + side && z.z + r > z0 && z.z - r < z0 + side;
     });
-    rect.set(this.mapX, this.mapZ, 1 / side, reaching.length > 0 ? 1 : 0);
+    this.window.setOn(reaching.length > 0);
     if (reaching.length === 0) return;
     this.fills += 1;
-    fillWindMap(this.floats, this.values, reaching, this.mapX, this.mapZ, WIND_MAP_TEXEL_M, WIND_MAP_TEXELS);
+    fillWindMap(this.floats, this.values, reaching, x0, z0, WIND_MAP_TEXEL_M, WIND_MAP_TEXELS);
     const a = this.mapA.image.data as Uint16Array;
     const b = this.mapB.image.data as Uint16Array;
     const h = THREE.DataUtils.toHalfFloat;
@@ -334,13 +328,12 @@ export class WindField {
    * The wind at a world ground point `p` (vec2 x, z), in the vertex stage:
    * vec4(direction x, direction z, strength with gusts, turbulence).
    */
-  readonly sample = Fn(([p]: [N]): N => {
+  readonly sample: WindSample = Fn(([p]: [N]): N => {
     const a = vec4(this.globalA).toVar();
     const b = vec4(this.globalB).toVar();
-    const rect = this.rect;
-    If(rect.w.greaterThan(0), () => {
-      const uv = p.sub(rect.xy).mul(rect.z);
-      const edge = min(min(uv.x, uv.y), min(float(1).sub(uv.x), float(1).sub(uv.y))).mul(WIND_MAP_TEXELS);
+    If(this.window.rect.w.greaterThan(0), () => {
+      const uv = this.window.uvNode(p);
+      const edge = this.window.edgeNode(uv);
       // The outermost texel fades back to the global wind, so the map's edge leaves no line.
       const inside = clamp(edge.sub(0.5), 0, 1);
       If(inside.greaterThan(0), () => {
