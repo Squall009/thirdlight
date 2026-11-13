@@ -5616,6 +5616,21 @@ planes where A's are stair-stepped; WebGL 2's baked 0.5 m draws flat-colour wall
   builder's too. Not versioned: caches baked before keep the old fallback in those samples until their nodes are built
   again (inside or deep under the surface; the e2e's 64 nodes read 0 looks apart afterwards).
 
+- 2026-11-13 (46d-c, lead, the close): **46d-c closed**. Phase gate gate-phase-20261113-062934 (start fda36fa8):
+  build, lint and every unit test green (891 files, 13 skipped), e2e 325 passed, 5 skipped, 1 failed in the run and
+  again alone in the gate's own rerun step (`block-editor.e2e.ts:144`, D452: the old block editor's redo not seen;
+  no 46d-c commit touches it; it passed alone 30 min earlier at the same code), then passed in `gate.sh rerun`
+  (gate-rerun-20261113-065936, GREEN): green on rerun, D452 noted. 28 min, 10.5 GB peak, load mean 7.4, against
+  46d-b's 23 min (gate-phase-20261111-144708, 189 e2e tests in core + 8 areas): this gate ran every area (180 files,
+  326 tests) because 46d-c changed project-model (`bakeLevel`, `fineBuild`), which maps to every area; the voxel area
+  itself 111 → 189 s (the fine-brick GPU-vs-CPU check, textured bricks, roofs, the dig, the Play bake with its
+  Inspector progress, the WebGL 2 baked check). A first phase gate (gate-phase-20261113-020301) was RED at the unit
+  tests after 12 min (the three-hooks checklist, two clock-bound tests: fixed in 4644fca4) and never reached e2e.
+  Review: close after fixes (above); fixes finding by finding in §8 "46d-c review fixes"; not fixed and open: D594
+  (a dig past the detail ring in a baked world), D644 (a full far-cache rebuild drops the fine bake), D599, D643.
+  acc46d-c published (review page `#acc46d-c`; `approve-46d-c.md`: five questions, 65 defaults listed, 42 new).
+  Nothing retired, no default changed (`bakeLevel` 2 m, `fineBuild` off). 46e only on the owner's word.
+
 ## 10. Open questions for the owner
 
 46d-c (acc46d-c, `approve-46d-c.md`; defaults in brackets stand if unanswered):
