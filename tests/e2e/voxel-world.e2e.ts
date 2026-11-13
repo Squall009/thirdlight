@@ -975,6 +975,21 @@ async function groundRelief(on: boolean): Promise<void> {
 }
 
 interface PlayObservation { state?: string; stepIndex?: number; counters?: Record<string, number>; player?: { x: number; y: number; z: number } }
+/** The page's frame profile as the e2e reads it (game-host page-profile.ts `ProfileReport`, the fields checked). */
+interface ProfileFrameE2e { thread: string; frame: number; tick?: number; start: number; ms: number; byCategory: Record<string, number>; spans: Array<{ name: string; category: string; start: number; ms: number; selfMs: number; depth: number; lane?: number }>; dropped: number }
+interface ProfileE2e {
+  threads: { page: ProfileFrameE2e[]; sim: ProfileFrameE2e[]; jobs: ProfileFrameE2e[] };
+  counters: { frames: Array<{ frame: number; drawCalls: number; triangles: number; heapBytes: number | null }>; stats: { drawCalls: number; triangles: number; quality: string } | null; queues: { workers: number; queued: number; inFlight: number } | null; voxels: { chunks: number } | null };
+  gpu: { timestamps: boolean; shares: unknown; room: string };
+  budget: { tier: string; hz: number; intervalMs: number; rows: Array<{ thread: string; category: string; budgetMs: number; meanMs: number; worstMs: number; use: number | null }> };
+  slices: Array<{ id: string; msNow: number | null }>;
+  spikes: unknown[];
+  cost: { pageSpansPerFrame: number; nsPerSpan: number };
+}
+
+/** Own ms by category, summed over frames. */
+const categorySum = (frames: readonly ProfileFrameE2e[]): number => frames.reduce((n, f) => n + Object.values(f.byCategory).reduce((m, v) => m + v, 0), 0);
+
 interface VoxelPlayHook { kits(): Record<string, string>; stats(): { worlds: Record<string, { chunks: number; triangles: number; kitInstances: number; blendM: number; relief: { n: number; radiusM: number; displace: boolean; vertices: number } | null; far: { nodes: number; bricks: number; triangles: number; draws: number } }>; batches: number; replaced: number; waiting: number }; edits(): Array<{ swapMs: number; hopMs: number; applyMs: number; visibleMs: number; frames: number; chunks: number; sections: number }>; setRelief(s: { displace: boolean }): void; showFar(on: boolean): void; checkFarFeedback(): void }
 
 /**
@@ -1138,6 +1153,40 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
     expect((await observe()).counters?.['refused'] ?? 0).toBe(0);
     await expect.poll(async () => (await observe()).counters?.['changes'] ?? 0, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+    // The frame profile, read once on the page while the world streams: spans of the page, of the simulation worker
+    // (posted with its ticks) and of the voxel job workers; its counters are the frame stats'; its budget the tier's.
+    const readProfile = (): Promise<ProfileE2e> => canvas.evaluate(() => (window as unknown as { __tlProfiler: { read(): ProfileE2e } }).__tlProfiler.read());
+    let prof: ProfileE2e | null = null;
+    await expect.poll(async () => { prof = await readProfile(); return prof.threads.jobs.length > 0 && prof.threads.sim.length >= 30 && prof.counters.stats !== null; }, { timeout: 20_000, message: 'the profile has every thread' }).toBe(true);
+    const pr = prof!;
+    writeFileSync(test.info().outputPath('profile.json'), JSON.stringify(pr));
+    const names = (frames: readonly ProfileFrameE2e[]): Set<string> => new Set(frames.flatMap((f) => f.spans.map((x) => x.name)));
+    for (const n of ['render frame', 'scene sync', 'draw submit']) expect(names(pr.threads.page).has(n), `page span ${n}`).toBe(true);
+    for (const n of ['step', 'voxel streaming', 'scripts']) expect(names(pr.threads.sim).has(n), `simulation span ${n}`).toBe(true);
+    expect([...names(pr.threads.jobs)].every((n) => n.startsWith('job '))).toBe(true);
+    expect(pr.threads.jobs.flatMap((f) => f.spans).every((x) => (x.lane ?? -1) >= 0 && (x.lane ?? 0) < (pr.counters.queues?.workers ?? 0))).toBe(true);
+    // The worker's frames come one a tick, in order; the page's are its frames, each from its own start.
+    const ticks = pr.threads.sim.map((f) => f.tick ?? -1);
+    expect(ticks.every((t, i) => i === 0 || t > ticks[i - 1]!)).toBe(true);
+    // Plausible sums: a thread's own time over its frames is busy time, at most the wall time those frames cover.
+    const wall = (frames: readonly ProfileFrameE2e[]): number => frames.at(-1)!.start + frames.at(-1)!.ms - frames[0]!.start;
+    const pageBusy = categorySum(pr.threads.page) / wall(pr.threads.page);
+    const simBusy = categorySum(pr.threads.sim) / wall(pr.threads.sim);
+    expect(pageBusy).toBeGreaterThan(0);
+    expect(pageBusy).toBeLessThanOrEqual(1);
+    expect(simBusy).toBeGreaterThan(0);
+    expect(simBusy).toBeLessThanOrEqual(1);
+    // The counters: the stats' last frame is one of the profile's frames (one count of draws and triangles).
+    const st = pr.counters.stats!;
+    expect(pr.counters.frames.some((c) => c.drawCalls === st.drawCalls && c.triangles === st.triangles), `stats ${st.drawCalls} draws / ${st.triangles} tris among the frames`).toBe(true);
+    expect(pr.counters.voxels?.chunks ?? 0).toBeGreaterThan(20);
+    // The tier switched to at run time is the budget's: high, planned at 60 Hz.
+    expect(st.quality).toBe('high');
+    expect([pr.budget.tier, pr.budget.hz]).toEqual(['high', 60]);
+    expect(pr.budget.rows.find((r) => r.thread === 'page' && r.category === 'render')?.budgetMs).toBeCloseTo(0.25 * (1000 / 60), 3);
+    expect(pr.gpu.room).toBe('headroom meter');
+    const perThread = (frames: readonly ProfileFrameE2e[]): string => (frames.length === 0 ? '-' : `${(categorySum(frames) / frames.length).toFixed(2)} ms/frame over ${frames.length}`);
+    console.log(`[voxel-play] ${renderer} profile: page ${perThread(pr.threads.page)} (busy ${(pageBusy * 100).toFixed(1)} %), sim ${perThread(pr.threads.sim)} (busy ${(simBusy * 100).toFixed(1)} %), jobs ${perThread(pr.threads.jobs)}; ${pr.cost.pageSpansPerFrame.toFixed(1)} page spans a frame at ${pr.cost.nsPerSpan.toFixed(0)} ns; spikes ${pr.spikes.length}; rows ${JSON.stringify(pr.budget.rows.filter((r) => r.meanMs > 0).map((r) => `${r.thread}/${r.category} ${r.meanMs.toFixed(2)}/${r.budgetMs.toFixed(1)}`))}`);
     // The character falls into the pit (its collider went with the swap that drew the hole).
     await expect.poll(async () => standing.y - ((await observe()).player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);
     const after = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('after.png') }));

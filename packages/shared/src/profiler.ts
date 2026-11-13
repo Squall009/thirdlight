@@ -298,13 +298,13 @@ export class SpanRecorder {
   /** When the closed frame `back` frames before the newest started (NaN: not kept). Reads without making objects. */
   closedStart(back = 0): number {
     const f = this.closed - 1 - back;
-    return f < 0 || back >= this.frames ? NaN : this.fStart[f % this.frames]!;
+    return f < 0 || back >= this.frames - (this.open ? 1 : 0) ? NaN : this.fStart[f % this.frames]!;
   }
 
   /** When the closed frame `back` frames before the newest ended (NaN: not kept). */
   closedEnd(back = 0): number {
     const f = this.closed - 1 - back;
-    return f < 0 || back >= this.frames ? NaN : this.fEnd[f % this.frames]!;
+    return f < 0 || back >= this.frames - (this.open ? 1 : 0) ? NaN : this.fEnd[f % this.frames]!;
   }
 
   private openFrame(at: number): void {
@@ -340,9 +340,9 @@ export class SpanRecorder {
     this.fCount[s] = n + 1;
   }
 
-  /** The ring slots of the closed frames still kept, oldest first. */
+  /** The ring slots of the closed frames still kept, oldest first (an open frame already holds the oldest's slot). */
   private keptSlots(from = 0): number[] {
-    const first = Math.max(0, from, this.closed - this.frames);
+    const first = Math.max(0, from, this.closed - this.frames + (this.open ? 1 : 0));
     const out: number[] = [];
     for (let f = first; f < this.closed; f++) out.push(f % this.frames);
     return out;

@@ -38,6 +38,11 @@ describe('the span recorder', () => {
     }
     const own = r.read().own;
     expect(own.map((f) => f.frame)).toEqual([2, 3, 4]);
+    // A frame opened (a span between frames) takes the oldest's slot: it is no longer read as kept.
+    r.add(id, 60, 1);
+    expect(r.read().own.map((f) => f.frame)).toEqual([3, 4]);
+    expect(r.closedStart(1)).toBe(30);
+    expect(r.closedStart(2)).toBeNaN();
     expect(own.every((f) => f.spans.length === 2 && f.dropped === 1)).toBe(true);
     // The dropped span's time is still in the sum.
     expect(own.every((f) => f.byCategory.scripts === 3)).toBe(true);

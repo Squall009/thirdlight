@@ -288,9 +288,10 @@ export class PageProfile {
   /** A span's cost on this page (ns), measured once on a recorder of its own. */
   private spanCost(): number {
     if (this.nsPerSpan !== null) return this.nsPerSpan;
-    const r = new SpanRecorder('page', 2, 1024);
+    const r = new SpanRecorder('page', 1, 5000);
     const id = r.span('cost', 'other');
-    const n = 1000;
+    // Enough spans that a page's coarse clock (0.1 ms where the page is not cross-origin isolated) reads them to a few ns.
+    const n = 5000;
     const t0 = performance.now();
     r.beginFrame();
     for (let i = 0; i < n; i++) {
