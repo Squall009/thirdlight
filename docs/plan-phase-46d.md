@@ -5387,6 +5387,29 @@ MiB, of low's 4,096): low A 639 + 874, B 660 + 911, C 666 + 1,153, C1 631 + 1,18
   0.5 m bake of the 8 km world is 5.0 GB plus the export's copy (the ≥ 8 GB free rule would not hold); the bench
   regions (the town, the flight's end, near-valley, near-boulders) were baked instead, 39 columns more (27 at level 0,
   12 at level 1), 140 MB, 323 s on 8 threads; the three modes ran in Play the same hour for that reason.
+- 2026-11-13 (46d.26c, default chosen, owner to confirm): **fine nodes stay closed only where the near cover hides the
+  far field** (the chunk and every chunk round it drawn by the near field), not wherever the near field draws: in the
+  cover's edge ring the far field draws behind the near field, and a level 2 kept closed there showed its 2 m roofs past
+  the near roofs (D640, fixed 9bc95e2a). Children the cover hides whole are not opened at all.
+- 2026-11-13 (46d.26c): D631's hairlines and D634's holes traced, not fixed: the hairlines are the fine field's contour
+  steps lit at a grazing angle (not skirts, not the march's tolerance, not the builder's roof rule: no re-bake); at
+  every hole frame at speed the near field draws nothing and the cover is empty, so the missing ground is the far
+  field's own coarse nodes near the eye (no cover or ordering rule to change).
+- 2026-11-13 (46d.26c, default chosen, owner to confirm): **the < 2 s full-detail target stays the target; today's
+  detail ring stays the default.** With baked 0.5 m bricks low settles in 3.7–4.0 s, bound by level 0's own refill
+  (~6.6 k section derives after the stop for 91 chunks); a ~32 m detail ring at low (the scene's `quality.low.scale`
+  0.5) gives 1.9–2.0 s, but windows, frames and fences end ~13 m nearer. The owner's A5 (detail ring unchanged until
+  the far-rendering numbers exist) is now the owner's to revisit with these numbers.
+- 2026-11-13 (46d.26c, default chosen, owner to confirm): **the comparison's verdict is (ii) in this form**: baked
+  0.5 m the recommended setting for new worlds shipped as packaged games (1 m where disk matters and the game targets
+  WebGPU), the mesh rings kept as the default for 2 m worlds (compute bricks did not beat them on a 2 m world: full
+  detail 0.5–1 s later at low, up to ~3 s at medium); nothing retired, no default changed (`bakeLevel` 2 m,
+  `fineBricks` off). What stands in the way of retiring the rings: 2 m worlds on WebGL 2 or without compute (blobs),
+  2 m worlds on WebGPU (B slower than A), the detail-ring-only mode's replacement for `stream-lod`/`lod-select`, the
+  open look rows (D628, D631, the gravel and river-bed lines) and medium on real hardware. One page:
+  `docs/briefs/fine-bricks-comparison-2026-11-12.md`.
+- 2026-11-13 (46d.26c): the coverage bench resets the quality levels to the defaults, so a level's `voxelRings` does not
+  reach it; a ring candidate is set through the scene's `voxelWorld.quality.<level>.scale`.
 
 ## 10. Open questions for the owner
 
