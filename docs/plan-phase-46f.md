@@ -229,7 +229,10 @@ profiler view hidden and `data-reads` 0 over 1.5 s, Shift+F3 shows page / sim / 
 capture → version 1, source export, Shift+F3 hides it and the reads stop; `mcp.e2e.ts`: `tl_diagnostics`
 sections ['profile'] over a real Play: only that part, digest ≤ 6 KiB and answer ≤ 16 KiB, page and sim frames,
 render's budget, draw calls; not in an answer that does not name it. `project-items` / `project-window`: the dock's
-fourth tab.
+fourth tab; `playtest.e2e.ts`: a whole diagnostics answer has every section but `mode` and `profile`. Gate:
+`gate-fast-20261113-180707` red only on that playtest list (fixed, f82684a2), `gate-rerun-20261113-182705` green;
+e2e 8.8 min over 68 files (voxel area 157 s, 158 before); village perf at 60 Hz 0/360 missed, main 6.32 ms
+(baseline 5.64, limit 9.02).
 
 **Measured** 2026-11-13 17:32–17:58 UTC, each run alone, uptime 21.0 d, load (1 min) 1.0–3.4: coverage, export,
 low 30 Hz, 1280 × 720, 150 m/s, interleaved; base b556103f built in a scratch worktree, removed after (raw:
