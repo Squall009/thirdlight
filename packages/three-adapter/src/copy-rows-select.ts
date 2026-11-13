@@ -38,9 +38,10 @@ export const NO_OUTPUT = 0xffffffff;
 /**
  * u32 a selection's header takes in the selection data: its copies' first place in the pools, their count, where
  * its state starts, its level count, its flags, where its floats start, where its level outputs start, its
- * ungrouped output and its near output.
+ * ungrouped output, its near output, and where its blocks' levels start (a set whose copies take their block's
+ * level, picked on the page; {@link NO_OUTPUT}: each copy picks its own).
  */
-export const SELECTION_U32 = 9;
+export const SELECTION_U32 = 10;
 /** Selection flags: the last level is the cull size; the set thins by distance. */
 export const SELECT_CULLS = 1;
 export const SELECT_THINS = 2;
@@ -151,6 +152,11 @@ export function copySelectKernels(b: SelectBuffers, v: SelectView, t: SelectTabl
           open.assign(acc.open);
         });
         const target = TSL.uint(level).toVar();
+        // A set whose blocks each draw one level: the page's pick for the copy's block (its index rides in the copy's floats).
+        const blocks = data.element(h.add(9)).toVar();
+        TSL.If(blocks.notEqual(NO_OUTPUT), () => {
+          target.assign(data.element(blocks.add(TSL.uint(v3.y))));
+        });
         // `nextCopyState` (copy-rows-rule.ts).
         const nextLeft = was.shiftRight(8).bitAnd(0xff).toVar();
         const nextFade = fade.toVar();

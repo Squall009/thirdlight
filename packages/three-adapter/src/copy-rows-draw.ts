@@ -156,8 +156,21 @@ export function rowsIndex(): N {
   return rowNodes().slot;
 }
 
-/** What a row draw's render object last bound. */
-const seen = new WeakMap<object, { pools: unknown; base: number; copies: number; list: number; mode: number; output: number; stateAt: number }>();
+/** What a row draw's render object last bound (the pools by identity, then its places and pass). */
+interface Bound {
+  matrices: unknown;
+  slots: unknown;
+  lists: unknown;
+  visible: unknown;
+  counts: unknown;
+  base: number;
+  copies: number;
+  list: number;
+  mode: number;
+  output: number;
+  stateAt: number;
+}
+const seen = new WeakMap<object, Bound>();
 
 /** A full refresh whenever what a row draw binds changed since its last draw (three refreshes per-object values only on changes it knows of). */
 function refreshOnRowChange(base: NeedsRefresh): NeedsRefresh {
@@ -166,12 +179,19 @@ function refreshOnRowChange(base: NeedsRefresh): NeedsRefresh {
     const d = rowOf(renderObject.object);
     if (d === undefined) return refresh;
     const r = d.binding.row;
-    const now = { pools: d.pools()?.matrices ?? null, base: r?.base ?? -1, copies: r?.copies ?? -1, list: d.binding.list, mode: d.binding.mode, output: r?.output.index ?? -1, stateAt: r?.stateAt ?? -1 };
-    const pools = d.pools();
-    const key = pools === null ? null : `${pools.matrices.id}|${pools.slots.id}|${pools.lists.id}|${pools.visible.id}|${pools.counts.id}`;
+    const p = d.pools();
     const was = seen.get(renderObject);
-    if (was !== undefined && was.pools === key && was.base === now.base && was.copies === now.copies && was.list === now.list && was.mode === now.mode && was.output === now.output && was.stateAt === now.stateAt) return refresh;
-    seen.set(renderObject, { ...now, pools: key });
+    const base0 = r?.base ?? -1;
+    const copies = r?.copies ?? -1;
+    const output = r?.output.index ?? -1;
+    const stateAt = r?.stateAt ?? -1;
+    const same =
+      was !== undefined && was.matrices === (p?.matrices ?? null) && was.slots === (p?.slots ?? null) && was.lists === (p?.lists ?? null) && was.visible === (p?.visible ?? null) && was.counts === (p?.counts ?? null) &&
+      was.base === base0 && was.copies === copies && was.list === d.binding.list && was.mode === d.binding.mode && was.output === output && was.stateAt === stateAt;
+    if (same) return refresh;
+    const now: Bound = { matrices: p?.matrices ?? null, slots: p?.slots ?? null, lists: p?.lists ?? null, visible: p?.visible ?? null, counts: p?.counts ?? null, base: base0, copies, list: d.binding.list, mode: d.binding.mode, output, stateAt };
+    if (was === undefined) seen.set(renderObject, now);
+    else Object.assign(was, now);
     return RenderObjectRefreshType.FULL;
   };
 }

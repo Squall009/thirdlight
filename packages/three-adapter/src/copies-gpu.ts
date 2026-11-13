@@ -35,7 +35,7 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { RenderObjectRefreshType } from 'three';
-import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
+import { NodeMaterial, StorageBufferAttribute, type NodeBuilder } from 'three/webgpu';
 import { INTERACTOR_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/project-model';
 import { lodLevelOf, lodLevelStep } from '@thirdlight/shared';
 
@@ -82,6 +82,11 @@ const LIST_ROW = 1024;
 const LIST_FIXED_HEADER = 3;
 /** Texels before a list's entries for a LOD group of `levels` levels. */
 const listHeaderTexels = (levels: number): number => LIST_FIXED_HEADER + Math.ceil(levels / 4);
+/**
+ * How long a row draw stays shown after no block could reach its level (ms): longer than a level's cross-fade and
+ * than the table's read-back of its lists' counts, which keeps it shown while the GPU still counts copies there.
+ */
+const COPY_ROW_SHOWN_MS = 1500;
 /** A switch distance never reached (a slot past the model's levels). */
 const NEVER = 3.4e38;
 
@@ -101,6 +106,8 @@ const floatTexture = (data: Float32Array, width: number, height: number): THREE.
  */
 const NO_COPIES = floatTexture(new Float32Array(4), 1, 1);
 const NO_LIST = floatTexture(new Float32Array(4), 1, 1);
+/** A row draw's pools before it has any (never read: it draws nothing then). */
+const NO_STORAGE = new StorageBufferAttribute(new Uint32Array(4), 1);
 
 /** One draw's per-object inputs (vec4s, so a draw updates a handful of uniforms). */
 interface CopyDraw {
@@ -283,6 +290,8 @@ interface CopyList {
   nAll: number;
   /** Copies in the blocks the view sees (diagnostics). */
   copiesInView: number;
+  /** Drawn as table rows: shown until then (ms; a fade out of its level may still be running). */
+  shownUntil: number;
 }
 
 /** How a copies set is made: an instance set's options, its copies prepared ahead (a worker's), and a shadow-only draw near the eye. */
@@ -421,7 +430,7 @@ export class GpuCopySet {
         const header = listHeaderTexels(this.groupOf(group)?.distances.length ?? 1);
         const rows = Math.max(1, Math.ceil((header + blocks) / LIST_ROW));
         const data = new Float32Array(rows * LIST_ROW * 4);
-        this.lists.push((l = { group, level, reach, staticAll, mode, header, data, texture: floatTexture(data, LIST_ROW, rows), nView: 0, nCand: 0, nAll: 0, copiesInView: 0 }));
+        this.lists.push((l = { group, level, reach, staticAll, mode, header, data, texture: floatTexture(data, LIST_ROW, rows), nView: 0, nCand: 0, nAll: 0, copiesInView: 0, shownUntil: 0 }));
         this.writeHeader(l);
       }
       return l;
@@ -475,7 +484,18 @@ export class GpuCopySet {
       };
       mesh.userData[INSTANCE_SET_KEY] = true;
       const binding: CopyRowBinding = { mode: 0, list: 0, row: null };
-      const row: CopyRowDraw = { binding, local: draw.local, bend: options.bendAway ?? INTERACTOR_DEFAULTS.ruleBend, pools: () => (this.table === null ? null : { matrices: binding.row!.matrices, slots: binding.row!.slots, lists: binding.row!.lists, visible: this.table.copyState, counts: this.table.copyCounts }) };
+      const pools = { matrices: NO_STORAGE, slots: NO_STORAGE, lists: NO_STORAGE, visible: NO_STORAGE, counts: NO_STORAGE };
+      const row: CopyRowDraw = { binding, local: draw.local, bend: options.bendAway ?? INTERACTOR_DEFAULTS.ruleBend, pools: () => {
+          // One object, refreshed in place: asked for every draw every frame.
+          const t = this.table;
+          if (t === null || binding.row === null) return null;
+          pools.matrices = binding.row.matrices;
+          pools.slots = binding.row.slots;
+          pools.lists = binding.row.lists;
+          pools.visible = t.copyState;
+          pools.counts = t.copyCounts;
+          return pools;
+        } };
       mesh.onBeforeRender = (_r, scene, camera) => {
         if (this.table === null && !this.adoptTried) this.adopt(scene);
         if (this.table !== null && binding.row !== null) {
@@ -515,7 +535,8 @@ export class GpuCopySet {
           const o = (at + slot) * COPY_ROW_FLOATS;
           for (let k = 0; k < 12; k += 1) target[o + k] = p.texels[t + k]!;
           target[o + 12] = Math.max(Math.abs(p.texels[t + 8]!), Math.abs(p.texels[t + 9]!), Math.abs(p.texels[t + 10]!));
-          target[o + 13] = 0;
+          // Its block's place among the blocks' levels (block-major, a level per group), where blocks pick for their copies.
+          target[o + 13] = set.blockOf[slot]! * Math.max(1, groups.length);
           target[o + 14] = 0;
           target[o + 15] = 1;
         }
@@ -529,6 +550,7 @@ export class GpuCopySet {
         return d.w > 0.5 ? { from: d.x, to: d.y, min: d.z } : null;
       },
       nearReach: this.options.shadowDistance ?? null,
+      blockLevels: () => (set.perCopy ? null : set.blockLevels),
       tuning: this.tuning,
       vertexReach: () => {
         let r = 0;
@@ -698,7 +720,7 @@ export class GpuCopySet {
     // Drawn as the table's rows, every copy picks its own level (in compute): the page only hides the draws no copy
     // can reach now (a level and its neighbours, for the project's hysteresis and a fade under way).
     const rows = this.table !== null;
-    const perCopy = this.perCopy || rows;
+    const perCopy = this.perCopy;
     if (!perCopy) this.pickBlockLevels(w, ws, toDistance);
     // Each block once: its nearest and farthest metres from the eye, whether the view sees it, and (per copy) the levels
     // its copies may take in each group; the lists then only compare.
@@ -739,14 +761,18 @@ export class GpuCopySet {
         }
         const lo = sc.lo[b * G + gi]!;
         const hi = sc.hi[b * G + gi]!;
-        if (rows) return list.group < 0 ? !(culls && lo === last) : lo - 1 <= list.level && list.level <= hi + 1 && !(culls && list.level === last);
         return list.group < 0 ? !(culls && lo === last) : lo <= list.level && list.level <= hi && !(culls && list.level === last);
       };
       if (rows) {
-        // Shown while some block may hold a copy it draws (the selection pass lists the copies themselves).
+        // Shown while some block may hold a copy it draws (the selection pass lists the copies themselves), for a while
+        // after (a copy fading out of the level, the counts' read-back catching up), and while the GPU last counted
+        // copies in its list (a copy the project's hysteresis holds at a coarser level than its distance says).
         let any = false;
         for (let b = 0; b < nb && !any; b += 1) any = candidate(b);
-        list.nCand = any ? 1 : 0;
+        const now = performance.now();
+        if (any) list.shownUntil = now + COPY_ROW_SHOWN_MS;
+        const counted = this.draws.some((d) => d.list === list && d.binding.row !== null && d.binding.row.output.front + d.binding.row.output.back > 0);
+        list.nCand = any || counted || now < list.shownUntil ? 1 : 0;
         list.nAll = list.staticAll ? nb : list.nCand;
         continue;
       }
@@ -999,7 +1025,7 @@ export class GpuCopySet {
       const sLo = bl[o + 4]! * ws;
       const sHi = bl[o + 5]! * ws;
       // A block's own level (picked whole), else the range its copies' levels lie in.
-      const own = !this.perCopy && this.table === null && g0 !== undefined ? Math.max(0, this.blockLevels[b * this.plan.groups.length]!) : -1;
+      const own = !this.perCopy && g0 !== undefined ? Math.max(0, this.blockLevels[b * this.plan.groups.length]!) : -1;
       const lo = own >= 0 ? own : lodLevelOf(dist, Math.max(0, dc - r) * toDistance, sHi);
       const hi = own >= 0 ? own : lodLevelOf(dist, (dc + r) * toDistance, sLo);
       if (lo === hi && sLo > 0 && (!thins || (dc + r) * toDistance <= d.x * sLo)) {

@@ -20,7 +20,7 @@ import * as TSLTyped from 'three/tsl';
 import { ReadbackBuffer, StorageBufferAttribute, type WebGPURenderer } from 'three/webgpu';
 
 import type { CulledCopies, CulledDepth } from './attribute-instancing';
-import { COPY_ROW_FLOATS, copyFadeStep } from './copy-rows-rule';
+import { COPY_LEVEL_FADE_S, COPY_ROW_FLOATS, copyFadeStep } from './copy-rows-rule';
 import { copySelectKernels, NO_OUTPUT, SELECT_DISPATCH_ROW, SELECT_THINS, SELECT_CULLS, SELECT_WORKGROUP, SELECTION_F32, SELECTION_U32, type SelectTableLayout } from './copy-rows-select';
 import { releaseStorage } from './dispose';
 import type { N } from './effects-tsl';
@@ -33,6 +33,8 @@ const TSL: N = TSLTyped;
 const READBACK_FRAMES = 30;
 /** Seconds a frame's fade may run at most (a page that drew nothing for a while finishes its fades, no more). */
 const MAX_FADE_DT_S = 0.25;
+/** Milliseconds past the last change (and a fade's time) before a still view's pick is no longer run. */
+const STILL_MARGIN_MS = 250;
 /** A sphere radius no frustum or pyramid test leaves out (vertices with no known bound). */
 const UNBOUNDED_REACH_M = 1e9;
 
@@ -65,6 +67,12 @@ export interface CopyRowsSource {
   readonly density: { readonly from: number; readonly to: number; readonly min: number } | null;
   /** The near-shadow draws' reach (m; null: none). */
   readonly nearReach: number | null;
+  /**
+   * Where each block of copies draws one level (the set's copies do not pick their own): its blocks' levels per
+   * group, block-major (`[block × groups + group]`, -1: none picked yet), picked on the page with the hysteresis;
+   * each copy's block index rides in its floats. Null: each copy picks its own level.
+   */
+  blockLevels(): Int16Array | null;
   readonly tuning: LodTuning;
   /** How far the draws' vertices move past their copies' spheres now (m; null: no known bound). */
   vertexReach(): number | null;
@@ -156,8 +164,9 @@ export interface CopyRowsDiagnostics {
   readonly triangles: number;
   /** GPU memory of the selection data and the counters (the copies' places are the pools'). */
   readonly bytes: number;
-  /** Selections run (frames) since made. */
+  /** Selections run (frames) since made, and frames that kept the last one (nothing changed). */
   readonly runs: number;
+  readonly skipped: number;
 }
 
 const grown = (have: number, need: number): number => Math.max(need, have * 2, 16);
@@ -185,7 +194,15 @@ export class CopyRowsTable {
     outsAt: TSL.uniform(0, 'uint'),
     outputCount: TSL.uniform(0, 'uint'),
   };
-  private dataKey = '';
+  /** The selection data's length as last uploaded (-1: none yet). */
+  private dataSize = -1;
+  /** Something a pick reads changed this frame (the data, the parameters, the copies), and when it last did. */
+  private changed = true;
+  private lastChange = 0;
+  private lastSig = '';
+  private rowsSig = 0;
+  /** Frames whose pick was not run (nothing changed since the last one). */
+  private skipped = 0;
   private lastRun = Number.NaN;
   /** This frame's selection ran (the rows' lists and arguments are this frame's). */
   ran = false;
@@ -305,6 +322,7 @@ export class CopyRowsTable {
    * moved the pools (the table then copies them again).
    */
   list(rows: unknown[], firstPass: (o: THREE.Object3D) => boolean): void {
+    this.rowsSig = 0;
     this.frameSets.length = 0;
     this.frameOutputs.length = 0;
     for (const set of this.sets.values()) {
@@ -328,6 +346,7 @@ export class CopyRowsTable {
           r.sharers = i === 0 && !r.otherOnly ? o.rows.length - 1 : 0;
           r.firstPass = firstPass(r.mesh);
           r.row = rows.length;
+          this.rowsSig = (Math.imul(this.rowsSig, 33) + r.row + 1) >>> 0;
           rows.push(r);
         });
       }
@@ -367,6 +386,7 @@ export class CopyRowsTable {
       set.src.writeCopies(m, set.copies);
       this.host.dirtyMatrices(set.copies * COPY_ROW_FLOATS, (set.copies + set.src.count) * COPY_ROW_FLOATS);
       set.copied = set.src.copiesVersion;
+      this.changed = true;
     }
   }
 
@@ -387,12 +407,27 @@ export class CopyRowsTable {
    */
   run(view: CullView, rowCount: number, buffers: { table: StorageBufferAttribute; args: StorageBufferAttribute }, tableGeneration: number): void {
     this.ran = false;
-    if (this.frameSets.length === 0 || view.camera === null) return;
+    if (this.frameSets.length === 0 || view.camera === null) {
+      this.changed = true;
+      return;
+    }
     const now = performance.now();
-    const dt = Number.isFinite(this.lastRun) ? Math.min(MAX_FADE_DT_S, (now - this.lastRun) / 1000) : 0;
-    this.lastRun = now;
     const chunks = this.writeData();
     this.writeFloats(view);
+    const sig = `${view.stamp}|${rowCount}|${this.rowsSig}|${tableGeneration}|${this.generation}`;
+    if (sig !== this.lastSig) this.changed = true;
+    this.lastSig = sig;
+    if (this.changed) this.lastChange = now;
+    this.changed = false;
+    // Nothing a pick reads changed (a still view, the same copies, rows and parameters) and every fade is done: the
+    // lists and arguments the last pass wrote still hold.
+    if (this.runs > 0 && now - this.lastChange > COPY_LEVEL_FADE_S * 1000 + STILL_MARGIN_MS) {
+      this.ran = true;
+      this.skipped += 1;
+      return;
+    }
+    const dt = Number.isFinite(this.lastRun) ? Math.min(MAX_FADE_DT_S, (now - this.lastRun) / 1000) : 0;
+    this.lastRun = now;
     const u = this.uniforms;
     u.eye.value.set(view.eye[0]!, view.eye[1]!, view.eye[2]!);
     const planes = view.planes;
@@ -422,45 +457,63 @@ export class CopyRowsTable {
 
   /** The chunks, the selections' headers, their level outputs and the outputs' lists; returns the chunk count. */
   private writeData(): number {
-    const parts: number[] = [];
     let chunks = 0;
-    for (const set of this.frameSets) chunks += set.selections.length * Math.ceil(set.src.count / SELECT_WORKGROUP);
-    const selections = this.frameSets.reduce((n, s) => n + s.selections.length, 0);
+    let selections = 0;
+    let levelCount = 0;
+    let blockCount = 0;
+    for (const set of this.frameSets) {
+      chunks += set.selections.length * Math.ceil(set.src.count / SELECT_WORKGROUP);
+      selections += set.selections.length;
+      for (const sel of set.selections) levelCount += sel.levels.length;
+      blockCount += set.src.blockLevels()?.length ?? 0;
+    }
     const headersAt = chunks * 2;
     const levelsAt = headersAt + selections * SELECTION_U32;
-    let levelCount = 0;
-    for (const set of this.frameSets) for (const sel of set.selections) levelCount += sel.levels.length;
     const outsAt = levelsAt + levelCount;
-    const need = outsAt + this.frameOutputs.length * 2;
-    // Chunks, then headers, then level outputs, then the outputs' lists.
+    const blocksAt = outsAt + this.frameOutputs.length * 2;
+    const need = blocksAt + blockCount;
+    if (need > this.data.count) {
+      releaseStorage(this.renderer, [this.data]);
+      this.data = this.make('uint', grown(this.data.count, need), 'data');
+      this.generation += 1;
+      this.dataSize = -1;
+    }
+    // Written in place, compared as it goes: uploaded only when what is listed changed.
+    const d = this.data.array as Uint32Array;
+    let at = 0;
+    let changed = need !== this.dataSize;
+    const put = (v: number): void => {
+      if (d[at] !== v) {
+        d[at] = v;
+        changed = true;
+      }
+      at += 1;
+    };
     let si = 0;
-    for (const set of this.frameSets) for (let g = 0; g < set.selections.length; g += 1, si += 1) for (let c = 0; c < set.src.count; c += SELECT_WORKGROUP) parts.push(si, c);
+    for (const set of this.frameSets) for (let g = 0; g < set.selections.length; g += 1, si += 1) for (let c = 0; c < set.src.count; c += SELECT_WORKGROUP) { put(si); put(c); }
     let li = levelsAt;
     let fi = 0;
+    let bi = blocksAt;
     for (const set of this.frameSets) {
-      const d = set.src.density;
+      const thins = set.src.density !== null;
+      const byBlock = set.src.blockLevels();
       for (const [g, sel] of set.selections.entries()) {
-        const grp = set.src.groups[g];
-        const flags = (grp?.culls === true ? SELECT_CULLS : 0) | (d !== null ? SELECT_THINS : 0);
-        parts.push(set.copies, set.src.count, set.copies + g * set.src.count, sel.levels.length, flags, fi, li, sel.ungrouped?.index ?? NO_OUTPUT, sel.near?.index ?? NO_OUTPUT);
+        const flags = (set.src.groups[g]?.culls === true ? SELECT_CULLS : 0) | (thins ? SELECT_THINS : 0);
+        for (const v of [set.copies, set.src.count, set.copies + g * set.src.count, sel.levels.length, flags, fi, li, sel.ungrouped?.index ?? NO_OUTPUT, sel.near?.index ?? NO_OUTPUT, byBlock === null ? NO_OUTPUT : bi + g]) put(v);
         li += sel.levels.length;
         fi += SELECTION_F32 + sel.levels.length;
       }
+      if (byBlock !== null) bi += byBlock.length;
     }
-    for (const set of this.frameSets) for (const sel of set.selections) for (const o of sel.levels) parts.push(o?.index ?? NO_OUTPUT);
-    for (const o of this.frameOutputs) parts.push(o.base, o.cap);
-    if (parts.length !== need) throw new Error(`copy rows: selection data ${parts.length} != ${need}`);
-    const key = parts.join(',');
-    if (key !== this.dataKey) {
-      if (need > this.data.count) {
-        releaseStorage(this.renderer, [this.data]);
-        this.data = this.make('uint', grown(this.data.count, need), 'data');
-        this.generation += 1;
-      }
-      (this.data.array as Uint32Array).set(parts);
+    for (const set of this.frameSets) for (const sel of set.selections) for (const o of sel.levels) put(o?.index ?? NO_OUTPUT);
+    for (const o of this.frameOutputs) { put(o.base); put(o.cap); }
+    // Each block's level, block-major: a selection reads `[its start + block × groups]` (its start: the set's + its group).
+    for (const set of this.frameSets) for (const l of set.src.blockLevels() ?? []) put(Math.max(0, l));
+    if (changed) {
       this.data.addUpdateRange(0, need);
       this.data.needsUpdate = true;
-      this.dataKey = key;
+      this.dataSize = need;
+      this.changed = true;
     }
     this.uniforms.headersAt.value = headersAt;
     this.uniforms.outsAt.value = outsAt;
@@ -500,7 +553,11 @@ export class CopyRowsTable {
         put(toDistance);
         put(src.tuning.hysteresis);
         put(src.modelReach);
-        put(reach ?? UNBOUNDED_REACH_M);
+        // The vertices' reach (the wind's sway) is written when it grows, or falls to under half: a sphere kept larger
+        // never leaves out a copy, and a sway that breathes does not make a still view pick again every frame.
+        const r = reach ?? UNBOUNDED_REACH_M;
+        if (r > f[at]! || r < f[at]! * 0.5) put(r);
+        else at += 1;
         put(src.nearReach ?? -1);
         put(d?.from ?? 0);
         put(d?.to ?? 0);
@@ -512,6 +569,7 @@ export class CopyRowsTable {
     if (changed) {
       this.floats.addUpdateRange(0, at);
       this.floats.needsUpdate = true;
+      this.changed = true;
     }
   }
 
@@ -536,7 +594,7 @@ export class CopyRowsTable {
     for (const set of this.sets.values()) copies += set.src.count;
     for (const o of this.frameOutputs) rows += o.rows.length;
     const bytes = (this.data.count + this.floats.count + this.tally.count + this.counts.count) * 4 + (this.readback?.maxByteLength ?? 0);
-    return { sets: this.sets.size, copies, rows, lists: this.frameOutputs.length, inView: this.read.inView, listed: this.read.listed, triangles: this.read.triangles, bytes, runs: this.runs };
+    return { sets: this.sets.size, copies, rows, lists: this.frameOutputs.length, inView: this.read.inView, listed: this.read.listed, triangles: this.read.triangles, bytes, runs: this.runs, skipped: this.skipped };
   }
 
   /** The lists' counts, read back now and then (one read at a time). */

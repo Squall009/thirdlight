@@ -7,7 +7,10 @@
  * (the asset inspector) move where placed models and each instance copy
  * switch and stop being drawn, on both renderers, in Play and the export
  * (with the project's LOD bias); an instance set's density falloff and its
- * local-light mode are set in the Inspector.
+ * local-light mode are set in the Inspector. On WebGPU the copies are rows of
+ * the culled-instance table (picked in compute): Play and the export (served
+ * with the backend stopped) count its rows and the copies in view, and on the
+ * depth pyramid's path a wall in front of the row leaves its hidden copies out.
  */
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -17,7 +20,7 @@ import { expect, test, type Page } from './pw';
 import { exportedContent, publishBytes, serveDir, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { chooseItem, menu } from './ui';
 
 let be: E2EBackend;
@@ -287,6 +290,14 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   expect(l.instances.culled).toBe(copyDistances.length - near - mid);
   expect(l.instances.thinned).toBe(0);
   expect(l.instances.inView).toBe(near + mid);
+  // On WebGPU the copies are rows of the culled-instance table, picked in compute (level, thinning, frustum): the
+  // marker's two draws (LOD0, LOD1) are its rows, and the view's lists hold the copies in view.
+  type Rows = { sets: number; rows: number; lists: number; inView: number; listed: number; drawn: number };
+  const webgpu = backendOf(variant) === 'webgpu';
+  if (webgpu) {
+    const rows = async (): Promise<Rows | null> => ((await api(`play/${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { occlusion?: { copies?: Rows | null } } } }).diagnostics?.renderer?.occlusion?.copies ?? null;
+    await expect.poll(async () => JSON.stringify(await rows().then((r) => (r === null ? null : [r.sets, r.rows, r.lists, r.inView]))), { timeout: 30_000, message: 'Play: the set as table rows' }).toBe(JSON.stringify([1, 2, 2, near + mid]));
+  }
   // Bands of the picture where each placed marker stands (its bearing on the screen: looking along +z, +x is to the
   // left) and the row in the middle.
   const bandOf = (img: Image, bearing: number): [number, number] => {
@@ -318,6 +329,13 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const outDir = join(be.exportRoot, String(res.json.outputDir));
   expect(JSON.stringify(exportedContent(outDir))).toContain('"lod":{"screenSizes":[0.1],"cullSize":0.04}');
+  // A second export with a wall 60 m ahead hiding the row's far copies (none of the placed markers), drawn on the
+  // depth pyramid's path: the table's tests leave the hidden copies out.
+  const wallAt = ground(60, 0);
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Wall', transform: { position: [wallAt[0], 4, wallAt[2]] }, box: { size: [8, 8, 0.5], material: { color: '#808080' } } });
+  const walled = await be.admin(`projects/${be.projectId}/export`);
+  expect(walled.status, JSON.stringify(walled.json)).toBe(200);
+  const walledDir = join(be.exportRoot, String(walled.json.outputDir));
   await be.halt();
   const site = await serveDir(outDir);
   const game = await page.context().newPage();
@@ -328,9 +346,32 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
     const canvas = game.locator('canvas').first();
     await expectRendererBackend(canvas, variant);
     await expect.poll(async () => look(decodePng(await canvas.screenshot())), { timeout: 60_000, message: 'the export with LOD bias 2' }).toBe('green green magenta magenta greenmagenta');
+    await canvas.screenshot({ path: `test-results/instances-lod-export-${variant}.png` });
+    const rowsOf = async (g: Page): Promise<Rows | null> => g.evaluate(() => (window as unknown as { __tlProfiler?: { read(): { counters: { copyRows?: Rows | null } } } }).__tlProfiler?.read().counters.copyRows ?? null);
+    if (webgpu) {
+      // Every copy of the row is in view (none past the doubled cull size); off the pyramid's path the view draws them all.
+      await expect.poll(async () => JSON.stringify(await rowsOf(game).then((r) => (r === null ? null : [r.sets, r.rows, r.inView, r.drawn]))), { timeout: 30_000, message: 'the export: the set as table rows' }).toBe(JSON.stringify([1, 2, copyDistances.length, copyDistances.length]));
+    }
     expect(errors).toEqual([]);
   } finally {
     await game.close();
     await site.close();
+  }
+  if (!webgpu) return;
+  const walledSite = await serveDir(walledDir);
+  const behind = await page.context().newPage();
+  behind.on('pageerror', (e) => errors.push(e.message));
+  try {
+    const q = exportQueryFor(variant);
+    await behind.goto(`${walledSite.url}${q === '' ? '?' : `${q}&`}occlusion=hiz`);
+    // The frustum still holds the whole row; the pyramid leaves out the copies the wall hides (read back a few frames late).
+    await expect.poll(async () => JSON.stringify(await rowsOf(behind).then((r) => (r === null ? null : [r.inView, r.drawn < r.inView - 4]))), { timeout: 30_000, message: 'the walled export on the pyramid path: hidden copies left out' }).toBe(JSON.stringify([copyDistances.length, true]));
+    const r = (await rowsOf(behind))!;
+    console.log(`[instances-lod] walled export, pyramid path: ${r.drawn} of ${r.inView} copies in view drawn`);
+    await behind.locator('canvas').first().screenshot({ path: `test-results/instances-lod-walled-${variant}.png` });
+    expect(errors).toEqual([]);
+  } finally {
+    await behind.close();
+    await walledSite.close();
   }
 });

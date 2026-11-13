@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { StorageBufferAttribute } from 'three/webgpu';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { COPY_FADE_FULL, COPY_LEVEL_FADE_S, copyFadeStep, nextCopyState, packCopyState, selectCopy, unpackCopyState, type CopySelection } from './copy-rows-rule';
 import { CopyRowsTable, type CopyRow, type CopyRowsHost, type CopyRowsSource } from './copy-rows';
@@ -96,6 +96,7 @@ function source(count: number, levels: number, near: boolean): CopyRowsSource {
     modelReach: 1,
     density: null,
     nearReach: near ? 30 : null,
+    blockLevels: () => null,
     tuning: new LodTuning(),
     vertexReach: () => 0,
     shown: () => true,
@@ -154,14 +155,60 @@ describe('a set of copies as the table rows', () => {
     const data = (table as unknown as { data: StorageBufferAttribute }).data.array as Uint32Array;
     expect([...data.subarray(0, 8)]).toEqual([0, 0, 0, 64, 1, 0, 1, 64]);
     const headers = 8;
-    expect([...data.subarray(headers, headers + SELECTION_U32)]).toEqual([copiesA, 100, copiesA, 3, 0, 0, headers + 2 * SELECTION_U32, NO_OUTPUT, 3]);
+    expect([...data.subarray(headers, headers + SELECTION_U32)]).toEqual([copiesA, 100, copiesA, 3, 0, 0, headers + 2 * SELECTION_U32, NO_OUTPUT, 3, NO_OUTPUT]);
     expect([...data.subarray(headers + 2 * SELECTION_U32, headers + 2 * SELECTION_U32 + 5)]).toEqual([0, 1, 2, 4, 5]);
+    // A set whose blocks pick one level each (not per copy): its blocks' levels follow the lists, block-major.
+    const levels = Int16Array.from([1, 0, -1]);
+    (b as { blockLevels: () => Int16Array | null }).blockLevels = () => levels;
+    rows.length = 0;
+    table.list(rows as unknown[], () => true);
+    table.run(view, rows.length, { table: new StorageBufferAttribute(new Uint32Array(12 * 16), 1), args: new StorageBufferAttribute(new Uint32Array(15 * 16), 1) }, 0);
+    const d2 = (table as unknown as { data: StorageBufferAttribute }).data.array as Uint32Array;
+    const outsEnd = headers + 2 * SELECTION_U32 + 5 + 6 * 2;
+    expect(d2[headers + SELECTION_U32 + 9]).toBe(outsEnd);
+    expect([...d2.subarray(outsEnd, outsEnd + 3)]).toEqual([1, 0, 0]);
     // A set no longer shown gives its places back.
     (b as { shown: () => boolean }).shown = () => false;
     const before = rows.length;
     rows.length = 0;
     table.list(rows as unknown[], () => true);
     expect(rows.length).toBe(before - 4);
+  });
+
+  it('runs its pick only while something it reads changes (a still view keeps the last lists once fades are done)', () => {
+    const computes: unknown[] = [];
+    const table = new CopyRowsTable({ compute: (n: unknown) => void computes.push(n) } as never, host(), LAYOUT);
+    table.adopt(source(10, 2, false));
+    const view = new CullView();
+    const cam = new THREE.PerspectiveCamera();
+    cam.updateMatrixWorld(true);
+    view.set(cam);
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const frame = (): void => {
+      const rows: CopyRow[] = [];
+      table.list(rows as unknown[], () => true);
+      table.writeCopies();
+      table.run(view, rows.length, { table: new StorageBufferAttribute(new Uint32Array(12 * 8), 1), args: new StorageBufferAttribute(new Uint32Array(15 * 8), 1) }, 0);
+    };
+    try {
+      frame();
+      now += 100;
+      frame();
+      expect(computes.length).toBe(2);
+      now += 1000;
+      frame();
+      expect([computes.length, table.ran]).toEqual([2, true]);
+      // The view moves: picked again.
+      cam.position.x += 1;
+      cam.updateMatrixWorld(true);
+      view.set(cam);
+      now += 33;
+      frame();
+      expect(computes.length).toBe(3);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('builds its three compute passes (WGSL: atomic counters, the shared level steps, the frustum)', () => {
