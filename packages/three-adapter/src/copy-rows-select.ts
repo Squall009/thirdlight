@@ -112,7 +112,8 @@ export function copySelectKernels(b: SelectBuffers, v: SelectView, t: SelectTabl
   const floats: N = TSL.storage(b.floats, 'float', b.floats.count).toReadOnly();
   const tally: N = TSL.storage(b.tally, 'uint', b.tally.count).toAtomic();
   const counts: N = TSL.storage(b.counts, 'uint', b.counts.count);
-  const table: N = TSL.storage(b.table, 'uint', b.table.count).toReadOnly();
+  // Written too: a copy row's count in view goes into its row (the table's passes read it there).
+  const table: N = TSL.storage(b.table, 'uint', b.table.count);
   const args: N = TSL.storage(b.args, 'uint', b.args.count);
   const o = TSL_SCALAR_OPS;
 
@@ -231,6 +232,7 @@ export function copySelectKernels(b: SelectBuffers, v: SelectView, t: SelectTabl
       TSL.If(table.element(row.add(3)).bitAnd(t.flagSelected).notEqual(0), () => {
         const out = table.element(row.add(t.outputField)).mul(2).toVar();
         const front = counts.element(out).toVar();
+        table.element(row.add(1)).assign(front);
         const all = front.add(counts.element(out.add(1)));
         const a = r.mul(t.argsStride).toVar();
         for (const [at, n] of [[0, front], [t.argsOther, all]] as const) {

@@ -226,6 +226,8 @@ export class CopyRowsTable {
     private readonly renderer: WebGPURenderer,
     private readonly host: CopyRowsHost,
     private readonly layout: SelectTableLayout,
+    /** Asked for another frame (a host drawing on demand): a set taken, or a pick whose fades are still running. */
+    private readonly onChange?: () => void,
   ) {
     this.data = this.make('uint', 64, 'data');
     this.floats = this.make('float', 64, 'floats');
@@ -295,6 +297,8 @@ export class CopyRowsTable {
     }
     for (const o of set.outputs) o.rows.forEach((r, i) => (r.owner = i === 0));
     this.sets.set(src, set);
+    // Its rows are listed from the next frame on: a host drawing on demand draws one more.
+    this.onChange?.();
     return true;
   }
 
@@ -415,7 +419,7 @@ export class CopyRowsTable {
    * After the table is written: the selection data for this frame's sets (written when what is listed changed),
    * their parameters, and the three dispatches. `view` is the frame's view (its eye and frustum).
    */
-  run(view: CullView, rowCount: number, buffers: { table: StorageBufferAttribute; args: StorageBufferAttribute }, tableGeneration: number): void {
+  run(view: CullView, rowCount: number, buffers: { table: StorageBufferAttribute; args: StorageBufferAttribute }, tableGeneration: number, tableUploaded = false): void {
     this.ran = false;
     if (this.frameSets.length === 0 || view.camera === null) {
       this.changed = true;
@@ -425,7 +429,7 @@ export class CopyRowsTable {
     const chunks = this.writeData();
     this.writeFloats(view);
     const sig = `${view.stamp}|${rowCount}|${this.rowsSig}|${tableGeneration}|${this.generation}`;
-    if (sig !== this.lastSig) this.changed = true;
+    if (sig !== this.lastSig || tableUploaded) this.changed = true;
     this.lastSig = sig;
     if (this.changed) this.lastChange = now;
     this.changed = false;
@@ -443,6 +447,8 @@ export class CopyRowsTable {
     }
     const dt = Number.isFinite(this.lastRun) ? Math.min(MAX_FADE_DT_S, (now - this.lastRun) / 1000) : 0;
     this.lastRun = now;
+    // Until the picks hold still (fades run their course), a host drawing on demand keeps drawing.
+    this.onChange?.();
     this.ensureCounters(this.frameOutputs.length * 2);
     const h = this.host;
     const key = `${this.generation}|${tableGeneration}|${h.matrices.id}|${h.slots.id}|${h.visible.id}|${h.spheres.id}`;

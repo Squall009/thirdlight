@@ -167,8 +167,12 @@ export interface InstanceOcclusionDiagnostics {
   readonly whole: { readonly tested: number; readonly second: number; readonly culled: number };
   /** From the last read-back: terrain nodes tested and culled (counted among the copies too). */
   readonly terrain: { readonly tested: number; readonly culled: number };
-  /** Stored copies' sets as rows (copy-rows.ts); `drawn`: copies the view's rows drew after the pyramid (last read-back; the lists' count off the pyramid's path). */
-  readonly copies: CopyRowsDiagnostics & { readonly drawn: number };
+  /**
+   * Stored copies' sets as rows (copy-rows.ts); `drawn`: copies the view's rows drew after the pyramid (last
+   * read-back; the lists' count off the pyramid's path); `otherDraws`: their indirect draws by other cameras (shadow
+   * maps) in the last frame (three's draw counts leave indirect draws out).
+   */
+  readonly copies: CopyRowsDiagnostics & { readonly drawn: number; readonly otherDraws: number };
 }
 
 /** The rows of a frame: instanced draws first, then copy sets' draws, then the draws tested whole. */
@@ -235,6 +239,9 @@ export class InstanceOcclusion implements InstanceCullerHost {
   private readonly copyRows: CopyRowsTable;
   /** Every instanced draw may be adopted (the pyramid's path); else only copy sets are. */
   private allDraws = true;
+  /** Copy rows' draws by cameras other than the view (shadow maps) in this frame, and in the last one. */
+  private otherDraws = 0;
+  private lastOtherDraws = 0;
   private readonly drawCount = TSL.uniform(0, 'uint');
   private readonly viewMatrix = TSL.uniform(new THREE.Matrix4());
   private readonly projection = TSL.uniform(new THREE.Matrix4());
@@ -266,6 +273,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
     private readonly renderer: WebGPURenderer,
     /** The pass drawing now (1, 2; 0: neither) and whether the first pass draws `object`. */
     private readonly passes: { readonly drawing: 0 | 1 | 2; firstPass(object: THREE.Object3D): boolean },
+    /** Something it draws changed and wants a frame drawn (a host drawing on demand draws again). */
+    changed?: () => void,
   ) {
     // A three without the observer hook the culled draws' refresh wraps: nothing is culled on the GPU (every draw
     // drawn as without culling), reported in the diagnostics' error.
@@ -302,6 +311,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
         },
       },
       { stride: TABLE_STRIDE, argsStride: ARGS_STRIDE, argsOther: ARGS_OTHER, flagSelected: FLAG_SELECTED, outputField: ROW_OUTPUT },
+      changed,
     );
   }
 
@@ -381,6 +391,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     }
     out.mode = 2;
     geometry.indirectOffset = (r.row * ARGS_STRIDE + ARGS_OTHER) * 4;
+    this.otherDraws += 1;
   }
 
   /** The pools' GPU-only u32 per place (a copy set keeps its per-copy state there). */
@@ -508,6 +519,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
    */
   update(meshes: Iterable<THREE.Object3D>, camera: THREE.Camera | null, wholes?: (host: InstanceOcclusion) => void, view: CullView | null = null): void {
     if (this.failed !== null) return;
+    this.lastOtherDraws = this.otherDraws;
+    this.otherDraws = 0;
     this.stamp += 1;
     this.ranEarly = false;
     this.ranLate = false;
@@ -540,13 +553,14 @@ export class InstanceOcclusion implements InstanceCullerHost {
     this.copyRows.list(this.frameRows, (o) => this.passes.firstPass(o));
     this.copyRows.writeCopies();
     if (camera !== null) wholes?.(this);
-    this.writeTable();
+    // A table uploaded again holds 0 where the copies' rows keep their counts: their pick runs again to write them.
+    const uploaded = this.writeTable();
     this.dirty.matrices.flush(this.pools.matrices);
     this.dirty.spheres.flush(this.pools.spheres);
     this.dirty.slots.flush(this.pools.slots);
     this.dirty.visible.flush(this.pools.visible);
     // The copies' selection: their levels, thinning and frustum, and their rows' lists and arguments.
-    if (view !== null) this.guard(() => this.copyRows.run(view, this.frameRows.length, { table: this.table, args: this.args }, this.generation));
+    if (view !== null) this.guard(() => this.copyRows.run(view, this.frameRows.length, { table: this.table, args: this.args }, this.generation, uploaded));
   }
 
   /** One draw in this frame's table, if the view's copies of it are worth testing (else drawn whole this frame). */
@@ -629,7 +643,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
   private early_(): void {
     // Only draws the first pass draws have a first list (cut-out scatter and cover are drawn in the second only).
     if (this.disposed || !this.frameRows.some((d) => d.firstPass && d.whole !== true && !(d.copy === true && d.otherOnly))) return;
-    const earlyKey = `${this.generation}|${this.copyRows.countsBuffer.id}`;
+    const earlyKey = String(this.generation);
     if (this.earlyKey !== earlyKey) {
       this.early?.dispose?.();
       this.early = this.kernel('early', null, false, false, true);
@@ -651,7 +665,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const boxes = this.frameRows.some((d) => d.whole === true || (d.copy !== true && d.box));
     // The far draws' depth mapping only where a row needs it (far field boxes).
     const farDepth = boxes && this.frameRows.some((d) => d.whole !== true && d.copy !== true && d.box && d.handle.farDepth === true);
-    const key = `${this.generation}|${this.copyRows.countsBuffer.id}|${pyramid.generation}|${reversed}|${logarithmic}|${perspective}|${boxes}|${farDepth}`;
+    const key = `${this.generation}|${pyramid.generation}|${reversed}|${logarithmic}|${perspective}|${boxes}|${farDepth}`;
     const fresh = key !== this.lateKey;
     if (fresh) {
       this.late?.dispose?.();
@@ -691,7 +705,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const c = this.copyRows.diagnostics();
     // Off the pyramid's path the view draws every copy its lists hold.
     const drawn = this.ranLate || this.read.copies.drawn > 0 ? this.read.copies.drawn : c.inView;
-    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn }, error: this.failed };
+    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn, otherDraws: this.lastOtherDraws }, error: this.failed };
   }
 
   /** Every draw unmarked and drawn as before (the culling of copies stopped): copy sets too. */
@@ -839,7 +853,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     d.copied = vd.version;
   }
 
-  private writeTable(): void {
+  private writeTable(): boolean {
     const rows = this.frameRows.length;
     if (rows > this.rows) {
       releaseStorage(this.renderer, [this.table, this.args]);
@@ -903,6 +917,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
       this.table.addUpdateRange(0, rows * TABLE_STRIDE);
       this.table.needsUpdate = true;
     }
+    return changed;
   }
 
   private makeTable(): StorageBufferAttribute {
@@ -934,9 +949,6 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const copies: N = phase === 'late' && boxes ? TSL.storage(p.matrices, 'vec4', p.matrices.count).toReadOnly() : null;
     const depthAttr = pyramid?.storage() ?? null;
     const levels: N = depthAttr === null ? null : TSL.storage(depthAttr, 'float', depthAttr.count).toReadOnly();
-    // A copy set's row tests the copies its list holds in view, counted by the copies' selection pass.
-    const countsAttr = this.copyRows.countsBuffer;
-    const counts: N = TSL.storage(countsAttr, 'uint', countsAttr.count).toReadOnly();
     const scan = TSL.workgroupArray('uint', WORKGROUP);
     const drawCount = this.drawCount;
     const bounds = phase === 'late' ? this.boundsTests(levels, reversed, logarithmic, perspective) : null;
@@ -951,7 +963,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
         const base = table.element(row).toVar();
         const cap = table.element(row.add(2)).toVar();
         const flags = table.element(row.add(3)).toVar();
-        const n = TSL.select(flags.bitAnd(FLAG_SELECTED).notEqual(0), counts.element(table.element(row.add(ROW_OUTPUT)).mul(2)), table.element(row.add(1))).toVar();
+        // A copy set's row: its count in view was written into the row by the copies' selection (rows pass).
+        const n = table.element(row.add(1)).toVar();
         const spheresAt = table.element(row.add(ROW_COPIES)).toVar();
         const sharers = table.element(row.add(ROW_SHARERS)).toVar();
         const firstPass = flags.bitAnd(FLAG_FIRST_PASS).notEqual(0);

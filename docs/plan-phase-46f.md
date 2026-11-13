@@ -348,7 +348,13 @@ reach. Profiler: counters `copyRows` (sets, rows, lists, in view, listed, drawn 
 **Found and fixed on the way.** A compute node made with a thread count (`compute(64, …)`) gets three's
 `if (instanceIndex >= count) return;`: the counts and arguments passes wrote their first 64 entries only, so in the
 landscape every set past the first eight drew nothing (the trees were gone in the first picture). Both passes are now
-dispatched by size (as the table's own passes are); a WGSL test fails on such a return.
+dispatched by size (as the table's own passes are); a WGSL test fails on such a return. The fast gate found two more:
+the table's late pass bound the copies' counts as a 9th storage buffer, past WebGPU's default 8 a stage (every
+pyramid-path test red: voxel far field, rendering's occlusion): the rows pass now writes each copy row's count into
+its table row, and a test counts every pass's storage buffers; and the editor draws on demand, so a set taken by the
+table in a frame was never listed (the instance brush's new copies drew nothing): the table asks for a frame when it
+takes a set and while picks settle. three's draw counts leave indirect draws out, so the diagnostics count the rows'
+shadow-map draws (`occlusion.copies.otherDraws`; `instances.e2e.ts`'s casting check adds them).
 
 **Tested.** vitest: `shared/src/lod-level.test.ts` (the stated rule on a grid of distances, scales, shown levels and
 hysteresis; the same steps recorded as an expression and evaluated equal to the CPU answer; walk out and back);

@@ -184,7 +184,12 @@ test('a set is chunked by extent (the project default, overridden per set in the
     const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
     await expect(playCanvas(page)).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
     await expect(page.locator('.tl-notice')).toHaveCount(0);
-    const draws = async (): Promise<number> => ((await api(`play/${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { frame?: { drawCalls: number } } } }).diagnostics?.renderer?.frame?.drawCalls ?? 0;
+    // three's draw count leaves indirect draws out: a set drawn as the culled-instance table's rows (WebGPU) counts its
+    // shadow maps' draws itself.
+    const draws = async (): Promise<number> => {
+      const d = ((await api(`play/${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { frame?: { drawCalls: number }; occlusion?: { copies?: { otherDraws: number } | null } } } }).diagnostics?.renderer;
+      return (d?.frame?.drawCalls ?? 0) + (d?.occlusion?.copies?.otherDraws ?? 0);
+    };
     await expect.poll(draws, { timeout: 15_000 }).toBeGreaterThan(0);
     await page.screenshot({ path: `test-results/${shot}.png` });
     const n = await draws();
@@ -337,6 +342,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   expect(walled.status, JSON.stringify(walled.json)).toBe(200);
   const walledDir = join(be.exportRoot, String(walled.json.outputDir));
   await be.halt();
+  const rowsOf = async (g: Page): Promise<Rows | null> => g.evaluate(() => (window as unknown as { __tlProfiler?: { read(): { counters: { copyRows?: Rows | null } } } }).__tlProfiler?.read().counters.copyRows ?? null);
   const site = await serveDir(outDir);
   const game = await page.context().newPage();
   const errors: string[] = [];
@@ -347,7 +353,6 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
     await expectRendererBackend(canvas, variant);
     await expect.poll(async () => look(decodePng(await canvas.screenshot())), { timeout: 60_000, message: 'the export with LOD bias 2' }).toBe('green green magenta magenta greenmagenta');
     await canvas.screenshot({ path: `test-results/instances-lod-export-${variant}.png` });
-    const rowsOf = async (g: Page): Promise<Rows | null> => g.evaluate(() => (window as unknown as { __tlProfiler?: { read(): { counters: { copyRows?: Rows | null } } } }).__tlProfiler?.read().counters.copyRows ?? null);
     if (webgpu) {
       // Every copy of the row is in view (none past the doubled cull size); off the pyramid's path the view draws them all.
       await expect.poll(async () => JSON.stringify(await rowsOf(game).then((r) => (r === null ? null : [r.sets, r.rows, r.inView, r.drawn]))), { timeout: 30_000, message: 'the export: the set as table rows' }).toBe(JSON.stringify([1, 2, copyDistances.length, copyDistances.length]));

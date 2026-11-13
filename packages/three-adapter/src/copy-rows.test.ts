@@ -12,7 +12,8 @@ import { CopyRowsTable, type CopyRow, type CopyRowsHost, type CopyRowsSource } f
 import { NO_OUTPUT, SELECTION_U32 } from './copy-rows-select';
 import { LodTuning } from './lod-switch';
 import { RangeAllocator } from './occlusion-instances-rule';
-import { computeWgsl } from './test-wgsl';
+import { InstanceOcclusion } from './occlusion-instances';
+import { computeWgsl, wgslRenderer } from './test-wgsl';
 import { CullView } from './view-cull';
 
 const SEL: CopySelection = { switches: [0, 30, 80, 200], culls: true, toDistance: 1, hysteresis: 0.1, worldScale: 1, density: null, nearReach: null, ungrouped: false, levels: [true, true, true, true] };
@@ -230,6 +231,16 @@ describe('a set of copies as the table rows', () => {
     // Dispatched by size for any number of lists and rows: no early return at a thread count baked into the pass
     // (a node made with a count returns past it, which held the lists' counts and rows' arguments to the first 64).
     for (const pass of [k.select, k.outputs, k.rows]) expect(computeWgsl(pass)).not.toMatch(/if \( instanceIndex >= /);
+    // Within WebGPU's default of 8 storage buffers a stage (a device asks for more only where an adapter has them).
+    const storages = (wgsl: string): number => (wgsl.match(/var<storage/g) ?? []).length;
+    for (const pass of [k.select, k.outputs, k.rows]) expect(storages(computeWgsl(pass))).toBeLessThanOrEqual(8);
+    // The table's own passes too, with every row kind on (boxes, the far field's depth): the copies' counts ride in its rows.
+    const occ = new InstanceOcclusion(wgslRenderer(), { drawing: 0, firstPass: () => true });
+    const pyramid = { storage: () => new StorageBufferAttribute(new Float32Array(16), 1), generation: 0 };
+    const kernel = (occ as unknown as { kernel(...a: unknown[]): unknown }).kernel.bind(occ);
+    expect(storages(computeWgsl(kernel('late', pyramid, false, false, true, true, true)))).toBeLessThanOrEqual(8);
+    expect(storages(computeWgsl(kernel('early', null, false, false, true)))).toBeLessThanOrEqual(8);
+    occ.dispose();
     expect(computeWgsl(k.outputs)).toMatch(/atomicStore/);
     expect(computeWgsl(k.rows)).toMatch(/fn main/);
   });
