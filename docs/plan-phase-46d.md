@@ -4467,7 +4467,7 @@ gate-fast-20261113-030759 (de7208c4) GREEN (`visual-script-debug.test.ts` failed
 D642); gate-fast-20261113-033517 (af076a4a, every area for the project model) RED vitest (`script-fields.test.ts`'s pin
 for the new optional field, re-pinned: f9051b5a), its rerun gate-rerun-20261113-034612 RED e2e (318 passed, 22.5 min:
 `block-layers.e2e.ts:490` D637 and `shadows.e2e.ts:281` D645), alone gate-rerun-20261113-041028: shadows passed,
-block-layers failed (as at the base). The final unit run: FINAL_GATE.
+block-layers failed (as at the base). The final run, every unit test and every area: gate-fast-20261113-045522 RED (vitest: `stream.test.ts`'s stale-results case D454 failed once, passed alone; e2e 318 passed, `cameras.e2e.ts:315` D616 and `project-items.e2e.ts:186` failed; alone in gate-rerun-20261113-053141 project-items passed, cameras failed with D616's same 0.4948: D616 now open).
 
 ## 9. Decision log
 
