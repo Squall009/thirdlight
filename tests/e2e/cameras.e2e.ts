@@ -486,12 +486,14 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
       await g.waitForTimeout(300);
       expect(await exposure(), `${label}: and holds there`).toBe(DARK_MAX);
       const night = await shot(g, `test-results/cameras-exposure-dark-${tag}.png`);
-      await press(g, 'l');
+      // Times count from the key going down (the cut cannot come before it), not from its release 150 ms later: the
+      // exposure is already that far along when the readings start.
       const t0 = Date.now();
+      await press(g, 'l');
       const trace: [number, number][] = [];
       let early: Image | null = null;
       // Long enough to settle (95 % at 3 / speed, 1 s) and to read where it settled.
-      for (let t = 0; t < 1_500; t = Date.now() - t0) {
+      for (let t = Date.now() - t0; t < 1_650; t = Date.now() - t0) {
         trace.push([t, await exposure()]);
         if (early === null && (await read(g))?.live === bright) early = await shot(g, `test-results/cameras-exposure-cut-${tag}.png`);
         await g.waitForTimeout(40);
@@ -500,9 +502,17 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
       const end = trace[trace.length - 1]![1];
       // The share of the way still to go (in stops) at a time after the cut.
       const gapAt = (ms: number): number => Math.log2(trace.filter(([t]) => t <= ms).pop()![1] / end) / Math.log2(DARK_MAX / end);
-      console.log(`[cameras] ${label} exposure after the cut: ${trace.filter((_, i) => i % 5 === 0).map(([t, e]) => `${t}:${e}`).join(' ')}`);
+      console.log(`[cameras] ${label} exposure after the key: ${trace.filter((_, i) => i < 4 || i % 5 === 0).map(([t, e]) => `${t}:${e}`).join(' ')}`);
       expect(end, `${label}: the bright view closes down`).toBeLessThan(DARK_MAX / 2);
-      expect(gapAt(150), `${label}: it adapts, it does not snap`).toBeGreaterThan(0.5);
+      // It adapts, it does not snap: the gap closes by at most 1 − e^(−speed·t) in t seconds since the key went down, so
+      // no reading may be further along than that (a reading is drawn before it is read and the cut follows the key, so
+      // lag only leaves it further behind; 0.02 for the attribute's two decimals and the settled end read as the target).
+      // (One reading 150 ms after the release against a fixed half measured the cut's screenshot instead: whether a
+      // reading fell before it ended or not.)
+      for (const [t, e] of trace) {
+        const gap = Math.log2(e / end) / Math.log2(DARK_MAX / end);
+        expect(gap, `${label}: it adapts, it does not snap (${e} at ${t} ms)`).toBeGreaterThan(Math.exp((-BRIGHT_DARKEN * t) / 1000) - 0.02);
+      }
       // At 3 / speed (1 s) 95 % of the way; a reading arrives a frame or two after a frame is drawn.
       expect(gapAt(1_000 / BRIGHT_DARKEN * 3 + 300), `${label}: settled within 3 / darken speed`).toBeLessThan(0.1);
       // Pixels: the dark room stays dark at its max; the bright view starts blown out and settles darker, its sky blue.

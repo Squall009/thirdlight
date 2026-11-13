@@ -246,13 +246,19 @@ const RAMPART: readonly number[] = [9, 10, 11].flatMap((y) => ([[2, 2], [3, 2], 
  */
 const BEACONS: readonly [number, number, number][] = [[8, 5, 8], [3, 4, 12], [13, 6, 4]];
 
-/** Lavender pixels (blue well above red and green, which stay well above none): the roof over the spawn. */
+/**
+ * Lavender pixels (blue well above red and green, which stay well above none): the roof over the spawn, its lit top
+ * (blue about 170; its front face, about 120, is left out). The T-join's blue right behind the roof, resolved into the
+ * yellow piece under it, mixes to the front face's colour (about 53, 57, 124 at a third yellow) in a strip a few
+ * pixels high that the upscaled resolve draws in some runs and not others; no mix of the two reaches blue 124 with red
+ * and green over 0.4 of it, so a count above 140 is the roof alone.
+ */
 function lavenderPixels(img: Image): number {
   let n = 0;
   for (let y = 0; y < img.height; y += 2) {
     for (let x = 0; x < img.width; x += 2) {
       const [r, g, b] = img.pixel(x, y);
-      if (b > 110 && b > r + 35 && b > g + 35 && r > b * 0.4 && g > b * 0.4) n += 1;
+      if (b > 140 && b > r + 35 && b > g + 35 && r > b * 0.4 && g > b * 0.4) n += 1;
     }
   }
   return n;
