@@ -293,7 +293,8 @@ export function oracleLine(what: string, r: FrameRunResult): string {
 export function busyLine(what: string, r: FrameRunResult): string {
   const b = r.busy!;
   const main = Math.round(r.mainThread.busyShare * 1000);
-  return `${what}: ${b.fps} drawn fps, main thread ${main} ms/s untraced (${b.mainMsPerS} traced), workers ${b.workerMsPerS} ms/s, GPU process ${b.gpuProcessMsPerS} ms/s (${b.seconds} s traced)`;
+  const p = r.engineProfile;
+  return `${what}: ${b.fps} drawn fps, main thread ${main} ms/s untraced (${b.mainMsPerS} traced), workers ${b.workerMsPerS} ms/s, GPU process ${b.gpuProcessMsPerS} ms/s (${b.seconds} s traced)${p != null ? `; profile page ${p.msPerFrame.page} / sim ${String(p.msPerFrame.sim)} / jobs ${String(p.msPerFrame.jobs)} ms a frame` : ''}`;
 }
 
 export async function runVillageCli(argv: readonly string[]): Promise<void> {

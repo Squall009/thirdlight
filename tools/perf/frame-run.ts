@@ -25,6 +25,7 @@ import { installFrameProbe, probeGpuPasses, probeOcclusionOracle, probeSceneCoun
 import type { OracleResult } from '@thirdlight/three-adapter';
 import { installFrameCallCounts, installPerfInstrumentation, readSample, startRecording, type FrameEvent, type PageSample } from './instrument';
 import { profileSplit, type ProfileSplit } from './profile';
+import { profileSummary, type ProfileReport, type ProfileSummary } from '@thirdlight/game-host';
 import { dumpScene, type DumpSummary } from './scene-dump';
 import { histogram, summarize, type Summary } from './stats';
 
@@ -193,6 +194,8 @@ export interface FrameRunResult {
    */
   gpuClock?: { recordMhz: number; gpuWindowMhz: number | null; maxMhz: number } | null;
   profile: ProfileSplit | null;
+  /** The engine's frame profile over the record's last frames (`__tlProfiler`): each thread's own ms a frame. */
+  engineProfile?: ProfileSummary | null;
   busy?: ThreadBusy;
   dump?: DumpSummary | string;
   /** The engine's user-timing marks (`tl:…`) seen by the end of the run. */
@@ -353,6 +356,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     const nFrames = Math.max(1, sample.frames.length);
     const s = summarize(sample.frames);
     const scene = await page.evaluate(probeSceneCounts);
+    const report = (await page.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null).catch(() => null)) as ProfileReport | null;
 
     let gpu: GpuTimings | null = null;
     let gpuWindowMhz: number | null = null;
@@ -391,6 +395,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       gpu,
       gpuClock: recordMhz === null ? null : { recordMhz, gpuWindowMhz, maxMhz: gpuMaxMhz() ?? 0 },
       profile,
+      engineProfile: report === null ? null : profileSummary(report),
       ...(busy !== undefined ? { busy } : {}),
       ...(sample.marks.length > 0 ? { marks: sample.marks } : {}),
       errors,
