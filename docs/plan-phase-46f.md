@@ -121,7 +121,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | 46f.0 | Done 2026-11-13: three 0.187.0 = pin. Baseline §4 (low 30 Hz, 720p, alone): 8 km world room 22.4–23.1 ms, far 39–46 % / near 31–33 %; 150 m/s longest 42–44 ms, 0 > 100 ms, detail 4.5–4.7 s; meadow 977 k tris 10 draws; village 242 draws, main 4.5 ms. Sim-worker CPU unmeasured (no timing). Last fast gate 14 min. |
 | 46f.1 | Done 2026-11-13. a: spans on every thread, `__tlProfiler.read()`, budget table per tier, 10 slices from one arbiter. b: editor Profiler tab (timeline, frame breakdown, budget, counters, spikes, captures), overlay Shift+F3, capture file v1, `tl_diagnostics` profile digest. 150 m/s A/B: HEAD 43.9–50.5 ms inside base 42.0–53.9; spike settle fixed. |
 | 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 no bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
-| 46f.3 | not started |
+| 46f.3 | a done 2026-11-13: stored copies are culled-table rows on WebGPU (level with hysteresis + 0.25 s fade, thinning, frustum in compute; pyramid on its path), one level helper in shared. Village/landscape: same draws, GPU scene 3.5→2.9 ms / frame at full clock 3.6→2.8 ms, page +0.0/+0.3 ms; pictures equal. WebGL 2 keeps the vertex path. b (ground cover) pending. |
 | 46f.4 | not started |
 | 46f.5 | not started |
 | 46f.6 | not started |
@@ -325,6 +325,90 @@ before and after; from eye height 7 m away it is subtle in both. `e2e-press-befo
 and the picture after release are unchanged. Unverified by eye: the recovering trail in motion (pixels only), a
 camera moving through the field's window edge, ground cover on a voxel world (none draws there yet).
 
+### 46f.3a — stored copies as rows of the culled-instance table; the level helper
+
+**Built.** `@thirdlight/shared` `lod-level.ts`: the level by screen size with hysteresis, written once over
+`ScalarOps` (moved to shared, `scalar-ops.ts`): `lodSwitchMargin`, `lodLevelStep` (one switch; a shader steps it in a
+loop) and `lodLevelOf`; placed models' LODs (`pickLodLevel`), the copies' compute pass, the WebGL 2 vertex stage and the
+diagnostics all run it (`copyLevel` deleted; the thinning share is `copyDensitySteps` the same way). three-adapter:
+`copy-rows.ts` (a set's copies once in the table's pools, its state per copy and group, a range per list, rows per
+mesh: a list's first row compacts it on the pyramid's path and writes its sharers' arguments, near-shadow rows are
+drawn by shadow cameras only), `copy-rows-select.ts` (three dispatches in one compute call: select — level by
+`lodLevelStep` with hysteresis and a fade state, thinning by rank, sphere, frustum, appended with atomics, in view from
+the front of a list and the rest from its back; counts; each row's indirect arguments for the view and for other
+cameras), `copy-rows-rule.ts` (the CPU reference), `copy-rows-draw.ts` (the vertex placement reading the pools; the
+cross-fade as a keep term in see-through's existing `setupDiffuseColor` step). `occlusion-instances.ts`: table rows of
+12 u32 (copies' place, list's counts, sharers), arguments of 15 (pass 1, pass 2, other cameras), a row's copies tested
+from the selection's count, the table owned by `occlusion.ts` on every path (not only the pyramid's). `copies-gpu.ts`:
+a set asks the scene's table to take it at its first draw (WebGPU); a set whose blocks draw one level each hands its
+blocks' levels (picked on the page with the hysteresis, as before) to the pass; the page only hides draws no block can
+reach. Profiler: counters `copyRows` (sets, rows, lists, in view, listed, drawn after the pyramid, triangles, bytes) in
+`__tlProfiler.read()` and the Profiler tab. Manual (instance sets), design page §6, three checklist row.
+
+**Found and fixed on the way.** A compute node made with a thread count (`compute(64, …)`) gets three's
+`if (instanceIndex >= count) return;`: the counts and arguments passes wrote their first 64 entries only, so in the
+landscape every set past the first eight drew nothing (the trees were gone in the first picture). Both passes are now
+dispatched by size (as the table's own passes are); a WGSL test fails on such a return.
+
+**Tested.** vitest: `shared/src/lod-level.test.ts` (the stated rule on a grid of distances, scales, shown levels and
+hysteresis; the same steps recorded as an expression and evaluated equal to the CPU answer; walk out and back);
+`lod-switch.test.ts` unchanged and green on the shared step; `copy-rows.test.ts` (first pick without a fade, a switch
+listed in both levels for 0.25 s, never for shadow cameras; hysteresis at a rocking switch; cull, thinning, near list,
+a hidden copy; zero is a fresh state; rows, ranges and the selection data of two sets, block levels; no pick for a
+still view after the fade, a moved view picks; the three passes' WGSL: atomics, workgroup 64, no baked count);
+`page-profile.test.ts` (the counter). Playwright, WebGPU, real backend: `instances.e2e.ts` LOD test extended — Play:
+the set is 1 set, 2 rows, 2 lists with near + mid copies in view; the export served with the backend stopped: rows
+and all 21 copies in view drawn off the pyramid's path; a second export with a wall 60 m ahead on `?occlusion=hiz`:
+copies in view unchanged, fewer drawn (the hidden ones left out); the existing level pictures (green near, magenta
+past the switch, culled past the cull size, LOD bias 2) unchanged. WebGL 2: `webgl2-smoke.e2e.ts` (vertex path).
+
+**Measured** 2026-11-13, each run alone (`thirdlight-gate` inactive), low tier, WebGPU, 1280 × 720 at the 30 Hz cap,
+`--busy 5000`; before at 54bf2e50 (19:59–20:15 UTC, uptime 21.1 d, load 0.5–2.9), after at 88b97054 (22:45–22:57,
+load 0.9–1.4). The dense case is the level class's landscape with impostors (`node tools/perf/run.mjs level --classes
+landscape --impostors 0.05 …`, same flags): stored trees, pines and rocks (near shadows, blobs, impostors) and the
+foliage instance sets, ~29 k copies listed. Raw: `~/.cache/thirdlight-phase46f/work/46f.3a/{before,after5}-*`.
+
+| Class (2 rounds) | Before | After |
+|---|---|---|
+| Village: p95, frames ≥ 50 ms | 33.4, 0 % | 33.4, 0 % |
+| Village: draws (scene / shadow / indirect) | 242 (218 / 21 / –) | 242 (168 / 21 / 50) |
+| Village: triangles | 292 k | 184 k + 50 indirect draws (three cannot count them) |
+| Village: main thread ms a frame (CPU), profile page / sim | 4.31 / 4.77 (4.62 / 5.05); 3.47 / 3.96, 0.34 | 4.77 / 4.69 (5.05 / 4.98); 3.76 / 3.99, 0.33 |
+| Village: scene pass GPU (300 MHz) → frame at full clock | 3.53 / 3.44 → 1.47 / 1.49 ms | 2.94 / 2.94 → 1.38 / 1.37 ms |
+| Landscape: p95, ≥ 50 ms | 33.4, 0 % | 33.4, 0 % |
+| Landscape: draws (scene / shadow / indirect) | 237 (230 / 4 / –) | 237 (149 / 1 / 84) |
+| Landscape: triangles | 1,396 k | 735 k + 84 indirect draws |
+| Landscape: main thread ms (CPU), profile page | 3.79 / 3.85 (4.05 / 4.10); 3.01 / 2.95 | 4.23 / 4.11 (4.48 / 4.35); 3.34 / 3.10 |
+| Landscape: scene pass GPU → frame at full clock | 10.13 / 10.99 ms at 387–393 MHz → 3.59 / 3.64 ms | 9.86 / 9.89 ms at 300 MHz → 2.77 / 2.78 ms |
+
+GPU ms are timestamps at the cap (D544: the clock moves under them; compared at full clock they are an estimate):
+the scene pass is cheaper with copies picked in compute (no vertex work for left-out copies). The page thread is
+equal on the village (inside the before rounds' spread) and +0.2–0.4 ms on the landscape (cause not isolated: the
+per-frame listing of ~70 sets and 235 lists, their parameters and the rows' per-draw binding; a still view runs no
+pick). A first build that let a level's draw stay shown for every reachable level drew 342 / 318 draws and cost
++0.7 / +0.8 ms on the page; hiding the draws no copy can reach brought the counts back to the baseline's. Frame room:
+not measurable (the headroom meter drives only voxel pages). Medium and high: not measured here. The meadow class
+(ground cover only) is 46f.3b's.
+
+**Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.3a/shots/`): `before/` and `after2/` (an instance set of
+352 markers, LOD0 green, LOD1 magenta, cull past 139 m; export, 1280 × 720): `near`, `mid-switch`, `far-cull` are
+pixel-equal (0 px over 16 levels), also on `?occlusion=hiz` (`after-hiz/`); `moving-*` (the camera moving through the
+switch at 6 m/s) differ by timing only — cropped at the switch (`crops/`) the boundary rows look the same, the temporal
+upscale smooths the fade's dither: the stipple itself is unverified by eye. `landscape/base.png` vs `head2.png` (the
+landscape with impostors, near shadows, blobs): the same trees, pines, rocks and shadows; 1,033 of 921,600 pixels
+differ by more than 16 levels. `moved/` (a set moved and turned) and `foliage/` (a foliage material) draw in place.
+
+**For 46f.3b (ground cover).** A second producer registers like a copy set: implement `CopyRowsSource` (count, groups,
+meshes with their level/near/staticAll, `writeCopies` into the pools' 16 floats a copy, world, density, near reach,
+`blockLevels`, `shown`, `released`) and ask `InstanceOcclusion.adoptCopies` at the first draw (`copies-gpu.ts`
+`adopt`). Room in the row format: a copy's floats keep the thinning rank in float 3 (cover's 16 B points would be
+expanded to 16 floats, or the pools taught a second copy layout); floats 13–15 are free but float 13 holds the block
+index where blocks pick; the selection header has no spare field (10 u32), the selection floats take a level's
+switch distances after 25 fixed floats. Cover sorted by threshold thins by rank exactly as copies do
+(`copyDensitySteps` over a rank); its rings and per-texel placement are cover's own. `cover-gpu.ts` shares with copies
+the placement hook (`installCoverPlacement`, which copy rows use too), the copy root/bend stash, and the list texture
+idea the rows replace. Untouched: `cover-gpu.ts` itself.
+
 ## 9. Decision log
 
 - 2026-11-13 (plan): the phase is planned from the owner-approved consolidation of 2026-11-12; item order is
@@ -399,6 +483,42 @@ camera moving through the field's window edge, ground cover on a voxel world (no
   same-version changes); a script that read `foliageBend` reads `interactor` now (games are on hold).
 - 2026-11-13 (46f.2, default chosen, owner to confirm): the profile's counters gain an optional `interaction` entry
   inside capture `version: 1` (a reader of an older capture finds none); no new capture version.
+
+- 2026-11-13 (46f.3a, default chosen, owner to confirm): on WebGPU every stored copy keeps its own level with the
+  project's LOD hysteresis (`lod_hysteresis`) and a switch cross-fades over 0.25 s (`COPY_LEVEL_FADE_S`: both levels'
+  draws keep complementary pixels of one dither) instead of popping at the exact switch distance. A look change only
+  while a copy crosses a switch; a still view is the same picture (pixel-equal in the 46f.3a pictures). Thinning
+  stays a hard cut by rank, as before.
+- 2026-11-13 (46f.3a, default chosen, owner to confirm): the culled-instance table now lives with the occlusion culler
+  on every path on WebGPU (it was made only for the depth pyramid's path, which `auto` takes only beside a voxel far
+  field): stored copies are its rows whatever the occlusion setting, the pyramid's tests come on top where it runs.
+  The other instanced draws join the table only on the pyramid's path, as before.
+- 2026-11-13 (46f.3a, default chosen, owner to confirm): a set with **Level per copy** off keeps one level a block, as
+  before: the page picks each block's level with the hysteresis (as it did) and the compute pass applies it to the
+  block's copies (a per-copy pick there drew every level's draw of a set straddling a switch: +70 draws in the
+  village). The flag is honoured on both renderers.
+- 2026-11-13 (46f.3a, default chosen, owner to confirm): WebGL 2 keeps the vertex-stage path of `copies-gpu.ts` (no
+  compute there): the page's block lists and the vertex stage's level and thinning, now through the shared level
+  steps (`lodLevelStep`) and `copyDensitySteps`, without hysteresis or a fade. On WebGPU that path no longer runs (a
+  set is taken by the table at its first draw; it falls back only if the table is gone or three lacks the observer
+  hook). The plan's "copies-gpu.ts becomes rows" is therefore: the WebGPU draw moved, the file stays as the set
+  (copies, picking, rays, editing) and the WebGL 2 fallback.
+- 2026-11-13 (46f.3a, default chosen, owner to confirm): copies are not put nearest first: a list holds the copies
+  in view in the order the pass met them (the old path listed whole blocks, also not by depth); the "in view first"
+  split is done in compute (in view from the list's front, the rest from its back for the shadow cameras), with the
+  view's frustum from `view-cull.ts`'s `CullView` (its planes now public). The page's per-frame block listing is gone
+  on WebGPU; it only hides a draw no block can reach (and keeps it 1.5 s, or while the GPU still counted copies in
+  its list, for hysteresis and fades).
+- 2026-11-13 (46f.3a, default chosen, owner to confirm): a still view (same view, copies, rows and parameters for a
+  fade's time and 0.25 s) runs no pick: the last lists and arguments hold; a moving view picks every frame.
+- 2026-11-13 (46f.3a): memory: a set holds a pool place per copy and LOD group (its floats, sphere, state) and each of
+  its lists a range of its copies' count (order, visibility, two pass lists): about 96 B a copy a list in the shared
+  pools, which grow by the table's own path. A 3-level tree with near shadows has 4 lists (~480 B a copy, against
+  48 B a copy in the old copy texture plus its list textures); a later pass can shrink lists that never fill.
+- 2026-11-13 (46f.3a): the frame probe's "instance copies drawn" (perf harness) now counts the copies the GPU listed
+  in view (read back), not the copies in the blocks the page saw: other numbers for the same picture (village 900 →
+  582, landscape 28,673 → 29,464). Triangles of indirect draws are unknown to three's counters; the profile's
+  `copyRows.triangles` counts them.
 
 ## 10. Open questions for the owner
 
