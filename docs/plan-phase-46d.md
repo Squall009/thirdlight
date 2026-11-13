@@ -4290,6 +4290,94 @@ near-escarpment and near-outcrop (`bake/stage-bake.mts`, the product's column ba
 staging's fine levels now B0 328 MB + B1 129 MB = 457 MB (240 MB before). The builder did not change, so nothing
 was re-baked.
 
+**Pictures** (one build, 9bc95e2a; Play, the 13 poses of 25b-3's `shots.mjs`, 21:58–22:29 UTC 2026-11-12, uptime
+20.2 d, load 1.7–6.4; `shots/side-by-side/<pose>-<tier>-A-vs-C.png` (full frames and a 2× centre crop), `C-vs-B`,
+`C-vs-C1`, `gl2A-vs-gl2C`, `gl2C-vs-gl2C1`, montages `medium-{town,near}-A-C.png`, `peaks-low-A-C.png`, orbit
+`strip-low-C.png`, walk `walk-low-{C,A}-strip.png`). Every low pair and the medium town, near and boulder pairs were
+opened; the medium peaks only by pixels (0.00 % > 60). Pixels > 60 apart A → C, low / medium:
+
+| pose | px > 60 | C against the mesh rings (A), low | medium |
+|---|---|---|---|
+| town-west | 3.92 / 2.15 % | **better**: back-row roofs straight planes with clean verges where A's are 0.5 m serrated stairs; fences show as outlines past the ring; a few window dots darker | better (the same) |
+| town-north | 2.68 / 2.13 % | **better**: smooth roof planes and eaves (A serrated); the wells' water paler | better |
+| town-peak-4.5km | 3.48 / 2.53 % | **better**: clean roofs, fences past the ring; one white house's balcony a flat blob | same or better |
+| town-street | 0.47 / 0.14 % | **slightly worse**: no lines any more (D640), but the roofs 70–100 m down the street have softer, rounder verges than A's | same |
+| near-border | 0.31 / 0.26 % | **slightly worse**: the gully's rock outcrops rounder (D628); black sky in both (D630) | as low |
+| near-valley | 0.03 / 0.06 % | **slightly worse**: a short thin dark line across the gravel ~60–70 m out (D626's look) | same |
+| near-river | 0.03 / 0.01 % | **slightly worse**: faint regular dark dashes on the far river bed (~150 m); bed otherwise sharper | same |
+| near-boulders | 4.54 / 1.89 % | **mixed**: the far slope's material blend smoother and more natural than A's flat pale patch, but dark contour hairlines on it (D631) | mixed, fewer hairlines |
+| near-escarpment | 0.27 / 0.26 % | same | same |
+| near-outcrop | 0.08 / 0.16 % | same or better (the far wall's lattice calmer) | same |
+| peak-to-town, peak-sight-5km, beyond-peak-to-town | ≤ 0.01 % | same | same (pixels) |
+
+*B (compute) against C* (`<pose>-low-C-vs-B.png`, ≤ 1.1 % > 60): the same except the town's back rows, which at low
+B draws at level 1 past ~78 m (serrated verges, softer walls), where C holds level 0 to 156 m. *C1 against C*
+(`<pose>-{low,medium}-C-vs-C1.png`, ≤ 1.2 % > 60): on WebGPU a 1 m bake with level 0 built by compute looks the same
+as a 0.5 m bake (verges a hair more stepped at low). *WebGL 2, town-west low:* A draws the rings textured; C draws the
+same houses past the ring as baked 0.5 m bricks in flat palette colour (clean shapes, no textures: walls flat brown or
+white); C1 has no compute, so level 1 draws past ~78 m: roofs' colour bleeds onto rounded walls (worse than C). *Orbit
+(8 frames 0.25 s apart) and walk (12 frames 0.5 s):* no shimmer, crawl or floating lines; the step where a house enters
+the detail ring (windows and kit pieces appear) as with the rings. Motion at full rate unverified (stills).
+
+**Travel** (coverage bench in Play, the 9.84 km line, at the cap; A and C 2 rounds interleaved, B one round,
+22:25–23:32 UTC, uptime 20.2–20.3 d, load 1.7–6.4; `travel/<q>-<v>-<mode>-r<n>.json`, `sum.py`; medium 150 C round 2 failed
+once on a game relay error and was run again at 00:13). Detail = full detail after the stop, pending = nothing
+pending (s); "-" not within the 30 s held; loads / derives = the simulation's after the stop; queue full = the worker
+pool's queue at ≥ 250 of 256 (s after the stop).
+
+| | longest ms | missed / min | ground s | detail s | pending s | holes | loads / derives after | queue full s | fine nodes |
+|---|---|---|---|---|---|---|---|---|---|
+| low 60 A | 64.6, 52.6 | 11.0, 8.4 | 0.03 | 5.59, 4.98 | 10.2, 9.8 | 0, 1 | 4.0k / 28.4k | 1.3–8.9 | — |
+| low 60 C | 45.6, 53.1 | 2.6, 2.6 | 0.03 | **3.68, 3.95** | **4.8, 4.8** | 0, 1 | **1.5–1.6k / 6.6k** | 2.2–2.7 | 939 read |
+| low 60 B | 43.1 | 4.4 | 0.07 | 6.08 | 6.7 | 0 | 4.1k / 6.6k | 1.4–5.9 | 1,704 built |
+| low 150 A | 62.2, 64.2 | 10.1, 14.6 | 0.03–0.10 | 5.93, 5.98 | 10.2, 10.8 | 0, 0 | 3.9–4.3k / 28.6–29.0k | 0.5–9.1 | — |
+| low 150 C | 46.6, 49.8 | 9.1, 5.5 | 0.03 | **3.86, 3.83** | **5.3, 5.1** | 0, 0 | 1.8–1.9k / 6.9k | 2.3–3.6 | 930 read |
+| low 150 B | 45.7 | 11.0 | 0.03 | 6.65 | 6.7 | 0 | 4.2k / 6.8k | 2.5–6.0 | 1,710 built |
+| medium 60 A | 72.2, 55.8 | 26.3, 26.7 | 0.04–0.07 | 19.9, 16.7 | 23.4, 21.6 | 4, 5 | 5.3–5.4k / 38.9–39.2k | 0.4–21.5 | — |
+| medium 60 C | 52.4, 44.6 | 20.1, 15.4 | 0.03 | **11.8, 13.5** | **13.8, 15.5** | 2, 2 | 2.9k / 12.8k | 0.5–12.5 | 1,009–1,015 read |
+| medium 60 B | 44.0 | 32.6 | 0.09 | 19.6 | 23.5 | 1 | 5.8k / 12.7k | 2.5–20.0 | 3,814 built |
+| medium 150 A | 54.8, 46.9 | 16.5, 23.8 | 0.03–0.07 | 22.7, - | -, - | 19, 7 | 5.6–5.7k / 33.4–38.7k | 0.2–29.0 | — |
+| medium 150 C | 47.9, 32.5 | 17.4, 18.3 | 0.08 | **11.6, 12.4** | **23.5, 25.9** | 3, 0 | 3.1–3.2k / 12.7–12.8k | 1.2–11.1 | 993–1,005 read |
+| medium 150 B | 42.1 | 24.7 | 0.03 | 25.5 | - | 20 | 6.2k / 13.2k | 1.5–26.6 | 2,109 built |
+
+No frame over 100 ms and no body through the ground in any run (0 of 83 / 34 drops). Read: **C settles soonest in
+every cell and both rounds**, with the fewest loads and derives after the stop (the read ring ends at the detail reach)
+and the shortest full queue; the longest frame and the missed frames are lowest or equal with C at low and at medium 60 m/s; at medium 150 C's
+missed frames sit between A's and B's (medium frame times unverified on target hardware). After 150 m/s at medium only
+C has nothing pending within 30 s (23–26 s: the far field's coarse tail, D632's rest). Holes at medium 150: A 7–19,
+B 20, C 0–3 (D634). Every cell's settle ends on level 0 for C (`settleBy`), on level 1 for A.
+
+**The < 2 s full-detail target (low).** What bounds C now: level 0's own refill after the stop. The full queue lasts
+only 0.5–1 s; the settle ends on the level-0 count; after the stop the simulation runs 6.6–6.9 k section derives
+(2.7–2.8 k of them air, answered without a job) and 1.5–1.9 k loads for the 91 level-0 chunks low draws at the end
+pose (the detail ring with its hysteresis, the level-1 nodes it splits, and an apron). The derive cost per section is
+46d.24's (1.4–2.5 ms a chunk); the fine bricks past the ring are read and uploaded in parallel (939 nodes) and are done
+~1 s after level 0. **One cheap candidate measured:** low's detail ring at half the tier's area (the scene's own
+`quality.low.scale` 0.5; a level's `voxelRings` does not reach the coverage bench, which resets the levels): level-0
+chunks drawn 91 → 38, derives after the stop 6.6 k → 3.2–3.3 k, loads 1.5 k → 0.6 k, **full detail 1.98 s (60 m/s)
+and 1.90 s (150 m/s), nothing pending 3.2–3.3 s** (one round each, `travel/low-*-C-ring05s.json`). Its cost in a
+picture (`shots/side-by-side/town-west-low-C-vs-Cring05.png`): the detail ring ends ~32 m out instead of ~45 m, so the
+middle houses of town-west lose their window frames, recesses and kit pieces (the fine bricks carry no kit pieces).
+Default unchanged (the owner's A5: the detail ring = the level-0 ring stays until the far-rendering numbers exist;
+they do now): the target is met by a smaller detail ring or not at today's ring (default chosen, owner to confirm).
+
+**Headroom meter** (town orbit 12 m at 0.15 rad/s still; 60 m at 0.25 rad/s moving; one round each, ms a pass by
+hiding it past the edge, ±40 %, a negative figure is noise; 23:33–00:12 UTC; `meter/*.json`, `sum.py`):
+
+| | near ms | far ms | frame GPU ms | room (copies) | far nodes / MiB | fill s | heap + GPU MiB |
+|---|---|---|---|---|---|---|---|
+| low A still / moving | 3.16 / 3.48 | 3.74 / 4.22 | 7.8 / 6.0 | 176 / (no edge found) | 1,037 / 77 | 6.5 | 563 + 850 |
+| low C still / moving | 4.52 / 5.44 | 8.66 / 8.79 | 9.2 / 9.0 | 176 / 152 | 1,969 / 134 | 7.9 | 642 + 1,010 |
+| medium A still / moving | 0.16 / 2.25 | 2.45 / 2.59 | 8.7 / 11.0 | 64 / 52 | 2,594 / 164 | 12.0 | 783 + 1,217 |
+| medium C still / moving | 0.83 / 0.24 | 4.17 / 4.43 | 9.7 / 10.0 | 44 / 36 | 3,869 / 250 | 22.6 | 967 + 1,496 |
+
+Low keeps its 30 Hz cap with room either way; C's far pass is ~5 ms larger (more and finer bricks, textured) and the
+frame ~1.4–3 ms more. Medium's room falls 64 → 44 copies still, 52 → 36 moving (unverified on target hardware).
+*Cold fill to town-west settled* (the shots' runs): low A 14.3 s, B 12.7, C 11.4, C1 12.1; medium A 22.6, B 25.9,
+C 26.9, C1 28.6 (C fills more far nodes at medium). *Memory at the town in Play* (page heap + GPU driver-resident,
+MiB, of low's 4,096): low A 639 + 874, B 660 + 911, C 666 + 1,153, C1 631 + 1,185; medium A 714 + 1,309, B 776 +
+1,329, C 933 + 1,543, C1 941 + 1,635. C costs +306 MiB at low over A (far GPU 77 → 134 MiB, the fine nodes' atlas).
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
