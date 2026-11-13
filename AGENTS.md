@@ -1,7 +1,7 @@
 # Thirdlight — Agent Instructions
 
 Thirdlight is a self-hosted browser game editor and engine built on three.js, being converted to voxel worlds
-(phases 45–49). It is one owner's hobby project, built with AI sessions; nothing has shipped. Goal and scope:
+(phases 45–51, order in `docs/roadmap.md`). It is one owner's hobby project, built with AI sessions; nothing has shipped. Goal and scope:
 `docs/architecture/charter.md`. Current work: `docs/STATUS.md` and the phase plan it names. Defects:
 `docs/audit-2026-09-22.md` (closed ones in `docs/audit-closed.md`).
 
@@ -42,6 +42,11 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
 
 - Work on the current item of the phase plan. Keep changes small and complete; no placeholder code that
   pretends to meet a goal.
+- Read `docs/architecture/voxel-engine.md` (what the engine is now) and `docs/decisions/owner-decisions.md`
+  (what was decided, dropped or deferred) before planning or building. A new system names the shared
+  foundation it sits on (the design page's §6) first; it does not build its own derive, window, far channel,
+  instance path, fill or budget. A phase that changes what the design page says edits it in the same commit;
+  an owner decision goes into the register in the same commit.
 - One writing session per worktree. A second session reads only, and hands work over as a brief the owning
   session applies. Briefs and acceptance notes live in the repo (`docs/briefs/`), not in `~/.cache`.
 - Test observable behavior at real boundaries (HTTP/WS, filesystem, browser). Editor/UI changes need a

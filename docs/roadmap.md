@@ -93,16 +93,41 @@ and moves on; unanswered defaults count as approved (owner, 2026-10-26; `docs/de
 | 44 | `docs/plan-phase-44.md` | Consolidation (owner, 2026-10-26): the global audit's findings G1–G22 (`docs/audit-2026-10-26-global.md`), helpers with one home and a redefinition check, caps lifted, splits, a docs reset; no new features |
 | 44b | (owner draft) | Camera (owner, 2026-10-28): occlusion modes chosen per camera, adaptive exposure, the bloom fix |
 | 45–49 | `docs/plan-phase-45.md` | Voxel world (owner, 2026-10-28): one 0.5 m voxel world replaces block layers, terrain and generated architecture; formats first (45), then core (46a–d), structures and tools (47a–c), migration and merge (48a–c), water (49); the Iris Xe is the floor tier |
+| 46f | `docs/plan-phase-46f.md` | Shared foundations (owner, 2026-11-12), before 46e: a frame profiler with one budget table and frame arbiter, the interaction field on a camera-following window helper, trees and ground cover in the culled-instance table, one undo for scene and voxels, the cheap merges of `docs/research/duplication-audit.md` |
 
-Future, not planned yet:
-- **Water** (phase 49, after the voxel merge): ordinary voxels with a `liquid` role, rivers, lakes and waterfalls
-  (`docs/plan-phase-45.md` §8).
-- **A performance phase after 49** over the whole voxel world, from the numbers every phase recorded (owner,
-  2026-10-28); it also revisits occlusion culling on WebGPU (D282, D286). The Iris Xe is the floor tier: 720p at
-  60 Hz the goal, 30 Hz acceptable during 45–49.
+The voxel programme's order from 46d-c on (owner, 2026-11-12; it replaces `docs/plan-phase-45.md` §4's order;
+what each sits on: `docs/architecture/voxel-engine.md` §6):
+
+1. **46f Shared foundations** (`docs/plan-phase-46f.md`).
+2. **46e Lighting**: opens with one occupancy grid walk and open-region labelling; the surface cache against a
+   voxel light volume decided with the profiler; rooms as a derived "enclosed open region" for light, cut-away
+   and audio; connectivity culling only if it measures better than the depth pyramid; the walk graph on a
+   generic A* core.
+3. **47a Structures**: regenerated structures (a definition → voxels + overrides) for buildings and for road,
+   path and river splines; **water bodies** as definitions (seed, level, liquid material) whose liquid voxels
+   are regenerated when the ground in their reach is edited, in the editor only, bounded and flagged when
+   breached, with a plain liquid look; the regenerate step is what a later run-time settle calls.
+4. **47b World edit mode**: one mode on the brush kit in the Scene view; fields derived from voxels; the
+   height-based fill for water and fog; the fog role and fog painting with a plain look; material dressing,
+   scatter rules and vegetation rules as one item.
+5. **47c**: the world map as the far field seen from above; MCP; manual.
+6. **48**: converters, retirement of block layers, heightfield terrain and generated architecture, the merge to
+   main. The owner's demo project (real art, the stress scene) comes in here.
+7. **49 Water**: the liquid derive, surface shader, flow, falls, queries and buoyancy; far-node side channels.
+8. **50 Vegetation rendering**: LODs, offline impostors, forest canopy in the far bricks.
+9. **51 Fog**: lit fog in the fog node, the slab march, the interactive ground fog on the interaction field;
+   froxels last.
+10. **Post-stack performance**, then the performance pass over the whole voxel world from the numbers every
+    phase recorded (it also revisits occlusion culling on WebGPU: D282, D286).
+
+Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
+duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
+lit fog volumes in the fog node, impostor atlases as asset data.
+
+Also future:
 - **The owner's own dogfood pass**: building a small game from the docs alone (deferred from 31.8).
-- The one walk graph for blocks and terrain (owner, 2026-10-22) is now the voxel world's hierarchical walk graph
-  (46d); the lighting phase after 41 became phases 42 and 43.
+- The one walk graph for blocks and terrain (owner, 2026-10-22) is the voxel world's hierarchical walk graph
+  (46e); the lighting phase after 41 became phases 42 and 43.
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).

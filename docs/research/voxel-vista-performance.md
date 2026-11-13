@@ -92,6 +92,8 @@ Deck https://steamdeckhq.com/game-reviews/steam-deck/enshrouded-early-access/
 
 ## 3. What the web platform allows
 
+> **Superseded in part (2026-11-13).** The WebGL 2 workarounds here stopped binding the design on 2026-11-10 (§6). What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
+
 - **Fragment depth kills early-Z on both renderers.** WebGL 2 has no conservative depth; WGSL's
   `frag_depth, less|greater` is listed as disabled in Chrome (155–156 notes). So rejection before the march must
   be done by hand: read a depth texture at the top of the shader (as Teardown does), or cull the box in the
@@ -116,6 +118,8 @@ Deck https://steamdeckhq.com/game-reviews/steam-deck/enshrouded-early-access/
 - **Froxel fog** needs compute or slice rendering; an analytic height fog is free in a deferred pass.
 
 ## 4. Proposed order of work
+
+> **Superseded in part (2026-11-13).** Steps 0–4 were built as 46d.16–46d.26; steps 5–6 (foliage, fog) are replaced by `docs/research/vegetation.md` and `docs/research/fog.md` (the interactive ground fog first, froxels last). What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
 
 Gains are estimates from sample and job counts unless a measurement is named. Each step is measured with step
 0's meter before and after.

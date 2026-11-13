@@ -12,6 +12,8 @@ with an owner note), role spec v1 and texture layout v1 (APPROVED), kit format 1
 
 ## 1. Scope
 
+> **Superseded in part (2026-11-13).** Written before the owner's 2026-11-09 to 11-12 decisions: near relief, the far field built both ways and both-renderer measurement are history; the phase ended as bricks with a bake level, WebGPU first. What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
+
 **Make the voxel world look like its materials, near and far, inside a budget per quality tier.** 46d builds:
 - **Near-ring relief, decided by a spike first (owner):** a denser voxel mesh in the near ring (building grids and
   terrain) displaced in the vertex shader by each material's height, on both renderers (WebGPU has no hardware
@@ -162,6 +164,8 @@ the re-measure differs, the re-measure wins.
 | Full gate | 46c close | 34 min, 8.0 GB, 393 e2e (9e50b65e) |
 
 ## 5. Where things live (reuse first; import or move to `@thirdlight/shared` in its own commit, never copy)
+
+> **Superseded in part (2026-11-13).** Relief and mesh-far modules listed here still exist behind switches and are not to be extended. What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
 
 - **Voxel surface shader** — three-adapter `voxel-surface.ts` (material table texture: a texel a material id, looks
   in block 1, tiles in block 2, a layer column already read at :644; grid 3D texture; pattern and crack arrays; four
@@ -5646,6 +5650,9 @@ planes where A's are stair-stepped; WebGL 2's baked 0.5 m draws flat-colour wall
    street roofs (D628, D631); motion is yours to judge. (accepted, rows open)
 5. Next: a short 46d-d for D621, D594, D644, D634, or 46e (lighting) now with them carried? (nothing starts without
    the owner's word)
+   **Owner 2026-11-12:** neither first: 46f (shared foundations, `docs/plan-phase-46f.md`) comes next, then 46e; the
+   four rows are carried. Question 2 was built from the owner's decision of 2026-11-12. Questions 1 to 4:
+   the defaults stand until the owner says otherwise.
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
   65.3 MiB (a 4096² RGBA PNG uncompressed, D535 fixed in 46d.4d): confirm the bound.

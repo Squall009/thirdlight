@@ -294,6 +294,8 @@ families in the migration phase: graph materials that a standard family can expr
 
 ## 1d. The standard trim layout and tiling (owner question 2026-10-28; proposal)
 
+> **Superseded in part (2026-11-13).** One trim layout and the projected/modular split were revised in 46c (role spec, kit format 1); paint overlays per vertex were dropped. What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
+
 The current trim sheet will be remade (owner). The worry is that a 0.5 m grid means a texture repeating every 0.5 m.
 It doesn't have to: **the voxel size sets the geometry, not the texture repeat.**
 
@@ -381,6 +383,8 @@ they are voxelized. Props are meshes and rotate freely.
 time, lighting, culling and memory, so the cost of separate grids is known.
 
 ## 2. Design
+
+> **Superseded in part (2026-11-13).** The meshing, "materials on the GPU" and LOD-table parts are history: the far field is ray-marched bricks with a bake level per world, detail-piece LODs and mesh HLOD were not built, the brick renderer is the plan. What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
 
 **Storage.**
 - Sparse chunks with a palette, and empty or uniform chunks cost almost nothing.
@@ -556,6 +560,8 @@ Throughout 45, nothing on `main` relies on branch code, and every existing syste
 
 ## 4. Phases 46–49, in sub-phases (owner, 2026-10-28)
 
+> **Superseded in part (2026-11-13).** The order below is replaced by `docs/roadmap.md`: 46f foundations → 46e → 47a (structures, water bodies) → 47b (world edit mode, fill, fog role, dressing) → 47c → 48 → 49 water → 50 vegetation → 51 fog. Detail pieces "high → low → none" is deferred. What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
+
 Each sub-phase is a phase of its own size (about one phase-42-sized run or less), with its own plan written at its
 start from the numbers before it, its own full gate (on the branch), review and fixes. Acceptance by eye is per
 sub-phase on staging; the merge to `main` happens once, at the end of 48.
@@ -650,6 +656,8 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
   They run one at a time, each in a capped scope.
 
 ## 5c. Further considerations (2026-10-28, to settle in the phase plans)
+
+> **Superseded in part (2026-11-13).** The "saved bake for WebGL 2" and both-renderer items no longer apply (WebGPU first, 2026-11-10). What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
 
 - **Measuring the high tier.** This host only has the Iris Xe; the RTX 5090 is the owner's Windows workstation.
   - The perf harness gets a page the owner opens in Edge on the workstation, pointed at the staging service. It runs
@@ -2415,6 +2423,8 @@ approval stops remain. The role/assembly and material-layout drafts must reflect
 
 ### Surface subdivision and displacement: investigate before committing
 
+> **Superseded in part (2026-11-13).** Relief displacement is off on every tier and deferred by the owner (2026-11-09, 11-11). What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
+
 The owner proposed near/middle/base surface levels: densely subdivided voxel surfaces displaced by material height
 near the camera, coarser subdivided/displaced surfaces farther out, then undisplaced voxel geometry. This is viable
 in principle without a hardware tessellation stage: generate vertices during meshing and displace existing vertices
@@ -2472,6 +2482,8 @@ carvings rearrange merely because an intact patch falls back to smaller pieces. 
 and boundary compatibility need testing. This remains optional research, not mandatory kit scope.
 
 ### Deferred material-driven terrain dressing
+
+> **Superseded in part (2026-11-13).** No longer deferred: dressing hangs off the material record and is one item with scatter rules and vegetation in 47b (`docs/research/vegetation.md`). What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
 
 - Terrain material recipes should eventually generate nearby dressing automatically: grass/flowers for grassy
   ground, small pebbles/stones for volcanic basalt. Do not require painting individual scatter placements.
@@ -2534,6 +2546,8 @@ profiles, mapping conventions and validation should grow from this proof, not fr
 
 ## 8. Next: water (a later phase; owner decisions 2026-10-28)
 
+> **Superseded in part (2026-11-13).** Water stays liquid-role voxels, but its rendering and simulation here are replaced by `docs/research/water.md`: a derived surface, static first, bodies that regenerate when the ground is edited in the editor (47a), phase 49 for the look and queries. What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
+
 Water is ordinary voxels, so it shares storage, streaming, meshing, LOD and saves. The look is each game's own.
 
 - **Data: water uses a `liquid` role, with no separate fluid channel** (owner).
@@ -2586,6 +2600,8 @@ Water is ordinary voxels, so it shares storage, streaming, meshing, LOD and save
   water following, and a channel dug to drain the lake, measured on the Iris Xe.
 
 ## 9. Efficiencies a voxel world unlocks (overview, 2026-10-28; for the phase planners)
+
+> **Superseded in part (2026-11-13).** "One occupancy bitmask" was revised by §7a; the shared foundations are now listed in `docs/architecture/voxel-engine.md` §6. What is true now: `docs/architecture/voxel-engine.md`; what was decided and dropped: `docs/decisions/owner-decisions.md`.
 
 A world that is a uniform 0.5 m grid lets many systems use exact, cheap grid operations instead of mesh queries. Each
 one needs measuring before it counts.
