@@ -4460,6 +4460,8 @@ each finding and what became of it. Gates: §8 "46d-c review fixes, gates" below
 | L7 46d.24 row | Ends whole | docs |
 | L8 gate time | Nothing cut: the e2e's bake step is the Inspector's state (the browser's part); the far info's states (failed, resumed) are now in vitest (`voxel-far-fine.test.ts`). voxel-world.e2e.ts: the voxel area 147–176 s in 46d-c's gates, 158 / 165 s in this slice's (gate-fast-20261113-030759, the every-area run); its page test alone 54–58 s with every built node checked (64, was 6). The phase gate's time against 46d-b's is the close's to record | — |
 | L9 TAAU/post → scene-loads | `environment` (post, TAAU, upscale, exposure) runs `scene-loads.e2e.ts` too | 6b947726 |
+| D616 cameras exposure 0.4948 | Not a regression: the check read the exposure 150 ms after the key's release, so it measured whether the cut's screenshot ended before then (2 of 4 alone at head). Every reading now held to ≤ 1 − e^(−speed·t) of the way since the key went down; 5 of 5 alone | 09ab8d70 |
+| D637 export cut-away | The roof was gone; the px left were the T-join's blue resolved into the yellow piece under it, read as the roof's front face. The classifier counts the roof's lit top only (blue > 140, no such mix reaches 124); 5 of 5 alone. D643 is not this cause (left open) | 09ab8d70 |
 
 *46d-c review fixes, gates.* gate-fast-20261113-023443 (4644fca4) GREEN; -025032 RED build (FarField over 80 members,
 fixed in the same commit) and -025250 RED vitest (`page-view.test.ts`'s fake far field, fixed the same) before
