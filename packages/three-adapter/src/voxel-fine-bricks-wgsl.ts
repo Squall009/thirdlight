@@ -372,8 +372,12 @@ fn fieldOut(p: vec3<f32>) -> f32 {
 }
 
 // A shown cell's vote: 2 a top (nothing above it; a roof's plane cell, a fill of 0 that keeps its word), 1 a solid cell
-// beside a non-solid one, 0 hidden or empty.
+// beside a non-solid one, 0 hidden or empty. The block's outermost cells have no neighbour on one side and show
+// nothing, as in the CPU build (a footprint at a node's far corners reaches them).
 fn shownAt(i: u32) -> u32 {
+  let x = i % P.n; let y = (i / P.n) % P.n; let z = i / (P.n * P.n);
+  let last = P.n - 1u;
+  if (x == 0u || y == 0u || z == 0u || x == last || y == last || z == last) { return 0u; }
   if (densAt(i) == 0.0) { return select(0u, 2u, (cellAt(i) >> 4u) != 0u); }
   if (cellAt(i + P.n) == 0u) { return 2u; }
   if (!solidAt(i)) { return 0u; }
@@ -444,7 +448,7 @@ fn bake(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   for (var sx = 0u; sx < BS; sx++) {
     let k = (sz * BS + sy) * BS + sx;
     var look = wLook[k];
-    // No shown cell in reach: the CPU build carries the last sample's look before it; here within the brick.
+    // No shown cell in reach: as the CPU build, the nearest sample before it in the brick with a look, else after.
     if (look < 0) {
       for (var j = i32(k) - 1; j >= 0 && look < 0; j--) { look = wLook[j]; }
       for (var j = k + 1u; j < BS * BS * BS && look < 0; j++) { look = wLook[j]; }

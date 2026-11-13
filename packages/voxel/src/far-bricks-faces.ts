@@ -344,7 +344,8 @@ export function farBricksFromBlock(g: ChunkGrid, block: FarCellBlock): FarBricks
   const blocks: number[] = [];
   const bounds: number[] = [];
   const values = new Float32Array(DISTANCE_BRICK_SAMPLES);
-  let lastLook = 0;
+  const rawLooks = new Int32Array(DISTANCE_BRICK_SAMPLES);
+  const nearLooks = new Int32Array(DISTANCE_BRICK_SAMPLES);
   for (let bz = 0; bz < side; bz++) for (let by = 0; by < side; by++) for (let bx = 0; bx < side; bx++) {
     let lo = Infinity;
     let hi = -Infinity;
@@ -369,11 +370,21 @@ export function farBricksFromBlock(g: ChunkGrid, block: FarCellBlock): FarBricks
     }
     const block = new Uint8Array(DISTANCE_BRICK_SAMPLES);
     for (let k = 0; k < DISTANCE_BRICK_SAMPLES; k++) block[k] = sampleOfDistance(values[k]!, band);
+    for (let sz = 0; sz < T; sz++) for (let sy = 0; sy < T; sy++) for (let sx = 0; sx < T; sx++) rawLooks[(sz * T + sy) * T + sx] = look(bx * C + sx, by * C + sy, bz * C + sz);
+    // No shown cell in reach: the nearest sample before it in the brick with a look, else the nearest after, else
+    // none (0). Within the brick, so its looks never depend on the bricks built before it: the GPU build makes each
+    // brick alone, and both builds give a node the same looks.
     const lk = new Uint16Array(DISTANCE_BRICK_SAMPLES);
-    for (let sz = 0; sz < T; sz++) for (let sy = 0; sy < T; sy++) for (let sx = 0; sx < T; sx++) {
-      const w = look(bx * C + sx, by * C + sy, bz * C + sz);
-      if (w >= 0) lastLook = w;
-      lk[(sz * T + sy) * T + sx] = w >= 0 ? w : lastLook;
+    let before = -1;
+    for (let k = 0; k < DISTANCE_BRICK_SAMPLES; k++) {
+      if (rawLooks[k]! >= 0) before = rawLooks[k]!;
+      nearLooks[k] = before;
+    }
+    let after = -1;
+    for (let k = DISTANCE_BRICK_SAMPLES - 1; k >= 0; k--) {
+      if (rawLooks[k]! >= 0) after = rawLooks[k]!;
+      const w = rawLooks[k]! >= 0 ? rawLooks[k]! : nearLooks[k]! >= 0 ? nearLooks[k]! : after;
+      lk[k] = Math.max(w, 0);
     }
     const faces = (bx === 0 ? 1 : 0) | (bx === side - 1 ? 2 : 0) | (by === 0 ? 4 : 0) | (by === side - 1 ? 8 : 0) | (bz === 0 ? 16 : 0) | (bz === side - 1 ? 32 : 0);
     // The cells a ray can hit in: those the surface crosses; on a node's side faces also the cells under it, where a

@@ -721,7 +721,9 @@ interface FineState {
 async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: number, skyBelow: (p: Awaited<ReturnType<typeof shot>>) => number): Promise<void> {
   await hook(page, 'setFar', { mode: 'bricks' });
   await hook(page, 'settleFar');
-  await hook(page, 'checkFine', 6);
+  // Every node this small world builds is checked (up to the 64 checks the page keeps): which nodes are built first
+  // depends on the host's load, and a check of the first few compared different blocks run to run.
+  await hook(page, 'checkFine', 64);
   await hook(page, 'setFar', { fine: true });
   const built = async (): Promise<FineState> => {
     await hook(page, 'settle');
@@ -747,13 +749,16 @@ async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: n
   // (32-bit rounding at the ties part-full fills make), looks and occlusion as the design says.
   expect(b.checks.length).toBeGreaterThan(0);
   const sum = (k: 'samples' | 'distanceDiffer' | 'lookDiffer' | 'occlusionDiffer' | 'boundsDiffer' | 'bricks'): number => b.checks.reduce((n, c) => n + c[k], 0);
-  console.log(`fine check: ${JSON.stringify(b.checks)}`);
+  console.log(`fine check (${b.built} built): ${JSON.stringify(b.checks)}`);
+  expect(b.checks.length, 'every node built checked').toBe(Math.min(b.built, 64));
   for (const c of b.checks) {
     expect(c.sameBricks, c.node).toBe(true);
     expect(c.distanceMax, c.node).toBeLessThanOrEqual(1);
   }
   expect(sum('distanceDiffer') / sum('samples'), 'distance bytes off by one').toBeLessThan(0.02);
-  expect(sum('lookDiffer') / sum('samples'), 'looks apart').toBeLessThan(0.02);
+  // One rule for a sample with no shown cell in reach (the nearest look in its brick): the looks agree (0 of ~490,000
+  // samples measured; a distance byte a rounding apart can still move which cells show).
+  expect(sum('lookDiffer') / sum('samples'), 'looks apart').toBeLessThan(0.005);
   expect(Math.max(...b.checks.map((c) => c.occlusionMax)), 'occlusion').toBeLessThanOrEqual(3);
   // Past the detail ring the fine bricks draw (in this small world nearly every far node drawn is a fine one): ground
   // below the horizon everywhere, and their pixels gone with the far draws hidden.
@@ -796,7 +801,7 @@ async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: n
   const roof: number[] = [];
   for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) roof.push(gx + x, gy + Math.min(z + 1, 8 - z), gz + z);
   expect(await hook<number | null>(page, 'levelAt', gx, gy + 1, gz), 'the roof is not drawn by the near field').toBeNull();
-  await hook(page, 'checkFine', 12);
+  await hook(page, 'checkFine', 64);
   await hook(page, 'localEdit', { v: 2, grid: 0, kind: 'set', cells: roof, voxel: { material: MAT.stone, role: VOXEL_ROLE.roof, wetness: 0, shape: 15 } });
   const roofed = await built();
   const roofChecks = roofed.far.fineBuild!.checks.filter((c) => c.roofs > 0);
@@ -805,7 +810,7 @@ async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: n
   for (const c of roofChecks) {
     expect(c.sameBricks, c.node).toBe(true);
     expect(c.distanceMax, c.node).toBeLessThanOrEqual(1);
-    expect(c.lookDiffer / c.samples, c.node).toBeLessThan(0.02);
+    expect(c.lookDiffer / c.samples, c.node).toBeLessThan(0.005);
   }
   // Row 1 of the gable: its stair cell spans gy + 2 … gy + 3, its plane rises from gy + 3 to gy + 4 across the row.
   expect(await hook<{ level: number; inside: boolean } | null>(page, 'farSolidAt', gx + 4.5, gy + 3.5, gz + 1.9), 'under the roof plane, over its stair').toMatchObject({ inside: true });
