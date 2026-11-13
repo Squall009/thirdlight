@@ -1021,7 +1021,7 @@ async function profilerPanel(page: Page, pr: ProfileE2e, readProfile: () => Prom
   await panel.getByRole('tab', { name: 'Budget' }).click();
   const budget = panel.getByTestId('profiler-budget');
   await expect(budget).toHaveAttribute('data-tier', 'high');
-  await expect(budget.locator('tr[data-thread="page"][data-category="render"] td').nth(2)).toHaveText((0.25 * (1000 / 60)).toFixed(2));
+  await expect(budget.locator('tr[data-thread="page"][data-category="render"] td').nth(1)).toHaveText((0.25 * (1000 / 60)).toFixed(2));
   expect(await budget.locator('tbody tr').count()).toBeGreaterThanOrEqual(pr.budget.rows.filter((r) => r.budgetMs > 0 && r.thread !== 'jobs').length);
   await page.screenshot({ path: test.info().outputPath('profiler-budget-1280.png') });
   // A capture file: version 1, the tier's header, the threads' frames.

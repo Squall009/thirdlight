@@ -13,13 +13,12 @@
  */
 import { useEffect, useRef, useState, type JSX } from 'react';
 
+import { PROFILE_FRAMES } from '@thirdlight/shared';
 import { PROFILE_CATEGORY_COLOURS, PROFILE_LANE_LABELS, PROFILE_LANES, profileBar, profileColumnAt, profileScaleMs, type ProfileColumn, type ProfileReport } from '@thirdlight/game-host/profile-view';
 
-/** Columns the timeline has room for (the page keeps this many frames). */
-export const TIMELINE_SLOTS = 120;
 const GUTTER = 84;
-const LANE_H = 46;
-const LANE_GAP = 6;
+const LANE_H = 40;
+const LANE_GAP = 5;
 const GPU_H = 18;
 const TOP = 6;
 
@@ -35,13 +34,17 @@ export const timelineHeight = (): number => TOP + PROFILE_LANES.length * (LANE_H
 
 interface Props {
   report: ProfileReport;
+  /** Columns the width is shared by (the newest at the right); a spike's few frames take fewer, wider ones. */
+  slots?: number;
   columns: readonly ProfileColumn[];
   selected: number | null;
   onSelect: (index: number) => void;
   onHover: (index: number | null) => void;
 }
 
-export function ProfilerTimeline({ report, columns, selected, onSelect, onHover }: Props): JSX.Element {
+export function ProfilerTimeline({ report, columns, selected, onSelect, onHover, slots: wanted }: Props): JSX.Element {
+  // The page keeps PROFILE_FRAMES frames a thread: room for all of them.
+  const slots = Math.max(columns.length, wanted ?? PROFILE_FRAMES);
   const ref = useRef<HTMLCanvasElement | null>(null);
   const [width, setWidth] = useState(600);
   const height = timelineHeight();
@@ -58,10 +61,10 @@ export function ProfilerTimeline({ report, columns, selected, onSelect, onHover 
   }, []);
   // The columns fill the slots from the right, so a frame keeps its place as newer ones arrive.
   const plotW = Math.max(1, width - GUTTER);
-  const slotW = plotW / TIMELINE_SLOTS;
-  const offset = TIMELINE_SLOTS - columns.length;
+  const slotW = plotW / slots;
+  const offset = slots - columns.length;
   const columnOf = (x: number): number | null => {
-    const slot = profileColumnAt(x - GUTTER, plotW, TIMELINE_SLOTS);
+    const slot = profileColumnAt(x - GUTTER, plotW, slots);
     if (slot === null || slot < offset) return null;
     return slot - offset;
   };
@@ -111,10 +114,17 @@ export function ProfilerTimeline({ report, columns, selected, onSelect, onHover 
       g.lineTo(GUTTER + plotW, capY + 0.5);
       g.stroke();
       g.setLineDash([]);
+      // The interval's value at the line's oldest end, above it (the gutter holds the lane's name; the newest frames the right).
       if (li === 0) {
+        g.font = '10px Inter, system-ui, sans-serif';
+        const label = `${report.intervalMs.toFixed(1)} ms a frame`;
+        const lw = g.measureText(label).width + 6;
+        g.fillStyle = t.lane;
+        g.fillRect(GUTTER + 2, capY - 13, lw, 12);
         g.fillStyle = t.cap;
-        g.textAlign = 'right';
-        g.fillText(`${report.intervalMs.toFixed(1)} ms`, GUTTER - 4, capY);
+        g.textAlign = 'left';
+        g.fillText(label, GUTTER + 5, capY - 7);
+        g.font = '11px Inter, system-ui, sans-serif';
       }
     });
     // Long frames: a red tick over every lane's column.

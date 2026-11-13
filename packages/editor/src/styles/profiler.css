@@ -22,7 +22,7 @@
 .tl-prof__caption { margin: 4px 0 6px; font-size: var(--text-xs); color: var(--text-dim); line-height: 1.45; }
 .tl-prof__table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: var(--text-xs); }
 .tl-prof__table th { text-align: left; font-weight: var(--weight-medium); color: var(--text-faint); text-transform: uppercase; letter-spacing: var(--tracking-caps);
-  font-size: 10px; padding: 3px 6px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface-1); }
+  font-size: 10px; padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: var(--surface-1); }
 .tl-prof__table td { padding: 2px 6px; border-bottom: 1px solid rgba(42, 48, 57, .55); white-space: nowrap; }
 .tl-prof__table tbody tr:hover td { background: var(--surface-2); }
 .tl-prof__table .tl-prof__name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
@@ -31,7 +31,7 @@
 .tl-prof__dim { color: var(--text-dim); }
 .tl-prof__none { padding: 6px; color: var(--text-faint); font-size: var(--text-xs); }
 .tl-prof__use { white-space: nowrap; font-family: var(--tl-font-mono); text-align: right; }
-.tl-prof__meter { display: inline-block; width: 46px; height: 6px; margin-right: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; vertical-align: 1px; }
+.tl-prof__meter { display: inline-block; width: 36px; height: 6px; margin-right: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; vertical-align: 1px; }
 .tl-prof__meter > span { display: block; height: 100%; background: var(--ok); }
 .tl-prof__table tr.is-over td { background: var(--err-bg); }
 .tl-prof__table tr.is-over .tl-prof__use { color: var(--err); font-weight: var(--weight-bold); }
@@ -40,3 +40,5 @@
 .tl-prof__spikes { list-style: none; margin: 0; padding: 0; font-size: var(--text-xs); }
 .tl-prof__spikes li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .tl-prof__spike-ms { font-family: var(--tl-font-mono); color: var(--err); min-width: 64px; text-align: right; }
+.tl-prof__table td.tl-prof__name { min-width: 9em; }
+.tl-prof__table tr.tl-prof__group td { padding-top: 6px; color: var(--text-dim); font-weight: var(--weight-medium); background: var(--surface-0); }

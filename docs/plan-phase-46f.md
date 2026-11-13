@@ -119,7 +119,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | Item | Status |
 |---|---|
 | 46f.0 | Done 2026-11-13: three 0.187.0 = pin. Baseline §4 (low 30 Hz, 720p, alone): 8 km world room 22.4–23.1 ms, far 39–46 % / near 31–33 %; 150 m/s longest 42–44 ms, 0 > 100 ms, detail 4.5–4.7 s; meadow 977 k tris 10 draws; village 242 draws, main 4.5 ms. Sim-worker CPU unmeasured (no timing). Last fast gate 14 min. |
-| 46f.1 | a done 2026-11-13, b pending: spans on page, sim worker (with the tick) and job workers; `__tlProfiler.read()`; budget table per tier; 10 time slices from one arbiter (old values kept). Low 30 Hz: 8 km town page 4.0–4.5 / sim 1.8–2.1 ms a frame, village page 4.0 / sim 0.3; room 176 = before; 150 m/s longest 48–50 ms (42–44). Span ~0.5–0.7 µs. |
+| 46f.1 | Done 2026-11-13. a: spans on every thread, `__tlProfiler.read()`, budget table per tier, 10 slices from one arbiter. b: editor Profiler tab (timeline, frame breakdown, budget, counters, spikes, captures), overlay Shift+F3, capture file v1, `tl_diagnostics` profile digest. 150 m/s A/B: HEAD 43.9–50.5 ms inside base 42.0–53.9; spike settle fixed. |
 | 46f.2 | not started |
 | 46f.3 | not started |
 | 46f.4 | not started |
@@ -188,6 +188,71 @@ The 150 m/s longest frame read 5 ms higher than the baseline's in both rounds, i
 high tier while the world fills, the worker's voxel streaming took 40–45 ms a tick (D646).
 
 
+### 46f.1b — the profiler's visible side (panel, overlay, capture, MCP)
+
+**Built.** Editor **Profiler** tab in the bottom dock (`packages/editor/src/ui/profiler/`, `styles/profiler.css`):
+a canvas timeline, one column a page frame (the page's 120), lanes page / simulation / job workers (per worker)
+stacked by category with one colour each and a legend, the frame interval's dashed line half way up each lane, long
+frames ticked red, the GPU as pass shares (never ms); a click picks a frame: its spans per thread as a tree (a tick
+under its own row, jobs by worker); Budget (the tier's rows grouped by thread, over-budget rows red, the GPU plan,
+the arbiter's slices), Counters, Spikes (Open shows the spike's own frames); Pause/Resume, Save capture, Open
+capture (marked as a file). It polls the play page twice a second over the preview bridge (`tl.profile.request` →
+`tl.profile.result`, bound 1 MiB; the editor's own poll like the debugger's) with a cursor: `PageProfile.read(after)`
+returns only frames and spikes taken in since (`seq` counts by arrival, so a late tick is not missed); frames are
+made into objects once each. The views, capture file and digest are game-host `profile-view.ts` /
+`profile-capture.ts`, reached by the editor through the `@thirdlight/game-host/profile-view` subpath (boundary rule
+in its own commit). Overlay: the F3 stats overlay (`stats-overlay.ts`) gets a profiler view on **Shift+F3** (one
+line a thread: own ms a frame, top three categories as ms/budget, over-budget, GPU shares, last spike) and a Save
+capture button; read only while shown. Capture file: `{version: 1, kind: 'thirdlight-frame-profile', header:
+{build, tier, quality, frameRateCap, renderer, date, source}, report}`; a reader refuses another version with the
+reason. MCP: `tl_diagnostics {sections: ['profile']}` answers a digest (≤ 6 KiB: per thread and category mean,
+worst, budget, use; over-budget list; counters; GPU; the worst spike's longest spans), made on the play page from
+`host.profile()` through the same relay as every Play diagnostics part; left out unless named. Manual:
+`docs/manual/features/profiler.md` (+ performance, debugging, index); reference regenerated.
+
+**Fix from the A/B (below).** A spike settling on the page made every kept frame of every thread into objects
+(120 page + 120 simulation frames with spans) inside a page frame; at 150 m/s many ticks pass the interval, so it
+happened in flight. It now reads only the frames over the spike's window (`framesOver`, counting back without
+making objects).
+
+**Tested.** vitest: `game-host/src/profile-view.test.ts` (columns: ticks and jobs in the frame they started in, a
+job per worker, the late frame marked; bar stacking and the cut at the top; column under a pixel; breakdown with
+tick rows and job lanes; the digest's bound and what a tight bound drops; overlay lines; reads after a cursor add up
+to the whole read with ticks arriving after their frames, an empty cut after the newest; capture round trip,
+version and kind refused; the overlay reads nothing while hidden), `protocol/src/bridge.test.ts` (the two
+messages, the cursor's shape, the answer's own bound). Playwright, real backend, WebGPU: `voxel-world.e2e.ts` Play
+(8 km world, worker, high tier): the tab's page / simulation / job lanes have bars, Pause, a picked frame lists only
+span names the profile has, Budget is the high tier's (page render 4.17 ms), Save capture → a version 1 file (tier
+high, source editor, renderer webgpu, 64-hex build), opened again it shows as a file with its frames, a spike
+opens, Counters (~5 s added to the test); `engine-stats.e2e.ts` export served with the backend stopped: the
+profiler view hidden and `data-reads` 0 over 1.5 s, Shift+F3 shows page / sim / jobs lines and reads, Save
+capture → version 1, source export, Shift+F3 hides it and the reads stop; `mcp.e2e.ts`: `tl_diagnostics`
+sections ['profile'] over a real Play: only that part, digest ≤ 6 KiB and answer ≤ 16 KiB, page and sim frames,
+render's budget, draw calls; not in an answer that does not name it. `project-items` / `project-window`: the dock's
+fourth tab.
+
+**Measured** 2026-11-13 17:32–17:58 UTC, each run alone, uptime 21.0 d, load (1 min) 1.0–3.4: coverage, export,
+low 30 Hz, 1280 × 720, 150 m/s, interleaved; base b556103f built in a scratch worktree, removed after (raw:
+`~/.cache/thirdlight-phase46f/work/46f.1b/cov-*`, `*.uptime` beside each).
+
+| Round | base b556103f | HEAD 44e497e2 | after the fix |
+|---|---|---|---|
+| 1 | 44.4 ms, 0 > 100, 0.9 missed/min | 50.5, 0, 0.9 | |
+| 2 | 42.0, 0, 1.8 | 48.5, 0, 1.8 | |
+| 3 | 42.7, 0, 1.8 | 43.9, 0, 3.7 | |
+| 4–5 (a first try: frame objects cached only) | 42.2, 0, 2.7 / 44.4, 0, 0.9 | | 52.3, 0, 0.9 / 46.3, 0, 2.7 |
+| 6–7 (the spike window fix) | 53.9, 0, 0.9 / 45.3, 0, 3.7 | | 43.5, 0, 1.8 / 45.2, 0, 1.8 |
+
+Seven base rounds read 42.0–53.9 ms: HEAD's 43.9–50.5 lies inside that spread, so no regression is shown; the one
+page cost found is fixed and the fixed build read 43.5 / 45.2 beside base 53.9 / 45.3 in the same hour. No frame
+over 100 ms in any round.
+
+**Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.1b/shots/`): the tab at 1280 × 720 (Frame, Budget)
+and 1920 × 1080 (a capture file's spike, Counters), and the export overlay's profiler view at 1920 × 1080. Seen and
+fixed: the interval's label over the lane names, a budget table too narrow for its category names (now grouped by
+thread), children listed before parents where the page's 0.1 ms clock ties starts, a spike's two frames drawn as
+slivers. Page spans read 0.00 ms where they take under the page clock's 0.1 ms (truthful, not hidden).
+
 ## 9. Decision log
 
 - 2026-11-13 (plan): the phase is planned from the owner-approved consolidation of 2026-11-12; item order is
@@ -224,6 +289,21 @@ high tier while the world fills, the worker's voxel streaming took 40–45 ms a 
 - 2026-11-13 (46f.1a, for 46f.1b): read `window.__tlProfiler.read()` (game-host `ProfileReport`, plain JSON) or
   `GameHost.profile()`; `profileSummary()` gives a bench's line. Threads are aligned by wall-clock `start`; a
   worker frame's `tick` is the tick it ran. MCP `tl_diagnostics` can carry the same object.
+
+- 2026-11-13 (46f.1b, default chosen, owner to confirm): the Profiler is a tab of the bottom dock (beside Console
+  and Problems), read only while it shows; the panel reads the play page over the preview bridge (a
+  `tl.profile.request` the editor sends itself, as the visual-script debugger does), not the backend's diagnostics
+  relay: that relay's 16 KiB bound cannot carry frames with spans. MCP reads the digest through `tl_diagnostics`
+  (the relay); both are answered on the play page from the same `host.profile()`.
+- 2026-11-13 (46f.1b, default chosen, owner to confirm): `tl_diagnostics`' `profile` part only when named in
+  `sections` (a read makes the profile's frames into objects; the Play toolbar polls diagnostics every 0.4 s).
+- 2026-11-13 (46f.1b, default chosen, owner to confirm): the overlay's profiler view is Shift+F3 inside the stats
+  overlay, so it exists only where a game turned the overlay on (`stats_overlay` 1 or 2; off by default) — an
+  export without the setting has no profiler view.
+- 2026-11-13 (46f.1b, default chosen, owner to confirm): "measure room" is left to the bench (`run.mjs
+  headroom`): it takes minutes and loads the GPU; the panel's Counters say so.
+- 2026-11-13 (46f.1b, default chosen, owner to confirm): the capture file is the page's `ProfileReport` under a
+  header, `version: 1`, `kind: 'thirdlight-frame-profile'`; a later shape is a new version, never an edit.
 
 ## 10. Open questions for the owner
 

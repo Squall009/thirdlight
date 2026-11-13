@@ -210,7 +210,7 @@ export function ProfilerPanel({ playSessionId, readProfile }: Props): JSX.Elemen
       ) : (
         <div className="tl-prof__main">
           <div className="tl-prof__left">
-            <ProfilerTimeline report={shown} columns={columns} selected={selectedIndex} onSelect={(i) => setSelectedStart(columns[i]?.from ?? null)} onHover={setHover} />
+            <ProfilerTimeline report={shown} columns={columns} slots={spike !== null ? 16 : undefined} selected={selectedIndex} onSelect={(i) => setSelectedStart(columns[i]?.from ?? null)} onHover={setHover} />
             <div className="tl-prof__readout" data-testid="profiler-readout">
               {readout === undefined
                 ? ''

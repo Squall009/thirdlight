@@ -178,7 +178,8 @@ export function profileBreakdown(r: ProfileReport, column: ProfileColumn): Profi
   const rows = (frames: readonly ProfileFrame[], header: (f: ProfileFrame) => string | null): ProfileSpanRow[] =>
     frames.flatMap((f) => {
       const head = header(f);
-      const spans = f.spans.map((s) => ({ name: s.name, category: s.category, ms: s.ms, selfMs: s.selfMs, depth: s.depth + (head !== null ? 1 : 0), ...(s.lane !== undefined ? { lane: s.lane } : {}) }));
+      // In start order, a parent before the spans it holds (a page's clock reads 0.1 ms: starts tie).
+      const spans = [...f.spans].sort((a, b) => a.start - b.start || a.depth - b.depth).map((s) => ({ name: s.name, category: s.category, ms: s.ms, selfMs: s.selfMs, depth: s.depth + (head !== null ? 1 : 0), ...(s.lane !== undefined ? { lane: s.lane } : {}) }));
       return head === null ? spans : [{ name: head, category: 'other' as SpanCategory, ms: f.ms, selfMs: Math.max(0, f.ms - sumOf(f.byCategory)), depth: 0 }, ...spans];
     });
   const inside = (frames: readonly ProfileFrame[]): ProfileFrame[] => frames.filter((f) => f.start >= column.from && f.start < column.to);

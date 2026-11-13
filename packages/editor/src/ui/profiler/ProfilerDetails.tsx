@@ -87,20 +87,22 @@ export function BudgetTable({ report }: { report: ProfileReport }): JSX.Element 
       <table className="tl-prof__table" aria-label="frame budget" data-testid="profiler-budget" data-tier={b.tier}>
         <thead>
           <tr>
-            <th>thread</th>
             <th className="tl-prof__name">category</th>
-            <th className="tl-prof__num">budget ms</th>
+            <th className="tl-prof__num">budget</th>
             <th className="tl-prof__num">mean</th>
             <th className="tl-prof__num">worst</th>
             <th className="tl-prof__use">use</th>
           </tr>
         </thead>
-        <tbody>
-          {b.rows.map((r) => {
+        {PROFILE_LANES.map((lane) => (
+          <tbody key={lane}>
+            <tr className="tl-prof__group">
+              <td colSpan={5}>{PROFILE_LANE_LABELS[lane]} (ms a frame)</td>
+            </tr>
+          {b.rows.filter((r) => r.thread === lane).map((r) => {
             const over = r.use !== null && r.use > 1;
             return (
               <tr key={`${r.thread}/${r.category}`} className={over ? 'is-over' : undefined} data-thread={r.thread} data-category={r.category} data-over={over ? 'true' : 'false'}>
-                <td className="tl-prof__dim">{PROFILE_LANE_LABELS[r.thread]}</td>
                 <td className="tl-prof__name">
                   <Swatch category={r.category} />
                   {PROFILE_CATEGORY_LABELS[r.category]}
@@ -123,7 +125,8 @@ export function BudgetTable({ report }: { report: ProfileReport }): JSX.Element 
               </tr>
             );
           })}
-        </tbody>
+          </tbody>
+        ))}
       </table>
       <div className="tl-prof__caption">
         GPU plan (shares of a frame, compared with pass shares): {Object.entries(b.gpu).map(([c, v]) => `${PROFILE_CATEGORY_LABELS[c as keyof typeof PROFILE_CATEGORY_LABELS] ?? c} ${Math.round((v ?? 0) * 100)} %`).join(' · ')}
