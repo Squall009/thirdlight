@@ -73,7 +73,7 @@
  * over the hop to this page to the first frame drawn after the batch.
  */
 import * as THREE from 'three';
-import { wallClock } from '@thirdlight/shared';
+import { threadProfiler, wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
@@ -224,6 +224,9 @@ interface Waiting {
 
 /** Frame intervals the staging budget is taken from (the median of the newest). */
 const BUDGET_FRAMES = 8;
+/** The batches made into draws and the shader grids uploaded, as spans of the page's thread. */
+const VOXEL_DRAWS_SPAN = threadProfiler.span('voxel draws made', 'voxelApply');
+const VOXEL_GRIDS_SPAN = threadProfiler.span('voxel grids uploaded', 'voxelApply');
 
 /** Edits kept for measurements. */
 const EDITS_KEPT = 64;
@@ -425,6 +428,13 @@ export class VoxelWorldDraws {
    * so a batch always moves on). Without animation frames (a test, a worker) every batch is shown whole at once.
    */
   private pump(): void {
+    if (this.waiting.length === 0) return;
+    threadProfiler.begin(VOXEL_DRAWS_SPAN);
+    this.pumpWithin();
+    threadProfiler.end(VOXEL_DRAWS_SPAN);
+  }
+
+  private pumpWithin(): void {
     const frames = typeof requestAnimationFrame === 'function';
     const budget = voxelBatchFrameMs(this.frameInterval());
     while (this.waiting.length > 0) {
@@ -465,7 +475,9 @@ export class VoxelWorldDraws {
       if (this.edits.length > EDITS_KEPT) this.edits.splice(0, this.edits.length - EDITS_KEPT);
       this.spent = 0;
       this.pump();
+      threadProfiler.begin(VOXEL_GRIDS_SPAN);
       for (const w of this.worlds.values()) w.surface.grids.frame();
+      threadProfiler.end(VOXEL_GRIDS_SPAN);
       this.capArrays();
       if (this.worlds.size > 0 || this.waiting.length > 0) this.loop();
     };

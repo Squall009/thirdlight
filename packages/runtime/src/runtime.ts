@@ -18,6 +18,7 @@
  *   guard, transform-ownership validation, the settle pre-roll, per-step
  *   action sampling and fail-stop with no rollback.
  */
+import { threadProfiler as P } from '@thirdlight/shared';
 import { RuntimeVoxels } from './voxel-worlds';
 import { propLightShape } from './prop-light-shape';
 import { worldTransformOf } from './world-transform';
@@ -92,6 +93,7 @@ import { createShellControl } from './scene-list';
 import { loadOp } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
 import { StepReads, type DrawnSteps } from './step-reads';
+import { arbiterFollows, STEP_SPAN as S } from './step-spans';
 import { PlayerControllers } from './player-controllers';
 import type { PhysicsPort3D, Vec2 } from './ports';
 import {
@@ -330,8 +332,18 @@ export class RuntimeInstance implements Runtime {
       this.frame.clock.alpha = 0;
     });
     this.frame = new FrameDriver(this.sim, {
-      step: () => (this.isM2 ? this.stepOnceM2() : this.stepOnce()),
-      prerollStep: () => this.stepOnceM2(neutralFrame(this.sim.stepIndex)),
+      step: () => {
+        P.begin(S.step);
+        const ok = this.isM2 ? this.stepOnceM2() : this.stepOnce();
+        P.end(S.step);
+        return ok;
+      },
+      prerollStep: () => {
+        P.begin(S.step);
+        const ok = this.stepOnceM2(neutralFrame(this.sim.stepIndex));
+        P.end(S.step);
+        return ok;
+      },
       pausedBoundary: () => this.scenes.applyOps(false),
       timeScale: () => (this.modes.active ? this.modes.timeScale() : null),
       frameDone: () => this.onFrame?.(),
@@ -1248,7 +1260,10 @@ export class RuntimeInstance implements Runtime {
   /** One fixed M1 step (with module isolation). */
   private stepOnce(): boolean {
     // Scene loads/unloads requested by the host apply here too.
-    if (!this.scenes.applyOps()) return true;
+    P.begin(S.scenes);
+    const applied = this.scenes.applyOps();
+    P.end(S.scenes);
+    if (!applied) return true;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
     this.chars.placement.atBoundary();
     // A restart asked for, then the game mode's step start.
@@ -1258,7 +1273,9 @@ export class RuntimeInstance implements Runtime {
     if (!this.entities.syncLiveBlocks()) return false;
     this.modes.beginStep(this.sim.stepIndex + 1);
     this.grid.beginStep(this.sim.stepIndex + 1);
+    P.begin(S.voxels);
     this.entities.voxels.beginStep();
+    P.end(S.voxels);
     this.chars.suspendBodies();
     this.materials.beginStep(this.sim.stepIndex + 1);
     // Nothing in a plain step reads actions, but the input source is sampled all the same: what the host
@@ -1295,6 +1312,7 @@ export class RuntimeInstance implements Runtime {
       prev: this.sim.prev,
       curr: this.sim.curr,
     };
+    P.begin(S.scripts);
     for (const entry of this.sim.entries) {
       // Registration order (each module in registration order).
       try {
@@ -1305,6 +1323,7 @@ export class RuntimeInstance implements Runtime {
         break;
       }
     }
+    P.end(S.scripts);
     if (failed) {
       // The step is a no-op: curr restored, stepIndex and simTime do not
       // advance; a module_error diagnostic is recorded. The failed module
@@ -1339,7 +1358,9 @@ export class RuntimeInstance implements Runtime {
       try {
         this.chars.queries.beginStep();
         this.blocks?.beforeStep(stepOrdinal);
+        P.begin(S.physics);
         this.controllers.runPhysics3D(this.sim.physics3d);
+        P.end(S.physics);
         this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1));
       } catch (e) {
         this.sim.curr = cloneCurr(backup);
@@ -1350,7 +1371,9 @@ export class RuntimeInstance implements Runtime {
     // The timelines (no input frame in a plain step: a wait key needs its timeout).
     if (this.timelines.active) this.timelines.step(stepOrdinal, null);
     // The camera brains resolve the views on the step's transforms.
+    P.begin(S.camera);
     this.views.step(null);
+    P.end(S.camera);
     // Conversations advance (before the audio: a voice started now plays from this step).
     this.dialogue.endStep();
     // The environment blend advances with the step.
@@ -1362,9 +1385,11 @@ export class RuntimeInstance implements Runtime {
     this.sim.prev = backup; // prev := curr at the end of step n−1
     this.sim.stepIndex += 1;
     this.sim.simTime = this.sim.stepIndex / this.sim.hz; // single division
+    P.begin(S.animation);
     this.animators.step();
     // Attached entities follow their nodes (posed by the animators just stepped).
     if (this.sockets.active) this.sockets.resolve(null);
+    P.end(S.animation);
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
     this.grid.flushCollision(this.sim.physics3d);
     if (!this.entities.syncLiveBlocks()) return false;
@@ -1380,7 +1405,10 @@ export class RuntimeInstance implements Runtime {
     const ordinal = stepIndex + 1; // the 1-based executed-step index (fixtures)
     // Scene unloads/loads take effect at the step boundary,
     // before the arrivals (a spawn may be in a scene that just loaded).
-    if (!this.scenes.applyOps()) return false;
+    P.begin(S.scenes);
+    const applied = this.scenes.applyOps();
+    P.end(S.scenes);
+    if (!applied) return false;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
     this.chars.placement.atBoundary();
     // The spawns and destroys the last step requested, in order.
@@ -1397,7 +1425,9 @@ export class RuntimeInstance implements Runtime {
     this.modes.beginStep(ordinal);
     this.scenes.beginStep();
     this.grid.beginStep(ordinal);
+    P.begin(S.voxels);
     this.entities.voxels.beginStep();
+    P.end(S.voxels);
     // Bodies outside the rings' collision stand still this step.
     this.chars.suspendBodies();
     this.materials.beginStep(ordinal);
@@ -1429,8 +1459,10 @@ export class RuntimeInstance implements Runtime {
     // A game mode may hold physics (the controller, physics, movers and triggers stand still);
     // signals, trigger events and script messages turn over all the same.
     const held = this.modes.physicsHeld;
+    P.begin(S.blocks);
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
+    P.end(S.blocks);
     this.chars.placement.beginStep();
     action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true || (id !== null && isOneWayGridCollider(id)), this.timing.dropThroughSteps);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
@@ -1447,6 +1479,7 @@ export class RuntimeInstance implements Runtime {
     // Reset in place (the committed writes are frozen copies, never handed out mutable).
     this.phases.beginStep(stepIndex);
     try {
+      P.begin(S.scripts);
       this.phases.run('intent', action);
       // The director's walks, holds and placements, then a respawn or a script's character_place, before the controller runs.
       this.chars.director.afterIntentPhase(held, action);
@@ -1455,12 +1488,19 @@ export class RuntimeInstance implements Runtime {
         this.phases.run('controller', action);
         // The impulses reached the controllers (a held step keeps them for the next one).
         if (this.controllers.clearImpulses()) this.phases.changed();
+        P.end(S.scripts);
+        P.begin(S.physics);
         this.controllers.runPhysics();
+        P.end(S.physics);
+        P.begin(S.scripts);
       }
       this.phases.run('transform', action);
+      P.end(S.scripts);
       // After the transform phase the blocks test the character (triggers,
       // switches, the primitives; not while a game mode holds physics).
+      P.begin(S.blocks);
       if (!held) this.blocks?.afterPhysics(action);
+      P.end(S.blocks);
     } catch (e) {
       this.faults.failStopFromError(e, stepIndex);
       return false;
@@ -1471,7 +1511,9 @@ export class RuntimeInstance implements Runtime {
     // The timelines, after every script phase and before the camera brain (on this step's input frame).
     if (this.timelines.active) {
       try {
+        P.begin(S.timelines);
         this.timelines.step(ordinal, action);
+        P.end(S.timelines);
       } catch (e) {
         this.faults.failStopFromError(e, stepIndex);
         return false;
@@ -1479,7 +1521,9 @@ export class RuntimeInstance implements Runtime {
     }
     // The camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
+    P.begin(S.camera);
     this.views.step(action);
+    P.end(S.camera);
     // Conversations advance: the frame's dialogue inputs and the scripts' calls apply, the view model follows.
     this.dialogue.endStep();
     // The environment blend advances with the step.
@@ -1489,7 +1533,9 @@ export class RuntimeInstance implements Runtime {
     // The event → cue table plays the sounds of this step's signals and events.
     if (this.eventCues.length > 0) playEventCues(this.eventCues, this.blocks, this.animators, this.audio);
     // Fades and clips advance; finished sounds are seen next step.
+    P.begin(S.audio);
     this.audio.endStep();
+    P.end(S.audio);
     // The step-end promotion (`state.prev` during step n holds the state at
     // the end of step n−2): `prev := backup`
     // below, where `backup` is the pre-step `curr` — the post-reset `curr`
@@ -1502,9 +1548,11 @@ export class RuntimeInstance implements Runtime {
     if (!this.entities.syncLiveBlocks()) return false;
     this.sim.committedMirror.copyFrom(this.sim.curr, this.sim.currShape);
     this.sim.committed = this.sim.committedMirror.map;
+    P.begin(S.animation);
     this.animators.step();
     // Attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
     if (this.sockets.active) this.sockets.resolve(this.sim.committed);
+    P.end(S.animation);
     // The step's scene requests commit with it.
     this.scenes.commitStep();
     return true;
@@ -1518,6 +1566,8 @@ export class RuntimeInstance implements Runtime {
   /** The page's frame statistics (`ctx.stats`; false: not stats). */
   setStats(stats: unknown): boolean {
     if (this.sim.stateName === 'disposed' || !this.engineStats.set(stats)) return false;
+    // The simulation's time slices follow the frame rate and the tier the page draws at.
+    arbiterFollows(this.engineStats.now().frameRateCap, this.engineStats.now().lighting.tier);
     // The voxel worlds' distances and budgets follow the quality level the page draws at.
     this.entities.voxels.setQuality(this.engineStats.now().quality);
     return true;

@@ -31,7 +31,7 @@
  *   are read again and they and their neighbours (whose meshes read them)
  *   are meshed again and replaced each alone.
  */
-import { frameSliceMs } from '@thirdlight/shared';
+import { frameSliceMs, threadProfiler } from '@thirdlight/shared';
 
 import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
@@ -99,6 +99,9 @@ export const FAR_RESELECT_CELLS = 16;
 /** Far mesh jobs in the pool at once: the near field's jobs keep the queue. */
 export const FAR_JOBS_IN_FLIGHT = 8;
 
+
+/** A selection task as a span of its thread (the simulation's) in the frame profiler. */
+const FAR_SELECT_SPAN = threadProfiler.span('far selection', 'voxelStream');
 
 /** ms a far field waits after the pool sent a job back unrun before it sends again. */
 const FAR_RETRY_MS = 100;
@@ -616,10 +619,12 @@ export class FarField {
     if (s === null || this.closed) return;
     const t0 = performance.now();
     const slice = frameSliceMs('farSelect');
+    const span = threadProfiler.now();
     for (;;) {
       const r = s.steps.next();
       if (r.done === true) {
         s.ms += performance.now() - t0;
+        threadProfiler.add(FAR_SELECT_SPAN, span, performance.now() - t0);
         this.samples.selectMs.add(s.ms);
         this.selecting = null;
         this.selected(r.value);
@@ -629,6 +634,7 @@ export class FarField {
       if (performance.now() - t0 >= slice) break;
     }
     s.ms += performance.now() - t0;
+    threadProfiler.add(FAR_SELECT_SPAN, span, performance.now() - t0);
     setTimeout(() => this.selectStep(), 0);
   }
 

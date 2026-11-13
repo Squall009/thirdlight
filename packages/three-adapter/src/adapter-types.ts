@@ -512,6 +512,8 @@ export interface SceneAdapter {
   lightingState?(): { readonly tier: LightingTier; readonly live: boolean; readonly settled: boolean };
   /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
+  /** GPU ms per frame of the render and compute passes in the last timestamp resolve, taking nothing (null: none measured); shares, not milliseconds, at a frame-rate cap. */
+  gpuPasses?(): { renderMs: number; computeMs: number | null } | null;
   /** A measuring run's GPU load added to every frame (gpu-headroom.ts): ballast, copies of chosen roots, shadows hidden, the post stack bypassed. */
   gpuLoad?(): import('./gpu-headroom').GpuLoad;
   /**

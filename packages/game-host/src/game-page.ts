@@ -123,6 +123,7 @@ import { PageScatterBlobs } from './scatter-blobs';
 import { composeOverlay } from './overlay-capture';
 import { statsOverlayModeOf } from './stats-overlay';
 import { browserArchitectureStore } from './architecture-store';
+import { pageProfile } from './page-profile';
 
 /** The runtime-content manifest as a game page reads it (the catalog's blocks already folded in by `openRuntimeContent`). */
 export interface GamePageManifest {
@@ -721,6 +722,24 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       fineOffSent = true;
       fineOff();
     },
+  });
+  // The profile's voxel counters (what is drawn and waiting) and its GPU room: this page has the headroom meter.
+  pageProfile.attach({
+    voxels: () => {
+      const s = draws.stats();
+      let chunks = 0;
+      let instances = 0;
+      let triangles = 0;
+      let farGpuBytes = 0;
+      for (const w of Object.values(s.worlds)) {
+        chunks += w.chunks;
+        instances += w.instances;
+        triangles += w.triangles + w.far.triangles;
+        farGpuBytes += w.far.gpuBytes;
+      }
+      return { chunks, instances, triangles, farGpuBytes, batchesWaiting: s.waiting };
+    },
+    meter: () => true,
   });
   (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter) };
   return {

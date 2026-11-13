@@ -24,6 +24,8 @@ export interface GpuTiming {
   measuring(): boolean;
   /** GPU ms per frame of the compute passes in the last resolve (three times them in a pool of their own; null: none measured). */
   computeMs(): number | null;
+  /** GPU ms per frame of the render and the compute passes in the last resolve, taking nothing (null: none resolved; a profile's pass shares). */
+  lastPasses(): { renderMs: number; computeMs: number | null } | null;
 }
 
 /** Whether this renderer records GPU timestamps (made with trackTimestamp, and the device has the queries). */
@@ -43,6 +45,7 @@ export function createGpuTiming(): GpuTiming {
   let recentMs = 0;
   let recentFrames = 0;
   let compute: number | null = null;
+  let lastRender: number | null = null;
   return {
     afterFrame(renderer) {
       measuring = measuresGpuTime(renderer);
@@ -63,6 +66,7 @@ export function createGpuTiming(): GpuTiming {
             recentFrames += covered;
             // The slowest frame is not seen apart from the others it was resolved with: the resolve's mean stands for it.
             worst = Math.max(worst, t / covered);
+            lastRender = t / covered;
           }
           // The compute passes of the same frames (none recorded: three answers nothing).
           return r.resolveTimestampsAsync!('compute');
@@ -87,6 +91,7 @@ export function createGpuTiming(): GpuTiming {
     },
     measuring: () => measuring,
     computeMs: () => (measuring ? compute : null),
+    lastPasses: () => (measuring && lastRender !== null ? { renderMs: lastRender, computeMs: compute } : null),
     take() {
       if (!measuring) return null;
       const out = { ms, frames, worst };

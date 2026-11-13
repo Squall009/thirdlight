@@ -13,6 +13,7 @@
  * window's end: `ctx.lighting.justSettled` is then the step after the light
  * settled.
  */
+import { pageProfile } from './page-profile';
 import { ENGINE_STATS_NONE, STATS_WINDOW_MS, type BehaviorStats, type BehaviorStatsLighting, type BehaviorStatsOcclusion, type BehaviorStatsTime } from '@thirdlight/runtime';
 
 /** What one window's snapshot is made from, read when the window ends. */
@@ -175,15 +176,21 @@ export function createHostStats(deps: HostStatsDeps): HostStats {
       const now = performance.now();
       // On the page thread the frame began with its steps, at the animation frame's time.
       const frameTime = (globalThis as { document?: { timeline?: { currentTime?: unknown } } }).document?.timeline?.currentTime;
-      start = !deps.worker && typeof frameTime === 'number' && frameTime <= now ? frameTime : now;
+      const animationFrame = typeof frameTime === 'number' && frameTime <= now ? frameTime : now;
+      start = !deps.worker ? animationFrame : now;
+      // The profile's page frame starts at the animation frame in both modes (a worker's frame is applied before the host's work).
+      pageProfile.frameStart(performance.timeOrigin + animationFrame);
     },
     end() {
       const now = performance.now();
       const l = deps.adapter()?.lightingState?.();
       const relit = l !== undefined && (lit === undefined || l.tier !== lit.tier || l.live !== lit.live || l.settled !== lit.settled);
       if (relit) lit = { tier: l.tier, live: l.live, settled: l.settled };
-      if (stats.frame(now - start, now)) deps.published(stats.snapshot()!);
-      else if (relit) deps.published(stats.relit(lit!));
+      const published = stats.frame(now - start, now) ? stats.snapshot()! : relit ? stats.relit(lit!) : null;
+      if (published === null) return;
+      deps.published(published);
+      // The profile judges frames at the cap and tier drawn (told with each window, as the simulation is).
+      pageProfile.follow(published.frameRateCap, published.lighting.tier);
     },
     snapshot: () => stats.snapshot(),
   };

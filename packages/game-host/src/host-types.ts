@@ -130,6 +130,10 @@ export interface HostRenderAdapter {
   qualityLevel?(): string;
   /** The frame-rate cap of the quality level drawn (null: none). */
   qualityFrameRateCap?(): number | null;
+  /** The last drawn frame's counts, without the diagnostics walk (the profile's counters each frame). */
+  lastFrame?(): { drawCalls: number; triangles: number };
+  /** GPU ms of the render and compute passes the last timestamp resolve measured (null: none); a reader that takes nothing. */
+  gpuPasses?(): { renderMs: number; computeMs: number | null } | null;
   /** A player's render settings (AO kind, render scale, dynamic resolution; unset parts keep their value). */
   setRenderSettings?(settings: { readonly ambientOcclusion?: 'off' | 'ssao' | 'gtao'; readonly renderScale?: number; readonly dynamicResolution?: boolean }): void;
 }
@@ -499,6 +503,8 @@ export interface GameHost {
   playState?(): PlayState;
   /** The last stats window (`ctx.stats`; null before the first ends) — Play diagnostics carry it. */
   frameStats?(): BehaviorStats | null;
+  /** The page's frame profile (page-profile.ts): every thread's recent frames, counters, the tier's budget, spikes. */
+  profile?(): import('./page-profile').ProfileReport;
   /** The built-in stats overlay (null: the project's stats_overlay setting is off). */
   readonly statsOverlay?: StatsOverlay | null;
 }

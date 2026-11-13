@@ -72,6 +72,8 @@ import { readProjectSettings, type ProjectSaveService } from './project-saves';
 import { savesObservation as savesObservationOf, shellSaves, slotPictures, startHostSaves, type ProjectSavesObservation } from './host-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
 import { createHostStats } from './frame-stats';
+import { HOST_SPAN as HS, pageProfile } from './page-profile';
+import { threadProfiler as P } from '@thirdlight/shared';
 import { createStatsOverlay, statsOverlayModeOf, type StatsOverlay } from './stats-overlay';
 import { createUiLayer, pageUiView, type UiLayer } from './ui-layer';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
@@ -349,6 +351,26 @@ function queueRestart(rt: Runtime | null, cause: string): void {
   const r = rt?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: cause });
   if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
 }
+
+/**
+ * The error that stopped a failed run: its fail-stop entry (the step it
+ * failed at; the last such, as nothing runs after it), else the last error
+ * that is not a log line (a simulation worker's own failure).
+ */
+const failureOf = (d: RuntimeDiagnostics): PlayFailure | undefined => {
+  if (d.state !== 'failed') return undefined;
+  const errors = d.errors.filter((e) => e.code !== 'behavior_log' && e.code !== 'entity_write');
+  const atFail = d.failedStepIndex !== undefined ? errors.filter((e) => e.stepIndex === d.failedStepIndex) : [];
+  const e = atFail.at(-1) ?? errors.at(-1);
+  if (e === undefined) return { code: 'failed', message: 'the run stopped on an error (see the diagnostics)' };
+  return { code: e.code, message: e.message, ...(e.stepIndex !== undefined ? { stepIndex: e.stepIndex } : {}), ...(e.moduleId !== undefined ? { moduleId: e.moduleId } : {}) };
+};
+
+/** The runtime's current step (0 when its diagnostics are unavailable). */
+const stepNow = (rt: Runtime): number => {
+  const d = rt.getDiagnostics();
+  return d.ok ? d.diagnostics.stepIndex : 0;
+};
 
 /** A scene engine action — reload (absent: the active scene), load, unload: an input-frame entry, so recordings replay it. */
 function queueSceneOp(rt: Runtime | null, op: 'reload' | 'load' | 'unload', sceneId: string | undefined): void {
@@ -787,8 +809,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
     hostStats.begin();
     // The quality level drawn may cap the frames (a player's or the game's choice of level changes it any frame).
     runtime.setFrameRateCap?.(adapter?.qualityFrameRateCap?.() ?? null, 'level');
+    P.lap(HS.scenes);
     serviceSceneRequests(runtime);
     serviceReadAhead(runtime);
+    P.lap(HS.input);
     debugConsole?.frame();
     serviceBindings(runtime);
     serviceUi(runtime);
@@ -819,6 +843,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       const st = config.audio.status();
       void control(st.state === 'ready' && st.muted ? 'unmute' : 'mute');
     }
+    P.lap(HS.overlays);
     // (2) The overlays, sounds and the adapter — read from the runtime's
     // published views; no runtime internals, no scene-graph mutation.
     // The live camera's letterbox (an overlay the host draws over the view).
@@ -827,6 +852,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceFade(runtime);
     // The cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
     serviceCursor(runtime);
+    P.lap(HS.host);
     // The simulation's save requests (a thumbnail is drawn now, in this frame; held ones go once it can be).
     if (projectSaves !== null) projectSaves.handle(runtime.takeSaveRequests?.() ?? []);
     // The simulation's problems for the author (Play's Problems; an export has none to show).
@@ -838,13 +864,20 @@ export function createGameHost(config: GameHostConfig): GameHost {
     });
     // The sounds of scripts, event cues, dialogue and timelines (the runtime's audio intent log), the audio
     // sources' loops, and the files the scenes and the running conversation have loaded ahead.
+    P.lap(HS.audio);
     hostAudio.frame(runtime);
+    P.lap(HS.render);
     adapter?.renderFrame();
+    P.lapEnd();
     hostStats.end();
+    P.lap(HS.anchors);
     serviceAnchors();
+    P.lapEnd();
     // The frame drew the step's scene changes: what lost its last holder in them is freed now
     // (a model unloaded and loaded again in one transition was taken again before this).
     assets.frameDone();
+    const counts = adapter?.lastFrame?.();
+    pageProfile.frameEnd(counts?.drawCalls ?? 0, counts?.triangles ?? 0);
   };
 
   /** The generic play state (the engine pause, a menu or the debugger hold the simulation; a fail-stop ends the run). */
@@ -853,20 +886,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const d = runtime?.getDiagnostics();
     if (d?.ok === true && d.diagnostics.state === 'failed') return 'failed';
     return runtime?.isPaused === true || scenePaused ? 'paused' : 'running';
-  };
-
-  /**
-   * The error that stopped a failed run: its fail-stop entry (the step it
-   * failed at; the last such, as nothing runs after it), else the last error
-   * that is not a log line (a simulation worker's own failure).
-   */
-  const failureOf = (d: RuntimeDiagnostics): PlayFailure | undefined => {
-    if (d.state !== 'failed') return undefined;
-    const errors = d.errors.filter((e) => e.code !== 'behavior_log' && e.code !== 'entity_write');
-    const atFail = d.failedStepIndex !== undefined ? errors.filter((e) => e.stepIndex === d.failedStepIndex) : [];
-    const e = atFail.at(-1) ?? errors.at(-1);
-    if (e === undefined) return { code: 'failed', message: 'the run stopped on an error (see the diagnostics)' };
-    return { code: e.code, message: e.message, ...(e.stepIndex !== undefined ? { stepIndex: e.stepIndex } : {}), ...(e.moduleId !== undefined ? { moduleId: e.moduleId } : {}) };
   };
 
   const control = (action: GameControlAction): GameControlResult => {
@@ -895,12 +914,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
         break;
     }
     return { ok: true, state: playState(), acceptedAtStep: stepNow(runtime) };
-  };
-
-  /** The runtime's current step (0 when its diagnostics are unavailable). */
-  const stepNow = (rt: Runtime): number => {
-    const d = rt.getDiagnostics();
-    return d.ok ? d.diagnostics.stepIndex : 0;
   };
 
   /**
@@ -993,6 +1006,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       adapter = null; // a malformed factory result degrades to headless (the game keeps playing)
     }
 
+    // The page's profile reads this host's stats and adapter.
+    pageProfile.attach({ stats: () => hostStats.snapshot(), diagnostics: () => adapter?.diagnostics?.(), gpuPasses: () => adapter?.gpuPasses?.() ?? null });
     // The document the overlays (letterbox bars, fade, UI documents) are made in.
     hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
     const dom: HostDom = hostDom ?? { createElement: () => { throw new Error('no document available for the overlays'); } };
@@ -1404,6 +1419,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     uiElements: (max?: number) => uiLayer?.elements(max) ?? [],
     uiFontRules: () => uiLayer?.fontRules() ?? Promise.resolve(''),
     frameStats: () => hostStats.snapshot(),
+    profile: () => pageProfile.read(),
     get statsOverlay(): StatsOverlay | null {
       return statsOverlay;
     },

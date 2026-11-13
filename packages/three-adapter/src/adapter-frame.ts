@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import type { ExposureLook, GridRenderChange } from '@thirdlight/runtime';
+import { threadProfiler as P } from '@thirdlight/shared';
 
 import type { AdapterParts } from './adapter-parts';
 import type { DecalRequestLike } from './decal-projectors';
@@ -18,6 +19,23 @@ import type { MaterialMappingLike } from './material-swaps';
 import { setEntityLook } from './node-materials';
 import type { AnyRenderer } from './renderer-factory';
 import type { MaterialRenderChangeLike } from './runtime-materials';
+
+/** The frame's stages as spans of the page's thread in the frame profiler, by the budget category each is spent in. */
+const FS = Object.freeze({
+  sync: P.span('scene sync', 'render'),
+  effects: P.span('effects', 'effects'),
+  animation: P.span('animation poses', 'characters'),
+  textures: P.span('texture streaming', 'props'),
+  decals: P.span('decals', 'props'),
+  level: P.span('level views', 'render'),
+  surfaceLight: P.span('surface light', 'lighting'),
+  copies: P.span('stored copies and cover', 'props'),
+  lights: P.span('lights, shadows and environment', 'lighting'),
+  materials: P.span('materials', 'props'),
+  cull: P.span('levels of detail and culling', 'render'),
+  batches: P.span('batches', 'props'),
+  draw: P.span('draw submit', 'render'),
+});
 
 /** The hidden set while the runtime hides nothing. */
 export const NO_HIDDEN: ReadonlySet<string> = new Set();
@@ -264,7 +282,9 @@ export class AdapterFrame {
       this.skipped = true;
       return { ok: true };
     }
+    P.begin(FS.sync);
     const worldError = this.syncWorld();
+    P.end(FS.sync);
     if (worldError !== null) return { ok: false, error: worldError };
     this.applyResolvedCamera();
     this.syncEntityLooks();
@@ -274,6 +294,7 @@ export class AdapterFrame {
     // Shadows on before the draw (and before the precompile below, so the programs are built with
     // them); the first frame with the key light's shadow is its probe: if it throws, shadows go off
     // (soft degradation: the `shadows`/`shadowReason` pair is the diagnostic) and it is drawn again without.
+    P.begin(FS.lights);
     const probing = p.lights.beforeFrame(renderer);
     p.surfaceLight?.prepare(renderer);
     p.probes.beforeFrame(renderer as unknown as Parameters<typeof p.probes.beforeFrame>[0], camera);
@@ -281,6 +302,8 @@ export class AdapterFrame {
       p.environment.beforeFrame(renderer, w, h, p.environmentFrame);
     } catch (e) {
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
+    } finally {
+      P.end(FS.lights);
     }
     // No present that would build programs in the frame — they are built ahead
     // (renderer.compileAsync) before the first present and after a scene attached; frames are
@@ -290,7 +313,10 @@ export class AdapterFrame {
       this.skipped = true;
       return { ok: true };
     }
-    return this.present(renderer, camera, probing, frameStart, renderStart);
+    P.begin(FS.draw);
+    const presented = this.present(renderer, camera, probing, frameStart, renderStart);
+    P.end(FS.draw);
+    return presented;
   }
 
   /** The effects, the materials' time and the models' animation step with the frame (presentation only). */
@@ -298,7 +324,9 @@ export class AdapterFrame {
     const p = this.p;
     if (p.effects.player !== null) {
       const rt = this.rt as FrameRuntime & { takeEffectRequests?: () => Parameters<typeof p.effects.frame>[0] };
+      P.begin(FS.effects);
       p.effects.frame(rt.takeEffectRequests?.() ?? [], (id) => p.graph.nodeFor(id), p.state.hiddenIds, rt.isPaused === true, p.state.camera, (now) => (now - p.clockStart) / 1000, p.renderer.canvas);
+      P.end(FS.effects);
     }
     const library = p.materials.library;
     const seconds = ((typeof performance !== 'undefined' ? performance.now() : 0) - p.clockStart) / 1000;
@@ -306,9 +334,11 @@ export class AdapterFrame {
     // The sky's clouds on the same clock, along the global wind (still air without materials).
     p.environment.renderer?.driftClouds(seconds, library?.globalWind() ?? STILL_AIR);
     p.environment.renderer?.setAnimating(library !== null && library.animated());
+    P.begin(FS.animation);
     p.models.animate(p.graph);
     // The animated hierarchies posed as the mixers left them (their bones and drawables follow).
     p.graph.poseAnimated();
+    P.end(FS.animation);
   }
 
   /** The canvas size, then everything each view draws for this camera, culled; the drawing size is returned. */
@@ -326,8 +356,12 @@ export class AdapterFrame {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     // What the camera sees decides which texture mips stream in or out (presentation only).
+    P.begin(FS.textures);
     p.opts.textureStreamer?.update(p.scene, camera, h * renderer.getPixelRatio(), false, graph.parkedObjects());
+    P.end(FS.textures);
+    P.begin(FS.decals);
     this.decalsBeforeFrame(renderer);
+    P.end(FS.decals);
     // The viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
     if (w !== this.reportedViewport[0] || h !== this.reportedViewport[1]) {
       this.reportedViewport[0] = w;
@@ -335,6 +369,7 @@ export class AdapterFrame {
       this.rt.setCameraViewport?.(w, h);
     }
     // The block chunks the simulation changed, re-meshed before the draw.
+    P.begin(FS.level);
     const gridChanges = level.archHost.takeSwaps(this.rt.takeGridChanges?.() ?? []);
     if (gridChanges.length > 0) {
       level.blockView.applyRuntimeChanges(gridChanges);
@@ -345,22 +380,37 @@ export class AdapterFrame {
     // Splines released and not realized again go now (one realized again kept drawing until its new data is in).
     level.splines.update();
     level.architecture.update(viewCull.view.eye);
+    P.end(FS.level);
     // The static surfaces' light resident round the eye (what the views above hold now), and what of it the
     // lights' changes since the last frame made stale.
+    P.begin(FS.surfaceLight);
     this.p.surfaceLight?.beforeFrame(renderer, this.p.lights, viewCull.view.eye);
+    P.end(FS.surfaceLight);
     // Clipped decals follow their surfaces (chunks made, objects realized) and themselves.
+    P.begin(FS.decals);
     level.clipped?.beforeFrame();
+    P.end(FS.decals);
     // (The near shadows follow the last frame's eye: the view is culled for this one further down.)
+    P.begin(FS.copies);
     level.scatter.stored.update(viewCull.view);
+    P.end(FS.copies);
     if (level.cutaways.wanted()) level.cutaways.follow();
     // The light values scripts wrote, then the environment preset blend
     // (the running game's, or the editor's preview) before the draw.
+    P.begin(FS.lights);
     this.applyLightOverrides();
     p.environment.applyBlend();
+    P.end(FS.lights);
+    P.begin(FS.materials);
     this.materialsBeforeFrame();
+    P.end(FS.materials);
+    P.begin(FS.cull);
     this.cullView(renderer, camera);
+    P.end(FS.cull);
     // The local lights' lists for this camera (after the rooms' walk: a light in a room no portal shows is left out).
+    P.begin(FS.lights);
     p.clusters.frame(renderer as unknown as Parameters<typeof p.clusters.frame>[0], camera);
+    P.end(FS.lights);
     return [w, h];
   }
 
@@ -398,8 +448,10 @@ export class AdapterFrame {
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
     p.isolation.beforeBatch();
     level.seeThrough.beforeBatch(camera);
+    P.begin(FS.batches);
     if (batcher !== null) batcher.update(camera);
-    else {
+    P.end(FS.batches);
+    if (batcher === null) {
       p.scene.updateMatrixWorld();
       if (camera.parent === null && camera.matrixWorldAutoUpdate) camera.updateMatrixWorld();
     }
@@ -410,7 +462,9 @@ export class AdapterFrame {
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
     level.terrains.update(viewCull.view, renderer as never);
     // Ground cover around the view's eye, and the eye every pass reads distance from (foliage's wind distance).
+    P.begin(FS.copies);
     level.scatter.cover.update(viewCull.view);
+    P.end(FS.copies);
     // The wind zones where their objects stand now (the wind map round the eye is filled again only when they or the eye's square change).
     p.materials.library?.setWindZones(p.entities.windZonesNow());
     p.materials.library?.setViewEye(viewCull.view.eye[0]!, viewCull.view.eye[1]!, viewCull.view.eye[2]!);

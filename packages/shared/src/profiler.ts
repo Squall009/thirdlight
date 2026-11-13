@@ -150,6 +150,8 @@ export class SpanRecorder {
   private readonly stackStart = new Float64Array(MAX_DEPTH);
   private readonly stackChild = new Float64Array(MAX_DEPTH);
   private depth = 0;
+  /** The depth of the open stage `lap` began (-1: none). */
+  private lapAt = -1;
   /** Begins past `MAX_DEPTH`, ended without a record. */
   private overflow = 0;
 
@@ -191,11 +193,13 @@ export class SpanRecorder {
     return wallClock();
   }
 
-  /** The frame starts (at `at`, else now); spans recorded before it in the same frame stay in it. */
+  /**
+   * The frame starts (at `at`, else now). Spans recorded since the last frame ended (work between frames: a
+   * worker's message, another animation-frame callback) stay in this frame, before its start.
+   */
   beginFrame(at: number = wallClock()): void {
     if (!this.open) this.openFrame(at);
-    else if (this.fCount[this.slot] === 0 && this.fDropped[this.slot] === 0) this.fStart[this.slot] = at;
-    else this.fStart[this.slot] = Math.min(this.fStart[this.slot]!, at);
+    else this.fStart[this.slot] = at;
   }
 
   /** Tags the open frame with the simulation tick it sent or ran. */
@@ -217,12 +221,41 @@ export class SpanRecorder {
     this.depth += 1;
   }
 
-  /** The innermost open span ends now. */
-  end(): void {
+  /**
+   * The next stage of a sequence starts: the stage the last `lap` began ends (if it is still the innermost open
+   * span) and `id` begins. `lapEnd` ends the last one.
+   */
+  lap(id: SpanId): void {
+    if (this.lapAt >= 0 && this.lapAt === this.depth - 1) this.endTop();
+    this.begin(id);
+    this.lapAt = this.depth - 1;
+  }
+
+  /** The stage the last `lap` began ends. */
+  lapEnd(): void {
+    if (this.lapAt >= 0 && this.lapAt === this.depth - 1) this.endTop();
+    this.lapAt = -1;
+  }
+
+  /**
+   * The innermost open span ends now; with `id`, the innermost open span of that name, and every span still open
+   * inside it first (a throw skipped their ends).
+   */
+  end(id?: SpanId): void {
     if (this.overflow > 0) {
       this.overflow -= 1;
       return;
     }
+    if (id !== undefined) {
+      let k = this.depth - 1;
+      while (k >= 0 && this.stackId[k] !== id) k--;
+      if (k < 0) return;
+      while (this.depth - 1 > k) this.endTop();
+    }
+    this.endTop();
+  }
+
+  private endTop(): void {
     if (this.depth === 0) return;
     this.depth -= 1;
     const d = this.depth;
@@ -248,8 +281,9 @@ export class SpanRecorder {
 
   /** The frame ends (at `at`, else now); spans still open are cut there. */
   endFrame(at: number = wallClock()): void {
-    while (this.depth > 0) this.end();
     this.overflow = 0;
+    this.lapAt = -1;
+    while (this.depth > 0) this.endTop();
     if (!this.open) this.openFrame(at);
     this.fEnd[this.slot] = at;
     this.open = false;
@@ -259,6 +293,18 @@ export class SpanRecorder {
   /** Frames closed so far. */
   get frameCount(): number {
     return this.closed;
+  }
+
+  /** When the closed frame `back` frames before the newest started (NaN: not kept). Reads without making objects. */
+  closedStart(back = 0): number {
+    const f = this.closed - 1 - back;
+    return f < 0 || back >= this.frames ? NaN : this.fStart[f % this.frames]!;
+  }
+
+  /** When the closed frame `back` frames before the newest ended (NaN: not kept). */
+  closedEnd(back = 0): number {
+    const f = this.closed - 1 - back;
+    return f < 0 || back >= this.frames ? NaN : this.fEnd[f % this.frames]!;
   }
 
   private openFrame(at: number): void {

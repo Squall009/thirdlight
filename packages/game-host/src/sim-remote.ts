@@ -54,6 +54,7 @@ import { CAMERA_POSE_FLOATS, type FrameState, type MainToWorker, type SceneEntit
 import type { RelayPage, SimAccess } from './sim-access';
 import type { UiHitTarget } from './ui-hit';
 import type { RunDigests, RunNow } from './run-probe';
+import { pageProfile } from './page-profile';
 
 /**
  * Terrain layer bytes handed to the simulation's worker a turn (about a
@@ -131,6 +132,26 @@ const NO_DEBUG_STATE: DebugCommandState = Object.freeze({ registered: ENGINE_DEB
 
 function rtError(code: string, message: string, extra: Partial<RuntimeError> = {}): RuntimeError {
   return { code, message, ...extra } as RuntimeError;
+}
+
+/** A camera step pose read from a frame's pose array. */
+interface CameraPoseScratch {
+  position: number[];
+  rotation: number[];
+  fovY: number;
+  near: number;
+  far: number;
+  letterbox: number;
+}
+
+/** Fills `out` from the frame's pose array at `o`. */
+function camPose(out: CameraPoseScratch, pose: readonly number[], o: number): void {
+  for (let k = 0; k < 3; k += 1) out.position[k] = pose[o + k]!;
+  for (let k = 0; k < 4; k += 1) out.rotation[k] = pose[o + 3 + k]!;
+  out.fovY = pose[o + 7]!;
+  out.near = pose[o + 8]!;
+  out.far = pose[o + 9]!;
+  out.letterbox = pose[o + 10]!;
 }
 
 /** Start the worker's simulation; resolves with the mirror once the worker has composed it. */
@@ -313,6 +334,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     if (typeof m !== 'object' || m === null) return;
     switch (m.t) {
       case 'frame': {
+        // The worker's profiler frames are taken in as they arrive (a later read lines them up by time and tick).
+        pageProfile.simFrames(m.profile, m.queues);
         if (relayFinished !== null && relayFinished.seq === null) relayFinished.seq = m.state.seq;
         const f = inFlight;
         const answers = f !== null && f.seq === m.state.seq;
@@ -439,16 +462,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   const scale: number[] = [1, 1, 1];
   const readAt = (i: number): void => mirror.readRow(i, position, rotation, scale);
   /** The camera's two step poses (scratch, filled from the frame's pose array). */
-  const camA = { position: [0, 0, 0], rotation: [0, 0, 0, 1], fovY: 60, near: 0.1, far: 100, letterbox: 0 };
-  const camB = { position: [0, 0, 0], rotation: [0, 0, 0, 1], fovY: 60, near: 0.1, far: 100, letterbox: 0 };
-  const camPose = (out: typeof camA, pose: readonly number[], o: number): void => {
-    for (let k = 0; k < 3; k += 1) out.position[k] = pose[o + k]!;
-    for (let k = 0; k < 4; k += 1) out.rotation[k] = pose[o + 3 + k]!;
-    out.fovY = pose[o + 7]!;
-    out.near = pose[o + 8]!;
-    out.far = pose[o + 9]!;
-    out.letterbox = pose[o + 10]!;
-  };
+  const camA: CameraPoseScratch = { position: [0, 0, 0], rotation: [0, 0, 0, 1], fovY: 60, near: 0.1, far: 100, letterbox: 0 };
+  const camB: CameraPoseScratch = { position: [0, 0, 0], rotation: [0, 0, 0, 1], fovY: 60, near: 0.1, far: 100, letterbox: 0 };
   const gone = (): boolean => disposed || mirror.state === 'disposed';
   const NO_LOADING: import('@thirdlight/runtime').SceneLoadingView = Object.freeze({ loading: Object.freeze([]), transition: null, swap: null });
   const emptySet: SceneSetView = Object.freeze({ revision: 0, batches: Object.freeze([]), status: Object.freeze({}), spawned: Object.freeze([]) }) as unknown as SceneSetView;

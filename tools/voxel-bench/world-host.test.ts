@@ -23,8 +23,8 @@ import {
   type VoxelWorldPorts,
 } from '@thirdlight/runtime';
 import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
-import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
-import { chunkDrawBatchTransfer, chunkGrid, DEFAULT_SECTION_EDGE, RELIEF_RING_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
+import { bytesToHex, crc32, sha256Hex, threadProfiler } from '@thirdlight/shared';
+import { chunkDrawBatchTransfer, chunkGrid, DEFAULT_SECTION_EDGE, RELIEF_RING_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, livePoolQueues, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
 import { resolveMaterialInstances, withResolvedPhysics, type MaterialDef, type QualityLevelConfig } from '@thirdlight/project-model';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
@@ -1094,4 +1094,34 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(source.memoryBytes()).toBe(goodOnly.memoryBytes() + good.byteLength);
     rmSync(shipDir, { recursive: true, force: true });
   }, 120_000);
+});
+
+describe('the frame profile of a streaming world', () => {
+  it("times every job its pool's real workers ran as a span of the job workers' lane, and the world's streaming as a span of its step", async () => {
+    const h = await harness();
+    // One profiler frame a tick (as the simulation worker frames them), from a clean frame on.
+    threadProfiler.endFrame();
+    const first = threadProfiler.frameCount;
+    await h.until(() => {
+      threadProfiler.endFrame();
+      threadProfiler.beginFrame();
+      const jobs = threadProfiler.read(threadProfiler.frameCount - first).jobs.flatMap((f) => f.spans.map((s) => s.name));
+      return jobs.includes('job load') && jobs.includes('job derive');
+    }, 'load and derive jobs to answer');
+    const { own, jobs } = threadProfiler.read(threadProfiler.frameCount - first);
+    const spans = jobs.flatMap((f) => f.spans);
+    // Each on one of the pool's two workers, in its budget category, its time the worker's own.
+    expect(spans.every((s) => s.lane === 0 || s.lane === 1)).toBe(true);
+    expect(spans.filter((s) => s.name === 'job load').every((s) => s.category === 'voxelStream' && s.ms >= 0)).toBe(true);
+    expect(spans.filter((s) => s.name === 'job derive').every((s) => s.category === 'voxelMesh')).toBe(true);
+    expect(jobs.some((f) => (f.byCategory.voxelMesh ?? 0) > 0)).toBe(true);
+    // The thread's own frames: the steps and, inside them, the world's streaming.
+    const names = new Set(own.flatMap((f) => f.spans.map((s) => s.name)));
+    expect(names.has('step') && names.has('voxel streaming')).toBe(true);
+    // The pool's queues while it is open: its two workers.
+    expect(livePoolQueues()?.workers).toBe(2);
+    await h.inStep(() => true);
+    h.rt.dispose();
+    expect(livePoolQueues()).toBeNull();
+  }, 60_000);
 });

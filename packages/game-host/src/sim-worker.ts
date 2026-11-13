@@ -19,7 +19,8 @@
  * boundary they reach in single-thread mode.
  */
 import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort3D, type Runtime, type SimulationModuleSpec, type VoxelWorldPorts } from '@thirdlight/runtime';
-import { chunkDrawBatchTransfer, type ShippedVoxelWorld } from '@thirdlight/voxel';
+import { threadProfiler } from '@thirdlight/shared';
+import { chunkDrawBatchTransfer, livePoolQueues, type ShippedVoxelWorld } from '@thirdlight/voxel';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -66,6 +67,8 @@ export interface SimWorkerDeps {
 
 /** Run the simulation worker on this endpoint (call once, at the worker's start). */
 export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
+  // This worker's spans are the simulation's thread in a profile.
+  threadProfiler.thread = 'sim';
   const post = (m: WorkerToMain, transfer?: readonly unknown[]): void => endpoint.post(m, transfer);
   let runtime: Runtime | null = null;
   let physics: PhysicsPort3D | null = null;
@@ -147,7 +150,11 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     const out = digests;
     digests = [];
     const { state, transfer } = encoder.encode(runtime, seq, { digests: out, ...(tickError !== undefined ? { tickError } : {}), memoryBytes: memory });
-    post({ t: 'frame', state }, transfer);
+    // The tick's profiler frame (and the job workers' answers since the last) rides on the frame the page waits for.
+    threadProfiler.endFrame();
+    const profile = threadProfiler.pack();
+    const queues = livePoolQueues();
+    post({ t: 'frame', state, ...(profile !== null ? { profile } : {}), ...(queues !== null ? { queues } : {}) }, profile !== null ? [...transfer, profile.data.buffer as ArrayBuffer] : transfer);
   };
 
   const init = async (m: SimInitMessage): Promise<void> => {
@@ -345,6 +352,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     const rt = runtime!;
     switch (m.t) {
       case 'tick': {
+        threadProfiler.beginFrame();
+        threadProfiler.tick(m.seq);
         if (m.give !== undefined) encoder?.give(m.give);
         if (m.uiTargets !== undefined) uiTargets = m.uiTargets;
         tickInput?.push(m.frame);

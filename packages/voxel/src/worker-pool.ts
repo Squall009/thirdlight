@@ -24,6 +24,8 @@
  * Buffers in a job's transfer list move to the worker when it is sent (not
  * when it is queued), and the reply's buffers move back.
  */
+import { threadProfiler, wallClock, type SpanId } from '@thirdlight/shared';
+
 import { JobQueue } from './job-queue';
 import { STREAM_JOB_VERSION, type JobErrorCode, type JobLane, type JobReply, type JobRequest } from './stream-job';
 
@@ -99,6 +101,42 @@ export type JobOutcome<O = unknown> =
   | { readonly status: 'done'; readonly output: O; readonly workerUs: number; readonly queueMs: number; readonly runMs: number }
   | { readonly status: 'cancelled' | 'timeout' | 'queue_full' | 'worker_lost' }
   | { readonly status: JobErrorCode; readonly message: string };
+
+/** What the open pools of this thread have waiting and running (the profiler's queue counters). */
+export interface PoolQueues {
+  readonly pools: number;
+  readonly workers: number;
+  readonly queued: number;
+  readonly backgroundQueued: number;
+  readonly inFlight: number;
+}
+
+/** The pools of this thread not yet closed. */
+const openPools = new Set<WorkerPool>();
+
+/** The open pools' queues summed (null: no pool open). */
+export function livePoolQueues(): PoolQueues | null {
+  if (openPools.size === 0) return null;
+  let workers = 0;
+  let queued = 0;
+  let backgroundQueued = 0;
+  let inFlight = 0;
+  for (const p of openPools) {
+    workers += p.size;
+    queued += p.queued;
+    backgroundQueued += p.backgroundQueued;
+    inFlight += p.inFlight;
+  }
+  return { pools: openPools.size, workers, queued, backgroundQueued, inFlight };
+}
+
+/** A job kind's span in the thread's profiler (loading reads and decodes, the rest derive and mesh). */
+const jobSpans = new Map<string, SpanId>();
+const jobSpan = (kind: string): SpanId => {
+  let id = jobSpans.get(kind);
+  if (id === undefined) jobSpans.set(kind, (id = threadProfiler.span(`job ${kind}`, kind === 'load' ? 'voxelStream' : 'voxelMesh')));
+  return id;
+};
 
 /** Samples kept per series (the newest; older ones are overwritten). */
 const SAMPLES = 8192;
@@ -193,6 +231,7 @@ export class WorkerPool {
     if (!(opts.timeoutMs > 0) || !Number.isInteger(opts.maxQueued) || opts.maxQueued < 1) throw new RangeError('pool timeout and queue bound must be positive');
     this.opts = { hangMs: opts.timeoutMs * 4, perWorker: 1, backgroundWorkers: Math.max(1, Math.round(opts.size * BACKGROUND_WORKER_SHARE)), ...opts };
     for (let i = 0; i < opts.size; i++) this.slots.push(this.start(i, 0));
+    openPools.add(this);
   }
 
   private start(index: number, generation: number): Slot {
@@ -370,6 +409,9 @@ export class WorkerPool {
       this.stats.done++;
       this.stats.runMs.add(now - p.sentAt);
       this.stats.workerUs.add(r.workerUs ?? 0);
+      // The job's time on its worker, as a span of the job workers' lane ending at its answer (the worker reports no start).
+      const workMs = (r.workerUs ?? 0) / 1000;
+      threadProfiler.job(jobSpan(p.job.kind), index, wallClock() - workMs, workMs);
       this.settle(p, { status: 'done', output: r.output, workerUs: r.workerUs ?? 0, queueMs: p.sentAt - p.queuedAt, runMs: now - p.sentAt });
     } else {
       this.stats.failed++;
@@ -402,6 +444,7 @@ export class WorkerPool {
   /** Answers every job `cancelled` and ends the workers. */
   close(): void {
     this.closed = true;
+    openPools.delete(this);
     for (const p of [...this.live.values()]) {
       this.queue.remove(p.job.id);
       this.back.remove(p.job.id);

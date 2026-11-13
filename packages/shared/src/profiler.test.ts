@@ -90,6 +90,24 @@ describe('the span recorder', () => {
     expect(page.ingest(first)).toBe(false);
   });
 
+  it('times a sequence of stages with laps, nesting what a stage opens itself, and ends a span left open by a throw', () => {
+    const r = new SpanRecorder('page', 4, 16);
+    const [a, b, inner, outer, left] = (['a', 'b', 'inner', 'outer', 'left'] as const).map((n) => r.span(n, 'ui'));
+    r.beginFrame();
+    r.lap(a!);
+    r.lap(b!);
+    r.begin(inner!);
+    r.end();
+    r.lapEnd();
+    r.begin(outer!);
+    r.begin(left!);
+    // A throw skipped `left`'s end: ending `outer` by name ends it first.
+    r.end(outer);
+    r.endFrame();
+    const spans = r.read().own[0]!.spans;
+    expect(spans.map((s) => [s.name, s.depth])).toEqual([['a', 0], ['b', 0], ['inner', 1], ['outer', 0], ['left', 1]]);
+  });
+
   it('costs no memory per frame: a long run keeps the same buffers and a bounded ring', () => {
     const r = new SpanRecorder('page');
     const ids = SPAN_CATEGORIES.map((c) => r.span(`span ${c}`, c));

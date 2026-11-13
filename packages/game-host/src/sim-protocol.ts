@@ -28,7 +28,8 @@ import type {
   UiOutput,
   ModeView,
 } from '@thirdlight/runtime';
-import type { FarSeenWire } from '@thirdlight/voxel';
+import type { PackedProfile } from '@thirdlight/shared';
+import type { FarSeenWire, PoolQueues } from '@thirdlight/voxel';
 import type { ManifestBehaviorRow } from './host';
 import type { RelayEffect, RelayTestFrame } from './relay-input';
 import type { UiHitTarget } from './ui-hit';
@@ -285,7 +286,11 @@ export interface FrameState {
 export type WorkerToMain =
   | { readonly t: 'ready'; readonly state: FrameState; readonly camera: { id: string; fovY: number; near: number; far: number } | null; readonly hasScenes: boolean }
   | { readonly t: 'failed'; readonly error: { readonly code: string; readonly message: string } }
-  | { readonly t: 'frame'; readonly state: FrameState }
+  /**
+   * A tick's frame, with the profiler's frames the worker closed since the last (the tick's own, its steps' and the
+   * job workers' spans; the buffer is transferred) and its voxel pools' queues.
+   */
+  | { readonly t: 'frame'; readonly state: FrameState; readonly profile?: PackedProfile; readonly queues?: PoolQueues }
   | { readonly t: 'scene.request'; readonly sceneId: string }
   | { readonly t: 'relay.done'; readonly from: number; readonly to: number }
   /** A relay step's UI edges or click for the page. */

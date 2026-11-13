@@ -235,7 +235,7 @@ export {
 export { serveJobs, type JobEndpoint, type JobHandler, type JobHandlers, type JobResult } from './job-worker';
 export { deriveNow, jobRelief, streamJobHandlers, type StreamHandlerOptions } from './stream-handlers';
 export { JobQueue } from './job-queue';
-export { defaultVoxelWorkers, eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
+export { defaultVoxelWorkers, eventTargetWorker, livePoolQueues, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolQueues, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { StreamDetail } from './stream-detail';
 export { FAR_GROUND_CACHE_BYTES, FAR_GROUND_LEVEL, FarGround, farGroundTops, type FarGroundField, type FarGroundHost, type FarGroundInput, type FarGroundOutput } from './far-ground';

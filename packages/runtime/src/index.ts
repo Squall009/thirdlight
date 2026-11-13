@@ -238,6 +238,8 @@ export { isDigest } from '@thirdlight/project-model';
 export { MODULE_IDS, PORT_MODULE_IDS, type EngineModuleId } from '@thirdlight/project-model';
 // The character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, controllerCapsuleOf } from '@thirdlight/project-model';
+// The frame budget per tier (the game host's profile compares each category's use with it).
+export { FRAME_BUDGET_BY_TIER, frameBudgetMs, type FrameBudget } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
 export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderSpecs3D, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf3D, colliderShape3DOf, worldTransformsOf, type ColliderContext } from './scene-set';
 export type { ModelBounds } from './types';

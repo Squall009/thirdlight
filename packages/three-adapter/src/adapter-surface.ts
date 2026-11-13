@@ -135,6 +135,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       return { tier: p.qualityControl.tier(), live: light?.live === true, settled: !starting && (light === null || light.settled) };
     },
     takeGpuTime: () => p.gpuTiming.take(),
+    gpuPasses: () => p.gpuTiming.lastPasses(),
     gpuLoad: () => p.gpuLoad,
     projectToScreen(target, out): boolean {
       const camera = state.camera;

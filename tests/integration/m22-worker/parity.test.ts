@@ -326,3 +326,70 @@ describe('the page draws one frame behind the worker (animation frames by hand)'
     }
   }, 60_000);
 });
+
+describe('the frame profile in either threading mode', () => {
+  /** A game of one-step frames for `frames` frames; the page's profile read after it. */
+  async function profiled(mode: Mode, frames: number): Promise<{ h: Harness; profile: Any; from: number }> {
+    const from = performance.timeOrigin + performance.now();
+    const { snapshot, physics } = level();
+    const h = await startHarness(mode, {
+      snapshot,
+      settings: SETTINGS,
+      physics,
+      behaviors: [behaviorModule('director', DIRECTOR)],
+      input: { sample: (stepIndex: number) => ({ stepIndex, ...driveAt(stepIndex) }), sampleMenu: () => ({ confirm: false, mute: false, confirmNeedsRelease: false }), markConfirmConsumed: () => undefined, dispose: () => undefined },
+    });
+    let now = 10;
+    for (let i = 0; i < frames; i++) await h.tick((now += DT));
+    return { h, profile: h.host.profile!(), from };
+  }
+
+  it('in single-thread mode the steps are spans of the page\'s own frames', async () => {
+    const { h, profile } = await profiled('single', 30);
+    try {
+      const page: Any[] = profile.threads.page;
+      expect(page.length).toBeGreaterThanOrEqual(25);
+      const names = new Set(page.flatMap((f) => f.spans.map((s: Any) => s.name)));
+      for (const n of ['step', 'scripts', 'physics']) expect(names.has(n), n).toBe(true);
+      // (This file's first profile: no worker has posted frames to the page yet.)
+      expect(profile.threads.sim.length).toBe(0);
+    } finally {
+      await h.dispose();
+    }
+  }, 60_000);
+
+  it('the worker\'s step spans arrive with the ticks that ran them, beside the page\'s own frames', async () => {
+    const { h, profile, from } = await profiled('worker', 60);
+    try {
+      const sim: Any[] = profile.threads.sim;
+      // One worker frame a tick, tagged with the tick it ran, in order.
+      expect(sim.length).toBeGreaterThanOrEqual(55);
+      const ticks = sim.map((f) => f.tick);
+      expect(ticks.every((t, i) => i === 0 || t === ticks[i - 1] + 1)).toBe(true);
+      expect(sim.every((f) => f.thread === 'sim')).toBe(true);
+      // The simulation's stages, nested in their step, on the worker's thread only.
+      const names = new Set(sim.flatMap((f) => f.spans.map((s: Any) => s.name)));
+      for (const n of ['step', 'scripts', 'physics', 'camera', 'animation']) expect(names.has(n), n).toBe(true);
+      const steps = sim.flatMap((f) => f.spans.filter((s: Any) => s.name === 'step'));
+      expect(steps.length).toBeGreaterThanOrEqual(50);
+      expect(sim.flatMap((f) => f.spans).filter((s: Any) => s.name === 'scripts').every((s: Any) => s.depth === 1)).toBe(true);
+      // A frame's category sums are its spans' own times (none counted twice); the settle pre-roll's frame has more
+      // spans than a frame keeps (they are counted, and summed, not kept).
+      expect(sim.filter((f) => f.dropped > 0).length).toBeLessThanOrEqual(1);
+      for (const f of sim.filter((x) => x.dropped === 0)) {
+        const own = f.spans.reduce((n: number, s: Any) => n + s.selfMs, 0);
+        const sums = Object.values(f.byCategory as Record<string, number>).reduce((n, v) => n + v, 0);
+        expect(sums).toBeCloseTo(own, 3);
+      }
+      // The page's frames of this run (the ring still holds the last test's) have the host's stages, not steps.
+      const page = profile.threads.page.filter((f: Any) => f.start >= from);
+      expect(page.length).toBeGreaterThanOrEqual(55);
+      expect(page.flatMap((f: Any) => f.spans).some((s: Any) => s.name === 'step')).toBe(false);
+      expect(page.flatMap((f: Any) => f.spans).some((s: Any) => s.name === 'render frame')).toBe(true);
+      expect(profile.budget.rows.some((r: Any) => r.thread === 'sim' && r.category === 'scripts' && r.budgetMs > 0)).toBe(true);
+      expect(JSON.parse(JSON.stringify(profile))).toEqual(profile);
+    } finally {
+      await h.dispose();
+    }
+  }, 60_000);
+});
