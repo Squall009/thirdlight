@@ -17,6 +17,7 @@ import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { browserLaunchEnv, GPU_ARGS } from '../../tests/e2e/browser-env.mjs';
 import type { FrameWatch, SceneLoadTiming, StartTimingsReport } from '../../packages/game-host/src/start-timings';
 import type { PerfBackend } from './backend';
+import { profileSummary, type ProfileReport, type ProfileSummary } from '@thirdlight/game-host';
 import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
 import { measureEditorOps, type EditorOpsResult } from './editor-ops';
 import { summarize, type Summary } from './stats';
@@ -71,6 +72,8 @@ export interface SurfaceResult {
   threads?: 'worker' | 'off';
   /** The page's main-thread task time per rendered frame (ms) and its share of the window. */
   mainThread?: { taskMsPerFrame: number; busyShare: number };
+  /** The engine's frame profile at the window's end (`__tlProfiler`): each thread's own ms a frame (null: the page has none). */
+  profile?: ProfileSummary | null;
   /** Play: where each Play's start went, the first Play first (a later one runs in the same editor page). */
   starts?: PlayStartSplit[];
   /** Play: a scene loaded during the first Play (a class with scenes that do not start). */
@@ -204,7 +207,7 @@ async function record(target: Page | Frame, opts: SurfaceOptions): Promise<PageS
  * A cross-origin iframe in its own process is measured there; one sharing the
  * editor's process (same site) includes the (idle) editor's tasks.
  */
-async function recordWithMainThread(page: Page, target: Page | Frame, opts: SurfaceOptions): Promise<{ sample: PageSample; mainThread: SurfaceResult['mainThread'] }> {
+async function recordWithMainThread(page: Page, target: Page | Frame, opts: SurfaceOptions): Promise<{ sample: PageSample; mainThread: SurfaceResult['mainThread']; profile: ProfileSummary | null }> {
   let cdp;
   try {
     cdp = target === page ? await page.context().newCDPSession(page) : await page.context().newCDPSession(target as Frame);
@@ -221,7 +224,9 @@ async function recordWithMainThread(page: Page, target: Page | Frame, opts: Surf
   const taskMs = ((b['TaskDuration'] ?? 0) - (a['TaskDuration'] ?? 0)) * 1000;
   await cdp.detach().catch(() => undefined);
   const frames = Math.max(1, sample.frames.length);
-  return { sample, mainThread: { taskMsPerFrame: Math.round((taskMs / frames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 } };
+  // The engine's own profile over the last frames of the window (each thread's spans), beside the trace's task time.
+  const report = (await target.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null).catch(() => null)) as ProfileReport | null;
+  return { sample, mainThread: { taskMsPerFrame: Math.round((taskMs / frames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 }, profile: report === null ? null : profileSummary(report) };
 }
 
 /**
@@ -269,7 +274,7 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
 
     const first = await startPlay();
     await new Promise((r) => setTimeout(r, opts.warmupMs));
-    const { sample, mainThread } = await recordWithMainThread(page, first.frame, opts);
+    const { sample, mainThread, profile } = await recordWithMainThread(page, first.frame, opts);
     const la = await loadavg();
     const { split, diag: firstDiag } = await splitFor(first);
     // The benchmark plays as a scene (the play state: running).
@@ -281,6 +286,7 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
     out.state = state;
     out.threads = threads;
     if (mainThread !== undefined) out.mainThread = mainThread;
+    out.profile = profile;
     out.starts = [split];
     if (extra.sceneLoad !== undefined) {
       // A scene that does not start, loaded like a script's ctx.scenes.load.
@@ -333,12 +339,13 @@ export async function measureExport(browser: Browser, exportDir: string, rendere
       notes.push('the run did not start; measured the title screen');
     }
     await new Promise((r) => setTimeout(r, opts.warmupMs));
-    const { sample, mainThread } = await recordWithMainThread(page, page, opts);
+    const { sample, mainThread, profile } = await recordWithMainThread(page, page, opts);
     const la = await loadavg();
     if (errors.length > 0) notes.push(`page errors: ${errors.slice(0, 3).join(' | ')}`);
     const out = result('export', renderer, sample, { firstFrameMs: first!, domContentLoadedMs: sample.nav?.domContentLoaded ?? -1, loadMs: sample.nav?.load ?? -1 }, notes, la);
     out.threads = threads;
     if (mainThread !== undefined) out.mainThread = mainThread;
+    out.profile = profile;
     return out;
   } finally {
     await context.close();

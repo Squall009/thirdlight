@@ -267,7 +267,7 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
               opts.log(`perf: ${cls} ${what} (${r}) failed: ${String((e as Error).message ?? e).slice(0, 200)}`);
             }
           };
-          const mt = (s: SurfaceResult): string => (s.mainThread !== undefined ? `, main thread ${s.mainThread.taskMsPerFrame} ms/frame (busy ${Math.round(s.mainThread.busyShare * 100)}%)` : '');
+          const mt = (s: SurfaceResult): string => (s.mainThread !== undefined ? `, main thread ${s.mainThread.taskMsPerFrame} ms/frame (busy ${Math.round(s.mainThread.busyShare * 100)}%)` : '') + (s.profile != null ? `, profile page ${s.profile.msPerFrame.page} / sim ${String(s.profile.msPerFrame.sim)} / jobs ${String(s.profile.msPerFrame.jobs)} ms a frame` : '');
           for (const threads of opts.threads) {
             if (opts.surfaces.includes('play')) {
               await attempt(`play threads=${threads}`, async () => {

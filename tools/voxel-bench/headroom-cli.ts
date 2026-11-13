@@ -67,6 +67,7 @@ import { homedir, loadavg, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_BUDGET_MIB } from '@thirdlight/project-model';
+import { profileSummary, type ProfileReport } from '@thirdlight/game-host';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { FarSettle, fitLine, frameCap, frameGpu, frameWindow, misses, passShare, searchLimit, spread, type FrameWindow, type LimitResult, type LineFit, type PassRow } from './headroom';
@@ -283,6 +284,9 @@ async function main(): Promise<void> {
     for (let round = 0; round < ROUNDS; round++) {
       const r: Record<string, unknown> = { round, start: host() };
       r['noLoad'] = await probe({});
+      // The frame profile over the window just recorded (the last frames each thread keeps): each thread's CPU a frame.
+      const profile = await canvas.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
+      if (profile !== null) r['profile'] = profileSummary(profile as ProfileReport);
       // The edge: the ballast the frame holds at the cap.
       const edge: LimitResult = await searchLimit((n) => probe({ ballast: n }), { max: BALLAST_LIMIT, start: 4, precision: 0.1, cap: CAP });
       r['edge'] = edge;
@@ -369,6 +373,7 @@ function summary(r: Record<string, unknown>): string {
   const e = r['edge'] as LimitResult;
   const line = r['line'] as LineFit | null;
   const lines = [
+    ...(r['profile'] !== undefined ? [`  profile at no load: ${JSON.stringify((r['profile'] as { msPerFrame: unknown }).msPerFrame)} ms a frame, busy ${JSON.stringify((r['profile'] as { busy: unknown }).busy)}`] : []),
     `round ${String(r['round'])} at ${CAP.fps} Hz: no load ${w.missed}/${w.frames} missed, ${w.stalls} stalls (mean ${w.meanMs} ms, ${misses(w, CAP) ? 'misses' : 'holds'}); ballast held ${e.held}, missed at ${String(e.missedAt)}`,
     `  past the edge: ${JSON.stringify((r['pastEdge'] as { n: number; window: FrameWindow }[]).map((p) => [p.n, p.window.meanMs]))}; a ballast copy ${String(line?.slope)} ms (worst residual ${String(line?.worstResidual)}); frame GPU ${JSON.stringify(r['frameGpu'])}`,
     ...(r['rows'] as PassRow[]).map((p) => `  ${p.by} ${p.pass}: ${p.lowerBound ? '≥ ' : ''}${p.ms} ms = ${p.units} units, headroom ×${p.lowerBound ? '≤ ' : ''}${String(p.headroomX)}`),

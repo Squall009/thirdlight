@@ -341,6 +341,39 @@ export class PageProfile {
   }
 }
 
+/** A profile in a few numbers, for a bench's line (own ms a frame per thread, the busy share of the wall time its frames cover). */
+export interface ProfileSummary {
+  readonly frames: { readonly page: number; readonly sim: number; readonly jobs: number };
+  /** Own ms a page frame: the page's spans, and the simulation's and the job workers' over the same frames. */
+  readonly msPerFrame: { readonly page: number; readonly sim: number | null; readonly jobs: number | null };
+  readonly busy: { readonly page: number; readonly sim: number | null };
+  /** Per thread and category, the mean own ms a frame where it is above zero, beside its budget. */
+  readonly rows: readonly ProfileBudgetRow[];
+  readonly spikes: number;
+  readonly spansPerFrame: number;
+  readonly nsPerSpan: number;
+}
+
+const ownMs = (frames: readonly ProfileFrame[]): number => frames.reduce((n, f) => n + Object.values(f.byCategory).reduce((m, v) => m + (v ?? 0), 0), 0);
+const wallMs = (frames: readonly ProfileFrame[]): number => (frames.length === 0 ? 0 : frames[frames.length - 1]!.start + frames[frames.length - 1]!.ms - frames[0]!.start);
+const round3 = (v: number): number => Math.round(v * 1000) / 1000;
+
+/** The summary of a profile read (`ProfileReport`). */
+export function profileSummary(r: ProfileReport): ProfileSummary {
+  const { page, sim, jobs } = r.threads;
+  const per = (frames: readonly ProfileFrame[]): number | null => (frames.length === 0 ? null : round3(ownMs(frames) / frames.length));
+  const busy = (frames: readonly ProfileFrame[]): number | null => (frames.length < 2 ? null : round3(ownMs(frames) / Math.max(1e-9, wallMs(frames))));
+  return {
+    frames: { page: page.length, sim: sim.length, jobs: jobs.length },
+    msPerFrame: { page: per(page) ?? 0, sim: per(sim), jobs: jobs.length === 0 ? null : round3(ownMs(jobs) / Math.max(1, page.length)) },
+    busy: { page: busy(page) ?? 0, sim: busy(sim) },
+    rows: r.budget.rows.filter((x) => x.meanMs > 0).map((x) => ({ ...x, meanMs: round3(x.meanMs), worstMs: round3(x.worstMs), budgetMs: round3(x.budgetMs), use: x.use === null ? null : round3(x.use) })),
+    spikes: r.spikes.length,
+    spansPerFrame: round3(r.cost.pageSpansPerFrame),
+    nsPerSpan: Math.round(r.cost.nsPerSpan),
+  };
+}
+
 /** This page's profile (one per page: every host on it records into the same page thread). */
 export const pageProfile = new PageProfile();
 
