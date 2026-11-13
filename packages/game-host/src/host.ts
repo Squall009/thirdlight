@@ -73,6 +73,7 @@ import { savesObservation as savesObservationOf, shellSaves, slotPictures, start
 import { createDebugConsole, type DebugConsole } from './debug-console';
 import { createHostStats } from './frame-stats';
 import { HOST_SPAN as HS, pageProfile } from './page-profile';
+import { profileCapture } from './profile-host';
 import { threadProfiler as P } from '@thirdlight/shared';
 import { createStatsOverlay, statsOverlayModeOf, type StatsOverlay } from './stats-overlay';
 import { createUiLayer, pageUiView, type UiLayer } from './ui-layer';
@@ -1011,7 +1012,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // The document the overlays (letterbox bars, fade, UI documents) are made in.
     hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
     const dom: HostDom = hostDom ?? { createElement: () => { throw new Error('no document available for the overlays'); } };
-    if (statsOverlayModeOf(config.settings) !== 'off' && hostDom !== null) statsOverlay = createStatsOverlay({ dom: hostDom, container: config.container, shown: statsOverlayModeOf(config.settings) === 'shown' });
+    if (statsOverlayModeOf(config.settings) !== 'off' && hostDom !== null) statsOverlay = createStatsOverlay({ dom: hostDom, container: config.container, shown: statsOverlayModeOf(config.settings) === 'shown', profile: { read: () => pageProfile.read(), capture: () => profileCapture(config.buildId, () => adapter) } });
     if (config.debugConsole === true) {
       const rt0 = res.runtime;
       debugConsole = createDebugConsole({
@@ -1419,7 +1420,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     uiElements: (max?: number) => uiLayer?.elements(max) ?? [],
     uiFontRules: () => uiLayer?.fontRules() ?? Promise.resolve(''),
     frameStats: () => hostStats.snapshot(),
-    profile: () => pageProfile.read(),
+    profile: (after) => pageProfile.read(after),
     get statsOverlay(): StatsOverlay | null {
       return statsOverlay;
     },

@@ -9,7 +9,8 @@
     "./physics-global": "./src/physics-global.ts",
     "./ui-layer": "./src/ui-layer-public.ts",
     "./dialogue-preview": "./src/dialogue-preview-public.ts",
-    "./game-page": "./src/game-page.ts"
+    "./game-page": "./src/game-page.ts",
+    "./profile-view": "./src/profile-view-public.ts"
   },
   "dependencies": {
     "@thirdlight/input": "0.1.0",

@@ -503,8 +503,8 @@ export interface GameHost {
   playState?(): PlayState;
   /** The last stats window (`ctx.stats`; null before the first ends) — Play diagnostics carry it. */
   frameStats?(): BehaviorStats | null;
-  /** The page's frame profile (page-profile.ts): every thread's recent frames, counters, the tier's budget, spikes. */
-  profile?(): import('./page-profile').ProfileReport;
+  /** The page's frame profile (page-profile.ts): every thread's recent frames, counters, the tier's budget, spikes (`after`: only what arrived since that cursor). */
+  profile?(after?: import('./page-profile').ProfileCursor): import('./page-profile').ProfileReport;
   /** The built-in stats overlay (null: the project's stats_overlay setting is off). */
   readonly statsOverlay?: StatsOverlay | null;
 }

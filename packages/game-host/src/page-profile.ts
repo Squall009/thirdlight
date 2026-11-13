@@ -131,7 +131,33 @@ export interface ProfileReport {
   readonly spikes: readonly ProfileSpike[];
   /** The profiler's own cost: spans the page records a frame, and a span's measured cost on this page (ns). */
   readonly cost: { readonly pageSpansPerFrame: number; readonly nsPerSpan: number };
+  /** How many frames of each thread and how many spikes the page has taken in so far: a reader's cursor (`read(after)`). */
+  readonly seq: ProfileCursor;
 }
+
+/**
+ * Where a reader of the profile is: frames of the page and the simulation and
+ * spikes taken in so far (each counts up by arrival, so a simulation frame
+ * that arrives after a later page frame is still new to a reader).
+ */
+export interface ProfileCursor {
+  readonly page: number;
+  readonly sim: number;
+  readonly spikes: number;
+}
+
+/** A thread's frames made into objects once each (a read makes only the frames that arrived since the last). */
+interface FrameCache {
+  /** Frames the recorder closed when the cache last caught up. */
+  arrived: number;
+  own: ProfileFrame[];
+  /** The arrival number of each of `own` (the first frame closed is 0). */
+  ownSeq: number[];
+  jobs: ProfileFrame[];
+  jobsSeq: number[];
+}
+
+const newCache = (): FrameCache => ({ arrived: 0, own: [], ownSeq: [], jobs: [], jobsSeq: [] });
 
 interface PendingSpike {
   readonly at: number;
@@ -144,6 +170,16 @@ interface PendingSpike {
 }
 
 const overlaps = (f: ProfileFrame, from: number, to: number): boolean => f.start <= to && f.start + f.ms >= from;
+
+/** A recorder's kept frames over [from, to] (and their job frames), counted back from the newest without making the others. */
+function framesOver(rec: SpanRecorder, from: number, to: number): { own: ProfileFrame[]; jobs: ProfileFrame[] } {
+  let back = 0;
+  // Frames close in order, so the newest ending before `from` ends the walk (NaN: past the ring).
+  while (rec.closedEnd(back) >= from) back++;
+  if (back === 0) return { own: [], jobs: [] };
+  const r = rec.read(back);
+  return { own: r.own.filter((f) => overlaps(f, from, to)), jobs: r.jobs.filter((f) => overlaps(f, from, to)) };
+}
 const heapNow = (): number => {
   const m = (globalThis as { performance?: { memory?: { usedJSHeapSize?: unknown } } }).performance?.memory?.usedJSHeapSize;
   return typeof m === 'number' ? m : -1;
@@ -158,6 +194,10 @@ export class PageProfile {
   private queues: PoolQueues | null = null;
   private readonly pending: PendingSpike[] = [];
   private readonly spikes: ProfileSpike[] = [];
+  /** Spikes kept so far (the newest of them are in `spikes`). */
+  private spikesKept = 0;
+  private readonly pageCache = newCache();
+  private readonly simCache = newCache();
   private nsPerSpan: number | null = null;
   /** The interval frames are judged by now, and the tier's budget. */
   private intervalMs: number = FRAME_BUDGET_BY_TIER.medium.intervalMs;
@@ -237,17 +277,62 @@ export class PageProfile {
         continue;
       }
       this.pending.splice(i, 1);
-      const t = this.threads();
-      const keep = (frames: readonly ProfileFrame[]): ProfileFrame[] => frames.filter((f) => overlaps(f, p.from, p.to));
-      this.spikes.push({ at: p.at, reason: p.reason, ms: p.ms, thresholdMs: p.thresholdMs, from: p.from, to: p.to, threads: { page: keep(t.page), sim: keep(t.sim), jobs: keep(t.jobs) } });
+      // Only the frames over the spike's window are made into objects: a spike settles inside a page frame.
+      const page = framesOver(this.page, p.from, p.to);
+      const sim = framesOver(this.sim, p.from, p.to);
+      const jobs = [...page.jobs, ...sim.jobs].sort((a, b) => a.start - b.start);
+      this.spikes.push({ at: p.at, reason: p.reason, ms: p.ms, thresholdMs: p.thresholdMs, from: p.from, to: p.to, threads: { page: page.own, sim: sim.own, jobs } });
+      this.spikesKept += 1;
       if (this.spikes.length > PROFILE_SPIKES) this.spikes.splice(0, this.spikes.length - PROFILE_SPIKES);
     }
   }
 
-  private threads(): { page: ProfileFrame[]; sim: ProfileFrame[]; jobs: ProfileFrame[] } {
-    const page = this.page.read();
-    const sim = this.sim.read();
-    return { page: page.own, sim: sim.own, jobs: [...page.jobs, ...sim.jobs].sort((a, b) => a.start - b.start) };
+  /**
+   * The cache catches up with its recorder: only frames closed since the last
+   * time are made into objects (a spike or a read right after another costs
+   * the new frames, not the whole rings). The cache keeps what the ring keeps.
+   */
+  private catchUp(rec: SpanRecorder, c: FrameCache): void {
+    const n = rec.frameCount;
+    const fresh = Math.min(n - c.arrived, rec.frames);
+    if (fresh <= 0) return;
+    const r = rec.read(fresh);
+    // The frames read are the newest `r.own.length` closed (an open frame may hold the oldest slot).
+    const first = n - r.own.length;
+    r.own.forEach((f, i) => {
+      c.own.push(f);
+      c.ownSeq.push(first + i);
+    });
+    // A frame's job workers' frame shares its slot, so its start.
+    const seqOfStart = new Map(r.own.map((f, i) => [f.start, first + i]));
+    for (const j of r.jobs) {
+      c.jobs.push(j);
+      c.jobsSeq.push(seqOfStart.get(j.start) ?? n - 1);
+    }
+    c.arrived = n;
+    const drop = c.own.length - rec.frames;
+    if (drop > 0) {
+      c.own.splice(0, drop);
+      c.ownSeq.splice(0, drop);
+    }
+    const oldest = c.ownSeq[0] ?? n;
+    let k = 0;
+    while (k < c.jobsSeq.length && c.jobsSeq[k]! < oldest) k++;
+    if (k > 0) {
+      c.jobs.splice(0, k);
+      c.jobsSeq.splice(0, k);
+    }
+  }
+
+  /** Every thread's kept frames (`after`: only those that arrived since that cursor). */
+  private threads(after?: ProfileCursor): { page: ProfileFrame[]; sim: ProfileFrame[]; jobs: ProfileFrame[] } {
+    this.catchUp(this.page, this.pageCache);
+    this.catchUp(this.sim, this.simCache);
+    const cut = (frames: ProfileFrame[], seq: number[], from: number | undefined): ProfileFrame[] => (from === undefined ? [...frames] : frames.filter((_, i) => seq[i]! >= from));
+    const p = this.pageCache;
+    const s = this.simCache;
+    const jobs = [...cut(p.jobs, p.jobsSeq, after?.page), ...cut(s.jobs, s.jobsSeq, after?.sim)].sort((a, b) => a.start - b.start);
+    return { page: cut(p.own, p.ownSeq, after?.page), sim: cut(s.own, s.ownSeq, after?.sim), jobs };
   }
 
   private counterFrames(): ProfileFrameCounters[] {
@@ -303,17 +388,25 @@ export class PageProfile {
     return this.nsPerSpan;
   }
 
-  /** The whole profile now (plain data). */
-  read(): ProfileReport {
+  /**
+   * The whole profile now (plain data). With `after` (a cursor an earlier
+   * read returned as `seq`), the threads' frames, the page's counter frames
+   * and the spikes are only those taken in since; the budget's use is still
+   * over every kept frame.
+   */
+  read(after?: ProfileCursor): ProfileReport {
     this.settle(true);
-    const t = this.threads();
+    const all = this.threads();
+    const t = after === undefined ? all : this.threads(after);
+    const counterFrames = this.counterFrames();
     const stats = this.sources.stats?.() ?? null;
     const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: { lod?: { instances?: { copies?: number; inView?: number } }; gpu?: { geometries?: number; textures?: number; programs?: number } } } | undefined;
     const inst = d?.ok === true ? d.diagnostics?.lod?.instances : undefined;
     const gpuMem = d?.ok === true ? d.diagnostics?.gpu : undefined;
     const passes = this.sources.gpuPasses?.() ?? null;
     const total = passes === null ? 0 : passes.renderMs + (passes.computeMs ?? 0);
-    const spans = t.page.reduce((n, f) => n + f.spans.length + f.dropped, 0);
+    const spans = all.page.reduce((n, f) => n + f.spans.length + f.dropped, 0);
+    const newSpikes = after === undefined ? this.spikes.length : Math.max(0, Math.min(this.spikes.length, this.spikesKept - after.spikes));
     return {
       at: wallClock(),
       quality: stats?.quality ?? null,
@@ -321,7 +414,7 @@ export class PageProfile {
       intervalMs: this.intervalMs,
       threads: t,
       counters: {
-        frames: this.counterFrames(),
+        frames: after === undefined ? counterFrames : counterFrames.filter((c) => c.frame >= after.page),
         stats,
         instances: inst !== undefined ? { copies: inst.copies ?? 0, inView: inst.inView ?? 0 } : null,
         gpuResources: gpuMem !== undefined ? { geometries: gpuMem.geometries ?? 0, textures: gpuMem.textures ?? 0, programs: gpuMem.programs ?? 0 } : null,
@@ -333,10 +426,11 @@ export class PageProfile {
         shares: passes !== null && total > 0 ? { render: passes.renderMs / total, compute: (passes.computeMs ?? 0) / total } : null,
         room: this.sources.meter?.() === true ? 'headroom meter' : 'not measurable here',
       },
-      budget: { tier: this.budget.tier, hz: this.budget.hz, intervalMs: this.budget.intervalMs, rows: this.budgetRows(t), gpu: this.budget.gpu },
+      budget: { tier: this.budget.tier, hz: this.budget.hz, intervalMs: this.budget.intervalMs, rows: this.budgetRows(all), gpu: this.budget.gpu },
       slices: frameArbiter.read(),
-      spikes: [...this.spikes],
-      cost: { pageSpansPerFrame: t.page.length > 0 ? spans / t.page.length : 0, nsPerSpan: this.spanCost() },
+      spikes: this.spikes.slice(this.spikes.length - newSpikes),
+      cost: { pageSpansPerFrame: all.page.length > 0 ? spans / all.page.length : 0, nsPerSpan: this.spanCost() },
+      seq: { page: this.page.frameCount, sim: this.sim.frameCount, spikes: this.spikesKept },
     };
   }
 }

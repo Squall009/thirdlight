@@ -11,14 +11,23 @@
  * of PC games, not bound by any engine default) shows and hides it then.
  * Without the setting neither the overlay nor the key exists.
  *
+ * Shift+F3 adds the frame profiler's view under the stats (and shows the
+ * overlay if it was hidden): each thread's own ms a frame and its busiest
+ * categories against the tier's budget, the GPU's pass shares and the last
+ * spike, with a button that saves a capture file. The profile is read only
+ * while that view shows (once a stats window), so it costs nothing hidden.
+ *
  * Plain DOM, `textContent` only; styles as the debug console's (a
  * constructed stylesheet where the page has one, else a `<style>` element).
  */
 import type { BehaviorStats, BehaviorStatsTime } from '@thirdlight/runtime';
 
 import type { HostDom, HostDomNode } from './dom';
+import type { ProfileReport } from './page-profile';
+import { profileCaptureFileName, profileCaptureText, type ProfileCapture } from './profile-capture';
+import { profileOverlayLines } from './profile-view';
 
-/** The overlay's key (`KeyboardEvent.code`). */
+/** The overlay's key (`KeyboardEvent.code`); with Shift it shows and hides the profiler's view. */
 export const STATS_OVERLAY_KEY = 'F3';
 
 /** The `stats_overlay` setting: absent or 0 none, 1 shown from the start, 2 hidden until the key. */
@@ -31,6 +40,9 @@ export function statsOverlayModeOf(settings: unknown): StatsOverlayMode {
 export interface StatsOverlay {
   readonly shown: boolean;
   setShown(shown: boolean): void;
+  /** Whether the profiler's view shows under the stats. */
+  readonly profileShown: boolean;
+  setProfileShown(shown: boolean): void;
   /** Show a window's stats. */
   update(stats: BehaviorStats): void;
   /** The overlay's lines (tests). */
@@ -41,6 +53,9 @@ export interface StatsOverlay {
 const CSS = `
 .tl-stats{position:fixed;right:8px;top:8px;min-width:15em;padding:6px 8px;background:rgba(10,12,16,.78);color:#e5e9f0;font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;border-radius:3px;z-index:2147482990;pointer-events:none;white-space:pre}
 .tl-stats.is-hidden{display:none}
+.tl-stats__profile{margin-top:4px;padding-top:4px;border-top:1px solid rgba(229,233,240,.25)}
+.tl-stats__profile.is-hidden{display:none}
+.tl-stats__save{pointer-events:auto;margin-top:4px;font:inherit;color:#e5e9f0;background:rgba(255,255,255,.12);border:1px solid rgba(229,233,240,.35);border-radius:3px;padding:1px 6px;cursor:pointer}
 `;
 
 const MIB = 1024 * 1024;
@@ -62,7 +77,28 @@ export function statsOverlayLines(s: BehaviorStats): string[] {
   ];
 }
 
-export function createStatsOverlay(deps: { readonly dom: HostDom; readonly container: HostDomNode; readonly shown: boolean }): StatsOverlay {
+/** What the profiler's view reads (absent: the overlay has no profiler view). */
+export interface StatsOverlayProfile {
+  read(): ProfileReport;
+  /** A capture file of the profile now (the host's build and renderer in its header). */
+  capture(): ProfileCapture;
+}
+
+/** Saves a capture as a file the browser downloads (an object URL on a link; nothing leaves the page). */
+function download(dom: HostDom, container: HostDomNode, capture: ProfileCapture): void {
+  const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string; revokeObjectURL?: (u: string) => void } }).URL;
+  if (typeof urls?.createObjectURL !== 'function' || typeof Blob !== 'function') return;
+  const href = urls.createObjectURL(new Blob([profileCaptureText(capture)], { type: 'application/json' }));
+  const a = dom.createElement('a');
+  a.setAttribute?.('href', href);
+  a.setAttribute?.('download', profileCaptureFileName(capture));
+  container.appendChild(a);
+  (a as unknown as { click?: () => void }).click?.();
+  a.remove();
+  setTimeout(() => urls.revokeObjectURL?.(href), 1000);
+}
+
+export function createStatsOverlay(deps: { readonly dom: HostDom; readonly container: HostDomNode; readonly shown: boolean; readonly profile?: StatsOverlayProfile }): StatsOverlay {
   const { dom } = deps;
   const root = dom.createElement('div');
   root.setAttribute?.('aria-label', 'Engine stats');
@@ -87,6 +123,28 @@ export function createStatsOverlay(deps: { readonly dom: HostDom; readonly conta
     root.appendChild(style);
   }
   root.appendChild(text);
+  // The profiler's view: its lines and the capture button (made only where the host gives a profile).
+  const profileBox = deps.profile !== undefined ? dom.createElement('div') : null;
+  const profileText = profileBox !== null ? dom.createElement('div') : null;
+  const save = profileBox !== null ? dom.createElement('button') : null;
+  let profileShown = false;
+  /** Profile reads the view made (tests: none while it is hidden). */
+  let profileReads = 0;
+  let profileLines: string[] = [];
+  if (profileBox !== null && profileText !== null && save !== null) {
+    profileBox.setAttribute?.('data-tl-profile', '');
+    profileBox.setAttribute?.('data-reads', '0');
+    profileText.textContent = 'waiting for the next stats window…';
+    save.textContent = 'Save capture';
+    save.setAttribute?.('class', 'tl-stats__save');
+    save.setAttribute?.('type', 'button');
+    save.addEventListener?.('click', () => {
+      if (!disposed && deps.profile !== undefined) download(dom, deps.container, deps.profile.capture());
+    });
+    profileBox.appendChild(profileText);
+    profileBox.appendChild(save);
+    root.appendChild(profileBox);
+  }
   deps.container.appendChild(root);
   let shown = false;
   let disposed = false;
@@ -99,6 +157,20 @@ export function createStatsOverlay(deps: { readonly dom: HostDom; readonly conta
     root.setAttribute?.('data-shown', shown ? 'true' : 'false');
   };
   setShown(deps.shown);
+  const setProfileShown = (next: boolean): void => {
+    if (disposed || profileBox === null) return;
+    profileShown = next;
+    profileBox.setAttribute?.('class', profileShown ? 'tl-stats__profile' : 'tl-stats__profile is-hidden');
+    profileBox.setAttribute?.('data-shown', profileShown ? 'true' : 'false');
+  };
+  setProfileShown(false);
+  const showProfile = (): void => {
+    if (profileText === null || deps.profile === undefined) return;
+    profileLines = profileOverlayLines(deps.profile.read());
+    profileReads += 1;
+    profileBox!.setAttribute?.('data-reads', String(profileReads));
+    profileText.textContent = profileLines.join('\n');
+  };
 
   const win = globalThis as { addEventListener?: (t: string, h: (e: unknown) => void, o?: unknown) => void; removeEventListener?: (t: string, h: (e: unknown) => void, o?: unknown) => void };
   const onKey = (event: unknown): void => {
@@ -109,6 +181,13 @@ export function createStatsOverlay(deps: { readonly dom: HostDom; readonly conta
     if (t !== null && t !== undefined && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable === true)) return;
     // The browser's own F3 (find again) is not the game's.
     e.preventDefault?.();
+    if ((e as { shiftKey?: boolean }).shiftKey === true && profileBox !== null) {
+      // The profiler's view brings the overlay with it.
+      setProfileShown(!profileShown || !shown);
+      setShown(true);
+      if (profileShown) showProfile();
+      return;
+    }
     setShown(!shown);
   };
   win.addEventListener?.('keydown', onKey, true);
@@ -118,12 +197,21 @@ export function createStatsOverlay(deps: { readonly dom: HostDom; readonly conta
       return shown;
     },
     setShown,
+    get profileShown() {
+      return profileShown;
+    },
+    setProfileShown(next) {
+      setProfileShown(next);
+      if (profileShown && shown) showProfile();
+    },
     update(stats) {
       if (disposed) return;
       current = statsOverlayLines(stats);
       text.textContent = current.join('\n');
+      // Read only while the view shows.
+      if (shown && profileShown) showProfile();
     },
-    lines: () => [...current],
+    lines: () => [...current, ...(shown && profileShown ? profileLines : [])],
     dispose() {
       if (disposed) return;
       disposed = true;
