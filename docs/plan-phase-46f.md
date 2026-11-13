@@ -119,7 +119,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | Item | Status |
 |---|---|
 | 46f.0 | Done 2026-11-13: three 0.187.0 = pin. Baseline §4 (low 30 Hz, 720p, alone): 8 km world room 22.4–23.1 ms, far 39–46 % / near 31–33 %; 150 m/s longest 42–44 ms, 0 > 100 ms, detail 4.5–4.7 s; meadow 977 k tris 10 draws; village 242 draws, main 4.5 ms. Sim-worker CPU unmeasured (no timing). Last fast gate 14 min. |
-| 46f.1 | not started |
+| 46f.1 | a done 2026-11-13, b pending: spans on page, sim worker (with the tick) and job workers; `__tlProfiler.read()`; budget table per tier; 10 time slices from one arbiter (old values kept). Low 30 Hz: 8 km town page 4.0–4.5 / sim 1.8–2.1 ms a frame, village page 4.0 / sim 0.3; room 176 = before; 150 m/s longest 48–50 ms (42–44). Span ~0.5–0.7 µs. |
 | 46f.2 | not started |
 | 46f.3 | not started |
 | 46f.4 | not started |
@@ -130,6 +130,63 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 
 (Each item's built / tested / measured / looked-at goes here, or in `docs/results-phase-46f.md` if this file
 passes about 1,000 lines.)
+
+### 46f.1a — the profiler's data side (spans, budget table, arbiter)
+
+**Built.** `@thirdlight/shared` `profiler.ts`: `SpanRecorder` (names registered once as ids; nested spans with own
+time; 14 categories from the owner's list; a ring of 120 frames × 128 spans in typed arrays; `pack`/`ingest` move
+closed frames between threads in one Float64Array; `lap` for a sequence of stages) and `threadProfiler`, one per
+thread. `frame-arbiter.ts`: `FrameArbiter` / `frameSliceMs(id)`, slices as a share of the frame interval or fixed
+ms. `project-model` `quality-levels.ts`: `FRAME_BUDGET_BY_TIER` (per tier: target Hz, interval, shares per category
+for the page, the simulation, one job worker and the GPU, and the arbiter's slices); engine constants, no format
+field. Spans recorded: the runtime's step (scene loads, voxel streaming, scripts, gameplay blocks, physics,
+timelines, camera, sounds, animation; `runtime/src/step-spans.ts`), the host's frame stages, the adapter's stages
+(scene sync, effects, animation poses, texture streaming, decals, level views, surface light, copies and cover,
+lights, materials, culling, batches, draw submit), the voxel draws made and grids uploaded, far selection, and every
+answered pool job (its worker's own time, on the job workers' lane by worker index). The simulation worker packs
+its frames onto the `frame` message it already sends for each tick (`profile`, `queues`). `game-host`
+`page-profile.ts`: `pageProfile.read()` → `ProfileReport` (threads page/sim/jobs; per-frame draw calls, triangles,
+heap; the stats window; instances, GPU resources, voxel counters, pool queues; GPU pass shares (render vs compute,
+never ms) and where room comes from; the tier's budget rows with mean/worst use; the arbiter's slices; spikes; the
+profiler's own cost). Reached as `window.__tlProfiler.read()` on every game page (Play and export) and
+`GameHost.profile()`; `profileSummary()` for benches (headroom bench, perf harness, village run print it).
+
+**Moved to the arbiter** (defaults = the old values at 30 and 60 Hz): `VOXEL_BATCH_FRAME_SHARE` (0.25 of the
+interval), `FAR_SELECT_SLICE_MS` (2), the streamer's derive aprons (2; used by `stream-sections`, `stream-mips`,
+`stream-collision`, `stream-pieces`) and edit derives (8), `COLLISION_ADD_MS_PER_UPDATE` (4), `MERGE_BACKGROUND_BUDGET_MS`
+(4), `PAGE_CLIP_BUDGET_MS` (4), `SURFACE_PREPARE_MS` (1; also the budget `tracer-terrain-rings` is called with) and
+`PROBE_PLACE_SHARE_MS` (1), `SCENE_PREP_BUDGET_MS` (4). **Left:** `block-layers.ts` (`SYNC_MESH_BUDGET_MS`,
+`MESH_APPLY_BUDGET_MS`) and `terrain-view.ts` (`TERRAIN_UPLOAD_BUDGET_MS`, `TERRAIN_MACRO_BUDGET_MS`): block layers
+and heightfield terrain retire in 48 (scope fence).
+
+**Tested.** vitest: `shared/src/profiler.test.ts` (nesting and own time, ring and dropped spans, job lane, pack →
+ingest equal, laps and a throw's open span, no buffer growth over 10 000 frames; the arbiter reproduces every moved
+value at 30 and 60 Hz); `project-model/src/quality-levels.test.ts` (each tier's Hz and interval, shares ≤ 1 per
+thread, every category planned, slices = defaults); `game-host/src/page-profile.test.ts` (a spike keeps the page,
+the worker's tick and a job over its window; spike ring bound; GPU shares not ms; JSON round trip);
+`tests/integration/m22-worker/parity.test.ts` (a real worker_threads simulation worker: one frame a tick, in order,
+step stages nested, sums = own times; single-thread mode: steps on the page); `tools/voxel-bench/world-host.test.ts`
+(real pool workers: `job load` / `job derive` spans by worker, `voxel streaming` in the step, pool queues).
+Browser, WebGPU: `voxel-world.e2e.ts` Play (8 km world, worker): page/sim/job spans present, ticks in order, busy
+share 0–1 per thread, the stats' draws and triangles among the profile's frames, budget = the high tier at 60 Hz
+(about 1 s added to the test).
+
+**Measured** 2026-11-13 16:19–16:37 UTC, each run alone, low tier, WebGPU, 1280 × 720 at the 30 Hz cap, uptime 21.0 d
+(raw: `~/.cache/thirdlight-phase46f/work/46f.1a/`, `*.uptime` beside each):
+
+| What | Before (46f.0) | After |
+|---|---|---|
+| Page-thread CPU a frame, 8 km world town orbit (headroom no load, profile own time, 2 rounds) | unverified (no stat) | 4.46 / 4.01 ms (busy 13.5 / 12.1 %): render 3.5–3.8, props 0.4, voxel draws 0.1–0.2 |
+| Simulation-worker CPU a frame, same | unverified (no timing) | 2.07 / 1.82 ms: voxel streaming 1.7–1.9, scripts 0.04–0.06; job workers 0.1–0.2 ms a frame (settled) |
+| Village class export (`--busy 5000`), page / sim a frame | trace 4.54 task / 4.83 CPU | profile 3.96 / 0.35 ms; trace 4.69 task / 4.97 CPU (the profile sees 84 % of the traced task time) |
+| Headroom, 8 km town, low (2 rounds) | 176 ballast × 0.127–0.131 ms | 176 × 0.126–0.131 ms; no load 1/89, 0/89 missed |
+| Coverage 150 m/s, export, low (2 rounds) | longest 42.5 / 44.1 ms, 0 > 100, missed 1.8 / 0.9 a min, detail 4.7 / 4.5 s, pending 8.4 / 7.9 s | longest 48.0 / 49.7 ms, 0 > 100, missed 1.8 / 2.7 a min, detail 4.4 / 5.4 s, pending 9.0 / 8.2 s; falls 0/34, holes 0 |
+| The profiler's own cost | — | 480–700 ns a span (measured on the page, 5 000 spans; the page's clock is 0.1 ms coarse), ~25 page spans a frame: ~15 µs a frame; worker ticks ~10 spans a step |
+
+The 150 m/s longest frame read 5 ms higher than the baseline's in both rounds, inside the 60 m/s baseline's
+49–53 ms range; no same-hour A/B was run (≤ 2 rounds): not called a regression, not ruled out. In the e2e at the
+high tier while the world fills, the worker's voxel streaming took 40–45 ms a tick (D646).
+
 
 ## 9. Decision log
 
@@ -143,6 +200,30 @@ passes about 1,000 lines.)
   orbit (its village); the perf village class is measured at the low cap with the perf harness instead (§4).
 - 2026-11-13 (plan, default chosen, owner to confirm): the profiler's GPU lane shows pass shares, not
   milliseconds, on hardware where timestamps follow the clock governor.
+
+- 2026-11-13 (46f.1a, default chosen, owner to confirm): the time slices' default values live in
+  `@thirdlight/shared` (`FRAME_SLICE_DEFAULTS`) beside the arbiter, not in project-model: `@thirdlight/voxel`
+  cannot import project-model (project-model imports voxel), and the voxel package's own tests run with no host to
+  install a table. Each tier's `FRAME_BUDGET_BY_TIER[tier].slices` is that table, installed on the page from the
+  stats window and in the simulation from `setStats`; no tier changes a slice yet, so no pacing changed.
+- 2026-11-13 (46f.1a, default chosen, owner to confirm): the budget shares, the same at every tier (ms follow the
+  tier's rate: low 30 Hz, medium and high 60): page render 0.25, voxel apply 0.25, props 0.08, characters 0.04,
+  effects 0.04, lighting 0.06, UI 0.04, audio 0.02, other 0.07 (0.15 left to the browser); simulation scripts 0.25,
+  physics 0.15, path finding 0.10, characters 0.10, voxel streaming 0.20, audio 0.02, other 0.08; one job worker
+  voxel meshing 0.80, streaming 0.10; GPU render 0.55, lighting 0.20, effects 0.08, other 0.12 (compared with
+  pass shares). Made from the frame interval, not from today's use.
+- 2026-11-13 (46f.1a, default chosen, owner to confirm): a spike is a page frame whose interval passes 1.5 frame
+  intervals at the cap (a missed frame), or a page frame's or a tick's own time past one interval; the last 8 are
+  kept with every thread's frames over their window, gathered 4 frames later.
+- 2026-11-13 (46f.1a): no path-finding span yet: the only path query is `ctx.grid` over block layers (retire in
+  48); the category is in the table. A job's span ends at its answer and starts its worker time before it (the
+  worker sends no start). Frame times on a page read to 0.1 ms (no cross-origin isolation).
+- 2026-11-13 (46f.1a): the GPU lane is the render/compute split of the last timestamp resolve where the renderer
+  tracks timestamps (shares only), and `room: 'headroom meter'` where the page has the meter; calling the meter's
+  room search from the panel is 46f.1b's (it runs for minutes and loads the GPU).
+- 2026-11-13 (46f.1a, for 46f.1b): read `window.__tlProfiler.read()` (game-host `ProfileReport`, plain JSON) or
+  `GameHost.profile()`; `profileSummary()` gives a bench's line. Threads are aligned by wall-clock `start`; a
+  worker frame's `tick` is the tick it ran. MCP `tl_diagnostics` can carry the same object.
 
 ## 10. Open questions for the owner
 

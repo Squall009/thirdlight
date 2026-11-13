@@ -10,6 +10,18 @@ heap and GPU memory, load time, draw calls, simulation step cost and
 garbage, editor command latency, per scene class) are in
 `tools/perf/classes.ts`; they are for a mid-range desktop GPU at 1920×1080.
 
+**The frame profile.** Every game page (Play and an export) keeps a profile of its last frames: named spans of the
+page's thread (the host's and the renderer's stages), the simulation worker's (its steps: scripts, physics, voxel
+streaming, animation, sent with each tick) and the voxel job workers' (each job's time on its worker), each
+frame's draw calls, triangles and heap, the quality tier's frame budget per thread and category with each
+category's use against it (`FRAME_BUDGET_BY_TIER` in project-model's `quality-levels.ts`), the time slices the
+frame arbiter hands out (`frameSliceMs` in `@thirdlight/shared`: every system that spreads work over frames asks
+it), and the last long frames with what every thread did over them. A page's tools read all of it as plain data
+through `window.__tlProfiler.read()`; the perf harness and `tools/voxel-bench` headroom print each thread's CPU a
+frame from it. The GPU appears as pass shares only: at a frame-rate cap its timestamps are not milliseconds, and
+the headroom meter (`run.mjs headroom`) measures its room on demand. Recording costs about a microsecond a span
+(about 25 spans a page frame), and nothing is built until something reads it.
+
 **Benchmark projects.** Five classes — small (100 entities), medium (2000
 entities, 50 materials, 20 effects), large (16 000 entities over 10 scenes,
 four instance sets of 50 000 copies, 200 colliders per scene), script-heavy (500 scripted objects),
@@ -153,7 +165,7 @@ defined once, in the package named, and imported wherever else it is used:
 | Worker meshes swapped in (`MESH_APPLY_BUDGET_MS`) | 4 ms a frame | `three-adapter/src/block-layers.ts` | Uploading many chunks at once would be the hitch the workers removed |
 | Instancing and merge cell (`createAutoBatcher` options) | 64 m cells; an instanced group needs 4 members; geometry from 256 triangles is split per cell | `three-adapter/src/batching.ts` (static merging gets the cell size from the batcher) | Off-screen cells are culled while a cell still holds many objects |
 | Culling inside a draw (`ViewCuller`, `VIEW_SAME_TOLERANCE`) | The members of a batch, the copies of an instance-set chunk and the objects of a merged cell are tested against the view one by one; those in view lead the draw nearest first and the view draws only them, shadow maps draw all; a draw is put in order again only when what is in view changes (camera matrices equal within 1e-9 count as still) | `three-adapter/src/view-cull.ts` | three culls a whole draw: a batch spread over the scene drew its members out of view too (the village class: 204k → 107k triangles a frame). The cell size then barely matters: 16, 32, 64 and 128 m measured within noise on the class and on a game's copy, so 64 m stays |
-| Merged cells (`MIN_MERGE`, `MERGE_QUIET_MS`, `MERGE_BACKGROUND_BUDGET_MS`, `MERGED_RENDER_ORDER`) | At least 2 members; a moved static member rejoins after 500 ms still; the editor builds 4 ms of cells a frame (Play and the export at load); cells draw first (render order −1); block-layer chunks merge per layer, material and 64 m square (the landscape class: 106 chunk draws → 14) | `three-adapter/src/static-merge.ts` | Cells are the level's occluders; a cell's centre would otherwise sort it behind what stands in front of it |
+| Merged cells (`MIN_MERGE`, `MERGE_QUIET_MS`, the frame arbiter's `staticMerge` slice, `MERGED_RENDER_ORDER`) | At least 2 members; a moved static member rejoins after 500 ms still; the editor builds 4 ms of cells a frame (Play and the export at load); cells draw first (render order −1); block-layer chunks merge per layer, material and 64 m square (the landscape class: 106 chunk draws → 14) | `three-adapter/src/static-merge.ts` | Cells are the level's occluders; a cell's centre would otherwise sort it behind what stands in front of it |
 | Cached sun shadow (`STATIC_SHADOW_STEP`, `STATIC_SHADOW_TURN_DEGREES`) | The static map follows the camera in steps of half the shadow square's half side (1,288² texels at the default 1,024² map); drawn again at a step, a turn of more than 0.05°, or a change within its reach | `three-adapter/src/cached-shadow.ts` | Static casters are drawn once, not every frame; texels line up with the dynamic map |
 | Effect lights | No count: listed by the light clusters like any local light | `three-adapter/src/effect-lights.ts` | A new effect light never recompiles; each costs the pixels its cells reach |
 | Light clusters (`CLUSTER_TILES_X`, `CLUSTER_SLICES`, `CLUSTER_INDEX_MIB`) | 16 tiles across × rows by the aspect × 24 depth slices per drawing camera, built on the CPU each frame; the index lists within 16 MiB (past it the lowest-ranked lights leave the cells that did not fit; `renderer.clusters.overflow`) | `three-adapter/src/cluster-build.ts`, `cluster-pack.ts` | A fixed cell count, so render scale and TAAU change nothing; a memory budget, not a count of lights. The many-lights class (`node tools/perf/run.mjs lights`, 64/256/1,000 lights) measures it ([Lighting](lighting.md#what-the-lighting-does-not-cover)) |

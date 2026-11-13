@@ -73,6 +73,8 @@ page in the same commit.
 - Always at the display's cap; GPU timestamps are not usable there (D544). The **headroom meter** loads the
   frame until it misses and gives room and pass shares (`run.mjs headroom`); the **coverage bench** gives
   hitches, settle times and fall-throughs (`run.mjs coverage`).
+- The **frame profile** (`window.__tlProfiler.read()` on a game page) gives each thread's CPU a frame (page,
+  simulation worker, job workers) by budget category against the tier's budget, and the last long frames.
 - Gates run by affected area (`tools/gate.sh`, `tools/gate-areas.json`).
 
 ## 6. Shared foundations
@@ -85,7 +87,7 @@ page in the same commit.
 | 4 | Camera-following window helper | wind, interaction field, ripples, water info, fog density and simulation | 46f; `wind-field.ts` is the pattern |
 | 5 | Regenerated structures (a definition → voxels + overrides) | buildings, road and river splines, water bodies | 47a; `structure-overrides.ts` is a draft |
 | 6 | One culled-instance table for every instanced draw | kit pieces, terrain and far nodes today; trees, ground cover, impostors | exists (`occlusion-instances.ts`); trees and cover join in 46f |
-| 7 | Budget table, profiler and frame arbiter | everything | 46f |
+| 7 | Budget table, profiler and frame arbiter | everything | data side exists: spans on every thread (`threadProfiler`, shared), `__tlProfiler.read()` on game pages, `FRAME_BUDGET_BY_TIER`, `frameSliceMs`; panel and overlay 46f |
 | 8 | One world edit mode on the brush kit, in the Scene view | sculpt, paint, fill, splines, rule preview | 47b; the brush kit exists |
 
 Also shared already and to be reused, not rebuilt: the editor's brush settings, cursor, keys and panel; the
