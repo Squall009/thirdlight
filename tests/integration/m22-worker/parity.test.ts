@@ -345,14 +345,14 @@ describe('the frame profile in either threading mode', () => {
   }
 
   it('in single-thread mode the steps are spans of the page\'s own frames', async () => {
-    const { h, profile } = await profiled('single', 30);
+    const { h, profile, from } = await profiled('single', 30);
     try {
-      const page: Any[] = profile.threads.page;
+      // This run's frames (the page's rings still hold the file's earlier runs).
+      const page: Any[] = profile.threads.page.filter((f: Any) => f.start >= from);
       expect(page.length).toBeGreaterThanOrEqual(25);
       const names = new Set(page.flatMap((f) => f.spans.map((s: Any) => s.name)));
       for (const n of ['step', 'scripts', 'physics']) expect(names.has(n), n).toBe(true);
-      // (This file's first profile: no worker has posted frames to the page yet.)
-      expect(profile.threads.sim.length).toBe(0);
+      expect(profile.threads.sim.filter((f: Any) => f.start >= from).length).toBe(0);
     } finally {
       await h.dispose();
     }
@@ -361,7 +361,7 @@ describe('the frame profile in either threading mode', () => {
   it('the worker\'s step spans arrive with the ticks that ran them, beside the page\'s own frames', async () => {
     const { h, profile, from } = await profiled('worker', 60);
     try {
-      const sim: Any[] = profile.threads.sim;
+      const sim: Any[] = profile.threads.sim.filter((f: Any) => f.start >= from);
       // One worker frame a tick, tagged with the tick it ran, in order.
       expect(sim.length).toBeGreaterThanOrEqual(55);
       const ticks = sim.map((f) => f.tick);

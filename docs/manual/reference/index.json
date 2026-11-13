@@ -575,6 +575,7 @@
 "limit.FONT_FAMILY_NAME_MAX": {"page":"limits-asset-pipeline.md","section":"limits-asset-pipeline--inspect-font"},
 "limit.FONT_SOURCE_BYTES_MAX": {"page":"limits-asset-pipeline.md","section":"limits-asset-pipeline--inspect-font"},
 "limit.FONT_TABLES_MAX": {"page":"limits-asset-pipeline.md","section":"limits-asset-pipeline--inspect-font"},
+"limit.FRAME_BUDGET_BY_TIER": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.FRAME_RATE_CAP_CHOICES": {"page":"limits-project-model-1.md","section":"limits-project-model--frame-rate-cap"},
 "limit.FRAME_RATE_CAP_URL_PARAM": {"page":"limits-runtime.md","section":"limits-runtime--frame-pacing"},
 "limit.GAME_CONTROL_BODY_MAX_BYTES": {"page":"limits-protocol.md","section":"limits-protocol--m3"},
