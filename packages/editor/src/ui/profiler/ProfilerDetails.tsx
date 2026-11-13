@@ -171,6 +171,7 @@ export function Counters({ report }: { report: ProfileReport }): JSX.Element {
     ['voxel instances · triangles', c.voxels === null ? '—' : `${count(c.voxels.instances)} · ${count(c.voxels.triangles)}`],
     ['far field on the GPU', mib(c.voxels?.farGpuBytes)],
     ['voxel batches waiting', count(c.voxels?.batchesWaiting)],
+    ['stored copies as table rows', c.copyRows == null ? 'off' : `${count(c.copyRows.sets)} sets · ${count(c.copyRows.rows)} rows · ${count(c.copyRows.inView)} in view of ${count(c.copyRows.listed)} listed · ${count(c.copyRows.drawn)} drawn`],
     ['interaction field', c.interaction == null ? 'off' : `${count(c.interaction.stamps)} stamps · ${c.interaction.live ? 'read' : 'idle'} · ${mib(c.interaction.bytes)}`],
     ['job queues', c.queues === null ? '—' : `${c.queues.workers} workers · ${c.queues.queued} queued · ${c.queues.backgroundQueued} background · ${c.queues.inFlight} running`],
     ['GPU room', report.gpu.room === 'headroom meter' ? 'measured by the headroom bench (node tools/voxel-bench/run.mjs headroom): it takes minutes and loads the GPU' : 'not measurable on this page'],

@@ -163,7 +163,7 @@ export interface InstanceOcclusionDiagnostics {
   /** From the last read-back: terrain nodes tested and culled (counted among the copies too). */
   readonly terrain: { readonly tested: number; readonly culled: number };
   /** Stored copies' sets as rows (copy-rows.ts); `drawn`: copies the view's rows drew after the pyramid (last read-back; the lists' count off the pyramid's path). */
-  readonly copies: CopyRowsDiagnostics & { readonly drawn: number; readonly triangles: number };
+  readonly copies: CopyRowsDiagnostics & { readonly drawn: number };
 }
 
 /** The rows of a frame: instanced draws first, then copy sets' draws, then the draws tested whole. */
@@ -248,7 +248,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
   private stamp = 0;
   private frames = 0;
   private reading = false;
-  private read = { tested: 0, drawn1: 0, drawn2: 0, pass1Left: 0, whole: { tested: 0, second: 0, culled: 0 }, terrain: { tested: 0, culled: 0 }, copies: { drawn: 0, triangles: 0 } };
+  private read = { tested: 0, drawn1: 0, drawn2: 0, pass1Left: 0, whole: { tested: 0, second: 0, culled: 0 }, terrain: { tested: 0, culled: 0 }, copies: { drawn: 0 } };
   /** Where the read-back lands (made again when the arguments grow). */
   private readback: ReadbackBuffer | null = null;
   private disposed = false;
@@ -686,7 +686,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const c = this.copyRows.diagnostics();
     // Off the pyramid's path the view draws every copy its lists hold.
     const drawn = this.ranLate || this.read.copies.drawn > 0 ? this.read.copies.drawn : c.inView;
-    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn, triangles: this.read.copies.triangles }, error: this.failed };
+    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn }, error: this.failed };
   }
 
   /** Every draw unmarked and drawn as before (the culling of copies stopped): copy sets too. */
@@ -1152,7 +1152,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
             terrain.culled += Math.max(0, r.n - n1 - n2);
           }
         });
-        this.read = { tested, drawn1, drawn2, pass1Left, whole, terrain, copies: { drawn: copiesDrawn, triangles: 0 } };
+        this.read = { tested, drawn1, drawn2, pass1Left, whole, terrain, copies: { drawn: copiesDrawn } };
       })
       .catch(() => undefined)
       .finally(() => {

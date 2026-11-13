@@ -152,6 +152,8 @@ export interface CopyRowsDiagnostics {
   /** From the last read-back: copies the view's lists held (in view) and all lists held (shadow cameras too). */
   readonly inView: number;
   readonly listed: number;
+  /** Triangles the view's lists hold (before the pyramid's tests). */
+  readonly triangles: number;
   /** GPU memory of the selection data and the counters (the copies' places are the pools'). */
   readonly bytes: number;
   /** Selections run (frames) since made. */
@@ -191,7 +193,7 @@ export class CopyRowsTable {
   private frames = 0;
   private reading = false;
   private readback: ReadbackBuffer | null = null;
-  private read = { inView: 0, listed: 0 };
+  private read = { inView: 0, listed: 0, triangles: 0 };
 
   constructor(
     private readonly renderer: WebGPURenderer,
@@ -534,7 +536,7 @@ export class CopyRowsTable {
     for (const set of this.sets.values()) copies += set.src.count;
     for (const o of this.frameOutputs) rows += o.rows.length;
     const bytes = (this.data.count + this.floats.count + this.tally.count + this.counts.count) * 4 + (this.readback?.maxByteLength ?? 0);
-    return { sets: this.sets.size, copies, rows, lists: this.frameOutputs.length, inView: this.read.inView, listed: this.read.listed, bytes, runs: this.runs };
+    return { sets: this.sets.size, copies, rows, lists: this.frameOutputs.length, inView: this.read.inView, listed: this.read.listed, triangles: this.read.triangles, bytes, runs: this.runs };
   }
 
   /** The lists' counts, read back now and then (one read at a time). */
@@ -552,13 +554,17 @@ export class CopyRowsTable {
         const a = new Uint32Array(target.buffer, 0, outputs.length * 2);
         let inView = 0;
         let listed = 0;
+        let triangles = 0;
         outputs.forEach((o, i) => {
           o.front = a[i * 2]!;
           o.back = a[i * 2 + 1]!;
-          if (!o.key.startsWith('near')) inView += o.front;
+          if (!o.key.startsWith('near')) {
+            inView += o.front;
+            for (const r of o.rows) triangles += o.front * r.triangles;
+          }
           listed += o.front + o.back;
         });
-        this.read = { inView, listed };
+        this.read = { inView, listed, triangles };
       })
       .catch(() => undefined)
       .finally(() => {

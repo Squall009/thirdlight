@@ -113,7 +113,7 @@ export interface OcclusionDiagnostics {
   /** Instanced copies culled on the GPU (`hiz`; null: none). */
   readonly instances: InstanceOcclusionDiagnostics | null;
   /** Stored copies' sets drawn as the table's rows (WebGPU, every path; null: no table). */
-  readonly copies: (CopyRowsDiagnostics & { readonly drawn: number; readonly triangles: number }) | null;
+  readonly copies: (CopyRowsDiagnostics & { readonly drawn: number }) | null;
   /** The culling's own GPU time a frame, recently (its compute passes: the depth pyramid; null: none measured). */
   readonly gpuMs: number | null;
   /** The depth pyramid (`hiz`): its level 0's size, its levels, its GPU memory (with the stand-ins' records) and the frames drawn in two passes; null: none. */

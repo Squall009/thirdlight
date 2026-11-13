@@ -84,4 +84,13 @@ describe('the page profile', () => {
     field = { live: true, stamps: 9, passes: 4, centre: [0, 0], bytes: 2_098_944 };
     expect(p.read().counters.interaction).toEqual({ stamps: 9, live: true, bytes: 2_098_944 });
   });
+
+  it('counts the stored copies drawn as table rows from the occlusion diagnostics (no table: null)', () => {
+    const p = new PageProfile();
+    let copies: unknown = null;
+    p.attach({ diagnostics: () => ({ ok: true, diagnostics: { occlusion: { copies } } }) });
+    expect(p.read().counters.copyRows).toBeNull();
+    copies = { sets: 50, copies: 3000, rows: 50, lists: 50, inView: 900, listed: 1400, bytes: 4096, runs: 12, drawn: 860, triangles: 120_000 };
+    expect(p.read().counters.copyRows).toEqual({ sets: 50, copies: 3000, rows: 50, lists: 50, inView: 900, listed: 1400, drawn: 860, triangles: 120_000, bytes: 4096 });
+  });
 });

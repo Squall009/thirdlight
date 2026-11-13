@@ -94,6 +94,19 @@ export interface ProfileSpike {
   readonly threads: { readonly page: readonly ProfileFrame[]; readonly sim: readonly ProfileFrame[]; readonly jobs: readonly ProfileFrame[] };
 }
 
+/** Stored copies drawn as the culled-instance table's rows, as the profile counts them. */
+export interface ProfileCopyRows {
+  readonly sets: number;
+  readonly copies: number;
+  readonly rows: number;
+  readonly lists: number;
+  readonly inView: number;
+  readonly listed: number;
+  readonly drawn: number;
+  readonly triangles: number;
+  readonly bytes: number;
+}
+
 /** Everything the profile knows, as plain JSON-serialisable data. */
 export interface ProfileReport {
   readonly at: number;
@@ -112,6 +125,13 @@ export interface ProfileReport {
     readonly queues: PoolQueues | null;
     /** The interaction field round the camera: objects stamped this frame, whether readers read it, its GPU bytes (absent in older captures; null: no field). */
     readonly interaction?: { readonly stamps: number; readonly live: boolean; readonly bytes: number } | null;
+    /**
+     * Stored copies drawn as rows of the culled-instance table (WebGPU; absent in older captures, null: no table):
+     * sets, rows (draws) and lists in the last frame; copies the view's lists held and all lists held (a read-back
+     * a few frames old); copies the view drew after the depth pyramid (its lists' count off that path), and its
+     * triangles; the selection's GPU bytes.
+     */
+    readonly copyRows?: ProfileCopyRows | null;
   };
   readonly gpu: {
     /** Whether the renderer resolves timestamps. */
@@ -402,10 +422,11 @@ export class PageProfile {
     const t = after === undefined ? all : this.threads(after);
     const counterFrames = this.counterFrames();
     const stats = this.sources.stats?.() ?? null;
-    const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: { lod?: { instances?: { copies?: number; inView?: number } }; gpu?: { geometries?: number; textures?: number; programs?: number }; interaction?: { field?: { stamps: number; live: boolean; bytes: number } } } } | undefined;
+    const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: { lod?: { instances?: { copies?: number; inView?: number } }; gpu?: { geometries?: number; textures?: number; programs?: number }; interaction?: { field?: { stamps: number; live: boolean; bytes: number } }; occlusion?: { copies?: ProfileCopyRows | null } } } | undefined;
     const inst = d?.ok === true ? d.diagnostics?.lod?.instances : undefined;
     const gpuMem = d?.ok === true ? d.diagnostics?.gpu : undefined;
     const field = d?.ok === true ? d.diagnostics?.interaction?.field : undefined;
+    const rows = d?.ok === true ? d.diagnostics?.occlusion?.copies : undefined;
     const passes = this.sources.gpuPasses?.() ?? null;
     const total = passes === null ? 0 : passes.renderMs + (passes.computeMs ?? 0);
     const spans = all.page.reduce((n, f) => n + f.spans.length + f.dropped, 0);
@@ -424,6 +445,7 @@ export class PageProfile {
         voxels: this.sources.voxels?.() ?? null,
         queues: this.queues,
         interaction: field !== undefined ? { stamps: field.stamps, live: field.live, bytes: field.bytes } : null,
+        copyRows: rows !== undefined && rows !== null ? { sets: rows.sets, copies: rows.copies, rows: rows.rows, lists: rows.lists, inView: rows.inView, listed: rows.listed, drawn: rows.drawn, triangles: rows.triangles, bytes: rows.bytes } : null,
       },
       gpu: {
         timestamps: passes !== null,

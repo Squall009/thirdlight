@@ -464,12 +464,13 @@ export class GpuCopySet {
       mesh.userData[COVER_DRAW_KEY] = copiesPlacement;
       // Culled through the set (one listing a frame for all its draws); the frame probe reads the copies the view sees once per list.
       const firstOfList = !this.draws.some((x) => x.list === list);
+      const firstOfSet = this.draws.length === 0;
       const set = this;
       mesh.userData[VIEW_CULL_KEY] = {
         cull: (): boolean => false,
         group: this.culler,
         get inView(): number {
-          return !firstOfList ? 0 : set.table !== null ? (list.staticAll ? set.table.copiesInViewOf(set.rowsSource) : 0) : list.copiesInView;
+          return set.table !== null ? (firstOfSet ? set.table.copiesInViewOf(set.rowsSource) : 0) : firstOfList ? list.copiesInView : 0;
         },
       };
       mesh.userData[INSTANCE_SET_KEY] = true;
