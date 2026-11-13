@@ -49,6 +49,7 @@
  * drawing while a changed receiver's new clip is made.
  */
 import * as THREE from 'three';
+import { frameSliceMs } from '@thirdlight/shared';
 import { DECAL_LAYERS_ALL, decalClipGeometryHash, decalClipKey, decalClipMeshBytes, decodeDecalClipMesh, encodeDecalClipMesh, sortDecalClipReceivers, type DecalClipMesh, type DecalClipProjector } from '@thirdlight/project-model';
 
 import { BATCH_KEY } from './batching';
@@ -88,8 +89,6 @@ export const CLIPPED_DECAL_MOVING_MS = 1000;
  * take longer (a slow device, thousands of them) shows its first frame and draws the rest as they come.
  */
 export const CLIPPED_DECAL_START_HOLD_MS = 5000;
-/** Clips the page makes itself in a frame when there are no workers (ms; at least one). */
-const PAGE_CLIP_BUDGET_MS = 4;
 /** The key prefix of clipped meshes in the store (it is shared with generated architecture's chunks). */
 export const CLIPPED_DECAL_STORE_PREFIX = 'decal-clip:';
 /** Performance marks: each decal drawn after a change (detail {decal, ms, where}) and every decal drawn (detail {ms, decals}). */
@@ -793,7 +792,8 @@ export class ClippedDecals implements SurfaceListener {
   /** Jobs to free workers (or made on the page when there are none, within the frame's budget). */
   private dispatch(): void {
     if (this.queue.length === 0) return;
-    let pageLeft = PAGE_CLIP_BUDGET_MS;
+    // Clips the page makes itself in a frame when there are no workers: the frame arbiter's slice (at least one).
+    let pageLeft = frameSliceMs('decalClip');
     let pageMade = 0;
     const wanted = new Set<string | null>();
     for (const r of this.decals.values()) wanted.add(r.key);

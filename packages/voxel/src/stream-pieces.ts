@@ -36,8 +36,8 @@ export interface PiecesHost {
   readonly mips: StreamMips | null;
   /** Every resident chunk with its content as the game sees it. */
   resident(): Iterable<ChunkCoord & { payload(): ChunkPayload }>;
-  /** Main-thread ms an update may spend building derive jobs. */
-  readonly deriveMs: number;
+  /** Main-thread ms an update may spend building derive jobs (asked each time). */
+  deriveMs(): number;
 }
 
 /** Throws unless a piece table numbers the cases of `rules`. */
@@ -111,7 +111,7 @@ export class StreamPieces {
     const taken = new Set(chunks.map((c) => `${c.cx},${c.cy},${c.cz}`));
     for (const c of chunks) d.rederiveBeside(c.cx, c.cy, c.cz, group, (x, y, z) => !taken.has(`${x},${y},${z}`) && built.has(`${x},${y},${z}`));
     mips?.piecesChanged(holds, group);
-    d.request(this.host.deriveMs, true);
+    d.request(this.host.deriveMs(), true);
     mips?.advanceEdits();
     d.settleGroup(group);
     return { group, chunks };

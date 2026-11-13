@@ -17,24 +17,21 @@
  * swap is late by a few frames instead of one frame being long.
  */
 import { FRAME_RATE_CAPS } from '@thirdlight/project-model';
+import { frameSliceMs } from '@thirdlight/shared';
 import type { ChunkDrawBatch } from '@thirdlight/voxel';
 import type { VoxelBatchApplied, VoxelChunkView, VoxelPreparedDraw } from './voxel-chunk-view';
-
-/**
- * The share of the page's frame interval a frame may spend making staged
- * draws: the page's own render, the simulation's messages and the far
- * field's feedback keep the rest. At a 30 Hz cap that is ~8 ms of 33, at
- * 60 Hz ~4 ms of 17; a whole swap at the town took 80–131 ms in one task.
- */
-export const VOXEL_BATCH_FRAME_SHARE = 0.25;
 
 /** The longest frame interval the budget is taken from: the slowest frame-rate cap's (a hidden page's frames come seconds apart). */
 const SLOWEST_FRAME_MS = 1000 / Math.min(...FRAME_RATE_CAPS);
 
-/** Milliseconds a frame may spend making staged draws at a frame interval (unknown: the slowest cap's). */
+/**
+ * Milliseconds a frame may spend making staged draws at a frame interval (unknown: the slowest cap's): the frame
+ * arbiter's `voxelBatch` share of it, so the page's own render, the simulation's messages and the far field's
+ * feedback keep the rest (a whole swap at the town took 80–131 ms in one task).
+ */
 export function voxelBatchFrameMs(intervalMs: number | null): number {
   const interval = intervalMs === null || !(intervalMs > 0) ? SLOWEST_FRAME_MS : Math.min(intervalMs, SLOWEST_FRAME_MS);
-  return VOXEL_BATCH_FRAME_SHARE * interval;
+  return frameSliceMs('voxelBatch', interval);
 }
 
 export class VoxelBatchStage {

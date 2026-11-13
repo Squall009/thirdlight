@@ -31,6 +31,8 @@
  *   are read again and they and their neighbours (whose meshes read them)
  *   are meshed again and replaced each alone.
  */
+import { frameSliceMs } from '@thirdlight/shared';
+
 import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { DISTANCE_BRICK_SAMPLES } from './distance-brick-format';
 import { chunksPerRegionSide, VOXEL_SIZE_M, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
@@ -97,8 +99,6 @@ export const FAR_RESELECT_CELLS = 16;
 /** Far mesh jobs in the pool at once: the near field's jobs keep the queue. */
 export const FAR_JOBS_IN_FLIGHT = 8;
 
-/** ms of selection one task runs before the rest waits for a later task. */
-export const FAR_SELECT_SLICE_MS = 2;
 
 /** ms a far field waits after the pool sent a job back unrun before it sends again. */
 const FAR_RETRY_MS = 100;
@@ -607,7 +607,7 @@ export class FarField {
   }
 
   /**
-   * Runs the selection for at most {@link FAR_SELECT_SLICE_MS} and goes on in a later task until it is done (a
+   * Runs the selection for at most the frame arbiter's `farSelect` slice and goes on in a later task until it is done (a
    * selection of thousands of nodes takes 10–30 ms: whole, it held the world's thread for frames at a time while the
    * eye moved). The drawn nodes and the jobs follow the last finished selection meanwhile.
    */
@@ -615,6 +615,7 @@ export class FarField {
     const s = this.selecting;
     if (s === null || this.closed) return;
     const t0 = performance.now();
+    const slice = frameSliceMs('farSelect');
     for (;;) {
       const r = s.steps.next();
       if (r.done === true) {
@@ -625,7 +626,7 @@ export class FarField {
         // The eye moved on meanwhile: the next selection starts at the next update.
         return;
       }
-      if (performance.now() - t0 >= FAR_SELECT_SLICE_MS) break;
+      if (performance.now() - t0 >= slice) break;
     }
     s.ms += performance.now() - t0;
     setTimeout(() => this.selectStep(), 0);

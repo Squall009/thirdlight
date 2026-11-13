@@ -8,7 +8,8 @@
  *   architecture its objects, and static model objects their pieces once
  *   their distance-field file (bricks and surfels) is read.
  * - A tile is offered only once its charts are made; charts are made a few
- *   at a time, nearest first, within `SURFACE_PREPARE_MS` a frame, so a
+ *   at a time, nearest first, within the frame arbiter's `surfacePrepare` slice a frame (and as much again on the
+ *   terrains' trace rings), so a
  *   scene coming in never stalls a frame.
  *
  * - It keeps the cache's light up to date (`surface-relight.ts`): resident
@@ -19,6 +20,7 @@
  *
  * Measurements read it from `scene.userData[SURFACE_CACHE_KEY]`.
  */
+import { frameSliceMs } from '@thirdlight/shared';
 import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL, decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/project-model';
 
 import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './surface-cache';
@@ -44,14 +46,10 @@ import type { TraceArchitecture } from './tracer-objects';
 
 /** `scene.userData[SURFACE_CACHE_KEY]`: the page's surface cache (a measurement reads its diagnostics). */
 export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
-/** Main-thread time a frame may spend making tiles' charts (ms), and as much again on the terrains' trace rings. */
-export const SURFACE_PREPARE_MS = 1;
 /** How often (ms) the host lists the loaded scene's surfaces again when nothing says it changed. */
 const LIST_MS = 250;
 /** The probes are placed again at most this often (ms) while what they stand on changes. */
 export const PROBE_PLACE_MS = 1000;
-/** Main-thread time (ms) a frame gives a placement of the probes being made (a large scene's takes tens of ms: spread over frames). */
-export const PROBE_PLACE_SHARE_MS = 1;
 /** The terrain probes' window moves in steps of a brick of this level. */
 const PROBE_TERRAIN_SNAP_LEVEL = 1;
 
@@ -321,7 +319,7 @@ export class SurfaceCacheHost {
   private probesPlacedAt = -Infinity;
   /** Since when (ms) a placement waits for the throttle or for changed tiles to be made again (null: none waits). */
   private probesWaiting: number | null = null;
-  /** The placement being made, a share of each frame (`PROBE_PLACE_SHARE_MS`), and its key. */
+  /** The placement being made, a share of each frame (the frame arbiter's `probePlace` slice: a large scene's takes tens of ms), and its key. */
   private probeJob: { key: string; steps: Steps<boolean> } | null = null;
   private placeFrameMs = 0;
 
@@ -477,7 +475,7 @@ export class SurfaceCacheHost {
     for (const [id, field] of this.fields) {
       let r = this.terrainRings.get(id);
       if (r === undefined) this.terrainRings.set(id, (r = new TerrainTraceRings()));
-      if (r.update(field, this.terrainVersions.get(id) ?? 0, eye, SURFACE_PREPARE_MS)) this.geometryVersion += 1;
+      if (r.update(field, this.terrainVersions.get(id) ?? 0, eye, frameSliceMs('surfacePrepare'))) this.geometryVersion += 1;
     }
   }
 
@@ -836,6 +834,7 @@ export class SurfaceCacheHost {
     const job = this.probeJob;
     if (job === null) return;
     const t0 = performance.now();
+    const slice = frameSliceMs('probePlace');
     for (;;) {
       const r = job.steps.next();
       this.placeFrameMs = Math.max(this.placeFrameMs, performance.now() - t0);
@@ -847,7 +846,7 @@ export class SurfaceCacheHost {
         this.probesWaiting = null;
         return;
       }
-      if (performance.now() - t0 >= PROBE_PLACE_SHARE_MS) return;
+      if (performance.now() - t0 >= slice) return;
     }
   }
 
@@ -938,8 +937,9 @@ export class SurfaceCacheHost {
     if (this.pending.size === 0) return;
     const d = (p: Pending): number => Math.hypot(Math.max(p.min[0]! - eye[0]!, 0, eye[0]! - p.max[0]!), Math.max(p.min[2]! - eye[2]!, 0, eye[2]! - p.max[2]!));
     const order = [...this.pending].sort((a, b) => d(a[1]) - d(b[1]));
+    const slice = frameSliceMs('surfacePrepare');
     for (const [key, p] of order) {
-      if (performance.now() - t0 >= SURFACE_PREPARE_MS) break;
+      if (performance.now() - t0 >= slice) break;
       this.pending.delete(key);
       const tile = p.make();
       this.ready.set(key, tile);

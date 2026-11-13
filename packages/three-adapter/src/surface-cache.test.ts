@@ -15,7 +15,8 @@ import { blockChunkCharts } from './surface-cache-blocks';
 import { SurfaceCache, surfaceLevelFor, type SurfaceTexel, type SurfaceTile } from './surface-cache';
 import { surfelLevelFor } from './surface-cache-atlas';
 import { invertAffine } from './tracer-words';
-import { SurfaceCacheHost, SurfaceModelSlots, SURFACE_PREPARE_MS } from './surface-cache-host';
+import { frameSliceMs } from '@thirdlight/shared';
+import { SurfaceCacheHost, SurfaceModelSlots } from './surface-cache-host';
 import { markStaticModelRead } from './adapter-surface-cache';
 import type { EntityDoc } from './adapter-entities';
 import type { SceneAdapterOptions } from './adapter-types';
@@ -727,7 +728,7 @@ describe('surface cache on the page', () => {
     const d = host.diagnostics();
     // Made over several frames, each within its share (one chart set may run past it).
     expect(frames).toBeGreaterThan(1);
-    expect(worst).toBeLessThan(SURFACE_PREPARE_MS + 50);
+    expect(worst).toBeLessThan(frameSliceMs('surfacePrepare') + 50);
     // Two room chunks, the town's chunks with faces, the house and two crates.
     expect(d.tiles.offered).toBe(2 + 36 + 1 + 2);
     expect(d.tiles.resident).toBe(d.tiles.offered);

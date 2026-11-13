@@ -55,6 +55,8 @@
  * chunk, so the base always stays what the files hold and a later save's
  * base hashes are of the shipped chunks.
  */
+import { frameSliceMs } from '@thirdlight/shared';
+
 import { StreamDetail } from './stream-detail';
 import { CollisionDerives, type CollisionEvent } from './stream-collision';
 import { copyCoverage, countGround, emptyCoverage, type GroundCoverage, type GroundQuery } from './stream-coverage';
@@ -132,14 +134,15 @@ export interface VoxelStreamerOptions {
   readonly prefetchSeconds?: number;
   /**
    * Main-thread milliseconds an update may spend building aprons for derive
-   * jobs (default 2): the rest wait for the next update, so a burst of
-   * landed chunks never stalls a frame.
+   * jobs (default: the frame arbiter's `voxelDerive` slice): the rest wait
+   * for the next update, so a burst of landed chunks never stalls a frame.
    */
   readonly deriveMsPerUpdate?: number;
   /**
    * Main-thread milliseconds an update (or an edit) may spend building the
-   * jobs of an edit's rebuilds (default 8): an edit is waited on, so its
-   * jobs go out first and get more room than streaming's.
+   * jobs of an edit's rebuilds (default: the arbiter's `voxelEditDerive`
+   * slice): an edit is waited on, so its jobs go out first and get more room
+   * than streaming's.
    */
   readonly editDeriveMsPerUpdate?: number;
   /**
@@ -246,6 +249,9 @@ function newChunk(cx: number, cy: number, cz: number, key: number, d2: number, t
 const CHURN_WINDOW_MS = 10_000;
 /** The longest `settle` waits between updates for a read or a job to end before it updates anyway. */
 const SETTLE_POLL_MS = 4;
+
+/** Main-thread ms an update may spend building derive jobs now (the option, else the frame arbiter's slice). */
+const deriveMsOf = (opts: VoxelStreamerOptions): number => opts.deriveMsPerUpdate ?? frameSliceMs('voxelDerive');
 
 /** Fraction of the budget eviction brings the total down to, and below which loading resumes past the eviction horizon. */
 const EVICT_TO = 0.95;
@@ -497,7 +503,7 @@ export class VoxelStreamer {
               seamHold: (groups, chunks, surfaces, ready) => this.mips?.holdEdit(groups, chunks, surfaces, ready) ?? null,
             },
             opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
-            opts.editDeriveMsPerUpdate ?? 8,
+            () => opts.editDeriveMsPerUpdate ?? frameSliceMs('voxelEditDerive'),
           )
         : null;
     const derives = this.derives;
@@ -585,7 +591,7 @@ export class VoxelStreamer {
         rules: opts.rules,
         derives: this.derives,
         mips: this.mips,
-        deriveMs: opts.deriveMsPerUpdate ?? 2,
+        deriveMs: () => deriveMsOf(this.opts),
         *resident() {
           for (const c of chunks.values()) if (c.phase === 'resident') yield { cx: c.cx, cy: c.cy, cz: c.cz, payload: () => merged.payload(c.cx, c.cy, c.cz) };
         },
@@ -845,9 +851,10 @@ export class VoxelStreamer {
     if (n > 0) held.splice(0, n);
     this.requestLoads();
     // Bodies' ground before the drawing work: it is what a player waits for, and it is cheap.
-    this.collision?.request(this.opts.deriveMsPerUpdate ?? 2);
-    this.derives?.request(this.opts.deriveMsPerUpdate ?? 2);
-    this.mips?.request(this.opts.deriveMsPerUpdate ?? 2);
+    const deriveMs = deriveMsOf(this.opts);
+    this.collision?.request(deriveMs);
+    this.derives?.request(deriveMs);
+    this.mips?.request(deriveMs);
     // The far field selects from the focus too; its jobs go last in the pool.
     this.far?.setEye(this.focus.x, this.focus.y, this.focus.z, { radius: this.ring.loadRadius, height: this.ring.loadHeight, drawn: (cx, cy, cz) => nearDrawn(this.mips, cx, cy, cz, () => this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.phase === 'resident') });
     this.far?.update();
@@ -1151,7 +1158,7 @@ export class VoxelStreamer {
       this.mips?.changed(changed, box, group);
       this.far?.fineNodes.changed(changed, true);
     }
-    d.request(this.opts.deriveMsPerUpdate ?? 2, true);
+    d.request(deriveMsOf(this.opts), true);
     // The drawn nodes the edit changed swap with it: their rebuilds go out now, in the edit lane.
     this.mips?.advanceEdits();
     d.settleGroup(group);
@@ -1384,7 +1391,7 @@ export class VoxelStreamer {
   private settleRebuild(group: number): void {
     const d = this.derives;
     if (d === null) return;
-    d.request(this.opts.deriveMsPerUpdate ?? 2, true);
+    d.request(deriveMsOf(this.opts), true);
     this.mips?.advanceEdits();
     d.settleGroup(group);
   }

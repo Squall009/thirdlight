@@ -262,7 +262,8 @@ export class SectionDerives {
   constructor(
     private readonly host: SectionHost,
     edge: SectionEdge,
-    private readonly editMsPerUpdate: number,
+    /** Main-thread ms an update (or an edit) may spend building an edit's jobs, asked each time. */
+    private readonly editMsPerUpdate: () => number,
   ) {
     const e = host.grid.edge;
     if (edge > e || e % edge !== 0) throw new RangeError(`section edge ${edge} for chunks of ${e}`);
@@ -878,7 +879,7 @@ export class SectionDerives {
       rest.sort((a, b) => key.get(a)! - key.get(b)!);
     }
     const t0 = performance.now();
-    for (const [order, budget] of [[edits, this.editMsPerUpdate], [editsOnly ? [] : rest, msPerUpdate]] as const) {
+    for (const [order, budget] of [[edits, this.editMsPerUpdate()], [editsOnly ? [] : rest, msPerUpdate]] as const) {
       for (const ck of order) {
         if (room <= 0 || performance.now() - t0 > budget) break;
         const list = byChunk.get(ck)!;

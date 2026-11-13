@@ -41,6 +41,7 @@
 import * as THREE from 'three';
 
 import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/project-model';
+import { frameSliceMs } from '@thirdlight/shared';
 
 import type { BatchKeyParts } from './batching';
 import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
@@ -82,8 +83,6 @@ export const MERGE_QUIET_MS = 500;
 /** Fewest members wanting a cell before it is built (one alone draws the same either way). */
 export const MIN_MERGE = 2;
 
-/** The time budget for building cells per frame: the editor's, and Play's once its level is merged (ms; at least one cell is built). */
-export const MERGE_BACKGROUND_BUDGET_MS = 4;
 
 /** Mark every plain mesh under `root` as static within `scope` (the host's scene); its instanced meshes cast into the static shadow map. */
 export function markStatic(root: THREE.Object3D, scope: string): void {
@@ -168,13 +167,16 @@ export interface StaticMergeDiagnostics {
 export interface StaticMergerOptions {
   /** Side of a world cell, m. */
   readonly cellSize: number;
-  /** Build time per frame (ms; Infinity: every pending cell before the frame is drawn). */
-  readonly budgetMs: number;
+  /**
+   * Build time per frame (ms; Infinity: every pending cell before the frame is drawn; absent: the frame arbiter's
+   * `staticMerge` slice, the editor's and Play's background budget; at least one cell is built a frame).
+   */
+  readonly budgetMs?: number;
   /**
    * Build time per frame once the first cells are built and none is left
-   * waiting (absent: `budgetMs`): with an unlimited `budgetMs` a run's level
-   * is merged before its first frame, while a later dig or streamed chunk
-   * rebuilds its square over frames instead of in one.
+   * waiting (absent: the arbiter's `staticMerge` slice): with an unlimited
+   * `budgetMs` a run's level is merged before its first frame, while a later
+   * dig or streamed chunk rebuilds its square over frames instead of in one.
    */
   readonly settledBudgetMs?: number;
   /** Where merged meshes are drawn. */
@@ -902,7 +904,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
       if (disposed) return;
       builds = 0;
       const t0 = now();
-      const budgetMs = settled ? (options.settledBudgetMs ?? options.budgetMs) : options.budgetMs;
+      const budgetMs = (settled ? options.settledBudgetMs : options.budgetMs) ?? frameSliceMs('staticMerge');
       for (const cell of queue) {
         if (!cell.needsBuild || cells.get(cell.key) !== cell) {
           queue.delete(cell);

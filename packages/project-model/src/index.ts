@@ -1764,6 +1764,11 @@ export {
   LOW_FRAME_RATE_CAP,
   LOW_MEMORY_BUDGET_MIB,
   UPSCALED_RENDER_SCALE,
+  FRAME_BUDGET_BY_TIER,
+  frameBudgetMs,
+  levelFrameBudget,
+  type FrameBudget,
+  type FrameBudgetShares,
   type LightingTier,
   type LightingTierSettings,
 } from './quality-levels';

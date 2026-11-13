@@ -33,3 +33,5 @@ export { LruCache } from './lru';
 export { escapePointer, hasUtf8Bom, parseStrictJsonText, type StrictJsonFailure, type StrictJsonOptions, type StrictJsonResult } from './strict-json';
 export { pageFlagOn } from './page-flags';
 export { wallClock } from './clock';
+export { PROFILE_FRAMES, PROFILE_SPANS_PER_FRAME, PROFILER_THREADS, SPAN_CATEGORIES, SpanRecorder, threadProfiler, type PackedProfile, type ProfileFrame, type ProfileSpan, type ProfilerThread, type SpanCategory, type SpanId } from './profiler';
+export { FRAME_SLICE_DEFAULTS, FRAME_SLICE_IDS, FrameArbiter, frameArbiter, frameSliceMs, type FrameSlice, type FrameSliceId, type FrameSliceReading } from './frame-arbiter';

@@ -23,6 +23,8 @@
  * physics memory is counted with the voxels and derived data it comes
  * from, and an evicted or unloaded chunk takes its body with it.
  */
+import { frameSliceMs } from '@thirdlight/shared';
+
 import { chunkInWorld, chunkKey, type ChunkGrid } from './coords';
 import type { CollisionSource } from './derived-collision';
 import { DEFAULT_COLLISION_RING, type Focus } from './stream-ring';
@@ -41,13 +43,6 @@ export interface CollisionRingBounds {
  * radius so the ring stays the size asked for.
  */
 export const COLLISION_RING_HYSTERESIS_CELLS = 16;
-
-/**
- * Main-thread milliseconds an update may spend adding the bodies of chunks
- * that entered the ring (at least one body a call): a flight past many
- * chunks spreads its adds over frames instead of stalling one.
- */
-export const COLLISION_ADD_MS_PER_UPDATE = 4;
 
 /** The budget part a chunk's body is counted as. */
 export const COLLISION_PART = 'collision';
@@ -110,7 +105,11 @@ export interface CollisionRingOptions {
   readonly feed: CollisionRingFeed;
   /** Default: {@link collisionRingBounds}(). */
   readonly bounds?: CollisionRingBounds;
-  /** Default {@link COLLISION_ADD_MS_PER_UPDATE}. */
+  /**
+   * Main-thread milliseconds an update may spend adding the bodies of chunks that entered the ring (at least one body
+   * a call): a flight past many chunks spreads its adds over frames instead of stalling one. Default: the frame
+   * arbiter's `voxelCollisionAdd` slice, asked each update.
+   */
   readonly addMsPerUpdate?: number;
 }
 
@@ -154,7 +153,7 @@ export class CollisionRing {
   private readonly grid: ChunkGrid;
   private readonly bodies: CollisionBodies;
   private readonly feed: CollisionRingFeed;
-  private readonly addMs: number;
+  private readonly addMs: number | undefined;
   private foci: readonly Focus[] = [];
   private readonly members = new Map<number, Member>();
   /** Bodies added and removed since the ring was made. */
@@ -168,7 +167,7 @@ export class CollisionRing {
     this.bodies = opts.bodies;
     this.feed = opts.feed;
     this.current = opts.bounds ?? collisionRingBounds();
-    this.addMs = opts.addMsPerUpdate ?? COLLISION_ADD_MS_PER_UPDATE;
+    this.addMs = opts.addMsPerUpdate;
   }
 
   /** Where bodies are added and kept (cells). */
@@ -335,11 +334,12 @@ export class CollisionRing {
     }
     const entering = this.entering();
     const t0 = performance.now();
+    const addMs = this.addMs ?? frameSliceMs('voxelCollisionAdd');
     let added = 0;
     let done = 0;
     for (const c of entering) {
       // At least one body a call, so a slice too short for one still makes progress (chunks with nothing to collide are cheap).
-      if (added > 0 && performance.now() - t0 >= this.addMs) break;
+      if (added > 0 && performance.now() - t0 >= addMs) break;
       done++;
       const before = this.adds;
       this.place(c.cx, c.cy, c.cz, this.feed.joinedChunk(c.cx, c.cy, c.cz));

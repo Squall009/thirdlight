@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateEnvironment, type PostConfig } from './materials';
 import { TEXTURE_BUDGET_DEFAULT_MB } from './texture-streaming';
-import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
+import { DEFAULT_QUALITY_LEVELS, FRAME_BUDGET_BY_TIER, frameBudgetMs, levelFrameBudget, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
 import { validateQualityBindings } from './save-schema';
+import { FRAME_SLICE_DEFAULTS, SPAN_CATEGORIES } from '@thirdlight/shared';
 
 const errorsOf = (v: unknown): ModelErrorV2[] => {
   const errors: ModelErrorV2[] = [];
@@ -161,5 +162,37 @@ describe('quality levels', () => {
     const errors: ModelErrorV2[] = [];
     validateQualityBindings(schema, ['a', 'b'], '/saveSchema', errors);
     expect(errors.map((e) => e.path)).toEqual(['/saveSchema/settings/0/values']);
+  });
+});
+
+describe('the frame budget per tier', () => {
+  it('plans every tier at its hardware target: low at its 30 Hz cap (33.3 ms), medium and high at 60', () => {
+    expect(FRAME_BUDGET_BY_TIER.low.hz).toBe(LOW_FRAME_RATE_CAP);
+    expect(FRAME_BUDGET_BY_TIER.low.intervalMs).toBeCloseTo(33.333, 3);
+    expect(FRAME_BUDGET_BY_TIER.medium.intervalMs).toBeCloseTo(16.667, 3);
+    expect(FRAME_BUDGET_BY_TIER.high.intervalMs).toBeCloseTo(16.667, 3);
+    expect(frameBudgetMs(FRAME_BUDGET_BY_TIER.low, 'page', 'render')).toBeCloseTo(8.333, 3);
+    expect(frameBudgetMs(FRAME_BUDGET_BY_TIER.low, 'sim', 'scripts')).toBeCloseTo(8.333, 3);
+    expect(frameBudgetMs(FRAME_BUDGET_BY_TIER.low, 'page', 'pathfinding')).toBe(0);
+  });
+
+  it('gives each thread known categories only, never more than its whole frame, and the arbiter\'s slices', () => {
+    for (const tier of LIGHTING_TIERS) {
+      const b = FRAME_BUDGET_BY_TIER[tier];
+      expect(b.tier).toBe(tier);
+      for (const thread of ['page', 'sim', 'jobs', 'gpu'] as const) {
+        const shares = Object.entries(b[thread]);
+        expect(shares.every(([c, v]) => (SPAN_CATEGORIES as readonly string[]).includes(c) && v! > 0)).toBe(true);
+        expect(shares.reduce((n, [, v]) => n + v!, 0)).toBeLessThanOrEqual(1);
+      }
+      // Every category of the owner's list is planned somewhere (the page or the simulation; meshing on the job workers).
+      for (const c of SPAN_CATEGORIES) expect((b.page[c] ?? 0) + (b.sim[c] ?? 0) + (b.jobs[c] ?? 0)).toBeGreaterThan(0);
+      // Today's slices: no tier changes the pacing yet.
+      expect(b.slices).toBe(FRAME_SLICE_DEFAULTS);
+      // A slice fits the category it is spent in at the tier's rate.
+      expect(frameBudgetMs(b, 'page', 'voxelApply')).toBeGreaterThanOrEqual(FRAME_SLICE_DEFAULTS.voxelBatch.share! * b.intervalMs);
+    }
+    expect(levelFrameBudget({})).toBe(FRAME_BUDGET_BY_TIER.medium);
+    expect(levelFrameBudget(DEFAULT_QUALITY_LEVELS[0]!)).toBe(FRAME_BUDGET_BY_TIER.low);
   });
 });

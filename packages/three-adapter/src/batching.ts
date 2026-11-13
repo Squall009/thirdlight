@@ -71,7 +71,7 @@ import { OCCLUDER_EARLY_RENDER_ORDER, occluderMarksOf, setOccluderMarks } from '
 import { DECAL_LAYERS_KEY } from './projected-decals';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
-import { createStaticMerger, MERGE_BACKGROUND_BUDGET_MS, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
+import { createStaticMerger, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
 import { meshPaintOf, paintBaseOf, paintStream, PAINT_PREVIEW_KEY, PAINT_STREAM_KEY, type PaintStream } from './vertex-paint-draw';
 import { VIEW_CULL_KEY, type ViewCuller } from './view-cull';
 
@@ -305,7 +305,7 @@ export interface AutoBatcherOptions {
    * editor); `off` merges nothing.
    */
   readonly merging?: 'load' | 'background' | 'off';
-  /** Build time per frame in the background, and in `load` once loaded (ms; default `MERGE_BACKGROUND_BUDGET_MS`). */
+  /** Build time per frame in the background, and in `load` once loaded (ms; default the frame arbiter's `staticMerge` slice). */
   readonly mergeBudgetMs?: number;
   /** The clock a moved member's quiet time is measured on (tests). */
   readonly now?: () => number;
@@ -487,7 +487,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       : createStaticMerger({
           scene,
           cellSize,
-          budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS), settledBudgetMs: options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS,
+          ...(mergeMode === 'load' ? { budgetMs: Infinity } : options.mergeBudgetMs !== undefined ? { budgetMs: options.mergeBudgetMs } : {}), ...(options.mergeBudgetMs !== undefined ? { settledBudgetMs: options.mergeBudgetMs } : {}),
           now,
           partsOf: batchKeyParts,
           ...(options.viewCull !== undefined ? { viewCull: options.viewCull } : {}), ...(options.drawOwner !== undefined ? { ownerOf: options.drawOwner } : {}),

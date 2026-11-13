@@ -49,12 +49,18 @@
  *   (frame-rate-cap.ts). Under a game's own cap the lower of the two paces
  *   the frames; dynamic resolution budgets from it.
  *
+ * Each tier also has a frame budget (`FRAME_BUDGET_BY_TIER`): what every
+ * thread's frame may spend per category at the tier's frame rate, and the
+ * time slices the frame arbiter hands out there. Engine constants, never part
+ * of a project.
+ *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
  * choice is the most specific.
  *
  * Pure: no I/O.
  */
+import { FRAME_SLICE_DEFAULTS, type FrameSlice, type FrameSliceId, type SpanCategory } from '@thirdlight/shared';
 import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_FINE_HOLD_M_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
 import type { FrameRateCap } from './frame-rate-cap';
 import type { PostConfig } from './materials';
@@ -376,3 +382,65 @@ export function levelPost<P extends PostConfig>(post: P | undefined, level: Qual
   return (out ?? post) as P;
 }
 
+
+/** What one thread's frame may spend per category, as shares of the tier's frame interval (categories left out: none planned). */
+export type FrameBudgetShares = Readonly<Partial<Record<SpanCategory, number>>>;
+
+/**
+ * A tier's frame budget: the frame rate it is made for, and per thread what
+ * each category may spend of that frame. Made from the hardware target (the
+ * low tier is the Iris Xe at 30 Hz: 33.3 ms), never from what a scene uses
+ * today. The profiler compares each category's use with it; the frame
+ * arbiter's time slices (`slices`) are installed from it.
+ */
+export interface FrameBudget {
+  readonly tier: LightingTier;
+  /** The frame rate the budget is made for (the tier's target). */
+  readonly hz: number;
+  readonly intervalMs: number;
+  /** The page's thread: the frame's sync, culling and draw submission, voxel draws made, the presentation's systems. */
+  readonly page: FrameBudgetShares;
+  /** The simulation's thread (a worker; the page's in single-thread mode): game logic and what steps with it. */
+  readonly sim: FrameBudgetShares;
+  /** One voxel job worker's frame. */
+  readonly jobs: FrameBudgetShares;
+  /** The GPU's frame, compared with pass shares (timestamps are not milliseconds at a cap). */
+  readonly gpu: FrameBudgetShares;
+  /** The frame arbiter's time slices at the tier. */
+  readonly slices: Readonly<Record<FrameSliceId, FrameSlice>>;
+}
+
+/**
+ * The shares every tier plans with (default chosen, owner to confirm). The
+ * page keeps about a seventh of its frame for the browser itself (input,
+ * compositing, garbage collection); the simulation a tenth for messages and
+ * collection; the GPU a twentieth for the compositor.
+ */
+const FRAME_SHARES: Readonly<{ page: FrameBudgetShares; sim: FrameBudgetShares; jobs: FrameBudgetShares; gpu: FrameBudgetShares }> = Object.freeze({
+  page: Object.freeze({ render: 0.25, voxelApply: 0.25, props: 0.08, characters: 0.04, effects: 0.04, lighting: 0.06, ui: 0.04, audio: 0.02, other: 0.07 }),
+  sim: Object.freeze({ scripts: 0.25, physics: 0.15, pathfinding: 0.1, characters: 0.1, voxelStream: 0.2, audio: 0.02, other: 0.08 }),
+  jobs: Object.freeze({ voxelMesh: 0.8, voxelStream: 0.1 }),
+  gpu: Object.freeze({ render: 0.55, lighting: 0.2, effects: 0.08, other: 0.12 }),
+});
+
+/** The frame rate medium and high are planned at (their levels set no cap: a 60 Hz display's rate). */
+const UNCAPPED_TIER_HZ = 60;
+
+const frameBudget = (tier: LightingTier, hz: number): FrameBudget => Object.freeze({ tier, hz, intervalMs: 1000 / hz, ...FRAME_SHARES, slices: FRAME_SLICE_DEFAULTS });
+
+/** Each tier's frame budget: the one place it is defined. */
+export const FRAME_BUDGET_BY_TIER: Readonly<Record<LightingTier, FrameBudget>> = Object.freeze({
+  low: frameBudget('low', LOW_FRAME_RATE_CAP),
+  medium: frameBudget('medium', UNCAPPED_TIER_HZ),
+  high: frameBudget('high', UNCAPPED_TIER_HZ),
+});
+
+/** A level's frame budget (its tier's). */
+export function levelFrameBudget(level: Pick<QualityLevelConfig, 'lighting'>): FrameBudget {
+  return FRAME_BUDGET_BY_TIER[level.lighting ?? DEFAULT_LIGHTING_TIER];
+}
+
+/** What a category may spend on a thread (ms) in a frame of the budget's interval (0: nothing planned). */
+export function frameBudgetMs(budget: FrameBudget, thread: 'page' | 'sim' | 'jobs' | 'gpu', category: SpanCategory): number {
+  return (budget[thread][category] ?? 0) * budget.intervalMs;
+}

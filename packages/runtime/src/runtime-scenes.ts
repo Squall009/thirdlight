@@ -10,6 +10,7 @@
  * scenes' objects come and go through the runtime's entity set (`SceneHost`).
  */
 import { MAX_TRANSITION_FADE, type EntityV3 } from '@thirdlight/project-model';
+import { frameSliceMs } from '@thirdlight/shared';
 
 import { arrivalProblem } from './arriving-players';
 import type { SceneTransitionRequest } from './blocks';
@@ -28,12 +29,6 @@ import { offsetEntities } from './scene-set';
 import { deepFreeze } from './snapshot';
 import type { BehaviorSceneControl, ListedScene, RuntimeSceneRow, SceneLoadOptions, SceneLoadRequest, SceneLoadingView, SceneSetView, SceneStatus, SceneTransitionView } from './types';
 
-/**
- * The time a step boundary spends preparing loaded scenes'
- * entities (copying and freezing them) before it attaches them; a large
- * scene is prepared over several steps and attached in one.
- */
-const SCENE_PREP_BUDGET_MS = 4;
 const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 /** One loaded scene inside the runtime. */
@@ -361,7 +356,9 @@ export class RuntimeScenes {
       this.loadingViewCache = null;
     }
     if (this.readyLoads.size === 0) return true;
-    const deadline = nowMs() + SCENE_PREP_BUDGET_MS;
+    // The time a step boundary spends preparing loaded scenes' entities (copying and freezing them) before it
+    // attaches them, the frame arbiter's slice: a large scene is prepared over several steps and attached in one.
+    const deadline = nowMs() + frameSliceMs('scenePrep');
     for (const [sceneId, entities] of [...this.readyLoads]) {
       // Copy and freeze its entities within the step's budget (a large scene over several steps).
       let prep = this.preparedLoads.get(sceneId);

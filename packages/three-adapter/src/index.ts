@@ -414,7 +414,7 @@ export { FAR_FINE_CELL_M_BELOW, FarFineShade, FINE_TEXTURE_URL_PARAM, fineTextur
 export { RELIEF_TEST_LAYERS, RELIEF_TEST_MAX_DEPTH_M, RELIEF_TEST_SIZE, reliefTestHeights, voxelTestRelief, type VoxelReliefLook } from './voxel-relief';
 export { shadowSeesCutaways } from './block-cutaway-view';
 export { VOXEL_FAR_LOOK_ATTRIBUTE, VoxelFarView, type VoxelFarViewOptions } from './voxel-far-mesh';
-export { applyChunkDrawBatch, VOXEL_BATCH_FRAME_SHARE, VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
+export { applyChunkDrawBatch, VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
 export { VOXEL_CASTER_KEY, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelBatchApplied, type VoxelChunkDraw, type VoxelChunkViewOptions, type VoxelSeamPiece } from './voxel-chunk-view';
 export { TRIM_DEBUG_TEXTURE_SCALE, trimDebugTexture } from './voxel-trim-debug-texture';
 export { kitLookMaterial, kitLookOf, kitLookTextures, type VoxelKitLook } from './voxel-kit-look';

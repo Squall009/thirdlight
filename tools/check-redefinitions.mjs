@@ -122,6 +122,9 @@ export const OWNED_FAMILIES = Object.freeze([
   { family: 'lru', owner: 'packages/shared/src/lru.ts', names: ['LruCache', 'LRUCache', 'LruMap', 'BoundedLru'] },
   // A stamp comparable across a page's threads (time origin + monotonic clock).
   { family: 'wall-clock', owner: 'packages/shared/src/clock.ts', names: ['wallClock'] },
+  // The frame profiler's spans and the one frame arbiter every per-frame time slice comes from.
+  { family: 'frame-profiler', owner: 'packages/shared/src/profiler.ts', names: ['SpanRecorder', 'threadProfiler', 'SPAN_CATEGORIES', 'PROFILER_THREADS'] },
+  { family: 'frame-arbiter', owner: 'packages/shared/src/frame-arbiter.ts', names: ['FrameArbiter', 'frameArbiter', 'frameSliceMs', 'FRAME_SLICE_DEFAULTS'] },
   {
     family: 'strict-json',
     owner: 'packages/shared/src/strict-json.ts',
