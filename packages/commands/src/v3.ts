@@ -13,7 +13,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, WIND_ZONE_FIELDS, FOLIAGE_BEND_FIELDS, validateFoliageBendComponent, VOXEL_WORLD_FIELDS, validateVoxelWorldComponent, validateDecalComponent, validateVertexPaintComponent, validateWindZoneComponent } from '@thirdlight/project-model';
+import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, WIND_ZONE_FIELDS, INTERACTOR_FIELDS, validateInteractorComponent, VOXEL_WORLD_FIELDS, validateVoxelWorldComponent, validateDecalComponent, validateVertexPaintComponent, validateWindZoneComponent } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { ANIMATION_ROLE_KEYS, validateBehaviorGroupComponent } from '@thirdlight/project-model';
@@ -89,7 +89,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   decal: DECAL_FIELDS,
   vertexPaint: VERTEX_PAINT_FIELDS,
   windZone: WIND_ZONE_FIELDS,
-  foliageBend: FOLIAGE_BEND_FIELDS,
+  interactor: INTERACTOR_FIELDS,
   voxelWorld: VOXEL_WORLD_FIELDS,
 };
 
@@ -169,7 +169,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'vertexPaint',
   // v4 scenes only.
   'windZone',
-  'foliageBend',
+  'interactor',
   'voxelWorld',
 ];
 
@@ -271,8 +271,8 @@ export function validateV3ComponentValue(
     case 'windZone':
       validateWindZoneComponent(value, path, errors as unknown as Parameters<typeof validateWindZoneComponent>[2]);
       break;
-    case 'foliageBend':
-      validateFoliageBendComponent(value, path, errors as unknown as Parameters<typeof validateFoliageBendComponent>[2]);
+    case 'interactor':
+      validateInteractorComponent(value, path, errors as unknown as Parameters<typeof validateInteractorComponent>[2]);
       break;
     case 'voxelWorld':
       validateVoxelWorldComponent(value, path, errors as unknown as Parameters<typeof validateVoxelWorldComponent>[2]);

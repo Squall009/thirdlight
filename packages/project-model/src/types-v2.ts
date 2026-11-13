@@ -512,7 +512,7 @@ export interface PrefabComponentsV4Extra {
   cameraRegion?: EntityComponentsV3['cameraRegion'];
   probeVolume?: EntityComponentsV3['probeVolume'];
   windZone?: EntityComponentsV3['windZone'];
-  foliageBend?: EntityComponentsV3['foliageBend'];
+  interactor?: EntityComponentsV3['interactor'];
   socketAttach?: EntityComponentsV3['socketAttach'];
   spline?: EntityComponentsV3['spline'];
   architecture?: EntityComponentsV3['architecture'];

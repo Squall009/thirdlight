@@ -17,9 +17,11 @@
  *   --wind-zone                 with a calm wind zone (a 25 m sphere, 10 m blend) 40 m ahead of the camera
  *   --walker                    a 1.8 m box walking across the view 7 m ahead (a mover), named the view's subject by a script
  *                               with see-through off: the grass gives way round it
- *   --walker-strength S         its foliageBend strength (default: the engine's; 0: it parts nothing)
- *   --walker-radius R           its foliageBend radius in metres (default: the engine's, from its body)
+ *   --walker-strength S         its interactor strength (default: the engine's; 0: it parts nothing)
+ *   --walker-radius R           its interactor radius in metres (default: the engine's, from its body)
  *   --walker-speed V            metres per second it walks (default 1.2; 0: it stands at the middle of its path)
+ *   --interactors N             N more 1.8 m boxes with an interactor walking to and fro across the view, 5 to 30 m ahead
+ *                               (the interaction field with N stamps a frame)
  *   --walk V                    the camera walks at V m/s (eye height over the ground) 60 m into the field and back, so the
  *                               cover's rings, patches and masks follow a moving eye (the player walking through it)
  *   --walk-from X,Z             where the walk starts (world metres; default: the class's camera); 0,0 is where the 4 tiles meet
@@ -100,7 +102,7 @@ async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd
 }
 
 /** Build the meadow into a new project; returns the terrain's id (its cover is baked by the caller). */
-async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null; walker?: WalkerOptions; walk?: number | null; walkFrom?: [number, number] | null; starter?: boolean; mossAhead?: number | null; mossRight?: number | null; blocksLayer?: boolean; noPost?: boolean; rootColour?: number | null; rootColourHeight?: number | null } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
+async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null; walker?: WalkerOptions; interactors?: number; walk?: number | null; walkFrom?: [number, number] | null; starter?: boolean; mossAhead?: number | null; mossRight?: number | null; blocksLayer?: boolean; noPost?: boolean; rootColour?: number | null; rootColourHeight?: number | null } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
   const t0 = performance.now();
   const starter = wind.starter === true;
   const created = await be.post('/api/v1/admin/projects', { projectId, name: 'Perf meadow', ...(starter ? { template: 'starter-3d' } : {}) });
@@ -145,6 +147,7 @@ async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) 
     await cmd('setComponent', { entityId: calm, component: 'windZone', value: { shape: 'sphere', radius: 25, blend: 10, strength: 0, gust: 0.05 } });
   }
   if (wind.walker !== undefined) await addWalker(be, projectId, cmd, camera, wind.walker);
+  if ((wind.interactors ?? 0) > 0) await addInteractors(cmd, camera, wind.interactors!);
   if (wind.walk != null && wind.walk > 0) {
     const from = wind.walkFrom ?? [camera.position[0], camera.position[2]];
     const walk = walkBehavior({ ...camera, position: [from[0], meadowHeight(from[0], from[1]) + EYE_HEIGHT_M, from[1]] }, wind.walk);
@@ -240,12 +243,32 @@ async function addWalker(be: PerfBackend, projectId: string, cmd: Cmd, camera: R
   await cmd('setComponent', { entityId: id, component: 'box', value: { size: [0.5, 1.8, 0.5], material: { color: '#c8c2b8' } } });
   if (w.speed > 0) await cmd('setComponent', { entityId: id, component: 'mover', value: { waypoints: points, speed: w.speed, mode: 'pingpong' } });
   const bend = { ...(w.strength !== null ? { strength: w.strength } : {}), ...(w.radius !== null ? { radius: w.radius } : {}) };
-  if (Object.keys(bend).length > 0) await cmd('setComponent', { entityId: id, component: 'foliageBend', value: bend });
+  if (Object.keys(bend).length > 0) await cmd('setComponent', { entityId: id, component: 'interactor', value: bend });
   const p = be.project(projectId);
   const b = seeThroughBehavior([id]);
   await publishBehaviorVia(be, p, cmd, b);
   const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Subjects', transform: { position: [0, 0, 0] } }))['createdId']);
   await cmd('setBehaviorProperties', { entityId: driver, behaviorId: b.behaviorId, values: {} });
+}
+
+/** `n` boxes with an interactor, each walking to and fro across the view on its own row, 5 to 30 m ahead. */
+async function addInteractors(cmd: Cmd, camera: ReturnType<typeof meadowCamera>, n: number): Promise<void> {
+  const [cx, , cz] = camera.position;
+  const ahead = (d: number, side: number): [number, number] => [cx + d * Math.SQRT1_2 + side * Math.SQRT1_2, cz - d * Math.SQRT1_2 + side * Math.SQRT1_2];
+  for (let k = 0; k < n; k++) {
+    const d = 5 + (25 * k) / Math.max(1, n - 1);
+    const start = ahead(d, -6);
+    const y0 = meadowHeight(start[0], start[1]) + 0.9;
+    const points: [number, number, number][] = [];
+    for (let s = 1; s <= 6; s++) {
+      const [x, z] = ahead(d, -6 + s * 2);
+      points.push([x - start[0], meadowHeight(x, z) + 0.9 - y0, z - start[1]]);
+    }
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: `Interactor ${k}`, transform: { position: [start[0], y0, start[1]] } }))['createdId']);
+    await cmd('setComponent', { entityId: id, component: 'box', value: { size: [0.5, 1.8, 0.5], material: { color: '#c8c2b8' } } });
+    await cmd('setComponent', { entityId: id, component: 'mover', value: { waypoints: points, speed: 1 + (k % 3) * 0.4, mode: 'pingpong' } });
+    await cmd('setComponent', { entityId: id, component: 'interactor', value: {} });
+  }
 }
 
 export interface MeadowReport {
@@ -297,7 +320,7 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
   if (!has('no-export')) {
     const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
     try {
-      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), walk: get('walk') === undefined ? null : Number(get('walk')), walkFrom: get('walk-from') === undefined ? null : (get('walk-from')!.split(',').map(Number) as [number, number]), starter: has('starter'), mossAhead: get('moss-ahead') === undefined ? null : Number(get('moss-ahead')), mossRight: get('moss-right') === undefined ? null : Number(get('moss-right')), blocksLayer: has('blocks-layer'), noPost: has('no-post'), rootColour: get('root-colour') === undefined ? null : Number(get('root-colour')), rootColourHeight: get('root-colour-height') === undefined ? null : Number(get('root-colour-height')), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
+      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), walk: get('walk') === undefined ? null : Number(get('walk')), walkFrom: get('walk-from') === undefined ? null : (get('walk-from')!.split(',').map(Number) as [number, number]), starter: has('starter'), mossAhead: get('moss-ahead') === undefined ? null : Number(get('moss-ahead')), mossRight: get('moss-right') === undefined ? null : Number(get('moss-right')), blocksLayer: has('blocks-layer'), noPost: has('no-post'), rootColour: get('root-colour') === undefined ? null : Number(get('root-colour')), rootColourHeight: get('root-colour-height') === undefined ? null : Number(get('root-colour-height')), ...(get('interactors') !== undefined ? { interactors: Number(get('interactors')) } : {}), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
       // A spacing between copies (the rule card's default) keeps a rule on the CPU path.
       if (get('spacing') !== undefined) for (const r of cover) r['spacing'] = Number(get('spacing'));
       for (const variant of ['grass', 'ground'] as const) {

@@ -181,7 +181,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const level = createAdapterLevel({
     opts, scene, resources, canvas, graph, materialLibrary, effectiveMaterials: materials.effective, components: (id) => entityDocs.get(id)?.components,
     realization: () => models.realization, lightmaps: () => state.lightmaps, staticShadows, batcher, viewCull, renderer: () => renderer.current(), lights,
-    precompile: () => precompile, startModelsIn: () => models.startIn,
+    precompile: () => precompile, startModelsIn: () => models.startIn, interactors: () => entities.interactorsNow(),
   });
   const entities = new AdapterEntities(entityDocs, {
     graph, lights, blockView: level.blockView, terrains: level.terrains, splines: level.splines, architecture: level.architecture, cover: level.scatter.sink !== undefined ? level.scatter.cover : null, clipped: level.clipped, voxelDecals: level.voxelDecals, effects, materials,

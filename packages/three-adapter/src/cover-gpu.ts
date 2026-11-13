@@ -49,7 +49,7 @@ import { NOISE_HASH_LANES, NOISE_HASH_Y_LANE } from '@thirdlight/shared';
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
-import { COVER_POINT_STEPS, FOLIAGE_BEND_DEFAULTS, SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type CoverPointSet, type RuleRange, type ScatterRule } from '@thirdlight/project-model';
+import { COVER_POINT_STEPS, INTERACTOR_DEFAULTS, SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type CoverPointSet, type RuleRange, type ScatterRule } from '@thirdlight/project-model';
 
 import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listCoverPatches, planCover, type CoverPatch, type CoverPlan, type CoverRing, type CoverTileRef } from './cover-placement';
 import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';
@@ -231,7 +231,7 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
       const nrm = vec3(0, 1, 0).toVar();
       const at = vec3(x, DROPPED_Y, z).toVar();
       setCopyRoot(builder, at);
-      setCopyBend(builder, float(rule.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend));
+      setCopyBend(builder, float(rule.bendAway ?? INTERACTOR_DEFAULTS.ruleBend));
       // The ground's colour under the copy, for a material that blends its base toward it (`rootColour`): the
       // terrain's baked albedo (its layers as drawn, from above), A 0 until the tile is baked.
       const wantsGround = (builder as unknown as { material?: THREE.Material | null }).material?.userData[ROOT_COLOUR_KEY] === true;
@@ -398,7 +398,7 @@ export function coverPointsPlacement(d: CoverPointDrawInputs): CoverPlacement {
       const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
       const ground = vec3(x, p.y.sub(rule.sink ?? 0), z).toVar();
       setCopyRoot(builder, ground);
-      setCopyBend(builder, float(rule.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend));
+      setCopyBend(builder, float(rule.bendAway ?? INTERACTOR_DEFAULTS.ruleBend));
       positionLocal.assign(select(kept, rotateNode(quat, placed).add(ground), vec3(x, DROPPED_Y, z)));
       if (needsPreviousPlace(builder)) positionPrevious.assign(positionLocal);
       normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));

@@ -216,6 +216,9 @@ export {
   type MaterialShaderName,
   type WindLike,
 } from './material-library';
+// The wind at a world point as a node any shader or compute pass may read (`MaterialLibrary.windSample`); what presses into foliage round the camera.
+export type { WindSample } from './wind-field';
+export type { InteractionField } from './interaction-field';
 // Material graphs compiled to TSL (the library uses it; tests and the editor's problem list too).
 export {
   compileMaterialGraph,

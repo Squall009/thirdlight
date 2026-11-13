@@ -286,7 +286,7 @@ export { STREAM_CHUNK_COST, STREAM_COLLIDER_SAMPLES_PER_STEP, STREAM_LIVE_SPAWNS
 export { BodySuspension, type SuspensionDiagnostics } from './body-suspension';
 // The wind field: the global wind and the zones the renderer bakes into its map round the view.
 export { WIND_DEFAULTS, WIND_LIMITS } from '@thirdlight/project-model';
-export { FOLIAGE_BEND_DEFAULTS, FOLIAGE_BEND_LIMITS } from '@thirdlight/project-model';
+export { INTERACTOR_DEFAULTS, INTERACTOR_LIMITS } from '@thirdlight/project-model';
 export { FOLIAGE_NEAR_METRES, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, scatterCellOfBlob, storedScatterRules, type ScatterCell, type ScatterRule } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainLayerData, type TerrainSimTile, type TerrainTileData } from './terrain-collision';
 export { RuntimeSurface, type BehaviorSurface, type SurfaceInfo } from './surface';

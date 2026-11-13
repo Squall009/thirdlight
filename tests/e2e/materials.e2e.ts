@@ -3,12 +3,17 @@
  * (COLOR_0 as wind data) set as an asset's default makes its pieces move in
  * the Scene view (its wind preview on; off, they hold still there), in Play
  * and in the export (a standard material's texture
- * on a box, on every backend: textures.e2e.ts).
+ * on a box, on every backend: textures.e2e.ts). Foliage bends round every
+ * object with an interactor (more than the four view subjects it once took)
+ * and round a script's view subject without one, and stands up again once
+ * they leave, in an export served with the backend stopped (WebGPU: the
+ * interaction field is a compute pass).
  *
  * Node materials on WebGPURenderer, on the product's own renderer
  * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): shader-parity compares
  * the foliage shader on both backends.
  */
+import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -16,10 +21,10 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { startBackend, type E2EBackend, withoutSky } from './backend';
+import { publishScript, startBackend, type E2EBackend, withoutSky } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { projectWindow, openWindow, createItem, inspector, menu } from './ui';
 
 let be: E2EBackend;
@@ -178,6 +183,171 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves 
     await exported.goto(`${site.url}${exportQueryFor(variant)}`);
     await expectRendererBackend(exported.locator('canvas').first(), variant);
     await expect.poll(() => motion(exported), { timeout: 20_000 }).toBeGreaterThan(30);
+    expect(errors).toEqual([]);
+  } finally {
+    await site.close();
+  }
+});
+
+/** Where the pressing objects stand while P is held (x, z; between the posts), the last one a script's view subject without an interactor. */
+const PRESS_AT: readonly (readonly [number, number])[] = [[-7.25, -2.25], [-2.25, -2.25], [2.75, -2.25], [7.25, -2.25], [-7.25, 2.75], [-2.25, 2.75], [2.75, 2.75], [7.25, 2.75]];
+const SUBJECT = PRESS_AT.length - 1;
+/**
+ * On each pressing object: it stands among the posts while `press` is held and 40 m back (out of the view, past the
+ * posts) otherwise; the object `subject` is named the view's subject.
+ */
+const pressScript = (subject: string): string => [
+  'export default {',
+  '  instantiate() { return { home: null as number[] | null, on: false, named: false }; },',
+  '  step(state: { home: number[] | null; on: boolean; named: boolean }, ctx: any) {',
+  "    if (ctx.phase === 'intent') {",
+  `      if (!state.named && ctx.entityId === ${JSON.stringify(subject)}) ctx.camera.setSeeThrough({ enabled: false, subjects: [ctx.entityId] });`,
+  '      state.named = true;',
+  "      state.on = ctx.input.held('press');",
+  '      return;',
+  '    }',
+  "    if (ctx.phase !== 'transform') return;",
+  '    const t = ctx.world.transform(ctx.entityId);',
+  '    if (t === undefined) return;',
+  '    state.home ??= [t.position[0], t.position[1], t.position[2]];',
+  '    const [x, y, z] = state.home;',
+  "    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x, y, z: state.on ? z - 40 : z }, quaternion: [0, 0, 0, 1] });",
+  '  },',
+  '};',
+  '',
+].join('\n');
+
+test('foliage bends round any number of interactors and a script\'s subject, and stands up again once they leave (editor, export with the backend stopped; WebGPU)', async ({ page }) => {
+  test.skip(backendOf('auto') !== 'webgpu', 'the interaction field is a WebGPU compute pass; WebGL 2 draws no pressing');
+  test.setTimeout(180_000);
+  const cmd = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
+    const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-press' }, args });
+    expect(r['ok'], JSON.stringify(r).slice(0, 400)).toBe(true);
+    return r;
+  };
+  // Still air (the posts move only when pressed), a dark sky and floor, the sun from above; the camera straight down.
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#101418', environmentIntensity: 0 }, post: { antialias: 'smaa' }, wind: { direction: [1, 0], strength: 0, gust: 0, gustFrequency: 0.3, turbulence: 0 } } });
+  await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.5, direction: [0.1, -1, 0.1], castShadow: false } });
+  await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 20, 0], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2] } });
+  const lens = ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: 'cam-main' } }))['entity'] as { components: { virtualCamera?: Record<string, unknown> } }).components.virtualCamera;
+  await cmd('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...(lens ?? {}), rig: 'fixed', fovY: 50, near: 0.1, far: 200 } });
+  await cmd('setInput', { input: { actions: [{ name: 'press', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyP' }] }] } });
+  // Posts 2 m tall every 0.5 m round each place an object will stand and round an empty place (the control), in a foliage
+  // material: no COLOR_0, so a post leans by its height above its middle.
+  await cmd('setMaterial', { material: { materialId: 'mat-post', name: 'Post', shader: 'foliage', params: { color: '#f0f0f0', windDistance: 0 }, textures: {} } });
+  const entities: Record<string, unknown>[] = [{ id: 'floor', name: 'floor', components: { transform: { position: [0, -0.1, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [60, 0.2, 60], material: { color: '#202020' } } } }];
+  const near = [...PRESS_AT, [0.25, 0.25] as const];
+  for (let i = 0; i <= 36; i++) {
+    for (let j = 0; j <= 20; j++) {
+      const [x, z] = [-9 + i * 0.5, -5 + j * 0.5];
+      if (!near.some(([px, pz]) => Math.hypot(x - px, z - pz) < 1.7)) continue;
+      entities.push({ id: `post-${i}-${j}`, name: `post ${i} ${j}`, components: { transform: { position: [x, 1, z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [0.08, 2, 0.08], material: { color: '#f0f0f0' } }, materials: { '*': 'mat-post' } } });
+    }
+  }
+  // In parts: a request is held to 64 KiB.
+  for (let k = 0; k < entities.length; k += 80) await cmd('pasteEntities', { sceneId: 'scene-main', entities: entities.slice(k, k + 80) });
+  // Seven interactors (the old limit was four subjects) and one view subject without the component, out of the view until P is held.
+  const ids: string[] = [];
+  for (const [k, [x, z]] of PRESS_AT.entries()) {
+    const size = k === SUBJECT ? [1, 1, 1] : [0.4, 1, 0.4];
+    ids.push(String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: `press ${k}`, transform: { position: [x, 0.5, z + 40] }, box: { size, material: { color: '#e02020' } } }))['createdId']));
+    if (k !== SUBJECT) await cmd('setComponent', { entityId: ids[k]!, component: 'interactor', value: { radius: 1.2, strength: 2, recovery: 0.5 } });
+  }
+  await publishScript(be, 'press-place', pressScript(ids[SUBJECT]!), ids[0]!, ['@self']);
+  for (const id of ids.slice(1)) await cmd('setBehaviorProperties', { entityId: id, behaviorId: 'press-place', values: {} });
+
+  // The Inspector shows the component from its descriptor.
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'press 0' }).click();
+  await expect(page.locator('[aria-label="interactor component"]')).toBeVisible();
+
+  // The export, served statically with the backend stopped.
+  const res = await be.admin(`projects/${be.projectId}/export`);
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  const out = join(be.exportRoot, String(res.json.outputDir));
+  await page.goto('about:blank');
+  await be.halt();
+  const site = await serveDir(out);
+  const game = await page.context().newPage();
+  const errors: string[] = [];
+  game.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await game.setViewportSize({ width: 960, height: 540 });
+    await game.goto(site.url);
+    const canvas = game.locator('canvas').first();
+    await expectRendererBackend(canvas, 'webgpu');
+    await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
+    /** The canvas once two shots 300 ms apart agree (the posts still): its picture. */
+    const settled = async (label: string): Promise<Image> => {
+      let last: Image | null = null;
+      let shot: Image | null = null;
+      let png: Buffer | null = null;
+      await expect.poll(async () => {
+        png = await canvas.screenshot();
+        shot = decodePng(png);
+        const still = last !== null && changed(last, shot) < 15;
+        last = shot;
+        return still;
+      }, { timeout: 30_000, intervals: [300] }).toBe(true);
+      writeFileSync(test.info().outputPath(`press-${label}.png`), png!);
+      return shot!;
+    };
+    // Where a ground point at height y shows (the camera 20 m up looking straight down, fovY 50, screen up = world −z).
+    const box = await canvas.boundingBox();
+    const [W, H] = [Math.round(box!.width), Math.round(box!.height)];
+    const t = Math.tan((25 * Math.PI) / 180);
+    const toPx = (x: number, z: number, y: number): [number, number] => [((1 + x / ((20 - y) * t * (W / H))) / 2) * W, ((1 + z / ((20 - y) * t)) / 2) * H];
+    /** Pixels that differ between two pictures in a ring round a ground point (metres, at the posts' tops), the object's own square left out. */
+    const ringChange = (a: Image, b: Image, x: number, z: number, inner: number, outer: number): number => {
+      const [cx, cy] = toPx(x, z, 2);
+      const m = toPx(1, 0, 2)[0] - toPx(0, 0, 2)[0];
+      let n = 0;
+      for (let py = Math.floor(cy - outer * m); py <= cy + outer * m; py++) {
+        for (let px = Math.floor(cx - outer * m); px <= cx + outer * m; px++) {
+          if (px < 0 || py < 0 || px >= a.width || py >= a.height) continue;
+          const d = Math.hypot(px - cx, py - cy) / m;
+          if (d < inner || d > outer) continue;
+          const p = a.pixel(px, py);
+          const q = b.pixel(px, py);
+          if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) > 60) n += 1;
+        }
+      }
+      return n;
+    };
+    const before = await settled('before');
+    await canvas.click({ position: { x: 5, y: 5 } });
+    await game.keyboard.down('KeyP');
+    // Every pressing object stands among the posts (its red top seen where it should be), and the posts round it lean away.
+    await expect.poll(async () => {
+      const img = decodePng(await canvas.screenshot());
+      return PRESS_AT.every(([x, z]) => {
+        const [px, py] = toPx(x, z, 1).map(Math.round) as [number, number];
+        const p = img.pixel(px, py);
+        return p[0] > 150 && p[1] < 90;
+      });
+    }, { timeout: 20_000 }).toBe(true);
+    const pressed = await settled('pressed');
+    const far = ringChange(before, pressed, 0.25, 0.25, 0, 1.2);
+    const rings = PRESS_AT.map(([x, z], k) => ringChange(before, pressed, x, z, k === SUBJECT ? 0.75 : 0.35, 1.2));
+    console.log(`[interaction field] pressed: ring changes ${rings.join(', ')} px; a ring with nothing in it ${far} px`);
+    for (const n of rings) expect(n).toBeGreaterThan(Math.max(40, far * 4));
+    expect(far).toBeLessThan(20);
+    // Released: they leave the view and the posts stand up again (recovery 0.5 s; the subject's 1 s, the default).
+    await game.keyboard.up('KeyP');
+    await expect.poll(async () => {
+      const img = decodePng(await canvas.screenshot());
+      return PRESS_AT.every(([x, z]) => {
+        const [px, py] = toPx(x, z, 1).map(Math.round) as [number, number];
+        return img.pixel(px, py)[0] < 150;
+      });
+    }, { timeout: 20_000 }).toBe(true);
+    await new Promise((r) => setTimeout(r, 1500));
+    const after = await settled('after');
+    const left = PRESS_AT.map(([x, z]) => ringChange(before, after, x, z, 0, 1.2));
+    console.log(`[interaction field] recovered: ring changes against before ${left.join(', ')} px`);
+    for (const n of left) expect(n).toBeLessThan(Math.max(20, far * 2));
     expect(errors).toEqual([]);
   } finally {
     await site.close();

@@ -36,7 +36,7 @@ import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { RenderObjectRefreshType } from 'three';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
-import { FOLIAGE_BEND_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/project-model';
+import { INTERACTOR_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { PAINT_SLOT_ATTRIBUTE, setGpuCopyColumns } from './attribute-instancing';
 import { CUTAWAY_LAYER } from './block-cutaway-view';
@@ -646,7 +646,7 @@ export class GpuCopySet {
     const g = this.groupOf(list.group);
     const distances = g?.distances ?? [0];
     const out = list.data;
-    out.set([this.block, Math.min(list.reach, NEVER), this.worldScale, this.options.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend, list.level, distances.length, g?.culls === true ? 1 : 0, list.mode, this.density.x, this.density.y, this.density.z, this.density.w], 0);
+    out.set([this.block, Math.min(list.reach, NEVER), this.worldScale, this.options.bendAway ?? INTERACTOR_DEFAULTS.ruleBend, list.level, distances.length, g?.culls === true ? 1 : 0, list.mode, this.density.x, this.density.y, this.density.z, this.density.w], 0);
     for (let k = 0; k < (list.header - LIST_FIXED_HEADER) * 4; k += 1) out[LIST_FIXED_HEADER * 4 + k] = k < distances.length ? distances[k]! : NEVER;
     list.texture.needsUpdate = true;
   }

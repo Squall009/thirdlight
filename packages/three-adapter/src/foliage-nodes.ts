@@ -7,8 +7,9 @@
  * its height above the plant's root (a GPU copy's place, an instance's
  * origin, else the object's), so tall grass and scaled-up copies bend
  * further than short ones. A mesh without COLOR_0 sways by its height share
- * of the first metre instead. On top of the wind, the plant gives way to the
- * view's subjects by the same weight and height (`foliage-bend.ts`).
+ * of the first metre instead. On top of the wind, the plant gives way to what
+ * presses into the interaction field by the same weight and height
+ * (`interaction-field.ts`; WebGPU only: WebGL 2 runs no field).
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -18,7 +19,7 @@ import type { N } from './effects-tsl';
 import { OBJECT_FRAME_KEY } from './static-merge';
 import { declareVertexReach } from './vertex-reach';
 import { needsPreviousPlace, OWN_PREVIOUS_POSITION_KEY } from './motion-vectors';
-import { FOLIAGE_FALLBACK_HEIGHT_M, type FoliageBend } from './foliage-bend';
+import { FOLIAGE_FALLBACK_HEIGHT_M, type InteractionField } from './interaction-field';
 import { copyBend, copyRoot, copySurface, ROOT_COLOUR_KEY } from './node-materials';
 import type { WindField } from './wind-field';
 
@@ -53,10 +54,13 @@ const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.
 /** COLOR_0 as data (a missing attribute reads (0, 0, 0, 1), as WebGL's default vertex attribute does). */
 const vertexData = TSL.Fn((builder: NodeBuilder) => ((builder as unknown as { geometry: THREE.BufferGeometry }).geometry.hasAttribute('color') ? TSL.attribute('color', 'vec4') : TSL.vec4(0, 0, 0, 1)));
 
+/** Whether a program is built for three's WebGL 2 backend (no compute: the interaction field never runs there). */
+const webglBuild = (builder: NodeBuilder): boolean => (builder as unknown as { renderer?: { backend?: { isWebGLBackend?: boolean } } }).renderer?.backend?.isWebGLBackend === true;
+
 /** Whether the drawn geometry carries COLOR_0 (the wind's weights). */
 const hasVertexData = (builder: NodeBuilder): boolean => (builder as unknown as { geometry: THREE.BufferGeometry }).geometry.hasAttribute('color');
 
-export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record<string, unknown>>, g: FoliageGlobals, windField: WindField, bendField: FoliageBend): void {
+export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record<string, unknown>>, g: FoliageGlobals, windField: WindField, field: InteractionField): void {
   // The bend is the wind field's strength (gusts included) times the vertex's bend weight (COLOR_0 R, squared)
   // times its height above the plant's root, so a tall plant (or a copy scaled up) bends further than a short
   // one; `windBend` / `windFlutter` scale it per material (0–4×). A mesh without COLOR_0 sways by its height
@@ -74,7 +78,7 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
   // Wind only near the camera (`windDistance`, 0: everywhere): past it a vertex skips the wind's work and stands still.
   const windDistance = TSL.uniform(num(p['windDistance'], 0));
   // Motion vectors: the sway's own motion is the offset now against the offset at the last frame's clock (the wind
-  // field and the subjects' push read as they are now: they change slowly against the sway).
+  // field and the interaction field's push read as they are now: they change slowly against the sway).
   m.userData[OWN_PREVIOUS_POSITION_KEY] = true;
   nm.positionNode = TSL.Fn((builder: NodeBuilder) => {
     const weighted = hasVertexData(builder);
@@ -110,10 +114,10 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
       out.assign(local.add(offsetAt(g.time)));
       before?.assign(offsetAt(g.timePrevious));
     });
-    // Round the view's subjects (none live, or a vertex that cannot lean: a root, a dropped cover candidate: skipped),
-    // from the plant's rest pose, on top of the wind.
-    TSL.If(bendField.live.greaterThan(0).and(capacity.greaterThan(0)), () => {
-      const pushed = TSL.modelWorldMatrixInverse.mul(TSL.vec4(bendField.offset(world, height, capacity.mul(copyBend())), 0)).xyz;
+    // Round what presses into the interaction field (nothing live, or a vertex that cannot lean: a root, a dropped cover
+    // candidate: skipped), from the plant's rest pose, on top of the wind. WebGL 2 runs no field: no read at all.
+    if (!webglBuild(builder)) TSL.If(field.live.greaterThan(0).and(capacity.greaterThan(0)), () => {
+      const pushed = TSL.modelWorldMatrixInverse.mul(TSL.vec4(field.foliageOffset(world, height, capacity.mul(copyBend())), 0)).xyz;
       if (before === null) out.addAssign(pushed);
       else {
         const p = pushed.toVar();
@@ -134,7 +138,7 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
     const wind = windField.maxAmount();
     const tall = mesh === undefined ? FOLIAGE_FALLBACK_HEIGHT_M : Math.max(FOLIAGE_FALLBACK_HEIGHT_M, meshHeight(mesh));
     const sway = wind * Math.max(0, bend.value as number) * FOLIAGE_BEND_M * tall * Math.hypot(1, FOLIAGE_SAG);
-    return sway + Math.max(0, flutter.value as number) * FOLIAGE_FLUTTER_M * (wind + 0.5) + bendField.reach(tall);
+    return sway + Math.max(0, flutter.value as number) * FOLIAGE_FLUTTER_M * (wind + 0.5) + field.reach(tall);
   });
 }
 

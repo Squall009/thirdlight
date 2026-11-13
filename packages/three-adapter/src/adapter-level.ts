@@ -28,7 +28,7 @@ import type { ModelsRealization } from './models';
 import type { PrecompileGate } from './precompile-gate';
 import type { RenderGraph } from './render-graph';
 import { createScatterHost, type ScatterHost } from './scatter-host';
-import { FoliageBendView } from './foliage-bend';
+import { InteractorView } from './interactors';
 import { SeeThroughView, seeThroughEntitiesOf, type SeeThroughScripted } from './see-through';
 import type { StaticShadowRevision } from './shadow-casters';
 import { SplineView } from './spline-view';
@@ -65,6 +65,8 @@ export interface AdapterLevelDeps {
   precompile(): PrecompileGate;
   /** The start scenes' models have settled. */
   startModelsIn(): boolean;
+  /** The objects with an `interactor` component shown now. */
+  interactors(): Iterable<string>;
 }
 
 export interface AdapterLevel {
@@ -81,8 +83,8 @@ export interface AdapterLevel {
   readonly ownTiles: TerrainTileStore | null;
   readonly cutaways: CutawayFollower;
   readonly seeThrough: SeeThroughView;
-  /** The view's subjects the foliage gives way to (see-through's list, whether see-through is on or not). */
-  readonly foliageBend: FoliageBendView;
+  /** What presses into the interaction field: every object with an interactor and the view's subjects (see-through's list, on or not). */
+  readonly interactors: InteractorView;
   /** Draws made hidden have their programs built by the precompile ahead of their first draw (once a frame, after the views). */
   readonly warmer: ProgramWarmer;
   /** The authored block types (the swaps a running game makes go over them). */
@@ -174,12 +176,12 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
   const viewOf = (): ViewLike | null | undefined => (opts.runtime as { cameraView?: () => ViewLike | null }).cameraView?.();
   const st = opts.seeThrough;
   const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, cameraOcclusion: () => viewOf()?.occlusion ?? null, cameraLoaded: () => viewOf()?.seeThroughLoaded === true, ...(st?.pinned !== undefined ? { pinned: st.pinned } : {}), ...(st?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => d.precompile().want(), onChange: changed, regroup: (o) => batcher?.touch(o), occluderLayers: () => blockView.drawnLayers().filter((l) => l.seeThrough), ...(st?.onProblem !== undefined ? { onProblem: st.onProblem } : {}) }, st?.settings);
-  // Foliage gives way to the same subjects, see-through on or off.
-  const foliageBend = new FoliageBendView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, named: () => seeThrough.subjects(), onChange: changed }, materialLibrary?.foliageBend ?? null);
+  // Every object with an interactor presses into the interaction field, and so do the same subjects, see-through on or off.
+  const interactors = new InteractorView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, named: () => seeThrough.subjects(), interactors: () => d.interactors(), onChange: changed }, materialLibrary?.interaction ?? null);
   const blockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
   blockView.setTypes(blockTypes);
   return {
-    stream, scatter, splines, archHost, architecture, clipped, voxelDecals, blockView, terrains, ownTiles, cutaways, seeThrough, foliageBend, warmer, blockTypes, assetMaterials,
+    stream, scatter, splines, archHost, architecture, clipped, voxelDecals, blockView, terrains, ownTiles, cutaways, seeThrough, interactors, warmer, blockTypes, assetMaterials,
     diagnostics(out) {
       if (blockView.layerIds().length > 0) out.blocks = blockView.diagnostics();
       if (terrains.ids().length > 0) out.terrain = terrains.diagnostics();

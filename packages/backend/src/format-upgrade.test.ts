@@ -510,7 +510,7 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
       closed = true;
       const manifestFile = join(tb.root, 'data', 'projects', PID, 'project.json');
       const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-      expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes', 'trim-data']);
+      expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'interactor', 'light-counts', 'planes', 'trim-data']);
       writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['bloom-exposure', 'light-counts', 'planes'] }, null, 2)}\n`);
       // The same data root, a new backend: its first read of the project opens (and upgrades) it.
       const reopen = async (): Promise<{ backend: Backend; url: string; teardown: () => Promise<void> }> => {
@@ -545,7 +545,7 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
           expect.stringContaining('1 painted trim surface had its wetness moved from B to A'),
         ]));
         // Recorded with the moved data.
-        expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes', 'trim-data']);
+        expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'interactor', 'light-counts', 'planes', 'trim-data']);
 
         // Paint made after the upgrade, layers 3 and 4 (G and B) on both surfaces, the trim one included (a mapping can change).
         const paint = commands(second.backend, url);
@@ -631,7 +631,7 @@ describe('a project with the retired light counts opened over HTTP', () => {
       });
       const manifestFile = join(root, 'project.json');
       const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-      expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes']);
+      expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'interactor', 'light-counts', 'planes']);
       writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['planes'] }, null, 2)}\n`);
 
       const reopen = async (): Promise<{ backend: typeof tb.backend; url: string; teardown: () => Promise<void> }> => {
@@ -660,7 +660,7 @@ describe('a project with the retired light counts opened over HTTP', () => {
         expect(nodesOf('dark-set').map((n) => n.type)).toEqual(['furnishing', 'light']);
         expect(nodesOf('dark-set')[0]!.data).toEqual({ doorClearance: 1 });
         expect(nodesOf('dark-set')[1]!.data).toEqual({ height: 2, on: false });
-        expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes']);
+        expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'interactor', 'light-counts', 'planes']);
         // Bloom's threshold is compared after exposure now: scaled by the look's exposure, the same brightness glows;
         // the default strength fell, so a look that left it out keeps the old one.
         const looks = r.read.content as { environment: { presets: { presetId: string; post: Record<string, unknown> }[] } };

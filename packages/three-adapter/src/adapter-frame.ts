@@ -30,6 +30,7 @@ const FS = Object.freeze({
   level: P.span('level views', 'render'),
   surfaceLight: P.span('surface light', 'lighting'),
   copies: P.span('stored copies and cover', 'props'),
+  interaction: P.span('interaction field', 'effects'),
   lights: P.span('lights, shadows and environment', 'lighting'),
   materials: P.span('materials', 'props'),
   cull: P.span('levels of detail and culling', 'render'),
@@ -472,8 +473,10 @@ export class AdapterFrame {
     // terrains' nodes and the cover chosen for this view).
     p.occlusion.update();
     level.seeThrough.update(renderer, camera);
-    // The subjects' push on foliage (after see-through has followed the scripts' subject list).
-    level.foliageBend.update(camera);
+    // What presses into the interaction field, and its pass (after see-through has followed the scripts' subject list).
+    P.begin(FS.interaction);
+    level.interactors.update(renderer as never, camera);
+    P.end(FS.interaction);
     // Draws made hidden this frame are shown to the precompile below (after every view wrote its draws).
     level.warmer.frame();
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.

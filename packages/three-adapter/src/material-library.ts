@@ -81,8 +81,8 @@ import { CHANGING_ALPHA_KEY } from './shadow-casters';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { KEEP_MATERIAL_KEY, MATERIAL_NO_SHADOW_KEY } from './material-keys';
 import { declareVertexReach } from './vertex-reach';
-import { WindField, type WindFieldWind, type WindZoneLike } from './wind-field';
-import { FoliageBend } from './foliage-bend';
+import { WindField, type WindFieldWind, type WindSample, type WindZoneLike } from './wind-field';
+import { InteractionField } from './interaction-field';
 import { installFoliage } from './foliage-nodes';
 import { withPaint } from './vertex-paint-draw';
 import type { N as TslNode } from './effects-tsl';
@@ -188,8 +188,14 @@ export interface MaterialLibrary {
   windState(): ReturnType<WindField['state']>;
   /** The scene's global wind now (zones aside): what the sky's clouds drift with. */
   globalWind(): ReturnType<WindField['global']>;
-  /** The view's subjects foliage gives way to (the uniforms every foliage material reads; a bend view writes them each frame). */
-  readonly foliageBend: FoliageBend;
+  /** What presses into foliage round the camera (the field every foliage material reads; the level's interactor view runs it each frame). */
+  readonly interaction: InteractionField;
+  /**
+   * The wind at a world ground point, as a node any shader or compute pass may read: `windSample(vec2(x, z))` is
+   * vec4(direction x, direction z, strength with gusts, turbulence) — the global wind, the zones' map round the
+   * view and the gust pattern, the same the foliage sways by.
+   */
+  readonly windSample: WindSample;
   /** Where the view's camera is this frame (what reads distance in every pass: foliage's wind distance; the wind map follows it). */
   setViewEye(x: number, y: number, z: number): void;
   /** The scene's wetness (0–1) the Scene wetness node reads. */
@@ -313,7 +319,7 @@ function createNodeGlobals() {
 }
 
 /** The library's view and wind inputs (the eye, the zones, the global wind), over its shared uniforms and wind field. */
-function viewMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windField: WindField): Pick<MaterialLibrary, 'setViewEye' | 'setWindZones' | 'windState' | 'globalWind' | 'setWind'> {
+function viewMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windField: WindField): Pick<MaterialLibrary, 'setViewEye' | 'setWindZones' | 'windState' | 'globalWind' | 'setWind' | 'windSample'> {
   return {
     setViewEye(x, y, z) {
       (nodeGlobals.eye.value as THREE.Vector3).set(x, y, z);
@@ -328,6 +334,7 @@ function viewMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windFiel
     globalWind() {
       return windField.global();
     },
+    windSample: windField.sample,
     setWind(wind) {
       windField.setGlobal(wind);
       const w = wind ?? DEFAULT_WIND_LIKE;
@@ -372,8 +379,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   const nodeGlobals = createNodeGlobals();
   /** The decoded textures, held per built material (and by the compiled graphs, the preloads, the wind's pattern). */
   const holds: TextureHolds = textureHolds(options.resources, options.loadTexture);
-  /** The view's subjects foliage gives way to. */
-  const foliageBend = new FoliageBend();
+  /** What presses into foliage round the camera. */
+  const interaction = new InteractionField();
   /** The wind every foliage vertex and graph wind node reads (the global wind, the zones' map, the gust pattern). */
   const windField = new WindField(nodeGlobals.windTime, (id) => holds.get(id, 'wind'), () => holds.releaseHolder('wind'), () => options.onChange?.());
   const clock = clockMethods(nodeGlobals, windField, () => options.onChange?.());
@@ -724,7 +731,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   function installFoliageNodes(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
     animatedCount += 1;
-    installFoliage(m, p, { time: nodeGlobals.windTime, timePrevious: nodeGlobals.windTimePrevious, eye: nodeGlobals.eye }, windField, foliageBend);
+    installFoliage(m, p, { time: nodeGlobals.windTime, timePrevious: nodeGlobals.windTimePrevious, eye: nodeGlobals.eye }, windField, interaction);
   }
 
   /** The x scale of a texture's UV transform (a shift added before the transform lands after it once divided by this). */
@@ -1286,7 +1293,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       reassigned.add(listener);
       return () => void reassigned.delete(listener);
     },
-    foliageBend,
+    interaction,
     ...viewMethods(nodeGlobals, windField),
     ...clock.methods,
     animated() {
@@ -1355,7 +1362,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     dispose() {
       disposed = true;
-      windField.dispose();
+      for (const field of [windField, interaction]) field.dispose();
       for (const b of built.values()) disposeBuilt(b.material);
       built.clear();
       builtRefs.clear();

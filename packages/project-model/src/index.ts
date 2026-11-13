@@ -862,7 +862,7 @@ export {
 export * from './probe-grids';
 // Wind: the scene's global wind, wind zones and the field they make.
 export * from './wind';
-export * from './foliage-bend';
+export * from './interactor';
 // A scene's voxel world: which world streams and its settings over the voxel format's defaults.
 export * from './voxel-world';
 // The voxel worlds a build ships (the catalog's `voxelWorlds` block; the format is the voxel package's).

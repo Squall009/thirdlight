@@ -81,7 +81,7 @@ export type V3OwnedComponent =
   /** v4 scenes only: a box or sphere overriding the scene's wind. */
   | 'windZone'
   /** v4 scenes only: how a view subject parts foliage. */
-  | 'foliageBend'
+  | 'interactor'
   /** v4 scenes only: one of the project's voxel worlds, streamed while the scene is loaded. */
   | 'voxelWorld';
 

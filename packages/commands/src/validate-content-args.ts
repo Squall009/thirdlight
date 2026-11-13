@@ -518,7 +518,7 @@ const OWNED: readonly OwnedComponent[] = [
   'decal',
   'vertexPaint',
   'windZone',
-  'foliageBend',
+  'interactor',
   'voxelWorld',
 ];
 // Box and model are added (a complete value) and removed
@@ -563,7 +563,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'decal',
   'vertexPaint',
   'windZone',
-  'foliageBend',
+  'interactor',
   'voxelWorld',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
@@ -800,7 +800,7 @@ function validateSetComponentOne(
     component === 'decal' ||
     component === 'vertexPaint' ||
     component === 'windZone' ||
-    component === 'foliageBend' ||
+    component === 'interactor' ||
     component === 'voxelWorld'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding

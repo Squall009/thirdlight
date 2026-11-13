@@ -83,6 +83,8 @@ export class AdapterEntities {
   readonly staticScopes = new Map<string, string>();
   private readonly fogVolumeIds = new Set<string>();
   private readonly windZoneIds = new Set<string>();
+  /** Objects with an `interactor` component (they press into the interaction field). */
+  private readonly interactorIds = new Set<string>();
   private readonly tmpWorld: number[] = [0, 0, 0];
 
   /** `docs`: the documents of every realized entity (the loaded scenes), read by the other parts. */
@@ -165,6 +167,7 @@ export class AdapterEntities {
     const c = e.components as { fogVolume?: unknown; windZone?: unknown; decal?: ProjectedDecalLike & { material?: string }; materials?: Record<string, string>; effect?: EffectComponentLike };
     if (c.fogVolume !== undefined) this.fogVolumeIds.add(e.id);
     if (c.windZone !== undefined) this.windZoneIds.add(e.id);
+    if ((e.components as { interactor?: unknown }).interactor !== undefined) this.interactorIds.add(e.id);
     materials.decalPages?.set(e.id, c.decal?.material ?? null);
     materials.projectors?.set(e.id, graph.nodeFor(e.id)!, c.decal ?? null);
     this.deps.clipped?.set(e.id, c.decal ?? null, scope);
@@ -233,6 +236,7 @@ export class AdapterEntities {
     this.deps.lightmaps()?.release(id);
     this.fogVolumeIds.delete(id);
     this.windZoneIds.delete(id);
+    this.interactorIds.delete(id);
     materials.decalPages?.remove(id);
     materials.projectors?.remove(id);
     this.deps.clipped?.remove(id);
@@ -275,6 +279,13 @@ export class AdapterEntities {
   }
 
   /** The wind zones of the loaded scenes that are shown, at their world matrices now (entities may move). */
+  /** The objects with an `interactor` component shown now. */
+  interactorsNow(): string[] {
+    const out: string[] = [];
+    for (const id of this.interactorIds) if (!this.deps.graph.isHidden(id)) out.push(id);
+    return out;
+  }
+
   windZonesNow(): WindZoneLike[] {
     const out: WindZoneLike[] = [];
     if (this.windZoneIds.size === 0) return out;

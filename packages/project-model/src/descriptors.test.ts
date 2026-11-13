@@ -496,7 +496,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
   windZone: [{ shape: 'box', size: [20, 10, 20], blend: 2, priority: 3, direction: [0, 1], strength: 2, gust: 1, turbulence: 0.5, speed: 8, scale: 30 }, { shape: 'sphere', radius: 10 }],
-  foliageBend: [{ radius: 0.8, strength: 1.5, recovery: 2 }, {}],
+  interactor: [{ radius: 0.8, strength: 1.5, recovery: 2 }, {}],
   voxelWorld: [{ world: 'town_1', ring: { loadRadius: 120, unloadRadius: 150, loadHeight: 60, unloadHeight: 80 }, collision: { radius: 40, height: 20 }, levels: { level0: 50, level1: 100, relief: 12 }, quality: { low: { scale: 0.5, ring: { loadRadius: 60, unloadRadius: 80, loadHeight: 30, unloadHeight: 40 }, collision: { radius: 20, height: 10 }, levels: { level0: 24, level1: 48, relief: 0 } }, high: { scale: 2 } }, sectionEdge: 32, savedFields: ['wetness'], decalLayers: 3, blendMetres: 0.125, bakeLevel: 1, fineBuild: 'compute' }, { world: 'w' }],
   vertexPaint: [{ meshes: [{ mesh: 'Body/Hull#0', vertices: 120, positions: 'a'.repeat(16), paint: 'b'.repeat(64) }], paths: [{ path: 'spline', side: 'top', origin: [-4, -8], size: [40, 16], paint: 'c'.repeat(64) }] }],
   decal: [{ size: [2, 1, 0.5], mode: 'clipped', material: 'mat-a', opacity: { albedo: 0.5, normal: 1, roughness: 0, metalness: 0.2, occlusion: 0.7, emission: 0.1 }, normalFade: 60, edgeFade: [0.1, 0.4], fadeDistance: 40, sortOrder: -3, layers: 6 }],

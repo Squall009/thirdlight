@@ -27,8 +27,12 @@
  *   exposure; a look with an exposure other than 1 gets its threshold scaled
  *   by it, so the same brightness glows, and a look with bloom on keeps the
  *   old default strength (`upgrade-bloom-exposure.ts`).
+ * - `interactor` (recorded): the `foliageBend` component is renamed
+ *   `interactor`, on objects, prefab parts and linked copies' overrides
+ *   (`upgrade-interactor.ts`).
  */
 import { upgradeBloomExposure } from './upgrade-bloom-exposure';
+import { upgradeInteractor } from './upgrade-interactor';
 import { linkPrefabCopies } from './upgrade-linked-copies';
 import { retireLightCounts } from './upgrade-light-counts';
 import { upgradeToPlanes } from './upgrade-planes';
@@ -48,6 +52,7 @@ export const SCHEMA_8_STEPS: readonly Schema8Step[] = [
   { name: 'planes', run: upgradeToPlanes, recorded: true },
   { name: 'light-counts', run: retireLightCounts, recorded: true },
   { name: 'bloom-exposure', run: upgradeBloomExposure, recorded: true },
+  { name: 'interactor', run: upgradeInteractor, recorded: true },
 ];
 
 /** The recorded steps' names: what a project made or upgraded by this build has had (a new project needs none of them). */

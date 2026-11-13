@@ -83,8 +83,9 @@ describe('script access marks', () => {
 });
 
 // The pinned digest of what scripts may read on schemaVersion 8 objects and components: a change to it is a change scripts can see
-// (re-pinned for an added optional field, as the voxel world's blend distance and its brick bake level).
-const PINNED_V8 = '0c010457b1773ec6';
+// (re-pinned for an added optional field, as the voxel world's blend distance and its brick bake level, and for `foliageBend`
+// renamed `interactor` by the recorded schema 8 step that upgrades every project on open).
+const PINNED_V8 = '1054c8d4943407dc';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {
