@@ -66,18 +66,25 @@ detail. Copies have no ids, colliders or scripts.
   culled in. Smaller chunks cull more finely; the draws stay one per mesh and
   level of the model whatever the chunks. Play, the export and the Scene view
   chunk alike.
-- **Drawing**: a set is drawn by the GPU renderer ground cover and rule
-  scatter draw with: the copies' places sit in a texture, each frame the
-  page lists the blocks of up to 64 copies the view (or a shadow map) may
-  draw at each level, and the vertex stage places every copy, picks its
-  level and thins it. The page does no work per copy to draw.
+- **Drawing**: on WebGPU a set's draws are rows of the engine's culled-instance
+  table: its copies sit once on the GPU, and each frame one compute pass picks
+  every copy's level, thins it and tests it against the view, and lists it for
+  the draws that draw it (a shadow map draws the copies out of view too); with
+  occlusion culling on, the copies hidden behind what was drawn first are left
+  out as well. A copy changing level cross-fades between the two over a quarter
+  of a second (a dither), and keeps its level a little nearer than it switched
+  (the project's LOD hysteresis), so a still view never flickers. On WebGL 2 the
+  copies' places sit in a texture, the page lists the blocks of up to 64 copies
+  each draw may draw, and the vertex stage places every copy, picks its level
+  and thins it (no fade, no hysteresis per copy). The page does no work per copy
+  to draw either way.
 - **Levels of detail and density**: each block of up to 64 copies draws
   one level of the model for all its copies, picked at its centre for the
   copies' mean size (against the model's switch points: [Levels of detail](assets.md#levels-of-detail)); **Level per copy**
   (`lodPerCopy`, default off) has every copy pick its own level by its own
-  distance and size instead, exactly at the switch distance — truer where a
-  block spans a switch point, at more vertex work there (the draws stay one
-  per mesh and level either way). A copy past the model's cull size is not
+  distance and size instead — truer where a block spans a switch point, at
+  more draws there on WebGPU (both levels' draws are drawn) and more vertex
+  work on WebGL 2. A copy past the model's cull size is not
   drawn; a block wholly past it is not listed. Copies thin out
   where they are small on screen: from
   **Thinning starts at** (`densityStart`, a share of the screen height,

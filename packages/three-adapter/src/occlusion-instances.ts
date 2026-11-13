@@ -13,6 +13,11 @@
  * - The CPU still decides what is in a draw: levels of detail, density
  *   thinning and the frustum (`view-cull.ts` puts the copies in view first,
  *   nearest first). The compute only leaves copies out of the first `n`.
+ * - Except for stored copies' sets (`copy-rows.ts`): their rows are listed on
+ *   every occlusion path (the table outlives the pyramid's path), and a
+ *   compute pass picks their copies' levels, thinning and frustum each frame
+ *   and fills their lists and counts on the GPU; the pyramid's tests then
+ *   compact those lists like any other.
  * - Every culled draw has a range in shared pools: its copies' matrices (as
  *   drawn, paint slot and all) and world spheres by slot, written only when a
  *   copy changes, and its drawn order (the slot at each place), the only part

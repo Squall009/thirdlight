@@ -1,32 +1,34 @@
 /**
- * Stored copies drawn by the GPU renderer ground cover draws with: rule
- * scatter's baked copies (trees, rocks) and the instance brush's hand-placed
- * sets. Their places come from the data (a copy texture), not from a hash,
- * but the draw is cover's: one draw per mesh of the model and level, its
- * vertex stage placing each instance from a list of blocks the page writes
- * per frame (`cover-gpu.ts`'s placement hook applies it), choosing the
- * copy's level of detail by its own distance and size and thinning it with
- * distance by its rank. The page does no per-copy work to draw.
+ * Stored copies drawn on the GPU: rule scatter's baked copies (trees, rocks)
+ * and the instance brush's hand-placed sets. One draw per mesh of the model
+ * and level; their places come from the data (a copy texture), not from a
+ * hash.
  *
- * Per frame (when the view or the set changed) the page lists, per draw, the
- * blocks of copies (`copies-prepare.ts`) whose levels it may draw: a block's
- * sphere and its copies' smallest and largest scale bound the levels its
- * copies take, so a block far from every switch point is listed in one
- * level's draw only. Each list holds the blocks the view sees first, then the
- * other candidates (a shadow map needs casters off screen), then, for the
- * most detailed level, every other block (a cached static shadow map draws
- * every copy at that level and is not drawn again as the view moves). Which
- * part a pass draws is chosen right before it (`onBeforeRender`).
+ * - **WebGPU: rows of the culled-instance table.** At its first draw a set
+ *   asks the scene's table (`occlusion-instances.ts`) to take it: its copies
+ *   are then picked in compute every frame (level with hysteresis and a
+ *   cross-fade, thinning, frustum, and the depth pyramid where occlusion
+ *   culling runs; `copy-rows.ts`, `copy-rows-select.ts`) and its draws read
+ *   their lists through indirect draws (`copy-rows-draw.ts`). The page only
+ *   hides the draws no copy can reach now, and picks the blocks' levels of a
+ *   set whose blocks draw one level each.
+ * - **WebGL 2 (no compute): the vertex stage.** Per frame (when the view or
+ *   the set changed) the page lists, per draw, the blocks of copies
+ *   (`copies-prepare.ts`) whose levels it may draw, and the vertex stage
+ *   places each instance, chooses the copy's level by its own distance and
+ *   size (the shared screen-size rule, without hysteresis) and thins it by
+ *   its rank (`cover-gpu.ts`'s placement hook applies it). Each list holds the
+ *   blocks the view sees first, then the other candidates (a shadow map needs
+ *   casters off screen), then, for the most detailed level, every other block
+ *   (a cached static shadow map draws every copy at that level). Which part a
+ *   pass draws is chosen right before it (`onBeforeRender`).
  *
- * Levels switch exactly at their distance (no hysteresis: nothing remembers
- * a copy's last level, and a still view shows no flicker). A rule's
- * `shadowDistance` draws its copies near the eye again into the moving
- * shadow map only (shadow-only draws, culled past the distance).
+ * A rule's `shadowDistance` draws its copies near the eye again into the
+ * moving shadow map only (shadow-only draws, culled past the distance).
  *
- * Every draw of every set shares one vertex stage: what differs per draw
- * (its textures, eye, level, distances) is bound per object, so the sets of
- * a scene build one program per material and vertex layout, as the CPU
- * instance sets did.
+ * Every draw of every set shares one vertex stage per path: what differs per
+ * draw (its textures or rows, eye, level, distances) is bound per object, so
+ * the sets of a scene build one program per material and vertex layout.
  *
  * Copies keep an identity only where something asks for one: a ray picks a
  * copy, an editor writes one (`setCopies`), the diagnostics count them. Those
