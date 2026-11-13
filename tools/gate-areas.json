@@ -163,7 +163,8 @@
         "environment-presets",
         "scene-environment",
         "sky-texture",
-        "webgpu-reference"
+        "webgpu-reference",
+        "scene-loads"
       ]
     },
     "effects": {
