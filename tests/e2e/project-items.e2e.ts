@@ -79,20 +79,20 @@ async function showFolder(page: Page, folder: string): Promise<void> {
   await expect(panel.locator('.tl-project')).toHaveAttribute('data-folder', folder);
 }
 
-/** The bottom dock holds the project window, Console and Problems only; the Window menu lists just those; speakers are a project setting (a fresh editor open). */
+/** The bottom dock holds the project window, Console, Problems and the Profiler only; the Window menu lists just those; speakers are a project setting (a fresh editor open). */
 async function dockAndWindowMenu(page: Page): Promise<void> {
 
-  // The dock's own tab strip: three tabs, in this order.
+  // The dock's own tab strip: four tabs, in this order.
   const tabs = page.locator('.tl-dock--bottom > [role="tablist"] > [role="tab"]');
-  await expect(tabs).toHaveCount(3);
-  expect((await tabs.allTextContents()).map((t) => t.replace(/\d+$/, ''))).toEqual(['Project', 'Console', 'Problems']);
+  await expect(tabs).toHaveCount(4);
+  expect((await tabs.allTextContents()).map((t) => t.replace(/\d+$/, ''))).toEqual(['Project', 'Console', 'Problems', 'Profiler']);
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
 
-  // The Window menu lists those three among its windows, and none of the tabs that went.
+  // The Window menu lists those four among its windows, and none of the tabs that went.
   await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
   const items = await page.getByRole('menu').getByRole('menuitem').allTextContents();
   await page.keyboard.press('Escape');
-  for (const kept of ['Project', 'Console', 'Problems', 'Lighting', 'Environment']) expect(items.some((t) => t.startsWith(kept)), kept).toBe(true);
+  for (const kept of ['Project', 'Console', 'Problems', 'Profiler', 'Lighting', 'Environment']) expect(items.some((t) => t.startsWith(kept)), kept).toBe(true);
   for (const gone of ['Assets', 'Materials', 'Animator', 'Prefabs', 'Graphs', 'Effects', 'Dialogue', 'Timelines', 'Libraries', 'UI', 'Behaviors', 'Gameplay', 'Media', 'Blocks']) expect(items.some((t) => t === gone), gone).toBe(false);
 
   // GameObject → Prefab copy… lists the prefabs in the project window.
@@ -115,13 +115,13 @@ async function dockAndWindowMenu(page: Page): Promise<void> {
 }
 
 // The dock check first, on the fresh editor; the Create menu part then works in the same project (it makes no prefab or speaker).
-test('the bottom dock holds the project window, Console and Problems only; the Window menu lists just those; speakers are a project setting; the Create menu makes every kind in the folder shown and opens it in its editor', async ({ page }) => {
+test('the bottom dock holds the project window, Console, Problems and the Profiler only; the Window menu lists just those; speakers are a project setting; the Create menu makes every kind in the folder shown and opens it in its editor', async ({ page }) => {
   test.setTimeout(300_000);
   be = await startBackend('project-items-0001', 'starter');
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
-  await test.step('the bottom dock holds the project window, Console and Problems only; the Window menu lists just those; speakers are a project setting', () => dockAndWindowMenu(page));
+  await test.step('the bottom dock holds the project window, Console, Problems and the Profiler only; the Window menu lists just those; speakers are a project setting', () => dockAndWindowMenu(page));
   const model = await importModel(page);
 
   // A new animator controller takes the clips of the model chosen in the project window.

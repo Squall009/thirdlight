@@ -123,6 +123,30 @@ export function usePlaySession(
     [playInfo],
   );
 
+  /**
+   * One poll of the profiler panel: the running Play's frame profile taken in
+   * since `after` (the cursor of the last answer; absent: all it keeps), with
+   * the build and renderer a capture's header names — over the preview
+   * bridge, answered by the play page; null when nothing answers in 2 s.
+   */
+  const profilePlay = useCallback(
+    (after?: { page: number; sim: number; spikes: number }): Promise<Record<string, unknown> | null> =>
+      new Promise((resolve) => {
+        const b = bridgeRef.current;
+        if (b === null || playInfo === null) {
+          resolve(null);
+          return;
+        }
+        const relayId = localRelayId();
+        debugWaitersRef.current.set(relayId, resolve);
+        b.requestProfile(playInfo.playSessionId, relayId, after);
+        window.setTimeout(() => {
+          if (debugWaitersRef.current.delete(relayId)) resolve(null);
+        }, 2000);
+      }),
+    [playInfo],
+  );
+
   // The play's renderer (backend, state, reason) for the Play label, from its
   // diagnostics (every play has them; the observation needs a game).
   const playDiagnostics = useCallback(
@@ -301,14 +325,16 @@ export function usePlaySession(
       }
       ack({ type: 'game.observe.ack', relayId: r.relayId, ...outcome(r, ['result']) });
     });
-    // The visual-script debugger's polls (the editor's own; never a backend relay).
-    bridge.on('tl.debug.result', (m) => {
+    // The visual-script debugger's and the profiler panel's polls (the editor's own; never a backend relay).
+    const ownAnswer = (m: unknown): void => {
       const r = m as Record<string, unknown>;
       const waiter = debugWaitersRef.current.get(String(r.relayId));
       if (waiter === undefined) return;
       debugWaitersRef.current.delete(String(r.relayId));
       waiter(r.ok === true && typeof r.result === 'object' && r.result !== null ? (r.result as Record<string, unknown>) : null);
-    });
+    };
+    bridge.on('tl.debug.result', ownAnswer);
+    bridge.on('tl.profile.result', ownAnswer);
 
     const onLoad = (): void => {
       // The editor holds the retained play.started snapshot; on the
@@ -386,7 +412,7 @@ export function usePlaySession(
 
   return {
     playing, setPlaying, playInfo, setPlayInfo, bridgeRef, playIframeRef, forwardRelayRef, playRenderer, playMode, playSaveNote,
-    observeEntity, debugPlay, play, stop, previewSrc, clearPlaySave,
+    observeEntity, debugPlay, profilePlay, play, stop, previewSrc, clearPlaySave,
   };
 }
 

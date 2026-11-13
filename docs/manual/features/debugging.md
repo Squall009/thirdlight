@@ -86,7 +86,7 @@ the frame-rate cap the page draws under (`frameRateCap`, null: none).
 It is presentation like `ctx.ui.view()`: not in the digest or a save. The
 project setting **Engine → Stats overlay** (`stats_overlay`: 0 off and no
 key, 1 shown with **F3** hiding it, 2 hidden until F3) draws them top right in Play
-and the export. Play diagnostics carry the same `frameTimes` and the
+and the export; **Shift+F3** adds the frame profiler's view under them ([The frame profiler](profiler.md)). Play diagnostics carry the same `frameTimes` and the
 environment renderer's post passes, quality, samples and fallback
 (`renderer.environment`).
 

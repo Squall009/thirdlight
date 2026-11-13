@@ -15,8 +15,13 @@
  * - With `stats_overlay` 2 the overlay waits hidden; F3 shows it (fps, the
  *   times, "gpu"), F3 hides it again. With 1 the exported game (backend
  *   stopped) shows it from the start.
+ * - The overlay's frame profiler view (the export): hidden at the start and
+ *   reading nothing; Shift+F3 shows a line a thread (page, simulation, job
+ *   workers) against the tier's budget, and its Save capture button writes a
+ *   version 1 capture file.
  */
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { expect, test, type FrameLocator, type Page } from './pw';
@@ -174,6 +179,34 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
     await expect(shown).toContainText(/^\d+ fps/, { timeout: 15_000 });
     await expect(shown).toContainText(/draws [1-9]/);
     await exported.screenshot({ path: 'test-results/engine-stats-export.png' });
+    // The profiler's view: hidden, and the profile not read, over several stats windows.
+    const prof = exported.locator('[data-tl-profile]');
+    await expect(prof).toHaveAttribute('data-shown', 'false');
+    await expect(prof).toBeHidden();
+    await exported.waitForTimeout(1500);
+    await expect(prof).toHaveAttribute('data-reads', '0');
+    await exported.keyboard.press('Shift+F3');
+    await expect(prof).toHaveAttribute('data-shown', 'true');
+    await expect(shown).toHaveAttribute('data-shown', 'true');
+    await expect(prof).toContainText(/^profile +\w+ tier/, { timeout: 10_000 });
+    await expect(prof).toContainText(/page +\d+\.\d\d ms +\S/);
+    await expect(prof).toContainText(/sim +\d+\.\d\d ms/);
+    await expect(prof).toContainText(/jobs +\d+\.\d\d ms/);
+    await expect.poll(async () => Number(await prof.getAttribute('data-reads')), { timeout: 5_000 }).toBeGreaterThan(0);
+    await exported.screenshot({ path: test.info().outputPath('engine-stats-export-profiler.png') });
+    const download = exported.waitForEvent('download');
+    await prof.getByRole('button', { name: 'Save capture' }).click();
+    const file = test.info().outputPath('export-capture.json');
+    await (await download).saveAs(file);
+    const capture = JSON.parse(readFileSync(file, 'utf8')) as { version: number; header: { source: string }; report: { threads: { page: unknown[] } } };
+    expect([capture.version, capture.header.source]).toEqual([1, 'export']);
+    expect(capture.report.threads.page.length).toBeGreaterThan(0);
+    // Shift+F3 again hides the view, and the reads stop.
+    await exported.keyboard.press('Shift+F3');
+    await expect(prof).toHaveAttribute('data-shown', 'false');
+    const after = Number(await prof.getAttribute('data-reads'));
+    await exported.waitForTimeout(1200);
+    expect(Number(await prof.getAttribute('data-reads'))).toBe(after);
   } finally {
     await exported.close();
     await site.close();

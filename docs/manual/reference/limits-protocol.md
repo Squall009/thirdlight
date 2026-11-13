@@ -13,6 +13,7 @@ The limits and defaults `@thirdlight/protocol` defines, by source file. Values a
 | <a id="limit-bridge-debug-result-max-bytes"></a>`BRIDGE_DEBUG_RESULT_MAX_BYTES` | `32768` | The `tl.debug.result` body bound. |
 | <a id="limit-bridge-input-max-bytes"></a>`BRIDGE_INPUT_MAX_BYTES` | `16384` |  |
 | <a id="limit-bridge-input-max-frames"></a>`BRIDGE_INPUT_MAX_FRAMES` | `600` | `tl.input.request` frames/bytes cap: an input request carries one relay. |
+| <a id="limit-bridge-profile-result-max-bytes"></a>`BRIDGE_PROFILE_RESULT_MAX_BYTES` | `1048576` | The `tl.profile.result` bound: the frames every thread closed since the panel's last read, with their spans (a fraction of a second's frames, some tens of KiB; the first read carries the rings, a few hundred). |
 
 <a id="limits-protocol--content"></a>
 ## `content.ts`

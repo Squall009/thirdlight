@@ -43,6 +43,8 @@ export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
   'tl.game.control',
   'tl.game.observe',
   'tl.debug.request',
+  // The editor's profiler panel: the frame profile taken in since its last read.
+  'tl.profile.request',
   'tl.ping',
 ] as const;
 export type BridgeEditorToPreviewType = (typeof BRIDGE_EDITOR_TO_PREVIEW_TYPES)[number];
@@ -58,6 +60,7 @@ export const BRIDGE_PREVIEW_TO_EDITOR_TYPES = [
   'tl.game.control.result',
   'tl.game.observe.result',
   'tl.debug.result',
+  'tl.profile.result',
   'tl.error',
   // A problem the running game reports for its author (once per kind).
   'tl.play.problem',
@@ -77,6 +80,14 @@ export const BRIDGE_INPUT_MAX_BYTES = INPUT_RELAY_MAX_BODY_BYTES;
 export const BRIDGE_DEBUG_MAX_BREAKPOINTS = 64;
 /** The `tl.debug.result` body bound. */
 export const BRIDGE_DEBUG_RESULT_MAX_BYTES = 32_768;
+/**
+ * The `tl.profile.result` bound: the frames every thread closed since the
+ * panel's last read, with their spans (a fraction of a second's frames, some
+ * tens of KiB; the first read carries the rings, a few hundred).
+ */
+export const BRIDGE_PROFILE_RESULT_MAX_BYTES = 1_048_576;
+/** A profile cursor's counts (frames and spikes a page has taken in since it started). */
+const PROFILE_CURSOR_KEYS = ['page', 'sim', 'spikes'] as const;
 /** What a debug request may ask of the running play besides reading. */
 export const BRIDGE_DEBUG_COMMANDS = ['pause', 'resume', 'step'] as const;
 const ENTITY_ID_RE = ID_RE;
@@ -291,6 +302,20 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       }
       return { ok: true };
     }
+    case 'tl.profile.request': {
+      // `after`: the cursor the last answer carried (absent: everything the page keeps).
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'after']);
+      if (bad) return { ok: false, reason: bad.reason, path: bad.path };
+      if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
+      if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      const after = m['after'];
+      if (after !== undefined) {
+        if (!isPlainObject(after) || Object.keys(after).length !== PROFILE_CURSOR_KEYS.length || !PROFILE_CURSOR_KEYS.every((k) => int(after[k], 0, Number.MAX_SAFE_INTEGER))) {
+          return { ok: false, reason: `after must be { ${PROFILE_CURSOR_KEYS.join(', ')} } counts`, path: '/after' };
+        }
+      }
+      return { ok: true };
+    }
     case 'tl.ping': {
       const bad = rejectUnknown(m, ['v', 'type']);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
@@ -315,7 +340,8 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
   // bound would refuse any real scene's PNG.
   // A screenshot answer that is not ok carries no image, so the general bound
   // holds for it as for every other message.
-  if (type !== 'tl.screenshot.result' || m['ok'] !== true) {
+  // A profile answer has its own bound likewise (its frames' spans).
+  if ((type !== 'tl.screenshot.result' && type !== 'tl.profile.result') || m['ok'] !== true) {
     const general = tooLarge(m, BRIDGE_MESSAGE_MAX_BYTES);
     if (general !== null) return { ok: false, reason: general.reason };
   }
@@ -430,6 +456,16 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
       if (m['ok'] && !isPlainObject(m['result'])) return { ok: false, reason: 'result required when ok', path: '/result' };
       // The page trims an observation to fit it (fitGameObservation); this is the wire's own check.
       if (playDiagnosticsBytes(m['result'] ?? null) > GAME_OBSERVATION_MAX_BYTES) return { ok: false, reason: `result exceeds the ${GAME_OBSERVATION_MAX_BYTES}-byte bound`, path: '/result' };
+      return { ok: true };
+    }
+    case 'tl.profile.result': {
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'ok', 'result', 'error']);
+      if (bad) return { ok: false, reason: bad.reason, path: bad.path };
+      if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
+      if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      if (typeof m['ok'] !== 'boolean') return { ok: false, reason: 'ok must be a boolean', path: '/ok' };
+      if (m['ok'] && !isPlainObject(m['result'])) return { ok: false, reason: 'result required when ok', path: '/result' };
+      if (JSON.stringify(m['result'] ?? null).length > BRIDGE_PROFILE_RESULT_MAX_BYTES) return { ok: false, reason: `result exceeds the ${BRIDGE_PROFILE_RESULT_MAX_BYTES}-byte bound`, path: '/result' };
       return { ok: true };
     }
     case 'tl.debug.result': {

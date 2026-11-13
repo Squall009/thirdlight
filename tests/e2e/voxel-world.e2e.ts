@@ -81,7 +81,7 @@
  * the edit.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { glbBytes, pngBytes } from '@thirdlight/shared';
 import { deflateSync } from 'node:zlib';
@@ -987,6 +987,76 @@ interface ProfileE2e {
   cost: { pageSpansPerFrame: number; nsPerSpan: number };
 }
 
+/**
+ * The editor's Profiler tab over a running Play (the 8 km world, the simulation in its worker, the high tier): the
+ * timeline has bars in the page's, the simulation's and the job workers' lanes; a frame picked on it lists spans the
+ * page's profile names; the Budget view is the tier's table; a capture saved from the tab is a version 1 file of the
+ * same tier, and opened again it shows as a file. Pictures at 1280 × 720 and 1920 × 1080.
+ */
+async function profilerPanel(page: Page, pr: ProfileE2e, readProfile: () => Promise<ProfileE2e>): Promise<void> {
+  await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Profiler' }).click();
+  const panel = page.locator('.tl-prof');
+  const timeline = panel.getByTestId('profiler-timeline');
+  const bars = async (lane: string): Promise<number> => Number(await timeline.getAttribute(`data-${lane}-bars`));
+  await expect.poll(() => bars('page'), { timeout: 15_000, message: 'the page lane has bars' }).toBeGreaterThan(30);
+  await expect.poll(() => bars('sim'), { timeout: 10_000, message: 'the simulation lane has bars' }).toBeGreaterThan(10);
+  expect(await bars('jobs')).toBeGreaterThan(0);
+  await expect(panel.getByTestId('profiler-where')).toHaveText('Play running');
+  // Pause, then pick a frame a few columns from the newest: the breakdown is that frame's.
+  await panel.getByRole('button', { name: 'Pause' }).click();
+  await expect(panel).toHaveAttribute('data-paused', 'true');
+  const box = (await timeline.boundingBox())!;
+  await timeline.click({ position: { x: box.width - 30, y: 24 } });
+  const columns = Number(await timeline.getAttribute('data-columns'));
+  const selected = Number(await timeline.getAttribute('data-selected'));
+  expect(selected, 'a frame a few columns before the newest').toBeLessThan(columns - 1);
+  expect(selected).toBeGreaterThan(columns - 12);
+  const fresh = await readProfile();
+  const known = new Set([pr, fresh].flatMap((r) => [...r.threads.page, ...r.threads.sim, ...r.threads.jobs].flatMap((f) => f.spans.map((x) => x.name))));
+  const shown = await panel.getByTestId('profiler-breakdown').locator('tr[data-span-name]').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-span-name')!));
+  expect(shown).toContain('render frame');
+  expect(shown.filter((n) => !known.has(n) && !/^tick \d+$/.test(n)), 'span names the profile does not have').toEqual([]);
+  await page.screenshot({ path: test.info().outputPath('profiler-frame-1280.png') });
+  // The tier's budget table: the high tier (60 Hz), the page's render row at its share of the frame.
+  await panel.getByRole('tab', { name: 'Budget' }).click();
+  const budget = panel.getByTestId('profiler-budget');
+  await expect(budget).toHaveAttribute('data-tier', 'high');
+  await expect(budget.locator('tr[data-thread="page"][data-category="render"] td').nth(2)).toHaveText((0.25 * (1000 / 60)).toFixed(2));
+  expect(await budget.locator('tbody tr').count()).toBeGreaterThanOrEqual(pr.budget.rows.filter((r) => r.budgetMs > 0 && r.thread !== 'jobs').length);
+  await page.screenshot({ path: test.info().outputPath('profiler-budget-1280.png') });
+  // A capture file: version 1, the tier's header, the threads' frames.
+  const download = page.waitForEvent('download');
+  await panel.getByRole('button', { name: 'Save capture' }).click();
+  const file = test.info().outputPath('capture.json');
+  await (await download).saveAs(file);
+  const capture = JSON.parse(readFileSync(file, 'utf8')) as { version: number; kind: string; header: { tier: string; source: string; renderer: string | null; build: string | null }; report: ProfileE2e };
+  expect([capture.version, capture.kind, capture.header.tier, capture.header.source, capture.header.renderer]).toEqual([1, 'thirdlight-frame-profile', 'high', 'editor', 'webgpu']);
+  expect(capture.header.build).toMatch(/^[0-9a-f]{64}$/);
+  expect(capture.report.threads.page.length).toBeGreaterThan(30);
+  expect(capture.report.threads.sim.length).toBeGreaterThan(10);
+  // Opened again: the same views, marked as a file.
+  await panel.getByTestId('profiler-open').setInputFiles(file);
+  await expect(panel).toHaveAttribute('data-mode', 'file');
+  await expect(panel.getByTestId('profiler-where')).toContainText('File capture.json');
+  expect(Number(await timeline.getAttribute('data-columns'))).toBe(capture.report.threads.page.length);
+  await panel.getByRole('tab', { name: 'Spikes' }).click();
+  if (capture.report.spikes.length > 0) {
+    await panel.getByTestId('profiler-spikes').getByRole('button', { name: 'Open' }).first().click();
+    await expect(panel.getByTestId('profiler-breakdown').locator('tr[data-span-name]').first()).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await panel.getByRole('tab', { name: 'Frame' }).click();
+  await page.screenshot({ path: test.info().outputPath('profiler-file-1920.png') });
+  await panel.getByRole('tab', { name: 'Counters' }).click();
+  await expect(panel.getByTestId('profiler-counters')).toContainText('draw calls');
+  await page.screenshot({ path: test.info().outputPath('profiler-counters-1920.png') });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await panel.getByRole('button', { name: 'Back to live' }).click();
+  await panel.getByRole('button', { name: 'Resume' }).click();
+  await expect(panel).toHaveAttribute('data-mode', 'live');
+  await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Project' }).click();
+}
+
 /** Own ms by category, summed over frames. */
 const categorySum = (frames: readonly ProfileFrameE2e[]): number => frames.reduce((n, f) => n + Object.values(f.byCategory).reduce((m, v) => m + v, 0), 0);
 
@@ -1187,6 +1257,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(pr.gpu.room).toBe('headroom meter');
     const perThread = (frames: readonly ProfileFrameE2e[]): string => (frames.length === 0 ? '-' : `${(categorySum(frames) / frames.length).toFixed(2)} ms/frame over ${frames.length}`);
     console.log(`[voxel-play] ${renderer} profile: page ${perThread(pr.threads.page)} (busy ${(pageBusy * 100).toFixed(1)} %), sim ${perThread(pr.threads.sim)} (busy ${(simBusy * 100).toFixed(1)} %), jobs ${perThread(pr.threads.jobs)}; ${pr.cost.pageSpansPerFrame.toFixed(1)} page spans a frame at ${pr.cost.nsPerSpan.toFixed(0)} ns; spikes ${pr.spikes.length}; rows ${JSON.stringify(pr.budget.rows.filter((r) => r.meanMs > 0).map((r) => `${r.thread}/${r.category} ${r.meanMs.toFixed(2)}/${r.budgetMs.toFixed(1)}`))}`);
+    await profilerPanel(page, pr, readProfile);
     // The character falls into the pit (its collider went with the swap that drew the hole).
     await expect.poll(async () => standing.y - ((await observe()).player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);
     const after = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('after.png') }));

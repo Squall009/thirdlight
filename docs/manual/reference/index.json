@@ -502,6 +502,7 @@
 "limit.BRIDGE_INPUT_MAX_FRAMES": {"page":"limits-protocol.md","section":"limits-protocol--bridge"},
 "limit.BRIDGE_LOAD_PROGRESS_MAX_BYTES": {"page":"limits-protocol.md","section":"limits-protocol--delivery"},
 "limit.BRIDGE_MESSAGE_MAX_BYTES": {"page":"limits-protocol.md","section":"limits-protocol--delivery"},
+"limit.BRIDGE_PROFILE_RESULT_MAX_BYTES": {"page":"limits-protocol.md","section":"limits-protocol--bridge"},
 "limit.BRUSH_HARDNESS_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--paint-brush"},
 "limit.BRUSH_MASK_LIMITS": {"page":"limits-project-model-2.md","section":"limits-project-model--paint-brush"},
 "limit.CAMERA_PATH_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--cameras"},

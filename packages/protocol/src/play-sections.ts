@@ -24,6 +24,9 @@ export const PLAY_DIAGNOSTICS_SECTIONS = [
   'audio',
   'frameTimes',
   'saves',
+  // The frame profile's digest (each thread's ms a frame by category against the tier's budget, counters, the worst
+  // spike's spans): only when named, as reading it makes the profile's frames into objects.
+  'profile',
 ] as const;
 
 /** The top-level parts of a game observation besides its header (`GAME_OBSERVATION_HEADER`). */

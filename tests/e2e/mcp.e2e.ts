@@ -93,6 +93,22 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   for (let y = 0; y < img.height; y += 8) for (let x = 0; x < img.width; x += 8) colours.add(img.pixel(x, y).slice(0, 3).join(','));
   expect(colours.size).toBeGreaterThan(20);
   expect((await call('tl_diagnostics', { playSessionId })).isError).toBe(false);
+  // The frame profile's digest, by name: every thread against the tier's budget, inside the diagnostics' bound.
+  type Digest = { tier: string; frames: { page: number; sim: number }; threads: { page: { meanMs: number; categories: Array<{ category: string; budgetMs: number }> }; sim: { meanMs: number } }; counters: { drawCalls: number | null }; gpu: { room: string }; spikes: { kept: number } };
+  const prof = await call('tl_diagnostics', { playSessionId, sections: ['profile'] });
+  expect(prof.isError, JSON.stringify(prof.body).slice(0, 300)).toBe(false);
+  const diagnostics = prof.body.diagnostics as Record<string, unknown>;
+  expect(Object.keys(diagnostics).filter((k) => k !== 'trimmed')).toEqual(['profile']);
+  const digest = diagnostics['profile'] as Digest;
+  expect(JSON.stringify(digest).length).toBeLessThanOrEqual(6144);
+  expect(JSON.stringify(prof.body).length).toBeLessThanOrEqual(16 * 1024);
+  expect(digest.frames.page).toBeGreaterThan(10);
+  expect(digest.frames.sim).toBeGreaterThan(10);
+  expect(digest.threads.page.meanMs).toBeGreaterThan(0);
+  expect(digest.threads.page.categories.find((c) => c.category === 'render')?.budgetMs).toBeGreaterThan(0);
+  expect(digest.counters.drawCalls).toBeGreaterThan(0);
+  // Without the name, the answer has no profile.
+  expect(((await call('tl_diagnostics', { playSessionId })).body.diagnostics as Record<string, unknown>)['profile']).toBeUndefined();
 
   expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);
   await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0);

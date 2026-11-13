@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BRIDGE_EDITOR_TO_PREVIEW_TYPES,
   BRIDGE_PREVIEW_TO_EDITOR_TYPES,
+  BRIDGE_PROFILE_RESULT_MAX_BYTES,
   BRIDGE_VERSION,
   validateBridgeEditorToPreview,
   validateBridgePreviewToEditor,
@@ -35,6 +36,7 @@ describe('allowlist constants (v2)', () => {
         'tl.play.stop',
         'tl.playContent.expect',
         'tl.ping',
+        'tl.profile.request',
         'tl.screenshot.request',
         'tl.snapshot',
       ].sort(),
@@ -55,6 +57,20 @@ describe('allowlist constants (v2)', () => {
       expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: base.playSessionId, relayId: base.relayId, command }).ok).toBe(true);
     }
   });
+  it('the profiler panel\'s messages: a cursor of three counts, an answer past the general bound up to its own', () => {
+    const base = { v: 2, type: 'tl.profile.request', playSessionId: play, relayId: relay };
+    expect(validateBridgeEditorToPreview(base).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ ...base, after: { page: 120, sim: 64, spikes: 0 } }).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ ...base, after: { page: 120, sim: 64 } }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ ...base, after: { page: -1, sim: 0, spikes: 0 } }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ ...base, after: { page: 1, sim: 0, spikes: 0, more: 1 } }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ ...base, extra: 1 }).ok).toBe(false);
+    const result = { v: 2, type: 'tl.profile.result', playSessionId: play, relayId: relay, ok: true, result: { report: { frames: 'x'.repeat(BRIDGE_MESSAGE_MAX_BYTES * 2) } } };
+    expect(validateBridgePreviewToEditor(result).ok).toBe(true);
+    expect(validateBridgePreviewToEditor({ ...result, result: { report: 'x'.repeat(BRIDGE_PROFILE_RESULT_MAX_BYTES + 1) } }).ok).toBe(false);
+    expect(validateBridgePreviewToEditor({ v: 2, type: 'tl.profile.result', playSessionId: play, relayId: relay, ok: false, error: { code: 'not_ready' } }).ok).toBe(true);
+    expect(validateBridgePreviewToEditor({ ...result, ok: true, result: undefined }).ok).toBe(false);
+  });
   it('preview → editor: exactly the v2 set', () => {
     expect([...BRIDGE_PREVIEW_TO_EDITOR_TYPES].sort()).toEqual(
       [
@@ -68,6 +84,7 @@ describe('allowlist constants (v2)', () => {
         'tl.load.progress',
         'tl.play.problem',
         'tl.pong',
+        'tl.profile.result',
         'tl.ready',
         'tl.screenshot.result',
         'tl.stopped',

@@ -38,6 +38,7 @@ import {
   simDelayFromUrl,
 } from '@thirdlight/game-host';
 import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifest } from '@thirdlight/game-host/game-page';
+import { profileDigest, rendererOf } from '@thirdlight/game-host/profile-view';
 import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
@@ -405,6 +406,18 @@ export function bootstrapPreviewM3(): void {
     });
   });
 
+  // The editor's profiler panel: the page's frame profile since its last read, and what its capture header names.
+  bridge.on('tl.profile.request', (m) => {
+    const body = m as { relayId: string; after?: { page: number; sim: number; spikes: number } };
+    const h = handle;
+    const report = h?.host.profile?.(body.after);
+    if (h === null || report === undefined) {
+      bridge.sendProfileResult(playId, body.relayId, notReady);
+      return;
+    }
+    bridge.sendProfileResult(playId, body.relayId, { ok: true, result: { report, build: h.identity.buildId, renderer: rendererOf(h.adapter) } });
+  });
+
   bridge.on('tl.input.request', (m) => {
     const body = m as { requestId: string; frames: readonly IncomingRelayFrame[]; restart?: boolean; hold?: boolean };
     if (handle === null) {
@@ -487,6 +500,8 @@ export function bootstrapPreviewM3(): void {
           frameTimes: h.host.frameStats?.() ?? null,
           // Where the project saves go, whether the browser keeps them under disk pressure (asked at the first save), usage and quota.
           saves: savesStorageOf(h.host.projectSaves ?? null),
+          // The frame profile's digest, only when asked by name (the read makes the profile's frames into objects).
+          ...(body.sections?.includes('profile') === true && h.host.profile !== undefined ? { profile: profileDigest(h.host.profile()) } : {}),
         }, body.sections)),
       });
     });

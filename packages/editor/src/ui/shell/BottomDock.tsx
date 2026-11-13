@@ -1,6 +1,6 @@
 /**
- * The bottom dock: the project window (AssetsTab.tsx), the Console and
- * Problems, wired to the editor's state and commands. Every other kind of
+ * The bottom dock: the project window (AssetsTab.tsx), the Console,
+ * Problems and the Profiler, wired to the editor's state and commands. Every other kind of
  * item is found, made and opened in the project window.
  */
 import type { JSX, Dispatch } from 'react';
@@ -8,6 +8,7 @@ import type { ClientUiState } from '../../session/client';
 import type { WorkspaceAction } from '../../session/editor-window';
 import { ProblemsPanel } from '../ProblemsPanel';
 import { ConsolePanel } from '../ConsolePanel';
+import { ProfilerPanel } from '../profiler/ProfilerPanel';
 import type { SourceIssue } from '../../session/asset-sources';
 import { useAssetFileCheck } from '../useAssetFileCheck';
 import type { ClientRef } from './commands';
@@ -84,6 +85,7 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
       />
     )}
     {bottomTab === 'assets' && <AssetsTab {...props.assetsTab} />}
+    {bottomTab === 'profiler' && <ProfilerPanel playSessionId={playing && playInfo !== null ? playInfo.playSessionId : null} readProfile={props.play.profilePlay} />}
     </div>
   );
 }

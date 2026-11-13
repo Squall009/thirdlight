@@ -20,7 +20,9 @@ it), and the last long frames with what every thread did over them. A page's too
 through `window.__tlProfiler.read()`; the perf harness and `tools/voxel-bench` headroom print each thread's CPU a
 frame from it. The GPU appears as pass shares only: at a frame-rate cap its timestamps are not milliseconds, and
 the headroom meter (`run.mjs headroom`) measures its room on demand. Recording costs about a microsecond a span
-(about 25 spans a page frame), and nothing is built until something reads it.
+(about 25 spans a page frame), and nothing is built until something reads it. The editor's **Profiler** tab, the
+overlay's profiler view (Shift+F3), capture files and the `tl_diagnostics` profile digest show it:
+[The frame profiler](profiler.md).
 
 **Benchmark projects.** Five classes — small (100 entities), medium (2000
 entities, 50 materials, 20 effects), large (16 000 entities over 10 scenes,

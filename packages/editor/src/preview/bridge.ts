@@ -89,6 +89,7 @@ const ANSWER_OF: Readonly<Record<string, string>> = {
   'tl.game.control': 'tl.game.control.result',
   'tl.game.observe': 'tl.game.observe.result',
   'tl.debug.request': 'tl.debug.result',
+  'tl.profile.request': 'tl.profile.result',
 };
 const ANSWER_TYPES: ReadonlySet<string> = new Set(Object.values(ANSWER_OF));
 
@@ -252,6 +253,21 @@ export class Bridge {
   sendDebugResult(playSessionId: string, relayId: string, body: { ok: true; result: unknown } | { ok: false; error: { code: string; message?: string } }): void {
     if (this.direction !== 'preview') throw new Error('sendDebugResult is preview-side only');
     this.postLocal({ v: 2, type: 'tl.debug.result', playSessionId, relayId, ...body });
+  }
+
+  /**
+   * The profiler panel's poll (editor side): the page's frame profile, only
+   * what it took in since `after` (the cursor the last answer carried).
+   */
+  requestProfile(playSessionId: string, relayId: string, after?: { page: number; sim: number; spikes: number }): void {
+    if (this.direction !== 'editor') throw new Error('requestProfile is editor-side only');
+    this.postLocal({ v: 2, type: 'tl.profile.request', playSessionId, relayId, ...(after !== undefined ? { after: { page: after.page, sim: after.sim, spikes: after.spikes } } : {}) });
+  }
+
+  /** Answer a profile request (preview side). */
+  sendProfileResult(playSessionId: string, relayId: string, body: { ok: true; result: unknown } | { ok: false; error: { code: string; message?: string } }): void {
+    if (this.direction !== 'preview') throw new Error('sendProfileResult is preview-side only');
+    this.postLocal({ v: 2, type: 'tl.profile.result', playSessionId, relayId, ...body });
   }
 
   /** Request diagnostics (editor side). */

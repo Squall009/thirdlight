@@ -221,7 +221,7 @@ async function expectDefaultView(page: Page): Promise<void> {
   await expect(editorWindow(page)).toHaveCount(0);
   await expect(page.locator('.tl-tabs--center [role="tab"]')).toHaveText(['Scene', 'Game']);
   await expect(inspector(page)).toHaveAttribute('data-tl-inspector', 'dock');
-  await expect(page.locator('.tl-dock--bottom > [role=tablist] [role=tab]')).toHaveText([/^Project/, /^Console/, /^Problems/]);
+  await expect(page.locator('.tl-dock--bottom > [role=tablist] [role=tab]')).toHaveText([/^Project/, /^Console/, /^Problems/, /^Profiler/]);
 }
 
 test('a double-click opens each kind of item in its editor, an edit there is saved, Esc returns to the default view; the kind menu writes t:; grid and list', async ({ page }) => {
