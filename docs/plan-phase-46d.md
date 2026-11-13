@@ -323,9 +323,10 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
-| 46d.24 | done (24a–24d; 72f2cee5): export low: longest 40–49 ms, ground 0.03 s, pending 7.2–8.6 s, 0 through; full detail 3.6–4.8 s with the mesh rings. Final (26c, Play): baked 0.5 m 3.7–4.0 s; the < 2 s target met only with a ~32 m detail ring at low (1.9–2.0 s, owner's call). D620 open at that |
+| 46d.24 | done (24a–24d; 72f2cee5): export low: longest 40–49 ms, ground 0.03 s, pending 7.2–8.6 s, 0 through; full detail 3.6–4.8 s with the mesh rings. Final (26c, Play): baked 0.5 m 3.7–4.0 s; < 2 s met only with a ~32 m detail ring at low (1.9–2.0 s, owner's call); D620 stays open for it |
 | 46d.25 | done (25a–25c; d7320305): compute fine bricks L0–1 behind `fineBricks` (off); ON does no mip work (D633). 26c: on a 2 m world they do not beat the mesh rings (full detail 0.5–1 s later at low, up to ~3 s at medium); kept behind the switch, B in the final comparison |
 | 46d.26 | done (26a–26c; 26c 9bc95e2a, 1bfd05e1): bake level, baked fine read, read ring to the detail reach. Final (Play, 2 rounds): low detail C 3.7–4.0 / A 5.0–6.0 / B 6.1–6.7 s, medium C 11.6–13.5 / A 16.7–30+ s; C +0.3 GiB, 64 MB/km² more in an export. D640 fixed. Verdict (ii): bake 0.5 m for new worlds, rings stay for 2 m; nothing retired |
+| 46d-c review fixes | done (4644fca4 … 6b947726): phase gate's units fixed, WebGL 2 keeps the rings unless 0.5 m draws past the ring, `fineBuild` (off), D635 fixed (one look rule), failed bakes answered, D641 traced (stop altitude): baked export full detail 2.1–2.3 s at low against 4.8–5.4 s with the rings. D637, D643, D644, D599 open |
 
 ## 8. Results
 
@@ -3461,6 +3462,15 @@ the final table, Iris Xe, WebGPU, at the cap, alone on the host, 2 rounds 04:21�
    and 4 s, gone by 8 s (D622). *Unverified:* motion at full rate (stills), medium on its hardware, WebGL 2 (not run), a
    body walking under a floor in a game (the vitest covers a placed one).
 
+*Gates* (added at the 46d-c review, M4(c); 46d.24a–d recorded none here). 24a–24b: gate-fast-20261111-212018 and
+-215805 GREEN, closing area gate-area-20261111-224210 GREEN. 24c: gate-fast-20261111-231718 GREEN;
+gate-fast-20261111-235325 RED (vitest `far-world.test.ts` failed once and passed alone; e2e `cameras.e2e.ts:315` WebGL 2
+0.4948 against > 0.5 twice, also in gate-rerun-20261112-000947: D616, passed alone at 793a7622 and 92eee6f7);
+gate-fast-20261112-003928, -010053, -013227, -022455 GREEN; closing gate-area-20261112-023656 GREEN (one test failed
+once, passed alone). 24d: gate-fast-20261112-031050 GREEN; -035618 RED build (fixed before the next);
+gate-fast-20261112-035904 RED vitest (`far-world.test.ts:634`, D599, and `stream-speed.test.ts` failed under load, passed
+in gate-rerun-20261112-041455 GREEN); closing gate-area-20261112-044727 GREEN.
+
 ### 46d.25 fine bricks from GPU compute
 
 **46d.25a design** (the brief's §4 points, settled; the render spec's §4 *Fine bricks* is the format view).
@@ -4420,6 +4430,44 @@ change (`voxel-world.e2e.ts` untouched; the voxel area 176 / 148 / 170 s in the 
 
 *Unverified / not done in 26c:* full detail in an export of a baked world (D641), a whole bake of the 8 km world
 (5.0 GB), a hosted (HTTP) export's read rate, medium and high on their hardware, motion at full rate (stills only).
+
+### 46d-c review fixes
+
+The independent review of 46d-c (§9, "46d-c close") and the phase gate gate-phase-20261113-020301 (RED at vitest);
+each finding and what became of it. Gates: §8 "46d-c review fixes, gates" below.
+
+| Finding | What changed, or why not | Commit |
+|---|---|---|
+| A1 (L1) three hooks | Checklist row for `voxel-fine-bricks.ts` and the grid store's uploads (`backend.device`, `backend.get(texture).texture` after `initTexture`; no public three API writes a compute buffer into a texture three owns). The scan's miss was a local named `builder` (the engine's own fine build): renamed | 4644fca4 |
+| A2 (L2) clock-bound tests | `stream-speed`: stand-ins measured from the camera where their swap was chosen (a swap event carries its choice's foci); nearest first counted in the order full level-0 derives are asked, not the order results land (one swap shows most at once, as a set). Worker pool: timeouts far apart (1 s / 3 s hang). Both pass beside 14 busy loops | 4644fca4 |
+| A3 `getRenderTarget is not a function` | `voxel-far-view.test.ts`: a disposed view's palette redraw queued after the frame ran on the test's recorder. Not a broken path in the product; a disposed view now skips the redraw | 4644fca4 |
+| H1 fine build only a URL flag | `voxelWorld.fineBuild: off \| compute` (default off) beside `bakeLevel`: schema, canonical form, validation, resolve, Inspector "Fine build", manual, reference; the page's flag stays as a bench override and a renderer that cannot build turns it off in every world. Inspector and export texts corrected | af076a4a, 9f2f79b3 |
+| M1 D641 untraced | Traced: the 4.3 km park is 316 m over the ground (the "high" altitude takes the highest ground 150 m ahead: the massif's cliff), past the load ring's 96 m height, so no chunk with ground loads there, in every export and with every bake. Not a product defect. Measured with the stop inside the world at 2.5 km (44 m over the ground): baked 0.5 m full detail 2.14–2.34 s after a 60 m/s stop and 2.27–2.32 s after 150 m/s (2 rounds), nothing pending 3.9–4.1 s, longest frame 40–51 ms, 0 of 64 drops through; mesh rings 4.83 / 5.44 s (1 round). D641 won't fix (the bench's stop point) | docs |
+| M2 D635 two builders | Traced: deterministic per node (the same nodes differed in every run; the first six built, which the check read, change with load). Every differing sample had no shown cell in reach: the CPU carried the last look of earlier bricks, the GPU the nearest in its brick. One rule now (the GPU's) in the CPU builder; 0 of 780,759 samples apart over 64 nodes, 0 of 28,431 over the roof gable; the e2e checks every node built (up to 64), bound 2 → 0.5 %. A builder change: caches baked before keep the old fallback in those samples until rebuilt (not versioned) | f0b40578 |
+| M3(a) D594 dig past the ring | Not fixed (no cheap path): with level 0 baked round the focus the edited chunk is outside the shrunk read ring, so even the compute build has no voxels for it. D594 now says what a game sees | docs |
+| M3(b) full rebuild discards the bake | Not fixed: the full build replaces the folder whole. D644 open (keep fine columns whose content keys did not change) | docs |
+| M3(c) failed bake swallowed | Kept and answered: far info `fine.failed`, Inspector "failed: <reason>" with Resume; far reads no longer restart it | 9f2f79b3 |
+| M3(d) `job.changed` never cleared | A landed column rebuilds only its own nodes over the changes made meanwhile (`rebakeFarFine(…, only)`) | 9f2f79b3 |
+| M3(e), M5 WebGL 2 and the bake | Mesh rings kept unless 0.5 m bricks draw past the detail ring: built (fine build, WebGPU) or baked for every column round the focus (the read ring's test); 1 m without compute, a bake under way or stale, and 2 m keep the rings on every renderer. A scene asking 2 m of a world baked finer draws what the cache holds (default chosen, owner to confirm). On the owner page's "for you to confirm" | de7208c4 |
+| M4(a) terrain-cdlod impostor ratio | Alone ×3: 0.601–0.620 at fda36fa8, 0.603–0.617 at 6b947726: not 46d-c's; the ratio was 0.68 to 2026-11-10 and sits at its bound since 46d-b (candidate f50e6ab2, TAAU on upscaled levels): D643 open | docs |
+| M4(b) D637 | Alone ×3: 2 of 3 passed at fda36fa8, 1 of 3 at 6b947726 (31–33 px left): fails alone at the base too, so not a 46d-c regression; D637 open (a test failing alone) | — |
+| M4(c) 46d.24 gate lines | Added to §8 46d.24 | docs |
+| M6 "no shimmer" | Owner page: stills only, motion at full rate unverified | docs |
+| L3 D599 | Reproduced on demand beside 14 busy loops (the same 3,450,364 B); the drawn bytes less the newest commit's groups still pass the budget then (3,274,380 against 2,266,946), so a bound by one commit's groups would not hold: several commits put finer nodes in before the coarse ones close. D599 open (a real overshoot when the far workers are slow); the test's bound kept | docs |
+| L4 one-round cells, partly baked C | Owner page labels B and the 32 m ring as one round, says C in Play ran on a world baked round the bench regions | docs |
+| L5 two scene walks | `voxelWorldBakeLevel` derived from `voxelWorldBakeLevels` | af076a4a |
+| L6 4,096 look words | A look past them draws as its material dry where named, else the block's first look | 9f2f79b3 |
+| L7 46d.24 row | Ends whole | docs |
+| L8 gate time | Nothing cut: the e2e's bake step is the Inspector's state (the browser's part); the far info's states (failed, resumed) are now in vitest (`voxel-far-fine.test.ts`). voxel-world.e2e.ts: the voxel area 147–176 s in 46d-c's gates, 158 / 165 s in this slice's (gate-fast-20261113-030759, the every-area run); its page test alone 54–58 s with every built node checked (64, was 6). The phase gate's time against 46d-b's is the close's to record | — |
+| L9 TAAU/post → scene-loads | `environment` (post, TAAU, upscale, exposure) runs `scene-loads.e2e.ts` too | 6b947726 |
+
+*46d-c review fixes, gates.* gate-fast-20261113-023443 (4644fca4) GREEN; -025032 RED build (FarField over 80 members,
+fixed in the same commit) and -025250 RED vitest (`page-view.test.ts`'s fake far field, fixed the same) before
+gate-fast-20261113-030759 (de7208c4) GREEN (`visual-script-debug.test.ts` failed once under load and passed alone:
+D642); gate-fast-20261113-033517 (af076a4a, every area for the project model) RED vitest (`script-fields.test.ts`'s pin
+for the new optional field, re-pinned: f9051b5a), its rerun gate-rerun-20261113-034612 RED e2e (318 passed, 22.5 min:
+`block-layers.e2e.ts:490` D637 and `shadows.e2e.ts:281` D645), alone gate-rerun-20261113-041028: shadows passed,
+block-layers failed (as at the base). The final unit run: FINAL_GATE.
 
 ## 9. Decision log
 
@@ -5453,6 +5501,104 @@ change (`voxel-world.e2e.ts` untouched; the voxel area 176 / 148 / 170 s in the 
   `docs/briefs/fine-bricks-comparison-2026-11-12.md`.
 - 2026-11-13 (46d.26c): the coverage bench resets the quality levels to the defaults, so a level's `voxelRings` does not
   reach it; a ring candidate is set through the scene's `voxelWorld.quality.<level>.scale`.
+
+- 2026-11-13 (46d-c close, independent review by a fresh agent that did not build it; range fda36fa8..8c5f3e0d).
+  Verdict: close after fixes (H1 the 1 m + compute setup only a URL flag, M1 D641 untraced with the packaged-game
+  recommendation resting on Play runs, M2 two builders held equal by a tolerance that already failed, M3 risks
+  nobody wrote down, M4 gate records, M5 WebGL 2 decided ahead of the owner, M6 "no shimmer" from stills). The
+  phase gate that followed (gate-phase-20261113-020301) was RED at vitest: the fine build's private three hooks not
+  in the checklist (L1), and the speed and worker-pool tests under load (L2). Lead's plan: this fix slice (the
+  gate's failures first, then the WebGL 2 rule, the fine build setting, D641 in an export, D635, the bake's risks,
+  the gate records, the owner page and docs), then the phase gate again, then acc46d-c. The review's findings and
+  what became of each: §8 "46d-c review fixes". The page:
+  > # 46d-c independent review (fda36fa8..8c5f3e0d, phase-45) — 2026-11-13
+  >
+  > **Verdict: close after fixes.** The work follows the owner's 11-11/11-12 direction (new travel measures, compute fine bricks behind a switch, bake level per world, nothing retired, deferred items untouched). Fix H1 and M1–M4 before the owner is asked to confirm verdict (ii).
+  >
+  > ## Findings
+  > **H1 The recommended 1 m setup cannot be chosen by a game, and the Inspector text describes the wrong default.** Compute fine bricks exist only as the page URL flag `?fineBricks=1` (`three-adapter/src/voxel-fine-bricks.ts:33`, `game-host/src/game-page.ts:742`, `runtime/src/voxel-world-host.ts:115`).
+  > There is no project, world or quality field (plan §8 46d.25a:3533 calls it a "world setting"; it is only the streamer's internal option). So "1 m where disk matters and the game targets WebGPU" (owner page :69, :122), which needs the 0.5 m band built by compute, gives a shipped game 1 m bricks past ~78 m.
+  > `voxel-world-descriptor.ts:64` says a 2 m world builds finer bricks while playing (false by default: it keeps the mesh rings). The export note at `workspace/src/voxel-worlds.ts:910` says the same. Fix: correct both texts and say on the owner page that C1 needs a setting that does not exist yet (or add it as a world field).
+  >
+  > **M1 D641 is untraced, and the packaged-game recommendation rests on Play runs.** In every export of the cut world, no level-0 chunk came back after the stop (plan:4407). The one export measure of "full detail" is missing for exactly the case (ii) recommends.
+  > 46d.24's voxel-slice exports did settle (3.6–4.8 s), so exports in general are not shown broken. But "detail held as if still fast" is not ruled out, and that would hit every game. Fix: before asking for (ii), re-run with the stop inside the strip (e.g. 3 km) and trace.
+  >
+  > **M2 "One builder" is two builders, held equal by one tolerance check that already failed.** The bake runs the CPU oracle (`far-bricks-faces.ts`); run-time builds and edits run the WGSL in `voxel-fine-bricks-wgsl.ts` (≤ 8 vote words a sample, :44, where the CPU counts them all).
+  > Equivalence is enforced only in `voxel-world.e2e.ts:747-757`: 6–12 nodes of the small test world, looks < 2 %. D635 read 2.47 %. A GPU build has no load dependence, so the jump from 0.2–0.6 % means some blocks really differ. "Watch" is the wrong status.
+  > Fix: make D635 open, log which nodes differ, and add a town or construction block to the check.
+  >
+  > **M3 Risks for a game that nobody wrote down.**
+  > (a) A run-time dig past the detail ring in a baked world keeps the baked brick: fine bricks are off, and the edited chunk is outside the shrunk read ring (`far-fine-nodes.ts:93-101`). D594 still describes only the coarse levels; with 0.5 m bricks to 156 m it is now far more visible. Update D594.
+  > (b) A full rebuild of the far cache replaces the folder whole (`voxel-far-cache.ts:483`): a brick-build bump or an external edit throws away a 5 GB / 3.7 h fine bake.
+  > (c) A bake that fails is swallowed (`voxel-worlds.ts:797` `.catch(() => undefined)`) and restarted by the next far read (:120), with no problem shown. That matters at 5 GB (ENOSPC).
+  > (d) `job.changed` is never cleared, so every column that lands re-bakes every change made since the bake began (:807).
+  > (e) A scene asking 2 m on a world another scene baked to 0.5 m still draws near-only with baked bricks, and on WebGL 2 loses its mesh rings.
+  >
+  > **M4 Gate records.**
+  > (a) gate-fast-20261112-201901 (head c2b0933a, wide) was RED on `terrain-cdlod.e2e.ts:520` (impostor ratio 0.594 against > 0.6, D376's check). It appears in no plan line and no D-row, and was never re-run: the later gates skipped the levels area.
+  > (b) D637 fails alone about half the time inside the range, but it was run alone at the base only once (2bc9f009, which is inside the range; fda36fa8 failed only under load). "Not a 46d-c regression" is not shown, and watch is the wrong status for a test that fails alone.
+  > (c) 46d.24a–d's results record no gate at all: 235325 RED (D616) and 035904 RED (D599) appear only in audit rows.
+  > Fix: add a D-row and an alone rerun for (a); make D637 open with alone runs ×3 at fda36fa8; add a gate line to §8 46d.24.
+  >
+  > **M5 WebGL 2 behaviour was decided ahead of the owner's call.** The bake brief §4 left WebGL 2 on baked worlds to the owner, "do not delete the rings on this ground alone". Yet any offered bake turns near-only on for every renderer (`voxel-streamer.ts:1489`), including a partly baked world (2 m blobs while it bakes, 3.7 h on the 8 km world). The brief wanted the editor on compute bricks while a bake is stale, but compute is off.
+  > A 1 m world on WebGL 2 now draws worse than today (page :71), against "WebGL 2 keeps what it draws". It is logged as a default (§9 26b), but it is not in the page's "for you to confirm". Fix: list it there, or keep the rings until the bake is complete.
+  >
+  > **M6 The owner page says "no shimmer or crawl" (:61-62) from stills only.** That is 8 frames 0.25 s apart and 12 frames 0.5 s apart; plan:4320 says motion at full rate is unverified. Fix: label it unverified on the page.
+  >
+  > **L1** `voxel-fine-bricks.ts:119-121,319-321` uses `backend.device` and `backend.get(texture).texture`, but `docs/three-upgrade-checklist.md` (unchanged in the range) has no row for the file. Add one.
+  > **L2** `stream-speed.test.ts:315` (mean over thirds, 85.98 vs 85.67) and `stream.test.ts` failed in gate-fast-20261112-212743 with no watch row. `:100` drives the flight by `performance.now()`: the ordering depends on the clock. Count by updates, or add the row.
+  > **L3** D599 repeated 3× in the range with the identical 3,450,364 B. Its own row says to bound it by groups in flight if it repeats. Do that.
+  > **L4** Owner page: B's cells are one round and the 32 m ring result is one round, neither labelled. C in Play ran on a world baked only round the bench regions (plan §9 26b), which the page does not say. The in-flight cells for C are of a partly baked world.
+  > **L5** `project-model/src/voxel-world.ts:163,177`: `voxelWorldBakeLevel` duplicates the scene walk of `voxelWorldBakeLevels`. Derive one from the other.
+  > **L6** `far-fine.ts:139` throws RangeError on a block with more than 4,096 look words (material × wetness × construction can exceed that). Degrade instead of failing the node.
+  > **L7** Plan :326, the 46d.24 progress row, ends mid-sentence ("D620 open at that").
+  > **L8** Gate time: the voxel area went ~113 s (46d-b close) → 147–176 s. That is explained by the WebGPU fine-brick check (+GPU vs CPU, textured, dig, roof) and the Play bake (+17 s, a second Play). The bake's progress API could be a backend vitest, with only the Inspector state left in e2e. Record the phase-gate time against 46d-b at the close.
+  > **L9** D638 (scene-loads, broken since f50e6ab2 in 46d-b) slipped past the 46d-b phase gate. Its area map still does not tie TAAU/post changes to `scene-loads.e2e.ts`.
+  >
+  > Clean: no history comments, no undocumented `eslint-disable` (none added), no new e2e files, size, redefinition and docs checks OK with no ratchet entry grown.
+  > Constants are imported into the WGSL from `@thirdlight/voxel`. The far shade reuses `voxel-surface.ts` `farSurface` and the shared `heaviestTwo`/`triplanarWeights` (no copy).
+  > Far cache format 3 is add-only: format 2 stays current for a 2 m world, and an unknown format is refused (`voxel-far-cache.ts:174`). The canonicalizer and field list carry `bakeLevel`; the script pin was re-pinned with a reason.
+  > 57882976's "+2 TAAU seed draws" is sound but couples the test to three's TAAU internals. 5abc05c9's dropped pixel-count bound has a sound reason (mips keep the mean; the 7× detail ratio is kept).
+  > Relief, detail-piece LODs and GPU tessellation were not revived. No near-mesh detail is stored. 25c's unfair-ring correction (B 1.4 → 5.9–6.1 s) is carried through to the page.
+  >
+  > ## Owner requirements 2026-11-10…12
+  > **Met (low, Iris Xe, at the cap):** longest frame < 100 ms, 0 frames over it (C 46–53 ms, A 53–65 ms); ground solid < 0.5 s (0.03–0.10 s); nothing pending < 10 s with C (4.8–5.3 s). No level 0 at speed, staged swaps, stale work cancelled, collision-only derives round bodies, coarse floor.
+  > Also met: compute fine bricks built, compared and behind a switch; nothing retired; bake level per world (2 / 1 / 0.5 m), by region, resumable; format 3 with its owner note; the export ships the asked levels; no baked read past 40 m/s.
+  > **Not met:** full detail < 2 s at low (C 3.7–4.0 s, A 5.0–6.0 s; only a ~32 m detail ring gives 1.9–2.0 s, one round, which costs windows and kit pieces: D620). Nothing pending < 10 s with the default mesh rings at 150 m/s (10.2–10.8 s).
+  > Also not met: "no hole" at speed on medium (A 7–19 frames, C 0–3: D634). At low it is 0–1.
+  > **Never falls through — met as measured, narrowly:** 0 of 83 / 34 drops. The bench drops a body at rest every 2 s and judges it by the true ground (D619's fix). D621: 2–11 drops a flight end held mid-air.
+  > A body moving at 150 m/s is not measured (vitest moves one at 60 m/s only: `collision-ready.test.ts:321`).
+  > **Deviated, logged:** D618 (won't fix); WebGL 2 draws baked bricks (M5); one builder with tolerance (M2); the benches ran in Play, not an export (§9 26b).
+  > **Unverified:** medium/high on target hardware (labelled); full detail in a baked export (D641); a whole 8 km bake and its backend memory (D636); a hosted (HTTP) read rate; motion at full rate.
+  > Open rows are fairly described: D585, D613, D617, D620, D621, D622, D628, D631, D634.
+  >
+  > ## Owner's eyes / ears
+  > 1. Motion at full rate, low and medium: the pop where houses enter the detail ring (kit pieces and windows appear), and TAAU shimmer or crawl on textured fine bricks and on the D631 contour lines. Only stills were checked.
+  > 2. Baked 0.5 m against the mesh rings at town-west, town-street, near-border and near-boulders (`work/46d.26c/shots/side-by-side/`): is "better at the town, slightly worse at rocks/gravel" right?
+  > 3. WebGL 2 on a baked world: flat palette walls past the ring (`gl2A-vs-gl2C`), and the 1 m world's colour bleeding onto walls. Is that acceptable for the fallback?
+  > 4. A 150 m/s stop with a character: does being held mid-air (D621) or the coarse floor's drop at the hand-over feel wrong?
+  > 5. The 32 m detail ring against the < 2 s target (A5 is the owner's to revisit). Disk: +64 MB/km² for 0.5 m; an export of 579 MB against 162 MB.
+  > 6. Decisions marked "owner to confirm" in §9 from 2026-11-11 on, especially fine-hold 156 m on every tier, near-only on every renderer once a bake is offered, and the bake starting on a scene change.
+- 2026-11-13 (46d-c review fixes, M5, default chosen, owner to confirm): **a world gives its mesh rings up past the
+  detail ring only where it draws 0.5 m bricks there**: where fine bricks are built (`fineBuild: compute`, WebGPU) or
+  where its far cache holds level 0 baked for every region column round the focus (the read ring's own test). A world
+  baked to 1 m with nothing built, a bake under way or stale round the focus, and a 2 m world keep their level-1/2 rings
+  and their whole read ring on every renderer, and the far field draws out from the rings as for a 2 m world. This
+  restores the bake brief's "do not delete the rings on this ground alone" for WebGL 2 until the owner has the pictures
+  (WebGL 2 on a complete 0.5 m bake draws flat-colour bricks: `gl2A-vs-gl2C`; on the owner page's "for you to confirm").
+  The editor's views follow the same rule (the streamer's); the brief's "editor on compute bricks while a bake is stale"
+  holds only where the world's fine build is compute.
+- 2026-11-13 (46d-c review fixes, M3(e), default chosen, owner to confirm): **a scene draws what its world's cache
+  holds**: the cache is the world's (baked to the finest level any scene asks), so a scene asking 2 m of a world another
+  scene baked to 0.5 m draws the baked bricks where they are complete round the focus, as that scene does. The scene's
+  own `bakeLevel` decides only what is baked and shipped.
+- 2026-11-13 (46d-c review fixes, H1): **`voxelWorld.fineBuild: off | compute`, default off**, beside `bakeLevel`: the
+  0.5 m (and, at 2 m, 1 m) bricks the bake does not hold are built while playing on WebGPU only where a world asks it;
+  the page's `?fineBricks=1` stays as a bench override, and a renderer that cannot build turns it off in every world.
+- 2026-11-13 (46d-c review fixes, M2): **one look rule for a sample with no shown cell in reach**: the nearest sample
+  before it in its brick with a look, else after, else none: the GPU build's (each brick alone), now the CPU
+  builder's too. Not versioned: caches baked before keep the old fallback in those samples until their nodes are built
+  again (inside or deep under the surface; the e2e's 64 nodes read 0 looks apart afterwards).
 
 ## 10. Open questions for the owner
 

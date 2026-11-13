@@ -1,6 +1,6 @@
 # Thirdlight — Status
 
-Updated 2026-11-13. Current work: **46d-c** (`docs/plan-phase-46d.md` §6d): 46d.24, 46d.25 and 46d.26 done; the close next,
+Updated 2026-11-13. Current work: **46d-c** (`docs/plan-phase-46d.md` §6d): 46d.24–46d.26 done; the close's review fixes done, its phase gate next,
 on the branch `phase-45` (worktree `~/projects/thirdlight-p45`); `main` is frozen at d4053cab until the voxel merge
 (48c). The voxel world is phases 45–49 (`docs/plan-phase-45.md`). Order and future work: `docs/roadmap.md`. Goal and
 scope: `docs/architecture/charter.md`. Work rules: `AGENTS.md`. Each phase's items, numbers and decisions are in its
