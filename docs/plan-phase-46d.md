@@ -280,7 +280,7 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 |---|---|
 | 46d.24 | Travel at speed by the owner's new measures (the coverage bench keeps its hole check): longest frame in flight, frames over 100 ms, missed a minute; after a stop the seconds until the ground under the camera is solid, full detail stands (~50 m), nothing is pending; never falling through. Mechanisms in order: no level 0 at speed, stale work cancelled, collision on its own path along the bodies' velocity, a coarse fallback floor from the far field's 2 m data, D585. Pinned regions and path hints planned, built only if cheap. 60 and 150 m/s, low and medium. |
 | 46d.25 | Fine bricks (levels 0–1) built in GPU compute past the detail ring, on demand from the chunks' voxel grids, never stored, behind a switch beside the level 1–2 mesh rings; compared on WebGPU, low and medium (D593 and 46d.12b poses by picture, the headroom meter, fill, 46d.24's measures, memory) before any mesh ring or seam is retired; say if the level 1 → 2 boundary shows. |
-| 46d.26 | 26a done; 26b done (b07407ee): baked 0.5/1 m read, 0 built; read ring → detail reach where baked; hold 156 m; WebGL 2 draws them; bake starts on the command, Inspector progress, pause/resume. Low 60 C/A/B: detail 3.9/5.2/6.5 s, pending 5.0/9.6/6.5, loads after stop 1.7k/4.1k; medium 150 holes 11/20/41. D638 fixed. 26c: 13 poses + verdict |
+| 46d.26 | Bake level per world (26a), baked fine levels read at run time (26b), the final comparison (26c): A mesh rings, B compute bricks, C baked 0.5 m on WebGPU low and medium, 13 poses, travel, meter, memory, a baked export; verdict for the owner in `docs/briefs/fine-bricks-comparison-2026-11-12.md` |
 
 ## 7. Progress
 
@@ -323,9 +323,9 @@ After the 46d-b close, before 46e (`docs/briefs/streaming-rings-2026-11-11.md`; 
 | 46d.22 | done (75f78691, 28c1aa66): D593 fixed (low's load ring + level 1 at medium's reach). `run.mjs coverage`: 9.8 km at low 30 Hz, every frame. 150 m/s: holes 0–4 → 0 frames; ground under camera missing 97 → 15 % of updates (60 m/s 58–95 → 0–1 %): ring narrows with speed, work along the way ahead. Live heap 60 m/s hug 1,119 MiB over 1,024 (D597); D585 seen hugging; D598 |
 | 46d.23 | done (dd09676d, 85428e3f): D597 fixed (removed voxel meshes kept by three's render objects): 60 m/s hug heap 395 → 1,132 became 428 → 656, home 633 MiB. `LOW_MEMORY_BUDGET_MIB` 4096 = page 1536 + GPU 2560; low stream 768, far 384, 512 px/m, medium/high ≥ low. None binds on the 8 km world (0 evictions, 0 held, 1024² sets): same pictures, room 25 → 24 ms. D604–D606 |
 | 46d.15 | done (d484d1d2 … e9581c15, 57522215): phase gate GREEN gate-phase-20261111-144708 (23 min vs 35 full), review close-after-fixes, fixes H1 H2 M1–M3 L1–L8 (H3 superseded by the owner), M5 export at low 2.1–2.5 of 4 GiB, acc46d-b published (16 poses, 2 strips, WebGL 2 smoke) |
-| 46d.24 | done (24a–24c; 24d 60f4c9ca, 72f2cee5): export low: longest 40–49 ms (< 100 met), ground 0.03 s (< 0.5 met), pending 7.2–8.6 s (< 10 met), 0 through (D619 fixed), full detail 3.6–4.8 s (< 2 missed: level-1 refill bounds it, 46d.25). Medium 10–17 / 15–18 s. 150 m/s still 0.6–2 s later than 24b (D620 open) |
-| 46d.25 | done (25a–25c; 25c 40c05fce, 6b3a04f0, d7320305): fine bricks L0–1 behind `fineBricks` (off). 25c: ON does no mip work (60 m/s flight: 1,455 → 0 downsample, 2,043 → 673 derives, D633); ON's detail ring was smaller than OFF's (83 vs 110 chunks, fixed: low 60 detail 5.9 s vs OFF 4.8); D631 streaks mostly gone; D632 bound by the read ring's refill. Keep both; 46d.26 next |
-| 46d.26 | 46d.26a done: storage first (8 km world 0.5 m 5.0 GB ~3.7 h on 4 threads, 1 m 1.36 GB, 2 m 355 MB; terrain 5.4/19.6/71 MB a km², town 3.8/10.6/30); `voxelWorld.bakeLevel`, far cache format 3 (B0/B1 by region), resumable bake, edits via the rebuilt store, export; staging slices baked byte-equal. 26b: run time reads them |
+| 46d.24 | done (24a–24d; 72f2cee5): export low: longest 40–49 ms, ground 0.03 s, pending 7.2–8.6 s, 0 through; full detail 3.6–4.8 s with the mesh rings. Final (26c, Play): baked 0.5 m 3.7–4.0 s; the < 2 s target met only with a ~32 m detail ring at low (1.9–2.0 s, owner's call). D620 open at that |
+| 46d.25 | done (25a–25c; d7320305): compute fine bricks L0–1 behind `fineBricks` (off); ON does no mip work (D633). 26c: on a 2 m world they do not beat the mesh rings (full detail 0.5–1 s later at low, up to ~3 s at medium); kept behind the switch, B in the final comparison |
+| 46d.26 | done (26a–26c; 26c 9bc95e2a, 1bfd05e1): bake level, baked fine read, read ring to the detail reach. Final (Play, 2 rounds): low detail C 3.7–4.0 / A 5.0–6.0 / B 6.1–6.7 s, medium C 11.6–13.5 / A 16.7–30+ s; C +0.3 GiB, 64 MB/km² more in an export. D640 fixed. Verdict (ii): bake 0.5 m for new worlds, rings stay for 2 m; nothing retired |
 
 ## 8. Results
 
@@ -4377,6 +4377,43 @@ frame ~1.4–3 ms more. Medium's room falls 64 → 44 copies still, 52 → 36 mo
 C 26.9, C1 28.6 (C fills more far nodes at medium). *Memory at the town in Play* (page heap + GPU driver-resident,
 MiB, of low's 4,096): low A 639 + 874, B 660 + 911, C 666 + 1,153, C1 631 + 1,185; medium A 714 + 1,309, B 776 +
 1,329, C 933 + 1,543, C1 941 + 1,635. C costs +306 MiB at low over A (far GPU 77 → 134 MiB, the fine nodes' atlas).
+
+**The baked reads, counted** (1bfd05e1: the far field counts the stored bytes it reads, the baked fine levels apart;
+the coverage bench reports them; Play, C, one round each, 01:44–01:54 UTC, `travel/*-C-bytes.json`). After the stop:
+low 60 m/s 4,776 baked entries asked (~940 hold bricks; the rest are nodes the bake stored nothing for), **7.7 MB read**
+(detail 3.68 s); low 150 4,969, **8.1 MB** (3.43 s); medium 60 5,700, **10.9 MB** (11.45 s): about 2 MB/s at low over the
+settle, against 26b's estimate of 4–5 MB from the uploads. In flight the counter shows 48–49 MB at low at either speed,
+94 MB at medium: the same at 60 and 150 m/s, so it is the line start's fill, not a flight rate (no baked node is read
+past the detail speed).
+
+**A baked world in an export** (the "cut": a scratch staging project `voxel-cut`, the 8 km world's region columns rx
+−9…10, rz −3…1, 6.55 km², the town and the coverage line's first 4.3 km, `cut-world.py`; its own far cache built by the
+backend, then **baked by the product to 0.5 m on 4 threads in 1,448 s: level 1 (the 1 m bake) in 653 s, level 0 in
+795 s more** (`cut-bake.mjs`); exported at 0.5 m, 1 m and 2 m; each export served statically with staging stopped,
+01:05–01:44 UTC, uptime 20.4 d, load 1.4–6.0; `export/`):
+
+| the cut world, 6.55 km² | 2 m (A) | 1 m (C1, level 0 by compute) | 0.5 m (C) |
+|---|---|---|---|
+| far cache on disk (coarse / + 1 m / + 0.5 m) | 33.4 MB | + 91.6 MB | + 325.1 MB |
+| the whole export on disk | 162.2 MB | 253.9 MB | 579.0 MB |
+| shipped a km² over 2 m | — | + 14.0 MB | + 63.6 MB |
+| export memory at the town, low (page heap + GPU, of 4,096 MiB) | 320 + 539 | 310 + 593 | 329 + 597 |
+| the same back at the town after both flights | 281 + 564 | 274 + 614 | 308 + 615 |
+| low 60 / 150 m/s: far field settled after the stop | 3.2 / 3.0–3.2 s | 0.8 / 1.0 s | 1.8–2.0 / 1.9–2.1 s |
+| low 60 / 150: longest frame, missed a minute | 40–41 / 45–52 ms, 0 / 2–4 | 47 / 42 ms, 1 / 2 | 46–58 / 42 ms, 1–2 / 0–2 |
+| medium 60 / 150: far settled, missed a minute | 5.3 / 5.3 s, 11 / 19 | — | 3.1 / 2.9 s, 11 / 13 |
+
+Ground solid 0.02–0.04 s, no body through, no frame over 100 ms in any run. **Not measured here: full detail after the
+stop.** At the line's 4.3 km park (next to the massif's corner) the export drew **no level-0 chunk for the 30 s after
+the stop in every run, A and C alike** (A drew 12 level-1 nodes there; the town reading of the memory bench has its
+110 level-0 chunks, so level 0 works in these exports elsewhere): D641, untraced. The hole counts (212–1,047 frames)
+are the bench's, not the world's: it takes a world's bounds as a square, so the strip's sides read as holes (worst
+frames looked at, `export/shots/*-hole-*.png`: the world's side edge and the debug console at the start; no ground
+missing inside the strip). The memory bench flies the whole 9.8 km line, past the strip's end, so its after-flight
+readings are of an empty world; the town and home readings stand. Medium unverified on target hardware.
+
+*Unverified / not done in 26c:* full detail in an export of a baked world (D641), a whole bake of the 8 km world
+(5.0 GB), a hosted (HTTP) export's read rate, medium and high on their hardware, motion at full rate (stills only).
 
 ## 9. Decision log
 

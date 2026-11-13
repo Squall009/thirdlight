@@ -1,6 +1,6 @@
 # Thirdlight — Status
 
-Updated 2026-11-12. Current work: **46d-c** (`docs/plan-phase-46d.md` §6d): 46d.24 and 46d.25 done, 46d.26 (bake level) next,
+Updated 2026-11-13. Current work: **46d-c** (`docs/plan-phase-46d.md` §6d): 46d.24, 46d.25 and 46d.26 done; the close next,
 on the branch `phase-45` (worktree `~/projects/thirdlight-p45`); `main` is frozen at d4053cab until the voxel merge
 (48c). The voxel world is phases 45–49 (`docs/plan-phase-45.md`). Order and future work: `docs/roadmap.md`. Goal and
 scope: `docs/architecture/charter.md`. Work rules: `AGENTS.md`. Each phase's items, numbers and decisions are in its
@@ -67,7 +67,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 43 | Clustered forward lighting, shared shadow atlas, 16-light cap lifted — `docs/plan-phase-43.md` | done 2026-10-30; open D400, D405 |
 | 44 | Consolidation from the global audit (G1–G22) and a docs reset — `docs/plan-phase-44.md` | done 2026-11-01, owner look pending (e73f0f5a): G1–G22 fixed; @thirdlight/shared + redefinition ratchet 163→26; docs 6.3→4.3 MB; full gate green 30 min |
 | 44b | Camera: occlusion modes per camera, adaptive exposure — `docs/plan-phase-44b.md` | done 2026-11-01, owner look pending: pull-in/see-through/none per camera, auto-exposure, bloom after exposure, three r187; D339 fixed; full gate red→fixed; open D427, D429 |
-| 45–49 | Voxel world: formats (45), core (46a–e), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | 45 done 2026-11-02; 46a–46d done 2026-11-03…09 (owner looks pending); 46d-b done 2026-11-11 (owner look pending: acc46d-b); 46d-c: 46d.24, 46d.25 done 2026-11-12, 46d.26 bake level next; branch `phase-45` |
+| 45–49 | Voxel world: formats (45), core (46a–e), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | 45 done 2026-11-02; 46a–46d done 2026-11-03…09 (owner looks pending); 46d-b done 2026-11-11 (owner look pending: acc46d-b); 46d-c: 46d.24–46d.26 done 2026-11-13 (verdict: `docs/briefs/fine-bricks-comparison-2026-11-12.md`), close next |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |
 
 Phases 0–43 are owner look pending where visual or audible (see above). A row's open D-rows are the ones it named;

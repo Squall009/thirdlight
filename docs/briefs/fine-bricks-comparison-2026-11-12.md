@@ -1,107 +1,131 @@
-# Fine bricks against the mesh rings: the comparison (2026-11-12)
+# Past the detail ring: mesh rings, compute bricks or baked bricks — the final comparison (2026-11-13)
 
-For the owner. What was asked (`streaming-rings-2026-11-11.md` §4): build 0.5 m and 1 m bricks on the GPU past the
-detail ring, behind a switch beside the level-1/2 mesh rings, and compare before retiring anything. Built in 46d.25a
-to 25b-2; this is the comparison (46d.25b-3). Details and every number: `docs/plan-phase-46d.md` §8 "46d.25b-3" and
-"46d.25 comparison: the verdict".
+For the owner. One page; every number, run and picture is in `docs/plan-phase-46d.md` §8 "46d.26c" (earlier rounds:
+"46d.25b-3", "46d.25c", "46d.26b"). Pictures: `~/.cache/thirdlight-phase46/work/46d.26c/shots/side-by-side/`.
 
-## After 46d.25c (same day; details `docs/plan-phase-46d.md` §8 "46d.25c")
+## The three ways to draw the band past the detail ring
 
-What changed since the tables below (one round a cell, only what the fixes touch; the full comparison again comes
-with baked bricks in 46d.26, your bake-level decision of today):
+- **A — mesh rings** (today's default). The world is baked to 2 m. Past the detail ring the engine reads the voxels
+  out to 192 m and builds coarser meshes from them while you play (levels 1 and 2, with seams between them). Works on
+  WebGPU and WebGL 2.
+- **B — compute bricks.** Still a 2 m world, but the band past the detail ring is drawn as 0.5 m and 1 m bricks that
+  the GPU builds while you play (`fineBricks` on). Needs the voxels read out to 192 m as well. WebGPU only.
+- **C — baked bricks.** The world is baked to 0.5 m (or 1 m) ahead of time (your bake-level setting). The bricks past
+  the detail ring are read from disk and uploaded; nothing is built while playing, so the engine only reads voxels for
+  the detail ring and collision. WebGPU draws them textured; WebGL 2 draws them in flat colours.
 
-- **With the switch on the mesh rings now do no work at all** (D633): in a 60 m/s flight no downsample (1,455 → 0),
-  no seams, level-0 derives 2,043 → 673, fill 11.5 → 2.0 s. The voxels are still read to 192 m (fine bricks need
-  them); that is what the bake removes.
-- **The tables below compared fine bricks against a smaller detail ring** (83 level-0 chunks at town-west low against
-  110 with the rings). Fixed: both draw the same ring now. Fair, low 60 m/s full detail is 5.9 s with fine bricks
-  against 4.8 s with the rings (not the 1.4 s below), nothing pending 5.9 against 9.2 s; low 150 m/s 6.4 s.
-- **Streaks on the far grass slope** (D631): a texture read, now blended over three axes: mostly gone (two faint
-  hairlines), no dashed line on the gravel; low still holds its 30 Hz cap.
-- **Medium's late settle** (D632) is the 192 m read ring refilling (the worker queue full for 24 s after a 150 m/s stop),
-  not the GPU build; holes at speed: the ground band nearest the camera left undrawn (D634, untraced).
-- Buildings past ~78 m at low (no window recesses, thick eaves; D629) wait for baked 0.5 m bricks pushed farther.
-
-The verdict stays: **keep both behind the switch, retire nothing.**
-
-## What was compared
-
-One build, the switch off (today: mesh rings to 192 m) against on (fine bricks), WebGPU on the Iris Xe at 1280 × 720,
-the low tier at its 30 Hz cap and medium at 60, the same hour, nothing else on the host. Medium numbers are this
-machine's, **unverified on target hardware**. Measured: 13 poses by picture (the town's back row, a street, the
-realistic world's valleys, rivers, cliffs and peaks), the GPU headroom meter per pass with the camera still and moving,
-the cold fill, travel at 60 and 150 m/s (2 rounds), memory in an exported game, the load ring's worker work, and one
-WebGL 2 picture of what retiring would leave there.
-
-Fixed first (D627): at low the back row of the town past ~110 m was still drawn by the 2 m far bricks (melted
-houses). Counted: the 192 m load ring refused every 64 m far node whose near side lay past ~96 m, because its
-neighbours' voxels reach past the ring. Now such a node opens the part that is loaded and keeps the rest; the back
-row reads as houses with gables and roof planes (`shots/side-by-side/town-west-low-backrow-count-vs-partial-*.png`).
+Same build, same hour, the Iris Xe alone on the host, 1280 × 720, low at its 30 Hz cap and medium at 60 Hz. Medium
+numbers are this machine's: **unverified on target hardware**.
 
 ## Low tier (the Iris Xe floor)
 
-| | mesh rings (off) | fine bricks (on) |
-|---|---|---|
-| GPU: near / far pass, still camera | 5.2 / 2.1 ms | 1.6 / 4.8 ms |
-| frame room at the 30 Hz cap (still / moving) | 176 / 176 ballast copies | 176 / 160 |
-| fill from a cold start at the town | 14.0 s | 13.1 s |
-| 60 m/s: longest frame; full detail after the stop; nothing pending | 49–50 ms; 4.4 s; 7.5–8.2 s | 40–43 ms; **1.4 s**; 5.1–5.3 s |
-| 150 m/s: longest frame; full detail; nothing pending | 42–44 ms; 4.6 s; 7.5–8.0 s | 45–47 ms; 5.7–6.4 s; 5.9–7.0 s |
-| fell through / hole frames | 0 / 0–1 | 0 / 0 |
-| memory at the town (page heap + GPU, of 4 GiB) | 866 MiB | 879 MiB |
-
-The "under 2 s until full detail" target is met at 60 m/s for the first time.
+| | A mesh rings | B compute bricks | C baked 0.5 m |
+|---|---|---|---|
+| full detail after a 60 m/s stop | 5.0–5.6 s | 6.1 s | **3.7–4.0 s** |
+| full detail after a 150 m/s stop | 5.9–6.0 s | 6.7 s | **3.8–3.9 s** |
+| nothing left loading (60 / 150 m/s) | 9.8–10.2 / 10.2–10.8 s | 6.7 / 6.7 s | **4.8 / 5.1–5.3 s** |
+| longest frame in flight | 53–65 ms | 43–46 ms | 46–53 ms |
+| missed frames a minute (60 / 150 m/s) | 8–11 / 10–15 | 4 / 11 | **3 / 5–9** |
+| holes in the picture, falls through the ground | 0–1, none | 0, none | 0–1, none |
+| memory at the town (page + GPU, of your 4 GB) | 1.5 GB | 1.6 GB | 1.8 GB |
+| disk a km² (terrain / town) | 5.4 / 3.8 MB | the same | 71 / 30 MB |
+| still frame room at 30 Hz | holds the cap | holds the cap | holds the cap |
 
 ## Medium tier (unverified on target hardware)
 
-| | off | on |
-|---|---|---|
-| GPU frame time, still / moving | 8.5 / 11.0 ms | 11.7 / 11.0 ms (room 64 → 40, moving 52 → 18 copies) |
-| fill at the town | 22.0 s | 26.8 s |
-| 60 m/s: full detail; missed frames a minute | 12.0–12.9 s; 12 | 19.6–21.7 s; 21–23 |
-| 150 m/s: full detail; nothing pending; hole frames | 18.2 s; 19.2–19.4 s; 2–4 | 26.3–26.7 s; still building at 30 s; 15–33 |
+| | A | B | C |
+|---|---|---|---|
+| full detail after a 60 / 150 m/s stop | 16.7–19.9 / 22.7–over 30 s | 19.6 / 25.5 s | **11.8–13.5 / 11.6–12.4 s** |
+| nothing left loading (60 / 150 m/s) | 21.6–23.4 / over 30 s | 23.5 / over 30 s | **13.8–15.5 / 23.5–25.9 s** |
+| missed frames a minute (60 / 150 m/s) | 26–27 / 17–24 | 33 / 25 | 15–20 / 17–18 |
+| holes after 150 m/s | 7–19 frames | 20 | **0–3** |
+| memory at the town (page + GPU) | 2.0 GB | 2.1 GB | 2.5 GB |
+| frame room at 60 Hz (still / moving) | 64 / 52 copies | — | 44 / 36 copies (~2.5 ms less) |
 
-## Pictures, per pose (`~/.cache/thirdlight-phase46/work/46d.25b3/shots/side-by-side/<pose>-<tier>-off-vs-on.png`)
+Baked bricks settle soonest in every cell, both rounds, both tiers. They pay in memory (+0.3 GB at low, the bricks'
+atlas), in the far pass (~5 ms more GPU at low, still well inside 30 Hz; ~2.5 ms less room at medium) and in disk.
+
+## Pictures, per pose (C against A)
 
 | pose | low | medium |
 |---|---|---|
-| town-west (back row 92–192 m) | worse in detail: same shapes, but past ~78 m no window rows, frames or fences | same |
-| town-north | worse: back-row roofs as rounded slabs (thick eaves) | slightly worse |
-| town-peak-4.5km | back rows rounder, no windows past ~78 m | same |
-| town-street | roofs past ~78 m thick-eaved | worse: roofs 70–100 m down the street rounded |
-| near-border | worse in the gully: rocks are rounded lumps (D628) | same as low |
-| near-valley | a short dark dashed line on the gravel ~60–70 m (D631) | same |
-| near-river, near-escarpment | same | same |
-| near-outcrop | same or better (the cliff's ledge lattice calmer) | same |
-| near-boulders | worse: thin dark streaks and a paler patch on one far grass slope (D631) | worse: a straight line across it |
-| peaks (3 poses) | same | same |
+| town-west, town-north, town-peak-4.5km | **better**: roofs past the ring are straight planes with clean edges where the rings show 0.5 m stair-stepped edges; fences show as outlines | better / same |
+| town-street | **slightly worse**: roofs 70–100 m down the street have softer, rounder edges | same |
+| near-border | **slightly worse**: the gully's rock outcrops rounder (D628) | same |
+| near-valley | **slightly worse**: one short thin dark line across the gravel ~60–70 m out | same |
+| near-river | **slightly worse**: faint dark dashes on the far river bed (~150 m) | same |
+| near-boulders | **mixed**: the far slope's colours more natural, but thin dark contour lines on it (D631) | mixed, fainter |
+| near-escarpment, near-outcrop, the three peak views | same | same |
 
-Orbit and walk strips (`strip-low-on-backrow.png`, `walk-{low,medium}-on-strip.png`): no shimmer or crawl seen; a
-pop where a far roof enters the detail ring, as the mesh rings have at their level change. Motion at full rate:
-unverified (stills).
+The thin dark curves that floated over far roof ridges with fine bricks (D640) are **fixed**: the 2 m stand-ins were
+still drawn just behind the edge of the detail ring and stuck out over the near roofs. Orbit and walk strips: no
+shimmer or crawl; houses gain windows and kit pieces as they enter the detail ring, as with the mesh rings.
 
-## What retiring would remove, and the WebGL 2 question
+**B (compute)** looks like C everywhere except the town's back rows at low, where it draws 1 m bricks past ~78 m
+(stepped roof edges again).
 
-About 4,000 lines that exist only for the level-1/2 rings (`stream-mips.ts`, `stream-seams.ts`, `lod-seam.ts`,
-`lod-select.ts`, `stream-lod.ts`, `mip-derive.ts` and the seam/mip bench tools), ~600 more in shared files, ~1,300
-lines of tests. Not yet saved with the switch on: the rings' run-time downsample still runs (D633); only seams and the
-mip derives stop.
+## 1 m against 0.5 m
 
-WebGL 2 has no compute, so with the rings gone it would draw the detail ring and the 2 m far bricks only. One picture
-(`town-west-low-gl2today-vs-gl2retired.png`): every house past ~45 m becomes a melted blob. That breaks your rule
-that WebGL 2 keeps what it draws today. Options:
+On WebGPU a world baked to 1 m, with the 0.5 m band built by compute, looks the same as a 0.5 m bake (roof edges a hair
+more stepped at low) and costs about a quarter of the disk (1 m: 19.6 MB a km² of terrain; the 8 km world 1.4 GB against
+5.0 GB) and 40 % of the bake time. On WebGL 2 there is no compute, so a 1 m world draws 1 m bricks past ~78 m: roofs'
+colour runs onto rounded walls, worse than 0.5 m and than the mesh rings. Baking a 6.55 km² piece of the world: the 1 m level took 11 minutes on 4 threads, the 0.5 m level 13 more.
 
-1. keep the mesh rings as WebGL 2's path only (the code stays; WebGPU never runs it);
-2. build the same fine bricks on the CPU in workers for WebGL 2 (the CPU build already exists as the GPU build's
-   reference and gives the same bytes), so the rings can go everywhere;
-3. accept blobs on WebGL 2.
+## WebGL 2
 
-## Recommendation
+A world baked to 0.5 m draws its fine bricks on WebGL 2 too, in flat colours (no textures): clean house shapes past the
+detail ring, flat walls. A 2 m world keeps the mesh rings on WebGL 2 (without them it would draw 2 m blobs there).
 
-**Keep both behind the switch; retire nothing now** (default chosen, for you to confirm). Low is close: terrain and
-travel are as good or better, but buildings past ~78 m lose windows and eaves get thick (D629), and medium is worse
-after a stop (D632). Next, in order: D632 (medium's settle and holes), D633 (stop the downsample with the switch on),
-D629 (let 0.5 m bricks reach farther for buildings at low), then the same comparison again (the scripts are kept). If
-both tiers hold then, retire the rings for WebGPU and give WebGL 2 option 2, which keeps one draw path.
+## A baked world in an exported game
 
-Open rows from this comparison: D628, D629, D630 (black sky after a long camera jump, both modes), D631, D632, D633.
+Measured on a 6.55 km² piece of the 8 km world (the town and the flight line's first 4.3 km), baked by the engine to
+0.5 m and exported three ways, each played from a plain web folder with the editor stopped (low tier):
+
+| | 2 m (mesh rings) | 1 m (+ 0.5 m by compute) | 0.5 m baked |
+|---|---|---|---|
+| the exported game on disk | 162 MB | 254 MB | 579 MB |
+| extra a km² over a 2 m world | — | +14 MB | +64 MB |
+| bake time for this piece (4 threads) | — | 11 min | 24 min |
+| memory at the town (page + GPU, of 4 GB) | 0.86 GB | 0.90 GB | 0.93 GB |
+| far field settled after a 60 / 150 m/s stop | 3.2 / 3.0–3.2 s | 0.8 / 1.0 s | 1.8–2.0 / 1.9–2.1 s |
+| longest frame, frames over 100 ms | 40–52 ms, none | 42–47 ms, none | 42–58 ms, none |
+
+Full detail after the stop could not be read in these exports: at the flight's stop point (next to the massif's
+corner) no full-detail chunk came back in any of the three, mesh rings included (D641, open). Medium-tier runs gave
+the same picture (far settled 2.9–3.1 s baked against 5.3 s with the rings).
+
+## The < 2 s "full detail after a stop" target (low)
+
+Baked bricks reach 3.7–4.0 s. What is left is the detail ring itself: after a stop the engine re-derives the ~90 chunks
+low draws at full detail (about 6,600 section jobs); the bricks past it are done a second earlier. One cheap change
+measured: **a detail ring of ~32 m instead of ~45 m at low gives 1.9–2.0 s** (half the jobs), but windows, frames and
+fences then end ~13 m nearer (`town-west-low-C-vs-Cring05.png`: the middle houses lose them). Your call; the default
+ring is unchanged.
+
+## What retiring the mesh rings would remove, and what still needs them
+
+Code only for the level-1/2 rings: ~2,800 lines in the voxel package (`stream-mips`, `stream-seams`, `lod-seam`,
+`lod-select`, `stream-lod`, `mip-derive`), ~1,300 lines of bench tools, ~600 lines spread through shared files, ~1,300
+lines of tests. Before any of it goes, the "detail ring only" mode needs its own small replacement for the part of
+`stream-lod` / `lod-select` it still uses to pick the detail ring's chunks.
+
+Still needing the mesh rings today:
+
+1. **2 m worlds on WebGL 2**, and WebGPU devices without the features compute bricks need: without the rings they
+   draw 2 m blobs past the detail ring.
+2. **2 m worlds on WebGPU**: compute bricks (B) do not beat the mesh rings there (full detail 0.5–1 s later at low,
+   up to ~3 s later at medium; same memory), so the rings are still the better 2 m path.
+3. Worlds whose bake is not finished (the editor while it bakes) on WebGL 2.
+
+## Recommendation (default chosen, for you to confirm)
+
+**(ii), in this form:** make **baked 0.5 m the recommended setting for new worlds** shipped as packaged games (1 m
+where disk matters and the game targets WebGPU), and **keep the mesh rings as the default for 2 m worlds** (WebGPU and
+WebGL 2) instead of compute bricks, which did not beat them on a 2 m world. Retire nothing now; change no default
+(`bakeLevel` stays 2 m, `fineBricks` off).
+
+What stands in the way of **(iii) retiring the mesh rings**: a 2 m world would then have no good path on WebGL 2 (blobs)
+nor a better one on WebGPU (B is slower to settle); a ring-free answer for 2 m worlds needs either a CPU build of the
+same fine bricks in workers for WebGL 2 or requiring a 0.5 m bake for every world (disk: ~14× today's far cache);
+the detail-ring-only mode's replacement for `stream-lod`/`lod-select`; the open look rows (D628 rocks, D631 contour
+lines, the gravel and river-bed lines); and medium on real hardware.
