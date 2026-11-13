@@ -288,14 +288,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-event-cue-limits"></a>`EVENT_CUE_LIMITS` | `{"name":64}` | Engine limits: the name length (a signal name's). The table has as many rows as the game needs. |
 
-<a id="limits-project-model--foliage-bend"></a>
-## `foliage-bend.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-foliage-bend-defaults"></a>`FOLIAGE_BEND_DEFAULTS` | `{"margin":0.3,"strength":1,"recovery":1,"ruleBend":1}` |  |
-| <a id="limit-foliage-bend-limits"></a>`FOLIAGE_BEND_LIMITS` | `{"radius":{"min":0.05,"max":50},"strength":{"min":0,"max":4},"recovery":{"min":0,"max":30},"ruleBend":{"min":0,"max":4}}` |  |
-
 <a id="limits-project-model--frame-rate-cap"></a>
 ## `frame-rate-cap.ts`
 
@@ -337,6 +329,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-instance-brush-defaults"></a>`INSTANCE_BRUSH_DEFAULTS` | `{"radius":2,"density":1,"spacing":0.5,"scale":[0.8,1.2],"yaw":360,"align":0,"seed":1}` | A new brush's settings (the editor's starting point). |
 | <a id="limit-instance-brush-limits"></a>`INSTANCE_BRUSH_LIMITS` | `{"dabs":256,"samples":1536,"radius":{"min":0.05,"max":50},"density":{"min":0.001,"max":100},"spacing":{"min":0,"max":50},"scale":{"min":0.01,"max":100},"yaw":{"min":0,"max":360},"align":{"min":0,"max":1},"extent":100000}` | What one stroke may carry. `dabs` and `samples` keep a stroke (with its surface, three numbers per candidate) inside one command request; the rest are the fields' sane ranges. |
+
+<a id="limits-project-model--interactor"></a>
+## `interactor.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-interactor-defaults"></a>`INTERACTOR_DEFAULTS` | `{"margin":0.3,"strength":1,"recovery":1,"ruleBend":1}` |  |
+| <a id="limit-interactor-limits"></a>`INTERACTOR_LIMITS` | `{"radius":{"min":0.05,"max":50},"strength":{"min":0,"max":4},"recovery":{"min":0,"max":30},"ruleBend":{"min":0,"max":4}}` |  |
 
 <a id="limits-project-model--kits"></a>
 ## `kits.ts`

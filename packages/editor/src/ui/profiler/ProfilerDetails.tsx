@@ -171,6 +171,7 @@ export function Counters({ report }: { report: ProfileReport }): JSX.Element {
     ['voxel instances · triangles', c.voxels === null ? '—' : `${count(c.voxels.instances)} · ${count(c.voxels.triangles)}`],
     ['far field on the GPU', mib(c.voxels?.farGpuBytes)],
     ['voxel batches waiting', count(c.voxels?.batchesWaiting)],
+    ['interaction field', c.interaction == null ? 'off' : `${count(c.interaction.stamps)} stamps · ${c.interaction.live ? 'read' : 'idle'} · ${mib(c.interaction.bytes)}`],
     ['job queues', c.queues === null ? '—' : `${c.queues.workers} workers · ${c.queues.queued} queued · ${c.queues.backgroundQueued} background · ${c.queues.inFlight} running`],
     ['GPU room', report.gpu.room === 'headroom meter' ? 'measured by the headroom bench (node tools/voxel-bench/run.mjs headroom): it takes minutes and loads the GPU' : 'not measurable on this page'],
     ['profiler cost', `${report.cost.pageSpansPerFrame.toFixed(1)} page spans a frame at ${Math.round(report.cost.nsPerSpan)} ns`],

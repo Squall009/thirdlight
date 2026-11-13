@@ -267,7 +267,7 @@ async function addInteractors(cmd: Cmd, camera: ReturnType<typeof meadowCamera>,
     const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: `Interactor ${k}`, transform: { position: [start[0], y0, start[1]] } }))['createdId']);
     await cmd('setComponent', { entityId: id, component: 'box', value: { size: [0.5, 1.8, 0.5], material: { color: '#c8c2b8' } } });
     await cmd('setComponent', { entityId: id, component: 'mover', value: { waypoints: points, speed: 1 + (k % 3) * 0.4, mode: 'pingpong' } });
-    await cmd('setComponent', { entityId: id, component: 'interactor', value: {} });
+    await cmd('setComponent', { entityId: id, component: 'interactor', value: { strength: 1 } });
   }
 }
 

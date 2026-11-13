@@ -354,18 +354,24 @@ export class InteractionField {
       });
       const p = win.texelCentreNode(texel);
       TSL.Loop({ start: TSL.int(0), end: count, type: 'int', condition: '<' }, ({ i }: { i: N }) => {
-        const s0 = stamps.element(i.mul(3));
-        const s1 = stamps.element(i.mul(3).add(1));
-        const s2 = stamps.element(i.mul(3).add(2));
-        const st = stampSteps(TSL_SCALAR_OPS, p.x, p.y, { ax: s0.x, az: s0.y, bx: s0.z, bz: s0.w, radius: s1.z, strength: s1.w });
-        const value = st.value.toVar();
-        TSL.If(value.greaterThan(a.z), () => {
-          a.assign(TSL.vec4(s2.x, s2.y, value, s1.x));
-          b.assign(TSL.vec4(s1.y, value.mul(s2.z), s1.z, value));
-        }).ElseIf(a.z.lessThan(PRESSED_EPSILON).and(st.d.lessThan(s1.z.add(INTERACTION_CELL_M * 2))), () => {
-          // A ring past the press keeps the stamp's span, so a read between texels at its rim never mixes in an empty texel's heights.
-          a.assign(TSL.vec4(a.x, a.y, a.z, s1.x));
-          b.assign(TSL.vec4(s1.y, b.y, s1.z, b.w));
+        const s0 = stamps.element(i.mul(3)).toVar();
+        const s1 = stamps.element(i.mul(3).add(1)).toVar();
+        // Most stamps lie far from a texel: their box is all that is read for it.
+        const ring = s1.z.add(INTERACTION_CELL_M * 2);
+        const lo = TSL.min(s0.xy, s0.zw).sub(ring);
+        const hi = TSL.max(s0.xy, s0.zw).add(ring);
+        TSL.If(p.x.greaterThanEqual(lo.x).and(p.y.greaterThanEqual(lo.y)).and(p.x.lessThanEqual(hi.x)).and(p.y.lessThanEqual(hi.y)), () => {
+          const s2 = stamps.element(i.mul(3).add(2));
+          const st = stampSteps(TSL_SCALAR_OPS, p.x, p.y, { ax: s0.x, az: s0.y, bx: s0.z, bz: s0.w, radius: s1.z, strength: s1.w });
+          const value = st.value.toVar();
+          TSL.If(value.greaterThan(a.z), () => {
+            a.assign(TSL.vec4(s2.x, s2.y, value, s1.x));
+            b.assign(TSL.vec4(s1.y, value.mul(s2.z), s1.z, value));
+          }).ElseIf(a.z.lessThan(PRESSED_EPSILON).and(st.d.lessThan(ring)), () => {
+            // A ring past the press keeps the stamp's span, so a read between texels at its rim never mixes in an empty texel's heights.
+            a.assign(TSL.vec4(a.x, a.y, a.z, s1.x));
+            b.assign(TSL.vec4(s1.y, b.y, s1.z, b.w));
+          });
         });
       });
       TSL.textureStore(writeA, TSL.uvec2(x, y), a);

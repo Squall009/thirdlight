@@ -4,7 +4,7 @@
 wind, calms down in a sheltered spot, parts round the player and holds
 60 fps. Every field is in [Ground cover](../features/terrain.md#ground-cover),
 [Wind](../features/environment.md#wind) and
-[Foliage gives way to subjects](../features/environment.md#foliage-gives-way-to-subjects).
+[Foliage gives way to interactors](../features/environment.md#foliage-gives-way-to-interactors).
 
 The steps use the 3D starter, whose project already holds a terrain (layer
 0 shows grass, 1 soil, 2 rock) and grass for ground cover: the model
@@ -42,11 +42,12 @@ detail (`_LOD0`, `_LOD1`, …) and wind weights in the vertex colour
    and, dashed, where its blend ends; with the wind switch on, the grass
    inside stills.
 5. **Grass that gives way.** The camera's target (the player) already
-   parts the grass. To change how much, select the player, **Add component
-   → Foliage bend**: **radius** (m), **strength** (1: a tip leans by about
-   its own height at the body), **recovery** (seconds for the path behind
-   it to stand up). A rule's **Gives way** slider scales it per rule (0 for
-   rocks or trunks that wear a foliage material).
+   parts the grass. To change how much, or to make anything else part it
+   (animals, carts, other characters: as many as you like), select it,
+   **Add component → Interactor**: **radius** (m), **strength** (1: a tip
+   leans by about its own height at the body), **recovery** (seconds for
+   the path behind it to stand up). A rule's **Gives way** slider scales it
+   per rule (0 for rocks or trunks that wear a foliage material).
 6. **Play** and walk through it.
 
 ## Through the API
@@ -78,10 +79,10 @@ detail (`_LOD0`, `_LOD1`, …) and wind weights in the vertex colour
    {"entityId": "<zone>", "component": "windZone",
     "value": {"shape": "sphere", "radius": 25, "blend": 10, "strength": 0, "gust": 0.05}}
    ```
-4. A subject's bend: `setComponent` `foliageBend` `{"radius": 1.2,
-   "strength": 1, "recovery": 1}`. Scripts name other subjects with
-   `ctx.camera.setSeeThrough({ subjects: [...] })` (the nearest four per
-   view bend the grass).
+4. An object that parts the grass: `setComponent` `interactor`
+   `{"radius": 1.2, "strength": 1, "recovery": 1}` (any number of objects).
+   The camera's target, and the subjects scripts name with
+   `ctx.camera.setSeeThrough({ subjects: [...] })`, part it without one.
 5. While the game runs, a storm:
    `ctx.environment.setWind({ strength: 5, gust: 4 }, { blend: 8 })`, and
    back with `ctx.environment.setWind(null, { blend: 8 })`

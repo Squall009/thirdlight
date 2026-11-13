@@ -110,6 +110,8 @@ export interface ProfileReport {
     readonly gpuResources: { readonly geometries: number; readonly textures: number; readonly programs: number } | null;
     readonly voxels: ProfileVoxels | null;
     readonly queues: PoolQueues | null;
+    /** The interaction field round the camera: objects stamped this frame, whether readers read it, its GPU bytes (absent in older captures; null: no field). */
+    readonly interaction?: { readonly stamps: number; readonly live: boolean; readonly bytes: number } | null;
   };
   readonly gpu: {
     /** Whether the renderer resolves timestamps. */
@@ -400,9 +402,10 @@ export class PageProfile {
     const t = after === undefined ? all : this.threads(after);
     const counterFrames = this.counterFrames();
     const stats = this.sources.stats?.() ?? null;
-    const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: { lod?: { instances?: { copies?: number; inView?: number } }; gpu?: { geometries?: number; textures?: number; programs?: number } } } | undefined;
+    const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: { lod?: { instances?: { copies?: number; inView?: number } }; gpu?: { geometries?: number; textures?: number; programs?: number }; interaction?: { field?: { stamps: number; live: boolean; bytes: number } } } } | undefined;
     const inst = d?.ok === true ? d.diagnostics?.lod?.instances : undefined;
     const gpuMem = d?.ok === true ? d.diagnostics?.gpu : undefined;
+    const field = d?.ok === true ? d.diagnostics?.interaction?.field : undefined;
     const passes = this.sources.gpuPasses?.() ?? null;
     const total = passes === null ? 0 : passes.renderMs + (passes.computeMs ?? 0);
     const spans = all.page.reduce((n, f) => n + f.spans.length + f.dropped, 0);
@@ -420,6 +423,7 @@ export class PageProfile {
         gpuResources: gpuMem !== undefined ? { geometries: gpuMem.geometries ?? 0, textures: gpuMem.textures ?? 0, programs: gpuMem.programs ?? 0 } : null,
         voxels: this.sources.voxels?.() ?? null,
         queues: this.queues,
+        interaction: field !== undefined ? { stamps: field.stamps, live: field.live, bytes: field.bytes } : null,
       },
       gpu: {
         timestamps: passes !== null,

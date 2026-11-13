@@ -75,4 +75,13 @@ describe('the page profile', () => {
     p.attach({ gpuPasses: () => ({ renderMs: 6, computeMs: 2 }), meter: () => true });
     expect(p.read().gpu).toEqual({ timestamps: true, shares: { render: 0.75, compute: 0.25 }, room: 'headroom meter' });
   });
+
+  it('counts the interaction field from the adapter\'s diagnostics (none: null)', () => {
+    const p = new PageProfile();
+    let field: unknown = undefined;
+    p.attach({ diagnostics: () => ({ ok: true, diagnostics: field === undefined ? {} : { interaction: { objects: [], field } } }) });
+    expect(p.read().counters.interaction).toBeNull();
+    field = { live: true, stamps: 9, passes: 4, centre: [0, 0], bytes: 2_098_944 };
+    expect(p.read().counters.interaction).toEqual({ stamps: 9, live: true, bytes: 2_098_944 });
+  });
 });

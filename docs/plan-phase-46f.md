@@ -120,7 +120,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 |---|---|
 | 46f.0 | Done 2026-11-13: three 0.187.0 = pin. Baseline §4 (low 30 Hz, 720p, alone): 8 km world room 22.4–23.1 ms, far 39–46 % / near 31–33 %; 150 m/s longest 42–44 ms, 0 > 100 ms, detail 4.5–4.7 s; meadow 977 k tris 10 draws; village 242 draws, main 4.5 ms. Sim-worker CPU unmeasured (no timing). Last fast gate 14 min. |
 | 46f.1 | Done 2026-11-13. a: spans on every thread, `__tlProfiler.read()`, budget table per tier, 10 slices from one arbiter. b: editor Profiler tab (timeline, frame breakdown, budget, counters, spikes, captures), overlay Shift+F3, capture file v1, `tl_diagnostics` profile digest. 150 m/s A/B: HEAD 43.9–50.5 ms inside base 42.0–53.9; spike settle fixed. |
-| 46f.2 | not started |
+| 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 no bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
 | 46f.3 | not started |
 | 46f.4 | not started |
 | 46f.5 | not started |
@@ -256,6 +256,72 @@ fixed: the interval's label over the lane names, a budget table too narrow for i
 thread), children listed before parents where the page's 0.1 ms clock ties starts, a spike's two frames drawn as
 slivers. Page spans read 0.00 ms where they take under the page clock's 0.1 ms (truthful, not hidden).
 
+### 46f.2 — the window helper and the interaction field
+
+**Built.** three-adapter `camera-window.ts`: `CameraWindow` (texels, cell size, step in cells as parameters; origin
+snapped to whole steps round the eye, `moved` in whole cells, `wouldMove`; world ↔ texture mapping as nodes and CPU
+maths from one definition, `windowUvSteps` / `windowEdgeSteps` over `field-ops.ts` `ScalarOps`), `scrolledSource`
+(the scroll's source texel; entering texels have none) and `WindowTargets` (pairs of RGBA half-float storage
+textures, the written one copied back after the pass so readers bind one texture). `wind-field.ts` is rebuilt on it
+(64 × 4 m, steps of 8 cells); its `sample` is public as `MaterialLibrary.windSample` (type `WindSample`, index).
+project-model `interactor` (`interactor.ts`, `interactor-descriptor.ts`; fields `radius`, `strength`, `recovery`, as
+`foliageBend`'s), renamed by the recorded schema 8 step `interactor` (`upgrade-interactor.ts`: objects, prefab parts,
+linked copies' override paths; an object with both keeps `interactor`, with a note); commands, validation, the
+editor's rule card text, MCP docs, reference regenerated, manual (environment, terrain, meadow guide).
+`interaction-field.ts`: 256² × 0.25 m on the window; state A = velocity x, z (m/s), pressed, foot; B = top, rate,
+radius, the press as stamped; heights relative to a base that follows the eye in whole metres. One compute pass a
+frame: scroll by whole cells, linear stand-up at the stamped rate (what an object pressed stands up over its
+recovery, as the old path did), then every stamp (a capsule swept from last frame's place, strength eased in over
+the recovery; a stamp buffer that doubles: no cap) with a box test first. The pass runs only while something
+changes (a stamp moved, eased or left, for the slowest recovery after) or the window must follow; nothing reaches
+the GPU until something presses; readers skip it when idle. `interactors.ts` (`InteractorView`) gathers every
+object with the component (adapter-entities keeps the set) plus see-through's subjects (camera target or the
+script's list) with the defaults. `foliage-nodes.ts` reads `InteractionField.foliageOffset` (one node function;
+cover, stored copies, instances and placed models all go through it): lean down the stamped press's slope by
+pressed × capacity, faded outside foot..top over the radius, held under 0.95 of the height with the same drop.
+`foliage-bend.ts` and its test are deleted. Profiler: page span *interaction field* (category effects), counters
+`interaction` (stamps, live, bytes) and the Profiler tab's Counters row; diagnostics `renderer.interaction`.
+
+**Tested.** vitest: `camera-window.test.ts` (snap, whole-cell moves, the 8-cell wind step, scroll sources, mapping
+CPU = node steps, WGSL); `interaction-field.test.ts` (the CPU twin `interaction-field-reference.ts` against the
+analytic push it replaced: every distance within 6 % of the plant's capacity, direction, strength, rule, weight²,
+bridge, lean held; the path behind a 2 m/s mover: about half at 0.5 s, none at 1.5 s, sideways out of the path,
+stands up after a stop, gone after a recovery; carried with the window and through a moved base; nine objects each
+pressed; the gatherer: ease, sweep, velocity, jump, interactors beside subjects, strength 0; the GPU pass runs only
+while changing, holds 0 bytes before the first stamp, the buffer grows to 64 for 40 stamps, none on WebGL 2; the
+foliage program reads the field on WebGPU, one program for any number of stamps, none on WebGL 2; the pass's WGSL;
+the wind sample in a compute node); `upgrade-interactor.test.ts`; `page-profile.test.ts` (counter); the schema 8
+lists in backend/workspace/integration tests; script-access digest re-pinned at 8. Playwright, WebGPU, real backend:
+`materials.e2e.ts` (no e2e covered bending before): 2 m posts in a foliage material, seven interactors and one
+script subject without the component walk in while P is held; in the export served with the backend stopped every
+ring round them changes 405–925 px against 0–4 px for an empty ring, and after release every ring is back to the
+first picture (0 px); the Inspector shows *interactor component* (about 11 s).
+
+**Measured** 2026-11-13 18:33–19:20 UTC, each run alone, uptime 21.0 d, load (1 min) 0.45–2.4; meadow class, low,
+WebGPU, `frameRateCap=30`, the §4 command (`--walker`: the moving box named by a script; `--interactors 8`: eight
+movers with the component, new flag); raw `~/.cache/thirdlight-phase46f/work/46f.2/{before,after,after2,after3}-*`.
+
+| Run | p95, missed | draws, tris | main ms (CPU) | page profile ms (field span) | GPU compute pass |
+|---|---|---|---|---|---|
+| before, grass | 33.4, 0 | 10, 977 k | 1.78 (2.01) | 1.04 | none |
+| after, grass | 33.4, 0 | 10, 977 k | 1.67 (1.91) | 0.94 (0.007) | none (no stamp: no pass) |
+| before, walker | 33.4, 0 | 12, 977 k | 1.76 (2.00) | 1.01 | none |
+| after, walker | 33.4, 0 | 12, 977 k | 1.86 (2.10) | 1.05 (0.14) | 0.10 ms |
+| after, 8 interactors (3 rounds) | 33.4, 0 | 12, 977 k | 1.71–1.75 (1.95–2.00) | 1.02–1.06 (0.026–0.029) | 0.78 ms |
+
+GPU ms are timestamps at the cap (GPU clock ~520 of 1400 MHz; D544: not trustworthy there): 0.78 ms is about 0.29
+ms at full clock, at the research's ~0.3 ms target; the step from 0.1 ms (one stamp) to 0.78 ms (eight) did not
+move with a box test that skips far stamps (round 3), so its cause is not found (the pass's arithmetic per stamp
+is small); recorded, not tuned further. Memory: 2 MiB of state textures + 768 B of stamps once something presses.
+
+**Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.2/shots/`): `before-standing.png`,
+`before-standing3.png`, `before-moving15.png` (1e1a500b) and `after-standing3.png`, `after-moving15.png` (the meadow
+camera, a 1.8 m box standing with radius 3 m, walking with radius 1.5 m): the parting at its base reads the same
+before and after; from eye height 7 m away it is subtle in both. `e2e-press-before.png` / `-pressed.png` /
+`-after.png` (top-down posts): round every one of the eight objects the posts lean away radially, the empty ring
+and the picture after release are unchanged. Unverified by eye: the recovering trail in motion (pixels only), a
+camera moving through the field's window edge, ground cover on a voxel world (none draws there yet).
+
 ## 9. Decision log
 
 - 2026-11-13 (plan): the phase is planned from the owner-approved consolidation of 2026-11-12; item order is
@@ -307,6 +373,29 @@ slivers. Page spans read 0.00 ms where they take under the page clock's 0.1 ms (
   headroom`): it takes minutes and loads the GPU; the panel's Counters say so.
 - 2026-11-13 (46f.1b, default chosen, owner to confirm): the capture file is the page's `ProfileReport` under a
   header, `version: 1`, `kind: 'thirdlight-frame-profile'`; a later shape is a new version, never an edit.
+
+- 2026-11-13 (46f.2, default chosen, owner to confirm): the view's subjects (the camera's target or a script's
+  list) keep pressing without the component, with the defaults, beside every object that has an `interactor`: a
+  project where the player parted grass keeps doing so after the rename.
+- 2026-11-13 (46f.2, default chosen, owner to confirm): WebGL 2 runs no field (no compute): foliage does not bend
+  round objects there (it did with the four uniforms); the WebGL 2 smoke stays the only check.
+- 2026-11-13 (46f.2, default chosen, owner to confirm): the field's layout is two RGBA16F pairs (A velocity m/s,
+  pressed, foot; B top, recovery rate, radius, the press as stamped), 2 MiB with the read/write pairs, against the
+  research's RGBA16F + R16F (1.3 MB): the rate keeps each object's recovery, the radius fades the bend above and
+  below the body, the stamped press gives the lean its direction (the pressed amount's own slope leans plants in a
+  path partly backward, which the old push never did). Heights are kept relative to a base that follows the eye in
+  whole metres (half floats at a 500 m altitude would hold them to 0.25 m). Foliage does not read the velocity: the
+  old push had none; fog and water will.
+- 2026-11-13 (46f.2, default chosen, owner to confirm): every texel loops over the frame's stamps (a box test
+  first): cost grows with the number of objects pressing, with no cap; a tile list per workgroup is the next step if
+  a scene with hundreds of interactors misses.
+- 2026-11-13 (46f.2): GPU particle effects do not read the public wind sample yet: their `update.wind` block mirrors
+  the CPU evaluator (CPU/GPU parity tests), so switching it to the wind field is a change to the effect model, not a
+  wiring; the sample is exported and proven in a compute node, and waits for a consumer.
+- 2026-11-13 (46f.2): the rename re-pins the script access digest at schema 8 (a recorded step, as earlier
+  same-version changes); a script that read `foliageBend` reads `interactor` now (games are on hold).
+- 2026-11-13 (46f.2, default chosen, owner to confirm): the profile's counters gain an optional `interaction` entry
+  inside capture `version: 1` (a reader of an older capture finds none); no new capture version.
 
 ## 10. Open questions for the owner
 

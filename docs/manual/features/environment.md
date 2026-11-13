@@ -231,29 +231,44 @@ on foliage and a calm zone in view held the cap on both renderers (p95
 16.8 ms, no missed frame); past the wind map, or with no zone near, shaders
 read the global wind alone and skip the map.
 
-## Foliage gives way to subjects
+## Foliage gives way to interactors
 
-Foliage materials also bend away from
-the view's **subjects**: the camera's target, or the objects a script names
-with `ctx.camera.setSeeThrough({ subjects: [...] })` (the same list
-see-through fades round, whether see-through is on or off; the nearest four
-per view). Within a radius of a subject's body a vertex is pushed away from
-it by the subject's strength × its bend weight (COLOR_0 R, squared) × its
-height above its root, and lowered so the plant keeps its length (it lies
-nearly flat at most, never past). Behind a moving subject the pressed path
-stands up again over its recovery time; round one standing still the plants
-stay parted. There is no simulation and nothing stored per plant.
+Foliage materials bend away from every object with an **interactor**
+component, however many there are, and from the view's **subjects** (the
+camera's target, or the objects a script names with
+`ctx.camera.setSeeThrough({ subjects: [...] })`, whether see-through is on
+or off) even without one. Each frame every such object is stamped into the
+**interaction field**, a 64 m square round the camera (256 × 256 cells of
+0.25 m): a soft footprint round its body, swept from where it stood a frame
+ago, holding how hard it pressed, its velocity (m/s) and its body's
+feet-to-top span. A foliage vertex there leans away from the body (sideways
+out of the path behind a moving object) by the press × its bend weight
+(COLOR_0 R, squared) × its height above its root, where its height lies
+inside that span, and is lowered so the plant keeps its length (it lies
+nearly flat at most, never past). What was pressed stands up again over the
+object's recovery time; round one standing still the plants stay parted.
+The field is visual only: scripts and the simulation never read it. Fog and
+water will read the same field.
 
-- The `foliageBend` component on a subject (Inspector → *Add component* →
-  *Foliage bend*) sets `radius` (metres; absent: the body's radius + 0.3 m),
-  `strength` (0–4, default 1: a tip leans by about its own height at the
-  body; 0 parts nothing) and `recovery` (seconds, default 1). A subject
-  without it uses these defaults.
+- The `interactor` component (Inspector → *Add component* → *Interactor*)
+  sets `radius` (metres; absent: the body's radius + 0.3 m), `strength`
+  (0–4, default 1: a tip leans by about its own height at the body; 0
+  presses nothing) and `recovery` (seconds, default 1). A subject without
+  it uses these defaults. Projects that used the older `foliageBend`
+  component open with it renamed (same fields).
 - A scatter or cover rule's `bendAway` (0–4, default 1; the rule card's
   *Gives way* slider) scales how readily its copies give way (0 for trees
   or rocks drawn with a foliage material).
-- `tl_diagnostics` `renderer.foliageBend` lists the subjects bent round now.
-- Cost: eight uniforms shared by every foliage draw and a vertex-stage push
-  that skips vertices which cannot lean; no new shader per subject. On the
-  meadow perf class at the cap the bend measured within noise of none
-  (WebGPU GPU 10.98 against 11.21 ms), with no missed frame.
+- WebGPU only: the field is a compute pass. On WebGL 2 foliage does not
+  bend round objects.
+- `tl_diagnostics` `renderer.interaction` lists the objects pressing now
+  (each with its ease in) and the field's state (stamps, passes, centre,
+  bytes). The frame profiler shows its page time as *interaction field*
+  and its state in *Counters*.
+- Cost: nothing until something presses (no texture on the GPU, no pass);
+  then about 2 MiB of GPU memory, one compute pass a frame while anything in
+  it still moves or stands up again (none while everything pressing stands
+  still), and a vertex-stage read that skips vertices which cannot lean. On
+  the meadow perf class at the low tier's 30 Hz cap: 0.03–0.14 ms of page
+  time a frame, the pass 0.1 ms of GPU time with one mover and 0.8 ms with
+  eight at the cap's ~520 MHz (about 0.3 ms at full clock), no missed frame.
