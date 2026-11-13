@@ -481,7 +481,7 @@ export class GpuCopySet {
         cull: (): boolean => false,
         group: this.culler,
         get inView(): number {
-          return set.table !== null ? (firstOfSet ? set.table.copiesInViewOf(set.rowsSource) : 0) : firstOfList ? list.copiesInView : 0;
+          return set.table !== null ? (firstOfSet ? set.table.copySets.inViewOf(set.rowsSource) : 0) : firstOfList ? list.copiesInView : 0;
         },
       };
       mesh.userData[INSTANCE_SET_KEY] = true;
@@ -494,8 +494,9 @@ export class GpuCopySet {
           pools.matrices = binding.row.matrices;
           pools.slots = binding.row.slots;
           pools.lists = binding.row.lists;
-          pools.visible = t.copyState;
-          pools.counts = t.copyCounts;
+          const extra = t.copyBuffers();
+          pools.visible = extra.state;
+          pools.counts = extra.counts;
           return pools;
         } };
       mesh.onBeforeRender = (_r, scene, camera) => {
@@ -581,7 +582,7 @@ export class GpuCopySet {
     const table = host as InstanceOcclusion;
     this.table = table;
     for (const d of this.draws) {
-      d.binding.row = table.copyRowOf(this.rowsSource, d.mesh);
+      d.binding.row = table.copySets.rowOf(this.rowsSource, d.mesh);
       // Its own program (the marker keys it) reads the table's pools; built at this, the draw's first, draw.
       d.geometry.setAttribute(COPY_ROWS_ATTRIBUTE, d.geometry.getAttribute('position'));
       d.mesh.userData[COVER_DRAW_KEY] = rowsPlacement;

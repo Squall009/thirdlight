@@ -240,8 +240,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
   /** Every instanced draw may be adopted (the pyramid's path); else only copy sets are. */
   private allDraws = true;
   /** Copy rows' draws by cameras other than the view (shadow maps) in this frame, and in the last one. */
-  private otherDraws = 0;
-  private lastOtherDraws = 0;
+  private readonly otherDraws = { now: 0, last: 0 };
   private readonly drawCount = TSL.uniform(0, 'uint');
   private readonly viewMatrix = TSL.uniform(new THREE.Matrix4());
   private readonly projection = TSL.uniform(new THREE.Matrix4());
@@ -344,14 +343,9 @@ export class InstanceOcclusion implements InstanceCullerHost {
     this.copyRows.forget(src);
   }
 
-  /** The row that draws `mesh` of a copy set (null: not adopted, or not this mesh). */
-  copyRowOf(src: CopyRowsSource, mesh: THREE.Mesh): CopyRow | null {
-    return this.copyRows.rowOf(src, mesh);
-  }
-
-  /** A copy set's copies in its view lists, from the last read-back. */
-  copiesInViewOf(src: CopyRowsSource): number {
-    return this.copyRows.inViewOf(src);
+  /** The copy sets' rows (a set's row for a mesh, its copies in view as last read back). */
+  get copySets(): Pick<CopyRowsTable, 'rowOf' | 'inViewOf'> {
+    return this.copyRows;
   }
 
   /**
@@ -391,17 +385,15 @@ export class InstanceOcclusion implements InstanceCullerHost {
     }
     out.mode = 2;
     geometry.indirectOffset = (r.row * ARGS_STRIDE + ARGS_OTHER) * 4;
-    this.otherDraws += 1;
+    this.otherDraws.now += 1;
   }
 
-  /** The pools' GPU-only u32 per place (a copy set keeps its per-copy state there). */
-  get copyState(): StorageBufferAttribute {
-    return this.pools.visible;
-  }
-
-  /** The counts a copy set's draw reads (each list's copies in view, then all), this frame's. */
-  get copyCounts(): StorageBufferAttribute {
-    return this.copyRows.countsBuffer;
+  /**
+   * What a copy set's draw reads besides its pools: the pools' GPU-only u32 per place (where a set keeps its
+   * per-copy state) and each list's counts (in view, then all), this frame's.
+   */
+  copyBuffers(): { readonly state: StorageBufferAttribute; readonly counts: StorageBufferAttribute } {
+    return { state: this.pools.visible, counts: this.copyRows.countsBuffer };
   }
 
   /** Watch `scene`'s draws: each is adopted before it is first drawn (its build then reads copies by list). */
@@ -519,8 +511,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
    */
   update(meshes: Iterable<THREE.Object3D>, camera: THREE.Camera | null, wholes?: (host: InstanceOcclusion) => void, view: CullView | null = null): void {
     if (this.failed !== null) return;
-    this.lastOtherDraws = this.otherDraws;
-    this.otherDraws = 0;
+    this.otherDraws.last = this.otherDraws.now;
+    this.otherDraws.now = 0;
     this.stamp += 1;
     this.ranEarly = false;
     this.ranLate = false;
@@ -705,7 +697,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const c = this.copyRows.diagnostics();
     // Off the pyramid's path the view draws every copy its lists hold.
     const drawn = this.ranLate || this.read.copies.drawn > 0 ? this.read.copies.drawn : c.inView;
-    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn, otherDraws: this.lastOtherDraws }, error: this.failed };
+    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn, otherDraws: this.otherDraws.last }, error: this.failed };
   }
 
   /** Every draw unmarked and drawn as before (the culling of copies stopped): copy sets too. */
