@@ -4412,6 +4412,12 @@ frames looked at, `export/shots/*-hole-*.png`: the world's side edge and the deb
 missing inside the strip). The memory bench flies the whole 9.8 km line, past the strip's end, so its after-flight
 readings are of an empty world; the town and home readings stand. Medium unverified on target hardware.
 
+*Tests and gates.* vitest `far-fine.test.ts` +1 (the cover's edge ring) and the baked-read test's counted bytes; no e2e
+change (`voxel-world.e2e.ts` untouched; the voxel area 176 / 148 / 170 s in the gates below). gate-fast-20261112-212743
+(9bc95e2a) GREEN, `stream-speed.test.ts` (level 0 back nearest first, a mean over thirds, 85.98 against 85.67) and
+`stream.test.ts` (a worker-pool timeout) failed once under the gate's load and passed alone; gate-fast-20261113-002210
+(1bfd05e1) GREEN; closing area gate gate-area-20261113-015607 (voxel, rendering, play; 59 e2e) GREEN.
+
 *Unverified / not done in 26c:* full detail in an export of a baked world (D641), a whole bake of the 8 km world
 (5.0 GB), a hosted (HTTP) export's read rate, medium and high on their hardware, motion at full rate (stills only).
 
