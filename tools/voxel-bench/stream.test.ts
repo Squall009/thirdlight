@@ -182,24 +182,27 @@ describe('worker pool (real module workers)', () => {
   });
 
   it('times out a slow job, ignores its late reply, and replaces a hung or crashed worker', async () => {
-    const p = pool(1, { timeoutMs: 60, hangMs: 400 });
-    const slow = await p.submit({ id: 1, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 200 }, transfer: [] });
+    // Times far apart (a job on time answers in well under the timeout even on a loaded host; a slow one replies
+    // between the timeout and the hang; a hung one never before the hang): a worker started under the gate's load
+    // took longer than a 60 ms timeout to answer its first job.
+    const p = pool(1, { timeoutMs: 1000, hangMs: 3000 });
+    const slow = await p.submit({ id: 1, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 2000 }, transfer: [] });
     expect(slow.status).toBe('timeout');
     // The worker is still busy with it: the next job waits, then runs once the late reply is ignored.
     const next = await p.submit({ id: 2, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 0 }, transfer: [] });
     expect(next.status).toBe('done');
     expect(p.stats.lateReplies).toBe(1);
     expect(p.stats.replaced).toBe(0);
-    const hung = await p.submit({ id: 3, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 5000 }, transfer: [] });
+    const hung = await p.submit({ id: 3, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 60_000 }, transfer: [] });
     expect(hung.status).toBe('timeout');
-    await sleep(500);
+    for (let i = 0; i < 100 && p.stats.replaced === 0; i++) await sleep(50);
     expect(p.stats.replaced).toBe(1);
     expect((await p.submit({ id: 4, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 0 }, transfer: [] })).status).toBe('done');
     const crash = p.submit({ id: 5, kind: 'test-crash', lane: 'near', distance: 0, input: null, transfer: [] });
     expect((await crash).status).toBe('done');
     const after: JobOutcome = await p.submit({ id: 6, kind: 'test-sleep', lane: 'near', distance: 0, input: { ms: 20 }, transfer: [] });
     expect(['done', 'worker_lost']).toContain(after.status);
-    await sleep(100);
+    for (let i = 0; i < 100 && p.stats.replaced < 2; i++) await sleep(50);
     expect(p.stats.replaced).toBe(2);
     expect((await p.submit({ id: 7, kind: 'load', lane: 'near', distance: 0, input: { edge: 32, chunk: { grid: 0, cx: 0, cy: 0, cz: 0 }, bytes: { stored: new Uint8Array([1, 2, 3]), raw: false }, hash: false }, transfer: [] })).status).toBe('refused');
     expect((await p.submit({ id: 8, kind: 'nope', lane: 'near', distance: 0, input: null, transfer: [] })).status).toBe('unknown_kind');

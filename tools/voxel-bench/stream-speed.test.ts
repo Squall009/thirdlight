@@ -223,6 +223,9 @@ describe('streaming at racing speed', () => {
     let aloneOutside = 0;
     let aloneAheadOnly = 0;
     let aloneNearCameraOnly = 0;
+    // Full level-0 derives asked for once the hold is let go, in the order asked, by their chunk's distance.
+    let released = false;
+    const backAsked: number[] = [];
     const submit = pool.submit.bind(pool);
     pool.submit = ((job: PoolJob) => {
       const input = job.input as { chunk?: { cx: number; cy: number; cz: number }; level?: number; parts?: number };
@@ -235,6 +238,7 @@ describe('streaming at racing speed', () => {
           if (!near([body]) && near(ahead)) aloneAheadOnly++;
           if (near([focus]) && !near([body, ...ahead])) aloneNearCameraOnly++;
         } else if (s.detail.fast) fullHeld++;
+        else if (released) backAsked.push(Math.hypot((cx + 0.5) * grid.edge - focus.x, (cz + 0.5) * grid.edge - focus.z));
       }
       return submit(job);
     }) as typeof pool.submit;
@@ -255,7 +259,10 @@ describe('streaming at racing speed', () => {
       }
       if (e.type !== 'levels' || e.reason !== 'swap') return;
       const held = s.detail.held && heldSwaps++ > 0;
-      for (const n of e.added as readonly LevelNode[]) if (n.level === 0) added.push({ held, d: levelNodeDistance(grid, [focus], n) });
+      // From the camera where the swap's choice was made: the flight moves on while a swap is built, and by how far
+      // reads how fast this host's workers ran beside it.
+      const at = e.foci !== undefined ? [e.foci[0]!] : [focus];
+      for (const n of e.added as readonly LevelNode[]) if (n.level === 0) added.push({ held, d: levelNodeDistance(grid, at, n) });
       if (!s.detail.held) heldSwaps = 0;
     });
     const yAt = (x: number) => (surfaceY(oracle, Math.round(x), 0, 600, -200) ?? 0) + 60;
@@ -298,6 +305,7 @@ describe('streaming at racing speed', () => {
     for (const a of inFlight) expect(a.d).toBeLessThanOrEqual(64 + 16);
     // Stopped: held on until the speed stayed down, then let go once.
     ahead = [];
+    released = true;
     s.collision!.setFoci([body]);
     for (let i = 0; i < 5000 && s.detail.held; i++) {
       s.update();
@@ -309,10 +317,13 @@ describe('streaming at racing speed', () => {
     await s.settle();
     const after = added.slice(back).map((a) => a.d);
     expect(after.length).toBeGreaterThan(8);
-    // Nearest first: the first third of level 0 to come back lies nearer the focus than the last third.
-    const third = Math.floor(after.length / 3);
+    // Nearest first: the first third of the full level-0 derives asked for lies nearer the focus than the last third.
+    // Counted in the order the streamer asks, not the order results land in: one swap shows most of them at once (as
+    // a set), and how many a swap gathers reads how fast this host's workers ran.
+    expect(backAsked.length).toBeGreaterThan(8);
+    const third = Math.floor(backAsked.length / 3);
     const mean = (a: number[]): number => a.reduce((n, v) => n + v, 0) / a.length;
-    expect(mean(after.slice(0, third))).toBeLessThan(mean(after.slice(-third)));
+    expect(mean(backAsked.slice(0, third)), `asked ${backAsked.length}`).toBeLessThan(mean(backAsked.slice(-third)));
     // The full results took the bodies over with the same surface.
     expect(handovers).toBeGreaterThan(0);
     expect(differ).toBe(0);
@@ -325,6 +336,6 @@ describe('streaming at racing speed', () => {
       expect(s.collision!.fullCurrent(cx, cy, cz)).toBe(false);
     }
     expect(kept).toBe(s.collision!.count);
-    console.log(`detail ${JSON.stringify({ heldUpdates, fullHeld, alone, aloneAheadOnly, collisionDerives: s.counters.collisionDerives, collisionAir: s.counters.collisionAir, handovers, keptAlone: s.collision!.count, standIns: inFlight.length, back: after.length, cancelledDerives: s.counters.cancelledDerives, airDerives: s.counters.airDerives, derives: s.counters.derives })}`);
+    console.log(`detail ${JSON.stringify({ backAskedThirds: [Math.round(mean(backAsked.slice(0, third))), Math.round(mean(backAsked.slice(-third)))], heldUpdates, fullHeld, alone, aloneAheadOnly, collisionDerives: s.counters.collisionDerives, collisionAir: s.counters.collisionAir, handovers, keptAlone: s.collision!.count, standIns: inFlight.length, back: after.length, cancelledDerives: s.counters.cancelledDerives, airDerives: s.counters.airDerives, derives: s.counters.derives })}`);
   }, 180_000);
 });

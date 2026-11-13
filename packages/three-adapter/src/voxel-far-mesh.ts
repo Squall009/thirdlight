@@ -290,17 +290,17 @@ export class VoxelFarView {
   /** A far change with fine nodes: their builds start, and it is applied once the last is in (after those before it). */
   private hold(far: FarDrawWire): void {
     const entry = { far, results: new Map<number, FineBrickResult>(), pending: 0 };
-    const builder = this.fineBuilder();
+    const fineBuild = this.fineBuilder();
     far.added.forEach((a, i) => {
       if (a.fine === undefined) return;
-      if (builder === null) {
+      if (fineBuild === null) {
         entry.results.set(i, { bricks: null, regions: [], page: null });
         return;
       }
       entry.pending++;
       const check = this.fineChecks > 0;
       if (check) this.fineChecks--;
-      builder.enqueue(a, a.fine, (r) => {
+      fineBuild.enqueue(a, a.fine, (r) => {
         entry.results.set(i, r);
         entry.pending--;
         this.releaseHeld();
@@ -533,6 +533,11 @@ export class VoxelFarView {
 
   /** The palette again, and every resident brick node holding a word whose colour changed baked again. */
   private async refreshPalette(p: FarBrickPalette): Promise<void> {
+    // The redraw runs after the frame: a view disposed (or given a new palette) since then has nothing to draw into.
+    if (p !== this.palette) {
+      this.paletteBusy = false;
+      return;
+    }
     try {
       const changed = await p.update(this.uploader() as unknown as FarPaletteRenderer);
       const atlas = this.atlas;
@@ -702,6 +707,7 @@ export class VoxelFarView {
     this.brickMaterial?.dispose();
     this.atlas?.dispose();
     this.palette?.dispose();
+    this.palette = null;
     this.vis?.dispose();
     this.vis = null;
     if (this.feedback !== null && this.opts.renderer !== undefined) this.feedback.dispose(this.opts.renderer as unknown as FarFeedbackRenderer);

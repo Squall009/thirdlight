@@ -34,6 +34,8 @@ export interface LevelEvent {
   readonly reason: 'swap' | 'lost';
   readonly added: readonly LevelNode[];
   readonly removed: readonly LevelNode[];
+  /** A swap's: the foci its choice was made for (the camera has moved on while it was built). */
+  readonly foci?: readonly Focus[];
 }
 
 /** What the level choice needs from the streamer and its mip levels. */
@@ -213,7 +215,7 @@ export class StreamLod {
     this.counters.swaps++;
     if (removed.some((r) => added.some((a) => a.level !== r.level && overlaps(a, r)))) this.counters.levelChanges++;
     this.swapMs.add(performance.now() - t0);
-    host.emit({ type: 'levels', reason: 'swap', added, removed });
+    host.emit({ type: 'levels', reason: 'swap', added, removed, foci: this.used });
   }
 
   private checked(rings: LevelRings): LevelRings {
