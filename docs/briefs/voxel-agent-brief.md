@@ -9,7 +9,8 @@ branch code. Nothing is merged or deployed in phase 46 (the merge is 48c). tools
 folder with main, so one gate at a time still holds.
 Main at the freeze: d4053cab. Phase 46 base on the branch: aeb8114a (phase 45 done, format spec v1 APPROVED by the owner 2026-11-02).
 46a DONE at ac283f22 (2026-11-03); 46b DONE at 6ffc2031 (2026-11-04). Last D-row used: D499; NEW BLOCK D500–D599 (continue at D500).
-CURRENT SUB-PHASE: 46d-c (see the "46d-c" section at the end; the lead's prompt names your item). NEVER start 46e (lighting).
+CURRENT PHASE: 46f, shared foundations (see the "46f" section at the end: it takes precedence over older sections
+where they differ; the lead's prompt names your item). 46d-c is DONE (dea68d37). NEVER start 46e (lighting).
 Code agents run one at a time (they share the worktree's dist/); a docs-only agent may run beside you.
 
 Read AGENTS.md; then the current sub-phase plan (docs/plan-phase-46a.md, 46b, 46c) IN FULL; then from
@@ -203,3 +204,35 @@ times) and 46d.25 (fine bricks from GPU compute past the detail ring); spec = do
 Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Deferred by the owner, never revive:
 detail-piece LODs, relief, GPU tessellation of the near mesh, whole-map bake of near detail ("derived data is never
 stored" stays). Never start 46e.
+
+46f (owner 2026-11-13). CURRENT PHASE = 46f, shared foundations: docs/plan-phase-46f.md (scope §1, owner requirements
+§2, where things live §5, items §6). 46f start commit 45ec7ca3. D-rows continue at D646 (block D600–D699).
+READ, in this order, instead of the plan-45/46a–c list above: AGENTS.md; docs/architecture/voxel-engine.md (what the
+engine is now; §6 the shared foundations); docs/decisions/owner-decisions.md (decided, dropped, deferred);
+docs/plan-phase-46f.md IN FULL; docs/research/duplication-audit.md; and only the parts your item names of
+docs/research/derived-fields-and-shared-tools.md (§3.5 the interaction field), vegetation.md (§1 what exists) and
+fog.md (L3, the field's channels). docs/plan-phase-46d.md is very long: read it only where your brief points.
+SCOPE FENCE (owner; do not cross, do not re-litigate):
+- Nothing a player or designer would see beyond the profiler. Same pictures before and after, unless your item says so.
+- Nothing inside block layers, heightfield terrain or generated architecture (they retire in phase 48): do not merge,
+  tidy or extend them. No relief, detail-piece LODs, mesh far field, painted layers or fog splines.
+- No change to an approved voxel format (the format, render, role or kit specs). If your item seems to need one: STOP
+  and report to the lead; that is an owner stop.
+- three.js stays at 0.187.0. Never start 46e or any later phase.
+- Reuse before building: your brief names the existing module each thing extends (plan §5). If you need something the
+  plan did not foresee, make the smallest change and log it in the plan's decision log ("default chosen, owner to
+  confirm"); do not widen the phase. Never copy a helper: import it (tools/check-redefinitions.mjs).
+RENDERER: WebGPU only for new work, tests, pictures and measurements. WebGL 2 only has to keep passing
+tests/e2e/webgl2-smoke.e2e.ts.
+MEASURING (replaces the PERFORMANCE section above where they differ): the low tier, WebGPU, 1280 × 720, at its 30 Hz
+cap, with the headroom meter (`run.mjs headroom`: room and pass shares) and the coverage bench (`run.mjs coverage`:
+hitches, settle); never uncapped; GPU timestamps are not usable at the cap (D544). Medium and high: pass shares only,
+"unverified on target hardware". A measurement runs ALONE (no gate, build or other agent loading the machine: the GPU
+is integrated and shares the CPU's power budget); record `uptime` with it. ≤ 3 rounds.
+HOST: 32 GB and 16 threads shared with production and staging. Gates as above (TL_GATE_MEM=12G TL_VITEST_WORKERS=6,
+the default 1100 % CPU cap); a bench or ad-hoc run stays within about 10–12 threads and its memory cap; never /tmp.
+E2E: no new e2e files without the lead's word; extend the file of the area you change. Editor/UI changes need a
+Playwright test driving the real page against a real backend.
+DONE = it works in a real browser on WebGPU, has a test at the boundary it changes, the fast gate is green, and what
+you say you looked at is a file the lead can open (give the paths). The lead reads your diff and reruns your checks.
+Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Scratch: ~/.cache/thirdlight-phase46f/work/<item>/.
