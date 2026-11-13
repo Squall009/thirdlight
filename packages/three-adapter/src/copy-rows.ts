@@ -171,6 +171,20 @@ export interface CopyRowsDiagnostics {
 
 const grown = (have: number, need: number): number => Math.max(need, have * 2, 16);
 
+/** The selection passes' uniform nodes (see `SelectView`). */
+function selectUniforms(): { eye: N; planes: N; fadeStep: N; rowCount: N; chunkCount: N; headersAt: N; outsAt: N; outputCount: N } {
+  return {
+    eye: TSL.uniform(new THREE.Vector3()),
+    planes: TSL.uniformArray(Array.from({ length: 6 }, () => new THREE.Vector4())),
+    fadeStep: TSL.uniform(0, 'uint'),
+    rowCount: TSL.uniform(0, 'uint'),
+    chunkCount: TSL.uniform(0, 'uint'),
+    headersAt: TSL.uniform(0, 'uint'),
+    outsAt: TSL.uniform(0, 'uint'),
+    outputCount: TSL.uniform(0, 'uint'),
+  };
+}
+
 /** The copy sets of one table. */
 export class CopyRowsTable {
   private readonly sets = new Map<CopyRowsSource, CopySet>();
@@ -184,16 +198,10 @@ export class CopyRowsTable {
   private generation = 0;
   private kernels: { select: N; outputs: N; rows: N } | null = null;
   private kernelKey = '';
-  private readonly uniforms = {
-    eye: TSL.uniform(new THREE.Vector3()),
-    planes: TSL.uniformArray(Array.from({ length: 6 }, () => new THREE.Vector4())),
-    fadeStep: TSL.uniform(0, 'uint'),
-    rowCount: TSL.uniform(0, 'uint'),
-    chunkCount: TSL.uniform(0, 'uint'),
-    headersAt: TSL.uniform(0, 'uint'),
-    outsAt: TSL.uniform(0, 'uint'),
-    outputCount: TSL.uniform(0, 'uint'),
-  };
+  /** The passes' uniforms (made with each build of the passes, set every run). */
+  private uniforms = selectUniforms();
+  /** Where the selection data's headers and lists start this frame. */
+  private readonly layoutAt = { headers: 0, outs: 0 };
   /** The selection data's length as last uploaded (-1: none yet). */
   private dataSize = -1;
   /** Something a pick reads changed this frame (the data, the parameters, the copies), and when it last did. */
@@ -209,6 +217,8 @@ export class CopyRowsTable {
   private runs = 0;
   private frames = 0;
   private reading = false;
+  /** A pick ran since the counts were last read. */
+  private unread = false;
   private readback: ReadbackBuffer | null = null;
   private read = { inView: 0, listed: 0, triangles: 0 };
 
@@ -424,10 +434,24 @@ export class CopyRowsTable {
     if (this.runs > 0 && now - this.lastChange > COPY_LEVEL_FADE_S * 1000 + STILL_MARGIN_MS) {
       this.ran = true;
       this.skipped += 1;
+      // The counts of the last pick, read once it holds still.
+      if (this.unread && !this.reading) {
+        this.unread = false;
+        queueMicrotask(() => this.readBack());
+      }
       return;
     }
     const dt = Number.isFinite(this.lastRun) ? Math.min(MAX_FADE_DT_S, (now - this.lastRun) / 1000) : 0;
     this.lastRun = now;
+    this.ensureCounters(this.frameOutputs.length * 2);
+    const h = this.host;
+    const key = `${this.generation}|${tableGeneration}|${h.matrices.id}|${h.slots.id}|${h.visible.id}|${h.spheres.id}`;
+    if (this.kernels === null || key !== this.kernelKey) {
+      this.dropKernels();
+      this.uniforms = selectUniforms();
+      this.kernels = copySelectKernels({ matrices: h.matrices, spheres: h.spheres, visible: h.visible, slots: h.slots, data: this.data, floats: this.floats, tally: this.tally, counts: this.counts, table: buffers.table, args: buffers.args }, this.uniforms, this.layout);
+      this.kernelKey = key;
+    }
     const u = this.uniforms;
     u.eye.value.set(view.eye[0]!, view.eye[1]!, view.eye[2]!);
     const planes = view.planes;
@@ -435,15 +459,9 @@ export class CopyRowsTable {
     u.fadeStep.value = copyFadeStep(dt);
     u.rowCount.value = rowCount;
     u.chunkCount.value = chunks;
+    u.headersAt.value = this.layoutAt.headers;
+    u.outsAt.value = this.layoutAt.outs;
     u.outputCount.value = this.frameOutputs.length;
-    this.ensureCounters(this.frameOutputs.length * 2);
-    const h = this.host;
-    const key = `${this.generation}|${tableGeneration}|${h.matrices.id}|${h.slots.id}|${h.visible.id}|${h.spheres.id}`;
-    if (this.kernels === null || key !== this.kernelKey) {
-      this.dropKernels();
-      this.kernels = copySelectKernels({ matrices: h.matrices, spheres: h.spheres, visible: h.visible, slots: h.slots, data: this.data, floats: this.floats, tally: this.tally, counts: this.counts, table: buffers.table, args: buffers.args }, u, this.layout);
-      this.kernelKey = key;
-    }
     const k = this.kernels;
     k.select.dispatchSize = [Math.min(chunks, SELECT_DISPATCH_ROW), Math.ceil(chunks / SELECT_DISPATCH_ROW), 1];
     k.outputs.dispatchSize = [Math.max(1, Math.ceil((this.frameOutputs.length * 2) / SELECT_WORKGROUP)), 1, 1];
@@ -452,7 +470,11 @@ export class CopyRowsTable {
     this.ran = true;
     this.runs += 1;
     this.frames += 1;
-    if (!this.reading && this.frames % READBACK_FRAMES === 0) queueMicrotask(() => this.readBack());
+    this.unread = true;
+    if (!this.reading && this.frames % READBACK_FRAMES === 0) {
+      this.unread = false;
+      queueMicrotask(() => this.readBack());
+    }
   }
 
   /** The chunks, the selections' headers, their level outputs and the outputs' lists; returns the chunk count. */
@@ -515,8 +537,8 @@ export class CopyRowsTable {
       this.dataSize = need;
       this.changed = true;
     }
-    this.uniforms.headersAt.value = headersAt;
-    this.uniforms.outsAt.value = outsAt;
+    this.layoutAt.headers = headersAt;
+    this.layoutAt.outs = outsAt;
     return chunks;
   }
 

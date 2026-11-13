@@ -226,6 +226,9 @@ describe('a set of copies as the table rows', () => {
     const select = computeWgsl(k.select);
     expect(select).toMatch(/atomicAdd/);
     expect(select).toMatch(/workgroup_size\( 64/);
+    // Dispatched by size for any number of lists and rows: no early return at a thread count baked into the pass
+    // (a node made with a count returns past it, which held the lists' counts and rows' arguments to the first 64).
+    for (const pass of [k.select, k.outputs, k.rows]) expect(computeWgsl(pass)).not.toMatch(/if \( instanceIndex >= /);
     expect(computeWgsl(k.outputs)).toMatch(/atomicStore/);
     expect(computeWgsl(k.rows)).toMatch(/fn main/);
   });

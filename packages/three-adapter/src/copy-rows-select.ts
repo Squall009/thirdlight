@@ -214,13 +214,15 @@ export function copySelectKernels(b: SelectBuffers, v: SelectView, t: SelectTabl
     });
   })().compute([1, 1, 1], [SELECT_WORKGROUP]);
 
+  // Dispatched by size and bounded by their own uniforms: a compute node made with a thread count bakes an early return
+  // at that count.
   const outputs = TSL.Fn(() => {
     const i = TSL.instanceIndex;
     TSL.If(i.lessThan(v.outputCount.mul(2)), () => {
       counts.element(i).assign(TSL.atomicLoad(tally.element(i)));
       TSL.atomicStore(tally.element(i), TSL.uint(0));
     });
-  })().compute(SELECT_WORKGROUP, [SELECT_WORKGROUP]);
+  })().compute([1, 1, 1], [SELECT_WORKGROUP]);
 
   const rows = TSL.Fn(() => {
     const r = TSL.instanceIndex;
@@ -240,7 +242,7 @@ export function copySelectKernels(b: SelectBuffers, v: SelectView, t: SelectTabl
         }
       });
     });
-  })().compute(SELECT_WORKGROUP, [SELECT_WORKGROUP]);
+  })().compute([1, 1, 1], [SELECT_WORKGROUP]);
 
   return { select, outputs, rows };
 }
