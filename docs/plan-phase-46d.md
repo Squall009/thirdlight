@@ -4471,6 +4471,20 @@ for the new optional field, re-pinned: f9051b5a), its rerun gate-rerun-20261113-
 `block-layers.e2e.ts:490` D637 and `shadows.e2e.ts:281` D645), alone gate-rerun-20261113-041028: shadows passed,
 block-layers failed (as at the base). The final run, every unit test and every area: gate-fast-20261113-045522 RED (vitest: `stream.test.ts`'s stale-results case D454 failed once, passed alone; e2e 318 passed, `cameras.e2e.ts:315` D616 and `project-items.e2e.ts:186` failed; alone in gate-rerun-20261113-053141 project-items passed, cameras failed with D616's same 0.4948: D616 now open).
 
+### 46d-c close: acc46d-c
+
+**acc46d-c** (`~/.cache/thirdlight-phase46/acceptance/46d-c/`, README, `approve-46d-c.md`; review page `#acc46d-c`,
+the questions page linked first): built from pictures already taken, none new (a phase gate held the machine). 39
+pictures, all opened: `travel/` (46d.24a before against 46d.24b/24d after, 150 m/s flight and stop strips, low and
+medium, exports; the 32 m ring pair), `poses/` (the 13 poses at low A against C, the four town poses at medium),
+`bake-levels/` (C against C1 and B, the storage table), `webgl2/` (gl2A against gl2C, gl2C against gl2C1), `strips/`
+(orbit, walks A and C), `history/` (1:1 crops of town-west's back rows: rings, 25a, 25b-1, 25b-2, 26c). The page: five
+questions (below, §10), the review's eyes/ears list, the 65 "default chosen, owner to confirm" entries of §9 dated
+2026-11-11 to 2026-11-13 (1–23 already on approve-46d-b and approved with it, 42 new), targets met / not met, the 16 open
+D-rows of 46d-c. Seen again: the stop strips before and after look alike at low (detail by 8 s; the hitch gain is a
+timing); medium after 24d is coarse to 8 s with D622's green rectangle; at town-west C's back-row roofs are straight
+planes where A's are stair-stepped; WebGL 2's baked 0.5 m draws flat-colour walls past the ring.
+
 ## 9. Decision log
 
 - 2026-11-08 (plan, default chosen, owner to confirm): **the spike comes before the spec split and the material
@@ -5603,6 +5617,20 @@ block-layers failed (as at the base). The final run, every unit test and every a
   again (inside or deep under the surface; the e2e's 64 nodes read 0 looks apart afterwards).
 
 ## 10. Open questions for the owner
+
+46d-c (acc46d-c, `approve-46d-c.md`; defaults in brackets stand if unanswered):
+
+1. Travel at speed: accept the result (no frame over 100 ms, never through), and the < 2 s target: keep the ~45 m
+   detail ring and accept ~2–4 s baked / ~5–6 s rings, or shrink low's ring to ~32 m (1.9–2.0 s, windows end ~13 m
+   nearer)? (keep the ring; D620 open)
+2. Bake level per world (2 m default, 1 m, 0.5 m; cached, by region, resumable): confirm; baked 0.5 m recommended for
+   packaged games, 1 m with `fineBuild: compute` for WebGPU games where disk matters. (as built)
+3. The mesh rings stay; a world gives them up only where it draws 0.5 m bricks past the detail ring; WebGL 2 draws a
+   baked 0.5 m world in flat colour there. (as built, nothing retired)
+4. The look past the detail ring with baked bricks: better at the town, slightly worse at rocks, gravel and far
+   street roofs (D628, D631); motion is yours to judge. (accepted, rows open)
+5. Next: a short 46d-d for D621, D594, D644, D634, or 46e (lighting) now with them carried? (nothing starts without
+   the owner's word)
 
 - 4096² sets now encode in UASTC stripes (D532 fixed, 46d.4c): confirm the method; texture files now import up to
   65.3 MiB (a 4096² RGBA PNG uncompressed, D535 fixed in 46d.4d): confirm the bound.
