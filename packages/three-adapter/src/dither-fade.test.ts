@@ -26,7 +26,7 @@ const CUTAWAY_FADE_WGSL: Readonly<Record<string, string>> = {
   standard: '85049c98ebe1d477',
   textured: '60f7b504142ef008',
   blended: 'db133ececb250084',
-  foliage: '4e867bbd564a41a6',
+  foliage: '6a6b6348891152e6',
   kit: 'c3e3871509113919',
   water: '89374c29fe539497',
   unlit: '23e9db8a77754b60',

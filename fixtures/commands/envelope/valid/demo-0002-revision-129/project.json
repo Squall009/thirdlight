@@ -6,6 +6,7 @@
   "createdAt": "2026-09-17T08:00:00Z",
   "upgrades": [
     "bloom-exposure",
+    "interactor",
     "light-counts",
     "planes"
   ]
