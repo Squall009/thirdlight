@@ -317,9 +317,10 @@ test('tl_playtest through the MCP stdio adapter: a script whose run pauses and p
     };
     await expect.poll(async () => (await scriptErrors()).length, { timeout: 60_000 }).toBe(1);
     const [thrown] = await scriptErrors();
-    // A whole answer's parts are exactly the section names (the page builds what the protocol lists; `mode` only with game modes).
+    // A whole answer's parts are exactly the section names (the page builds what the protocol lists; `mode` only with game modes,
+    // `profile` only when named).
     const allParts = ((await tool('tl_diagnostics', { playSessionId })) as { diagnostics: Record<string, unknown> }).diagnostics;
-    expect(Object.keys(allParts).filter((k) => k !== 'trimmed').sort()).toEqual(PLAY_DIAGNOSTICS_SECTIONS.filter((s) => s !== 'mode').sort());
+    expect(Object.keys(allParts).filter((k) => k !== 'trimmed').sort()).toEqual(PLAY_DIAGNOSTICS_SECTIONS.filter((s) => s !== 'mode' && s !== 'profile').sort());
     expect(thrown, JSON.stringify(thrown)).toMatchObject({ reason: 'behavior_step_failed', entityId: STARTER.playerId, message: expect.stringContaining('boom: the probe threw'), source: { behaviorId: 'behavior-playtest-probe', path: 'src/index.ts', line: 6 } });
     const obs = await tool('tl_game_observe', { playSessionId });
     expect(obs['state'], JSON.stringify(obs).slice(0, 1500)).toBe('running');
