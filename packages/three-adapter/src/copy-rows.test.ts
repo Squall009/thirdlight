@@ -177,7 +177,8 @@ describe('a set of copies as the table rows', () => {
 
   it('runs its pick only while something it reads changes (a still view keeps the last lists once fades are done)', () => {
     const computes: unknown[] = [];
-    const table = new CopyRowsTable({ compute: (n: unknown) => void computes.push(n) } as never, host(), LAYOUT);
+    // A renderer that runs nothing: the counts' read-back (once the view holds still) reads nothing back.
+    const table = new CopyRowsTable({ compute: (n: unknown) => void computes.push(n), getArrayBufferAsync: () => new Promise(() => undefined) } as never, host(), LAYOUT);
     table.adopt(source(10, 2, false));
     const view = new CullView();
     const cam = new THREE.PerspectiveCamera();
