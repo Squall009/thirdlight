@@ -1198,6 +1198,15 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     const done = (await bake.getAttribute('data-fine-done'))!;
     console.log(`[voxel-play] ${renderer} fine bake: ${Date.now() - bakeT0} ms, Inspector states ${JSON.stringify([...seen])}`);
     expect(done).toMatch(/^1:(\d+)\/\1 0:(\d+)\/\2$/);
+    // The world's fine build is its own choice in the same section (off by default, left unset): picked there it is
+    // the object's value, as a command; off again is the default once more.
+    const fineBuild = inspector(page).getByLabel('voxelWorld fineBuild', { exact: true });
+    await expect(fineBuild).toHaveValue('off');
+    const worldValue = async (): Promise<Record<string, unknown>> => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: playWorld! } }))['entity'] as { components: { voxelWorld: Record<string, unknown> } }).components.voxelWorld;
+    await fineBuild.selectOption('compute');
+    await expect.poll(async () => (await worldValue())['fineBuild'], { timeout: 10_000, message: 'the Inspector sets the fine build' }).toBe('compute');
+    await fineBuild.selectOption('off');
+    await expect.poll(async () => (await worldValue())['fineBuild'] ?? 'off', { timeout: 10_000 }).toBe('off');
     const started2 = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
     await page.getByTitle('Start an isolated play preview').click();
     const psid2 = String(((await (await started2).json()) as { playSessionId: string }).playSessionId);

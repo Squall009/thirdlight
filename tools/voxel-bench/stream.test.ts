@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { open as openFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model';
 import {
   applyEdit,
   applySaveChunk,
@@ -44,6 +45,8 @@ import {
   VOXEL_ROLE,
   VoxelStreamer,
   worldStreamer,
+  type FarNodeSource,
+  type ChunkSource,
   buildPieceTable,
   payloadHolds,
   type PieceTable,
@@ -372,6 +375,21 @@ describe('streamer (workers, region files on disk)', () => {
     expect(m.residentStored).toBe(0);
     expect(m.reading + m.decoding + m.deriving).toBe(0);
   }, 30_000);
+
+  it("builds a world's fine far bricks while playing only where its voxelWorld asks it (fineBuild compute) and the connection does not say otherwise (a page that cannot build: off; a bench's switch: on)", () => {
+    const far: FarNodeSource = { grid, minLevel: 2, maxLevel: 3, index: () => new Promise<never>(() => undefined), read: () => Promise.resolve([]), invalidate: () => undefined, memoryBytes: () => 0 };
+    const wanted = (conn: { fineBricks?: boolean }, c: Partial<VoxelWorldComponent>): boolean => {
+      const settings = resolveVoxelWorld({ world: 'w', ...c });
+      const s = worldStreamer({ grid, source: { read: () => Promise.resolve([]) } as unknown as ChunkSource, pool: pool(1), far, ...conn }, { ...settings, far: { ...settings.far, mode: 'bricks' } });
+      return s.far!.fineNodes.wanted;
+    };
+    expect(wanted({}, {})).toBe(false);
+    expect(wanted({}, { bakeLevel: 1 })).toBe(false);
+    expect(wanted({}, { fineBuild: 'compute' })).toBe(true);
+    expect(wanted({}, { bakeLevel: 1, fineBuild: 'compute' })).toBe(true);
+    expect(wanted({ fineBricks: false }, { fineBuild: 'compute' })).toBe(false);
+    expect(wanted({ fineBricks: true }, { fineBuild: 'off' })).toBe(true);
+  });
 
   it('derives 16³ and 8³ sections in real workers equal to the in-thread section derive; a blast re-derives only the sections within R and swaps them in one go', async () => {
     for (const edge of [16, 8] as const) {

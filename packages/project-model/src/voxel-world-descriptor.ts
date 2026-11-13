@@ -12,7 +12,7 @@ import { decalLayersField } from './decal-descriptor';
 import { STREAMING_RADIUS_LIMITS } from './world-streaming';
 import { VOXEL_RING_SCALE_MAX, VOXEL_RING_SCALE_MIN } from './quality-levels';
 import { VOXEL_MATERIAL_LIMITS } from './voxel-materials';
-import { VOXEL_WORLD_DEFAULTS } from './voxel-world';
+import { VOXEL_FINE_BUILDS, VOXEL_WORLD_DEFAULTS } from './voxel-world';
 
 const D = VOXEL_WORLD_DEFAULTS;
 const metres = (key: string, label: string, tooltip: string, value?: number): ReturnType<typeof num> =>
@@ -61,7 +61,8 @@ export const voxelWorld: ComponentDescriptor = {
     list('savedFields', 'Saved fields', "The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again).", enm('field', 'Field', 'A voxel field.', VOXEL_PLANES), { unique: true, default: [...D.savedFields] }),
     decalLayersField(false),
     num('blendMetres', 'Material blend', 'Metres over which neighbouring voxel materials blend where neither sets its own blend (0: hard cell lines; the smaller wins where two meet). Changes live, no remesh.', { min: 0, max: VOXEL_MATERIAL_LIMITS.blendMetresMax, step: 0.05, unit: 'm', default: D.blendMetres }),
-    num('bakeLevel', 'Brick bake', "How fine the world's far bricks are baked into its cache: 2 m (the cache's own levels; finer bricks are built while playing, WebGPU only), 1 m or 0.5 m (baked too: more disk and a longer bake, nothing finer built while playing). A world two scenes name is baked to the finer.", { values: FAR_BAKE_LEVELS_M, unit: 'm', default: D.bakeLevel }),
+    num('bakeLevel', 'Brick bake', "How fine the world's far bricks are baked into its cache: 2 m (the cache's own levels), 1 m or 0.5 m (baked too: more disk and a longer bake). Baked to 0.5 m round the camera, the world draws baked bricks past the detail ring; otherwise it keeps its level-1/2 mesh rings there unless Fine build is compute. A world two scenes name is baked to the finer.", { values: FAR_BAKE_LEVELS_M, unit: 'm', default: D.bakeLevel }),
+    enm('fineBuild', 'Fine build', "Whether the 0.5 m and 1 m bricks past the detail ring that the bake does not hold are built while playing: off (the mesh rings draw there) or compute (built on the GPU, WebGPU only; WebGL 2 keeps the mesh rings). With a 1 m bake, compute builds only the 0.5 m band.", VOXEL_FINE_BUILDS, { default: D.fineBuild }),
   ]),
   add: { kind: 'menu', value: { world: 'world' } },
   handles: [],

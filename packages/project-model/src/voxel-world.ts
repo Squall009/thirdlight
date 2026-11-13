@@ -46,10 +46,17 @@
  *   wins. A draw setting too: shader data, no remesh.
  * - `bakeLevel`: how fine the world's far cache bakes its bricks, as the
  *   metres of a cell at its finest baked level: 2 (absent: the far cache's
- *   own levels; finer bricks are built while playing, on WebGPU), 1 or 0.5
- *   (those levels baked too, so nothing finer is built while playing). The
- *   cache is the world's: a world two scenes name is baked to the finer of
- *   their levels, and an export ships the levels down to it.
+ *   own levels), 1 or 0.5 (those levels baked too). The cache is the
+ *   world's: a world two scenes name is baked to the finer of their levels,
+ *   an export ships the levels down to it, and every scene drawing the world
+ *   draws what its cache holds (a scene asking 2 m of a world another scene
+ *   baked to 0.5 m draws the baked bricks too).
+ * - `fineBuild`: whether the fine bricks past the detail ring the bake does
+ *   not hold are built while playing: `off` (absent) or `compute` (on the
+ *   GPU, WebGPU only). Past the detail ring a world draws 0.5 m bricks where
+ *   they are baked round the camera or built, else its level-1/2 mesh rings:
+ *   a world baked to 1 m or 2 m keeps the rings unless this is `compute`
+ *   and the renderer can, and WebGL 2 builds nothing.
  *
  * Pure data.
  */
@@ -128,9 +135,20 @@ export interface VoxelWorldComponent extends VoxelWorldRings {
   blendMetres?: number;
   /** Metres of a cell at the finest level the world's far cache bakes bricks for (absent: 2, the cache's own levels). */
   bakeLevel?: FarBakeLevelM;
+  /** Whether fine bricks the bake does not hold are built while playing (absent: off). */
+  fineBuild?: VoxelFineBuild;
 }
 
-export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields', 'decalLayers', 'blendMetres', 'bakeLevel']);
+/** How a world's fine far bricks the bake does not hold are made while playing: not at all, or by GPU compute (WebGPU). */
+export const VOXEL_FINE_BUILDS = Object.freeze(['off', 'compute'] as const);
+export type VoxelFineBuild = (typeof VOXEL_FINE_BUILDS)[number];
+
+/** Whether a value is a fine build setting. */
+export function isVoxelFineBuild(v: unknown): v is VoxelFineBuild {
+  return (VOXEL_FINE_BUILDS as readonly unknown[]).includes(v);
+}
+
+export const VOXEL_WORLD_FIELDS: readonly string[] = Object.freeze(['world', 'ring', 'collision', 'levels', 'quality', 'sectionEdge', 'savedFields', 'decalLayers', 'blendMetres', 'bakeLevel', 'fineBuild']);
 export const VOXEL_WORLD_QUALITY_FIELDS = ['scale', 'ring', 'collision', 'levels'] as const;
 export const VOXEL_WORLD_RING_FIELDS = ['loadRadius', 'unloadRadius', 'loadHeight', 'unloadHeight'] as const;
 export const VOXEL_WORLD_COLLISION_FIELDS = ['radius', 'height'] as const;
@@ -154,6 +172,7 @@ export const VOXEL_WORLD_DEFAULTS = Object.freeze({
   savedFields: Object.freeze(planesOf(DEFAULT_SAVED_FIELDS)),
   blendMetres: VOXEL_MATERIAL_LIMITS.blendMetresDefault,
   bakeLevel: DEFAULT_FAR_BAKE_LEVEL_M,
+  fineBuild: 'off' as VoxelFineBuild,
 });
 
 /**
@@ -161,16 +180,7 @@ export const VOXEL_WORLD_DEFAULTS = Object.freeze({
  * everywhere: the default). The cache is the world's, so the scene asking most decides.
  */
 export function voxelWorldBakeLevel(scenes: readonly unknown[], world: string): FarBakeLevelM {
-  let out: FarBakeLevelM = DEFAULT_FAR_BAKE_LEVEL_M;
-  for (const sc of scenes) {
-    const entities = (sc as { entities?: unknown } | null)?.entities;
-    if (!Array.isArray(entities)) continue;
-    for (const e of entities) {
-      const v = (e as { components?: { voxelWorld?: { world?: unknown; bakeLevel?: unknown } } } | null)?.components?.voxelWorld;
-      if (v?.world === world && isFarBakeLevelM(v.bakeLevel) && v.bakeLevel < out) out = v.bakeLevel;
-    }
-  }
-  return out;
+  return voxelWorldBakeLevels(scenes).get(world) ?? DEFAULT_FAR_BAKE_LEVEL_M;
 }
 
 /** Every world the scenes' `voxelWorld` components name, with the bake level it is baked to ({@link voxelWorldBakeLevel}). */
@@ -212,6 +222,8 @@ export interface ResolvedVoxelWorld {
   readonly reliefSteps: number;
   /** How the world is drawn past its near rings, the far nodes' on-screen error (the level's `voxelFarField`, `voxelFarError`) the GPU bytes they may hold and the metres it holds baked 0.5 m bricks to (the tier's); with no level known, the medium tier's. */
   readonly far: { readonly mode: FarFieldMode; readonly errorPixels: number; readonly gpuBudgetBytes: number; readonly fineHoldM: number };
+  /** Whether fine far bricks the bake does not hold are built while playing (`fineBuild: 'compute'`; the page turns it off where it cannot). */
+  readonly fineBricks: boolean;
 }
 
 /** The planes of a `PLANE_BIT` mask, in the voxel planes' order. */
@@ -284,6 +296,7 @@ export function resolveVoxelWorld(c: VoxelWorldComponent, level?: QualityLevelCo
     budgetBytes: at?.budgetBytes ?? null,
     reliefSteps: at?.relief ?? 0,
     far: Object.freeze({ mode: (at ?? NO_LEVEL_VOXELS).farField, errorPixels: (at ?? NO_LEVEL_VOXELS).farError, gpuBudgetBytes: (at ?? NO_LEVEL_VOXELS).farGpuBudget, fineHoldM: (at ?? NO_LEVEL_VOXELS).farFineHoldM }),
+    fineBricks: (c.fineBuild ?? D.fineBuild) === 'compute',
   });
 }
 
@@ -334,7 +347,7 @@ function validateQuality(value: unknown, path: string, errors: ModelErrorV2[]): 
 }
 
 export function validateVoxelWorldComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields?, decalLayers?, blendMetres?, bakeLevel? }', value);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'voxelWorld is an object { world, ring?, collision?, levels?, quality?, sectionEdge?, savedFields?, decalLayers?, blendMetres?, bakeLevel?, fineBuild? }', value);
   for (const k of Object.keys(value)) if (!VOXEL_WORLD_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown voxelWorld field "${k}" (${VOXEL_WORLD_FIELDS.join(', ')})`, k);
   const world = value['world'];
   if (world === undefined) err(errors, 'field_missing', `${path}/world`, "voxelWorld needs its world's name");
@@ -358,6 +371,8 @@ export function validateVoxelWorldComponent(value: unknown, path: string, errors
   if (blend !== undefined && !isVoxelBlendMetres(blend)) err(errors, 'field_value', `${path}/blendMetres`, `blendMetres is 0-${VOXEL_MATERIAL_LIMITS.blendMetresMax} m`, blend);
   const bake = value['bakeLevel'];
   if (bake !== undefined && !isFarBakeLevelM(bake)) err(errors, 'field_value', `${path}/bakeLevel`, `bakeLevel is one of ${FAR_BAKE_LEVELS_M.join(', ')} m`, bake);
+  const build = value['fineBuild'];
+  if (build !== undefined && !isVoxelFineBuild(build)) err(errors, 'field_value', `${path}/fineBuild`, `fineBuild is one of ${VOXEL_FINE_BUILDS.join(', ')}`, build);
 }
 
 /** Ring distance groups in canonical form, field by field (into `out`). */
@@ -399,5 +414,6 @@ export function canonicalVoxelWorld(c: VoxelWorldComponent): VoxelWorldComponent
   if (c.decalLayers !== undefined) out.decalLayers = c.decalLayers;
   if (c.blendMetres !== undefined) out.blendMetres = c.blendMetres;
   if (c.bakeLevel !== undefined) out.bakeLevel = c.bakeLevel;
+  if (c.fineBuild !== undefined) out.fineBuild = c.fineBuild;
   return out;
 }

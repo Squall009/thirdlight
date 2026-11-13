@@ -40,12 +40,14 @@ export interface VoxelPresentation {
 /**
  * Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from
  * `kits` with the project's piece `seed`; `qualityLevels` the project's (absent: the engine's), `materials` the build's
- * voxel materials (absent: the ports'); `fineBricks` fine far bricks past the detail ring (the page's switch).
+ * voxel materials (absent: the ports'); `fineBricks` fine far bricks past the detail ring built in every world (the page's
+ * bench switch; false: each world's own `fineBuild`, until {@link VoxelPresentation.setFine} says otherwise).
  */
 export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   const streams = new Map<string, VoxelStreamer>();
-  let fine = fineBricks;
+  // The page's word over each world's own setting (undefined: the world's).
+  let fine: boolean | undefined = fineBricks ? true : undefined;
   let table: PieceTable | null = null;
   const levels = qualityLevels ?? ports.qualityLevels;
   const mats = materials ?? ports.materials;
@@ -65,7 +67,9 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           pool: conn.pool,
           ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}),
           ...(conn.far !== undefined ? { far: conn.far } : {}),
-          ...(fine ? { fineBricks: true } : {}),
+          get fineBricks() {
+            return fine;
+          },
           pieces: (table ??= worldPieceTable(kits, seed)),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);

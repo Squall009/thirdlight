@@ -83,6 +83,7 @@ how a game changes levels). All its fields:
 | **Decal layers** (`decalLayers`) | every layer | The [decal layers](decals.md#decal-layers) the world's surfaces and kit pieces are in: a decal marks them when its layers share one. A draw setting: changing it reloads nothing. |
 | **Material blend** (`blendMetres`) | 0.25 m | Metres over which neighbouring voxel materials blend where neither sets its own (`voxel.blendMetres`, below), 0 (hard cell lines) to 0.5 m (one cell); where two meet the smaller wins. A draw setting: it changes live, nothing is remeshed. |
 | **Brick bake** (`bakeLevel`) | 2 m | How fine the world's [far cache](#the-far-field) bakes its bricks: 2 m (its own levels), 1 m or 0.5 m. A finer bake costs disk and bake time (see below) and leaves nothing that fine to build while playing. A world two scenes name is baked to the finer of the two. |
+| **Fine build** (`fineBuild`) | off | Whether the 0.5 m and 1 m bricks past the detail ring that the bake does not hold are built while playing: `off` (the world's level-1/2 mesh rings draw there) or `compute` (built on the GPU; WebGPU only, WebGL 2 keeps the mesh rings). With a 1 m bake, `compute` builds only the 0.5 m band; with a 0.5 m bake complete round the camera, nothing. |
 
 Settings you leave empty follow the engine's defaults, so a later default
 reaches every world that did not set its own. The component is not allowed
@@ -320,7 +321,10 @@ runs, and the backend builds it again.
   rings past the detail ring and its whole load ring read, never 1 m or 2 m
   bricks where the rings draw 0.5 m. The baked levels are the world's: a
   scene asking 2 m of a world another scene baked to 0.5 m draws the baked
-  bricks too.
+  bricks too. A world whose **Fine build** is `compute` builds the 0.5 m
+  (and, at 2 m, 1 m) bricks the bake does not hold on WebGPU instead of
+  keeping its rings: a 1 m bake plus `compute` draws 0.5 m bricks past the
+  detail ring for a quarter of a 0.5 m bake's disk.
 
 - **Mode and detail, by quality level.** A quality level's **Voxel far
   field** is `bricks` (default on every tier), `mesh` (the fallback) or

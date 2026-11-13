@@ -48,6 +48,7 @@ import {
   PropLightChannel,
   readSave,
   SaveFileError,
+  setFineBricks,
   VOXEL_PLANES,
   VOXEL_SIZE_M,
   VoxelStreamer,
@@ -112,7 +113,10 @@ export interface VoxelWorldConnection {
   readonly pieces?: PieceTable | null;
   /** The world's far cache (absent: nothing is drawn past the near rings). */
   readonly far?: FarNodeSource;
-  /** Fine far bricks past the detail ring (the page's `?fineBricks=1`, WebGPU; absent: off). */
+  /**
+   * Fine far bricks past the detail ring built while playing, over the world's own `fineBuild`: true (the page's
+   * `?fineBricks=1` bench switch), false (the page's renderer cannot build them: WebGL 2), absent: the world's.
+   */
   readonly fineBricks?: boolean;
   /** Lets go of what the source holds (open files, connections); called once when the world unloads. */
   close?(): void;
@@ -395,6 +399,8 @@ export class VoxelWorldHost {
     this.settings = resolveVoxelWorld({ ...this.component, ...this.rings0 }, this.level);
     if (this.streamer === null || this.disposed) return;
     applyWorldRings(this.streamer, this.settings);
+    const fine = this.conn?.fineBricks ?? this.settings.fineBricks;
+    if (this.streamer.far !== null && this.streamer.far.fineNodes.wanted !== fine) setFineBricks(this.streamer, fine);
     this.ring?.setBounds(this.collisionBounds());
     if (this.streamer.collision !== null) this.streamer.collision.bounds = this.collisionBounds();
   }

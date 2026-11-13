@@ -34,6 +34,7 @@ const FULL: VoxelWorldComponent = {
   decalLayers: 5,
   blendMetres: 0.125,
   bakeLevel: 0.5,
+  fineBuild: 'compute',
 };
 
 function errorsOf(v: unknown): string[] {
@@ -60,7 +61,7 @@ describe('the voxelWorld component', () => {
     expect(errorsOf('town')).toEqual(['field_type ']);
     expect(errorsOf({ world: 'Town' })).toEqual(['field_value /world']);
     expect(errorsOf({ world: 'a'.repeat(65) })).toEqual(['field_value /world']);
-    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, levels: { level0: 0, level1: '9', level2: 300 }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], decalLayers: 256, blendMetres: 0.75, bakeLevel: 0.25, climate: 1 })).toEqual([
+    expect(errorsOf({ world: 'w', ring: { loadRadius: 0, unloadRadius: Infinity, near: 3 }, collision: { radius: -1, height: '24' }, levels: { level0: 0, level1: '9', level2: 300 }, sectionEdge: 12, savedFields: ['material', 'colour', 'material'], decalLayers: 256, blendMetres: 0.75, bakeLevel: 0.25, fineBuild: 'gpu', climate: 1 })).toEqual([
       'field_unexpected /climate',
       'field_unexpected /ring/near',
       'field_value /ring/loadRadius',
@@ -76,10 +77,14 @@ describe('the voxelWorld component', () => {
       'field_value /decalLayers',
       'field_value /blendMetres',
       'field_value /bakeLevel',
+      'field_value /fineBuild',
     ]);
     // A bake level is one of the far cache's: 2 m, 1 m, 0.5 m.
     for (const m of [2, 1, 0.5]) expect(errorsOf({ world: 'w', bakeLevel: m })).toEqual([]);
     for (const m of [1.5, 4, '1', 0]) expect(errorsOf({ world: 'w', bakeLevel: m })).toEqual(['field_value /bakeLevel']);
+    // Fine bricks the bake does not hold: not built, or built by GPU compute.
+    for (const b of ['off', 'compute']) expect(errorsOf({ world: 'w', fineBuild: b })).toEqual([]);
+    for (const b of [true, 'on', 'cpu', 1]) expect(errorsOf({ world: 'w', fineBuild: b })).toEqual(['field_value /fineBuild']);
     // A blend is 0 (hard cell lines) to one cell.
     expect(errorsOf({ world: 'w', blendMetres: 0 })).toEqual([]);
     expect(errorsOf({ world: 'w', blendMetres: -0.1 })).toEqual(['field_value /blendMetres']);
@@ -100,6 +105,7 @@ describe('the voxelWorld component', () => {
 
   it('keeps every field through the scene validator and the canonical bytes, in order, adding nothing', () => {
     const shuffled = {
+      fineBuild: 'compute',
       bakeLevel: 0.5,
       blendMetres: 0.125,
       decalLayers: 5,
@@ -182,6 +188,12 @@ describe('the voxelWorld component', () => {
     expect(resolveVoxelWorld({ world: 'w', savedFields: [] }).savedFields).toBe(0);
     // No quality level known: the scene's own distances, no budget of its own.
     expect([r.quality, r.budgetBytes]).toEqual([null, null]);
+    // Fine bricks are built while playing only where the world asks it (off by default, whatever its bake level).
+    expect(VOXEL_WORLD_DEFAULTS.fineBuild).toBe('off');
+    expect(r.fineBricks).toBe(false);
+    expect(resolveVoxelWorld({ world: 'w', bakeLevel: 1 }).fineBricks).toBe(false);
+    expect(resolveVoxelWorld({ world: 'w', bakeLevel: 1, fineBuild: 'compute' }).fineBricks).toBe(true);
+    expect(resolveVoxelWorld({ world: 'w', fineBuild: 'off' }, DEFAULT_QUALITY_LEVELS[2]!).fineBricks).toBe(false);
   });
 
   it("scales every distance by the quality level (the scene's scale for the level, else the level's, else its tier's), a scene's own distance at a level replacing the scaled one, and takes the tier's stream budget", () => {
