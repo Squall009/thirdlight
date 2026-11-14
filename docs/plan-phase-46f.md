@@ -532,7 +532,7 @@ cap, landscape class with impostors, 2 rounds, before (d7e0335d's build, 05:18�
 3.15 ms; `occlusion=hiz`: draws 314 / 314, main 5.22 / 4.99 → 4.99 / 5.04 ms, GPU 3.24 / 3.17 → 3.47 / 3.43 ms
 (clock noise, D544); p95 33.4, 0 % ≥ 50 ms everywhere. Looked at: `~/.cache/thirdlight-phase46f/work/d649/run4/
 instances-lod-walled-auto.png` (the 7 near copies whole, nothing missing beside or above the wall; pixel-equal to the
-picture before the fix, `run1/walled-hiz.png`).
+picture before the fix, `run1/walled-hiz.png`). Gate `gate-fast-20261114-060422` green (every area, 34 min; e2e 322 tests 22.6 min, rendering 398 s; village at 60 Hz 0/360 missed, main 6.34 ms).
 
 ### 46f.4 — one undo for scene and voxels
 
