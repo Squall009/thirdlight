@@ -211,7 +211,7 @@ below, near and far absent; 131 s.
 |---|---|
 | 46e.0 | Done 2026-11-14 (bec4c31d, d2cc91a3): three.js 0.187.0 = pin; five lighting cameras + `run.mjs light-shots` (cave dug, lamps, two looks; refuses unsettled or voxel-less shots); baseline §4a: room 23.1 ms, page 4.1–4.6 / sim 1.8–2.0 ms, lighting 0.05 of 2.0 ms, edit to screen 22–53 ms (no light responds); D654 traced, profiler spike fixes, cause open |
 | 46e.1 | Done 2026-11-14 (1129d456…16e5e566): Measure GPU (Profiler, overlay, `tl_diagnostics` gpu/gpuMeasure, benches) — ballast past the cap, a category hidden between two shown windows, GPU completion times burst to burst, 5 repeats; low town near 1.61, far 3.49, shadows 0.09 ms, run-to-run ≤ 0.45 ms (§4b); D660 near's hide, D661 post's |
-| 46e.2 | not started |
+| 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; WGSL from the same steps) over level 0, mips and far nodes; `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
 | 46e.3 | not started |
 | 46e.4 | not started |
 | 46e.5 | not started |
@@ -319,6 +319,85 @@ the earlier `profiler-gpu-1280.png` had the table below the fold, now first in B
 `~/.cache/thirdlight-phase46e/work/46e.1/shots/*.png` and `shots6-near/room-window-after-gpu-later.png`
 (softer, with green in the ceiling's plank gaps: D660).
 
+### 46e.2 — one occupancy walk
+
+**Built.** A ray walk over the voxels' derived occupancy, 6-connected (R99: one axis a step, ties x, then y, then z,
+so it never passes between two cells that touch by an edge). `@thirdlight/voxel` `occupancy-walk.ts` (`walkVoxels`,
+`walkRay`): a world is read as blocks of one level's cells (a derive section at level 0, a mip node above), each
+empty, solid or mixed, a mixed one as 4³ bricks, a mixed brick cell by cell; empty blocks and bricks are crossed in one
+step that lands in exactly the cell a cell-by-cell walk would reach (the crossing times along the other axes are
+searched, never summed). At each block the finest level that knows it is taken; where none does, a far node's bricks
+are marched (`marchFarNodeFrom`, the brick renderer's march entered from wherever the walk is); where nothing is known
+it passes as through air. A hit gives the distance, the level-0 cell, the face's normal, the level, `far`, and at
+level 0 the voxel record. Sources: `walk-sources.ts` (`streamerWalkSource` over a streamer's sections and mip nodes;
+`FarWalkNodes`, the far nodes drawn, copied before the batches hand them over in a worker, counted in `voxelStream`).
+
+**One definition, and proven equal.** The arithmetic (a crossing's time `(rel − frac) × inv` from integers, the
+first of three crossings, the order of two) is written once over `ScalarOps` (`walk-steps.ts`): the CPU runs it in
+32-bit floats (`F32_SCALAR_OPS`, new in `shared`), the WGSL is written from it (`wgslScalarWriter`, new in `shared`).
+The loop, box crossings and lookups are written on each side (`three-adapter` `voxel-walk-wgsl.ts`, `voxel_walk`), so
+the browser check runs both on the same rays.
+
+**GPU.** The draw batches carry the walk's blocks packed (`walk-pages.ts`: 32³ blocks of every level, a page of
+brick and cell bits per stop for a mixed block, 8,320 bytes; a hash table, linear probing, half full at most) and the
+page mirrors them as two storage buffers (`voxel-walk-gpu.ts`, `VoxelWalkGpu`; WebGPU only, WebGL 2 drops them). A pass
+that walks rays includes `voxelWalkWgsl({ group, table, pages })` and calls
+`voxel_walk(cell: vec3<i32>, frac: vec3<f32>, inv: vec3<f32>, max_t: f32, stop: u32, max_level: u32) -> VoxelWalkHit`
+(`voxel_walk_ray(origin_m, dir, …)` makes the first three); it binds the table (`array<vec4<u32>>`) and the pages
+(`array<u32>`). Levels 0 and the mips are walked; the far bricks are not (D662). Memory at the 8 km town (low): 2,877
+blocks, 333 pages: 4.9 MB on the page, 8.5 MB on the GPU, a share of the chunks drawn (no budget row).
+
+**Partial cells (default, owner to confirm).** `solid` (picks, the default): a cell drawn as a body (the derived
+occupancy bit: a whole-box form, or ground half full or more). `light`: a solid cell whose light coverage is
+`LIGHT_STOP_COVERAGE` = 128 of 255 or more (R103's half): ground by its fill, a damaged construction cell by its
+integrity, so a cracked wall at a low stage lets light through though a pick still hits it. Liquid, openings and air
+stop neither; props' coverage is not in the walk.
+
+**API.** `ctx.voxels.raycast(origin, direction, maxDistance, { stop?: 'solid' | 'light' })` → `{ distance, point, at,
+normal, voxel, far }` or null (runtime `voxel-world-host.ts`, in Play and exports; reference regenerated). The voxel
+world page's picker walks its streamer (`cellPicker`, `aimAtPointer` kept), not the meshes drawn.
+
+**Measured** 2026-11-14 19:19–19:28 UTC, built at 62a9194c, alone (gate inactive), the brief's 10G scope; uptime 22.1 d,
+load 0.9–2.6; 2 rounds; raw `~/.cache/thirdlight-phase46e/work/46e.2/walk-r1.*`, `walk-r2.*`
+(`node tools/voxel-bench/run.mjs walk --play`). Rays (stop: light) from points within 2 m of the street camera: short
+8 m in every direction, medium 64 m, long 2 km at 0°–30° up. Node: the generated town derived in-process (level 0 over
+192 m, far nodes of 2 m cells over it). Worker: Play on staging's 8 km world, low tier, a script walking ~770–930 rays
+a step, its `scripts` ms a frame against none. GPU: the bench pass (8,192 rays a frame, `lighting`) read by
+`measureGpu({ only: ['lighting'] })` at the 30 Hz cap.
+
+| Rays a ms | short (8 m) | medium (64 m) | long (2 km) |
+|---|---|---|---|
+| CPU, Node, skipping (cell by cell) | 627 / 669 (561 / 613) | 215 / 193 (112 / 109) | 9.2 / 7.8 (8.4 / 7.0) |
+| CPU, simulation worker | 426 / 359 | 215 / 170 | 20.2 / 18.7 |
+| GPU, Iris Xe, low, 8,192 rays a frame | 0.29 ms / below resolution (0.17): ≈ 28,000 | 0.47 / 0.48 ms: ≈ 17,000 | 5.06 / 5.04 ms: ≈ 1,600 |
+
+So **in 1 ms**: a worker walks ~360–430 short, ~170–215 medium or ~20 long rays; the GPU ~28,000 short, ~17,000 medium
+or ~1,600 long (long GPU rays cross unknown space block by block with a lookup at every level: D662). Long CPU rays
+march far nodes (D663).
+
+**GPU = CPU.** The page's GPU walk against the CPU walk over the same blocks, ray by ray (end, distance to the bit,
+cell, face, level): Play e2e 1,200 rays (370 hits, 830 misses), **0 mismatches**; the 8 km town 1,200 rays (840 hits,
+360 misses), 0 mismatches, both rounds. Level 0 and the mips only: no tolerance needed (the far bricks are not on the
+GPU).
+
+**Far continuation at the ring edge.** Past what level 0 knows the walk takes the mip node, then the far node drawn
+there. vitest on a 20 m cliff (level 0 within 12 m, far nodes of 2 m cells past it): 408 of 415 rays meet the ground
+within 1.5 m of where level 0 stops them (the stated tolerance: 95 %); a ray grazing an edge may pass it in the coarse
+bricks (7 rays, the worst 34 m over the cliff's top onto the low ground). Walls and roofs thinner than half a far cell
+are not in the far nodes.
+
+**Tested.** vitest: `packages/voxel/src/occupancy-walk.test.ts` (4,500 random rays on blob worlds across negative
+coordinates and block faces equal to a cell-by-cell reference, with and without skipping; edge and corner contacts
+hit; start inside; a coarser level where level 0 does not know; the packed table equal to its views; the table through
+growth and deletions); `tools/voxel-bench/walk.test.ts` (town and caves, solid and light, 1,200 rays each equal to the
+reference both ways; records; light stops a subset of solid; packed blocks equal; far tolerance). Playwright
+(`voxel-world.e2e.ts`, WebGPU): the Play script's rays meet the pad (distance 6 m, normal up, a voxel) and the sky,
+light too; the GPU check above; a click right after the camera's jump digs the wall (no frame waited).
+**With the walk broken:** ties counted as crossed (a diagonal step) fail the reference test
+(`broken-diagonal-vitest.log`); a walk returning null fails `rayGround`; a WGSL walk reading wrong bits shows
+mismatches; a WGSL that did not compile hung the check's read back (found so: `from` is reserved in WGSL) and is now
+said on the console. The Play test 90 s → 84–86 s alone (the GPU check 25–50 ms).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -356,6 +435,17 @@ the earlier `profiler-gpu-1280.png` had the table below the fold, now first in B
   GPU's completion times); the page holds the render scale and texture streaming while it measures.
 - 2026-11-14 (46e.1): the profile report carries the measurement as an optional `gpu.measure`; capture files stay
   `version: 1` (an older reader ignores it).
+
+- 2026-11-14 (46e.2, default chosen, owner to confirm): a cell stops a pick when drawn as a body (derived occupancy),
+  light when solid and its light coverage is 128 of 255 or more; liquid, openings and props' coverage stop neither.
+- 2026-11-14 (46e.2, default chosen, owner to confirm): the walk's GPU data are storage buffers (a hash table of 32³
+  blocks and bit pages), not a texture through `region-texture.ts`: exact u32 words, read by compute passes only; no
+  stored format. The batches carry them; WebGL 2 pages drop them.
+- 2026-11-14 (46e.2, default chosen, owner to confirm): empty space is skipped by the walk's own blocks and bricks,
+  not `ChunkTreeFlags` (it counts a chunk never given as empty, so it cannot tell air from not loaded); where no level
+  and no far node knows a place, a ray passes as through air (light reaches it).
+- 2026-11-14 (46e.2, default chosen, owner to confirm): `ctx.voxels.raycast` stops at `solid` by default; hits in the
+  mips or far nodes carry no voxel (`far: true`).
 
 ## 10. Open questions for the owner (asked with the plan)
 

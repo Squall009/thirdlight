@@ -134,6 +134,26 @@ has **Affects lighting** on. Null where the world is not loaded there or the
 cell's piece is not built yet. Nothing draws from it yet; it is there for
 scripts and the world's lighting later.
 
+## Rays: `raycast`
+
+`raycast(origin, direction, maxDistance, options)` walks a ray from a point
+(metres) along a direction to the first voxel that stops it, within
+`maxDistance` metres, or gives null. It steps from cell face to cell face, so it
+never slips between two voxels that touch only by an edge. `options.stop` says
+what stops it: `'solid'` (the default: a voxel drawn as a body, what a click
+picks) or `'light'` (a voxel that blocks light: ground at least half full, a
+wall unless damaged past half). Water, openings and air never stop it. The
+answer has `distance`, the `point` met, `at` (the centre of the voxel hit, for
+`get`, `dig` or `set`), the face's `normal`, the `voxel` and `far`: past the
+full-detail ring the ray goes on through the coarser levels and the far field,
+which hold no single voxel (`voxel` null, `far` true). Where nothing is loaded
+it passes as through air.
+
+```ts
+const down = ctx.voxels.raycast([x, y + 10, z], [0, -1, 0], 50);
+if (down !== null) ctx.voxels.dig({ center: down.at, radius: 1 });
+```
+
 ## Materials: `materialAt`, `materialOf`
 
 `materialAt(x, y, z)` gives the material record of the voxel at a point,
