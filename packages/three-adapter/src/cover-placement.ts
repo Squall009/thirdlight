@@ -43,7 +43,7 @@
  *
  * Pure.
  */
-import { seedCellHash } from '@thirdlight/shared';
+import { CPU_SCALAR_OPS, seedCellHash, type ScalarOps } from '@thirdlight/shared';
 import { SCATTER_MIN_NORMAL_Y, SURFACE_RULE_CAVITY_RADIUS, copyRotation, ruleNoise, ruleRangeAt, type CoverPoint, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 
 /** Where a rule's copies begin to fade out at the end of their reach, as a share of it. */
@@ -81,9 +81,6 @@ export function coverRandom(seed: number, ix: number, iz: number, lane: number):
   return (seedCellHash(seed, ix, iz, lane) >>> 8) / 16777216;
 }
 
-/** `t` eased (smoothstep), clamped to [0, 1]. */
-const ease = (t: number): number => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
-
 /** How a rule's copies thin with distance (metres from the eye across the ground). */
 export interface CoverThinning {
   /** Every candidate kept out to here. */
@@ -94,13 +91,21 @@ export interface CoverThinning {
   readonly min: number;
 }
 
+/**
+ * The share of candidates kept at distance `d` (m across the ground) for a thinning of `full`, `reach` and `min`,
+ * written once over {@link ScalarOps}: the CPU and the point-set rows' compute pass run these same steps.
+ */
+export function coverShareSteps<F, B>(o: ScalarOps<F, B>, d: F, full: F, reach: F, min: F): F {
+  const screen = o.select(o.lt(full, d), o.div(o.mul(full, full), o.max(o.mul(d, d), o.n(1e-6))), o.n(1));
+  const from = o.mul(reach, o.n(COVER_FADE_START));
+  const t = o.min(o.max(o.div(o.sub(d, from), o.max(o.sub(reach, from), o.n(1e-9))), o.n(0)), o.n(1));
+  const fade = o.sub(o.n(1), o.mul(o.mul(t, t), o.sub(o.n(3), o.mul(o.n(2), t))));
+  return o.select(o.lt(d, reach), o.max(min, o.mul(screen, fade)), o.n(0));
+}
+
 /** The share of candidates kept at distance `d`. */
 export function coverShare(t: CoverThinning, d: number): number {
-  if (d >= t.reach) return 0;
-  const screen = d <= t.full ? 1 : (t.full / d) ** 2;
-  const from = t.reach * COVER_FADE_START;
-  const fade = 1 - ease((d - from) / (t.reach - from));
-  return Math.max(t.min, screen * fade);
+  return coverShareSteps(CPU_SCALAR_OPS, d, t.full, t.reach, t.min);
 }
 
 /** The model's levels as cover draws them: the first LOD's switch distances (level l from `distances[l]`, metres at scale 1), whether its last level is "nothing", and its radius. */

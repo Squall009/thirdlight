@@ -32,6 +32,9 @@
  *                               with --moss-ahead 40 the walk starts out of the moss rule's reach and crosses every ring)
  *   --spacing S                 the cover rules keep S metres between copies
  *   --blocks-layer              the terrain meets the scene's block layers (a blocks layer: holes under them; the cover reads masks)
+ *   --slab                      no terrain: a flat 320 m slab (a model) at the camera's ground height carries the cover rules
+ *                               instead (ground cover on a model's upward faces: point sets baked per 16 m square, not the
+ *                               terrain's texels); the rules' terrain-layer conditions are left out
  *   --no-post                   no post stack: the scene draws with MSAA (a new project's default)
  *   --query Q                   added to the exports' page URL (e.g. cover=cpu)
  *   --clouds C                  under the physical sky with cloud cover C (density 0.6), drifting with the wind
@@ -58,6 +61,7 @@ import { LEVEL_LOOK, publishTerrainMaterial, STARTER_REMOVED } from './level';
 import { MEADOW_KIT, MEADOW_SEED, MEADOW_SIDE, MEADOW_SPEC, MEADOW_VERSION, meadowCamera, meadowHeight, meadowCoverRule, meadowHeights, meadowOrigin, meadowPaint, meadowSamples, meadowTerrainRaw, proposeSweepBudget, SWEEP_CONFIGS, sweepLoad, type SweepRow } from './meadow';
 import { EYE_HEIGHT_M, type BehaviorPlan } from './generate';
 import { CLUMP_LEVELS, clumpKitGlb } from './village-assets';
+import { multiPieceGlb } from '../../tests/e2e/multi-piece-glb';
 import { frameLine } from './village-run';
 
 const flagOf = (argv: readonly string[]) => (name: string): string | undefined => {
@@ -180,6 +184,25 @@ async function starterOnMeadow(p: ReturnType<PerfBackend['project']>, cmd: Cmd, 
     } else if (e.components['controller'] !== undefined || e.components['playerSpawn'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [cam.position[0], meadowHeight(cam.position[0], cam.position[2]) + 1.2, cam.position[2]] } });
     else if (e.components['virtualCamera'] !== undefined) await cmd('setComponent', { entityId: e.id, component: 'virtualCamera', value: { ...(e.components['virtualCamera'] as object), distance: 8, pitch: 18, yaw: Math.round((cam.yaw * 180) / Math.PI) } });
   }
+}
+
+/** The slab's side (m): it reaches past the cover's 60 m all round the camera. */
+const SLAB_SIDE = 320;
+
+/**
+ * `--slab`: the terrain goes and a flat slab model takes its place under the camera (its top at the camera's ground
+ * height, its middle 100 m ahead along the view); returns what sets the slab's cover rules (its `model.scatter`).
+ */
+async function slabInsteadOfTerrain(be: PerfBackend, cmd: Cmd, terrainId: string): Promise<(rules: Record<string, unknown>[]) => Promise<void>> {
+  await cmd('deleteEntity', { entityId: terrainId });
+  await publishFileVia(be, 'meadow', cmd, { assetId: 'meadow-slab', kind: 'model', displayName: 'Meadow slab', bytes: multiPieceGlb([{ name: 'slab', lods: [[SLAB_SIDE, 0.2, SLAB_SIDE]], colors: [[0.3, 0.26, 0.18]] }], { centred: true }) });
+  const cam = meadowCamera();
+  const top = cam.position[1] - EYE_HEIGHT_M;
+  const at = [cam.position[0] + 100 * Math.SQRT1_2, top - 0.2, cam.position[2] - 100 * Math.SQRT1_2];
+  const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Slab', model: { asset: { assetId: 'meadow-slab' }, piece: 'slab' }, transform: { position: at } }))['createdId']);
+  return async (rules) => {
+    await cmd('setComponent', { entityId: id, component: 'model', value: { asset: { assetId: 'meadow-slab' }, piece: 'slab', scatter: rules } });
+  };
 }
 
 /** On the starter: the block ground's side (cells) and the moss its floor wears (cover on a block layer). */
@@ -323,9 +346,11 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
       const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), walk: get('walk') === undefined ? null : Number(get('walk')), walkFrom: get('walk-from') === undefined ? null : (get('walk-from')!.split(',').map(Number) as [number, number]), starter: has('starter'), mossAhead: get('moss-ahead') === undefined ? null : Number(get('moss-ahead')), mossRight: get('moss-right') === undefined ? null : Number(get('moss-right')), blocksLayer: has('blocks-layer'), noPost: has('no-post'), rootColour: get('root-colour') === undefined ? null : Number(get('root-colour')), rootColourHeight: get('root-colour-height') === undefined ? null : Number(get('root-colour-height')), ...(get('interactors') !== undefined ? { interactors: Number(get('interactors')) } : {}), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
       // A spacing between copies (the rule card's default) keeps a rule on the CPU path.
       if (get('spacing') !== undefined) for (const r of cover) r['spacing'] = Number(get('spacing'));
+      const slab = has('slab') ? await slabInsteadOfTerrain(be, cmd, terrainId) : null;
       for (const variant of ['grass', 'ground'] as const) {
         const t = performance.now();
-        await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: variant === 'grass' ? cover : [] });
+        if (slab !== null) await slab(variant === 'grass' ? cover.map(({ layers: _layers, ...r }) => r) : []);
+        else await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: variant === 'grass' ? cover : [] });
         const res = await be.post('/api/v1/admin/projects/meadow/export', {});
         if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
         exportDirs[variant] = join(be.exportRoot, String(res.json['outputDir']));

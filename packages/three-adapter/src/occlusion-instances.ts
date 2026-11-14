@@ -172,7 +172,7 @@ export interface InstanceOcclusionDiagnostics {
    * read-back; the lists' count off the pyramid's path); `otherDraws`: their indirect draws by other cameras (shadow
    * maps) in the last frame (three's draw counts leave indirect draws out).
    */
-  readonly copies: CopyRowsDiagnostics & { readonly drawn: number; readonly otherDraws: number };
+  readonly copies: Omit<CopyRowsDiagnostics, 'cover'> & { readonly drawn: number; readonly otherDraws: number; readonly cover: CopyRowsDiagnostics['cover'] & { readonly drawn: number } };
 }
 
 /** The rows of a frame: instanced draws first, then copy sets' draws, then the draws tested whole. */
@@ -259,7 +259,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
   private stamp = 0;
   private frames = 0;
   private reading = false;
-  private read = { tested: 0, drawn1: 0, drawn2: 0, pass1Left: 0, whole: { tested: 0, second: 0, culled: 0 }, terrain: { tested: 0, culled: 0 }, copies: { drawn: 0 } };
+  private read = { tested: 0, drawn1: 0, drawn2: 0, pass1Left: 0, whole: { tested: 0, second: 0, culled: 0 }, terrain: { tested: 0, culled: 0 }, copies: { drawn: 0, coverDrawn: 0 } };
   /** Where the read-back lands (made again when the arguments grow). */
   private readback: ReadbackBuffer | null = null;
   private disposed = false;
@@ -698,8 +698,10 @@ export class InstanceOcclusion implements InstanceCullerHost {
     for (const d of this.frameRows) if (d.whole !== true && d.copy !== true) draws += 1;
     const c = this.copyRows.diagnostics();
     // Off the pyramid's path the view draws every copy its lists hold.
-    const drawn = this.ranLate || this.read.copies.drawn > 0 ? this.read.copies.drawn : c.inView;
-    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn, otherDraws: this.otherDraws.last }, error: this.failed };
+    const read = this.ranLate || this.read.copies.drawn + this.read.copies.coverDrawn > 0;
+    const drawn = read ? this.read.copies.drawn : c.inView;
+    const cover = { ...c.cover, drawn: read ? this.read.copies.coverDrawn : c.cover.inView };
+    return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn, otherDraws: this.otherDraws.last, cover }, error: this.failed };
   }
 
   /** Every draw unmarked and drawn as before (the culling of copies stopped): copy sets too. */
@@ -1118,8 +1120,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
    * diagnostics' counts, and each draw tested whole told whether it was seen.
    */
   private readBack(): void {
-    const rows: { whole: WholeRow | null; n: number; first: boolean; terrain: boolean; copy: boolean; owner: boolean }[] = this.frameRows.map((d) =>
-      d.whole === true ? { whole: d, n: 1, first: d.firstPass, terrain: false, copy: false, owner: false } : d.copy === true ? { whole: null, n: 0, first: d.firstPass, terrain: false, copy: true, owner: d.owner && !d.otherOnly } : { whole: null, n: d.n, first: d.firstPass, terrain: d.handle.mesh.userData[OCCLUDEE_KIND_KEY] === 'terrain', copy: false, owner: false },
+    const rows: { whole: WholeRow | null; n: number; first: boolean; terrain: boolean; copy: boolean; owner: boolean; cover: boolean }[] = this.frameRows.map((d) =>
+      d.whole === true ? { whole: d, n: 1, first: d.firstPass, terrain: false, copy: false, owner: false, cover: false } : d.copy === true ? { whole: null, n: 0, first: d.firstPass, terrain: false, copy: true, owner: d.owner && !d.otherOnly, cover: d.output.cover } : { whole: null, n: d.n, first: d.firstPass, terrain: d.handle.mesh.userData[OCCLUDEE_KIND_KEY] === 'terrain', copy: false, owner: false, cover: false },
     );
     if (rows.length === 0) return;
     const args = this.args;
@@ -1139,6 +1141,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
         const whole = { tested: 0, second: 0, culled: 0 };
         const terrain = { tested: 0, culled: 0 };
         let copiesDrawn = 0;
+        let coverDrawn = 0;
         rows.forEach((r, i) => {
           if (r.whole !== null) {
             const seen = a[i * ARGS_STRIDE + 1]! !== 0;
@@ -1153,7 +1156,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
           const n1 = r.first ? a[i * ARGS_STRIDE + 1]! : 0;
           const n2 = a[i * ARGS_STRIDE + ARGS_PASS + 1]!;
           // A copy set's list: what the view drew of it after the pyramid (its tests count in the copies' own report).
-          if (r.owner) copiesDrawn += n1 + n2;
+          if (r.owner && r.cover) coverDrawn += n1 + n2;
+          else if (r.owner) copiesDrawn += n1 + n2;
           if (r.copy) return;
           tested += r.n;
           drawn1 += n1;
@@ -1164,7 +1168,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
             terrain.culled += Math.max(0, r.n - n1 - n2);
           }
         });
-        this.read = { tested, drawn1, drawn2, pass1Left, whole, terrain, copies: { drawn: copiesDrawn } };
+        this.read = { tested, drawn1, drawn2, pass1Left, whole, terrain, copies: { drawn: copiesDrawn, coverDrawn } };
       })
       .catch(() => undefined)
       .finally(() => {

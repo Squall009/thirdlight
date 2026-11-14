@@ -26,6 +26,7 @@
 import { lodLevelOf } from '@thirdlight/shared';
 
 import { copyDensityAt } from './copies-prepare';
+import { coverShare, type CoverThinning } from './cover-placement';
 
 /** Seconds a copy's switch between two levels is cross-faded over. */
 export const COPY_LEVEL_FADE_S = 0.25;
@@ -86,6 +87,8 @@ export interface CopySelection {
   readonly worldScale: number;
   /** Thinning by distance: share 1 to `from`, down to `min` at `to` (level units at scale 1); null: none. */
   readonly density: { readonly from: number; readonly to: number; readonly min: number } | null;
+  /** Ground cover's thinning by metres across the ground (`coverShare`; absent or null: none). */
+  readonly cover?: CoverThinning | null;
   /** The near-shadow list's reach (metres; null: none). */
   readonly nearReach: number | null;
   /** The meshes outside every level are drawn by this selection (its first group's). */
@@ -108,15 +111,18 @@ export interface CopyListing {
 
 /**
  * The CPU reference of one copy's pick: `metres` from the eye, its largest scale `scale` (before the world's),
- * thinning `rank`, whether the frustum holds its sphere, its state as kept, the seconds since the last pick.
+ * thinning `rank`, whether the frustum holds its sphere, its state as kept, the seconds since the last pick, and
+ * its metres from the eye across the ground (ground cover thins by them; absent: `metres`).
  */
-export function selectCopy(sel: CopySelection, metres: number, scale: number, rank: number, inView: boolean, state: number, dt: number): CopyListing {
+export function selectCopy(sel: CopySelection, metres: number, scale: number, rank: number, inView: boolean, state: number, dt: number, across = metres): CopyListing {
   const s = scale * sel.worldScale;
   const d = metres * sel.toDistance;
   const target = lodLevelOf(sel.switches, d, s, unpackCopyState(state).level, sel.hysteresis);
   const next = nextCopyState(state, target, copyFadeStep(dt));
   const { level, left, remaining } = unpackCopyState(next);
-  const kept = s > 0 && (sel.density === null || rank < copyDensityAt(d, sel.density.from * s, sel.density.to * s, sel.density.min));
+  const cover = sel.cover ?? null;
+  const share = cover !== null ? coverShare(cover, across) : sel.density !== null ? copyDensityAt(d, sel.density.from * s, sel.density.to * s, sel.density.min) : 1;
+  const kept = s > 0 && (cover === null && sel.density === null ? true : rank < share);
   const last = sel.switches.length - 1;
   const culled = sel.culls && level === last;
   const levels: [number, boolean][] = [];

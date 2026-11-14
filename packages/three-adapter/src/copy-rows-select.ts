@@ -23,6 +23,7 @@ import type { StorageBufferAttribute } from 'three/webgpu';
 
 import { copyDensitySteps } from './copies-prepare';
 import { COPY_FADE_FULL } from './copy-rows-rule';
+import { coverShareSteps } from './cover-placement';
 import type { N } from './effects-tsl';
 import { TSL_SCALAR_OPS } from './field-ops';
 
@@ -42,9 +43,14 @@ export const NO_OUTPUT = 0xffffffff;
  * level, picked on the page; {@link NO_OUTPUT}: each copy picks its own).
  */
 export const SELECTION_U32 = 10;
-/** Selection flags: the last level is the cull size; the set thins by distance. */
+/**
+ * Selection flags: the last level is the cull size; the set thins by distance (the falloff by screen size); the set
+ * is ground cover, thinned by its own share across the ground (`coverShareSteps`: the falloff's three floats are its
+ * full, reach and least share, in metres).
+ */
 export const SELECT_CULLS = 1;
 export const SELECT_THINS = 2;
+export const SELECT_COVER = 4;
 /**
  * Floats a selection's parameters take before its switch distances: the set's world matrix (16), its largest
  * world scale, metres → level units, the hysteresis share, the model's reach from its origin (scale 1), how far
@@ -185,8 +191,14 @@ export function copySelectKernels(b: SelectBuffers, v: SelectView, t: SelectTabl
           inView.assign(inView.and(plane.xyz.dot(wp).add(plane.w).greaterThanEqual(r.negate())));
         }
         const thins = flags.bitAnd(SELECT_THINS).notEqual(0);
-        const share = copyDensitySteps(o, d, fl(F_DENSITY).mul(s), fl(F_DENSITY + 1).mul(s), fl(F_DENSITY + 2));
-        const kept = s.greaterThan(0).and(thins.not().or(v0.w.lessThan(share))).toVar();
+        const cover = flags.bitAnd(SELECT_COVER).notEqual(0);
+        const share = TSL.float(1).toVar();
+        TSL.If(cover, () => {
+          share.assign(coverShareSteps(o, TSL.length(wp.xz.sub(v.eye.xz)), fl(F_DENSITY), fl(F_DENSITY + 1), fl(F_DENSITY + 2)));
+        }).ElseIf(thins, () => {
+          share.assign(copyDensitySteps(o, d, fl(F_DENSITY).mul(s), fl(F_DENSITY + 1).mul(s), fl(F_DENSITY + 2)));
+        });
+        const kept = s.greaterThan(0).and(v0.w.lessThan(share).or(thins.or(cover).not())).toVar();
         const last = levels.sub(1);
         const culls = flags.bitAnd(SELECT_CULLS).notEqual(0);
         const culled = culls.and(target.equal(last)).toVar();

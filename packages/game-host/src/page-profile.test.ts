@@ -92,5 +92,9 @@ describe('the page profile', () => {
     expect(p.read().counters.copyRows).toBeNull();
     copies = { sets: 50, copies: 3000, rows: 50, lists: 50, inView: 900, listed: 1400, bytes: 4096, runs: 12, drawn: 860, triangles: 120_000 };
     expect(p.read().counters.copyRows).toEqual({ sets: 50, copies: 3000, rows: 50, lists: 50, inView: 900, listed: 1400, drawn: 860, triangles: 120_000, bytes: 4096 });
+    // Ground cover's point sets as rows of the same table: counted apart.
+    expect(p.read().counters.coverRows).toBeNull();
+    copies = { ...(copies as object), cover: { sets: 2, copies: 131_072, rows: 6, lists: 4, inView: 13_000, drawn: 9_000, triangles: 160_000 } };
+    expect(p.read().counters.coverRows).toEqual({ sets: 2, points: 131_072, rows: 6, lists: 4, inView: 13_000, drawn: 9_000, triangles: 160_000 });
   });
 });

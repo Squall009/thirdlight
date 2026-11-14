@@ -551,7 +551,7 @@ conditions give. With distance, copies fade out one by one over the last
 pops; never below `densityMin`); with `densityStart` (a screen size, as the
 stored scatter's falloff) they thin from where the model covers that size,
 their share falling as the square of distance. A thinned candidate leaves
-the vertex stage before it reads any texture.
+the vertex stage before it reads any texture (on a terrain).
 
 **Distance and levels of detail.** The reach is cut into **rings** round
 each view: at the model's level switches (a ring draws one level) and from
@@ -563,7 +563,22 @@ in a texture written only when the list changes; **one instanced draw per
 ring and mesh** draws every candidate of the listed patches, and the vertex
 stage places, turns, sizes and thins each one from a hash of its cell (or
 its point). Nothing per copy lives on the CPU, and nothing per frame grows
-with the copies. The same on WebGL 2 (no compute) and WebGPU.
+with the copies. Terrains draw this way on both renderers, block layers,
+models and architecture on WebGL 2.
+
+**Point sets on WebGPU.** The points of block layers, models and
+architecture are rows of the culled-instance table that stored copies use
+(see [Instance sets](instance-sets.md)): each point is expanded into a copy (64
+bytes in the table's pools) as its set arrives, and one compute pass a
+frame picks every point: its level by the same screen-size rule as placed
+models and stored copies (with the project's hysteresis and a 0.25 s
+cross-fade where a point changes level, in place of the rings' fixed
+cuts), its thinning by the same share across the ground, and the frustum,
+plus the depth pyramid where occlusion culling runs it. One indirect draw
+per mesh of the model draws the points kept; the page lists no patches. A
+still view runs no pick. The profile's `coverRows` counter (Profiler tab:
+*ground cover as table rows*) gives the rules, rows, points in view and
+points drawn.
 
 **Shadows.** Cover casts no shadow unless the rule says `castShadow`
 (grass never should); it always receives the sun's shadow, and the
@@ -575,7 +590,7 @@ and one GPU instance renderer draws them all:
 
 | Source | Placements | Drawn by |
 |---|---|---|
-| Ground cover rules | procedural on terrains; baked point sets per chunk or 16 m square elsewhere; never stored | the GPU renderer's patch rings |
+| Ground cover rules | procedural on terrains; baked point sets per chunk or 16 m square elsewhere; never stored | the GPU renderer's patch rings (point sets on WebGPU: rows of the culled-instance table) |
 | Stored scatter (trees, rocks) | baked per tile or chunk into the project, re-baked round an edit | the same renderer's copies sets (blocks of up to 64 copies) |
 | The instance brush, instance sets | stored in the set | the same copies sets |
 

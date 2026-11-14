@@ -26,7 +26,7 @@ const BLOCKS_START = 64;
 const POINTS_KEEP_FRAMES = 300;
 
 /** One chunk's set of one rule. */
-interface PointEntry {
+export interface PointEntry {
   readonly cx: number;
   readonly cz: number;
   set: CoverPointSet | null;
@@ -39,17 +39,50 @@ interface PointEntry {
   used: number;
 }
 
-/** A rule's point sets: the texture its draws read and the chunks it holds. */
+/**
+ * A rule's point sets: the texture its draws read and the chunks it holds. Each block remembers the chunk set it
+ * holds and the first of that set's points in it, and the version it last changed at (point-set rows write only the
+ * blocks changed since they last wrote: `cover-rows.ts`).
+ */
 export class CoverPointAtlas {
   texture: THREE.DataTexture;
   private blocks: number;
   private readonly free: number[] = [];
   readonly entries = new Map<string, PointEntry>();
+  /** Per block: the entry whose points it holds (null: free) and the first of them. */
+  owners: (PointEntry | null)[] = [];
+  firsts = new Int32Array(0);
+  /** Per block: the version it last changed at; the atlas's version (bumped by every change). */
+  versions = new Uint32Array(0);
+  version = 0;
 
   constructor() {
     this.blocks = BLOCKS_START;
     this.texture = pointTexture(new Float32Array(BLOCKS_START * COVER_POINT_BLOCK * COVER_POINT_FLOATS));
     for (let b = BLOCKS_START - 1; b >= 0; b--) this.free.push(b);
+    this.sizeOwners(BLOCKS_START);
+  }
+
+  private sizeOwners(blocks: number): void {
+    const firsts = new Int32Array(blocks);
+    firsts.set(this.firsts);
+    this.firsts = firsts;
+    const versions = new Uint32Array(blocks);
+    versions.set(this.versions);
+    this.versions = versions;
+    while (this.owners.length < blocks) this.owners.push(null);
+  }
+
+  /** Block `slot` holds `e`'s points from `first` (null: freed). */
+  private own(slot: number, e: PointEntry | null, first: number): void {
+    this.owners[slot] = e;
+    this.firsts[slot] = first;
+    this.versions[slot] = this.version;
+  }
+
+  private freeSlot(slot: number): void {
+    this.free.push(slot);
+    this.own(slot, null, 0);
   }
 
   /** Blocks the texture holds (a ring's list is no longer). */
@@ -68,7 +101,8 @@ export class CoverPointAtlas {
 
   /** A set arrived: its points put in blocks (the old ones freed). True: the texture grew (draws read the new one). */
   store(e: PointEntry, set: CoverPointSet | null): boolean {
-    for (const s of e.slots) this.free.push(s);
+    this.version += 1;
+    for (const s of e.slots) this.freeSlot(s);
     e.slots = [];
     e.set = set;
     e.stale = false;
@@ -85,6 +119,7 @@ export class CoverPointAtlas {
       this.texture = pointTexture(data);
       for (let b = blocks - 1; b >= this.blocks; b--) this.free.push(b);
       this.blocks = blocks;
+      this.sizeOwners(blocks);
       grew = true;
     }
     const data = this.texture.image.data as Float32Array;
@@ -92,6 +127,7 @@ export class CoverPointAtlas {
     for (let k = 0; k < need; k++) {
       const slot = this.free.pop()!;
       e.slots.push(slot);
+      this.own(slot, e, k * COVER_POINT_BLOCK);
       data.set(set.data.subarray(k * per, Math.min(set.data.length, (k + 1) * per)), slot * per);
     }
     this.texture.needsUpdate = true;
@@ -109,7 +145,8 @@ export class CoverPointAtlas {
   forget(frame: number): void {
     for (const [key, e] of this.entries) {
       if (frame - e.used <= POINTS_KEEP_FRAMES) continue;
-      for (const s of e.slots) this.free.push(s);
+      this.version += 1;
+      for (const s of e.slots) this.freeSlot(s);
       this.entries.delete(key);
     }
   }

@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { COPY_FADE_FULL, COPY_LEVEL_FADE_S, copyFadeStep, nextCopyState, packCopyState, selectCopy, unpackCopyState, type CopySelection } from './copy-rows-rule';
 import { CopyRowsTable, type CopyRow, type CopyRowsHost, type CopyRowsSource } from './copy-rows';
-import { NO_OUTPUT, SELECTION_U32 } from './copy-rows-select';
+import { NO_OUTPUT, SELECT_COVER, SELECTION_U32 } from './copy-rows-select';
 import { LodTuning } from './lod-switch';
 import { RangeAllocator } from './occlusion-instances-rule';
 import { InstanceOcclusion } from './occlusion-instances';
@@ -92,6 +92,7 @@ function source(count: number, levels: number, near: boolean): CopyRowsSource {
     copiesVersion: 1,
     writeCopies: (target, at) => {
       for (let i = 0; i < count; i += 1) target.set([i, 0, 0, 0.5, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 1], (at + i) * 16);
+      return null;
     },
     world: new THREE.Matrix4(),
     modelReach: 1,
@@ -211,6 +212,39 @@ describe('a set of copies as the table rows', () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  it('takes ground cover\'s point sets as sets of their own: flagged for the cover\'s thinning, its numbers in the falloff\'s place, counted apart, written only where they changed', () => {
+    const dirty: [number, number][] = [];
+    const h = { ...host(), dirtyMatrices: (a: number, b: number) => void dirty.push([a, b]) };
+    const table = new CopyRowsTable({ compute: () => undefined } as never, h, LAYOUT);
+    const copies = source(10, 2, false);
+    const cover: CopyRowsSource = { ...source(128, 1, false), cover: { full: 21, reach: 80, min: 0.1 }, copiesVersion: 1, writeCopies: (_t, _at, since) => (since === undefined ? null : [64, 128]) };
+    table.adopt(copies);
+    table.adopt(cover);
+    const rows: CopyRow[] = [];
+    table.list(rows as unknown[], () => true);
+    table.writeCopies();
+    const view = new CullView();
+    const cam = new THREE.PerspectiveCamera();
+    cam.updateMatrixWorld(true);
+    view.set(cam);
+    table.run(view, rows.length, { table: new StorageBufferAttribute(new Uint32Array(12 * 16), 1), args: new StorageBufferAttribute(new Uint32Array(15 * 16), 1) }, 0);
+    const data = (table as unknown as { data: StorageBufferAttribute }).data.array as Uint32Array;
+    // Chunks: 1 of the copies, 2 of the cover's points; then the headers (flags at 4, floats at 5).
+    const headers = 3 * 2;
+    expect(data[headers + 4]).toBe(0);
+    expect(data[headers + SELECTION_U32 + 4]).toBe(SELECT_COVER);
+    const floats = (table as unknown as { floats: StorageBufferAttribute }).floats.array as Float32Array;
+    const f = data[headers + SELECTION_U32 + 5]!;
+    expect([...floats.subarray(f + 22, f + 25)].map((v) => Math.round(v * 100) / 100)).toEqual([21, 80, 0.1]);
+    expect(table.diagnostics()).toMatchObject({ sets: 1, copies: 10, rows: 4, lists: 2, cover: { sets: 1, copies: 128, rows: 2, lists: 1 } });
+    // A changed point set: only its range written (and uploaded).
+    dirty.length = 0;
+    (cover as { copiesVersion: number }).copiesVersion = 2;
+    table.writeCopies();
+    const at = rows.find((r) => r.output.cover)!.copies;
+    expect(dirty).toEqual([[(at + 64) * 16, (at + 128) * 16]]);
   });
 
   it('builds its three compute passes (WGSL: atomic counters, the shared level steps, the frustum)', () => {

@@ -21,7 +21,8 @@ import { ReadbackBuffer, StorageBufferAttribute, type WebGPURenderer } from 'thr
 
 import type { CulledCopies, CulledDepth } from './attribute-instancing';
 import { COPY_LEVEL_FADE_S, COPY_ROW_FLOATS, copyFadeStep } from './copy-rows-rule';
-import { copySelectKernels, NO_OUTPUT, SELECT_DISPATCH_ROW, SELECT_THINS, SELECT_CULLS, SELECT_WORKGROUP, SELECTION_F32, SELECTION_U32, type SelectTableLayout } from './copy-rows-select';
+import { copySelectKernels, NO_OUTPUT, SELECT_COVER, SELECT_DISPATCH_ROW, SELECT_THINS, SELECT_CULLS, SELECT_WORKGROUP, SELECTION_F32, SELECTION_U32, type SelectTableLayout } from './copy-rows-select';
+import type { CoverThinning } from './cover-placement';
 import { releaseStorage } from './dispose';
 import type { N } from './effects-tsl';
 import type { LodTuning } from './lod-switch';
@@ -57,8 +58,14 @@ export interface CopyRowsSource {
   readonly meshes: readonly CopyRowsMesh[];
   /** Changes whenever a copy does (its floats are written again). */
   readonly copiesVersion: number;
-  /** Every copy's {@link COPY_ROW_FLOATS} floats into `target` from copy `at`. */
-  writeCopies(target: Float32Array, at: number): void;
+  /**
+   * The copies' {@link COPY_ROW_FLOATS} floats into `target` from copy `at`: every copy, or (with `since`, the
+   * version last written) only those changed since, returned as [start, end) pairs of copies; null: every copy
+   * was written.
+   */
+  writeCopies(target: Float32Array, at: number, since?: number): readonly number[] | null;
+  /** Ground cover: what the set's places are (a set of point sets) and how it thins across the ground; absent: stored copies. */
+  readonly cover?: CoverThinning | null;
   /** The set's world matrix (the copies' places are in its frame). */
   readonly world: THREE.Matrix4;
   /** The model's farthest point from its origin at scale 1. */
@@ -85,6 +92,8 @@ export interface CopyRowsSource {
 /** One list of a set: the draws of one level of one group, the ungrouped draws, or the near-shadow draws. */
 interface Output {
   readonly key: string;
+  /** A ground cover set's (counted apart from stored copies). */
+  readonly cover: boolean;
   readonly cap: number;
   base: number;
   /** This frame's index (its counts' place), -1 when not listed. */
@@ -150,7 +159,17 @@ export interface CopyRowsHost {
   zeroVisible(start: number, end: number): void;
 }
 
-/** What the copy sets report (diagnostics and the profiler's counters). */
+/** What a kind of set reports: sets, their places, the last frame's rows and lists, and (from the last read-back) the copies the view's lists held and their triangles. */
+export interface CopyRowsKindDiagnostics {
+  readonly sets: number;
+  readonly copies: number;
+  readonly rows: number;
+  readonly lists: number;
+  readonly inView: number;
+  readonly triangles: number;
+}
+
+/** What the copy sets report (diagnostics and the profiler's counters); the stored copies' sets, ground cover's in `cover`. */
 export interface CopyRowsDiagnostics {
   readonly sets: number;
   readonly copies: number;
@@ -162,6 +181,8 @@ export interface CopyRowsDiagnostics {
   readonly listed: number;
   /** Triangles the view's lists hold (before the pyramid's tests). */
   readonly triangles: number;
+  /** Ground cover's point sets as rows (their places are points, held or free). */
+  readonly cover: CopyRowsKindDiagnostics;
   /** GPU memory of the selection data and the counters (the copies' places are the pools'). */
   readonly bytes: number;
   /** Selections run (frames) since made, and frames that kept the last one (nothing changed). */
@@ -220,7 +241,7 @@ export class CopyRowsTable {
   /** A pick ran since the counts were last read. */
   private unread = false;
   private readback: ReadbackBuffer | null = null;
-  private read = { inView: 0, listed: 0, triangles: 0 };
+  private read = { inView: 0, listed: 0, triangles: 0, coverInView: 0, coverTriangles: 0 };
 
   constructor(
     private readonly renderer: WebGPURenderer,
@@ -243,7 +264,7 @@ export class CopyRowsTable {
     const set: CopySet = { src, copies: -1, places: src.count * groups, copied: Number.NaN, outputs: [], selections: [], listed: false };
     const outputOf = (key: string): Output => {
       let o = set.outputs.find((x) => x.key === key);
-      if (o === undefined) set.outputs.push((o = { key, cap: src.count, base: -1, index: -1, rows: [], front: 0, back: 0 }));
+      if (o === undefined) set.outputs.push((o = { key, cover: src.cover !== undefined, cap: src.count, base: -1, index: -1, rows: [], front: 0, back: 0 }));
       return o;
     };
     for (let g = 0; g < groups; g += 1) set.selections.push({ group: g, levels: Array.from({ length: src.groups[g]?.distances.length ?? 1 }, () => null), ungrouped: null, near: null });
@@ -397,8 +418,9 @@ export class CopyRowsTable {
     const m = this.host.matrices.array as Float32Array;
     for (const set of this.frameSets) {
       if (set.copied === set.src.copiesVersion) continue;
-      set.src.writeCopies(m, set.copies);
-      this.host.dirtyMatrices(set.copies * COPY_ROW_FLOATS, (set.copies + set.src.count) * COPY_ROW_FLOATS);
+      const ranges = set.src.writeCopies(m, set.copies, Number.isNaN(set.copied) ? undefined : set.copied);
+      if (ranges === null) this.host.dirtyMatrices(set.copies * COPY_ROW_FLOATS, (set.copies + set.src.count) * COPY_ROW_FLOATS);
+      else for (let i = 0; i + 1 < ranges.length; i += 2) this.host.dirtyMatrices((set.copies + ranges[i]!) * COPY_ROW_FLOATS, (set.copies + ranges[i + 1]!) * COPY_ROW_FLOATS);
       set.copied = set.src.copiesVersion;
       this.changed = true;
     }
@@ -526,7 +548,7 @@ export class CopyRowsTable {
       const thins = set.src.density !== null;
       const byBlock = set.src.blockLevels();
       for (const [g, sel] of set.selections.entries()) {
-        const flags = (set.src.groups[g]?.culls === true ? SELECT_CULLS : 0) | (thins ? SELECT_THINS : 0);
+        const flags = (set.src.groups[g]?.culls === true ? SELECT_CULLS : 0) | (set.src.cover !== undefined && set.src.cover !== null ? SELECT_COVER : thins ? SELECT_THINS : 0);
         for (const v of [set.copies, set.src.count, set.copies + g * set.src.count, sel.levels.length, flags, fi, li, sel.ungrouped?.index ?? NO_OUTPUT, sel.near?.index ?? NO_OUTPUT, byBlock === null ? NO_OUTPUT : bi + g]) put(v);
         li += sel.levels.length;
         fi += SELECTION_F32 + sel.levels.length;
@@ -587,9 +609,11 @@ export class CopyRowsTable {
         if (r > f[at]! || r < f[at]! * 0.5) put(r);
         else at += 1;
         put(src.nearReach ?? -1);
-        put(d?.from ?? 0);
-        put(d?.to ?? 0);
-        put(d?.min ?? 1);
+        // A cover set's thinning takes the falloff's place (its full share's reach, its end, its least share; metres).
+        const c = src.cover ?? null;
+        put(c?.full ?? d?.from ?? 0);
+        put(c?.reach ?? d?.to ?? 0);
+        put(c?.min ?? d?.min ?? 1);
         const dist = src.groups[g]?.distances ?? [0];
         for (let k = 0; k < sel.levels.length; k += 1) put(dist[k] ?? 0);
       }
@@ -617,12 +641,21 @@ export class CopyRowsTable {
   }
 
   diagnostics(): CopyRowsDiagnostics {
-    let rows = 0;
-    let copies = 0;
-    for (const set of this.sets.values()) copies += set.src.count;
-    for (const o of this.frameOutputs) rows += o.rows.length;
+    const n = { sets: 0, copies: 0, rows: 0, lists: 0 };
+    const c = { sets: 0, copies: 0, rows: 0, lists: 0 };
+    for (const set of this.sets.values()) {
+      const k = set.src.cover !== undefined ? c : n;
+      k.sets += 1;
+      k.copies += set.src.count;
+    }
+    for (const o of this.frameOutputs) {
+      const k = o.cover ? c : n;
+      k.rows += o.rows.length;
+      k.lists += 1;
+    }
     const bytes = (this.data.count + this.floats.count + this.tally.count + this.counts.count) * 4 + (this.readback?.maxByteLength ?? 0);
-    return { sets: this.sets.size, copies, rows, lists: this.frameOutputs.length, inView: this.read.inView, listed: this.read.listed, triangles: this.read.triangles, bytes, runs: this.runs, skipped: this.skipped };
+    const r = this.read;
+    return { ...n, inView: r.inView, listed: r.listed, triangles: r.triangles, cover: { ...c, inView: r.coverInView, triangles: r.coverTriangles }, bytes, runs: this.runs, skipped: this.skipped };
   }
 
   /** The lists' counts, read back now and then (one read at a time). */
@@ -638,19 +671,24 @@ export class CopyRowsTable {
       .then(() => {
         if (target.buffer === null) return;
         const a = new Uint32Array(target.buffer, 0, outputs.length * 2);
-        let inView = 0;
-        let listed = 0;
-        let triangles = 0;
+        const read = { inView: 0, listed: 0, triangles: 0, coverInView: 0, coverTriangles: 0 };
         outputs.forEach((o, i) => {
           o.front = a[i * 2]!;
           o.back = a[i * 2 + 1]!;
-          if (!o.key.startsWith('near')) {
-            inView += o.front;
-            for (const r of o.rows) triangles += o.front * r.triangles;
+          let tris = 0;
+          for (const r of o.rows) tris += o.front * r.triangles;
+          if (o.cover) {
+            read.coverInView += o.front;
+            read.coverTriangles += tris;
+            return;
           }
-          listed += o.front + o.back;
+          if (!o.key.startsWith('near')) {
+            read.inView += o.front;
+            read.triangles += tris;
+          }
+          read.listed += o.front + o.back;
         });
-        this.read = { inView, listed, triangles };
+        this.read = read;
       })
       .catch(() => undefined)
       .finally(() => {

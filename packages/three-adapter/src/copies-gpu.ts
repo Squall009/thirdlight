@@ -543,6 +543,7 @@ export class GpuCopySet {
           target[o + 14] = 0;
           target[o + 15] = 1;
         }
+        return null;
       },
       get world() {
         return set.draws[0]!.mesh.matrixWorld;

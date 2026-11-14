@@ -107,6 +107,21 @@ export interface ProfileCopyRows {
   readonly bytes: number;
 }
 
+/**
+ * Ground cover's point sets drawn as the culled-instance table's rows: rule sets, points their places hold, rows
+ * (draws) and lists in the last frame, points the view's lists held (a read-back a few frames old), points the view
+ * drew after the depth pyramid (its lists' count off that path), and their triangles.
+ */
+export interface ProfileCoverRows {
+  readonly sets: number;
+  readonly points: number;
+  readonly rows: number;
+  readonly lists: number;
+  readonly inView: number;
+  readonly drawn: number;
+  readonly triangles: number;
+}
+
 /** Everything the profile knows, as plain JSON-serialisable data. */
 export interface ProfileReport {
   readonly at: number;
@@ -132,6 +147,8 @@ export interface ProfileReport {
      * triangles; the selection's GPU bytes.
      */
     readonly copyRows?: ProfileCopyRows | null;
+    /** Ground cover's point sets as rows of the same table (absent in older captures; null: no table). */
+    readonly coverRows?: ProfileCoverRows | null;
   };
   readonly gpu: {
     /** Whether the renderer resolves timestamps. */
@@ -422,7 +439,7 @@ export class PageProfile {
     const t = after === undefined ? all : this.threads(after);
     const counterFrames = this.counterFrames();
     const stats = this.sources.stats?.() ?? null;
-    const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: { lod?: { instances?: { copies?: number; inView?: number } }; gpu?: { geometries?: number; textures?: number; programs?: number }; interaction?: { field?: { stamps: number; live: boolean; bytes: number } }; occlusion?: { copies?: ProfileCopyRows | null } } } | undefined;
+    const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: { lod?: { instances?: { copies?: number; inView?: number } }; gpu?: { geometries?: number; textures?: number; programs?: number }; interaction?: { field?: { stamps: number; live: boolean; bytes: number } }; occlusion?: { copies?: (ProfileCopyRows & { cover?: { sets: number; copies: number; rows: number; lists: number; inView: number; drawn: number; triangles: number } }) | null } } } | undefined;
     const inst = d?.ok === true ? d.diagnostics?.lod?.instances : undefined;
     const gpuMem = d?.ok === true ? d.diagnostics?.gpu : undefined;
     const field = d?.ok === true ? d.diagnostics?.interaction?.field : undefined;
@@ -446,6 +463,7 @@ export class PageProfile {
         queues: this.queues,
         interaction: field !== undefined ? { stamps: field.stamps, live: field.live, bytes: field.bytes } : null,
         copyRows: rows !== undefined && rows !== null ? { sets: rows.sets, copies: rows.copies, rows: rows.rows, lists: rows.lists, inView: rows.inView, listed: rows.listed, drawn: rows.drawn, triangles: rows.triangles, bytes: rows.bytes } : null,
+        coverRows: rows?.cover !== undefined ? { sets: rows.cover.sets, points: rows.cover.copies, rows: rows.cover.rows, lists: rows.cover.lists, inView: rows.cover.inView, drawn: rows.cover.drawn, triangles: rows.cover.triangles } : null,
       },
       gpu: {
         timestamps: passes !== null,

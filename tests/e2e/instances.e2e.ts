@@ -11,8 +11,13 @@
  * the culled-instance table (picked in compute): Play and the export (served
  * with the backend stopped) count its rows and the copies in view, and on the
  * depth pyramid's path a wall in front of the row leaves its hidden copies out.
+ * Ground cover on a model's upward faces is drawn the same way on WebGPU: the
+ * export counts the rule's rows and points in view, the green tufts thin with
+ * distance across the ground (full near, fewer in the fade, none past the
+ * reach) and a wall leaves the points behind it out on the pyramid's path.
  */
 import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
@@ -379,4 +384,94 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
     await behind.close();
     await walledSite.close();
   }
+});
+
+test('ground cover on a model\'s upward faces draws as rows of the culled-instance table: thinned with distance across the ground, hidden points left out on the pyramid\'s path (export served with the backend stopped; WebGPU)', async ({ page }) => {
+  test.skip(backendOf('auto') !== 'webgpu', 'the culled-instance table is WebGPU\'s; WebGL 2 keeps its rings (webgl2-smoke)');
+  test.setTimeout(180_000);
+  be = await startBackend('inst-cover-e2e');
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' }, post: { antialias: 'smaa' }, wind: { direction: [1, 0], strength: 0, gust: 0, gustFrequency: 0.3, turbulence: 0 } } });
+  await cmd('setSettings', { settings: { camera_fov_deg: 50, camera_far_m: 400 } });
+  // A 140 m slab whose top is at y 0 and 0.5 m green tufts, 2 a m² out to 40 m: every one kept to 24 m, fewer to 40 m.
+  await publishBytes(be, multiPieceGlb([{ name: 'slab', lods: [[140, 0.2, 140]], colors: [[0.25, 0.2, 0.15]] }], { centred: true }), 'model', 'slab', 'Slab');
+  await publishBytes(be, multiPieceGlb([{ name: 'tuft', lods: [[0.5, 0.5, 0.5]], colors: [[0.02, 1, 0.02]] }], { centred: true }), 'model', 'tufts', 'Tufts');
+  const ground = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Ground', model: { asset: { assetId: 'slab' }, piece: 'slab' }, transform: { position: [0, -0.2, 0] } })).createdId);
+  await cmd('setComponent', { entityId: ground, component: 'model', value: { asset: { assetId: 'slab' }, piece: 'slab', scatter: [{ id: 'tufts', asset: { assetId: 'tufts', piece: 'tuft' }, density: 2, cover: true, coverDistance: 40 }] } });
+  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
+  // Straight down from 100 m (screen up = world −z): the ground's metres map to pixels evenly.
+  const H = 100;
+  await cmd('setTransform', { entityId: cam, transform: { position: [0, H, 0], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2] } });
+  const above = await be.admin(`projects/${be.projectId}/export`);
+  expect(above.status, JSON.stringify(above.json)).toBe(200);
+  // A second export from eye height with a wall 8 m ahead (looking along +z), drawn on the depth pyramid's path.
+  await cmd('setTransform', { entityId: cam, transform: { position: [0, 1.7, -20], rotation: [0, 0.9990482, 0.0436194, 0] } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Wall', transform: { position: [0, 2, -12] }, box: { size: [16, 4, 0.5], material: { color: '#808080' } } });
+  const walled = await be.admin(`projects/${be.projectId}/export`);
+  expect(walled.status, JSON.stringify(walled.json)).toBe(200);
+  await be.halt();
+  type CoverRowsCounter = { sets: number; points: number; rows: number; inView: number; drawn: number };
+  const coverRows = async (g: Page): Promise<CoverRowsCounter | null> => g.evaluate(() => (window as unknown as { __tlProfiler?: { read(): { counters: { coverRows?: CoverRowsCounter | null } } } }).__tlProfiler?.read().counters.coverRows ?? null);
+  const errors: string[] = [];
+  const site = await serveDir(join(be.exportRoot, String(above.json.outputDir)));
+  const game = await page.context().newPage();
+  game.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await game.setViewportSize({ width: 960, height: 540 });
+    await game.goto(site.url);
+    const canvas = game.locator('canvas').first();
+    await expectRendererBackend(canvas, 'webgpu');
+    // The rule's points are the table's rows (one set, its one draw), those in view drawn (off the pyramid's path: all).
+    await expect.poll(async () => JSON.stringify(await coverRows(game).then((r) => (r === null ? null : [r.sets, r.rows, r.inView > 1000, r.drawn === r.inView]))), { timeout: 60_000, message: 'the export: the cover rule as table rows' }).toBe(JSON.stringify([1, 1, true, true]));
+    const r = (await coverRows(game))!;
+    console.log(`[instances-cover] from above: ${r.inView} points in view of ${r.points} places, ${r.drawn} drawn`);
+    // Green coverage in rings round the eye's foot: full near, thinner where the share falls, none past the reach.
+    const box = (await canvas.boundingBox())!;
+    const [W, Hp] = [Math.round(box.width), Math.round(box.height)];
+    const m = Hp / (2 * H * Math.tan((25 * Math.PI) / 180));
+    const ring = (img: Image, from: number, to: number): number => {
+      let n = 0;
+      let all = 0;
+      for (let y = 0; y < img.height; y += 1)
+        for (let x = 0; x < img.width; x += 1) {
+          const d = Math.hypot(x - W / 2, y - Hp / 2) / m;
+          if (d < from || d >= to) continue;
+          all += 1;
+          const p = img.pixel(x, y);
+          // A lit tuft's green (the slab is brown, the sky grey).
+          if (p[1] > p[0] + 30 && p[1] > p[2] + 30) n += 1;
+        }
+      return n / Math.max(1, all);
+    };
+    let shares: number[] = [];
+    let png = Buffer.alloc(0);
+    try {
+      await expect.poll(async () => {
+        png = await canvas.screenshot();
+        const img = decodePng(png);
+        shares = [ring(img, 3, 12), ring(img, 31, 37), ring(img, 44, 60)];
+        return shares[0]! > 0.15 && shares[1]! < shares[0]! * 0.75 && shares[1]! > 0.01 && shares[2]! < 0.002;
+      }, { timeout: 30_000, message: 'cover thinning with distance' }).toBe(true);
+    } finally {
+      console.log(`[instances-cover] green share by ring: 3–12 m ${shares[0]?.toFixed(3)}, 31–37 m ${shares[1]?.toFixed(3)}, 44–60 m ${shares[2]?.toFixed(3)}`);
+      writeFileSync('test-results/instances-cover-above.png', png);
+    }
+  } finally {
+    await game.close();
+    await site.close();
+  }
+  const walledSite = await serveDir(join(be.exportRoot, String(walled.json.outputDir)));
+  const behind = await page.context().newPage();
+  behind.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await behind.goto(`${walledSite.url}?occlusion=hiz`);
+    // The frustum holds the points behind the wall; the pyramid leaves them out (read back a few frames late).
+    await expect.poll(async () => JSON.stringify(await coverRows(behind).then((c) => (c === null ? null : [c.inView > 1000, c.drawn > 0 && c.drawn < c.inView * 0.8]))), { timeout: 30_000, message: 'the walled export on the pyramid path: hidden cover left out' }).toBe(JSON.stringify([true, true]));
+    const c = (await coverRows(behind))!;
+    console.log(`[instances-cover] walled, pyramid path: ${c.drawn} of ${c.inView} points in view drawn`);
+    await behind.locator('canvas').first().screenshot({ path: 'test-results/instances-cover-walled.png' });
+  } finally {
+    await behind.close();
+    await walledSite.close();
+  }
+  expect(errors).toEqual([]);
 });

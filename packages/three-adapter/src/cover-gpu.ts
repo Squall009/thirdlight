@@ -1,9 +1,8 @@
 /**
  * Ground cover, placed and thinned on the GPU (the arithmetic is
  * `cover-placement.ts`'s and `cover-points.ts`'s; this is its draws and
- * their vertex stages). There is no other path: terrains' cover is placed
- * from the terrain's own texels, block layers' from point sets baked per
- * chunk, both through the same rings, model levels, thinning and culling.
+ * their vertex stages). Terrains' cover is placed from the terrain's own
+ * texels, point sources' from point sets baked per chunk.
  *
  * Per terrain and cover rule: the rule's rings (`planCover`), and per ring
  * one draw per mesh of the model level it shows and per texture page of the
@@ -35,12 +34,17 @@
  * arrives, so an edit never blinks the cover away. Masks of tiles the view
  * left are let go.
  *
- * A block layer's rule draws, per ring, the blocks of its chunks' point
- * sets (`cover-points-gpu.ts`) that the ring meets and the view sees: each
- * point is placed where it was baked (every floor of the layer, so cover
+ * A point source's rule (a block layer, a model's upward faces,
+ * architecture's floors) draws its chunks' point sets (`cover-points-gpu.ts`):
+ * each point is placed where it was baked (every floor of the layer, so cover
  * grows indoors too), turned and sized from its own bytes, and kept while
  * its threshold is under the share at its distance. Sets are baked off the
- * main thread when the view reaches a chunk and when its ground changes.
+ * main thread when the view reaches a chunk and when its ground changes. On
+ * WebGPU the points are rows of the scene's culled-instance table
+ * (`cover-rows.ts`): its compute pass picks each point's level, thinning and
+ * frustum, with the depth pyramid on that path, and the rings below are not
+ * drawn. Elsewhere (WebGL 2) each ring draws the blocks of the sets that the
+ * ring meets and the view sees, in the vertex stage.
  *
  * Cover draws receive shadows and cast none unless the rule says
  * `castShadow` (contact darkening comes from SSAO).
@@ -53,12 +57,13 @@ import { COVER_POINT_STEPS, INTERACTOR_DEFAULTS, SCATTER_COVER_DISTANCE_DEFAULT,
 
 import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listCoverPatches, planCover, type CoverPatch, type CoverPlan, type CoverRing, type CoverTileRef } from './cover-placement';
 import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';
+import { CoverRows } from './cover-rows';
 import type { N } from './effects-tsl';
 import { instanceSetPlan, type InstanceSetPlan } from './instancing';
 import { needsPreviousPlace } from './motion-vectors';
 import { ROOT_COLOUR_KEY, setCopyBend, setCopyRoot, setCopySurface } from './node-materials';
 import { TAN_HALF_REFERENCE } from './instance-lod';
-import type { LodTuning } from './lod-switch';
+import { LodTuning } from './lod-switch';
 import type { WarmDraw } from './program-warmer';
 import { stepOf, terrainMacroFlip, terrainPartLayerNode } from './terrain-material';
 import type { TerrainCoverSurface } from './terrain-view';
@@ -469,6 +474,8 @@ interface RuleDraws {
   readonly rings: Map<number, PagePatches>[];
   /** The model parts each ring draws. */
   readonly parts: InstanceSetPlan['parts'][];
+  /** A point source's rule as rows of the scene's culled-instance table (WebGPU; its rings are not drawn then). */
+  rows: CoverRows | null;
 }
 
 /** A rule's mask over one tile. */
@@ -564,6 +571,9 @@ export interface CoverGpuDiagnostics {
   pointSets: number;
   points: number;
   pointsPending: number;
+  /** Point sources' rules drawn as rows of the culled-instance table, and the points their places hold. */
+  rowRules: number;
+  rowPlaces: number;
 }
 
 /** Ground cover drawn on the GPU: terrains' placed from their texels, block layers' from baked point sets. */
@@ -575,9 +585,12 @@ export class CoverGpu {
   private frame = 0;
   /** A ring's entries this frame, before they are compared with what its list holds. */
   private next = new Float32Array(0);
+  /** The LOD tuning point-set rows pick their levels with. */
+  private readonly tuning: LodTuning;
 
   constructor(private readonly deps: CoverGpuDeps) {
     installCoverPlacement();
+    this.tuning = deps.tuning ?? new LodTuning();
   }
 
   /** Terrain `id`'s cover rules drawn here (an empty list: none). */
@@ -601,6 +614,7 @@ export class CoverGpu {
     if (!moved) return;
     // The draws place their points from the source's origin: they stand where it stands now (the sets are made again for it).
     for (const rd of src.draws ?? []) {
+      rd.rows?.setOrigin(o);
       for (const ring of rd.rings) {
         for (const pp of ring.values()) {
           pp.root.matrix.makeTranslation(o[0], o[1], o[2]);
@@ -784,6 +798,14 @@ export class CoverGpu {
       const points = src.pointNodes.get(rd.rule.id)!;
       const reach = rd.plan.thinning.reach;
       const rise = rd.model.radius * 2 * Math.max(...(rd.rule.scale ?? [1, 1]));
+      // On WebGPU the scene's culled-instance table draws the rule: its compute pass picks the points (level,
+      // thinning, frustum); only the sets in reach are asked for here, and the rings are not drawn.
+      rd.rows ??= this.rowsFor(src, rd, atlas);
+      const rows = rd.rows.update(view, src.hidden);
+      if (rows) for (const byPage of rd.rings) for (const [page, pp] of byPage) {
+        this.dropPage(pp);
+        byPage.delete(page);
+      }
       // The chunks the rule's reach meets: their sets asked for (again where their ground changed).
       const near: { e: ReturnType<CoverPointAtlas['entry']>; dmin: number; dmax: number }[] = [];
       for (let cz = Math.floor((ez - reach) / D); cz <= Math.floor((ez + reach) / D); cz++) {
@@ -795,7 +817,7 @@ export class CoverGpu {
           if (dmin >= reach) continue;
           const e = atlas.entry(cx, cz, this.frame);
           if (e.stale && !e.asked) this.askPoints(src, rd.rule, atlas, e);
-          if (e.set === null || e.set.count === 0) continue;
+          if (rows || e.set === null || e.set.count === 0) continue;
           const fx = Math.max(Math.abs(cx * W - ex), Math.abs((cx + 1) * W - ex));
           const fz = Math.max(Math.abs(cz * D - ez), Math.abs((cz + 1) * D - ez));
           // Culled by its box (the points' heights and the copies' rise over them).
@@ -804,6 +826,8 @@ export class CoverGpu {
           near.push({ e, dmin, dmax: Math.hypot(fx, fz) });
         }
       }
+      if (this.frame % 60 === 0) atlas.forget(this.frame);
+      if (rows) continue;
       rd.plan.rings.forEach((ring, k) => {
         const byPage = rd.rings[k]!;
         let pp = byPage.get(0);
@@ -816,8 +840,23 @@ export class CoverGpu {
         for (const c of near) if (c.dmin < ring.outer && c.dmax >= ring.inner) n = listCoverPointBlocks(ring, c.e, out, n);
         this.write(src, pp, n);
       });
-      if (this.frame % 60 === 0) atlas.forget(this.frame);
     }
+  }
+
+  /** A point source's rule as rows of the scene's culled-instance table (taken once the scene has one). */
+  private rowsFor(src: PointSource, rd: RuleDraws, atlas: CoverPointAtlas): CoverRows {
+    return new CoverRows({
+      name: `${src.id}:${rd.rule.id}`,
+      rule: rd.rule,
+      plan: rd.plan,
+      model: rd.model,
+      atlas,
+      tuning: this.tuning,
+      origin: src.origin,
+      ...(this.deps.dress !== undefined ? { dress: this.deps.dress } : {}),
+      place: this.deps.place,
+      released: () => this.deps.changed?.(),
+    });
   }
 
   private askPoints(src: PointSource, rule: ScatterRule, atlas: CoverPointAtlas, e: ReturnType<CoverPointAtlas['entry']>): void {
@@ -848,9 +887,17 @@ export class CoverGpu {
     let pointSets = 0;
     let points = 0;
     let pointsPending = 0;
+    let rowRules = 0;
+    let rowPlaces = 0;
     for (const src of this.sources.values()) {
       rules += src.rules.length;
       for (const rd of src.draws ?? []) {
+        const r = rd.rows?.diagnostics();
+        if (r?.active === true && !src.hidden) {
+          rowRules += 1;
+          rowPlaces += r.places;
+          draws += r.draws;
+        }
         rd.rings.forEach((byPage) => {
           for (const pp of byPage.values()) {
             if (pp.count === 0 || src.hidden) continue;
@@ -877,12 +924,17 @@ export class CoverGpu {
         }
       }
     }
-    return { sources: this.sources.size, rules, draws, patches, candidates, listMs: Math.round(this.listMs * 100) / 100, masks, masksPending, pointSets, points, pointsPending };
+    return { sources: this.sources.size, rules, draws, patches, candidates, listMs: Math.round(this.listMs * 100) / 100, masks, masksPending, pointSets, points, pointsPending, rowRules, rowPlaces };
   }
 
   meshes(): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
-    for (const src of this.sources.values()) for (const rd of src.draws ?? []) for (const ring of rd.rings) for (const pp of ring.values()) if (pp.count > 0) out.push(...pp.meshes);
+    for (const src of this.sources.values()) {
+      for (const rd of src.draws ?? []) {
+        if (rd.rows !== null) out.push(...rd.rows.meshes());
+        for (const ring of rd.rings) for (const pp of ring.values()) if (pp.count > 0) out.push(...pp.meshes);
+      }
+    }
     return out;
   }
 
@@ -915,7 +967,7 @@ export class CoverGpu {
           return p.lod === 0 ? p.level === ring.level : p.level === level;
         }),
       );
-      out.push({ rule, plan, model, rings: plan.rings.map(() => new Map()), parts });
+      out.push({ rule, plan, model, rings: plan.rings.map(() => new Map()), parts, rows: null });
     }
     src.draws = out;
     return true;
@@ -939,6 +991,9 @@ export class CoverGpu {
       mesh.receiveShadow = true;
       mesh.visible = false;
       mesh.userData[COVER_DRAW_KEY] = placement(part, list);
+      // A point source's ring offers the scene it draws in: where it has a culled-instance table (WebGPU), the table
+      // draws the rule from the next frame on.
+      if (src.kind === 'points') mesh.onBeforeRender = (_r, scene) => void (rd.rows?.offer(scene) === true && this.deps.changed?.());
       root.add(mesh);
       return mesh;
     });
@@ -1035,7 +1090,11 @@ export class CoverGpu {
   }
 
   private clear(src: Source): void {
-    for (const rd of src.draws ?? []) for (const ring of rd.rings) for (const pp of ring.values()) this.dropPage(pp);
+    for (const rd of src.draws ?? []) {
+      rd.rows?.dispose();
+      rd.rows = null;
+      for (const ring of rd.rings) for (const pp of ring.values()) this.dropPage(pp);
+    }
     src.draws = null;
   }
 
