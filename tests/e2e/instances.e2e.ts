@@ -375,7 +375,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
     const q = exportQueryFor(variant);
     await behind.goto(`${walledSite.url}${q === '' ? '?' : `${q}&`}occlusion=hiz`);
     // The frustum still holds the whole row; the pyramid leaves out the copies the wall hides (read back a few frames late).
-    await expect.poll(async () => JSON.stringify(await rowsOf(behind).then((r) => (r === null ? null : [r.inView, r.drawn < r.inView - 4]))), { timeout: 30_000, message: 'the walled export on the pyramid path: hidden copies left out' }).toBe(JSON.stringify([copyDistances.length, true]));
+    await expect.poll(async () => JSON.stringify(await rowsOf(behind).then((r) => (r === null ? null : [r.inView, r.drawn > 0 && r.drawn < r.inView - 4]))), { timeout: 30_000, message: 'the walled export on the pyramid path: hidden copies left out' }).toBe(JSON.stringify([copyDistances.length, true]));
     const r = (await rowsOf(behind))!;
     console.log(`[instances-lod] walled export, pyramid path: ${r.drawn} of ${r.inView} copies in view drawn`);
     await behind.locator('canvas').first().screenshot({ path: `test-results/instances-lod-walled-${variant}.png` });
