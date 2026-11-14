@@ -451,3 +451,4 @@ export { walkBeforeSteps, walkCrossSteps, walkFaceRel, walkFirstSteps, walkRay, 
 export { LIGHT_STOP_COVERAGE, WALK_MAX_STEPS, WALK_STOPS, walkVoxels, type WalkBlockView, type WalkEnd, type WalkFarNode, type WalkHit, type WalkOptions, type WalkResult, type WalkSource, type WalkStop } from './occupancy-walk';
 export { derivedWalkView, FarWalkNodes, lightStops, streamerWalkSource, WALK_EMPTY_VIEW, WALK_SOLID_VIEW, type WalkStreamerView } from './walk-sources';
 export { applyWalkWires, packWalkBlock, pageWalkView, WALK_BLOCK_SHIFT, WALK_BRICK_WORDS, WALK_CELL_WORDS, WALK_EMPTY_KEY, WALK_ENTRY_WORDS, WALK_MAX_PROBES, WALK_PAGE_WORDS, WalkBlockFeed, walkHash, walkKey, walkPageOffsets, WalkTable, type WalkBlockWire, type WalkPacked } from './walk-pages';
+export { WALK_BENCH_KINDS, walkBenchRandom, walkBenchRays, type WalkBatchRay, type WalkBenchKind } from './walk-bench';

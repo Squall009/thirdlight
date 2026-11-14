@@ -412,7 +412,7 @@ export { createVoxelSurface, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_AT
 export { VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM } from './voxel-surface-path';
 export { FAR_FEEDBACK_URL_PARAM } from './voxel-far-feedback';
 export { FINE_BRICKS_URL_PARAM, FINE_BUILD_CELLS_PER_FRAME, FINE_BUILD_SLOTS, FineBrickBuilder, fineBricksFromUrl, type FineBrickCheck, type FineBrickResult } from './voxel-fine-bricks';
-export { VoxelWalkGpu, WALK_BENCH_KINDS, walkBenchRays, type WalkBenchKind, type WalkBenchSpec, type WalkGpuCheck, type WalkGpuHit, type WalkGpuRay } from './voxel-walk-gpu';
+export { VoxelWalkGpu, walkBenchRays, type WalkBenchKind, type WalkBenchSpec, type WalkGpuCheck, type WalkGpuHit, type WalkGpuRay } from './voxel-walk-gpu';
 export { voxelWalkWgsl, walkStepsWgsl, WALK_GPU_MAX_STEPS, type VoxelWalkBindings } from './voxel-walk-wgsl';
 export { FAR_PASS_URL_PARAM } from './voxel-far-visibility';
 export { FAR_FINE_CELL_M_BELOW, FarFineShade, FINE_TEXTURE_URL_PARAM, fineTextureFromUrl, type FarFineTexture } from './voxel-far-fine-shade';

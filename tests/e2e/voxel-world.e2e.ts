@@ -551,15 +551,14 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
 
     // A click digs at the cell under the pointer (the page's picker): seen straight on, the wall's rows at the middle of
     // the page; one of the cells there that was stone is air after the click, and the undo brings them back.
-    await hook(page, 'look', ox, oy + 4, oz + 1, 0, 0, 4);
-    await hook(page, 'settle');
     const row = [-1, 0, 1].map((dz): Cell => [ox, oy + 4, oz + dz]);
     const solid = async (): Promise<boolean[]> => Promise.all(row.map(async (c) => (await hook<{ material: number }>(page, 'voxelAt', ...c)).material !== 0));
     const wasSolid = await solid();
     expect(wasSolid.some((v) => v)).toBe(true);
     const viewport = page.viewportSize()!;
-    // The picker reads the meshes drawn: two frames after the look.
-    await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    // The picker walks the streamer's voxels, not the meshes drawn: a click straight after the camera's jump, before
+    // any frame draws the new view, finds the wall (a picker reading the drawn meshes needed two frames here).
+    await hook(page, 'look', ox, oy + 4, oz + 1, 0, 0, 4);
     await page.mouse.click(viewport.width / 2, viewport.height / 2);
     await expect.poll(async () => (await solid()).some((v, i) => wasSolid[i] && !v), { message: 'a click digs the wall under the pointer' }).toBe(true);
     expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
@@ -946,6 +945,15 @@ async function playProject(): Promise<[number, number, number]> {
     "    for (const w of v.waits) if (w.wait === state.wait && w.resident && state.at < 0) { state.at = ctx.stepIndex; ctx.game.add('resident', 1); }",
     "    for (const c of v.changes) ctx.game.add('changes', 1);",
     "    for (const _ of ctx.debug.command('dig')) if (!state.dug) { const r = v.dig(pit); state.dug = r.ok; ctx.game.add(r.ok ? 'dug' : 'refused', 1); }",
+    // Rays from 6 m over the pad: down meets the pad's top face (a voxel with its material, the face looking up), up meets nothing.
+    `    const eye = [${at[0]}, ${at[1] + 6}, ${at[2]}];`,
+    "    for (const _ of ctx.debug.command('rays')) {",
+    "      const down = v.raycast(eye, [0, -1, 0], 20);",
+    `      const ground = down !== null && down.voxel !== null && down.voxel.material > 0 && down.normal[1] === 1 && Math.abs(down.point[1] - ${at[1]}) < 0.01 && Math.abs(down.distance - 6) < 0.01 && !down.far;`,
+    "      ctx.game.add(ground ? 'rayGround' : 'rayGroundMissed', 1);",
+    "      ctx.game.add(v.raycast(eye, [0, 1, 0], 500) === null ? 'raySky' : 'raySkyHit', 1);",
+    "      ctx.game.add(v.raycast(eye, [0, -1, 0], 20, { stop: 'light' }) !== null ? 'rayLight' : 'rayLightMissed', 1);",
+    '    }',
     `    const wetAt = ${wetAt};`,
     "    for (const _ of ctx.debug.command('wet')) { const r = v.paint({ center: wetAt, radius: 1.5 }, { wetness: 7 }); ctx.game.add(r.ok ? 'wet' : 'refused', 1); ctx.game.add('wetness', v.get(...wetAt)?.wetness ?? -1); }",
     "    for (const _ of ctx.debug.command('save')) state.save = v.save();",
@@ -1142,7 +1150,8 @@ async function gpuMeasurePanel(page: Page, canvas: Locator): Promise<void> {
   const table = panel.getByTestId('profiler-gpu-table');
   await expect(table.locator('tr[data-category="lighting"]')).toBeVisible({ timeout: 5_000 });
   await expect(panel.getByTestId('profiler-gpu-budget').locator('tr[data-budget="lighting"]')).toBeVisible();
-  expect(Number(await table.locator('tr[data-category="lighting"]').getAttribute('data-ms'))).toBeGreaterThan(0);
+  // The row is there from the first run (below resolution, no ms): the last run's reading arrives after it.
+  await expect.poll(async () => Number(await table.locator('tr[data-category="lighting"]').getAttribute('data-ms')), { timeout: 5_000, message: "the panel shows the last run's lighting ms" }).toBeGreaterThan(0);
   await table.scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('profiler-gpu-1280.png') });
   await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Project' }).click();
@@ -1309,6 +1318,24 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     console.log(`[voxel-play] ${renderer} wall marks: projected red ${marks[0]} px, clipped blue ${marks[1]} px; clipped ${clips?.triangles} triangles, cut on a worker ${clips?.workerMs.mean.toFixed(2)} ms (worst ${clips?.workerMs.max.toFixed(2)})`);
     expect(marks[0], 'the projected mark on the wall').toBeGreaterThan(200);
     expect(marks[1], 'the clipped mark on the wall').toBeGreaterThan(200);
+    // The script's rays (the simulation worker's walk over its streamer), before the pit is dug: down meets the pad,
+    // up the sky. With the walk returning nothing, stepping diagonally or ignoring what stops it, `rayGround` stays 0.
+    const rays = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'rays' });
+    expect(rays.status, JSON.stringify(rays.json)).toBe(200);
+    await expect.poll(async () => { const c = (await observe()).counters ?? {}; return ['rayGround', 'rayGroundMissed', 'raySky', 'raySkyHit', 'rayLight', 'rayLightMissed'].map((k) => c[k] ?? 0).join(','); }, { timeout: 10_000, message: 'the rays met the pad and the sky' }).toBe('1,0,1,0,1,0');
+    // The page's GPU walk over the blocks the batches carried, against the CPU walk over the same blocks, ray by ray:
+    // 1,200 rays of the three kinds round the eye (half stopped by light, half by solid). A WGSL walk that returns
+    // nothing, steps diagonally or reads the bits wrong differs here.
+    type WalkCheck = { rays: number; hits: number; misses: number; mismatches: number; examples: unknown[]; blocks: number; pages: number };
+    const walkCheck = (): Promise<WalkCheck | null> => canvas.evaluate((_, eye) => (window as unknown as { __tlVoxelPlay: { walk: { check(w: string, k: string[], n: number, e: number[]): Promise<WalkCheck | null> } } }).__tlVoxelPlay.walk.check('far', ['short', 'medium', 'long'], 400, eye), [at[0], at[1] + 1.7, at[2]]);
+    let checked: WalkCheck | null = null;
+    await expect.poll(async () => { checked = await walkCheck(); return (checked?.pages ?? 0) > 0; }, { timeout: 20_000, message: 'the page holds walk blocks' }).toBe(true);
+    const wc = checked!;
+    console.log(`[voxel-play] ${renderer} GPU walk = CPU walk: ${JSON.stringify({ ...wc, examples: wc.examples.slice(0, 2) })}`);
+    expect(wc.rays).toBe(1200);
+    expect(wc.hits).toBeGreaterThan(100);
+    expect(wc.misses).toBeGreaterThan(100);
+    expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);

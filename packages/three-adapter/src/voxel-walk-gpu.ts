@@ -17,7 +17,7 @@
  * walks a fixed batch every frame as a pass of the page's GPU measurement
  * (`lighting`), to give rays a millisecond on this GPU.
  */
-import { applyWalkWires, WALK_ENTRY_WORDS, WALK_PAGE_WORDS, WalkTable, walkRay, walkVoxels, type WalkBlockWire, type WalkRay, type WalkStop } from '@thirdlight/voxel';
+import { applyWalkWires, WALK_ENTRY_WORDS, WALK_PAGE_WORDS, WalkTable, walkVoxels, type WalkBatchRay, type WalkBlockWire } from '@thirdlight/voxel';
 
 import { gpuPassHides } from './gpu-pass-hides';
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder } from './tracer-gpu';
@@ -59,11 +59,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 `;
 
 /** A ray of a GPU batch: the walk's ray, how far, and what stops it. */
-export interface WalkGpuRay {
-  readonly ray: WalkRay;
-  readonly maxT: number;
-  readonly stop: WalkStop;
-}
+export type WalkGpuRay = WalkBatchRay;
+
+/** The bench's rays (`@thirdlight/voxel` walk-bench.ts), for the page's hooks. */
+export { walkBenchRays, type WalkBenchKind } from '@thirdlight/voxel';
 
 /** A GPU hit read back: how the walk ended (0 distance, 1 hit, 2 world, 3 steps) and where. */
 export interface WalkGpuHit {
@@ -134,7 +133,11 @@ export class VoxelWalkGpu {
   readonly counters = { uploads: 0, uploadBytes: 0, wholeUploads: 0, benchFrames: 0 };
 
   constructor(private readonly device: WalkDevice) {
-    const module = device.createShaderModule({ code: TRACE_WGSL, label: 'occupancy walk' });
+    const module = device.createShaderModule({ code: TRACE_WGSL, label: 'occupancy walk' }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
+    // A program that does not compile only fails its dispatches later (a read back never answers): said at once instead.
+    void module.getCompilationInfo?.().then((info) => {
+      for (const m of info.messages) if (m.type === 'error') console.error(`occupancy walk WGSL, line ${m.lineNum}: ${m.message}`);
+    });
     this.pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'occupancy walk' });
     this.params = device.createBuffer({ size: 16, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'occupancy walk params' });
     this.unregister = gpuPassHides.register({ category: 'lighting', name: 'occupancy walk bench', present: () => this.bench !== null, hide: (h) => (this.benchHidden = h) });
@@ -315,57 +318,3 @@ export class VoxelWalkGpu {
   }
 }
 
-/** The ray kinds the bench walks: short (the light volume's), medium (sun and sky visibility) and long (into the far field). */
-export const WALK_BENCH_KINDS = Object.freeze({
-  short: { maxT: 8, minElevation: -90 },
-  medium: { maxT: 64, minElevation: -90 },
-  long: { maxT: 2000, minElevation: 0, maxElevation: 30 },
-} as const);
-export type WalkBenchKind = keyof typeof WALK_BENCH_KINDS;
-
-/** A seeded generator (the bench's rays are the same on every run). */
-function benchRandom(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 2 ** 32;
-  };
-}
-
-/**
- * Rays as a lighting pass would walk them: from just off the surface (a CPU walk down from 40 m over a random point
- * within `radius` metres of `centre` finds it; the origin is a quarter metre out along the face hit), toward the side
- * the face looks at (short and medium: any direction over the face; long: toward the horizon, 0°–30° up), what stops
- * light. Points whose walk down finds nothing are skipped.
- */
-export function walkBenchRays(table: WalkTable, kind: WalkBenchKind, n: number, centre: readonly [number, number, number], radius = 40, seed = 1): WalkGpuRay[] {
-  const k = WALK_BENCH_KINDS[kind];
-  const r = benchRandom(seed);
-  const src = table.source();
-  const out: WalkGpuRay[] = [];
-  for (let tries = 0; out.length < n && tries < n * 20; tries++) {
-    const x = centre[0] + (r() * 2 - 1) * radius;
-    const z = centre[2] + (r() * 2 - 1) * radius;
-    const down = walkRay([x, centre[1] + 40, z], [0, -1, 0]);
-    const hit = down === null ? null : walkVoxels(src, down, 200, { far: false }).hit;
-    if (hit === null || hit.normal.every((v) => v === 0)) continue;
-    const o = [x + hit.normal[0] * 0.25, centre[1] + 40 - hit.t + hit.normal[1] * 0.25, z + hit.normal[2] * 0.25];
-    let d: number[];
-    if ('maxElevation' in k) {
-      const yaw = r() * 2 * Math.PI;
-      const el = ((k.minElevation + r() * (k.maxElevation - k.minElevation)) * Math.PI) / 180;
-      d = [Math.cos(yaw) * Math.cos(el), Math.sin(el), Math.sin(yaw) * Math.cos(el)];
-    } else {
-      // Uniform over the sphere, turned to the face's side.
-      const u = r() * 2 - 1;
-      const a = r() * 2 * Math.PI;
-      const s = Math.sqrt(1 - u * u);
-      d = [s * Math.cos(a), u, s * Math.sin(a)];
-      const dot = d[0]! * hit.normal[0] + d[1]! * hit.normal[1] + d[2]! * hit.normal[2];
-      if (dot < 0) d = d.map((v, i) => v - 2 * dot * hit.normal[i]!);
-    }
-    const ray = walkRay(o, d);
-    if (ray !== null) out.push({ ray, maxT: k.maxT, stop: 'light' });
-  }
-  return out;
-}

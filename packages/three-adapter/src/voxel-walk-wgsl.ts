@@ -114,14 +114,14 @@ fn walk_cross_out(o: vec3<i32>, frac: vec3<f32>, inv: vec3<f32>, s: vec3<i32>, a
   return walk_cross(f32(face * (1 << level) - o[a]), frac[a], inv[a]);
 }
 
-/** How many of the faces out of cells from, from + s, … (at most most of them) the ray crosses along a before (t, axis). */
-fn walk_crossed_before(o: vec3<i32>, frac: vec3<f32>, inv: vec3<f32>, s: vec3<i32>, a: u32, from: i32, most: i32, level: u32, t: f32, axis: f32) -> i32 {
+/** How many of the faces out of cells start, start + s, … (at most "most" of them) the ray crosses along a before (t, axis). */
+fn walk_crossed_before(o: vec3<i32>, frac: vec3<f32>, inv: vec3<f32>, s: vec3<i32>, a: u32, start: i32, most: i32, level: u32, t: f32, axis: f32) -> i32 {
   var lo = 0;
   var hi = most;
   loop {
     if (lo >= hi) { break; }
     let mid = (lo + hi + 1) >> 1u;
-    if (walk_before(walk_cross_out(o, frac, inv, s, a, from + s[a] * (mid - 1), level), f32(a), t, axis) == 1.0) { lo = mid; } else { hi = mid - 1; }
+    if (walk_before(walk_cross_out(o, frac, inv, s, a, start + s[a] * (mid - 1), level), f32(a), t, axis) == 1.0) { lo = mid; } else { hi = mid - 1; }
   }
   return lo;
 }
@@ -134,9 +134,9 @@ fn walk_level_zero(o: vec3<i32>, frac: vec3<f32>, inv: vec3<f32>, s: vec3<i32>, 
   for (var a = 0u; a < 3u; a++) {
     let first = select((c[a] + 1) * span - 1, c[a] * span, s[a] > 0);
     if (i32(a) == axis) { out[a] = first; continue; }
-    let from = select(min(first, o[a]), max(first, o[a]), s[a] > 0);
+    let start = select(min(first, o[a]), max(first, o[a]), s[a] > 0);
     let last = select(c[a] * span, (c[a] + 1) * span - 1, s[a] > 0);
-    out[a] = from + s[a] * walk_crossed_before(o, frac, inv, s, a, from, abs(last - from), 0u, t, f32(axis));
+    out[a] = start + s[a] * walk_crossed_before(o, frac, inv, s, a, start, abs(last - start), 0u, t, f32(axis));
   }
   return out;
 }
