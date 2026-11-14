@@ -11,7 +11,9 @@ ends at the lighting storage choice; **46e-b** builds the choice out.
 
 - **In, 46e-a:** GPU time per pass in the profiler (D655); one occupancy walk over voxels (CPU and GPU, one
   definition); open-region labelling with chunk connectivity and sky visibility; direct light and shadows on voxel
-  worlds in Play; the lighting storage A/B (R110) with pictures and numbers; an acceptance page and a stop.
+  worlds in Play; both lighting stores on voxels (phase 42's surface cache ported, the voxel light volume
+  prototyped) and their A/B on one scene (R110), alone and as near cache + far volume; an acceptance page and a
+  stop.
 - **In, 46e-b (detailed after the owner's choice):** the chosen storage built out per tier, with edits, props and
   moving objects; rooms for light, cut-away and audio size; connectivity culling only if it measures better than
   the depth pyramid; the walk graph on a generic A* core with `ctx.voxels` path queries.
@@ -75,6 +77,7 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 | Region labelling, connectivity, sky columns | `@thirdlight/voxel` derive workers; stitched in the streamer | the derive contract, `WorkerPool`, `job-queue` |
 | Region and ray queries for games | `runtime` (`ctx.voxels`) | `voxel-world-host.ts` |
 | Voxel shadows | `three-adapter` (`voxel-chunk-view.ts`) | `cached-shadow.ts`, `shadow-atlas.ts`, `?voxelShadows=static`'s path |
+| Surface cache on voxels | `three-adapter` (a voxel tile source and a voxel tracer scene kind) | `surface-cache.ts`, `surface-cache-scene.ts`, `surface-light-pass.ts`, `surface-probes.ts`, `tracer-scene.ts`; `surface-cache-blocks.ts` and `-terrain.ts` are the charting patterns (retiring code, read not touched) |
 | Light volume prototype | `three-adapter` | `camera-window.ts` and the region-texture helper (46f), the walk, clustered lights |
 | A* core, walk graph | `@thirdlight/shared` (the core), `@thirdlight/voxel` (the graph) | the derived nav cells; `block-walk.ts` is the pattern and is left to retire |
 | Time slices and budgets | `shared` `frame-arbiter.ts`, `project-model` tables | no new constant |
@@ -90,18 +93,20 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 | 46e.2 | **One occupancy walk.** A 6-connected walk (R99) over level-0 cells, skipping empty space by the chunk tree's flags and continuing into far bricks; one definition for the CPU and the GPU; partial cells by light coverage; `ctx.voxels.raycast`; the editor's voxel picking through it. Measured: rays a millisecond on both. |
 | 46e.3 | **Open regions.** Connected non-solid cells labelled per chunk in the derive workers and stitched across chunk faces as chunks arrive: face connectivity (R97), sky columns (R98), regions with an enclosed flag, volume and portals from the opening role (R101); rebuilt for one chunk on an edit; `ctx.voxels.regionAt`; a tint overlay to see them. A derived output: an add-only note in the format spec (§8, owner). |
 | 46e.4 | **Direct light.** Voxel surfaces and kit pieces cast and receive sun shadows in Play through the cached static map plus the dynamic map, and local-light shadows through the atlas; an edit refreshes what it touched; the far shade lit at the hit (D607); a far sun shadow by a short march through distance bricks, kept only on the tiers that afford it. |
-| 46e.5 | **The lighting storage A/B (R110).** A prototype of the voxel light volume on the town (sky and sun by the walk, one bounce, local lights; near level and the 1/2/4 m levels), measured against phase 42's surface cache where that runs today (§9, first decision); the table of §4 for both, with pictures. |
-| 46e.6 | Close of 46e-a: the gate, the independent review, fixes, results, an acceptance page (pictures, at most five questions, the lead's recommendation by "performance first"), STATUS. **Stop for the owner.** |
+| 46e.5 | **The surface cache on voxels.** Phase 42's cache fed by voxel surfaces: a voxel tile source (charts over the mesher's faces by their main axis, as block chunk columns and terrain rings are charted today), the tracer walking voxel occupancy as a scene kind (46e.2's walk), direct light and live probes over it, edits marking tiles stale. A candidate, built only as far as a fair measurement needs. |
+| 46e.6 | **The voxel light volume.** R104's volume on the same town: air-side cells beside surfaces with six directional values, the 1/2/4 m levels for open air, sky and sun by the walk, one bounce, local lights; read by voxel surfaces, kit pieces and moving objects. A candidate, to the same depth. |
+| 46e.7 | **The lighting storage A/B (R110), same scene, same cameras.** Three arrangements on the town inside the 8 km world: the cache alone, the volume alone, and the cache near with the volume beyond a distance (the owner's hybrid, the hand-over distance a setting); §4's table and pictures for each, on the low tier at the cap, with medium and high as shares. |
+| 46e.8 | Close of 46e-a: the gate, the independent review, fixes, results, an acceptance page (pictures of the three side by side, at most five questions, the lead's recommendation by "performance first"), STATUS. **Stop for the owner.** |
 
 ### 46e-b (outline; made final after the owner's choice)
 
 | Item | Builds |
 |---|---|
-| 46e.7 | The chosen storage built out: tiers and budgets, updates after edits, props through the coverage channel (D448), moving objects and particles reading the same light, the old path it replaces switched off for voxel worlds. |
-| 46e.8 | Rooms from regions: light kept indoors, cut-away and see-through "enclosed air", a room size for audio. |
-| 46e.9 | Connectivity culling measured against the depth pyramid on the town's interiors and the caves; built only if it wins. |
-| 46e.10 | The walk graph (R100) on a generic A* core; `ctx.voxels` path and reach queries; the path-finding span in the profiler. |
-| 46e.11 | Close: gate, review, acceptance page, STATUS, the design page. A saved light bake for the low tier is a format proposal (O19) and a hard stop if the measurements ask for it. |
+| 46e.9 | The chosen storage built out: tiers and budgets, updates after edits, props through the coverage channel (D448), moving objects and particles reading the same light, the old path it replaces switched off for voxel worlds. |
+| 46e.10 | Rooms from regions: light kept indoors, cut-away and see-through "enclosed air", a room size for audio. |
+| 46e.11 | Connectivity culling measured against the depth pyramid on the town's interiors and the caves; built only if it wins. |
+| 46e.12 | The walk graph (R100) on a generic A* core; `ctx.voxels` path and reach queries; the path-finding span in the profiler. |
+| 46e.13 | Close: gate, review, acceptance page, STATUS, the design page. A saved light bake for the low tier is a format proposal (O19) and a hard stop if the measurements ask for it. |
 
 ## 7. Progress
 
@@ -114,6 +119,8 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 | 46e.4 | not started |
 | 46e.5 | not started |
 | 46e.6 | not started |
+| 46e.7 | not started |
+| 46e.8 | not started |
 
 ## 8. Format and spec steps (owner stops)
 
@@ -128,11 +135,13 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 
 ## 9. Decision log
 
-- 2026-11-14 (plan, default chosen, owner to confirm): the A/B compares the light volume prototype on the voxel
-  town with the surface cache on the scenes it runs on today (the village class and a block-layer interior), by
-  cost per lit area and by pictures of like views. Porting the cache to voxel surfaces for a same-scene A/B is
-  the alternative; it needs charts over voxel surfaces, which is the work R110 leans to removing.
-- 2026-11-14 (plan, default chosen, owner to confirm): 46e stops after the A/B (46e.6); the walk graph and
+- 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
+  we would run both on voxels with surfels up close and voxels cache further away depending on the look and
+  performance. I think we need to port this to voxels in order to do a fair comparison." The plan's first
+  default (the cache measured on the old scenes) is withdrawn; 46e.5 ports the cache, 46e.6 builds the volume,
+  46e.7 measures each alone and the hybrid. The loser's code is removed or left behind a switch by the owner's
+  choice at the stop, not before.
+- 2026-11-14 (plan, default chosen, owner to confirm): 46e stops after the A/B (46e.8); the owner agreed to the stop (2026-11-14); the walk graph and
   culling wait in 46e-b though they do not depend on the choice, so the stop comes early.
 - 2026-11-14 (plan): the generic A* core is new in `shared`; `block-walk.ts` keeps its own until it retires in 48
   (retiring code is not touched).
@@ -141,7 +150,7 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 
 ## 10. Open questions for the owner (asked with the plan)
 
-1. The two parts with a stop at the lighting choice. Default: yes.
-2. The A/B on different scenes (§9). Default: yes, with the caveat stated on the acceptance page.
+1. The two parts with a stop at the lighting choice. **Owner 2026-11-14: yes.**
+2. The A/B on different scenes. **Owner 2026-11-14: no; both on voxels, same scene, and the hybrid (§9).**
 3. The add-only spec entry for the derived region outputs (§8). No default: 46e.3 stops at the spec step
    without the owner's note.
