@@ -125,8 +125,10 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 ## 8. Format and spec steps (owner stops)
 
 - **Region labels, face connectivity and sky columns** are new derived outputs (worker-built, never stored).
-  They need an add-only entry in `voxel-format-spec.md` §3.7 with the owner's note before 46e.3 lands. Asked with
-  this plan (§10, question 3).
+  **Approved by the owner 2026-11-14** for this phase: "Yes I approve of the spec change for the proposed testing
+  of lighting voxels in this phase." 46e.3 writes the add-only entry in `voxel-format-spec.md` §3.7 (and the
+  format register) with that note, in the commit that lands the outputs. The approval covers these three derived
+  outputs only; anything else in an approved spec is still a stop.
 - **Light coverage on the GPU** (if the shader grids' "material is not air" is not enough for the walk): a GPU-side
   texture built from the derived coverage; no stored format.
 - **A saved light bake** (R104's "saved settled bake per tile", O19) is stored data: not built in 46e-a; a
@@ -152,5 +154,5 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 
 1. The two parts with a stop at the lighting choice. **Owner 2026-11-14: yes.**
 2. The A/B on different scenes. **Owner 2026-11-14: no; both on voxels, same scene, and the hybrid (§9).**
-3. The add-only spec entry for the derived region outputs (§8). No default: 46e.3 stops at the spec step
-   without the owner's note.
+3. The add-only spec entry for the derived region outputs (§8). **Owner 2026-11-14: approved** ("Yes I approve of
+   the spec change for the proposed testing of lighting voxels in this phase").

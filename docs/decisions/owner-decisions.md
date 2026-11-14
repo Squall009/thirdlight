@@ -28,6 +28,7 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-12 | A short foundations phase (46f) before lighting, and the order 46f → 46e → 47a → 47b → 47c → 48 → 49 water → 50 vegetation → 51 fog → post stack. | `roadmap.md` |
 | 2026-11-12 | The demo project comes in after the merge to main (48), as the stress scene with real art. | `roadmap.md` |
 | 2026-11-14 | 46f's five defaults stand. 46e runs in two parts with a stop at the lighting storage choice; the A/B runs both stores on voxels on one scene (the surface cache ported, the light volume, and the cache near with the volume beyond). | `plan-phase-46f.md` §10, `plan-phase-46e.md` §9 |
+| 2026-11-14 | The format spec may gain an add-only entry for three derived outputs, never stored: region labels, chunk face connectivity, sky columns (for 46e's lighting and regions). Nothing else in an approved spec changes. | `plan-phase-46e.md` §8 |
 
 ## Dropped, superseded or deferred (do not rebuild without the owner's word)
 
