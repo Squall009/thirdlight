@@ -123,7 +123,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 no bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
 | 46f.3 | Done 2026-11-14: stored copies (a) and point-set ground cover (b) are culled-table rows on WebGPU (level + hysteresis + fade, thinning, frustum, pyramid in compute); one level helper. b, walking slab A/B: GPU frame 6.0→3.6 ms at full clock, page +0.15 ms; meadow (terrain texel cover) unchanged. WebGL 2 keeps vertex paths; texel cover retires in 48. |
 | 46f.4 | Done 2026-11-14: one undo line per project in the backend (workspace `undo-timeline.ts`): `undo`/`redo` step scene entries and voxel strokes in order, redo across kinds cleared by any new edit; voxel redo (exact bytes); gone strokes skipped and named; optional world `expectedRevision`; `undoVoxels` removed (bench Z = one undo). |
-| 46f.5 | a done 2026-11-14 (slices 1–2): one buffer grow (shared `grownCapacity`/`grownArray`, `grownGpuBuffer`), one region-texture helper (4 upload copies, 2 grows, 4 version rules); `MEMORY_BUDGET_BY_TIER` (10 entries) + resident-bytes report (Profiler Memory table). Slice 3 (job kinds) left: not cheap (decision log). D649 open (hidden). b pending. |
+| 46f.5 | Done 2026-11-14. a: one buffer grow, region-texture helper, memory budget table + resident bytes (job kinds left for 48). b: stale headers; one `QUERY_OPS`; tests/support: `serveDir` 45→0 copies, 2 backend launchers→1, command helpers 166→37 (ratchet); `aimAtPointer` for 5 pointer→ray copies (3 retiring left). |
 | 46f.6 | not started |
 
 ## 8. Results
@@ -653,6 +653,82 @@ probes and undo "not counted here"; page total 90.5 of 1,616 MiB, "no target of 
 with an ellipsis), `profiler-counters-1920.png`. Unverified by eye: the GPU total row (below the panel's fold in that
 picture), WebGL 2's staging uploads (only `webgl2-smoke.e2e.ts`, in the gate), `walled-base.png` (the D649 view: the far copies behind the wall, hidden in the picture, still drawn).
 
+### 46f.5b — cheap merges, the tooling and editor half
+
+**Slice 1, stale headers** (0dd63b5f, comments only): `store-v4.ts` (manifest schemaVersion 8; a 6 or a 7 upgraded on
+open), `project-v4.ts` (the schema from `PROJECT_SCHEMA_VERSION`, content.json without the resources and sidecars,
+today's cross-document rules: no one-camera / one-controller start rule, the shell list, transitions, interiors),
+`play-content.ts` (names `buildPlayContentM3` in `play-m3.ts` and `buildContentClosureM3`; `buildPlayContent` and
+`buildContentClosure` are gone) and `play-m3.ts`'s header, which named the gone function and a v2 manifest. +33 / −28.
+
+**Slice 2, one `QUERY_OPS`** (5cdcecd9). Before: three lists — protocol `http.ts` (6 ops + `V3_QUERY_OPS`' 5),
+workspace `session.ts` (11, the type of its dispatch) plus `request-envelope.ts`'s chain of 11 comparisons and its
+refusal text, and MCP `tools.ts` (6 ops). Protocol's and the workspace's held the same 11 ops in the same order; MCP's
+was dead code (its `QUERY_SET` was never read): no behavioural difference, no D-row. After: one list, `QUERY_OPS` with
+`QueryOp` / `isQueryOp`, in commands' op-list module `mutation-ops.ts` beside `MUTATION_OPS`, re-exported by protocol
+(decision log); the workspace's envelope and dispatch and `session-v4.ts`'s narrowed type read it, the refusal text is
+built from it (same words). `V3_QUERY_OPS` and MCP's list deleted. Owned names `QUERY_OPS`, `isQueryOp`,
+`V3_QUERY_OPS`. +52 / −66.
+
+**Slice 3, `tests/support`** (f4f5f30c, 8a96664b the folder's `"type": "module"`). `serve-dir.ts` `serveDir`,
+`backend-process.ts` `launchBackend`, `commands.ts` (`newRequestId`, `projectRevision`, `commandEnvelope`,
+`sendCommand`, `mustCommand`); a vitest `tests/test-support.test.ts` (real HTTP and files: index, types, 404 outside
+the folder, the served log, isolation headers, dropped connections; the envelope and its options). Counts before →
+after (the redefinition check's own count over tests/ and tools/):
+
+| Copy | Before | After |
+|---|---|---|
+| `serveDir` definitions (43 in specs and their helpers, `tests/e2e/backend.ts`'s, the perf harness's) | 45 | 0 (`frame-reading.ts` and `tools/perf/browser.ts` re-export) |
+| Other plain static servers (`serve()` in 3 specs, `spawn.e2e.ts` inline, `insecure-context.e2e.ts` on the LAN) | 5 | 0 |
+| Backend launchers (`tests/e2e/backend.ts`, `tools/perf/backend.ts`) | 2 | 1 (`launchBackend`) |
+| Local command helpers building the envelope (named functions with `op`, `expectedRevision`, `requestId`) | 166 | 37, in the ratchet |
+
+Variants met, each kept as an option or listed: `serveDir` in 13 spellings — content types beyond the four (`.png`
+in 3, `.glb` 1, `.css` + `.png` 1; the perf harness's `.bin` is the default anyway) → `types`; a served-path log (2) →
+`served`; COOP/COEP (1) → `isolated`; `closeAllConnections` on close (1) → `dropConnections`; a LAN address → `host`;
+`serve()` returning the server → `server` in the answer. The launchers: start timeout 15 / 30 s, kill after 5 / 10 s,
+the op-record check (e2e only), a log tail (perf) → options. Command helpers: request ids random hex, sha256 of op and
+a random, a UUID, a per-file counter, sha256 of token and counter (all `req-` + 32 hex, none read back) → one
+random; the revision from a local query / revision helper or directly, raw or `Number()`; the check by `expect` (13
+message spellings), by a throw, or none (the answer returned: `sendCommand`); `no_change` counted as done (2:
+`noChangeIsDone`); no origin (1: `clientId: null`); a route through a spec's own post (playtest). Of the 129 gone, 122 went by a
+codemod (the helpers that read the project's revision, send at it with a fresh id and an MCP origin, and assert /
+throw / return), the rest by hand: 5 spec helpers, `backend.ts`'s `withoutSky` and `publishBytes` (its script
+source route takes `projectRevision` and `newRequestId` too) and the perf harness's client. **Left (37, in the ratchet):** 23 integration tests (their own
+fetch answering `{status, json}`, or the in-process service), 5 crash children (child processes on the service), the
+4 voxel-bench and perf CLIs' clients, `edit-copy.e2e.ts`'s two deliberate large batches, `import-extensions.e2e.ts`
+(another project id, revision from `queryEntities`, no origin), `lights.e2e.ts`'s inline envelope in `pointLight`,
+`m2-crash.test.ts`'s `projectRevision`. Left static servers: `tools/perf/frame-run.ts` (a PUT route for scene dumps),
+`tools/voxel-bench/regions.ts` and `stream-page-cli.ts` (Range requests, latency, counters), `tests/e2e/parity.ts`
+(an in-memory bundle). Behaviour: no timeout, port, assertion or scene changed; a refused command now fails a spec
+with `<op> refused: <answer>` instead of an `expect` mismatch. Guard: families `serve-dir`, `backend-process`,
+`test-command` in the redefinition check; `test-command` also matches by shape in tests/ and tools/ (a named function
+building an object with `op`, `expectedRevision` and `requestId`; a test body may), tested in
+`check-redefinitions.test.mjs`. Lines (`git diff --stat`): 142 files, +863 / −1,993 (specs +423 / −1,908).
+
+**Slice 4, pointer → ray** (795f91bb). Copies of the client → NDC → ray maths: `SceneQueries.aim` (the view's root
+rectangle), the handles' overlay `HelperOverlay.aim` (the canvas; refuses a zero-size canvas, kept at the caller), the
+instance brush (canvas), the decal tool (canvas), the voxel world page's cell picker (the window), the terrain editor
+(2) and the block editor (1). Raycasters: 7 (those five places and the two retiring tools). The maths was the same in
+every copy: client coordinates over `getBoundingClientRect()` (CSS pixels both; no copy used the device pixel ratio,
+none needed it), ×2 − 1, y flipped; the rectangles differ by design. Now `aimAtPointer(raycaster, camera, clientX,
+clientY, rect)` in `scene-queries.ts` (owned names `aimAtPointer`, `PointerRect`), used by the five survivors; the
+raycasters stay apart (SceneQueries' and the brush's see the batched layer, the others do not: one shared raycaster
+would change what is hit). Left: the terrain editor's two and the block editor's one (retire in 48, not touched). No
+copy was wrong: no D-row. Covering specs: SceneQueries (click selection: `hierarchy.e2e.ts`, `colliders.e2e.ts`; a
+copy's pick: `handles.e2e.ts`, `instance-brush.e2e.ts`; drops), the overlay (`handles.e2e.ts`, `capsule.e2e.ts`), the brush
+(`instance-brush.e2e.ts`), the decal tool (`layered-material.e2e.ts` via `driveDecalTool`: a click selects the decal
+under it); the page's picker had none: `voxel-world.e2e.ts`' assembly test now clicks the wall straight on, a cell of
+it is air, the undo restores it (+~1 s; run 3 × by hand, 54–58 s each alone). vitest `scene-queries.test.ts` (the
+middle and corners of an offset rectangle against `unproject`; the old formula equal). +99 / −9.
+
+**Gates.** `gate-fast-20261114-070255` (slice 3, every unit test and all 180 e2e files named): build, lint, vitest
+whole suite green (905 files, 489 s); e2e red at load (tests/support was not an ES module folder: 8a96664b);
+`gate-rerun-20261114-071436` (the leak test on: TL_MEMORY, `memory.e2e.ts` included) 327 passed, 1 failed:
+`block-layers.e2e.ts:474`'s export `export_output_path_invalid` (D319 watch), passed in `gate-rerun-20261114-074642`
+(green; village at 60 Hz 0/360 missed, main 6.33 ms). That rerun's 30.5 min is not comparable (leak test on, memory
+at the 12 GB cap). The slice 4 gate `gate-fast-20261114-075728` (every unit test, 906 files, 493 s, and all 180 e2e files: 322 tests, 22.6 min) was red on `layered-material.e2e.ts:257`'s export (D319 again) and `project-items.e2e.ts:183` (the Inspector showed the prefab's Ground instead of the new box: D651 watch); both passed in `gate-rerun-20261114-083112` (green). **Times:** e2e 22.6 min before (`gate-fast-20261114-060422`, 46f.3b's every-area gate) and after; by area before → after: core 27 → 27 s, voxel 178 → 171, rendering 398 → 396, materials 302 → 288, lighting 177 → 171, environment 128 → 129, effects 60 → 60, levels 369 → 368, editor-ui 294 → 298, scenes 127 → 127, content 199 → 199, play 166 → 166, mcp 112 → 114, physics 131 → 131, audio 51 → 48, input 66 → 65, scripting 131 → 133, animation 55 → 54 s: no slower.
+
 ## 9. Decision log
 
 - 2026-11-13 (plan): the phase is planned from the owner-approved consolidation of 2026-11-12; item order is
@@ -843,6 +919,27 @@ picture), WebGL 2's staging uploads (only `webgl2-smoke.e2e.ts`, in the gate), `
   do it with phase 48, when that script loses its retiring handlers: the page then needs a job pool only for cover,
   scatter and decal clips, and the choice (a page pool shared with single-thread voxel streaming, or routing through
   the simulation worker) can be measured on the voxel world's cover.
+
+- 2026-11-14 (46f.5b, default chosen, owner to confirm): the one query op list lives in commands' op-list module
+  (`mutation-ops.ts`, beside `MUTATION_OPS` and `VOXEL_WORLD_OPS`), re-exported by protocol as the wire's list, not
+  in protocol itself: the workspace, which serves the queries, may not import protocol (boundary rules), and the
+  mutation list already lives there with protocol re-exporting it. One definition, no boundary change.
+- 2026-11-14 (46f.5b): the redefinition check finds command helpers by their shape as well as by name (in tests/ and
+  tools/ only: a named function building an object with `op`, `expectedRevision` and `requestId`), since the copies
+  went by `cmd`, `command`, `send`, `run`, `mutate`, `mcp` and more. The 37 helpers left were put in the ratchet in
+  the commit that brought the family (as earlier families were); it only shrinks from here.
+- 2026-11-14 (46f.5b): the helpers left are not the e2e envelope: integration tests post with their own fetch and read
+  `{status, json}` (or call the in-process service), crash children run the service in child processes, the bench
+  CLIs keep their clients, and four e2e envelopes are deliberate (large batches, another project without an origin).
+  Moving them means a second transport in tests/support; not cheap, not done.
+- 2026-11-14 (46f.5b): every replaced helper now sends a random request id (some built them from a counter or a
+  hash); none was read back. A refused command fails a spec with an Error carrying the answer instead of an `expect`
+  mismatch: the failure text changes, not what passes.
+- 2026-11-14 (46f.5b): pointer → ray is one function, not one raycaster: the five raycasters that survive keep their
+  own layers and parameters (merging them into SceneQueries' would let the brush and the overlay hit the batched
+  layer). The voxel world page's picker goes through it too (a bench, not retiring); a click there right after a
+  camera jump, before a frame is drawn, finds nothing to pick (the meshes it reads are the drawn ones): the e2e waits
+  two frames; a user cannot click before a frame.
 
 ## 10. Open questions for the owner
 
