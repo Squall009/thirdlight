@@ -121,7 +121,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | 46f.0 | Done 2026-11-13: three 0.187.0 = pin. Baseline §4 (low 30 Hz, 720p, alone): 8 km world room 22.4–23.1 ms, far 39–46 % / near 31–33 %; 150 m/s longest 42–44 ms, 0 > 100 ms, detail 4.5–4.7 s; meadow 977 k tris 10 draws; village 242 draws, main 4.5 ms. Sim-worker CPU unmeasured (no timing). Last fast gate 14 min. |
 | 46f.1 | Done 2026-11-13. a: spans on every thread, `__tlProfiler.read()`, budget table per tier, 10 slices from one arbiter. b: editor Profiler tab (timeline, frame breakdown, budget, counters, spikes, captures), overlay Shift+F3, capture file v1, `tl_diagnostics` profile digest. 150 m/s A/B: HEAD 43.9–50.5 ms inside base 42.0–53.9; spike settle fixed. |
 | 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 no bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
-| 46f.3 | a done 2026-11-13: stored copies are culled-table rows on WebGPU (level with hysteresis + 0.25 s fade, thinning, frustum in compute; pyramid on its path), one level helper in shared. Village/landscape: same draws, GPU scene 3.5→2.9 ms / frame at full clock 3.6→2.8 ms, page +0.0/+0.3 ms; pictures equal. WebGL 2 keeps the vertex path. b (ground cover) pending. |
+| 46f.3 | Done 2026-11-14: stored copies (a) and point-set ground cover (b) are culled-table rows on WebGPU (level + hysteresis + fade, thinning, frustum, pyramid in compute); one level helper. b, walking slab A/B: GPU frame 6.0→3.6 ms at full clock, page +0.15 ms; meadow (terrain texel cover) unchanged. WebGL 2 keeps vertex paths; texel cover retires in 48. |
 | 46f.4 | not started |
 | 46f.5 | not started |
 | 46f.6 | not started |
@@ -423,6 +423,93 @@ switch distances after 25 fixed floats. Cover sorted by threshold thins by rank 
 the placement hook (`installCoverPlacement`, which copy rows use too), the copy root/bend stash, and the list texture
 idea the rows replace. Untouched: `cover-gpu.ts` itself.
 
+### 46f.3b — ground cover from point sets as rows of the culled-instance table
+
+**Which cover the meadow class draws.** The §4 meadow class is a 1 km² heightfield whose grass is placed in the vertex
+stage from the terrain's texels (vegetation.md §1 path A: old terrain, retiring in 48, scope fence): it exercises no
+point set, so its rows can only show "no regression". Point-set cover (path B: block layers, a model's upward faces,
+architecture floors; the path voxel worlds will use) was measured on the same class with a new flag, `--slab`: the
+terrain goes and a flat 320 m model slab at the camera's ground height carries the same grass rule (8 clumps a m² to
+60 m, its terrain-layer condition left out). The level class's `area` was run first and dropped: it has no block
+cover (its block scatter is the landscape's only).
+
+**Built.** three-adapter `cover-rows.ts`: `CoverRows`, one per cover rule of a point source, a `CopyRowsSource` of
+the table: its places are the rule's point atlas's blocks (`cover-points-gpu.ts` now keeps each block's owner, first
+point and version), each point expanded on arrival into a copy's 16 floats by `coverPointAt` + `coverPointCopy` (the
+CPU reference of the vertex stage: place less the sink, threshold as the rank, turn, size), so a chunk's set arriving
+or leaving writes only its blocks (`writeCopies(target, at, since)` returns the ranges; the table uploads only
+those); when the atlas grows the set is taken again at the new size. `copy-rows-select.ts`: flag `SELECT_COVER`
+thins by `coverShareSteps` (new in `cover-placement.ts`, one definition over `ScalarOps`; `coverShare` is it on
+numbers) across the ground (horizontal metres, as the rings did) with the cover's full/reach/least share in the
+falloff's three floats; level, hysteresis, fade, frustum and the pyramid as for stored copies. The table is found
+by the rings' first draw offering its scene (as copies sets find it at their first draw); from the next frame the
+table draws the rule and the rule's rings are dropped; where the scene has no table (WebGL 2) the rings go on.
+`cover-gpu.ts` asks for point sets in reach as before but lists no blocks and culls no chunks on the page while
+rows draw. Shadows keep the cover's rule: a rule's draws cast only with `castShadow` (shadow cameras draw every point
+the lists hold, in view or not) and always receive; a cached static shadow map draws none. Bending reads the copy's
+root through `installFoliage` → `InteractionField.foliageOffset` as the rings did (the copy rows' placement). Diagnostics: `occlusion.copies.cover` (sets, places, rows, lists, in view, drawn, triangles) apart from
+the stored copies; profile counter `coverRows` and a Profiler tab row; `renderer.cover.gpu.rowRules/rowPlaces`.
+Manual (terrain: point sets on WebGPU), design page §6 row 6.
+
+**Tested.** vitest: `cover-rows.test.ts` (a point's row = `coverPointAt`/`coverPointCopy`, an empty place is never
+kept; on 4,000 points × three thinnings the pass's CPU reference keeps exactly the points the rings kept; the shared
+steps = `coverShare`; taken once a scene with a table is offered, written block by block as sets come and go, taken
+again when the atlas grows, never without a table, out of the scene when hidden); `copy-rows.test.ts` (a cover set's
+flag and floats in the selection data, counted apart, only changed ranges uploaded); `page-profile.test.ts`
+(counter). Playwright, WebGPU, real backend, `instances.e2e.ts` (one new test, ~8 s): a 140 m model slab with green
+tufts 2 a m² to 40 m; the export served with the backend stopped counts 1 rule set, 1 row, 6,572 points in view, all
+drawn; from 100 m straight down the green share is 0.37 at 3–12 m, 0.13 at 31–37 m, 0.000 at 44–60 m; a second
+export from eye height with a wall 8 m ahead on `?occlusion=hiz`: 134 of 1,541 points in view drawn. Bending:
+`materials.e2e.ts` (46f.2's interactor check) unchanged and green. WebGL 2: `webgl2-smoke.e2e.ts`. Gate:
+`gate-fast-20261114-012326` green, 12 min (named instances, materials, block-layers — its interior cover now draws as
+rows —, webgl2-smoke; e2e 105 tests 7.5 min, rendering 380 s; village at 60 Hz 0/360 missed, main 6.34 ms against
+5.64), its tree carried these notes uncommitted, so `gate-fast-20261114-*` after the docs commit records it.
+
+**Row layout (chosen on paper first).** Default budget 8 clumps/m² to 30 m + 2/m² to 80 m, sets baked per 16 m
+square at full density: about 42 k + 52 k points held (squares meeting each reach), ~22 % of them in a 50° view,
+~15 k kept. Expanded (chosen): 64 B floats + 16 B sphere + 4 B state + 16 B a list (order, visibility, two pass
+lists) = 116 B a place for a two-level model; two atlases of 65,536 places ≈ 15 MB GPU (+2 MB of 16 B points on the
+page). Compact second layout: 16 + 16 + 4 + 32 = 68 B ≈ 9 MB: 41 % less, not 4×, because the lists' ranges and
+spheres are the same in both; the pass reads 32 B (two of four vec4) against 16 B a point, ~7 MB against ~5 MB a
+picking frame (a still view picks nothing); the draw reads four vec4s a vertex against decoding the octahedral
+normal and two quaternions with trig a vertex (today's vertex stage). Expanded keeps one layout, one pass and one
+draw program for copies and cover.
+
+**Measured** 2026-11-14, each run alone (`thirdlight-gate` inactive), low tier, WebGPU, `frameRateCap=30` (page
+1920 × 1080, scene 1280 × 720 TAAU, the meadow bench has no viewport flag), uptime 21.4 d, load (1 min) 0.7–1.6;
+before at 121ddfc1 (00:48–01:04 UTC), after at b308a711 (01:11–01:22); the walking A/B interleaved base (121ddfc1
+built in a scratch worktree, removed after) / head. Raw: `~/.cache/thirdlight-phase46f/work/46f.3b/` (`before-*`,
+`after-*`, `ab-*`, `*.uptime`). GPU ms are timestamps at the cap (D544; "full clock" scales by the clock read).
+Frames ≥ 50 ms: 0 % in every run; p95 33.4 ms in every run.
+
+| Run (2 rounds) | Before | After |
+|---|---|---|
+| Meadow (terrain cover), grass: draws, tris | 10, 977 k | 10, 977 k |
+| Meadow: main ms (CPU); page profile | 1.79 / 1.83 (2.04 / 2.06); 1.01 / 1.04 | 1.71 / 1.73 (1.95 / 1.97); 1.00 / 1.06 |
+| Meadow: scene pass | 8.80 @ 529 / 10.40 @ 544 MHz | 11.89 @ 543 / 8.41 @ 527 MHz |
+| Meadow `--interactors 8`: main ms (CPU); field pass | 1.77 / 1.74 (2.01 / 1.99); 0.78 ms | 1.68 / 1.86 (1.91 / 2.09); 0.78 ms |
+| Slab, still camera: draws (scene), tris | 10 (6), 1,496 k | 8 (1 + 3 indirect), indirect unknown to three |
+| Slab, still: main ms (CPU); page profile | 1.73 / 1.72 (1.95 / 1.95); 0.97 / 0.90 | 1.70 / 1.67 (1.95 / 1.92); 0.95 / 0.97 |
+| Slab, still: scene pass → at full clock | 8.77 @ 543 / 12.82 @ 525 → 3.4 / 4.8 ms | 5.21 @ 343 / 5.07 @ 345 → 1.3 / 1.2 ms (no pick: still view) |
+| Slab `--walk 1.4` A/B: main ms (CPU); page profile | 1.72 / 1.74 (1.94 / 1.97); 1.00 / 0.98 | 1.86 / 1.89 (2.11 / 2.18); 1.18 / 1.05 |
+| Slab walking: frame GPU at full clock (scene; compute) | 5.98 / 6.04 (15.0 / 12.7 @ 596 MHz; –) | 3.56 / 3.63 (5.97 / 6.87; pick 1.83 / 2.11 @ 368 MHz) |
+
+The meadow's terrain cover is the same path before and after: equal draws and triangles, page within the rounds'
+spread, scene pass inside the clock's noise. Point-set cover as rows: the GPU frame while walking is 40 % cheaper
+(the vertex stage no longer runs a clump's vertices for every point thinned away), the page +0.14–0.17 ms a frame
+while the view moves (cause not isolated: the pick's selection data and parameters are written and its compute
+dispatch encoded every moving frame; a still view picks nothing). Triangles of indirect draws: three's counters leave them out; the profile's `coverRows.triangles`
+counts them (the picture scene: 13.3 k points, 160 k triangles in view). Frame room: not measurable (the headroom
+meter drives only voxel pages). Medium and high: not measured (unverified on target hardware).
+
+**Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.3b/shots/`): `before/` and `after/` (a 120 × 240 m
+model slab, tufts LOD0 green / LOD1 magenta, 8 a m² to 60 m; export, 1280 × 720): `far` 1 px and `grazing` 0 px of
+921,600 differ by more than 16 levels; `near`, `switch`, `occluder` differ only at the level switch (11.9 k, 23.6 k,
+7.4 k px): before, the switch was a ring line at one distance for the rule's mean size; after, each tuft switches
+by its own size (the shared rule, as placed models and stored copies), so the boundary is ragged a few metres
+either side. Thinning, density and the wall look the same. `before/slab-*.png` (the perf slab). Not looked at: the
+cross-fade's stipple in motion (pixels only), cover casting shadows (no rule here casts).
+
 ## 9. Decision log
 
 - 2026-11-13 (plan): the phase is planned from the owner-approved consolidation of 2026-11-12; item order is
@@ -533,6 +620,23 @@ idea the rows replace. Untouched: `cover-gpu.ts` itself.
   in view (read back), not the copies in the blocks the page saw: other numbers for the same picture (village 900 →
   582, landscape 28,673 → 29,464). Triangles of indirect draws are unknown to three's counters; the profile's
   `copyRows.triangles` counts them.
+
+- 2026-11-14 (46f.3b, default chosen, owner to confirm): ground cover on point sets picks its level per point by
+  the shared screen-size rule (each point's own size, the eye's distance, the project's hysteresis, the 0.25 s
+  cross-fade) instead of the rings' fixed cuts at the rule's mean size: the switch is no longer a line at one
+  distance (the pictures differ there and only there). Thinning keeps the rings' share across the ground exactly.
+- 2026-11-14 (46f.3b, default chosen, owner to confirm): a point is expanded into a copy's 16 floats (64 B) in the
+  table's pools rather than a compact second row layout (16 B): on paper 116 against 68 B a place at the default
+  budget (the lists' ranges and spheres are the same in both), one layout, pass and draw program for copies and
+  cover, no per-vertex decoding; about 15 MB of GPU memory at the default budget.
+- 2026-11-14 (46f.3b): only point-set cover moved. Terrain cover placed from heightfield texels (path A) keeps its
+  rings and vertex stage until heightfield terrain retires in 48 (scope fence); the §4 meadow class measures that
+  path, so 46f.3b's change is measured on the new `--slab` flag of the same class. On WebGL 2 point-set cover keeps
+  its rings (no compute); on WebGPU the rings draw only until their first draw finds the scene's table (one frame).
+- 2026-11-14 (46f.3b): the cover's per-frame page work while rows draw is asking for the point sets in reach; its
+  own chunk frustum test and block lists are gone there (the frustum is the table's, from `view-cull.ts`'s planes).
+  A rule's places are its atlas's capacity (blocks of 256, doubling): free places are copies of no size the pass
+  tests and drops; the set is taken again at each doubling (no count cap; 46f.5's one buffer grow can absorb it).
 
 ## 10. Open questions for the owner
 
