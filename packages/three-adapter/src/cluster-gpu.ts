@@ -40,24 +40,14 @@ import { CLUSTER_COUNT_BITS, CLUSTER_LIGHT_TEXELS, CLUSTER_LONG_LIST, CLUSTER_TE
 import { ltcTablesTexture } from './cluster-area';
 import type { N } from './effects-tsl';
 import { targetTexture, texelTexture } from './texel-texture-node';
+import { freshTexture, uploadTextureRegion, type RegionUploadRenderer } from './region-texture';
 
 const TSL: N = TSLTyped;
 const { If, clamp, float, floor, int, ivec2, log2, max, renderGroup, select, uint, uintBitsToFloat, uniform, vec2, vec4 } = TSL;
 
 /** What an upload uses of three's renderer (either backend). */
-export interface ClusterUploadRenderer {
-  readonly backend: { readonly isWebGLBackend?: boolean; readonly device?: unknown; get(object: object): { texture?: unknown }; copyTextureToTexture(src: THREE.Texture, dst: THREE.Texture, region: null, at: null): void };
-  initTexture(texture: THREE.Texture): void;
-}
+export type ClusterUploadRenderer = RegionUploadRenderer;
 
-type GpuQueue = { writeTexture(dst: { texture: unknown }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: { width: number; height: number }): void };
-
-/**
- * Each texture made here gets a version no earlier one had: three's WebGL 2
- * backend rebinds a texture node's new texture only when its version differs
- * from the old one's.
- */
-let textureVersion = 0;
 /** Revisions no other `ClusterGpu` had (a renderer's new one must rebind its readers whatever the old one's count was). */
 let gpuRevision = 0;
 
@@ -67,9 +57,7 @@ function dataTexture(data: Uint32Array, rows: number): THREE.DataTexture {
   tex.magFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
   tex.flipY = false;
-  tex.needsUpdate = true;
-  tex.version = Math.max(tex.version, ++textureVersion);
-  return tex;
+  return freshTexture(tex);
 }
 
 /**
@@ -91,8 +79,6 @@ class ClusterTexture {
   texture: THREE.DataTexture;
   /** The data array the texture holds (a grown texture, or another view's, has another). */
   private data: Uint32Array;
-  /** A texture three never uploads: its image is the rows a partial upload sends (WebGL 2). */
-  private staging: THREE.DataTexture | null = null;
   /** Whether three has made the texture on the GPU (its first upload is whole). */
   private onGpu = false;
 
@@ -119,20 +105,7 @@ class ClusterTexture {
     if (texels <= 0) return { remade: false, bytes: 0 };
     const sendRows = Math.min(rows, Math.ceil(texels / CLUSTER_TEXTURE_WIDTH));
     const perTexel = data.BYTES_PER_ELEMENT * CLUSTER_TEXEL_WORDS;
-    if (renderer.backend.isWebGLBackend === true) {
-      let staging = this.staging;
-      if (staging === null) {
-        staging = this.staging = new THREE.DataTexture(data, CLUSTER_TEXTURE_WIDTH, sendRows, this.texture.format as THREE.PixelFormat, this.texture.type);
-      }
-      staging.image = { data, width: CLUSTER_TEXTURE_WIDTH, height: sendRows } as unknown as typeof staging.image;
-      renderer.backend.copyTextureToTexture(staging, this.texture, null, null);
-    } else {
-      const device = renderer.backend.device as { queue: GpuQueue } | undefined;
-      const gpu = renderer.backend.get(this.texture).texture;
-      if (device === undefined || gpu === undefined) throw new Error('the cluster texture is not on the GPU');
-      device.queue.writeTexture({ texture: gpu }, data, { bytesPerRow: CLUSTER_TEXTURE_WIDTH * perTexel, rowsPerImage: sendRows }, { width: CLUSTER_TEXTURE_WIDTH, height: sendRows });
-    }
-    return { remade: false, bytes: sendRows * CLUSTER_TEXTURE_WIDTH * perTexel };
+    return { remade: false, bytes: uploadTextureRegion(renderer, this.texture, data, { x: 0, y: 0, z: 0, width: CLUSTER_TEXTURE_WIDTH, height: sendRows, depth: 1 }, perTexel) };
   }
 
   dispose(): void {

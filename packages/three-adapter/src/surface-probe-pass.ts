@@ -11,7 +11,7 @@
  * Only the few WebGPU calls this uses are typed (`tracer-gpu.ts`'s types).
  */
 import { EXACT_TRACE } from './tracer-cpu-math';
-import { GPU_BUFFER_USAGE as USAGE, type GpuBuffer, type GpuTexture, type GpuTracer, type TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE as USAGE, grownGpuBuffer, type GpuBuffer, type GpuTexture, type GpuTracer, type TracerDevice } from './tracer-gpu';
 import { RAY_FLOATS } from './tracer-scene';
 import { GpuResolve } from './surface-resolve-gpu';
 import { BOUNCE_ALBEDO, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_RAYS, NO_BRICK_WORD, type LiveProbes, type ProbeLayoutWords } from './surface-probes';
@@ -154,14 +154,6 @@ export class SurfaceProbePass {
     return this.seed;
   }
 
-  private grow(buf: GpuBuffer | null, bytes: number, usage: number, label: string): GpuBuffer {
-    if (buf !== null && buf.size >= bytes) return buf;
-    buf?.destroy();
-    let size = 256;
-    while (size < bytes) size *= 2;
-    return this.device.createBuffer({ size, usage, label });
-  }
-
   /** The probes' records on the GPU, if they are laid out as `probes` now (null: not yet, or placed again since). */
   recordsFor(probes: LiveProbes): GpuBuffer | null {
     return probes.layout === this.layout ? this.recordsBuf : null;
@@ -195,9 +187,9 @@ export class SurfaceProbePass {
     const packed = packProbeWords(input);
     const rays = n * PROBE_RAYS;
     const wordsBuf = this.words.write(packed);
-    this.raysBuf = this.grow(this.raysBuf, rays * RAY_FLOATS * 4, USAGE.STORAGE, 'probe rays');
-    this.heldBuf = this.grow(this.heldBuf, rays * 4, USAGE.STORAGE, 'probe rays held');
-    this.outBuf = this.grow(this.outBuf, n * PROBE_FLOATS * 4, USAGE.STORAGE | USAGE.COPY_SRC, 'probe updated');
+    this.raysBuf = grownGpuBuffer(this.device, this.raysBuf, rays * RAY_FLOATS * 4, USAGE.STORAGE, 'probe rays');
+    this.heldBuf = grownGpuBuffer(this.device, this.heldBuf, rays * 4, USAGE.STORAGE, 'probe rays held');
+    this.outBuf = grownGpuBuffer(this.device, this.outBuf, n * PROBE_FLOATS * 4, USAGE.STORAGE | USAGE.COPY_SRC, 'probe updated');
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
     d.queue.writeBuffer(this.params, 0, probeParams(input.probes, packed, n, rays, this.seed, input.albedoRingsAt));
     const timed = this.query !== null;

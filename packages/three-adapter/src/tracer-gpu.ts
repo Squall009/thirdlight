@@ -9,6 +9,7 @@
  * library has no WebGPU types).
  */
 import { EXACT_TRACE, type TraceOptions } from './tracer-cpu-math';
+import { grownCapacity } from '@thirdlight/shared';
 import { HIT_WORDS, RAY_FLOATS, TRACE_RESUMES, type PackedTraceScene } from './tracer-scene';
 import type { ScenePack } from './tracer-scene-packer';
 import { TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
@@ -34,6 +35,17 @@ export interface GpuBuffer {
   getMappedRange(): ArrayBuffer;
   unmap(): void;
 }
+/**
+ * `buf` when it holds `bytes`, else a new buffer (the old one destroyed) of a
+ * doubling from 256 bytes that does: scratch buffers a pass rewrites whole
+ * each run, so nothing is copied.
+ */
+export function grownGpuBuffer(device: Pick<TracerDevice, 'createBuffer'>, buf: GpuBuffer | null, bytes: number, usage: number, label: string): GpuBuffer {
+  if (buf !== null && buf.size >= bytes) return buf;
+  buf?.destroy();
+  return device.createBuffer({ size: grownCapacity(256, bytes), usage, label });
+}
+
 interface GpuPass {
   setPipeline(p: unknown): void;
   setBindGroup(i: number, g: unknown): void;

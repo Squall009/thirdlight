@@ -39,6 +39,7 @@
  * Kept out of `occlusion.ts` and `occlusion-passes.ts`, which run it.
  */
 import * as THREE from 'three';
+import { grownArray } from '@thirdlight/shared';
 import * as TSLTyped from 'three/tsl';
 import { IndirectStorageBufferAttribute, ReadbackBuffer, StorageBufferAttribute, type WebGPURenderer } from 'three/webgpu';
 
@@ -781,14 +782,10 @@ export class InstanceOcclusion implements InstanceCullerHost {
   }
 
   private makePools(copies: number, from: Pools | null): Pools {
-    const matrices = new Float32Array(copies * COPY_FLOATS);
-    const spheres = new Float32Array(copies * 4);
-    const slots = new Uint32Array(copies);
-    if (from !== null) {
-      matrices.set(from.matrices.array as Float32Array);
-      spheres.set(from.spheres.array as Float32Array);
-      slots.set(from.slots.array as Uint32Array);
-    }
+    // What the CPU wrote is kept by copy; the GPU-only pools start again.
+    const matrices = from === null ? new Float32Array(copies * COPY_FLOATS) : grownArray(from.matrices.array as Float32Array<ArrayBuffer>, copies * COPY_FLOATS);
+    const spheres = from === null ? new Float32Array(copies * 4) : grownArray(from.spheres.array as Float32Array<ArrayBuffer>, copies * 4);
+    const slots = from === null ? new Uint32Array(copies) : grownArray(from.slots.array as Uint32Array<ArrayBuffer>, copies);
     const named = <T extends { name: string }>(a: T, name: string): T => {
       a.name = `tl-occlusion-${name}`;
       return a;

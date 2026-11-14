@@ -16,6 +16,7 @@ import type { ProbeGridRecord } from '@thirdlight/project-model';
 
 import { EMPTY_BRICK_MAP, buildBrickMap } from './probe-bricks';
 import { buildProbeIndex, EMPTY_PROBE_INDEX, PROBE_INDEX_WIDTH, withBrickMap, type ProbeIndexWithBricks } from './probe-index';
+import { copyTextureInto, freshTexture as fresh, uploadTextureRegion, type RegionTextureRenderer } from './region-texture';
 import { ProbeAtlasLayout, probeFade, probeTableRow, TABLE_ROW_FLOATS, TABLE_ROWS_PER_LINE, TABLE_TEXELS, type PackedProbeTile, type ProbePlace } from './probe-pack';
 
 /** Largest edge of the packed probe texture (texels): WebGPU's default 3D texture limit (WebGL 2 desktop GPUs give at least as much). */
@@ -46,26 +47,7 @@ export interface ResidentProbeTile {
 }
 
 /** What a sync uploads with (three's WebGPU renderer, on either backend). */
-export interface ProbeUploadRenderer {
-  readonly backend: { readonly isWebGLBackend?: boolean; readonly device?: unknown; get(object: object): { texture?: unknown }; copyTextureToTexture(src: THREE.Texture, dst: THREE.Texture, region: null, at: THREE.Vector3): void };
-  initTexture(texture: THREE.Texture): void;
-  copyTextureToTexture(src: THREE.Texture, dst: THREE.Texture, region: THREE.Box3 | null, at: THREE.Vector3 | null): void;
-}
-
-type GpuQueue = { writeTexture(dst: { texture: unknown; origin: { x: number; y: number; z: number } }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: { width: number; height: number; depthOrArrayLayers: number }): void };
-
-/**
- * Each texture the store makes gets a version no earlier one had: three's
- * WebGL 2 backend rebinds a texture node's new texture only when its version
- * at creation differs from the old one's (two fresh textures both at 1 keep
- * the old, deleted one bound).
- */
-let textureVersion = 0;
-function fresh<T extends THREE.Texture>(tex: T): T {
-  tex.needsUpdate = true;
-  tex.version = Math.max(tex.version, ++textureVersion);
-  return tex;
-}
+export type ProbeUploadRenderer = RegionTextureRenderer;
 
 function gpuOnlyTexture(width: number, height: number, depth: number): THREE.Data3DTexture {
   const tex = new THREE.Data3DTexture(null, width, height, depth);
@@ -104,19 +86,8 @@ function floatTexture(data: Float32Array, width: number, height: number): THREE.
 
 /** Upload one packed tile into its place. */
 function upload(renderer: ProbeUploadRenderer, atlas: THREE.Data3DTexture, tile: PackedProbeTile, at: ProbePlace): void {
-  renderer.initTexture(atlas);
-  if (renderer.backend.isWebGLBackend === true) {
-    // A texture never given to the GPU: three's copy then uploads its data straight into the region.
-    const src = new THREE.Data3DTexture(tile.data, tile.nx, tile.ny, tile.depth);
-    src.format = THREE.RGBAFormat;
-    src.type = THREE.HalfFloatType;
-    renderer.backend.copyTextureToTexture(src, atlas, null, new THREE.Vector3(at.x, at.y, 0));
-    return;
-  }
-  const device = renderer.backend.device as { queue: GpuQueue } | undefined;
-  const gpu = renderer.backend.get(atlas).texture;
-  if (device === undefined || gpu === undefined) throw new Error('the probe texture is not on the GPU');
-  device.queue.writeTexture({ texture: gpu, origin: { x: at.x, y: at.y, z: 0 } }, tile.data, { bytesPerRow: tile.nx * 8, rowsPerImage: tile.ny }, { width: tile.nx, height: tile.ny, depthOrArrayLayers: tile.depth });
+  // RGBA half floats: 8 bytes a texel.
+  uploadTextureRegion(renderer, atlas, tile.data, { x: at.x, y: at.y, z: 0, width: tile.nx, height: tile.ny, depth: tile.depth }, 8);
 }
 
 export interface ProbeSyncResult {
@@ -251,12 +222,7 @@ export class ProbeTileStore {
   private growTexture(renderer: ProbeUploadRenderer, before: { cols: number; height: number }): void {
     const layout = this.layout!;
     const next = gpuOnlyTexture(layout.width, layout.height, layout.depth);
-    renderer.initTexture(next);
-    if (before.cols > 0 && before.height > 0) {
-      const old = this.atlas;
-      const box = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(before.cols * layout.columnWidth, before.height, layout.depth));
-      renderer.copyTextureToTexture(old, next, box, new THREE.Vector3(0, 0, 0));
-    }
+    copyTextureInto(renderer, this.atlas, next, { width: before.cols * layout.columnWidth, height: before.height, depth: layout.depth });
     this.retire(this.atlas);
     this.atlas = next;
     this.revision++;

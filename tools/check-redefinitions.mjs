@@ -196,6 +196,11 @@ export const OWNED_FAMILIES = Object.freeze([
   // Arithmetic written once for numbers and shader nodes.
   { family: 'scalar-ops', owner: 'packages/shared/src/scalar-ops.ts', names: ['ScalarOps', 'CPU_SCALAR_OPS'] },
   { family: 'field-ops', owner: 'packages/three-adapter/src/field-ops.ts', names: ['TSL_SCALAR_OPS'] },
+  // Growing a buffer by copy: one growth policy and one copy for typed arrays; the GPU's scratch buffers grow by it too.
+  { family: 'buffer-grow', owner: 'packages/shared/src/grow.ts', names: ['grownCapacity', 'grownArray'] },
+  { family: 'gpu-buffer-grow', owner: 'packages/three-adapter/src/tracer-gpu.ts', names: ['grownGpuBuffer'] },
+  // A region of a texture three owns written from the CPU, a texture grown by copy, and a new texture's version: the private three hooks they take live in this module alone.
+  { family: 'region-texture', owner: 'packages/three-adapter/src/region-texture.ts', names: ['uploadTextureRegion', 'copyTextureInto', 'freshTexture'] },
   // Level of detail by screen size with hysteresis, for the CPU and shaders (voxel rings keep their own rings).
   { family: 'lod-level', owner: 'packages/shared/src/lod-level.ts', names: ['lodLevelOf', 'lodLevelStep', 'lodSwitchMargin', 'copyLevel'] },
   // The module ids; the runtime's and the exporter's named ids alias these (a string literal id is not caught by name).

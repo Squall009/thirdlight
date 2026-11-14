@@ -16,6 +16,7 @@
  * picked in compute, and the pyramid's tests only come on top.
  */
 import * as THREE from 'three';
+import { grownCapacity } from '@thirdlight/shared';
 import * as TSLTyped from 'three/tsl';
 import { ReadbackBuffer, StorageBufferAttribute, type WebGPURenderer } from 'three/webgpu';
 
@@ -190,7 +191,6 @@ export interface CopyRowsDiagnostics {
   readonly skipped: number;
 }
 
-const grown = (have: number, need: number): number => Math.max(need, have * 2, 16);
 
 /** The selection passes' uniform nodes (see `SelectView`). */
 function selectUniforms(): { eye: N; planes: N; fadeStep: N; rowCount: N; chunkCount: N; headersAt: N; outsAt: N; outputCount: N } {
@@ -524,7 +524,7 @@ export class CopyRowsTable {
     const need = blocksAt + blockCount;
     if (need > this.data.count) {
       releaseStorage(this.renderer, [this.data]);
-      this.data = this.make('uint', grown(this.data.count, need), 'data');
+      this.data = this.make('uint', grownCapacity(this.data.count, need, 16), 'data');
       this.generation += 1;
       this.dataSize = -1;
     }
@@ -576,7 +576,7 @@ export class CopyRowsTable {
     for (const set of this.frameSets) for (const sel of set.selections) need += SELECTION_F32 + sel.levels.length;
     if (need > this.floats.count) {
       releaseStorage(this.renderer, [this.floats]);
-      this.floats = this.make('float', grown(this.floats.count, need), 'floats');
+      this.floats = this.make('float', grownCapacity(this.floats.count, need, 16), 'floats');
       this.generation += 1;
     }
     const f = this.floats.array as Float32Array;
@@ -628,7 +628,7 @@ export class CopyRowsTable {
   private ensureCounters(n: number): void {
     if (n <= this.tally.count) return;
     releaseStorage(this.renderer, [this.tally, this.counts]);
-    const size = grown(this.tally.count, n);
+    const size = grownCapacity(this.tally.count, n, 16);
     this.tally = this.make('uint', size, 'tally');
     this.counts = this.make('uint', size, 'counts');
     this.dropReadback();

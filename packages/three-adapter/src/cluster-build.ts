@@ -42,6 +42,7 @@
  * Projections are three's (perspective or orthographic, off-axis allowed):
  * view x depends on the clip x row only, y on the clip y row, w on z.
  */
+import { grownArray } from '@thirdlight/shared';
 import { LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 import { LINE_HIGHLIGHT_METRES } from './surface-highlights';
@@ -193,42 +194,20 @@ export class ClusterLights {
   }
 
   private grow(n: number): void {
-    const f64 = (a: Float64Array, w: number): Float64Array<ArrayBuffer> => {
-      const next = new Float64Array(n * w);
-      next.set(a);
-      return next;
-    };
-    const f32 = (a: Float32Array, w: number): Float32Array<ArrayBuffer> => {
-      const next = new Float32Array(n * w);
-      next.set(a);
-      return next;
-    };
-    const u8 = (a: Uint8Array): Uint8Array<ArrayBuffer> => {
-      const next = new Uint8Array(n);
-      next.set(a);
-      return next;
-    };
-    const i32 = (a: Int32Array): Int32Array<ArrayBuffer> => {
-      const next = new Int32Array(n);
-      next.set(a);
-      return next;
-    };
-    this.position = f64(this.position, 3);
-    this.reach = f32(this.reach, 1);
-    this.color = f32(this.color, 3);
-    this.kind = u8(this.kind);
-    this.decay = f32(this.decay, 1);
-    this.direction = f32(this.direction, 3);
-    this.u = f32(this.u, 3);
-    this.v = f32(this.v, 3);
-    this.cone = f32(this.cone, 2);
-    const mask = new Uint32Array(n);
-    mask.set(this.mask);
-    this.mask = mask;
-    this.room = i32(this.room);
-    this.shadow = i32(this.shadow);
-    this.cookie = i32(this.cookie);
-    this.visible = u8(this.visible);
+    this.position = grownArray(this.position, n * 3);
+    this.reach = grownArray(this.reach, n);
+    this.color = grownArray(this.color, n * 3);
+    this.kind = grownArray(this.kind, n);
+    this.decay = grownArray(this.decay, n);
+    this.direction = grownArray(this.direction, n * 3);
+    this.u = grownArray(this.u, n * 3);
+    this.v = grownArray(this.v, n * 3);
+    this.cone = grownArray(this.cone, n * 2);
+    this.mask = grownArray(this.mask, n);
+    this.room = grownArray(this.room, n);
+    this.shadow = grownArray(this.shadow, n);
+    this.cookie = grownArray(this.cookie, n);
+    this.visible = grownArray(this.visible, n);
   }
 }
 
@@ -650,10 +629,8 @@ export class ClusterBuilder {
   }
 
   private growEntries(n: number): Uint32Array<ArrayBuffer> {
-    const next = new Uint32Array(Math.max(n, this.entryCluster.length + 1));
-    next.set(this.entryCluster);
-    this.entryCluster = next;
-    return next;
+    this.entryCluster = grownArray(this.entryCluster, Math.max(n, this.entryCluster.length + 1));
+    return this.entryCluster;
   }
 }
 

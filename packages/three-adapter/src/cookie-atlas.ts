@@ -35,6 +35,7 @@ import * as THREE from 'three/webgpu';
 import { LTC_SIZE, ltcTablesData } from './cluster-area';
 import type { ClusterUploadRenderer } from './cluster-gpu';
 import { CookieDecoder, type CookieDecodeRenderer } from './cookie-decode';
+import { uploadTextureRegion } from './region-texture';
 
 /** The atlas's side and a cookie tile's side (texels). */
 export const COOKIE_ATLAS_SIDE = 2048;
@@ -187,8 +188,6 @@ export function rasterPixels(px: Uint8ClampedArray, texture: THREE.Texture): Uin
   return out;
 }
 
-type GpuQueue = { writeTexture(dst: { texture: unknown; origin: { x: number; y: number } }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: { width: number; height: number }): void };
-
 /** A tile's place in the atlas (texels from the first row). */
 function tileOrigin(tile: number): { x: number; y: number } {
   return { x: (tile % COOKIE_COLUMNS) * COOKIE_TILE, y: Math.floor(tile / COOKIE_COLUMNS) * COOKIE_TILE };
@@ -212,7 +211,6 @@ export class CookieAtlas {
   private readonly held = new Map<object, Held>();
   private texture: THREE.DataTexture | null = null;
   private renderer: unknown = null;
-  private staging: THREE.DataTexture | null = null;
   private readonly warned = new Set<string>();
   private decoder: CookieDecoder | null = null;
 
@@ -266,8 +264,6 @@ export class CookieAtlas {
     this.drop();
     this.tiles.clear(() => undefined);
     this.held.clear();
-    this.staging?.dispose();
-    this.staging = null;
     this.decoder?.dispose();
     this.decoder = null;
   }
@@ -343,17 +339,8 @@ export class CookieAtlas {
       if (h.sent || h.data === null) continue;
       h.sent = true;
       const o = tileOrigin(h.tile);
-      if (renderer.backend.isWebGLBackend === true) {
-        let staging = this.staging;
-        if (staging === null) staging = this.staging = new THREE.DataTexture(h.data, COOKIE_TILE, COOKIE_TILE, THREE.RGBAFormat, THREE.HalfFloatType);
-        staging.image = { data: h.data, width: COOKIE_TILE, height: COOKIE_TILE } as unknown as typeof staging.image;
-        (renderer.backend as unknown as { copyTextureToTexture(s: THREE.Texture, d: THREE.Texture, r: null, at: THREE.Vector2): void }).copyTextureToTexture(staging, texture, null, new THREE.Vector2(o.x, o.y));
-      } else {
-        const device = renderer.backend.device as { queue: GpuQueue } | undefined;
-        const gpu = renderer.backend.get(texture).texture;
-        if (device === undefined || gpu === undefined) throw new Error('the cookie atlas is not on the GPU');
-        device.queue.writeTexture({ texture: gpu, origin: o }, h.data, { bytesPerRow: COOKIE_TILE * 8, rowsPerImage: COOKIE_TILE }, { width: COOKIE_TILE, height: COOKIE_TILE });
-      }
+      // RGBA half floats: 8 bytes a texel.
+      uploadTextureRegion(renderer, texture, h.data, { x: o.x, y: o.y, z: 0, width: COOKIE_TILE, height: COOKIE_TILE, depth: 1 }, 8);
     }
   }
 

@@ -18,6 +18,7 @@
  * owns them), drawn again when the rooms change, and the stale boxes at most
  * every `STALE_VIEW_MS` while work is left.
  */
+import { grownArray, grownCapacity } from '@thirdlight/shared';
 import * as THREE from 'three';
 
 import type { SurfaceCacheHost } from './surface-cache-host';
@@ -105,13 +106,9 @@ class Lines {
 
   line(a: readonly number[], b: readonly number[], c: THREE.Color): void {
     if ((this.n + 2) * 3 > this.positions.length) {
-      const grow = (old: Float32Array<ArrayBuffer>): Float32Array<ArrayBuffer> => {
-        const next = new Float32Array(Math.max(1536, old.length * 2));
-        next.set(old);
-        return next;
-      };
-      this.positions = grow(this.positions);
-      this.colours = grow(this.colours);
+      const size = grownCapacity(this.positions.length, (this.n + 2) * 3, 1536);
+      this.positions = grownArray(this.positions, size);
+      this.colours = grownArray(this.colours, size);
     }
     this.positions.set([a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!], this.n * 3);
     this.colours.set([c.r, c.g, c.b, c.r, c.g, c.b], this.n * 3);

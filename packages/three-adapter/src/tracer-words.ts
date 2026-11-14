@@ -4,6 +4,8 @@
  * stored as. Pure.
  */
 
+import { grownArray, grownCapacity } from '@thirdlight/shared';
+
 /** A world → local affine map, row-major 3 × 4 (x' = m0 x + m1 y + m2 z + m3, …). */
 export type Affine = readonly number[];
 
@@ -54,12 +56,8 @@ export class Words {
   constructor(readonly base = 0, private readonly header: Uint32Array | null = null) {}
   private grow(n: number): void {
     if (this.length + n <= this.u.length) return;
-    let size = this.u.length;
-    while (size < this.length + n) size *= 2;
-    const u = new Uint32Array(size);
-    u.set(this.u.subarray(0, this.length));
-    this.u = u;
-    this.f = new Float32Array(u.buffer);
+    this.u = grownArray(this.u, grownCapacity(this.u.length, this.length + n));
+    this.f = new Float32Array(this.u.buffer);
   }
   /** The end of the allocated words (an index, as `alloc` returns). */
   get end(): number {

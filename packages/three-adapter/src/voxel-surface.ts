@@ -129,6 +129,7 @@ import { cameraRelative } from './camera-relative';
 import { WORLD_MAPPED_TEXTURES_KEY, type WorldMappedTextures } from './texture-streaming';
 import type { N } from './effects-tsl';
 import { texelTexture, texelTexture3D } from './texel-texture-node';
+import { copyTextureInto, freshTexture as fresh, uploadTextureRegion, type RegionTextureRenderer } from './region-texture';
 import { BAND_TEXELS, bandTexels, gridUv, tileUv } from './voxel-surface-projection';
 import { declareVertexReach } from './vertex-reach';
 import { addHeaviest, heaviestTwo, NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt, triplanarWeights, type SetMaps, type SetProjectionMode } from './voxel-surface-sets';
@@ -191,26 +192,8 @@ export interface VoxelSurfaceObject {
 /** Cells after which every pattern repeats a whole number of times (the per-object texture phase is taken modulo it). */
 export const PHASE_CELLS = 1024;
 
-type GpuQueue = { writeTexture(dst: { texture: unknown; origin: { x: number; y: number; z: number } }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: { width: number; height: number; depthOrArrayLayers: number }): void };
-
 /** What the grid store uploads and copies with (three's WebGPU renderer, either backend). */
-export interface VoxelGridRenderer {
-  readonly backend: { readonly isWebGLBackend?: boolean; readonly device?: unknown; get(object: object): { texture?: unknown }; copyTextureToTexture(src: THREE.Texture, dst: THREE.Texture, region: null, at: THREE.Vector3): void };
-  initTexture(texture: THREE.Texture): void;
-  copyTextureToTexture(src: THREE.Texture, dst: THREE.Texture, region: THREE.Box3 | null, at: THREE.Vector3 | null): void;
-}
-
-/**
- * Each texture made gets a version no earlier one had: three's WebGL 2
- * backend rebinds a texture node's new texture only when its version
- * differs from the old one's.
- */
-let textureVersion = 0;
-function fresh<T extends THREE.Texture>(tex: T): T {
-  tex.needsUpdate = true;
-  tex.version = Math.max(tex.version, ++textureVersion);
-  return tex;
-}
+export type VoxelGridRenderer = RegionTextureRenderer;
 
 /** What a region store's texels are: their format, bytes a texel, and how they are filtered when sampled. */
 export interface RegionTexels {
@@ -351,8 +334,7 @@ export class VoxelShaderGrids {
     const s = this.layout.side;
     const next = this.steps[k]!;
     const tex = gridTexture(next[0] * s, next[1] * s, next[2] * s, null, this.texels);
-    renderer.initTexture(tex);
-    renderer.copyTextureToTexture(this.texture, tex, new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(next[0] * s, next[1] * s, next[2] * s)), new THREE.Vector3(0, 0, 0));
+    copyTextureInto(renderer, this.texture, tex, { width: next[0] * s, height: next[1] * s, depth: next[2] * s });
     this.steps.length = this.free.length = this.usedIn.length = k + 1;
     this.retired.push({ texture: this.texture, frames: 2 });
     this.texture = tex;
@@ -367,21 +349,8 @@ export class VoxelShaderGrids {
     const s = this.layout.side;
     const t = this.texels.bytes;
     const bytes = new Uint8Array(entries.buffer, entries.byteOffset, s * s * s * t);
-    renderer.initTexture(this.texture);
-    if (renderer.backend.isWebGLBackend === true) {
-      // A texture never given to the GPU: three's copy uploads its data straight into the region.
-      const src = new THREE.Data3DTexture(bytes, s, s, s);
-      src.format = this.texels.format;
-      src.type = THREE.UnsignedByteType;
-      renderer.backend.copyTextureToTexture(src, this.texture, null, origin);
-    } else {
-      const device = renderer.backend.device as { queue: GpuQueue } | undefined;
-      const gpu = renderer.backend.get(this.texture).texture;
-      if (device === undefined || gpu === undefined) throw new Error('the voxel grid texture is not on the GPU');
-      device.queue.writeTexture({ texture: gpu, origin: { x: origin.x, y: origin.y, z: origin.z } }, bytes, { bytesPerRow: s * t, rowsPerImage: s }, { width: s, height: s, depthOrArrayLayers: s });
-    }
+    this.uploadedBytes += uploadTextureRegion(renderer, this.texture, bytes, { x: origin.x, y: origin.y, z: origin.z, width: s, height: s, depth: s }, t);
     this.uploads++;
-    this.uploadedBytes += bytes.byteLength;
   }
 
   /** Call once a frame: textures replaced two frames ago are disposed (no frame binds them any more). */
@@ -417,8 +386,7 @@ export class VoxelShaderGrids {
       if (next[axis] === old[axis]) throw new Error(`voxel grid texture: no room past ${old.join(' × ')} regions`);
     }
     const tex = gridTexture(next[0] * s, next[1] * s, next[2] * s, null, this.texels);
-    renderer.initTexture(tex);
-    if (old[0] > 0) renderer.copyTextureToTexture(this.texture, tex, new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(old[0] * s, old[1] * s, old[2] * s)), new THREE.Vector3(0, 0, 0));
+    copyTextureInto(renderer, this.texture, tex, { width: old[0] * s, height: old[1] * s, depth: old[2] * s });
     // The new regions, handed out lowest first.
     const added: Array<[number, number, number]> = [];
     for (let z = next[2] - 1; z >= 0; z--) for (let y = next[1] - 1; y >= 0; y--) for (let x = next[0] - 1; x >= 0; x--) {

@@ -58,6 +58,8 @@
  * for line).
  */
 import { LIGHT_LAYER_COUNT } from '@thirdlight/project-model';
+import { grownArray, grownCapacity } from '@thirdlight/shared';
+
 
 import { CLUSTER_COUNT_BITS, CLUSTER_LONG_LIST, CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
 
@@ -182,11 +184,7 @@ export class ClusterShadows {
   /** Room for a record of `texels` (its first float). */
   private open(texels: number, rows: number): number {
     const o = this.texels * 4;
-    if (o + texels * 4 > this.data.length) {
-      const next = new Float32Array(Math.max(this.data.length * 2, o + texels * 4));
-      next.set(this.data);
-      this.data = next;
-    }
+    if (o + texels * 4 > this.data.length) this.data = grownArray(this.data, grownCapacity(this.data.length, o + texels * 4));
     this.starts.push(this.texels);
     this.rows.push(rows);
     this.texels += texels;
@@ -348,10 +346,8 @@ export class ClusterTextures {
   private grow(texels: number): boolean {
     const rows = grownRows(this.rows, texels);
     if (rows === this.rows) return false;
-    const next = new Uint32Array(rows * CLUSTER_TEXTURE_WIDTH * CLUSTER_TEXEL_WORDS);
-    next.set(this.data);
-    this.data = next;
-    this.floats = new Float32Array(next.buffer);
+    this.data = grownArray(this.data, rows * CLUSTER_TEXTURE_WIDTH * CLUSTER_TEXEL_WORDS);
+    this.floats = new Float32Array(this.data.buffer);
     this.rows = rows;
     return true;
   }
@@ -359,9 +355,7 @@ export class ClusterTextures {
 
 /** Rows doubled from `rows` until `texels` fit. */
 function grownRows(rows: number, texels: number): number {
-  let r = rows;
-  while (r * CLUSTER_TEXTURE_WIDTH < texels) r *= 2;
-  return r;
+  return grownCapacity(rows, Math.ceil(texels / CLUSTER_TEXTURE_WIDTH));
 }
 
 function rotateInto(V: ArrayLike<number>, src: Float32Array, i: number, out: Float32Array, at: number): void {

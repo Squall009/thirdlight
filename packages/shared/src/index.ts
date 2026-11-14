@@ -37,3 +37,4 @@ export { PROFILE_FRAMES, PROFILE_SPANS_PER_FRAME, PROFILER_THREADS, SPAN_CATEGOR
 export { FRAME_SLICE_DEFAULTS, FRAME_SLICE_IDS, FrameArbiter, frameArbiter, frameSliceMs, type FrameSlice, type FrameSliceId, type FrameSliceReading } from './frame-arbiter';
 export { CPU_SCALAR_OPS, type ScalarOps } from './scalar-ops';
 export { lodLevelOf, lodLevelStep, lodSwitchMargin, type LodLevelAcc } from './lod-level';
+export { grownArray, grownCapacity, type GrowableArray } from './grow';

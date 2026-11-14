@@ -57,6 +57,7 @@ import { isLit } from './local-lights';
 import { MaterialVariants, renderCallOf } from './material-variant';
 import { texelTexture, untransformedTexture } from './texel-texture-node';
 import { decalDrawOf } from './mesh-decals';
+import { freshTexture as fresh } from './region-texture';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -102,19 +103,6 @@ export function decalLayersField(v: unknown): number | undefined {
 export function decalLayersOfComponents(components: unknown): number | undefined {
   const c = components as Record<string, { decalLayers?: unknown } | undefined> | undefined;
   return decalLayersField((c?.['box'] ?? c?.['model'] ?? c?.['instances'] ?? c?.['terrain'])?.decalLayers);
-}
-
-/**
- * Each texture the light binds gets a version no other had: three's WebGL 2
- * backend rebinds a texture node's new texture only when its version differs
- * from the old one's (probe-atlas.ts says the same). Placeholders and data
- * textures count from far above any decoded texture's few updates.
- */
-let textureVersion = 1_000_000;
-function fresh<T extends THREE.Texture>(tex: T): T {
-  tex.needsUpdate = true;
-  tex.version = Math.max(tex.version, ++textureVersion);
-  return tex;
 }
 
 /** A float RGBA data texture read texel by texel (`load`). */

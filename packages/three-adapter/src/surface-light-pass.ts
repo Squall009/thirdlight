@@ -17,7 +17,7 @@
 import type { ScenePack } from './tracer-scene-packer';
 import { RAY_FLOATS, type PackedTraceScene } from './tracer-scene';
 import type { TraceOptions } from './tracer-cpu-math';
-import { GPU_BUFFER_USAGE as USAGE, GpuTracer, type GpuBuffer, type GpuEncoder, type TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE as USAGE, grownGpuBuffer, GpuTracer, type GpuBuffer, type GpuEncoder, type TracerDevice } from './tracer-gpu';
 import { SUN_DISC_RADIANS, packLightFrame, type LightPassFrame } from './surface-light-frame';
 import { LIGHT_GATHER_WGSL, LIGHT_RAYS_WGSL, LIGHT_WORKGROUP } from './surface-light-wgsl';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
@@ -87,14 +87,6 @@ export class SurfaceLightPass {
     this.tracer.updateScene(scene);
   }
 
-  private grow(buf: GpuBuffer | null, bytes: number, usage: number, label: string): GpuBuffer {
-    if (buf !== null && buf.size >= bytes) return buf;
-    buf?.destroy();
-    let size = 256;
-    while (size < bytes) size *= 2;
-    return this.device.createBuffer({ size, usage, label });
-  }
-
   /** The irradiance of the last frame's texels (a vec4f each, in order), on the GPU. */
   get irradiance(): GpuBuffer | null {
     return this.outBuf;
@@ -109,11 +101,11 @@ export class SurfaceLightPass {
     const packed = packLightFrame(frame);
     if (packed.texels === 0) return;
     const d = this.device;
-    this.frameBuf = this.grow(this.frameBuf, packed.words.byteLength, USAGE.STORAGE | USAGE.COPY_DST, 'surface light frame');
-    this.pointsBuf = this.grow(this.pointsBuf, packed.texels * TEXEL_POINT_FLOATS * 4, USAGE.STORAGE | USAGE.COPY_DST, 'surface light points');
-    this.raysBuf = this.grow(this.raysBuf, packed.rays * RAY_FLOATS * 4, USAGE.STORAGE, 'surface light rays');
-    this.masksBuf = this.grow(this.masksBuf, packed.rays * 4, USAGE.STORAGE, 'surface light ray masks');
-    this.outBuf = this.grow(this.outBuf, packed.texels * 16, USAGE.STORAGE | USAGE.COPY_SRC, 'surface light irradiance');
+    this.frameBuf = grownGpuBuffer(this.device, this.frameBuf, packed.words.byteLength, USAGE.STORAGE | USAGE.COPY_DST, 'surface light frame');
+    this.pointsBuf = grownGpuBuffer(this.device, this.pointsBuf, packed.texels * TEXEL_POINT_FLOATS * 4, USAGE.STORAGE | USAGE.COPY_DST, 'surface light points');
+    this.raysBuf = grownGpuBuffer(this.device, this.raysBuf, packed.rays * RAY_FLOATS * 4, USAGE.STORAGE, 'surface light rays');
+    this.masksBuf = grownGpuBuffer(this.device, this.masksBuf, packed.rays * 4, USAGE.STORAGE, 'surface light ray masks');
+    this.outBuf = grownGpuBuffer(this.device, this.outBuf, packed.texels * 16, USAGE.STORAGE | USAGE.COPY_SRC, 'surface light irradiance');
     d.queue.writeBuffer(this.frameBuf, 0, packed.words);
     d.queue.writeBuffer(this.pointsBuf, 0, frame.points.subarray(0, packed.texels * TEXEL_POINT_FLOATS));
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;

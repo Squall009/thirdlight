@@ -12,6 +12,7 @@
  * holding that prefix.
  */
 import * as THREE from 'three';
+import { grownArray, grownCapacity } from '@thirdlight/shared';
 import { COVER_POINT_FLOATS, coverPointsBelow, type CoverPointSet } from '@thirdlight/project-model';
 
 import type { CoverRing } from './cover-placement';
@@ -64,12 +65,8 @@ export class CoverPointAtlas {
   }
 
   private sizeOwners(blocks: number): void {
-    const firsts = new Int32Array(blocks);
-    firsts.set(this.firsts);
-    this.firsts = firsts;
-    const versions = new Uint32Array(blocks);
-    versions.set(this.versions);
-    this.versions = versions;
+    this.firsts = grownArray(this.firsts, blocks);
+    this.versions = grownArray(this.versions, blocks);
     while (this.owners.length < blocks) this.owners.push(null);
   }
 
@@ -111,10 +108,8 @@ export class CoverPointAtlas {
     const need = Math.ceil(set.count / COVER_POINT_BLOCK);
     let grew = false;
     if (this.free.length < need) {
-      let blocks = this.blocks;
-      while (blocks - this.blocks + this.free.length < need) blocks *= 2;
-      const data = new Float32Array(blocks * COVER_POINT_BLOCK * COVER_POINT_FLOATS);
-      data.set(this.texture.image.data as Float32Array);
+      const blocks = grownCapacity(this.blocks, this.blocks - this.free.length + need);
+      const data = grownArray(this.texture.image.data as Float32Array<ArrayBuffer>, blocks * COVER_POINT_BLOCK * COVER_POINT_FLOATS);
       this.texture.dispose();
       this.texture = pointTexture(data);
       for (let b = blocks - 1; b >= this.blocks; b--) this.free.push(b);
