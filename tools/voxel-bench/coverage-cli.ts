@@ -319,14 +319,19 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
       await game.page.waitForTimeout(500);
     }
   })();
-  let cursor: object | null = ((await game.frame.evaluate(readProfileSpikes, null).catch(() => null))?.seq as object | undefined) ?? null;
+  let cursor: object | null = null;
+  const seen = new Set<string>();
   const profilePoll = (async () => {
-    while (polling && cursor !== null) {
+    while (polling) {
+      const r: ReturnType<typeof readProfileSpikes> = await game.frame.evaluate(readProfileSpikes, cursor).catch(() => null);
+      if (r !== null) {
+        cursor = (r.seq as object | undefined) ?? null;
+        for (const s of r.spikes) if (!seen.has(`${s.at}|${s.from}`)) {
+          seen.add(`${s.at}|${s.from}`);
+          rec.profileSpikes.push(s);
+        }
+      }
       await game.page.waitForTimeout(1000);
-      const r = await game.frame.evaluate(readProfileSpikes, cursor).catch(() => null);
-      if (r === null) continue;
-      cursor = (r.seq as object | undefined) ?? null;
-      rec.profileSpikes.push(...r.spikes);
     }
   })();
   await cdp.send('Page.startScreencast', { format: 'png', maxWidth: CAST.width, maxHeight: CAST.height, everyNthFrame: 1 });

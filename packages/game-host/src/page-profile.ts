@@ -31,8 +31,12 @@ import { frameArbiter, PROFILE_FRAMES, residentBytes, SPAN_CATEGORIES, SpanRecor
 import type { PoolQueues } from '@thirdlight/voxel';
 import { memoryReport, type ProfileMemory } from './page-memory';
 
-/** A frame is a spike when the time since the last one passes this many frame intervals (a frame at the cap missed). */
-export const PROFILE_SPIKE_FACTOR = 1.5;
+/**
+ * A frame is a spike when the time since the last one passes this many frame intervals (a frame at the cap
+ * missed). Under a cap of half the display's rate (30 on a 60 Hz display) one missed frame is 1.5 intervals
+ * exactly, so the threshold sits below that: 1.25 keeps a whole display interval of jitter out on either.
+ */
+export const PROFILE_SPIKE_FACTOR = 1.25;
 /** Spikes kept (the newest). */
 export const PROFILE_SPIKES = 8;
 /** Page frames a spike waits for the other threads' frames of its time to arrive before it is kept. */
@@ -252,7 +256,7 @@ export class PageProfile {
   attach(sources: ProfileSources): void {
     this.sources = { ...this.sources, ...sources };
     // A page with a host is read through its global (Play, an export, the benches and tests).
-    (globalThis as Record<string, unknown>)[PROFILE_HOOK] ??= { read: () => this.read() };
+    (globalThis as Record<string, unknown>)[PROFILE_HOOK] ??= { read: (after?: ProfileCursor) => this.read(after) };
   }
 
   /** The frame rate and tier the page draws at: the interval frames are judged by, and the slices the page's arbiter hands out. */

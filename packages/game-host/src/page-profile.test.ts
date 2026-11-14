@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { frameArbiter, SpanRecorder, threadProfiler, wallClock } from '@thirdlight/shared';
-import { PageProfile, PROFILE_SPIKE_FACTOR, PROFILE_SPIKES } from './page-profile';
+import { PageProfile, PROFILE_HOOK, PROFILE_SPIKE_FACTOR, PROFILE_SPIKES } from './page-profile';
 
 /** A page frame from `at` (wall ms) with one span of `ms` in it, ended now. */
 function frame(p: PageProfile, at: number, name = 'render frame', ms = 1): void {
@@ -27,7 +27,7 @@ describe('the page profile', () => {
     worker.job(job, 1, t0 + 150, 20);
     worker.endFrame(t0 + 160);
     p.simFrames(worker.pack()!, { pools: 1, workers: 2, queued: 3, backgroundQueued: 0, inFlight: 2 });
-    // The next frame starts 200 ms after the last: past 1.5 intervals at 30 Hz.
+    // The next frame starts 200 ms after the last: past the spike threshold at 30 Hz.
     frame(p, t0 + 4 * 33.3 + 200);
     const r = p.read();
     expect(r.spikes.length).toBe(1);
@@ -68,6 +68,35 @@ describe('the page profile', () => {
     q.follow(60, 'medium');
     for (let i = 0; i < 10; i++) frame(q, wallClock() - 1000 + i * 16);
     expect(q.read().spikes.length).toBe(0);
+  });
+
+  it('passes a reader\'s cursor on through the page\'s global (only the spikes since come back)', () => {
+    const g = globalThis as Record<string, unknown>;
+    delete g[PROFILE_HOOK];
+    const p = new PageProfile();
+    p.attach({});
+    p.follow(30, 'low');
+    const hook = g[PROFILE_HOOK] as { read(after?: unknown): { spikes: unknown[]; seq: unknown } };
+    const t0 = wallClock() - 3000;
+    frame(p, t0);
+    frame(p, t0 + 200);
+    for (let i = 1; i < 6; i++) frame(p, t0 + 200 + i * 33.4);
+    const first = hook.read();
+    expect(first.spikes.length).toBe(1);
+    expect(hook.read(first.seq).spikes.length).toBe(0);
+    delete g[PROFILE_HOOK];
+  });
+
+  it('counts one missed frame under a 30 Hz cap on a 60 Hz display (50 ms between frames) as a spike, and 35 ms as none', () => {
+    const p = new PageProfile();
+    p.follow(30, 'low');
+    const t0 = wallClock() - 2000;
+    for (let i = 0; i < 4; i++) frame(p, t0 + i * 33.4);
+    frame(p, t0 + 3 * 33.4 + 35);
+    expect(p.read().spikes.length).toBe(0);
+    frame(p, t0 + 3 * 33.4 + 35 + 50);
+    const s = p.read().spikes;
+    expect(s.map((x) => [x.reason, Math.round(x.ms)])).toEqual([['interval', 50]]);
   });
 
   it('shows the GPU as pass shares, never as milliseconds', () => {

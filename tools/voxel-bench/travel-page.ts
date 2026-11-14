@@ -99,8 +99,9 @@ export interface SpikeReading {
 
 /**
  * Runs in the game's page: the frame profile's spikes taken in since `after` (a cursor the last call returned;
- * null: none kept, only the cursor). The profiler keeps only its newest few spikes, so a run reads them as they
- * come rather than once at its end. Null without a profiler.
+ * null: every spike it keeps). The profiler keeps only its newest few spikes, so a run reads them as they come
+ * rather than once at its end; a reader keeps each once by its `at` and `from` (a page built before the
+ * profile's global passed the cursor on answers every kept spike each time). Null without a profiler.
  */
 export function readProfileSpikes(after: unknown): { seq: unknown; spikes: SpikeReading[] } | null {
   type Frame = { ms: number; spans: Array<{ name: string; category: string; selfMs: number }> };
@@ -108,7 +109,6 @@ export function readProfileSpikes(after: unknown): { seq: unknown; spikes: Spike
   const p = (globalThis as unknown as { __tlProfiler?: { read(after?: unknown): { seq: unknown; spikes: Spike[] } } }).__tlProfiler;
   if (p === undefined) return null;
   const r = after === null ? p.read() : p.read(after);
-  if (after === null) return { seq: r.seq, spikes: [] };
   const top = (frames: Frame[]) => {
     const by = new Map<string, number>();
     for (const f of frames) for (const s of f.spans) by.set(`${s.category} / ${s.name}`, (by.get(`${s.category} / ${s.name}`) ?? 0) + s.selfMs);
