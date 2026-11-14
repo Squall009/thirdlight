@@ -711,3 +711,11 @@ the PNG files are byte-equal), `scene-view-redone.png` (byte-equal to the dug on
 
 (None at planning. Questions the phase raises are listed here, at most five, each with a default that stands
 if unanswered.)
+
+Collected by the lead while the phase runs (final wording at the close, 46f.6):
+
+- **Voxel redo against the approved format spec.** `voxel-format-spec.md` §3.4 (line 695; summary point 16) says
+  "Redo re-applies the command". 46f.4's redo writes back the chunks the undo removed (the lead's brief asked for
+  that: exact bytes, no brush re-run). The voxels are the same and no stored format changed, but the behaviour
+  is not the spec's sentence. The spec text is NOT edited. Default if unanswered: keep the built redo and amend
+  the sentence with an owner note at the phase boundary; the other choice is to rebuild redo as a command re-run.
