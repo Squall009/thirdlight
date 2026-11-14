@@ -308,9 +308,14 @@ wired to nothing fails the "running" note.
 **Gate.** `gate-fast-20261114-161750` red on the new Play check (the test world's far field reads 0.16 ms,
 under resolution with another worker's GPU load: replaced by the known pass) and 4 tests under the all-areas
 load (project-items D331, shadows D645, terrain-cdlod D428 on watch; frame-rate-cap D659), all green in
-`gate-rerun-20261114-165345`; the final commit's gate below.
+`gate-rerun-20261114-165345`. At da090501: `gate-fast-20261114-180035` red on project-items (D331, watch) and the
+46f Profiler check's job lane (no job bar in the panel's first read, before this item's part; passed on rerun),
+`gate-rerun-20261114-181214` green (the known pass read 5.13 ± 0.19 ms against 40 × 0.128 = 5.10; without it
+below resolution; village perf at 60 Hz 0/360 missed, main 6.01 ms).
 
-**Looked at** (opened): the e2e's `profiler-gpu-1280.png` (the gate's test-results), the light-shots pictures
+**Looked at** (opened): the e2e's Profiler at 1280 × 720 with the GPU rows filled (lighting 5.13 ± 0.19 ms, the
+lighting budget row 3.33 ms at high: 154 % over, red; `~/.cache/thirdlight-phase46e/work/46e.1/e2e-shots/profiler-gpu-1280-final.png`;
+the earlier `profiler-gpu-1280.png` had the table below the fold, now first in Budget), the light-shots pictures
 `~/.cache/thirdlight-phase46e/work/46e.1/shots/*.png` and `shots6-near/room-window-after-gpu-later.png`
 (softer, with green in the ceiling's plank gaps: D660).
 
