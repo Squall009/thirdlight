@@ -674,8 +674,8 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
     expect(changedPixels(levelBefore, await shot(page)), 'a dig at level 1').toBeGreaterThan(300);
     await hook(page, 'reread');
     await fineBricks(page, yaw, ox, oy, oz, skyBelow);
-    // The assembly proof's refused command (its HTTP 409) is the one console error.
-    expect(errors).toHaveLength(1);
+    // The assembly proof's refused command and stale undo (their HTTP 409s) are the only console errors.
+    expect(errors).toHaveLength(2);
   });
 }
 
