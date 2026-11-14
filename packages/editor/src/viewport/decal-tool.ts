@@ -46,6 +46,7 @@ import { BrushControl } from './brush-control';
 import { BrushCursor, tokenColour } from './brush-cursor';
 import { DecalMarks } from './decal-marks';
 import { ringGeometry, ringLine } from './helper-shapes';
+import { aimAtPointer } from './scene-queries';
 
 /** The preview's object id: never a stored id (a NUL lead, as the generators' own objects have). */
 export const DECAL_PREVIEW_ID = '\u0000decal-tool-preview';
@@ -756,8 +757,7 @@ export class DecalTool {
   }
 
   private aim(clientX: number, clientY: number): void {
-    const r = this.host.canvas().getBoundingClientRect();
-    this.ray.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), this.host.camera);
+    aimAtPointer(this.ray, this.host.camera, clientX, clientY, this.host.canvas().getBoundingClientRect());
   }
 
   private gripAt(clientX: number, clientY: number): 'turn' | 'size' | null {

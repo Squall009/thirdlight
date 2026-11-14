@@ -30,6 +30,7 @@ import { INSTANCE_BRUSH_USES } from '../session/instance-brush';
 import { BrushControl } from './brush-control';
 import { BrushCursor, tokenColour } from './brush-cursor';
 import { ringGeometry, ringLine } from './helper-shapes';
+import { aimAtPointer } from './scene-queries';
 
 export type InstanceBrushMode = 'paint' | 'erase';
 
@@ -283,8 +284,7 @@ export class InstanceBrushTool {
 
   /** Where the pointer meets something that collides (block layers and colliders), or null. */
   private surfacePoint(clientX: number, clientY: number): THREE.Vector3 | null {
-    const rect = this.deps.canvas.getBoundingClientRect();
-    this.ray.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.deps.camera);
+    aimAtPointer(this.ray, this.deps.camera, clientX, clientY, this.deps.canvas.getBoundingClientRect());
     const targets = this.deps.colliders(this.target?.entityId ?? '');
     const blocks = this.deps.blockRoot();
     if (blocks !== null) targets.push(blocks);

@@ -16,6 +16,7 @@ import { effectivePlaneOf, type PlaneLock } from '@thirdlight/project-model/plan
 import { colliderDepthOf, hasTwoDShape, shape2DTo3D } from '@thirdlight/project-model/shape-2d-3d';
 import { capsuleDistance, capsuleShapeOf, outlinePoints, type SizeShape } from '../session/size-handles';
 import { deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoint, linesOf, type Grip, type HandleShape, type P3 } from '../session/handles';
+import { aimAtPointer } from './scene-queries';
 
 /** A grip under the pointer (which handle shape of which entity, which grip). */
 export interface HandleRef {
@@ -418,8 +419,7 @@ export class HelperOverlay {
   private aim(clientX: number, clientY: number): boolean {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return false;
-    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    this.raycaster.setFromCamera(ndc, this.camera);
+    aimAtPointer(this.raycaster, this.camera, clientX, clientY, rect);
     return true;
   }
 

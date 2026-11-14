@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { createOcclusionFrame, fineBricksFromUrl, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
 import { FAR_BRICK_BUILD, FAR_FIELD_MODES, farViewOf, reliefFade, setFineBricks, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld, type ResolvedVoxelWorld } from '@thirdlight/project-model/voxel-world';
+import { aimAtPointer } from '../viewport/scene-queries';
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
 const SHADOW_SPAN_M = 80;
@@ -299,7 +300,7 @@ export function bindViewInput(canvas: HTMLCanvasElement, view: { yaw: number; pi
 export function cellPicker(camera: THREE.Camera, pickable: () => THREE.Object3D[], origin: FloatingOrigin): (px: number, py: number, mode: 'dig' | 'add') => [number, number, number] | null {
   const raycaster = new THREE.Raycaster();
   return (px, py, mode) => {
-    raycaster.setFromCamera(new THREE.Vector2((px / innerWidth) * 2 - 1, -(py / innerHeight) * 2 + 1), camera);
+    aimAtPointer(raycaster, camera, px, py, { left: 0, top: 0, width: innerWidth, height: innerHeight });
     const hit = raycaster.intersectObjects(pickable(), false)[0];
     if (hit === undefined || hit.face === null || hit.face === undefined) return null;
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);

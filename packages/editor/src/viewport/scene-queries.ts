@@ -29,6 +29,23 @@ export function frameObject(): THREE.Object3D {
   return o;
 }
 
+/** A pointer's screen rectangle: the element the client coordinates are measured against (CSS pixels). */
+export interface PointerRect {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * Aim a raycaster from a camera through a pointer: client coordinates (CSS pixels, as pointer events give them)
+ * over the element's rectangle to normalised device coordinates. The device pixel ratio does not enter: client
+ * coordinates and the rectangle are both CSS pixels.
+ */
+export function aimAtPointer(raycaster: THREE.Raycaster, camera: THREE.Camera, clientX: number, clientY: number, rect: PointerRect): void {
+  raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), camera);
+}
+
 export type CellTopSnap = (entityId: string | null, position: readonly number[], rotation: readonly number[]) => [number, number, number] | null;
 
 export interface SceneQueriesHost {
@@ -149,8 +166,7 @@ export class SceneQueries {
 
   /** The raycaster aimed from the camera through a pointer position. */
   aim(clientX: number, clientY: number): void {
-    const rect = this.host.root().getBoundingClientRect();
-    this.raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.host.camera);
+    aimAtPointer(this.raycaster, this.host.camera, clientX, clientY, this.host.root().getBoundingClientRect());
   }
 
   /** What a ray from the view hits among the drawn objects and the entities' overlays (nearest first); `all`: what an edit mode cannot pick too (a decal is placed on any surface). */

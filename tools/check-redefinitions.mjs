@@ -191,6 +191,8 @@ export const OWNED_FAMILIES = Object.freeze([
     shape: ['op', 'expectedRevision', 'requestId'],
     scope: ['tests/', 'tools/'],
   },
+  // A pointer's client position over its element to a ray from the view's camera: the Scene view's tools aim through it.
+  { family: 'pointer-ray', owner: 'packages/editor/src/viewport/scene-queries.ts', names: ['aimAtPointer', 'PointerRect'] },
   // Domain constants and lists: one definition in the model, read by every package that names them.
   { family: 'shadow-defaults', owner: 'packages/project-model/src/scene-v3.ts', names: ['DIRECTIONAL_SHADOW_DEFAULTS'] },
   { family: 'surface-presets', owner: 'packages/project-model/src/types-v3.ts', names: ['SURFACE_PRESETS', 'SURFACE_PRESET_NAMES'] },

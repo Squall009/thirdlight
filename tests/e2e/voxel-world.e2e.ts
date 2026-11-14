@@ -538,6 +538,24 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
     expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
     expect((await hook<{ material: number }>(page, 'voxelAt', ...spot)).material).not.toBe(0);
 
+    // A click digs at the cell under the pointer (the page's picker): seen straight on, the wall's rows at the middle of
+    // the page; one of the cells there that was stone is air after the click, and the undo brings them back.
+    await hook(page, 'look', ox, oy + 4, oz + 1, 0, 0, 4);
+    await hook(page, 'settle');
+    const row = [-1, 0, 1].map((dz): Cell => [ox, oy + 4, oz + dz]);
+    const solid = async (): Promise<boolean[]> => Promise.all(row.map(async (c) => (await hook<{ material: number }>(page, 'voxelAt', ...c)).material !== 0));
+    const wasSolid = await solid();
+    expect(wasSolid.some((v) => v)).toBe(true);
+    const viewport = page.viewportSize()!;
+    // The picker reads the meshes drawn: two frames after the look.
+    await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    await page.mouse.click(viewport.width / 2, viewport.height / 2);
+    await expect.poll(async () => (await solid()).some((v, i) => wasSolid[i] && !v), { message: 'a click digs the wall under the pointer' }).toBe(true);
+    expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
+    expect(await solid()).toEqual(wasSolid);
+    await hook(page, 'look', ox, oy + 3, oz + 2, -0.75, 0.42, 16);
+    await hook(page, 'settle');
+
     // A row of the wall the edits above left whole.
     const cell: Cell = [scene[0], scene[1] + 4, scene[2]];
     expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).not.toBe(0);
