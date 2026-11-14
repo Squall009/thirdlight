@@ -707,6 +707,49 @@ the PNG files are byte-equal), `scene-view-redone.png` (byte-equal to the dug on
   page's Z went through the one undo: removed. The Edit menu shows "Undo" / "Redo" without what they would take back
   (it never did); not added.
 
+- 2026-11-14 (46f.5a, default chosen, owner to confirm): one growth policy for every buffer that grows by copy:
+  double what is held (from a floor) until the need fits (`grownCapacity`). The copy rows' buffers grew to exactly
+  the need when it passed twice what was held; they now round up to the doubling (at most twice the bytes, never
+  more often). The tracer's ray and hit buffers keep their exact size (a batch's own, one pair a pass): not a copy.
+- 2026-11-14 (46f.5a): one region-texture helper (`region-texture.ts`) for every CPU write into a part of a texture
+  three owns and every grow or trim by copy: the voxel grid store (and the far bricks through it), the probe atlas,
+  the cookie atlas, the light clusters' rows; projected decals use its texture version rule. The WebGL 2 staging
+  textures are two per page (2D and 3D, their image swapped per write) instead of one per store or per write. The
+  tracer's atlas (its own `GPUTexture`, written whole) and the surface light's atlas (a texture of its own device,
+  not three's) are not three's textures and stay as they are. Heightfield terrain's uploads (`terrain-view.ts`,
+  `terrain-quadtree.ts`) are left: they retire in 48.
+- 2026-11-14 (46f.5a, default chosen, owner to confirm): the memory budget table (`MEMORY_BUDGET_BY_TIER` in
+  `quality-levels.ts`) lists ten budgets with today's values: voxel streaming (768 / 768 / 1,024 MiB), physics
+  memory (512, the cap that stops the simulation), the far nodes drawn (48, their stored bytes), a scene's objects
+  (32 a scene), the far field's GPU bytes (384), streamed textures (512, the project's default), streamed scene
+  cells (768, the project's default), the surface cache (32 / 64 / 128), probe tiles (128) and the voxel undo (64 a
+  world, the backend's: not summed). Low's page entries sum to 1,360 of 1,536 MiB, its GPU entries to 1,824 of
+  2,560. Medium and high have no target of their own (as `LOW_MEMORY_BUDGET_MIB` says); high's page entries sum to
+  1,616 MiB. Not entries: fixed allocations (shadow atlas, cookie atlas, interaction field), counts (scene
+  read-ahead), per-frame upload limits, block layers', terrain's and architecture's budgets (retire in 48), editor
+  and backend limits other than the undo. The physics cap and the probe budget moved into project-model so the
+  table can read them (game-host and three-adapter re-export them).
+- 2026-11-14 (46f.5a): the resident-bytes report reads each system's own count: the voxel streamers' (the same
+  sum as their `stats().bytes.total`) and the physics memory through a per-thread registry (`residentBytes`, shared;
+  the simulation worker posts its reading with each tick's frame), textures, scene streaming, probes and the surface
+  cache from the adapter's diagnostics, the far field's GPU bytes from the voxel draws. The far nodes drawn, a
+  scene's objects and the undo have no count on a game page: null. The profile's `counters.memory` is optional, so
+  the capture file stays `version: 1`.
+- 2026-11-14 (46f.5a): cover, scatter and decal-clip workers as job kinds of the voxel `WorkerPool` was NOT cheap,
+  so it was left (the three hosts are unchanged). What was found: the voxel pool lives where the simulation runs
+  (in the simulation worker, a pool a world, started by it; on the page only in single-thread mode), while cover,
+  scatter and decal clips are asked for by the page's views and run on the page's mesh-worker script (one script
+  with the block mesher, the terrain packer and generated architecture's generator; decal clips run on
+  architecture's own workers, `runArchitectureWorker`). Making them kinds needs either a second voxel pool on the
+  page (two sets of workers again: the opposite of the merge) or the page's requests routed through the simulation
+  worker to its pool and back (new messages, one more hop for every point set and clip, the answers' transfers
+  through two threads); the voxel worker entry would also have to be built with three-adapter's handlers by each
+  host (editor, Play, export), and a scene without a voxel world would need a pool of its own. The mesh-worker
+  script itself mostly holds retiring code (block layers, heightfield terrain, architecture: phase 48). Proposed:
+  do it with phase 48, when that script loses its retiring handlers: the page then needs a job pool only for cover,
+  scatter and decal clips, and the choice (a page pool shared with single-thread voxel streaming, or routing through
+  the simulation worker) can be measured on the voxel world's cover.
+
 ## 10. Open questions for the owner
 
 (None at planning. Questions the phase raises are listed here, at most five, each with a default that stands
