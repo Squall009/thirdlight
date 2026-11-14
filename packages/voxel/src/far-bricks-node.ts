@@ -85,6 +85,14 @@ export function marchFarNode(b: FarBricks, o: readonly number[], d: readonly num
   return walkFarNode(b, o, d, { eyeIn: eyeInNode(b, o), seen: false, inside: false, first: 0, firstBlock: -1 });
 }
 
+/**
+ * {@link marchFarNode} for a ray walked into the node from elsewhere (the occupancy walk's far part): from `o`, wherever
+ * it lies, the first solid sample is the hit, even where the march begins (nothing waits to leave a solid it starts in).
+ */
+export function marchFarNodeFrom(b: FarBricks, o: readonly number[], d: readonly number[]): { t: number; block: number; visited: number } | null {
+  return walkFarNode(b, o, d, { eyeIn: false, seen: false, inside: false, first: 0, firstBlock: -1 });
+}
+
 /** Whether a point (node cells) lies inside a node's marched box. */
 function eyeInNode(b: FarBricks, o: readonly number[]): boolean {
   const box = farNodeMarchedBox(b);

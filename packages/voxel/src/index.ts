@@ -434,7 +434,7 @@ export { brickFarNodeBy, FAR_BRICK_SCALE_MAX, farBricksFromBlock, farBricksFromF
 export { FarFineNodes, type FarFineNodesHost } from './far-fine-nodes';
 export { bakeFarFineNode, DEFAULT_FAR_BAKE_LEVEL_M, FAR_BAKE_LEVELS_M, FAR_FINE_BAKE_BUILD, farBakeLevelOf, farFineBakedLevels, finerFarBakeLevel, isFarBakeLevelM, type FarBakeLevelM } from './far-fine-bake';
 export { FAR_FINE_COMMIT_BYTES, FAR_FINE_FADE_START_SHARE, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_HOLD_M_BY_TIER, FAR_FINE_RESELECT_MS, FAR_FINE_TOP_LEVEL, farBrickOctant, farFineBytes, farFineFade, farFineChunks, farFineDirty, FarFineIndex, farFineOctants, farFineScale, isFarFine, packFarFine, unpackFarFine, type FarFineBaked, type FarFineCells, type FarFineHost, type FarFineSources, type FarFineRefused } from './far-fine';
-export { farBrickMarchedBox, farNodeMarchedBox, farNodeRayStartsInside, marchFarNode, rayBox, type FarCellBox } from './far-bricks-node';
+export { farBrickMarchedBox, farNodeMarchedBox, farNodeRayStartsInside, marchFarNode, marchFarNodeFrom, rayBox, type FarCellBox } from './far-bricks-node';
 export { bakeFarBrick, bakeFineFarBrick, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYTES, FAR_BRICK_GPU_BYTES, FAR_BRICK_GRADIENT_MIN, FAR_BRICK_TABLE_GPU_BYTES, farBricksGpuBytes, FAR_BRICK_NORMAL_SPAN_CELLS, FAR_PALETTE_WORDS, farBakedAt, farBrickFineShade, farBrickGradient, farBrickOcclusion, farBrickOcclusionAt, type FarPalette } from './far-bricks-shade';
 export { FAR_BAKED_LEVELS, FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_BY_TIER, FAR_FIELD_MODES, FAR_GPU_BUDGET_BYTES_BY_TIER, FAR_JOBS_IN_FLIGHT, FAR_RESELECT_CELLS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, farEventBytes, farViewOf, regionFarSource, type FarCacheLevelFiles, type FarDrawKind, type FarEvent, type FarFieldHost, type FarFieldMode, type FarFieldOptions, type FarNearRing, type FarNodeDraw, type FarNodeSource, type FarStandIns, type RegionFarSourceOptions } from './far-field';
 export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
@@ -447,3 +447,7 @@ export { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DI
 export { FAR_GPU_PER_STORED_BYTE, FarGpuLedger } from './far-gpu-ledger';
 export { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_STRIDE, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
 export { countGround, emptyCoverage, groundAt, type GroundCoverage, type GroundGap, type GroundQuery } from './stream-coverage';
+export { walkBeforeSteps, walkCrossSteps, walkFaceRel, walkFirstSteps, walkRay, WALK_INV_NONE, type WalkRay } from './walk-steps';
+export { LIGHT_STOP_COVERAGE, WALK_MAX_STEPS, WALK_STOPS, walkVoxels, type WalkBlockView, type WalkEnd, type WalkFarNode, type WalkHit, type WalkOptions, type WalkResult, type WalkSource, type WalkStop } from './occupancy-walk';
+export { derivedWalkView, FarWalkNodes, lightStops, streamerWalkSource, WALK_EMPTY_VIEW, WALK_SOLID_VIEW, type WalkStreamerView } from './walk-sources';
+export { applyWalkWires, packWalkBlock, pageWalkView, WALK_BLOCK_SHIFT, WALK_BRICK_WORDS, WALK_CELL_WORDS, WALK_EMPTY_KEY, WALK_ENTRY_WORDS, WALK_MAX_PROBES, WALK_PAGE_WORDS, WalkBlockFeed, walkHash, walkKey, walkPageOffsets, WalkTable, type WalkBlockWire, type WalkPacked } from './walk-pages';
