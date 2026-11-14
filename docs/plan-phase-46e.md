@@ -128,6 +128,43 @@ apart. The two simulation spikes (45.6 and 33.9 ms ticks, voxel streaming 39 / 2
 sit in the worker and did not stall the page. Cause not found; what is left is work on the page thread outside the
 frame's spans or before its callback runs (worker messages, GC) under 50 ms, which neither rule sees. D654 stays open.
 
+## 4b. GPU ms per pass, the baseline (46e.1)
+
+**Measured** 2026-11-14 17:01–17:34 UTC at 2a43b318 (built), Iris Xe, WebGPU, 1280 × 720, each run alone
+(`thirdlight-gate` inactive), in the brief's `MemoryMax=10G` scope; uptime 21.9 d, load (1 min) 0.9–2.6. The
+page's GPU measurement (§8a 46e.1: `run.mjs headroom`, defaults: 5 interleaved repeats, 1.5 s windows) on the
+8 km world's town orbit. Raw files with an `*.uptime` beside each: `~/.cache/thirdlight-phase46e/work/46e.1/`
+(`measure.sh`; `m-low-r1..3`, `m-medium`, `m-high`, `shots/`, `village.*`). A category's number is its median
+over the repeats; "±" its spread (interquartile range); "below" is below resolution (no number is given).
+
+| Low, 30 Hz cap | run 1 | run 2 | run 3 | median of runs (range) |
+|---|---|---|---|---|
+| near (voxel near surfaces, kit pieces) | 1.48 ± 0.25 | 1.93 ± 0.21 | 1.61 ± 0.17 | **1.61** (0.45) |
+| far (far field) | 3.63 ± 0.33 | 3.49 ± 0.10 | 3.24 ± 0.13 | **3.49** (0.39) |
+| shadows | 0.18 ± 0.08 | 0.09 ± 0.05 | below (0.07 ± 0.10) | **0.09** (0.11) |
+| post | below (−1.47) | below (−1.74) | below (−1.72) | below: the hide costs more than the stack (D661) |
+| lighting, effects | no pass on this page | | | — |
+| the control (hides nothing) | −0.06 ± 0.01 | 0.03 ± 0.04 | 0.06 ± 0.10 | resolution 0.04–0.10 |
+| GPU budget render (near + far) of 18.33 | 5.11 | 5.42 | 4.85 | 5.11 (28 %) |
+| GPU budget lighting (shadows + lighting) of 6.67 | 0.18 | 0.09 | — | ≤ 0.2 (≤ 3 %) |
+| the whole frame's GPU ms (the line through the ballast) | 9.02 | 8.01 | 8.97 | 8.97; a ballast copy 0.128–0.132 ms, the frame past the cap 51–53 ms |
+| the measurement's own time | 125.6 s | 125.6 s | 125.6 s | |
+
+Medium and high, one run each, **unverified on target hardware** (shares of what was measured): medium (60 Hz)
+near 2.14 ± 0.50, far 3.97 ± 0.66, lighting 0.25 ± 0.19 (phase 42's live light runs at medium), shadows and post
+below — near 34 %, far 62 %, lighting 4 %; 146 s. High: near 5.86 ± 0.41, far 8.71 ± 0.69, shadows, lighting and
+post below — near 40 %, far 60 % (the frame misses 60 Hz with no load: 15 of 174); 146 s.
+
+At the five lighting cameras (low, `light-shots --gpu`, one run, `shots/light-shots.json`): far 1.20 / 0.94 /
+0.98 / 1.91 / 4.12 ms (street, room, cave, night, far view), shadows 0.13 / below / below / 0.40 / below, near
+below at the four close cameras (−0.6 … −2.2: D660) and 1.58 at the far view; post below everywhere.
+
+An old-stack scene (the perf village class's export, medium, 60 Hz, the camera flying a 60 m loop so the
+surface cache keeps relighting; `node tools/perf/run.mjs village --renderers webgpu --vsync --no-bare
+--gpu-measure --flight 60 --viewport 1280x720 --query quality=medium`, `village.json`): **lighting 0.33 ± 0.01
+ms** (phase 42's surface light, probes and reflection tracer), shadows 0.32 ± 0.05, post 1.48 ± 0.24, effects
+below, near and far absent; 131 s.
+
 ## 5. Where things live (reuse first; never copy)
 
 | Thing | Home | Reuse |
@@ -173,7 +210,7 @@ frame's spans or before its callback runs (worker messages, GC) under 50 ms, whi
 | Item | Status |
 |---|---|
 | 46e.0 | Done 2026-11-14 (bec4c31d, d2cc91a3): three.js 0.187.0 = pin; five lighting cameras + `run.mjs light-shots` (cave dug, lamps, two looks; refuses unsettled or voxel-less shots); baseline §4a: room 23.1 ms, page 4.1–4.6 / sim 1.8–2.0 ms, lighting 0.05 of 2.0 ms, edit to screen 22–53 ms (no light responds); D654 traced, profiler spike fixes, cause open |
-| 46e.1 | not started |
+| 46e.1 | Done 2026-11-14 (1129d456…16e5e566): Measure GPU (Profiler, overlay, `tl_diagnostics` gpu/gpuMeasure, benches) — ballast past the cap, a category hidden between two shown windows, GPU completion times burst to burst, 5 repeats; low town near 1.61, far 3.49, shadows 0.09 ms, run-to-run ≤ 0.45 ms (§4b); D660 near's hide, D661 post's |
 | 46e.2 | not started |
 | 46e.3 | not started |
 | 46e.4 | not started |
@@ -194,6 +231,88 @@ frame's spans or before its callback runs (worker messages, GC) under 50 ms, whi
 - **A saved light bake** (R104's "saved settled bake per tile", O19) is stored data: not built in 46e-a; a
   proposal and a hard stop in 46e-b if wanted.
 - No change to the voxel value, the region files, the far cache, the render, role or kit specs is planned.
+
+## 8a. Results
+
+### 46e.1 — GPU ms per pass category, on demand
+
+**Built.** One routine, game-host `gpu-measure.ts` (`measureGpu`, `GpuMeasureRun`): on the running page it holds
+the render scale (dynamic resolution off) and texture streaming, warms each category's hidden programs, loads
+the frame past its cap with ballast (doubling from 32 copies, then a line through the points past the cap gives
+a copy's ms and the frame's own GPU ms; it settles at max(1.5 intervals, interval + 20 ms)), then runs the
+categories present (and a control that hides nothing) interleaved: everything shown, one category hidden,
+everything shown, … , five times with the order rotated; a reading is the mean of the two shown windows less the
+hidden one. Frames are timed by the GPU's own completions (`onSubmittedWorkDone` after each frame, three-adapter
+`gpu-headroom.ts`'s `gpu` clock), taken burst to burst (`windowMean`). A category is its median with its
+interquartile spread, and **below resolution** (no number, never a negative) unless its median is above both its
+spread and the control's. Results carry each budget row (`GPU_PASS_BUDGET`: near, far → render; shadows,
+lighting → lighting; post → other; effects → effects; budgets from `FRAME_BUDGET_BY_TIER`), the frame's GPU ms,
+every window's trace, and how long it took. WebGL 2: "not available" (no completions).
+
+Passes register how to hide themselves (three-adapter `gpu-pass-hides.ts`, one registry a page; a hide that
+throws leaves everything shown): `near`, `far` (the voxel draws), `shadows`, `post` (the GPU load), `lighting`
+(phase 42's surface light, probe and reflection passes: not dispatched while hidden, `adapter-surface-light.ts`),
+`effects` (particles: not stepped or drawn; the interaction field's pass not run). A later lighting pass
+registers with one call where it is made:
+`const off = gpuPassHides.register({ category: 'lighting', name: '…', present: () => live, hide: (h) => (hidden = h) })`
+(and `off()` on dispose); its frame code then skips its dispatch while `hidden`.
+
+Callers: the Profiler tab's **Measure GPU** (bar: progress, Stop; Budget: the per-pass table and the GPU budget
+rows), the overlay's Shift+F3 view (a Measure GPU button, the lines), `tl_diagnostics` sections `gpuMeasure`
+(starts) and `gpu` (reads), `__tlProfiler.gpu` (`start`, `state`, `cancel`), the profile report's optional
+`gpu.measure` (capture `version: 1` unchanged for older readers), `run.mjs headroom` (its own hide-a-pass copy,
+past-edge line and pass shares deleted; it keeps the room search, copies and scales), `light-shots --gpu`
+(per camera, with a picture after; `--gpu-only`) and perf `village --gpu-measure`. A pass of known size for
+checks: `__tlVoxelPlay.meter.set({ knownPass: { category, units } })` (ballast copies under a category).
+
+**Why the old reading swung (46e.0: near 0 then 4.20, post −4.33 then 0.54).** Four causes, in order of size,
+each seen in the windows: (1) past the cap the page *submits* frames in bursts (46e.0's windows: p50 33 ms, p95
+280 ms at a 106 ms mean), so a window's mean from the page's stamps moved by a burst over its ~56 frames, ±4
+ms; (2) the shown frame was read once at the start and once at the end of the hides, minutes apart, so drift
+landed in every pass; (3) one window a pass, no repeat; (4) the load sat at 3× the cap (106 ms frames, few
+frames a window). Bounded experiments on the town (`e1`–`e4.*`): GPU completions with a trimmed mean — they
+arrive in pairs (0.2 ms apart, 128 ms between), the trim dropped the gaps, control ±26 ms (`e2`); the plain
+span — ±1 burst a window, control spread 1.98 ms (`e3`); burst to burst — control 0.19 ms with 3 repeats
+(`e4`), 0.04–0.10 ms with 5 (§4b).
+
+**Resolution.** In one run a category's spread is 0.05–0.33 ms and the control's 0.04–0.10 ms; the same
+scene's medians move by up to 0.45 ms between runs minutes apart. So a 1 ms pass is told from none in one run,
+and two runs compared need a difference over about 0.5 ms (interleave runs A B A B for less). With another
+GPU load on the machine (an e2e worker beside it) the control's spread rose to 2–5 ms: measure alone.
+
+**What it cannot read.** A pass whose hide changes what others draw reads its *net* cost: near at close
+cameras reads below zero (with it hidden the far field draws where its depth used to stop it), and post's hide
+draws the scene plainly and copies it, which costs more than the low tier's stack (D661). Both are reported
+below resolution, never as a number. Hiding near leaves the close cameras' pictures changed (D660).
+
+**Tested.** vitest: `game-host/src/gpu-measure.test.ts` (a simulated GPU at a 30 Hz cap with a drifting clock:
+near 6, far 3 and a 1 ms lighting pass read back within 0.3 ms, a 0.02 ms pass below resolution, the budget
+rows, everything given back, hidden windows always between shown ones; nothing to read when no pass costs
+anything; a failing window gives everything back; median/spread/below-resolution from fed samples; the burst
+mean), `page-profile.test.ts` (the run through the profile's source, its state in the read),
+`three-adapter/src/gpu-pass-hides.test.ts` (exact hides, present, late registration, a hide that throws leaves
+nothing hidden), `gpu-headroom.test.ts` (shadows and post as registry hides, GPU-clock stamps, the known pass),
+`lighting-cameras.test.ts` (`--gpu`). Playwright, real backend, WebGPU: `voxel-world.e2e.ts` Play (high tier):
+Measure GPU shows progress, Stop ends it; two runs of `lighting` with a known pass of 40 ballast copies and of 0:
+with it 4.34 ± 0.65 ms (40 × 0.133 = 5.3 expected; ratio 0.82, the test asks 0.6–1.6), without it below
+resolution, the difference past both spreads; the Budget tab's GPU table (now first in Budget) and lighting row;
+the Play test 37 s → 90 s, the voxel area 163 → 216 s (gate-fast-20261114-150640 → -174938): two short runs are
+the least that proves a reading against a known size.
+`engine-stats.e2e.ts` (export overlay: the Measure GPU button and its line), `mcp.e2e.ts` (`gpu` starts nothing,
+`gpuMeasure` starts, neither in an unnamed answer), `playtest.e2e.ts` (whole answer without them).
+**With the feature broken:** a routine returning zeros or hides wired to nothing reads the known pass below
+resolution and the e2e fails at "the known pass reads above resolution" (run once on the vitest twin:
+`broken-hides-vitest.log`, `near` read null for 6 ms); one that never finishes fails its 60 s poll; a button
+wired to nothing fails the "running" note.
+
+**Gate.** `gate-fast-20261114-161750` red on the new Play check (the test world's far field reads 0.16 ms,
+under resolution with another worker's GPU load: replaced by the known pass) and 4 tests under the all-areas
+load (project-items D331, shadows D645, terrain-cdlod D428 on watch; frame-rate-cap D659), all green in
+`gate-rerun-20261114-165345`; the final commit's gate below.
+
+**Looked at** (opened): the e2e's `profiler-gpu-1280.png` (the gate's test-results), the light-shots pictures
+`~/.cache/thirdlight-phase46e/work/46e.1/shots/*.png` and `shots6-near/room-window-after-gpu-later.png`
+(softer, with green in the ceiling's plank gaps: D660).
 
 ## 9. Decision log
 
@@ -220,6 +339,18 @@ frame's spans or before its callback runs (worker messages, GC) under 50 ms, whi
 - 2026-11-14 (46e.0): the profiler's spike threshold is 1.25 frame intervals (was 1.5): under a 30 Hz cap on a
   60 Hz display one missed frame is 1.5 intervals exactly and was never kept, against the Profiler page's
   definition of a long frame ("a missed frame"); and `__tlProfiler.read(after)` now passes its cursor on.
+
+- 2026-11-14 (46e.1, default chosen, owner to confirm): shadows are held against the GPU's `lighting` row and
+  the post stack against `other` (`GPU_PASS_BUDGET`); the draws are `render`.
+- 2026-11-14 (46e.1, default chosen, owner to confirm): the measurement's defaults: 5 interleaved repeats, 1.5 s
+  windows, 0.4 s settle, load to max(1.5 frame intervals, interval + 20 ms); a reading is below resolution unless
+  its median is above both its spread (IQR) and the control's (about 2 minutes a run on the low town).
+- 2026-11-14 (46e.1, default chosen, owner to confirm): `tl_diagnostics` starts the measurement with the section
+  name `gpuMeasure` and reads it with `gpu` (no new argument); both only when named.
+- 2026-11-14 (46e.1, default chosen, owner to confirm): WebGL 2 answers "not available" (the reading needs the
+  GPU's completion times); the page holds the render scale and texture streaming while it measures.
+- 2026-11-14 (46e.1): the profile report carries the measurement as an optional `gpu.measure`; capture files stay
+  `version: 1` (an older reader ignores it).
 
 ## 10. Open questions for the owner (asked with the plan)
 

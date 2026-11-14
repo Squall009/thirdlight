@@ -167,6 +167,7 @@ export function BudgetTable({ report }: { report: ProfileReport }): JSX.Element 
   const b = report.budget;
   return (
     <div>
+      <GpuTable measure={report.gpu.measure} />
       <div className="tl-prof__caption">
         The {b.tier} tier's budget at {b.hz} Hz ({b.intervalMs.toFixed(1)} ms a frame), against the mean and worst own time a frame over the kept frames. Job workers: one worker's frame.
       </div>
@@ -215,9 +216,8 @@ export function BudgetTable({ report }: { report: ProfileReport }): JSX.Element 
         ))}
       </table>
       <div className="tl-prof__caption">
-        GPU plan (shares of a frame): {Object.entries(b.gpu).map(([c, v]) => `${PROFILE_CATEGORY_LABELS[c as keyof typeof PROFILE_CATEGORY_LABELS] ?? c} ${Math.round((v ?? 0) * 100)} %`).join(' · ')}
+        GPU plan (shares of a frame): {Object.entries(b.gpu).map(([c, v]) => `${PROFILE_CATEGORY_LABELS[c as keyof typeof PROFILE_CATEGORY_LABELS] ?? c} ${Math.round((v ?? 0) * 100)} %`).join(' · ')}; measured ms per pass at the top (Measure GPU)
       </div>
-      <GpuTable measure={report.gpu.measure} />
       <table className="tl-prof__table" aria-label="frame arbiter slices" data-testid="profiler-slices">
         <thead>
           <tr>

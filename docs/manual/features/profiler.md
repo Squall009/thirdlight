@@ -44,9 +44,20 @@ every thread, as the page does. Nothing is read while the tab is closed.
   profile as a file; **Open capture…** shows a capture file in the same views, marked as a file (**Back to live**
   returns to the running Play).
 
-The GPU's real room at the cap is not measured here: the headroom bench does it
-(`node tools/voxel-bench/run.mjs headroom`, on a voxel world); it loads the frame until it misses, takes minutes
-and keeps the GPU busy, so it is not a button in the tab.
+**Measure GPU** (in the bar, while Play runs on WebGPU) measures how many GPU milliseconds a frame each kind of
+pass costs: the voxel world's near surfaces and kit pieces (`near`), its far field (`far`), the shadow maps
+(`shadows`), the live light's passes (`lighting`: the surface light, probes and reflection tracer), the post stack
+(`post`) and the particles with the interaction field (`effects`). It takes one to two minutes and loads the GPU
+past its frame-rate cap meanwhile (the picture keeps drawing, slower; measure nothing else at the same time). The
+bar shows its progress (**Stop measuring** ends it, everything shown again). The result fills the **Budget** view's
+GPU tables: each kind's ms with its spread, or "below resolution" when the run cannot tell it from nothing (never a
+negative number), the run's resolution, the whole frame's GPU ms, kinds with no pass on this page, and each GPU
+budget row (render, lighting, effects, other: the tier's shares of the frame) with what was measured against it.
+How it works: the frame is loaded past its cap so the GPU runs at its busy clock (at the cap its timestamps follow
+its clock, which slows when it idles), each kind is hidden for a window between two windows with everything shown,
+and the frames are timed by when the GPU finished them; the sequence repeats five times. WebGL 2 answers "not
+available". The room at the cap (how much more the frame can take) is the headroom bench's
+(`node tools/voxel-bench/run.mjs headroom`), which also runs this measurement.
 
 ## The overlay (Play and an export)
 
@@ -55,7 +66,8 @@ hidden until **F3**; 0, the default, no overlay and no key). With it on, **Shift
 under the stats (and shows the overlay if it was hidden); Shift+F3 again hides the view, F3 the whole overlay.
 The view shows the tier and cap, each thread's own ms a frame with its three busiest categories as
 `ms/budget ms`, the categories over budget, the GPU's pass shares and the last long frame with its longest spans,
-and a **Save capture** button. It works in an exported game served on its own, with no editor or backend. The
+a **Save capture** button and a **Measure GPU** button (the same measurement as the tab's; its progress and then each
+kind's ms and the GPU budget rows show as lines of the view). It works in an exported game served on its own, with no editor or backend. The
 profile is read only while the view shows (once a stats window, every half second): hidden, it costs nothing.
 
 ## Capture files
@@ -74,8 +86,8 @@ A capture is one JSON file, `thirdlight-profile-<date>.json`:
 
 The report holds every thread's frames (`threads.page | sim | jobs`, each frame with its start on the wall clock,
 its ms, own ms by category and its spans), the counters, the GPU's pass shares, the budget rows, the arbiter's
-slices, the spikes and the profiler's cost; `counters.memory` (the Memory table) is optional, so older captures
-of version 1 still open (without the table). A reader refuses another `version` (and says which it reads); a newer
+slices, the spikes and the profiler's cost; `counters.memory` (the Memory table) and `gpu.measure` (the GPU
+measurement's state and last result) are optional, so older captures of version 1 still open (without them). A reader refuses another `version` (and says which it reads); a newer
 engine adds a version, never changes this one.
 
 ## For agents: `tl_diagnostics`
@@ -84,5 +96,8 @@ engine adds a version, never changes this one.
 rate and cap; per thread its mean own ms a frame and each category's mean, worst, budget and use; the categories
 over budget; the counters (with `memoryMiB`: each memory budget's MiB resident and budgeted, and the page's and
 GPU's sums against the tier's target); the GPU's pass shares; the worst long frame kept with its longest spans per thread; the
-profiler's cost. It is left out of an answer that does not name it. The digest is made on the play page from the
+profiler's cost, and the GPU measurement's state in a few numbers. It is left out of an answer that does not name it.
+`sections: ["gpuMeasure"]` starts the GPU measurement (unless one runs) and answers its state at once;
+`sections: ["gpu"]` reads its state or result (per kind `ms` or null below resolution, `medianMs`, `spreadMs`,
+`resolutionMs`, the budget rows) and starts nothing: poll it every few seconds until `state` is `done`. The digest is made on the play page from the
 same profile the Profiler tab reads, through the same relay as the rest of a Play's diagnostics.

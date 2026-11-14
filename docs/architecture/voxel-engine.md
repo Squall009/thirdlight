@@ -73,8 +73,16 @@ page in the same commit.
 
 ## 5. Measuring
 
-- Always at the display's cap; GPU timestamps are not usable there (D544). The **headroom meter** loads the
-  frame until it misses and gives room and pass shares (`run.mjs headroom`); the **coverage bench** gives
+- Always at the display's cap; GPU timestamps are not usable there (D544). **GPU ms per pass category** (near,
+  far, shadows, lighting, post, effects) come from the page's own measurement (game-host `gpu-measure.ts`, on
+  WebGPU): ballast loads the frame past its cap, each category's registered passes (three-adapter
+  `gpu-pass-hides.ts`; a pass registers how to hide itself) are hidden in windows interleaved with windows that
+  hide nothing, frames are timed by the GPU's own completions, and each category is a median with its spread or
+  "below resolution" against a control that hides nothing (resolution about 0.2 ms on the low tier's 8 km town,
+  §4b of plan-46e). One routine for the Profiler's **Measure GPU**, the overlay, `tl_diagnostics` (`gpu`,
+  `gpuMeasure`) and the benches (`run.mjs headroom`, `light-shots --gpu`, perf `village --gpu-measure`); about
+  80–130 s a run. The **headroom meter** loads the frame until it misses and gives the room (`run.mjs headroom`,
+  the routine's reading beside it); the **coverage bench** gives
   hitches, settle times and fall-throughs (`run.mjs coverage`). The **lighting cameras** (`run.mjs light-shots`,
   `tools/voxel-bench/lighting-cameras.ts`) take five fixed pictures of the 8 km world's town (street at noon, a room
   with a window, a dug cave, night with lamps, the far view) once streaming settles, with the profile at each and
@@ -95,7 +103,7 @@ page in the same commit.
 | 4 | Camera-following window helper | wind, interaction field, ripples, water info, fog density and simulation | exists: `three-adapter` `camera-window.ts` (`CameraWindow`, `WindowTargets`); the wind map (`wind-field.ts`, its sample public as `MaterialLibrary.windSample`) and the interaction field (`interaction-field.ts`: 256² × 0.25 m, every `interactor` stamped by one compute pass, read by foliage; WebGPU only) sit on it |
 | 5 | Regenerated structures (a definition → voxels + overrides) | buildings, road and river splines, water bodies | 47a; `structure-overrides.ts` is a draft |
 | 6 | One culled-instance table for every instanced draw | kit pieces, terrain and far nodes; stored copies (trees, rocks, instance sets); ground cover from point sets; impostors | exists (`occlusion-instances.ts`, on every occlusion path on WebGPU); stored copies and point-set ground cover (block layers, models, architecture floors: `cover-rows.ts`, a point expanded to a copy's 16 floats) are its rows (`copy-rows.ts`: level by the shared screen-size rule `lodLevelStep` with hysteresis and a cross-fade, thinning by rank or by the cover's share across the ground, frustum and depth pyramid, picked in compute). Not in it: terrain cover placed from heightfield texels (retires in 48); on WebGL 2 copies and point-set cover keep their vertex-stage paths |
-| 7 | Budget table, profiler and frame arbiter | everything | exists: spans on every thread (`threadProfiler`, shared), `__tlProfiler.read()` on game pages, `FRAME_BUDGET_BY_TIER`, `frameSliceMs` (the arbiter is one table the 12 per-frame slices read their ms from; it does not sum them against the frame, hand unused time on or react to load, so slices can still add past a frame; left outside: block layers', heightfield terrain's and `STREAM_ARRIVAL_MS`, all retiring in 48); memory too: `MEMORY_BUDGET_BY_TIER` (every memory budget as an entry, summed against the tier's page and GPU target) and the resident-bytes report (`residentBytes` registries per thread, game-host `page-memory.ts`, the Profiler tab's Memory table); views and capture in game-host `profile-view.ts` / `profile-capture.ts`; editor Profiler tab (`editor/src/ui/profiler`), overlay Shift+F3, `tl_diagnostics` profile |
+| 7 | Budget table, profiler and frame arbiter | everything | exists: spans on every thread (`threadProfiler`, shared), `__tlProfiler.read()` on game pages, `FRAME_BUDGET_BY_TIER`, `frameSliceMs` (the arbiter is one table the 12 per-frame slices read their ms from; it does not sum them against the frame, hand unused time on or react to load, so slices can still add past a frame; left outside: block layers', heightfield terrain's and `STREAM_ARRIVAL_MS`, all retiring in 48); memory too: `MEMORY_BUDGET_BY_TIER` (every memory budget as an entry, summed against the tier's page and GPU target) and the resident-bytes report (`residentBytes` registries per thread, game-host `page-memory.ts`, the Profiler tab's Memory table); views and capture in game-host `profile-view.ts` / `profile-capture.ts`; editor Profiler tab (`editor/src/ui/profiler`), overlay Shift+F3, `tl_diagnostics` profile; GPU ms per pass category on demand (`gpu-measure.ts`, passes registered in three-adapter `gpu-pass-hides.ts`) against the GPU budget rows (near and far → render, shadows and lighting → lighting, post → other, effects → effects: `GPU_PASS_BUDGET`) |
 | 8 | One world edit mode on the brush kit, in the Scene view | sculpt, paint, fill, splines, rule preview | 47b; the brush kit exists |
 
 Also shared already and to be reused, not rebuilt: the editor's brush settings, cursor, keys and panel; the
