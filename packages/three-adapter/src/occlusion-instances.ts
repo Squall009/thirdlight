@@ -657,7 +657,9 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const boxes = this.frameRows.some((d) => d.whole === true || (d.copy !== true && d.box));
     // The far draws' depth mapping only where a row needs it (far field boxes).
     const farDepth = boxes && this.frameRows.some((d) => d.whole !== true && d.copy !== true && d.box && d.handle.farDepth === true);
-    const key = `${this.generation}|${pyramid.generation}|${reversed}|${logarithmic}|${perspective}|${boxes}|${farDepth}`;
+    // The pyramid's buffer by identity too: the table outlives a two-pass frame, and a new frame's pyramid counts its
+    // generations from the start again.
+    const key = `${this.generation}|${pyramid.storage()!.id}|${pyramid.generation}|${reversed}|${logarithmic}|${perspective}|${boxes}|${farDepth}`;
     const fresh = key !== this.lateKey;
     if (fresh) {
       this.late?.dispose?.();

@@ -354,7 +354,10 @@ pyramid-path test red: voxel far field, rendering's occlusion): the rows pass no
 its table row, and a test counts every pass's storage buffers; and the editor draws on demand, so a set taken by the
 table in a frame was never listed (the instance brush's new copies drew nothing): the table asks for a frame when it
 takes a set and while picks settle. three's draw counts leave indirect draws out, so the diagnostics count the rows'
-shadow-map draws (`occlusion.copies.otherDraws`; `instances.e2e.ts`'s casting check adds them).
+shadow-map draws (`occlusion.copies.otherDraws`; `instances.e2e.ts`'s casting check adds them). And the table now outlives the two-pass
+frame: its late pass was cached by the pyramid's generation, which a new frame's pyramid counts from the start again,
+so after the path was pinned off and on the pass read the disposed pyramid and left every copy row out (rendering's
+export, leg 2); the pass is keyed by the pyramid's buffer too.
 
 **Tested.** vitest: `shared/src/lod-level.test.ts` (the stated rule on a grid of distances, scales, shown levels and
 hysteresis; the same steps recorded as an expression and evaluated equal to the CPU answer; walk out and back);
