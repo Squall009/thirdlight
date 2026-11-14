@@ -368,7 +368,8 @@ still view after the fade, a moved view picks; the three passes' WGSL: atomics, 
 `page-profile.test.ts` (the counter). Playwright, WebGPU, real backend: `instances.e2e.ts` LOD test extended — Play:
 the set is 1 set, 2 rows, 2 lists with near + mid copies in view; the export served with the backend stopped: rows
 and all 21 copies in view drawn off the pyramid's path; a second export with a wall 60 m ahead on `?occlusion=hiz`:
-copies in view unchanged, fewer drawn (the hidden ones left out); the existing level pictures (green near, magenta
+copies in view unchanged, fewer drawn (this check passed only on the drawn count of 0 before the first read-back: it
+proved no culling; D649, below); the existing level pictures (green near, magenta
 past the switch, culled past the cull size, LOD bias 2) unchanged. WebGL 2: `webgl2-smoke.e2e.ts` (vertex path). Gate: `gate-fast-20261113-225756` red in vitest (the fixture generator
 lacked the `interactor` upgrade: D647, red at the branch head too; the three checklist row; an unhandled read-back in
 a test), reruns red on the table's 9th storage buffer, on-demand frames, the shadow-draw observable and the stale
@@ -510,6 +511,29 @@ by its own size (the shared rule, as placed models and stored copies), so the bo
 either side. Thinning, density and the wall look the same. `before/slab-*.png` (the perf slab). Not looked at: the
 cross-fade's stipple in motion (pixels only), cover casting shadows (no rule here casts).
 
+**D649 (fixed 7edfbd44, 2026-11-14).** The walled-export check of 46f.3a never proved culling: it passed on the drawn
+count of 0 before the first read-back; waiting for the read-back, 20 of 21 copies were drawn behind the wall. Cause
+(product): a copy's sphere was centred on the copy's origin with the model's farthest point from it as radius (the 3 m
+marker stands on its origin: 4.5 m, half underground), so every hidden copy's screen box reached below the wall's foot
+into the empty sky and the conservative pyramid test kept it (a CPU model of the view and the late pass's level choice,
+`~/.cache/thirdlight-phase46f/work/d649/model/`, predicts 0–1 left out, as read). Now the selection pass places the
+model's box centre by the copy's scale, turn and place (`copySphereCentre`, one `ScalarOps` definition) with half the
+box diagonal (2.6 m); cover rows likewise. Read from the page: with the wall on the pyramid's path **14 of 21 drawn**
+(the 7 in front of the wall all drawn, 7 of the 14 hidden ones left out: those past ~118 m, whose 2 × 2 pyramid texels
+lie wholly on the wall; the nearer hidden ones' texels reach the sky below its foot); pinned off: 21 of 21, the same
+picture (worst 1 level); without the wall 21 of 21. Cover's walled export now draws 119 of 1,515 points. The
+diagnostics' drawn count off the pyramid's path no longer repeats a read-back from while it was on. Other occlusion
+checks on table rows (`rendering.e2e.ts` whole draws, terrain nodes, copies `culled > 0`, the Scene view's box counts
+moving 1 ↔ 0, `rooms-lighting.ts`, cover's `drawn > 0`) need a non-zero count or a change: none passes at 0. No e2e
+checks far nodes' counts on the pyramid's path (vitest only). Measured alone, low tier, WebGPU, 1280 × 720 at the 30 Hz
+cap, landscape class with impostors, 2 rounds, before (d7e0335d's build, 05:18–05:38 UTC, load 0.8–1.5) / after
+(05:43–06:03, load 0.8–1.9): occlusion off: draws 235 / 235, 617 k tris + 85 indirect both, copies listed 29,464 →
+29,417 (tighter frustum spheres), main 4.10 / 4.19 → 4.04 / 4.00 ms, frame GPU at full clock 2.76 / 2.79 → 2.76 /
+3.15 ms; `occlusion=hiz`: draws 314 / 314, main 5.22 / 4.99 → 4.99 / 5.04 ms, GPU 3.24 / 3.17 → 3.47 / 3.43 ms
+(clock noise, D544); p95 33.4, 0 % ≥ 50 ms everywhere. Looked at: `~/.cache/thirdlight-phase46f/work/d649/run4/
+instances-lod-walled-auto.png` (the 7 near copies whole, nothing missing beside or above the wall; pixel-equal to the
+picture before the fix, `run1/walled-hiz.png`).
+
 ### 46f.4 — one undo for scene and voxels
 
 **Built.** workspace `undo-timeline.ts`: `UndoTimeline`, one line per project in the backend: each undoable edit as
@@ -589,7 +613,7 @@ mesh-worker script with retiring code; making them kinds needs a page-side pool 
 worker — a design change, proposed for phase 48.
 
 **Also.** `instances.e2e.ts`'s walled export waits for and requires `drawn > 0` (748c5760): it then fails at HEAD and
-at da591dc7 alike (20 of 21 drawn behind the wall): D649, open, a hidden regression to fix before the phase gate.
+at da591dc7 alike (20 of 21 drawn behind the wall): D649, a hidden regression, fixed in 7edfbd44 (under 46f.3b).
 
 **Tested.** vitest: `shared/src/grow.test.ts` (policy, copies of a growing run, every kind kept), `region-texture.test.ts`
 (a CPU texture twin of both backends' writes: exactly the box's texels in 2D and 3D, the staging kind on WebGL 2, a
