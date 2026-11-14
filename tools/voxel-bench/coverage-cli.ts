@@ -49,7 +49,6 @@
  * Read `travel` (flight frames, stop settle times, falls), `spikes`, `holes`, `bottomDark`, `viewInStandIn`,
  * `memory*`, `far`. Not part of `npm test`.
  */
-import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -61,9 +60,9 @@ import { launchGpuBrowser, serveStatic } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { processMemory } from './browser-memory';
 import { along, coveragePath, entersAtFace, entersEyeNode, entersWithin, leavesSolid, groundAlong, groundMask, isKey, viewRayPoints, VIEW_RAYS, type CoveragePath, type FarSample } from './coverage';
-import { farGround, fineGround, flightSource, PROBE_COUNTERS, publishCameraBehaviour, type BenchApi } from './flight-camera';
+import { benchApi, farGround, fineGround, flightSource, PROBE_COUNTERS, publishCameraBehaviour, type BenchApi } from './flight-camera';
 import { FarSettle, frameCap } from './headroom';
-import { addProbeBody, bodySamples, exportDebug, installRecorder, rayAndBody, removeProbeBody, stopWall, takeRecorded, type ObsSample, type Recorded } from './travel-page';
+import { addProbeBody, bodySamples, exportDebug, installRecorder, openPlay, readProfileSpikes, rayAndBody, removeProbeBody, stopWall, takeRecorded, type ObsSample, type Recorded, type SpikeReading } from './travel-page';
 import { bottomDarkShare, dropOutcomes, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spikeCauses, type CountSample } from './travel';
 
 function arg(name: string, fallback: string): string {
@@ -124,21 +123,7 @@ const FAR_STILL = { share: 0.02, abs: 2 };
 const SETTLE_HOLD_S = 3;
 
 const TOKEN_FILE = arg('token-file', join(DATA_ROOT, 'owner-token'));
-const bench = (): BenchApi => {
-  const token = readFileSync(TOKEN_FILE, 'utf8').trim();
-  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', origin: ORIGIN };
-  const api = async (path: string, body: unknown = {}, method = 'POST'): Promise<{ status: number; json: Record<string, unknown> }> => {
-    const r = await fetch(`${ORIGIN}/api/v1/${path.startsWith('admin/') ? path : `projects/${PROJECT}/${path}`}`, { method, headers, ...(method === 'GET' ? {} : { body: JSON.stringify(body) }) });
-    return { status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
-  };
-  const revision = async (): Promise<number> => Number((await api('commands', { op: 'queryProject', projectId: PROJECT, args: {} })).json['revision']);
-  const command = async (op: string, args: unknown): Promise<void> => {
-    const r = await api('commands', { op, projectId: PROJECT, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'voxel-bench-coverage' }, args });
-    const error = r.json['error'] as { code?: string } | undefined;
-    if (r.json['ok'] !== true && error?.code !== 'no_change') throw new Error(`${op}: ${JSON.stringify(r.json).slice(0, 400)}`);
-  };
-  return { origin: ORIGIN, token, project: PROJECT, api, command, revision };
-};
+const bench = (): BenchApi => benchApi({ origin: ORIGIN, token: readFileSync(TOKEN_FILE, 'utf8').trim(), project: PROJECT, clientId: 'voxel-bench-coverage' });
 
 /** The world's extent in x and z (metres) from its region files' names (`r.<x>.<y>.<z>.vxr`, `footprint` cells a side). */
 function worldBounds(): { min: number; max: number } {
@@ -201,34 +186,9 @@ interface Game {
   stop(): Promise<void>;
 }
 
-async function openPlay(b: BenchApi, page: Page): Promise<Game> {
-  await page.goto(`${ORIGIN}/?project=${PROJECT}&renderer=webgpu${QUERY}#token=${b.token}`);
-  await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 60_000 });
-  await page.addStyleTag({ content: `iframe.tl-app__preview-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: ${VIEWPORT.width}px !important; height: ${VIEWPORT.height}px !important; z-index: 2147483647 !important; }` });
-  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 60_000 });
-  await page.getByTitle('Start an isolated play preview').click();
-  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
-  const iframe = page.locator('iframe.tl-app__preview-frame');
-  await page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().waitFor({ timeout: 60_000 });
-  const frame = (await (await iframe.elementHandle())!.contentFrame())!;
-  const control = async (body: unknown): Promise<void> => {
-    for (let i = 0; ; i++) {
-      const r = await b.api(`play/${psid}/control`, body);
-      if (r.status === 200) return;
-      if ((r.json['error'] as { reason?: string } | undefined)?.reason !== 'not_presented' || i > 240) throw new Error(JSON.stringify(r.json));
-      await page.waitForTimeout(250);
-    }
-  };
-  await control({ command: 'setQuality', level: QUALITY });
-  return {
-    frame,
-    page,
-    debug: (name) => control({ command: 'debugCommand', name }),
-    observe: async () => (await b.api(`play/${psid}/observe`, {})).json as { stepIndex?: number; counters?: Record<string, number> },
-    sim: async () => ((((await b.api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<Record<string, unknown>> } } | undefined)?.runtime?.voxelWorlds ?? []).find((w) => w['world'] === WORLD) ?? null) as Record<string, any> | null,
-    screenshot: async (file) => void (await iframe.screenshot({ path: file })),
-    stop: () => control({ command: 'stop' }).catch(() => undefined),
-  };
+async function openPlayGame(b: BenchApi, page: Page): Promise<Game> {
+  const g = await openPlay(b, page, { viewport: VIEWPORT, query: QUERY, quality: QUALITY, world: WORLD });
+  return { ...g, screenshot: async (file) => void (await g.screenshot(file)) };
 }
 
 async function openExport(page: Page, url: string): Promise<Game> {
@@ -273,6 +233,8 @@ interface FlightRecord {
   obs: ObsSample[];
   sims: Array<{ w: number; s: Record<string, any> | null }>;
   recorded: Recorded | null;
+  /** The frame profile's spikes over the flight and the hold, read once a second (it keeps only its newest few). */
+  profileSpikes: SpikeReading[];
   strip: Array<{ at: string; file: string }>;
   shots: Array<{ s: number; file: string; stats: unknown }>;
 }
@@ -288,7 +250,7 @@ function cameraAt(path: CoveragePath, m: number): { x: number; y: number; z: num
 
 async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: number): Promise<FlightRecord> {
   const flightS = stopAt / SPEED;
-  const rec: FlightRecord = { flyAt: Number.POSITIVE_INFINITY, flightS, intervals: [], checks: [], polls: [], obs: [], sims: [], recorded: null, strip: [], shots: [] };
+  const rec: FlightRecord = { flyAt: Number.POSITIVE_INFINITY, flightS, intervals: [], checks: [], polls: [], obs: [], sims: [], recorded: null, profileSpikes: [], strip: [], shots: [] };
   const strip = new Map(STRIP.map((s) => [s, s.startsWith('a') ? flightS + Number(s.slice(1)) : Number(s)] as const));
   const castName = (at: string) => join(SHOT_DIR, `${WHERE}-${QUALITY}-${SPEED}-${ALTITUDE}-${TAG}-strip-${at.startsWith('a') ? `after${at.slice(1)}` : `t${at}`}.png`);
   cdp.on('Page.screencastFrame', (f: { data: string; sessionId: number; metadata: { timestamp?: number } }) => {
@@ -357,6 +319,16 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
       await game.page.waitForTimeout(500);
     }
   })();
+  let cursor: object | null = ((await game.frame.evaluate(readProfileSpikes, null).catch(() => null))?.seq as object | undefined) ?? null;
+  const profilePoll = (async () => {
+    while (polling && cursor !== null) {
+      await game.page.waitForTimeout(1000);
+      const r = await game.frame.evaluate(readProfileSpikes, cursor).catch(() => null);
+      if (r === null) continue;
+      cursor = (r.seq as object | undefined) ?? null;
+      rec.profileSpikes.push(...r.spikes);
+    }
+  })();
   await cdp.send('Page.startScreencast', { format: 'png', maxWidth: CAST.width, maxHeight: CAST.height, everyNthFrame: 1 });
   await game.frame.evaluate(installRecorder, { world: WORLD, observe: WHERE === 'export', keepMs: 50 });
   await game.page.waitForTimeout(500);
@@ -384,7 +356,7 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
   if (rest > 0) await game.page.waitForTimeout(rest);
   await cdp.send('Page.stopScreencast');
   polling = false;
-  await Promise.all([poll, simPoll]);
+  await Promise.all([poll, simPoll, profilePoll]);
   rec.recorded = (await game.frame.evaluate(takeRecorded)) as Recorded | null;
   if (WHERE === 'export') rec.obs = rec.recorded?.obs ?? [];
   return rec;
@@ -447,6 +419,22 @@ function spikes(rec: FlightRecord): Record<string, unknown> {
     longFrames: (rec.recorded?.long ?? []).filter((f) => f.t >= rec.flyAt && f.t <= end).length,
     causes,
     worst: [...gaps].sort((a, b) => b.ms - a.ms).slice(0, 12).map((g) => ({ t: Number(((g.t - rec.flyAt) / 1000).toFixed(2)), ms: g.ms, frame: g.frame, delta: g.delta })),
+    // The frame profile's own spikes (a page interval over 1.5 frames, or a thread's frame over one) and what each
+    // thread ran over them: the long frames under 100 ms, which the gaps above do not keep.
+    profile: profileSpikes(rec),
+  };
+}
+
+/** The profile's spikes in flight (seconds since the flight started), longest first, and how many after the stop. */
+function profileSpikes(rec: FlightRecord): Record<string, unknown> {
+  const end = rec.flyAt + rec.flightS * 1000;
+  const inFlight = rec.profileSpikes.filter((s) => s.from >= rec.flyAt && s.from <= end);
+  const by = (reason: string) => inFlight.filter((s) => s.reason === reason).length;
+  return {
+    inFlight: inFlight.length,
+    byReason: { interval: by('interval'), page: by('page'), sim: by('sim') },
+    afterStop: rec.profileSpikes.filter((s) => s.from > end).length,
+    worst: [...inFlight].sort((a, b) => b.ms - a.ms).slice(0, 12).map((s) => ({ t: Number(((s.from - rec.flyAt) / 1000).toFixed(2)), ...s })),
   };
 }
 
@@ -589,7 +577,7 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
     page.on('console', (m) => void (m.type() === 'error' && errors.push(m.text().slice(0, 200))));
-    const game = b !== null ? await openPlay(b, page) : await openExport(page, site!.url);
+    const game = b !== null ? await openPlayGame(b, page) : await openExport(page, site!.url);
     // Play holds the camera at the line's start on `start`; an export's camera starts there (its console takes commands once the game runs).
     if (WHERE === 'play') await game.debug('start');
     const stats = () => game.frame.evaluate((w) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.stats().worlds[w] ?? null, WORLD);
@@ -684,6 +672,8 @@ async function main(): Promise<void> {
   const t = out['travel'] as { flight?: unknown; afterStop?: unknown; falls?: { drops: number; fellThrough: number; end?: unknown } } | undefined;
   const h = out['holes'] as { holeFrames: number; checked: number } | undefined;
   console.log(`flight ${JSON.stringify(t?.flight ?? null)}; after stop ${JSON.stringify(t?.afterStop ?? null)}; falls ${t?.falls?.fellThrough}/${t?.falls?.drops} (never stood ${(t?.falls as { neverStood?: number } | undefined)?.neverStood}; through the true ground ${(t?.falls as { through?: number } | undefined)?.through}, onto lower ground ${(t?.falls as { lower?: number } | undefined)?.lower}) end ${JSON.stringify(t?.falls?.end ?? null)}; holes ${h?.holeFrames}/${h?.checked}`);
+  const ps = (out['spikes'] as { profile?: { inFlight: number; byReason: unknown; worst: Array<{ t: number; ms: number; reason: string; threads: unknown }> } } | undefined)?.profile;
+  if (ps !== undefined) console.log(`profile spikes in flight ${ps.inFlight} ${JSON.stringify(ps.byReason)}; longest ${JSON.stringify(ps.worst.slice(0, 3).map((s) => ({ t: s.t, ms: s.ms, reason: s.reason, threads: s.threads })))}`);
   console.log(`coverage: ${OUT}`);
   process.exit(out['error'] === undefined ? 0 : 1);
 }

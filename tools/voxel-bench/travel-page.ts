@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 import type { BodySample, FrameSample, LongFrame } from './travel';
 import { PROBE_BODY, PROBE_COUNTERS, type BenchApi } from './flight-camera';
 
@@ -86,6 +86,37 @@ export function takeRecorded(): Recorded | null {
   return { frames: rec.frames, long: rec.long, obs: rec.obs };
 }
 
+/** A profiler spike as the benches keep it: when, why, how long, and each thread's spans over it, longest own time first. */
+export interface SpikeReading {
+  readonly at: number;
+  readonly reason: string;
+  readonly ms: number;
+  readonly thresholdMs: number;
+  readonly from: number;
+  readonly to: number;
+  readonly threads: Readonly<Record<'page' | 'sim' | 'jobs', { frames: number; ms: number; spans: Array<[string, number]> }>>;
+}
+
+/**
+ * Runs in the game's page: the frame profile's spikes taken in since `after` (a cursor the last call returned;
+ * null: none kept, only the cursor). The profiler keeps only its newest few spikes, so a run reads them as they
+ * come rather than once at its end. Null without a profiler.
+ */
+export function readProfileSpikes(after: unknown): { seq: unknown; spikes: SpikeReading[] } | null {
+  type Frame = { ms: number; spans: Array<{ name: string; category: string; selfMs: number }> };
+  type Spike = { at: number; reason: string; ms: number; thresholdMs: number; from: number; to: number; threads: Record<'page' | 'sim' | 'jobs', Frame[]> };
+  const p = (globalThis as unknown as { __tlProfiler?: { read(after?: unknown): { seq: unknown; spikes: Spike[] } } }).__tlProfiler;
+  if (p === undefined) return null;
+  const r = after === null ? p.read() : p.read(after);
+  if (after === null) return { seq: r.seq, spikes: [] };
+  const top = (frames: Frame[]) => {
+    const by = new Map<string, number>();
+    for (const f of frames) for (const s of f.spans) by.set(`${s.category} / ${s.name}`, (by.get(`${s.category} / ${s.name}`) ?? 0) + s.selfMs);
+    return { frames: frames.length, ms: Math.round(frames.reduce((n, f) => n + f.ms, 0) * 100) / 100, spans: [...by].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => [k, Math.round(v * 100) / 100] as [string, number]) };
+  };
+  return { seq: r.seq, spikes: r.spikes.map((s) => ({ at: s.at, reason: s.reason, ms: Math.round(s.ms * 100) / 100, thresholdMs: Math.round(s.thresholdMs * 100) / 100, from: s.from, to: s.to, threads: { page: top(s.threads.page), sim: top(s.threads.sim), jobs: top(s.threads.jobs) } })) };
+}
+
 /** The probe character's object id in the project (null: none). */
 export function probeBodyId(projectDir: string): string | null {
   const entities = JSON.parse(readFileSync(join(projectDir, 'scenes', 'scene-main.json'), 'utf8')).scene.entities as Array<{ id: string; name: string }>;
@@ -150,6 +181,60 @@ export function rayAndBody(last: ObsSample | undefined): { raySteps: number; sol
   const stop = c[C.stopStep] ?? 0;
   const after = (k: string): number | null => (stop > 0 && (c[k] ?? 0) > 0 ? Math.round(((c[k]! - stop) / FLIGHT_STEP_HZ) * 100) / 100 : null);
   return { raySteps: n, solidShare: share(C.raySolid), noneShare: share(C.rayNone), deepShare: share(C.rayDeep), raySolidAfterStopS: after(C.rayReadyStep), bodyStandsAfterStopS: after(C.bodyReadyStep), drops: c[C.drop] ?? 0 };
+}
+
+/** Play in the editor, as the browser benches drive it: the preview's frame, its controls and its readings. */
+export interface PlayGame {
+  /** The frame the game's page runs in (the preview iframe). */
+  readonly frame: Frame;
+  /** The editor's page (the preview pinned over it at the viewport's size, so its screencast shows the game). */
+  readonly page: Page;
+  readonly psid: string;
+  /** A play control command (retried while the preview has not presented yet). */
+  control(body: unknown): Promise<void>;
+  debug(name: string): Promise<void>;
+  /** The play's observation now (through the observe relay). */
+  observe(): Promise<{ stepIndex?: number; counters?: Record<string, number> } | null>;
+  /** The simulation's diagnostics for voxel world `world`. */
+  sim(): Promise<Record<string, any> | null>;
+  screenshot(file?: string): Promise<Buffer>;
+  stop(): Promise<void>;
+}
+
+/**
+ * Opens the project in the editor on WebGPU (`query`: more of its query; Play is passed the page's flags), pins
+ * the preview over the page at `viewport`, starts Play and sets the quality level.
+ */
+export async function openPlay(b: BenchApi, page: Page, o: { viewport: { width: number; height: number }; query: string; quality: string; world: string }): Promise<PlayGame> {
+  await page.goto(`${b.origin}/?project=${b.project}&renderer=webgpu${o.query}#token=${b.token}`);
+  await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 60_000 });
+  await page.addStyleTag({ content: `iframe.tl-app__preview-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: ${o.viewport.width}px !important; height: ${o.viewport.height}px !important; z-index: 2147483647 !important; }` });
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 60_000 });
+  await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  const iframe = page.locator('iframe.tl-app__preview-frame');
+  await page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().waitFor({ timeout: 60_000 });
+  const frame = (await (await iframe.elementHandle())!.contentFrame())!;
+  const control = async (body: unknown): Promise<void> => {
+    for (let i = 0; ; i++) {
+      const r = await b.api(`play/${psid}/control`, body);
+      if (r.status === 200) return;
+      if ((r.json['error'] as { reason?: string } | undefined)?.reason !== 'not_presented' || i > 240) throw new Error(JSON.stringify(r.json));
+      await page.waitForTimeout(250);
+    }
+  };
+  await control({ command: 'setQuality', level: o.quality });
+  return {
+    frame,
+    page,
+    psid,
+    control,
+    debug: (name) => control({ command: 'debugCommand', name }),
+    observe: async () => (await b.api(`play/${psid}/observe`, {})).json as { stepIndex?: number; counters?: Record<string, number> },
+    sim: async () => ((((await b.api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<Record<string, unknown>> } } | undefined)?.runtime?.voxelWorlds ?? []).find((w) => w['world'] === o.world) ?? null) as Record<string, any> | null,
+    screenshot: (file) => iframe.screenshot(file === undefined ? {} : { path: file }),
+    stop: () => control({ command: 'stop' }).catch(() => undefined),
+  };
 }
 
 /** Runs a debug command in an exported game through its debug console (the export is made with `debug_console` on). */

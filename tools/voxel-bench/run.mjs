@@ -25,6 +25,7 @@
  *   node tools/voxel-bench/run.mjs headroom [options] # the GPU headroom meter at the 60 Hz cap: room, ms per pass, without timestamps (headroom-cli.ts; how-to there)
  *   node tools/voxel-bench/run.mjs coverage [options] # a world kept round a camera at racing speed: holes, ground under it, inside a far stand-in (coverage-cli.ts)
  *   node tools/voxel-bench/run.mjs export-memory --export | --dir DIR  # the exported game's memory without the editor: town orbit, flights (export-memory-cli.ts)
+ *   node tools/voxel-bench/run.mjs light-shots [options] # the five fixed lighting cameras' pictures on the 8 km town, refused unless settled and showing voxels (light-shots-cli.ts)
  *
  * Refuses to start outside a memory-capped cgroup (tools/perf/memory-cap.mjs):
  * the test worlds are generated chunk by chunk, but a dense window of a
@@ -48,7 +49,7 @@ if (why !== null) {
   console.error(`voxel-bench: not started: ${why}. Start it in a capped scope:\n  ${CAPPED_COMMAND.replace('tools/perf/run.mjs', 'tools/voxel-bench/run.mjs')}\nor pass ${NO_MEMORY_CAP_FLAG} on a host where nothing else runs.`);
   process.exit(2);
 }
-const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'cases', 'mips', 'seams', 'relief', 'slice-world', 'far-world', 'slice', 'kits', 'textures', 'headroom', 'coverage', 'export-memory'].includes(args[0]) ? args[0] : null;
+const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'cases', 'mips', 'seams', 'relief', 'slice-world', 'far-world', 'slice', 'kits', 'textures', 'headroom', 'coverage', 'export-memory', 'light-shots'].includes(args[0]) ? args[0] : null;
 const entry = mode === null ? 'cli' : `${mode}-cli`;
 const rest = (mode === null ? args : args.slice(1)).filter((a) => a !== NO_MEMORY_CAP_FLAG);
 const out = join(REPO, 'dist', 'voxel-bench', `${entry}.mjs`);

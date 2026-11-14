@@ -60,7 +60,6 @@
     {"file":"tests/perf/block-layers.test.ts","name":"run","retired":true},
     {"file":"tests/perf/terrain.test.ts","name":"crc32 fingerprint","retired":true},
     {"file":"tools/check-deps.mjs","name":"isObj"},
-    {"file":"tools/voxel-bench/coverage-cli.ts","name":"command"},
     {"file":"tools/voxel-bench/export-memory-cli.ts","name":"command"},
     {"file":"tools/voxel-bench/headroom-cli.ts","name":"command"}
   ]

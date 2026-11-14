@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chunkGrid, createDenseChunk, decodeDenseChunk, regionChunkCodecBytes } from '@thirdlight/voxel';
 import { FarCacheReader, openShippedWorld, VOXEL_WORLDS_FOLDER, zstdDecompress } from '@thirdlight/workspace';
+import { commandEnvelope } from '../../tests/support/commands';
 import type { CoveragePath } from './coverage';
 
 /** The ground (metres) at (x, z) of a project's world: the top solid cell of its far cache's level-2 nodes (2 m cells). */
@@ -253,6 +254,28 @@ export interface BenchApi {
   api(path: string, body?: unknown, method?: string): Promise<{ status: number; json: Record<string, unknown> }>;
   command(op: string, args: unknown): Promise<void>;
   revision(): Promise<number>;
+}
+
+/** The backend's project API for a bench (`clientId` names it in the command log). */
+export function benchApi(o: { origin: string; token: string; project: string; clientId: string }): BenchApi {
+  const headers = { authorization: `Bearer ${o.token}`, 'content-type': 'application/json', origin: o.origin };
+  const api = async (path: string, body: unknown = {}, method = 'POST'): Promise<{ status: number; json: Record<string, unknown> }> => {
+    const r = await fetch(`${o.origin}/api/v1/${path.startsWith('admin/') ? path : `projects/${o.project}/${path}`}`, { method, headers, ...(method === 'GET' ? {} : { body: JSON.stringify(body) }) });
+    return { status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+  };
+  const revision = async (): Promise<number> => Number((await api('commands', { op: 'queryProject', projectId: o.project, args: {} })).json['revision']);
+  const send = async (op: string, args: unknown): Promise<void> => {
+    const r = await api('commands', commandEnvelope(op, o.project, await revision(), args as Record<string, unknown>, o.clientId));
+    const error = r.json['error'] as { code?: string } | undefined;
+    if (r.json['ok'] !== true && error?.code !== 'no_change') throw new Error(`${op}: ${JSON.stringify(r.json).slice(0, 400)}`);
+  };
+  return { origin: o.origin, token: o.token, project: o.project, api, command: send, revision };
+}
+
+/** The behaviour the project's "Perf far camera" has now (null: none, or no such object). */
+export function cameraBehaviour(projectDir: string): string | null {
+  const entities = JSON.parse(readFileSync(join(projectDir, 'scenes', 'scene-main.json'), 'utf8')).scene.entities as Array<{ name: string; components: Record<string, { behaviorId?: string }> }>;
+  return entities.find((e) => e.name === 'Perf far camera')?.components['behavior']?.behaviorId ?? null;
 }
 
 /** Publishes `source` as behaviour `behaviorId` and gives it to the project's "Perf far camera" object. */
