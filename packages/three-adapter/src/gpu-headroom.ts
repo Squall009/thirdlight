@@ -35,7 +35,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
-import { gpuPassHides } from './gpu-pass-hides';
+import { gpuPassHides, type GpuPassHide } from './gpu-pass-hides';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -168,6 +168,8 @@ export class GpuLoad {
   private readonly completions = { asked: 0, done: 0, failed: 0 };
   /** The registry entries of the two passes this load hides (taken out on dispose). */
   private readonly unregister: (() => void)[] = [];
+  /** A pass of known size for checking the measurement: ballast copies drawn under a category while it is shown. */
+  private known: { units: number; hidden: boolean; off: () => void } | null = null;
   /** Lights this load stopped casting (given back when shadows are shown again). */
   private readonly hidden = new Set<THREE.Light>();
   /** Roots and lights put in {@link HEADROOM_LAYER}, taken out when the copies stop. */
@@ -212,6 +214,25 @@ export class GpuLoad {
     this.copies = Math.max(0, Math.floor(s.copies ?? 0));
     if (s.copyOf !== undefined) this.copyOf = s.copyOf;
     this.frames = 0;
+  }
+
+  /**
+   * A pass of a known size (`units` ballast copies a frame) registered under
+   * `category`, drawn while that category is shown: what a measurement reads
+   * for it can be checked against the ballast's own ms (null: none).
+   */
+  setKnownPass(pass: { readonly category: GpuPassHide['category']; readonly units: number } | null): void {
+    this.known?.off();
+    this.known = null;
+    if (pass === null) return;
+    const k: { units: number; hidden: boolean; off: () => void } = { units: Math.max(0, Math.min(BALLAST_MAX, Math.floor(pass.units))), hidden: false, off: () => undefined };
+    k.off = gpuPassHides.register({ category: pass.category, name: `known pass (${k.units} ballast copies)`, present: () => true, hide: (h) => void (k.hidden = h) });
+    this.known = k;
+  }
+
+  /** Ballast copies drawn this frame: the load's own and a known pass's while it is shown. */
+  private ballastNow(): number {
+    return Math.min(BALLAST_MAX, this.ballast + (this.known !== null && !this.known.hidden ? this.known.units : 0));
   }
 
   /** Only the ballast changed (copies kept). */
@@ -271,7 +292,7 @@ export class GpuLoad {
 
   /** Whether {@link afterDraw} has anything to do (a load on, or lights or layers still to give back). */
   get active(): boolean {
-    return this.ballast > 0 || this.copies > 0 || this.hideShadows || this.bypassPost || this.hidden.size > 0 || this.tagged.length > 0;
+    return this.ballastNow() > 0 || this.copies > 0 || this.hideShadows || this.bypassPost || this.hidden.size > 0 || this.tagged.length > 0;
   }
 
   state(): GpuLoadState {
@@ -311,7 +332,7 @@ export class GpuLoad {
     renderer.setMRT?.(null);
     renderer.autoClear = true;
     try {
-      if (this.ballast > 0) this.drawBallast(renderer);
+      if (this.ballastNow() > 0) this.drawBallast(renderer);
       const roots = this.copies > 0 ? this.copyOf() : [];
       if (roots.length > 0) this.drawCopies(renderer, scene, camera, width, height, roots);
       else if (this.tagged.length > 0) this.untag();
@@ -345,7 +366,7 @@ export class GpuLoad {
       this.ballastScene.add(mesh);
       this.ballastTarget = target(BALLAST_SIZE[0], BALLAST_SIZE[1], false);
     }
-    this.ballastGeometry!.instanceCount = this.ballast;
+    this.ballastGeometry!.instanceCount = this.ballastNow();
     renderer.setRenderTarget(this.ballastTarget);
     renderer.render(this.ballastScene, this.ballastCamera);
   }
@@ -394,6 +415,7 @@ export class GpuLoad {
 
   dispose(): void {
     for (const off of this.unregister.splice(0)) off();
+    this.setKnownPass(null);
     this.set({});
     this.hideShadows = this.bypassPost = false;
     for (const l of this.hidden) l.castShadow = true;

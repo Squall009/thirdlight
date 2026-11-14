@@ -23,7 +23,7 @@ interface MeterDraws<R> {
 
 /** What of the scene adapter the meter drives (its GPU load and the player's render settings). */
 interface MeterAdapter<R> {
-  gpuLoad?(): { set(s: { ballast: number; copies: number; copyOf: () => readonly R[] }): void; state(): object; record(seconds: number, clock?: 'presented' | 'gpu'): Promise<number[]> };
+  gpuLoad?(): { set(s: { ballast: number; copies: number; copyOf: () => readonly R[] }): void; state(): object; record(seconds: number, clock?: 'presented' | 'gpu'): Promise<number[]>; setKnownPass?(pass: { category: VoxelMeterKnownPass['category']; units: number } | null): void };
   setRenderSettings?(settings: { renderScale?: number; dynamicResolution?: boolean }, layer?: 'project' | 'player'): void;
 }
 
@@ -40,6 +40,13 @@ export interface VoxelMeterSettings {
   /** The render scale (0.5–1) the player's layer pins, with dynamic resolution as given (default off). */
   readonly renderScale?: number;
   readonly dynamicResolution?: boolean;
+  /** A pass of known size for checking the GPU measurement: ballast copies drawn under a category while it is shown (absent: none). */
+  readonly knownPass?: VoxelMeterKnownPass;
+}
+
+export interface VoxelMeterKnownPass {
+  readonly category: 'near' | 'far' | 'shadows' | 'lighting' | 'post' | 'effects';
+  readonly units: number;
 }
 
 export interface VoxelMeter {
@@ -65,6 +72,7 @@ export function voxelMeter<R>(draws: MeterDraws<R>, adapter: () => MeterAdapter<
         copies: s.copy === undefined ? 0 : (s.copies ?? 0),
         copyOf: s.copy === 'far' ? () => draws.roots().far : () => draws.roots().near,
       });
+      load.setKnownPass?.(s.knownPass ?? null);
       if (s.renderScale !== undefined || s.dynamicResolution !== undefined) a.setRenderSettings?.({ ...(s.renderScale !== undefined ? { renderScale: s.renderScale } : {}), dynamicResolution: s.dynamicResolution === true }, 'player');
       return true;
     },

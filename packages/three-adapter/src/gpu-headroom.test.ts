@@ -158,6 +158,28 @@ describe('GpuLoad: the headroom meter’s load on a frame', () => {
     expect(load.active).toBe(false);
   });
 
+  it('draws a known pass’s ballast under its category only while that category is shown', () => {
+    const { scene, camera } = testScene();
+    const r = recordingRenderer();
+    const load = new GpuLoad();
+    load.setKnownPass({ category: 'lighting', units: 40 });
+    expect(gpuPassHides.present().lighting).toEqual(['known pass (40 ballast copies)']);
+    expect(load.active).toBe(true);
+    load.afterDraw(r, scene, camera, 1280, 720);
+    const mesh = (r.calls[0]!.scene as THREE.Scene).children[0] as THREE.Mesh;
+    expect((mesh.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(40);
+    load.setBallast(10);
+    load.afterDraw(r, scene, camera, 1280, 720);
+    expect((mesh.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(50);
+    gpuPassHides.set(['lighting']);
+    load.afterDraw(r, scene, camera, 1280, 720);
+    expect((mesh.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(10);
+    gpuPassHides.set([]);
+    load.setKnownPass(null);
+    expect(gpuPassHides.present().lighting).toBeUndefined();
+    load.dispose();
+  });
+
   it('times frames by the GPU’s completions on WebGPU, in frame order', async () => {
     const load = new GpuLoad();
     let finish: (() => void)[] = [];
