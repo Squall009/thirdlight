@@ -729,6 +729,66 @@ whole suite green (905 files, 489 s); e2e red at load (tests/support was not an 
 (green; village at 60 Hz 0/360 missed, main 6.33 ms). That rerun's 30.5 min is not comparable (leak test on, memory
 at the 12 GB cap). The slice 4 gate `gate-fast-20261114-075728` (every unit test, 906 files, 493 s, and all 180 e2e files: 322 tests, 22.6 min) was red on `layered-material.e2e.ts:257`'s export (D319 again) and `project-items.e2e.ts:183` (the Inspector showed the prefab's Ground instead of the new box: D651 watch); both passed in `gate-rerun-20261114-083112` (green). **Times:** e2e 22.6 min before (`gate-fast-20261114-060422`, 46f.3b's every-area gate) and after; by area before → after: core 27 → 27 s, voxel 178 → 171, rendering 398 → 396, materials 302 → 288, lighting 177 → 171, environment 128 → 129, effects 60 → 60, levels 369 → 368, editor-ui 294 → 298, scenes 127 → 127, content 199 → 199, play 166 → 166, mcp 112 → 114, physics 131 → 131, audio 51 → 48, input 66 → 65, scripting 131 → 133, animation 55 → 54 s: no slower.
 
+### 46f.6 — before and after (low tier, 30 Hz cap)
+
+**Measured** 2026-11-14 08:37–09:20 UTC at 544e65ba (dist from `npm run build` at that commit, capped, before any
+run), Iris Xe, WebGPU, each run alone (`thirdlight-gate` inactive, no build or other agent), every run in the
+brief's `MemoryMax=10G` scope with `TMPDIR` on disk; uptime 21.7 d, load (1 min) 0.9–3.3, most runs 1.3–2.9 (46f.0:
+0.5–3.2). Commands as §4, the walk as 46f.3b's (`--slab --walk 1.4`); the village A/B below. Raw:
+`~/.cache/thirdlight-phase46f/work/46f.6/` (logs, JSON, `reports/`, `*.uptime` beside each; `measure.sh`, `ab.sh`,
+and `counters.mjs`, which reads `__tlProfiler.read()` counters and page spans from an export served statically).
+
+| Measure | 46f.0 baseline | End of phase | Note |
+|---|---|---|---|
+| Headroom, low, 8 km town orbit (2 rounds): room | 176 × 0.127–0.131 = 22.4–23.1 ms; no load 0/89 | 176 × 0.125 / 0.124 = 22.0 / 21.8 ms; no load 1/90, 0/89 | same ballast held; a copy reads ~3 % cheaper, so ~0.5 ms less room in ms |
+| Headroom, low: hidden near / far / shadows / post (ms); shares of the four | 3.44–5.02 / 5.06–5.89 / −0.69–2.67 / 1.69–2.48; near 31–33 %, far 39–46 %, shadows 0–17 %, post 11–23 % | 4.93, 0.67 / 4.63, 3.11 / 0.89, 0.20 / −1.06, −0.25; near 47 / 17 %, far 44 / 78 %, shadows 9 / 5 %, post 0 % | near swung 0.7–4.9 ms between rounds (noise at the cap); post negative in both; frame GPU from the edge 9.3–11.5 ms, from the line 8.5 / 9.3 (they agree now) |
+| Headroom, medium 60 Hz (1 round, unverified on target hardware) | 64 × 0.129 = 8.3 ms; near 23 %, far 60 %, shadows 17 % | 64 × 0.128 = 8.2 ms; near 31 %, far 66 %, shadows 3 % (post −1.84 ms) | |
+| Headroom, high 60 Hz (1 round, unverified on target hardware) | misses at no load 15/169, mean 17.7; near 50 %, far 45 %, shadows 5 % | misses 17/169, mean 17.6; frame GPU from the line 17.1 ms; near 43 %, far 53 %, shadows 4 % | |
+| Coverage 60 m/s, export (2 rounds) | longest 49.2 / 53.5 ms, 0 > 100, missed 1.1 / 1.8 a min; ground 0.03 s; detail 4.6 / 4.0 s; pending 8.0 / 7.0 s; 1 fall onto lower ground; 0 holes | longest **64.6** / 54.1 ms, 0 > 100, missed 1.1 / 1.8; ground 0.03 s, stands 0.25 s; detail 4.1 / 4.7 s; pending 7.3 / 8.2 s; falls 1/83 onto lower ground (0 through), 0 holes of 4,923 | 64.6 ms is worse than any baseline round; the bench's spike rule kept no long frame, so its cause is not recorded |
+| Coverage 150 m/s (2 rounds) | longest 42.5 / 44.1 ms, 0 > 100, missed 1.8 / 0.9 a min; detail 4.7 / 4.5 s; pending 8.4 / 7.9 s; falls 0/34; 0 holes | longest 47.2 / 44.1 ms, 0 > 100, missed **3.7 / 3.7** a min; ground 0.03 s; detail 3.9 / 4.8 s; pending 7.8 / 8.4 s; falls 0/34; 0 holes of 1,970 | longest inside 46f.1b's base spread (42.0–53.9); missed a minute about twice the baseline's in both rounds (4 frames a flight against 1–2) |
+| Page-thread CPU a frame, 8 km town (profile own time, no load, 2 rounds) | unverified (no stat) | 4.09 / 4.30 ms | 46f.1a: 4.46 / 4.01 |
+| Simulation-worker CPU a frame, 8 km town | unverified (no timing) | 2.07 / 2.02 ms; job workers 0.09 / 0.08 ms | 46f.1a: 2.07 / 1.82 |
+| Village class, page / simulation a frame (profile) | traced 4.54 task / 4.83 CPU (no profile) | page 4.14 / 3.91 / 3.84, sim 0.37 / 0.36 / 0.35 ms | 3 rounds (the third kept its export for the counters) |
+| Meadow (terrain cover), grass (2 rounds) | p95 33.4, ≥ 50 ms 0 %, 10 draws (scene 6), 977 k tris, main 1.51 ms (CPU 1.76) | p95 33.4, 0 %, 10 draws (scene 6), 977 k, main 1.81 / 1.71 (CPU 2.06 / 1.95), page profile 1.05 / 0.91; GPU at full clock 5.95 / 5.94 ms | +0.2–0.3 ms against 46f.0, but 46f.2's and 46f.3b's before runs read 1.76–1.83 already: not settled; ground alone 1.44 / 1.48 (46f.0 1.42) |
+| Meadow `--slab --walk 1.4` (2 rounds) | not in 46f.0; 46f.3b before 1.72 / 1.74 (1.94 / 1.97), GPU 5.98 / 6.04 ms at full clock | p95 33.4, 0 %, 8 draws (1 + 3 indirect), main 1.89 / 1.91 (CPU 2.17 / 2.16), page profile 1.15 / 1.05; GPU at full clock 3.74 / 3.57 ms | as 46f.3b after (1.86 / 1.89; 3.56 / 3.63) |
+| Village class, low 30 Hz 720p | p95 33.4, 0 missed; 242 draws (scene 218, shadow 21); 292 k tris; 900 copies; main 4.54 (CPU 4.83) | p95 33.4, ≥ 50 ms 0 %; 242 draws (scene 168, shadow 21, 50 indirect); 184 k tris + the indirect draws' (profile `copyRows`: 50 sets, 150 rows, 3,000 copies, 578 in view and drawn, 18.5 k tris); main **5.02 / 4.77 / 4.70** (CPU 5.30 / 5.07 / 4.98) | +0.2–0.5 ms on the page; see the A/B |
+
+**The profiler's budget use** (mean own ms a frame of the low tier's budget, top 5 a thread; no category over its
+budget in any run). 8 km town, rounds 1 / 2: page render 3.59 / 3.67 of 8.33 (43 / 44 %), props 0.40 / 0.41 of 2.67
+(15 %), voxel apply 0.04 / 0.15 of 8.33 (worst 3.3 / 8.9 ms), lighting 0.04 of 2 (2 %), ui 0.03 of 1.33 (2 %);
+simulation: voxel streaming 1.93 / 1.88 of 6.67 (29 / 28 %, worst 7.0 / 9.3 ms), other 0.08 of 2.67 (3 %), scripts
+0.06 of 8.33 (1 %), audio and physics ≤ 0.003; job workers: voxel mesh 0.02 of 26.7. Village (3 rounds): page
+render 2.90–3.18 of 8.33 (35–38 %), characters 0.30–0.36 of 1.33 (22–27 %), effects 0.20–0.23 of 1.33 (15–17 %),
+lighting 0.23–0.25 of 2 (11–12 %), props 0.14–0.15 of 2.67 (5–6 %); simulation: other 0.20–0.21 of 2.67 (8 %),
+scripts 0.07–0.10, physics 0.05–0.07, characters 0.01–0.02, voxel streaming 0.003. Meadow and the walking slab:
+page 0.9–1.15 ms (render 0.67–0.90), simulation 0.06–0.14 ms.
+
+**Village main-thread drift, same-hour A/B** (09:15–09:20 UTC, load 1.3–3.3; the gate's command `node
+tools/perf/run.mjs village --gate --renderers webgpu --check tests/perf/village-baseline.json`, 60 Hz, 1920 × 1080,
+interleaved; base 45ec7ca3 in a scratch worktree with a copy of the branch's node_modules — no dependency changed
+since, its workspace links resolve inside the copy, its dist holds no profiler —, built with `node tools/build.mjs`,
+removed after):
+
+| Round | base 45ec7ca3: CPU / task ms, draws | HEAD 544e65ba: CPU / task ms, draws |
+|---|---|---|
+| 1 | 5.93 / 5.69, 208 | 6.38 / 6.16, 243 |
+| 2 | 5.82 / 5.57, 208 | 6.15 / 5.90, 245 |
+| 3 | 5.87 / 5.62, 208 | 6.28 / 6.08, 245 |
+| mean | 5.87 / 5.63 | 6.27 / 6.05 |
+| 4 (HEAD alone, export kept) | | 6.19 / 5.97 |
+
+Every round 0 of 360 missed. **Verdict: a rise of about 0.4 ms a frame on the page thread** (CPU +0.40, task +0.42
+ms), outside the spread (base 5.82–5.93, HEAD 6.15–6.38): D652. The gate's 5.83–6.34 ms across the phase is this
+rise plus host noise; the limit (9.02) is far. At HEAD on that scene (round 4's export served statically, 1920 ×
+1080, spans' own ms a page frame over 120 frames, 5.32 ms a frame): draw submit 3.43, animation poses 0.34, levels of
+detail and culling 0.27, effects 0.17, batches 0.16, surface light 0.11, lights/shadows/environment 0.11, render
+frame 0.07, scene sync 0.04; stored copies and cover 0.006, interaction field 0.009, the profiler itself ~0.015
+(46f.1a). Base has no profiler, so no span diff; the likely source is **draw submit**: HEAD submits 243–245 draws
+against base's 208 (scene 154–156 + 50 indirect against 169, i.e. if the other scene draws are equal, the copies drew in
+about 15 instanced draws at base and in 50 indirect draws, one per set's row, now, each with its own bindings: the per-draw cost 46f.3a named
+on the landscape). The copies' per-frame listing (0.006 ms), the profiler and the interaction field are too small to
+carry it. Not fixed here.
+
 ## 9. Decision log
 
 - 2026-11-13 (plan): the phase is planned from the owner-approved consolidation of 2026-11-12; item order is
