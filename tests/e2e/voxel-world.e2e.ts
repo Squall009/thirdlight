@@ -1057,6 +1057,8 @@ async function profilerPanel(page: Page, pr: ProfileE2e, readProfile: () => Prom
   expect(Number(await memory.locator('tr[data-id="voxelStream"]').getAttribute('data-resident')), 'voxel streaming resident').toBeGreaterThan(0);
   expect(await memory.locator('tr[data-id="farGpu"]').getAttribute('data-resident'), 'far field GPU bytes counted').not.toBe('');
   expect(Number(await memory.locator('tr[data-total="page"]').getAttribute('data-resident'))).toBeGreaterThan(0);
+  await memory.scrollIntoViewIfNeeded();
+  await memory.screenshot({ path: test.info().outputPath('profiler-memory-1920.png') });
   await page.screenshot({ path: test.info().outputPath('profiler-counters-1920.png') });
   await page.setViewportSize({ width: 1280, height: 720 });
   await panel.getByRole('button', { name: 'Back to live' }).click();

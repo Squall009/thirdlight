@@ -123,7 +123,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 no bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
 | 46f.3 | Done 2026-11-14: stored copies (a) and point-set ground cover (b) are culled-table rows on WebGPU (level + hysteresis + fade, thinning, frustum, pyramid in compute); one level helper. b, walking slab A/B: GPU frame 6.0→3.6 ms at full clock, page +0.15 ms; meadow (terrain texel cover) unchanged. WebGL 2 keeps vertex paths; texel cover retires in 48. |
 | 46f.4 | Done 2026-11-14: one undo line per project in the backend (workspace `undo-timeline.ts`): `undo`/`redo` step scene entries and voxel strokes in order, redo across kinds cleared by any new edit; voxel redo (exact bytes); gone strokes skipped and named; optional world `expectedRevision`; `undoVoxels` removed (bench Z = one undo). |
-| 46f.5 | not started |
+| 46f.5 | a done 2026-11-14 (slices 1–2): one buffer grow (shared `grownCapacity`/`grownArray`, `grownGpuBuffer`), one region-texture helper (4 upload copies, 2 grows, 4 version rules); `MEMORY_BUDGET_BY_TIER` (10 entries) + resident-bytes report (Profiler Memory table). Slice 3 (job kinds) left: not cheap (decision log). D649 open (hidden). b pending. |
 | 46f.6 | not started |
 
 ## 8. Results
@@ -558,6 +558,76 @@ Times before (`gate-fast-20261114-000248`, 46f.3a's, whose Play test failed and 
 **Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.4/shots/`): `scene-view-before-dig.png`,
 `scene-view-dug.png` (the pit and the hole through the wall), `scene-view-undone.png` (the same as before the dig;
 the PNG files are byte-equal), `scene-view-redone.png` (byte-equal to the dug one).
+
+### 46f.5a — cheap merges, the runtime and renderer half
+
+**Slice 1, built.** `@thirdlight/shared` `grow.ts`: `grownCapacity` (double from what is held, or a floor, until the
+need fits) and `grownArray` (a typed array grown by copy). Replaced: `copy-rows.ts` `grown`, the instance pools'
+copies in `occlusion-instances.ts` `makePools`, `cover-points-gpu.ts` (the point atlas's doubling and its block
+tables), `cluster-build.ts` `grow` (four typed copies) and `growEntries`, `cluster-pack.ts` (two grows, `grownRows`),
+`tracer-words.ts` `grow`, `adapter-lighting-views.ts`'s line buffers; `tracer-gpu.ts` `grownGpuBuffer` replaces the
+identical `grow` of `surface-light-pass.ts` and `surface-probe-pass.ts`. three-adapter `region-texture.ts`:
+`uploadTextureRegion` (WebGPU `queue.writeTexture` into three's `GPUTexture`; WebGL 2 a copy from a staging texture
+three never uploaded), `copyTextureInto` (grow or trim by copy on the GPU) and `freshTexture`; replaced: the upload
+pairs of `voxel-surface.ts` `VoxelShaderGrids` (and the far bricks through it), `probe-atlas.ts`, `cookie-atlas.ts`,
+`cluster-gpu.ts`; the grows of `VoxelShaderGrids` (`grow`, `trim`) and `probe-atlas.ts` `growTexture`; the version
+rules of those four and `projected-decals.ts`. The three checklist names the one module. Left (decision log):
+`tracer-gpu.ts`'s atlas and the surface light's own textures (not three's), the tracer's exact-size ray buffers,
+terrain's uploads (retiring). Lines (source, tests apart): +241 / −253 (c54f2d0f).
+
+**Slice 2, built.** `MEMORY_BUDGET_BY_TIER` (project-model `quality-levels.ts`, beside the frame budget): ten entries
+at today's values, page and GPU sums against the tier's target (low: page 1,360 of 1,536 MiB, GPU 1,824 of 2,560;
+medium and high: no target of their own). `@thirdlight/shared` `resident-bytes.ts` (a registry per thread); the
+voxel streamer's count (`StreamHeld`, the same sum as its stats) registered by the runtime's world host, physics
+by the simulation worker, which posts its reading with each tick's frame; game-host `page-memory.ts`
+`memoryReport` → `ProfileReport.counters.memory` (optional: capture stays `version: 1`), `PageProfile.memory()`,
+the digest's `memoryMiB`; the editor's Counters view shows a Memory table. Lines (source and styles, tests and docs
+apart): +392 / −36 (9508ed99, 5698efff): a new report, not a merge of code; the merge is the constants.
+
+**Slice 3, left** (decision log): the voxel pool lives where the simulation runs, the three hosts on the page's
+mesh-worker script with retiring code; making them kinds needs a page-side pool or routing through the simulation
+worker — a design change, proposed for phase 48.
+
+**Also.** `instances.e2e.ts`'s walled export waits for and requires `drawn > 0` (748c5760): it then fails at HEAD and
+at da591dc7 alike (20 of 21 drawn behind the wall): D649, open, a hidden regression to fix before the phase gate.
+
+**Tested.** vitest: `shared/src/grow.test.ts` (policy, copies of a growing run, every kind kept), `region-texture.test.ts`
+(a CPU texture twin of both backends' writes: exactly the box's texels in 2D and 3D, the staging kind on WebGL 2, a
+grow's kept box, the version rule; the voxel grid store keeps 200 regions' bytes through its grows and a trim on both
+backends; the clusters send only the rows written), the existing upload tests unchanged and green (`voxel-surface`,
+`voxel-far-view`, `voxel-chunk-view`, `probe-scale`, cluster, cookie, copy and cover rows); `quality-levels.test.ts`
+(every entry equals its system's constant at every tier, in MiB and by import; the sums and targets),
+`resident-bytes.test.ts`, `page-memory.test.ts` (rows, the project's own budgets, nulls, sums, JSON),
+`tools/voxel-bench/world-host.test.ts` (a real streamed world with real pool workers: the streaming row non-null
+and under budget, gone with the scene). Playwright, WebGPU, real backend: `voxel-world.e2e.ts` Play (the live profile's
+streaming row non-zero; the Profiler tab's Memory table from the capture: every row, the streamer's bytes, the far
+field counted, the page sum). Gate `gate-fast-20261114-034934` (every area, 34 min, e2e 322 tests 23.0 min): red only
+on `instances.e2e.ts:378` (D649) and `rendering.e2e.ts` render scale (D320 watch, passed in
+`gate-rerun-20261114-042844`); vitest whole suite green (904 files); e2e times by area as 46f.4's (voxel 169 s).
+
+**Measured** 2026-11-14, each run alone (`thirdlight-gate` inactive), low tier, WebGPU, 1280 × 720 at the 30 Hz cap,
+uptime 21.4 d, load (1 min) 0.8–3.1; before at da591dc7's build (03:09–03:26 UTC), after at 5698efff (03:31–03:47).
+Raw: `~/.cache/thirdlight-phase46f/work/46f.5a/` (`before*`, `after*`, `*.uptime`). (The first before coverage run
+failed: the bench's driver is bundled from the working tree, which then held a project-model import order that broke
+it; fixed before the commit, `before2-*` are the rerun against the same base export build.)
+
+| Run (2 rounds) | Before | After |
+|---|---|---|
+| Headroom, 8 km town orbit: ballast held × a copy | 176 × 0.131 / 176 × 0.126 ms | 192 × 0.131 / 176 × 0.128 ms |
+| Headroom: no load missed | 0/89, 0/89 | 0/89, 0/89 |
+| Coverage 150 m/s, export: longest, > 100 ms, missed/min | 42.9 / 44.1 ms, 0, 1.8 / 1.8 | 46.8 / 40.8 ms, 0, 1.8 / 0 |
+| Coverage: full detail, nothing pending, falls, holes | 5.1 / 4.6 s, 8.6 / 8.0 s, 0/34, 1/1970 a run | 4.5 / 5.1 s, 8.2 / 8.6 s, 0/34, 0 |
+| Meadow `--slab --walk 1.4`: p95, main ms (CPU), GPU at full clock | 33.4; 1.85 / 1.86 (2.11 / 2.13); 3.71 / 3.79 ms | 33.4; 1.90 / 1.83 (2.17 / 2.11); 3.59 / 3.64 ms |
+
+No regression shown: every after round lies inside the before rounds' spread or the 46f.1b base spread (42.0–53.9 ms
+longest at 150 m/s); no A/B was needed.
+
+**Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.5a/shots/`): `profiler-memory-1920.png` (the Memory table
+over a Play of the 8 km world at the high tier: voxel streaming 73.2 of 1,024 MiB, physics 17.3 of 512, far field 4.3
+of 384 MiB on the GPU, textures 0.3 of 512, scene cells 0.0; the far nodes drawn, a scene's objects, surface cache,
+probes and undo "not counted here"; page total 90.5 of 1,616 MiB, "no target of its own at this tier"; long labels cut
+with an ellipsis), `profiler-counters-1920.png`. Unverified by eye: the GPU total row (below the panel's fold in that
+picture), WebGL 2's staging uploads (only `webgl2-smoke.e2e.ts`, in the gate), `walled-base.png` (the D649 view: the far copies behind the wall, hidden in the picture, still drawn).
 
 ## 9. Decision log
 
